@@ -37,6 +37,22 @@ function targetOf(args: unknown[]): Target {
   return { host: typeof args[1] === 'string' ? args[1] : null };
 }
 
+const CHECKED = Symbol('spur-board.testkit.lookup-checked');
+
+// A local name can still resolve to a remote address (custom `lookup`, hosts file).
+// Node emits 'lookup' after resolving each address and before connecting, and stops
+// when the socket is no longer connecting, so destroying it here blocks the connection.
+function checkResolved(socket: net.Socket, host: string): void {
+  const marked = socket as net.Socket & { [CHECKED]?: true };
+  if (marked[CHECKED]) return;
+  marked[CHECKED] = true;
+  socket.on('lookup', (error: Error | null, address: string) => {
+    if (error === null && !(net.isIP(address) !== 0 && isLocalHost(address))) {
+      socket.destroy(new NetworkBlockedError(`${host} (${address})`));
+    }
+  });
+}
+
 /**
  * Blocks every socket connection to a non-localhost host in this process. fetch,
  * http, https, tls, http2 and net all connect through Socket#connect.
@@ -48,12 +64,15 @@ export function installNetworkGuard(): void {
 
   const guarded: Connect = function (this: net.Socket, ...args: unknown[]) {
     const { host, path } = targetOf(args);
-    // http and tls pass `path: null`, so only a non-null path means IPC.
-    if (path == null && !isLocalHost(host ?? '')) {
-      const error = new NetworkBlockedError(host ?? '');
+    // Node treats `path: ''` and `path: null` (http, tls) as TCP; only a nonempty path is IPC.
+    if (typeof path === 'string' && path !== '') return original.apply(this, args);
+    const name = host ?? '';
+    if (!isLocalHost(name)) {
+      const error = new NetworkBlockedError(name);
       process.nextTick(() => this.destroy(error));
       return this;
     }
+    if (net.isIP(name.replace(/^\[|\]$/g, '')) === 0) checkResolved(this, name);
     return original.apply(this, args);
   };
   Object.defineProperty(guarded, GUARDED, { value: true });

@@ -39,6 +39,36 @@ describe('network guard', () => {
     });
   });
 
+  it('blocks net.connect with an empty path to a remote host', async () => {
+    expect(await errorOf(net.connect({ host: 'example.com', port: 80, path: '' }))).toMatchObject({
+      code: 'ERR_TEST_NETWORK_BLOCKED',
+    });
+  });
+
+  // 192.0.2.1 is TEST-NET-1: never routed.
+  const remoteLookup: net.LookupFunction = (_hostname, options, callback) => {
+    if (options.all) callback(null, [{ address: '192.0.2.1', family: 4 }]);
+    else callback(null, '192.0.2.1', 4);
+  };
+
+  it.each([false, true])(
+    'blocks localhost that resolves to a remote address (autoSelectFamily %s)',
+    async (autoSelectFamily) => {
+      const socket = net.connect({
+        host: 'localhost',
+        port: 80,
+        lookup: remoteLookup,
+        autoSelectFamily,
+      });
+      expect(await errorOf(socket)).toMatchObject({ code: 'ERR_TEST_NETWORK_BLOCKED' });
+    },
+  );
+
+  it('blocks http.get to localhost that resolves to a remote address', async () => {
+    const request = http.get({ host: 'localhost', port: 80, lookup: remoteLookup });
+    expect(await errorOf(request)).toMatchObject({ code: 'ERR_TEST_NETWORK_BLOCKED' });
+  });
+
   it('allows fetch to 127.0.0.1 and localhost', async () => {
     const server = http.createServer((_request, response) => {
       response.end('ok');
