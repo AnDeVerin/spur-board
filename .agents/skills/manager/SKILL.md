@@ -9,8 +9,9 @@ Route one issue through the gates below. Roles do the work; the manager spawns t
 output blocks on, writes the spec file and reports. It never edits tracked files and runs only
 intake (`gh`, `git fetch`) and PR (`git push`, `gh pr`) commands.
 
-Role files: `.agents/agents/<role>.md`. Spawning, handoff and tracking details:
-`references/runtime.md`. Report and question templates: `references/templates.md`.
+Role files: `.agents/agents/<role>.md`. Branches, commits and the PR: `gitflow`. Spawning,
+handoff and tracking details: `references/runtime.md`. Report and question templates:
+`references/templates.md`.
 
 ## Rules
 
@@ -65,10 +66,10 @@ higher tier's team from the current gate. Never lower a tier.
 
 The numbers are the canonical gate order.
 
-1. Intake - `gh issue view <N> --comments`, plus the design notes its "Design notes" section cites
-   when the session gives access; public text never quotes private notes. `git fetch origin
-   main` once; pass the `origin/main` SHA to every role, roles never fetch. Write checkable
-   acceptance criteria.
+1. Intake - `gh issue view <N> --json title,body,comments` (without a TTY, `--comments` prints
+   only the comments), plus the design notes its "Design notes" section cites when the session
+   gives access; public text never quotes private notes. `git fetch origin main` once; pass the
+   `origin/main` SHA to every role, roles never fetch. Write checkable acceptance criteria.
 2. Tier - score as above. Tier 0 or 3: run Clarify (step 6) here only if intake left an unknown.
 3. Research (tier 2) - `researcher`, then `critic` on its output. Keep the selected option and
    `Split possible`; yes -> the architect splits the change map into scopes with disjoint files.
@@ -89,14 +90,14 @@ The numbers are the canonical gate order.
    stops again; at the designer cap it gets `BLOCKED_DESIGN` and implements.
 9. Simplify (tier 2+) - `developer` with `simplify pass` on `git diff <sha>...HEAD`.
 10. Review - a PR exists: push, and bring its `## Changed checks` section up to date with the
-    developer's output (`gh pr edit`). Then `reviewer` with the spec, the developer output and
+    developer's output per `gitflow`. Then `reviewer` with the spec, the developer output and
     `PR: <url> | none`.
 11. Design review (UI) - `designer` (code) with the changed files and any screenshots the run
     already has.
 12. Validate - `tester` when a modifier asks for it.
-13. PR - push and open it: conventional title; `Closes #<N>` and a `## Changed checks` section
-    with every developer `Changed checks` line in the body. One exists: push and update its body.
-    Skip only without commits or when the issue says no PR.
+13. PR - follow `gitflow`: push, then open the PR or update its body from the spec, the gate
+    outputs and the developer's `Changed checks`. Skip only without commits or when the issue
+    says no PR.
 14. Close-out - one evidence line per acceptance criterion, taken from a gate output (a reviewer
     Requirements row, a command with its observed result, a tester scenario). Work is committed;
     the PR exists or the reason it does not is named. A required gate whose verdict is older than

@@ -23,8 +23,7 @@ Implement in small chunks, check each one, commit when green. The spec is a hypo
   the output before editing. `stop at PLAN_READY` -> stop there with `Verdict: PLAN_READY`; when
   continued, revise on CHANGES_REQUESTED, implement on APPROVED or
   BLOCKED_DESIGN.
-- `simplify pass` -> cut duplication, dead code and needless layers in the branch diff only;
-  behaviour stays the same.
+- `simplify pass` -> follow `code-simplifier` on the branch diff only; behaviour stays the same.
 
 ## Loop
 1. Implement one logical chunk.
@@ -37,6 +36,7 @@ Implement in small chunks, check each one, commit when green. The spec is a hypo
 ## Reporting
 - Every changed test, snapshot, lint rule, TypeScript option or CI setting goes on its own line
   under `Changed checks`, with why. Deleted, skipped or weakened checks are never silent.
+  `gitflow`'s Changed-checks list names the cases.
 - A bug-fix test is seen failing before the fix; report that run.
 - Every command names its observed result. Never report a check you did not run.
 
