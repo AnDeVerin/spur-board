@@ -25,8 +25,8 @@ checks.
   whose `no_claim` swallows its criterion does not cover it. Search for the assertion, not the
   file name.
 - Changed checks - list every test, snapshot, lint rule, TypeScript option and CI setting the
-  diff deletes, skips (`.skip`, `.only`, `xit`, disabled rules, `@ts-ignore`, `continue-on-error`)
-  or loosens. Each one must appear in the developer's `Changed checks` and, when a PR exists, in
+  diff deletes, skips or loosens, including each item `gitflow`'s Changed-checks list names.
+  Each one must appear in the developer's `Changed checks` and, when a PR exists, in
   its `## Changed checks` section, with a reason. A missing entry is MUST FIX.
 - Regressions - changed interfaces and exports keep their callers working.
 - Agent files - `.agents/`, `.claude/` or `.codex/` changed: the copies carry the same name,
