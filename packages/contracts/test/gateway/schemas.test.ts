@@ -149,6 +149,11 @@ describe('deliveryResultSchema', () => {
     expect(deliveryResultSchema.safeParse(extra).success).toBe(false);
   });
 
+  it('rejects a retry delay that is not an integer', () => {
+    const fractional = { status: 'retry', afterMs: 1.5, uncertain: false };
+    expect(deliveryResultSchema.safeParse(fractional).success).toBe(false);
+  });
+
   it('rejects a failure that is not permanent', () => {
     expect(deliveryResultSchema.safeParse(results.failed.invalid).success).toBe(false);
   });

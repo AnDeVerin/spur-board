@@ -24,7 +24,7 @@ export interface Action {
   label: string;
 }
 
-export type Inline =
+export type RichTextInline =
   | { kind: 'text'; text: string }
   | { kind: 'emphasis'; text: string }
   | { kind: 'code'; text: string }
@@ -32,13 +32,13 @@ export type Inline =
   /** Core fills `user`, e.g. with the operator's id. */
   | { kind: 'mention'; user: UserId };
 
-export type Block =
-  | { kind: 'paragraph'; children: readonly Inline[] }
-  | { kind: 'quote'; children: readonly Inline[] }
+export type RichTextBlock =
+  | { kind: 'paragraph'; children: readonly RichTextInline[] }
+  | { kind: 'quote'; children: readonly RichTextInline[] }
   | { kind: 'code_block'; text: string };
 
 /** Neutral rich text; each gateway renders it to its platform's format. */
-export type RichText = readonly Block[];
+export type RichText = readonly RichTextBlock[];
 
 export const DELIVERY_TARGET_KINDS = ['open', 'reply', 'edit', 'close'] as const;
 export type DeliveryTargetKind = (typeof DELIVERY_TARGET_KINDS)[number];
