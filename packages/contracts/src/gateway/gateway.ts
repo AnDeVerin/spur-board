@@ -72,7 +72,10 @@ export interface RecoverRequest {
   since: Date;
 }
 
-/** Informational only: selects a conformance profile; core never branches on it (G12). */
+/**
+ * What the gateway's platform supports, as data for the conformance suite (G12). Core never
+ * branches on it; that rule is core's and is checked by core's tests, not by a gateway.
+ */
 export interface Capabilities {
   history: boolean;
   markerSearch: boolean;
@@ -113,8 +116,9 @@ export type RespondResult = 'sent' | 'dropped';
  * - G10: No gateway state: conversations, cursors and dedupe belong to core. `recover` works
  *   from its request alone; with no history it yields `gap`.
  * - G11: An inbound event is acknowledged to the platform only after `sink` resolves.
- * - G12: Core never branches on `capabilities`; they are informational and select a
- *   conformance profile.
+ * - G12: `capabilities` stay the same for the gateway's lifetime and match its behaviour (with
+ *   `history: false`, `recover` yields `gap`). They never make an operation optional or change
+ *   a result's shape: every operation follows G1-G11 whatever they say.
  * - G13: After every connect and reconnect, the first one after `start` included, emit
  *   `connection {state: 'up'}` through `sink`; emit `{state: 'down'}` on loss. Core runs
  *   `recover` on `up`.
