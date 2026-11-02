@@ -1,4 +1,49 @@
 // Pure planning for `pnpm check`. scripts/check.ts gathers the git facts and runs the steps.
+import { parseArgs } from 'node:util';
+
+/** Every check step, in the order they run. */
+const STEP_NAMES = ['format', 'lint', 'types', 'knip', 'test'] as const;
+
+/**
+ * The steps `--only` selects: null when `--only` is absent (run every step), the selected set,
+ * or an error message for an unknown or empty name or for `--only` without `--full`.
+ */
+export function parseOnly(
+  value: string | undefined,
+  full: boolean,
+): ReadonlySet<string> | null | string {
+  if (value === undefined) return null;
+  if (!full) return '--only needs --full';
+  const selected = new Set<string>();
+  for (const name of value.split(',')) {
+    const step = STEP_NAMES.find((known) => known === name);
+    if (step === undefined) {
+      return `--only: unknown step "${name}" (steps: ${STEP_NAMES.join(', ')})`;
+    }
+    selected.add(step);
+  }
+  return selected;
+}
+
+type CheckArgs = { full: boolean; only: ReadonlySet<string> | null } | { error: string };
+
+/** Parses the `scripts/check.ts` arguments: `--full` and `--only <steps>`. */
+export function parseCheckArgs(argv: string[]): CheckArgs {
+  let values;
+  try {
+    ({ values } = parseArgs({
+      args: argv,
+      options: { full: { type: 'boolean' }, only: { type: 'string' } },
+      strict: true,
+      allowPositionals: false,
+    }));
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : String(error) };
+  }
+  const full = values.full ?? false;
+  const only = parseOnly(values.only, full);
+  return typeof only === 'string' ? { error: only } : { full, only };
+}
 
 export type Base = { kind: 'base'; ref: string; sha: string } | { kind: 'full'; reason: string };
 
@@ -59,6 +104,7 @@ const GLOBAL_FILES = new Set([
   '.prettierrc.json',
   '.prettierignore',
   '.gitignore',
+  'knip.json',
 ]);
 const GLOBAL_DIRS = ['eslint/', 'scripts/', 'packages/testkit/'];
 const LINT_EXTENSIONS = /\.(ts|mts|cts|js|mjs|cjs)$/;
