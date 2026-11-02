@@ -9,3 +9,5 @@
   them and `.claude/skills` links to `.agents/skills`; change the source and its copies in the
   same commit.
 - The manager keeps its spec in `.scratch/spec-<issue-number>.md`. `.scratch/` is not committed.
+- Branches, commits and PRs follow `gitflow`; agent files follow `skill-writer`.
+- A review on your PR requests changes -> run `pr-comments-fix` (Codex: `$pr-comments-fix`).
