@@ -59,6 +59,10 @@ describe('project id lint rule', () => {
     "export function f(): number { switch (task.project) { case 'web': return 1; default: return 0; } }",
     "export const r = ['web'].includes(task.project);",
     "export const r = ['web', 'board'].indexOf(task.project);",
+    "export const r = task.project.includes('web');",
+    "export const r = projectId.indexOf('web');",
+    "export const r = task?.project.startsWith('web');",
+    'export const r = task.projectId.endsWith(`-web`);',
   ])(
     '%s reports local/no-project-literal-compare',
     async (code) => {
@@ -72,6 +76,8 @@ describe('project id lint rule', () => {
   it.each([
     ['packages/core/src/x.ts', 'export const r = task.project === other.project;'],
     ['packages/core/src/x.ts', "export const r = task.status === 'web';"],
+    ['packages/core/src/x.ts', 'export const r = task.project.includes(other.project);'],
+    ['packages/core/src/x.ts', "export const r = task.title.includes('web');"],
     ['packages/contracts/src/x.ts', "export const r = task.project === 'web';"],
   ])(
     '%s: %s passes',

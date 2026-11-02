@@ -2,11 +2,17 @@ import type { Rule } from 'eslint';
 
 type BinaryExpression = Parameters<NonNullable<Rule.RuleListener['BinaryExpression']>>[0];
 type CallExpression = Parameters<NonNullable<Rule.RuleListener['CallExpression']>>[0];
-type Operand = BinaryExpression['left'] | CallExpression['arguments'][number] | null | undefined;
+type Operand =
+  | BinaryExpression['left']
+  | CallExpression['callee']
+  | CallExpression['arguments'][number]
+  | null
+  | undefined;
 
 const PROJECT_NAMES = new Set(['project', 'projectId']);
 const EQUALITY = new Set(['==', '===', '!=', '!==']);
 const LOOKUPS = new Set(['includes', 'indexOf']);
+const STRING_METHODS = new Set(['includes', 'indexOf', 'startsWith', 'endsWith']);
 
 // `project`, `projectId`, `task.project`, `task?.projectId`.
 function isProject(operand: Operand): boolean {
@@ -52,12 +58,18 @@ const rule: Rule.RuleModule = {
           if (isStringLiteral(switchCase.test))
             context.report({ node: switchCase, messageId: 'literal' });
       },
-      // `['web'].includes(task.project)`, `['web', 'board'].indexOf(project)`.
       CallExpression(node) {
         const callee = node.callee;
         if (callee.type !== 'MemberExpression' || callee.computed) return;
-        if (callee.property.type !== 'Identifier' || !LOOKUPS.has(callee.property.name)) return;
-        if (callee.object.type !== 'ArrayExpression') return;
+        if (callee.property.type !== 'Identifier') return;
+        const method = callee.property.name;
+        // `task.project.includes('web')`, `projectId.startsWith('web')`.
+        if (STRING_METHODS.has(method) && isProject(callee.object)) {
+          if (isStringLiteral(node.arguments[0])) context.report({ node, messageId: 'literal' });
+          return;
+        }
+        // `['web'].includes(task.project)`, `['web', 'board'].indexOf(project)`.
+        if (!LOOKUPS.has(method) || callee.object.type !== 'ArrayExpression') return;
         if (!callee.object.elements.every(isStringLiteral)) return;
         if (isProject(node.arguments[0])) context.report({ node, messageId: 'literal' });
       },
