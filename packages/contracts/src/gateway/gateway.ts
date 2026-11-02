@@ -85,7 +85,10 @@ export interface Capabilities {
 /** Core's handler for inbound events; it resolves once the event is stored. */
 export type InboundSink = (event: InboundEvent) => Promise<void>;
 
-/** `dropped`: the interaction expired or cannot be answered any more. */
+/**
+ * `dropped`: the interaction expired or cannot be answered any more, or a private answer was
+ * asked for and the platform has none (G15).
+ */
 export type RespondResult = 'sent' | 'dropped';
 
 /**
@@ -114,16 +117,21 @@ export type RespondResult = 'sent' | 'dropped';
  * - G9: An edit and a deletion get `dedupeKey`s of their own, distinct from the message's; each
  *   edit gets a distinct one.
  * - G10: No gateway state: conversations, cursors and dedupe belong to core. `recover` works
- *   from its request alone; with no history it yields `gap`.
+ *   from its request alone. It yields every missed event it can still obtain; when some may be
+ *   lost and cannot be returned, it yields `gap`.
  * - G11: An inbound event is acknowledged to the platform only after `sink` resolves.
  * - G12: `capabilities` stay the same for the gateway's lifetime and match its behaviour (with
- *   `history: false`, `recover` yields `gap`). They never make an operation optional or change
- *   a result's shape: every operation follows G1-G11 whatever they say.
+ *   `history: false`, `recover` yields `gap` when missed events cannot be returned). They never
+ *   make an operation optional or change a result's shape: every operation follows the other
+ *   obligations whatever they say.
  * - G13: After every connect and reconnect, the first one after `start` included, emit
  *   `connection {state: 'up'}` through `sink`; emit `{state: 'down'}` on loss. Core runs
  *   `recover` on `up`.
  * - G14: Every `connection` and `gap` event carries a `dedupeKey` unique to that occurrence,
  *   never reused, across restarts included.
+ * - G15: With `private: true` and `capabilities.privateResponses: false`, `respond` posts
+ *   nothing, publicly or otherwise, and returns `dropped`, so core can record the unanswered
+ *   interaction.
  */
 export interface Gateway {
   /** Gateway identifier, e.g. the platform name. */
@@ -138,7 +146,7 @@ export interface Gateway {
   deliver(request: DeliverRequest): Promise<DeliveryResult>;
   /** Yields events missed while disconnected, normalized as live ones (G8, G10, G14). */
   recover(request: RecoverRequest): AsyncIterable<InboundEvent>;
-  /** Answers an interaction, privately when asked and supported. */
+  /** Answers an interaction; a private answer never goes out publicly (G15). */
   respond(
     interaction: InteractionRef,
     text: RichText,
