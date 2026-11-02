@@ -45,19 +45,28 @@ describe('network guard', () => {
     });
   });
 
-  // 192.0.2.1 is TEST-NET-1: never routed.
-  const remoteLookup: net.LookupFunction = (_hostname, options, callback) => {
-    if (options.all) callback(null, [{ address: '192.0.2.1', family: 4 }]);
-    else callback(null, '192.0.2.1', 4);
-  };
+  // 192.0.2.1 is TEST-NET-1: never routed. Node passes a custom lookup's error through
+  // as is and connects when it is falsy, so `undefined` must count as success too.
+  function remoteLookup(error: null | undefined): net.LookupFunction {
+    return (_hostname, options, callback) => {
+      const done = callback as (error: null | undefined, ...result: unknown[]) => void;
+      if (options.all) done(error, [{ address: '192.0.2.1', family: 4 }]);
+      else done(error, '192.0.2.1', 4);
+    };
+  }
 
-  it.each([false, true])(
-    'blocks localhost that resolves to a remote address (autoSelectFamily %s)',
-    async (autoSelectFamily) => {
+  it.each([
+    { autoSelectFamily: false, error: null },
+    { autoSelectFamily: true, error: null },
+    { autoSelectFamily: false, error: undefined },
+    { autoSelectFamily: true, error: undefined },
+  ])(
+    'blocks localhost that resolves to a remote address (autoSelectFamily $autoSelectFamily, lookup error $error)',
+    async ({ autoSelectFamily, error }) => {
       const socket = net.connect({
         host: 'localhost',
         port: 80,
-        lookup: remoteLookup,
+        lookup: remoteLookup(error),
         autoSelectFamily,
       });
       expect(await errorOf(socket)).toMatchObject({ code: 'ERR_TEST_NETWORK_BLOCKED' });
@@ -65,7 +74,7 @@ describe('network guard', () => {
   );
 
   it('blocks http.get to localhost that resolves to a remote address', async () => {
-    const request = http.get({ host: 'localhost', port: 80, lookup: remoteLookup });
+    const request = http.get({ host: 'localhost', port: 80, lookup: remoteLookup(null) });
     expect(await errorOf(request)).toMatchObject({ code: 'ERR_TEST_NETWORK_BLOCKED' });
   });
 

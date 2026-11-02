@@ -46,8 +46,9 @@ function checkResolved(socket: net.Socket, host: string): void {
   const marked = socket as net.Socket & { [CHECKED]?: true };
   if (marked[CHECKED]) return;
   marked[CHECKED] = true;
-  socket.on('lookup', (error: Error | null, address: string) => {
-    if (error === null && !(net.isIP(address) !== 0 && isLocalHost(address))) {
+  // A custom lookup's error reaches here unnormalized; Node connects on any falsy one.
+  socket.on('lookup', (error: Error | null | undefined, address: string) => {
+    if (error == null && !(net.isIP(address) !== 0 && isLocalHost(address))) {
       socket.destroy(new NetworkBlockedError(`${host} (${address})`));
     }
   });
