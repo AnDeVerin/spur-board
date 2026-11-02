@@ -93,7 +93,13 @@ describe('scripts/gitleaks.sh', () => {
   it('passes the log options to gitleaks as one argument and to git log as flags', () => {
     const r = scan({ logOpts: '--first-parent -m HEAD^1..HEAD' });
     expect(r.gitleaks).toContain('--log-opts=--first-parent -m HEAD^1..HEAD');
-    expect(r.git?.slice(0, 5)).toEqual(['log', '--format=%H', '--first-parent', '-m', 'HEAD^1..HEAD']);
+    expect(r.git?.slice(0, 5)).toEqual([
+      'log',
+      '--format=%H',
+      '--first-parent',
+      '-m',
+      'HEAD^1..HEAD',
+    ]);
   });
 
   it('scans the full history when no log options are set', () => {
