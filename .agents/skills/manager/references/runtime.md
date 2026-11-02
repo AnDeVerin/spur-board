@@ -9,7 +9,7 @@ How the manager spawns roles, what it hands them, and how it tracks gates.
 | Role files | `.claude/agents/<role>.md` | `.codex/agents/<role>.toml` |
 | Spawn | Agent tool, `subagent_type: <role>`, the handoff as the prompt | `spawn_agent`, `agent_type: <role>`, the handoff as the message |
 | Wait | the tool returns the output | `wait_agent` on the spawned agent |
-| Continue a role | SendMessage to its agent id | `send_input` to the same agent, then `wait_agent` |
+| Continue a role | SendMessage to its agent id | `followup_task` to the same agent, then `wait_agent` |
 
 - On Codex, this skill is the explicit request to spawn sub-agents. Do not fork the conversation
   into a role: the handoff is all it gets. Do not set a model; the role file sets the effort.

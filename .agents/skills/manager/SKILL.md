@@ -54,8 +54,9 @@ Modifiers, on any tier:
   code pass.
 - Tier 2 and up: a simplify pass by `developer` after implementation.
 - `.agents/`, `.claude/`, `.codex/` or `AGENTS.md` touched: `reviewer` checks the copies match.
-- Any code change: `reviewer`, then the PR. Behaviour that checks cannot show (a CLI flow, an API
-  call, a UI flow) or validation asked for in the issue: `tester`.
+- Any committed change (code, docs or config): `reviewer`, then the PR.
+- Behaviour that checks cannot show (a CLI flow, an API call, a UI flow), or validation the issue
+  asks for: `tester`.
 
 Escalation: architect `Verdict: RAISE_TIER` or developer `Verdict: ESCALATE` -> re-route to the
 higher tier's team from the current gate. Never lower a tier.
@@ -92,7 +93,7 @@ The numbers are the canonical gate order.
 12. Validate - `tester` when a modifier asks for it.
 13. PR - push the branch and open the PR, or push only when one exists. Conventional title,
     `Closes #<N>` in the body, and a `## Changed checks` section listing every line from the
-    developer's `Changed checks`. Skip only without code changes or when the issue says no PR.
+    developer's `Changed checks`. Skip only without commits or when the issue says no PR.
 14. Close-out - one evidence line per acceptance criterion, taken from a gate output (a reviewer
     Requirements row, a command with its observed result, a tester scenario). Work is committed;
     the PR exists or the reason it does not is named. A required gate whose verdict is older than
