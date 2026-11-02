@@ -1,0 +1,181 @@
+import { z } from 'zod';
+import {
+  ACTORS,
+  ADDRESSEE_ROLES,
+  ARCHIVE_REASONS,
+  BLOCK_OUTCOMES,
+  BLOCK_TYPES,
+  COLUMN_IDS,
+  LINK_SOURCES,
+  PR_LINK_STATES,
+  SESSION_END_REASONS,
+  SESSION_LINK_ROLES,
+} from './enums.ts';
+
+export const EVENT_KINDS = [
+  'head_moved',
+  'checks_changed',
+  'review_submitted',
+  'mergeable_changed',
+  'pr_state_changed',
+  'ticket_status_changed',
+  'session_state_changed',
+  'link_added',
+  'link_removed',
+  'task_added',
+  'task_archived',
+  'block_opened',
+  'block_escalated',
+  'block_unblocked',
+  'comment_added',
+  'comment_acked',
+  'doorbell_rung',
+  'doorbell_read',
+  'doorbell_undelivered',
+  'inbound_failed',
+  'from_you_raised',
+  'from_you_cleared',
+  'flag_raised',
+  'flag_cleared',
+  'operation_denied',
+] as const;
+export type EventKind = (typeof EVENT_KINDS)[number];
+
+/** Version written to `v` by the current code. */
+export const EVENT_VERSION = 1;
+
+const S = z.string().min(1);
+const N = z.int().positive();
+const from = S.nullable();
+const role = z.enum(ADDRESSEE_ROLES);
+const prChange = { repo: S, pr: N, from, to: S };
+
+// Payloads keep unknown keys, so a field added by a newer writer survives parsing.
+export const eventPayloadSchemas = {
+  head_moved: z.looseObject(prChange),
+  checks_changed: z.looseObject({ ...prChange, sha: S }),
+  review_submitted: z.looseObject({ repo: S, pr: N, reviewer: S, state: S }),
+  mergeable_changed: z.looseObject(prChange),
+  pr_state_changed: z.looseObject(prChange),
+  ticket_status_changed: z.looseObject({ from, to: S }),
+  session_state_changed: z.looseObject({
+    session: S,
+    from,
+    to: S,
+    endReason: z.enum(SESSION_END_REASONS).optional(),
+  }),
+  link_added: z.discriminatedUnion('entity', [
+    z.looseObject({
+      entity: z.literal('session'),
+      session: S,
+      role: z.enum(SESSION_LINK_ROLES),
+      source: z.enum(LINK_SOURCES),
+    }),
+    z.looseObject({
+      entity: z.literal('pr'),
+      repo: S,
+      pr: N,
+      state: z.enum(PR_LINK_STATES),
+      source: z.enum(LINK_SOURCES),
+    }),
+  ]),
+  link_removed: z.discriminatedUnion('entity', [
+    z.looseObject({ entity: z.literal('session'), session: S }),
+    z.looseObject({ entity: z.literal('pr'), repo: S, pr: N }),
+  ]),
+  task_added: z.looseObject({ column: z.enum(COLUMN_IDS) }),
+  task_archived: z.looseObject({ reason: z.enum(ARCHIVE_REASONS) }),
+  block_opened: z.looseObject({ block: S, type: z.enum(BLOCK_TYPES), addressee: role }),
+  block_escalated: z.looseObject({ block: S, from: role, to: role }),
+  block_unblocked: z.looseObject({
+    block: S,
+    outcome: z.enum(BLOCK_OUTCOMES),
+    reason: S.optional(),
+  }),
+  comment_added: z.looseObject({ comment: S, addressee: role }),
+  comment_acked: z.looseObject({ comment: S }),
+  doorbell_rung: z.looseObject({ doorbell: S, addressee: role, attempt: N }),
+  doorbell_read: z.looseObject({ doorbell: S }),
+  doorbell_undelivered: z.looseObject({ doorbell: S, reason: S }),
+  inbound_failed: z.looseObject({ gateway: S, reason: S }),
+  from_you_raised: z.looseObject({ item: S }),
+  from_you_cleared: z.looseObject({ item: S }),
+  flag_raised: z.looseObject({ flag: S, session: S.optional() }),
+  flag_cleared: z.looseObject({ flag: S, session: S.optional() }),
+  operation_denied: z.looseObject({ operation: S, reason: S }),
+} satisfies Record<EventKind, z.ZodType>;
+
+export type EventPayload<K extends EventKind> = z.output<(typeof eventPayloadSchemas)[K]>;
+
+/**
+ * One journal line. `payload` is checked against the schema for `kind` by `parseEvent`.
+ * `actorRef` names the agent (its spur project and session) and is set only when `actor` is
+ * `agent`. `requestId` links the event to the command that caused it.
+ */
+export const eventEnvelopeSchema = z
+  .object({
+    id: S,
+    at: z.iso.datetime(),
+    project: S,
+    taskId: S.optional(),
+    kind: z.enum(EVENT_KINDS),
+    actor: z.enum(ACTORS),
+    actorRef: z.object({ project: S, session: S }).optional(),
+    requestId: S.optional(),
+    payload: z.unknown(),
+    v: z.int().min(1),
+  })
+  .superRefine((event, ctx) => {
+    if (event.actor === 'agent' && event.actorRef === undefined) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['actorRef'],
+        message: 'actorRef is required when actor is agent',
+      });
+    } else if (event.actor !== 'agent' && event.actorRef !== undefined) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['actorRef'],
+        message: `actorRef is set only when actor is agent, not ${event.actor}`,
+      });
+    }
+  });
+export type EventEnvelope = z.output<typeof eventEnvelopeSchema>;
+
+export type JournalEvent = {
+  [K in EventKind]: Omit<EventEnvelope, 'kind' | 'payload'> & {
+    kind: K;
+    payload: EventPayload<K>;
+  };
+}[EventKind];
+
+export type ParsedEvent =
+  | { status: 'ok'; event: JournalEvent }
+  | { status: 'skipped'; kind: string }
+  | { status: 'invalid'; error: z.ZodError };
+
+function isEventKind(kind: string): kind is EventKind {
+  return (EVENT_KINDS as readonly string[]).includes(kind);
+}
+
+/** Parses one journal line. A kind this code does not know is skipped, not an error. */
+export function parseEvent(raw: unknown): ParsedEvent {
+  if (typeof raw === 'object' && raw !== null && 'kind' in raw) {
+    const { kind } = raw;
+    if (typeof kind === 'string' && !isEventKind(kind)) return { status: 'skipped', kind };
+  }
+  const envelope = eventEnvelopeSchema.safeParse(raw);
+  if (!envelope.success) return { status: 'invalid', error: envelope.error };
+  const payload = eventPayloadSchemas[envelope.data.kind].safeParse(envelope.data.payload);
+  if (!payload.success) {
+    return {
+      status: 'invalid',
+      error: new z.ZodError(
+        payload.error.issues.map((issue) => ({ ...issue, path: ['payload', ...issue.path] })),
+      ),
+    };
+  }
+  // The kind and its payload were checked together above; TS cannot correlate them.
+  const event = { ...envelope.data, payload: payload.data } as JournalEvent;
+  return { status: 'ok', event };
+}

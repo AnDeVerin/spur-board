@@ -19,6 +19,8 @@ catalog:
   prettier: ^3.9.10
   vitest: ^5.0.5
   knip: ^6.43.0
+  yaml: ^2.9.1
+  zod: ^4.6.7
 
 # GHSA-g3hv-75wg-m249 (moderate, minimatch < 11.0.1) reaches us only through the
 # eslint toolchain, which matches our own glob patterns. The fixed minimatch 11.0.1
