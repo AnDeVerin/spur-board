@@ -1,0 +1,184 @@
+import { describe, expect, it } from 'vitest';
+import { z } from 'zod';
+import {
+  EVENT_KINDS,
+  EVENT_VERSION,
+  type EventKind,
+  type JournalEvent,
+  eventPayloadSchemas,
+  parseEvent,
+} from '../src/index.ts';
+
+const base = {
+  id: 'evt-1',
+  at: '2026-01-05T09:30:00.000Z',
+  project: 'web',
+  taskId: 'PROJ-1',
+  actor: 'system',
+  v: EVENT_VERSION,
+} as const;
+
+const pr = { repo: 'example-org/web', pr: 7 };
+
+// A kind missing here is a compile error.
+const samples: { [K in EventKind]: Extract<JournalEvent, { kind: K }> } = {
+  head_moved: { ...base, kind: 'head_moved', payload: { ...pr, from: 'abc1', to: 'def2' } },
+  checks_changed: {
+    ...base,
+    kind: 'checks_changed',
+    payload: { ...pr, sha: 'def2', from: null, to: 'success' },
+  },
+  review_submitted: {
+    ...base,
+    kind: 'review_submitted',
+    payload: { ...pr, reviewer: 'octocat', state: 'approved' },
+  },
+  mergeable_changed: {
+    ...base,
+    kind: 'mergeable_changed',
+    payload: { ...pr, from: 'clean', to: 'dirty' },
+  },
+  pr_state_changed: {
+    ...base,
+    kind: 'pr_state_changed',
+    payload: { ...pr, from: 'open', to: 'merged' },
+  },
+  ticket_status_changed: {
+    ...base,
+    kind: 'ticket_status_changed',
+    payload: { from: 'To Do', to: 'In Progress' },
+  },
+  session_state_changed: {
+    ...base,
+    kind: 'session_state_changed',
+    payload: { session: 'sess-1', from: 'running', to: 'ended', endReason: 'complete' },
+  },
+  link_added: {
+    ...base,
+    kind: 'link_added',
+    payload: { entity: 'pr', ...pr, state: 'active', source: 'branch' },
+  },
+  link_removed: {
+    ...base,
+    kind: 'link_removed',
+    payload: { entity: 'session', session: 'sess-1' },
+  },
+  task_added: { ...base, kind: 'task_added', payload: { column: 'To Do' } },
+  task_archived: { ...base, kind: 'task_archived', payload: { reason: 'done' } },
+  block_opened: {
+    ...base,
+    kind: 'block_opened',
+    payload: { block: 'blk-1', type: 'needs_input', addressee: 'orchestrator:QA' },
+  },
+  block_escalated: {
+    ...base,
+    kind: 'block_escalated',
+    payload: { block: 'blk-1', from: 'orchestrator:QA', to: 'operator' },
+  },
+  block_unblocked: {
+    ...base,
+    kind: 'block_unblocked',
+    payload: { block: 'blk-1', outcome: 'done' },
+  },
+  comment_added: {
+    ...base,
+    kind: 'comment_added',
+    payload: { comment: 'cmt-1', addressee: 'worker' },
+  },
+  comment_acked: { ...base, kind: 'comment_acked', payload: { comment: 'cmt-1' } },
+  doorbell_rung: {
+    ...base,
+    kind: 'doorbell_rung',
+    payload: { doorbell: 'door-1', addressee: 'operator', attempt: 2 },
+  },
+  doorbell_read: { ...base, kind: 'doorbell_read', payload: { doorbell: 'door-1' } },
+  doorbell_undelivered: {
+    ...base,
+    kind: 'doorbell_undelivered',
+    payload: { doorbell: 'door-1', reason: 'session gone' },
+  },
+  inbound_failed: {
+    ...base,
+    kind: 'inbound_failed',
+    payload: { gateway: 'slack', reason: 'bad signature' },
+  },
+  from_you_raised: { ...base, kind: 'from_you_raised', payload: { item: 'item-1' } },
+  from_you_cleared: { ...base, kind: 'from_you_cleared', payload: { item: 'item-1' } },
+  flag_raised: {
+    ...base,
+    kind: 'flag_raised',
+    payload: { flag: 'stale', session: 'sess-1' },
+  },
+  flag_cleared: { ...base, kind: 'flag_cleared', payload: { flag: 'stale' } },
+  operation_denied: {
+    ...base,
+    kind: 'operation_denied',
+    payload: { operation: 'archive', reason: 'task has an open block' },
+  },
+};
+
+describe('event kinds', () => {
+  it('has a payload schema for each of the 25 kinds', () => {
+    expect(EVENT_KINDS).toHaveLength(25);
+    expect(Object.keys(eventPayloadSchemas).sort()).toEqual([...EVENT_KINDS].sort());
+  });
+
+  it.each(EVENT_KINDS)('converts the %s payload to JSON Schema in output mode', (kind) => {
+    expect(() => z.toJSONSchema(eventPayloadSchemas[kind], { io: 'output' })).not.toThrow();
+  });
+});
+
+describe('parseEvent', () => {
+  it.each(EVENT_KINDS)('round-trips a %s event through JSON', (kind) => {
+    const sample = samples[kind];
+    expect(parseEvent(JSON.parse(JSON.stringify(sample)))).toEqual({
+      status: 'ok',
+      event: sample,
+    });
+  });
+
+  it('skips an unknown kind without throwing', () => {
+    const raw = { ...base, kind: 'future_kind', payload: { anything: true } };
+    expect(() => parseEvent(raw)).not.toThrow();
+    expect(parseEvent(raw)).toEqual({ status: 'skipped', kind: 'future_kind' });
+  });
+
+  it('rejects a payload that does not match its kind, with a payload path', () => {
+    const result = parseEvent({ ...samples.head_moved, payload: {} });
+    expect(result.status).toBe('invalid');
+    if (result.status !== 'invalid') return;
+    expect(result.error.issues.map((issue) => issue.path[0])).toContain('payload');
+    expect(z.prettifyError(result.error)).toContain('→ at payload.repo');
+  });
+
+  it('accepts unknown payload fields', () => {
+    const payload = { ...samples.head_moved.payload, addedLater: 1 };
+    expect(parseEvent({ ...samples.head_moved, payload }).status).toBe('ok');
+  });
+
+  it('rejects an envelope with a non-UTC timestamp', () => {
+    expect(parseEvent({ ...samples.head_moved, at: '2026-01-05T09:30:00+01:00' }).status).toBe(
+      'invalid',
+    );
+  });
+});
+
+describe('addressee role', () => {
+  const opened = samples.block_opened.payload;
+
+  it('rejects an orchestrator of an unknown column', () => {
+    const result = eventPayloadSchemas.block_opened.safeParse({
+      ...opened,
+      addressee: 'orchestrator:Foo',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('accepts an orchestrator of a board column', () => {
+    const result = eventPayloadSchemas.block_opened.safeParse({
+      ...opened,
+      addressee: 'orchestrator:Ready to Merge',
+    });
+    expect(result.success).toBe(true);
+  });
+});

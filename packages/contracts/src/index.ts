@@ -4,3 +4,4 @@ export function assertNever(value: never): never {
 }
 export * from './enums.ts';
 export * from './config.ts';
+export * from './events.ts';
