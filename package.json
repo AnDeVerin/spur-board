@@ -1,0 +1,28 @@
+{
+  "name": "spur-board-workspace",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@12.16.1",
+  "engines": {
+    "node": ">=24.12"
+  },
+  "scripts": {
+    "check": "node scripts/check.ts",
+    "check:full": "node scripts/check.ts --full",
+    "format": "prettier --write .",
+    "lint": "eslint . --max-warnings=0",
+    "typecheck": "tsc --noEmit -p . && pnpm -r typecheck",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@eslint-community/eslint-plugin-eslint-comments": "catalog:",
+    "@types/node": "catalog:",
+    "@typescript/native": "catalog:",
+    "@vitest/eslint-plugin": "catalog:",
+    "eslint": "catalog:",
+    "prettier": "catalog:",
+    "typescript": "catalog:",
+    "typescript-eslint": "catalog:",
+    "vitest": "catalog:"
+  }
+}

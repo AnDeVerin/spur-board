@@ -1,0 +1,20 @@
+packages:
+  - packages/*
+
+# Supply chain: only install versions published at least 7 days ago, and fail
+# the install if any dependency wants to run an install script.
+minimumReleaseAge: 10080
+strictDepBuilds: true
+allowBuilds: {}
+
+catalog:
+  # typescript-eslint needs the TypeScript 6 API; `tsc` (typecheck) is TypeScript 7.
+  typescript: npm:@typescript/typescript6@^6.0.2
+  '@typescript/native': npm:typescript@^7.0.2
+  '@types/node': ^24
+  eslint: ^10.13.0
+  typescript-eslint: ^8.72.0
+  '@vitest/eslint-plugin': ^1.6.28
+  '@eslint-community/eslint-plugin-eslint-comments': ^4.8.1
+  prettier: ^3.9.10
+  vitest: ^5.0.5

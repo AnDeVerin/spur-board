@@ -1,0 +1,5 @@
+pnpm-lock.yaml
+# Mirrored agent definitions; their generator owns the formatting.
+.agents/
+.claude/
+.codex/
