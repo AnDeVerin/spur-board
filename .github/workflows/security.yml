@@ -18,7 +18,7 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
-      # Full history: GITLEAKS_LOG_OPTS is unset. The script fails closed on 0 commits.
+      # Full history: GITLEAKS_LOG_OPTS is unset. The script fails on errors gitleaks logs.
       - uses: docker://ghcr.io/gitleaks/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
         with:
           entrypoint: /bin/sh
