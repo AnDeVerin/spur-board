@@ -151,9 +151,9 @@ describe('parseEvent', () => {
     expect(z.prettifyError(result.error)).toContain('→ at payload.repo');
   });
 
-  it('accepts unknown payload fields', () => {
-    const payload = { ...samples.head_moved.payload, addedLater: 1 };
-    expect(parseEvent({ ...samples.head_moved, payload }).status).toBe('ok');
+  it.each(EVENT_KINDS)('keeps unknown payload fields of %s', (kind) => {
+    const event = { ...samples[kind], payload: { ...samples[kind].payload, addedLater: 1 } };
+    expect(parseEvent(JSON.parse(JSON.stringify(event)))).toEqual({ status: 'ok', event });
   });
 
   it('rejects an envelope with a non-UTC timestamp', () => {

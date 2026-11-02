@@ -50,28 +50,28 @@ const from = S.nullable();
 const role = z.enum(ADDRESSEE_ROLES);
 const prChange = { repo: S, pr: N, from, to: S };
 
-// Payloads accept unknown keys so an older reader can replay a newer journal.
+// Payloads keep unknown keys, so a field added by a newer writer survives parsing.
 export const eventPayloadSchemas = {
-  head_moved: z.object(prChange),
-  checks_changed: z.object({ ...prChange, sha: S }),
-  review_submitted: z.object({ repo: S, pr: N, reviewer: S, state: S }),
-  mergeable_changed: z.object(prChange),
-  pr_state_changed: z.object(prChange),
-  ticket_status_changed: z.object({ from, to: S }),
-  session_state_changed: z.object({
+  head_moved: z.looseObject(prChange),
+  checks_changed: z.looseObject({ ...prChange, sha: S }),
+  review_submitted: z.looseObject({ repo: S, pr: N, reviewer: S, state: S }),
+  mergeable_changed: z.looseObject(prChange),
+  pr_state_changed: z.looseObject(prChange),
+  ticket_status_changed: z.looseObject({ from, to: S }),
+  session_state_changed: z.looseObject({
     session: S,
     from,
     to: S,
     endReason: z.enum(SESSION_END_REASONS).optional(),
   }),
   link_added: z.discriminatedUnion('entity', [
-    z.object({
+    z.looseObject({
       entity: z.literal('session'),
       session: S,
       role: z.enum(SESSION_LINK_ROLES),
       source: z.enum(LINK_SOURCES),
     }),
-    z.object({
+    z.looseObject({
       entity: z.literal('pr'),
       repo: S,
       pr: N,
@@ -80,25 +80,25 @@ export const eventPayloadSchemas = {
     }),
   ]),
   link_removed: z.discriminatedUnion('entity', [
-    z.object({ entity: z.literal('session'), session: S }),
-    z.object({ entity: z.literal('pr'), repo: S, pr: N }),
+    z.looseObject({ entity: z.literal('session'), session: S }),
+    z.looseObject({ entity: z.literal('pr'), repo: S, pr: N }),
   ]),
-  task_added: z.object({ column: z.enum(COLUMNS) }),
-  task_archived: z.object({ reason: z.enum(ARCHIVE_REASONS) }),
-  block_opened: z.object({ block: S, type: z.enum(BLOCK_TYPES), addressee: role }),
-  block_escalated: z.object({ block: S, from: role, to: role }),
-  block_unblocked: z.object({ block: S, outcome: z.enum(BLOCK_OUTCOMES) }),
-  comment_added: z.object({ comment: S, addressee: role }),
-  comment_acked: z.object({ comment: S }),
-  doorbell_rung: z.object({ doorbell: S, addressee: role, attempt: N }),
-  doorbell_read: z.object({ doorbell: S }),
-  doorbell_undelivered: z.object({ doorbell: S, reason: S }),
-  inbound_failed: z.object({ gateway: S, reason: S }),
-  from_you_raised: z.object({ item: S }),
-  from_you_cleared: z.object({ item: S }),
-  flag_raised: z.object({ flag: S, session: S.optional() }),
-  flag_cleared: z.object({ flag: S, session: S.optional() }),
-  operation_denied: z.object({ operation: S, reason: S }),
+  task_added: z.looseObject({ column: z.enum(COLUMNS) }),
+  task_archived: z.looseObject({ reason: z.enum(ARCHIVE_REASONS) }),
+  block_opened: z.looseObject({ block: S, type: z.enum(BLOCK_TYPES), addressee: role }),
+  block_escalated: z.looseObject({ block: S, from: role, to: role }),
+  block_unblocked: z.looseObject({ block: S, outcome: z.enum(BLOCK_OUTCOMES) }),
+  comment_added: z.looseObject({ comment: S, addressee: role }),
+  comment_acked: z.looseObject({ comment: S }),
+  doorbell_rung: z.looseObject({ doorbell: S, addressee: role, attempt: N }),
+  doorbell_read: z.looseObject({ doorbell: S }),
+  doorbell_undelivered: z.looseObject({ doorbell: S, reason: S }),
+  inbound_failed: z.looseObject({ gateway: S, reason: S }),
+  from_you_raised: z.looseObject({ item: S }),
+  from_you_cleared: z.looseObject({ item: S }),
+  flag_raised: z.looseObject({ flag: S, session: S.optional() }),
+  flag_cleared: z.looseObject({ flag: S, session: S.optional() }),
+  operation_denied: z.looseObject({ operation: S, reason: S }),
 } satisfies Record<EventKind, z.ZodType>;
 
 export type EventPayload<K extends EventKind> = z.output<(typeof eventPayloadSchemas)[K]>;
