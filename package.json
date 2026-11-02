@@ -20,6 +20,7 @@
     "@typescript/native": "catalog:",
     "@vitest/eslint-plugin": "catalog:",
     "eslint": "catalog:",
+    "knip": "catalog:",
     "prettier": "catalog:",
     "typescript": "catalog:",
     "typescript-eslint": "catalog:",

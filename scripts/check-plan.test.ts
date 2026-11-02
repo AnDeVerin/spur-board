@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { runSteps, statusLine } from './check.ts';
-import { parseNameStatus, planCheck, resolveBase } from './check-plan.ts';
+import {
+  parseCheckArgs,
+  parseNameStatus,
+  parseOnly,
+  planCheck,
+  resolveBase,
+} from './check-plan.ts';
 
 describe('resolveBase', () => {
   const facts = {
@@ -92,7 +98,7 @@ describe('planCheck', () => {
     });
   });
 
-  it.each(['.gitignore', 'pnpm-lock.yaml', 'tsconfig.base.json', 'scripts/check.ts'])(
+  it.each(['.gitignore', 'pnpm-lock.yaml', 'tsconfig.base.json', 'scripts/check.ts', 'knip.json'])(
     'runs everything when %s changes',
     (path) => {
       expect(
@@ -158,6 +164,61 @@ describe('planCheck', () => {
       lintFiles: [],
       packageDirs: [],
     });
+  });
+});
+
+describe('parseOnly', () => {
+  const unknown = (name: string) =>
+    `--only: unknown step "${name}" (steps: format, lint, types, knip, test)`;
+
+  it('selects the listed steps', () => {
+    expect(parseOnly('test,format', true)).toEqual(new Set(['test', 'format']));
+  });
+
+  it('returns null when --only is absent', () => {
+    expect(parseOnly(undefined, true)).toBeNull();
+    expect(parseOnly(undefined, false)).toBeNull();
+  });
+
+  it('rejects an unknown step', () => {
+    expect(parseOnly('format,lnt', true)).toBe(unknown('lnt'));
+  });
+
+  it('rejects an empty list or an empty name', () => {
+    expect(parseOnly('', true)).toBe(unknown(''));
+    expect(parseOnly('test,', true)).toBe(unknown(''));
+  });
+
+  it('rejects --only without --full', () => {
+    expect(parseOnly('test', false)).toBe('--only needs --full');
+  });
+});
+
+describe('parseCheckArgs', () => {
+  it('runs every step without flags', () => {
+    expect(parseCheckArgs([])).toEqual({ full: false, only: null });
+  });
+
+  it('reads --only as a separate value', () => {
+    expect(parseCheckArgs(['--full', '--only', 'format,lint'])).toEqual({
+      full: true,
+      only: new Set(['format', 'lint']),
+    });
+  });
+
+  it('reads the --only= form', () => {
+    expect(parseCheckArgs(['--full', '--only=test'])).toEqual({
+      full: true,
+      only: new Set(['test']),
+    });
+  });
+
+  it('rejects --only without --full', () => {
+    expect(parseCheckArgs(['--only', 'test'])).toEqual({ error: '--only needs --full' });
+  });
+
+  it('rejects an unknown flag', () => {
+    expect(parseCheckArgs(['--ful'])).toHaveProperty('error');
   });
 });
 
