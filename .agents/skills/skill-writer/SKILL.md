@@ -61,8 +61,8 @@ Over budget -> move detail to `references/`, or cut it. Do not raise the budget.
 ## Stale rules
 
 A rule you find wrong or out of date while working on a task is fixed in the same PR, as its
-own commit (`chore(agents): ...` or `fix(<skill>): ...`), and named in the PR description. Do not leave it for later and do
-not mix it into the task's commits.
+own commit (`chore(agents): ...` or `fix(<skill>): ...`), and named in the PR description. Do
+not leave it for later and do not mix it into the task's commits.
 
 ## Checking
 

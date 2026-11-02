@@ -18,7 +18,7 @@ reasoning, not only the diff.
 
 - Conventional commits: `<type>(<scope>): <summary>`, imperative, no trailing period.
 - Changes to agent files (`.agents/`, `.claude/`, `.codex/`, `AGENTS.md`) go in their own
-  `chore(agents)` commit, apart from code changes.
+  commit (`chore(agents)`, or `fix(<skill>)` for a stale rule), apart from code changes.
 - Commits and PR titles carry no session marker.
 - Run `pnpm check` before each push; without a `package.json`, report `no checks available`.
   Never wait for or poll remote CI.
