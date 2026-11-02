@@ -1,8 +1,19 @@
 import { defineConfig } from 'vitest/config';
 
+// GitHub Actions gets failure annotations and a JUnit file in reports/ for the run's artifact.
+// Local runs keep the Vitest default reporters.
+const ci =
+  process.env['GITHUB_ACTIONS'] === 'true'
+    ? {
+        reporters: ['default', 'github-actions', 'junit'],
+        outputFile: { junit: 'reports/junit.xml' },
+      }
+    : {};
+
 // The only Vitest config: every test runs through the testkit harness.
 export default defineConfig({
   test: {
+    ...ci,
     // Workers must be child processes that inherit the scrubbed env. With
     // `threads`, /proc/self/environ would be the unscrubbed main process's.
     pool: 'forks',
