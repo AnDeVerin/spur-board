@@ -42,6 +42,14 @@ Never pass the raw conversation.
   A rerun or a fix cycle is a new item. See `"$SPUR_TODO_COMMAND" --help`.
 - Otherwise use the runtime's plan tool (Claude Code TodoWrite, Codex `update_plan`).
 
+## Spec file
+
+`.scratch/spec-<issue-number>.md`, written only by the manager; roles read it. It holds the
+architect's spec (tier 3: the developer's written plan), then `## Gate findings`, where each gate's
+gaps are appended. Fix cycles append; they never rewrite earlier entries. A final-mode architect
+returns the whole spec, which replaces everything above `## Gate findings`. Tier 0: the file holds
+the acceptance criteria and the Clarify outcome.
+
 ## Findings
 
 Collect every `FINDING:` line from role outputs. When the session keeps a findings log, append

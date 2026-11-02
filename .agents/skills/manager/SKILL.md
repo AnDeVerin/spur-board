@@ -5,9 +5,9 @@ description: Run a GitHub issue through tiered gates of role agents - plan, spec
 
 # Manager
 
-Route one issue through the gates below. Role agents do the work. The manager spawns them, passes
-their output blocks on, writes the spec file and reports. It never edits tracked files; its own
-commands are limited to intake (`gh`, `git fetch`) and the PR (`git push`, `gh pr`).
+Route one issue through the gates below. Roles do the work; the manager spawns them, passes their
+output blocks on, writes the spec file and reports. It never edits tracked files and runs only
+intake (`gh`, `git fetch`) and PR (`git push`, `gh pr`) commands.
 
 Role files: `.agents/agents/<role>.md`. Spawning, handoff and tracking details:
 `references/runtime.md`. Report and question templates: `references/templates.md`.
@@ -18,8 +18,8 @@ Role files: `.agents/agents/<role>.md`. Spawning, handoff and tracking details:
 - Ask nothing outside Clarify, and run Clarify at most once per task. Resolve unknowns from the
   code and the issue first.
 - The smallest team that covers the tier and the modifiers. One gate, one owner, one output.
-- Run independent gates in parallel: `spec-critic` with `designer` (plan), and `developer` scopes
-  that touch disjoint files.
+- Run `spec-critic` and `designer` (plan) in parallel; both are read-only. `developer` scopes run
+  one after another in the same worktree, so no commit picks up another scope's files.
 - Local checks only. Never wait for or poll remote CI.
 - No verdict is never a pass. A role that died, returned nothing, or returned no `Verdict:` line
   gets one rerun; still none -> stop with `Missing: <gate>`.
@@ -66,9 +66,9 @@ higher tier's team from the current gate. Never lower a tier.
 The numbers are the canonical gate order.
 
 1. Intake - `gh issue view <N> --comments`, plus the design notes its "Design notes" section cites
-   when the session gives access to them. Private notes inform the work; public text is written in
-   your own words. `git fetch origin main` once and record the `origin/main` SHA for every handoff;
-   roles never fetch. Write the acceptance criteria as checkable statements.
+   when the session gives access; public text never quotes private notes. `git fetch origin
+   main` once; pass the `origin/main` SHA to every role, roles never fetch. Write checkable
+   acceptance criteria.
 2. Tier - score as above. Tier 0 or 3: run Clarify (step 6) here only if intake left an unknown.
 3. Research (tier 2) - `researcher`, then `critic` on its output. Keep the selected option and
    `Split possible`; yes -> the architect splits the change map into scopes with disjoint files.
@@ -83,17 +83,20 @@ The numbers are the canonical gate order.
 7. Plan final - `architect` in final mode only when Clarify got a non-default answer or
    `spec-critic` / `designer` (plan) asked for changes; then rerun the gate that asked. Otherwise
    the draft plus the Clarify outcome is the spec.
-8. Implement - `developer` with the spec file. Tier 3 handoff: `Tier 3: recon, plan, implement`;
-   with UI work add `stop at PLAN_READY`, run `designer` (plan) on that plan, then continue the
-   same developer with the verdict.
+8. Implement - `developer` with the spec file, one scope at a time. Tier 3 handoff: `Tier 3:
+   recon, plan, implement`; with UI work add `stop at PLAN_READY`, run `designer` (plan) on that
+   plan and continue the same developer with the verdict. CHANGES_REQUESTED -> it revises and
+   stops again; at the designer cap it gets `BLOCKED_DESIGN` and implements.
 9. Simplify (tier 2+) - `developer` with `simplify pass` on `git diff <sha>...HEAD`.
-10. Review - `reviewer` with the spec, the developer output and `PR: <url> | none`.
+10. Review - a PR exists: push, and bring its `## Changed checks` section up to date with the
+    developer's output (`gh pr edit`). Then `reviewer` with the spec, the developer output and
+    `PR: <url> | none`.
 11. Design review (UI) - `designer` (code) with the changed files and any screenshots the run
     already has.
 12. Validate - `tester` when a modifier asks for it.
-13. PR - push the branch and open the PR, or push only when one exists. Conventional title,
-    `Closes #<N>` in the body, and a `## Changed checks` section listing every line from the
-    developer's `Changed checks`. Skip only without commits or when the issue says no PR.
+13. PR - push and open it: conventional title; `Closes #<N>` and a `## Changed checks` section
+    with every developer `Changed checks` line in the body. One exists: push and update its body.
+    Skip only without commits or when the issue says no PR.
 14. Close-out - one evidence line per acceptance criterion, taken from a gate output (a reviewer
     Requirements row, a command with its observed result, a tester scenario). Work is committed;
     the PR exists or the reason it does not is named. A required gate whose verdict is older than
@@ -102,11 +105,8 @@ The numbers are the canonical gate order.
 
 ## Spec file
 
-`.scratch/spec-<issue-number>.md`, written only by the manager; roles read it. It holds the
-architect's spec (tier 3: the developer's written plan), then `## Gate findings`, where each gate's
-gaps are appended. Fix cycles append; they never rewrite earlier entries. A final-mode architect
-returns the whole spec, which replaces everything above `## Gate findings`. Tier 0: the file holds
-the acceptance criteria and the Clarify outcome.
+`.scratch/spec-<issue-number>.md`, written only by the manager and read by roles. Its layout and
+update rules are in `references/runtime.md`.
 
 ## Verdicts and retries
 
@@ -124,9 +124,11 @@ the acceptance criteria and the Clarify outcome.
 - Code gate CHANGES_REQUESTED or FAIL -> `developer` with the findings -> the same gate reruns.
 - Spec gap (SPEC_CHANGES_REQUESTED, SPEC_REJECTED, tier 1-2 designer plan CHANGES_REQUESTED) ->
   `architect`, never `developer` -> the same gate reruns.
+- A reviewer MUST FIX only about the PR body -> the manager fixes it with `gh pr edit`, never
+  `developer` -> `reviewer` reruns.
 - Caps per task: `spec-critic` 3 runs -> `BLOCKED_SPEC`, stop before `developer`; `reviewer` 3
-  (the third returns BLOCKED_REVIEW) -> open the PR and report it; `designer` 2 per mode ->
-  continue and list it under Missing; `tester` 2.
+  (the third returns BLOCKED_REVIEW) -> open the PR and report it; `tester` 2; `designer` 2 per
+  mode -> `BLOCKED_DESIGN`, listed under Missing, and the run goes on (tier 3: step 8).
 - A `developer` fix after `reviewer` APPROVED reruns `reviewer` before the PR. Other downstream
   gates rerun only when their input changed.
 - critic ALL_REJECTED or researcher NO_VIABLE_OPTION -> one more research round with the critic's

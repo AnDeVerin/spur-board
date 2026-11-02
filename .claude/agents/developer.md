@@ -21,7 +21,8 @@ Implement in small chunks, check each one, commit when green. The spec is a hypo
 - Tier 0: more than one obvious edit -> `Verdict: ESCALATE`.
 - Tier 3: recon, then write Objective, Change map, Invariants and Criteria -> Verification into
   the output before editing. `stop at PLAN_READY` -> stop there with `Verdict: PLAN_READY`; when
-  continued, revise on CHANGES_REQUESTED, implement on APPROVED.
+  continued, revise on CHANGES_REQUESTED, implement on APPROVED or
+  BLOCKED_DESIGN.
 - `simplify pass` -> cut duplication, dead code and needless layers in the branch diff only;
   behaviour stays the same.
 
