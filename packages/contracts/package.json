@@ -9,6 +9,9 @@
   "scripts": {
     "typecheck": "tsc --noEmit -p ."
   },
+  "dependencies": {
+    "zod": "catalog:"
+  },
   "devDependencies": {
     "@spur-board/testkit": "workspace:*"
   }
