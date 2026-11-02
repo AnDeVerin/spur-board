@@ -4,7 +4,13 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, readdirSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { parseNameStatus, planCheck, resolveBase, type ChangedFile } from './check-plan.ts';
+import {
+  parseCheckArgs,
+  parseNameStatus,
+  planCheck,
+  resolveBase,
+  type ChangedFile,
+} from './check-plan.ts';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 
@@ -93,7 +99,12 @@ function bin(tool: string): string {
 }
 
 function main(): number {
-  const full = process.argv.includes('--full');
+  const args = parseCheckArgs(process.argv.slice(2));
+  if ('error' in args) {
+    console.log(`check: ${args.error}`);
+    return 2;
+  }
+  const { full, only } = args;
   const packageDirs = workspacePackages();
   let plan;
   if (full) {
@@ -143,6 +154,9 @@ function main(): number {
           commands: typeProjects.map((dir) => ({ cmd: bin('tsc'), args: ['--noEmit', '-p', dir] })),
         },
     plan.mode === 'full'
+      ? { name: 'knip', commands: [{ cmd: bin('knip'), args: ['--no-progress'] }] }
+      : { name: 'knip', skip: 'full check only' },
+    plan.mode === 'full'
       ? { name: 'test', commands: [{ cmd: bin('vitest'), args: ['run'] }] }
       : plan.packageDirs.length === 0
         ? { name: 'test', ...noPackages }
@@ -156,7 +170,7 @@ function main(): number {
             ],
           },
   ];
-  return runSteps(steps);
+  return runSteps(only === null ? steps : steps.filter((step) => only.has(step.name)));
 }
 
 if (import.meta.main) {

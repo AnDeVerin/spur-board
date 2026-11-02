@@ -18,3 +18,12 @@ catalog:
   '@eslint-community/eslint-plugin-eslint-comments': ^4.8.1
   prettier: ^3.9.10
   vitest: ^5.0.5
+  knip: ^6.43.0
+
+# GHSA-g3hv-75wg-m249 (moderate, minimatch < 11.0.1) reaches us only through the
+# eslint toolchain, which matches our own glob patterns. The fixed minimatch 11.0.1
+# and its new dependency are younger than minimumReleaseAge, so the override
+# that removes it waits until they mature. #82 adds that override and drops this entry.
+auditConfig:
+  ignoreGhsas:
+    - GHSA-g3hv-75wg-m249
