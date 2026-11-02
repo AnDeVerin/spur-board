@@ -71,8 +71,15 @@ unanswered, and nothing is answered twice.
   GitHub login, and it would rewrite another session's comment.
 - Sign every post: the session marker from your launch instructions, else
   `[AI-generated, session: $SPUR_SESSION]` with the variable expanded, as the last line, once.
-- Resolve a thread only when this session opened it (its first comment carries your marker).
-  Threads opened by a person or another session stay open for their author.
+- Fixed -> resolve the thread after the push and the reply:
+
+  ```
+  gh api graphql -f id=<thread-id> -f query='
+    mutation($id:ID!){resolveReviewThread(input:{threadId:$id}){thread{isResolved}}}'
+  ```
+
+- Rejected, disagreed or out of scope -> reply with the reason and leave the thread open, so its
+  author can answer or resolve it.
 
 ## 5. Repeat and report
 
