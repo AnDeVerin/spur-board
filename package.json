@@ -9,6 +9,9 @@
   "scripts": {
     "check": "node scripts/check.ts",
     "check:full": "node scripts/check.ts --full",
+    "ci:changes": "node scripts/ci.ts changes",
+    "ci:secrets-range": "node scripts/ci.ts secrets-range",
+    "ci:ok": "node scripts/ci.ts ok",
     "format": "prettier --write .",
     "gen:config-schema": "node scripts/gen-config-schema.ts",
     "lint": "eslint . --max-warnings=0",
@@ -21,6 +24,7 @@
     "@typescript/native": "catalog:",
     "@vitest/eslint-plugin": "catalog:",
     "eslint": "catalog:",
+    "knip": "catalog:",
     "prettier": "catalog:",
     "typescript": "catalog:",
     "typescript-eslint": "catalog:",
