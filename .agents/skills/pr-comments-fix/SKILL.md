@@ -11,16 +11,26 @@ unanswered, and nothing is answered twice.
 ## 1. Collect
 
 - Head commit and reviews: `gh pr view <N> --json headRefOid,reviews,comments,isDraft`.
-- Unresolved review threads (paginate when `hasNextPage` is true):
+- Review threads, every page (`--paginate` follows `endCursor` while `hasNextPage` is true):
 
   ```
-  gh api graphql -f owner=<owner> -f repo=<repo> -F pr=<N> -f query='
-    query($owner:String!,$repo:String!,$pr:Int!){repository(owner:$owner,name:$repo){
-      pullRequest(number:$pr){reviewThreads(first:100){pageInfo{hasNextPage endCursor}
-        nodes{id isResolved path line comments(first:50){nodes{body author{login}}}}}}}}'
+  gh api graphql --paginate -f owner=<owner> -f repo=<repo> -F pr=<N> -f query='
+    query($owner:String!,$repo:String!,$pr:Int!,$endCursor:String){
+      repository(owner:$owner,name:$repo){pullRequest(number:$pr){
+        reviewThreads(first:100,after:$endCursor){pageInfo{hasNextPage endCursor}
+          nodes{id isResolved path line comments(first:100){pageInfo{hasNextPage}
+            nodes{body author{login}}}}}}}}'
   ```
 
-  Keep the threads with `isResolved: false`.
+  Keep the threads with `isResolved: false`. A thread whose `comments.pageInfo.hasNextPage` is
+  true has more replies: fetch them all the same way.
+
+  ```
+  gh api graphql --paginate -f id=<thread-id> -f query='
+    query($id:ID!,$endCursor:String){node(id:$id){... on PullRequestReviewThread{
+      comments(first:100,after:$endCursor){pageInfo{hasNextPage endCursor}
+        nodes{body author{login}}}}}}'
+  ```
 - Review bodies whose `commit.oid` equals `headRefOid`, and PR conversation comments posted after
   the head commit.
 - Skip posts that carry this session's marker; they are your own.
