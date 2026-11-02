@@ -2,7 +2,16 @@ import comments from '@eslint-community/eslint-plugin-eslint-comments';
 import vitest from '@vitest/eslint-plugin';
 import { defineConfig } from 'eslint/config';
 import tseslint from 'typescript-eslint';
+import noProjectLiteralCompare from './eslint/no-project-literal-compare.ts';
 import skipNeedsFlakyIssue from './eslint/skip-needs-flaky-issue.ts';
+
+// One plugin object: ESLint rejects two different objects under the same plugin name.
+const local = {
+  rules: {
+    'no-project-literal-compare': noProjectLiteralCompare,
+    'skip-needs-flaky-issue': skipNeedsFlakyIssue,
+  },
+};
 
 export default defineConfig(
   {
@@ -39,10 +48,7 @@ export default defineConfig(
   },
   {
     files: ['packages/*/test/**/*.ts', '**/*.test.ts'],
-    plugins: {
-      vitest,
-      local: { rules: { 'skip-needs-flaky-issue': skipNeedsFlakyIssue } },
-    },
+    plugins: { vitest, local },
     rules: {
       'vitest/no-focused-tests': 'error',
       'local/skip-needs-flaky-issue': 'error',
@@ -56,5 +62,11 @@ export default defineConfig(
         },
       ],
     },
+  },
+  {
+    // Project-specific behaviour comes from the config, never from a hard-coded project id.
+    files: ['packages/core/**/*.ts'],
+    plugins: { local },
+    rules: { 'local/no-project-literal-compare': 'error' },
   },
 );
