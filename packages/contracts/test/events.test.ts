@@ -14,7 +14,9 @@ const base = {
   at: '2026-01-05T09:30:00.000Z',
   project: 'web',
   taskId: 'PROJ-1',
-  actor: 'system',
+  actor: 'agent',
+  actorRef: { project: 'web-worker', session: 'sess-1' },
+  requestId: 'req-1',
   v: EVENT_VERSION,
 } as const;
 
@@ -78,7 +80,7 @@ const samples: { [K in EventKind]: Extract<JournalEvent, { kind: K }> } = {
   block_unblocked: {
     ...base,
     kind: 'block_unblocked',
-    payload: { block: 'blk-1', outcome: 'done' },
+    payload: { block: 'blk-1', outcome: 'reason', reason: 'not needed after all' },
   },
   comment_added: {
     ...base,
@@ -160,6 +162,38 @@ describe('parseEvent', () => {
     expect(parseEvent({ ...samples.head_moved, at: '2026-01-05T09:30:00+01:00' }).status).toBe(
       'invalid',
     );
+  });
+});
+
+describe('actor', () => {
+  const { actorRef, ...withoutRef } = samples.head_moved;
+
+  it('rejects an agent event without actorRef, with its path', () => {
+    const result = parseEvent(withoutRef);
+    expect(result.status).toBe('invalid');
+    if (result.status !== 'invalid') return;
+    expect(z.prettifyError(result.error)).toContain('actorRef is required when actor is agent');
+    expect(z.prettifyError(result.error)).toContain('→ at actorRef');
+  });
+
+  it.each(['operator', 'system'] as const)('parses a %s event without actorRef', (actor) => {
+    const event = { ...withoutRef, actor };
+    expect(parseEvent(JSON.parse(JSON.stringify(event)))).toEqual({ status: 'ok', event });
+  });
+
+  it.each(['operator', 'system'] as const)('rejects a %s event with actorRef', (actor) => {
+    const result = parseEvent({ ...withoutRef, actor, actorRef });
+    expect(result.status).toBe('invalid');
+    if (result.status !== 'invalid') return;
+    expect(z.prettifyError(result.error)).toContain('→ at actorRef');
+  });
+
+  it('parses an event without requestId', () => {
+    const result = parseEvent(
+      JSON.parse(JSON.stringify({ ...samples.head_moved, requestId: undefined })),
+    );
+    expect(result.status).toBe('ok');
+    expect(result.status === 'ok' && Object.keys(result.event)).not.toContain('requestId');
   });
 });
 

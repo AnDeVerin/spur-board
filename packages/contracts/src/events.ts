@@ -87,7 +87,11 @@ export const eventPayloadSchemas = {
   task_archived: z.looseObject({ reason: z.enum(ARCHIVE_REASONS) }),
   block_opened: z.looseObject({ block: S, type: z.enum(BLOCK_TYPES), addressee: role }),
   block_escalated: z.looseObject({ block: S, from: role, to: role }),
-  block_unblocked: z.looseObject({ block: S, outcome: z.enum(BLOCK_OUTCOMES) }),
+  block_unblocked: z.looseObject({
+    block: S,
+    outcome: z.enum(BLOCK_OUTCOMES),
+    reason: S.optional(),
+  }),
   comment_added: z.looseObject({ comment: S, addressee: role }),
   comment_acked: z.looseObject({ comment: S }),
   doorbell_rung: z.looseObject({ doorbell: S, addressee: role, attempt: N }),
@@ -103,17 +107,39 @@ export const eventPayloadSchemas = {
 
 export type EventPayload<K extends EventKind> = z.output<(typeof eventPayloadSchemas)[K]>;
 
-/** One journal line. `payload` is checked against the schema for `kind` by `parseEvent`. */
-export const eventEnvelopeSchema = z.object({
-  id: S,
-  at: z.iso.datetime(),
-  project: S,
-  taskId: S.optional(),
-  kind: z.enum(EVENT_KINDS),
-  actor: z.enum(ACTORS),
-  payload: z.unknown(),
-  v: z.int().min(1),
-});
+/**
+ * One journal line. `payload` is checked against the schema for `kind` by `parseEvent`.
+ * `actorRef` names the agent (its spur project and session) and is set only when `actor` is
+ * `agent`. `requestId` links the event to the command that caused it.
+ */
+export const eventEnvelopeSchema = z
+  .object({
+    id: S,
+    at: z.iso.datetime(),
+    project: S,
+    taskId: S.optional(),
+    kind: z.enum(EVENT_KINDS),
+    actor: z.enum(ACTORS),
+    actorRef: z.object({ project: S, session: S }).optional(),
+    requestId: S.optional(),
+    payload: z.unknown(),
+    v: z.int().min(1),
+  })
+  .superRefine((event, ctx) => {
+    if (event.actor === 'agent' && event.actorRef === undefined) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['actorRef'],
+        message: 'actorRef is required when actor is agent',
+      });
+    } else if (event.actor !== 'agent' && event.actorRef !== undefined) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['actorRef'],
+        message: `actorRef is set only when actor is agent, not ${event.actor}`,
+      });
+    }
+  });
 export type EventEnvelope = z.output<typeof eventEnvelopeSchema>;
 
 export type JournalEvent = {
