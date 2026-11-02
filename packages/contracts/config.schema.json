@@ -1,0 +1,150 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "projects": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+          "tracker": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "type": { "type": "string", "const": "jira" },
+                  "baseUrl": { "type": "string", "format": "uri" },
+                  "jql": { "type": "string", "minLength": 1 },
+                  "doneStatuses": {
+                    "minItems": 1,
+                    "type": "array",
+                    "items": { "type": "string", "minLength": 1 }
+                  },
+                  "readyStatuses": {
+                    "minItems": 1,
+                    "type": "array",
+                    "items": { "type": "string", "minLength": 1 }
+                  }
+                },
+                "required": ["type", "baseUrl", "jql", "doneStatuses", "readyStatuses"],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": { "type": "string", "const": "github-issues" },
+                  "repo": { "type": "string", "pattern": "^[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+$" },
+                  "label": { "type": "string", "minLength": 1 },
+                  "milestone": { "type": "string", "minLength": 1 }
+                },
+                "required": ["type", "repo"],
+                "additionalProperties": false
+              }
+            ]
+          },
+          "repos": {
+            "minItems": 1,
+            "type": "array",
+            "items": { "type": "string", "pattern": "^[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+$" }
+          },
+          "operatorGithubLogin": { "type": "string", "pattern": "^[A-Za-z0-9-]{1,39}$" },
+          "spurProjects": {
+            "default": [],
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": { "type": "string", "minLength": 1 },
+                "role": { "type": "string", "enum": ["worker", "operator"] }
+              },
+              "required": ["name", "role"],
+              "additionalProperties": false
+            }
+          },
+          "columns": {
+            "default": [
+              { "column": "To Do", "orchestrator": "none" },
+              { "column": "Ready for Dev", "orchestrator": "none" },
+              { "column": "Dev", "orchestrator": "none" },
+              { "column": "Review", "orchestrator": "none" },
+              { "column": "QA", "orchestrator": "none" },
+              { "column": "Ready to Merge", "orchestrator": "none" },
+              { "column": "Done", "orchestrator": "none" }
+            ],
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "column": {
+                  "type": "string",
+                  "enum": [
+                    "To Do",
+                    "Ready for Dev",
+                    "Dev",
+                    "Review",
+                    "QA",
+                    "Ready to Merge",
+                    "Done"
+                  ]
+                },
+                "orchestrator": { "default": "none", "type": "string", "minLength": 1 }
+              },
+              "required": ["column"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["id", "tracker", "repos", "operatorGithubLogin"],
+        "additionalProperties": false
+      }
+    },
+    "operator": {
+      "type": "object",
+      "properties": { "slack": { "type": "string", "minLength": 1 } },
+      "required": ["slack"],
+      "additionalProperties": false
+    },
+    "thresholds": {
+      "default": {},
+      "type": "object",
+      "properties": { "staleMultiplier": { "default": 3, "type": "number", "minimum": 1 } },
+      "additionalProperties": false
+    },
+    "archive": {
+      "default": {},
+      "type": "object",
+      "properties": {
+        "doneWeekday": {
+          "default": "saturday",
+          "type": "string",
+          "enum": ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+        }
+      },
+      "additionalProperties": false
+    },
+    "digest": {
+      "type": "object",
+      "properties": { "tz": { "type": "string" } },
+      "required": ["tz"],
+      "additionalProperties": false
+    },
+    "commands": {
+      "default": {},
+      "type": "object",
+      "properties": {
+        "retentionDays": {
+          "default": 7,
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "required": ["projects", "operator", "digest"],
+  "additionalProperties": false
+}

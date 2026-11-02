@@ -1,0 +1,21 @@
+projects:
+  - id: board
+    tracker:
+      type: github-issues
+      repo: example-org/board
+      label: board
+    repos: [example-org/board]
+    operatorGithubLogin: octocat
+    columns:
+      - column: To Do
+      - column: Ready for Dev
+      - column: Dev
+      - column: Review
+      - column: QA
+        orchestrator: operator
+      - column: Ready to Merge
+      - column: Done
+operator:
+  slack: U0000000000
+digest:
+  tz: UTC

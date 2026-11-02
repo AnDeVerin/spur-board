@@ -1,0 +1,26 @@
+projects:
+  - id: web
+    tracker:
+      type: jira
+      baseUrl: https://example.atlassian.net
+      jql: project = PROJ AND labels = web
+      doneStatuses: [Done]
+      readyStatuses: [Ready for Dev]
+    repos: [example-org/web]
+    operatorGithubLogin: octocat
+    spurProjects:
+      - name: qa-bot
+        role: worker
+    columns:
+      - column: To Do
+      - column: Ready for Dev
+      - column: Dev
+      - column: Review
+      - column: QA
+        orchestrator: qa-bot
+      - column: Ready to Merge
+      - column: Done
+operator:
+  slack: U0000000000
+digest:
+  tz: Europe/Berlin
