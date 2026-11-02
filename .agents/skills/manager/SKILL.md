@@ -66,10 +66,10 @@ higher tier's team from the current gate. Never lower a tier.
 
 The numbers are the canonical gate order.
 
-1. Intake - `gh issue view <N> --comments`, plus the design notes its "Design notes" section cites
-   when the session gives access; public text never quotes private notes. `git fetch origin
-   main` once; pass the `origin/main` SHA to every role, roles never fetch. Write checkable
-   acceptance criteria.
+1. Intake - `gh issue view <N> --json title,body,comments` (without a TTY, `--comments` prints
+   only the comments), plus the design notes its "Design notes" section cites when the session
+   gives access; public text never quotes private notes. `git fetch origin main` once; pass the
+   `origin/main` SHA to every role, roles never fetch. Write checkable acceptance criteria.
 2. Tier - score as above. Tier 0 or 3: run Clarify (step 6) here only if intake left an unknown.
 3. Research (tier 2) - `researcher`, then `critic` on its output. Keep the selected option and
    `Split possible`; yes -> the architect splits the change map into scopes with disjoint files.
