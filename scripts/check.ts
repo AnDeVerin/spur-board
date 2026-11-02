@@ -41,21 +41,27 @@ export function statusLine(code: number): string {
   return code === 0 ? 'CHECK PASS' : `CHECK FAIL (exit ${String(code)})`;
 }
 
-function git(args: string[]): string | null {
+/** Raw git stdout, or null when git fails. List output uses -z, so it is never trimmed. */
+function gitRaw(args: string[]): string | null {
   const result = spawnSync('git', ['-c', 'core.quotePath=false', ...args], {
     cwd: root,
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'ignore'],
   });
-  return result.status === 0 ? result.stdout.trim() : null;
+  return result.status === 0 ? result.stdout : null;
+}
+
+/** A single-value git output (a SHA or `true`), trimmed. */
+function git(args: string[]): string | null {
+  return gitRaw(args)?.trim() ?? null;
 }
 
 function changedFiles(sha: string): ChangedFile[] {
-  const diff = git(['diff', '--no-renames', '--name-status', sha]);
-  const untracked = git(['ls-files', '--others', '--exclude-standard']);
+  const diff = gitRaw(['diff', '--no-renames', '--name-status', '-z', sha]);
+  const untracked = gitRaw(['ls-files', '--others', '--exclude-standard', '-z']);
   if (diff === null || untracked === null) throw new Error('git could not list changed files');
   const files = parseNameStatus(diff);
-  for (const path of untracked.split('\n')) {
+  for (const path of untracked.split('\0')) {
     if (path !== '') files.push({ path, deleted: false });
   }
   return files;

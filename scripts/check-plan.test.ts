@@ -46,7 +46,7 @@ describe('resolveBase', () => {
 
 describe('parseNameStatus', () => {
   it('marks only D as deleted', () => {
-    expect(parseNameStatus('M\ta.ts\nA\tb.ts\nD\tc.ts\n')).toEqual([
+    expect(parseNameStatus('M\0a.ts\0A\0b.ts\0D\0c.ts\0')).toEqual([
       { path: 'a.ts', deleted: false },
       { path: 'b.ts', deleted: false },
       { path: 'c.ts', deleted: true },
@@ -54,21 +54,29 @@ describe('parseNameStatus', () => {
   });
 
   it('reads a --no-renames rename as D plus A', () => {
-    expect(parseNameStatus('D\told.ts\nA\tnew.ts')).toEqual([
+    expect(parseNameStatus('D\0old.ts\0A\0new.ts\0')).toEqual([
       { path: 'old.ts', deleted: true },
       { path: 'new.ts', deleted: false },
     ]);
   });
 
-  it('reads a three-field rename line', () => {
-    expect(parseNameStatus('R100\told\tnew')).toEqual([
+  it('reads a rename entry with two paths', () => {
+    expect(parseNameStatus('R100\0old\0new\0M\0after.ts\0')).toEqual([
       { path: 'old', deleted: true },
       { path: 'new', deleted: false },
+      { path: 'after.ts', deleted: false },
     ]);
   });
 
-  it('reads a three-field copy line as the new path only', () => {
-    expect(parseNameStatus('C100\tsrc\tnew')).toEqual([{ path: 'new', deleted: false }]);
+  it('reads a copy entry as the new path only', () => {
+    expect(parseNameStatus('C100\0src\0new\0')).toEqual([{ path: 'new', deleted: false }]);
+  });
+
+  it('keeps tabs, newlines and a trailing space in a path', () => {
+    expect(parseNameStatus('M\0a b.ts \0A\0tab\tand\nnewline.ts\0')).toEqual([
+      { path: 'a b.ts ', deleted: false },
+      { path: 'tab\tand\nnewline.ts', deleted: false },
+    ]);
   });
 });
 

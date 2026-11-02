@@ -24,18 +24,26 @@ export interface ChangedFile {
   deleted: boolean;
 }
 
-/** Parses `git diff --name-status` output. Run it with `--no-renames`; R/C lines are a fallback. */
+/**
+ * Parses `git diff --name-status -z` output: NUL-separated fields, a status then its path,
+ * or two paths for R/C. Run it with `--no-renames`; R/C entries are a fallback.
+ */
 export function parseNameStatus(text: string): ChangedFile[] {
   const files: ChangedFile[] = [];
-  for (const line of text.split('\n')) {
-    const [status = '', first, second] = line.split('\t');
-    if (first === undefined) continue;
-    if (status.startsWith('R') && second !== undefined) {
-      files.push({ path: first, deleted: true }, { path: second, deleted: false });
-    } else if (status.startsWith('C') && second !== undefined) {
+  const fields = text.split('\0');
+  let i = 0;
+  while (i < fields.length) {
+    const status = fields[i] ?? '';
+    const first = fields[i + 1];
+    if (status === '' || first === undefined) break;
+    if (status.startsWith('R') || status.startsWith('C')) {
+      const second = fields[i + 2] ?? '';
+      if (status.startsWith('R')) files.push({ path: first, deleted: true });
       files.push({ path: second, deleted: false });
+      i += 3;
     } else {
       files.push({ path: first, deleted: status === 'D' });
+      i += 2;
     }
   }
   return files;
