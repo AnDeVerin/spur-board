@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { COLUMNS } from './enums.ts';
+import { COLUMN_IDS, REQUIRED_COLUMN_IDS } from './enums.ts';
 
 export const WEEKDAYS = [
   'monday',
@@ -66,9 +66,50 @@ const spurProject = z.strictObject({
 });
 
 const columnConfig = z.strictObject({
-  column: z.enum(COLUMNS),
+  id: z.enum(COLUMN_IDS, {
+    error: (issue) =>
+      typeof issue.input === 'string'
+        ? `Unknown column ${JSON.stringify(issue.input)}: custom columns arrive with custom matchers and are not supported yet. Built-in columns: ${COLUMN_IDS.join(', ')}`
+        : undefined,
+  }),
+  enabled: z.boolean().default(true),
   orchestrator: nonEmpty.default('none'),
 });
+
+type ColumnConfig = z.output<typeof columnConfig>;
+
+/** The board rules: required columns present and enabled, built-ins in canonical order. */
+function checkBoard(items: readonly ColumnConfig[], ctx: z.RefinementCtx): void {
+  rejectDuplicates(items, 'id', 'column', ctx);
+  for (const required of REQUIRED_COLUMN_IDS) {
+    const i = items.findIndex((item) => item.id === required);
+    if (i === -1) {
+      ctx.addIssue({
+        code: 'custom',
+        path: [],
+        message: `Missing required column ${JSON.stringify(required)}`,
+      });
+    } else if (!items[i]?.enabled) {
+      ctx.addIssue({
+        code: 'custom',
+        path: [i, 'enabled'],
+        message: `Required column ${JSON.stringify(required)} cannot be disabled`,
+      });
+    }
+  }
+  let previous = -1;
+  items.forEach((item, i) => {
+    const position = COLUMN_IDS.indexOf(item.id);
+    if (position < previous) {
+      ctx.addIssue({
+        code: 'custom',
+        path: [i, 'id'],
+        message: `Column ${JSON.stringify(item.id)} is out of order: built-in columns go in the order ${COLUMN_IDS.join(', ')}`,
+      });
+    }
+    previous = Math.max(previous, position);
+  });
+}
 
 const projectSchema = z
   .strictObject({
@@ -84,11 +125,8 @@ const projectSchema = z
       .default([]),
     columns: z
       .array(columnConfig)
-      .min(1)
-      .superRefine((items, ctx) => {
-        rejectDuplicates(items, 'column', 'column', ctx);
-      })
-      .default(() => COLUMNS.map((column) => ({ column, orchestrator: 'none' }))),
+      .superRefine(checkBoard)
+      .default(() => COLUMN_IDS.map((id) => ({ id, enabled: true, orchestrator: 'none' }))),
   })
   .superRefine((project, ctx) => {
     const spurNames = new Set(project.spurProjects.map((p) => p.name));

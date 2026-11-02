@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import YAML from 'yaml';
 import { z } from 'zod';
-import { COLUMNS, configJsonSchema, configSchema } from '../src/index.ts';
+import { COLUMN_IDS, configJsonSchema, configSchema } from '../src/index.ts';
 
 function readFixture(name: string): unknown {
   return YAML.parse(readFileSync(new URL(`fixtures/${name}`, import.meta.url), 'utf8'));
@@ -45,7 +45,7 @@ function withoutOperator(): Record<string, unknown> {
 }
 
 const githubTracker = { type: 'github-issues', repo: 'example-org/board' };
-const columns = (...names: string[]) => names.map((column) => ({ column }));
+const columns = (...ids: string[]) => ids.map((id) => ({ id }));
 
 /** The error printed for an invalid config, or a failure if it parsed. */
 function errorFor(input: unknown): string {
@@ -69,8 +69,12 @@ describe('fixtures', () => {
     expect(config.commands.retentionDays).toBe(7);
     const project = config.projects[0];
     expect(project?.spurProjects).toEqual([{ name: 'qa-bot', role: 'worker' }]);
-    expect(project?.columns.map((c) => [c.column, c.orchestrator])).toEqual(
-      COLUMNS.map((column) => [column, column === 'QA' ? 'qa-bot' : 'none']),
+    expect(project?.columns).toEqual(
+      COLUMN_IDS.map((id) => ({
+        id,
+        enabled: true,
+        orchestrator: id === 'qa' ? 'qa-bot' : 'none',
+      })),
     );
   });
 
@@ -81,19 +85,20 @@ describe('fixtures', () => {
     expect(config.commands.retentionDays).toBe(7);
     const project = config.projects[0];
     expect(project?.spurProjects).toEqual([]);
-    expect(project?.columns.find((c) => c.column === 'QA')?.orchestrator).toBe('operator');
+    expect(project?.columns.find((c) => c.id === 'qa')?.orchestrator).toBe('operator');
+    expect(project?.columns.filter((c) => !c.enabled).map((c) => c.id)).toEqual(['ready-for-dev']);
   });
 
-  it('gives a project without columns all seven columns, orchestrator none', () => {
+  it('gives a project without columns all seven columns, enabled, orchestrator none', () => {
     const config = configSchema.parse(validConfig());
     expect(config.projects[0]?.columns).toEqual([
-      { column: 'To Do', orchestrator: 'none' },
-      { column: 'Ready for Dev', orchestrator: 'none' },
-      { column: 'Dev', orchestrator: 'none' },
-      { column: 'Review', orchestrator: 'none' },
-      { column: 'QA', orchestrator: 'none' },
-      { column: 'Ready to Merge', orchestrator: 'none' },
-      { column: 'Done', orchestrator: 'none' },
+      { id: 'todo', enabled: true, orchestrator: 'none' },
+      { id: 'ready-for-dev', enabled: true, orchestrator: 'none' },
+      { id: 'dev', enabled: true, orchestrator: 'none' },
+      { id: 'review', enabled: true, orchestrator: 'none' },
+      { id: 'qa', enabled: true, orchestrator: 'none' },
+      { id: 'ready-to-merge', enabled: true, orchestrator: 'none' },
+      { id: 'done', enabled: true, orchestrator: 'none' },
     ]);
     expect(config.projects[0]?.spurProjects).toEqual([]);
   });
@@ -108,10 +113,16 @@ describe('invalid configs', () => {
       'projects[0].tracker',
     ],
     [
-      'column outside the enum',
-      validConfig({ columns: columns('Foo') }),
-      'Invalid option',
-      'projects[0].columns[0].column',
+      'custom column id',
+      validConfig({ columns: columns('todo', 'triage', 'dev', 'done') }),
+      'Unknown column "triage": custom columns arrive with custom matchers and are not supported yet',
+      'projects[0].columns[1].id',
+    ],
+    [
+      'column display name instead of its id',
+      validConfig({ columns: columns('todo', 'QA', 'dev', 'done') }),
+      'Unknown column "QA"',
+      'projects[0].columns[1].id',
     ],
     [
       'duplicate project id',
@@ -121,20 +132,41 @@ describe('invalid configs', () => {
     ],
     [
       'duplicate column',
-      validConfig({ columns: columns('QA', 'QA') }),
-      'Duplicate column: "QA"',
-      'projects[0].columns[1].column',
+      validConfig({ columns: columns('todo', 'dev', 'qa', 'qa', 'done') }),
+      'Duplicate column: "qa"',
+      'projects[0].columns[3].id',
+    ],
+    [
+      'missing required column',
+      validConfig({ columns: columns('todo', 'review', 'done') }),
+      'Missing required column "dev"',
+      'projects[0].columns',
+    ],
+    [
+      'disabled required column',
+      validConfig({
+        columns: [...columns('todo'), { id: 'dev', enabled: false }, ...columns('done')],
+      }),
+      'Required column "dev" cannot be disabled',
+      'projects[0].columns[1].enabled',
+    ],
+    [
+      'built-in columns out of order',
+      validConfig({ columns: columns('todo', 'dev', 'qa', 'review', 'done') }),
+      'Column "review" is out of order: built-in columns go in the order todo, ready-for-dev, dev, review, qa, ready-to-merge, done',
+      'projects[0].columns[3].id',
     ],
     [
       'unknown orchestrator',
       validConfig({
         columns: [
-          ...columns('To Do', 'Ready for Dev', 'Dev', 'Review'),
-          { column: 'QA', orchestrator: 'ghost' },
+          ...columns('todo', 'dev'),
+          { id: 'qa', orchestrator: 'ghost' },
+          ...columns('done'),
         ],
       }),
       'Unknown orchestrator "ghost"',
-      'projects[0].columns[4].orchestrator',
+      'projects[0].columns[2].orchestrator',
     ],
     [
       'github-issues with label and milestone',
@@ -187,6 +219,12 @@ describe('invalid configs', () => {
     ['time zone UTC', {}, { digest: { tz: 'UTC' } }],
     ['github-issues with only a label', { tracker: { ...githubTracker, label: 'board' } }, {}],
     ['github-issues with only a milestone', { tracker: { ...githubTracker, milestone: 'v1' } }, {}],
+    ['a board without the optional columns', { columns: columns('todo', 'dev', 'done') }, {}],
+    [
+      'disabled optional columns',
+      { columns: [...columns('todo', 'dev'), { id: 'qa', enabled: false }, ...columns('done')] },
+      {},
+    ],
   ])('accepts %s', (_name, project, root) => {
     expect(configSchema.safeParse(validConfig(project, root)).success).toBe(true);
   });

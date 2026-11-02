@@ -63,17 +63,17 @@ const samples: { [K in EventKind]: Extract<JournalEvent, { kind: K }> } = {
     kind: 'link_removed',
     payload: { entity: 'session', session: 'sess-1' },
   },
-  task_added: { ...base, kind: 'task_added', payload: { column: 'To Do' } },
+  task_added: { ...base, kind: 'task_added', payload: { column: 'todo' } },
   task_archived: { ...base, kind: 'task_archived', payload: { reason: 'done' } },
   block_opened: {
     ...base,
     kind: 'block_opened',
-    payload: { block: 'blk-1', type: 'needs_input', addressee: 'orchestrator:QA' },
+    payload: { block: 'blk-1', type: 'needs_input', addressee: 'orchestrator:qa' },
   },
   block_escalated: {
     ...base,
     kind: 'block_escalated',
-    payload: { block: 'blk-1', from: 'orchestrator:QA', to: 'operator' },
+    payload: { block: 'blk-1', from: 'orchestrator:qa', to: 'operator' },
   },
   block_unblocked: {
     ...base,
@@ -166,18 +166,15 @@ describe('parseEvent', () => {
 describe('addressee role', () => {
   const opened = samples.block_opened.payload;
 
-  it('rejects an orchestrator of an unknown column', () => {
-    const result = eventPayloadSchemas.block_opened.safeParse({
-      ...opened,
-      addressee: 'orchestrator:Foo',
-    });
+  it.each(['orchestrator:Foo', 'orchestrator:QA'])('rejects %s', (addressee) => {
+    const result = eventPayloadSchemas.block_opened.safeParse({ ...opened, addressee });
     expect(result.success).toBe(false);
   });
 
-  it('accepts an orchestrator of a board column', () => {
+  it('accepts an orchestrator of a board column id', () => {
     const result = eventPayloadSchemas.block_opened.safeParse({
       ...opened,
-      addressee: 'orchestrator:Ready to Merge',
+      addressee: 'orchestrator:ready-to-merge',
     });
     expect(result.success).toBe(true);
   });

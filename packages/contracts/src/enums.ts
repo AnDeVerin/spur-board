@@ -1,14 +1,25 @@
-/** Board columns, left to right. */
+/**
+ * Built-in board columns in canonical order, left to right. Everything stored or addressed
+ * (journal, store, addressee roles) uses the `id`; `name` is display text only.
+ */
 export const COLUMNS = [
-  'To Do',
-  'Ready for Dev',
-  'Dev',
-  'Review',
-  'QA',
-  'Ready to Merge',
-  'Done',
+  { id: 'todo', name: 'To Do', required: true },
+  { id: 'ready-for-dev', name: 'Ready for Dev', required: false },
+  { id: 'dev', name: 'Dev', required: true },
+  { id: 'review', name: 'Review', required: false },
+  { id: 'qa', name: 'QA', required: false },
+  { id: 'ready-to-merge', name: 'Ready to Merge', required: false },
+  { id: 'done', name: 'Done', required: true },
 ] as const;
-export type Column = (typeof COLUMNS)[number];
+export type ColumnId = (typeof COLUMNS)[number]['id'];
+
+/** Column ids in canonical order. */
+export const COLUMN_IDS: readonly ColumnId[] = COLUMNS.map((column) => column.id);
+
+/** Columns every project board has, enabled. */
+export const REQUIRED_COLUMN_IDS: readonly ColumnId[] = COLUMNS.filter(
+  (column) => column.required,
+).map((column) => column.id);
 
 /** Whether a task is on the board, outside the tracker filter, or archived. */
 export const MEMBERSHIPS = ['active', 'out_of_filter', 'archived'] as const;
@@ -27,10 +38,10 @@ export const BLOCK_OUTCOMES = ['done', 'reason', 'terminal', 'withdrawn', 'archi
 export type BlockOutcome = (typeof BLOCK_OUTCOMES)[number];
 
 /** Who a block, comment or doorbell is addressed to. */
-export type AddresseeRole = 'operator' | 'worker' | `orchestrator:${Column}`;
+export type AddresseeRole = 'operator' | 'worker' | `orchestrator:${ColumnId}`;
 export const ADDRESSEE_ROLES: readonly AddresseeRole[] = [
   'operator',
-  ...COLUMNS.map((column): AddresseeRole => `orchestrator:${column}`),
+  ...COLUMN_IDS.map((id): AddresseeRole => `orchestrator:${id}`),
   'worker',
 ];
 

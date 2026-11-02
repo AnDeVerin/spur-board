@@ -7,14 +7,15 @@ projects:
     repos: [example-org/board]
     operatorGithubLogin: octocat
     columns:
-      - column: To Do
-      - column: Ready for Dev
-      - column: Dev
-      - column: Review
-      - column: QA
+      - id: todo
+      - id: ready-for-dev
+        enabled: false
+      - id: dev
+      - id: review
+      - id: qa
         orchestrator: operator
-      - column: Ready to Merge
-      - column: Done
+      - id: ready-to-merge
+      - id: done
 operator:
   slack: U0000000000
 digest:

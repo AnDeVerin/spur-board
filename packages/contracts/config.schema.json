@@ -65,34 +65,26 @@
           },
           "columns": {
             "default": [
-              { "column": "To Do", "orchestrator": "none" },
-              { "column": "Ready for Dev", "orchestrator": "none" },
-              { "column": "Dev", "orchestrator": "none" },
-              { "column": "Review", "orchestrator": "none" },
-              { "column": "QA", "orchestrator": "none" },
-              { "column": "Ready to Merge", "orchestrator": "none" },
-              { "column": "Done", "orchestrator": "none" }
+              { "id": "todo", "enabled": true, "orchestrator": "none" },
+              { "id": "ready-for-dev", "enabled": true, "orchestrator": "none" },
+              { "id": "dev", "enabled": true, "orchestrator": "none" },
+              { "id": "review", "enabled": true, "orchestrator": "none" },
+              { "id": "qa", "enabled": true, "orchestrator": "none" },
+              { "id": "ready-to-merge", "enabled": true, "orchestrator": "none" },
+              { "id": "done", "enabled": true, "orchestrator": "none" }
             ],
-            "minItems": 1,
             "type": "array",
             "items": {
               "type": "object",
               "properties": {
-                "column": {
+                "id": {
                   "type": "string",
-                  "enum": [
-                    "To Do",
-                    "Ready for Dev",
-                    "Dev",
-                    "Review",
-                    "QA",
-                    "Ready to Merge",
-                    "Done"
-                  ]
+                  "enum": ["todo", "ready-for-dev", "dev", "review", "qa", "ready-to-merge", "done"]
                 },
+                "enabled": { "default": true, "type": "boolean" },
                 "orchestrator": { "default": "none", "type": "string", "minLength": 1 }
               },
-              "required": ["column"],
+              "required": ["id"],
               "additionalProperties": false
             }
           }
