@@ -119,3 +119,23 @@ export {
   type UnknownSessionHealth,
   type UnknownSessionStatus,
 } from './facts.ts';
+export {
+  ADAPTER_ERROR_KINDS,
+  AdapterError,
+  ENTITY_STATUSES,
+  batchItemSchema,
+  batchSchema,
+  entityRefSchema,
+  sourceCursorSchema,
+  type Adapter,
+  type AdapterErrorKind,
+  type Batch,
+  type BatchItem,
+  type EntityRef,
+  type EntityStatus,
+  type PollContext,
+  type PrEntityRef,
+  type SessionEntityRef,
+  type SourceCursor,
+  type TicketEntityRef,
+} from './adapters.ts';
