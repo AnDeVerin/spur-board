@@ -38,6 +38,13 @@ const texts = (path: string, baseText: string, headText: string): FileChange => 
   baseText,
   headText,
 });
+const diffed = (
+  path: string,
+  baseText: string,
+  headText: string,
+  removed: string[],
+  added: string[],
+): FileChange => ({ path, status: 'M', hunks: [{ removed, added }], baseText, headText });
 const json = (value: unknown, indent = 2) => `${JSON.stringify(value, null, indent)}\n`;
 
 // The shapes of the real root, contracts and testkit package.json files.
@@ -112,6 +119,30 @@ const CASES: Case[] = [
     name: 'fewer expect calls',
     flagged: texts('a.test.ts', 'expect(1);\nexpect(2);\nexpect(3);\n', 'expect(1);\nexpect(2);\n'),
     clean: texts('a.test.ts', 'expect(1);\nexpect(2);\n', 'expect(1);\nexpect(2);\nexpect(3);\n'),
+  },
+  {
+    rule: 'fewer-expects',
+    name: 'expect moved into JSX text in a .tsx test',
+    flagged: diffed(
+      'a.test.tsx',
+      'expect(x).toBe(1);\n',
+      'render(<div>expect(x)</div>);\n',
+      ['expect(x).toBe(1);'],
+      ['render(<div>expect(x)</div>);'],
+    ),
+    clean: diffed('a.test.tsx', 'expect(x);\n', 'expect(x);\nexpect(y);\n', [], ['expect(y);']),
+  },
+  {
+    rule: 'fewer-expects',
+    name: 'removed expect line in a .jsx test; the removed-line rule is JSX-only',
+    flagged: diffed('a.test.jsx', 'expect(x);\n', 'expect(y);\n', ['expect(x);'], ['expect(y);']),
+    clean: diffed(
+      'a.test.ts',
+      'expect(x);\n',
+      'expect(y);\nexpect(z);\n',
+      ['expect(x);'],
+      ['expect(y);', 'expect(z);'],
+    ),
   },
   {
     rule: 'added-skip',

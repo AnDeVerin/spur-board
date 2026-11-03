@@ -242,9 +242,11 @@ function codeOnly(source: string): string {
   return code;
 }
 
+const EXPECT_CALL = /\bexpect(?:\.soft)?\s*\(|\bexpectTypeOf\s*\(/;
+
 /** `expect(`, `expect.soft(` and `expectTypeOf(` calls in code, outside comments and literals. */
 export function countExpects(source: string): number {
-  return codeOnly(source).match(/\bexpect(?:\.soft)?\s*\(|\bexpectTypeOf\s*\(/g)?.length ?? 0;
+  return codeOnly(source).match(new RegExp(EXPECT_CALL, 'g'))?.length ?? 0;
 }
 
 /**
@@ -309,7 +311,12 @@ function rulesFor(file: FileChange): RuleId[] {
   if (
     status === 'M' &&
     isTest(path) &&
-    (texts === null || countExpects(texts.headText) < countExpects(texts.baseText))
+    (texts === null ||
+      countExpects(texts.headText) < countExpects(texts.baseText) ||
+      // JSX text is not parsed: `<div>expect(x)</div>` would keep the count, so any removed
+      // expect line in a JSX test counts.
+      (/\.[jt]sx$/.test(path) &&
+        file.hunks.some((hunk) => hunk.removed.some((line) => EXPECT_CALL.test(line)))))
   ) {
     rules.push('fewer-expects');
   }
