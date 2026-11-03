@@ -10,12 +10,6 @@ export type TypedRef =
   | { kind: 'block' | 'comment' | 'item'; text: string; n: number }
   | { kind: 'task'; text: string; form: 'jira' | 'github' | 'github-short' };
 
-const NUMBERED = [
-  { kind: 'block', prefix: 'B' },
-  { kind: 'comment', prefix: 'C' },
-  { kind: 'item', prefix: 'I' },
-] as const;
-
 const N = '[1-9]\\d*';
 const TASK_FORMS = [
   { form: 'jira', source: `[A-Za-z][A-Za-z0-9_]*-${N}` },
@@ -29,11 +23,11 @@ const PATTERNS: Record<RefKind, string> = {
   item: `^I${N}$`,
   task: `^(?:${TASK_FORMS.map((t) => t.source).join('|')})$`,
 };
+const NUMBERED_KINDS = ['block', 'comment', 'item'] as const;
 
 function matchRef(text: string): TypedRef | null {
-  for (const { kind, prefix } of NUMBERED) {
-    const match = new RegExp(`^${prefix}(${N})$`).exec(text);
-    if (match?.[1] !== undefined) return { kind, text, n: Number(match[1]) };
+  for (const kind of NUMBERED_KINDS) {
+    if (new RegExp(PATTERNS[kind]).test(text)) return { kind, text, n: Number(text.slice(1)) };
   }
   for (const { form, source } of TASK_FORMS) {
     if (new RegExp(`^${source}$`).test(text)) return { kind: 'task', text, form };
@@ -133,7 +127,7 @@ export function encodeActorId(value: {
 }): ActorId {
   const { actor, actorRef } = value;
   if (actor !== 'agent') {
-    if (actorRef !== undefined) throw new Error(`actorRef is set only when actor is agent`);
+    if (actorRef !== undefined) throw new Error('actorRef is set only when actor is agent');
     return actor;
   }
   if (actorRef === undefined) throw new Error('actorRef is required when actor is agent');
