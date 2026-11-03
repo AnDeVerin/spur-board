@@ -1,5 +1,5 @@
 {
-  "version": "764845f3ff1bf359cfe3503195a8c2f77f72d94a7c0851698930aec98145d9d2",
+  "version": "f915d190bccd27f0b8e347212f45d3236301bfeeed57210060e6ebf06965d337",
   "grants": [
     "operator",
     "project-agent",
@@ -141,7 +141,7 @@
               "properties": {
                 "key": {
                   "type": "string",
-                  "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d*|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d*|[A-Za-z0-9._-]+#[1-9]\\d*)$",
+                  "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
                   "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
                 },
                 "project": {
@@ -231,7 +231,7 @@
         "properties": {
           "task": {
             "type": "string",
-            "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d*|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d*|[A-Za-z0-9._-]+#[1-9]\\d*)$",
+            "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
             "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
           }
         },
@@ -247,7 +247,7 @@
             "properties": {
               "key": {
                 "type": "string",
-                "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d*|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d*|[A-Za-z0-9._-]+#[1-9]\\d*)$",
+                "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
                 "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
               },
               "project": {
@@ -282,7 +282,7 @@
                 },
                 "task": {
                   "type": "string",
-                  "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d*|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d*|[A-Za-z0-9._-]+#[1-9]\\d*)$",
+                  "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
                   "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
                 },
                 "type": {
@@ -435,7 +435,7 @@
         "properties": {
           "task": {
             "type": "string",
-            "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d*|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d*|[A-Za-z0-9._-]+#[1-9]\\d*)$",
+            "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
             "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
           }
         },
@@ -451,7 +451,7 @@
             "properties": {
               "key": {
                 "type": "string",
-                "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d*|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d*|[A-Za-z0-9._-]+#[1-9]\\d*)$",
+                "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
                 "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
               },
               "project": {
@@ -870,7 +870,7 @@
                 },
                 "task": {
                   "type": "string",
-                  "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d*|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d*|[A-Za-z0-9._-]+#[1-9]\\d*)$",
+                  "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
                   "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
                 },
                 "type": {
@@ -1040,7 +1040,7 @@
         "properties": {
           "task": {
             "type": "string",
-            "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d*|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d*|[A-Za-z0-9._-]+#[1-9]\\d*)$",
+            "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
             "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
           }
         },
@@ -1056,7 +1056,7 @@
             "properties": {
               "key": {
                 "type": "string",
-                "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d*|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d*|[A-Za-z0-9._-]+#[1-9]\\d*)$",
+                "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
                 "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
               },
               "project": {
@@ -1122,7 +1122,7 @@
         "properties": {
           "task": {
             "type": "string",
-            "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d*|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d*|[A-Za-z0-9._-]+#[1-9]\\d*)$",
+            "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
             "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
           }
         },
@@ -1138,7 +1138,7 @@
             "properties": {
               "key": {
                 "type": "string",
-                "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d*|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d*|[A-Za-z0-9._-]+#[1-9]\\d*)$",
+                "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
                 "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
               },
               "project": {
@@ -1197,7 +1197,7 @@
         "properties": {
           "task": {
             "type": "string",
-            "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d*|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d*|[A-Za-z0-9._-]+#[1-9]\\d*)$",
+            "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
             "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
           },
           "target": {
@@ -1215,7 +1215,7 @@
         "properties": {
           "task": {
             "type": "string",
-            "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d*|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d*|[A-Za-z0-9._-]+#[1-9]\\d*)$",
+            "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
             "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
           },
           "target": {
@@ -1259,7 +1259,7 @@
         "properties": {
           "task": {
             "type": "string",
-            "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d*|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d*|[A-Za-z0-9._-]+#[1-9]\\d*)$",
+            "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
             "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
           },
           "target": {
@@ -1277,7 +1277,7 @@
         "properties": {
           "task": {
             "type": "string",
-            "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d*|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d*|[A-Za-z0-9._-]+#[1-9]\\d*)$",
+            "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
             "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
           },
           "target": {
@@ -1352,7 +1352,7 @@
                 "anyOf": [
                   {
                     "type": "string",
-                    "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d*|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d*|[A-Za-z0-9._-]+#[1-9]\\d*)$",
+                    "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
                     "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
                   },
                   { "type": "null" }
@@ -1439,7 +1439,7 @@
                 "anyOf": [
                   {
                     "type": "string",
-                    "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d*|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d*|[A-Za-z0-9._-]+#[1-9]\\d*)$",
+                    "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
                     "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
                   },
                   { "type": "null" }
@@ -1509,7 +1509,7 @@
         "properties": {
           "task": {
             "type": "string",
-            "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d*|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d*|[A-Za-z0-9._-]+#[1-9]\\d*)$",
+            "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
             "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
           },
           "text": { "type": "string", "minLength": 1, "description": "The question." }
@@ -1531,7 +1531,7 @@
               },
               "task": {
                 "type": "string",
-                "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d*|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d*|[A-Za-z0-9._-]+#[1-9]\\d*)$",
+                "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
                 "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
               },
               "type": {
@@ -1646,7 +1646,7 @@
         "properties": {
           "task": {
             "type": "string",
-            "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d*|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d*|[A-Za-z0-9._-]+#[1-9]\\d*)$",
+            "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
             "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
           },
           "text": { "type": "string", "minLength": 1, "description": "Comment text." }
@@ -1743,7 +1743,7 @@
         "properties": {
           "task": {
             "type": "string",
-            "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d*|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d*|[A-Za-z0-9._-]+#[1-9]\\d*)$",
+            "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
             "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
           },
           "type": {
@@ -1770,7 +1770,7 @@
               },
               "task": {
                 "type": "string",
-                "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d*|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d*|[A-Za-z0-9._-]+#[1-9]\\d*)$",
+                "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
                 "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
               },
               "type": {
@@ -1911,7 +1911,7 @@
               },
               "task": {
                 "type": "string",
-                "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d*|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d*|[A-Za-z0-9._-]+#[1-9]\\d*)$",
+                "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
                 "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
               },
               "type": {
@@ -2061,7 +2061,7 @@
               },
               "task": {
                 "type": "string",
-                "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d*|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d*|[A-Za-z0-9._-]+#[1-9]\\d*)$",
+                "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
                 "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
               },
               "type": {
@@ -2323,7 +2323,7 @@
               },
               "task": {
                 "type": "string",
-                "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d*|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d*|[A-Za-z0-9._-]+#[1-9]\\d*)$",
+                "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
                 "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
               },
               "type": {

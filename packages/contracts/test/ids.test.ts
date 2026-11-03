@@ -51,6 +51,21 @@ describe('typed refs', () => {
     }
   });
 
+  it.each([
+    ['PROJ-', 'jira'],
+    ['acme/web#', 'github'],
+    ['web#', 'github-short'],
+  ] as const)('caps the number of a %s task key at 15 digits (%s)', (stem, form) => {
+    expect(parseRef(`${stem}999999999999999`)).toMatchObject({ ok: true, value: { form } });
+    for (const n of ['1000000000000000', '9007199254740992']) {
+      expect(parseRef(`${stem}${n}`)).toEqual({ ok: false, error: 'usage' });
+      expect(taskKeySchema.safeParse(`${stem}${n}`).success).toBe(false);
+    }
+    const pattern = new RegExp(String(z.toJSONSchema(taskKeySchema).pattern));
+    expect(pattern.test(`${stem}999999999999999`)).toBe(true);
+    expect(pattern.test(`${stem}1000000000000000`)).toBe(false);
+  });
+
   it('gives wrong_id_kind for a valid ID of another kind', () => {
     expect(parseRef('PROJ-123', 'block')).toEqual({ ok: false, error: 'wrong_id_kind' });
     expect(parseRef('B12', 'task')).toEqual({ ok: false, error: 'wrong_id_kind' });
