@@ -45,23 +45,6 @@ export const KIND_PRIORITY = {
 const persona = z.strictObject({ name: z.string().min(1), role: z.enum(PERSONA_ROLES) });
 const id = z.int().positive();
 
-const openPayload = z.strictObject({
-  key: taskKeySchema,
-  title: z.string().min(1),
-  text: z.string(),
-  persona,
-  taskId: id,
-  blockId: id,
-  commentId: id.nullable(),
-});
-const replyPayload = z.strictObject({
-  key: taskKeySchema,
-  text: z.string(),
-  persona,
-  taskId: id,
-  blockId: id,
-  commentId: id,
-});
 const closePayload = z.strictObject({
   key: taskKeySchema,
   text: z.string(),
@@ -70,14 +53,8 @@ const closePayload = z.strictObject({
   blockId: id,
   commentId: id.nullable(),
 });
-const feedLinePayload = z.strictObject({
-  key: taskKeySchema,
-  title: z.string().min(1),
-  text: z.string(),
-  persona,
-  itemKey: z.string().min(1),
-  taskId: id.optional(),
-});
+const openPayload = closePayload.extend({ title: z.string().min(1) });
+const replyPayload = closePayload.extend({ commentId: id });
 const feedLineEditPayload = z.strictObject({
   key: taskKeySchema,
   text: z.string(),
@@ -85,6 +62,7 @@ const feedLineEditPayload = z.strictObject({
   itemKey: z.string().min(1),
   taskId: id.optional(),
 });
+const feedLinePayload = feedLineEditPayload.extend({ title: z.string().min(1) });
 const doorbellPayload = z.strictObject({ session: z.string().min(1), text: z.string() });
 
 /** A row's kind with its parsed payload. */
@@ -173,8 +151,8 @@ export async function enqueueConversationOpen(
       'block.author',
       'block.addressee_role',
       'task.id as taskId',
+      'task.key',
     ])
-    .select('task.key')
     .where('block.id', '=', input.blockId)
     .executeTakeFirstOrThrow();
   if (block.addressee_role !== 'operator' || block.author === 'operator') return null;
