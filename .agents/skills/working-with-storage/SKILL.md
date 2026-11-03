@@ -19,10 +19,10 @@ numbered migrations. Where a test enforces a rule, the rule names it.
 ## Transactions
 
 - Write only inside `store.transaction(fn)`, through the `trx` it passes. Never use `store.db` or
-  call `store.transaction` again inside `fn`: both wait for the lock `fn` holds and deadlock
+  call `store.transaction` again inside `fn`: both wait for the connection `fn` holds and deadlock
   (`Store` in `packages/core/src/store/store.ts`).
-- `store.transaction` is the only place that starts a transaction. It sends `BEGIN IMMEDIATE`, so
-  the write lock is held from the start.
+- `store.transaction` is the only place application code starts a transaction. It sends
+  `BEGIN IMMEDIATE`, so the write lock is held from the start.
 - One unit of work is one `store.transaction`: a tick, one observed batch, one command. Tick and
   observe code does not exist yet (#31); #31 updates this section with its callers.
 - No IO inside `fn`: no network, file or child process, no await other than `trx` queries. Fetch
@@ -91,8 +91,8 @@ numbered migrations. Where a test enforces a rule, the rule names it.
 - Busy timeout 5000 ms, set on purpose in the `Database` constructor so a driver default cannot
   lower it.
 - Nothing that writes the file (the WAL switch, any write) runs before `assertNotNewer`, so a
-  newer database stays byte for byte as it was. The busy timeout is a connection setting and
-  writes nothing.
+  newer database stays byte for byte as it was; 'refuses a database newer than the code' compares
+  the file hash before and after. The busy timeout is a connection setting and writes nothing.
 - Production code opens the store only through `openStore`.
 - Pinned by 'sets WAL, NORMAL sync, foreign keys and busy timeout on open'.
 
