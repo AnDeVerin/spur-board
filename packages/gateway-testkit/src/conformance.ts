@@ -682,6 +682,17 @@ const recoverKeys: ConformanceCase = {
           .filter((k) => ![keyA, keyE1, keyE2].includes(k)),
         'G10: recover after a later message still yields an earlier message edited while stopped',
       ).not.toEqual([]);
+      // Deletions stay optional, but `after` must not hide one the full recover returned.
+      const earlier = new Set([a.message, b.message]);
+      const sinceBKeys = sinceB.map((e) => `${e.kind}:${e.dedupeKey}`);
+      for (const event of recovered) {
+        if (event.kind !== 'message_deleted' && event.kind !== 'message_edited') continue;
+        if (!earlier.has(event.message)) continue;
+        expect(
+          sinceBKeys,
+          'G10: recover after a later message yields every edit and deletion of an earlier message that a full recover yields',
+        ).toContain(`${event.kind}:${event.dedupeKey}`);
+      }
       const dLiveKey = dLive[0]?.dedupeKey;
       if (dLiveKey !== undefined) {
         expect(

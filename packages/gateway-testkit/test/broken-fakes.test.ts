@@ -52,6 +52,18 @@ function rekeyedRecover(profile: FakeProfile): ConformanceTarget {
   }));
 }
 
+/** Drops deletions from a recover that reads after a known message. */
+function afterDropsDeletes(profile: FakeProfile): ConformanceTarget {
+  return broken('afterDropsDeletes', profile, (fake) => ({
+    async *recover(request) {
+      const bounded = request.conversations.some((c) => c.after !== undefined);
+      for await (const event of fake.recover(request)) {
+        if (!(bounded && event.kind === 'message_deleted')) yield event;
+      }
+    },
+  }));
+}
+
 /** Posts the closing line as a plain reply and never sets the done mark. */
 function closeWithoutDone(profile: FakeProfile): ConformanceTarget {
   return broken('closeWithoutDone', profile, (fake) => ({
@@ -134,6 +146,12 @@ describe('broken fakes fail the suite', () => {
     await expect(runConformanceCase(rekeyedRecover('slack-like'), 'recover-keys')).rejects.toThrow(
       /G8/,
     );
+  });
+
+  it('afterDropsDeletes fails recover-keys with G10 (slack-like)', async () => {
+    await expect(
+      runConformanceCase(afterDropsDeletes('slack-like'), 'recover-keys'),
+    ).rejects.toThrow(/G10:.*deletion/);
   });
 
   it('the healthy fake passes the same cases', async () => {
