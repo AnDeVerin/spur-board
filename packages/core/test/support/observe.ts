@@ -4,8 +4,7 @@
 import type { DeliverRequest, DeliveryResult, Gateway } from '@spur-board/contracts';
 import type { FakeGateway } from '@spur-board/gateway-testkit';
 import Database from 'better-sqlite3';
-import type { Store } from '../../src/index.ts';
-import type { SpurPort } from '../../src/index.ts';
+import type { SpurPort, Store } from '../../src/index.ts';
 
 /** Records a violation when another connection holds the write lock on `file`. */
 function probe(file: string, violations: string[], what: string): void {
