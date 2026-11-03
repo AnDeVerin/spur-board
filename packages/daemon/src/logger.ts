@@ -25,7 +25,7 @@ const WITHHELD = 'log line withheld: redaction failed';
  * known secret value replaced, raw and in its JSON-escaped form. It works on the serialized line,
  * so err fields, err.stack and child bindings are covered too.
  */
-function redacting(
+export function redacting(
   dest: DestinationStream,
   secrets: Readonly<Record<string, string>>,
 ): DestinationStream {

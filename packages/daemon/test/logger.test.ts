@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createLogger, logCall, type Clock } from '../src/logger.ts';
+import { createLogger, logCall, redacting, type Clock } from '../src/logger.ts';
 
 const SECRET = 'value-to-hide-123456';
 const QUOTED_SECRET = 'quote"inside-value-789';
@@ -86,18 +86,27 @@ describe('createLogger', () => {
 
   it('withholds a line it cannot censor instead of writing it raw', () => {
     const out = sink();
-    // Deep enough that pino still serializes it but the key walk overflows the stack.
+    redacting(out, {}).write('{"headers":{"Authorization":"Bearer raw-credential"} not json\n');
+
+    expect(out.lines).toHaveLength(1);
+    expect(out.lines[0]).not.toContain('raw-credential');
+    expect(parsed(out.lines)[0]).toEqual({
+      level: 50,
+      msg: 'log line withheld: redaction failed',
+      reason: 'SyntaxError',
+    });
+  });
+
+  it('never writes a credential from a very deep object', () => {
+    const out = sink();
+    // On Node 26 pino serializes this in full and the key walk overflows (withheld line); on Node 24
+    // pino's own stringify gives up and falls back to a depth-limited form. Neither may leak.
     let deep: Record<string, unknown> = { Authorization: 'Bearer deep-credential' };
     for (let i = 0; i < 20_000; i += 1) deep = { n: deep };
     createLogger(out, {}).info(deep, 'deep');
 
     expect(out.lines).toHaveLength(1);
     expect(out.lines[0]).not.toContain('deep-credential');
-    expect(parsed(out.lines)[0]).toEqual({
-      level: 50,
-      msg: 'log line withheld: redaction failed',
-      reason: 'RangeError',
-    });
   });
 
   it('keeps keys that only contain a credential word', () => {
