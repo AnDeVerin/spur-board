@@ -1,6 +1,6 @@
 ---
 name: working-with-storage
-description: Rules for the SQLite store in packages/core/src/store/ - transactions, state with events and outbox, migrations and their tests, PRAGMAs. Use when you change the store or a migration, or write through store.transaction. Don't use for zod schemas, enums or event kinds (use working-with-contracts).
+description: Rules for the SQLite store (packages/core/src/store/) and outbox (packages/core/src/app/{outbox,sender}.ts) - transactions, outbox, migrations and tests, PRAGMAs. Use when you edit them or write through store.transaction. Don't use for zod schemas, enums or event kinds (use working-with-contracts).
 ---
 
 # Working with storage
@@ -10,13 +10,14 @@ numbered migrations. Where a test enforces a rule, the rule names it.
 
 ## When to use
 
-- Any edit under `packages/core/src/store/` or `packages/core/test/store/`, and any code that
-  writes through `store.transaction`.
+- Any edit under `packages/core/src/store/`, `packages/core/test/store/` or the outbox
+  (`packages/core/src/app/{outbox,sender}.ts`), and any code that writes through
+  `store.transaction`.
 - Not for zod schemas, enums or event kinds: use `working-with-contracts`. A migration that
   breaks stored data as users see it (its Breaking changes section lists the cases, a new required
   column and a tightened constraint among them) needs both skills: this one for the migration,
   that one for the break.
-- Not covered yet: the outbox sender and inbox (#35).
+- Not covered yet: the inbox.
 
 ## Transactions
 
@@ -27,11 +28,6 @@ numbered migrations. Where a test enforces a rule, the rule names it.
   `BEGIN IMMEDIATE`, so the write lock is held from the start.
 - One unit of work is one `store.transaction`: a tick, one observed batch, one command. Tick and
   observe code does not exist yet (#31); #31 updates this section with its callers.
-- A command runs through `createApply` (`packages/core/src/app/commands.ts`): one transaction
-  looks up `(actor, key)` in `command`, runs the effect and writes the `command` row; a hit
-  returns the stored result. Rows older than `commands.retentionDays` are purged daily. Pinned
-  by 'returns the stored result after a crash between commit and reply' and 'applies two
-  concurrent calls with the same key once'.
 - No IO inside `fn`: no network, file or child process, no await other than `trx` queries. Fetch
   first, then write; a side effect goes out through the outbox after commit (next section). Why:
   the lock is held for all of `fn`, other writers give up after the 5000 ms busy timeout, and a
@@ -39,6 +35,9 @@ numbered migrations. Where a test enforces a rule, the rule names it.
 - No lint checks the last two rules; the reviewer judges them. The transaction itself is pinned
   by 'commits on return and holds the write lock from BEGIN' and
   'rolls back a write when the function throws'.
+- A command goes through `createApply` (`app/commands.ts`): the `(actor, key)` lookup, the
+  effect and the `command` row share one transaction. Pinned by 'returns the stored result
+  after a crash between commit and reply'.
 
 ## State, journal and outbox
 
@@ -48,7 +47,18 @@ numbered migrations. Where a test enforces a rule, the rule names it.
   row. A crash between two transactions would leave one without the other.
 - A side effect (a message, a call to GitHub) is never performed inside `fn`: it is recorded as
   an `outbox` row, and the sender does the IO after commit. So a rollback has nothing to undo.
-  The sender, its limits and retries arrive with #35.
+- Write outbox rows only through the producers in `packages/core/src/app/outbox.ts`, with the
+  caller's `trx`. A new kind gets its payload schema, `KIND_SPACE` and `KIND_PRIORITY` entries
+  there; the space comes from the kind, never from the payload.
+- A row that must follow another (reply, close, edit) sets `parent_outbox_id` to the thread's
+  latest row; none is written under a dead one. A row under a dead parent dies `superseded`.
+  A `feed.line.edit` written before its line is sent means the item was cleared: the sender
+  cancels both. A row with `uncertain=1` is never cancelled as stale (it may be posted): it goes
+  with `maybeSent`, then its dependents.
+- Retries, the per-space limit and transport health belong to the sender
+  (`packages/core/src/app/sender.ts`); it calls the gateway between its two transactions,
+  never inside one. Pinned by `packages/core/test/app/delivery.test.ts` and
+  `packages/core/test/app/outbox.restart.test.ts`.
 - Event kinds and payloads follow `working-with-contracts`. JSON columns are read and written
   through `parseJson` / `toJson`.
 - A column that records who did something holds an `ActorId` (`packages/core/src/store/schema.ts`):
@@ -95,11 +105,9 @@ numbered migrations. Where a test enforces a rule, the rule names it.
   `real.slice(0, N - 1)`, insert rows in the N-1 shape with raw SQL, `migrate` with `real`, then
   assert on the rows.
 - Until a committed fixture from a released version exists, build the N-1 state by hand.
-- The PR that adds the second migration derives the test's hard-coded versions from
-  `real.length`: the `probe` and `failing` versions and names become `real.length + 1` and
-  `real.length + 2`, and the `store.migration` expectations, the `user_version` values and the
-  version literals in error matchers follow from it. Each changed expected value goes under
-  Changed checks (`gitflow`).
+- The test derives every version from `real.length`: `probe` and `failing` are
+  `real.length + 1` and `+ 2`, and the `store.migration` expectations, `user_version` values and
+  error matchers follow. A new migration changes none of these values; keep it that way.
 
 ## PRAGMAs and opening
 

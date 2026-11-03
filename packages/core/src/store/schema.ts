@@ -13,6 +13,7 @@ import type {
   PrLinkState,
   SessionEndReason,
   SessionLinkRole,
+  SpaceId,
 } from '@spur-board/contracts';
 import type { Generated, Insertable, Selectable, Updateable } from 'kysely';
 
@@ -25,7 +26,17 @@ type Flag = 0 | 1;
 
 export type TrackerKind = Config['projects'][number]['tracker']['type'];
 
-export type OutboxState = 'pending' | 'in_flight' | 'done' | 'dead';
+/** `post_failed`: the sender gave up until the next start; `dead`: superseded or invalid. */
+export type OutboxState = 'pending' | 'in_flight' | 'done' | 'post_failed' | 'dead';
+
+/** Delivery of a comment to a gateway conversation. `post_blocked` is reserved for #38. */
+export type CommentDeliveryState =
+  'pending' | 'delivered' | 'post_failed' | 'post_blocked' | 'superseded';
+
+/** What a conversation is the thread of: a block or a feed line. `digest` is reserved for M2. */
+export type ConversationPurpose = 'block' | 'feed_line' | 'digest';
+
+export type ConversationState = 'open' | 'closed';
 
 // `ActorId` (from contracts) types every doer column: `submission.author`, `block.author`,
 // `block.unblocked_by`, `comment.author`, `command.actor` and `dismissal.dismissed_by`.
@@ -145,6 +156,8 @@ export interface CommentTable {
   message_ref: string | null;
   acked_revision: number | null;
   created_at: string;
+  /** NULL when the comment is not delivered to a gateway. */
+  delivery_state: CommentDeliveryState | null;
 }
 
 export interface CommandTable {
@@ -184,8 +197,45 @@ export interface OutboxTable {
   attempts: Generated<number>;
   next_at: string;
   last_error: string | null;
+  /** JSON, set when the row is done. */
   external_ref: string | null;
   uncertain: Generated<Flag>;
+  /** The row this one waits for: it is sent only after the parent is done. */
+  parent_outbox_id: number | null;
+  /** The first attempt of the current retry window; NULL while the window is suspended. */
+  first_attempt_at: string | null;
+}
+
+/** A gateway conversation, keyed by `(gateway, ref)`. A block may have several. */
+export interface ConversationTable {
+  ref: string;
+  gateway: string;
+  space: SpaceId;
+  task_id: number | null;
+  block_id: number | null;
+  purpose: ConversationPurpose;
+  state: ConversationState;
+  root_message_ref: string;
+  after_message_ref: string | null;
+  created_at: string;
+  closed_at: string | null;
+}
+
+/** A failing transport for one `(gateway, space)`; that space's rows wait while it stands. */
+export interface TransportHealthTable {
+  gateway: string;
+  space: SpaceId;
+  reason: string;
+  since: string;
+  /** When the last probe's send started; the next probe waits a minute from it. */
+  probe_at: string;
+}
+
+/** When the last send into a `(gateway, space)` started; the next one waits the space interval. */
+export interface SpaceSlotTable {
+  gateway: string;
+  space: SpaceId;
+  sent_at: string;
 }
 
 export interface DismissalTable {
@@ -219,12 +269,15 @@ export interface Tables {
   submission: SubmissionTable;
   block: BlockTable;
   comment: CommentTable;
+  conversation: ConversationTable;
   command: CommandTable;
   event: EventTable;
   outbox: OutboxTable;
   dismissal: DismissalTable;
   meta: MetaTable;
   source_state: SourceStateTable;
+  transport_health: TransportHealthTable;
+  space_slot: SpaceSlotTable;
 }
 
 export type Row<T extends keyof Tables> = Selectable<Tables[T]>;

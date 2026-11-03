@@ -126,6 +126,20 @@ export const sampleRows: SampleRows = {
     message_ref: '{"id":"m"}',
     acked_revision: 1,
     created_at: at,
+    delivery_state: 'delivered',
+  },
+  conversation: {
+    ref: 'c1',
+    gateway: 'fake-slack-like',
+    space: 'orchestrators',
+    task_id: 1,
+    block_id: 1,
+    purpose: 'block',
+    state: 'closed',
+    root_message_ref: 'm1',
+    after_message_ref: 'm2',
+    created_at: at,
+    closed_at: at,
   },
   command: {
     actor: 'agent:proj/sess-1',
@@ -158,6 +172,8 @@ export const sampleRows: SampleRows = {
     last_error: null,
     external_ref: null,
     uncertain: 0,
+    parent_outbox_id: null,
+    first_attempt_at: at,
   },
   dismissal: {
     item_key: 'item-1',
@@ -173,6 +189,14 @@ export const sampleRows: SampleRows = {
     blind_reason: null,
     cursor: 'c1',
   },
+  transport_health: {
+    gateway: 'fake-slack-like',
+    space: 'orchestrators',
+    reason: 'token_revoked',
+    since: at,
+    probe_at: at,
+  },
+  space_slot: { gateway: 'fake-slack-like', space: 'orchestrators', sent_at: at },
 };
 
 export const tableNames = Object.keys(sampleRows) as (keyof Tables)[];

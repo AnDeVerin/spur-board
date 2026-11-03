@@ -9,3 +9,10 @@ export {
   type CommandContext,
   type Mutation,
 } from './app/commands.ts';
+export {
+  enqueueConversationOpen,
+  enqueueConversationReply,
+  OUTBOX_KINDS,
+  type OutboxKind,
+} from './app/outbox.ts';
+export { createSender, type Sender, type SpurPort } from './app/sender.ts';
