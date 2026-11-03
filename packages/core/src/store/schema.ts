@@ -1,5 +1,6 @@
 import type {
   Actor,
+  ActorId,
   AddresseeRole,
   ArchiveReason,
   BlockOutcome,
@@ -26,16 +27,8 @@ export type TrackerKind = Config['projects'][number]['tracker']['type'];
 
 export type OutboxState = 'pending' | 'in_flight' | 'done' | 'dead';
 
-/**
- * Who did something, as one string: `operator`, `system`, or `agent:<project>/<session>` for
- * an agent, naming its spur project and session. Every column that records a doer uses it:
- * `submission.author`, `block.author`, `block.unblocked_by`, `comment.author`,
- * `command.actor` and `dismissal.dismissed_by`. The session lets the dispatcher accept a
- * submission only from the column's executor and a withdrawal only from the block's author,
- * and keeps `command`'s `(actor, key)` from mixing two agents' idempotency keys. `event`
- * records the same facts split into `actor` and `actor_ref`.
- */
-export type ActorId = 'operator' | 'system' | `agent:${string}/${string}`;
+// `ActorId` (from contracts) types every doer column: `submission.author`, `block.author`,
+// `block.unblocked_by`, `comment.author`, `command.actor` and `dismissal.dismissed_by`.
 
 export interface TaskTable {
   id: Generated<number>;

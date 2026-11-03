@@ -188,6 +188,22 @@ describe('actor', () => {
     expect(z.prettifyError(result.error)).toContain('→ at actorRef');
   });
 
+  it.each([
+    [{ project: 'a/b', session: 'sess-1' }, 'actorRef.project'],
+    [{ project: 'web', session: 'b/c' }, 'actorRef.session'],
+    [{ project: '', session: 'sess-1' }, 'actorRef.project'],
+  ])('rejects actorRef %j, at %s', (ref, path) => {
+    const result = parseEvent({ ...samples.head_moved, actorRef: ref });
+    expect(result.status).toBe('invalid');
+    if (result.status !== 'invalid') return;
+    expect(z.prettifyError(result.error)).toContain(`→ at ${path}`);
+  });
+
+  it('parses an actorRef with real spur project and session names', () => {
+    const event = { ...samples.head_moved, actorRef: { project: 'sb', session: 'sb-6949' } };
+    expect(parseEvent(JSON.parse(JSON.stringify(event)))).toEqual({ status: 'ok', event });
+  });
+
   it('parses an event without requestId', () => {
     const result = parseEvent(
       JSON.parse(JSON.stringify({ ...samples.head_moved, requestId: undefined })),

@@ -48,3 +48,29 @@ export {
   type SpaceId,
   type UserId,
 } from './gateway/schemas.ts';
+export {
+  EXIT_CODES,
+  ERRORS,
+  err,
+  ok,
+  type ErrorCode,
+  type ExitCode,
+  type Result,
+  type ServerErrorCode,
+} from './errors.ts';
+export {
+  REF_KINDS,
+  actorIdSchema,
+  blockIdSchema,
+  commentIdSchema,
+  encodeActorId,
+  errorCodeOf,
+  itemIdSchema,
+  parseActorId,
+  parseRef,
+  taskKeySchema,
+  type ActorId,
+  type ParsedActorId,
+  type RefKind,
+  type TypedRef,
+} from './ids.ts';
