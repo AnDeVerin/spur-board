@@ -196,6 +196,7 @@ export const sampleRows: SampleRows = {
     since: at,
     probe_at: at,
   },
+  space_slot: { gateway: 'fake-slack-like', space: 'orchestrators', sent_at: at },
 };
 
 export const tableNames = Object.keys(sampleRows) as (keyof Tables)[];

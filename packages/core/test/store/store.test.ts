@@ -108,6 +108,7 @@ describe('openStore', () => {
       db.insertInto('link').values({ ...sessionLink('s3'), session_id: null }),
       db.insertInto('conversation').values({ ...sampleRows.conversation, space: 'feed' }),
       db.insertInto('transport_health').values({ ...sampleRows.transport_health, reason: 'down' }),
+      db.insertInto('space_slot').values(sampleRows.space_slot),
     ];
     for (const query of rejected) {
       await expect(query.execute()).rejects.toMatchObject({
@@ -138,7 +139,7 @@ describe('openStore', () => {
       .values({ ...sampleRows.submission, id: 2, commit_sha: 'c'.repeat(40) })
       .execute();
     expect(await db.selectFrom('submission').select('id').execute()).toHaveLength(2);
-    // Conversation refs are unique per gateway only; health is per (gateway, space).
+    // Conversation refs are unique per gateway only; health and slots are per (gateway, space).
     await db
       .insertInto('conversation')
       .values({ ...sampleRows.conversation, gateway: 'fake-telegram-like' })
@@ -149,6 +150,11 @@ describe('openStore', () => {
       .execute();
     expect(await db.selectFrom('conversation').select('ref').execute()).toHaveLength(2);
     expect(await db.selectFrom('transport_health').select('space').execute()).toHaveLength(2);
+    await db
+      .insertInto('space_slot')
+      .values({ ...sampleRows.space_slot, space: 'feed' })
+      .execute();
+    expect(await db.selectFrom('space_slot').select('space').execute()).toHaveLength(2);
   });
 });
 

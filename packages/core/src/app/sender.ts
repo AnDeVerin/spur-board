@@ -1,5 +1,6 @@
-// Delivers outbox rows: claim in one transaction, IO outside any transaction, record the result
-// in a second one. The daemon calls `recover()` once on start, then `tick()` on its schedule.
+// Delivers outbox rows: claim in one transaction, stamp the send's start, IO outside any
+// transaction, record the result in another. The daemon calls `recover()` once on start, then
+// `tick()` on its schedule.
 import {
   SPACE_IDS,
   type ConnectionState,
@@ -120,7 +121,6 @@ export function createSender(options: SenderOptions): Sender {
   const { store, gateway, spur } = options;
   const now = options.now ?? (() => new Date());
   const spaceIntervalMs = options.spaceIntervalMs ?? SPACE_INTERVAL_MS;
-  const nextSlotAt = new Map<SpaceId, number>();
   let downSince: number | undefined;
   /** The last tick started; a new tick runs after it, so two ticks never interleave. */
   let ticking: Promise<void> = Promise.resolve();
@@ -273,7 +273,17 @@ export function createSender(options: SenderOptions): Sender {
       .where('outbox.state', '=', 'pending')
       .where('outbox.next_at', '<=', nowIso)
       .execute();
-    // While a space has a health row, it is probed at most once per HEALTH_PROBE_MS.
+    // A space takes one send per spaceIntervalMs and, while it has a health row, one probe per
+    // HEALTH_PROBE_MS, both counted from when the last send started.
+    const sentAt = new Map(
+      (
+        await trx
+          .selectFrom('space_slot')
+          .select(['space', 'sent_at'])
+          .where('gateway', '=', gateway.kind)
+          .execute()
+      ).map((slot) => [slot.space, Date.parse(slot.sent_at)]),
+    );
     const probedAt = new Map(
       (
         await trx
@@ -303,7 +313,8 @@ export function createSender(options: SenderOptions): Sender {
       const space = KIND_SPACE[body.kind];
       if (taken.has(space)) continue;
       if (space !== null) {
-        if ((nextSlotAt.get(space) ?? 0) > at) continue;
+        const sent = sentAt.get(space);
+        if (sent !== undefined && at - sent < spaceIntervalMs) continue;
         const probed = probedAt.get(space);
         if (probed !== undefined && at - probed < HEALTH_PROBE_MS) continue;
       }
@@ -337,17 +348,28 @@ export function createSender(options: SenderOptions): Sender {
         }))
         .where('id', '=', c.id)
         .execute();
-      if (c.space !== null && probedAt.has(c.space)) {
-        await trx
-          .updateTable('transport_health')
-          .set({ probe_at: nowIso })
-          .where('gateway', '=', gateway.kind)
-          .where('space', '=', c.space)
-          .execute();
-      }
     }
     // Doorbells go last; gateway lanes keep priority order.
     return claims.sort((a, b) => Number(a.space === null) - Number(b.space === null));
+  }
+
+  /**
+   * Stamps the start of a send into a space, just before its IO: the slot of the next send and,
+   * under a health row, the probe clock. A slow earlier send in the tick does not age them.
+   */
+  async function start(trx: Trx, space: SpaceId, at: number): Promise<void> {
+    const sentAtIso = new Date(at).toISOString();
+    await trx
+      .insertInto('space_slot')
+      .values({ gateway: gateway.kind, space, sent_at: sentAtIso })
+      .onConflict((oc) => oc.columns(['gateway', 'space']).doUpdateSet({ sent_at: sentAtIso }))
+      .execute();
+    await trx
+      .updateTable('transport_health')
+      .set({ probe_at: sentAtIso })
+      .where('gateway', '=', gateway.kind)
+      .where('space', '=', space)
+      .execute();
   }
 
   async function attempt(c: Claim): Promise<{ outcome: Outcome; error: string | null }> {
@@ -379,6 +401,7 @@ export function createSender(options: SenderOptions): Sender {
     outcome: Outcome,
     error: string | null,
     at: number,
+    startedAt: number,
   ): Promise<void> {
     const nowIso = new Date(at).toISOString();
     const row = trx.updateTable('outbox').where('id', '=', c.id);
@@ -497,10 +520,10 @@ export function createSender(options: SenderOptions): Sender {
             space,
             reason: outcome.reason,
             since: nowIso,
-            probe_at: nowIso,
+            probe_at: new Date(startedAt).toISOString(),
           })
-          // A standing row keeps its reason and since; the failed probe restarts the clock.
-          .onConflict((oc) => oc.columns(['gateway', 'space']).doUpdateSet({ probe_at: nowIso }))
+          // A standing row keeps its reason, since and the probe clock that start() stamped.
+          .onConflict((oc) => oc.columns(['gateway', 'space']).doNothing())
           .execute();
         await suspendWindows(trx, [space]);
         await row
@@ -520,11 +543,12 @@ export function createSender(options: SenderOptions): Sender {
     const claimedAt = now().getTime();
     const claims = await store.transaction((trx) => claim(trx, claimedAt));
     for (const c of claims) {
-      // The slot starts when this send starts, so a slow earlier send does not use it up.
-      if (c.space !== null) nextSlotAt.set(c.space, now().getTime() + spaceIntervalMs);
+      const startedAt = now().getTime();
+      const { space } = c;
+      if (space !== null) await store.transaction((trx) => start(trx, space, startedAt));
       const { outcome, error } = await attempt(c);
       const at = now().getTime();
-      await store.transaction((trx) => record(trx, c, outcome, error, at));
+      await store.transaction((trx) => record(trx, c, outcome, error, at, startedAt));
     }
   }
 

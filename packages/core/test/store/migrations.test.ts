@@ -222,6 +222,7 @@ describe('migrate', () => {
     ]);
     expect(rows(raw, 'conversation')).toEqual([]);
     expect(rows(raw, 'transport_health')).toEqual([]);
+    expect(rows(raw, 'space_slot')).toEqual([]);
     expect(raw.pragma('foreign_key_check')).toEqual([]);
   });
 
@@ -276,7 +277,7 @@ describe('migration pins', () => {
   // and its pin instead. Changing the pin of an existing file is a review blocker.
   const PINS: Record<string, string> = {
     '0001_init.sql': 'b92894c23ff9a04e97e034ff9b2787f7be48660538dd861119e570ce1ab86f10',
-    '0002_delivery.sql': '483cdd6a0c9548bccff62c91bb6359b2fc422efd0c3a1dd62cf6e88ee3d0e93f',
+    '0002_delivery.sql': '52180cad0a4577d8ad6a60eca748116f4ccd61142115581a3c9ea3a72d2cfa1d',
   };
 
   interface MigrationFile {

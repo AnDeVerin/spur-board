@@ -227,8 +227,15 @@ export interface TransportHealthTable {
   space: SpaceId;
   reason: string;
   since: string;
-  /** When the space was last tried; the next probe waits a minute from it. */
+  /** When the last probe's send started; the next probe waits a minute from it. */
   probe_at: string;
+}
+
+/** When the last send into a `(gateway, space)` started; the next one waits the space interval. */
+export interface SpaceSlotTable {
+  gateway: string;
+  space: SpaceId;
+  sent_at: string;
 }
 
 export interface DismissalTable {
@@ -270,6 +277,7 @@ export interface Tables {
   meta: MetaTable;
   source_state: SourceStateTable;
   transport_health: TransportHealthTable;
+  space_slot: SpaceSlotTable;
 }
 
 export type Row<T extends keyof Tables> = Selectable<Tables[T]>;

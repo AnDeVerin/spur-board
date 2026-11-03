@@ -552,7 +552,36 @@ describe('limiter', () => {
     expect(new Set(keys).size).toBe(keys.length);
     expect(gaps(slow.starts)).toEqual([]);
   });
+
+  it('keeps the space slot across a restart', async () => {
+    const ctx = setup('slack-like', 1000);
+    for (let i = 0; i < 2; i++) await enqueueOpen(ctx, await seedBlock(ctx));
+    await ctx.sender.tick();
+    expect(ctx.observed.requests).toHaveLength(1);
+    const restarted = await restart(ctx, 1000);
+    await restarted.sender.tick();
+    await step(restarted, 999);
+    expect(ctx.observed.requests).toHaveLength(1);
+    await step(restarted, 1);
+    expect(ctx.observed.requests).toHaveLength(2);
+  });
 });
+
+/** Reopens the store and makes a new sender on it, as a daemon restart does. */
+async function restart(ctx: Ctx, spaceIntervalMs?: number): Promise<Ctx> {
+  await ctx.store.close();
+  const store = openStore(ctx.file);
+  stores.push(store);
+  const sender = createSender({
+    store,
+    gateway: ctx.observed.gateway,
+    spur: ctx.spur.spur,
+    now: () => ctx.fake.platform.now(),
+    ...(spaceIntervalMs === undefined ? {} : { spaceIntervalMs }),
+  });
+  await sender.recover();
+  return { ...ctx, store, sender };
+}
 
 describe('tick', () => {
   it('runs the next tick after one that rejected', async () => {
@@ -605,7 +634,7 @@ function slowOrchestrators(ctx: Ctx, ms: number) {
     now: () => ctx.fake.platform.now(),
     spaceIntervalMs: 1000,
   });
-  return { sender, starts };
+  return { sender, starts, gateway };
 }
 
 /** Two sends into one space that started less than 1000 ms apart. */
@@ -974,23 +1003,52 @@ describe('transport health', () => {
     ctx.fake.platform.failNextPermanently({ scope: 'transport', reason: 'token_revoked' });
     await ctx.sender.tick();
     expect(ctx.observed.requests).toHaveLength(1);
-    await ctx.store.close();
-    const store = openStore(ctx.file);
-    stores.push(store);
-    const sender = createSender({
-      store,
-      gateway: ctx.observed.gateway,
-      spur: ctx.spur.spur,
-      now: () => ctx.fake.platform.now(),
-    });
-    await sender.recover();
-    const restarted = { ...ctx, store, sender };
-    await sender.tick();
+    const restarted = await restart(ctx);
+    await restarted.sender.tick();
     for (let s = 1; s < 60; s++) await step(restarted);
     expect(ctx.observed.requests).toHaveLength(1);
     await step(restarted);
     expect(ctx.observed.requests).toHaveLength(2);
     expect(await healthRows(restarted)).toEqual([]);
+  });
+
+  it('starts the probe clock when the probe send starts, after a slow earlier send', async () => {
+    const ctx = setup();
+    const slow = slowOrchestrators(ctx, 70_000);
+    // Every feed send times out; the fake produces the retry.
+    const gateway: Gateway = {
+      ...ctx.observed.gateway,
+      deliver(request) {
+        if (request.target.kind === 'open' && request.target.space === 'feed') {
+          ctx.fake.platform.timeoutNext({ visible: false });
+        }
+        return slow.gateway.deliver(request);
+      },
+    };
+    const sender = createSender({
+      store: ctx.store,
+      gateway,
+      spur: ctx.spur.spur,
+      now: () => ctx.fake.platform.now(),
+    });
+    const feedSends = () =>
+      ctx.observed.requests.filter((r) => r.target.kind === 'open' && r.target.space === 'feed');
+    await feedLine(ctx, 'o/r#7', 'item-1');
+    await feedLine(ctx, 'o/r#7', 'item-2');
+    ctx.fake.platform.failNextPermanently({ scope: 'transport', reason: 'token_revoked' });
+    await ctx.sender.tick();
+    expect(await healthRows(ctx)).toHaveLength(1);
+    await enqueueOpen(ctx, await seedBlock(ctx));
+    // The open takes 70 s, so the feed probe in the same tick starts 70 s after its claim.
+    await step({ ...ctx, sender }, HEALTH_PROBE_MS);
+    expect(feedSends()).toHaveLength(2);
+    const probeStart = slow.starts.get('feed')?.at(-1) ?? 0;
+    expect((await healthRows(ctx))[0]?.probe_at).toBe(new Date(probeStart).toISOString());
+    const sinceProbe = ctx.fake.platform.now().getTime() - probeStart;
+    await step({ ...ctx, sender }, HEALTH_PROBE_MS - 1 - sinceProbe);
+    expect(feedSends()).toHaveLength(2);
+    await step({ ...ctx, sender }, 1);
+    expect(feedSends()).toHaveLength(3);
   });
 
   it('gateway down over 5 min raises health and suspends the retry window', async () => {
@@ -1003,7 +1061,7 @@ describe('transport health', () => {
       ['feed', 'down'],
       ['orchestrators', 'down'],
     ]);
-    // The probe's own claim starts the probe clock: the row, due again in 1 s, waits.
+    // The probe's own send starts the probe clock: the row, due again in 1 s, waits.
     await step(ctx);
     expect(ctx.observed.requests).toHaveLength(1);
     for (let i = 0; i < 32; i++) {

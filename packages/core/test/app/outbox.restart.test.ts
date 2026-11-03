@@ -267,7 +267,10 @@ describe.each(PROFILES)('restart on %s', (profile) => {
     ctx.observed.crashNext({ store: ctx.store, when: 'before' });
     await expect(ctx.sender.tick()).rejects.toThrow('destroyed');
     await restart(ctx);
+    // The crashed send started the space's slot; the retry waits for it.
     await ctx.sender.tick();
+    expect(ctx.observed.requests).toHaveLength(1);
+    await step(ctx);
     expect(ctx.observed.requests.map((r) => [r.key, r.maybeSent])).toEqual([
       [key, false],
       [key, true],
@@ -283,7 +286,7 @@ describe.each(PROFILES)('restart on %s', (profile) => {
     ctx.observed.crashNext({ store: ctx.store, when: 'after' });
     await expect(ctx.sender.tick()).rejects.toThrow('destroyed');
     await restart(ctx);
-    await ctx.sender.tick();
+    await step(ctx);
     expect(ctx.observed.requests[1]).toMatchObject({ key, maybeSent: true });
     expect(markedRefs(ctx, key)).toHaveLength(UNKNOWN[profile]);
     await expectOneConversation(ctx, id, key);
@@ -342,7 +345,7 @@ describe.each(PROFILES)('restart on %s', (profile) => {
     await ctx.store.close();
     await restart(ctx);
     expect(await outboxRow(ctx, id)).toMatchObject({ state: 'pending', first_attempt_at: null });
-    await ctx.sender.tick();
+    await step(ctx);
     expect((await outboxRow(ctx, id)).state).toBe('done');
   });
 
