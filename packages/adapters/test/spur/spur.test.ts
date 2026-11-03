@@ -228,6 +228,36 @@ describe('Spur adapter', () => {
     expect(notices).toEqual([{ kind: 'unknown_status', value: 'budget_limited' }]);
   });
 
+  it('continues smoothing a non-ended detail across polls outside the live list', async () => {
+    let listed = true;
+    let state = 'waiting';
+    const adapter = createSpurAdapter({
+      ...adapterOptions,
+      fetch: (input) =>
+        Promise.resolve(
+          requestUrl(input).pathname === '/sessions'
+            ? response(listed ? [{ ...wire, state }] : [])
+            : response({ ...wire, state }),
+        ),
+    });
+    const health = async () => {
+      const batch = await adapter.poll(context([wire.id]));
+      const item = batch.items[0];
+      if (item?.kind !== 'session') throw new Error('Missing session detail');
+      return [item.facts.health, item.facts.healthSince];
+    };
+
+    expect(await health()).toEqual(['waiting', at(0)]);
+    vi.setSystemTime(T0 + 15_000);
+    listed = false;
+    state = 'error';
+    expect(await health()).toEqual(['waiting', at(0)]);
+    vi.setSystemTime(T0 + 30_000);
+    expect(await health()).toEqual(['waiting', at(0)]);
+    vi.setSystemTime(T0 + 45_000);
+    expect(await health()).toEqual(['error', at(15_000)]);
+  });
+
   it('rejects an unresolved detail instead of publishing absence', async () => {
     const adapter = createSpurAdapter({
       ...adapterOptions,

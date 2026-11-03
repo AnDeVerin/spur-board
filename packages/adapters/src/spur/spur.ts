@@ -223,14 +223,12 @@ export function createSpurAdapter(options: SpurAdapterOptions): Adapter {
       for (const wire of detail.values()) {
         if (wire === null) continue;
         const state = smooth(wire, observedAt, previous.get(wire.id));
+        const endReason =
+          wire.status === 'completed' ? 'complete' : wire.status === 'killed' ? 'kill' : null;
+        if (endReason === null) next.set(wire.id, state);
         items.push({
           kind: 'session',
-          facts: facts(
-            wire,
-            observedAt,
-            state,
-            wire.status === 'completed' ? 'complete' : wire.status === 'killed' ? 'kill' : null,
-          ),
+          facts: facts(wire, observedAt, state, endReason),
         });
       }
       const entities: Batch['entities'] = ctx.observe.sessions.map((ref) => ({
