@@ -16,6 +16,7 @@ import {
   deliveredRefSchema,
   KIND_PRIORITY,
   KIND_SPACE,
+  OUTBOX_KINDS,
   outboxBodySchema,
   renderBody,
   type DeliveredRef,
@@ -176,6 +177,24 @@ export function createSender(options: SenderOptions): Sender {
     }
   }
 
+  /**
+   * Raising or refreshing health for `spaces` suspends the 30-min window of every waiting row
+   * there, so a row that retried before the outage gets a full window once the space recovers.
+   */
+  async function suspendWindows(trx: Trx, spaces: readonly SpaceId[]): Promise<void> {
+    const kinds = OUTBOX_KINDS.filter((kind) => {
+      const space = KIND_SPACE[kind];
+      return space !== null && spaces.includes(space);
+    });
+    if (kinds.length === 0) return;
+    await trx
+      .updateTable('outbox')
+      .set({ first_attempt_at: null })
+      .where('state', 'in', ['pending', 'in_flight'])
+      .where('kind', 'in', kinds)
+      .execute();
+  }
+
   /** tx 1: cancels stale rows, raises down-health and claims at most one due row per lane. */
   async function claim(trx: Trx, at: number): Promise<Claim[]> {
     const nowIso = new Date(at).toISOString();
@@ -243,6 +262,7 @@ export function createSender(options: SenderOptions): Sender {
         )
         .onConflict((oc) => oc.columns(['gateway', 'space']).doNothing())
         .execute();
+      await suspendWindows(trx, SPACE_IDS);
     }
 
     const live = await trx
@@ -482,6 +502,7 @@ export function createSender(options: SenderOptions): Sender {
           // A standing row keeps its reason and since; the failed probe restarts the clock.
           .onConflict((oc) => oc.columns(['gateway', 'space']).doUpdateSet({ probe_at: nowIso }))
           .execute();
+        await suspendWindows(trx, [space]);
         await row
           .set({
             state: 'pending',

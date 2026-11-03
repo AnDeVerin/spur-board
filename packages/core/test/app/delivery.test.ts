@@ -948,6 +948,26 @@ describe('transport health', () => {
     expect(await healthRows(ctx)).toHaveLength(1);
   });
 
+  it("restarts every row's retry window of a space when health is raised", async () => {
+    const ctx = setup();
+    const a = await enqueueOpen(ctx, await seedBlock(ctx));
+    await enqueueOpen(ctx, await seedBlock(ctx));
+    ctx.fake.platform.rateLimitNext(40 * 60_000);
+    await ctx.sender.tick();
+    expect((await outboxRow(ctx, a)).first_attempt_at).not.toBeNull();
+    ctx.fake.platform.failNextPermanently({ scope: 'transport', reason: 'token_revoked' });
+    await step(ctx);
+    expect(await healthRows(ctx)).toHaveLength(1);
+    expect((await outboxRow(ctx, a)).first_attempt_at).toBeNull();
+    // The space stays unhealthy past 30 min; the next probe delivers and clears it.
+    await step(ctx, 35 * 60_000);
+    expect(await healthRows(ctx)).toEqual([]);
+    ctx.fake.platform.rateLimitNext(60_000);
+    await step(ctx, 5 * 60_000);
+    expect(ctx.observed.requests).toHaveLength(4);
+    expect((await outboxRow(ctx, a)).state).toBe('pending');
+  });
+
   it('keeps the probe clock across a restart', async () => {
     const ctx = setup();
     for (let i = 0; i < 2; i++) await enqueueOpen(ctx, await seedBlock(ctx));
