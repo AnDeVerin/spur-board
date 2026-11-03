@@ -14,9 +14,6 @@ modules, then `daemon ready`. Where a test or lint rule enforces a rule, the rul
 - Any edit under `packages/daemon/`, and any module, poller or timer the daemon runs.
 - Not for config schema fields (use `working-with-contracts`) or the store and its transactions
   (use `working-with-storage`).
-- Not covered yet: the systemd unit (#57), the watchdog and runbook (#41), HTTP routes, the real
-  `503 starting` answer and the origin guard (#52), the MCP stdio server (#54), CLI output (#51),
-  the poller and adapter runner (#23).
 
 ## Composition root and modules
 
@@ -77,22 +74,21 @@ modules, then `daemon ready`. Where a test or lint rule enforces a rule, the rul
   A new entity ID takes its contracts field name, e.g. `taskId`.
 - Wrap every external call in `ctx.logCall`, which logs `call`, `duration_ms` and `outcome` and
   rethrows. Pinned by 'logs ok at info with the duration from the clock'.
+- Log sender ticks and `spur send` child calls through the outbox module's `ctx.logCall`.
 
-## Pollers
+## Scheduling
 
-No poller runner exists yet; #23 adds it and updates this section. Until then a poller follows
-this shape:
-
-- A `setTimeout` chain armed after the previous tick settles, with jitter. Never `setInterval`;
-  ticks must not overlap.
-- Pass the start `signal` into every call (`PollContext.signal`, A7 in
-  `packages/contracts/src/adapters.ts`). Backoff state is per poller; an adapter never retries on
-  its own (A6).
-- `stopStage: 'pollers'`. `stop()` clears the pending timer and awaits the current tick.
-- The one `setInterval` is the keepalive in `main` (`KEEPALIVE_MS`): no module owns a server yet,
-  so nothing else holds the event loop open. The PR whose module first owns a server removes it.
-- `@typescript-eslint/no-floating-promises` refuses an unhandled promise; a deliberate one is
-  `void`.
+- Start the outbox tick immediately, then arm a `setTimeout` for one second plus under 100 ms of
+  jitter after the tick settles. Never queue a second tick while one runs.
+- Pass the start signal to each sender tick. On stop, clear the timer and await the active tick
+  before the store closes. Register the outbox with `stopStage: 'outbox'` and its gateway with
+  `stopStage: 'final'`. Pinned by 'skips timer ticks while a delivery is active'.
+- A future poller uses a `setTimeout` chain with jitter and passes the start signal into every
+  call (`PollContext.signal`, A7 in `packages/contracts/src/adapters.ts`). Backoff belongs to the
+  poller; an adapter never retries on its own (A6).
+- Register a poller with `stopStage: 'pollers'`; `stop()` clears its timer and awaits its tick.
+- Keep the sole `setInterval` in `main` (`KEEPALIVE_MS`) until a module owns a server.
+- Handle each tick promise; `@typescript-eslint/no-floating-promises` rejects an unhandled one.
 
 ## Shutdown
 
