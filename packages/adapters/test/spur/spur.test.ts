@@ -236,7 +236,7 @@ describe('Spur adapter', () => {
     expect(await health()).toEqual(['error', at(30_000)]);
   });
 
-  it('detects a restart without resetting smoothing', async () => {
+  it('detects a restart and clears a pending health change before smoothing', async () => {
     let state = 'waiting';
     let instance = 'first';
     const notices: SpurNotice[] = [];
@@ -253,13 +253,40 @@ describe('Spur adapter', () => {
     await adapter.poll(context());
     vi.setSystemTime(T0 + 15_000);
     instance = 'second';
-    await adapter.poll(context());
+    const restart = await adapter.poll(context());
+    expect(restart.items[0]?.kind === 'session' && restart.items[0].facts.health).toBe('waiting');
     vi.setSystemTime(T0 + 30_001);
-    const batch = await adapter.poll(context());
-    expect(batch.items[0]?.kind === 'session' && batch.items[0].facts.health).toBe('error');
+    const early = await adapter.poll(context());
+    expect(early.items[0]?.kind === 'session' && early.items[0].facts.health).toBe('waiting');
+    vi.setSystemTime(T0 + 45_000);
+    const settled = await adapter.poll(context());
+    expect(settled.items[0]?.kind === 'session' && settled.items[0].facts.health).toBe('error');
+    expect(settled.items[0]?.kind === 'session' && settled.items[0].facts.healthSince).toBe(
+      at(15_000),
+    );
     expect(notices).toEqual([
       { kind: 'restart', previousInstanceId: 'first', instanceId: 'second' },
     ]);
+  });
+
+  it('forgets health for a session absent from a complete live list', async () => {
+    let listed = true;
+    let state = 'waiting';
+    const adapter = createSpurAdapter({
+      ...adapterOptions,
+      fetch: () => Promise.resolve(response(listed ? [{ ...wire, state }] : [])),
+    });
+    await adapter.poll(context());
+    vi.setSystemTime(T0 + 15_000);
+    listed = false;
+    await adapter.poll(context());
+    vi.setSystemTime(T0 + 30_000);
+    listed = true;
+    state = 'error';
+    const batch = await adapter.poll(context());
+
+    expect(batch.items[0]?.kind === 'session' && batch.items[0].facts.health).toBe('error');
+    expect(batch.items[0]?.kind === 'session' && batch.items[0].facts.healthSince).toBe(at(30_000));
   });
 
   it('times out a request after five seconds', async () => {

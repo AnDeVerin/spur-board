@@ -96,46 +96,35 @@ export function createSpurAdapter(options: SpurAdapterOptions): Adapter {
   function smooth(
     wire: SessionWire,
     observedAt: string,
-    next: Map<string, HealthObservation>,
+    previous: HealthObservation | undefined,
   ): HealthObservation {
-    const previous = next.get(wire.id);
     // An unfamiliar state must suppress health flags immediately, even during smoothing.
     if (!isKnownHealth(wire.state)) {
-      const unknown = {
+      return {
         stable: wire.state,
         since: previous?.stable === wire.state ? previous.since : observedAt,
       };
-      next.set(wire.id, unknown);
-      return unknown;
     }
     if (previous === undefined) {
-      const first = { stable: wire.state, since: observedAt };
-      next.set(wire.id, first);
-      return first;
+      return { stable: wire.state, since: observedAt };
     }
     if (wire.state === previous.stable) {
-      const stable = { stable: previous.stable, since: previous.since };
-      next.set(wire.id, stable);
-      return stable;
+      return { stable: previous.stable, since: previous.since };
     }
     const candidate =
       previous.candidate?.value === wire.state
         ? previous.candidate
         : { value: wire.state, since: observedAt };
     if (Date.parse(observedAt) - Date.parse(candidate.since) >= options.flipSmoothingMs) {
-      const promoted = { stable: wire.state, since: candidate.since };
-      next.set(wire.id, promoted);
-      return promoted;
+      return { stable: wire.state, since: candidate.since };
     }
-    const pending = { ...previous, candidate };
-    next.set(wire.id, pending);
-    return pending;
+    return { ...previous, candidate };
   }
 
   function facts(
     wire: SessionWire,
     observedAt: string,
-    next: Map<string, HealthObservation>,
+    state: HealthObservation,
     endReason: 'complete' | 'kill' | null,
   ): SessionFacts {
     const links = Object.fromEntries(
@@ -154,7 +143,6 @@ export function createSpurAdapter(options: SpurAdapterOptions): Adapter {
         if (parsed.success) pr = parsed.data;
       }
     }
-    const state = smooth(wire, observedAt, next);
     return sessionFactsSchema.parse({
       id: wire.id,
       spurProject: wire.project,
@@ -208,16 +196,32 @@ export function createSpurAdapter(options: SpurAdapterOptions): Adapter {
         detail.set(ref.id, wire);
       }
       if (ctx.signal.aborted) throw new Error('Spur poll aborted');
-      const next = new Map(health);
+      const newInstanceId = listResponse.headers.get('x-spur-lifecycle-instance-id') ?? undefined;
+      const restartNotice: SpurNotice | undefined =
+        instanceId !== undefined && newInstanceId !== undefined && newInstanceId !== instanceId
+          ? { kind: 'restart', previousInstanceId: instanceId, instanceId: newInstanceId }
+          : undefined;
+      const previous = restartNotice
+        ? new Map(
+            [...health].map(([id, observation]) => [
+              id,
+              { stable: observation.stable, since: observation.since },
+            ]),
+          )
+        : health;
+      const next = new Map<string, HealthObservation>();
       const items: Batch['items'] = [];
       for (const wire of listed) {
-        items.push({ kind: 'session', facts: facts(wire, observedAt, next, null) });
+        const state = smooth(wire, observedAt, previous.get(wire.id));
+        next.set(wire.id, state);
+        items.push({ kind: 'session', facts: facts(wire, observedAt, state, null) });
       }
       for (const wire of detail.values()) {
         if (wire === null) continue;
+        const state = smooth(wire, observedAt, previous.get(wire.id));
         items.push({
           kind: 'session',
-          facts: facts(wire, observedAt, next, wire.status === 'completed' ? 'complete' : 'kill'),
+          facts: facts(wire, observedAt, state, wire.status === 'completed' ? 'complete' : 'kill'),
         });
       }
       const entities: Batch['entities'] = ctx.observe.sessions.map((ref) => ({
@@ -232,14 +236,7 @@ export function createSpurAdapter(options: SpurAdapterOptions): Adapter {
         entities,
       };
       health = next;
-      const newInstanceId = listResponse.headers.get('x-spur-lifecycle-instance-id') ?? undefined;
-      if (instanceId !== undefined && newInstanceId !== undefined && newInstanceId !== instanceId) {
-        options.onNotice?.({
-          kind: 'restart',
-          previousInstanceId: instanceId,
-          instanceId: newInstanceId,
-        });
-      }
+      if (restartNotice) options.onNotice?.(restartNotice);
       instanceId = newInstanceId;
       for (const wire of [...listed, ...detail.values()]) {
         if (wire === null || isKnownHealth(wire.state) || unknownValues.has(wire.state)) {
