@@ -21,7 +21,8 @@ export const entityRefSchema = z.discriminatedUnion('kind', [
   z.strictObject({
     kind: z.literal('ticket').describe('A tracker ticket.'),
     trackerId: z.string().min(1).describe('Stable id of the tracker the ticket lives in.'),
-    key: taskKeySchema,
+    id: z.string().min(1).describe("The ticket's stable id; the batch matches the ticket by it."),
+    key: taskKeySchema.describe('The last key core saw; the ticket may have been moved since.'),
   }),
   z.strictObject({
     kind: z.literal('session').describe('A Spur session.'),
@@ -50,6 +51,34 @@ export const batchItemSchema = z.discriminatedUnion('kind', [
 ]);
 export type BatchItem = z.output<typeof batchItemSchema>;
 
+/** The identity a requested entity and its item share. */
+function refIdentity(ref: EntityRef): string {
+  switch (ref.kind) {
+    case 'pr':
+      return JSON.stringify([ref.kind, ref.repo, ref.number]);
+    case 'ticket':
+      return JSON.stringify([ref.kind, ref.trackerId, ref.id]);
+    case 'session':
+      return JSON.stringify([ref.kind, ref.id]);
+  }
+}
+
+function itemIdentity(item: BatchItem): string {
+  switch (item.kind) {
+    case 'pr':
+      return refIdentity({ kind: 'pr', repo: item.facts.repo, number: item.facts.number });
+    case 'ticket':
+      return refIdentity({
+        kind: 'ticket',
+        trackerId: item.facts.trackerId,
+        id: item.facts.id,
+        key: item.facts.key,
+      });
+    case 'session':
+      return refIdentity({ kind: 'session', id: item.facts.id });
+  }
+}
+
 export const batchSchema = z
   .strictObject({
     source: z.string().min(1).describe('Id of the adapter that produced the batch.'),
@@ -69,6 +98,50 @@ export const batchSchema = z
         }),
       )
       .describe('One entry per entity core asked for (A4).'),
+    budget: z
+      .strictObject({
+        remaining: z.int().min(0).describe('Requests or points the source still allows.'),
+        resetAt: z.iso.datetime().describe('When the source restores the full budget.'),
+      })
+      .optional()
+      .describe('Request budget the source reported on this poll; omitted when it reports none.'),
+  })
+  .superRefine((batch, ctx) => {
+    const items = new Set<string>();
+    batch.items.forEach((item, index) => {
+      const identity = itemIdentity(item);
+      if (items.has(identity)) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['items', index],
+          message: 'Report each entity in one item',
+        });
+      }
+      items.add(identity);
+    });
+    const requested = new Set<string>();
+    batch.entities.forEach((entity, index) => {
+      const identity = refIdentity(entity.ref);
+      if (requested.has(identity)) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['entities', index, 'ref'],
+          message: 'List each requested entity once',
+        });
+        return;
+      }
+      requested.add(identity);
+      if ((entity.status === 'ok') !== items.has(identity)) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['entities', index, 'status'],
+          message:
+            entity.status === 'ok'
+              ? 'An ok entity needs its item'
+              : `A ${entity.status} entity has no item`,
+        });
+      }
+    });
   })
   .describe('The result of one poll.');
 export type Batch = z.output<typeof batchSchema>;
@@ -79,7 +152,7 @@ export interface PollContext {
   observe: {
     /** Pull requests of board tasks. */
     prs: readonly PrEntityRef[];
-    /** Tickets outside the tracker filter, fetched by key. */
+    /** Tickets outside the tracker filter, fetched by key and matched by id. */
     tickets: readonly TicketEntityRef[];
     /** Sessions linked to board tasks. */
     sessions: readonly SessionEntityRef[];
@@ -95,15 +168,18 @@ export interface PollContext {
  *
  * Obligations:
  * - A1: A batch carries facts only. No wire format of the source (query fields, paging
- *   tokens, response JSON, headers) reaches the batch or core.
+ *   tokens, response JSON, headers) reaches the batch or core. A request budget the source
+ *   reports goes in `budget`, in source-neutral terms.
  * - A2: `observedAt` is the time the poll started, not when it finished.
  * - A3: `complete` is true only when the whole listing was read without errors. An incomplete
  *   batch still carries the facts it did observe. Core concludes anything from absence only
  *   after a complete batch.
- * - A4: `entities` holds exactly one entry for each ref in `PollContext.observe`. A per-entity
- *   outcome (`not_found`, `no_access`) does not clear `complete`. A requested session that
- *   answers 404 is reported as `not_found` with no item; it counts as resolved, and core
- *   records it as `vanished` at once, outside the gone-after-polls count.
+ * - A4: `entities` holds exactly one entry for each ref in `PollContext.observe`. An `ok`
+ *   entity has exactly one item with the same identity (a PR by repo and number, a ticket by
+ *   tracker and id, a session by id); a `not_found` or `no_access` entity has none, so a missed
+ *   fetch never reads as absence. A per-entity outcome does not clear `complete`. A requested
+ *   session that answers 404 is reported as `not_found` with no item; it counts as resolved,
+ *   and core records it as `vanished` at once, outside the gone-after-polls count.
  * - A5: The cursor is opaque to core. The adapter returns a new one or omits it, and it never
  *   moves backwards.
  * - A6: One attempt per request; the adapter does not retry on its own. A failure of the whole

@@ -152,6 +152,12 @@ export const ticketFactsSchema = z
       .string()
       .min(1)
       .describe('Stable id of the tracker the ticket came from; the same across polls.'),
+    id: z
+      .string()
+      .min(1)
+      .describe(
+        "The ticket's stable id in its tracker; unlike the key, it stays the same when the ticket moves to another project.",
+      ),
     key: taskKeySchema,
     title: z.string().describe('Ticket title.'),
     status: z.string().min(1).describe('Ticket status as the tracker names it.'),
@@ -206,7 +212,10 @@ export const sessionFactsSchema = z
       .describe('Lifecycle status: a known value or an unknown one kept as is.'),
     health: z
       .union([knownHealth, unknownSessionHealthSchema])
-      .describe('Health state: a known value or an unknown one kept as is.'),
+      .describe('Health state after smoothing: a known value or an unknown one kept as is.'),
+    healthSince: at.describe(
+      'When the current health value began to hold, as the adapter observed it; health durations count from here.',
+    ),
     lastActivityAt: at.nullable().describe('When the session last showed activity, or null.'),
     endedAt: at
       .nullable()

@@ -50,6 +50,7 @@ function prFacts(): Record<string, unknown> {
 function ticketFacts(): Record<string, unknown> {
   return {
     trackerId: 'web',
+    id: '10042',
     key: 'PROJ-123',
     title: 'Add the login page',
     status: 'In Progress',
@@ -71,6 +72,7 @@ function sessionFacts(): Record<string, unknown> {
     links: { preview: 'https://preview.example.com/demo-worker-1' },
     lifecycle: 'running',
     health: 'working',
+    healthSince: '2026-11-01T11:20:00Z',
     lastActivityAt: '2026-11-01T11:30:00Z',
     endedAt: null,
     endReason: null,
@@ -106,6 +108,7 @@ describe('fixtures', () => {
       {
         ...ticketFacts(),
         trackerId: 'board',
+        id: 'I_example42',
         key: 'acme/web#42',
         status: 'open',
         sprint: null,
@@ -182,6 +185,18 @@ describe('invalid facts', () => {
     expect(pathLines(error)).toContain('→ at endReason');
   });
 
+  it('rejects a ticket without its stable id at its path', () => {
+    const input = ticketFacts();
+    delete input['id'];
+    expect(pathLines(errorFor(ticketFactsSchema, input))).toContain('→ at id');
+  });
+
+  it('rejects a session without healthSince at its path', () => {
+    const input = sessionFacts();
+    delete input['healthSince'];
+    expect(pathLines(errorFor(sessionFactsSchema, input))).toContain('→ at healthSince');
+  });
+
   it('rejects an unknown key', () => {
     expect(errorFor(ticketFactsSchema, { ...ticketFacts(), bogus: 1 })).toContain(
       'Unrecognized key: "bogus"',
@@ -215,6 +230,8 @@ describe('fact names', () => {
   it('does not compile a misspelled fact name', () => {
     expectTypeOf<'pr.headSha'>().toExtend<FactName>();
     expectTypeOf<'session.lastActivityAt'>().toExtend<FactName>();
+    expectTypeOf<'session.healthSince'>().toExtend<FactName>();
+    expectTypeOf<'ticket.id'>().toExtend<FactName>();
     expectTypeOf<'pr.heaSha'>().not.toExtend<FactName>();
     expectTypeOf<'ticket.headSha'>().not.toExtend<FactName>();
   });

@@ -53,6 +53,7 @@ const prFacts = {
 
 const ticketFacts = {
   trackerId: 'web',
+  id: '10042',
   key: 'PROJ-123',
   title: 'Add the login page',
   status: 'To Do',
@@ -72,6 +73,7 @@ const sessionFacts = {
   links: {},
   lifecycle: 'running',
   health: 'waiting',
+  healthSince: '2026-11-01T11:50:00Z',
   lastActivityAt: null,
   endedAt: null,
   endReason: null,
@@ -89,13 +91,14 @@ const items: Record<FactKind, { valid: unknown; invalid: unknown }> = {
   },
 };
 
-const entities: Record<EntityStatus, unknown> = {
-  ok: { ref: { kind: 'pr', repo: 'acme/web', number: 42 }, status: 'ok' },
-  not_found: { ref: { kind: 'session', id: 'demo-worker-1' }, status: 'not_found' },
-  no_access: {
-    ref: { kind: 'ticket', trackerId: 'web', key: 'PROJ-123' },
-    status: 'no_access',
-  },
+const prRef = { kind: 'pr', repo: 'acme/web', number: 42 };
+const ticketRef = { kind: 'ticket', trackerId: 'web', id: '10042', key: 'PROJ-123' };
+const sessionRef = { kind: 'session', id: 'demo-worker-1' };
+
+const entities: Record<EntityStatus, { entity: unknown; items: unknown[] }> = {
+  ok: { entity: { ref: prRef, status: 'ok' }, items: [items.pr.valid] },
+  not_found: { entity: { ref: sessionRef, status: 'not_found' }, items: [] },
+  no_access: { entity: { ref: ticketRef, status: 'no_access' }, items: [] },
 };
 
 describe('batch', () => {
@@ -108,8 +111,10 @@ describe('batch', () => {
     expect(Object.keys(entities)).toEqual([...ENTITY_STATUSES]);
   });
 
-  it.each(Object.entries(entities))('parses a %s entity', (_status, entity) => {
-    expect(batchSchema.safeParse(batch({ entities: [entity] })).success).toBe(true);
+  it.each(Object.entries(entities))('parses a %s entity', (_status, e) => {
+    expect(batchSchema.safeParse(batch({ entities: [e.entity], items: e.items })).success).toBe(
+      true,
+    );
   });
 
   it('rejects an unknown entity status', () => {
@@ -125,6 +130,72 @@ describe('batch', () => {
       items: [],
     });
     expect(batchSchema.parse(input)).toEqual(input);
+  });
+
+  it.each<[string, unknown, unknown[], string]>([
+    [
+      'an ok entity without its item',
+      { ref: prRef, status: 'ok' },
+      [],
+      'An ok entity needs its item',
+    ],
+    [
+      'a no_access entity with an item',
+      { ref: ticketRef, status: 'no_access' },
+      [items.ticket.valid],
+      'A no_access entity has no item',
+    ],
+    [
+      'a not_found entity with an item',
+      { ref: sessionRef, status: 'not_found' },
+      [items.session.valid],
+      'A not_found entity has no item',
+    ],
+  ])('rejects %s', (_name, entity, batchItems, message) => {
+    const result = batchSchema.safeParse(batch({ entities: [entity], items: batchItems }));
+    expect(result.success).toBe(false);
+    expect(result.error?.issues).toEqual([
+      expect.objectContaining({ path: ['entities', 0, 'status'], message }),
+    ]);
+  });
+
+  it('rejects a requested entity listed twice', () => {
+    const entity = { ref: sessionRef, status: 'not_found' };
+    const result = batchSchema.safeParse(batch({ entities: [entity, entity] }));
+    expect(result.error?.issues).toEqual([
+      expect.objectContaining({
+        path: ['entities', 1, 'ref'],
+        message: 'List each requested entity once',
+      }),
+    ]);
+  });
+
+  it('rejects one entity reported in two items', () => {
+    const result = batchSchema.safeParse(batch({ items: [items.pr.valid, items.pr.valid] }));
+    expect(result.error?.issues).toEqual([
+      expect.objectContaining({ path: ['items', 1], message: 'Report each entity in one item' }),
+    ]);
+  });
+
+  it('matches a moved ticket by its id, not its key', () => {
+    const moved = { kind: 'ticket', facts: { ...ticketFacts, key: 'OPS-7' } };
+    const input = batch({ entities: [{ ref: ticketRef, status: 'ok' }], items: [moved] });
+    expect(batchSchema.safeParse(input).success).toBe(true);
+    const other = { kind: 'ticket', facts: { ...ticketFacts, id: '10043' } };
+    expect(
+      batchSchema.safeParse(batch({ entities: [{ ref: ticketRef, status: 'ok' }], items: [other] }))
+        .success,
+    ).toBe(false);
+  });
+
+  it('keeps an optional budget and rejects a negative one', () => {
+    const budget = { remaining: 4200, resetAt: '2026-11-01T13:00:00Z' };
+    expect(batchSchema.parse(batch({ budget })).budget).toEqual(budget);
+    expect(batchSchema.parse(batch()).budget).toBeUndefined();
+    expect(batchSchema.safeParse(batch({ budget: { ...budget, remaining: -1 } })).success).toBe(
+      false,
+    );
+    expect(batchSchema.safeParse(batch({ budget: { ...budget, used: 1 } })).success).toBe(false);
   });
 
   it('keeps an optional cursor and rejects an empty one', () => {
