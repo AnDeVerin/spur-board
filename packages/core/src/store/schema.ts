@@ -227,6 +227,8 @@ export interface TransportHealthTable {
   space: SpaceId;
   reason: string;
   since: string;
+  /** When the space was last tried; the next probe waits a minute from it. */
+  probe_at: string;
 }
 
 export interface DismissalTable {

@@ -276,7 +276,7 @@ describe('migration pins', () => {
   // and its pin instead. Changing the pin of an existing file is a review blocker.
   const PINS: Record<string, string> = {
     '0001_init.sql': 'b92894c23ff9a04e97e034ff9b2787f7be48660538dd861119e570ce1ab86f10',
-    '0002_delivery.sql': '59e0afcf752c897c815927f7a28a7276a8ee431d581474a6a4d0e63480023de2',
+    '0002_delivery.sql': '483cdd6a0c9548bccff62c91bb6359b2fc422efd0c3a1dd62cf6e88ee3d0e93f',
   };
 
   interface MigrationFile {

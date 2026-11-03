@@ -194,6 +194,7 @@ export const sampleRows: SampleRows = {
     space: 'orchestrators',
     reason: 'token_revoked',
     since: at,
+    probe_at: at,
   },
 };
 

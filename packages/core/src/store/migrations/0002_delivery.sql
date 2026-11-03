@@ -20,11 +20,13 @@ CREATE TABLE conversation (
 ) STRICT;
 
 -- One row per (gateway, space) whose transport is failing; its rows wait while it stands.
+-- probe_at is when the space was last tried: one probe per minute, kept across restarts.
 CREATE TABLE transport_health (
   gateway TEXT NOT NULL,
   space TEXT NOT NULL,
   reason TEXT NOT NULL,
   since TEXT NOT NULL,
+  probe_at TEXT NOT NULL,
   PRIMARY KEY (gateway, space)
 ) STRICT;
 

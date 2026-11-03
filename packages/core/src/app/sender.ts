@@ -120,7 +120,6 @@ export function createSender(options: SenderOptions): Sender {
   const now = options.now ?? (() => new Date());
   const spaceIntervalMs = options.spaceIntervalMs ?? SPACE_INTERVAL_MS;
   const nextSlotAt = new Map<SpaceId, number>();
-  const lastProbeAt = new Map<SpaceId, number>();
   let downSince: number | undefined;
   /** The last tick started; a new tick runs after it, so two ticks never interleave. */
   let ticking: Promise<void> = Promise.resolve();
@@ -232,7 +231,16 @@ export function createSender(options: SenderOptions): Sender {
       const since = new Date(downSince).toISOString();
       await trx
         .insertInto('transport_health')
-        .values(SPACE_IDS.map((space) => ({ gateway: gateway.kind, space, reason: 'down', since })))
+        .values(
+          SPACE_IDS.map((space) => ({
+            gateway: gateway.kind,
+            space,
+            reason: 'down',
+            since,
+            // A space down for 5 min has not been probed since it went down.
+            probe_at: since,
+          })),
+        )
         .onConflict((oc) => oc.columns(['gateway', 'space']).doNothing())
         .execute();
     }
@@ -245,14 +253,15 @@ export function createSender(options: SenderOptions): Sender {
       .where('outbox.state', '=', 'pending')
       .where('outbox.next_at', '<=', nowIso)
       .execute();
-    const unhealthy = new Set(
+    // While a space has a health row, it is probed at most once per HEALTH_PROBE_MS.
+    const probedAt = new Map(
       (
         await trx
           .selectFrom('transport_health')
-          .select('space')
+          .select(['space', 'probe_at'])
           .where('gateway', '=', gateway.kind)
           .execute()
-      ).map((h) => h.space),
+      ).map((h) => [h.space, Date.parse(h.probe_at)]),
     );
     const due = live
       .flatMap((row) => {
@@ -275,10 +284,8 @@ export function createSender(options: SenderOptions): Sender {
       if (taken.has(space)) continue;
       if (space !== null) {
         if ((nextSlotAt.get(space) ?? 0) > at) continue;
-        const probedAt = lastProbeAt.get(space);
-        if (unhealthy.has(space) && probedAt !== undefined && at - probedAt < HEALTH_PROBE_MS) {
-          continue;
-        }
+        const probed = probedAt.get(space);
+        if (probed !== undefined && at - probed < HEALTH_PROBE_MS) continue;
       }
       let parent: DeliveredRef | null = null;
       if (row.parent_outbox_id !== null) {
@@ -310,6 +317,14 @@ export function createSender(options: SenderOptions): Sender {
         }))
         .where('id', '=', c.id)
         .execute();
+      if (c.space !== null && probedAt.has(c.space)) {
+        await trx
+          .updateTable('transport_health')
+          .set({ probe_at: nowIso })
+          .where('gateway', '=', gateway.kind)
+          .where('space', '=', c.space)
+          .execute();
+      }
     }
     // Doorbells go last; gateway lanes keep priority order.
     return claims.sort((a, b) => Number(a.space === null) - Number(b.space === null));
@@ -337,26 +352,25 @@ export function createSender(options: SenderOptions): Sender {
     }
   }
 
-  /** tx 2 for one row. Returns true when the space's transport failed. */
+  /** tx 2 for one row. */
   async function record(
     trx: Trx,
     c: Claim,
     outcome: Outcome,
     error: string | null,
     at: number,
-  ): Promise<boolean> {
+  ): Promise<void> {
     const nowIso = new Date(at).toISOString();
     const row = trx.updateTable('outbox').where('id', '=', c.id);
     const { body, space } = c;
     const postFailed = async (patch: { last_error: string; uncertain?: 0 | 1 }) => {
       await row.set({ state: 'post_failed', ...patch }).execute();
       await setComment(trx, body, { delivery_state: 'post_failed' });
-      return false;
     };
     switch (outcome.status) {
       case 'sent':
         await row.set({ state: 'done', last_error: null }).execute();
-        return false;
+        return;
       case 'delivered': {
         const conversation =
           body.kind === 'feed.line.edit'
@@ -414,7 +428,7 @@ export function createSender(options: SenderOptions): Sender {
             .where('space', '=', space)
             .execute();
         }
-        return false;
+        return;
       }
       case 'retry': {
         const current = await trx
@@ -450,7 +464,7 @@ export function createSender(options: SenderOptions): Sender {
           })
           .execute();
         await setComment(trx, body, { delivery_state: 'pending' });
-        return false;
+        return;
       }
       case 'failed': {
         if (outcome.scope === 'message' || space === null) {
@@ -458,8 +472,15 @@ export function createSender(options: SenderOptions): Sender {
         }
         await trx
           .insertInto('transport_health')
-          .values({ gateway: gateway.kind, space, reason: outcome.reason, since: nowIso })
-          .onConflict((oc) => oc.columns(['gateway', 'space']).doNothing())
+          .values({
+            gateway: gateway.kind,
+            space,
+            reason: outcome.reason,
+            since: nowIso,
+            probe_at: nowIso,
+          })
+          // A standing row keeps its reason and since; the failed probe restarts the clock.
+          .onConflict((oc) => oc.columns(['gateway', 'space']).doUpdateSet({ probe_at: nowIso }))
           .execute();
         await row
           .set({
@@ -470,7 +491,6 @@ export function createSender(options: SenderOptions): Sender {
           })
           .execute();
         await setComment(trx, body, { delivery_state: 'pending' });
-        return true;
       }
     }
   }
@@ -479,15 +499,11 @@ export function createSender(options: SenderOptions): Sender {
     const claimedAt = now().getTime();
     const claims = await store.transaction((trx) => claim(trx, claimedAt));
     for (const c of claims) {
-      if (c.space !== null) lastProbeAt.set(c.space, claimedAt);
-    }
-    for (const c of claims) {
       // The slot starts when this send starts, so a slow earlier send does not use it up.
       if (c.space !== null) nextSlotAt.set(c.space, now().getTime() + spaceIntervalMs);
       const { outcome, error } = await attempt(c);
       const at = now().getTime();
-      const transportFailed = await store.transaction((trx) => record(trx, c, outcome, error, at));
-      if (transportFailed && c.space !== null) lastProbeAt.set(c.space, at);
+      await store.transaction((trx) => record(trx, c, outcome, error, at));
     }
   }
 

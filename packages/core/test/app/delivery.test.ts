@@ -948,6 +948,31 @@ describe('transport health', () => {
     expect(await healthRows(ctx)).toHaveLength(1);
   });
 
+  it('keeps the probe clock across a restart', async () => {
+    const ctx = setup();
+    for (let i = 0; i < 2; i++) await enqueueOpen(ctx, await seedBlock(ctx));
+    ctx.fake.platform.failNextPermanently({ scope: 'transport', reason: 'token_revoked' });
+    await ctx.sender.tick();
+    expect(ctx.observed.requests).toHaveLength(1);
+    await ctx.store.close();
+    const store = openStore(ctx.file);
+    stores.push(store);
+    const sender = createSender({
+      store,
+      gateway: ctx.observed.gateway,
+      spur: ctx.spur.spur,
+      now: () => ctx.fake.platform.now(),
+    });
+    await sender.recover();
+    const restarted = { ...ctx, store, sender };
+    await sender.tick();
+    for (let s = 1; s < 60; s++) await step(restarted);
+    expect(ctx.observed.requests).toHaveLength(1);
+    await step(restarted);
+    expect(ctx.observed.requests).toHaveLength(2);
+    expect(await healthRows(restarted)).toEqual([]);
+  });
+
   it('gateway down over 5 min raises health and suspends the retry window', async () => {
     const ctx = setup();
     const id = await enqueueOpen(ctx, await seedBlock(ctx));
