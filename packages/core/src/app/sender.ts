@@ -130,36 +130,45 @@ export function createSender(options: SenderOptions): Sender {
     await trx.updateTable('comment').set(patch).where('id', '=', commentId).execute();
   }
 
-  /** Marks `ids` dead, then every pending descendant of a dead row, to a fixpoint. */
-  async function kill(
+  /** Sets the comments of `rows` that carry one to `superseded`. */
+  async function supersedeComments(
     trx: Trx,
-    ids: readonly number[],
-    reason: string,
-    bodies: ReadonlyMap<number, OutboxBody>,
+    rows: readonly Pick<OutboxRow, 'kind' | 'payload'>[],
   ): Promise<void> {
+    for (const row of rows) {
+      const body = parseBody(row);
+      if (typeof body !== 'string') await setComment(trx, body, { delivery_state: 'superseded' });
+    }
+  }
+
+  async function kill(trx: Trx, ids: readonly number[], reason: string): Promise<void> {
     if (ids.length === 0) return;
-    let dead = (
-      await trx
+    const rows = await trx
+      .updateTable('outbox')
+      .set({ state: 'dead', last_error: reason })
+      .where('id', 'in', ids)
+      .returning(['kind', 'payload'])
+      .execute();
+    await supersedeComments(trx, rows);
+  }
+
+  /**
+   * Kills every pending or post_failed row whose parent is dead, to a fixpoint. Seeded from all
+   * dead rows, not only this tick's, so a row written under an already dead parent dies too.
+   */
+  async function cascade(trx: Trx): Promise<void> {
+    for (;;) {
+      const rows = await trx
         .updateTable('outbox')
-        .set({ state: 'dead', last_error: reason })
-        .where('id', 'in', ids)
-        .returning('id')
-        .execute()
-    ).map((row) => row.id);
-    while (dead.length > 0) {
-      for (const id of dead) {
-        const body = bodies.get(id);
-        if (body !== undefined) await setComment(trx, body, { delivery_state: 'superseded' });
-      }
-      dead = (
-        await trx
-          .updateTable('outbox')
-          .set({ state: 'dead', last_error: 'superseded' })
-          .where('state', 'in', ['pending', 'post_failed'])
-          .where('parent_outbox_id', 'in', dead)
-          .returning('id')
-          .execute()
-      ).map((row) => row.id);
+        .set({ state: 'dead', last_error: 'superseded' })
+        .where('state', 'in', ['pending', 'post_failed'])
+        .where('parent_outbox_id', 'in', (eb) =>
+          eb.selectFrom('outbox as parent').select('parent.id').where('parent.state', '=', 'dead'),
+        )
+        .returning(['kind', 'payload'])
+        .execute();
+      if (rows.length === 0) return;
+      await supersedeComments(trx, rows);
     }
   }
 
@@ -175,7 +184,7 @@ export function createSender(options: SenderOptions): Sender {
     const bodies = new Map<number, OutboxBody>();
     for (const row of rows) {
       const body = parseBody(row);
-      if (typeof body === 'string') await kill(trx, [row.id], body, bodies);
+      if (typeof body === 'string') await kill(trx, [row.id], body);
       else bodies.set(row.id, body);
     }
 
@@ -194,9 +203,11 @@ export function createSender(options: SenderOptions): Sender {
               .execute()
           ).map((b) => b.id),
     );
+    // A row that may already be posted (uncertain) is never stale: it is delivered with
+    // maybeSent, and its dependents go as usual, so no platform thread is left unclosed.
     const stale: number[] = [];
     for (const row of rows) {
-      const body = bodies.get(row.id);
+      const body = row.uncertain === 1 ? undefined : bodies.get(row.id);
       if (body?.kind === 'conversation.open' && !openBlocks.has(body.payload.blockId)) {
         stale.push(row.id);
       }
@@ -209,7 +220,8 @@ export function createSender(options: SenderOptions): Sender {
         if (edits.length > 0) stale.push(row.id, ...edits.map((r) => r.id));
       }
     }
-    await kill(trx, stale, 'superseded', bodies);
+    await kill(trx, stale, 'superseded');
+    await cascade(trx);
 
     if (downSince !== undefined && at - downSince > DOWN_THRESHOLD_MS) {
       const since = new Date(downSince).toISOString();
@@ -267,7 +279,7 @@ export function createSender(options: SenderOptions): Sender {
       if (row.parent_outbox_id !== null) {
         const ref = deliveredRefSchema.safeParse(JSON.parse(row.parentRef ?? 'null'));
         if (!ref.success) {
-          await kill(trx, [row.id], 'parent has no delivered ref', bodies);
+          await kill(trx, [row.id], 'parent has no delivered ref');
           continue;
         }
         parent = ref.data;

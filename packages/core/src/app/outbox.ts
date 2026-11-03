@@ -186,7 +186,8 @@ export async function enqueueConversationOpen(
 
 /**
  * Writes the `conversation.reply` row of a later comment on a block whose open row exists.
- * The row waits for the thread's latest open, reply or close row. Returns null otherwise.
+ * The row waits for the thread's latest open, reply or close row. Returns null and writes
+ * nothing when there is no such row or it is dead: a dead thread takes no more replies.
  */
 export async function enqueueConversationReply(
   trx: Trx,
@@ -202,13 +203,13 @@ export async function enqueueConversationReply(
   if (blockId === null) return null;
   const tail = await trx
     .selectFrom('outbox')
-    .select('id')
+    .select(['id', 'state'])
     .where('kind', 'in', ['conversation.open', 'conversation.reply', 'conversation.close'])
     .where(sql<number>`json_extract(payload, '$.blockId')`, '=', blockId)
     .orderBy('id', 'desc')
     .limit(1)
     .executeTakeFirst();
-  if (tail === undefined) return null;
+  if (tail === undefined || tail.state === 'dead') return null;
   const payload: z.input<typeof replyPayload> = {
     key: comment.key,
     text: comment.text,

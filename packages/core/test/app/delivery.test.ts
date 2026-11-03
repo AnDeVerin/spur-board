@@ -277,6 +277,51 @@ async function healthRows(ctx: Ctx) {
   return ctx.store.db.selectFrom('transport_health').selectAll().orderBy('space').execute();
 }
 
+async function unblock(ctx: Ctx, seed: Seed): Promise<void> {
+  await ctx.store.transaction((trx) =>
+    trx.updateTable('block').set({ state: 'unblocked' }).where('id', '=', seed.blockId).execute(),
+  );
+}
+
+/** An open row whose task key fails `taskKeySchema`, so the sender kills it as invalid. */
+function invalidOpen(ctx: Ctx, seed: Seed): Promise<number> {
+  return insertRow(ctx, 'conversation.open', `conversation.open:block:${String(seed.blockId)}`, {
+    key: 'not a task key',
+    title: 'bad',
+    text: 'bad',
+    persona: PERSONA,
+    taskId: seed.taskId,
+    blockId: seed.blockId,
+    commentId: null,
+  });
+}
+
+/** A reply row written directly under `parent`, as an older producer could have left it. */
+async function replyRow(ctx: Ctx, seed: Seed, commentId: number, parent: number): Promise<number> {
+  const id = await insertRow(
+    ctx,
+    'conversation.reply',
+    `conversation.reply:comment:${String(commentId)}`,
+    {
+      key: seed.key,
+      text: 'late',
+      persona: PERSONA,
+      taskId: seed.taskId,
+      blockId: seed.blockId,
+      commentId,
+    },
+    parent,
+  );
+  await ctx.store.transaction((trx) =>
+    trx
+      .updateTable('comment')
+      .set({ delivery_state: 'pending' })
+      .where('id', '=', commentId)
+      .execute(),
+  );
+  return id;
+}
+
 describe('producers', () => {
   it('writes one open per block, idempotent by its dedupe key', async () => {
     const ctx = setup();
@@ -357,6 +402,42 @@ describe('producers', () => {
       }),
     );
     expect(id).toBeNull();
+  });
+
+  it('writes no reply when the thread tail is dead', async () => {
+    const ctx = setup();
+    const seed = await seedBlock(ctx);
+    await enqueueOpen(ctx, seed);
+    await unblock(ctx, seed);
+    await ctx.sender.tick();
+    const c2 = await addComment(ctx, seed, 'too late');
+    const id = await ctx.store.transaction((trx) =>
+      enqueueConversationReply(trx, {
+        commentId: c2,
+        persona: PERSONA,
+        at: ctx.fake.platform.now(),
+      }),
+    );
+    expect(id).toBeNull();
+    expect(await ctx.store.db.selectFrom('outbox').selectAll().execute()).toHaveLength(1);
+    expect((await commentRow(ctx, c2)).delivery_state).toBeNull();
+  });
+
+  it('writes no reply when the open died for an invalid payload', async () => {
+    const ctx = setup();
+    const seed = await seedBlock(ctx);
+    await invalidOpen(ctx, seed);
+    await ctx.sender.tick();
+    const c2 = await addComment(ctx, seed, 'too late');
+    const id = await ctx.store.transaction((trx) =>
+      enqueueConversationReply(trx, {
+        commentId: c2,
+        persona: PERSONA,
+        at: ctx.fake.platform.now(),
+      }),
+    );
+    expect(id).toBeNull();
+    expect((await commentRow(ctx, c2)).delivery_state).toBeNull();
   });
 
   it("sends the caller's persona and starts the text with the task key", async () => {
@@ -655,6 +736,84 @@ describe('dependencies', () => {
       expect((await commentRow(ctx, id)).delivery_state).toBe('superseded');
     }
     expect(ctx.observed.requests).toHaveLength(0);
+  });
+
+  it('a reply written after its open died is cancelled on the next tick', async () => {
+    const ctx = setup();
+    const seed = await seedBlock(ctx);
+    const openId = await enqueueOpen(ctx, seed);
+    await unblock(ctx, seed);
+    await ctx.sender.tick();
+    expect((await outboxRow(ctx, openId)).state).toBe('dead');
+    const c2 = await addComment(ctx, seed, 'late');
+    const reply = await replyRow(ctx, seed, c2, openId);
+    await step(ctx);
+    expect(await outboxRow(ctx, reply)).toMatchObject({ state: 'dead', last_error: 'superseded' });
+    expect((await commentRow(ctx, c2)).delivery_state).toBe('superseded');
+    expect(ctx.observed.requests).toHaveLength(0);
+  });
+
+  it('a reply written after its open died for an invalid payload is cancelled', async () => {
+    const ctx = setup();
+    const seed = await seedBlock(ctx);
+    const openId = await invalidOpen(ctx, seed);
+    await ctx.sender.tick();
+    expect((await outboxRow(ctx, openId)).last_error).toMatch(/^invalid payload/);
+    const c2 = await addComment(ctx, seed, 'late');
+    const reply = await replyRow(ctx, seed, c2, openId);
+    await step(ctx);
+    expect(await outboxRow(ctx, reply)).toMatchObject({ state: 'dead', last_error: 'superseded' });
+    expect((await commentRow(ctx, c2)).delivery_state).toBe('superseded');
+    expect(ctx.observed.requests).toHaveLength(0);
+  });
+
+  it('an invalid open cancels its pending reply and the reply comment in one tick', async () => {
+    const ctx = setup();
+    const seed = await seedBlock(ctx);
+    const openId = await invalidOpen(ctx, seed);
+    const c2 = await addComment(ctx, seed, 'more');
+    const reply = await replyRow(ctx, seed, c2, openId);
+    const close = await closeRow(ctx, seed, reply);
+    await ctx.sender.tick();
+    for (const id of [reply, close]) {
+      expect(await outboxRow(ctx, id)).toMatchObject({ state: 'dead', last_error: 'superseded' });
+    }
+    expect((await commentRow(ctx, c2)).delivery_state).toBe('superseded');
+    expect(ctx.observed.requests).toHaveLength(0);
+  });
+
+  it('an uncertain open is delivered with maybeSent after its block clears', async () => {
+    const ctx = setup('slack-like');
+    const seed = await seedBlock(ctx);
+    const openId = await enqueueOpen(ctx, seed);
+    const reply = await enqueueReply(ctx, await addComment(ctx, seed, 'more'));
+    ctx.fake.platform.timeoutNext({ visible: true });
+    await ctx.sender.tick();
+    expect(await outboxRow(ctx, openId)).toMatchObject({ state: 'pending', uncertain: 1 });
+    await unblock(ctx, seed);
+    await step(ctx);
+    expect((await outboxRow(ctx, openId)).state).toBe('done');
+    expect(request(ctx, 1)).toMatchObject({ key: request(ctx, 0).key, maybeSent: true });
+    expect(marked(ctx.fake, request(ctx, 0).key)).toBe(1);
+    expect((await commentRow(ctx, seed.commentId)).delivery_state).toBe('delivered');
+    await step(ctx);
+    expect((await outboxRow(ctx, reply)).state).toBe('done');
+  });
+
+  it('an uncertain feed line is delivered before its edit', async () => {
+    const ctx = setup('slack-like');
+    const line = await feedLine(ctx, 'o/r#7', 'item-1');
+    ctx.fake.platform.timeoutNext({ visible: true });
+    await ctx.sender.tick();
+    expect(await outboxRow(ctx, line)).toMatchObject({ state: 'pending', uncertain: 1 });
+    const edit = await feedEdit(ctx, 'o/r#7', 'item-1', line);
+    await step(ctx);
+    expect((await outboxRow(ctx, line)).state).toBe('done');
+    expect(request(ctx, 1)).toMatchObject({ target: { kind: 'open' }, maybeSent: true });
+    await step(ctx);
+    expect((await outboxRow(ctx, edit)).state).toBe('done');
+    expect(request(ctx, 2).target.kind).toBe('edit');
+    expect(marked(ctx.fake, request(ctx, 0).key)).toBe(1);
   });
 
   it('cleared feed line is cancelled', async () => {
