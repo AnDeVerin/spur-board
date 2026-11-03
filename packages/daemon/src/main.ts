@@ -1,8 +1,13 @@
 import { homedir } from 'node:os';
-import { openStore, type Store } from '@spur-board/core';
+import { commandRetention, openStore, type Store } from '@spur-board/core';
 import { createSlackGateway } from '@spur-board/gateway-slack';
 import { loadConfig, resolvePaths } from './config.ts';
-import { DEFAULT_SHUTDOWN_TIMEOUT_MS, runDaemon, type ProcessPort } from './lifecycle.ts';
+import {
+  DEFAULT_SHUTDOWN_TIMEOUT_MS,
+  runDaemon,
+  type ModuleEntry,
+  type ProcessPort,
+} from './lifecycle.ts';
 import { acquireLock } from './lock.ts';
 import { createOutboxModule, slackSettings } from './outbox-module.ts';
 
@@ -46,11 +51,26 @@ export async function main(): Promise<void> {
     },
     openStore,
     modules: (ctxFor) => {
+      const commands = ctxFor('commands');
+      const entries: ModuleEntry[] = [
+        {
+          name: 'commands',
+          stopStage: 'final',
+          module: commandRetention({
+            store: commands.store,
+            clock: commands.clock,
+            retentionDays: commands.config.commands.retentionDays,
+            onError: (err) => {
+              commands.log.error({ err }, 'command purge failed');
+            },
+          }),
+        },
+      ];
       const ctx = ctxFor('gateway-slack');
       const settings = slackSettings(ctx.config, ctx.secrets);
-      if (settings === null) return [];
+      if (settings === null) return entries;
       const gateway = createSlackGateway(settings);
-      return [
+      entries.push(
         {
           name: 'gateway-slack',
           stopStage: 'final',
@@ -64,7 +84,8 @@ export async function main(): Promise<void> {
           stopStage: 'outbox',
           module: createOutboxModule(ctxFor('outbox'), gateway),
         },
-      ];
+      );
+      return entries;
     },
     port: processPort(),
     stdout: process.stdout,

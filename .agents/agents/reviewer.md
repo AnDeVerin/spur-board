@@ -16,7 +16,8 @@ checks.
 3. Read each skill in `.agents/skills/` whose description covers the changed paths; a diff under
    `packages/contracts/` also reads `working-with-contracts`; a diff under
    `packages/core/src/store/` or `packages/core/test/store/`, or one that adds a `.transaction(`
-   call, also reads `working-with-storage`.
+   call, also reads `working-with-storage`; a diff under `packages/daemon/`, or one that adds a
+   `setTimeout(` or `setInterval(` call outside tests, also reads `running-the-daemon`.
 4. A PR exists (`PR:` line in the handoff): read its body and earlier review threads. Do not
    repeat a rejected suggestion unless the diff changes its premise.
 

@@ -179,4 +179,42 @@ describe('daemon process', () => {
       await api.close();
     }
   }, 30_000);
+
+  it('purges expired command keys at start', async () => {
+    const home = makeHome({ config: VALID_CONFIG_YAML + 'commands:\n  retentionDays: 2\n' });
+    const file = join(home, 'board.sqlite');
+    const day = 86_400_000;
+    const seeded = openStore(file);
+    await seeded.transaction(async (trx) => {
+      for (const [key, age] of [
+        ['old', 3 * day],
+        ['recent', day],
+      ] as const) {
+        await trx
+          .insertInto('command')
+          .values({
+            actor: 'operator',
+            key,
+            operation: 'test.touch',
+            fingerprint: null,
+            result: '{}',
+            at: new Date(Date.now() - age).toISOString(),
+          })
+          .execute();
+      }
+    });
+    await seeded.close();
+
+    const child = spawnDaemon(home);
+    await waitForLine(child, 'daemon ready');
+    const exited = once(child, 'exit');
+    child.kill('SIGTERM');
+    const [code, signal] = (await exited) as [number | null, string | null];
+    expect({ code, signal }).toEqual({ code: 0, signal: null });
+
+    const reopened = openStore(file);
+    const rows = await reopened.db.selectFrom('command').select('key').execute();
+    await reopened.close();
+    expect(rows).toEqual([{ key: 'recent' }]);
+  }, 30_000);
 });
