@@ -7,6 +7,7 @@ import {
   type ActorId,
   type AddresseeRole,
   type DeliverRequest,
+  type Gateway,
   type Persona,
 } from '@spur-board/contracts';
 import { createFakeGateway, type FakeGateway, type FakeProfile } from '@spur-board/gateway-testkit';
@@ -521,7 +522,101 @@ describe('limiter', () => {
     expect(request(ctx, 1).key).toBe((await outboxRow(ctx, second)).dedupe_key);
     expect((await outboxRow(ctx, second)).state).toBe('done');
   });
+
+  it('starts the space interval when the send starts, after a slow earlier send', async () => {
+    const ctx = setup('slack-like', 1000);
+    const slow = slowOrchestrators(ctx, 900);
+    const seed = await seedBlock(ctx);
+    await enqueueOpen(ctx, seed);
+    await feedLine(ctx, seed.key, 'item-1');
+    await feedLine(ctx, seed.key, 'item-2');
+    await slow.sender.tick();
+    await step({ ...ctx, sender: slow.sender }, 100);
+    await step({ ...ctx, sender: slow.sender }, 900);
+    expect(slow.starts.get('feed')).toHaveLength(2);
+    expect(gaps(slow.starts)).toEqual([]);
+  });
+
+  it('runs overlapping ticks one after another', async () => {
+    const ctx = setup('slack-like', 1000);
+    const slow = slowOrchestrators(ctx, 1000);
+    for (let i = 0; i < 2; i++) {
+      const seed = await seedBlock(ctx);
+      await enqueueOpen(ctx, seed);
+      await feedLine(ctx, seed.key, `item-${String(i)}`);
+    }
+    await Promise.all([slow.sender.tick(), slow.sender.tick()]);
+    for (let i = 0; i < 3; i++) await step({ ...ctx, sender: slow.sender });
+    const keys = ctx.observed.requests.map((r) => r.key);
+    expect(keys).toHaveLength(4);
+    expect(new Set(keys).size).toBe(keys.length);
+    expect(gaps(slow.starts)).toEqual([]);
+  });
 });
+
+describe('tick', () => {
+  it('runs the next tick after one that rejected', async () => {
+    const ctx = setup();
+    await enqueueOpen(ctx, await seedBlock(ctx));
+    let fail = true;
+    const store: Store = {
+      ...ctx.store,
+      transaction: (fn) => {
+        if (!fail) return ctx.store.transaction(fn);
+        fail = false;
+        return Promise.reject(new Error('disk full'));
+      },
+    };
+    const sender = createSender({
+      store,
+      gateway: ctx.observed.gateway,
+      spur: ctx.spur.spur,
+      now: () => ctx.fake.platform.now(),
+    });
+    const first = sender.tick();
+    const second = sender.tick();
+    await expect(first).rejects.toThrow('disk full');
+    await second;
+    expect(ctx.observed.requests).toHaveLength(1);
+  });
+});
+
+/**
+ * A sender whose orchestrators opens take `ms` on the platform clock before they post. It logs
+ * when each open starts, per space.
+ */
+function slowOrchestrators(ctx: Ctx, ms: number) {
+  const starts = new Map<string, number[]>();
+  const gateway: Gateway = {
+    ...ctx.observed.gateway,
+    async deliver(request) {
+      if (request.target.kind === 'open') {
+        const space = request.target.space;
+        starts.set(space, [...(starts.get(space) ?? []), ctx.fake.platform.now().getTime()]);
+        if (space === 'orchestrators') ctx.fake.platform.advance(ms);
+      }
+      return ctx.observed.gateway.deliver(request);
+    },
+  };
+  const sender = createSender({
+    store: ctx.store,
+    gateway,
+    spur: ctx.spur.spur,
+    now: () => ctx.fake.platform.now(),
+    spaceIntervalMs: 1000,
+  });
+  return { sender, starts };
+}
+
+/** Two sends into one space that started less than 1000 ms apart. */
+function gaps(starts: Map<string, number[]>): string[] {
+  return [...starts].flatMap(([space, times]) =>
+    times.slice(1).flatMap((t, i) => {
+      const gap = t - (times[i] ?? 0);
+      return gap < 1000 ? [`${space}: ${String(gap)} ms`] : [];
+    }),
+  );
+}
 
 describe('maybeSent', () => {
   it('passes maybeSent after an uncertain retry and leaves one thread', async () => {

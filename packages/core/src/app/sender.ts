@@ -39,7 +39,10 @@ export interface SenderOptions {
 export interface Sender {
   /** Returns `in_flight` rows as uncertain and `post_failed` rows to `pending`. Run once on start. */
   recover(): Promise<void>;
-  /** Claims due rows, delivers them one by one and records each result. */
+  /**
+   * Claims due rows, delivers them one by one and records each result. A call made while a tick
+   * runs waits for it, then runs.
+   */
   tick(): Promise<void>;
   /** Feeds the gateway's connection events; down for over 5 min raises health for every space. */
   recordConnection(state: ConnectionState, at: Date): void;
@@ -119,6 +122,8 @@ export function createSender(options: SenderOptions): Sender {
   const nextSlotAt = new Map<SpaceId, number>();
   const lastProbeAt = new Map<SpaceId, number>();
   let downSince: number | undefined;
+  /** The last tick started; a new tick runs after it, so two ticks never interleave. */
+  let ticking: Promise<void> = Promise.resolve();
 
   async function setComment(
     trx: Trx,
@@ -470,6 +475,22 @@ export function createSender(options: SenderOptions): Sender {
     }
   }
 
+  async function runTick(): Promise<void> {
+    const claimedAt = now().getTime();
+    const claims = await store.transaction((trx) => claim(trx, claimedAt));
+    for (const c of claims) {
+      if (c.space !== null) lastProbeAt.set(c.space, claimedAt);
+    }
+    for (const c of claims) {
+      // The slot starts when this send starts, so a slow earlier send does not use it up.
+      if (c.space !== null) nextSlotAt.set(c.space, now().getTime() + spaceIntervalMs);
+      const { outcome, error } = await attempt(c);
+      const at = now().getTime();
+      const transportFailed = await store.transaction((trx) => record(trx, c, outcome, error, at));
+      if (transportFailed && c.space !== null) lastProbeAt.set(c.space, at);
+    }
+  }
+
   return {
     async recover() {
       const nowIso = now().toISOString();
@@ -496,22 +517,11 @@ export function createSender(options: SenderOptions): Sender {
       });
     },
 
-    async tick() {
-      const claimedAt = now().getTime();
-      const claims = await store.transaction((trx) => claim(trx, claimedAt));
-      for (const c of claims) {
-        if (c.space === null) continue;
-        lastProbeAt.set(c.space, claimedAt);
-        nextSlotAt.set(c.space, claimedAt + spaceIntervalMs);
-      }
-      for (const c of claims) {
-        const { outcome, error } = await attempt(c);
-        const at = now().getTime();
-        const transportFailed = await store.transaction((trx) =>
-          record(trx, c, outcome, error, at),
-        );
-        if (transportFailed && c.space !== null) lastProbeAt.set(c.space, at);
-      }
+    tick() {
+      const run = ticking.then(runTick);
+      // A rejected tick still lets the next one run.
+      ticking = run.catch(() => undefined);
+      return run;
     },
 
     recordConnection(state, at) {
