@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { ERRORS, errorContextSchema, type ErrorCode } from './errors.ts';
+import { ERRORS, errorContextSchema, type ErrorCode, type ServerErrorCode } from './errors.ts';
 
 /** One validated input supplies every transport representation. */
 export const errorInputSchema = z.strictObject({
@@ -25,15 +25,18 @@ function fields(input: ErrorInput) {
   };
 }
 
-export function renderHttpProblem(input: ErrorInput) {
-  const spec = ERRORS[input.code];
+export function renderHttpProblem(input: ErrorInput & { code: ServerErrorCode }) {
+  const value = fields(input);
+  const spec = ERRORS[value.code];
+  if (spec.status === null)
+    throw new Error('HTTP problems require a server error code, not a client-side code.');
   return {
     status: spec.status,
     body: {
       type: `https://spur-board.dev/docs/errors${spec.docs}`,
       title: spec.message,
       status: spec.status,
-      ...fields(input),
+      ...value,
     },
   };
 }

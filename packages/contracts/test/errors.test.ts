@@ -95,9 +95,31 @@ describe('error catalog', () => {
     for (const entry of Object.values(ERRORS))
       expect(recoverySchema.safeParse(entry.recovery).success).toBe(true);
   });
+
+  it.each([
+    ['wrong_id_kind', 'Pass the expected ID kind.'],
+    ['forbidden', 'Use an allowed role or ask the operator for access.'],
+    ['not_found', 'Check the ID and locate the object.'],
+    ['block_not_open', 'Read the current blocks before choosing another action.'],
+    ['wrong_block_type', 'Use the operation for the current block type.'],
+    ['task_archived', 'Add the task to the board again if work continues.'],
+    ['retry_not_applicable', 'Read the item and close it if no retry is needed.'],
+    ['idempotency_key_mismatch', 'Use a new key for new input or repeat the original input.'],
+    ['identity_unavailable', 'Restore caller identity, then run the command again.'],
+  ] as const)('%s gives recovery for its own cause', (code, action) => {
+    expect(ERRORS[code].recovery.action).toBe(action);
+  });
 });
 
 describe('error representations', () => {
+  it('rejects client-side errors from the HTTP formatter', () => {
+    expect(renderHttpProblem({ code: 'identity_unavailable', requestId: 'req-1' }).status).toBe(
+      503,
+    );
+    expect(() =>
+      Reflect.apply(renderHttpProblem, null, [{ code: 'config', requestId: 'req-1' }]),
+    ).toThrow(/client-side/);
+  });
   it('requires request IDs in success and error envelopes', () => {
     expect(successEnvelopeSchema.safeParse({ ok: true, value: 1 }).success).toBe(false);
     expect(errorEnvelopeSchema.safeParse({ ok: false, error: { code: 'usage' } }).success).toBe(
@@ -142,7 +164,7 @@ describe('error representations', () => {
     process.env.SPUR_TEST_SECRET = secret;
     try {
       const input = {
-        code: 'config' as const,
+        code: 'identity_unavailable' as const,
         requestId: 'req-77',
         context: { environmentVariable: 'SPUR_TEST_SECRET' },
       };
@@ -153,12 +175,12 @@ describe('error representations', () => {
       for (const value of [http, mcp, json, stderr])
         expect(JSON.stringify(value)).not.toContain(secret);
       for (const value of [http, mcp, json]) {
-        expect(value.code).toBe('config');
-        expect(value.hint).toBe(ERRORS.config.hint);
+        expect(value.code).toBe('identity_unavailable');
+        expect(value.hint).toBe(ERRORS.identity_unavailable.hint);
         expect(value.requestId).toBe('req-77');
       }
-      expect(stderr).toContain('Error config:');
-      expect(stderr).toContain(`Fix: ${ERRORS.config.hint}`);
+      expect(stderr).toContain('Error identity_unavailable:');
+      expect(stderr).toContain(`Fix: ${ERRORS.identity_unavailable.hint}`);
       expect(stderr).toContain('Request ID: req-77');
     } finally {
       delete process.env.SPUR_TEST_SECRET;

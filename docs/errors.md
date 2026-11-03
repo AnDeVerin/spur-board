@@ -43,7 +43,7 @@ The ID is valid but names a different kind of object.
 HTTP: 400  
 Exit code: 2  
 Hint: Pass the ID kind the operation expects, e.g. B<n> for a block or a task key for a task.  
-Recovery: Use an allowed role or ask the operator for access.  
+Recovery: Pass the expected ID kind.  
 Side effects: none  
 Retry: maximum 0; After fixing the cause.
 
@@ -60,7 +60,7 @@ Example:
     "hint": "Pass the ID kind the operation expects, e.g. B<n> for a block or a task key for a task.",
     "docs": "#wrong_id_kind",
     "recovery": {
-      "action": "Use an allowed role or ask the operator for access.",
+      "action": "Pass the expected ID kind.",
       "sideEffects": "none",
       "maxRetries": 0,
       "retryTiming": "After fixing the cause."
@@ -77,7 +77,7 @@ The caller is not allowed to run this operation on this object.
 HTTP: 403  
 Exit code: 1  
 Hint: Check which role may run the operation in `board schema`, or ask the operator.  
-Recovery: Check the ID and locate the object.  
+Recovery: Use an allowed role or ask the operator for access.  
 Side effects: none  
 Retry: maximum 0; After fixing the cause.
 
@@ -94,7 +94,7 @@ Example:
     "hint": "Check which role may run the operation in `board schema`, or ask the operator.",
     "docs": "#forbidden",
     "recovery": {
-      "action": "Check the ID and locate the object.",
+      "action": "Use an allowed role or ask the operator for access.",
       "sideEffects": "none",
       "maxRetries": 0,
       "retryTiming": "After fixing the cause."
@@ -111,7 +111,7 @@ The project, task, block, comment or item does not exist.
 HTTP: 404  
 Exit code: 1  
 Hint: Check the ID with `board status` or `board task <KEY>`.  
-Recovery: Read the current blocks before choosing another action.  
+Recovery: Check the ID and locate the object.  
 Side effects: none  
 Retry: maximum 0; After fixing the cause.
 
@@ -128,7 +128,7 @@ Example:
     "hint": "Check the ID with `board status` or `board task <KEY>`.",
     "docs": "#not_found",
     "recovery": {
-      "action": "Read the current blocks before choosing another action.",
+      "action": "Check the ID and locate the object.",
       "sideEffects": "none",
       "maxRetries": 0,
       "retryTiming": "After fixing the cause."
@@ -145,7 +145,7 @@ The block is already unblocked.
 HTTP: 409  
 Exit code: 1  
 Hint: Read the task with `board task <KEY>` to see the current blocks.  
-Recovery: Use the operation for the current block type.  
+Recovery: Read the current blocks before choosing another action.  
 Side effects: none  
 Retry: maximum 0; After fixing the cause.
 
@@ -162,7 +162,7 @@ Example:
     "hint": "Read the task with `board task <KEY>` to see the current blocks.",
     "docs": "#block_not_open",
     "recovery": {
-      "action": "Use the operation for the current block type.",
+      "action": "Read the current blocks before choosing another action.",
       "sideEffects": "none",
       "maxRetries": 0,
       "retryTiming": "After fixing the cause."
@@ -179,7 +179,7 @@ The operation does not apply to this type of block.
 HTTP: 409  
 Exit code: 1  
 Hint: Read the block type with `board task <KEY>` and use the operation for that type.  
-Recovery: Add the task to the board again if work continues.  
+Recovery: Use the operation for the current block type.  
 Side effects: none  
 Retry: maximum 0; After fixing the cause.
 
@@ -196,7 +196,7 @@ Example:
     "hint": "Read the block type with `board task <KEY>` and use the operation for that type.",
     "docs": "#wrong_block_type",
     "recovery": {
-      "action": "Add the task to the board again if work continues.",
+      "action": "Use the operation for the current block type.",
       "sideEffects": "none",
       "maxRetries": 0,
       "retryTiming": "After fixing the cause."
@@ -213,7 +213,7 @@ The task is archived, so it cannot change.
 HTTP: 409  
 Exit code: 1  
 Hint: Add the task to the board again with `board task add <KEY>` if work goes on.  
-Recovery: Read the item and close it if no retry is needed.  
+Recovery: Add the task to the board again if work continues.  
 Side effects: none  
 Retry: maximum 0; After fixing the cause.
 
@@ -230,7 +230,7 @@ Example:
     "hint": "Add the task to the board again with `board task add <KEY>` if work goes on.",
     "docs": "#task_archived",
     "recovery": {
-      "action": "Read the item and close it if no retry is needed.",
+      "action": "Add the task to the board again if work continues.",
       "sideEffects": "none",
       "maxRetries": 0,
       "retryTiming": "After fixing the cause."
@@ -247,7 +247,7 @@ The item is not in a state that can be retried.
 HTTP: 409  
 Exit code: 1  
 Hint: Read the item with `board task <KEY>`; close it if it needs no retry.  
-Recovery: Use a new key for new input or repeat the original input.  
+Recovery: Read the item and close it if no retry is needed.  
 Side effects: none  
 Retry: maximum 0; After fixing the cause.
 
@@ -264,7 +264,7 @@ Example:
     "hint": "Read the item with `board task <KEY>`; close it if it needs no retry.",
     "docs": "#retry_not_applicable",
     "recovery": {
-      "action": "Use a new key for new input or repeat the original input.",
+      "action": "Read the item and close it if no retry is needed.",
       "sideEffects": "none",
       "maxRetries": 0,
       "retryTiming": "After fixing the cause."
@@ -281,7 +281,7 @@ The idempotency key was already used with a different input.
 HTTP: 409  
 Exit code: 1  
 Hint: Use a new key for a new command, or repeat the earlier input with the same key.  
-Recovery: Restore caller identity, then run the command again.  
+Recovery: Use a new key for new input or repeat the original input.  
 Side effects: none  
 Retry: maximum 0; After fixing the cause.
 
@@ -298,7 +298,7 @@ Example:
     "hint": "Use a new key for a new command, or repeat the earlier input with the same key.",
     "docs": "#idempotency_key_mismatch",
     "recovery": {
-      "action": "Restore caller identity, then run the command again.",
+      "action": "Use a new key for new input or repeat the original input.",
       "sideEffects": "none",
       "maxRetries": 0,
       "retryTiming": "After fixing the cause."
@@ -315,9 +315,9 @@ The daemon cannot tell who the caller is right now.
 HTTP: 503  
 Exit code: 3  
 Hint: Retry shortly; run the command from inside a spur session or as the operator.  
-Recovery: Start the daemon, then retry the command.  
+Recovery: Restore caller identity, then run the command again.  
 Side effects: none  
-Retry: maximum 3; After a short delay.
+Retry: maximum 0; After fixing the cause.
 
 Example:
 
@@ -332,10 +332,10 @@ Example:
     "hint": "Retry shortly; run the command from inside a spur session or as the operator.",
     "docs": "#identity_unavailable",
     "recovery": {
-      "action": "Start the daemon, then retry the command.",
+      "action": "Restore caller identity, then run the command again.",
       "sideEffects": "none",
-      "maxRetries": 3,
-      "retryTiming": "After a short delay."
+      "maxRetries": 0,
+      "retryTiming": "After fixing the cause."
     },
     "context": {}
   }

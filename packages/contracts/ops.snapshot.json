@@ -1,5 +1,5 @@
 {
-  "version": "018936e730b944b16cd5ff36de15ad457ebac8d2b4a65233e0565355fd10a6e2",
+  "version": "acbdf9572b193f688ed8d08d27e4b7a0bb4f1d2689ee94ac151bcdb92c5fbfa2",
   "grants": [
     "operator",
     "project-agent",
@@ -51,7 +51,7 @@
       "message": "The ID is valid but names a different kind of object.",
       "hint": "Pass the ID kind the operation expects, e.g. B<n> for a block or a task key for a task.",
       "recovery": {
-        "action": "Use an allowed role or ask the operator for access.",
+        "action": "Pass the expected ID kind.",
         "sideEffects": "none",
         "maxRetries": 0,
         "retryTiming": "After fixing the cause."
@@ -79,7 +79,7 @@
       "message": "The caller is not allowed to run this operation on this object.",
       "hint": "Check which role may run the operation in `board schema`, or ask the operator.",
       "recovery": {
-        "action": "Check the ID and locate the object.",
+        "action": "Use an allowed role or ask the operator for access.",
         "sideEffects": "none",
         "maxRetries": 0,
         "retryTiming": "After fixing the cause."
@@ -107,7 +107,7 @@
       "message": "The project, task, block, comment or item does not exist.",
       "hint": "Check the ID with `board status` or `board task <KEY>`.",
       "recovery": {
-        "action": "Read the current blocks before choosing another action.",
+        "action": "Check the ID and locate the object.",
         "sideEffects": "none",
         "maxRetries": 0,
         "retryTiming": "After fixing the cause."
@@ -135,7 +135,7 @@
       "message": "The block is already unblocked.",
       "hint": "Read the task with `board task <KEY>` to see the current blocks.",
       "recovery": {
-        "action": "Use the operation for the current block type.",
+        "action": "Read the current blocks before choosing another action.",
         "sideEffects": "none",
         "maxRetries": 0,
         "retryTiming": "After fixing the cause."
@@ -163,7 +163,7 @@
       "message": "The operation does not apply to this type of block.",
       "hint": "Read the block type with `board task <KEY>` and use the operation for that type.",
       "recovery": {
-        "action": "Add the task to the board again if work continues.",
+        "action": "Use the operation for the current block type.",
         "sideEffects": "none",
         "maxRetries": 0,
         "retryTiming": "After fixing the cause."
@@ -191,7 +191,7 @@
       "message": "The task is archived, so it cannot change.",
       "hint": "Add the task to the board again with `board task add <KEY>` if work goes on.",
       "recovery": {
-        "action": "Read the item and close it if no retry is needed.",
+        "action": "Add the task to the board again if work continues.",
         "sideEffects": "none",
         "maxRetries": 0,
         "retryTiming": "After fixing the cause."
@@ -219,7 +219,7 @@
       "message": "The item is not in a state that can be retried.",
       "hint": "Read the item with `board task <KEY>`; close it if it needs no retry.",
       "recovery": {
-        "action": "Use a new key for new input or repeat the original input.",
+        "action": "Read the item and close it if no retry is needed.",
         "sideEffects": "none",
         "maxRetries": 0,
         "retryTiming": "After fixing the cause."
@@ -247,7 +247,7 @@
       "message": "The idempotency key was already used with a different input.",
       "hint": "Use a new key for a new command, or repeat the earlier input with the same key.",
       "recovery": {
-        "action": "Restore caller identity, then run the command again.",
+        "action": "Use a new key for new input or repeat the original input.",
         "sideEffects": "none",
         "maxRetries": 0,
         "retryTiming": "After fixing the cause."
@@ -275,10 +275,10 @@
       "message": "The daemon cannot tell who the caller is right now.",
       "hint": "Retry shortly; run the command from inside a spur session or as the operator.",
       "recovery": {
-        "action": "Start the daemon, then retry the command.",
+        "action": "Restore caller identity, then run the command again.",
         "sideEffects": "none",
-        "maxRetries": 3,
-        "retryTiming": "After a short delay."
+        "maxRetries": 0,
+        "retryTiming": "After fixing the cause."
       },
       "docs": "#identity_unavailable",
       "context": {

@@ -1,8 +1,8 @@
 Error identity_unavailable: The daemon cannot tell who the caller is right now.
 Fix: Retry shortly; run the command from inside a spur session or as the operator.
 Side effects: none
-Recovery: Start the daemon, then retry the command.
-Retry: 3 maximum; After a short delay.
+Recovery: Restore caller identity, then run the command again.
+Retry: 0 maximum; After fixing the cause.
 Docs: #identity_unavailable
 Context: environmentVariable=SPUR_SESSION
 Request ID: req-example-123
