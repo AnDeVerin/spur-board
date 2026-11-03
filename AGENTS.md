@@ -7,6 +7,7 @@ A map of the repo for agents and contributors. The rules live in the files and s
 - `packages/contracts` - zod schemas, config, enums, journal events, the gateway contract, the
   operation catalog, error codes and typed IDs. Skill: `working-with-contracts`.
 - `packages/core` - the SQLite store in `src/store/`. Skill: `working-with-storage`.
+- `packages/gateway-slack` - Slack outbound delivery through the Web API.
 - `packages/daemon` - the daemon process: config and secrets loading, the single-instance lock,
   the redacting pino logger and the start and shutdown lifecycle. Run it with
   `pnpm --filter @spur-board/daemon daemon` (`daemon:dev` pretty-prints the log).
