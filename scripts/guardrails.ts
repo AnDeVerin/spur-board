@@ -243,6 +243,7 @@ function codeOnly(source: string): string {
 }
 
 const EXPECT_CALL = /\bexpect(?:\.soft)?\s*\(|\bexpectTypeOf\s*\(/;
+const EXPECT_TOKEN = /\bexpect(?:TypeOf)?\b/;
 
 /** `expect(`, `expect.soft(` and `expectTypeOf(` calls in code, outside comments and literals. */
 export function countExpects(source: string): number {
@@ -314,9 +315,10 @@ function rulesFor(file: FileChange): RuleId[] {
     (texts === null ||
       countExpects(texts.headText) < countExpects(texts.baseText) ||
       // JSX text is not parsed: `<div>expect(x)</div>` would keep the count, so any removed
-      // expect line in a JSX test counts.
+      // line with an expect token in a JSX test counts, whatever follows the token
+      // (`expect/* c */(x)`, or `expect` with its call on the next line).
       (/\.[jt]sx$/.test(path) &&
-        file.hunks.some((hunk) => hunk.removed.some((line) => EXPECT_CALL.test(line)))))
+        file.hunks.some((hunk) => hunk.removed.some((line) => EXPECT_TOKEN.test(line)))))
   ) {
     rules.push('fewer-expects');
   }

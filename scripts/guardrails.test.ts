@@ -134,6 +134,36 @@ const CASES: Case[] = [
   },
   {
     rule: 'fewer-expects',
+    name: 'expect with a comment before its parenthesis moved into JSX text in a .tsx test',
+    flagged: diffed(
+      'a.test.tsx',
+      'expect/* why */(x).toBe(1);\n',
+      'render(<div>expect(x)</div>);\n',
+      ['expect/* why */(x).toBe(1);'],
+      ['render(<div>expect(x)</div>);'],
+    ),
+    clean: diffed(
+      'a.test.tsx',
+      'const expected = 1;\nexpect(x).toBe(expected);\n',
+      'const expectedValue = 1;\nexpect(x).toBe(expectedValue);\nexpect(y);\n',
+      ['const expected = 1;'],
+      ['const expectedValue = 1;', 'expect(y);'],
+    ),
+  },
+  {
+    rule: 'fewer-expects',
+    name: 'expect split across lines moved into JSX text in a .jsx test',
+    flagged: diffed(
+      'a.test.jsx',
+      'expect\n(x).toBe(1);\n',
+      'render(<div>expect(x)</div>);\n',
+      ['expect', '(x).toBe(1);'],
+      ['render(<div>expect(x)</div>);'],
+    ),
+    clean: diffed('a.test.jsx', 'expect(x);\n', 'expect(x);\nexpect(y);\n', [], ['expect(y);']),
+  },
+  {
+    rule: 'fewer-expects',
     name: 'removed expect line in a .jsx test; the removed-line rule is JSX-only',
     flagged: diffed('a.test.jsx', 'expect(x);\n', 'expect(y);\n', ['expect(x);'], ['expect(y);']),
     clean: diffed(
