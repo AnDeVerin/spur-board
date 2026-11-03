@@ -286,6 +286,11 @@ describe.each(PROFILES)('restart on %s', (profile) => {
     ctx.observed.crashNext({ store: ctx.store, when: 'after' });
     await expect(ctx.sender.tick()).rejects.toThrow('destroyed');
     await restart(ctx);
+    expect(await outboxRow(ctx, id)).toMatchObject({
+      state: 'pending',
+      uncertain: 1,
+      attempt_started: 1,
+    });
     await step(ctx);
     expect(ctx.observed.requests[1]).toMatchObject({ key, maybeSent: true });
     expect(markedRefs(ctx, key)).toHaveLength(UNKNOWN[profile]);
@@ -358,13 +363,17 @@ describe.each(PROFILES)('restart on %s', (profile) => {
     stores.push(reopened);
     const before = await reopened.db
       .selectFrom('outbox')
-      .select(['state', 'uncertain'])
+      .select(['state', 'uncertain', 'attempt_started'])
       .where('id', '=', id)
       .executeTakeFirstOrThrow();
-    expect(before).toEqual({ state: 'in_flight', uncertain: 0 });
+    expect(before).toEqual({ state: 'in_flight', uncertain: 0, attempt_started: 1 });
     await reopened.close();
     await restart(ctx);
-    expect(await outboxRow(ctx, id)).toMatchObject({ state: 'pending', uncertain: 1 });
+    expect(await outboxRow(ctx, id)).toMatchObject({
+      state: 'pending',
+      uncertain: 1,
+      attempt_started: 1,
+    });
   });
 
   it.each(OUTCOMES)('a second thread only on unknown: $name', async (outcome) => {

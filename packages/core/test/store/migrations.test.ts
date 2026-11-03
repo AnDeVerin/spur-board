@@ -208,7 +208,12 @@ describe('migrate', () => {
     const delivery = real.findIndex((migration) => migration.name === '0002_delivery');
     migrate(raw, real.slice(0, delivery));
     const comment = without(sampleRows.comment, ['delivery_state']);
-    const outbox = without(sampleRows.outbox, ['parent_outbox_id', 'first_attempt_at']);
+    const outbox = without(sampleRows.outbox, [
+      'parent_outbox_id',
+      'first_attempt_at',
+      'first_delivery_at',
+      'attempt_started',
+    ]);
     insertRaw(raw, 'task', sampleRows.task);
     insertRaw(raw, 'block', sampleRows.block);
     insertRaw(raw, 'comment', comment);
@@ -218,11 +223,60 @@ describe('migrate', () => {
 
     expect(rows(raw, 'comment')).toEqual([{ ...comment, delivery_state: null }]);
     expect(rows(raw, 'outbox')).toEqual([
-      { ...outbox, parent_outbox_id: null, first_attempt_at: null },
+      {
+        ...outbox,
+        parent_outbox_id: null,
+        first_attempt_at: null,
+        first_delivery_at: null,
+        attempt_started: 0,
+      },
     ]);
     expect(rows(raw, 'conversation')).toEqual([]);
     expect(rows(raw, 'transport_health')).toEqual([]);
     expect(rows(raw, 'space_slot')).toEqual([]);
+    expect(raw.pragma('foreign_key_check')).toEqual([]);
+  });
+
+  it('keeps uncertain v2 rows without a delivery-search bound', () => {
+    const dir = tempDir();
+    const { raw } = rawDb(join(dir, 'board.db'));
+    const search = real.findIndex((migration) => migration.name === '0003_delivery_search');
+    migrate(raw, real.slice(0, search));
+    const outbox = {
+      ...without(sampleRows.outbox, ['first_delivery_at', 'attempt_started']),
+      uncertain: 1,
+    };
+    insertRaw(raw, 'outbox', outbox);
+
+    migrate(raw, real);
+
+    expect(rows(raw, 'outbox')).toEqual([
+      { ...outbox, first_delivery_at: null, attempt_started: 0 },
+    ]);
+    expect(raw.pragma('foreign_key_check')).toEqual([]);
+  });
+
+  it('marks legacy in-flight rows as started and leaves other rows unstarted', () => {
+    const dir = tempDir();
+    const { raw } = rawDb(join(dir, 'board.db'));
+    const started = real.findIndex((migration) => migration.name === '0004_attempt_started');
+    migrate(raw, real.slice(0, started));
+    const legacy = without(sampleRows.outbox, ['attempt_started']);
+    insertRaw(raw, 'outbox', { ...legacy, id: 1, dedupe_key: 'pending' });
+    insertRaw(raw, 'outbox', {
+      ...legacy,
+      id: 2,
+      dedupe_key: 'in-flight',
+      state: 'in_flight',
+      attempts: 1,
+    });
+
+    migrate(raw, real);
+
+    expect(raw.prepare('SELECT id, attempt_started FROM outbox ORDER BY id').all()).toEqual([
+      { id: 1, attempt_started: 0 },
+      { id: 2, attempt_started: 1 },
+    ]);
     expect(raw.pragma('foreign_key_check')).toEqual([]);
   });
 
@@ -278,6 +332,8 @@ describe('migration pins', () => {
   const PINS: Record<string, string> = {
     '0001_init.sql': 'b92894c23ff9a04e97e034ff9b2787f7be48660538dd861119e570ce1ab86f10',
     '0002_delivery.sql': '52180cad0a4577d8ad6a60eca748116f4ccd61142115581a3c9ea3a72d2cfa1d',
+    '0003_delivery_search.sql': '3e915831a61930771096e91e17273a933cd8b5c2476aaec1c2d23b5f4fc2c755',
+    '0004_attempt_started.sql': 'e2f659d551e9aaca510f1b84735eb451d8c8eac7bc8a4eeedd22487545f6f1f2',
   };
 
   interface MigrationFile {

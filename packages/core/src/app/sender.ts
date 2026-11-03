@@ -45,7 +45,7 @@ export interface Sender {
    * Claims due rows, delivers them one by one and records each result. A call made while a tick
    * runs waits for it, then runs.
    */
-  tick(): Promise<void>;
+  tick(signal?: AbortSignal): Promise<void>;
   /** Feeds the gateway's connection events; down for over 5 min raises health for every space. */
   recordConnection(state: ConnectionState, at: Date): void;
 }
@@ -65,6 +65,7 @@ interface Claim {
   key: string;
   space: SpaceId | null;
   maybeSent: boolean;
+  firstDeliveryAt: string | null;
   attempts: number;
   body: OutboxBody;
   /** The parent's refs, for a dependent row. */
@@ -333,6 +334,7 @@ export function createSender(options: SenderOptions): Sender {
         key: row.dedupe_key,
         space,
         maybeSent: row.uncertain === 1,
+        firstDeliveryAt: row.first_delivery_at,
         attempts: row.attempts + 1,
         body,
         parent,
@@ -341,7 +343,11 @@ export function createSender(options: SenderOptions): Sender {
     for (const c of claims) {
       await trx
         .updateTable('outbox')
-        .set((eb) => ({ state: 'in_flight', attempts: eb('attempts', '+', 1) }))
+        .set((eb) => ({
+          state: 'in_flight',
+          attempts: eb('attempts', '+', 1),
+          attempt_started: 0,
+        }))
         .where('id', '=', c.id)
         .execute();
     }
@@ -355,16 +361,25 @@ export function createSender(options: SenderOptions): Sender {
    * earlier send in the tick does not age them. The clock is read here, once the write lock is
    * held, so waiting for the lock does not age them either. Returns the stamp.
    */
-  async function start(trx: Trx, c: Claim): Promise<number> {
+  async function start(
+    trx: Trx,
+    c: Claim,
+  ): Promise<{ at: number; firstDeliveryAt: string | null }> {
     const at = now().getTime();
     const sentAtIso = new Date(at).toISOString();
+    const firstDeliveryAt =
+      c.firstDeliveryAt ?? (c.space !== null && !c.maybeSent ? sentAtIso : null);
     await trx
       .updateTable('outbox')
-      .set((eb) => ({ first_attempt_at: eb.fn.coalesce('first_attempt_at', eb.val(sentAtIso)) }))
+      .set((eb) => ({
+        first_attempt_at: eb.fn.coalesce('first_attempt_at', eb.val(sentAtIso)),
+        first_delivery_at: firstDeliveryAt,
+        attempt_started: 1,
+      }))
       .where('id', '=', c.id)
       .execute();
     const { space } = c;
-    if (space === null) return at;
+    if (space === null) return { at, firstDeliveryAt };
     await trx
       .insertInto('space_slot')
       .values({ gateway: gateway.kind, space, sent_at: sentAtIso })
@@ -376,10 +391,13 @@ export function createSender(options: SenderOptions): Sender {
       .where('gateway', '=', gateway.kind)
       .where('space', '=', space)
       .execute();
-    return at;
+    return { at, firstDeliveryAt };
   }
 
-  async function attempt(c: Claim): Promise<{ outcome: Outcome; error: string | null }> {
+  async function attempt(
+    c: Claim,
+    firstDeliveryAt: string | null,
+  ): Promise<{ outcome: Outcome; error: string | null }> {
     try {
       if (c.body.kind === 'doorbell') {
         await spur.send(c.body.payload.session, c.body.payload.text);
@@ -390,6 +408,7 @@ export function createSender(options: SenderOptions): Sender {
       const request: DeliverRequest = {
         key: c.key,
         maybeSent: c.maybeSent,
+        ...(firstDeliveryAt === null ? {} : { firstAttemptAt: new Date(firstDeliveryAt) }),
         target: to,
         persona: c.body.payload.persona,
         body: renderBody(c.body.payload.key, c.body.payload.text),
@@ -546,14 +565,28 @@ export function createSender(options: SenderOptions): Sender {
     }
   }
 
-  async function runTick(): Promise<void> {
+  async function runTick(signal?: AbortSignal): Promise<void> {
+    if (signal?.aborted) return;
     const claimedAt = now().getTime();
     const claims = await store.transaction((trx) => claim(trx, claimedAt));
-    for (const c of claims) {
-      const startedAt = await store.transaction((trx) => start(trx, c));
-      const { outcome, error } = await attempt(c);
+    for (const [i, c] of claims.entries()) {
+      if (signal?.aborted) {
+        const ids = claims.slice(i).map((c) => c.id);
+        await store.transaction((trx) =>
+          trx
+            .updateTable('outbox')
+            .set((eb) => ({ state: 'pending', attempts: eb('attempts', '-', 1) }))
+            .where('id', 'in', ids)
+            .where('state', '=', 'in_flight')
+            .execute(),
+        );
+        return;
+      }
+      const started = await store.transaction((trx) => start(trx, c));
+      // After start() commits, finish and record this attempt even if shutdown begins.
+      const { outcome, error } = await attempt(c, started.firstDeliveryAt);
       const at = now().getTime();
-      await store.transaction((trx) => record(trx, c, outcome, error, at, startedAt));
+      await store.transaction((trx) => record(trx, c, outcome, error, at, started.at));
     }
   }
 
@@ -568,8 +601,15 @@ export function createSender(options: SenderOptions): Sender {
           .execute();
         await trx
           .updateTable('outbox')
+          .set((eb) => ({ state: 'pending', attempts: eb('attempts', '-', 1) }))
+          .where('state', '=', 'in_flight')
+          .where('attempt_started', '=', 0)
+          .execute();
+        await trx
+          .updateTable('outbox')
           .set({ state: 'pending', uncertain: 1, next_at: nowIso })
           .where('state', '=', 'in_flight')
+          .where('attempt_started', '=', 1)
           .execute();
         await trx
           .updateTable('outbox')
@@ -583,8 +623,8 @@ export function createSender(options: SenderOptions): Sender {
       });
     },
 
-    tick() {
-      const run = ticking.then(runTick);
+    tick(signal?: AbortSignal) {
+      const run = ticking.then(() => runTick(signal));
       // A rejected tick still lets the next one run.
       ticking = run.catch(() => undefined);
       return run;

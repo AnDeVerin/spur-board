@@ -104,6 +104,22 @@
       "required": ["slack"],
       "additionalProperties": false
     },
+    "slack": {
+      "default": {},
+      "type": "object",
+      "properties": {
+        "channels": {
+          "default": {},
+          "type": "object",
+          "properties": {
+            "orchestrators": { "type": "string", "minLength": 1 },
+            "feed": { "type": "string", "minLength": 1 }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
     "thresholds": {
       "default": {},
       "type": "object",

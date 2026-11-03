@@ -174,6 +174,8 @@ export const sampleRows: SampleRows = {
     uncertain: 0,
     parent_outbox_id: null,
     first_attempt_at: at,
+    first_delivery_at: at,
+    attempt_started: 0,
   },
   dismissal: {
     item_key: 'item-1',
