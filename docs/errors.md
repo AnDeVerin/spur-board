@@ -24,7 +24,7 @@ Example:
     "requestId": "req-example-123",
     "message": "The input does not match the operation schema.",
     "hint": "Run `board schema` to see the expected input and fix the arguments.",
-    "docs": "#usage",
+    "docs": "docs/errors.md#usage",
     "recovery": {
       "action": "Fix the arguments using `board schema`.",
       "sideEffects": "none",
@@ -58,7 +58,7 @@ Example:
     "requestId": "req-example-123",
     "message": "The ID is valid but names a different kind of object.",
     "hint": "Pass the ID kind the operation expects, e.g. B<n> for a block or a task key for a task.",
-    "docs": "#wrong_id_kind",
+    "docs": "docs/errors.md#wrong_id_kind",
     "recovery": {
       "action": "Pass the expected ID kind.",
       "sideEffects": "none",
@@ -92,7 +92,7 @@ Example:
     "requestId": "req-example-123",
     "message": "The caller is not allowed to run this operation on this object.",
     "hint": "Check which role may run the operation in `board schema`, or ask the operator.",
-    "docs": "#forbidden",
+    "docs": "docs/errors.md#forbidden",
     "recovery": {
       "action": "Use an allowed role or ask the operator for access.",
       "sideEffects": "none",
@@ -126,7 +126,7 @@ Example:
     "requestId": "req-example-123",
     "message": "The project, task, block, comment or item does not exist.",
     "hint": "Check the ID with `board status` or `board task <KEY>`.",
-    "docs": "#not_found",
+    "docs": "docs/errors.md#not_found",
     "recovery": {
       "action": "Check the ID and locate the object.",
       "sideEffects": "none",
@@ -160,7 +160,7 @@ Example:
     "requestId": "req-example-123",
     "message": "The block is already unblocked.",
     "hint": "Read the task with `board task <KEY>` to see the current blocks.",
-    "docs": "#block_not_open",
+    "docs": "docs/errors.md#block_not_open",
     "recovery": {
       "action": "Read the current blocks before choosing another action.",
       "sideEffects": "none",
@@ -194,7 +194,7 @@ Example:
     "requestId": "req-example-123",
     "message": "The operation does not apply to this type of block.",
     "hint": "Read the block type with `board task <KEY>` and use the operation for that type.",
-    "docs": "#wrong_block_type",
+    "docs": "docs/errors.md#wrong_block_type",
     "recovery": {
       "action": "Use the operation for the current block type.",
       "sideEffects": "none",
@@ -228,7 +228,7 @@ Example:
     "requestId": "req-example-123",
     "message": "The task is archived, so it cannot change.",
     "hint": "Add the task to the board again with `board task add <KEY>` if work goes on.",
-    "docs": "#task_archived",
+    "docs": "docs/errors.md#task_archived",
     "recovery": {
       "action": "Add the task to the board again if work continues.",
       "sideEffects": "none",
@@ -262,7 +262,7 @@ Example:
     "requestId": "req-example-123",
     "message": "The item is not in a state that can be retried.",
     "hint": "Read the item with `board task <KEY>`; close it if it needs no retry.",
-    "docs": "#retry_not_applicable",
+    "docs": "docs/errors.md#retry_not_applicable",
     "recovery": {
       "action": "Read the item and close it if no retry is needed.",
       "sideEffects": "none",
@@ -296,7 +296,7 @@ Example:
     "requestId": "req-example-123",
     "message": "The idempotency key was already used with a different input.",
     "hint": "Use a new key for a new command, or repeat the earlier input with the same key.",
-    "docs": "#idempotency_key_mismatch",
+    "docs": "docs/errors.md#idempotency_key_mismatch",
     "recovery": {
       "action": "Use a new key for new input or repeat the original input.",
       "sideEffects": "none",
@@ -330,7 +330,7 @@ Example:
     "requestId": "req-example-123",
     "message": "The daemon cannot tell who the caller is right now.",
     "hint": "Retry shortly; run the command from inside a spur session or as the operator.",
-    "docs": "#identity_unavailable",
+    "docs": "docs/errors.md#identity_unavailable",
     "recovery": {
       "action": "Restore caller identity, then run the command again.",
       "sideEffects": "none",
@@ -364,7 +364,7 @@ Example:
     "requestId": "req-example-123",
     "message": "The client and daemon catalog versions do not match; nothing was applied.",
     "hint": "Run `board service restart` to update the daemon, then retry.",
-    "docs": "#version_mismatch",
+    "docs": "docs/errors.md#version_mismatch",
     "recovery": {
       "action": "Run `board service restart`, then retry the command.",
       "sideEffects": "none",
@@ -398,7 +398,7 @@ Example:
     "requestId": "req-example-123",
     "message": "The daemon is not running or cannot be reached; nothing was applied.",
     "hint": "Start the daemon, then run the command again.",
-    "docs": "#daemon_unavailable",
+    "docs": "docs/errors.md#daemon_unavailable",
     "recovery": {
       "action": "Start the daemon and retry the command.",
       "sideEffects": "none",
@@ -432,7 +432,7 @@ Example:
     "requestId": "req-example-123",
     "message": "The configuration is missing or invalid.",
     "hint": "Fix the configuration file named in the error, then run the command again.",
-    "docs": "#config",
+    "docs": "docs/errors.md#config",
     "recovery": {
       "action": "Fix the named configuration file and retry.",
       "sideEffects": "none",
@@ -467,7 +467,7 @@ Example:
     "requestId": "req-example-123",
     "message": "The connection was lost after the request was sent; it may have been applied.",
     "hint": "Run the command again with the same idempotency key to learn the outcome.",
-    "docs": "#outcome_unknown",
+    "docs": "docs/errors.md#outcome_unknown",
     "recovery": {
       "action": "Check the outcome, then retry with the same idempotency key if needed.",
       "sideEffects": "unknown",
@@ -486,11 +486,11 @@ An unexpected failure occurred; the outcome may be unknown.
 
 HTTP: 500  
 Exit code: 5  
-Hint: Check the trace reference in the daemon log and confirm the outcome before retrying.  
-Recovery: Check the outcome, then retry with the same idempotency key if needed.  
+Hint: Use the trace reference in the daemon log; repeat reads or check a mutation outcome before retrying with the same key.  
+Recovery: Check whether the request took effect. A read-only request can be repeated; for a mutation, retry with the same idempotency key only after checking the outcome.  
 Side effects: unknown  
-Retry: maximum 3; After checking the outcome, with a short delay.
-Outcome check: Read the task or item with `board task <KEY>` before retrying.
+Retry: maximum 3; After checking a mutation outcome, or after a short delay for a read-only request.
+Outcome check: Check the operation result or state before retrying a mutation; a read-only request needs no outcome check.
 
 Example:
 
@@ -502,14 +502,14 @@ Example:
     "code": "unexpected",
     "requestId": "req-example-123",
     "message": "An unexpected failure occurred; the outcome may be unknown.",
-    "hint": "Check the trace reference in the daemon log and confirm the outcome before retrying.",
-    "docs": "#unexpected",
+    "hint": "Use the trace reference in the daemon log; repeat reads or check a mutation outcome before retrying with the same key.",
+    "docs": "docs/errors.md#unexpected",
     "recovery": {
-      "action": "Check the outcome, then retry with the same idempotency key if needed.",
+      "action": "Check whether the request took effect. A read-only request can be repeated; for a mutation, retry with the same idempotency key only after checking the outcome.",
       "sideEffects": "unknown",
       "maxRetries": 3,
-      "retryTiming": "After checking the outcome, with a short delay.",
-      "outcomeCheck": "Read the task or item with `board task <KEY>` before retrying."
+      "retryTiming": "After checking a mutation outcome, or after a short delay for a read-only request.",
+      "outcomeCheck": "Check the operation result or state before retrying a mutation; a read-only request needs no outcome check."
     },
     "context": {},
     "trace": {

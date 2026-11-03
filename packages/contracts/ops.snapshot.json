@@ -1,5 +1,5 @@
 {
-  "version": "acbdf9572b193f688ed8d08d27e4b7a0bb4f1d2689ee94ac151bcdb92c5fbfa2",
+  "version": "2599ce9425815b81c423045895bfd7f5a0c6ecbe72720db3f37adc38171455ae",
   "grants": [
     "operator",
     "project-agent",
@@ -28,7 +28,7 @@
         "maxRetries": 0,
         "retryTiming": "After fixing the cause."
       },
-      "docs": "#usage",
+      "docs": "docs/errors.md#usage",
       "context": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
@@ -56,7 +56,7 @@
         "maxRetries": 0,
         "retryTiming": "After fixing the cause."
       },
-      "docs": "#wrong_id_kind",
+      "docs": "docs/errors.md#wrong_id_kind",
       "context": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
@@ -84,7 +84,7 @@
         "maxRetries": 0,
         "retryTiming": "After fixing the cause."
       },
-      "docs": "#forbidden",
+      "docs": "docs/errors.md#forbidden",
       "context": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
@@ -112,7 +112,7 @@
         "maxRetries": 0,
         "retryTiming": "After fixing the cause."
       },
-      "docs": "#not_found",
+      "docs": "docs/errors.md#not_found",
       "context": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
@@ -140,7 +140,7 @@
         "maxRetries": 0,
         "retryTiming": "After fixing the cause."
       },
-      "docs": "#block_not_open",
+      "docs": "docs/errors.md#block_not_open",
       "context": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
@@ -168,7 +168,7 @@
         "maxRetries": 0,
         "retryTiming": "After fixing the cause."
       },
-      "docs": "#wrong_block_type",
+      "docs": "docs/errors.md#wrong_block_type",
       "context": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
@@ -196,7 +196,7 @@
         "maxRetries": 0,
         "retryTiming": "After fixing the cause."
       },
-      "docs": "#task_archived",
+      "docs": "docs/errors.md#task_archived",
       "context": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
@@ -224,7 +224,7 @@
         "maxRetries": 0,
         "retryTiming": "After fixing the cause."
       },
-      "docs": "#retry_not_applicable",
+      "docs": "docs/errors.md#retry_not_applicable",
       "context": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
@@ -252,7 +252,7 @@
         "maxRetries": 0,
         "retryTiming": "After fixing the cause."
       },
-      "docs": "#idempotency_key_mismatch",
+      "docs": "docs/errors.md#idempotency_key_mismatch",
       "context": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
@@ -280,7 +280,7 @@
         "maxRetries": 0,
         "retryTiming": "After fixing the cause."
       },
-      "docs": "#identity_unavailable",
+      "docs": "docs/errors.md#identity_unavailable",
       "context": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
@@ -308,7 +308,7 @@
         "maxRetries": 0,
         "retryTiming": "After fixing the cause."
       },
-      "docs": "#version_mismatch",
+      "docs": "docs/errors.md#version_mismatch",
       "context": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
@@ -336,7 +336,7 @@
         "maxRetries": 3,
         "retryTiming": "After a short delay."
       },
-      "docs": "#daemon_unavailable",
+      "docs": "docs/errors.md#daemon_unavailable",
       "context": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
@@ -364,7 +364,7 @@
         "maxRetries": 0,
         "retryTiming": "After fixing the cause."
       },
-      "docs": "#config",
+      "docs": "docs/errors.md#config",
       "context": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
@@ -393,7 +393,7 @@
         "retryTiming": "After checking the outcome, with a short delay.",
         "outcomeCheck": "Read the task or item with `board task <KEY>` before retrying."
       },
-      "docs": "#outcome_unknown",
+      "docs": "docs/errors.md#outcome_unknown",
       "context": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
@@ -414,15 +414,15 @@
       "status": 500,
       "exit": 5,
       "message": "An unexpected failure occurred; the outcome may be unknown.",
-      "hint": "Check the trace reference in the daemon log and confirm the outcome before retrying.",
+      "hint": "Use the trace reference in the daemon log; repeat reads or check a mutation outcome before retrying with the same key.",
       "recovery": {
-        "action": "Check the outcome, then retry with the same idempotency key if needed.",
+        "action": "Check whether the request took effect. A read-only request can be repeated; for a mutation, retry with the same idempotency key only after checking the outcome.",
         "sideEffects": "unknown",
         "maxRetries": 3,
-        "retryTiming": "After checking the outcome, with a short delay.",
-        "outcomeCheck": "Read the task or item with `board task <KEY>` before retrying."
+        "retryTiming": "After checking a mutation outcome, or after a short delay for a read-only request.",
+        "outcomeCheck": "Check the operation result or state before retrying a mutation; a read-only request needs no outcome check."
       },
-      "docs": "#unexpected",
+      "docs": "docs/errors.md#unexpected",
       "context": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",

@@ -56,8 +56,8 @@ describe('error catalog', () => {
     expect(entry.hint).toMatch(/^[\x20-\x7e]+$/);
   });
 
-  it.each(Object.entries(ERRORS))('%s has complete recovery and a docs anchor', (code, entry) => {
-    expect(entry.docs).toBe(`#${code}`);
+  it.each(Object.entries(ERRORS))('%s has complete recovery and a docs path', (code, entry) => {
+    expect(entry.docs).toBe(`docs/errors.md#${code}`);
     expect(entry.hint.length).toBeGreaterThan(0);
     expect(entry.recovery.action.length).toBeGreaterThan(0);
     expect(['none', 'applied', 'unknown']).toContain(entry.recovery.sideEffects);
@@ -145,6 +145,17 @@ describe('error representations', () => {
     expect(renderStderrError(input)).toContain('Trace: req-42 in daemon log');
   });
 
+  it('gives unexpected failures recovery for reads and same-key mutations', () => {
+    const { recovery } = ERRORS.unexpected;
+    expect(recovery.action).toContain('read-only request can be repeated');
+    expect(recovery.action).toContain('mutation, retry with the same idempotency key');
+    expect(recovery.outcomeCheck).toContain('before retrying a mutation');
+    expect(recovery.outcomeCheck).not.toContain('board task');
+    expect(renderHttpProblem({ code: 'unexpected', requestId: 'req-42' }).body.type).toBe(
+      'https://spur-board.dev/docs/errors.md#unexpected',
+    );
+  });
+
   it('matches the identity unavailable stderr fixture', () => {
     const fixture = readFileSync(
       fileURLToPath(new URL('./fixtures/identity-unavailable.txt', import.meta.url)),
@@ -200,6 +211,7 @@ describe('generated error documentation', () => {
       const section = rendered.split(`## ${code}\n`)[1]?.split('\n\n## ')[0];
       expect(section).toBeDefined();
       expect(section).toContain(spec.message);
+      expect(section).toContain(`"docs": "docs/errors.md#${code}"`);
       expect(section).toContain(`HTTP: ${String(spec.status ?? 'client-side')}`);
       expect(section).toContain(`Exit code: ${String(spec.exit)}`);
       expect(section).toContain(spec.recovery.action);

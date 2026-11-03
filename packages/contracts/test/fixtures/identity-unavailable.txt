@@ -3,6 +3,6 @@ Fix: Retry shortly; run the command from inside a spur session or as the operato
 Side effects: none
 Recovery: Restore caller identity, then run the command again.
 Retry: 0 maximum; After fixing the cause.
-Docs: #identity_unavailable
+Docs: docs/errors.md#identity_unavailable
 Context: environmentVariable=SPUR_SESSION
 Request ID: req-example-123

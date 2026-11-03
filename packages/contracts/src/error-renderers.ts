@@ -33,7 +33,7 @@ export function renderHttpProblem(input: ErrorInput & { code: ServerErrorCode })
   return {
     status: spec.status,
     body: {
-      type: `https://spur-board.dev/docs/errors${spec.docs}`,
+      type: `https://spur-board.dev/${spec.docs}`,
       title: spec.message,
       status: spec.status,
       ...value,

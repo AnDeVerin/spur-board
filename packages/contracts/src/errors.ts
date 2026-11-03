@@ -22,7 +22,7 @@ interface ErrorSpec {
   /** What to do next. */
   hint: string;
   recovery: z.output<typeof recoverySchema>;
-  docs: `#${string}`;
+  docs: `docs/errors.md#${string}`;
   context: typeof errorContextSchema;
 }
 
@@ -71,9 +71,18 @@ const unknownOutcome = {
   retryTiming: 'After checking the outcome, with a short delay.',
   outcomeCheck: 'Read the task or item with `board task <KEY>` before retrying.',
 };
+const unexpectedOutcome = {
+  action:
+    'Check whether the request took effect. A read-only request can be repeated; for a mutation, retry with the same idempotency key only after checking the outcome.',
+  sideEffects: 'unknown' as const,
+  maxRetries: 3,
+  retryTiming: 'After checking a mutation outcome, or after a short delay for a read-only request.',
+  outcomeCheck:
+    'Check the operation result or state before retrying a mutation; a read-only request needs no outcome check.',
+};
 
 function spec<T extends ErrorSpec>(code: string, value: Omit<T, 'docs' | 'context'>): T {
-  return { ...value, docs: `#${code}`, context: errorContextSchema } as T;
+  return { ...value, docs: `docs/errors.md#${code}`, context: errorContextSchema } as T;
 }
 
 /** Every error an operation or the CLI can report, in a fixed order. */
@@ -180,8 +189,8 @@ export const ERRORS = {
     status: 500,
     exit: EXIT_CODES.outcomeUnknown,
     message: 'An unexpected failure occurred; the outcome may be unknown.',
-    hint: 'Check the trace reference in the daemon log and confirm the outcome before retrying.',
-    recovery: unknownOutcome,
+    hint: 'Use the trace reference in the daemon log; repeat reads or check a mutation outcome before retrying with the same key.',
+    recovery: unexpectedOutcome,
   }),
 } as const satisfies Record<string, ErrorSpec>;
 export type ErrorCode = keyof typeof ERRORS;
