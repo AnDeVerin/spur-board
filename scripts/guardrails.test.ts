@@ -8,6 +8,7 @@ import {
   RULE_IDS,
   countExpects,
   escapeCommand,
+  inlineSnapshotArgs,
   isRenovateVersionOnly,
   mdCode,
   missingFromSection,
@@ -73,6 +74,10 @@ const contractsPkg = (head: unknown, indent = 2) =>
   texts('packages/contracts/package.json', json(CONTRACTS), json(head, indent));
 const testkitPkg = (head: unknown) =>
   texts('packages/testkit/package.json', json(TESTKIT), json(head));
+
+/** A test with a multiline inline snapshot holding `line`; `name` is code outside it. */
+const INLINE = (line: string, name = 'a', matcher = 'toMatchInlineSnapshot') =>
+  `it('${name}', () => {\n  expect(x).${matcher}(\`\n    {\n${line}\n    }\n  \`);\n});\n`;
 
 interface Case {
   rule: RuleId;
@@ -154,8 +159,27 @@ const CASES: Case[] = [
     rule: 'snapshot',
     name: `added ${matcher} in an M test file`,
     flagged: mod('src/a.test.ts', [`expect(x).${matcher}();`]),
-    clean: mod('src/a.test.ts', [], [`expect(x).${matcher}();`]),
+    clean: {
+      ...texts('src/a.test.ts', 'expect(x).toBe(1);\n', 'expect(x).toBe(1);\n'),
+      hunks: [{ removed: [`expect(x).${matcher}();`], added: [] }],
+    },
   })),
+  {
+    rule: 'snapshot',
+    name: 'edited multiline inline snapshot text',
+    flagged: texts('src/a.test.ts', INLINE('    "a": 1,'), INLINE('    "a": 2,')),
+    clean: texts('src/a.test.ts', INLINE('    "a": 1,'), INLINE('    "a": 1,', 'b')),
+  },
+  {
+    rule: 'snapshot',
+    name: 'edited multiline inline error snapshot text',
+    flagged: texts(
+      'src/a.test.ts',
+      INLINE('    "a": 1,', 'a', 'toThrowErrorMatchingInlineSnapshot'),
+      INLINE('    "a": 2,', 'a', 'toThrowErrorMatchingInlineSnapshot'),
+    ),
+    clean: texts('src/a.test.ts', INLINE('    "a": 1,'), `${INLINE('    "a": 1,')}// end\n`),
+  },
   {
     rule: 'snapshot',
     name: 'fixture',
@@ -332,6 +356,10 @@ describe('reportFindings', () => {
     expect(has(mod('a.test.ts'), 'fewer-expects')).toBe(true);
   });
 
+  it('flags an M test file without its texts as a snapshot change', () => {
+    expect(has(mod('a.test.ts', ['x'], ['y']), 'snapshot')).toBe(true);
+  });
+
   it('flags an M package.json without its texts', () => {
     expect(has(mod('package.json'), 'config')).toBe(true);
   });
@@ -344,6 +372,7 @@ describe('reportFindings', () => {
     expect(findings.map((finding) => `${finding.path} ${finding.rule}`)).toEqual([
       'a.test.ts fewer-expects',
       'a.test.ts added-skip',
+      'a.test.ts snapshot',
       'a.test.ts added-escape',
       'b.ts added-escape',
     ]);
@@ -400,6 +429,33 @@ describe('countExpects', () => {
       "it('a', () => {\n  const note = 'expect(x)';\n});\n",
     );
     expect(has(file, 'fewer-expects')).toBe(true);
+  });
+});
+
+describe('inlineSnapshotArgs', () => {
+  it('takes the raw text up to the matching parenthesis', () => {
+    const source = 'expect(f(1)).toMatchInlineSnapshot(`\n  "a (b)" ${g(h())}\n`); f(2);';
+    expect(inlineSnapshotArgs(source)).toEqual(['`\n  "a (b)" ${g(h())}\n`']);
+  });
+
+  it('keeps every call in order, both matchers', () => {
+    const source =
+      "expect(a).toMatchInlineSnapshot(`1`);\nexpect(b).toThrowErrorMatchingInlineSnapshot('(');";
+    expect(inlineSnapshotArgs(source)).toEqual(['`1`', "'('"]);
+  });
+
+  it.each([
+    ['a line comment', '// expect(a).toMatchInlineSnapshot(`1`)\nexpect(b);'],
+    ['a block comment', '/* expect(a).toMatchInlineSnapshot(`1`) */ expect(b);'],
+    ['a string', "const s = 'toMatchInlineSnapshot(`1`)';"],
+    ['template text', '`toThrowErrorMatchingInlineSnapshot(1)`'],
+    ['a regex', 'const r = /toMatchInlineSnapshot(/;'],
+  ])('ignores a matcher in %s', (_name, source) => {
+    expect(inlineSnapshotArgs(source)).toEqual([]);
+  });
+
+  it('runs an unterminated call to the end', () => {
+    expect(inlineSnapshotArgs('x.toMatchInlineSnapshot(`a')).toEqual(['`a']);
   });
 });
 

@@ -159,50 +159,58 @@ function skipRegex(source: string, from: number): number {
 }
 
 /**
- * The source with comments, string, template and regex literal text replaced by spaces, in one
- * pass. `${…}` expressions in templates stay code. Unterminated literals and comments run to the
- * end, so they never add code that was not seen as code.
+ * The source with comments, string, template and regex literal text replaced by spaces of the
+ * same length, in one pass, so an index in the result is the same index in the source. `${…}`
+ * expressions in templates stay code. Unterminated literals and comments run to the end, so they
+ * never add code that was not seen as code.
  */
 function codeOnly(source: string): string {
   let code = '';
   let previous = '';
   const templateDepths: number[] = [];
   let i = 0;
-  // Skips template text from `i` up to the closing backtick or the next `${`.
-  const templateText = () => {
+  // Blanks the source from `from` up to `i`.
+  const blank = (from: number) => {
+    code += ' '.repeat(i - from);
+  };
+  // Skips template text from `i` up to the closing backtick or the next `${`, then blanks it.
+  const templateText = (from: number) => {
     for (; i < source.length; i++) {
       const c = source[i];
       if (c === '\\') i++;
       else if (c === '`') {
         i++;
         previous = '`';
-        return;
+        break;
       } else if (c === '$' && source[i + 1] === '{') {
         i += 2;
         templateDepths.push(0);
         previous = '{';
-        return;
+        break;
       }
     }
+    i = Math.min(i, source.length);
+    blank(from);
   };
   while (i < source.length) {
+    const from = i;
     const c = source[i] ?? '';
     const next = source[i + 1];
     if (c === '/' && next === '/') {
       const end = source.indexOf('\n', i);
       i = end === -1 ? source.length : end;
+      blank(from);
     } else if (c === '/' && next === '*') {
       const end = source.indexOf('*/', i + 2);
       i = end === -1 ? source.length : end + 2;
-      code += ' ';
+      blank(from);
     } else if (c === "'" || c === '"') {
       i = skipQuoted(source, i + 1, c);
-      code += ' ';
+      blank(from);
       previous = c;
     } else if (c === '`') {
       i++;
-      code += ' ';
-      templateText();
+      templateText(from);
     } else if (
       c === '/' &&
       (previous === '' ||
@@ -210,13 +218,12 @@ function codeOnly(source: string): string {
         REGEX_AFTER_KEYWORD.has(previous))
     ) {
       i = skipRegex(source, i + 1);
-      code += ' ';
+      blank(from);
       previous = '/';
     } else if (c === '}' && templateDepths.at(-1) === 0) {
       templateDepths.pop();
       i++;
-      code += ' ';
-      templateText();
+      templateText(from);
     } else if (/[\w$]/.test(c)) {
       let end = i + 1;
       while (end < source.length && /[\w$]/.test(source[end] ?? '')) end++;
@@ -238,6 +245,29 @@ function codeOnly(source: string): string {
 /** `expect(`, `expect.soft(` and `expectTypeOf(` calls in code, outside comments and literals. */
 export function countExpects(source: string): number {
   return codeOnly(source).match(/\bexpect(?:\.soft)?\s*\(|\bexpectTypeOf\s*\(/g)?.length ?? 0;
+}
+
+/**
+ * The raw argument text of every inline snapshot matcher call in code, in order: from its `(` to
+ * the matching `)`, or to the end when unterminated. Parentheses in literals and comments are not
+ * counted.
+ */
+export function inlineSnapshotArgs(source: string): string[] {
+  const code = codeOnly(source);
+  const args: string[] = [];
+  for (const match of code.matchAll(
+    /\b(?:toMatchInlineSnapshot|toThrowErrorMatchingInlineSnapshot)\s*\(/g,
+  )) {
+    const open = match.index + match[0].length;
+    let depth = 1;
+    let end = open;
+    for (; end < code.length; end++) {
+      if (code[end] === '(') depth++;
+      else if (code[end] === ')' && --depth === 0) break;
+    }
+    args.push(source.slice(open, end));
+  }
+  return args;
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -287,7 +317,12 @@ function rulesFor(file: FileChange): RuleId[] {
   if (
     isSnapshot(path) ||
     (status !== 'A' && isGolden(path)) ||
-    (status === 'M' && isTest(path) && added.some((line) => SNAPSHOT_MATCHER.test(line)))
+    (status === 'M' &&
+      isTest(path) &&
+      (added.some((line) => SNAPSHOT_MATCHER.test(line)) ||
+        texts === null ||
+        JSON.stringify(inlineSnapshotArgs(texts.baseText)) !==
+          JSON.stringify(inlineSnapshotArgs(texts.headText))))
   ) {
     rules.push('snapshot');
   }
