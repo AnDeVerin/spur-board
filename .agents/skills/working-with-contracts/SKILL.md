@@ -10,9 +10,9 @@ rule, the rule names it.
 
 ## When to use
 
-- Any edit under `packages/contracts/`, or to `scripts/gen-config-schema.ts`.
+- Any edit under `packages/contracts/`, or to `scripts/gen-config-schema.ts` or
+  `scripts/gen-ops-snapshot.ts`.
 - Not for package boundaries or dependencies: use `working-in-the-monorepo`.
-- Not for the operation catalog or the error format.
 
 ## Single source of types
 
@@ -62,6 +62,11 @@ Read `.agents/skills/working-with-contracts/references/config-field.md`.
 - Do not bump `EVENT_VERSION` for a new kind, a new optional field or a new enum value. Bump it
   only for an envelope change the current reader cannot read; that bump is a user-visible break,
   and the reader keeps parsing every earlier `v`.
+
+## Add or change an operation
+
+Operations, error codes and typed IDs: read
+`.agents/skills/working-with-contracts/references/operation.md`.
 
 ## Port contract
 
@@ -130,3 +135,4 @@ Adding or changing a port, its obligations or capabilities: read
 ## Checks
 
 - `pnpm check`, plus `pnpm gen:config-schema` when config changed.
+- `pnpm gen:ops-snapshot` when an operation, error code or ID schema changed.
