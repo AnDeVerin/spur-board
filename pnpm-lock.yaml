@@ -294,6 +294,9 @@ importers:
       '@spur-board/core':
         specifier: workspace:*
         version: link:../core
+      '@spur-board/gateway-slack':
+        specifier: workspace:*
+        version: link:../gateway-slack
       pino:
         specifier: 'catalog:'
         version: 10.4.0
