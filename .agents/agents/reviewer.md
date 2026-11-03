@@ -13,7 +13,8 @@ checks.
 1. Read the acceptance criteria, Verification and Invariants from the spec file (tier 0: the
    manager's criteria; tier 3: the developer's written plan) and the developer's output.
 2. `git diff <sha>...HEAD`, using the handoff's `origin/main` SHA.
-3. Read each skill in `.agents/skills/` whose description covers the changed paths.
+3. Read each skill in `.agents/skills/` whose description covers the changed paths; a diff under
+   `packages/contracts/` also reads `working-with-contracts`.
 4. A PR exists (`PR:` line in the handoff): read its body and earlier review threads. Do not
    repeat a rejected suggestion unless the diff changes its premise.
 
@@ -32,7 +33,7 @@ checks.
 - Agent files - `.agents/`, `.claude/` or `.codex/` changed: the copies carry the same name,
   description and instructions as the source in `.agents/`.
 - Conventions - the loaded skills. A comment states a non-obvious why, nothing else.
-- Run the repo checks (`pnpm check` once it exists) and read each exit code directly.
+- Run the repo checks (`pnpm check`) and read each exit code directly.
 - A finding on code the diff did not introduce says so; report it as SHOULD FIX.
 - Report only issues you are more than 80% sure of.
 
