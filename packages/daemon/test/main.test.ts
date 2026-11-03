@@ -158,4 +158,25 @@ describe('daemon process', () => {
       await api.close();
     }
   }, 30_000);
+
+  it('records a timed-out delivery before the shutdown deadline', async () => {
+    const api = await startFakeSlackApi();
+    const hold = api.holdNextWrite();
+    try {
+      const home = await queuedHome(api.url);
+      const child = spawnDaemon(home);
+      const exited = once(child, 'exit');
+      await waitForLine(child, 'daemon ready');
+      await hold.entered;
+      const stoppedAt = Date.now();
+      child.kill('SIGTERM');
+      const [code, signal] = (await exited) as [number | null, string | null];
+      expect({ code, signal }).toEqual({ code: 0, signal: null });
+      expect(Date.now() - stoppedAt).toBeLessThan(9_000);
+      expect(await deliveredState(home)).toBe('pending');
+    } finally {
+      hold.release();
+      await api.close();
+    }
+  }, 30_000);
 });

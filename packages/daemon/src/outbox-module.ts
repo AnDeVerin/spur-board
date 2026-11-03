@@ -5,12 +5,15 @@ import type { Module, ModuleContext } from './lifecycle.ts';
 import { createSpurPort } from './spur-port.ts';
 
 const TICK_MS = 1000;
+// Leave time to record a timed-out request before the daemon's 10-second shutdown deadline.
+const DELIVERY_REQUEST_TIMEOUT_MS = 8_000;
 const CHANNEL_ID = /^[CG][A-Z0-9]{8,}$/;
 
 export interface SlackSettings {
   token: string;
   channels: { orchestrators: string; feed: string };
   apiUrl?: string;
+  requestTimeoutMs: number;
 }
 
 /** An entirely absent Slack setup keeps the daemon usable without a gateway. */
@@ -45,7 +48,12 @@ export function slackSettings(
     if (url.protocol !== 'http:' && url.protocol !== 'https:')
       throw new ConfigError('SLACK_API_URL must be an HTTP(S) URL');
   }
-  return { token, channels: { orchestrators, feed }, ...(apiUrl === undefined ? {} : { apiUrl }) };
+  return {
+    token,
+    channels: { orchestrators, feed },
+    ...(apiUrl === undefined ? {} : { apiUrl }),
+    requestTimeoutMs: DELIVERY_REQUEST_TIMEOUT_MS,
+  };
 }
 
 /** Own the timer and wait for the last queued sender tick before the store closes. */
@@ -65,7 +73,7 @@ export function createOutboxModule(ctx: ModuleContext<Store>, gateway: Gateway):
     if (stopped || running || signal?.aborted) return;
     running = true;
     active = sender
-      .tick()
+      .tick(signal)
       .catch((err: unknown) => {
         ctx.log.error({ err }, 'outbox tick failed');
       })

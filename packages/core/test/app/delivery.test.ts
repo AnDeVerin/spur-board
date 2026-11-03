@@ -584,6 +584,46 @@ async function restart(ctx: Ctx, spaceIntervalMs?: number): Promise<Ctx> {
 }
 
 describe('tick', () => {
+  it('does not start a second claimed space after shutdown and recovers it on restart', async () => {
+    const ctx = setup('slack-like', 0);
+    const openId = await enqueueOpen(ctx, await seedBlock(ctx));
+    const feedId = await feedLine(ctx, 'o/r#46', 'shutdown-feed');
+    const entered = Promise.withResolvers<undefined>();
+    const release = Promise.withResolvers<undefined>();
+    const gateway: Gateway = {
+      ...ctx.observed.gateway,
+      async deliver(request) {
+        if (request.target.kind === 'open' && request.target.space === 'orchestrators') {
+          entered.resolve(undefined);
+          await release.promise;
+        }
+        return ctx.observed.gateway.deliver(request);
+      },
+    };
+    const sender = createSender({
+      store: ctx.store,
+      gateway,
+      spur: ctx.spur.spur,
+      now: () => ctx.fake.platform.now(),
+      spaceIntervalMs: 0,
+    });
+    const controller = new AbortController();
+    const ticking = sender.tick(controller.signal);
+    await entered.promise;
+    controller.abort();
+    release.resolve(undefined);
+    await ticking;
+    expect(ctx.observed.requests).toHaveLength(1);
+    expect((await outboxRow(ctx, openId)).state).toBe('done');
+    expect((await outboxRow(ctx, feedId)).state).toBe('in_flight');
+
+    const restarted = await restart(ctx, 0);
+    expect(await outboxRow(restarted, feedId)).toMatchObject({ state: 'pending', uncertain: 1 });
+    await restarted.sender.tick();
+    expect((await outboxRow(restarted, feedId)).state).toBe('done');
+    expect(ctx.observed.requests).toHaveLength(2);
+  });
+
   it('runs the next tick after one that rejected', async () => {
     const ctx = setup();
     await enqueueOpen(ctx, await seedBlock(ctx));

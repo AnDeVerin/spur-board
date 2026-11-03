@@ -1,6 +1,6 @@
 import { setTimeout as sleep } from 'node:timers/promises';
 import { join } from 'node:path';
-import { openStore, type Store } from '@spur-board/core';
+import { createSender, openStore, type Store } from '@spur-board/core';
 import { createSlackGateway } from '@spur-board/gateway-slack';
 import pino from 'pino';
 import { describe, expect, it } from 'vitest';
@@ -46,6 +46,21 @@ describe('outbox scheduler', () => {
           first_delivery_at: null,
         })
         .execute();
+      await trx
+        .insertInto('outbox')
+        .values({
+          kind: 'doorbell',
+          dedupe_key: 'doorbell:after-slow',
+          payload: JSON.stringify({ session: 'test', text: 'later delivery' }),
+          state: 'pending',
+          next_at: new Date().toISOString(),
+          last_error: null,
+          external_ref: null,
+          parent_outbox_id: null,
+          first_attempt_at: null,
+          first_delivery_at: null,
+        })
+        .execute();
     });
     const loaded = loadConfig(resolvePaths({ BOARD_HOME: home }, home));
     const ctx: ModuleContext<Store> = {
@@ -72,6 +87,25 @@ describe('outbox scheduler', () => {
       hold.release();
       await stopping;
       expect(transactions).toBe(4); // recovery, claim, send stamp, result
+      const skipped = await base.db
+        .selectFrom('outbox')
+        .select(['state', 'uncertain'])
+        .where('dedupe_key', '=', 'doorbell:after-slow')
+        .executeTakeFirstOrThrow();
+      expect(skipped.state).toBe('in_flight');
+      const restarted = createSender({
+        store: base,
+        gateway,
+        spur: { send: () => Promise.resolve() },
+      });
+      await restarted.recover();
+      expect(
+        await base.db
+          .selectFrom('outbox')
+          .select(['state', 'uncertain'])
+          .where('dedupe_key', '=', 'doorbell:after-slow')
+          .executeTakeFirstOrThrow(),
+      ).toMatchObject({ state: 'pending', uncertain: 1 });
     } finally {
       hold.release();
       controller.abort();

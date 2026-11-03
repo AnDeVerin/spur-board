@@ -45,7 +45,7 @@ export interface Sender {
    * Claims due rows, delivers them one by one and records each result. A call made while a tick
    * runs waits for it, then runs.
    */
-  tick(): Promise<void>;
+  tick(signal?: AbortSignal): Promise<void>;
   /** Feeds the gateway's connection events; down for over 5 min raises health for every space. */
   recordConnection(state: ConnectionState, at: Date): void;
 }
@@ -560,11 +560,15 @@ export function createSender(options: SenderOptions): Sender {
     }
   }
 
-  async function runTick(): Promise<void> {
+  async function runTick(signal?: AbortSignal): Promise<void> {
+    if (signal?.aborted) return;
     const claimedAt = now().getTime();
     const claims = await store.transaction((trx) => claim(trx, claimedAt));
     for (const c of claims) {
+      // An unstarted claim stays in_flight for recover() on the next daemon start.
+      if (signal?.aborted) break;
       const started = await store.transaction((trx) => start(trx, c));
+      if (signal?.aborted) break;
       const { outcome, error } = await attempt(c, started.firstDeliveryAt);
       const at = now().getTime();
       await store.transaction((trx) => record(trx, c, outcome, error, at, started.at));
@@ -597,8 +601,8 @@ export function createSender(options: SenderOptions): Sender {
       });
     },
 
-    tick() {
-      const run = ticking.then(runTick);
+    tick(signal?: AbortSignal) {
+      const run = ticking.then(() => runTick(signal));
       // A rejected tick still lets the next one run.
       ticking = run.catch(() => undefined);
       return run;
