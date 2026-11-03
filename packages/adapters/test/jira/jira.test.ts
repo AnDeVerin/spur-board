@@ -212,6 +212,39 @@ describe('Jira adapter', () => {
     expect(warn).toHaveBeenCalledTimes(continued ? 1 : 0);
   });
 
+  it('checks membership for linked tickets beyond a capped filter scan', async () => {
+    let filterPages = 0;
+    const { fetcher, calls } = fake((body) => {
+      const jql = String(body['jql']);
+      if (jql === tracker().jql) {
+        filterPages += 1;
+        return {
+          issues: [issue(String(filterPages), `PROJ-${String(filterPages)}`)],
+          nextPageToken: `page-${String(filterPages + 1)}`,
+        };
+      }
+      if (jql.startsWith('(')) return { issues: [issue('21', 'PROJ-21')], isLast: true };
+      return { issues: [issue('200', 'PROJ-200')], isLast: true };
+    });
+    const { source, warn } = adapter(fetcher);
+    const result = await source.poll(context([ref('21', 'PROJ-21'), ref('200', 'PROJ-200')]));
+    expect(batchSchema.safeParse(result).success).toBe(true);
+    expect(result.complete).toBe(false);
+    expect(result.entities.map((entity) => entity.status)).toEqual(['ok', 'ok']);
+    expect(
+      result.items
+        .filter((item) => item.kind === 'ticket')
+        .filter((item) => ['21', '200'].includes(item.facts.id))
+        .map((item) => [item.facts.id, item.facts.inFilter]),
+    ).toEqual([
+      ['21', true],
+      ['200', false],
+    ]);
+    expect(filterPages).toBe(20);
+    expect(calls.filter((call) => String(call.body?.['jql']).startsWith('('))).toHaveLength(1);
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+
   it('fetches outside tickets through every page before assigning per-ticket outcomes', async () => {
     const { fetcher, calls } = fake((body) => {
       if (String(body['jql']).startsWith('key in')) {

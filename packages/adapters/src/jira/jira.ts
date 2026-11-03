@@ -4,6 +4,7 @@ import {
   type Batch,
   type Config,
   type PollContext,
+  type TicketEntityRef,
   type TicketFacts,
 } from '@spur-board/contracts';
 import { classifyHttpFailure } from '../runner/http.ts';
@@ -17,7 +18,7 @@ export interface JiraAdapterOptions {
   credentials: { email: string; token: string };
   intervalMs?: number;
   fetch?: typeof fetch;
-  warn?: (message: string) => void;
+  warn: (message: string) => void;
 }
 
 const SEARCH_PAGE_LIMIT = 20;
@@ -39,6 +40,11 @@ function string(value: unknown): string {
 function array(value: unknown): unknown[] {
   if (Array.isArray(value)) return value;
   throw new AdapterError('transient', 'Invalid Jira response');
+}
+
+function keyQuery(refs: readonly TicketEntityRef[]): string {
+  const keys = refs.map((ref) => `"${ref.key.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"`);
+  return `key in (${keys.join(', ')})`;
 }
 
 function sprintName(value: unknown): string | null {
@@ -241,20 +247,28 @@ export function createJiraAdapter(options: JiraAdapterOptions): Adapter {
         facts.set(item.id, item);
       }
       if (!filtered.complete)
-        options.warn?.(`Jira filter reached ${String(SEARCH_PAGE_LIMIT)} pages`);
+        options.warn(`Jira filter reached ${String(SEARCH_PAGE_LIMIT)} pages`);
 
       const missing = ctx.observe.tickets.filter((ref) => !facts.has(ref.id));
       for (let start = 0; start < missing.length; start += OUTSIDE_BATCH_SIZE) {
         const refs = missing.slice(start, start + OUTSIDE_BATCH_SIZE);
-        const keys = refs.map(
-          (ref) => `"${ref.key.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"`,
-        );
-        const outside = await search(
-          tracker,
-          ctx.signal,
-          `key in (${keys.join(', ')})`,
-          sprintField,
-        );
+        if (!filtered.complete) {
+          const membership = await search(
+            tracker,
+            ctx.signal,
+            `(${tracker.jql}) AND ${keyQuery(refs)}`,
+            sprintField,
+          );
+          if (!membership.complete)
+            throw new AdapterError('transient', 'Jira membership search reached its page limit');
+          for (const issue of membership.issues) {
+            const item = issueFacts(issue, options.id, tracker.baseUrl, sprintField, true);
+            facts.set(item.id, item);
+          }
+        }
+        const outsideRefs = refs.filter((ref) => !facts.has(ref.id));
+        if (outsideRefs.length === 0) continue;
+        const outside = await search(tracker, ctx.signal, keyQuery(outsideRefs), sprintField);
         if (!outside.complete)
           throw new AdapterError('transient', 'Jira outside-ticket search reached its page limit');
         for (const issue of outside.issues) {
