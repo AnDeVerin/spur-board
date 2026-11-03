@@ -125,6 +125,27 @@ describe('Spur adapter', () => {
     ]);
   });
 
+  it('reports an unknown health value immediately after a known error', async () => {
+    let state = 'error';
+    const notices: SpurNotice[] = [];
+    const adapter = createSpurAdapter({
+      ...adapterOptions,
+      fetch: () => Promise.resolve(response([{ ...wire, state }])),
+      onNotice: (notice) => {
+        notices.push(notice);
+      },
+    });
+    await adapter.poll(context());
+    vi.setSystemTime(T0 + 1);
+    state = 'future_state';
+    const batch = await adapter.poll(context());
+    const item = batch.items[0];
+
+    expect(item?.kind === 'session' && item.facts.health).toBe('future_state');
+    expect(item?.kind === 'session' && item.facts.healthSince).toBe(at(1));
+    expect(notices).toEqual([{ kind: 'unknown_state', value: 'future_state' }]);
+  });
+
   it.each(['id', 'project', 'status', 'state'])(
     'fails the poll when required %s is missing',
     async (field) => {

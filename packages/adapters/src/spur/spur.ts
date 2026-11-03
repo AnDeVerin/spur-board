@@ -53,6 +53,7 @@ export function createSpurAdapter(options: SpurAdapterOptions): Adapter {
   let health = new Map<string, HealthObservation>();
   let instanceId: string | undefined;
   const unknownValues = new Set<string>();
+  const isKnownHealth = (value: string) => SESSION_HEALTH_STATES.some((state) => state === value);
 
   async function request(
     path: string,
@@ -98,6 +99,15 @@ export function createSpurAdapter(options: SpurAdapterOptions): Adapter {
     next: Map<string, HealthObservation>,
   ): HealthObservation {
     const previous = next.get(wire.id);
+    // An unfamiliar state must suppress health flags immediately, even during smoothing.
+    if (!isKnownHealth(wire.state)) {
+      const unknown = {
+        stable: wire.state,
+        since: previous?.stable === wire.state ? previous.since : observedAt,
+      };
+      next.set(wire.id, unknown);
+      return unknown;
+    }
     if (previous === undefined) {
       const first = { stable: wire.state, since: observedAt };
       next.set(wire.id, first);
@@ -232,11 +242,7 @@ export function createSpurAdapter(options: SpurAdapterOptions): Adapter {
       }
       instanceId = newInstanceId;
       for (const wire of [...listed, ...detail.values()]) {
-        if (
-          wire === null ||
-          SESSION_HEALTH_STATES.some((state) => state === wire.state) ||
-          unknownValues.has(wire.state)
-        ) {
+        if (wire === null || isKnownHealth(wire.state) || unknownValues.has(wire.state)) {
           continue;
         }
         unknownValues.add(wire.state);
