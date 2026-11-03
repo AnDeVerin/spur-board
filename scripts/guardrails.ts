@@ -67,6 +67,8 @@ const WHOLE_FILE_CONFIG = [
 ];
 const PACKAGE_JSON = /(^|\/)package\.json$/;
 const SKIP = /\b(?:describe|it|test|suite|bench)(?:\.\w+)*\.(?:skip|todo|only)\b/;
+const SNAPSHOT_MATCHER =
+  /\b(?:toMatchSnapshot|toMatchInlineSnapshot|toMatchFileSnapshot|toThrowErrorMatchingSnapshot|toThrowErrorMatchingInlineSnapshot)\b/;
 const ESCAPES = [/eslint-disable/, /@ts-expect-error/, /@ts-ignore/, /\bas\s+any\b/];
 const DEPENDENCY_KEYS = [
   'dependencies',
@@ -88,13 +90,14 @@ function isTest(path: string): boolean {
   );
 }
 
+/** Snapshot files count on any status: a new `.snap` can replace an assertion in an old test. */
 function isSnapshot(path: string): boolean {
-  return (
-    /\.snap$/.test(path) ||
-    /(^|\/)__snapshots__\//.test(path) ||
-    /golden/i.test(basename(path)) ||
-    /(^|\/)test\/fixtures\//.test(path)
-  );
+  return /\.snap$/.test(path) || /(^|\/)__snapshots__\//.test(path);
+}
+
+/** Golden and fixture files count when modified or deleted; a new test may add its own. */
+function isGolden(path: string): boolean {
+  return /golden/i.test(basename(path)) || /(^|\/)test\/fixtures\//.test(path);
 }
 
 /** The removed and added lines of each hunk in a `git diff -U0` of one file. */
@@ -161,7 +164,13 @@ function rulesFor(file: FileChange): RuleId[] {
     rules.push('fewer-expects');
   }
   if (added.some((line) => SKIP.test(line))) rules.push('added-skip');
-  if (status !== 'A' && isSnapshot(path)) rules.push('snapshot');
+  if (
+    isSnapshot(path) ||
+    (status !== 'A' && isGolden(path)) ||
+    (status === 'M' && isTest(path) && added.some((line) => SNAPSHOT_MATCHER.test(line)))
+  ) {
+    rules.push('snapshot');
+  }
   if (
     WHOLE_FILE_CONFIG.some((pattern) => pattern.test(path)) ||
     (packageJson &&

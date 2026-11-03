@@ -130,8 +130,32 @@ const CASES: Case[] = [
     rule: 'snapshot',
     name: 'snapshot',
     flagged: mod('src/__snapshots__/a.test.ts.snap'),
-    clean: add('src/__snapshots__/a.test.ts.snap'),
+    clean: add('src/a.test.ts', ['expect(x).toMatchSnapshot();']),
   },
+  {
+    rule: 'snapshot',
+    name: 'added .snap',
+    flagged: add('src/__snapshots__/a.test.ts.snap'),
+    clean: add('src/a.test.ts', ['expect(x).toMatchInlineSnapshot();']),
+  },
+  {
+    rule: 'snapshot',
+    name: 'added .snap outside __snapshots__',
+    flagged: add('src/a.test.ts.snap'),
+    clean: add('src/golden-new.json'),
+  },
+  ...[
+    'toMatchSnapshot',
+    'toMatchInlineSnapshot',
+    'toMatchFileSnapshot',
+    'toThrowErrorMatchingSnapshot',
+    'toThrowErrorMatchingInlineSnapshot',
+  ].map((matcher): Case => ({
+    rule: 'snapshot',
+    name: `added ${matcher} in an M test file`,
+    flagged: mod('src/a.test.ts', [`expect(x).${matcher}();`]),
+    clean: mod('src/a.test.ts', [], [`expect(x).${matcher}();`]),
+  })),
   {
     rule: 'snapshot',
     name: 'fixture',
@@ -739,6 +763,54 @@ describe('guardrails.ts CLI', () => {
     expect(result.stdout).toContain('guardrails: report empty');
     expect(result.stdout).toContain('guardrails: PASS (report empty)');
     expect(result.stdout).not.toContain('::error::');
+  });
+
+  it('PR swapping toEqual for toMatchSnapshot with a new .snap fails', () => {
+    const box = sandbox();
+    box.base({ 'src/a.test.ts': "it('a', () => {\n  expect(x).toEqual(1);\n});\n" });
+    box.topic({
+      'src/a.test.ts': "it('a', () => {\n  expect(x).toMatchSnapshot();\n});\n",
+      'src/__snapshots__/a.test.ts.snap': 'exports[`a 1`] = `1`;\n',
+    });
+    box.merge();
+    const result = box.runPr(pr(''));
+    expect(result.status).toBe(1);
+    expect(reportLines(result.stdout).slice(1)).toEqual([
+      'guardrails: src/__snapshots__/a.test.ts.snap - changed snapshot or golden file',
+      'guardrails: src/a.test.ts - changed snapshot or golden file',
+      'guardrails: 2 file(s) need a ## Changed checks entry',
+    ]);
+    expectNoPass(result);
+  });
+
+  it('PR swapping toEqual for toMatchInlineSnapshot fails', () => {
+    const box = sandbox();
+    box.base({ 'src/a.test.ts': "it('a', () => {\n  expect(x).toEqual(1);\n});\n" });
+    box.topic({
+      'src/a.test.ts': "it('a', () => {\n  expect(x).toMatchInlineSnapshot(`1`);\n});\n",
+    });
+    box.merge();
+    const result = box.runPr(pr(''));
+    expect(result.status).toBe(1);
+    expect(reportLines(result.stdout).slice(1)).toEqual([
+      'guardrails: src/a.test.ts - changed snapshot or golden file',
+      'guardrails: 1 file(s) need a ## Changed checks entry',
+    ]);
+    expectNoPass(result);
+  });
+
+  it('PR adding a new test with new fixtures passes without the section', () => {
+    const box = sandbox();
+    box.base({ 'README.md': 'x\n' });
+    box.topic({
+      'packages/x/test/a.test.ts': 'expect(1).toBe(1);\n',
+      'packages/x/test/fixtures/a.yaml': 'a: 1\n',
+      'packages/x/test/golden.json': '{}\n',
+    });
+    box.merge();
+    const result = box.runPr(pr(''));
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('guardrails: PASS (report empty)');
   });
 
   it('PR mode appends the report to GITHUB_STEP_SUMMARY', () => {
