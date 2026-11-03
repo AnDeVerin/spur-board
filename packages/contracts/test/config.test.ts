@@ -2,7 +2,8 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import YAML from 'yaml';
 import { z } from 'zod';
-import { COLUMN_IDS, configJsonSchema, configSchema } from '../src/index.ts';
+import { COLUMN_IDS, type Config, configJsonSchema, configSchema } from '../src/index.ts';
+import { walk as walkJsonSchema } from './json-schema-walk.ts';
 
 function readFixture(name: string): unknown {
   return YAML.parse(readFileSync(new URL(`fixtures/${name}`, import.meta.url), 'utf8'));
@@ -61,13 +62,38 @@ function pathLines(error: string): string[] {
     .filter((line) => line.startsWith('→ at '));
 }
 
+/** The adapter, source, GitHub and health defaults every config gets when it omits them. */
+const adapterDefaults: Pick<Config, 'adapters' | 'sources' | 'github' | 'health'> = {
+  adapters: {
+    spur: { intervalMs: 15_000 },
+    github: { intervalMs: 60_000 },
+    jira: { intervalMs: 120_000 },
+  },
+  sources: { authRetryMs: 900_000, goneAfterPolls: 3 },
+  github: { reserveRemaining: 1000 },
+  health: {
+    errorAfterMs: 90_000,
+    needsInputAfterMs: 120_000,
+    idleInDevAfterMs: 1_800_000,
+    flipSmoothingMs: 30_000,
+    hostLoad: { sessions: 3, windowMs: 60_000, maxEpisodeMs: 300_000 },
+  },
+};
+
+function adapterKeys(config: Config): Pick<Config, 'adapters' | 'sources' | 'github' | 'health'> {
+  const { adapters, sources, github, health } = config;
+  return { adapters, sources, github, health };
+}
+
 describe('fixtures', () => {
   it('parses the Jira project and fills the defaults', () => {
     const config = configSchema.parse(readFixture('jira-project.yaml'));
     expect(config.thresholds.staleMultiplier).toBe(3);
     expect(config.archive.doneWeekday).toBe('saturday');
     expect(config.commands.retentionDays).toBe(7);
+    expect(adapterKeys(config)).toEqual(adapterDefaults);
     const project = config.projects[0];
+    expect(project?.tracker.type === 'jira' && project.tracker.projectKeys).toEqual([]);
     expect(project?.spurProjects).toEqual([{ name: 'qa-bot', role: 'worker' }]);
     expect(project?.columns).toEqual(
       COLUMN_IDS.map((id) => ({
@@ -83,7 +109,9 @@ describe('fixtures', () => {
     expect(config.thresholds.staleMultiplier).toBe(3);
     expect(config.archive.doneWeekday).toBe('saturday');
     expect(config.commands.retentionDays).toBe(7);
+    expect(adapterKeys(config)).toEqual(adapterDefaults);
     const project = config.projects[0];
+    expect(project?.tracker).not.toHaveProperty('projectKeys');
     expect(project?.spurProjects).toEqual([]);
     expect(project?.columns.find((c) => c.id === 'qa')?.orchestrator).toBe('operator');
     expect(project?.columns.filter((c) => !c.enabled).map((c) => c.id)).toEqual(['ready-for-dev']);
@@ -198,6 +226,30 @@ describe('invalid configs', () => {
       'digest.tz',
     ],
     [
+      'lowercase Jira project key',
+      validConfig({ tracker: { ...jiraTracker, projectKeys: ['proj'] } }),
+      'Expected a Jira project key like PROJ',
+      'projects[0].tracker.projectKeys[0]',
+    ],
+    [
+      'zero gone-after polls',
+      validConfig({}, { sources: { goneAfterPolls: 0 } }),
+      'Too small: expected number to be >=1',
+      'sources.goneAfterPolls',
+    ],
+    [
+      'zero error-after duration',
+      validConfig({}, { health: { errorAfterMs: 0 } }),
+      'Too small: expected number to be >=1',
+      'health.errorAfterMs',
+    ],
+    [
+      'a duration key without its unit',
+      validConfig({}, { health: { errorAfter: 90_000 } }),
+      'Unrecognized key: "errorAfter"',
+      'health',
+    ],
+    [
       'missing operator',
       withoutOperator(),
       'Invalid input: expected object, received undefined',
@@ -217,6 +269,7 @@ describe('invalid configs', () => {
 
   it.each<[string, Record<string, unknown>, Record<string, unknown>]>([
     ['time zone UTC', {}, { digest: { tz: 'UTC' } }],
+    ['Jira project keys', { tracker: { ...jiraTracker, projectKeys: ['PROJ'] } }, {}],
     ['github-issues with only a label', { tracker: { ...githubTracker, label: 'board' } }, {}],
     ['github-issues with only a milestone', { tracker: { ...githubTracker, milestone: 'v1' } }, {}],
     ['a board without the optional columns', { columns: columns('todo', 'dev', 'done') }, {}],
@@ -242,6 +295,30 @@ describe('JSON Schema', () => {
 
   it('converts in output mode too (no transform or preprocess)', () => {
     expect(() => z.toJSONSchema(configSchema, { io: 'output' })).not.toThrow();
+  });
+
+  it('names every millisecond key with Ms', () => {
+    const { properties } = walkJsonSchema(z.toJSONSchema(configSchema, { io: 'output' }));
+    for (const { path, name, node } of properties) {
+      const description = typeof node['description'] === 'string' ? node['description'] : '';
+      expect(name.endsWith('Ms'), path).toBe(description.includes('milliseconds'));
+    }
+    const msPaths = properties
+      .filter(({ name }) => name.endsWith('Ms'))
+      .map(({ path }) => path)
+      .sort();
+    expect(msPaths).toEqual([
+      '.adapters.github.intervalMs',
+      '.adapters.jira.intervalMs',
+      '.adapters.spur.intervalMs',
+      '.health.errorAfterMs',
+      '.health.flipSmoothingMs',
+      '.health.hostLoad.maxEpisodeMs',
+      '.health.hostLoad.windowMs',
+      '.health.idleInDevAfterMs',
+      '.health.needsInputAfterMs',
+      '.sources.authRetryMs',
+    ]);
   });
 
   it('has no secret-like property names', () => {
