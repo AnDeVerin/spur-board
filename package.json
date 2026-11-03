@@ -12,6 +12,7 @@
     "ci:changes": "node scripts/ci.ts changes",
     "ci:secrets-range": "node scripts/ci.ts secrets-range",
     "ci:ok": "node scripts/ci.ts ok",
+    "ci:status": "node scripts/ci-status.ts",
     "format": "prettier --write .",
     "gen:config-schema": "node scripts/gen-config-schema.ts",
     "gen:ops-snapshot": "node scripts/gen-ops-snapshot.ts",
