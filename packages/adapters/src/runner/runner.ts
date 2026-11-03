@@ -10,6 +10,7 @@ import {
   type PollContext,
 } from '@spur-board/contracts';
 import {
+  answersRequest,
   applyEntityOutcomes,
   nextDelay,
   staleDeadline,
@@ -165,10 +166,17 @@ function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: nu
       const context = await core.context(source);
       if (aborted()) return;
       const requested: GoneRef[] = [...context.observe.prs, ...context.observe.tickets];
-      const batch = await adapter.poll({ ...context, signal: abort.signal });
-      if (aborted()) return;
+      const batch = await untilAborted(
+        adapter.poll({ ...context, signal: abort.signal }),
+        abort.signal,
+      );
+      if (batch === undefined || aborted()) return;
       const parsed = batchSchema.safeParse({ ...batch, observedAt: iso(startMs) });
-      if (!parsed.success || parsed.data.source !== source) {
+      if (
+        !parsed.success ||
+        parsed.data.source !== source ||
+        !answersRequest(context.observe, parsed.data.entities)
+      ) {
         outcome = { kind: 'failed', error: new AdapterError('transient', 'Invalid batch') };
       } else {
         await core.observe(source, parsed.data);
@@ -224,6 +232,23 @@ function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: nu
       await reports;
     },
   };
+}
+
+/**
+ * Settles with `work`, or with undefined as soon as `signal` aborts, so `stop()` never waits
+ * for an adapter that ignores its signal. A late result or rejection is dropped.
+ */
+function untilAborted<T>(work: Promise<T>, signal: AbortSignal): Promise<T | undefined> {
+  const abortion = new Promise<undefined>((resolve) => {
+    signal.addEventListener(
+      'abort',
+      () => {
+        resolve(undefined);
+      },
+      { once: true },
+    );
+  });
+  return Promise.race([work, abortion]);
 }
 
 function iso(ms: number): string {

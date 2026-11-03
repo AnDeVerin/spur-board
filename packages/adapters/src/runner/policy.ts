@@ -3,6 +3,7 @@ import {
   AdapterError,
   type Batch,
   type EntityRef,
+  type PollContext,
   type PrEntityRef,
   type TicketEntityRef,
 } from '@spur-board/contracts';
@@ -98,6 +99,22 @@ function entityKey(ref: EntityRef): string {
   }
 }
 
+/** Whether `entities` holds an entry for each requested ref and nothing else (A4). */
+export function answersRequest(
+  observe: PollContext['observe'],
+  entities: Batch['entities'],
+): boolean {
+  const requested = new Set(
+    [...observe.prs, ...observe.tickets, ...observe.sessions].map((ref) => entityKey(ref)),
+  );
+  const answered = new Set(entities.map((entity) => entityKey(entity.ref)));
+  return (
+    answered.size === entities.length &&
+    answered.size === requested.size &&
+    [...requested].every((key) => answered.has(key))
+  );
+}
+
 export interface EntityOutcomes {
   /** Per entity key: consecutive complete batches the ref was not_found or no_access in. */
   counts: Map<string, number>;
@@ -123,10 +140,9 @@ export function applyEntityOutcomes(input: {
     if (counts.has(key)) continue;
     const status = statuses.get(key);
     let count = input.counts.get(key) ?? 0;
-    if (batch.complete) {
-      if (status === 'ok') count = 0;
-      else if (status !== undefined) count += 1;
-    }
+    // An ok answer proves the entity is back in any batch; only a complete one counts a miss.
+    if (status === 'ok') count = 0;
+    else if (batch.complete && status !== undefined) count += 1;
     counts.set(key, count);
     const isGone = count >= goneAfterPolls;
     if (isGone) gone.push(ref);

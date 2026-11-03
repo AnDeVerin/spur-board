@@ -615,12 +615,28 @@ describe('gone entities', () => {
     expect(last()).toEqual({ lastCompleteAt: at(3 * I), gone: [] });
   });
 
-  it('neither counts nor resets on an incomplete batch or a failed poll', async () => {
+  it('clears gone on an ok in an incomplete batch', async () => {
+    random(0);
+    const { last } = start((_, n) => {
+      if (n < 3) return Promise.resolve(prNotFound());
+      if (n === 3) return Promise.resolve(prOk({ complete: false }));
+      return Promise.resolve(prNotFound());
+    }, requestPr);
+    await advanceTo(2 * I);
+    expect(last()?.gone).toEqual([pr]);
+    await advanceTo(3 * I);
+    expect(last()).toEqual({ lastCompleteAt: at(2 * I), gone: [] });
+    await advanceTo(5 * I);
+    expect(last()?.gone).toEqual([]);
+    await advanceTo(6 * I);
+    expect(last()?.gone).toEqual([pr]);
+  });
+
+  it('does not count a miss in an incomplete batch or a failed poll', async () => {
     random(0);
     const { starts, last } = start((_, n) => {
-      if (n === 1) return Promise.resolve(prNotFound({ complete: false }));
+      if (n === 1 || n === 3) return Promise.resolve(prNotFound({ complete: false }));
       if (n === 2) return Promise.reject(new Error('down'));
-      if (n === 3) return Promise.resolve(prOk({ complete: false }));
       return Promise.resolve(prNotFound());
     }, requestPr);
     await advanceTo(5 * I);
@@ -671,6 +687,17 @@ describe('batch validation', () => {
     ['bad budget remaining -1', () => prNotFound({ budget: { remaining: -1, resetAt: at(0) } })],
     ['an unknown top-level key', () => Object.assign(prNotFound(), { extra: 1 })],
     ['source other than adapter.id', () => prNotFound({ source: 'jira' })],
+    ['a complete batch with no entry for a requested ref', () => batch()],
+    [
+      'an entry for a ref that was not requested',
+      () =>
+        batch({
+          entities: [
+            { ref: pr, status: 'not_found' },
+            { ref: ticket, status: 'not_found' },
+          ],
+        }),
+    ],
   ])('rejects %s without delivering it', async (_, invalid) => {
     random(0);
     const { starts, core, last } = start(
@@ -722,6 +749,18 @@ describe('stop', () => {
     expect(core.states).toEqual([]);
     expect(vi.getTimerCount()).toBe(0);
     await vi.advanceTimersByTimeAsync(10 * I);
+    expect(core.states).toEqual([]);
+  });
+
+  it('stop does not wait for an adapter that ignores its signal', async () => {
+    const late = deferred<Batch>();
+    const { runner, core } = start(() => late.promise);
+    await flush();
+    await runner.stop();
+    expect(vi.getTimerCount()).toBe(0);
+    late.resolve(batch());
+    await flush();
+    expect(core.observed).toEqual([]);
     expect(core.states).toEqual([]);
   });
 
