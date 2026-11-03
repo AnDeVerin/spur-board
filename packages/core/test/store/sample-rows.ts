@@ -1,0 +1,185 @@
+import {
+  ADDRESSEE_ROLES,
+  ARCHIVE_REASONS,
+  BLOCK_OUTCOMES,
+  BLOCK_STATES,
+  BLOCK_TYPES,
+  COLUMN_IDS,
+  LINK_SOURCES,
+  MEMBERSHIPS,
+  SESSION_END_REASONS,
+} from '@spur-board/contracts';
+import type { Insertable, Kysely } from 'kysely';
+import type { Tables } from '../../src/index.ts';
+
+type SampleRows = { [T in keyof Tables]: Required<Insertable<Tables[T]>> };
+
+function first<T>(values: readonly T[]): T {
+  const value = values[0];
+  if (value === undefined) throw new Error('empty enum');
+  return value;
+}
+
+const at = '2026-11-02T22:15:00.123Z';
+const column = first(COLUMN_IDS);
+
+/** One row per table with every column set, in foreign key order. */
+export const sampleRows: SampleRows = {
+  task: {
+    id: 1,
+    project: 'proj',
+    tracker_kind: 'github-issues',
+    tracker_id: '101',
+    key: 'o/r#101',
+    membership: first(MEMBERSHIPS),
+    archive_reason: first(ARCHIVE_REASONS),
+    column,
+    shadow_column: column,
+    column_epoch: 2,
+    left_moves: 1,
+    merged_past_gate: 1,
+    created_at: at,
+  },
+  pr_snapshot: {
+    repo: 'x/y',
+    number: 7,
+    head_sha: 'a'.repeat(40),
+    head_branch: 'feature',
+    state: 'open',
+    draft: 0,
+    mergeable: 'mergeable',
+    merge_state: 'clean',
+    detail: '{"checks":[]}',
+    source: 'github',
+    observed_at: at,
+  },
+  ticket_snapshot: {
+    task_id: 1,
+    status: 'In Progress',
+    assignee: 'someone',
+    detail: '{}',
+    source: 'tracker',
+    observed_at: at,
+  },
+  session_snapshot: {
+    id: 'sess-1',
+    spur_project: 'proj',
+    branch: 'feature',
+    pr: 'x/y#7',
+    raw_state: 'running',
+    state: 'running',
+    first_seen: at,
+    last_seen: at,
+    ended_at: at,
+    end_reason: first(SESSION_END_REASONS),
+    detail: '{}',
+    source: 'spur',
+    observed_at: at,
+  },
+  link: {
+    id: 1,
+    task_id: 1,
+    entity: 'pr',
+    repo: 'x/y',
+    number: 7,
+    pr_state: 'active',
+    session_id: null,
+    role: null,
+    source: first(LINK_SOURCES),
+    banned: 0,
+    created_at: at,
+  },
+  submission: {
+    id: 1,
+    task_id: 1,
+    column,
+    epoch: 2,
+    commit_sha: 'b'.repeat(40),
+    author: 'agent',
+    submitted_at: at,
+    note: 'ready for review',
+  },
+  block: {
+    id: 1,
+    task_id: 1,
+    type: first(BLOCK_TYPES),
+    reason: 'waiting',
+    author: 'operator',
+    addressee_role: first(ADDRESSEE_ROLES),
+    target_column: column,
+    state: first(BLOCK_STATES),
+    outcome: first(BLOCK_OUTCOMES),
+    outcome_reason: 'fixed',
+    repeat_of: null,
+    unblocked_by: 'operator',
+    unblocked_at: at,
+    created_at: at,
+  },
+  comment: {
+    id: 1,
+    task_id: 1,
+    block_id: 1,
+    author: 'operator',
+    text: 'hello',
+    revision: 2,
+    conversation_ref: '{"space":"s"}',
+    message_ref: '{"id":"m"}',
+    acked_revision: 1,
+    created_at: at,
+  },
+  command: {
+    actor: 'operator',
+    key: 'k1',
+    operation: 'move',
+    fingerprint: 'f1',
+    result: '{"ok":true}',
+    at,
+  },
+  event: {
+    id: 1,
+    at,
+    project: 'proj',
+    task_id: 1,
+    kind: 'task_added',
+    actor: 'agent',
+    actor_ref: '{"project":"proj","session":"sess-1"}',
+    payload: '{}',
+    v: 1,
+    request_id: 'req-1',
+  },
+  outbox: {
+    id: 1,
+    kind: 'doorbell',
+    dedupe_key: 'd1',
+    payload: '{}',
+    state: 'pending',
+    attempts: 0,
+    next_at: at,
+    last_error: null,
+    external_ref: null,
+    uncertain: 0,
+  },
+  dismissal: {
+    item_key: 'item-1',
+    fingerprint: 'f1',
+    dismissed_by: 'operator',
+    dismissed_at: at,
+  },
+  meta: { key: 'digest', value: '{}' },
+  source_state: {
+    source: 'github',
+    initialized: 1,
+    last_complete_at: at,
+    blind_reason: null,
+    cursor: 'c1',
+  },
+};
+
+export const tableNames = Object.keys(sampleRows) as (keyof Tables)[];
+
+/** Inserts every sample row, in foreign key order. */
+export async function insertSampleRows(db: Kysely<Tables>): Promise<void> {
+  for (const table of tableNames) {
+    await db.insertInto(table).values(sampleRows[table]).execute();
+  }
+}
