@@ -1,65 +1,206 @@
-import type { ActorId } from '@spur-board/contracts';
+import { createHash, randomUUID } from 'node:crypto';
+import {
+  EVENT_VERSION,
+  OPERATIONS,
+  errorCodeOf,
+  eventPayloadSchemas,
+  parseActorId,
+  type ActorId,
+  type Config,
+  type ServerErrorCode,
+} from '@spur-board/contracts';
 import type { Kysely } from 'kysely';
-import type { z } from 'zod';
+import { z } from 'zod';
 import { parseJson, toJson } from '../store/json.ts';
 import type { Tables } from '../store/schema.ts';
 import type { Store } from '../store/store.ts';
+import { authorize, type ResolvedTarget } from './authorize.ts';
 
 const DAY_MS = 86_400_000;
+const TASKLESS = ['task.add', 'item.retry', 'item.close'] as const;
+const actorRefSchema = z.strictObject({ project: z.string().min(1), session: z.string().min(1) });
+type CatalogMutation = Extract<(typeof OPERATIONS)[number], { kind: 'mutation' }>;
+type MutationId = CatalogMutation['id'];
+type Entry<Id extends MutationId> = Extract<CatalogMutation, { id: Id }>;
 
 interface Clock {
   now(): number;
 }
 
-/** Who runs a command and when; `at` is the ISO-8601 UTC time read inside the transaction. */
+export class CommandError extends Error {
+  readonly code: ServerErrorCode;
+  readonly hint: string;
+  constructor(code: ServerErrorCode, hint: string) {
+    super(code);
+    this.code = code;
+    this.hint = hint;
+  }
+}
+
 export interface CommandContext {
   readonly actor: ActorId;
   readonly at: string;
 }
 
-/**
- * A mutation `apply` can run. `id`, `kind` and `output` match a catalog entry, so a handler
- * is the entry spread with its `run`. `run` writes only through `trx` and does no IO.
- */
-export interface Mutation<O extends z.ZodType, I> {
-  readonly id: string;
-  readonly kind: 'mutation';
-  readonly output: O;
-  run(trx: Kysely<Tables>, input: I, ctx: CommandContext): Promise<z.input<O>>;
+/** A handler names a catalog mutation; the boundary owns its schemas and grants. */
+export interface Mutation<Id extends MutationId> {
+  readonly id: Id;
+  resolveTargets(
+    trx: Kysely<Tables>,
+    input: z.output<Entry<Id>['input']>,
+  ): Promise<readonly ResolvedTarget[]>;
+  run(
+    trx: Kysely<Tables>,
+    input: z.output<Entry<Id>['input']>,
+    ctx: CommandContext,
+  ): Promise<z.input<Entry<Id>['output']>>;
 }
 
-export type Apply = <O extends z.ZodType, I>(
-  op: Mutation<O, I>,
-  input: I,
+export type Apply = <Id extends MutationId>(
+  op: Mutation<Id>,
+  input: z.input<Entry<Id>['input']>,
   actor: ActorId,
-  key: string,
-) => Promise<z.output<O>>;
+  key?: string,
+) => Promise<z.output<Entry<Id>['output']>>;
 
-/**
- * Builds `apply`. In one transaction it looks up `(actor, key)` in `command`: a hit returns
- * the stored result and writes nothing; a miss runs `op` and stores its result. A rejection
- * from `run` rolls back the effect and stores no key, so a retry is evaluated again.
- */
-export function createApply(deps: { store: Store; clock: Clock }): Apply {
-  const { store, clock } = deps;
-  return (op, input, actor, key) =>
-    store.transaction(async (trx) => {
-      const at = new Date(clock.now()).toISOString();
+function canonical(value: unknown): string {
+  return JSON.stringify(value, (_key, item: unknown) => {
+    if (item !== null && typeof item === 'object' && !Array.isArray(item)) {
+      return Object.fromEntries(Object.entries(item).sort(([a], [b]) => a.localeCompare(b)));
+    }
+    return item;
+  });
+}
+
+function fingerprint(id: string, input: unknown, actor: ActorId): string {
+  return createHash('sha256')
+    .update(canonical([id, input, actor]))
+    .digest('hex');
+}
+
+function catalogMutation(id: string): CatalogMutation {
+  const entry = OPERATIONS.find((candidate) => candidate.id === id);
+  if (entry?.kind !== 'mutation') throw new CommandError('usage', 'Use a catalog mutation.');
+  return entry;
+}
+
+function emptyAllowed(entry: CatalogMutation): boolean {
+  if (!TASKLESS.some((id) => id === entry.id)) return false;
+  if (entry.grants === 'any' || entry.grants.some((rule) => rule.grant !== 'operator')) {
+    throw new Error(`Taskless operation ${entry.id} must remain operator-only`);
+  }
+  return true;
+}
+
+async function deniedEvent(
+  trx: Kysely<Tables>,
+  actor: ActorId,
+  operation: string,
+  target: ResolvedTarget,
+  at: string,
+): Promise<void> {
+  const parsed = parseActorId(actor);
+  if (parsed === null) throw new Error('Invalid actor');
+  await trx
+    .insertInto('event')
+    .values({
+      at,
+      project: target.kind === 'found' ? target.value.project : 'board',
+      task_id: target.kind === 'found' ? (target.value.task?.id ?? null) : null,
+      kind: 'operation_denied',
+      actor: parsed.actor,
+      actor_ref: parsed.actor === 'agent' ? toJson(actorRefSchema, parsed.actorRef) : null,
+      payload: toJson(eventPayloadSchemas.operation_denied, {
+        operation,
+        reason: 'Caller does not match the operation grants.',
+      }),
+      v: EVENT_VERSION,
+      request_id: null,
+    })
+    .execute();
+}
+
+/** Parse, replay, authorize, then apply one catalog mutation in one transaction. */
+export function createApply(deps: { store: Store; clock: Clock; config: Config }): Apply {
+  const { store, clock, config } = deps;
+  return async (op, input, actor, key) => {
+    const entry = catalogMutation(op.id);
+    const parsed = entry.input.safeParse(input);
+    if (!parsed.success)
+      throw new CommandError(errorCodeOf(parsed.error), 'Fix the operation input.');
+    if (key === '' || (actor !== 'operator' && key === undefined)) {
+      throw new CommandError(
+        'usage',
+        'Choose an idempotency key before sending an agent mutation.',
+      );
+    }
+    const commandKey = key ?? randomUUID();
+    const hash = fingerprint(entry.id, input, actor);
+    const result = await store.transaction(async (trx) => {
       const row = await trx
         .selectFrom('command')
-        .select('result')
+        .select(['operation', 'fingerprint', 'result'])
         .where('actor', '=', actor)
-        .where('key', '=', key)
+        .where('key', '=', commandKey)
         .executeTakeFirst();
-      if (row !== undefined) return parseJson(op.output, row.result);
-      const value = await op.run(trx, input, { actor, at });
-      const text = toJson(op.output, value);
+      if (row !== undefined) {
+        if (row.operation !== entry.id || row.fingerprint !== hash) {
+          throw new CommandError(
+            'idempotency_key_mismatch',
+            'Use the original input or a new key.',
+          );
+        }
+        return { status: 'applied' as const, value: parseJson(entry.output, row.result) };
+      }
+
+      const parsedInput = parsed.data as z.output<Entry<typeof op.id>['input']>;
+      const resolved = await op.resolveTargets(trx, parsedInput);
+      const taskless = resolved.length === 0 && emptyAllowed(entry);
+      const ackIds = entry.id === 'inbox.ack' && 'ids' in parsed.data ? parsed.data.ids : undefined;
+      const ackMismatch =
+        ackIds !== undefined &&
+        (resolved.length !== ackIds.length ||
+          resolved.some((target, index) => target.id !== ackIds[index]));
+      const targets: readonly ResolvedTarget[] =
+        resolved.length === 0
+          ? [{ kind: 'missing' }]
+          : ackMismatch
+            ? [...resolved, { kind: 'missing' }]
+            : resolved;
+      const mode = 'mode' in parsed.data ? String(parsed.data.mode) : undefined;
+      for (const target of targets) {
+        const decision = authorize(entry.grants, actor, {
+          config,
+          target,
+          ...(mode === undefined ? {} : { mode }),
+        });
+        if (decision.status === 'denied') {
+          await deniedEvent(trx, actor, entry.id, target, new Date(clock.now()).toISOString());
+          return { status: 'denied' as const, hint: decision.hint };
+        }
+      }
+      if (!taskless && targets.some((target) => target.kind === 'missing')) {
+        throw new CommandError('not_found', 'Check the target ID.');
+      }
+      const at = new Date(clock.now()).toISOString();
+      const value = await op.run(trx, parsedInput, { actor, at });
+      const resultText = toJson(entry.output, value);
       await trx
         .insertInto('command')
-        .values({ actor, key, operation: op.id, fingerprint: null, result: text, at })
+        .values({
+          actor,
+          key: commandKey,
+          operation: entry.id,
+          fingerprint: hash,
+          result: resultText,
+          at,
+        })
         .execute();
-      return parseJson(op.output, text);
+      return { status: 'applied' as const, value: parseJson(entry.output, resultText) };
     });
+    if (result.status === 'denied') throw new CommandError('forbidden', result.hint);
+    return result.value as z.output<Entry<typeof op.id>['output']>;
+  };
 }
 
 /**
