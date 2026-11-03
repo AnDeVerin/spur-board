@@ -361,12 +361,46 @@ describe('countExpects', () => {
     expect(countExpects(source)).toBe(1);
   });
 
-  it.each(['expect.any(String)', 'expect.assertions(1)', '// expect(a)', '/* expect(a) */'])(
-    'does not count %s',
-    (source) => {
-      expect(countExpects(source)).toBe(0);
-    },
-  );
+  it.each([
+    'expect.any(String)',
+    'expect.assertions(1)',
+    '// expect(a)',
+    '/* expect(a) */',
+    "'expect(x)'",
+    '"expect(x)"',
+    '`expect(x)`',
+    '/expect()/',
+    'x = /expect(/g',
+    "'it\\'s expect(x)'",
+    '`a ${b} expect(x)`',
+    'const s = "a\nexpect(x)',
+    '/* expect(x)',
+    '`${a} expect(x)',
+  ])('does not count %s', (source) => {
+    expect(countExpects(source)).toBe(0);
+  });
+
+  it.each([
+    ['real code inside a template expression', '`${expect(a)}`'],
+    ['a template expression with nested braces', '`${ {a: 1}.a } ${expect(a)}`'],
+    ['a URL string before an expect', "'http://x'; expect(a)"],
+    ['a division', 'a / expect(b)'],
+    ['a division after a call', 'f(a) / expect(b)'],
+    ['a regex with a slash in a class', 'const r = /[/]/; expect(a)'],
+    ['a regex with an escaped slash', 'return /\\//.test(s) && expect(a)'],
+    ['code after a nested template', '`a ${`b ${c}`} d`; expect(a)'],
+  ])('counts %s once', (_name, source) => {
+    expect(countExpects(source)).toBe(1);
+  });
+
+  it('flags a real expect replaced by a string', () => {
+    const file = texts(
+      'a.test.ts',
+      "it('a', () => {\n  expect(x).toBe(1);\n});\n",
+      "it('a', () => {\n  const note = 'expect(x)';\n});\n",
+    );
+    expect(has(file, 'fewer-expects')).toBe(true);
+  });
 });
 
 describe('parseHunks', () => {

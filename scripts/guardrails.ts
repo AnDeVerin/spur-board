@@ -114,10 +114,130 @@ export function parseHunks(diffText: string): Hunk[] {
   return hunks;
 }
 
-/** `expect(`, `expect.soft(` and `expectTypeOf(` calls outside comments. */
+const REGEX_AFTER_PUNCTUATION = new Set('(,=:[!&|?{};+-*%<>~^');
+const REGEX_AFTER_KEYWORD = new Set([
+  'return',
+  'typeof',
+  'case',
+  'do',
+  'else',
+  'in',
+  'of',
+  'new',
+  'delete',
+  'void',
+  'throw',
+  'yield',
+  'await',
+]);
+
+/** The index just past the closing `quote`, skipping `\` escapes; the end when unterminated. */
+function skipQuoted(source: string, from: number, quote: string): number {
+  for (let i = from; i < source.length; i++) {
+    if (source[i] === '\\') i++;
+    else if (source[i] === quote) return i + 1;
+  }
+  return source.length;
+}
+
+/** The index just past a regex literal's closing `/` and flags; the end when unterminated. */
+function skipRegex(source: string, from: number): number {
+  let inClass = false;
+  for (let i = from; i < source.length; i++) {
+    const c = source[i];
+    if (c === '\\') i++;
+    else if (c === '\n') return source.length;
+    else if (c === '[') inClass = true;
+    else if (c === ']') inClass = false;
+    else if (c === '/' && !inClass) {
+      let end = i + 1;
+      while (end < source.length && /\w/.test(source[end] ?? '')) end++;
+      return end;
+    }
+  }
+  return source.length;
+}
+
+/**
+ * The source with comments, string, template and regex literal text replaced by spaces, in one
+ * pass. `${…}` expressions in templates stay code. Unterminated literals and comments run to the
+ * end, so they never add code that was not seen as code.
+ */
+function codeOnly(source: string): string {
+  let code = '';
+  let previous = '';
+  const templateDepths: number[] = [];
+  let i = 0;
+  // Skips template text from `i` up to the closing backtick or the next `${`.
+  const templateText = () => {
+    for (; i < source.length; i++) {
+      const c = source[i];
+      if (c === '\\') i++;
+      else if (c === '`') {
+        i++;
+        previous = '`';
+        return;
+      } else if (c === '$' && source[i + 1] === '{') {
+        i += 2;
+        templateDepths.push(0);
+        previous = '{';
+        return;
+      }
+    }
+  };
+  while (i < source.length) {
+    const c = source[i] ?? '';
+    const next = source[i + 1];
+    if (c === '/' && next === '/') {
+      const end = source.indexOf('\n', i);
+      i = end === -1 ? source.length : end;
+    } else if (c === '/' && next === '*') {
+      const end = source.indexOf('*/', i + 2);
+      i = end === -1 ? source.length : end + 2;
+      code += ' ';
+    } else if (c === "'" || c === '"') {
+      i = skipQuoted(source, i + 1, c);
+      code += ' ';
+      previous = c;
+    } else if (c === '`') {
+      i++;
+      code += ' ';
+      templateText();
+    } else if (
+      c === '/' &&
+      (previous === '' ||
+        REGEX_AFTER_PUNCTUATION.has(previous) ||
+        REGEX_AFTER_KEYWORD.has(previous))
+    ) {
+      i = skipRegex(source, i + 1);
+      code += ' ';
+      previous = '/';
+    } else if (c === '}' && templateDepths.at(-1) === 0) {
+      templateDepths.pop();
+      i++;
+      code += ' ';
+      templateText();
+    } else if (/[\w$]/.test(c)) {
+      let end = i + 1;
+      while (end < source.length && /[\w$]/.test(source[end] ?? '')) end++;
+      previous = source.slice(i, end);
+      code += previous;
+      i = end;
+    } else {
+      const top = templateDepths.length - 1;
+      if (top >= 0 && c === '{') templateDepths[top] = (templateDepths[top] ?? 0) + 1;
+      if (top >= 0 && c === '}') templateDepths[top] = (templateDepths[top] ?? 0) - 1;
+      if (!/\s/.test(c)) previous = c;
+      code += c;
+      i++;
+    }
+  }
+  return code;
+}
+
+/** `expect(`, `expect.soft(` and `expectTypeOf(` calls in code, outside comments and literals. */
 export function countExpects(source: string): number {
-  const code = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(?<!:)\/\/.*$/gm, '');
-  return code.match(/\bexpect(?:\.soft)?\s*\(|\bexpectTypeOf\s*\(/g)?.length ?? 0;
+  return codeOnly(source).match(/\bexpect(?:\.soft)?\s*\(|\bexpectTypeOf\s*\(/g)?.length ?? 0;
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
