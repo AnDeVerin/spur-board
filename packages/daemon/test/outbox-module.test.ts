@@ -7,10 +7,67 @@ import { describe, expect, it } from 'vitest';
 import { startFakeSlackApi } from '../../gateway-slack/test/fake-api.ts';
 import { loadConfig, resolvePaths } from '../src/config.ts';
 import type { ModuleContext } from '../src/lifecycle.ts';
+import { createLogger, logCall } from '../src/logger.ts';
 import { createOutboxModule } from '../src/outbox-module.ts';
 import { makeHome } from './home.ts';
 
 describe('outbox scheduler', () => {
+  it('logs one failed tick and schedules a later successful tick', async () => {
+    const home = makeHome();
+    const base = openStore(join(home, 'board.sqlite'));
+    const records: Record<string, unknown>[] = [];
+    const log = createLogger(
+      {
+        write(line) {
+          records.push(JSON.parse(line) as Record<string, unknown>);
+        },
+      },
+      {},
+    );
+    const clock = { now: () => Date.now() };
+    let transactions = 0;
+    const store: Store = {
+      ...base,
+      transaction(fn) {
+        transactions += 1;
+        if (transactions === 2) return Promise.reject(new Error('transient claim failure'));
+        return base.transaction(fn);
+      },
+    };
+    const loaded = loadConfig(resolvePaths({ BOARD_HOME: home }, home));
+    const ctx: ModuleContext<Store> = {
+      ...loaded,
+      store,
+      log,
+      clock,
+      logCall: (call, fn) => logCall(log, clock, call, fn),
+      state: () => 'ready',
+    };
+    const gateway = createSlackGateway({
+      token: 'xoxb-test',
+      channels: { orchestrators: 'C000000001', feed: 'C000000002' },
+    });
+    const module = createOutboxModule(ctx, gateway);
+    const controller = new AbortController();
+    try {
+      await module.start(controller.signal);
+      await expect.poll(() => transactions, { timeout: 5_000 }).toBeGreaterThanOrEqual(3);
+      controller.abort();
+      await module.stop();
+      expect(records.filter((record) => record['err'] !== undefined)).toHaveLength(1);
+      expect(records).toContainEqual(
+        expect.objectContaining({ call: 'outbox.tick', outcome: 'error' }),
+      );
+      expect(records).toContainEqual(
+        expect.objectContaining({ call: 'outbox.tick', outcome: 'ok' }),
+      );
+    } finally {
+      controller.abort();
+      await module.stop();
+      await base.close();
+    }
+  }, 10_000);
+
   it('skips timer ticks while a delivery is active and waits for that delivery on stop', async () => {
     const api = await startFakeSlackApi();
     const hold = api.holdNextWrite();

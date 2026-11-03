@@ -84,9 +84,7 @@ export function createOutboxModule(ctx: ModuleContext<Store>, gateway: Gateway):
     if (stopped || signal?.aborted) return;
     active = ctx
       .logCall('outbox.tick', () => sender.tick(signal))
-      .catch((err: unknown) => {
-        ctx.log.error({ err }, 'outbox tick failed');
-      })
+      .catch(() => undefined)
       .finally(() => {
         schedule();
       });
