@@ -294,19 +294,18 @@ describe('runDaemon', () => {
   });
 
   it('store close failure still releases the lock', async () => {
-    const events: string[] = [];
     const h = harness({
       modules: [{ name: 'a', stopStage: 'final' }],
       storeClose: () => {
-        events.push('db:close');
+        h.events.push('db:close');
         return Promise.reject(new Error('close boom'));
       },
     });
     await h.start();
     h.port.signal('SIGTERM');
     await exitsWith(h.port, [1]);
-    expect(events).toEqual(['db:close']);
-    expect(h.events.at(-1)).toBe('lock:release');
+    expect(h.events.filter((event) => event === 'db:close')).toHaveLength(1);
+    expect(h.events.slice(-2)).toEqual(['db:close', 'lock:release']);
     const failed = h.lines().find((line) => line.msg === 'store close failed');
     expect(failed?.level).toBe(50);
     expect((failed?.['err'] as { message: string }).message).toBe('close boom');

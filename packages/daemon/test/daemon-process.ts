@@ -9,25 +9,36 @@ function daemonEnv(home: string, env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   return { ...process.env, BOARD_HOME: home, ...env };
 }
 
+const live: ChildProcessWithoutNullStreams[] = [];
+
 /** Starts src/main.ts, the file the `daemon` script runs, as a child process. */
 export function spawnDaemon(
   home: string,
   env: NodeJS.ProcessEnv = {},
 ): ChildProcessWithoutNullStreams {
-  return spawn(process.execPath, [MAIN], { env: daemonEnv(home, env) });
+  const child = spawn(process.execPath, [MAIN], { env: daemonEnv(home, env) });
+  live.push(child);
+  return child;
+}
+
+/** SIGKILLs every daemon spawnDaemon started that is still running. Call it in afterEach. */
+export function killDaemons(): void {
+  for (const child of live.splice(0)) {
+    if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+  }
 }
 
 /** Runs a daemon that is expected to exit on its own, and returns its status and output. */
 export function runDaemonToExit(
   home: string,
   env: NodeJS.ProcessEnv = {},
-): { status: number | null; stdout: string; stderr: string } {
+): { status: number | null; stderr: string } {
   const result = spawnSync(process.execPath, [MAIN], {
     env: daemonEnv(home, env),
     encoding: 'utf8',
     timeout: 20_000,
   });
-  return { status: result.status, stdout: result.stdout, stderr: result.stderr };
+  return { status: result.status, stderr: result.stderr };
 }
 
 /** Resolves with the first JSON stdout line whose `msg` is `msg`; rejects if the child exits first. */

@@ -1,19 +1,12 @@
-import type { ChildProcess } from 'node:child_process';
 import { once } from 'node:events';
 import { existsSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { runDaemonToExit, spawnDaemon, waitForLine } from './daemon-process.ts';
+import { killDaemons, runDaemonToExit, spawnDaemon, waitForLine } from './daemon-process.ts';
 import { makeHome, VALID_CONFIG_YAML } from './home.ts';
 
-const children: ChildProcess[] = [];
-
-afterEach(() => {
-  for (const child of children.splice(0)) {
-    if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
-  }
-});
+afterEach(killDaemons);
 
 describe('daemon process', () => {
   it('invalid config exits 1 before creating the database', () => {
@@ -37,7 +30,6 @@ describe('daemon process', () => {
   it('logs JSON, reaches ready and exits 0 on SIGTERM', async () => {
     const home = makeHome();
     const child = spawnDaemon(home);
-    children.push(child);
     const ready = await waitForLine(child, 'daemon ready');
     expect(ready['level']).toBe(30);
     expect(existsSync(join(home, 'board.sqlite'))).toBe(true);

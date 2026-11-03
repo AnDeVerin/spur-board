@@ -106,7 +106,7 @@ export async function runDaemon<S extends { close(): Promise<void> }>(
 
   // Step 4. No handler is registered yet, so this cleanup is the only teardown that can run.
   let store: S | undefined;
-  let opened: { store: S; entries: readonly ModuleEntry[] };
+  let entries: readonly ModuleEntry[];
   try {
     const db = deps.openStore(deps.paths.dbFile);
     store = db;
@@ -122,7 +122,7 @@ export async function runDaemon<S extends { close(): Promise<void> }>(
         state: () => state,
       };
     };
-    opened = { store: db, entries: deps.modules(ctxFor) };
+    entries = deps.modules(ctxFor);
   } catch (err) {
     log.error({ err }, 'start failed');
     if (store !== undefined) {
@@ -136,8 +136,7 @@ export async function runDaemon<S extends { close(): Promise<void> }>(
     finish(1);
     return;
   }
-  const { entries } = opened;
-  const db = opened.store;
+  const db = store;
 
   // Modules whose start resolved, in start order. A module whose start threw or rejected gets
   // no stop(): its start owns its own cleanup.
