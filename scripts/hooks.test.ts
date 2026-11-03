@@ -10,7 +10,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { formatTargets, gitleaksVerdict, isOnlyIndex, partiallyStaged } from './hooks.ts';
@@ -372,6 +372,33 @@ describe('pre-commit: formatting', () => {
     expect(box.head()).toBe(base);
     expect(box.read('a.ts')).toBe('const a  =  1\n');
     expect(box.git('show', ':a.ts')).toBe('const a  =  1\n');
+  });
+
+  // A trailing space goes on a directory: on the file it would change the extension.
+  it.each([' lead.ts', 'trail /a.ts', 'new\nline.ts'])(
+    'commits a staged unformatted file named %j formatted',
+    (name) => {
+      const box = sandbox();
+      mkdirSync(join(box.repo, dirname(name)), { recursive: true });
+      box.write(name, 'const a  =  1\n');
+      box.write('ok.ts', 'const b  =  2\n');
+      box.git('add', '--', name, 'ok.ts');
+      const r = box.tryGit('commit', '-m', 'x');
+      expect(r.stderr).toBe('');
+      expect(r.status).toBe(0);
+      expect(box.git('show', `HEAD:${name}`)).toBe('const a = 1;\n');
+      expect(box.git('show', 'HEAD:ok.ts')).toBe('const b = 2;\n');
+      expect(box.git('status', '--porcelain')).toBe('');
+    },
+  );
+
+  it('names an oddly named target in the git commit <path> refusal', () => {
+    const box = sandbox();
+    box.write(' lead.ts', 'const a  =  1\n');
+    box.git('add', '--', ' lead.ts');
+    const r = box.tryGit('commit', '-m', 'x', '--', ' lead.ts');
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain('pre-commit: formatting needed in:  lead.ts - stage');
   });
 
   it('commits git commit <path> when the file is formatted', () => {

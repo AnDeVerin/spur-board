@@ -134,20 +134,23 @@ function preCommit(): number {
   if (check.status !== 1) {
     return refuse(`prettier failed (exit ${String(check.status)})`, check.stdout + check.stderr);
   }
-  const listed = lines(check.stdout);
+  // prettier's output is not parsed into paths: a name may hold a newline or edge spaces.
   if (isOnlyIndex(process.env['GIT_INDEX_FILE'])) {
+    const reported = new Set(check.stdout.split('\n'));
+    const listed = targets.filter((target) => reported.has(target));
     return refuse(
-      `formatting needed in: ${listed.join(', ')} - stage them and commit without paths, or run pnpm format first`,
+      `formatting needed in: ${(listed.length > 0 ? listed : targets).join(', ')} - stage them and commit without paths, or run pnpm format first`,
     );
   }
-  const write = run(prettier, ['--write', '--ignore-unknown', '--', ...listed]);
+  // --write rewrites only the files that differ; every target is staged and fully staged.
+  const write = run(prettier, ['--write', '--ignore-unknown', '--', ...targets]);
   if (write.status !== 0) {
     return refuse(
-      `prettier failed while writing (exit ${String(write.status)}); some of ${listed.join(', ')} may be rewritten - review them and git add`,
+      `prettier failed while writing (exit ${String(write.status)}); some of ${targets.join(', ')} may be rewritten - review them and git add`,
       write.stdout + write.stderr,
     );
   }
-  git(['add', '--', ...listed]);
+  git(['add', '--', ...targets]);
   return 0;
 }
 
