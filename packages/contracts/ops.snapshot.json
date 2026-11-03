@@ -1,5 +1,5 @@
 {
-  "version": "f915d190bccd27f0b8e347212f45d3236301bfeeed57210060e6ebf06965d337",
+  "version": "da23147f72095bb1b7cc2eb74af30a44a9b62a24ed8d502879ae3c09ee5be273",
   "grants": [
     "operator",
     "project-agent",
@@ -2179,7 +2179,7 @@
         { "grant": "block-addressee", "mode": "reason" },
         { "grant": "column-orchestrator", "mode": "reason", "blockTypes": ["code"] },
         { "grant": "operator", "mode": "reason" },
-        { "grant": "block-author", "mode": "withdraw" }
+        { "grant": "block-author", "mode": "withdraw", "blockTypes": ["needs_input"] }
       ],
       "preconditions": null,
       "errors": [
@@ -2295,7 +2295,7 @@
               "mode": {
                 "type": "string",
                 "const": "withdraw",
-                "description": "The author takes the block back."
+                "description": "The author takes their own question back (needs_input only)."
               },
               "block": {
                 "type": "string",

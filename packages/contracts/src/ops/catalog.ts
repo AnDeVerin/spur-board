@@ -447,7 +447,7 @@ export const OPERATIONS = [
         .describe('Unblock with a reason.'),
       z
         .strictObject({
-          mode: z.literal('withdraw').describe('The author takes the block back.'),
+          mode: z.literal('withdraw').describe('The author takes their own question back (needs_input only).'),
           block: blockIdSchema,
         })
         .describe('Withdraw the block.'),
@@ -458,7 +458,7 @@ export const OPERATIONS = [
       { grant: 'block-addressee', mode: 'reason' },
       { grant: 'column-orchestrator', mode: 'reason', blockTypes: ['code'] },
       { grant: 'operator', mode: 'reason' },
-      { grant: 'block-author', mode: 'withdraw' },
+      { grant: 'block-author', mode: 'withdraw', blockTypes: ['needs_input'] },
     ],
     errors: ['wrong_id_kind', 'not_found', 'block_not_open', 'task_archived'],
     cli: {

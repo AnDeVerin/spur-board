@@ -288,7 +288,7 @@ describe('grants', () => {
         { grant: 'block-addressee', mode: 'reason' },
         { grant: 'column-orchestrator', mode: 'reason', blockTypes: ['code'] },
         { grant: 'operator', mode: 'reason' },
-        { grant: 'block-author', mode: 'withdraw' },
+        { grant: 'block-author', mode: 'withdraw', blockTypes: ['needs_input'] },
       ],
       null,
       ['wrong_id_kind', 'not_found', 'block_not_open', 'task_archived'],
