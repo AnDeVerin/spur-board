@@ -80,8 +80,7 @@ refuses these with the reason. Codex has no such hook: follow the same rules you
 
 Not caught (the rules still apply): git and shell aliases, interpreters (`node -e`, `python -c`)
 and script files, commands piped or fed into a shell (`echo ... | bash`, `bash <<<...`),
-variables expanded into commands, `run0` and other privilege wrappers besides `sudo` and `doas`,
-and the GitHub API through `curl`.
+variables expanded into commands, and the GitHub API through `curl`.
 
 ## Reading a red CI run
 
