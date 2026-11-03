@@ -12,8 +12,9 @@ numbered migrations. Where a test enforces a rule, the rule names it.
 
 - Any edit under `packages/core/src/store/` or `packages/core/test/store/`, and any code that
   writes through `store.transaction`.
-- Not for zod schemas, enums, event kinds or breaking changes in stored data: use
-  `working-with-contracts`.
+- Not for zod schemas, enums or event kinds: use `working-with-contracts`. A migration that
+  renames or removes stored data needs both skills: this one for the migration, that one for the
+  breaking change.
 - Outbox, inbox and idempotency keys are not covered yet: #32, #35.
 
 ## Transactions
@@ -61,7 +62,8 @@ numbered migrations. Where a test enforces a rule, the rule names it.
   `packages/core/src/store/migrations/0001_init.sql`: timestamps as ISO-8601 UTC text, JSON as
   text checked by zod, flags as `CHECK (x IN (0, 1))`. Enum columns are `TEXT` with no `CHECK`, so
   a new value needs no migration; a `CHECK` change would need a rebuild.
-- Renaming or removing stored data is a user-visible break: follow `working-with-contracts`.
+- Renaming or removing stored data is a user-visible break: follow `working-with-contracts` as
+  well as these rules.
 - A database newer than the code is refused (`assertNotNewer`), pinned by
   'refuses a database newer than the code'.
 
