@@ -51,6 +51,47 @@ describe('createLogger', () => {
     expect(quoted?.['value']).toBe('[Redacted]');
   });
 
+  it('censors credential keys at any depth and in any casing', () => {
+    const out = sink();
+    const log = createLogger(out, {});
+    log.info({ request: { options: { headers: { Authorization: 'Bearer abc' } } } }, 'deep');
+    log.info(
+      { headers: [{ 'Proxy-Authorization': 'Basic xyz', Cookie: 'sid=1' }], accessToken: 'at-1' },
+      'mixed',
+    );
+    log.child({ bot_token: 'bt-1' }).info('bound');
+    const err = Object.assign(new Error('rejected'), {
+      config: { headers: { AUTHORIZATION: 'Bearer err' } },
+    });
+    log.error({ err }, 'failed');
+
+    for (const line of out.lines) {
+      for (const raw of ['Bearer abc', 'Basic xyz', 'sid=1', 'at-1', 'bt-1', 'Bearer err']) {
+        expect(line).not.toContain(raw);
+      }
+    }
+    const [deep, mixed, bound, failed] = parsed(out.lines);
+    expect(deep?.['request']).toEqual({
+      options: { headers: { Authorization: '[Redacted]' } },
+    });
+    expect(mixed?.['headers']).toEqual([
+      { 'Proxy-Authorization': '[Redacted]', Cookie: '[Redacted]' },
+    ]);
+    expect(mixed?.['accessToken']).toBe('[Redacted]');
+    expect(bound?.['bot_token']).toBe('[Redacted]');
+    expect((failed?.['err'] as { config: unknown }).config).toEqual({
+      headers: { AUTHORIZATION: '[Redacted]' },
+    });
+  });
+
+  it('keeps keys that only contain a credential word', () => {
+    const out = sink();
+    createLogger(out, {}).info({ tokenCount: 3, authorizationUrl: 'https://example.com/a' }, 'ok');
+    expect(parsed(out.lines)[0]).toEqual(
+      expect.objectContaining({ tokenCount: 3, authorizationUrl: 'https://example.com/a' }),
+    );
+  });
+
   it('leaves short secret values alone', () => {
     const out = sink();
     createLogger(out, { SHORT: 'abc' }).info('abc stays');

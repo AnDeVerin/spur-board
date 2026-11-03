@@ -1,24 +1,29 @@
 import { pino, type DestinationStream, type Logger } from 'pino';
 
-// Keys whose values are credentials wherever they appear in a log object.
-const REDACT_PATHS = [
-  'authorization',
-  '*.authorization',
-  'headers.authorization',
-  '*.headers.authorization',
-  'token',
-  '*.token',
-];
-
 const REDACTED = '[Redacted]';
 // Shorter values are too likely to match ordinary text.
 const MIN_SECRET_LENGTH = 8;
+// Keys whose values are credentials, matched at any depth and in any casing:
+// (proxy-)authorization, (set-)cookie, and token or any key ending in it (accessToken, bot_token).
+const CREDENTIAL_KEY = /^(?:proxy-)?authorization$|^(?:set-)?cookie$|token$/i;
+
+/** A copy of `value` with every credential key's value replaced, at any depth. */
+function censorKeys(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(censorKeys);
+  if (value === null || typeof value !== 'object') return value;
+  const out: Record<string, unknown> = {};
+  for (const [key, inner] of Object.entries(value)) {
+    out[key] = CREDENTIAL_KEY.test(key) ? REDACTED : censorKeys(inner);
+  }
+  return out;
+}
 
 /**
- * Wraps a destination so each finished line has every known secret value replaced, raw and in
- * its JSON-escaped form. It sees the serialized line, so err.stack and child bindings are covered.
+ * Wraps a destination so each finished line has credential keys censored at any depth and every
+ * known secret value replaced, raw and in its JSON-escaped form. It works on the serialized line,
+ * so err fields, err.stack and child bindings are covered too.
  */
-function scrubbing(
+function redacting(
   dest: DestinationStream,
   secrets: Readonly<Record<string, string>>,
 ): DestinationStream {
@@ -28,12 +33,17 @@ function scrubbing(
     needles.add(value);
     needles.add(JSON.stringify(value).slice(1, -1));
   }
-  if (needles.size === 0) return dest;
   // Longest first, so a secret that contains another is replaced whole.
   const ordered = [...needles].sort((a, b) => b.length - a.length);
   return {
     write(line: string) {
-      let out = line;
+      // pino writes one JSON object per line; anything else is passed on for the value pass.
+      let out: string;
+      try {
+        out = `${JSON.stringify(censorKeys(JSON.parse(line)))}\n`;
+      } catch {
+        out = line;
+      }
       for (const needle of ordered) out = out.replaceAll(needle, REDACTED);
       dest.write(out);
     },
@@ -45,7 +55,7 @@ export function createLogger(
   dest: DestinationStream,
   secrets: Readonly<Record<string, string>>,
 ): Logger {
-  return pino({ redact: { paths: REDACT_PATHS, censor: REDACTED } }, scrubbing(dest, secrets));
+  return pino({}, redacting(dest, secrets));
 }
 
 /** The only source of wall time in daemon code; main.ts binds the real one. */
