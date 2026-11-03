@@ -654,6 +654,9 @@ describe('maybeSent', () => {
     ctx.fake.platform.timeoutNext({ visible: true });
     await ctx.sender.tick();
     expect(await outboxRow(ctx, id)).toMatchObject({ state: 'pending', uncertain: 1 });
+    const firstDeliveryAt = (await outboxRow(ctx, id)).first_delivery_at;
+    expect(firstDeliveryAt).not.toBeNull();
+    expect(request(ctx, 0).firstAttemptAt?.toISOString()).toBe(firstDeliveryAt);
     // A known retry after an unknown one keeps the row uncertain.
     ctx.fake.platform.rateLimitNext(1000);
     await step(ctx);
@@ -663,6 +666,10 @@ describe('maybeSent', () => {
     expect(ctx.observed.requests.slice(1).map((r) => [r.key, r.maybeSent])).toEqual([
       [key, true],
       [key, true],
+    ]);
+    expect(ctx.observed.requests.slice(1).map((r) => r.firstAttemptAt?.toISOString())).toEqual([
+      firstDeliveryAt,
+      firstDeliveryAt,
     ]);
     expect(marked(ctx.fake, key)).toBe(1);
     expect(await ctx.store.db.selectFrom('conversation').selectAll().execute()).toHaveLength(1);
@@ -678,6 +685,20 @@ describe('maybeSent', () => {
     await step(ctx);
     expect(request(ctx, 0).maybeSent).toBe(false);
     expect(request(ctx, 1).maybeSent).toBe(false);
+  });
+
+  it('leaves a legacy uncertain row unbounded on retry', async () => {
+    const ctx = setup('slack-like');
+    const id = await enqueueOpen(ctx, await seedBlock(ctx));
+    await ctx.store.transaction((trx) =>
+      trx.updateTable('outbox').set({ uncertain: 1 }).where('id', '=', id).execute(),
+    );
+
+    await ctx.sender.tick();
+
+    expect(request(ctx, 0).maybeSent).toBe(true);
+    expect(request(ctx, 0).firstAttemptAt).toBeUndefined();
+    expect((await outboxRow(ctx, id)).first_delivery_at).toBeNull();
   });
 });
 
@@ -1015,10 +1036,13 @@ describe('transport health', () => {
     ctx.fake.platform.rateLimitNext(40 * 60_000);
     await ctx.sender.tick();
     expect((await outboxRow(ctx, a)).first_attempt_at).not.toBeNull();
+    const firstDeliveryAt = (await outboxRow(ctx, a)).first_delivery_at;
+    expect(firstDeliveryAt).not.toBeNull();
     ctx.fake.platform.failNextPermanently({ scope: 'transport', reason: 'token_revoked' });
     await step(ctx);
     expect(await healthRows(ctx)).toHaveLength(1);
     expect((await outboxRow(ctx, a)).first_attempt_at).toBeNull();
+    expect((await outboxRow(ctx, a)).first_delivery_at).toBe(firstDeliveryAt);
     // The space stays unhealthy past 30 min; the next probe delivers and clears it.
     await step(ctx, 35 * 60_000);
     expect(await healthRows(ctx)).toEqual([]);
@@ -1026,6 +1050,7 @@ describe('transport health', () => {
     await step(ctx, 5 * 60_000);
     expect(ctx.observed.requests).toHaveLength(4);
     expect((await outboxRow(ctx, a)).state).toBe('pending');
+    expect(request(ctx, 3).firstAttemptAt?.toISOString()).toBe(firstDeliveryAt);
   });
 
   it('keeps the probe clock across a restart', async () => {

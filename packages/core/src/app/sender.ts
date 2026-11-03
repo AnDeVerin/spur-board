@@ -65,6 +65,7 @@ interface Claim {
   key: string;
   space: SpaceId | null;
   maybeSent: boolean;
+  firstDeliveryAt: string | null;
   attempts: number;
   body: OutboxBody;
   /** The parent's refs, for a dependent row. */
@@ -333,6 +334,7 @@ export function createSender(options: SenderOptions): Sender {
         key: row.dedupe_key,
         space,
         maybeSent: row.uncertain === 1,
+        firstDeliveryAt: row.first_delivery_at,
         attempts: row.attempts + 1,
         body,
         parent,
@@ -355,16 +357,24 @@ export function createSender(options: SenderOptions): Sender {
    * earlier send in the tick does not age them. The clock is read here, once the write lock is
    * held, so waiting for the lock does not age them either. Returns the stamp.
    */
-  async function start(trx: Trx, c: Claim): Promise<number> {
+  async function start(
+    trx: Trx,
+    c: Claim,
+  ): Promise<{ at: number; firstDeliveryAt: string | null }> {
     const at = now().getTime();
     const sentAtIso = new Date(at).toISOString();
+    const firstDeliveryAt =
+      c.firstDeliveryAt ?? (c.space !== null && !c.maybeSent ? sentAtIso : null);
     await trx
       .updateTable('outbox')
-      .set((eb) => ({ first_attempt_at: eb.fn.coalesce('first_attempt_at', eb.val(sentAtIso)) }))
+      .set((eb) => ({
+        first_attempt_at: eb.fn.coalesce('first_attempt_at', eb.val(sentAtIso)),
+        first_delivery_at: firstDeliveryAt,
+      }))
       .where('id', '=', c.id)
       .execute();
     const { space } = c;
-    if (space === null) return at;
+    if (space === null) return { at, firstDeliveryAt };
     await trx
       .insertInto('space_slot')
       .values({ gateway: gateway.kind, space, sent_at: sentAtIso })
@@ -376,10 +386,13 @@ export function createSender(options: SenderOptions): Sender {
       .where('gateway', '=', gateway.kind)
       .where('space', '=', space)
       .execute();
-    return at;
+    return { at, firstDeliveryAt };
   }
 
-  async function attempt(c: Claim): Promise<{ outcome: Outcome; error: string | null }> {
+  async function attempt(
+    c: Claim,
+    firstDeliveryAt: string | null,
+  ): Promise<{ outcome: Outcome; error: string | null }> {
     try {
       if (c.body.kind === 'doorbell') {
         await spur.send(c.body.payload.session, c.body.payload.text);
@@ -390,6 +403,7 @@ export function createSender(options: SenderOptions): Sender {
       const request: DeliverRequest = {
         key: c.key,
         maybeSent: c.maybeSent,
+        ...(firstDeliveryAt === null ? {} : { firstAttemptAt: new Date(firstDeliveryAt) }),
         target: to,
         persona: c.body.payload.persona,
         body: renderBody(c.body.payload.key, c.body.payload.text),
@@ -550,10 +564,10 @@ export function createSender(options: SenderOptions): Sender {
     const claimedAt = now().getTime();
     const claims = await store.transaction((trx) => claim(trx, claimedAt));
     for (const c of claims) {
-      const startedAt = await store.transaction((trx) => start(trx, c));
-      const { outcome, error } = await attempt(c);
+      const started = await store.transaction((trx) => start(trx, c));
+      const { outcome, error } = await attempt(c, started.firstDeliveryAt);
       const at = now().getTime();
-      await store.transaction((trx) => record(trx, c, outcome, error, at, startedAt));
+      await store.transaction((trx) => record(trx, c, outcome, error, at, started.at));
     }
   }
 

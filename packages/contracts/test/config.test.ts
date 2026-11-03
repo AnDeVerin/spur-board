@@ -91,6 +91,7 @@ describe('fixtures', () => {
     expect(config.thresholds.staleMultiplier).toBe(3);
     expect(config.archive.doneWeekday).toBe('saturday');
     expect(config.commands.retentionDays).toBe(7);
+    expect(config.slack.channels).toEqual({});
     expect(adapterKeys(config)).toEqual(adapterDefaults);
     const project = config.projects[0];
     expect(project?.tracker.type === 'jira' && project.tracker.projectKeys).toEqual([]);
@@ -109,6 +110,7 @@ describe('fixtures', () => {
     expect(config.thresholds.staleMultiplier).toBe(3);
     expect(config.archive.doneWeekday).toBe('saturday');
     expect(config.commands.retentionDays).toBe(7);
+    expect(config.slack.channels).toEqual({});
     expect(adapterKeys(config)).toEqual(adapterDefaults);
     const project = config.projects[0];
     expect(project?.tracker).not.toHaveProperty('projectKeys');
@@ -129,6 +131,13 @@ describe('fixtures', () => {
       { id: 'done', enabled: true, orchestrator: 'none' },
     ]);
     expect(config.projects[0]?.spurProjects).toEqual([]);
+  });
+
+  it('accepts configured Slack channel IDs', () => {
+    const config = configSchema.parse(
+      validConfig({}, { slack: { channels: { orchestrators: 'C_ORCH', feed: 'C_FEED' } } }),
+    );
+    expect(config.slack.channels).toEqual({ orchestrators: 'C_ORCH', feed: 'C_FEED' });
   });
 });
 
@@ -224,6 +233,12 @@ describe('invalid configs', () => {
       validConfig({}, { digest: { tz: 'Not/AZone' } }),
       'Unknown IANA time zone',
       'digest.tz',
+    ],
+    [
+      'empty Slack feed channel',
+      validConfig({}, { slack: { channels: { feed: '' } } }),
+      'Too small: expected string to have >=1 characters',
+      'slack.channels.feed',
     ],
     [
       'lowercase Jira project key',

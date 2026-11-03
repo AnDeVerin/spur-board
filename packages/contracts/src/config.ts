@@ -178,6 +178,16 @@ export const configSchema = z.strictObject({
       rejectDuplicates(items, 'id', 'project id', ctx);
     }),
   operator: z.strictObject({ slack: nonEmpty }),
+  slack: z
+    .strictObject({
+      channels: z
+        .strictObject({
+          orchestrators: nonEmpty.optional(),
+          feed: nonEmpty.optional(),
+        })
+        .prefault({}),
+    })
+    .prefault({}),
   thresholds: z.strictObject({ staleMultiplier: z.number().min(1).default(3) }).prefault({}),
   archive: z.strictObject({ doneWeekday: z.enum(WEEKDAYS).default('saturday') }).prefault({}),
   digest: z.strictObject({ tz: z.string().refine(isTimeZone, 'Unknown IANA time zone') }),

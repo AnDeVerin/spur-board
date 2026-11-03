@@ -204,6 +204,8 @@ export interface OutboxTable {
   parent_outbox_id: number | null;
   /** The first attempt of the current retry window; NULL while the window is suspended. */
   first_attempt_at: string | null;
+  /** Earliest possible delivery of this key; never reset after an uncertain send. */
+  first_delivery_at: string | null;
 }
 
 /** A gateway conversation, keyed by `(gateway, ref)`. A block may have several. */

@@ -59,6 +59,8 @@ export interface DeliverRequest {
   key: string;
   /** An earlier attempt with this key may have reached the platform (G3). */
   maybeSent: boolean;
+  /** Earliest possible send of this key; absent means marker search must be unbounded (G3). */
+  firstAttemptAt?: Date;
   target: DeliveryTarget;
   persona: Persona;
   body: RichText;
@@ -97,9 +99,9 @@ export type RespondResult = 'sent' | 'dropped';
  * Obligations:
  * - G1: No retries of its own: one attempt per platform call, platform SDK retries off. The
  *   outbox owns retries.
- * - G2: A timeout or an unknown outcome returns `retry {uncertain: true}`; a rate limit returns
- *   `retry {afterMs}`. A revoked token, a removed app, a missing or unreachable space
- *   destination, or no connection on the delivery path returns
+ * - G2: A timeout, network error or other unknown request outcome returns
+ *   `retry {uncertain: true}`; a rate limit returns `retry {afterMs}`. A known-invalid token,
+ *   removed app, missing scope, or unavailable space destination returns
  *   `failed {permanent: true, scope: 'transport'}`: core raises one health item per gateway and
  *   space, and that space's rows wait. A rejection of this message only returns
  *   `scope: 'message'`, and only that row fails.
