@@ -45,6 +45,9 @@ here are in `packages/contracts/test/ops.test.ts`.
 - Every operation has a CLI command and an MCP name, both unique.
 - Slack only for the operations in the exceptions list of the "binds every op to CLI and MCP"
   test; adding one changes that list, a Changed checks entry.
+- A union input declares `cli.modes`: one `{mode, flag, value}` per branch, e.g. `--done` filling
+  `ref`, or `value: null` for a bare flag. A plain input has none. The "binds one CLI flag per
+  branch" test checks it.
 - A union input's JSON Schema root is `oneOf` with no `type`; the MCP generator has to add
   `type: 'object'`.
 
