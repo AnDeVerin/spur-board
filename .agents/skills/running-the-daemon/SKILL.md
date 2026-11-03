@@ -20,8 +20,10 @@ modules, then `daemon ready`. Where a test or lint rule enforces a rule, the rul
 
 ## Composition root and modules
 
-- `main` is the only place that touches the real process, environment, home directory and wall
-  time. It passes them to `runDaemon` as dependencies; tests pass fakes.
+- `main` binds the real process (signal and fatal handlers, exit, stdout, stderr), the
+  environment, the home directory and wall time, and passes them to `runDaemon` as dependencies;
+  tests pass fakes. One exception: `acquireLock` writes `process.pid` into the lock file, pinned
+  by 'creates the directory and writes its PID'.
 - A module is a `Module`: `start(signal)` and `stop()`. Register it in the `modules` list in
   `main`, in start order, as a `ModuleEntry` with `name`, `stopStage` and
   `module: createX(ctxFor('<name>'))`.
@@ -39,17 +41,20 @@ modules, then `daemon ready`. Where a test or lint rule enforces a rule, the rul
 - Read time from `ctx.clock` in `packages/daemon/` and in every module built from `ctxFor`; a
   `Clock` is the only source of wall time there and only `main` binds `Date.now`. Pinned by
   'module context carries the clock and a bound logCall'.
-- Daemon tests use fakes passed as dependencies, never `vi.mock`; pinned for daemon tests by
-  'keeps the vi.mock ban on %s'.
+- Lifecycle tests drive `runDaemon` with fakes passed as dependencies; no daemon test uses
+  `vi.mock`, pinned by 'keeps the vi.mock ban on %s'. The process and lock tests in
+  `packages/daemon/test/` spawn a real daemon and take a real flock on purpose.
 
 ## Config and secrets
 
 - `loadConfig` in `packages/daemon/src/config.ts` validates `config.yaml` through `configSchema`
   and reads the optional `secrets.env`. A new config field is a contracts change: follow
   `working-with-contracts`.
-- A bad config fails with a `ConfigError` listing each field by path, with a hint, before the
-  database exists. Pinned by 'lists each invalid field by path, with a hint' and
-  'invalid config exits 1 before creating the database'.
+- A config that fails `configSchema` throws a `ConfigError` listing each invalid field by path,
+  with a hint, before the database exists. Pinned by 'lists each invalid field by path, with a
+  hint' and 'invalid config exits 1 before creating the database'. A missing file and invalid
+  YAML also throw a `ConfigError`, without field paths: pinned by 'names the missing config file'
+  and 'reports a YAML syntax error with line and column'.
 - `secrets.env` is refused when group or others have any permission on it, pinned by
   'refuses a secrets.env readable by others'.
 - Secrets live only in `secrets.env`, never in config; pinned by 'has no secret-like property
