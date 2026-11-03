@@ -48,6 +48,8 @@ function keyQuery(refs: readonly TicketEntityRef[]): string {
 }
 
 function membershipQuery(jql: string, refs: readonly TicketEntityRef[]): string {
+  const trimmed = jql.trim();
+  if (/^ORDER\s+BY\b/i.test(trimmed)) return `${keyQuery(refs)} ${trimmed}`;
   let quote: '"' | "'" | null = null;
   let depth = 0;
   for (let index = 0; index < jql.length; index += 1) {

@@ -221,6 +221,8 @@ describe('Jira adapter', () => {
       'project = PROJ AND summary ~ "ORDER BY Rank" ORDER BY Rank DESC',
       '(project = PROJ AND summary ~ "ORDER BY Rank") AND key in ("PROJ-21", "PROJ-200") ORDER BY Rank DESC',
     ],
+    ['ORDER BY Rank', 'key in ("PROJ-21", "PROJ-200") ORDER BY Rank'],
+    ['  ORDER BY Rank', 'key in ("PROJ-21", "PROJ-200") ORDER BY Rank'],
   ])('checks capped-scan membership for JQL %s', async (jql, membershipJql) => {
     const current = tracker();
     current.jql = jql;
@@ -234,8 +236,10 @@ describe('Jira adapter', () => {
           nextPageToken: `page-${String(filterPages + 1)}`,
         };
       }
-      if (requestedJql.startsWith('(')) return { issues: [issue('21', 'PROJ-21')], isLast: true };
-      return { issues: [issue('200', 'PROJ-200')], isLast: true };
+      if (requestedJql === membershipJql) return { issues: [issue('21', 'PROJ-21')], isLast: true };
+      if (requestedJql === 'key in ("PROJ-200")')
+        return { issues: [issue('200', 'PROJ-200')], isLast: true };
+      throw new Error(`Unexpected JQL ${requestedJql}`);
     });
     const { source, warn } = adapter(fetcher, current);
     const result = await source.poll(context([ref('21', 'PROJ-21'), ref('200', 'PROJ-200')]));
@@ -252,11 +256,7 @@ describe('Jira adapter', () => {
       ['200', false],
     ]);
     expect(filterPages).toBe(20);
-    expect(
-      calls
-        .filter((call) => String(call.body?.['jql']).startsWith('('))
-        .map((call) => call.body?.['jql']),
-    ).toEqual([membershipJql]);
+    expect(calls.filter((call) => call.body?.['jql'] === membershipJql)).toHaveLength(1);
     expect(warn).toHaveBeenCalledTimes(1);
   });
 
