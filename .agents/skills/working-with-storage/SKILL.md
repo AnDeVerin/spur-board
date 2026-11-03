@@ -1,6 +1,6 @@
 ---
 name: working-with-storage
-description: Rules for the SQLite store in packages/core/src/store/ - transactions, state with events and outbox, migrations and their tests, PRAGMAs. Use when you change the store or a migration, or write through store.transaction. Don't use for zod schemas, enums or event kinds (use working-with-contracts).
+description: Rules for the SQLite store (packages/core/src/store/) and outbox (packages/core/src/app/{outbox,sender}.ts) - transactions, outbox, migrations and tests, PRAGMAs. Use when you edit them or write through store.transaction. Don't use for zod schemas, enums or event kinds (use working-with-contracts).
 ---
 
 # Working with storage
@@ -10,8 +10,9 @@ numbered migrations. Where a test enforces a rule, the rule names it.
 
 ## When to use
 
-- Any edit under `packages/core/src/store/` or `packages/core/test/store/`, and any code that
-  writes through `store.transaction`.
+- Any edit under `packages/core/src/store/`, `packages/core/test/store/` or the outbox
+  (`packages/core/src/app/{outbox,sender}.ts`), and any code that writes through
+  `store.transaction`.
 - Not for zod schemas, enums or event kinds: use `working-with-contracts`. A migration that
   breaks stored data as users see it (its Breaking changes section lists the cases, a new required
   column and a tightened constraint among them) needs both skills: this one for the migration,
@@ -47,8 +48,10 @@ numbered migrations. Where a test enforces a rule, the rule names it.
   caller's `trx`. A new kind gets its payload schema, `KIND_SPACE` and `KIND_PRIORITY` entries
   there; the space comes from the kind, never from the payload.
 - A row that must follow another (reply, close, edit) sets `parent_outbox_id` to the thread's
-  latest row. A `feed.line.edit` written before its line is sent means the item was cleared:
-  the sender cancels both.
+  latest row; none is written under a dead one. A row under a dead parent dies `superseded`.
+  A `feed.line.edit` written before its line is sent means the item was cleared: the sender
+  cancels both. A row with `uncertain=1` is never cancelled as stale (it may be posted): it goes
+  with `maybeSent`, then its dependents.
 - Retries, the per-space limit and transport health belong to the sender
   (`packages/core/src/app/sender.ts`); it calls the gateway between its two transactions,
   never inside one. Pinned by `packages/core/test/app/delivery.test.ts` and
