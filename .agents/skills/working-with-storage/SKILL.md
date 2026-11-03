@@ -1,6 +1,6 @@
 ---
 name: working-with-storage
-description: Rules for the SQLite store in packages/core/src/store/ - transactions, snapshots with events, migrations and their tests, PRAGMAs. Use when you change the store or a migration, or write through store.transaction. Don't use for zod schemas, enums or event kinds (use working-with-contracts).
+description: Rules for the SQLite store in packages/core/src/store/ - transactions, state with events and outbox, migrations and their tests, PRAGMAs. Use when you change the store or a migration, or write through store.transaction. Don't use for zod schemas, enums or event kinds (use working-with-contracts).
 ---
 
 # Working with storage
@@ -16,7 +16,7 @@ numbered migrations. Where a test enforces a rule, the rule names it.
   breaks stored data as users see it (its Breaking changes section lists the cases, a new required
   column and a tightened constraint among them) needs both skills: this one for the migration,
   that one for the break.
-- Outbox, inbox and idempotency keys are not covered yet: #32, #35.
+- Not covered yet: the outbox sender, inbox and idempotency keys (#32, #35).
 
 ## Transactions
 
@@ -28,19 +28,29 @@ numbered migrations. Where a test enforces a rule, the rule names it.
 - One unit of work is one `store.transaction`: a tick, one observed batch, one command. Tick and
   observe code does not exist yet (#31); #31 updates this section with its callers.
 - No IO inside `fn`: no network, file or child process, no await other than `trx` queries. Fetch
-  first, then write. Why: the lock is held for all of `fn`, other writers give up after the
-  5000 ms busy timeout, and a rollback cannot undo a side effect.
+  first, then write; a side effect goes out through the outbox after commit (next section). Why:
+  the lock is held for all of `fn`, other writers give up after the 5000 ms busy timeout, and a
+  rollback cannot undo a side effect.
 - No lint checks the last two rules; the reviewer judges them. The transaction itself is pinned
   by 'commits on return and holds the write lock from BEGIN' and
   'rolls back a write when the function throws'.
 
-## Snapshots and journal
+## State, journal and outbox
 
-- An upsert of `pr_snapshot`, `ticket_snapshot` or `session_snapshot` and the `event` rows that
-  describe the change go in the same transaction. A crash between two transactions would leave
-  one without the other.
+- A state change, the `event` rows that describe it and the `outbox` rows for its side effects go
+  in one transaction. A state change is any write to the board's tables: a `pr_snapshot`,
+  `ticket_snapshot` or `session_snapshot` upsert, a `block`, `comment`, `submission` or `command`
+  row. A crash between two transactions would leave one without the other.
+- A side effect (a message, a call to GitHub) is never performed inside `fn`: it is recorded as
+  an `outbox` row, and the sender does the IO after commit. So a rollback has nothing to undo.
+  The sender, its limits and retries arrive with #35.
 - Event kinds and payloads follow `working-with-contracts`. JSON columns are read and written
   through `parseJson` / `toJson`.
+- A column that records who did something holds an `ActorId` (`packages/core/src/store/schema.ts`):
+  `operator`, `system`, or agent:project/session for an agent. Never write the bare kind there.
+  This covers `submission.author`, `block.author`, `block.unblocked_by`, `comment.author`,
+  `command.actor` and `dismissal.dismissed_by`. The `event` table is the exception: `actor` holds
+  the kind and `actor_ref` the project and session. #17 moves the type to contracts.
 
 ## Migrations
 
