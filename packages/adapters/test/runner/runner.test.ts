@@ -729,6 +729,16 @@ describe('batch validation', () => {
     expect(core.states.map((call) => call.state.blind?.reason)).toEqual(['auth', undefined]);
   });
 
+  it('treats a poll that resolves to no batch as transient and keeps polling', async () => {
+    random(0);
+    const { starts, core } = start((_, n) =>
+      Promise.resolve(n === 0 ? (undefined as unknown as Batch) : batch()),
+    );
+    await advanceTo(2 * I);
+    expect(starts).toEqual([0, 2 * I]);
+    expect(core.observed).toHaveLength(1);
+  });
+
   it("ignores the adapter's own observedAt when validating", async () => {
     const { core } = start(() => Promise.resolve(batch({ observedAt: 'not-a-date' })));
     await flush();
@@ -762,6 +772,17 @@ describe('stop', () => {
     await flush();
     expect(core.observed).toEqual([]);
     expect(core.states).toEqual([]);
+  });
+
+  it('removes its abort listener once a poll settles', async () => {
+    const added = vi.spyOn(AbortSignal.prototype, 'addEventListener');
+    const removed = vi.spyOn(AbortSignal.prototype, 'removeEventListener');
+    start(() => Promise.resolve(batch()));
+    await flush();
+    const listeners = (spy: typeof added) =>
+      spy.mock.calls.filter(([type]) => type === 'abort').map(([, listener]) => listener);
+    expect(listeners(added)).toHaveLength(1);
+    expect(listeners(removed)).toEqual(listeners(added));
   });
 
   it('stop clears a pending stale deferral', async () => {

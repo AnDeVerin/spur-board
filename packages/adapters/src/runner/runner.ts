@@ -170,7 +170,8 @@ function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: nu
         adapter.poll({ ...context, signal: abort.signal }),
         abort.signal,
       );
-      if (batch === undefined || aborted()) return;
+      // Only an abort ends the poll here; a missing or malformed batch fails validation below.
+      if (aborted()) return;
       const parsed = batchSchema.safeParse({ ...batch, observedAt: iso(startMs) });
       if (
         !parsed.success ||
@@ -236,19 +237,21 @@ function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: nu
 
 /**
  * Settles with `work`, or with undefined as soon as `signal` aborts, so `stop()` never waits
- * for an adapter that ignores its signal. A late result or rejection is dropped.
+ * for an adapter that ignores its signal. A late result or rejection is dropped. The abort
+ * listener is removed once either side settles, so a retained signal holds nothing.
  */
 function untilAborted<T>(work: Promise<T>, signal: AbortSignal): Promise<T | undefined> {
+  let settle: (value: undefined) => void = () => undefined;
   const abortion = new Promise<undefined>((resolve) => {
-    signal.addEventListener(
-      'abort',
-      () => {
-        resolve(undefined);
-      },
-      { once: true },
-    );
+    settle = resolve;
   });
-  return Promise.race([work, abortion]);
+  const onAbort = () => {
+    settle(undefined);
+  };
+  signal.addEventListener('abort', onAbort, { once: true });
+  return Promise.race([work, abortion]).finally(() => {
+    signal.removeEventListener('abort', onAbort);
+  });
 }
 
 function iso(ms: number): string {
