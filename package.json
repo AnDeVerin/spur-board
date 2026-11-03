@@ -17,6 +17,7 @@
     "gen:ops-snapshot": "node scripts/gen-ops-snapshot.ts",
     "guardrails": "node scripts/guardrails.ts",
     "lint": "eslint . --max-warnings=0",
+    "prepare": "node scripts/hooks.ts install",
     "typecheck": "tsc --noEmit -p . && pnpm -r typecheck",
     "test": "vitest run"
   },
