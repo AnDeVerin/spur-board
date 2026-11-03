@@ -47,6 +47,26 @@ function keyQuery(refs: readonly TicketEntityRef[]): string {
   return `key in (${keys.join(', ')})`;
 }
 
+function membershipQuery(jql: string, refs: readonly TicketEntityRef[]): string {
+  let quote: '"' | "'" | null = null;
+  let depth = 0;
+  for (let index = 0; index < jql.length; index += 1) {
+    const char = jql[index];
+    if (quote !== null) {
+      if (char === '\\') index += 1;
+      else if (char === quote) quote = null;
+      continue;
+    }
+    if (char === '"' || char === "'") quote = char;
+    else if (char === '(') depth += 1;
+    else if (char === ')') depth -= 1;
+    else if (depth === 0 && /\s/.test(char ?? '') && /^\s+ORDER\s+BY\b/i.test(jql.slice(index))) {
+      return `(${jql.slice(0, index).trim()}) AND ${keyQuery(refs)} ${jql.slice(index).trim()}`;
+    }
+  }
+  return `(${jql.trim()}) AND ${keyQuery(refs)}`;
+}
+
 function sprintName(value: unknown): string | null {
   if (!Array.isArray(value)) return null;
   const sprints = value.map((entry) => {
@@ -256,7 +276,7 @@ export function createJiraAdapter(options: JiraAdapterOptions): Adapter {
           const membership = await search(
             tracker,
             ctx.signal,
-            `(${tracker.jql}) AND ${keyQuery(refs)}`,
+            membershipQuery(tracker.jql, refs),
             sprintField,
           );
           if (!membership.complete)

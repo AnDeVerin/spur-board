@@ -212,21 +212,32 @@ describe('Jira adapter', () => {
     expect(warn).toHaveBeenCalledTimes(continued ? 1 : 0);
   });
 
-  it('checks membership for linked tickets beyond a capped filter scan', async () => {
+  it.each([
+    [
+      'project = PROJ AND status != Closed',
+      '(project = PROJ AND status != Closed) AND key in ("PROJ-21", "PROJ-200")',
+    ],
+    [
+      'project = PROJ AND summary ~ "ORDER BY Rank" ORDER BY Rank DESC',
+      '(project = PROJ AND summary ~ "ORDER BY Rank") AND key in ("PROJ-21", "PROJ-200") ORDER BY Rank DESC',
+    ],
+  ])('checks capped-scan membership for JQL %s', async (jql, membershipJql) => {
+    const current = tracker();
+    current.jql = jql;
     let filterPages = 0;
     const { fetcher, calls } = fake((body) => {
-      const jql = String(body['jql']);
-      if (jql === tracker().jql) {
+      const requestedJql = String(body['jql']);
+      if (requestedJql === current.jql) {
         filterPages += 1;
         return {
           issues: [issue(String(filterPages), `PROJ-${String(filterPages)}`)],
           nextPageToken: `page-${String(filterPages + 1)}`,
         };
       }
-      if (jql.startsWith('(')) return { issues: [issue('21', 'PROJ-21')], isLast: true };
+      if (requestedJql.startsWith('(')) return { issues: [issue('21', 'PROJ-21')], isLast: true };
       return { issues: [issue('200', 'PROJ-200')], isLast: true };
     });
-    const { source, warn } = adapter(fetcher);
+    const { source, warn } = adapter(fetcher, current);
     const result = await source.poll(context([ref('21', 'PROJ-21'), ref('200', 'PROJ-200')]));
     expect(batchSchema.safeParse(result).success).toBe(true);
     expect(result.complete).toBe(false);
@@ -241,7 +252,11 @@ describe('Jira adapter', () => {
       ['200', false],
     ]);
     expect(filterPages).toBe(20);
-    expect(calls.filter((call) => String(call.body?.['jql']).startsWith('('))).toHaveLength(1);
+    expect(
+      calls
+        .filter((call) => String(call.body?.['jql']).startsWith('('))
+        .map((call) => call.body?.['jql']),
+    ).toEqual([membershipJql]);
     expect(warn).toHaveBeenCalledTimes(1);
   });
 
