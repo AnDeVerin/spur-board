@@ -192,12 +192,11 @@ export function createJiraAdapter(options: JiraAdapterOptions): Adapter {
     signal: AbortSignal,
     jql: string,
     sprintField: string | null,
-    limit: number,
   ): Promise<{ issues: unknown[]; complete: boolean }> {
     const issues: unknown[] = [];
     let token: string | undefined;
     const seen = new Set<string>();
-    for (let page = 0; page < limit; page += 1) {
+    for (let page = 0; page < SEARCH_PAGE_LIMIT; page += 1) {
       const result = object(
         await request(tracker.baseUrl, '/rest/api/3/search/jql', signal, {
           jql,
@@ -235,13 +234,7 @@ export function createJiraAdapter(options: JiraAdapterOptions): Adapter {
       const tracker = options.tracker();
       await validate(tracker, ctx.signal);
       const sprintField = await findSprintField(tracker, ctx.signal);
-      const filtered = await search(
-        tracker,
-        ctx.signal,
-        tracker.jql,
-        sprintField,
-        SEARCH_PAGE_LIMIT,
-      );
+      const filtered = await search(tracker, ctx.signal, tracker.jql, sprintField);
       const facts = new Map<string, TicketFacts>();
       for (const issue of filtered.issues) {
         const item = issueFacts(issue, options.id, tracker.baseUrl, sprintField, true);
@@ -261,7 +254,6 @@ export function createJiraAdapter(options: JiraAdapterOptions): Adapter {
           ctx.signal,
           `key in (${keys.join(', ')})`,
           sprintField,
-          SEARCH_PAGE_LIMIT,
         );
         if (!outside.complete)
           throw new AdapterError('transient', 'Jira outside-ticket search reached its page limit');
