@@ -26,6 +26,11 @@
                     "minItems": 1,
                     "type": "array",
                     "items": { "type": "string", "minLength": 1 }
+                  },
+                  "projectKeys": {
+                    "default": [],
+                    "type": "array",
+                    "items": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$" }
                   }
                 },
                 "required": ["type", "baseUrl", "jql", "doneStatuses", "readyStatuses"],
@@ -132,6 +137,153 @@
           "type": "integer",
           "minimum": 1,
           "maximum": 9007199254740991
+        }
+      },
+      "additionalProperties": false
+    },
+    "adapters": {
+      "default": {},
+      "type": "object",
+      "properties": {
+        "spur": {
+          "default": {},
+          "type": "object",
+          "properties": {
+            "intervalMs": {
+              "default": 15000,
+              "description": "Time between two polls in milliseconds.",
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            }
+          },
+          "additionalProperties": false
+        },
+        "github": {
+          "default": {},
+          "type": "object",
+          "properties": {
+            "intervalMs": {
+              "default": 60000,
+              "description": "Time between two polls in milliseconds.",
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            }
+          },
+          "additionalProperties": false
+        },
+        "jira": {
+          "default": {},
+          "type": "object",
+          "properties": {
+            "intervalMs": {
+              "default": 120000,
+              "description": "Time between two polls in milliseconds.",
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "sources": {
+      "default": {},
+      "type": "object",
+      "properties": {
+        "authRetryMs": {
+          "default": 900000,
+          "description": "Wait before polling a source again after an auth error in milliseconds.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "goneAfterPolls": {
+          "default": 3,
+          "description": "Complete polls an entity must be missing from before it counts as gone.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        }
+      },
+      "additionalProperties": false
+    },
+    "github": {
+      "default": {},
+      "type": "object",
+      "properties": {
+        "reserveRemaining": {
+          "default": 1000,
+          "description": "GitHub API requests to leave unused in each quota window.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "additionalProperties": false
+    },
+    "health": {
+      "default": {},
+      "type": "object",
+      "properties": {
+        "errorAfterMs": {
+          "default": 90000,
+          "description": "How long a session stays in error before it is flagged in milliseconds.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "needsInputAfterMs": {
+          "default": 120000,
+          "description": "How long a session waits for input before it is flagged in milliseconds.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "idleInDevAfterMs": {
+          "default": 1800000,
+          "description": "How long a worker session without an open PR waits at its prompt before it is flagged in milliseconds.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "flipSmoothingMs": {
+          "default": 30000,
+          "description": "How long a new session health value must hold before it is reported in milliseconds.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "hostLoad": {
+          "default": {},
+          "type": "object",
+          "properties": {
+            "sessions": {
+              "default": 3,
+              "description": "Sessions entering error within the window that start an episode.",
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "windowMs": {
+              "default": 60000,
+              "description": "Window in which that many sessions entering error start a host-load episode in milliseconds.",
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "maxEpisodeMs": {
+              "default": 300000,
+              "description": "Longest a host-load episode lasts before error flags resume in milliseconds.",
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            }
+          },
+          "additionalProperties": false
         }
       },
       "additionalProperties": false

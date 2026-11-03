@@ -1,0 +1,50 @@
+name: Bug
+description: Report behaviour that differs from what the code or docs promise.
+labels: [type:bug]
+body:
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Steps to reproduce, expected behaviour, actual behaviour (with the command and its output).
+      placeholder: |
+        Steps:
+        1. ...
+
+        Expected: ...
+
+        Actual: ...
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      description: What the fix covers.
+    validations:
+      required: true
+  - type: textarea
+    id: out-of-scope
+    attributes:
+      label: Out of scope
+      description: Related problems this fix leaves alone.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance-criteria
+    attributes:
+      label: Acceptance criteria
+      description: Checkable outcomes, including a test that fails before the fix.
+      placeholder: '- [ ] ...'
+    validations:
+      required: true
+  - type: textarea
+    id: design-notes
+    attributes:
+      label: Design notes
+      description: Suspected cause, affected files, constraints on the fix.
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: Dependencies
+      description: Issues or PRs that must land first, or none.

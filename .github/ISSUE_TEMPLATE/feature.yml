@@ -1,0 +1,43 @@
+name: Feature
+description: Propose a change in behaviour or a new capability.
+labels: [type:feature]
+body:
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: What problem this solves and for whom; link the issues or docs it builds on.
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      description: What this issue delivers, as a short list.
+    validations:
+      required: true
+  - type: textarea
+    id: out-of-scope
+    attributes:
+      label: Out of scope
+      description: What this issue does not do, with the issue that does it when one exists.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance-criteria
+    attributes:
+      label: Acceptance criteria
+      description: Checkable outcomes, one per line, each one a test or a command can prove.
+      placeholder: '- [ ] ...'
+    validations:
+      required: true
+  - type: textarea
+    id: design-notes
+    attributes:
+      label: Design notes
+      description: Known constraints, options considered, open questions.
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: Dependencies
+      description: Issues or PRs that must land first, or none.

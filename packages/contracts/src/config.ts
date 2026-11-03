@@ -12,7 +12,10 @@ export const WEEKDAYS = [
 ] as const;
 
 const nonEmpty = z.string().min(1);
-const repoSlug = z.string().regex(/^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/, 'Expected owner/name');
+/** A GitHub repository as `owner/name`. */
+export const repoSlugSchema = z
+  .string()
+  .regex(/^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/, 'Expected owner/name');
 
 /** Adds an issue at `[i, key]` for each element whose `key` repeats an earlier one. */
 function rejectDuplicates<T>(
@@ -41,12 +44,15 @@ const jiraTracker = z.strictObject({
   jql: nonEmpty,
   doneStatuses: z.array(nonEmpty).min(1),
   readyStatuses: z.array(nonEmpty).min(1),
+  projectKeys: z
+    .array(z.string().regex(/^[A-Z][A-Z0-9_]*$/, 'Expected a Jira project key like PROJ'))
+    .default([]),
 });
 
 const githubIssuesTracker = z
   .strictObject({
     type: z.literal('github-issues'),
-    repo: repoSlug,
+    repo: repoSlugSchema,
     label: nonEmpty.optional(),
     milestone: nonEmpty.optional(),
   })
@@ -115,7 +121,7 @@ const projectSchema = z
   .strictObject({
     id: z.string().regex(/^[a-z][a-z0-9-]*$/, 'Expected lowercase letters, digits and dashes'),
     tracker: z.discriminatedUnion('type', [jiraTracker, githubIssuesTracker]),
-    repos: z.array(repoSlug).min(1),
+    repos: z.array(repoSlugSchema).min(1),
     operatorGithubLogin: z.string().regex(/^[A-Za-z0-9-]{1,39}$/, 'Expected a GitHub login'),
     spurProjects: z
       .array(spurProject)
@@ -142,6 +148,18 @@ const projectSchema = z
     });
   });
 
+/** A duration in integer milliseconds. Every duration key ends in `Ms`. */
+function durationMs(fallback: number, description: string) {
+  return z.int().min(1).default(fallback).describe(`${description} in milliseconds.`);
+}
+
+/** How often one adapter polls its source. */
+function adapterSection(intervalMs: number) {
+  return z
+    .strictObject({ intervalMs: durationMs(intervalMs, 'Time between two polls') })
+    .prefault({});
+}
+
 function isTimeZone(tz: string): boolean {
   try {
     new Intl.DateTimeFormat('en', { timeZone: tz });
@@ -164,6 +182,66 @@ export const configSchema = z.strictObject({
   archive: z.strictObject({ doneWeekday: z.enum(WEEKDAYS).default('saturday') }).prefault({}),
   digest: z.strictObject({ tz: z.string().refine(isTimeZone, 'Unknown IANA time zone') }),
   commands: z.strictObject({ retentionDays: z.int().min(1).default(7) }).prefault({}),
+  adapters: z
+    .strictObject({
+      spur: adapterSection(15_000),
+      github: adapterSection(60_000),
+      jira: adapterSection(120_000),
+    })
+    .prefault({}),
+  sources: z
+    .strictObject({
+      authRetryMs: durationMs(900_000, 'Wait before polling a source again after an auth error'),
+      goneAfterPolls: z
+        .int()
+        .min(1)
+        .default(3)
+        .describe('Complete polls an entity must be missing from before it counts as gone.'),
+    })
+    .prefault({}),
+  github: z
+    .strictObject({
+      reserveRemaining: z
+        .int()
+        .min(0)
+        .default(1000)
+        .describe('GitHub API requests to leave unused in each quota window.'),
+    })
+    .prefault({}),
+  health: z
+    .strictObject({
+      errorAfterMs: durationMs(90_000, 'How long a session stays in error before it is flagged'),
+      needsInputAfterMs: durationMs(
+        120_000,
+        'How long a session waits for input before it is flagged',
+      ),
+      idleInDevAfterMs: durationMs(
+        1_800_000,
+        'How long a worker session without an open PR waits at its prompt before it is flagged',
+      ),
+      flipSmoothingMs: durationMs(
+        30_000,
+        'How long a new session health value must hold before it is reported',
+      ),
+      hostLoad: z
+        .strictObject({
+          sessions: z
+            .int()
+            .min(1)
+            .default(3)
+            .describe('Sessions entering error within the window that start an episode.'),
+          windowMs: durationMs(
+            60_000,
+            'Window in which that many sessions entering error start a host-load episode',
+          ),
+          maxEpisodeMs: durationMs(
+            300_000,
+            'Longest a host-load episode lasts before error flags resume',
+          ),
+        })
+        .prefault({}),
+    })
+    .prefault({}),
 });
 
 export type Config = z.output<typeof configSchema>;

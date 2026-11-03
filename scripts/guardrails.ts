@@ -64,6 +64,8 @@ const WHOLE_FILE_CONFIG = [
   /^\.pnpmfile\.[cm]?js$/,
   /^\.npmrc$/,
   /^pnpm-workspace\.yaml$/,
+  /^\.githooks\//,
+  /^\.claude\/settings\.json$/,
 ];
 const PACKAGE_JSON = /(^|\/)package\.json$/;
 const SKIP = /\b(?:describe|it|test|suite|bench)(?:\.\w+)*\.(?:skip|todo|only)\b/;
