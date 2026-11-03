@@ -74,3 +74,13 @@ export {
   type RefKind,
   type TypedRef,
 } from './ids.ts';
+export {
+  GRANTS,
+  type Grant,
+  type GrantRule,
+  type Operation,
+  type OperationKind,
+  type SlackBinding,
+} from './ops/define.ts';
+export { commentSchema, type Comment } from './ops/schemas.ts';
+export { OPERATIONS, type OperationId } from './ops/catalog.ts';
