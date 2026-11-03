@@ -329,6 +329,8 @@ const SUDO_LONG_WITH_VALUE = new Set([
   '--command-timeout',
   '--other-user',
 ]);
+// Only the separate forms (`-o L`, `--output L`); `-oL` and `--output=L` are one word.
+const STDBUF_WITH_VALUE = new Set(['-i', '-o', '-e', '--input', '--output', '--error']);
 const TIMEOUT_WITH_VALUE = new Set(['-s', '--signal', '-k', '--kill-after']);
 
 function setsGitConfigEnv(word: string): boolean {
@@ -397,6 +399,10 @@ function unwrap(argv: string[], depth: number): string[] | Decision {
       }
       // sudo -s/-i runs the rest through a shell, as `bash -c` does.
       if (shell && i < words.length) return decideAt(words.slice(i).join(' '), depth + 1);
+    } else if (name === 'stdbuf') {
+      while ((words[i] ?? '').startsWith('-')) i += STDBUF_WITH_VALUE.has(words[i] ?? '') ? 2 : 1;
+    } else if (name === 'setsid') {
+      while ((words[i] ?? '').startsWith('-')) i += 1;
     } else if (name === 'timeout') {
       while ((words[i] ?? '').startsWith('-')) i += TIMEOUT_WITH_VALUE.has(words[i] ?? '') ? 2 : 1;
       i += 1;
@@ -581,6 +587,30 @@ function decideGh(args: string[]): Decision {
 }
 
 const SHELLS = new Set(['bash', 'sh', 'zsh', 'dash']);
+// Commands that only read or print their arguments, so `echo git push -f` is text.
+const TEXT_ONLY = new Set([
+  'echo',
+  'printf',
+  'grep',
+  'egrep',
+  'fgrep',
+  'rg',
+  'ag',
+  'ack',
+  'cat',
+  'head',
+  'tail',
+  'less',
+  'more',
+  'wc',
+  'sort',
+  'uniq',
+  'man',
+  'which',
+  'type',
+  'whatis',
+  'apropos',
+]);
 const DECLARES = new Set(['export', 'declare', 'typeset', 'readonly', 'local']);
 
 function decideCommand(argv: string[], depth: number): Decision {
@@ -606,8 +636,15 @@ function decideCommand(argv: string[], depth: number): Decision {
       else if (arg.startsWith('-') || arg.startsWith('+')) continue;
       else return command ? decideAt(arg, depth + 1) : ALLOW;
     }
+    return ALLOW;
   }
-  return ALLOW;
+  if (TEXT_ONLY.has(name)) return ALLOW;
+  // Any other command may run its arguments (xargs, flock, ionice, ...): check git or gh there.
+  const inner = args.findIndex((arg) => {
+    const base = basename(arg);
+    return base === 'git' || base === 'gh';
+  });
+  return inner === -1 ? ALLOW : decideCommand(args.slice(inner), depth);
 }
 
 function decideAt(command: string, depth: number): Decision {
