@@ -782,6 +782,37 @@ describe('failures', () => {
     expect((await commentRow(ctx, seed.commentId)).delivery_state).toBe('post_failed');
   });
 
+  it('starts the retry window when the send starts, after a slow earlier send', async () => {
+    const ctx = setup();
+    const slow = slowOrchestrators(ctx, 31 * 60_000);
+    // The feed send times out; the fake produces the retry.
+    const gateway: Gateway = {
+      ...ctx.observed.gateway,
+      deliver(request) {
+        if (request.target.kind === 'open' && request.target.space === 'feed') {
+          ctx.fake.platform.timeoutNext({ visible: false });
+        }
+        return slow.gateway.deliver(request);
+      },
+    };
+    const sender = createSender({
+      store: ctx.store,
+      gateway,
+      spur: ctx.spur.spur,
+      now: () => ctx.fake.platform.now(),
+    });
+    const seed = await seedBlock(ctx);
+    await enqueueOpen(ctx, seed);
+    const line = await feedLine(ctx, seed.key, 'item-1');
+    // The open takes 31 min, so the feed line's first attempt starts 31 min after its claim.
+    await sender.tick();
+    const feedStart = slow.starts.get('feed')?.[0] ?? 0;
+    expect(await outboxRow(ctx, line)).toMatchObject({
+      state: 'pending',
+      first_attempt_at: new Date(feedStart).toISOString(),
+    });
+  });
+
   it('message failure is final at once', async () => {
     const ctx = setup();
     const seed = await seedBlock(ctx);

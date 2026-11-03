@@ -341,11 +341,7 @@ export function createSender(options: SenderOptions): Sender {
     for (const c of claims) {
       await trx
         .updateTable('outbox')
-        .set((eb) => ({
-          state: 'in_flight',
-          attempts: eb('attempts', '+', 1),
-          first_attempt_at: eb.fn.coalesce('first_attempt_at', eb.val(nowIso)),
-        }))
+        .set((eb) => ({ state: 'in_flight', attempts: eb('attempts', '+', 1) }))
         .where('id', '=', c.id)
         .execute();
     }
@@ -354,14 +350,21 @@ export function createSender(options: SenderOptions): Sender {
   }
 
   /**
-   * Stamps the start of a send into a space, just before its IO: the slot of the next send and,
-   * under a health row, the probe clock. A slow earlier send in the tick does not age them. The
-   * clock is read here, once the write lock is held, so waiting for the lock does not age them
-   * either. Returns the stamp.
+   * Stamps the start of a send, just before its IO: the row's retry window if none is open and,
+   * for a space, the slot of the next send and, under a health row, the probe clock. A slow
+   * earlier send in the tick does not age them. The clock is read here, once the write lock is
+   * held, so waiting for the lock does not age them either. Returns the stamp.
    */
-  async function start(trx: Trx, space: SpaceId): Promise<number> {
+  async function start(trx: Trx, c: Claim): Promise<number> {
     const at = now().getTime();
     const sentAtIso = new Date(at).toISOString();
+    await trx
+      .updateTable('outbox')
+      .set((eb) => ({ first_attempt_at: eb.fn.coalesce('first_attempt_at', eb.val(sentAtIso)) }))
+      .where('id', '=', c.id)
+      .execute();
+    const { space } = c;
+    if (space === null) return at;
     await trx
       .insertInto('space_slot')
       .values({ gateway: gateway.kind, space, sent_at: sentAtIso })
@@ -547,9 +550,7 @@ export function createSender(options: SenderOptions): Sender {
     const claimedAt = now().getTime();
     const claims = await store.transaction((trx) => claim(trx, claimedAt));
     for (const c of claims) {
-      const { space } = c;
-      const startedAt =
-        space === null ? now().getTime() : await store.transaction((trx) => start(trx, space));
+      const startedAt = await store.transaction((trx) => start(trx, c));
       const { outcome, error } = await attempt(c);
       const at = now().getTime();
       await store.transaction((trx) => record(trx, c, outcome, error, at, startedAt));
