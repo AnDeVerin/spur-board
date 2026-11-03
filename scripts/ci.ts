@@ -37,9 +37,11 @@ export interface Verdict {
 }
 
 /**
- * Passes only when every job succeeded. Accepted skips: `pr-title` outside pull requests, and
- * `workflows` when `changes` succeeded and reported `github=false`.
+ * Passes only when every job succeeded. Accepted skips: `pr-title` and `guardrails` outside pull
+ * requests, and `workflows` when `changes` succeeded and reported `github=false`.
  */
+const PR_ONLY = new Set(['pr-title', 'guardrails']);
+
 export function decideCiOk(input: {
   needs: Record<string, NeededJob>;
   event: string;
@@ -60,7 +62,7 @@ export function decideCiOk(input: {
   for (const [id, job] of Object.entries(needs)) {
     const result = typeof job.result === 'string' ? job.result : String(job.result);
     let accepted = result === 'success';
-    if (result === 'skipped' && id === 'pr-title') accepted = event !== 'pull_request';
+    if (result === 'skipped' && PR_ONLY.has(id)) accepted = event !== 'pull_request';
     if (result === 'skipped' && id === 'workflows') {
       accepted = changes?.result === 'success' && changes.outputs?.['github'] === 'false';
     }

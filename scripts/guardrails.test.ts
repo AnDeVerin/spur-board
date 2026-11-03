@@ -760,6 +760,11 @@ describe('guardrails.ts CLI', () => {
     expect(gate.status).toBe(0);
     expect(reportLines(local.stdout)).toHaveLength(5);
     expect(reportLines(gate.stdout)).toEqual(reportLines(local.stdout));
+
+    const ci = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8');
+    const job = /^ {2}guardrails:\n(?: {4}.*\n|\n)*/m.exec(ci)?.[0] ?? '';
+    expect(job).toContain("    if: github.event_name == 'pull_request'\n");
+    expect(job).toContain('      - run: pnpm guardrails\n');
   });
 
   const renovateBase = {
