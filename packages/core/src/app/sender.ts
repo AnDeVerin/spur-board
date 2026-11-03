@@ -137,13 +137,20 @@ export function createSender(options: SenderOptions): Sender {
     reason: string,
     bodies: ReadonlyMap<number, OutboxBody>,
   ): Promise<void> {
-    let dead = ids.length === 0 ? [] : await setDead(trx, ids, reason);
-    for (;;) {
+    if (ids.length === 0) return;
+    let dead = (
+      await trx
+        .updateTable('outbox')
+        .set({ state: 'dead', last_error: reason })
+        .where('id', 'in', ids)
+        .returning('id')
+        .execute()
+    ).map((row) => row.id);
+    while (dead.length > 0) {
       for (const id of dead) {
         const body = bodies.get(id);
         if (body !== undefined) await setComment(trx, body, { delivery_state: 'superseded' });
       }
-      if (dead.length === 0) return;
       dead = (
         await trx
           .updateTable('outbox')
@@ -154,16 +161,6 @@ export function createSender(options: SenderOptions): Sender {
           .execute()
       ).map((row) => row.id);
     }
-  }
-
-  async function setDead(trx: Trx, ids: readonly number[], reason: string): Promise<number[]> {
-    const rows = await trx
-      .updateTable('outbox')
-      .set({ state: 'dead', last_error: reason })
-      .where('id', 'in', ids)
-      .returning('id')
-      .execute();
-    return rows.map((row) => row.id);
   }
 
   /** tx 1: cancels stale rows, raises down-health and claims at most one due row per lane. */
@@ -334,6 +331,11 @@ export function createSender(options: SenderOptions): Sender {
     const nowIso = new Date(at).toISOString();
     const row = trx.updateTable('outbox').where('id', '=', c.id);
     const { body, space } = c;
+    const postFailed = async (patch: { last_error: string; uncertain?: 0 | 1 }) => {
+      await row.set({ state: 'post_failed', ...patch }).execute();
+      await setComment(trx, body, { delivery_state: 'post_failed' });
+      return false;
+    };
     switch (outcome.status) {
       case 'sent':
         await row.set({ state: 'done', last_error: null }).execute();
@@ -344,11 +346,7 @@ export function createSender(options: SenderOptions): Sender {
             ? c.parent?.conversation
             : (outcome.conversation ?? c.parent?.conversation);
         if (conversation === undefined) {
-          await row
-            .set({ state: 'post_failed', last_error: 'delivered without a conversation' })
-            .execute();
-          await setComment(trx, body, { delivery_state: 'post_failed' });
-          return false;
+          return postFailed({ last_error: 'delivered without a conversation' });
         }
         const ref = { conversation, message: outcome.message, permalink: outcome.permalink };
         await row
@@ -422,9 +420,7 @@ export function createSender(options: SenderOptions): Sender {
         const firstAt =
           current.first_attempt_at === null ? at : Date.parse(current.first_attempt_at);
         if (space !== null && health === undefined && at - firstAt >= RETRY_WINDOW_MS) {
-          await row.set({ state: 'post_failed', uncertain, last_error: lastError }).execute();
-          await setComment(trx, body, { delivery_state: 'post_failed' });
-          return false;
+          return postFailed({ uncertain, last_error: lastError });
         }
         await row
           .set({
@@ -441,9 +437,7 @@ export function createSender(options: SenderOptions): Sender {
       }
       case 'failed': {
         if (outcome.scope === 'message' || space === null) {
-          await row.set({ state: 'post_failed', last_error: outcome.reason }).execute();
-          await setComment(trx, body, { delivery_state: 'post_failed' });
-          return false;
+          return postFailed({ last_error: outcome.reason });
         }
         await trx
           .insertInto('transport_health')
