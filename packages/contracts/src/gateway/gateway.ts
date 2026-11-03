@@ -105,8 +105,9 @@ export type RespondResult = 'sent' | 'dropped';
  *   `scope: 'message'`, and only that row fails.
  * - G3: `deliver` is idempotent by `key`. With `maybeSent` the gateway prevents a duplicate its
  *   own way: a marker search, a marked repeat, or a second conversation carrying the same key.
- * - G4: Idempotent by step: a long body is split into parts `key#1..key#n`; with `maybeSent`
- *   only the missing parts are sent.
+ * - G4: Idempotent by step: a long body is split into parts `key#1..key#n`. With `maybeSent`,
+ *   a gateway with marker search sends only the missing parts; one without it repeats each part
+ *   with a repeat mark, as it does for a single message under G3.
  * - G5: `close` posts the closing line and sets a done mark; a mark already present counts as
  *   success.
  * - G6: `delivered` is returned only after every step is confirmed; it carries `conversation`
