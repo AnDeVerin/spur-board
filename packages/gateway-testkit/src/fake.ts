@@ -132,6 +132,10 @@ function blockText(block: RichTextBlock): string {
   return block.kind === 'code_block' ? block.text : block.children.map(inlineText).join('');
 }
 
+function blockTexts(body: RichText): string[] {
+  return body.map(blockText).filter((t) => t.length > 0);
+}
+
 /**
  * Splits a body into parts of at most `max` characters. A part takes whole blocks joined by
  * `\n\n`; a block longer than `max` starts a new part and is cut into chunks of `max`.
@@ -139,7 +143,7 @@ function blockText(block: RichTextBlock): string {
 function split(body: RichText, max: number): string[] {
   const parts: string[] = [];
   let current = '';
-  for (const text of body.map(blockText).filter((t) => t.length > 0)) {
+  for (const text of blockTexts(body)) {
     if (text.length > max) {
       if (current !== '') parts.push(current);
       for (let i = 0; i < text.length; i += max) parts.push(text.slice(i, i + max));
@@ -158,10 +162,7 @@ function split(body: RichText, max: number): string[] {
 }
 
 function render(body: RichText): string {
-  return body
-    .map(blockText)
-    .filter((t) => t.length > 0)
-    .join('\n\n');
+  return blockTexts(body).join('\n\n');
 }
 
 type PartMode = 'plain' | 'search' | 'repeat';
@@ -172,7 +173,7 @@ export function createFakeGateway(options: FakeGatewayOptions): FakeGateway {
   const capabilities: Capabilities = { ...config.capabilities };
   const maxTextLength = options.maxTextLength ?? config.maxTextLength;
   const queueWindowMs = options.queueWindowMs ?? day;
-  const history = profile === 'slack-like';
+  const { history } = config.capabilities;
 
   let clock = (options.start ?? defaultStart).getTime();
   let seq = 0;
@@ -306,15 +307,12 @@ export function createFakeGateway(options: FakeGatewayOptions): FakeGateway {
           existing ??
           step(() => post(conversation, parts[0] ?? '', { marker: markers[0] ?? request.key }));
         // A new conversation holds no earlier copy, so its later parts are plain.
-        const posted = postParts(conversation, parts, markers, existing ? 'search' : 'plain', [
-          root,
-        ]);
-        const first = posted[0] ?? root;
+        postParts(conversation, parts, markers, existing ? 'search' : 'plain', [root]);
         return {
           status: 'delivered',
           conversation: conversation.ref,
-          message: first.message,
-          permalink: permalink(conversation, first.message),
+          message: root.message,
+          permalink: permalink(conversation, root.message),
         };
       }
       case 'reply':
@@ -386,16 +384,19 @@ export function createFakeGateway(options: FakeGatewayOptions): FakeGateway {
     };
   }
 
-  function editEvent(message: StoredMessage, user: UserRecord, n: number): InboundEvent {
-    const edit = user.edits.find((e) => e.n === n);
+  function editEvent(
+    message: StoredMessage,
+    user: UserRecord,
+    edit: UserRecord['edits'][number],
+  ): InboundEvent {
     return {
       kind: 'message_edited',
-      dedupeKey: `${messageKey(message)}:edit:${String(n)}`,
+      dedupeKey: `${messageKey(message)}:edit:${String(edit.n)}`,
       conversation: message.conversation.ref,
       message: message.message,
       author: user.author,
       text: message.text,
-      at: edit?.at ?? user.at,
+      at: edit.at,
       ...originKey(message.conversation),
     };
   }
@@ -435,34 +436,31 @@ export function createFakeGateway(options: FakeGatewayOptions): FakeGateway {
     return ref;
   }
 
-  function userPost(
-    conversation: StoredConversation,
-    input: { author: UserId; text: string },
-    kind: UserRecord['kind'],
-  ): StoredMessage {
-    return post(conversation, input.text, {
-      user: { author: input.author, kind, text: input.text, at: iso(), edits: [] },
-    });
-  }
-
   async function inject(input: FakeInput): ReturnType<FakePlatform['inject']> {
     switch (input.kind) {
       case 'message':
       case 'mention': {
         const conversation =
           'space' in input ? newConversation(input.space) : findConversation(input.conversation);
-        const message = userPost(conversation, input, input.kind);
-        if (message.user) await emit(userEvent(message, message.user));
+        const user: UserRecord = {
+          author: input.author,
+          kind: input.kind,
+          text: input.text,
+          at: iso(),
+          edits: [],
+        };
+        const message = post(conversation, input.text, { user });
+        await emit(userEvent(message, user));
         return { conversation: conversation.ref, message: message.message };
       }
       case 'edit': {
         const message = findMessage(input.message);
         const { user } = message;
         if (user === undefined) throw new Error('fake: only user messages can be edited by a user');
-        const n = user.edits.length + 1;
-        user.edits.push({ n, at: iso() });
+        const edit = { n: user.edits.length + 1, at: iso() };
+        user.edits.push(edit);
         message.text = input.text;
-        await emit(editEvent(message, user, n));
+        await emit(editEvent(message, user, edit));
         return { conversation: message.conversation.ref, message: message.message };
       }
       case 'delete': {
@@ -521,7 +519,7 @@ export function createFakeGateway(options: FakeGatewayOptions): FakeGateway {
         // History returns the current state: only the latest edit.
         const latest = user.edits.at(-1);
         if (latest !== undefined && inRange(latest.at)) {
-          events.push(editEvent(message, user, latest.n));
+          events.push(editEvent(message, user, latest));
         }
         if (message.deletedAt !== undefined && inRange(message.deletedAt)) {
           events.push(deleteEvent(message));

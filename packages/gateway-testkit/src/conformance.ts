@@ -310,10 +310,7 @@ const deliverTargets: ConformanceCase = {
     const closing = messages.find((message) => message.message === closed.message);
     expect(closing?.conversation, 'G5: the closing line is in the conversation').toBe(conversation);
     expect(closing?.text, 'G5: the closing line is visible').toBe('closing');
-    expect(
-      (await h.platform.conversations()).find((c) => c.ref === conversation)?.done,
-      'G5: close sets the done mark',
-    ).toBe(true);
+    expect(await doneOf(h, conversation), 'G5: close sets the done mark').toBe(true);
 
     await h.platform.settle();
     expect(
