@@ -195,6 +195,39 @@ describe('Spur adapter', () => {
     ]);
   });
 
+  it('keeps a missing linked session live when its detail has a non-ended lifecycle', async () => {
+    let status = 'running';
+    const notices: SpurNotice[] = [];
+    const adapter = createSpurAdapter({
+      ...adapterOptions,
+      fetch: (input) =>
+        Promise.resolve(
+          requestUrl(input).pathname === '/sessions'
+            ? response([])
+            : response({ ...wire, id: 'late-1', status }),
+        ),
+      onNotice: (notice) => {
+        notices.push(notice);
+      },
+    });
+    const first = await adapter.poll(context(['late-1']));
+    expect(batchSchema.parse(first)).toEqual(first);
+    expect(first.complete).toBe(true);
+    expect(first.entities).toEqual([{ ref: { kind: 'session', id: 'late-1' }, status: 'ok' }]);
+    expect(first.items[0]?.kind === 'session' && first.items[0].facts.endReason).toBeNull();
+    expect(notices).toEqual([]);
+
+    status = 'budget_limited';
+    const unknown = await adapter.poll(context(['late-1']));
+    await adapter.poll(context(['late-1']));
+    expect(batchSchema.parse(unknown)).toEqual(unknown);
+    expect(unknown.items[0]?.kind === 'session' && unknown.items[0].facts.lifecycle).toBe(
+      'budget_limited',
+    );
+    expect(unknown.items[0]?.kind === 'session' && unknown.items[0].facts.endedAt).toBeNull();
+    expect(notices).toEqual([{ kind: 'unknown_status', value: 'budget_limited' }]);
+  });
+
   it('rejects an unresolved detail instead of publishing absence', async () => {
     const adapter = createSpurAdapter({
       ...adapterOptions,

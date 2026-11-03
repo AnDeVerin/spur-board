@@ -2,6 +2,7 @@
 import {
   AdapterError,
   SESSION_HEALTH_STATES,
+  SESSION_STATUSES,
   prRefSchema,
   sessionFactsSchema,
   type Adapter,
@@ -36,6 +37,7 @@ interface HealthObservation {
 
 export type SpurNotice =
   | { kind: 'unknown_state'; value: string }
+  | { kind: 'unknown_status'; value: string }
   | { kind: 'restart'; previousInstanceId: string; instanceId: string };
 
 export interface SpurAdapterOptions {
@@ -52,8 +54,10 @@ export function createSpurAdapter(options: SpurAdapterOptions): Adapter {
   const fetchImpl = options.fetch ?? fetch;
   let health = new Map<string, HealthObservation>();
   let instanceId: string | undefined;
-  const unknownValues = new Set<string>();
+  const unknownHealthValues = new Set<string>();
+  const unknownStatusValues = new Set<string>();
   const isKnownHealth = (value: string) => SESSION_HEALTH_STATES.some((state) => state === value);
+  const isKnownStatus = (value: string) => SESSION_STATUSES.some((status) => status === value);
 
   async function request(
     path: string,
@@ -190,7 +194,7 @@ export function createSpurAdapter(options: SpurAdapterOptions): Adapter {
           );
         }
         const wire = sessionWire.parse(body);
-        if (wire.id !== ref.id || (wire.status !== 'completed' && wire.status !== 'killed')) {
+        if (wire.id !== ref.id) {
           throw new AdapterError('transient', 'Unresolved Spur session detail');
         }
         detail.set(ref.id, wire);
@@ -221,7 +225,12 @@ export function createSpurAdapter(options: SpurAdapterOptions): Adapter {
         const state = smooth(wire, observedAt, previous.get(wire.id));
         items.push({
           kind: 'session',
-          facts: facts(wire, observedAt, state, wire.status === 'completed' ? 'complete' : 'kill'),
+          facts: facts(
+            wire,
+            observedAt,
+            state,
+            wire.status === 'completed' ? 'complete' : wire.status === 'killed' ? 'kill' : null,
+          ),
         });
       }
       const entities: Batch['entities'] = ctx.observe.sessions.map((ref) => ({
@@ -239,11 +248,15 @@ export function createSpurAdapter(options: SpurAdapterOptions): Adapter {
       if (restartNotice) options.onNotice?.(restartNotice);
       instanceId = newInstanceId;
       for (const wire of [...listed, ...detail.values()]) {
-        if (wire === null || isKnownHealth(wire.state) || unknownValues.has(wire.state)) {
-          continue;
+        if (wire === null) continue;
+        if (!isKnownHealth(wire.state) && !unknownHealthValues.has(wire.state)) {
+          unknownHealthValues.add(wire.state);
+          options.onNotice?.({ kind: 'unknown_state', value: wire.state });
         }
-        unknownValues.add(wire.state);
-        options.onNotice?.({ kind: 'unknown_state', value: wire.state });
+        if (!isKnownStatus(wire.status) && !unknownStatusValues.has(wire.status)) {
+          unknownStatusValues.add(wire.status);
+          options.onNotice?.({ kind: 'unknown_status', value: wire.status });
+        }
       }
       return batch;
     },
