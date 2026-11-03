@@ -32,6 +32,60 @@ const sqliteTypeImportBan = {
   message: sqliteMessage,
 };
 const sqliteBoundaryIgnores = ['packages/core/**', 'packages/daemon/**'];
+const sqliteImportOptions = {
+  paths: [
+    { name: 'better-sqlite3', message: sqliteMessage },
+    { name: 'node:sqlite', message: sqliteMessage },
+  ],
+  patterns: [{ group: ['better-sqlite3/*'], message: sqliteMessage }],
+};
+
+// Adapters reach core through the runner's port, and each adapter folder stays on its own;
+// only `github/client` is shared. Same-rule options replace earlier ones, so every adapters
+// block restates the SQLite ban.
+const adapterBoundaryPatterns = [
+  {
+    regex: '^@spur-board/(?!contracts(/|$))',
+    caseSensitive: true,
+    message: 'Adapters import only @spur-board/contracts. Reach core through the runner port.',
+  },
+  {
+    regex: '^([.][.]/)+(packages/)?(core|daemon)(/|$)',
+    caseSensitive: true,
+    message: 'Adapters do not import core or daemon files. Reach core through the runner port.',
+  },
+];
+function adapterImports(extraPatterns = []) {
+  return [
+    'error',
+    {
+      paths: sqliteImportOptions.paths,
+      patterns: [...sqliteImportOptions.patterns, ...adapterBoundaryPatterns, ...extraPatterns],
+    },
+  ];
+}
+const adapterFolders = ['github', 'jira', 'spur'];
+function siblingPattern(folder) {
+  const others = adapterFolders
+    .filter((other) => other !== folder)
+    .map((other) =>
+      other === 'github' ? '(^|/)github(/(?!client([.]ts)?$)|$)' : `(^|/)${other}(/|$)`,
+    );
+  return {
+    regex: others.join('|'),
+    caseSensitive: true,
+    message: 'Adapter folders do not import each other; only github/client is shared.',
+  };
+}
+// Both bans cover the SQLite driver too, so they replace sqliteImportBan and sqliteTypeImportBan.
+const dynamicImportBan = {
+  selector: 'ImportExpression',
+  message: 'Use a static import so the boundary lint can check it.',
+};
+const importTypeBan = {
+  selector: 'TSImportType',
+  message: 'Use a static import so the boundary lint can check it.',
+};
 
 export default defineConfig(
   {
@@ -77,7 +131,7 @@ export default defineConfig(
   },
   {
     // Project-specific behaviour comes from the config, never from a hard-coded project id.
-    files: ['packages/core/**/*.ts'],
+    files: ['packages/core/**/*.ts', 'packages/adapters/**/*.ts'],
     plugins: { local },
     rules: { 'local/no-project-literal-compare': 'error' },
   },
@@ -85,16 +139,7 @@ export default defineConfig(
     files: ['**/*.ts', '**/*.js'],
     ignores: sqliteBoundaryIgnores,
     rules: {
-      'no-restricted-imports': [
-        'error',
-        {
-          paths: [
-            { name: 'better-sqlite3', message: sqliteMessage },
-            { name: 'node:sqlite', message: sqliteMessage },
-          ],
-          patterns: [{ group: ['better-sqlite3/*'], message: sqliteMessage }],
-        },
-      ],
+      'no-restricted-imports': ['error', sqliteImportOptions],
       'no-restricted-syntax': ['error', sqliteImportBan, sqliteTypeImportBan],
     },
   },
@@ -105,5 +150,20 @@ export default defineConfig(
     rules: {
       'no-restricted-syntax': ['error', viMockBan, sqliteImportBan, sqliteTypeImportBan],
     },
+  },
+  {
+    files: ['packages/adapters/**/*.ts'],
+    rules: {
+      'no-restricted-imports': adapterImports(),
+      'no-restricted-syntax': ['error', dynamicImportBan, importTypeBan],
+    },
+  },
+  ...adapterFolders.map((folder) => ({
+    files: [`packages/adapters/src/${folder}/**/*.ts`],
+    rules: { 'no-restricted-imports': adapterImports([siblingPattern(folder)]) },
+  })),
+  {
+    files: ['packages/adapters/test/**/*.ts', 'packages/adapters/**/*.test.ts'],
+    rules: { 'no-restricted-syntax': ['error', viMockBan, dynamicImportBan, importTypeBan] },
   },
 );
