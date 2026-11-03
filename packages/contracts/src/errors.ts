@@ -58,11 +58,11 @@ const noRetry = (action: string) => ({
   maxRetries: 0,
   retryTiming: 'After fixing the cause.',
 });
-const retry = (action: string) => ({
+const retry = (action: string, retryTiming = 'After a short delay.') => ({
   action,
   sideEffects: 'none' as const,
   maxRetries: 3,
-  retryTiming: 'After a short delay.',
+  retryTiming,
 });
 const unknownOutcome = {
   action: 'Check the outcome, then retry with the same idempotency key if needed.',
@@ -154,8 +154,11 @@ export const ERRORS = {
     status: 503,
     exit: EXIT_CODES.notApplied,
     message: 'The daemon cannot tell who the caller is right now.',
-    hint: 'Retry shortly; run the command from inside a spur session or as the operator.',
-    recovery: noRetry('Restore caller identity, then run the command again.'),
+    hint: 'Ask in your own session, then retry the same command later with its existing idempotency key if it has one.',
+    recovery: retry(
+      'Ask in your own session, then retry the same command with its existing idempotency key if it has one.',
+      'After caller identity is available; wait briefly between retries.',
+    ),
   }),
   version_mismatch: spec('version_mismatch', {
     status: 409,
@@ -168,8 +171,11 @@ export const ERRORS = {
     status: null,
     exit: EXIT_CODES.notApplied,
     message: 'The daemon is not running or cannot be reached; nothing was applied.',
-    hint: 'Start the daemon, then run the command again.',
-    recovery: retry('Start the daemon and retry the command.'),
+    hint: 'Ask in your own session; the operator can run `board service start`. Retry the same command with its existing idempotency key if it has one once the daemon is available.',
+    recovery: retry(
+      'Ask in your own session, then retry the same command with its existing idempotency key if it has one.',
+      'After the daemon is available; wait briefly between retries.',
+    ),
   }),
   config: spec('config', {
     status: null,

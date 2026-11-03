@@ -1,5 +1,5 @@
 {
-  "version": "2599ce9425815b81c423045895bfd7f5a0c6ecbe72720db3f37adc38171455ae",
+  "version": "0fbd66fec6559adf20c8493effdf09ea3dc78ccf72f55306428ebba427355c72",
   "grants": [
     "operator",
     "project-agent",
@@ -273,12 +273,12 @@
       "status": 503,
       "exit": 3,
       "message": "The daemon cannot tell who the caller is right now.",
-      "hint": "Retry shortly; run the command from inside a spur session or as the operator.",
+      "hint": "Ask in your own session, then retry the same command later with its existing idempotency key if it has one.",
       "recovery": {
-        "action": "Restore caller identity, then run the command again.",
+        "action": "Ask in your own session, then retry the same command with its existing idempotency key if it has one.",
         "sideEffects": "none",
-        "maxRetries": 0,
-        "retryTiming": "After fixing the cause."
+        "maxRetries": 3,
+        "retryTiming": "After caller identity is available; wait briefly between retries."
       },
       "docs": "docs/errors.md#identity_unavailable",
       "context": {
@@ -329,12 +329,12 @@
       "status": null,
       "exit": 3,
       "message": "The daemon is not running or cannot be reached; nothing was applied.",
-      "hint": "Start the daemon, then run the command again.",
+      "hint": "Ask in your own session; the operator can run `board service start`. Retry the same command with its existing idempotency key if it has one once the daemon is available.",
       "recovery": {
-        "action": "Start the daemon and retry the command.",
+        "action": "Ask in your own session, then retry the same command with its existing idempotency key if it has one.",
         "sideEffects": "none",
         "maxRetries": 3,
-        "retryTiming": "After a short delay."
+        "retryTiming": "After the daemon is available; wait briefly between retries."
       },
       "docs": "docs/errors.md#daemon_unavailable",
       "context": {

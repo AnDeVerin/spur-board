@@ -314,10 +314,10 @@ The daemon cannot tell who the caller is right now.
 
 HTTP: 503  
 Exit code: 3  
-Hint: Retry shortly; run the command from inside a spur session or as the operator.  
-Recovery: Restore caller identity, then run the command again.  
+Hint: Ask in your own session, then retry the same command later with its existing idempotency key if it has one.  
+Recovery: Ask in your own session, then retry the same command with its existing idempotency key if it has one.  
 Side effects: none  
-Retry: maximum 0; After fixing the cause.
+Retry: maximum 3; After caller identity is available; wait briefly between retries.
 
 Example:
 
@@ -329,13 +329,13 @@ Example:
     "code": "identity_unavailable",
     "requestId": "req-example-123",
     "message": "The daemon cannot tell who the caller is right now.",
-    "hint": "Retry shortly; run the command from inside a spur session or as the operator.",
+    "hint": "Ask in your own session, then retry the same command later with its existing idempotency key if it has one.",
     "docs": "docs/errors.md#identity_unavailable",
     "recovery": {
-      "action": "Restore caller identity, then run the command again.",
+      "action": "Ask in your own session, then retry the same command with its existing idempotency key if it has one.",
       "sideEffects": "none",
-      "maxRetries": 0,
-      "retryTiming": "After fixing the cause."
+      "maxRetries": 3,
+      "retryTiming": "After caller identity is available; wait briefly between retries."
     },
     "context": {}
   }
@@ -382,10 +382,10 @@ The daemon is not running or cannot be reached; nothing was applied.
 
 HTTP: client-side  
 Exit code: 3  
-Hint: Start the daemon, then run the command again.  
-Recovery: Start the daemon and retry the command.  
+Hint: Ask in your own session; the operator can run `board service start`. Retry the same command with its existing idempotency key if it has one once the daemon is available.  
+Recovery: Ask in your own session, then retry the same command with its existing idempotency key if it has one.  
 Side effects: none  
-Retry: maximum 3; After a short delay.
+Retry: maximum 3; After the daemon is available; wait briefly between retries.
 
 Example:
 
@@ -397,13 +397,13 @@ Example:
     "code": "daemon_unavailable",
     "requestId": "req-example-123",
     "message": "The daemon is not running or cannot be reached; nothing was applied.",
-    "hint": "Start the daemon, then run the command again.",
+    "hint": "Ask in your own session; the operator can run `board service start`. Retry the same command with its existing idempotency key if it has one once the daemon is available.",
     "docs": "docs/errors.md#daemon_unavailable",
     "recovery": {
-      "action": "Start the daemon and retry the command.",
+      "action": "Ask in your own session, then retry the same command with its existing idempotency key if it has one.",
       "sideEffects": "none",
       "maxRetries": 3,
-      "retryTiming": "After a short delay."
+      "retryTiming": "After the daemon is available; wait briefly between retries."
     },
     "context": {}
   }

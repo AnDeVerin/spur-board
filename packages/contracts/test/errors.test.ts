@@ -79,6 +79,20 @@ describe('error catalog', () => {
     expect(ERRORS.version_mismatch.hint).toContain('board service restart');
   });
 
+  it('guides callers through unavailable identity and daemon recovery', () => {
+    const identity = ERRORS.identity_unavailable;
+    expect(identity.hint).toContain('Ask in your own session');
+    expect(identity.recovery.action).toContain('existing idempotency key if it has one');
+    expect(identity.recovery.maxRetries).toBeGreaterThan(0);
+    expect(identity.recovery.retryTiming).toContain('identity is available');
+
+    const daemon = ERRORS.daemon_unavailable;
+    expect(daemon.hint).toContain('Ask in your own session');
+    expect(daemon.hint).toContain('operator can run `board service start`');
+    expect(daemon.recovery.action).toContain('existing idempotency key if it has one');
+    expect(daemon.recovery.retryTiming).toContain('daemon is available');
+  });
+
   it('rejects incomplete recovery metadata', () => {
     expect(
       recoverySchema.safeParse({ sideEffects: 'none', maxRetries: 0, retryTiming: 'Later.' })
@@ -105,7 +119,10 @@ describe('error catalog', () => {
     ['task_archived', 'Add the task to the board again if work continues.'],
     ['retry_not_applicable', 'Read the item and close it if no retry is needed.'],
     ['idempotency_key_mismatch', 'Use a new key for new input or repeat the original input.'],
-    ['identity_unavailable', 'Restore caller identity, then run the command again.'],
+    [
+      'identity_unavailable',
+      'Ask in your own session, then retry the same command with its existing idempotency key if it has one.',
+    ],
   ] as const)('%s gives recovery for its own cause', (code, action) => {
     expect(ERRORS[code].recovery.action).toBe(action);
   });
@@ -142,7 +159,7 @@ describe('error representations', () => {
     const output = renderJsonError(input);
     expect(output.error.trace).toEqual({ requestId: 'req-42', logLocation: 'daemon log' });
     expect(JSON.stringify(output)).not.toContain('stack');
-    expect(renderStderrError(input)).toContain('Trace: req-42 in daemon log');
+    expect(renderStderrError(input)).toContain('trace: req-42 in daemon log');
   });
 
   it('gives unexpected failures recovery for reads and same-key mutations', () => {
@@ -190,9 +207,11 @@ describe('error representations', () => {
         expect(value.hint).toBe(ERRORS.identity_unavailable.hint);
         expect(value.requestId).toBe('req-77');
       }
-      expect(stderr).toContain('Error identity_unavailable:');
-      expect(stderr).toContain(`Fix: ${ERRORS.identity_unavailable.hint}`);
-      expect(stderr).toContain('Request ID: req-77');
+      expect(stderr).toContain('error: identity_unavailable:');
+      expect(stderr).toContain(`fix: ${ERRORS.identity_unavailable.hint}`);
+      expect(stderr).toContain('side effects: none (the command was not applied)');
+      expect(stderr).toContain('docs: docs/errors.md#identity_unavailable');
+      expect(stderr).toContain('requestId: req-77');
     } finally {
       delete process.env.SPUR_TEST_SECRET;
     }

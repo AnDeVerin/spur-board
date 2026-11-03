@@ -58,20 +58,20 @@ export function renderStderrError(input: ErrorInput): string {
   const value = fields(input);
   const context = Object.entries(value.context);
   return [
-    `Error ${value.code}: ${value.message}`,
-    `Fix: ${value.hint}`,
-    `Side effects: ${value.recovery.sideEffects}`,
-    `Recovery: ${value.recovery.action}`,
-    `Retry: ${String(value.recovery.maxRetries)} maximum; ${value.recovery.retryTiming}`,
+    `error: ${value.code}: ${value.message}`,
+    `fix: ${value.hint}`,
+    `side effects: ${value.recovery.sideEffects}${value.recovery.sideEffects === 'none' ? ' (the command was not applied)' : ''}`,
+    `recovery: ${value.recovery.action}`,
+    `retry: ${String(value.recovery.maxRetries)} maximum; ${value.recovery.retryTiming}`,
     ...(value.recovery.sideEffects === 'unknown' && value.recovery.outcomeCheck
-      ? [`Outcome check: ${value.recovery.outcomeCheck}`]
+      ? [`outcome check: ${value.recovery.outcomeCheck}`]
       : []),
-    `Docs: ${value.docs}`,
+    `docs: ${value.docs}`,
     ...(context.length
-      ? [`Context: ${context.map(([key, item]) => `${key}=${item ?? ''}`).join(', ')}`]
+      ? [`context: ${context.map(([key, item]) => `${key}=${item ?? ''}`).join(', ')}`]
       : []),
-    ...('trace' in value ? [`Trace: ${value.trace.requestId} in ${value.trace.logLocation}`] : []),
-    `Request ID: ${value.requestId}`,
+    ...('trace' in value ? [`trace: ${value.trace.requestId} in ${value.trace.logLocation}`] : []),
+    `requestId: ${value.requestId}`,
     '',
   ].join('\n');
 }
