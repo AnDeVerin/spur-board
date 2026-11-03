@@ -70,8 +70,8 @@ Claude Code runs `scripts/agent-guard.ts` before every Bash call (`.claude/setti
 refuses these with the reason. Codex has no such hook: follow the same rules yourself.
 
 - `--no-verify` on any git command, and `git commit -n` - skips the hooks; fix what they report.
-- Changing `core.hooksPath` (`git -c`, `git config`) or setting a `GIT_CONFIG*` variable - turns
-  the hooks off.
+- Changing `core.hooksPath` (`git -c`, `git config`, removing or renaming the `core` section,
+  `git config --edit`) or setting a `GIT_CONFIG*` variable - turns the hooks off.
 - Force pushes: `-f`, `--force`, `--force-with-lease`, `--force-if-includes`, `--mirror`, a
   `+<refspec>` - rewrites remote history; push a new commit.
 - `gh pr merge`, `gh api .../pulls/<n>/merge`, and the GraphQL `mergePullRequest` or
@@ -80,7 +80,8 @@ refuses these with the reason. Codex has no such hook: follow the same rules you
 
 Not caught (the rules still apply): git and shell aliases, interpreters (`node -e`, `python -c`)
 and script files, commands piped or fed into a shell (`echo ... | bash`, `bash <<<...`),
-variables expanded into commands, and the GitHub API through `curl`.
+variables expanded into commands, `run0` and other privilege wrappers besides `sudo` and `doas`,
+and the GitHub API through `curl`.
 
 ## Reading a red CI run
 
