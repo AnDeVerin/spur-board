@@ -267,7 +267,9 @@ describe('obligation ids', () => {
   });
 });
 
-const scanned = ['packages/contracts', 'packages/core'];
+// Core's code, not its tests: core tests drive the gateway conformance harness, whose fault
+// controls are named after platform behaviour.
+const scanned = ['packages/contracts', 'packages/core/src'];
 const skipped = new Set(['node_modules', 'dist', 'coverage']);
 const wireTerms = /rateLimit|pageInfo|endCursor|nextPageToken|statusCheckRollup/i;
 
