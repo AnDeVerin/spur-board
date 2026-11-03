@@ -26,6 +26,16 @@ const DENY: [string, string][] = [
   ['git config core.hooksPath x', 'hooks-path'],
   ['git config core.HOOKSPATH x', 'hooks-path'],
   ['git config --unset core.hookspath', 'hooks-path'],
+  ['git config --unset-all core.hooksPath', 'hooks-path'],
+  ['git config --local --remove-section core', 'hooks-path'],
+  ['git config --rename-section core x', 'hooks-path'],
+  ['git config --rename-section CORE x', 'hooks-path'],
+  ['git config remove-section core', 'hooks-path'],
+  ['git config rename-section core x', 'hooks-path'],
+  ['git config --remove-section core.x', 'hooks-path'],
+  ['git config --edit', 'hooks-path'],
+  ['git config -e', 'hooks-path'],
+  ['git config edit', 'hooks-path'],
   ['git config unset core.hooksPath', 'hooks-path'],
   ['git --config-env=core.hooksPath=X commit -m x', 'hooks-path'],
   ['GIT_CONFIG_COUNT=1 git commit -m x', 'hooks-path'],
@@ -85,6 +95,23 @@ const DENY: [string, string][] = [
   ['timeout -s KILL 60 git push -f', 'force-push'],
   ['timeout --kill-after 5 60 git push -f', 'force-push'],
   ['timeout -k 5 60 git push -f', 'force-push'],
+  ['sudo git push -f', 'force-push'],
+  ['sudo -u root git push -f', 'force-push'],
+  ['sudo -uroot git push -f', 'force-push'],
+  ['sudo --user=root -E git push -f', 'force-push'],
+  ['sudo --user root -- git push -f', 'force-push'],
+  ['sudo -g wheel -C 3 -D /tmp -h host -p pw -r role -t type -T 5 -U u git push -f', 'force-push'],
+  ["sudo -s 'git push -f'", 'force-push'],
+  ['sudo -i git push -f', 'force-push'],
+  ['sudo -u root -s gh pr merge 1', 'merge'],
+  ['doas git push -f', 'force-push'],
+  ['doas -u root -C /etc/doas.conf git push -f', 'force-push'],
+  // $'...' is decoded as bash decodes it
+  ["git push $'--for\\x63e'", 'force-push'],
+  ["git push $'--for\\143e'", 'force-push'],
+  ["git push $'--for\\u0063e'", 'force-push'],
+  ["git push $'--for\\U00000063e'", 'force-push'],
+  ["git push $'\\x2df'", 'force-push'],
   ['/usr/bin/git push -f', 'force-push'],
   // unquoted heredoc bodies are expanded by the shell
   [lines('git commit -F - <<EOF', 'fix `git push --force`', 'EOF'), 'force-push'],
@@ -124,6 +151,9 @@ const ALLOW: string[] = [
   'git commit --message "-n is not a flag"',
   'git commit --file -n',
   'env -C /tmp git status',
+  'sudo apt-get update',
+  'git config --remove-section alias',
+  "echo $'a\\tb\\n'",
   'gh pr create --title "x" --body "never run gh pr merge"',
   'gh api repos/o/r/pulls/91 --jq .number',
   "echo 'git push --force'",
@@ -170,8 +200,19 @@ describe('agent-guard.ts CLI', () => {
     expect(r.stderr).toContain('agent-guard: invalid hook input');
   });
 
-  it('allows input without a command', () => {
-    expect(run(JSON.stringify({ tool_name: 'Bash', tool_input: {} }))).toEqual({
+  it.each([
+    ['a Bash call without a command', { tool_name: 'Bash', tool_input: {} }],
+    ['a Bash call with a renamed command field', { tool_name: 'Bash', tool_input: { cmd: 'x' } }],
+    ['input without tool_name', { tool_input: {} }],
+    ['input without tool_input', { tool_name: 'Bash' }],
+  ])('blocks %s', (_name, input) => {
+    const r = run(JSON.stringify(input));
+    expect(r.status).toBe(2);
+    expect(r.stderr).toBe('agent-guard: blocked input: no tool_input.command in Bash hook input\n');
+  });
+
+  it('allows another tool without a command', () => {
+    expect(run(JSON.stringify({ tool_name: 'Read', tool_input: { file_path: 'x' } }))).toEqual({
       status: 0,
       stderr: '',
     });

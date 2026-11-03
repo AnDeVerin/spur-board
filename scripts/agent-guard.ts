@@ -53,6 +53,34 @@ interface Heredoc {
   quoted: boolean;
 }
 
+const SIMPLE_ESCAPES: Record<string, string> = {
+  a: '\x07',
+  b: '\b',
+  e: '\x1b',
+  E: '\x1b',
+  f: '\f',
+  n: '\n',
+  r: '\r',
+  t: '\t',
+  v: '\v',
+  '\\': '\\',
+  "'": "'",
+  '"': '"',
+  '?': '?',
+};
+const ANSI_C_ESCAPE =
+  /\\(?:([abeEfnrtv\\'"?])|([0-7]{1,3})|x([0-9a-fA-F]{1,2})|u([0-9a-fA-F]{1,4})|U([0-9a-fA-F]{1,8})|c(.))/y;
+
+/** One $'...' escape; a code point beyond Unicode decodes to nothing. */
+function decodeEscape(match: RegExpExecArray): string {
+  const [, simple, octal, hex, u4, u8, control] = match;
+  if (simple !== undefined) return SIMPLE_ESCAPES[simple] ?? simple;
+  if (control !== undefined) return String.fromCharCode(control.charCodeAt(0) & 0x1f);
+  const code =
+    octal !== undefined ? parseInt(octal, 8) & 0xff : parseInt(hex ?? u4 ?? u8 ?? '', 16);
+  return code <= 0x10ffff ? String.fromCodePoint(code) : '';
+}
+
 /**
  * Splits shell text into simple commands (argv after quote removal), appending them to
  * `segments`. Substitutions are lexed recursively into the same list.
@@ -242,22 +270,22 @@ class Lexer {
     new Lexer(body, this.segments).commands(depth + 1, false);
   }
 
-  /** Reads $'...' from its `$` and decodes the common escapes. */
+  /** Reads $'...' from its `$` and decodes its escapes as bash does. */
   ansiC(): string {
     const text = this.text;
-    const escapes: Record<string, string> = { n: '\n', t: '\t', '\\': '\\', "'": "'", '"': '"' };
     let out = '';
     this.pos += 2;
     while (this.pos < text.length) {
       const c = text[this.pos] ?? '';
-      const next = text[this.pos + 1] ?? '';
       if (c === "'") {
         this.pos += 1;
         return out;
       }
-      if (c === '\\' && next in escapes) {
-        out += escapes[next] ?? next;
-        this.pos += 2;
+      ANSI_C_ESCAPE.lastIndex = this.pos;
+      const escape = c === '\\' ? ANSI_C_ESCAPE.exec(text) : null;
+      if (escape !== null) {
+        out += decodeEscape(escape);
+        this.pos += escape[0].length;
       } else {
         out += c;
         this.pos += 1;
@@ -287,6 +315,20 @@ class Lexer {
 
 const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
 const ENV_WITH_VALUE = new Set(['-u', '--unset', '-C', '--chdir']);
+const SUDO_SHORT_WITH_VALUE = 'ughpCDrtTU';
+const DOAS_SHORT_WITH_VALUE = 'uC';
+const SUDO_LONG_WITH_VALUE = new Set([
+  '--user',
+  '--group',
+  '--host',
+  '--prompt',
+  '--close-from',
+  '--chdir',
+  '--role',
+  '--type',
+  '--command-timeout',
+  '--other-user',
+]);
 const TIMEOUT_WITH_VALUE = new Set(['-s', '--signal', '-k', '--kill-after']);
 
 function setsGitConfigEnv(word: string): boolean {
@@ -327,6 +369,34 @@ function unwrap(argv: string[], depth: number): string[] | Decision {
       while ((words[i] ?? '').startsWith('-')) i += words[i] === '-a' ? 2 : 1;
     } else if (name === 'nice') {
       while ((words[i] ?? '').startsWith('-')) i += words[i] === '-n' ? 2 : 1;
+    } else if (name === 'sudo' || name === 'doas') {
+      const shortWithValue = name === 'sudo' ? SUDO_SHORT_WITH_VALUE : DOAS_SHORT_WITH_VALUE;
+      let shell = false;
+      while (i < words.length) {
+        const w = words[i] ?? '';
+        if (w === '--') {
+          i += 1;
+          break;
+        }
+        if (w.startsWith('--')) {
+          if (w === '--shell' || w === '--login') shell = true;
+          i += SUDO_LONG_WITH_VALUE.has(w) ? 2 : 1;
+          continue;
+        }
+        if (!/^-[A-Za-z]/.test(w)) break;
+        let consumed = 1;
+        for (let index = 1; index < w.length; index += 1) {
+          const letter = w.charAt(index);
+          if (shortWithValue.includes(letter)) {
+            if (index === w.length - 1) consumed = 2;
+            break;
+          }
+          if (name === 'sudo' && (letter === 's' || letter === 'i')) shell = true;
+        }
+        i += consumed;
+      }
+      // sudo -s/-i runs the rest through a shell, as `bash -c` does.
+      if (shell && i < words.length) return decideAt(words.slice(i).join(' '), depth + 1);
     } else if (name === 'timeout') {
       while ((words[i] ?? '').startsWith('-')) i += TIMEOUT_WITH_VALUE.has(words[i] ?? '') ? 2 : 1;
       i += 1;
@@ -459,6 +529,7 @@ const CONFIG_WITH_VALUE = new Set([
   '--value',
 ]);
 const CONFIG_WRITES = ['--unset', '--unset-all', '--add', '--replace-all'];
+const CONFIG_SECTION_OPS = ['remove-section', 'rename-section'];
 
 function writesHooksPath(args: string[]): boolean {
   const positional: string[] = [];
@@ -470,6 +541,13 @@ function writesHooksPath(args: string[]): boolean {
     else positional.push(token);
   }
   const [first = '', second = ''] = positional;
+  // An editor can change any key, so it can change core.hooksPath.
+  if (first === 'edit' || flags.includes('--edit') || flags.includes('-e')) return true;
+  const sectionOp = CONFIG_SECTION_OPS.includes(first);
+  if (sectionOp || CONFIG_SECTION_OPS.some((op) => flags.includes(`--${op}`))) {
+    const section = (sectionOp ? second : first).toLowerCase();
+    return section === 'core' || section.startsWith('core.');
+  }
   if (first === 'set' || first === 'unset') return second.toLowerCase() === 'core.hookspath';
   if (first.toLowerCase() !== 'core.hookspath') return false;
   return flags.some((flag) => CONFIG_WRITES.includes(flag)) || positional.length >= 2;
@@ -560,8 +638,15 @@ function main(): number {
     process.stderr.write(`agent-guard: invalid hook input: ${String(error)}\n`);
     return 2;
   }
-  const command = (input as { tool_input?: { command?: unknown } } | null)?.tool_input?.command;
-  if (typeof command !== 'string') return 0;
+  const payload = input as { tool_name?: unknown; tool_input?: { command?: unknown } } | null;
+  const command = payload?.tool_input?.command;
+  if (typeof command !== 'string') {
+    // The matcher sends only Bash calls; a Bash payload without a command must not pass.
+    const tool = payload?.tool_name;
+    if (tool !== undefined && tool !== 'Bash') return 0;
+    process.stderr.write('agent-guard: blocked input: no tool_input.command in Bash hook input\n');
+    return 2;
+  }
   const decision = decide(command);
   if (decision.allow) return 0;
   process.stderr.write(`agent-guard: blocked ${decision.rule}: ${decision.reason}\n`);
