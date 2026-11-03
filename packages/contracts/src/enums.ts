@@ -45,9 +45,6 @@ export const ADDRESSEE_ROLES: readonly AddresseeRole[] = [
   'worker',
 ];
 
-export const VERDICT_KINDS = ['approve', 'back', 'running', 'carried'] as const;
-export type VerdictKind = (typeof VERDICT_KINDS)[number];
-
 export const SESSION_LINK_ROLES = ['worker', 'other', 'orchestrator'] as const;
 export type SessionLinkRole = (typeof SESSION_LINK_ROLES)[number];
 
