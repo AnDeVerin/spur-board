@@ -1,0 +1,43 @@
+name: Spike
+description: Time-boxed research that answers a question before work is planned.
+labels: [type:spike]
+body:
+  - type: textarea
+    id: context
+    attributes:
+      label: Context
+      description: Why the question matters now and what decision waits on it.
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      description: What to investigate and the time box.
+    validations:
+      required: true
+  - type: textarea
+    id: out-of-scope
+    attributes:
+      label: Out of scope
+      description: What the spike does not build or decide.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance-criteria
+    attributes:
+      label: Acceptance criteria
+      description: The question the spike answers, and the form of the answer (findings, options, a follow-up issue).
+      placeholder: 'Question: ...'
+    validations:
+      required: true
+  - type: textarea
+    id: design-notes
+    attributes:
+      label: Design notes
+      description: Leads, prior art, options already ruled out.
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: Dependencies
+      description: Issues or PRs that must land first, or none.
