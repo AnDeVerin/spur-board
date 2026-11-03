@@ -14,7 +14,9 @@ checks.
    manager's criteria; tier 3: the developer's written plan) and the developer's output.
 2. `git diff <sha>...HEAD`, using the handoff's `origin/main` SHA.
 3. Read each skill in `.agents/skills/` whose description covers the changed paths; a diff under
-   `packages/contracts/` also reads `working-with-contracts`.
+   `packages/contracts/` also reads `working-with-contracts`; a diff under
+   `packages/core/src/store/` or `packages/core/test/store/`, or one that adds a `.transaction(`
+   call, also reads `working-with-storage`.
 4. A PR exists (`PR:` line in the handoff): read its body and earlier review threads. Do not
    repeat a rejected suggestion unless the diff changes its premise.
 
