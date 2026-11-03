@@ -14,8 +14,8 @@ const MAX_BACKOFF_MS = 900_000;
 export type GoneRef = PrEntityRef | TicketEntityRef;
 
 /** Shortens a delay by up to 10 percent, so sources do not poll in lockstep. */
-function jitter(delayMs: number, random: number = Math.random()): number {
-  return Math.round(delayMs * (1 - 0.1 * random));
+function jitter(delayMs: number): number {
+  return Math.round(delayMs * (1 - 0.1 * Math.random()));
 }
 
 /** How long to wait when the budget fell below the reserve; undefined when no pause is due. */
@@ -81,10 +81,6 @@ export function staleDeadline(
   return (lastCompleteMs ?? runnerStartMs) + staleMultiplier * intervalMs;
 }
 
-export function isStale(now: number, deadline: number): boolean {
-  return now > deadline;
-}
-
 /** When a stale decision deferred for an in-flight poll is forced. */
 export function staleHardBound(firedAt: number, staleMultiplier: number, intervalMs: number) {
   return firedAt + staleMultiplier * intervalMs + 1;
@@ -102,14 +98,9 @@ function entityKey(ref: EntityRef): string {
   }
 }
 
-export interface GoneCount {
-  ref: GoneRef;
-  /** Consecutive complete batches the ref was not_found or no_access in. */
-  count: number;
-}
-
 export interface EntityOutcomes {
-  counts: Map<string, GoneCount>;
+  /** Per entity key: consecutive complete batches the ref was not_found or no_access in. */
+  counts: Map<string, number>;
   gone: GoneRef[];
   /** The batch is complete and every requested PR and ticket is ok or gone. */
   complete: boolean;
@@ -117,26 +108,26 @@ export interface EntityOutcomes {
 
 /** Applies one delivered batch to the gone counts. */
 export function applyEntityOutcomes(input: {
-  counts: ReadonlyMap<string, GoneCount>;
+  counts: ReadonlyMap<string, number>;
   requested: readonly GoneRef[];
   batch: Pick<Batch, 'complete' | 'entities'>;
   goneAfterPolls: number;
 }): EntityOutcomes {
   const { batch, goneAfterPolls } = input;
   const statuses = new Map(batch.entities.map((entity) => [entityKey(entity.ref), entity.status]));
-  const counts = new Map<string, GoneCount>();
+  const counts = new Map<string, number>();
   const gone: GoneRef[] = [];
   let complete = batch.complete;
   for (const ref of input.requested) {
     const key = entityKey(ref);
     if (counts.has(key)) continue;
     const status = statuses.get(key);
-    let count = input.counts.get(key)?.count ?? 0;
+    let count = input.counts.get(key) ?? 0;
     if (batch.complete) {
       if (status === 'ok') count = 0;
       else if (status !== undefined) count += 1;
     }
-    counts.set(key, { ref, count });
+    counts.set(key, count);
     const isGone = count >= goneAfterPolls;
     if (isGone) gone.push(ref);
     if (status !== 'ok' && !isGone) complete = false;

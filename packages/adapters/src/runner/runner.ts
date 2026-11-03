@@ -11,11 +11,9 @@ import {
 } from '@spur-board/contracts';
 import {
   applyEntityOutcomes,
-  isStale,
   nextDelay,
   staleDeadline,
   staleHardBound,
-  type GoneCount,
   type GoneRef,
   type PollOutcome,
 } from './policy.ts';
@@ -83,7 +81,7 @@ function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: nu
   let failures = 0;
   let lastCompleteMs: number | undefined;
   let errorBlind: Blind | undefined;
-  let counts: ReadonlyMap<string, GoneCount> = new Map();
+  let counts: ReadonlyMap<string, number> = new Map();
   let gone: readonly GoneRef[] = [];
   let polling = false;
   let controller: AbortController | undefined;
@@ -96,7 +94,7 @@ function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: nu
 
   function state(now: number): SourceState {
     const deadline = staleDeadline(lastCompleteMs, runnerStartMs, staleMultiplier, intervalMs);
-    const blind = errorBlind ?? (isStale(now, deadline) ? staleBlind : undefined);
+    const blind = errorBlind ?? (now > deadline ? staleBlind : undefined);
     return {
       ...(lastCompleteMs === undefined ? {} : { lastCompleteAt: iso(lastCompleteMs) }),
       ...(blind === undefined ? {} : { blind }),
