@@ -1051,6 +1051,51 @@ describe('transport health', () => {
     expect(feedSends()).toHaveLength(3);
   });
 
+  it('stamps the send clocks once the write lock is taken', async () => {
+    const ctx = setup();
+    await enqueueOpen(ctx, await seedBlock(ctx));
+    const old = new Date(ctx.fake.platform.now().getTime() - 2 * HEALTH_PROBE_MS).toISOString();
+    await ctx.store.db
+      .insertInto('transport_health')
+      .values({
+        gateway: ctx.observed.gateway.kind,
+        space: 'orchestrators',
+        reason: 'token_revoked',
+        since: old,
+        probe_at: old,
+      })
+      .execute();
+    let deliverAt = 0;
+    const gateway: Gateway = {
+      ...ctx.observed.gateway,
+      deliver(request) {
+        deliverAt = ctx.fake.platform.now().getTime();
+        return ctx.observed.gateway.deliver(request);
+      },
+    };
+    // Another writer holds the lock: every transaction waits 3 s before it begins.
+    const store: Store = {
+      ...ctx.store,
+      transaction: (fn) => {
+        ctx.fake.platform.advance(3000);
+        return ctx.store.transaction(fn);
+      },
+    };
+    const sender = createSender({
+      store,
+      gateway,
+      spur: ctx.spur.spur,
+      now: () => ctx.fake.platform.now(),
+    });
+    ctx.fake.platform.timeoutNext({ visible: false });
+    await sender.tick();
+    const at = new Date(deliverAt).toISOString();
+    expect(await ctx.store.db.selectFrom('space_slot').select('sent_at').execute()).toEqual([
+      { sent_at: at },
+    ]);
+    expect((await healthRows(ctx))[0]?.probe_at).toBe(at);
+  });
+
   it('gateway down over 5 min raises health and suspends the retry window', async () => {
     const ctx = setup();
     const id = await enqueueOpen(ctx, await seedBlock(ctx));

@@ -355,9 +355,12 @@ export function createSender(options: SenderOptions): Sender {
 
   /**
    * Stamps the start of a send into a space, just before its IO: the slot of the next send and,
-   * under a health row, the probe clock. A slow earlier send in the tick does not age them.
+   * under a health row, the probe clock. A slow earlier send in the tick does not age them. The
+   * clock is read here, once the write lock is held, so waiting for the lock does not age them
+   * either. Returns the stamp.
    */
-  async function start(trx: Trx, space: SpaceId, at: number): Promise<void> {
+  async function start(trx: Trx, space: SpaceId): Promise<number> {
+    const at = now().getTime();
     const sentAtIso = new Date(at).toISOString();
     await trx
       .insertInto('space_slot')
@@ -370,6 +373,7 @@ export function createSender(options: SenderOptions): Sender {
       .where('gateway', '=', gateway.kind)
       .where('space', '=', space)
       .execute();
+    return at;
   }
 
   async function attempt(c: Claim): Promise<{ outcome: Outcome; error: string | null }> {
@@ -543,9 +547,9 @@ export function createSender(options: SenderOptions): Sender {
     const claimedAt = now().getTime();
     const claims = await store.transaction((trx) => claim(trx, claimedAt));
     for (const c of claims) {
-      const startedAt = now().getTime();
       const { space } = c;
-      if (space !== null) await store.transaction((trx) => start(trx, space, startedAt));
+      const startedAt =
+        space === null ? now().getTime() : await store.transaction((trx) => start(trx, space));
       const { outcome, error } = await attempt(c);
       const at = now().getTime();
       await store.transaction((trx) => record(trx, c, outcome, error, at, startedAt));
