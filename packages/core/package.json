@@ -16,6 +16,7 @@
     "zod": "catalog:"
   },
   "devDependencies": {
+    "@spur-board/gateway-testkit": "workspace:*",
     "@types/better-sqlite3": "catalog:"
   }
 }
