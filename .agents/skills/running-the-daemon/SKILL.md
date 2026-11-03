@@ -50,7 +50,7 @@ modules, then `daemon ready`. Where a test or lint rule enforces a rule, the rul
 - A bad config fails with a `ConfigError` listing each field by path, with a hint, before the
   database exists. Pinned by 'lists each invalid field by path, with a hint' and
   'invalid config exits 1 before creating the database'.
-- `secrets.env` is refused when group or others can read it, pinned by
+- `secrets.env` is refused when group or others have any permission on it, pinned by
   'refuses a secrets.env readable by others'.
 - Secrets live only in `secrets.env`, never in config; pinned by 'has no secret-like property
   names'. The daemon never writes them to the environment; modules read `ctx.secrets`.
@@ -104,7 +104,7 @@ this shape:
   pinned by 'exits 1 when a stop hangs'. A failed stop logs and still lets the others stop.
 - Every exit goes through `ProcessPort.exit` exactly once. Pinned by 'two signals run one
   shutdown' and 'fatal during shutdown exits once'. A fatal error exits 1 at once, with no
-  module stop.
+  module stop, pinned by 'fatal error exits 1'.
 - `start(signal)` must return promptly once `signal` aborts; a module that ignores it holds up
   the whole shutdown.
 
