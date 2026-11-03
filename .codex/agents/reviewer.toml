@@ -30,7 +30,7 @@ checks.
 - Agent files - `.agents/`, `.claude/` or `.codex/` changed: the copies carry the same name,
   description and instructions as the source in `.agents/`.
 - Conventions - the loaded skills. A comment states a non-obvious why, nothing else.
-- Run the repo checks (`pnpm check` once it exists) and read each exit code directly.
+- Run the repo checks (`pnpm check`) and read each exit code directly.
 - A finding on code the diff did not introduce says so; report it as SHOULD FIX.
 - Report only issues you are more than 80% sure of.
 
