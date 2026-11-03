@@ -16,9 +16,12 @@ export interface AuthorizationTarget {
   }[];
 }
 
-/** A missing target is carried past authorization so a state error cannot precede a denial. */
+/** A missing target is carried past authorization so a state error cannot precede a denial.
+ * `id` identifies the object actually resolved for an input ID in a batch.
+ */
 export type ResolvedTarget =
-  { readonly kind: 'found'; readonly value: AuthorizationTarget } | { readonly kind: 'missing' };
+  | { readonly kind: 'found'; readonly value: AuthorizationTarget; readonly id?: string }
+  | { readonly kind: 'missing'; readonly id?: string };
 
 export interface AuthorizationState {
   readonly config: Config;

@@ -156,10 +156,11 @@ export function createApply(deps: { store: Store; clock: Clock; config: Config }
       const parsedInput = parsed.data as z.output<Entry<typeof op.id>['input']>;
       const resolved = await op.resolveTargets(trx, parsedInput);
       const taskless = resolved.length === 0 && emptyAllowed(entry);
+      const ackIds = entry.id === 'inbox.ack' && 'ids' in parsed.data ? parsed.data.ids : undefined;
       const ackMismatch =
-        entry.id === 'inbox.ack' &&
-        'ids' in parsed.data &&
-        resolved.length !== parsed.data.ids.length;
+        ackIds !== undefined &&
+        (resolved.length !== ackIds.length ||
+          resolved.some((target, index) => target.id !== ackIds[index]));
       const targets: readonly ResolvedTarget[] =
         resolved.length === 0
           ? [{ kind: 'missing' }]

@@ -254,13 +254,14 @@ const ack: Mutation<'inbox.ack'> = {
         const row = await trx
           .selectFrom('comment')
           .innerJoin('task', 'task.id', 'comment.task_id')
-          .select(['task.id as taskId', 'task.project', 'task.column'])
+          .select(['comment.id as commentId', 'task.id as taskId', 'task.project', 'task.column'])
           .where('comment.id', '=', id)
           .executeTakeFirst();
         return row === undefined
-          ? { kind: 'missing' as const }
+          ? { kind: 'missing' as const, id: text }
           : {
               kind: 'found' as const,
+              id: `C${String(row.commentId)}`,
               value: {
                 project: row.project,
                 task: { id: row.taskId, column: row.column },
@@ -454,6 +455,50 @@ describe('authorization at the command boundary', () => {
       createApply({ store, clock, config })(partial, { ids: ['C1', 'C2'] }, actors.same, 'K'),
     ).rejects.toMatchObject({ code: 'not_found' });
     expect(runs).toBe(0);
+  });
+
+  it('does not let a duplicate inbox target authorize another requested comment', async () => {
+    const store = await seeded();
+    const duplicate: Mutation<'inbox.ack'> = {
+      ...ack,
+      async resolveTargets(trx, input) {
+        const first = input.ids.at(0);
+        if (first === undefined) throw new Error('Expected a comment ID');
+        const [target] = await ack.resolveTargets(trx, { ids: [first] });
+        if (target === undefined) throw new Error('Expected a resolved target');
+        return input.ids.map(() => target);
+      },
+    };
+    await expect(
+      createApply({ store, clock, config })(duplicate, { ids: ['C1', 'C2'] }, actors.same, 'K'),
+    ).rejects.toMatchObject({ code: 'not_found' });
+    expect(runs).toBe(0);
+    expect(await store.db.selectFrom('comment').select('acked_revision').execute()).toEqual([
+      { acked_revision: null },
+      { acked_revision: null },
+    ]);
+    expect(await store.db.selectFrom('command').selectAll().execute()).toHaveLength(0);
+  });
+
+  it('applies an inbox acknowledgement when the resolved ID matches', async () => {
+    const store = await seeded();
+    const result = await createApply({ store, clock, config })(
+      ack,
+      { ids: ['C1'] },
+      actors.same,
+      'K',
+    );
+    expect(result.acked).toEqual(['C1']);
+    expect(runs).toBe(1);
+    expect(
+      (
+        await store.db
+          .selectFrom('comment')
+          .select('acked_revision')
+          .where('id', '=', 1)
+          .executeTakeFirstOrThrow()
+      ).acked_revision,
+    ).toBe(1);
   });
 
   it('rejects a query or unknown operation ID before the handler runs', async () => {
