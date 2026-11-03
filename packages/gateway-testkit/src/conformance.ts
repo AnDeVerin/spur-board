@@ -629,6 +629,18 @@ const recoverKeys: ConformanceCase = {
         aEdits.filter((k) => ![keyA, keyE1, keyE2].includes(k)),
         'G9: an edit made while stopped is recovered with a key of its own',
       ).not.toEqual([]);
+      // `after` bounds the messages returned, not the edits of earlier ones.
+      const sinceB = await h.recover({
+        conversations: [{ ref: conversation, after: b.message }],
+        since: new Date(0),
+      });
+      expect(
+        ofKind(sinceB, 'message_edited')
+          .filter((e) => e.message === a.message)
+          .map((e) => e.dedupeKey)
+          .filter((k) => ![keyA, keyE1, keyE2].includes(k)),
+        'G10: recover after a later message still yields an earlier message edited while stopped',
+      ).not.toEqual([]);
       const dLiveKey = dLive[0]?.dedupeKey;
       if (dLiveKey !== undefined) {
         expect(

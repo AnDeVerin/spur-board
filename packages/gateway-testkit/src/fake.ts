@@ -512,10 +512,9 @@ export function createFakeGateway(options: FakeGatewayOptions): FakeGateway {
         after === undefined ? 0 : (messages.find((m) => m.message === after)?.seq ?? 0);
       for (const message of messages) {
         const { user } = message;
-        if (message.conversation.ref !== ref || message.seq <= afterSeq || user === undefined) {
-          continue;
-        }
-        if (inRange(user.at)) events.push(userEvent(message, user));
+        if (message.conversation.ref !== ref || user === undefined) continue;
+        // `after` bounds only the message events; edits and deletions of earlier messages count.
+        if (message.seq > afterSeq && inRange(user.at)) events.push(userEvent(message, user));
         // History returns the current state: only the latest edit.
         const latest = user.edits.at(-1);
         if (latest !== undefined && inRange(latest.at)) {

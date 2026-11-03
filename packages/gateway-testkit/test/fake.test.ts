@@ -419,6 +419,31 @@ describe('stop and start', () => {
     expect(recovered[1]?.dedupeKey).toMatch(/:edit:2$/);
   });
 
+  it('slack-like: recover after a message still returns edits and deletions of earlier ones', async () => {
+    const { fake } = await started({ profile: 'slack-like' });
+    const conversation = await openConversation(fake);
+    const a = await fake.platform.inject({ kind: 'message', conversation, author, text: 'a' });
+    const b = await fake.platform.inject({ kind: 'message', conversation, author, text: 'b' });
+    const c = await fake.platform.inject({ kind: 'message', conversation, author, text: 'c' });
+    if (a.message === undefined || b.message === undefined || c.message === undefined) {
+      throw new Error('no message');
+    }
+    await fake.platform.inject({ kind: 'edit', message: a.message, text: 'a1' });
+    await fake.platform.inject({ kind: 'delete', message: b.message });
+    const events: InboundEvent[] = [];
+    for await (const event of fake.recover({
+      conversations: [{ ref: conversation, after: b.message }],
+      since: new Date(0),
+    })) {
+      events.push(inboundEventSchema.parse(event));
+    }
+    expect(events.map((e) => [e.kind, 'message' in e ? e.message : undefined])).toEqual([
+      ['message_edited', a.message],
+      ['message_deleted', b.message],
+      ['message', c.message],
+    ]);
+  });
+
   it('telegram-like: queued events arrive after connection up within the window', async () => {
     const { fake, events } = await started({ profile: 'telegram-like' });
     const conversation = await openConversation(fake);
