@@ -286,16 +286,10 @@ class Lexer {
   }
 }
 
-function lex(text: string, depth: number): string[][] {
-  const segments: string[][] = [];
-  new Lexer(text, segments).commands(depth, false);
-  return segments;
-}
-
 const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
 
-function setsGitConfigEnv(name: string): boolean {
-  return name.split('=')[0]?.startsWith('GIT_CONFIG') ?? false;
+function setsGitConfigEnv(word: string): boolean {
+  return word.startsWith('GIT_CONFIG');
 }
 
 /** Drops leading assignments and wrapper commands; null when one assigns GIT_CONFIG*. */
@@ -312,7 +306,6 @@ function unwrap(argv: string[]): string[] | null {
       while (i < words.length) {
         const w = words[i] ?? '';
         if (w === '-u' || w === '--unset') i += 2;
-        else if (w === '--') i += 1;
         else if (w.startsWith('-')) i += 1;
         else if (ASSIGNMENT.test(w)) {
           if (setsGitConfigEnv(w)) return null;
@@ -495,9 +488,9 @@ function decideCommand(argv: string[], depth: number): Decision {
 }
 
 function decideAt(command: string, depth: number): Decision {
-  let segments: string[][];
+  const segments: string[][] = [];
   try {
-    segments = lex(command, depth);
+    new Lexer(command, segments).commands(depth, false);
   } catch (error) {
     if (error instanceof NestingError) return deny('nesting');
     throw error;

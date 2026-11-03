@@ -17,7 +17,7 @@ export interface RunListItem {
   createdAt: string;
 }
 
-export interface JobStep {
+interface JobStep {
   name: string;
   number: number;
   status: string;
@@ -50,7 +50,7 @@ export interface SummaryInput {
 type State = 'pass' | 'pending' | 'cancelled' | 'failed';
 
 const RANK: Record<State, number> = { pass: 0, pending: 1, cancelled: 2, failed: 3 };
-export const EXIT: Record<State | 'error', number> = {
+const EXIT: Record<State | 'error', number> = {
   pass: 0,
   failed: 1,
   error: 2,
@@ -65,7 +65,7 @@ const LABEL: Record<State | 'error', string> = {
   cancelled: 'CANCELLED',
 };
 
-export function statusLine(code: number): string {
+function statusLine(code: number): string {
   const state = (Object.keys(EXIT) as (keyof typeof EXIT)[]).find((key) => EXIT[key] === code);
   return `CI-STATUS ${state === undefined ? 'ERROR' : LABEL[state]} (exit ${String(code)})`;
 }
@@ -80,7 +80,7 @@ function classify(conclusion: string): 'ok' | 'cancelled' | 'pending' | 'failed'
 }
 
 /** Latest run per workflow (latest createdAt, tie -> higher id) and the older runs it supersedes. */
-export function latestRuns(runs: RunListItem[]): {
+function latestRuns(runs: RunListItem[]): {
   latest: RunListItem[];
   superseded: { run: RunListItem; by: RunListItem }[];
 } {
@@ -98,7 +98,7 @@ export function latestRuns(runs: RunListItem[]): {
 }
 
 /** Failed jobs that count: ci-ok only when no other job failed or was cancelled. */
-export function countedFailures(view: RunView): Job[] {
+function countedFailures(view: RunView): Job[] {
   const failed = view.jobs.filter((job) => classify(job.conclusion) === 'failed');
   const othersBad = view.jobs.some(
     (job) => job.name !== CI_OK && ['failed', 'cancelled'].includes(classify(job.conclusion)),
@@ -110,7 +110,7 @@ export function countedFailures(view: RunView): Job[] {
  * The gh arguments that fetch the logs of a run's counted failed jobs. gh refuses run-wide
  * --log-failed until the run completes, so an unfinished run is read job by job.
  */
-export function logFetches(id: number, view: RunView): string[][] {
+function logFetches(id: number, view: RunView): string[][] {
   const failed = countedFailures(view);
   if (failed.length === 0) return [];
   const run = ['run', 'view', String(id)];
@@ -155,9 +155,9 @@ export function reproFor(job: string, step: string): string {
 }
 
 function runState(view: RunView, counted: Job[]): State {
-  const jobs = view.jobs.map((job) => classify(job.conclusion));
   if (counted.length > 0) return 'failed';
   if (view.status !== 'completed') return 'pending';
+  const jobs = view.jobs.map((job) => classify(job.conclusion));
   const anyCancelled = jobs.includes('cancelled');
   if (!anyCancelled && classify(view.conclusion) === 'failed') return 'failed';
   if (anyCancelled || view.conclusion === 'cancelled') return 'cancelled';
