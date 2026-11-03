@@ -860,11 +860,11 @@ const deliveryFaults: ConformanceCase = {
       return result;
     };
 
-    await h.platform.rateLimitNext(1500);
+    await h.platform.rateLimitNext(2000);
     expect(
       await once('df-rate', 'rate-limited'),
       'G2: a rate limit returns retry {afterMs}',
-    ).toMatchObject({ status: 'retry', afterMs: 1500 });
+    ).toMatchObject({ status: 'retry', afterMs: 2000 });
     expect(await visible(), 'G2: a rate-limited reply posts nothing').toBe(before);
 
     await h.platform.timeoutNext({ visible: false });
