@@ -447,7 +447,9 @@ export const OPERATIONS = [
         .describe('Unblock with a reason.'),
       z
         .strictObject({
-          mode: z.literal('withdraw').describe('The author takes their own question back (needs_input only).'),
+          mode: z
+            .literal('withdraw')
+            .describe('The author takes their own question back (needs_input only).'),
           block: blockIdSchema,
         })
         .describe('Withdraw the block.'),
