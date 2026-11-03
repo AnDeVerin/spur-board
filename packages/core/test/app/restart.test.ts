@@ -2,8 +2,8 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
-  blockIdSchema,
   EVENT_VERSION,
+  configSchema,
   eventPayloadSchemas,
   parseActorId,
   type ActorId,
@@ -15,7 +15,22 @@ import { createApply, openStore, toJson, type Mutation, type Store } from '../..
 import { sampleRows } from '../store/sample-rows.ts';
 
 const NOW = Date.parse('2026-11-03T10:00:00.000Z');
-const clock = { now: () => NOW };
+let now = NOW;
+const clock = { now: () => now };
+const config = configSchema.parse({
+  projects: [
+    {
+      id: 'proj',
+      tracker: { type: 'github-issues', repo: 'o/r', milestone: 'M1' },
+      repos: ['o/r'],
+      operatorGithubLogin: 'operator',
+      spurProjects: [{ name: 'web', role: 'worker' }],
+    },
+  ],
+  operator: { slack: 'operator' },
+  digest: { tz: 'UTC' },
+});
+const actorRefSchema = z.strictObject({ project: z.string().min(1), session: z.string().min(1) });
 
 class Rejected extends Error {
   readonly code: ServerErrorCode;
@@ -25,34 +40,37 @@ class Rejected extends Error {
   }
 }
 
-const actorRefSchema = z.strictObject({
-  project: z.string().min(1),
-  session: z.string().min(1),
-});
-
 let calls = 0;
 let thrown: Rejected | undefined;
-
 function reject(code: ServerErrorCode): Rejected {
   thrown = new Rejected(code);
   return thrown;
 }
 
-const touch: Mutation<
-  z.ZodObject<{ block: typeof blockIdSchema }, z.core.$strict>,
-  { taskId: number; reason: string }
-> = {
-  id: 'test.touch',
-  kind: 'mutation',
-  output: z.strictObject({ block: blockIdSchema }),
+const touch: Mutation<'block.ask'> = {
+  id: 'block.ask',
+  async resolveTargets(trx, input) {
+    const task = await trx
+      .selectFrom('task')
+      .select(['id', 'project', 'column'])
+      .where('key', '=', input.task)
+      .executeTakeFirst();
+    return task === undefined
+      ? [{ kind: 'missing' }]
+      : [
+          {
+            kind: 'found',
+            value: { project: task.project, task, block: null, workers: [] },
+          },
+        ];
+  },
   async run(trx, input, ctx) {
     calls += 1;
     const task = await trx
       .selectFrom('task')
       .select(['id', 'project', 'membership'])
-      .where('id', '=', input.taskId)
-      .executeTakeFirst();
-    if (task === undefined) throw reject('not_found');
+      .where('key', '=', input.task)
+      .executeTakeFirstOrThrow();
     const parsed = parseActorId(ctx.actor);
     if (parsed === null) throw new Error('invalid actor');
     const { id } = await trx
@@ -60,7 +78,7 @@ const touch: Mutation<
       .values({
         task_id: task.id,
         type: 'needs_input',
-        reason: input.reason,
+        reason: input.text,
         author: ctx.actor,
         addressee_role: 'operator',
         target_column: null,
@@ -94,17 +112,45 @@ const touch: Mutation<
       })
       .execute();
     if (task.membership === 'archived') throw reject('task_archived');
-    return { block };
+    return {
+      block: {
+        id: block,
+        task: input.task,
+        type: 'needs_input' as const,
+        state: 'open' as const,
+        author: ctx.actor,
+        addressee: 'operator' as const,
+        reason: input.text,
+        at: ctx.at,
+        outcome: null,
+      },
+    };
+  },
+};
+
+const add: Mutation<'task.add'> = {
+  id: 'task.add',
+  resolveTargets() {
+    return Promise.resolve([]);
+  },
+  run(_trx, input) {
+    calls += 1;
+    return Promise.resolve({
+      task: {
+        key: input.task,
+        project: 'proj',
+        column: 'dev' as const,
+        membership: 'active' as const,
+      },
+    });
   },
 };
 
 const open: Store[] = [];
-
 function track(store: Store): Store {
   open.push(store);
   return store;
 }
-
 async function seededFile(membership: 'active' | 'archived' = 'active'): Promise<string> {
   const file = join(mkdtempSync(join(tmpdir(), 'core-apply-')), 'board.db');
   const store = track(openStore(file));
@@ -116,7 +162,6 @@ async function seededFile(membership: 'active' | 'archived' = 'active'): Promise
   });
   return file;
 }
-
 async function counts(store: Store): Promise<{ block: number; event: number; command: number }> {
   const count = async (table: 'block' | 'event' | 'command') =>
     (await store.db.selectFrom(table).selectAll().execute()).length;
@@ -126,90 +171,163 @@ async function counts(store: Store): Promise<{ block: number; event: number; com
     command: await count('command'),
   };
 }
-
 const agent7: ActorId = 'agent:web/web-7';
 const agent8: ActorId = 'agent:web/web-8';
-const input = { taskId: 1, reason: 'which API?' };
+const input = { task: 'o/r#101', text: 'which API?' };
 
 afterEach(async () => {
   calls = 0;
   thrown = undefined;
+  now = NOW;
   for (const store of open.splice(0)) await store.close();
 });
 
 describe('apply', () => {
   it('returns the stored result after a crash between commit and reply', async () => {
     const file = await seededFile();
-    const first = await createApply({ store: track(openStore(file)), clock })(
+    const first = await createApply({ store: track(openStore(file)), clock, config })(
       touch,
       input,
       agent7,
       'K',
     );
-    // The reply is lost: the first store is abandoned without close(), then the daemon restarts.
     const restarted = track(openStore(file));
-    const retried = await createApply({ store: restarted, clock })(touch, input, agent7, 'K');
-
-    expect(first).toEqual({ block: 'B1' });
+    const retried = await createApply({ store: restarted, clock, config })(
+      touch,
+      input,
+      agent7,
+      'K',
+    );
+    expect(first.block.id).toBe('B1');
     expect(retried).toEqual(first);
     expect(calls).toBe(1);
     expect(await counts(restarted)).toEqual({ block: 1, event: 1, command: 1 });
-    expect(await restarted.db.selectFrom('command').selectAll().execute()).toEqual([
-      {
-        actor: agent7,
-        key: 'K',
-        operation: 'test.touch',
-        fingerprint: null,
-        result: '{"block":"B1"}',
-        at: new Date(NOW).toISOString(),
-      },
+    expect(await restarted.db.selectFrom('command').selectAll().execute()).toMatchObject([
+      { actor: agent7, key: 'K', operation: 'block.ask', result: JSON.stringify(first) },
     ]);
+    expect(
+      (await restarted.db.selectFrom('command').select('fingerprint').executeTakeFirstOrThrow())
+        .fingerprint,
+    ).toMatch(/^[0-9a-f]{64}$/);
   });
 
   it('keeps keys in the actor namespace', async () => {
     const store = track(openStore(await seededFile()));
-    const apply = createApply({ store, clock });
-
-    expect(await apply(touch, input, agent7, 'K')).toEqual({ block: 'B1' });
-    expect(await apply(touch, input, agent8, 'K')).toEqual({ block: 'B2' });
-    expect(await apply(touch, input, agent7, 'K')).toEqual({ block: 'B1' });
-    expect(await apply(touch, input, agent8, 'K')).toEqual({ block: 'B2' });
+    const apply = createApply({ store, clock, config });
+    expect((await apply(touch, input, agent7, 'K')).block.id).toBe('B1');
+    expect((await apply(touch, input, agent8, 'K')).block.id).toBe('B2');
+    expect((await apply(touch, input, agent7, 'K')).block.id).toBe('B1');
     expect(calls).toBe(2);
     expect(await counts(store)).toEqual({ block: 2, event: 2, command: 2 });
   });
 
-  it('stores nothing for a rejected command and evaluates its retry', async () => {
-    const store = track(openStore(await seededFile('archived')));
-    const apply = createApply({ store, clock });
+  it('rejects a changed input or operation under the same key', async () => {
+    const store = track(openStore(await seededFile()));
+    const apply = createApply({ store, clock, config });
+    await apply(touch, input, agent7, 'K');
+    expect(await apply(touch, { text: input.text, task: input.task }, agent7, 'K')).toMatchObject({
+      block: { id: 'B1' },
+    });
+    await expect(
+      apply(touch, { ...input, text: 'another question' }, agent7, 'K'),
+    ).rejects.toMatchObject({ code: 'idempotency_key_mismatch' });
+    await expect(apply(add, { task: input.task }, agent7, 'K')).rejects.toMatchObject({
+      code: 'idempotency_key_mismatch',
+    });
+    expect(calls).toBe(1);
+  });
 
-    const rejection = await apply(touch, input, agent7, 'K').then(
-      () => undefined,
-      (error: unknown) => error,
-    );
+  it('refuses a legacy command whose fingerprint cannot be verified', async () => {
+    const store = track(openStore(await seededFile()));
+    await store.transaction(async (trx) => {
+      await trx
+        .insertInto('command')
+        .values({
+          actor: agent7,
+          key: 'K',
+          operation: 'block.ask',
+          fingerprint: null,
+          result: '{}',
+          at: new Date(NOW).toISOString(),
+        })
+        .execute();
+    });
+    await expect(
+      createApply({ store, clock, config })(touch, input, agent7, 'K'),
+    ).rejects.toMatchObject({ code: 'idempotency_key_mismatch' });
+    expect(calls).toBe(0);
+  });
+
+  it('replays after state changes and retains the first server-side time', async () => {
+    const store = track(openStore(await seededFile()));
+    const apply = createApply({ store, clock, config });
+    const first = await apply(touch, input, agent7, 'K');
+    await store.transaction(async (trx) => {
+      await trx.updateTable('task').set({ membership: 'archived' }).where('id', '=', 1).execute();
+    });
+    now += 60_000;
+    expect(await apply(touch, input, agent7, 'K')).toEqual(first);
+    expect(first.block.at).toBe(new Date(NOW).toISOString());
+    expect(calls).toBe(1);
+    await expect(apply(touch, input, agent7, 'new')).rejects.toMatchObject({
+      code: 'task_archived',
+    });
+  });
+
+  it('stores nothing for a rejected state check and evaluates its retry', async () => {
+    const store = track(openStore(await seededFile('archived')));
+    const apply = createApply({ store, clock, config });
+    const rejection = await apply(touch, input, agent7, 'K').catch((error: unknown) => error);
     expect(rejection).toBeInstanceOf(Rejected);
     expect(rejection).toBe(thrown);
-    expect(rejection).toMatchObject({ code: 'task_archived' });
     expect(await counts(store)).toEqual({ block: 0, event: 0, command: 0 });
-
     await store.transaction(async (trx) => {
       await trx.updateTable('task').set({ membership: 'active' }).where('id', '=', 1).execute();
     });
-    expect(await apply(touch, input, agent7, 'K')).toEqual({ block: 'B1' });
+    expect((await apply(touch, input, agent7, 'K')).block.id).toBe('B1');
     expect(calls).toBe(2);
-    expect(await counts(store)).toEqual({ block: 1, event: 1, command: 1 });
+  });
+
+  it('requires an agent key and applies an operator mutation without one', async () => {
+    const store = track(openStore(await seededFile()));
+    const apply = createApply({ store, clock, config });
+    await expect(apply(touch, input, agent7)).rejects.toMatchObject({ code: 'usage' });
+    await expect(apply(touch, input, agent7, '')).rejects.toMatchObject({ code: 'usage' });
+    expect(calls).toBe(0);
+    const result = await apply(add, { task: 'o/r#102' }, 'operator');
+    expect(result.task.key).toBe('o/r#102');
+    expect(calls).toBe(1);
+    expect((await store.db.selectFrom('command').selectAll().execute()).length).toBe(1);
   });
 
   it('applies two concurrent calls with the same key once', async () => {
     const store = track(openStore(await seededFile()));
-    const apply = createApply({ store, clock });
-
+    const apply = createApply({ store, clock, config });
     const [a, b] = await Promise.all([
       apply(touch, input, agent7, 'K'),
       apply(touch, input, agent7, 'K'),
     ]);
-    expect(a).toEqual({ block: 'B1' });
-    expect(b).toEqual(a);
+    expect(a).toEqual(b);
     expect(calls).toBe(1);
     expect(await counts(store)).toEqual({ block: 1, event: 1, command: 1 });
+  });
+
+  it('uses the first result when a replay crosses a process restart', async () => {
+    const file = await seededFile();
+    const first = await createApply({ store: track(openStore(file)), clock, config })(
+      touch,
+      input,
+      agent7,
+      'K',
+    );
+    now += 120_000;
+    const replayed = await createApply({ store: track(openStore(file)), clock, config })(
+      touch,
+      input,
+      agent7,
+      'K',
+    );
+    expect(replayed.block.at).toBe(first.block.at);
+    expect(calls).toBe(1);
   });
 });
