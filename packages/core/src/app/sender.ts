@@ -343,7 +343,11 @@ export function createSender(options: SenderOptions): Sender {
     for (const c of claims) {
       await trx
         .updateTable('outbox')
-        .set((eb) => ({ state: 'in_flight', attempts: eb('attempts', '+', 1) }))
+        .set((eb) => ({
+          state: 'in_flight',
+          attempts: eb('attempts', '+', 1),
+          attempt_started: 0,
+        }))
         .where('id', '=', c.id)
         .execute();
     }
@@ -370,6 +374,7 @@ export function createSender(options: SenderOptions): Sender {
       .set((eb) => ({
         first_attempt_at: eb.fn.coalesce('first_attempt_at', eb.val(sentAtIso)),
         first_delivery_at: firstDeliveryAt,
+        attempt_started: 1,
       }))
       .where('id', '=', c.id)
       .execute();
@@ -596,8 +601,15 @@ export function createSender(options: SenderOptions): Sender {
           .execute();
         await trx
           .updateTable('outbox')
+          .set((eb) => ({ state: 'pending', attempts: eb('attempts', '-', 1) }))
+          .where('state', '=', 'in_flight')
+          .where('attempt_started', '=', 0)
+          .execute();
+        await trx
+          .updateTable('outbox')
           .set({ state: 'pending', uncertain: 1, next_at: nowIso })
           .where('state', '=', 'in_flight')
+          .where('attempt_started', '=', 1)
           .execute();
         await trx
           .updateTable('outbox')

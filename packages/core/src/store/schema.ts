@@ -206,6 +206,8 @@ export interface OutboxTable {
   first_attempt_at: string | null;
   /** Earliest possible delivery of this key; never reset after an uncertain send. */
   first_delivery_at: string | null;
+  /** Whether the current claimed attempt reached the send-start transaction. */
+  attempt_started: Generated<Flag>;
 }
 
 /** A gateway conversation, keyed by `(gateway, ref)`. A block may have several. */

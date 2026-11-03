@@ -584,6 +584,79 @@ async function restart(ctx: Ctx, spaceIntervalMs?: number): Promise<Ctx> {
 }
 
 describe('tick', () => {
+  async function crashAfterClaim(ctx: Ctx): Promise<void> {
+    let transactions = 0;
+    const store: Store = {
+      ...ctx.store,
+      transaction(fn) {
+        transactions += 1;
+        if (transactions === 2) {
+          return ctx.store.close().then(() => Promise.reject(new Error('crash before send start')));
+        }
+        return ctx.store.transaction(fn);
+      },
+    };
+    const sender = createSender({
+      store,
+      gateway: ctx.observed.gateway,
+      spur: ctx.spur.spur,
+      now: () => ctx.fake.platform.now(),
+      spaceIntervalMs: 0,
+    });
+    await expect(sender.tick()).rejects.toThrow('crash before send start');
+  }
+
+  it('restores never-started crash claims so stale opens and pre-send edits cancel', async () => {
+    const ctx = setup('slack-like', 0);
+    const seed = await seedBlock(ctx);
+    const openId = await enqueueOpen(ctx, seed);
+    const feedId = await feedLine(ctx, seed.key, 'crash-feed');
+    await crashAfterClaim(ctx);
+    const restarted = await restart(ctx, 0);
+    for (const id of [openId, feedId]) {
+      expect(await outboxRow(restarted, id)).toMatchObject({
+        state: 'pending',
+        uncertain: 0,
+        attempts: 0,
+        attempt_started: 0,
+      });
+    }
+    await unblock(restarted, seed);
+    const editId = await feedEdit(restarted, seed.key, 'crash-feed', feedId);
+    await restarted.sender.tick();
+    for (const id of [openId, feedId, editId]) {
+      expect(await outboxRow(restarted, id)).toMatchObject({
+        state: 'dead',
+        last_error: 'superseded',
+      });
+    }
+    expect(ctx.observed.requests).toHaveLength(0);
+  });
+
+  it('keeps a prior uncertain claim unchanged if it crashes before start', async () => {
+    const ctx = setup('slack-like', 0);
+    const id = await feedLine(ctx, 'o/r#46', 'uncertain-crash');
+    const at = ctx.fake.platform.now().toISOString();
+    await ctx.store.transaction((trx) =>
+      trx
+        .updateTable('outbox')
+        .set({ uncertain: 1, attempts: 2, first_attempt_at: at, first_delivery_at: at })
+        .where('id', '=', id)
+        .execute(),
+    );
+    await crashAfterClaim(ctx);
+    const restarted = await restart(ctx, 0);
+    expect(await outboxRow(restarted, id)).toMatchObject({
+      state: 'pending',
+      uncertain: 1,
+      attempts: 2,
+      attempt_started: 0,
+      first_attempt_at: at,
+      first_delivery_at: at,
+      next_at: at,
+    });
+  });
+
   it('requeues an unstarted lane so a pre-send edit still cancels it after restart', async () => {
     const ctx = setup('slack-like', 0);
     const openId = await enqueueOpen(ctx, await seedBlock(ctx));
