@@ -76,15 +76,25 @@ export function renderText(body: RichText): string {
     .join('\n\n');
 }
 
-/** Prefer a paragraph or word boundary, then cut a single oversize run if necessary. */
-export function splitText(text: string, max = MAX_PART_TEXT): string[] {
+/** Prefer a paragraph or word boundary; never cut a Slack entity or angle-bracket token. */
+export function splitText(text: string, max = MAX_PART_TEXT): string[] | null {
   if (text.length === 0) return [];
   const parts: string[] = [];
   let remaining = text;
   while (remaining.length > max) {
     const paragraph = remaining.lastIndexOf('\n\n', max);
     const space = remaining.lastIndexOf(' ', max);
-    const cut = paragraph > max / 3 ? paragraph + 2 : space > max / 3 ? space + 1 : max;
+    let cut = paragraph > max / 3 ? paragraph + 2 : space > max / 3 ? space + 1 : max;
+    const token = /&(?:amp|lt|gt);|<[^>]*>/g;
+    for (const match of remaining.matchAll(token)) {
+      const start = match.index;
+      const end = start + match[0].length;
+      if (start < cut && cut < end) {
+        cut = start;
+        break;
+      }
+    }
+    if (cut === 0 || remaining.slice(0, cut).trimEnd().length === 0) return null;
     parts.push(remaining.slice(0, cut).trimEnd());
     remaining = remaining.slice(cut).trimStart();
   }

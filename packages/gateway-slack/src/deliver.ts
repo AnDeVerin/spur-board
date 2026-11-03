@@ -164,6 +164,7 @@ export function createDeliveryGateway(client: WebClient, channels: SlackChannels
   async function deliver(request: DeliverRequest): Promise<DeliveryResult> {
     const text = renderText(request.body);
     const parts = splitText(text);
+    if (parts === null) return failedMessage('part_too_long');
     if (parts.length === 0) return failedMessage('no_text');
     if ((request.actions?.length ?? 0) > 25) return failedMessage('too_many_actions');
     const keys = parts.map((_, i) =>

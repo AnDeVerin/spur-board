@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { DeliverRequest, RichText } from '@spur-board/contracts';
 import { createApi } from '../src/api.ts';
 import { createSlackGateway } from '../src/index.ts';
-import { MAX_PART_TEXT, markerFromBlocks } from '../src/render.ts';
+import { MAX_PART_TEXT, markerFromBlocks, renderText, splitText } from '../src/render.ts';
 import { startFakeSlackApi, type FakeSlackApi } from './fake-api.ts';
 
 const fakes: FakeSlackApi[] = [];
@@ -272,6 +272,29 @@ describe('marker search and steps', () => {
 });
 
 describe('rendering and surface', () => {
+  it('splits long mrkdwn without cutting entities or links', () => {
+    const link = '<https://example.com|open>';
+    const encoded = renderText(body(`${'x'.repeat(MAX_PART_TEXT - 2)}<${'y'.repeat(30)}`));
+    const entityParts = splitText(encoded);
+    expect(entityParts).not.toBeNull();
+    expect(entityParts?.join('')).toBe(encoded);
+    expect(entityParts?.every((part) => part.length > 0 && part.length <= MAX_PART_TEXT)).toBe(
+      true,
+    );
+    expect(entityParts?.some((part) => part.includes('&lt;'))).toBe(true);
+    const linkParts = splitText(`${'x'.repeat(MAX_PART_TEXT - 8)}${link}${'z'.repeat(30)}`);
+    expect(linkParts?.join('')).toBe(`${'x'.repeat(MAX_PART_TEXT - 8)}${link}${'z'.repeat(30)}`);
+    expect(linkParts?.some((part) => part.includes(link))).toBe(true);
+    expect(linkParts?.every((part) => part.length > 0 && part.length <= MAX_PART_TEXT)).toBe(true);
+  });
+
+  it('splits a long unbroken input into nonempty sections', () => {
+    const text = 'x'.repeat(MAX_PART_TEXT * 2 + 17);
+    const parts = splitText(text);
+    expect(parts?.join('')).toBe(text);
+    expect(parts?.every((part) => part.length > 0 && part.length <= MAX_PART_TEXT)).toBe(true);
+  });
+
   it.each([
     ['orchestrator', ':compass:'],
     ['worker', ':hammer:'],

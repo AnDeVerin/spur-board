@@ -5,6 +5,7 @@ import type { Module, ModuleContext } from './lifecycle.ts';
 import { createSpurPort } from './spur-port.ts';
 
 const TICK_MS = 1000;
+const CHANNEL_ID = /^[CG][A-Z0-9]{8,}$/;
 
 export interface SlackSettings {
   token: string;
@@ -30,6 +31,10 @@ export function slackSettings(
   if (!token) throw new ConfigError('SLACK_BOT_TOKEN is required for Slack delivery');
   if (!orchestrators) throw new ConfigError('slack.channels.orchestrators is required');
   if (!feed) throw new ConfigError('slack.channels.feed is required');
+  if (!CHANNEL_ID.test(orchestrators))
+    throw new ConfigError('slack.channels.orchestrators must be a Slack channel ID');
+  if (!CHANNEL_ID.test(feed))
+    throw new ConfigError('slack.channels.feed must be a Slack channel ID');
   if (apiUrl !== undefined) {
     let url: URL;
     try {
@@ -53,13 +58,20 @@ export function createOutboxModule(ctx: ModuleContext<Store>, gateway: Gateway):
   });
   let timer: ReturnType<typeof setInterval> | undefined;
   let active: Promise<void> = Promise.resolve();
+  let running = false;
   let stopped = false;
   let signal: AbortSignal | undefined;
   const tick = (): void => {
-    if (stopped || signal?.aborted) return;
-    active = sender.tick().catch((err: unknown) => {
-      ctx.log.error({ err }, 'outbox tick failed');
-    });
+    if (stopped || running || signal?.aborted) return;
+    running = true;
+    active = sender
+      .tick()
+      .catch((err: unknown) => {
+        ctx.log.error({ err }, 'outbox tick failed');
+      })
+      .finally(() => {
+        running = false;
+      });
   };
   return {
     async start(startSignal) {

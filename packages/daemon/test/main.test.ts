@@ -10,7 +10,7 @@ import { makeHome, VALID_CONFIG_YAML } from './home.ts';
 
 afterEach(killDaemons);
 
-const SLACK_CONFIG = `${VALID_CONFIG_YAML}slack:\n  channels:\n    orchestrators: C_ORCHESTRATORS\n    feed: C_FEED\n`;
+const SLACK_CONFIG = `${VALID_CONFIG_YAML}slack:\n  channels:\n    orchestrators: C000000001\n    feed: C000000002\n`;
 
 async function queuedHome(apiUrl: string): Promise<string> {
   const home = makeHome({
@@ -101,6 +101,21 @@ describe('daemon process', () => {
     expect(result.stderr).toContain('slack.channels.orchestrators');
     expect(existsSync(join(home, 'board.sqlite'))).toBe(false);
   }, 30_000);
+
+  it.each(['general', 'C_FEED', 'D000000001'])(
+    'rejects invalid Slack channel ID %s before opening the database',
+    (channel) => {
+      const home = makeHome({
+        config: `${VALID_CONFIG_YAML}slack:\n  channels:\n    orchestrators: C000000001\n    feed: ${channel}\n`,
+        secrets: 'SLACK_BOT_TOKEN=xoxb-test\n',
+      });
+      const result = runDaemonToExit(home);
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain('slack.channels.feed');
+      expect(existsSync(join(home, 'board.sqlite'))).toBe(false);
+    },
+    30_000,
+  );
 
   it('delivers a queued outbox row through the configured Slack API', async () => {
     const api = await startFakeSlackApi();
