@@ -25,17 +25,25 @@ const INDEXES: Record<string, { table: string; columns: string[]; partialUnique:
   event_task_id: { table: 'event', columns: ['task_id', 'id'], partialUnique: false },
   event_at: { table: 'event', columns: ['at'], partialUnique: false },
   outbox_state_next_at: { table: 'outbox', columns: ['state', 'next_at'], partialUnique: false },
+  outbox_parent_outbox_id: {
+    table: 'outbox',
+    columns: ['parent_outbox_id'],
+    partialUnique: false,
+  },
 };
 
 const real = readMigrations(migrationsDir);
+// The synthetic migrations follow the real chain, so their versions move with it.
+const latest = real.length;
+const prefix = (version: number): string => String(version).padStart(4, '0');
 const probe: Migration = {
-  version: 2,
-  name: '0002_probe',
+  version: latest + 1,
+  name: `${prefix(latest + 1)}_probe`,
   sql: 'ALTER TABLE task ADD COLUMN probe TEXT; CREATE TABLE probe (id INTEGER PRIMARY KEY) STRICT;',
 };
 const failing: Migration = {
-  version: 3,
-  name: '0003_failing',
+  version: latest + 2,
+  name: `${prefix(latest + 2)}_failing`,
   sql: 'CREATE TABLE half (x INTEGER) STRICT; INSERT INTO no_such_table VALUES (1);',
 };
 
@@ -77,6 +85,21 @@ function expectSampleRows(raw: Database.Database, extra: Record<string, object> 
   }
 }
 
+/** Inserts `row` with raw SQL, for rows in the shape of an older schema. */
+function insertRaw(raw: Database.Database, table: string, row: Record<string, unknown>): void {
+  const columns = Object.keys(row);
+  raw
+    .prepare(
+      `INSERT INTO "${table}" (${columns.map((c) => `"${c}"`).join(', ')}) VALUES (${columns.map(() => '?').join(', ')})`,
+    )
+    .run(...Object.values(row));
+}
+
+/** `row` without the columns a later migration added. */
+function without(row: object, columns: string[]): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(row).filter(([name]) => !columns.includes(name)));
+}
+
 function backups(dir: string): string[] {
   return readdirSync(dir).filter((name) => name.endsWith('.bak'));
 }
@@ -111,8 +134,13 @@ describe('migrate', () => {
       expect(listed, name).toEqual([{ unique: flag, partial: flag }]);
     }
     expect(raw.pragma('foreign_key_check')).toEqual([]);
-    expect(userVersion(raw)).toBe(real.length);
-    expect(store.migration).toEqual({ from: 0, to: 1, applied: ['0001_init'], backup: null });
+    expect(userVersion(raw)).toBe(latest);
+    expect(store.migration).toEqual({
+      from: 0,
+      to: latest,
+      applied: real.map((migration) => migration.name),
+      backup: null,
+    });
     expect(backups(dir)).toEqual([]);
   });
 
@@ -124,16 +152,16 @@ describe('migrate', () => {
 
     const result = migrate(raw, [...real, probe]);
 
-    expect(result.applied).toEqual(['0002_probe']);
-    expect(result).toMatchObject({ from: 1, to: 2 });
-    expect(userVersion(raw)).toBe(2);
+    expect(result.applied).toEqual([probe.name]);
+    expect(result).toMatchObject({ from: latest, to: probe.version });
+    expect(userVersion(raw)).toBe(probe.version);
     expectSampleRows(raw, { task: { probe: null } });
     expect(tables(raw)).toContain('probe');
     expect(result.backup).not.toBeNull();
     expect(backups(dir)).toHaveLength(1);
     const backup = new Database(result.backup ?? '', { readonly: true });
     cleanup.push(() => backup.close());
-    expect(userVersion(backup)).toBe(1);
+    expect(userVersion(backup)).toBe(latest);
     expectSampleRows(backup);
   });
 
@@ -143,9 +171,11 @@ describe('migrate', () => {
     migrate(raw, real);
     await insertSampleRows(db);
 
-    expect(() => migrate(raw, [...real, probe, failing])).toThrow(/0003.*v1/);
+    expect(() => migrate(raw, [...real, probe, failing])).toThrow(
+      new RegExp(`${failing.name}.*v${String(latest)}`),
+    );
 
-    expect(userVersion(raw)).toBe(1);
+    expect(userVersion(raw)).toBe(latest);
     expect(tables(raw)).not.toContain('probe');
     expect(tables(raw)).not.toContain('half');
     expectSampleRows(raw);
@@ -162,7 +192,7 @@ describe('migrate', () => {
     const before = readdirSync(dir).sort();
 
     const second = openStore(file);
-    expect(second.migration).toEqual({ from: 1, to: 1, applied: [], backup: null });
+    expect(second.migration).toEqual({ from: latest, to: latest, applied: [], backup: null });
     for (const table of tableNames) {
       expect(await second.db.selectFrom(table).selectAll().execute()).toEqual([sampleRows[table]]);
     }
@@ -170,6 +200,29 @@ describe('migrate', () => {
 
     expect(readdirSync(dir).sort()).toEqual(before);
     expect(backups(dir)).toEqual([]);
+  });
+
+  it('keeps v1 outbox and comment rows with empty delivery columns', () => {
+    const dir = tempDir();
+    const { raw } = rawDb(join(dir, 'board.db'));
+    const delivery = real.findIndex((migration) => migration.name === '0002_delivery');
+    migrate(raw, real.slice(0, delivery));
+    const comment = without(sampleRows.comment, ['delivery_state']);
+    const outbox = without(sampleRows.outbox, ['parent_outbox_id', 'first_attempt_at']);
+    insertRaw(raw, 'task', sampleRows.task);
+    insertRaw(raw, 'block', sampleRows.block);
+    insertRaw(raw, 'comment', comment);
+    insertRaw(raw, 'outbox', outbox);
+
+    migrate(raw, real);
+
+    expect(rows(raw, 'comment')).toEqual([{ ...comment, delivery_state: null }]);
+    expect(rows(raw, 'outbox')).toEqual([
+      { ...outbox, parent_outbox_id: null, first_attempt_at: null },
+    ]);
+    expect(rows(raw, 'conversation')).toEqual([]);
+    expect(rows(raw, 'transport_health')).toEqual([]);
+    expect(raw.pragma('foreign_key_check')).toEqual([]);
   });
 
   it('refuses a database newer than the code', () => {
@@ -223,6 +276,7 @@ describe('migration pins', () => {
   // and its pin instead. Changing the pin of an existing file is a review blocker.
   const PINS: Record<string, string> = {
     '0001_init.sql': 'b92894c23ff9a04e97e034ff9b2787f7be48660538dd861119e570ce1ab86f10',
+    '0002_delivery.sql': '59e0afcf752c897c815927f7a28a7276a8ee431d581474a6a4d0e63480023de2',
   };
 
   interface MigrationFile {
