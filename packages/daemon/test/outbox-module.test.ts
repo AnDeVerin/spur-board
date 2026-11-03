@@ -63,12 +63,16 @@ describe('outbox scheduler', () => {
         .execute();
     });
     const loaded = loadConfig(resolvePaths({ BOARD_HOME: home }, home));
+    const loggedCalls: string[] = [];
     const ctx: ModuleContext<Store> = {
       ...loaded,
       store,
       log: pino({ level: 'silent' }),
       clock: { now: () => Date.now() },
-      logCall: (_call, fn) => fn(),
+      logCall: (call, fn) => {
+        loggedCalls.push(call);
+        return fn();
+      },
       state: () => 'ready',
     };
     const gateway = createSlackGateway({
@@ -82,10 +86,12 @@ describe('outbox scheduler', () => {
       await module.start(controller.signal);
       await hold.entered;
       await sleep(2200);
+      expect(loggedCalls).toEqual(['outbox.tick']);
       controller.abort();
       const stopping = module.stop();
       hold.release();
       await stopping;
+      expect(loggedCalls).toEqual(['outbox.tick']);
       expect(transactions).toBe(5); // recovery, claim, send stamp, result, skipped-claim requeue
       const skipped = await base.db
         .selectFrom('outbox')

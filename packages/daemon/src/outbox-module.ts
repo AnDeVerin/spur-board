@@ -5,6 +5,7 @@ import type { Module, ModuleContext } from './lifecycle.ts';
 import { createSpurPort } from './spur-port.ts';
 
 const TICK_MS = 1000;
+const TICK_JITTER_MS = 100;
 // Leave time to record a timed-out request before the daemon's 10-second shutdown deadline.
 const DELIVERY_REQUEST_TIMEOUT_MS = 8_000;
 const CHANNEL_ID = /^[CG][A-Z0-9]{8,}$/;
@@ -58,27 +59,36 @@ export function slackSettings(
 
 /** Own the timer and wait for the last queued sender tick before the store closes. */
 export function createOutboxModule(ctx: ModuleContext<Store>, gateway: Gateway): Module {
+  const spur = createSpurPort();
   const sender = createSender({
     store: ctx.store,
     gateway,
-    spur: createSpurPort(),
+    spur: { send: (session, text) => ctx.logCall('spur.send', () => spur.send(session, text)) },
     now: () => new Date(ctx.clock.now()),
   });
-  let timer: ReturnType<typeof setInterval> | undefined;
+  let timer: ReturnType<typeof setTimeout> | undefined;
   let active: Promise<void> = Promise.resolve();
-  let running = false;
   let stopped = false;
   let signal: AbortSignal | undefined;
+  const schedule = (): void => {
+    if (stopped || signal?.aborted) return;
+    timer = setTimeout(
+      () => {
+        timer = undefined;
+        tick();
+      },
+      TICK_MS + Math.floor(Math.random() * TICK_JITTER_MS),
+    );
+  };
   const tick = (): void => {
-    if (stopped || running || signal?.aborted) return;
-    running = true;
-    active = sender
-      .tick(signal)
+    if (stopped || signal?.aborted) return;
+    active = ctx
+      .logCall('outbox.tick', () => sender.tick(signal))
       .catch((err: unknown) => {
         ctx.log.error({ err }, 'outbox tick failed');
       })
       .finally(() => {
-        running = false;
+        schedule();
       });
   };
   return {
@@ -87,11 +97,10 @@ export function createOutboxModule(ctx: ModuleContext<Store>, gateway: Gateway):
       await sender.recover();
       if (signal.aborted) return;
       tick();
-      timer = setInterval(tick, TICK_MS);
     },
     async stop() {
       stopped = true;
-      if (timer !== undefined) clearInterval(timer);
+      if (timer !== undefined) clearTimeout(timer);
       await active;
     },
   };
