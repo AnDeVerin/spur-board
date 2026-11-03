@@ -51,6 +51,11 @@ export {
 export {
   EXIT_CODES,
   ERRORS,
+  errorContextSchema,
+  errorDetailSchema,
+  errorEnvelopeSchema,
+  recoverySchema,
+  successEnvelopeSchema,
   err,
   ok,
   type ErrorCode,
@@ -58,6 +63,14 @@ export {
   type Result,
   type ServerErrorCode,
 } from './errors.ts';
+export {
+  errorInputSchema,
+  renderHttpProblem,
+  renderJsonError,
+  renderMcpError,
+  renderStderrError,
+  type ErrorInput,
+} from './error-renderers.ts';
 export {
   REF_KINDS,
   actorIdSchema,

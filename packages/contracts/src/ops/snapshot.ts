@@ -11,7 +11,12 @@ export function catalogSnapshotBody(operations: readonly Operation[]) {
   return {
     grants: GRANTS,
     exitCodes: EXIT_CODES,
-    errors: ERRORS,
+    errors: Object.fromEntries(
+      Object.entries(ERRORS).map(([code, spec]) => [
+        code,
+        { ...spec, context: z.toJSONSchema(spec.context, { io: 'output' }) },
+      ]),
+    ),
     operations: operations.map((op) => {
       z.toJSONSchema(op.input, { io: 'output' });
       return {

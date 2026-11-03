@@ -1,5 +1,5 @@
 {
-  "version": "da23147f72095bb1b7cc2eb74af30a44a9b62a24ed8d502879ae3c09ee5be273",
+  "version": "018936e730b944b16cd5ff36de15ad457ebac8d2b4a65233e0565355fd10a6e2",
   "grants": [
     "operator",
     "project-agent",
@@ -21,79 +21,423 @@
       "status": 400,
       "exit": 2,
       "message": "The input does not match the operation schema.",
-      "hint": "Run `board schema` to see the expected input and fix the arguments."
+      "hint": "Run `board schema` to see the expected input and fix the arguments.",
+      "recovery": {
+        "action": "Fix the arguments using `board schema`.",
+        "sideEffects": "none",
+        "maxRetries": 0,
+        "retryTiming": "After fixing the cause."
+      },
+      "docs": "#usage",
+      "context": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "clientVersion": { "type": "string" },
+          "serverVersion": { "type": "string" },
+          "configPath": { "type": "string" },
+          "environmentVariable": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+          "causeLabel": {
+            "type": "string",
+            "enum": ["storage_unavailable", "transport_unavailable", "internal_failure"]
+          }
+        },
+        "additionalProperties": false
+      }
     },
     "wrong_id_kind": {
       "status": 400,
       "exit": 2,
       "message": "The ID is valid but names a different kind of object.",
-      "hint": "Pass the ID kind the operation expects, e.g. B<n> for a block or a task key for a task."
+      "hint": "Pass the ID kind the operation expects, e.g. B<n> for a block or a task key for a task.",
+      "recovery": {
+        "action": "Use an allowed role or ask the operator for access.",
+        "sideEffects": "none",
+        "maxRetries": 0,
+        "retryTiming": "After fixing the cause."
+      },
+      "docs": "#wrong_id_kind",
+      "context": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "clientVersion": { "type": "string" },
+          "serverVersion": { "type": "string" },
+          "configPath": { "type": "string" },
+          "environmentVariable": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+          "causeLabel": {
+            "type": "string",
+            "enum": ["storage_unavailable", "transport_unavailable", "internal_failure"]
+          }
+        },
+        "additionalProperties": false
+      }
     },
     "forbidden": {
       "status": 403,
       "exit": 1,
       "message": "The caller is not allowed to run this operation on this object.",
-      "hint": "Check which role may run the operation in `board schema`, or ask the operator."
+      "hint": "Check which role may run the operation in `board schema`, or ask the operator.",
+      "recovery": {
+        "action": "Check the ID and locate the object.",
+        "sideEffects": "none",
+        "maxRetries": 0,
+        "retryTiming": "After fixing the cause."
+      },
+      "docs": "#forbidden",
+      "context": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "clientVersion": { "type": "string" },
+          "serverVersion": { "type": "string" },
+          "configPath": { "type": "string" },
+          "environmentVariable": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+          "causeLabel": {
+            "type": "string",
+            "enum": ["storage_unavailable", "transport_unavailable", "internal_failure"]
+          }
+        },
+        "additionalProperties": false
+      }
     },
     "not_found": {
       "status": 404,
       "exit": 1,
       "message": "The project, task, block, comment or item does not exist.",
-      "hint": "Check the ID with `board status` or `board task <KEY>`."
+      "hint": "Check the ID with `board status` or `board task <KEY>`.",
+      "recovery": {
+        "action": "Read the current blocks before choosing another action.",
+        "sideEffects": "none",
+        "maxRetries": 0,
+        "retryTiming": "After fixing the cause."
+      },
+      "docs": "#not_found",
+      "context": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "clientVersion": { "type": "string" },
+          "serverVersion": { "type": "string" },
+          "configPath": { "type": "string" },
+          "environmentVariable": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+          "causeLabel": {
+            "type": "string",
+            "enum": ["storage_unavailable", "transport_unavailable", "internal_failure"]
+          }
+        },
+        "additionalProperties": false
+      }
     },
     "block_not_open": {
       "status": 409,
       "exit": 1,
       "message": "The block is already unblocked.",
-      "hint": "Read the task with `board task <KEY>` to see the current blocks."
+      "hint": "Read the task with `board task <KEY>` to see the current blocks.",
+      "recovery": {
+        "action": "Use the operation for the current block type.",
+        "sideEffects": "none",
+        "maxRetries": 0,
+        "retryTiming": "After fixing the cause."
+      },
+      "docs": "#block_not_open",
+      "context": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "clientVersion": { "type": "string" },
+          "serverVersion": { "type": "string" },
+          "configPath": { "type": "string" },
+          "environmentVariable": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+          "causeLabel": {
+            "type": "string",
+            "enum": ["storage_unavailable", "transport_unavailable", "internal_failure"]
+          }
+        },
+        "additionalProperties": false
+      }
     },
     "wrong_block_type": {
       "status": 409,
       "exit": 1,
       "message": "The operation does not apply to this type of block.",
-      "hint": "Read the block type with `board task <KEY>` and use the operation for that type."
+      "hint": "Read the block type with `board task <KEY>` and use the operation for that type.",
+      "recovery": {
+        "action": "Add the task to the board again if work continues.",
+        "sideEffects": "none",
+        "maxRetries": 0,
+        "retryTiming": "After fixing the cause."
+      },
+      "docs": "#wrong_block_type",
+      "context": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "clientVersion": { "type": "string" },
+          "serverVersion": { "type": "string" },
+          "configPath": { "type": "string" },
+          "environmentVariable": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+          "causeLabel": {
+            "type": "string",
+            "enum": ["storage_unavailable", "transport_unavailable", "internal_failure"]
+          }
+        },
+        "additionalProperties": false
+      }
     },
     "task_archived": {
       "status": 409,
       "exit": 1,
       "message": "The task is archived, so it cannot change.",
-      "hint": "Add the task to the board again with `board task add <KEY>` if work goes on."
+      "hint": "Add the task to the board again with `board task add <KEY>` if work goes on.",
+      "recovery": {
+        "action": "Read the item and close it if no retry is needed.",
+        "sideEffects": "none",
+        "maxRetries": 0,
+        "retryTiming": "After fixing the cause."
+      },
+      "docs": "#task_archived",
+      "context": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "clientVersion": { "type": "string" },
+          "serverVersion": { "type": "string" },
+          "configPath": { "type": "string" },
+          "environmentVariable": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+          "causeLabel": {
+            "type": "string",
+            "enum": ["storage_unavailable", "transport_unavailable", "internal_failure"]
+          }
+        },
+        "additionalProperties": false
+      }
     },
     "retry_not_applicable": {
       "status": 409,
       "exit": 1,
       "message": "The item is not in a state that can be retried.",
-      "hint": "Read the item with `board task <KEY>`; close it if it needs no retry."
+      "hint": "Read the item with `board task <KEY>`; close it if it needs no retry.",
+      "recovery": {
+        "action": "Use a new key for new input or repeat the original input.",
+        "sideEffects": "none",
+        "maxRetries": 0,
+        "retryTiming": "After fixing the cause."
+      },
+      "docs": "#retry_not_applicable",
+      "context": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "clientVersion": { "type": "string" },
+          "serverVersion": { "type": "string" },
+          "configPath": { "type": "string" },
+          "environmentVariable": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+          "causeLabel": {
+            "type": "string",
+            "enum": ["storage_unavailable", "transport_unavailable", "internal_failure"]
+          }
+        },
+        "additionalProperties": false
+      }
     },
     "idempotency_key_mismatch": {
       "status": 409,
       "exit": 1,
       "message": "The idempotency key was already used with a different input.",
-      "hint": "Use a new key for a new command, or repeat the earlier input with the same key."
+      "hint": "Use a new key for a new command, or repeat the earlier input with the same key.",
+      "recovery": {
+        "action": "Restore caller identity, then run the command again.",
+        "sideEffects": "none",
+        "maxRetries": 0,
+        "retryTiming": "After fixing the cause."
+      },
+      "docs": "#idempotency_key_mismatch",
+      "context": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "clientVersion": { "type": "string" },
+          "serverVersion": { "type": "string" },
+          "configPath": { "type": "string" },
+          "environmentVariable": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+          "causeLabel": {
+            "type": "string",
+            "enum": ["storage_unavailable", "transport_unavailable", "internal_failure"]
+          }
+        },
+        "additionalProperties": false
+      }
     },
     "identity_unavailable": {
       "status": 503,
       "exit": 3,
       "message": "The daemon cannot tell who the caller is right now.",
-      "hint": "Retry shortly; run the command from inside a spur session or as the operator."
+      "hint": "Retry shortly; run the command from inside a spur session or as the operator.",
+      "recovery": {
+        "action": "Start the daemon, then retry the command.",
+        "sideEffects": "none",
+        "maxRetries": 3,
+        "retryTiming": "After a short delay."
+      },
+      "docs": "#identity_unavailable",
+      "context": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "clientVersion": { "type": "string" },
+          "serverVersion": { "type": "string" },
+          "configPath": { "type": "string" },
+          "environmentVariable": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+          "causeLabel": {
+            "type": "string",
+            "enum": ["storage_unavailable", "transport_unavailable", "internal_failure"]
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "version_mismatch": {
+      "status": 409,
+      "exit": 3,
+      "message": "The client and daemon catalog versions do not match; nothing was applied.",
+      "hint": "Run `board service restart` to update the daemon, then retry.",
+      "recovery": {
+        "action": "Run `board service restart`, then retry the command.",
+        "sideEffects": "none",
+        "maxRetries": 0,
+        "retryTiming": "After fixing the cause."
+      },
+      "docs": "#version_mismatch",
+      "context": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "clientVersion": { "type": "string" },
+          "serverVersion": { "type": "string" },
+          "configPath": { "type": "string" },
+          "environmentVariable": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+          "causeLabel": {
+            "type": "string",
+            "enum": ["storage_unavailable", "transport_unavailable", "internal_failure"]
+          }
+        },
+        "additionalProperties": false
+      }
     },
     "daemon_unavailable": {
       "status": null,
       "exit": 3,
       "message": "The daemon is not running or cannot be reached; nothing was applied.",
-      "hint": "Start the daemon, then run the command again."
+      "hint": "Start the daemon, then run the command again.",
+      "recovery": {
+        "action": "Start the daemon and retry the command.",
+        "sideEffects": "none",
+        "maxRetries": 3,
+        "retryTiming": "After a short delay."
+      },
+      "docs": "#daemon_unavailable",
+      "context": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "clientVersion": { "type": "string" },
+          "serverVersion": { "type": "string" },
+          "configPath": { "type": "string" },
+          "environmentVariable": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+          "causeLabel": {
+            "type": "string",
+            "enum": ["storage_unavailable", "transport_unavailable", "internal_failure"]
+          }
+        },
+        "additionalProperties": false
+      }
     },
     "config": {
       "status": null,
       "exit": 4,
       "message": "The configuration is missing or invalid.",
-      "hint": "Fix the configuration file named in the error, then run the command again."
+      "hint": "Fix the configuration file named in the error, then run the command again.",
+      "recovery": {
+        "action": "Fix the named configuration file and retry.",
+        "sideEffects": "none",
+        "maxRetries": 0,
+        "retryTiming": "After fixing the cause."
+      },
+      "docs": "#config",
+      "context": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "clientVersion": { "type": "string" },
+          "serverVersion": { "type": "string" },
+          "configPath": { "type": "string" },
+          "environmentVariable": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+          "causeLabel": {
+            "type": "string",
+            "enum": ["storage_unavailable", "transport_unavailable", "internal_failure"]
+          }
+        },
+        "additionalProperties": false
+      }
     },
     "outcome_unknown": {
       "status": null,
       "exit": 5,
       "message": "The connection was lost after the request was sent; it may have been applied.",
-      "hint": "Run the command again with the same idempotency key to learn the outcome."
+      "hint": "Run the command again with the same idempotency key to learn the outcome.",
+      "recovery": {
+        "action": "Check the outcome, then retry with the same idempotency key if needed.",
+        "sideEffects": "unknown",
+        "maxRetries": 3,
+        "retryTiming": "After checking the outcome, with a short delay.",
+        "outcomeCheck": "Read the task or item with `board task <KEY>` before retrying."
+      },
+      "docs": "#outcome_unknown",
+      "context": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "clientVersion": { "type": "string" },
+          "serverVersion": { "type": "string" },
+          "configPath": { "type": "string" },
+          "environmentVariable": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+          "causeLabel": {
+            "type": "string",
+            "enum": ["storage_unavailable", "transport_unavailable", "internal_failure"]
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "unexpected": {
+      "status": 500,
+      "exit": 5,
+      "message": "An unexpected failure occurred; the outcome may be unknown.",
+      "hint": "Check the trace reference in the daemon log and confirm the outcome before retrying.",
+      "recovery": {
+        "action": "Check the outcome, then retry with the same idempotency key if needed.",
+        "sideEffects": "unknown",
+        "maxRetries": 3,
+        "retryTiming": "After checking the outcome, with a short delay.",
+        "outcomeCheck": "Read the task or item with `board task <KEY>` before retrying."
+      },
+      "docs": "#unexpected",
+      "context": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "clientVersion": { "type": "string" },
+          "serverVersion": { "type": "string" },
+          "configPath": { "type": "string" },
+          "environmentVariable": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+          "causeLabel": {
+            "type": "string",
+            "enum": ["storage_unavailable", "transport_unavailable", "internal_failure"]
+          }
+        },
+        "additionalProperties": false
+      }
     }
   },
   "operations": [
