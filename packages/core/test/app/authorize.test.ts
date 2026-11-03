@@ -190,6 +190,24 @@ describe('authorize catalog grants', () => {
     );
     expect(authorize(escalate.grants, actors.worker, state('worker')).status).toBe('allowed');
   });
+
+  it('limits unblock grants to their declared block types', () => {
+    const unblock = operation('block.unblock');
+    const state = (type: BlockType, mode: string) => ({
+      config,
+      mode,
+      target: { kind: 'found' as const, value: { ...target, block: { ...block, type } } },
+    });
+    expect(authorize(unblock.grants, actors.worker, state('dependency', 'done')).status).toBe(
+      'denied',
+    );
+    expect(authorize(unblock.grants, actors.author, state('code', 'withdraw')).status).toBe(
+      'denied',
+    );
+    expect(authorize(unblock.grants, actors.orchestrator, state('external', 'reason')).status).toBe(
+      'denied',
+    );
+  });
 });
 
 const stores: Store[] = [];

@@ -202,13 +202,16 @@ describe('apply', () => {
     expect(retried).toEqual(first);
     expect(calls).toBe(1);
     expect(await counts(restarted)).toEqual({ block: 1, event: 1, command: 1 });
-    expect(await restarted.db.selectFrom('command').selectAll().execute()).toMatchObject([
-      { actor: agent7, key: 'K', operation: 'block.ask', result: JSON.stringify(first) },
+    expect(await restarted.db.selectFrom('command').selectAll().execute()).toEqual([
+      {
+        actor: agent7,
+        key: 'K',
+        operation: 'block.ask',
+        fingerprint: '8938079f9a7e1eff50f245c6c4d497cbe5097672069bbc94932d844788abd7d5',
+        result: JSON.stringify(first),
+        at: new Date(NOW).toISOString(),
+      },
     ]);
-    expect(
-      (await restarted.db.selectFrom('command').select('fingerprint').executeTakeFirstOrThrow())
-        .fingerprint,
-    ).toMatch(/^[0-9a-f]{64}$/);
   });
 
   it('keeps keys in the actor namespace', async () => {
@@ -217,6 +220,7 @@ describe('apply', () => {
     expect((await apply(touch, input, agent7, 'K')).block.id).toBe('B1');
     expect((await apply(touch, input, agent8, 'K')).block.id).toBe('B2');
     expect((await apply(touch, input, agent7, 'K')).block.id).toBe('B1');
+    expect((await apply(touch, input, agent8, 'K')).block.id).toBe('B2');
     expect(calls).toBe(2);
     expect(await counts(store)).toEqual({ block: 2, event: 2, command: 2 });
   });
@@ -280,12 +284,14 @@ describe('apply', () => {
     const rejection = await apply(touch, input, agent7, 'K').catch((error: unknown) => error);
     expect(rejection).toBeInstanceOf(Rejected);
     expect(rejection).toBe(thrown);
+    expect(rejection).toMatchObject({ code: 'task_archived' });
     expect(await counts(store)).toEqual({ block: 0, event: 0, command: 0 });
     await store.transaction(async (trx) => {
       await trx.updateTable('task').set({ membership: 'active' }).where('id', '=', 1).execute();
     });
     expect((await apply(touch, input, agent7, 'K')).block.id).toBe('B1');
     expect(calls).toBe(2);
+    expect(await counts(store)).toEqual({ block: 1, event: 1, command: 1 });
   });
 
   it('requires an agent key and applies an operator mutation without one', async () => {
@@ -307,6 +313,7 @@ describe('apply', () => {
       apply(touch, input, agent7, 'K'),
       apply(touch, input, agent7, 'K'),
     ]);
+    expect(a.block.id).toBe('B1');
     expect(a).toEqual(b);
     expect(calls).toBe(1);
     expect(await counts(store)).toEqual({ block: 1, event: 1, command: 1 });
