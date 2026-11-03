@@ -84,6 +84,22 @@ describe('createLogger', () => {
     });
   });
 
+  it('withholds a line it cannot censor instead of writing it raw', () => {
+    const out = sink();
+    // Deep enough that pino still serializes it but the key walk overflows the stack.
+    let deep: Record<string, unknown> = { Authorization: 'Bearer deep-credential' };
+    for (let i = 0; i < 20_000; i += 1) deep = { n: deep };
+    createLogger(out, {}).info(deep, 'deep');
+
+    expect(out.lines).toHaveLength(1);
+    expect(out.lines[0]).not.toContain('deep-credential');
+    expect(parsed(out.lines)[0]).toEqual({
+      level: 50,
+      msg: 'log line withheld: redaction failed',
+      reason: 'RangeError',
+    });
+  });
+
   it('keeps keys that only contain a credential word', () => {
     const out = sink();
     createLogger(out, {}).info({ tokenCount: 3, authorizationUrl: 'https://example.com/a' }, 'ok');

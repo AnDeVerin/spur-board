@@ -18,6 +18,8 @@ function censorKeys(value: unknown): unknown {
   return out;
 }
 
+const WITHHELD = 'log line withheld: redaction failed';
+
 /**
  * Wraps a destination so each finished line has credential keys censored at any depth and every
  * known secret value replaced, raw and in its JSON-escaped form. It works on the serialized line,
@@ -37,12 +39,15 @@ function redacting(
   const ordered = [...needles].sort((a, b) => b.length - a.length);
   return {
     write(line: string) {
-      // pino writes one JSON object per line; anything else is passed on for the value pass.
       let out: string;
       try {
         out = `${JSON.stringify(censorKeys(JSON.parse(line)))}\n`;
-      } catch {
-        out = line;
+      } catch (err) {
+        // Fail closed: a line that cannot be censored (not JSON, or nested deep enough to overflow
+        // the stack) is replaced, never written as is. Only the error's name is kept, because a
+        // parse error message can quote the line.
+        const reason = err instanceof Error ? err.name : 'unknown';
+        out = `${JSON.stringify({ level: 50, msg: WITHHELD, reason })}\n`;
       }
       for (const needle of ordered) out = out.replaceAll(needle, REDACTED);
       dest.write(out);
