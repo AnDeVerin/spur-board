@@ -166,6 +166,7 @@ afterEach(async () => {
   await Promise.all(runners.splice(0).map((runner) => runner.stop()));
   vi.useRealTimers();
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 describe('startAdapters', () => {
@@ -177,7 +178,7 @@ describe('startAdapters', () => {
     expect(Object.keys(manifest.exports)).toEqual(['.', './testing']);
   });
 
-  it('starts with no adapters and stops cleanly', async () => {
+  it('starts the Spur adapter and stops cleanly', async () => {
     const config = configSchema.parse({
       projects: [
         {
@@ -196,13 +197,16 @@ describe('startAdapters', () => {
       operator: { slack: 'U0000000000' },
       digest: { tz: 'Europe/Berlin' },
     });
-    const core = { context: vi.fn(), observe: vi.fn(), reportSourceState: vi.fn() };
+    const core = createFakeCore();
+    const fetchSpur = vi.fn().mockResolvedValue(Response.json([]));
+    vi.stubGlobal('fetch', fetchSpur);
     const runner = entry.startAdapters(config, core);
-    await vi.advanceTimersByTimeAsync(10 * I);
+    await vi.advanceTimersByTimeAsync(0);
     await expect(runner.stop()).resolves.toBeUndefined();
-    expect(core.context).not.toHaveBeenCalled();
-    expect(core.observe).not.toHaveBeenCalled();
-    expect(core.reportSourceState).not.toHaveBeenCalled();
+    expect(fetchSpur).toHaveBeenCalledTimes(1);
+    expect(core.observed).toHaveLength(1);
+    expect(core.observed[0]?.batch).toMatchObject({ source: 'spur', complete: true, items: [] });
+    expect(core.states.at(-1)?.source).toBe('spur');
     expect(vi.getTimerCount()).toBe(0);
   });
 });
