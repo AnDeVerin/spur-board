@@ -16,21 +16,8 @@ rule, the rule names it.
 
 ## Single source of types
 
-- Define each shape once: a zod schema (`configSchema`, `eventPayloadSchemas`,
-  `inboundEventSchema`) or a named `as const` list. Never a TS `enum`.
-- Derive types with `z.output`, `z.input` or `(typeof X)[number]`. No hand-written duplicate.
-- Plain TS types only for what core builds and hands to a port, never parsed (header of
-  `packages/contracts/src/gateway/gateway.ts`). What a port returns is a zod schema (header of
-  `packages/contracts/src/gateway/schemas.ts`).
-- A list lives in the module whose schema uses it (`WEEKDAYS` in
-  `packages/contracts/src/config.ts`, `SPACE_IDS` in `packages/contracts/src/gateway/schemas.ts`).
-  A list several modules share goes in `packages/contracts/src/enums.ts`. Schemas use
-  `z.enum(<LIST>)`.
-- The inline `role` list in `spurProject` is existing debt; do not copy it.
-- No `.transform` or `.preprocess`: the output-mode tests in `packages/contracts/test/config.test.ts`
-  and `packages/contracts/test/events.test.ts` fail.
-- New exports from `packages/contracts/src/gateway/` go into the explicit list in
-  `packages/contracts/src/index.ts`.
+Each shape is defined once, as a zod schema or a named `as const` list. Read
+`.agents/skills/working-with-contracts/references/single-source.md`.
 
 ## Add a config field
 
@@ -92,14 +79,20 @@ Adding or changing a port, its obligations or capabilities: read
   required column; a `v` bump.
 - A user-visible break needs `!` in the PR title (`feat(contracts)!: #N ...`) and Risk high with
   the migration described (both per `gitflow`).
-- A user-visible rename of stored data or config is an expand step. Contracts have no
-  `.transform`, so nothing maps old to new:
-  - The expand PR is one PR: the list keeps the old value and adds the new one, so readers accept
-    both, and the writers in that PR emit only the new.
-  - A value the journal uses keeps its old entry in the list for good, so stored lines stay
-    readable. Renaming it is always a user-visible break, and it gets no removal PR.
-  - A config rename gets a later removal PR that drops the old key or value from config only; its
-    error names the replacement.
+- A user-visible rename of stored data or config starts with one expand PR. Contracts have no
+  `.transform`; consumers map old to new in their own code. Writers in the expand PR emit only
+  the new.
+  - A list value: the new value replaces the old one in the list that drives behaviour
+    (`COLUMN_IDS` builds the default board, `ADDRESSEE_ROLES` and `checkBoard`). Only schemas
+    that read stored data accept the old one, through a separate legacy list or
+    `z.enum([...LIST, 'old'])`: journal payload and envelope enums, and config until the removal
+    PR. A rule that runs on the config value (`checkBoard`) must let it pass too.
+  - A config key or payload field: old and new are both optional during the expand step.
+  - An event kind: the old kind stays in `EVENT_KINDS` for good.
+  - The journal accepts the old value, field or kind for good, so stored lines stay readable; a
+    journal rename is always a user-visible break with no removal PR.
+  - A config rename gets a later removal PR. It drops the old value from the config-side enum or
+    rejects it with a `.refine` or `error` callback; either way the error names the replacement.
   - A break that touches only operations needs no expand step.
 - Not breaking: internal types, schemas, exports, port interfaces and obligations shared between
   workspace packages. Rename them in one PR with every consumer, no `!`. Also not breaking: a new
