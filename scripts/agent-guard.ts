@@ -3,8 +3,7 @@
 //
 // Not a sandbox: a quote- and heredoc-aware lexer splits the command into simple commands
 // (including those inside $(...), backticks, <(...), `bash -c` and `eval`) and checks each
-// argv. Forms it does not follow (aliases, variables expanded into commands, interpreters,
-// script files) are listed as limitations in AGENTS.md.
+// argv. Forms it does not follow are listed under "Not caught" in AGENTS.md.
 import { readFileSync } from 'node:fs';
 import { basename } from 'node:path';
 
@@ -287,17 +286,22 @@ class Lexer {
 }
 
 const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
+const ENV_WITH_VALUE = new Set(['-u', '--unset', '-C', '--chdir']);
+const TIMEOUT_WITH_VALUE = new Set(['-s', '--signal', '-k', '--kill-after']);
 
 function setsGitConfigEnv(word: string): boolean {
   return word.startsWith('GIT_CONFIG');
 }
 
-/** Drops leading assignments and wrapper commands; null when one assigns GIT_CONFIG*. */
-function unwrap(argv: string[]): string[] | null {
+/**
+ * Drops leading assignments and wrapper commands. Returns a decision instead when one assigns
+ * GIT_CONFIG* or when `env -S` carries the command in a string.
+ */
+function unwrap(argv: string[], depth: number): string[] | Decision {
   let words = argv;
   for (;;) {
     while (words[0] !== undefined && ASSIGNMENT.test(words[0])) {
-      if (setsGitConfigEnv(words[0])) return null;
+      if (setsGitConfigEnv(words[0])) return deny('hooks-path');
       words = words.slice(1);
     }
     const name = basename(words[0] ?? '');
@@ -305,10 +309,17 @@ function unwrap(argv: string[]): string[] | null {
     if (name === 'env') {
       while (i < words.length) {
         const w = words[i] ?? '';
-        if (w === '-u' || w === '--unset') i += 2;
+        const split = /^(-S|--split-string=?)(.*)$/.exec(w);
+        if (split !== null) {
+          // env -S splits its string into the command and its first arguments.
+          const separate = split[2] === '' && !w.endsWith('=');
+          const value = separate ? (words[i + 1] ?? '') : (split[2] ?? '');
+          return decideAt([value, ...words.slice(i + (separate ? 2 : 1))].join(' '), depth + 1);
+        }
+        if (ENV_WITH_VALUE.has(w)) i += 2;
         else if (w.startsWith('-')) i += 1;
         else if (ASSIGNMENT.test(w)) {
-          if (setsGitConfigEnv(w)) return null;
+          if (setsGitConfigEnv(w)) return deny('hooks-path');
           i += 1;
         } else break;
       }
@@ -317,7 +328,7 @@ function unwrap(argv: string[]): string[] | null {
     } else if (name === 'nice') {
       while ((words[i] ?? '').startsWith('-')) i += words[i] === '-n' ? 2 : 1;
     } else if (name === 'timeout') {
-      while ((words[i] ?? '').startsWith('-')) i += words[i] === '-s' || words[i] === '-k' ? 2 : 1;
+      while ((words[i] ?? '').startsWith('-')) i += TIMEOUT_WITH_VALUE.has(words[i] ?? '') ? 2 : 1;
       i += 1;
     } else {
       return words;
@@ -342,6 +353,20 @@ const GIT_GLOBAL_WITH_VALUE = new Set([
 ]);
 const COMMIT_SHORT_WITH_VALUE = 'mFcCtuS';
 const COMMIT_SHORT_SEPARATE_VALUE = 'mFcCt';
+const COMMIT_LONG_WITH_VALUE = [
+  '--message',
+  '--file',
+  '--author',
+  '--date',
+  '--template',
+  '--reuse-message',
+  '--reedit-message',
+  '--fixup',
+  '--squash',
+  '--cleanup',
+  '--trailer',
+  '--pathspec-from-file',
+];
 
 function isHooksPath(key: string): boolean {
   return key.toLowerCase().startsWith('core.hookspath');
@@ -366,16 +391,27 @@ function decideGit(args: string[]): Decision {
   const sub = args[i] ?? '';
   const rest = args.slice(i + 1);
 
-  // Options only: values of short options that take one are skipped, `--` ends the options.
+  // Values of options that take one are skipped. After `--` only positionals follow; for push
+  // a leading `+` there still forces the update.
   let skip = false;
+  let positionalOnly = false;
   for (const token of rest) {
     if (skip) {
       skip = false;
       continue;
     }
-    if (token === '--') break;
-    if (token.startsWith('--')) {
+    if (positionalOnly) {
+      if (sub === 'push' && token.startsWith('+')) return deny('force-push');
+      continue;
+    }
+    if (token === '--') {
+      positionalOnly = true;
+    } else if (token.startsWith('--')) {
       if (abbreviates(token, '--no-verify', 6)) return deny('no-verify');
+      skip =
+        sub === 'commit' &&
+        !token.includes('=') &&
+        COMMIT_LONG_WITH_VALUE.some((option) => abbreviates(token, option, 4));
       if (
         sub === 'push' &&
         ['--force', '--force-with-lease', '--force-if-includes', '--mirror'].some((option) =>
@@ -441,10 +477,19 @@ function writesHooksPath(args: string[]): boolean {
 
 const MERGE_PATH = /(^|\/)pulls\/\d+\/merge(\/|\?|$)/;
 
+const GH_WITH_VALUE = new Set(['-R', '--repo']);
+
 function decideGh(args: string[]): Decision {
-  if (args[0] === 'pr' && args[1] === 'merge') return deny('merge');
+  // gh takes -R/--repo before and after `pr`, so the subcommand is the second positional.
+  const positional: string[] = [];
+  for (let i = 0; i < args.length && positional.length < 2; i += 1) {
+    const token = args[i] ?? '';
+    if (GH_WITH_VALUE.has(token)) i += 1;
+    else if (!token.startsWith('-')) positional.push(token);
+  }
+  if (positional[0] === 'pr' && positional[1] === 'merge') return deny('merge');
   if (
-    args[0] === 'api' &&
+    positional[0] === 'api' &&
     args.some(
       (token) =>
         MERGE_PATH.test(token) ||
@@ -461,8 +506,8 @@ const SHELLS = new Set(['bash', 'sh', 'zsh', 'dash']);
 const DECLARES = new Set(['export', 'declare', 'typeset', 'readonly', 'local']);
 
 function decideCommand(argv: string[], depth: number): Decision {
-  const words = unwrap(argv);
-  if (words === null) return deny('hooks-path');
+  const words = unwrap(argv, depth);
+  if (!Array.isArray(words)) return words;
   const [first, ...args] = words;
   if (first === undefined) return ALLOW;
   const name = basename(first);
