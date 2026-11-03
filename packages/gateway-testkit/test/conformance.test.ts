@@ -27,6 +27,7 @@ describe('conformance cases', () => {
       'recover-keys',
       'origin-key',
       'respond',
+      'delivery-faults',
     ]);
   });
 });

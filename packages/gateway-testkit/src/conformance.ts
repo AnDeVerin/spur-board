@@ -8,6 +8,7 @@ import {
   type DeliverRequest,
   type DeliveryResult,
   type DeliveryTarget,
+  type FailureScope,
   type Gateway,
   type InboundEvent,
   type InboundSink,
@@ -67,6 +68,17 @@ export interface ConformancePlatform {
    * on the platform before the timeout.
    */
   timeoutNext(fault: { step?: number; visible: boolean }): Awaitable<void>;
+  /**
+   * The next platform call is rate limited: the platform rejects it, asks the caller to wait
+   * `retryAfterMs` and takes no effect.
+   */
+  rateLimitNext(retryAfterMs: number): Awaitable<void>;
+  /**
+   * The next platform call fails for good and takes no effect. `scope: 'transport'`: the
+   * credentials, the app or the destination is gone; `scope: 'message'`: the platform rejects
+   * only this message.
+   */
+  failNextPermanently(fault: { scope: FailureScope; reason?: string }): Awaitable<void>;
 }
 
 export type ConformanceInput =
@@ -108,7 +120,8 @@ type ConformanceCaseId =
   | 'close-steps'
   | 'recover-keys'
   | 'origin-key'
-  | 'respond';
+  | 'respond'
+  | 'delivery-faults';
 
 interface Harness {
   readonly gateway: Gateway;
@@ -724,6 +737,38 @@ const respond: ConformanceCase = {
   },
 };
 
+const deliveryFaults: ConformanceCase = {
+  id: 'delivery-faults',
+  title: 'rate limits and permanent failures return their results and post nothing',
+  async run(h) {
+    const conversation = await openConversation(h, 'df-open');
+    const target = { kind: 'reply', conversation } as const;
+    const visible = async (): Promise<number> => (await h.platform.messages()).length;
+    const before = await visible();
+
+    await h.platform.rateLimitNext(1500);
+    expect(
+      await h.deliver({ key: 'df-rate', target, body: text('rate') }),
+      'G2: a rate limit returns retry {afterMs}',
+    ).toMatchObject({ status: 'retry', afterMs: 1500 });
+    expect(await visible(), 'G2: a rate-limited reply posts nothing').toBe(before);
+
+    await h.platform.failNextPermanently({ scope: 'transport' });
+    expect(
+      await h.deliver({ key: 'df-transport', target, body: text('transport') }),
+      "G2: a transport failure returns failed {permanent: true, scope: 'transport'}",
+    ).toMatchObject({ status: 'failed', permanent: true, scope: 'transport' });
+    expect(await visible(), 'G2: a reply that failed on transport posts nothing').toBe(before);
+
+    await h.platform.failNextPermanently({ scope: 'message' });
+    expect(
+      await h.deliver({ key: 'df-message', target, body: text('message') }),
+      "G2: a rejected message returns failed {permanent: true, scope: 'message'}",
+    ).toMatchObject({ status: 'failed', permanent: true, scope: 'message' });
+    expect(await visible(), 'G2: a rejected reply posts nothing').toBe(before);
+  },
+};
+
 /** The suite's cases, in run order. */
 export const conformanceCases: readonly ConformanceCase[] = [
   deliverTargets,
@@ -734,6 +779,7 @@ export const conformanceCases: readonly ConformanceCase[] = [
   recoverKeys,
   originKey,
   respond,
+  deliveryFaults,
 ];
 
 function harness(target: ConformanceTarget, created: ConformanceHarness): Harness {

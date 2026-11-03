@@ -139,14 +139,16 @@ describe('delivery faults', () => {
 
     it(`failNextPermanently returns failed with its scope (${profile})`, async () => {
       const { fake } = await started({ profile });
-      fake.platform.failNextPermanently({ scope: 'transport' });
-      const result = await deliver(fake, {
-        key: 'k',
-        target: { kind: 'open', space: 'feed', title: 't' },
-        body: text('x'),
-      });
-      expect(result).toMatchObject({ status: 'failed', permanent: true, scope: 'transport' });
-      expect(fake.platform.messages()).toHaveLength(0);
+      for (const scope of ['transport', 'message'] as const) {
+        fake.platform.failNextPermanently({ scope, reason: `no ${scope}` });
+        const result = await deliver(fake, {
+          key: 'k',
+          target: { kind: 'open', space: 'feed', title: 't' },
+          body: text('x'),
+        });
+        expect(result).toEqual({ status: 'failed', permanent: true, scope, reason: `no ${scope}` });
+        expect(fake.platform.messages()).toHaveLength(0);
+      }
     });
 
     it(`timeoutNext returns an uncertain retry, visible or not (${profile})`, async () => {
