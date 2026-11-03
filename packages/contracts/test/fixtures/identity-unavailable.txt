@@ -1,0 +1,8 @@
+error: identity_unavailable: The daemon cannot tell who the caller is right now.
+fix: Ask in your own session, then retry the same command later with its existing idempotency key if it has one.
+side effects: none (the command was not applied)
+recovery: Ask in your own session, then retry the same command with its existing idempotency key if it has one.
+retry: 3 maximum; After caller identity is available; wait briefly between retries.
+docs: docs/errors.md#identity_unavailable
+context: environmentVariable=SPUR_SESSION
+requestId: req-example-123
