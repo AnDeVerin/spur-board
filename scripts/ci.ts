@@ -36,12 +36,12 @@ export interface Verdict {
   lines: string[];
 }
 
+const PR_ONLY = new Set(['pr-title', 'guardrails']);
+
 /**
  * Passes only when every job succeeded. Accepted skips: `pr-title` and `guardrails` outside pull
  * requests, and `workflows` when `changes` succeeded and reported `github=false`.
  */
-const PR_ONLY = new Set(['pr-title', 'guardrails']);
-
 export function decideCiOk(input: {
   needs: Record<string, NeededJob>;
   event: string;
