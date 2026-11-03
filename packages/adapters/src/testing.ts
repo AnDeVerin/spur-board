@@ -20,8 +20,6 @@ export interface FakeCore extends AdapterCore {
   readonly states: { source: string; state: SourceState }[];
   /** The most `reportSourceState` calls that were unsettled at once. */
   readonly maxReportsInFlight: number;
-  /** Held `reportSourceState` calls not yet released. */
-  readonly heldReports: number;
   /** From now on each `reportSourceState` waits until `releaseReport` is called. */
   holdReports(): void;
   /** Resolves the oldest held report. */
@@ -42,9 +40,6 @@ export function createFakeCore(options: FakeCoreOptions = {}): FakeCore {
     states,
     get maxReportsInFlight() {
       return maxInFlight;
-    },
-    get heldReports() {
-      return held.length;
     },
     holdReports() {
       holding = true;

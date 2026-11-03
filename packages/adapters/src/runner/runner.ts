@@ -83,7 +83,7 @@ function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: nu
   let errorBlind: Blind | undefined;
   let counts: ReadonlyMap<string, number> = new Map();
   let gone: readonly GoneRef[] = [];
-  let polling = false;
+  /** Set while a poll is in flight. */
   let controller: AbortController | undefined;
   let current: Promise<void> = Promise.resolve();
   let pollTimer: Timer | undefined;
@@ -92,9 +92,9 @@ function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: nu
   let reports: Promise<void> = Promise.resolve();
   let lastReported: string | undefined;
 
-  function state(now: number): SourceState {
+  function state(): SourceState {
     const deadline = staleDeadline(lastCompleteMs, runnerStartMs, staleMultiplier, intervalMs);
-    const blind = errorBlind ?? (now > deadline ? staleBlind : undefined);
+    const blind = errorBlind ?? (Date.now() > deadline ? staleBlind : undefined);
     return {
       ...(lastCompleteMs === undefined ? {} : { lastCompleteAt: iso(lastCompleteMs) }),
       ...(blind === undefined ? {} : { blind }),
@@ -105,7 +105,7 @@ function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: nu
   /** Appends the current state to the serial report chain; resolves when its step is done. */
   function report(): Promise<void> {
     if (stopping) return reports;
-    const next = state(Date.now());
+    const next = state();
     reports = reports.then(async () => {
       const json = JSON.stringify(next);
       if (json === lastReported) return;
@@ -129,7 +129,7 @@ function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: nu
 
   function onDeadline(): void {
     deadlineTimer = undefined;
-    if (!polling) {
+    if (controller === undefined) {
       void report();
       return;
     }
@@ -155,7 +155,6 @@ function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: nu
   }
 
   async function poll(): Promise<void> {
-    polling = true;
     const abort = new AbortController();
     // A function, so each check reads the signal anew after an await.
     const aborted = () => abort.signal.aborted;
@@ -188,19 +187,14 @@ function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: nu
       }
     } catch (error) {
       if (aborted()) return;
+      if (error instanceof AdapterError && (error.kind === 'auth' || error.kind === 'config')) {
+        errorBlind = { reason: error.kind, message: error.message };
+      }
       outcome = { kind: 'failed', error };
     }
-    polling = false;
     controller = undefined;
     clearTimeout(hardBoundTimer);
     hardBoundTimer = undefined;
-    if (
-      outcome.kind === 'failed' &&
-      outcome.error instanceof AdapterError &&
-      (outcome.error.kind === 'auth' || outcome.error.kind === 'config')
-    ) {
-      errorBlind = { reason: outcome.error.kind, message: outcome.error.message };
-    }
     const delay = nextDelay({
       outcome,
       intervalMs,
