@@ -25,6 +25,15 @@ const SEARCH_PAGE_LIMIT = 20;
 const OUTSIDE_BATCH_SIZE = 50;
 const SPRINT_SCHEMA = 'com.pyxis.greenhopper.jira:gh-sprint';
 
+class JiraHttpError extends AdapterError {
+  readonly status: number;
+
+  constructor(status: number, failure: AdapterError) {
+    super(failure.kind, failure.message, { retryAt: failure.retryAt });
+    this.status = status;
+  }
+}
+
 function object(value: unknown): JsonObject {
   if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
     return value as JsonObject;
@@ -42,12 +51,12 @@ function array(value: unknown): unknown[] {
   throw new AdapterError('transient', 'Invalid Jira response');
 }
 
-function keyQuery(refs: readonly TicketEntityRef[]): string {
+function keyQuery(refs: readonly { key: string }[]): string {
   const keys = refs.map((ref) => `"${ref.key.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"`);
   return `key in (${keys.join(', ')})`;
 }
 
-function membershipQuery(jql: string, refs: readonly TicketEntityRef[]): string {
+function membershipQuery(jql: string, refs: readonly { key: string }[]): string {
   const trimmed = jql.trim();
   if (/^ORDER\s+BY\b/i.test(trimmed)) return `${keyQuery(refs)} ${trimmed}`;
   let quote: '"' | "'" | null = null;
@@ -158,7 +167,10 @@ export function createJiraAdapter(options: JiraAdapterOptions): Adapter {
       throw new AdapterError('transient', 'Jira request failed');
     }
     if (!response.ok)
-      throw classifyHttpFailure({ status: response.status, headers: response.headers }, Date.now());
+      throw new JiraHttpError(
+        response.status,
+        classifyHttpFailure({ status: response.status, headers: response.headers }, Date.now()),
+      );
     try {
       return await response.json();
     } catch {
@@ -179,11 +191,7 @@ export function createJiraAdapter(options: JiraAdapterOptions): Adapter {
           signal,
         );
       } catch (error) {
-        if (
-          error instanceof AdapterError &&
-          error.kind === 'transient' &&
-          error.message === 'HTTP 404'
-        ) {
+        if (error instanceof JiraHttpError && error.status === 404) {
           throw new AdapterError('config', `Unknown Jira project key ${key}`);
         }
         throw error;
@@ -254,6 +262,41 @@ export function createJiraAdapter(options: JiraAdapterOptions): Adapter {
     return { issues, complete: false };
   }
 
+  async function fetchById(
+    tracker: JiraTracker,
+    ref: TicketEntityRef,
+    signal: AbortSignal,
+  ): Promise<JsonObject | null> {
+    try {
+      const issue = object(
+        await request(tracker.baseUrl, `/rest/api/3/issue/${encodeURIComponent(ref.id)}`, signal),
+      );
+      if (string(issue['id']) !== ref.id)
+        throw new AdapterError('transient', 'Jira returned a different ticket id');
+      return issue;
+    } catch (error) {
+      if (
+        error instanceof JiraHttpError &&
+        (error.status === 404 || (error.status === 403 && error.kind === 'auth'))
+      )
+        return null;
+      throw error;
+    }
+  }
+
+  async function fetchByIds(
+    tracker: JiraTracker,
+    refs: readonly TicketEntityRef[],
+    signal: AbortSignal,
+  ): Promise<Map<string, JsonObject>> {
+    const found = new Map<string, JsonObject>();
+    for (const ref of refs) {
+      const issue = await fetchById(tracker, ref, signal);
+      if (issue !== null) found.set(ref.id, issue);
+    }
+    return found;
+  }
+
   return {
     id: options.id,
     intervalMs: options.intervalMs ?? 120_000,
@@ -274,13 +317,34 @@ export function createJiraAdapter(options: JiraAdapterOptions): Adapter {
       const missing = ctx.observe.tickets.filter((ref) => !facts.has(ref.id));
       for (let start = 0; start < missing.length; start += OUTSIDE_BATCH_SIZE) {
         const refs = missing.slice(start, start + OUTSIDE_BATCH_SIZE);
+        let direct: Map<string, JsonObject> | undefined;
         if (!filtered.complete) {
-          const membership = await search(
-            tracker,
-            ctx.signal,
-            membershipQuery(tracker.jql, refs),
-            sprintField,
-          );
+          let membership: { issues: unknown[]; complete: boolean };
+          try {
+            membership = await search(
+              tracker,
+              ctx.signal,
+              membershipQuery(tracker.jql, refs),
+              sprintField,
+            );
+          } catch (error) {
+            if (!(error instanceof JiraHttpError && error.status === 400)) throw error;
+            const fetched = await fetchByIds(tracker, refs, ctx.signal);
+            direct = fetched;
+            const currentRefs = refs.flatMap((ref) => {
+              const issue = fetched.get(ref.id);
+              return issue === undefined ? [] : [{ ...ref, key: string(issue['key']) }];
+            });
+            membership =
+              currentRefs.length === 0
+                ? { issues: [], complete: true }
+                : await search(
+                    tracker,
+                    ctx.signal,
+                    membershipQuery(tracker.jql, currentRefs),
+                    sprintField,
+                  );
+          }
           if (!membership.complete)
             throw new AdapterError('transient', 'Jira membership search reached its page limit');
           for (const issue of membership.issues) {
@@ -290,10 +354,27 @@ export function createJiraAdapter(options: JiraAdapterOptions): Adapter {
         }
         const outsideRefs = refs.filter((ref) => !facts.has(ref.id));
         if (outsideRefs.length === 0) continue;
-        const outside = await search(tracker, ctx.signal, keyQuery(outsideRefs), sprintField);
-        if (!outside.complete)
-          throw new AdapterError('transient', 'Jira outside-ticket search reached its page limit');
-        for (const issue of outside.issues) {
+        let outsideIssues: unknown[];
+        if (direct !== undefined) {
+          outsideIssues = outsideRefs.flatMap((ref) => {
+            const issue = direct.get(ref.id);
+            return issue === undefined ? [] : [issue];
+          });
+        } else {
+          try {
+            const outside = await search(tracker, ctx.signal, keyQuery(outsideRefs), sprintField);
+            if (!outside.complete)
+              throw new AdapterError(
+                'transient',
+                'Jira outside-ticket search reached its page limit',
+              );
+            outsideIssues = outside.issues;
+          } catch (error) {
+            if (!(error instanceof JiraHttpError && error.status === 400)) throw error;
+            outsideIssues = [...(await fetchByIds(tracker, outsideRefs, ctx.signal)).values()];
+          }
+        }
+        for (const issue of outsideIssues) {
           const item = issueFacts(issue, options.id, tracker.baseUrl, sprintField, false);
           if (!facts.has(item.id)) facts.set(item.id, item);
         }

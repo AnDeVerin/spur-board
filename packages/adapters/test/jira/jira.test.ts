@@ -63,6 +63,7 @@ interface Call {
 function fake(
   search: (body: Record<string, unknown>) => unknown = () => ({ issues: [] }),
   statuses: () => unknown = () => [{ statuses: [{ name: 'Ready' }, { name: 'Done' }] }],
+  byId?: (id: string) => unknown,
 ) {
   const calls: Call[] = [];
   const fetcher: typeof fetch = (input, init) => {
@@ -80,6 +81,8 @@ function fake(
     else if (url.pathname.endsWith('/field'))
       result = [{ id: FIELD, schema: { custom: 'com.pyxis.greenhopper.jira:gh-sprint' } }];
     else if (url.pathname.endsWith('/search/jql')) result = search(body ?? {});
+    else if (url.pathname.startsWith('/rest/api/3/issue/') && byId)
+      result = byId(decodeURIComponent(url.pathname.split('/').at(-1) ?? ''));
     else throw new Error(`Unexpected path ${url.pathname}`);
     if (result instanceof Response) return Promise.resolve(result);
     return Promise.resolve(Response.json(result));
@@ -260,6 +263,54 @@ describe('Jira adapter', () => {
     expect(warn).toHaveBeenCalledTimes(1);
   });
 
+  it('isolates a missing key when capped-scan membership search rejects the batch', async () => {
+    let filterPages = 0;
+    const { fetcher, calls } = fake(
+      (body) => {
+        const jql = String(body['jql']);
+        if (jql === tracker().jql) {
+          filterPages += 1;
+          return {
+            issues: [issue(String(filterPages), `PROJ-${String(filterPages)}`)],
+            nextPageToken: `page-${String(filterPages + 1)}`,
+          };
+        }
+        if (jql.includes('"PROJ-201"'))
+          return Response.json(
+            { errorMessages: ['A synthetic key is unavailable'] },
+            { status: 400 },
+          );
+        if (jql.startsWith('(')) return { issues: [issue('21', 'PROJ-21')], isLast: true };
+        throw new Error(`Unexpected JQL ${jql}`);
+      },
+      undefined,
+      (id) =>
+        id === '201'
+          ? new Response('', { status: 404 })
+          : issue(id, id === '21' ? 'PROJ-21' : 'PROJ-200'),
+    );
+    const { source, warn } = adapter(fetcher);
+    const result = await source.poll(
+      context([ref('21', 'PROJ-21'), ref('200', 'PROJ-200'), ref('201', 'PROJ-201')]),
+    );
+    expect(batchSchema.safeParse(result).success).toBe(true);
+    expect(result.complete).toBe(false);
+    expect(result.entities.map((entry) => entry.status)).toEqual(['ok', 'ok', 'not_found']);
+    expect(
+      result.items
+        .filter((item) => item.kind === 'ticket')
+        .filter((item) => ['21', '200'].includes(item.facts.id))
+        .map((item) => [item.facts.id, item.facts.inFilter]),
+    ).toEqual([
+      ['21', true],
+      ['200', false],
+    ]);
+    expect(filterPages).toBe(20);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(calls.filter((call) => call.path.startsWith('/rest/api/3/issue/'))).toHaveLength(3);
+    expect(calls.filter((call) => String(call.body?.['jql']).startsWith('('))).toHaveLength(2);
+  });
+
   it('fetches outside tickets through every page before assigning per-ticket outcomes', async () => {
     const { fetcher, calls } = fake((body) => {
       if (String(body['jql']).startsWith('key in')) {
@@ -297,21 +348,39 @@ describe('Jira adapter', () => {
   });
 
   it('keeps valid tickets when an outside ticket is deleted or inaccessible', async () => {
-    const { fetcher } = fake((body) =>
-      String(body['jql']).startsWith('key in')
-        ? { issues: [issue('200', 'PROJ-20')], isLast: true }
-        : { issues: [issue('100', 'PROJ-1')], isLast: true },
+    const { fetcher, calls } = fake(
+      (body) =>
+        String(body['jql']).startsWith('key in')
+          ? Response.json({ errorMessages: ['A synthetic key is unavailable'] }, { status: 400 })
+          : { issues: [issue('100', 'PROJ-1')], isLast: true },
+      undefined,
+      (id) =>
+        id === '200'
+          ? issue('200', 'NEXT-20')
+          : new Response('', { status: id === '201' ? 404 : 403 }),
     );
     const { source } = adapter(fetcher);
-    const result = await source.poll(context([ref('200', 'PROJ-20'), ref('201', 'PROJ-21')]));
+    const result = await source.poll(
+      context([ref('200', 'PROJ-20'), ref('201', 'PROJ-21'), ref('202', 'PROJ-22')]),
+    );
     expect(batchSchema.safeParse(result).success).toBe(true);
+    expect(result.complete).toBe(true);
     expect(result.entities).toEqual([
       { ref: ref('200', 'PROJ-20'), status: 'ok' },
       { ref: ref('201', 'PROJ-21'), status: 'not_found' },
+      { ref: ref('202', 'PROJ-22'), status: 'not_found' },
     ]);
     expect(
       result.items.filter((item) => item.kind === 'ticket').map((item) => item.facts.id),
     ).toEqual(['100', '200']);
+    expect(
+      result.items.find((item) => item.kind === 'ticket' && item.facts.id === '200'),
+    ).toMatchObject({
+      facts: { id: '200', key: 'NEXT-20' },
+    });
+    expect(
+      calls.filter((call) => call.path.startsWith('/rest/api/3/issue/')).map((call) => call.path),
+    ).toEqual(['/rest/api/3/issue/200', '/rest/api/3/issue/201', '/rest/api/3/issue/202']);
   });
 
   it('fails an outside lookup that cannot reach its final page', async () => {
