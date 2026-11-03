@@ -126,6 +126,11 @@ describe('openStore', () => {
       .insertInto('link')
       .values(prLink(sampleRows.link.task_id, 'o/r', 1, 'conflict'))
       .execute();
+    // Idempotency keys belong to the caller: another agent may reuse the same key.
+    await db
+      .insertInto('command')
+      .values({ ...sampleRows.command, actor: 'agent:proj/sess-2' })
+      .execute();
     await db
       .insertInto('submission')
       .values({ ...sampleRows.submission, id: 2, commit_sha: 'c'.repeat(40) })
