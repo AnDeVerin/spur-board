@@ -14,6 +14,7 @@
     "ci:ok": "node scripts/ci.ts ok",
     "format": "prettier --write .",
     "gen:config-schema": "node scripts/gen-config-schema.ts",
+    "gen:ops-snapshot": "node scripts/gen-ops-snapshot.ts",
     "guardrails": "node scripts/guardrails.ts",
     "lint": "eslint . --max-warnings=0",
     "typecheck": "tsc --noEmit -p . && pnpm -r typecheck",
