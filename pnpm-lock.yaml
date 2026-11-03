@@ -256,6 +256,9 @@ importers:
       '@spur-board/contracts':
         specifier: workspace:*
         version: link:../contracts
+      zod:
+        specifier: 'catalog:'
+        version: 4.6.7
 
   packages/contracts:
     dependencies:

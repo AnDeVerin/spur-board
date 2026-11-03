@@ -160,6 +160,16 @@ function adapterSection(intervalMs: number) {
     .prefault({});
 }
 
+const spurAdapterSection = z
+  .strictObject({
+    intervalMs: durationMs(15_000, 'Time between two polls'),
+    baseUrl: z
+      .url({ protocol: /^https?$/ })
+      .default('http://127.0.0.1:4310')
+      .describe('Base URL of the local Spur HTTP API.'),
+  })
+  .prefault({});
+
 function isTimeZone(tz: string): boolean {
   try {
     new Intl.DateTimeFormat('en', { timeZone: tz });
@@ -184,7 +194,7 @@ export const configSchema = z.strictObject({
   commands: z.strictObject({ retentionDays: z.int().min(1).default(7) }).prefault({}),
   adapters: z
     .strictObject({
-      spur: adapterSection(15_000),
+      spur: spurAdapterSection,
       github: adapterSection(60_000),
       jira: adapterSection(120_000),
     })

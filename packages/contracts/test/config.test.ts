@@ -65,7 +65,7 @@ function pathLines(error: string): string[] {
 /** The adapter, source, GitHub and health defaults every config gets when it omits them. */
 const adapterDefaults: Pick<Config, 'adapters' | 'sources' | 'github' | 'health'> = {
   adapters: {
-    spur: { intervalMs: 15_000 },
+    spur: { intervalMs: 15_000, baseUrl: 'http://127.0.0.1:4310' },
     github: { intervalMs: 60_000 },
     jira: { intervalMs: 120_000 },
   },
@@ -236,6 +236,12 @@ describe('invalid configs', () => {
       validConfig({}, { sources: { goneAfterPolls: 0 } }),
       'Too small: expected number to be >=1',
       'sources.goneAfterPolls',
+    ],
+    [
+      'invalid Spur base URL',
+      validConfig({}, { adapters: { spur: { baseUrl: 'file:///tmp/spur.sock' } } }),
+      'Invalid URL',
+      'adapters.spur.baseUrl',
     ],
     [
       'zero error-after duration',
