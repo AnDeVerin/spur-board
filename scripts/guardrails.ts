@@ -338,8 +338,22 @@ function changedChecksText(body: string): string {
   }
   const kept: string[] = [];
   let inSection = false;
+  // The open CommonMark code fence: its character and run length. Unclosed, it runs to the end.
+  let fence: { char: string; length: number } | null = null;
   for (const line of visible.split('\n')) {
-    if (/^##[ \t]+changed checks[ \t]*$/i.test(line)) inSection = true;
+    const run = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1];
+    if (fence) {
+      const closes =
+        run !== undefined &&
+        run[0] === fence.char &&
+        run.length >= fence.length &&
+        /^ {0,3}(?:`+|~+)[ \t]*$/.test(line);
+      if (closes) fence = null;
+      if (inSection) kept.push(line);
+    } else if (run !== undefined) {
+      fence = { char: run[0] ?? '', length: run.length };
+      if (inSection) kept.push(line);
+    } else if (/^##[ \t]+changed checks[ \t]*$/i.test(line)) inSection = true;
     else if (/^#{1,2}[ \t]/.test(line)) inSection = false;
     else if (inSection) kept.push(line);
   }

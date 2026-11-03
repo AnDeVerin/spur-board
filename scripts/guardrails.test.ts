@@ -505,6 +505,44 @@ describe('missingFromSection', () => {
     expect(missingFromSection(body, ['scripts/ci.ts'])).toEqual([]);
   });
 
+  it.each([
+    ['a ``` fence', '## Description\n\n```\n## Changed checks\n\nscripts/ci.ts\n```\n'],
+    ['a ~~~ fence', '## Description\n\n~~~md\n## Changed checks\n\nscripts/ci.ts\n~~~\n'],
+    ['an indented fence', '  ````\n## Changed checks\nscripts/ci.ts\n   ````\n'],
+    ['a fence a shorter run cannot close', '````\n```\n## Changed checks\nscripts/ci.ts\n'],
+    ['a fence the other character cannot close', '```\n~~~\n## Changed checks\nscripts/ci.ts\n'],
+    ['a fence a run with text cannot close', '```\n``` x\n## Changed checks\nscripts/ci.ts\n'],
+    ['a fence a mixed run cannot close', '```\n```~~~\n## Changed checks\nscripts/ci.ts\n'],
+    ['an unclosed fence', 'x\n```\n## Changed checks\n\nscripts/ci.ts\n'],
+  ])('a heading inside %s names nothing', (_name, body) => {
+    expect(missingFromSection(body, ['scripts/ci.ts'])).toEqual(['scripts/ci.ts']);
+  });
+
+  it('a fence a 4-space indent cannot close', () => {
+    const body = '```\n    ```\n## Changed checks\nscripts/ci.ts\n';
+    expect(missingFromSection(body, ['scripts/ci.ts'])).toEqual(['scripts/ci.ts']);
+  });
+
+  it('keeps a real section across a fenced ## line', () => {
+    const body = section('```\n## other\nscripts/a.ts\n```\n\nscripts/ci.ts');
+    expect(missingFromSection(body, ['scripts/a.ts', 'scripts/ci.ts'])).toEqual([]);
+  });
+
+  it('a fence closed by a longer run with trailing spaces ends', () => {
+    const body = '```\nx\n`````  \n## Changed checks\nscripts/ci.ts\n';
+    expect(missingFromSection(body, ['scripts/ci.ts'])).toEqual([]);
+  });
+
+  it('an unclosed fence after a real section keeps only the section', () => {
+    const body = section('scripts/ci.ts\n\n## Other\n\n```\n## Changed checks\nscripts/a.ts');
+    expect(missingFromSection(body, ['scripts/ci.ts', 'scripts/a.ts'])).toEqual(['scripts/a.ts']);
+  });
+
+  it('an unclosed fence keeps the section lines before it', () => {
+    const body = section('scripts/ci.ts\n```\n## Description\nscripts/a.ts');
+    expect(missingFromSection(body, ['scripts/ci.ts', 'scripts/a.ts'])).toEqual([]);
+  });
+
   it('names a path with a space', () => {
     expect(missingFromSection(section('- `docs/a b.md` - x'), ['docs/a b.md'])).toEqual([]);
   });
