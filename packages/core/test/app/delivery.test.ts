@@ -584,7 +584,7 @@ async function restart(ctx: Ctx, spaceIntervalMs?: number): Promise<Ctx> {
 }
 
 describe('tick', () => {
-  it('does not start a second claimed space after shutdown and recovers it on restart', async () => {
+  it('requeues an unstarted lane so a pre-send edit still cancels it after restart', async () => {
     const ctx = setup('slack-like', 0);
     const openId = await enqueueOpen(ctx, await seedBlock(ctx));
     const feedId = await feedLine(ctx, 'o/r#46', 'shutdown-feed');
@@ -615,13 +615,131 @@ describe('tick', () => {
     await ticking;
     expect(ctx.observed.requests).toHaveLength(1);
     expect((await outboxRow(ctx, openId)).state).toBe('done');
-    expect((await outboxRow(ctx, feedId)).state).toBe('in_flight');
+    expect(await outboxRow(ctx, feedId)).toMatchObject({
+      state: 'pending',
+      uncertain: 0,
+      attempts: 0,
+      first_attempt_at: null,
+      first_delivery_at: null,
+    });
 
+    const editId = await feedEdit(ctx, 'o/r#46', 'shutdown-feed', feedId);
     const restarted = await restart(ctx, 0);
-    expect(await outboxRow(restarted, feedId)).toMatchObject({ state: 'pending', uncertain: 1 });
+    expect(await outboxRow(restarted, feedId)).toMatchObject({ state: 'pending', uncertain: 0 });
     await restarted.sender.tick();
+    for (const id of [feedId, editId]) {
+      expect(await outboxRow(restarted, id)).toMatchObject({
+        state: 'dead',
+        last_error: 'superseded',
+      });
+    }
+    expect(ctx.observed.requests).toHaveLength(1);
+  });
+
+  it('requeues all unstarted lanes so a stale open still cancels after restart', async () => {
+    const ctx = setup('slack-like', 0);
+    const seed = await seedBlock(ctx);
+    const openId = await enqueueOpen(ctx, seed);
+    const feedId = await feedLine(ctx, seed.key, 'stale-lane');
+    const previousAt = ctx.fake.platform.now().toISOString();
+    await ctx.store.transaction((trx) =>
+      trx
+        .updateTable('outbox')
+        .set({
+          attempts: 2,
+          uncertain: 1,
+          first_attempt_at: previousAt,
+          first_delivery_at: previousAt,
+        })
+        .where('id', '=', feedId)
+        .execute(),
+    );
+    const claimed = Promise.withResolvers<undefined>();
+    const release = Promise.withResolvers<undefined>();
+    let transactions = 0;
+    const store: Store = {
+      ...ctx.store,
+      transaction(fn) {
+        transactions += 1;
+        const run = ctx.store.transaction(fn);
+        if (transactions !== 1) return run;
+        return run.then(async (value) => {
+          claimed.resolve(undefined);
+          await release.promise;
+          return value;
+        });
+      },
+    };
+    const sender = createSender({
+      store,
+      gateway: ctx.observed.gateway,
+      spur: ctx.spur.spur,
+      now: () => ctx.fake.platform.now(),
+      spaceIntervalMs: 0,
+    });
+    const controller = new AbortController();
+    const ticking = sender.tick(controller.signal);
+    await claimed.promise;
+    controller.abort();
+    release.resolve(undefined);
+    await ticking;
+    expect(await outboxRow(ctx, openId)).toMatchObject({
+      state: 'pending',
+      uncertain: 0,
+      attempts: 0,
+    });
+    expect(await outboxRow(ctx, feedId)).toMatchObject({
+      state: 'pending',
+      uncertain: 1,
+      attempts: 2,
+      first_attempt_at: previousAt,
+      first_delivery_at: previousAt,
+    });
+    await unblock(ctx, seed);
+    const restarted = await restart(ctx, 0);
+    await restarted.sender.tick();
+    expect(await outboxRow(restarted, openId)).toMatchObject({
+      state: 'dead',
+      last_error: 'superseded',
+    });
     expect((await outboxRow(restarted, feedId)).state).toBe('done');
-    expect(ctx.observed.requests).toHaveLength(2);
+    expect(ctx.observed.requests).toHaveLength(1);
+  });
+
+  it('finishes a stamped attempt before stopping', async () => {
+    const ctx = setup('slack-like', 0);
+    const id = await feedLine(ctx, 'o/r#46', 'stamped-lane');
+    const stamped = Promise.withResolvers<undefined>();
+    const release = Promise.withResolvers<undefined>();
+    let transactions = 0;
+    const store: Store = {
+      ...ctx.store,
+      transaction(fn) {
+        transactions += 1;
+        const run = ctx.store.transaction(fn);
+        if (transactions !== 2) return run;
+        return run.then(async (value) => {
+          stamped.resolve(undefined);
+          await release.promise;
+          return value;
+        });
+      },
+    };
+    const sender = createSender({
+      store,
+      gateway: ctx.observed.gateway,
+      spur: ctx.spur.spur,
+      now: () => ctx.fake.platform.now(),
+      spaceIntervalMs: 0,
+    });
+    const controller = new AbortController();
+    const ticking = sender.tick(controller.signal);
+    await stamped.promise;
+    controller.abort();
+    release.resolve(undefined);
+    await ticking;
+    expect((await outboxRow(ctx, id)).state).toBe('done');
+    expect(ctx.observed.requests).toHaveLength(1);
   });
 
   it('runs the next tick after one that rejected', async () => {

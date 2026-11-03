@@ -564,11 +564,21 @@ export function createSender(options: SenderOptions): Sender {
     if (signal?.aborted) return;
     const claimedAt = now().getTime();
     const claims = await store.transaction((trx) => claim(trx, claimedAt));
-    for (const c of claims) {
-      // An unstarted claim stays in_flight for recover() on the next daemon start.
-      if (signal?.aborted) break;
+    for (const [i, c] of claims.entries()) {
+      if (signal?.aborted) {
+        const ids = claims.slice(i).map((c) => c.id);
+        await store.transaction((trx) =>
+          trx
+            .updateTable('outbox')
+            .set((eb) => ({ state: 'pending', attempts: eb('attempts', '-', 1) }))
+            .where('id', 'in', ids)
+            .where('state', '=', 'in_flight')
+            .execute(),
+        );
+        return;
+      }
       const started = await store.transaction((trx) => start(trx, c));
-      if (signal?.aborted) break;
+      // After start() commits, finish and record this attempt even if shutdown begins.
       const { outcome, error } = await attempt(c, started.firstDeliveryAt);
       const at = now().getTime();
       await store.transaction((trx) => record(trx, c, outcome, error, at, started.at));

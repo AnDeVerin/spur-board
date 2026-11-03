@@ -86,13 +86,13 @@ describe('outbox scheduler', () => {
       const stopping = module.stop();
       hold.release();
       await stopping;
-      expect(transactions).toBe(4); // recovery, claim, send stamp, result
+      expect(transactions).toBe(5); // recovery, claim, send stamp, result, skipped-claim requeue
       const skipped = await base.db
         .selectFrom('outbox')
-        .select(['state', 'uncertain'])
+        .select(['state', 'uncertain', 'attempts'])
         .where('dedupe_key', '=', 'doorbell:after-slow')
         .executeTakeFirstOrThrow();
-      expect(skipped.state).toBe('in_flight');
+      expect(skipped).toMatchObject({ state: 'pending', uncertain: 0, attempts: 0 });
       const restarted = createSender({
         store: base,
         gateway,
@@ -102,10 +102,10 @@ describe('outbox scheduler', () => {
       expect(
         await base.db
           .selectFrom('outbox')
-          .select(['state', 'uncertain'])
+          .select(['state', 'uncertain', 'attempts'])
           .where('dedupe_key', '=', 'doorbell:after-slow')
           .executeTakeFirstOrThrow(),
-      ).toMatchObject({ state: 'pending', uncertain: 1 });
+      ).toMatchObject({ state: 'pending', uncertain: 0, attempts: 0 });
     } finally {
       hold.release();
       controller.abort();
