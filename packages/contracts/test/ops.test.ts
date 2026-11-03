@@ -74,6 +74,12 @@ function propertyNames(branch: JsonObject): string[] {
   return isObject(branch['properties']) ? Object.keys(branch['properties']) : [];
 }
 
+/** The `mode` constant of a union branch, or undefined for a branch without one. */
+function branchMode(branch: JsonObject): string | undefined {
+  const mode = isObject(branch['properties']) ? branch['properties']['mode'] : undefined;
+  return isObject(mode) && typeof mode['const'] === 'string' ? mode['const'] : undefined;
+}
+
 describe('schema walker', () => {
   it('flags a missing description and passes a described one', () => {
     const bare = z.toJSONSchema(z.strictObject({ a: z.string() }));
@@ -193,6 +199,42 @@ describe('catalog', () => {
     }
   });
 
+  it('binds one CLI flag per branch of a union input, and none to a plain input', () => {
+    for (const { op, input } of schemas) {
+      const branches = inputBranches(input);
+      if (input['oneOf'] === undefined) {
+        expect(op.cli.modes, op.id).toBeNull();
+        continue;
+      }
+      const modes = op.cli.modes ?? [];
+      expect(modes.map((m) => m.mode).sort(), op.id).toEqual(
+        branches.map((branch) => branchMode(branch)).sort(),
+      );
+      expect(new Set(modes.map((m) => m.flag)).size, op.id).toBe(modes.length);
+      for (const { mode, flag, value } of modes) {
+        expect(flag, op.id).not.toBe(op.cli.key);
+        const branch = branches.find((b) => branchMode(b) === mode);
+        if (branch === undefined || value === null) continue;
+        expect(propertyNames(branch), `${op.id} ${flag}`).toContain(value);
+        expect(['mode', ...op.cli.args], `${op.id} ${flag}`).not.toContain(value);
+      }
+    }
+  });
+
+  it('binds unblock as --done <ref> | --reason <reason> | --withdraw', () => {
+    const unblock = OPERATIONS.find((op) => op.id === 'block.unblock');
+    expect(unblock?.cli).toEqual({
+      command: 'unblock',
+      args: ['block'],
+      modes: [
+        { mode: 'done', flag: '--done', value: 'ref' },
+        { mode: 'reason', flag: '--reason', value: 'reason' },
+        { mode: 'withdraw', flag: '--withdraw', value: null },
+      ],
+      key: '--key',
+    });
+  });
+
   it('gives wrong_id_kind for a task key passed as a block ID', () => {
     const answer = OPERATIONS.find((op) => op.id === 'block.answer');
     const result = answer?.input.safeParse({ block: 'PROJ-123', text: 'Yes.' });
@@ -284,10 +326,7 @@ describe('grants', () => {
   it('names a branch of the input discriminator in every grant mode', () => {
     for (const { op, input } of schemas) {
       if (op.grants === 'any') continue;
-      const modes = inputBranches(input).flatMap((branch) => {
-        const mode = isObject(branch['properties']) ? branch['properties']['mode'] : undefined;
-        return isObject(mode) && typeof mode['const'] === 'string' ? [mode['const']] : [];
-      });
+      const modes = inputBranches(input).flatMap((branch) => branchMode(branch) ?? []);
       for (const rule of op.grants) {
         if (rule.mode !== undefined) expect(modes, op.id).toContain(rule.mode);
       }

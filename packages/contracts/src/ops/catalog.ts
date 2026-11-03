@@ -178,7 +178,7 @@ export const OPERATIONS = [
                 'idempotency_key_mismatch',
                 'identity_unavailable',
               ],
-              cli: { command: 'comment', args: ['task', 'text'], key: '--key' },
+              cli: { command: 'comment', args: ['task', 'text'], modes: null, key: '--key' },
               mcp: { name: 'comment_add', key: 'idempotencyKey' },
               inputSchema: { type: 'object' },
               outputSchema: { type: 'object' },
@@ -461,7 +461,15 @@ export const OPERATIONS = [
       { grant: 'block-author', mode: 'withdraw' },
     ],
     errors: ['wrong_id_kind', 'not_found', 'block_not_open', 'task_archived'],
-    cli: { command: 'unblock', args: ['block'] },
+    cli: {
+      command: 'unblock',
+      args: ['block'],
+      modes: [
+        { mode: 'done', flag: '--done', value: 'ref' },
+        { mode: 'reason', flag: '--reason', value: 'reason' },
+        { mode: 'withdraw', flag: '--withdraw', value: null },
+      ],
+    },
     slack: null,
     examples: [
       {

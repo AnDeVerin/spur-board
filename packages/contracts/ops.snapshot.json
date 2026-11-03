@@ -1,5 +1,5 @@
 {
-  "version": "e4d0c668bb92fbfb184af5680246bd3958ecc4d87f94c0e5f12514d8517f8d8f",
+  "version": "764845f3ff1bf359cfe3503195a8c2f77f72d94a7c0851698930aec98145d9d2",
   "grants": [
     "operator",
     "project-agent",
@@ -104,7 +104,7 @@
       "grants": [{ "grant": "operator" }, { "grant": "project-agent" }],
       "preconditions": null,
       "errors": ["usage", "forbidden", "not_found", "identity_unavailable"],
-      "cli": { "command": "status", "args": [], "key": null },
+      "cli": { "command": "status", "args": [], "modes": null, "key": null },
       "mcp": { "name": "status_get", "key": null },
       "slack": { "kind": "slash-command", "usage": "/board status" },
       "examples": [
@@ -186,7 +186,7 @@
       "grants": [{ "grant": "operator" }, { "grant": "project-agent" }],
       "preconditions": null,
       "errors": ["usage", "wrong_id_kind", "forbidden", "not_found", "identity_unavailable"],
-      "cli": { "command": "task", "args": ["task"], "key": null },
+      "cli": { "command": "task", "args": ["task"], "modes": null, "key": null },
       "mcp": { "name": "task_get", "key": null },
       "slack": { "kind": "slash-command", "usage": "/board task <KEY>" },
       "examples": [
@@ -277,7 +277,7 @@
               "properties": {
                 "id": {
                   "type": "string",
-                  "pattern": "^B[1-9]\\d*$",
+                  "pattern": "^B[1-9]\\d{0,14}$",
                   "description": "Block ID: B followed by a number, e.g. B12."
                 },
                 "task": {
@@ -362,7 +362,7 @@
               "properties": {
                 "id": {
                   "type": "string",
-                  "pattern": "^C[1-9]\\d*$",
+                  "pattern": "^C[1-9]\\d{0,14}$",
                   "description": "Comment ID: C followed by a number, e.g. C3."
                 },
                 "author": {
@@ -404,7 +404,7 @@
       "grants": [{ "grant": "operator" }, { "grant": "project-agent" }],
       "preconditions": null,
       "errors": ["usage", "wrong_id_kind", "forbidden", "not_found", "identity_unavailable"],
-      "cli": { "command": "task history", "args": ["task"], "key": null },
+      "cli": { "command": "task history", "args": ["task"], "modes": null, "key": null },
       "mcp": { "name": "task_history", "key": null },
       "slack": { "kind": "slash-command", "usage": "/board task <KEY> history" },
       "examples": [
@@ -544,7 +544,7 @@
       "grants": "any",
       "preconditions": null,
       "errors": ["usage", "forbidden", "identity_unavailable"],
-      "cli": { "command": "schema", "args": [], "key": null },
+      "cli": { "command": "schema", "args": [], "modes": null, "key": null },
       "mcp": { "name": "schema_get", "key": null },
       "slack": null,
       "examples": [
@@ -568,7 +568,12 @@
                   "idempotency_key_mismatch",
                   "identity_unavailable"
                 ],
-                "cli": { "command": "comment", "args": ["task", "text"], "key": "--key" },
+                "cli": {
+                  "command": "comment",
+                  "args": ["task", "text"],
+                  "modes": null,
+                  "key": "--key"
+                },
                 "mcp": { "name": "comment_add", "key": "idempotencyKey" },
                 "inputSchema": { "type": "object" },
                 "outputSchema": { "type": "object" }
@@ -668,12 +673,44 @@
                       "items": { "type": "string" },
                       "description": "Input fields given as positional arguments."
                     },
+                    "modes": {
+                      "anyOf": [
+                        {
+                          "minItems": 1,
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "mode": {
+                                "type": "string",
+                                "minLength": 1,
+                                "description": "Branch of the input `mode` discriminator the flag picks."
+                              },
+                              "flag": {
+                                "type": "string",
+                                "pattern": "^--[a-z][a-z-]*$",
+                                "description": "CLI flag that picks the branch, e.g. --done."
+                              },
+                              "value": {
+                                "anyOf": [{ "type": "string", "minLength": 1 }, { "type": "null" }],
+                                "description": "Input field the flag value fills; null for a flag without a value."
+                              }
+                            },
+                            "required": ["mode", "flag", "value"],
+                            "additionalProperties": false,
+                            "description": "A CLI flag that picks one input mode."
+                          }
+                        },
+                        { "type": "null" }
+                      ],
+                      "description": "Flags that pick a branch of a union input; null for a plain input."
+                    },
                     "key": {
                       "anyOf": [{ "type": "string", "const": "--key" }, { "type": "null" }],
                       "description": "Idempotency key flag; null for a query."
                     }
                   },
-                  "required": ["command", "args", "key"],
+                  "required": ["command", "args", "modes", "key"],
                   "additionalProperties": false,
                   "description": "CLI binding."
                 },
@@ -735,7 +772,7 @@
       "grants": [{ "grant": "project-agent" }, { "grant": "operator" }],
       "preconditions": null,
       "errors": ["usage", "forbidden", "not_found", "identity_unavailable"],
-      "cli": { "command": "inbox", "args": [], "key": null },
+      "cli": { "command": "inbox", "args": [], "modes": null, "key": null },
       "mcp": { "name": "inbox_get", "key": null },
       "slack": null,
       "examples": [
@@ -791,7 +828,7 @@
               "properties": {
                 "id": {
                   "type": "string",
-                  "pattern": "^C[1-9]\\d*$",
+                  "pattern": "^C[1-9]\\d{0,14}$",
                   "description": "Comment ID: C followed by a number, e.g. C3."
                 },
                 "author": {
@@ -828,7 +865,7 @@
               "properties": {
                 "id": {
                   "type": "string",
-                  "pattern": "^B[1-9]\\d*$",
+                  "pattern": "^B[1-9]\\d{0,14}$",
                   "description": "Block ID: B followed by a number, e.g. B12."
                 },
                 "task": {
@@ -925,7 +962,7 @@
         "idempotency_key_mismatch",
         "identity_unavailable"
       ],
-      "cli": { "command": "inbox ack", "args": ["ids"], "key": "--key" },
+      "cli": { "command": "inbox ack", "args": ["ids"], "modes": null, "key": "--key" },
       "mcp": { "name": "inbox_ack", "key": "idempotencyKey" },
       "slack": null,
       "examples": [
@@ -944,7 +981,7 @@
             "type": "array",
             "items": {
               "type": "string",
-              "pattern": "^C[1-9]\\d*$",
+              "pattern": "^C[1-9]\\d{0,14}$",
               "description": "Comment ID: C followed by a number, e.g. C3."
             },
             "description": "Comments to acknowledge."
@@ -961,7 +998,7 @@
             "type": "array",
             "items": {
               "type": "string",
-              "pattern": "^C[1-9]\\d*$",
+              "pattern": "^C[1-9]\\d{0,14}$",
               "description": "Comment ID: C followed by a number, e.g. C3."
             },
             "description": "Comments now acknowledged."
@@ -985,7 +1022,7 @@
         "idempotency_key_mismatch",
         "identity_unavailable"
       ],
-      "cli": { "command": "task add", "args": ["task"], "key": "--key" },
+      "cli": { "command": "task add", "args": ["task"], "modes": null, "key": "--key" },
       "mcp": { "name": "task_add", "key": "idempotencyKey" },
       "slack": null,
       "examples": [
@@ -1062,7 +1099,7 @@
         "idempotency_key_mismatch",
         "identity_unavailable"
       ],
-      "cli": { "command": "task archive", "args": ["task"], "key": "--key" },
+      "cli": { "command": "task archive", "args": ["task"], "modes": null, "key": "--key" },
       "mcp": { "name": "task_archive", "key": "idempotencyKey" },
       "slack": null,
       "examples": [
@@ -1144,7 +1181,7 @@
         "idempotency_key_mismatch",
         "identity_unavailable"
       ],
-      "cli": { "command": "link", "args": ["task", "target"], "key": "--key" },
+      "cli": { "command": "link", "args": ["task", "target"], "modes": null, "key": "--key" },
       "mcp": { "name": "link_add", "key": "idempotencyKey" },
       "slack": null,
       "examples": [
@@ -1206,7 +1243,7 @@
         "idempotency_key_mismatch",
         "identity_unavailable"
       ],
-      "cli": { "command": "unlink", "args": ["task", "target"], "key": "--key" },
+      "cli": { "command": "unlink", "args": ["task", "target"], "modes": null, "key": "--key" },
       "mcp": { "name": "link_remove", "key": "idempotencyKey" },
       "slack": null,
       "examples": [
@@ -1269,7 +1306,7 @@
         "idempotency_key_mismatch",
         "identity_unavailable"
       ],
-      "cli": { "command": "item retry", "args": ["item"], "key": "--key" },
+      "cli": { "command": "item retry", "args": ["item"], "modes": null, "key": "--key" },
       "mcp": { "name": "item_retry", "key": "idempotencyKey" },
       "slack": { "kind": "button", "label": "Retry" },
       "examples": [
@@ -1292,7 +1329,7 @@
         "properties": {
           "item": {
             "type": "string",
-            "pattern": "^I[1-9]\\d*$",
+            "pattern": "^I[1-9]\\d{0,14}$",
             "description": "Item ID: I followed by a number, e.g. I7."
           }
         },
@@ -1308,7 +1345,7 @@
             "properties": {
               "id": {
                 "type": "string",
-                "pattern": "^I[1-9]\\d*$",
+                "pattern": "^I[1-9]\\d{0,14}$",
                 "description": "Item ID: I followed by a number, e.g. I7."
               },
               "task": {
@@ -1356,7 +1393,7 @@
         "idempotency_key_mismatch",
         "identity_unavailable"
       ],
-      "cli": { "command": "item close", "args": ["item"], "key": "--key" },
+      "cli": { "command": "item close", "args": ["item"], "modes": null, "key": "--key" },
       "mcp": { "name": "item_close", "key": "idempotencyKey" },
       "slack": { "kind": "button", "label": "Close" },
       "examples": [
@@ -1379,7 +1416,7 @@
         "properties": {
           "item": {
             "type": "string",
-            "pattern": "^I[1-9]\\d*$",
+            "pattern": "^I[1-9]\\d{0,14}$",
             "description": "Item ID: I followed by a number, e.g. I7."
           }
         },
@@ -1395,7 +1432,7 @@
             "properties": {
               "id": {
                 "type": "string",
-                "pattern": "^I[1-9]\\d*$",
+                "pattern": "^I[1-9]\\d{0,14}$",
                 "description": "Item ID: I followed by a number, e.g. I7."
               },
               "task": {
@@ -1444,7 +1481,7 @@
         "idempotency_key_mismatch",
         "identity_unavailable"
       ],
-      "cli": { "command": "ask", "args": ["task", "text"], "key": "--key" },
+      "cli": { "command": "ask", "args": ["task", "text"], "modes": null, "key": "--key" },
       "mcp": { "name": "block_ask", "key": "idempotencyKey" },
       "slack": null,
       "examples": [
@@ -1489,7 +1526,7 @@
             "properties": {
               "id": {
                 "type": "string",
-                "pattern": "^B[1-9]\\d*$",
+                "pattern": "^B[1-9]\\d{0,14}$",
                 "description": "Block ID: B followed by a number, e.g. B12."
               },
               "task": {
@@ -1585,7 +1622,7 @@
         "idempotency_key_mismatch",
         "identity_unavailable"
       ],
-      "cli": { "command": "comment", "args": ["task", "text"], "key": "--key" },
+      "cli": { "command": "comment", "args": ["task", "text"], "modes": null, "key": "--key" },
       "mcp": { "name": "comment_add", "key": "idempotencyKey" },
       "slack": null,
       "examples": [
@@ -1626,7 +1663,7 @@
             "properties": {
               "id": {
                 "type": "string",
-                "pattern": "^C[1-9]\\d*$",
+                "pattern": "^C[1-9]\\d{0,14}$",
                 "description": "Comment ID: C followed by a number, e.g. C3."
               },
               "author": {
@@ -1674,7 +1711,7 @@
         "idempotency_key_mismatch",
         "identity_unavailable"
       ],
-      "cli": { "command": "block", "args": ["task"], "key": "--key" },
+      "cli": { "command": "block", "args": ["task"], "modes": null, "key": "--key" },
       "mcp": { "name": "block_create", "key": "idempotencyKey" },
       "slack": null,
       "examples": [
@@ -1728,7 +1765,7 @@
             "properties": {
               "id": {
                 "type": "string",
-                "pattern": "^B[1-9]\\d*$",
+                "pattern": "^B[1-9]\\d{0,14}$",
                 "description": "Block ID: B followed by a number, e.g. B12."
               },
               "task": {
@@ -1825,7 +1862,7 @@
         "idempotency_key_mismatch",
         "identity_unavailable"
       ],
-      "cli": { "command": "escalate", "args": ["block"], "key": "--key" },
+      "cli": { "command": "escalate", "args": ["block"], "modes": null, "key": "--key" },
       "mcp": { "name": "block_escalate", "key": "idempotencyKey" },
       "slack": null,
       "examples": [
@@ -1853,7 +1890,7 @@
         "properties": {
           "block": {
             "type": "string",
-            "pattern": "^B[1-9]\\d*$",
+            "pattern": "^B[1-9]\\d{0,14}$",
             "description": "Block ID: B followed by a number, e.g. B12."
           }
         },
@@ -1869,7 +1906,7 @@
             "properties": {
               "id": {
                 "type": "string",
-                "pattern": "^B[1-9]\\d*$",
+                "pattern": "^B[1-9]\\d{0,14}$",
                 "description": "Block ID: B followed by a number, e.g. B12."
               },
               "task": {
@@ -1967,7 +2004,7 @@
         "idempotency_key_mismatch",
         "identity_unavailable"
       ],
-      "cli": { "command": "answer", "args": ["block", "text"], "key": "--key" },
+      "cli": { "command": "answer", "args": ["block", "text"], "modes": null, "key": "--key" },
       "mcp": { "name": "block_answer", "key": "idempotencyKey" },
       "slack": { "kind": "thread-reply" },
       "examples": [
@@ -2002,7 +2039,7 @@
         "properties": {
           "block": {
             "type": "string",
-            "pattern": "^B[1-9]\\d*$",
+            "pattern": "^B[1-9]\\d{0,14}$",
             "description": "Block ID: B followed by a number, e.g. B12."
           },
           "text": { "type": "string", "minLength": 1, "description": "The answer." }
@@ -2019,7 +2056,7 @@
             "properties": {
               "id": {
                 "type": "string",
-                "pattern": "^B[1-9]\\d*$",
+                "pattern": "^B[1-9]\\d{0,14}$",
                 "description": "Block ID: B followed by a number, e.g. B12."
               },
               "task": {
@@ -2100,7 +2137,7 @@
             "properties": {
               "id": {
                 "type": "string",
-                "pattern": "^C[1-9]\\d*$",
+                "pattern": "^C[1-9]\\d{0,14}$",
                 "description": "Comment ID: C followed by a number, e.g. C3."
               },
               "author": {
@@ -2155,7 +2192,16 @@
         "idempotency_key_mismatch",
         "identity_unavailable"
       ],
-      "cli": { "command": "unblock", "args": ["block"], "key": "--key" },
+      "cli": {
+        "command": "unblock",
+        "args": ["block"],
+        "modes": [
+          { "mode": "done", "flag": "--done", "value": "ref" },
+          { "mode": "reason", "flag": "--reason", "value": "reason" },
+          { "mode": "withdraw", "flag": "--withdraw", "value": null }
+        ],
+        "key": "--key"
+      },
       "mcp": { "name": "block_unblock", "key": "idempotencyKey" },
       "slack": null,
       "examples": [
@@ -2207,7 +2253,7 @@
               },
               "block": {
                 "type": "string",
-                "pattern": "^B[1-9]\\d*$",
+                "pattern": "^B[1-9]\\d{0,14}$",
                 "description": "Block ID: B followed by a number, e.g. B12."
               },
               "ref": {
@@ -2230,7 +2276,7 @@
               },
               "block": {
                 "type": "string",
-                "pattern": "^B[1-9]\\d*$",
+                "pattern": "^B[1-9]\\d{0,14}$",
                 "description": "Block ID: B followed by a number, e.g. B12."
               },
               "reason": {
@@ -2253,7 +2299,7 @@
               },
               "block": {
                 "type": "string",
-                "pattern": "^B[1-9]\\d*$",
+                "pattern": "^B[1-9]\\d{0,14}$",
                 "description": "Block ID: B followed by a number, e.g. B12."
               }
             },
@@ -2272,7 +2318,7 @@
             "properties": {
               "id": {
                 "type": "string",
-                "pattern": "^B[1-9]\\d*$",
+                "pattern": "^B[1-9]\\d{0,14}$",
                 "description": "Block ID: B followed by a number, e.g. B12."
               },
               "task": {

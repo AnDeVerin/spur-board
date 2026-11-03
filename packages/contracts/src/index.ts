@@ -76,6 +76,7 @@ export {
 } from './ids.ts';
 export {
   GRANTS,
+  type CliMode,
   type Grant,
   type GrantRule,
   type Operation,

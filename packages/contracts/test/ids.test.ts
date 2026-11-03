@@ -31,6 +31,26 @@ describe('typed refs', () => {
     expect(parseRef(text, 'block')).toEqual({ ok: false, error: 'usage' });
   });
 
+  it('keeps the number of a B, C or I ID a safe integer', () => {
+    const largest = parseRef('B999999999999999');
+    expect(largest).toMatchObject({ ok: true, value: { kind: 'block', n: 999999999999999 } });
+    expect(largest.ok && 'n' in largest.value && Number.isSafeInteger(largest.value.n)).toBe(true);
+    for (const text of ['B1000000000000000', 'C9007199254740992', 'I9007199254740993']) {
+      expect(parseRef(text), text).toEqual({ ok: false, error: 'usage' });
+    }
+    const schemas = [
+      [blockIdSchema, 'B'],
+      [commentIdSchema, 'C'],
+      [itemIdSchema, 'I'],
+    ] as const;
+    for (const [schema, prefix] of schemas) {
+      const pattern = new RegExp(String(z.toJSONSchema(schema).pattern));
+      expect(pattern.test(`${prefix}999999999999999`)).toBe(true);
+      expect(pattern.test(`${prefix}1000000000000000`)).toBe(false);
+      expect(schema.safeParse(`${prefix}9007199254740993`).success).toBe(false);
+    }
+  });
+
   it('gives wrong_id_kind for a valid ID of another kind', () => {
     expect(parseRef('PROJ-123', 'block')).toEqual({ ok: false, error: 'wrong_id_kind' });
     expect(parseRef('B12', 'task')).toEqual({ ok: false, error: 'wrong_id_kind' });

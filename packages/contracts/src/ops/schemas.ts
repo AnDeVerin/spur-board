@@ -14,7 +14,7 @@ import {
   itemIdSchema,
   taskKeySchema,
 } from '../ids.ts';
-import { OPERATION_KINDS, grantRuleSchema } from './define.ts';
+import { OPERATION_KINDS, cliModeSchema, grantRuleSchema } from './define.ts';
 
 // Shapes several operations return. Every object is strict and every field is described, so the
 // generated CLI help, MCP tool schemas and `board schema` carry the same text.
@@ -100,6 +100,11 @@ export const schemaGetOutputSchema = z
               .strictObject({
                 command: z.string().describe('CLI command after `board`.'),
                 args: z.array(z.string()).describe('Input fields given as positional arguments.'),
+                modes: z
+                  .array(cliModeSchema)
+                  .min(1)
+                  .nullable()
+                  .describe('Flags that pick a branch of a union input; null for a plain input.'),
                 key: z
                   .literal('--key')
                   .nullable()

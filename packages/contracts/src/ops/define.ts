@@ -35,6 +35,26 @@ export const grantRuleSchema = z
   .describe('A grant rule: who may call the operation, optionally for one mode or block type.');
 export type GrantRule = z.output<typeof grantRuleSchema>;
 
+/**
+ * A CLI flag that picks one branch of a union input: `--done <ref>` sets `mode: 'done'` and
+ * passes its value as `ref`. `value` is null for a flag that takes no value, like `--withdraw`.
+ */
+export const cliModeSchema = z
+  .strictObject({
+    mode: z.string().min(1).describe('Branch of the input `mode` discriminator the flag picks.'),
+    flag: z
+      .string()
+      .regex(/^--[a-z][a-z-]*$/)
+      .describe('CLI flag that picks the branch, e.g. --done.'),
+    value: z
+      .string()
+      .min(1)
+      .nullable()
+      .describe('Input field the flag value fills; null for a flag without a value.'),
+  })
+  .describe('A CLI flag that picks one input mode.');
+export type CliMode = z.output<typeof cliModeSchema>;
+
 export const OPERATION_KINDS = ['query', 'mutation'] as const;
 export type OperationKind = (typeof OPERATION_KINDS)[number];
 
@@ -71,7 +91,13 @@ export interface Operation<
   preconditions: { blockTypes: readonly BlockType[] } | null;
   /** Every error the operation can return: the common ones plus its own, in `ERRORS` order. */
   errors: readonly ServerErrorCode[];
-  cli: { command: string; args: readonly string[]; key: '--key' | null };
+  /** `modes`: one flag per branch of a union input; null when the input is a plain object. */
+  cli: {
+    command: string;
+    args: readonly string[];
+    modes: readonly CliMode[] | null;
+    key: '--key' | null;
+  };
   mcp: { name: string; key: 'idempotencyKey' | null };
   slack: SlackBinding | null;
   examples: readonly [Example<I, O>, ...Example<I, O>[]];
@@ -99,7 +125,7 @@ export function defineOperation<
   grants: Grants;
   preconditions?: { blockTypes: readonly BlockType[] };
   errors: readonly ServerErrorCode[];
-  cli: { command: string; args: readonly string[] };
+  cli: { command: string; args: readonly string[]; modes?: readonly [CliMode, ...CliMode[]] };
   slack: SlackBinding | null;
   examples: readonly [Example<I, O>, ...Example<I, O>[]];
 }): Operation<Id, K, I, O> {
@@ -112,7 +138,12 @@ export function defineOperation<
     ...spec,
     preconditions: spec.preconditions ?? null,
     errors,
-    cli: { ...spec.cli, key: mutation ? '--key' : null },
+    cli: {
+      command: spec.cli.command,
+      args: spec.cli.args,
+      modes: spec.cli.modes ?? null,
+      key: mutation ? '--key' : null,
+    },
     mcp: { name: spec.id.replace('.', '_'), key: mutation ? 'idempotencyKey' : null },
   };
 }

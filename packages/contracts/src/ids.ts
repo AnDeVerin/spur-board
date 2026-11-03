@@ -11,6 +11,11 @@ export type TypedRef =
   | { kind: 'task'; text: string; form: 'jira' | 'github' | 'github-short' };
 
 const N = '[1-9]\\d*';
+/**
+ * Number in a `B`, `C` or `I` ID: at most 15 digits, so it always converts to a safe integer
+ * and two different IDs never share one `n`. A longer number is `usage`.
+ */
+const ID_N = '[1-9]\\d{0,14}';
 const TASK_FORMS = [
   { form: 'jira', source: `[A-Za-z][A-Za-z0-9_]*-${N}` },
   { form: 'github', source: `[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#${N}` },
@@ -18,9 +23,9 @@ const TASK_FORMS = [
 ] as const;
 
 const PATTERNS: Record<RefKind, string> = {
-  block: `^B${N}$`,
-  comment: `^C${N}$`,
-  item: `^I${N}$`,
+  block: `^B${ID_N}$`,
+  comment: `^C${ID_N}$`,
+  item: `^I${ID_N}$`,
   task: `^(?:${TASK_FORMS.map((t) => t.source).join('|')})$`,
 };
 const NUMBERED_KINDS = ['block', 'comment', 'item'] as const;
