@@ -6,6 +6,12 @@ Reference: `packages/contracts/src/gateway/`.
 - Ids are append-only and never renumbered (the "obligation ids" test in
   `packages/contracts/test/gateway/source.test.ts`). A withdrawn obligation keeps its id; its text
   says it is withdrawn and why.
+- A new obligation takes the next id and raises the count that test expects; that changed
+  expected value goes under Changed checks (per `gitflow`). The test checks only the sequence, so
+  the diff must show no existing obligation's text moving to another id.
+- A new required member breaks every implementer's typecheck. While none exists outside
+  `packages/contracts/`, it merges contract-first; once one does, the same PR updates every
+  implementer and fake, or the member starts optional and a later PR makes it required.
 - Capabilities are a data object, fixed for the port's lifetime. They never make an operation
   optional or change a result's shape (G12).
 - Core never branches on capabilities or the port's `kind`, never uses platform terms (the "no

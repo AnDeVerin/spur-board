@@ -77,8 +77,9 @@ Adding or changing a port, its obligations or capabilities: read
 - User-visible breaks: renaming or removing a key, value, kind, field or operation; a new
   required config key, payload or envelope field; a tightened constraint; a changed meaning; a new
   required column; a `v` bump.
-- A user-visible break needs `!` in the PR title (`feat(contracts)!: #N ...`) and Risk high with
-  the migration described (both per `gitflow`).
+- A user-visible break needs `!` after the scope in the PR title (`feat(contracts)!: #N ...`;
+  the squash commit takes the title) and Risk high with the migration described (Risk per
+  `gitflow`).
 - A user-visible rename of stored data or config starts with one expand PR. Contracts have no
   `.transform`; consumers map old to new in their own code. Writers in the expand PR emit only
   the new.
@@ -116,7 +117,9 @@ Adding or changing a port, its obligations or capabilities: read
 
 - Contract-first for a new or expanded contract (a new kind, field, value, port member or port):
   the contracts PR merges before the PRs that consume it. It may carry the tooling that enforces
-  it (a `scripts/` generator, an `eslint/` rule and its tests in `packages/testkit/`).
+  it (a `scripts/` generator, an `eslint/` rule and its tests in `packages/testkit/`). A new
+  required port member is the exception once implementations exist: see
+  `.agents/skills/working-with-contracts/references/port-contract.md`.
 - This is the contracts exception to one PR per package; the general rule is in
   `working-in-the-monorepo`.
 - A rename is never contract-first. An internal rename is one PR with contracts and every
