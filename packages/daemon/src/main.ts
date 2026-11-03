@@ -1,5 +1,5 @@
 import { homedir } from 'node:os';
-import { openStore, type Store } from '@spur-board/core';
+import { commandRetention, openStore, type Store } from '@spur-board/core';
 import { loadConfig, resolvePaths } from './config.ts';
 import { DEFAULT_SHUTDOWN_TIMEOUT_MS, runDaemon, type ProcessPort } from './lifecycle.ts';
 import { acquireLock } from './lock.ts';
@@ -41,7 +41,23 @@ export async function main(): Promise<void> {
     openStore,
     // Later issues add entries here in start order, each with its stopStage and built from
     // ctxFor('<name>'), e.g. { name: 'core', stopStage: 'final', module: createCore(ctxFor('core')) }.
-    modules: () => [],
+    modules: (ctxFor) => {
+      const commands = ctxFor('commands');
+      return [
+        {
+          name: 'commands',
+          stopStage: 'final',
+          module: commandRetention({
+            store: commands.store,
+            clock: commands.clock,
+            retentionDays: commands.config.commands.retentionDays,
+            onError: (err) => {
+              commands.log.error({ err }, 'command purge failed');
+            },
+          }),
+        },
+      ];
+    },
     port: processPort(),
     stdout: process.stdout,
     clock: { now: () => Date.now() },
