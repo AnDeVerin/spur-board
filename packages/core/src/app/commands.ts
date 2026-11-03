@@ -62,14 +62,6 @@ export function createApply(deps: { store: Store; clock: Clock }): Apply {
     });
 }
 
-/** Deletes `command` rows older than `days` before `now`; a row exactly at the cutoff stays. */
-async function purge(store: Store, now: number, days: number): Promise<void> {
-  const cutoff = new Date(now - days * DAY_MS).toISOString();
-  await store.transaction(async (trx) => {
-    await trx.deleteFrom('command').where('at', '<', cutoff).execute();
-  });
-}
-
 /**
  * Purges expired command keys once at `start`, then every `DAY_MS`. A failed first purge
  * rejects `start`; a failed daily purge goes to `onError`. `stop` waits for a running purge.
@@ -83,7 +75,13 @@ export function commandRetention(deps: {
   const { store, clock, retentionDays, onError } = deps;
   let timer: ReturnType<typeof setInterval> | undefined;
   let running: Promise<void> = Promise.resolve();
-  const run = () => purge(store, clock.now(), retentionDays);
+  // Deletes rows older than the cutoff; a row exactly at the cutoff stays.
+  const run = async () => {
+    const cutoff = new Date(clock.now() - retentionDays * DAY_MS).toISOString();
+    await store.transaction(async (trx) => {
+      await trx.deleteFrom('command').where('at', '<', cutoff).execute();
+    });
+  };
   return {
     async start() {
       await run();
@@ -93,7 +91,6 @@ export function commandRetention(deps: {
     },
     async stop() {
       clearInterval(timer);
-      timer = undefined;
       await running;
     },
   };
