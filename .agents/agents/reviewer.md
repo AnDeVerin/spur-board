@@ -31,6 +31,8 @@ checks.
   diff deletes, skips or loosens, including each item `gitflow`'s Changed-checks list names.
   Each one must appear in the developer's `Changed checks` and, when a PR exists, in
   its `## Changed checks` section, with a reason. A missing entry is MUST FIX.
+- Before approving, run `pnpm guardrails <sha>` with the handoff's `origin/main` SHA; every file
+  it reports must be listed as above.
 - Regressions - changed interfaces and exports keep their callers working.
 - Agent files - `.agents/`, `.claude/` or `.codex/` changed: the copies carry the same name,
   description and instructions as the source in `.agents/`.

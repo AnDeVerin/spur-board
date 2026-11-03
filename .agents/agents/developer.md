@@ -37,6 +37,8 @@ Implement in small chunks, check each one, commit when green. The spec is a hypo
 - Every changed test, snapshot, lint rule, TypeScript option or CI setting goes on its own line
   under `Changed checks`, with why. Deleted, skipped or weakened checks are never silent.
   `gitflow`'s Changed-checks list names the cases.
+- Before the PR, run `pnpm guardrails <sha>` with the handoff's `origin/main` SHA and read its
+  exit code; each file it reports gets its own `Changed checks` line.
 - A bug-fix test is seen failing before the fix; report that run.
 - Every command names its observed result. Never report a check you did not run.
 
