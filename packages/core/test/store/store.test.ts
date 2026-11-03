@@ -101,6 +101,11 @@ describe('openStore', () => {
       db.insertInto('link').values(prLink(t2.id, 'o/r', 2, 'active')),
       db.insertInto('link').values(prLink(t2.id, 'o/r', 1, 'conflict')),
       db.insertInto('link').values(sessionLink('s1')),
+      // NULL identities would slip past the unique indexes; the CHECKs stop them.
+      db.insertInto('link').values({ ...prLink(t2.id, 'o/r', 5, 'conflict'), repo: null }),
+      db.insertInto('link').values({ ...prLink(t2.id, 'o/r', 6, 'conflict'), number: null }),
+      db.insertInto('link').values({ ...prLink(t2.id, 'o/r', 7, 'conflict'), pr_state: null }),
+      db.insertInto('link').values({ ...sessionLink('s3'), session_id: null }),
     ];
     for (const query of rejected) {
       await expect(query.execute()).rejects.toMatchObject({

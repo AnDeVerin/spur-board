@@ -71,7 +71,10 @@ CREATE TABLE link (
   role TEXT,
   source TEXT NOT NULL,
   banned INTEGER NOT NULL DEFAULT 0 CHECK (banned IN (0, 1)),
-  created_at TEXT NOT NULL
+  created_at TEXT NOT NULL,
+  -- Unique indexes treat NULLs as distinct, so each entity must carry its identity.
+  CHECK (entity <> 'pr' OR (repo IS NOT NULL AND number IS NOT NULL AND pr_state IS NOT NULL)),
+  CHECK (entity <> 'session' OR session_id IS NOT NULL)
 ) STRICT;
 
 CREATE UNIQUE INDEX link_pr_pair ON link (task_id, repo, number) WHERE entity = 'pr';

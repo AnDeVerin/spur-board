@@ -1,6 +1,12 @@
 import Database from 'better-sqlite3';
 import { Kysely, SqliteDialect, sql } from 'kysely';
-import { migrate, migrationsDir, readMigrations, type MigrationResult } from './migrate.ts';
+import {
+  assertNotNewer,
+  migrate,
+  migrationsDir,
+  readMigrations,
+  type MigrationResult,
+} from './migrate.ts';
 import type { Tables } from './schema.ts';
 
 /** An open, migrated store. */
@@ -17,14 +23,23 @@ export interface Store {
   close(): Promise<void>;
 }
 
+function connect(file: string): Database.Database {
+  // `timeout` sets SQLite's busy_timeout; written out so a driver default change cannot lower it.
+  return new Database(file, { timeout: 5000 });
+}
+
+/** WAL, NORMAL sync and foreign keys on. Switching to WAL rewrites the file header. */
+function configure(database: Database.Database): void {
+  database.pragma('journal_mode = WAL');
+  database.pragma('synchronous = NORMAL');
+  database.pragma('foreign_keys = ON');
+}
+
 /** Opens `file` with WAL, NORMAL sync, foreign keys on and a 5000 ms busy timeout. */
 export function openDatabase(file: string): Database.Database {
-  // `timeout` sets SQLite's busy_timeout; written out so a driver default change cannot lower it.
-  const database = new Database(file, { timeout: 5000 });
+  const database = connect(file);
   try {
-    database.pragma('journal_mode = WAL');
-    database.pragma('synchronous = NORMAL');
-    database.pragma('foreign_keys = ON');
+    configure(database);
   } catch (error) {
     database.close();
     throw error;
@@ -32,12 +47,19 @@ export function openDatabase(file: string): Database.Database {
   return database;
 }
 
-/** Opens `file` and applies pending migrations. Throws, with the file closed, if that fails. */
+/**
+ * Opens `file` and applies pending migrations. A database newer than the code is refused
+ * before the WAL switch, so its file is left byte for byte as it was. Throws, with the file
+ * closed, if anything fails.
+ */
 export function openStore(file: string): Store {
-  const database = openDatabase(file);
+  const migrations = readMigrations(migrationsDir);
+  const database = connect(file);
   let migration: MigrationResult;
   try {
-    migration = migrate(database, readMigrations(migrationsDir));
+    assertNotNewer(database, migrations.length);
+    configure(database);
+    migration = migrate(database, migrations);
   } catch (error) {
     database.close();
     throw error;

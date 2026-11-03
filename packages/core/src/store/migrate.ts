@@ -58,11 +58,26 @@ function backupPath(file: string, from: number): string {
 }
 
 /**
+ * Reads `user_version` and throws if it is above `target`. Only reads, so it is safe to call
+ * before any PRAGMA that could rewrite the file.
+ */
+export function assertNotNewer(db: BetterSqlite3.Database, target: number): number {
+  const version = db.pragma('user_version', { simple: true }) as number;
+  if (version > target) {
+    throw new Error(
+      `Database ${db.name} has schema v${String(version)}, newer than this code (v${String(target)}); upgrade spur-board to open it`,
+    );
+  }
+  return version;
+}
+
+/**
  * Brings `db` to the last version in `migrations`. The version lives only in
- * `PRAGMA user_version`. A database newer than the code is refused before any write. A
- * versioned database with pending migrations is first copied with `VACUUM INTO`. All pending
- * migrations then run in one `BEGIN IMMEDIATE` transaction with foreign keys off, and
- * `foreign_key_check` must come back empty before `COMMIT`; any error rolls everything back.
+ * `PRAGMA user_version`. A database newer than the code is refused before any write. Unless
+ * the file is new and empty, a database with pending migrations is first copied with
+ * `VACUUM INTO`. All pending migrations then run in one `BEGIN IMMEDIATE` transaction with
+ * foreign keys off, and `foreign_key_check` must come back empty before `COMMIT`; any error
+ * rolls everything back.
  */
 export function migrate(
   db: BetterSqlite3.Database,
@@ -70,17 +85,15 @@ export function migrate(
 ): MigrationResult {
   checkSequence(migrations);
   const target = migrations.length;
-  const from = db.pragma('user_version', { simple: true }) as number;
-  if (from > target) {
-    throw new Error(
-      `Database ${db.name} has schema v${String(from)}, newer than this code (v${String(target)}); upgrade spur-board to open it`,
-    );
-  }
+  const from = assertNotNewer(db, target);
   const pending = migrations.filter((migration) => migration.version > from);
   if (pending.length === 0) return { from, to: from, applied: [], backup: null };
 
   let backup: string | null = null;
-  if (from > 0) {
+  // A v0 file can still hold data (made by hand or by another tool); only a file with no
+  // schema at all has nothing to lose.
+  const empty = db.prepare('SELECT count(*) FROM sqlite_schema').pluck().get() === 0;
+  if (!empty) {
     backup = backupPath(db.name, from);
     db.prepare('VACUUM INTO ?').run(backup);
   }

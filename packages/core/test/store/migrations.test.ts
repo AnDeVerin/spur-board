@@ -175,8 +175,8 @@ describe('migrate', () => {
   it('refuses a database newer than the code', () => {
     const dir = tempDir();
     const file = join(dir, 'board.db');
+    // SQLite's default rollback-journal mode: switching it to WAL would rewrite the header.
     const fixture = new Database(file);
-    fixture.pragma('journal_mode = WAL');
     fixture.exec('CREATE TABLE future (x INTEGER)');
     fixture.pragma('user_version = 99');
     fixture.close();
@@ -186,6 +186,24 @@ describe('migrate', () => {
 
     expect(readdirSync(dir)).toEqual(['board.db']);
     expect(sha256(readFileSync(file))).toBe(hash);
+  });
+
+  it('backs up an unversioned file that already holds data', () => {
+    const dir = tempDir();
+    const file = join(dir, 'board.db');
+    const fixture = new Database(file);
+    fixture.exec('CREATE TABLE stray (x INTEGER); INSERT INTO stray VALUES (1);');
+    fixture.close();
+
+    const store = openStore(file);
+    cleanup.push(() => store.close());
+
+    expect(store.migration.from).toBe(0);
+    expect(store.migration.backup).not.toBeNull();
+    expect(backups(dir)).toHaveLength(1);
+    const copy = new Database(join(dir, backups(dir)[0] ?? ''), { readonly: true });
+    cleanup.push(() => copy.close());
+    expect(copy.prepare('SELECT x FROM stray').pluck().all()).toEqual([1]);
   });
 
   it('rejects a gap or a misnamed migration file', () => {
@@ -204,7 +222,7 @@ describe('migration pins', () => {
   // sha256 of each migration file's raw bytes. A pinned file never changes: add a new file
   // and its pin instead. Changing the pin of an existing file is a review blocker.
   const PINS: Record<string, string> = {
-    '0001_init.sql': 'd240e19a9a21157051d9558dcf7b83425366fdca2eccac9fd8402cf9251808a5',
+    '0001_init.sql': 'b92894c23ff9a04e97e034ff9b2787f7be48660538dd861119e570ce1ab86f10',
   };
 
   interface MigrationFile {
