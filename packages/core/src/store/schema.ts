@@ -33,8 +33,8 @@ export type OutboxState = 'pending' | 'in_flight' | 'done' | 'post_failed' | 'de
 export type CommentDeliveryState =
   'pending' | 'delivered' | 'post_failed' | 'post_blocked' | 'superseded';
 
-/** What a conversation is the thread of: a block or a feed line. */
-export type ConversationPurpose = 'block' | 'feed_line';
+/** What a conversation is the thread of: a block or a feed line. `digest` is reserved for M2. */
+export type ConversationPurpose = 'block' | 'feed_line' | 'digest';
 
 export type ConversationState = 'open' | 'closed';
 
