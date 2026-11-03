@@ -52,12 +52,12 @@ interface Finding {
 const CODE = /\.(ts|mts|cts|js|mjs|cjs|tsx|jsx)$/;
 const WHOLE_FILE_CONFIG = [
   /^\.github\//,
-  /^eslint\.config\./,
+  /(^|\/)eslint\.config\./,
   /^eslint\//,
   /(^|\/)vitest\.config\./,
   /(^|\/)tsconfig[^/]*\.json$/,
   /^knip\.json$/,
-  /^\.prettierrc/,
+  /(^|\/)\.prettierrc/,
   /^\.prettierignore$/,
   /^renovate\.json$/,
   /^scripts\//,
@@ -374,7 +374,10 @@ function collectChanges(cwd: string, base: string, head: string): FileChange[] {
     }
     if (status !== 'D' && path !== 'pnpm-lock.yaml') {
       // --text: a .gitattributes `-diff` must not turn added lines into "Binary files differ".
-      file.hunks = parseHunks(git(cwd, [...DIFF, '--text', '-U0', base, head, '--', path]));
+      const diff = git(cwd, [...DIFF, '--text', '-U0', base, head, '--', path]);
+      // Every real change prints at least headers; empty output means the path did not match.
+      if (diff === '') throw new Error(`empty diff for changed file ${path}`);
+      file.hunks = parseHunks(diff);
     }
     return file;
   });

@@ -159,6 +159,18 @@ const CASES: Case[] = [
   { rule: 'config', name: 'npmrc', flagged: mod('.npmrc'), clean: mod('packages/x/.npmrc') },
   {
     rule: 'config',
+    name: 'nested eslint config',
+    flagged: add('packages/x/eslint.config.js'),
+    clean: mod('packages/x/src/a.ts'),
+  },
+  {
+    rule: 'config',
+    name: 'nested prettier config',
+    flagged: add('packages/x/.prettierrc.json'),
+    clean: mod('packages/x/prettierrc.md'),
+  },
+  {
+    rule: 'config',
     name: 'workspace catalog-only bump',
     flagged: mod('pnpm-workspace.yaml', ['  vitest: ^5.1.0'], ['  vitest: ^5.0.5']),
     clean: mod('packages/x/pnpm-workspace.yaml', ['  vitest: ^5.1.0'], ['  vitest: ^5.0.5']),
@@ -998,6 +1010,33 @@ describe('guardrails.ts CLI', () => {
     expect(result.stdout).toContain(
       'guardrails: src/d.ts - added eslint-disable, @ts-expect-error, @ts-ignore or as any',
     );
+  });
+
+  it('a non-UTF-8 file name fails closed', () => {
+    const box = sandbox();
+    box.base({ 'a.ts': 'export {};\n' });
+    box.git('checkout', '-q', '-b', 'topic');
+    const name = Buffer.from([0x62, 0xff, 0x2e, 0x74, 0x73]); // b\xff.ts
+    writeFileSync(Buffer.concat([Buffer.from(`${box.repo}/`), name]), 'const y = x as any;\n');
+    box.git('add', '-A');
+    box.git('commit', '-qm', 'change');
+    const result = box.runLocal('main');
+    expect(result.status).toBe(1);
+    expect(result.stderr).toMatch(/^guardrails: .*empty diff/);
+    expectNoPass(result);
+  });
+
+  it('a mode-only change is not an empty diff', () => {
+    const box = sandbox();
+    box.base({ 'a.sh': 'echo\n' });
+    box.git('checkout', '-q', '-b', 'topic');
+    box.git('update-index', '--chmod=+x', 'a.sh');
+    box.git('commit', '-qm', 'change');
+    const result = box.runLocal('main');
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('guardrails: base ');
+    expect(result.stdout).toContain('1 changed file(s)');
+    expect(result.stdout).toContain('guardrails: report empty');
   });
 
   it('a glob-like file name diffs only itself', () => {
