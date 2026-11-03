@@ -280,7 +280,13 @@ describe('Jira adapter', () => {
             { errorMessages: ['A synthetic key is unavailable'] },
             { status: 400 },
           );
-        if (jql.startsWith('(')) return { issues: [issue('21', 'PROJ-21')], isLast: true };
+        if (jql.startsWith('('))
+          return {
+            issues: jql.includes('"PROJ-21"') ? [issue('21', 'PROJ-21')] : [],
+            isLast: true,
+          };
+        if (jql === 'key in ("PROJ-200")')
+          return { issues: [issue('200', 'PROJ-200')], isLast: true };
         throw new Error(`Unexpected JQL ${jql}`);
       },
       undefined,
@@ -307,8 +313,8 @@ describe('Jira adapter', () => {
     ]);
     expect(filterPages).toBe(20);
     expect(warn).toHaveBeenCalledTimes(1);
-    expect(calls.filter((call) => call.path.startsWith('/rest/api/3/issue/'))).toHaveLength(3);
-    expect(calls.filter((call) => String(call.body?.['jql']).startsWith('('))).toHaveLength(2);
+    expect(calls.filter((call) => call.path.startsWith('/rest/api/3/issue/'))).toHaveLength(1);
+    expect(calls.filter((call) => String(call.body?.['jql']).startsWith('('))).toHaveLength(5);
   });
 
   it('fetches outside tickets through every page before assigning per-ticket outcomes', async () => {
@@ -381,6 +387,52 @@ describe('Jira adapter', () => {
     expect(
       calls.filter((call) => call.path.startsWith('/rest/api/3/issue/')).map((call) => call.path),
     ).toEqual(['/rest/api/3/issue/200', '/rest/api/3/issue/201', '/rest/api/3/issue/202']);
+  });
+
+  it('bisects a rejected bulk lookup instead of reading every linked ticket', async () => {
+    const refs = Array.from({ length: 50 }, (_, index) =>
+      ref(String(200 + index), `PROJ-${String(200 + index)}`),
+    );
+    const { fetcher, calls } = fake(
+      (body) => {
+        const jql = String(body['jql']);
+        if (!jql.startsWith('key in')) return { issues: [], isLast: true };
+        if (jql.includes('"PROJ-225"'))
+          return Response.json(
+            { errorMessages: ['A synthetic key is unavailable'] },
+            { status: 400 },
+          );
+        const ids = [...jql.matchAll(/"PROJ-(\d+)"/g)].map((match) => match[1] ?? '');
+        return { issues: ids.map((id) => issue(id, `PROJ-${id}`)), isLast: true };
+      },
+      undefined,
+      () => new Response('', { status: 404 }),
+    );
+    const result = await adapter(fetcher).source.poll(context(refs));
+    expect(batchSchema.safeParse(result).success).toBe(true);
+    expect(result.entities.filter((entity) => entity.status === 'not_found')).toEqual([
+      { ref: refs[25], status: 'not_found' },
+    ]);
+    expect(calls.filter((call) => call.path.startsWith('/rest/api/3/issue/'))).toHaveLength(1);
+    expect(calls.filter((call) => call.path.endsWith('/search/jql')).length).toBeLessThan(16);
+  });
+
+  it('stops a pathological fallback at the per-poll request limit', async () => {
+    const refs = Array.from({ length: 100 }, (_, index) =>
+      ref(String(200 + index), `PROJ-${String(200 + index)}`),
+    );
+    const { fetcher, calls } = fake(
+      (body) =>
+        String(body['jql']).startsWith('key in')
+          ? Response.json({ errorMessages: ['Synthetic invalid keys'] }, { status: 400 })
+          : { issues: [], isLast: true },
+      undefined,
+      () => new Response('', { status: 404 }),
+    );
+    const failure = await rejection(adapter(fetcher).source.poll(context(refs)));
+    expect(failure.kind).toBe('transient');
+    expect(failure.message).toContain('fallback request limit');
+    expect(calls).toHaveLength(104);
   });
 
   it('fails an outside lookup that cannot reach its final page', async () => {

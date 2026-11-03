@@ -23,6 +23,7 @@ export interface JiraAdapterOptions {
 
 const SEARCH_PAGE_LIMIT = 20;
 const OUTSIDE_BATCH_SIZE = 50;
+const FALLBACK_REQUEST_LIMIT = 100;
 const SPRINT_SCHEMA = 'com.pyxis.greenhopper.jira:gh-sprint';
 
 class JiraHttpError extends AdapterError {
@@ -228,11 +229,13 @@ export function createJiraAdapter(options: JiraAdapterOptions): Adapter {
     signal: AbortSignal,
     jql: string,
     sprintField: string | null,
+    beforePage?: () => void,
   ): Promise<{ issues: unknown[]; complete: boolean }> {
     const issues: unknown[] = [];
     let token: string | undefined;
     const seen = new Set<string>();
     for (let page = 0; page < SEARCH_PAGE_LIMIT; page += 1) {
+      beforePage?.();
       const result = object(
         await request(tracker.baseUrl, '/rest/api/3/search/jql', signal, {
           jql,
@@ -266,8 +269,10 @@ export function createJiraAdapter(options: JiraAdapterOptions): Adapter {
     tracker: JiraTracker,
     ref: TicketEntityRef,
     signal: AbortSignal,
+    beforeRequest: () => void,
   ): Promise<JsonObject | null> {
     try {
+      beforeRequest();
       const issue = object(
         await request(tracker.baseUrl, `/rest/api/3/issue/${encodeURIComponent(ref.id)}`, signal),
       );
@@ -284,23 +289,67 @@ export function createJiraAdapter(options: JiraAdapterOptions): Adapter {
     }
   }
 
-  async function fetchByIds(
+  async function searchByRefs(
     tracker: JiraTracker,
     refs: readonly TicketEntityRef[],
     signal: AbortSignal,
-  ): Promise<Map<string, JsonObject>> {
-    const found = new Map<string, JsonObject>();
-    for (const ref of refs) {
-      const issue = await fetchById(tracker, ref, signal);
-      if (issue !== null) found.set(ref.id, issue);
+    sprintField: string | null,
+    query: (refs: readonly TicketEntityRef[]) => string,
+    onRejectedKey: (ref: TicketEntityRef) => Promise<unknown[]>,
+    countFallbackRequest: () => void,
+    fallback = false,
+  ): Promise<unknown[]> {
+    const first = refs[0];
+    if (first === undefined) return [];
+    try {
+      const result = await search(
+        tracker,
+        signal,
+        query(refs),
+        sprintField,
+        fallback ? countFallbackRequest : undefined,
+      );
+      if (!result.complete)
+        throw new AdapterError('transient', 'Jira ticket lookup reached its page limit');
+      return result.issues;
+    } catch (error) {
+      if (!(error instanceof JiraHttpError && error.status === 400)) throw error;
+      if (refs.length === 1) return onRejectedKey(first);
+      const middle = Math.floor(refs.length / 2);
+      const left = await searchByRefs(
+        tracker,
+        refs.slice(0, middle),
+        signal,
+        sprintField,
+        query,
+        onRejectedKey,
+        countFallbackRequest,
+        true,
+      );
+      const right = await searchByRefs(
+        tracker,
+        refs.slice(middle),
+        signal,
+        sprintField,
+        query,
+        onRejectedKey,
+        countFallbackRequest,
+        true,
+      );
+      return [...left, ...right];
     }
-    return found;
   }
 
   return {
     id: options.id,
     intervalMs: options.intervalMs ?? 120_000,
     async poll(ctx: PollContext): Promise<Batch> {
+      let fallbackRequests = 0;
+      const countFallbackRequest = () => {
+        if (fallbackRequests >= FALLBACK_REQUEST_LIMIT)
+          throw new AdapterError('transient', 'Jira key lookup fallback request limit reached');
+        fallbackRequests += 1;
+      };
       const observedAt = new Date().toISOString();
       const tracker = options.tracker();
       await validate(tracker, ctx.signal);
@@ -317,63 +366,61 @@ export function createJiraAdapter(options: JiraAdapterOptions): Adapter {
       const missing = ctx.observe.tickets.filter((ref) => !facts.has(ref.id));
       for (let start = 0; start < missing.length; start += OUTSIDE_BATCH_SIZE) {
         const refs = missing.slice(start, start + OUTSIDE_BATCH_SIZE);
-        let direct: Map<string, JsonObject> | undefined;
+        const direct = new Map<string, JsonObject | null>();
         if (!filtered.complete) {
-          let membership: { issues: unknown[]; complete: boolean };
-          try {
-            membership = await search(
-              tracker,
-              ctx.signal,
-              membershipQuery(tracker.jql, refs),
-              sprintField,
-            );
-          } catch (error) {
-            if (!(error instanceof JiraHttpError && error.status === 400)) throw error;
-            const fetched = await fetchByIds(tracker, refs, ctx.signal);
-            direct = fetched;
-            const currentRefs = refs.flatMap((ref) => {
-              const issue = fetched.get(ref.id);
-              return issue === undefined ? [] : [{ ...ref, key: string(issue['key']) }];
-            });
-            membership =
-              currentRefs.length === 0
-                ? { issues: [], complete: true }
-                : await search(
-                    tracker,
-                    ctx.signal,
-                    membershipQuery(tracker.jql, currentRefs),
-                    sprintField,
-                  );
-          }
-          if (!membership.complete)
-            throw new AdapterError('transient', 'Jira membership search reached its page limit');
-          for (const issue of membership.issues) {
+          const membership = await searchByRefs(
+            tracker,
+            refs,
+            ctx.signal,
+            sprintField,
+            (group) => membershipQuery(tracker.jql, group),
+            async (ref) => {
+              const issue = await fetchById(tracker, ref, ctx.signal, countFallbackRequest);
+              direct.set(ref.id, issue);
+              if (issue === null) return [];
+              const current = await search(
+                tracker,
+                ctx.signal,
+                membershipQuery(tracker.jql, [{ ...ref, key: string(issue['key']) }]),
+                sprintField,
+                countFallbackRequest,
+              );
+              if (!current.complete)
+                throw new AdapterError(
+                  'transient',
+                  'Jira membership search reached its page limit',
+                );
+              return current.issues;
+            },
+            countFallbackRequest,
+          );
+          for (const issue of membership) {
             const item = issueFacts(issue, options.id, tracker.baseUrl, sprintField, true);
             facts.set(item.id, item);
           }
         }
         const outsideRefs = refs.filter((ref) => !facts.has(ref.id));
         if (outsideRefs.length === 0) continue;
-        let outsideIssues: unknown[];
-        if (direct !== undefined) {
-          outsideIssues = outsideRefs.flatMap((ref) => {
-            const issue = direct.get(ref.id);
-            return issue === undefined ? [] : [issue];
-          });
-        } else {
-          try {
-            const outside = await search(tracker, ctx.signal, keyQuery(outsideRefs), sprintField);
-            if (!outside.complete)
-              throw new AdapterError(
-                'transient',
-                'Jira outside-ticket search reached its page limit',
-              );
-            outsideIssues = outside.issues;
-          } catch (error) {
-            if (!(error instanceof JiraHttpError && error.status === 400)) throw error;
-            outsideIssues = [...(await fetchByIds(tracker, outsideRefs, ctx.signal)).values()];
-          }
-        }
+        const outsideIssues: unknown[] = outsideRefs.flatMap((ref) => {
+          const issue = direct.get(ref.id);
+          return issue == null ? [] : [issue];
+        });
+        const unchecked = outsideRefs.filter((ref) => !direct.has(ref.id));
+        if (unchecked.length > 0)
+          outsideIssues.push(
+            ...(await searchByRefs(
+              tracker,
+              unchecked,
+              ctx.signal,
+              sprintField,
+              keyQuery,
+              async (ref) => {
+                const issue = await fetchById(tracker, ref, ctx.signal, countFallbackRequest);
+                return issue === null ? [] : [issue];
+              },
+              countFallbackRequest,
+            )),
+          );
         for (const issue of outsideIssues) {
           const item = issueFacts(issue, options.id, tracker.baseUrl, sprintField, false);
           if (!facts.has(item.id)) facts.set(item.id, item);
