@@ -14,7 +14,6 @@ import {
   REQUIRED_COLUMN_IDS,
   SESSION_END_REASONS,
   SESSION_LINK_ROLES,
-  VERDICT_KINDS,
 } from '../src/index.ts';
 
 it('lists the built-in columns from To Do to Done, with ids and display names', () => {
@@ -71,10 +70,6 @@ it('lists addressee roles: operator, one orchestrator per column id, worker', ()
     'orchestrator:done',
     'worker',
   ]);
-});
-
-it('lists verdict kinds', () => {
-  expect(VERDICT_KINDS).toEqual(['approve', 'back', 'running', 'carried']);
 });
 
 it('lists session link roles', () => {

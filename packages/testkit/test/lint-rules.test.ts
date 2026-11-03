@@ -15,6 +15,18 @@ async function ruleIds(fixture: string): Promise<(string | null)[]> {
   return results.flatMap((result) => result.messages.map((message) => message.ruleId));
 }
 
+// The paths are virtual (the files do not exist), so type-aware rules are off.
+const virtual = new ESLint({
+  cwd: root,
+  ignore: false,
+  overrideConfig: [{ files: ['**/*.ts'], ...tseslint.configs.disableTypeChecked }],
+});
+
+async function textRuleIds(code: string, path: string): Promise<(string | null)[]> {
+  const results = await virtual.lintText(code, { filePath: join(root, path) });
+  return results.flatMap((result) => result.messages.map((message) => message.ruleId));
+}
+
 describe('test-file lint rules', () => {
   it.each([
     ['only.ts', 'vitest/no-focused-tests'],
@@ -39,18 +51,6 @@ describe('test-file lint rules', () => {
 });
 
 describe('project id lint rule', () => {
-  // The paths are virtual (packages/core does not exist yet), so type-aware rules are off.
-  const virtual = new ESLint({
-    cwd: root,
-    ignore: false,
-    overrideConfig: [{ files: ['**/*.ts'], ...tseslint.configs.disableTypeChecked }],
-  });
-
-  async function textRuleIds(code: string, path: string): Promise<(string | null)[]> {
-    const results = await virtual.lintText(code, { filePath: join(root, path) });
-    return results.flatMap((result) => result.messages.map((message) => message.ruleId));
-  }
-
   it.each([
     "export const r = task.project === 'web';",
     "export const r = 'web' !== task.project;",
@@ -92,4 +92,79 @@ describe('project id lint rule', () => {
       'no-restricted-syntax',
     ]);
   }, 30_000);
+});
+
+describe('sqlite driver boundary', () => {
+  const contractsSrc = 'packages/contracts/src/x.ts';
+  const testkitTest = 'packages/testkit/test/x.test.ts';
+  const typeofImport = "export type D = typeof import('better-sqlite3');";
+
+  it.each([
+    "import Database from 'better-sqlite3';\nexport const d = Database;",
+    "import type { Database } from 'better-sqlite3';\nexport type D = Database;",
+    "import { DatabaseSync } from 'node:sqlite';\nexport const d = DatabaseSync;",
+    "export * from 'better-sqlite3';",
+    "import x from 'better-sqlite3/lib/database.js';\nexport const d = x;",
+  ])(
+    '%s reports no-restricted-imports outside core and daemon',
+    async (code) => {
+      expect(await textRuleIds(code, contractsSrc)).toEqual(['no-restricted-imports']);
+    },
+    30_000,
+  );
+
+  it.each([
+    [contractsSrc, "export const m = import('better-sqlite3');"],
+    [testkitTest, "export const m = import('node:sqlite');"],
+    [contractsSrc, typeofImport],
+    [contractsSrc, "export type S = import('node:sqlite').DatabaseSync;"],
+    [testkitTest, typeofImport],
+  ])(
+    '%s: %s reports no-restricted-syntax',
+    async (path, code) => {
+      expect(await textRuleIds(code, path)).toEqual(['no-restricted-syntax']);
+    },
+    30_000,
+  );
+
+  it.each([
+    [
+      'packages/core/src/x.ts',
+      "import Database from 'better-sqlite3';\nexport const d = Database;",
+    ],
+    ['packages/core/src/x.ts', "export const m = import('better-sqlite3');"],
+    [
+      'packages/core/test/x.test.ts',
+      "import Database from 'better-sqlite3';\nexport const d = Database;",
+    ],
+    ['packages/core/test/x.test.ts', "export const m = import('node:sqlite');"],
+    [
+      'packages/daemon/src/x.ts',
+      "import Database from 'better-sqlite3';\nexport const d = Database;",
+    ],
+    ['packages/daemon/src/x.ts', "export const m = import('better-sqlite3');"],
+    [
+      'packages/daemon/test/x.test.ts',
+      "import { DatabaseSync } from 'node:sqlite';\nexport const d = DatabaseSync;",
+    ],
+    ['packages/daemon/test/x.test.ts', "export const m = import('better-sqlite3');"],
+    [contractsSrc, "export const m = import('better-sqlite3-extra');"],
+    ['packages/daemon/src/x.ts', typeofImport],
+    ['packages/core/test/x.test.ts', typeofImport],
+    [contractsSrc, "export type X = import('better-sqlite3-extra').X;"],
+  ])(
+    '%s: %s passes',
+    async (path, code) => {
+      expect(await textRuleIds(code, path)).toEqual([]);
+    },
+    30_000,
+  );
+
+  it.each(['packages/contracts/test/x.test.ts', 'packages/daemon/test/x.test.ts'])(
+    'keeps the vi.mock ban on %s',
+    async (path) => {
+      expect(await textRuleIds("vi.mock('x');", path)).toEqual(['no-restricted-syntax']);
+    },
+    30_000,
+  );
 });

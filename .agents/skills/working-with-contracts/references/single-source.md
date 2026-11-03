@@ -11,7 +11,8 @@
   A list several modules share goes in `packages/contracts/src/enums.ts`. Schemas use
   `z.enum(<LIST>)`.
 - The inline `role` list in `spurProject` is existing debt; do not copy it.
-- No `.transform` or `.preprocess`: the output-mode tests in `packages/contracts/test/config.test.ts`
-  and `packages/contracts/test/events.test.ts` fail.
+- No `.transform` or `.preprocess`. A `.transform` fails the output-mode JSON Schema tests in
+  `packages/contracts/test/config.test.ts`, `events.test.ts` and `ops.test.ts`; a `.preprocess`
+  passes them, so review rejects it.
 - New exports from `packages/contracts/src/gateway/` go into the explicit list in
   `packages/contracts/src/index.ts`.

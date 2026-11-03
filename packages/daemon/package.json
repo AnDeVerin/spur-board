@@ -1,0 +1,23 @@
+{
+  "name": "@spur-board/daemon",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/main.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p .",
+    "daemon": "node src/main.ts",
+    "daemon:dev": "node src/main.ts | pino-pretty"
+  },
+  "dependencies": {
+    "@spur-board/contracts": "workspace:*",
+    "@spur-board/core": "workspace:*",
+    "pino": "catalog:",
+    "yaml": "catalog:"
+  },
+  "devDependencies": {
+    "pino-pretty": "catalog:"
+  }
+}

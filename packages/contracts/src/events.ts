@@ -11,6 +11,7 @@ import {
   SESSION_END_REASONS,
   SESSION_LINK_ROLES,
 } from './enums.ts';
+import { actorPartSchema } from './ids.ts';
 
 export const EVENT_KINDS = [
   'head_moved',
@@ -110,7 +111,8 @@ export type EventPayload<K extends EventKind> = z.output<(typeof eventPayloadSch
 /**
  * One journal line. `payload` is checked against the schema for `kind` by `parseEvent`.
  * `actorRef` names the agent (its spur project and session) and is set only when `actor` is
- * `agent`. `requestId` links the event to the command that caused it.
+ * `agent`. Both parts are non-empty and use only letters, digits, `.`, `_` and `-`, so the pair
+ * encodes into one `ActorId`. `requestId` links the event to the command that caused it.
  */
 export const eventEnvelopeSchema = z
   .object({
@@ -120,7 +122,7 @@ export const eventEnvelopeSchema = z
     taskId: S.optional(),
     kind: z.enum(EVENT_KINDS),
     actor: z.enum(ACTORS),
-    actorRef: z.object({ project: S, session: S }).optional(),
+    actorRef: z.object({ project: actorPartSchema, session: actorPartSchema }).optional(),
     requestId: S.optional(),
     payload: z.unknown(),
     v: z.int().min(1),
