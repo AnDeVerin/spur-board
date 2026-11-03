@@ -67,6 +67,8 @@ export interface FakePlatform extends ConformancePlatform {
   /** Counts every post, edit, done mark, marker search and rejected call, and public responses. */
   attempts(): number;
   unacknowledged(): number;
+  dropConnection(): void;
+  restoreConnection(): void;
   now(): Date;
   advance(ms: number): void;
 }
@@ -187,6 +189,8 @@ export function createFakeGateway(options: FakeGatewayOptions): FakeGateway {
   const interactions = new Map<InteractionRef, { conversation?: StoredConversation }>();
 
   let sink: InboundSink | undefined;
+  /** The inbound connection is up; while it is down, input is handled as while stopped. */
+  let connected = false;
   let pending: Promise<void> = Promise.resolve();
   let backgroundFailure: Error | undefined;
   const queue: { event: InboundEvent; atMs: number }[] = [];
@@ -438,9 +442,33 @@ export function createFakeGateway(options: FakeGatewayOptions): FakeGateway {
   /** Hands an event for `inject` input to the gateway: live, queued, or lost. */
   function emit(event: InboundEvent): Promise<void> {
     const current = sink;
-    if (current !== undefined) return enqueue(() => handOver(current, event));
+    if (current !== undefined && connected) return enqueue(() => handOver(current, event));
     if (!history) queue.push({ event, atMs: clock });
     return Promise.resolve();
+  }
+
+  /** Runs `deliverToSink` after the queued sink calls; a failure surfaces from `settle()`. */
+  function inBackground(deliverToSink: () => Promise<void>): void {
+    enqueue(deliverToSink).catch((error: unknown) => {
+      backgroundFailure ??= error instanceof Error ? error : new Error(String(error));
+    });
+  }
+
+  function connectionEvent(state: 'up' | 'down'): InboundEvent {
+    return { kind: 'connection', dedupeKey: `fake:connection:${randomUUID()}`, state };
+  }
+
+  /** Connects: `connection up`, then the queued events still within the window. */
+  function connect(next: InboundSink): void {
+    connected = true;
+    const connectedAt = clock;
+    const queued = queue.splice(0);
+    inBackground(async () => {
+      await next(connectionEvent('up'));
+      for (const { event, atMs } of queued) {
+        if (connectedAt - atMs <= queueWindowMs) await handOver(next, event);
+      }
+    });
   }
 
   function newInteraction(conversation?: StoredConversation): InteractionRef {
@@ -586,6 +614,20 @@ export function createFakeGateway(options: FakeGatewayOptions): FakeGateway {
       }
       searchUnknown = true;
     },
+    dropConnection() {
+      const current = sink;
+      if (current === undefined || !connected) {
+        throw new Error('fake: dropConnection needs a started, connected gateway');
+      }
+      connected = false;
+      inBackground(() => current(connectionEvent('down')));
+    },
+    restoreConnection() {
+      if (sink === undefined || connected) {
+        throw new Error('fake: restoreConnection needs a started gateway whose connection dropped');
+      }
+      connect(sink);
+    },
     now: () => new Date(clock),
     advance(ms) {
       clock += ms;
@@ -598,24 +640,12 @@ export function createFakeGateway(options: FakeGatewayOptions): FakeGateway {
     platform,
     start(next) {
       sink = next;
-      const startedAt = clock;
-      const queued = queue.splice(0);
-      enqueue(async () => {
-        await next({
-          kind: 'connection',
-          dedupeKey: `fake:connection:${randomUUID()}`,
-          state: 'up',
-        });
-        for (const { event, atMs } of queued) {
-          if (startedAt - atMs <= queueWindowMs) await handOver(next, event);
-        }
-      }).catch((error: unknown) => {
-        backgroundFailure ??= error instanceof Error ? error : new Error(String(error));
-      });
+      connect(next);
       return Promise.resolve();
     },
     async stop() {
       sink = undefined;
+      connected = false;
       await pending;
     },
     deliver(request) {

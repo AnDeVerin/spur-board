@@ -29,6 +29,7 @@ describe('conformance cases', () => {
       'respond',
       'delivery-faults',
       'ack-after-sink',
+      'connection-loss',
     ]);
   });
 });

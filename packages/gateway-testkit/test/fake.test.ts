@@ -538,6 +538,55 @@ describe('stop and start', () => {
     });
   }
 
+  for (const profile of profiles) {
+    it(`dropConnection emits down; restoreConnection emits up with a fresh key (${profile})`, async () => {
+      const { fake, events } = await started({ profile });
+      const conversation = await openConversation(fake);
+      fake.platform.dropConnection();
+      await fake.platform.settle();
+      expect(events.map((e) => (e.kind === 'connection' ? e.state : e.kind))).toEqual([
+        'up',
+        'down',
+      ]);
+      const { message } = await fake.platform.inject({
+        kind: 'message',
+        conversation,
+        author,
+        text: 'missed',
+      });
+      await fake.platform.settle();
+      expect(events).toHaveLength(2);
+      fake.platform.restoreConnection();
+      await fake.platform.settle();
+      const restored = events.slice(2);
+      expect(restored[0]).toMatchObject({ kind: 'connection', state: 'up' });
+      expect(new Set(events.map((e) => e.dedupeKey)).size).toBe(events.length);
+      if (profile === 'slack-like') {
+        expect(restored).toHaveLength(1);
+        const recovered = await recoverAll(fake, [conversation]);
+        expect(recovered.map((e) => ('message' in e ? e.message : undefined))).toEqual([message]);
+      } else {
+        expect(restored.slice(1)).toMatchObject([{ kind: 'message', message, text: 'missed' }]);
+      }
+    });
+  }
+
+  it('dropConnection and restoreConnection reject a gateway in the wrong state', async () => {
+    const fake = createFakeGateway({ profile: 'slack-like' });
+    expect(() => {
+      fake.platform.dropConnection();
+    }).toThrow(/dropConnection/);
+    await fake.start(() => Promise.resolve());
+    expect(() => {
+      fake.platform.restoreConnection();
+    }).toThrow(/restoreConnection/);
+    fake.platform.dropConnection();
+    await fake.stop();
+    expect(() => {
+      fake.platform.restoreConnection();
+    }).toThrow(/restoreConnection/);
+  });
+
   it('settle waits for the connection event and reports a sink failure from start', async () => {
     const fake = createFakeGateway({ profile: 'slack-like' });
     await fake.start(() => Promise.reject(new Error('sink down')));

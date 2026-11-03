@@ -92,6 +92,14 @@ export interface ConformancePlatform {
    * (G11). Input queued for a stopped gateway counts from the moment it is handed over.
    */
   unacknowledged(): Awaitable<number>;
+  /**
+   * The gateway's inbound connection to the platform is lost. Input injected until
+   * `restoreConnection()` is handled as while the gateway is stopped: kept in history or queued,
+   * as the platform does. Deliveries are not affected. Needs a started, connected gateway.
+   */
+  dropConnection(): Awaitable<void>;
+  /** The lost connection comes back, so the gateway reconnects. */
+  restoreConnection(): Awaitable<void>;
 }
 
 export type ConformanceInput =
@@ -135,7 +143,8 @@ type ConformanceCaseId =
   | 'origin-key'
   | 'respond'
   | 'delivery-faults'
-  | 'ack-after-sink';
+  | 'ack-after-sink'
+  | 'connection-loss';
 
 interface Harness {
   readonly gateway: Gateway;
@@ -839,6 +848,50 @@ const ackAfterSink: ConformanceCase = {
   },
 };
 
+const connectionLoss: ConformanceCase = {
+  id: 'connection-loss',
+  title: 'a lost connection emits down; a reconnect emits up with a fresh key',
+  async run(h) {
+    const conversation = await openConversation(h, 'cl-open');
+    await h.platform.settle();
+    const before = h.events.length;
+    await h.platform.dropConnection();
+    await h.platform.settle();
+    const lost = ofKind(h.events.slice(before), 'connection');
+    expect(
+      lost.map((e) => e.state),
+      "G13: a lost connection emits connection {state: 'down'}",
+    ).toContain('down');
+    const missed = await h.platform.inject({ kind: 'message', conversation, author, text: 'M' });
+    const mMessage = required(missed.message, 'harness: inject returns the message it touched');
+    const restoredFrom = h.events.length;
+    await h.platform.restoreConnection();
+    await h.platform.settle();
+    const after = h.events.slice(restoredFrom);
+    const upIndex = after.findIndex((e) => e.kind === 'connection' && e.state === 'up');
+    expect(upIndex, "G13: a reconnect emits connection {state: 'up'}").toBeGreaterThanOrEqual(0);
+    const earlier = ofKind(h.events.slice(0, restoredFrom), 'connection').map((e) => e.dedupeKey);
+    expect(earlier, 'G14: a reconnect gets a connection key never used before').not.toContain(
+      after[upIndex]?.dedupeKey,
+    );
+    if (h.gateway.capabilities.history) {
+      const recovered = await h.recover({
+        conversations: [{ ref: conversation }],
+        since: new Date(0),
+      });
+      expect(
+        ofKind(recovered, 'message').map((e) => e.message),
+        'G10: a message sent while the connection was down is recovered',
+      ).toContain(mMessage);
+    } else {
+      expect(
+        after.findIndex((e) => e.kind === 'message' && e.message === mMessage),
+        'G13: a message sent while the connection was down arrives after connection up',
+      ).toBeGreaterThan(upIndex);
+    }
+  },
+};
+
 /** The suite's cases, in run order. */
 export const conformanceCases: readonly ConformanceCase[] = [
   deliverTargets,
@@ -851,6 +904,7 @@ export const conformanceCases: readonly ConformanceCase[] = [
   respond,
   deliveryFaults,
   ackAfterSink,
+  connectionLoss,
 ];
 
 function harness(target: ConformanceTarget, created: ConformanceHarness): Harness {

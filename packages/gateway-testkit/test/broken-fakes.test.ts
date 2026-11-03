@@ -85,6 +85,16 @@ function selfRetry(profile: FakeProfile): ConformanceTarget {
   }));
 }
 
+/** Never reports a lost connection. */
+function silentLoss(profile: FakeProfile): ConformanceTarget {
+  return broken('silentLoss', profile, (fake) => ({
+    start: (sink) =>
+      fake.start((event) =>
+        event.kind === 'connection' && event.state === 'down' ? Promise.resolve() : sink(event),
+      ),
+  }));
+}
+
 const profiles: FakeProfile[] = ['slack-like', 'telegram-like'];
 
 describe('broken fakes fail the suite', () => {
@@ -104,6 +114,12 @@ describe('broken fakes fail the suite', () => {
     it(`ackFirst fails ack-after-sink with G11 while the sink is held (${profile})`, async () => {
       await expect(runConformanceCase(ackFirst(profile), 'ack-after-sink')).rejects.toThrow(
         /G11: the input is not acknowledged while the sink is pending/,
+      );
+    });
+
+    it(`silentLoss fails connection-loss with G13 (${profile})`, async () => {
+      await expect(runConformanceCase(silentLoss(profile), 'connection-loss')).rejects.toThrow(
+        /G13: a lost connection emits/,
       );
     });
 
@@ -128,6 +144,7 @@ describe('broken fakes fail the suite', () => {
       await runConformanceCase(healthy, 'recover-keys');
       await runConformanceCase(healthy, 'delivery-faults');
       await runConformanceCase(healthy, 'ack-after-sink');
+      await runConformanceCase(healthy, 'connection-loss');
     }
   });
 });
