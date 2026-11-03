@@ -639,12 +639,16 @@ function decideCommand(argv: string[], depth: number): Decision {
     return ALLOW;
   }
   if (TEXT_ONLY.has(name)) return ALLOW;
-  // Any other command may run its arguments (xargs, flock, ionice, ...): check git or gh there.
-  const inner = args.findIndex((arg) => {
+  // Any other command may run its arguments (xargs, flock, ionice, ...). Check from every git or
+  // gh word, since the first one may be an option value (`xargs -I git gh pr merge 1`). Each
+  // slice starts with git or gh, so it is decided directly and never falls back again.
+  for (const [index, arg] of args.entries()) {
     const base = basename(arg);
-    return base === 'git' || base === 'gh';
-  });
-  return inner === -1 ? ALLOW : decideCommand(args.slice(inner), depth);
+    if (base !== 'git' && base !== 'gh') continue;
+    const decision = decideCommand(args.slice(index), depth);
+    if (!decision.allow) return decision;
+  }
+  return ALLOW;
 }
 
 function decideAt(command: string, depth: number): Decision {

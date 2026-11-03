@@ -119,6 +119,11 @@ const DENY: [string, string][] = [
   ['taskset 1 gh pr merge 1', 'merge'],
   ['chrt -i 0 git push -f', 'force-push'],
   ['run0 --user root git push -f', 'force-push'],
+  // every git or gh word counts: the first may be an option value
+  ['xargs -I git gh pr merge 1', 'merge'],
+  ['xargs -I gh git push -f', 'force-push'],
+  ['flock gh git push -f', 'force-push'],
+  ['xargs -I{} -n1 git push -f', 'force-push'],
   ['xargs /usr/bin/git -c core.hooksPath=/dev/null commit -m x', 'hooks-path'],
   // $'...' is decoded as bash decodes it
   ["git push $'--for\\x63e'", 'force-push'],
@@ -172,6 +177,7 @@ const ALLOW: string[] = [
   "rg 'gh pr merge'",
   'stdbuf -oL pnpm test',
   'xargs git status',
+  'xargs -I gh gh pr view 1',
   'man git-push',
   'git config --remove-section alias',
   "echo $'a\\tb\\n'",
