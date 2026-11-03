@@ -29,7 +29,9 @@ numbered migrations. Where a test enforces a rule, the rule names it.
   observe code does not exist yet (#31); #31 updates this section with its callers.
 - A command runs through `createApply` (`packages/core/src/app/commands.ts`): one transaction
   looks up `(actor, key)` in `command`, runs the effect and writes the `command` row; a hit
-  returns the stored result. Rows older than `commands.retentionDays` are purged daily.
+  returns the stored result. Rows older than `commands.retentionDays` are purged daily. Pinned
+  by 'returns the stored result after a crash between commit and reply' and 'applies two
+  concurrent calls with the same key once'.
 - No IO inside `fn`: no network, file or child process, no await other than `trx` queries. Fetch
   first, then write; a side effect goes out through the outbox after commit (next section). Why:
   the lock is held for all of `fn`, other writers give up after the 5000 ms busy timeout, and a
