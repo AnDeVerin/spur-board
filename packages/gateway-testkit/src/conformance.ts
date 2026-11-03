@@ -562,6 +562,40 @@ const closeSteps: ConformanceCase = {
   },
 };
 
+/**
+ * Without history, a message missed during an outage either arrives through the sink after the
+ * new `up` (`after[upIndex]`), or a recover from the last message the sink received before the
+ * outage yields `gap` (G10). Returns the replayed event, if any.
+ */
+async function replayedOrGap(
+  h: Harness,
+  outage: {
+    after: readonly InboundEvent[];
+    upIndex: number;
+    missed: MessageRef;
+    last: EventOf<'message'>;
+    label: string;
+  },
+): Promise<EventOf<'message'> | undefined> {
+  const { after, upIndex, missed, last, label } = outage;
+  const index = after.findIndex((e) => e.kind === 'message' && e.message === missed);
+  if (index >= 0) {
+    expect(index, `G13: a message sent while ${label} arrives after connection up`).toBeGreaterThan(
+      upIndex,
+    );
+    return ofKind(after, 'message').find((e) => e.message === missed);
+  }
+  const recovered = await h.recover({
+    conversations: [{ ref: last.conversation, after: last.message }],
+    since: new Date(last.at),
+  });
+  expect(
+    ofKind(recovered, 'gap').length,
+    `G10: a missed message sent while ${label} that is not replayed makes recover yield gap`,
+  ).toBeGreaterThanOrEqual(1);
+  return undefined;
+}
+
 const recoverKeys: ConformanceCase = {
   id: 'recover-keys',
   title: 'recovered events keep their keys; restarts get fresh connection keys',
@@ -591,7 +625,8 @@ const recoverKeys: ConformanceCase = {
     ).dedupeKey;
     expect(new Set([keyA, keyE1, keyE2]).size, 'G9: a message and each edit differ in key').toBe(3);
     const b = await live(h, { kind: 'message', conversation, author, text: 'B' });
-    const keyB = required(ofKind(b.events, 'message')[0], 'G8: message B emits an event').dedupeKey;
+    const eventB = required(ofKind(b.events, 'message')[0], 'G8: message B emits an event');
+    const keyB = eventB.dedupeKey;
     await h.platform.inject({ kind: 'delete', message: b.message });
     const deleteKey = ofKind(h.events, 'message_deleted').find(
       (e) => e.message === b.message,
@@ -701,13 +736,18 @@ const recoverKeys: ConformanceCase = {
         ).toContain(dLiveKey);
       }
     } else {
-      // 5b. No history: the queued message arrives after the new connection up.
-      const dIndex = after.findIndex((e) => e.kind === 'message' && e.message === dMessage);
-      expect(
-        dIndex,
-        'G13: a message sent while stopped arrives after connection up',
-      ).toBeGreaterThan(upIndex);
-      expect(dLive[0]?.originKey, 'G7: the queued message sets originKey').toBe(key);
+      // 5b. No history: the queued message arrives after the new connection up, or recover
+      // from B, the last message before the stop, yields gap.
+      const replayed = await replayedOrGap(h, {
+        after,
+        upIndex,
+        missed: dMessage,
+        last: eventB,
+        label: 'stopped',
+      });
+      if (replayed !== undefined) {
+        expect(replayed.originKey, 'G7: the queued message sets originKey').toBe(key);
+      }
       const empty = { conversations: [], since: new Date(0) };
       const gaps1 = ofKind(await h.recover(empty), 'gap');
       expect(gaps1.length, 'G10: recover without history yields gap').toBeGreaterThanOrEqual(1);
@@ -864,6 +904,8 @@ const connectionLoss: ConformanceCase = {
   title: 'a lost connection emits down; a reconnect emits up with a fresh key',
   async run(h) {
     const conversation = await openConversation(h, 'cl-open');
+    const last = await live(h, { kind: 'message', conversation, author, text: 'L' });
+    const lastEvent = required(ofKind(last.events, 'message')[0], 'G8: message L emits an event');
     await h.platform.settle();
     const before = h.events.length;
     await h.platform.dropConnection();
@@ -895,10 +937,13 @@ const connectionLoss: ConformanceCase = {
         'G10: a message sent while the connection was down is recovered',
       ).toContain(mMessage);
     } else {
-      expect(
-        after.findIndex((e) => e.kind === 'message' && e.message === mMessage),
-        'G13: a message sent while the connection was down arrives after connection up',
-      ).toBeGreaterThan(upIndex);
+      await replayedOrGap(h, {
+        after,
+        upIndex,
+        missed: mMessage,
+        last: lastEvent,
+        label: 'the connection was down',
+      });
     }
   },
 };

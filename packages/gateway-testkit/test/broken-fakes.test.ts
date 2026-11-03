@@ -1,4 +1,5 @@
-import type { Gateway, InboundEvent } from '@spur-board/contracts';
+import { randomUUID } from 'node:crypto';
+import type { Gateway, InboundEvent, MessageRef } from '@spur-board/contracts';
 import { describe, expect, it } from 'vitest';
 import { runConformanceCase, type ConformanceTarget } from '../src/conformance.ts';
 import { createFakeGateway, type FakeGateway, type FakeProfile } from '../src/index.ts';
@@ -107,6 +108,61 @@ function silentLoss(profile: FakeProfile): ConformanceTarget {
   }));
 }
 
+/**
+ * Telegram-like: silently loses every message sent while it is stopped or disconnected. `recover`
+ * yields one `gap` when `reportsGap`, else nothing.
+ */
+function losesMissed(reportsGap: boolean): ConformanceTarget {
+  const profile = 'telegram-like';
+  return {
+    name: `losesMissed ${reportsGap ? 'with gap' : 'silently'} ${profile}`,
+    maxTextLength: maxTextLength[profile],
+    create() {
+      const fake = createFakeGateway({ profile });
+      const missed = new Set<MessageRef>();
+      let online = false;
+      const gateway: Gateway = {
+        kind: fake.kind,
+        capabilities: fake.capabilities,
+        start(sink) {
+          online = true;
+          return fake.start((event) =>
+            event.kind === 'message' && missed.has(event.message) ? Promise.resolve() : sink(event),
+          );
+        },
+        stop() {
+          online = false;
+          return fake.stop();
+        },
+        deliver: (request) => fake.deliver(request),
+        async *recover() {
+          if (reportsGap) yield await Promise.resolve({ kind: 'gap', dedupeKey: randomUUID() });
+        },
+        respond: (interaction, text, options) => fake.respond(interaction, text, options),
+      };
+      const platform = {
+        ...fake.platform,
+        async inject(input: Parameters<typeof fake.platform.inject>[0]) {
+          const result = await fake.platform.inject(input);
+          if (!online && input.kind === 'message' && result.message !== undefined) {
+            missed.add(result.message);
+          }
+          return result;
+        },
+        dropConnection() {
+          online = false;
+          fake.platform.dropConnection();
+        },
+        restoreConnection() {
+          online = true;
+          fake.platform.restoreConnection();
+        },
+      };
+      return { gateway, platform };
+    },
+  };
+}
+
 const profiles: FakeProfile[] = ['slack-like', 'telegram-like'];
 
 describe('broken fakes fail the suite', () => {
@@ -153,6 +209,18 @@ describe('broken fakes fail the suite', () => {
       runConformanceCase(afterDropsDeletes('slack-like'), 'recover-keys'),
     ).rejects.toThrow(/G10:.*deletion/);
   });
+
+  for (const id of ['recover-keys', 'connection-loss'] as const) {
+    it(`losesMissed silently fails ${id} with G10 (telegram-like)`, async () => {
+      await expect(runConformanceCase(losesMissed(false), id)).rejects.toThrow(
+        /G10: a missed message/,
+      );
+    });
+
+    it(`losesMissed with a gap passes ${id} (telegram-like)`, async () => {
+      await runConformanceCase(losesMissed(true), id);
+    });
+  }
 
   it('the healthy fake passes the same cases', async () => {
     for (const profile of profiles) {
