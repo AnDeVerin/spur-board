@@ -268,6 +268,18 @@ const CASES: Case[] = [
   { rule: 'config', name: 'npmrc', flagged: mod('.npmrc'), clean: mod('packages/x/.npmrc') },
   {
     rule: 'config',
+    name: 'git hook',
+    flagged: add('.githooks/pre-merge-commit'),
+    clean: mod('packages/x/.githooks/pre-commit'),
+  },
+  {
+    rule: 'config',
+    name: 'claude settings',
+    flagged: mod('.claude/settings.json'),
+    clean: mod('.claude/settings.local.json'),
+  },
+  {
+    rule: 'config',
     name: 'nested eslint config',
     flagged: add('packages/x/eslint.config.js'),
     clean: mod('packages/x/src/a.ts'),
