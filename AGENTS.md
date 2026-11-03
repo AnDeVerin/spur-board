@@ -56,7 +56,8 @@ A map of the repo for agents and contributors. The rules live in the files and s
 
 - pre-commit: gitleaks on the staged changes (needs `gitleaks` on `PATH`), then prettier on the
   staged files and re-stage. It refuses a file that is staged and also has unstaged changes, and
-  `git commit <path>` when a file needs formatting.
+  `git commit <path>` when a file needs formatting. The CI secrets job scans only the PR's net
+  diff, so only this hook catches a secret added and removed again inside one PR.
 - pre-push: `pnpm check`.
 - A hook refuses -> fix what it reports and commit again.
 
@@ -73,6 +74,10 @@ refuses these with the reason. Codex has no such hook: follow the same rules you
 - `gh pr merge`, `gh api .../pulls/<n>/merge`, and the GraphQL `mergePullRequest` or
   `enablePullRequestAutoMerge` mutations - agents never merge.
 - Command substitutions nested deeper than 8 levels - the guard cannot check them.
+
+Not caught (the rules still apply): git and shell aliases, interpreters (`node -e`, `python -c`)
+and script files, commands piped or fed into a shell (`echo ... | bash`, `bash <<<...`),
+variables expanded into commands, and the GitHub API through `curl`.
 
 ## Reading a red CI run
 
