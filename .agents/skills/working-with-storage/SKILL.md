@@ -16,7 +16,7 @@ numbered migrations. Where a test enforces a rule, the rule names it.
   breaks stored data as users see it (its Breaking changes section lists the cases, a new required
   column and a tightened constraint among them) needs both skills: this one for the migration,
   that one for the break.
-- Not covered yet: the outbox sender, inbox and idempotency keys (#32, #35).
+- Not covered yet: the outbox sender and inbox (#35).
 
 ## Transactions
 
@@ -27,6 +27,9 @@ numbered migrations. Where a test enforces a rule, the rule names it.
   `BEGIN IMMEDIATE`, so the write lock is held from the start.
 - One unit of work is one `store.transaction`: a tick, one observed batch, one command. Tick and
   observe code does not exist yet (#31); #31 updates this section with its callers.
+- A command runs through `createApply` (`packages/core/src/app/commands.ts`): one transaction
+  looks up `(actor, key)` in `command`, runs the effect and writes the `command` row; a hit
+  returns the stored result. Rows older than `commands.retentionDays` are purged daily.
 - No IO inside `fn`: no network, file or child process, no await other than `trx` queries. Fetch
   first, then write; a side effect goes out through the outbox after commit (next section). Why:
   the lock is held for all of `fn`, other writers give up after the 5000 ms busy timeout, and a
