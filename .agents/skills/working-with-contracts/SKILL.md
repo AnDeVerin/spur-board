@@ -5,8 +5,8 @@ description: Rules for changing packages/contracts - zod schemas, config fields,
 
 # Working with contracts
 
-`packages/contracts/` holds the shapes every package agrees on. Each rule names the test that
-enforces it.
+`packages/contracts/` holds the shapes every package agrees on. Where a test or lint enforces a
+rule, the rule names it.
 
 ## When to use
 
@@ -34,16 +34,7 @@ enforces it.
 
 ## Add a config field
 
-- Make the leaf optional or give it `.default(v)`. A new section object gets `.prefault({})`, not
-  `.default({})`, so its inner defaults fill. A new required key is a user-visible break.
-- Never a secret: the "has no secret-like property names" test fails.
-- Run `pnpm gen:config-schema` and commit `packages/contracts/config.schema.json`; the "matches
-  the committed config.schema.json" test fails when it is stale.
-- Assert the default under `describe('fixtures')`, or set the field in a YAML fixture in
-  `packages/contracts/test/fixtures/` when a real project would set it.
-- Add an `invalid configs` row with the message and `→ at <path>`. A custom message goes through
-  the `error` callback (pattern: `columnConfig`) or `ctx.addIssue` with `path` (pattern:
-  `rejectDuplicates`).
+Read `.agents/skills/working-with-contracts/references/config-field.md`.
 
 ## Add an enum value
 
@@ -52,7 +43,7 @@ enforces it.
 - Update its pin where one exists: `packages/contracts/test/enums.test.ts` for lists in
   `packages/contracts/src/enums.ts`, the fixture `Record` in
   `packages/contracts/test/gateway/schemas.test.ts` for gateway kinds. A changed expected value is
-  a Changed checks entry.
+  a Changed checks entry (`gitflow`).
 - Run `pnpm typecheck` and handle every exhaustive switch (`assertNever`).
 - A list config uses: run `pnpm gen:config-schema`.
 - A new `COLUMNS` entry also changes `ADDRESSEE_ROLES`, the config JSON Schema, and the default
@@ -70,7 +61,7 @@ enforces it.
   compile error.
 - Add a `samples` entry in `packages/contracts/test/events.test.ts` and update the kind-count test
   under `describe('event kinds')` there. That is a changed expected value: list it under Changed
-  checks.
+  checks (`gitflow`).
 - An existing kind only gains optional payload fields. Renaming or removing a kind or field, or
   adding a required field, is a user-visible break.
 - `parseEvent` returns `skipped` for a kind it does not know. Callers treat `skipped` as ignore,
@@ -100,13 +91,15 @@ Adding or changing a port, its obligations or capabilities: read
   required config key, payload or envelope field; a tightened constraint; a changed meaning; a new
   required column; a `v` bump.
 - A user-visible break needs `!` in the PR title (`feat(contracts)!: #N ...`) and Risk high with
-  the migration described.
-- Stored data and config take two steps:
-  - The expand PR is one PR: contracts accept old and new, and the writers in it emit only the
-    new.
-  - Stored journal values stay readable: the reader keeps accepting the old value for good.
-  - A later removal PR drops the old key or value from config only; its error names the
-    replacement.
+  the migration described (both per `gitflow`).
+- A user-visible rename of stored data or config is an expand step. Contracts have no
+  `.transform`, so nothing maps old to new:
+  - The expand PR is one PR: the list keeps the old value and adds the new one, so readers accept
+    both, and the writers in that PR emit only the new.
+  - A value the journal uses keeps its old entry in the list for good, so stored lines stay
+    readable. Renaming it is always a user-visible break, and it gets no removal PR.
+  - A config rename gets a later removal PR that drops the old key or value from config only; its
+    error names the replacement.
   - A break that touches only operations needs no expand step.
 - Not breaking: internal types, schemas, exports, port interfaces and obligations shared between
   workspace packages. Rename them in one PR with every consumer, no `!`. Also not breaking: a new
@@ -122,6 +115,9 @@ Adding or changing a port, its obligations or capabilities: read
 - `COLUMNS[].id` is user-visible: the doc comment in `packages/contracts/src/enums.ts` says
   everything stored or addressed uses the id (config `columns`, the journal, addressee roles).
   `COLUMNS[].name` is display text.
+- A rename also follows the "Add an enum value" steps: update the pin (the changed expected value
+  goes under Changed checks), run `pnpm gen:config-schema` when config uses the list, and handle
+  every exhaustive switch.
 
 ## PR order
 
