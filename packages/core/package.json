@@ -1,0 +1,21 @@
+{
+  "name": "@spur-board/core",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p ."
+  },
+  "dependencies": {
+    "@spur-board/contracts": "workspace:*",
+    "better-sqlite3": "catalog:",
+    "kysely": "catalog:",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "catalog:"
+  }
+}

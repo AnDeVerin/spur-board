@@ -167,6 +167,9 @@ catalogs:
     '@eslint-community/eslint-plugin-eslint-comments':
       specifier: ^4.8.1
       version: 4.8.1
+    '@types/better-sqlite3':
+      specifier: ^9.6.0
+      version: 9.6.0
     '@types/node':
       specifier: ^24
       version: 24.19.2
@@ -176,12 +179,18 @@ catalogs:
     '@vitest/eslint-plugin':
       specifier: ^1.6.28
       version: 1.6.28
+    better-sqlite3:
+      specifier: ^13.0.3
+      version: 13.0.3
     eslint:
       specifier: ^10.13.0
       version: 10.13.0
     knip:
       specifier: ^6.43.0
       version: 6.43.0
+    kysely:
+      specifier: ^0.29.7
+      version: 0.29.7
     prettier:
       specifier: ^3.9.10
       version: 3.9.10
@@ -248,6 +257,25 @@ importers:
       yaml:
         specifier: 'catalog:'
         version: 2.9.1
+
+  packages/core:
+    dependencies:
+      '@spur-board/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      better-sqlite3:
+        specifier: 'catalog:'
+        version: 13.0.3
+      kysely:
+        specifier: 'catalog:'
+        version: 0.29.7
+      zod:
+        specifier: 'catalog:'
+        version: 4.6.7
+    devDependencies:
+      '@types/better-sqlite3':
+        specifier: 'catalog:'
+        version: 9.6.0
 
   packages/testkit: {}
 
@@ -680,6 +708,9 @@ packages:
   '@tybys/wasm-util@0.10.4':
     resolution: {integrity: sha512-W3c4gRigFS0T/Ma4qIYF3GDAc5AQdHb1yL5znJT1Zv1YaD9Kitx656wBjvr19qbiosmZT8lWDM5BEMynUqX65A==}
 
+  '@types/better-sqlite3@9.6.0':
+    resolution: {integrity: sha512-ZEEwBSgMu7GYJOynoagg5X9JbxfL6dTJDsgViJIqh67jV44kyOr9RXfmFjLK5rzC4MWssP06t9hu/JwGDnUbCg==}
+
   '@types/chai@5.2.3':
     resolution: {integrity: sha512-Mw558oeA9fFbv65/y4mHtXDs9bPnFMZAL/jxdPFUpOHHIXX91mcgEHbS5Lahr+pwZFR8A7GQleRWeI6cGFC2UA==}
 
@@ -969,6 +1000,10 @@ packages:
     resolution: {integrity: sha512-BLrgEcRTwX2o6gGxGOCNyMvGSp35YofuYzw9h1IMTRmKqttAZZVU67bdb9Pr2vUHA8+j3i2tJfjO6C6+4myGTA==}
     engines: {node: 18 || 20 || >=22}
 
+  better-sqlite3@13.0.3:
+    resolution: {integrity: sha512-RbOBxmLBG8uvFUc15X9+9SFemKcQ0WBuISBVkpuiaUB2qblC8UWlHEjdWVoZ8AdhSwmoEgsiXKfopX0CQxaACQ==}
+    engines: {node: '>=22'}
+
   brace-expansion@5.0.12:
     resolution: {integrity: sha512-YovQ3rzhaLMIrDjNDMkNS01tea93qhEhG5xy8f6+R0l+dw3Ki+5sCoIoI942iuLZTHWogWktgwVDhU09iNEimQ==}
     engines: {node: 20 || >=22}
@@ -1158,6 +1193,10 @@ packages:
     engines: {node: ^20.19.0 || >=22.12.0}
     hasBin: true
 
+  kysely@0.29.7:
+    resolution: {integrity: sha512-fmIq+7kv4WbFm2tcfznRzikqB4cuNpgZ40PSU2fAJ2/OO5XhojqnTPrmgrCjYSRJVwBln03XcRXJGnw9H099IQ==}
+    engines: {node: '>=22.0.0'}
+
   levn@0.4.1:
     resolution: {integrity: sha512-+bT2uH4E5LGE7h/n3evcS/sQlJXCpIp6ym8OWJ5eV6+67Dsql/LaaT7qJBAt2rzfoa/5QBGBhxDix1dMt2kQKQ==}
     engines: {node: '>= 0.8.0'}
@@ -1257,6 +1296,10 @@ packages:
 
   natural-compare@1.4.0:
     resolution: {integrity: sha512-OWND8ei3VtNC9h7V60qff3SVobHr996CTwgxubgyQYEpg290h9J0buyECNNJexkFm5sOajh5G116RYA1c8ZMSw==}
+
+  node-addon-api@8.9.2:
+    resolution: {integrity: sha512-VijLXbi3UACN69I0JVXJsX4tjACjNoQDgv2gTF6sx2wWEi8tkSg2eX8p5gSIFi8z2+DL3oHmY6OyKce38SDolg==}
+    engines: {node: ^18 || ^20 || >= 21}
 
   obug@3.0.0:
     resolution: {integrity: sha512-5vvB5+W7ePv+p3uqxi+RcW1XAzLW0/hxt3/4X4Lc4qHudzOhmBiBwOY6DRob4WnanAEGvNcLjF+KNOufrUoEQw==}
@@ -1800,6 +1843,10 @@ snapshots:
       tslib: 2.8.1
     optional: true
 
+  '@types/better-sqlite3@9.6.0':
+    dependencies:
+      '@types/node': 24.19.2
+
   '@types/chai@5.2.3':
     dependencies:
       '@types/deep-eql': 4.0.2
@@ -2063,6 +2110,10 @@ snapshots:
 
   balanced-match@4.0.4: {}
 
+  better-sqlite3@13.0.3:
+    dependencies:
+      node-addon-api: 8.9.2
+
   brace-expansion@5.0.12:
     dependencies:
       balanced-match: 4.0.4
@@ -2261,6 +2312,8 @@ snapshots:
       yaml: 2.9.1
       zod: 4.6.7
 
+  kysely@0.29.7: {}
+
   levn@0.4.1:
     dependencies:
       prelude-ls: 1.2.1
@@ -2332,6 +2385,8 @@ snapshots:
   nanoid@3.3.20: {}
 
   natural-compare@1.4.0: {}
+
+  node-addon-api@8.9.2: {}
 
   obug@3.0.0: {}
 

@@ -1,0 +1,280 @@
+import { createHash } from 'node:crypto';
+import { mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import Database from 'better-sqlite3';
+import { Kysely, SqliteDialect } from 'kysely';
+import { afterEach, describe, expect, it } from 'vitest';
+import type { Tables } from '../../src/index.ts';
+import { migrate, migrationsDir, readMigrations, type Migration } from '../../src/store/migrate.ts';
+import { openDatabase, openStore } from '../../src/store/store.ts';
+import { insertSampleRows, sampleRows, tableNames } from './sample-rows.ts';
+
+const INDEXES: Record<string, { table: string; columns: string[]; partialUnique: boolean }> = {
+  link_pr_pair: { table: 'link', columns: ['task_id', 'repo', 'number'], partialUnique: true },
+  link_session_pair: { table: 'link', columns: ['task_id', 'session_id'], partialUnique: true },
+  link_one_active_pr: { table: 'link', columns: ['task_id'], partialUnique: true },
+  submission_task_column_submitted: {
+    table: 'submission',
+    columns: ['task_id', 'column', 'submitted_at'],
+    partialUnique: false,
+  },
+  block_task_state: { table: 'block', columns: ['task_id', 'state'], partialUnique: false },
+  comment_task_id: { table: 'comment', columns: ['task_id', 'id'], partialUnique: false },
+  event_task_id: { table: 'event', columns: ['task_id', 'id'], partialUnique: false },
+  event_at: { table: 'event', columns: ['at'], partialUnique: false },
+  outbox_state_next_at: { table: 'outbox', columns: ['state', 'next_at'], partialUnique: false },
+};
+
+const real = readMigrations(migrationsDir);
+const probe: Migration = {
+  version: 2,
+  name: '0002_probe',
+  sql: 'ALTER TABLE task ADD COLUMN probe TEXT; CREATE TABLE probe (id INTEGER PRIMARY KEY) STRICT;',
+};
+const failing: Migration = {
+  version: 3,
+  name: '0003_failing',
+  sql: 'CREATE TABLE half (x INTEGER) STRICT; INSERT INTO no_such_table VALUES (1);',
+};
+
+const cleanup: (() => unknown)[] = [];
+afterEach(async () => {
+  for (const fn of cleanup.splice(0)) await fn();
+});
+
+function tempDir(): string {
+  return mkdtempSync(join(tmpdir(), 'core-migrate-'));
+}
+
+/** A raw connection with the store PRAGMAs, plus a Kysely view of it. Closed after the test. */
+function rawDb(file: string): { raw: Database.Database; db: Kysely<Tables> } {
+  const raw = openDatabase(file);
+  const db = new Kysely<Tables>({ dialect: new SqliteDialect({ database: raw }) });
+  cleanup.push(() => db.destroy());
+  return { raw, db };
+}
+
+function userVersion(raw: Database.Database): number {
+  return raw.pragma('user_version', { simple: true }) as number;
+}
+
+function tables(raw: Database.Database): string[] {
+  return raw
+    .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT GLOB 'sqlite_*'")
+    .pluck()
+    .all() as string[];
+}
+
+function rows(raw: Database.Database, table: string): unknown[] {
+  return raw.prepare(`SELECT * FROM "${table}"`).all();
+}
+
+function expectSampleRows(raw: Database.Database, extra: Record<string, object> = {}): void {
+  for (const table of tableNames) {
+    expect(rows(raw, table)).toEqual([{ ...sampleRows[table], ...extra[table] }]);
+  }
+}
+
+function backups(dir: string): string[] {
+  return readdirSync(dir).filter((name) => name.endsWith('.bak'));
+}
+
+function sha256(bytes: Buffer): string {
+  return createHash('sha256').update(bytes).digest('hex');
+}
+
+describe('migrate', () => {
+  it('creates every table and index from an empty file', () => {
+    const dir = tempDir();
+    const store = openStore(join(dir, 'board.db'));
+    cleanup.push(() => store.close());
+    const raw = new Database(join(dir, 'board.db'), { readonly: true });
+    cleanup.push(() => raw.close());
+
+    expect(tables(raw).sort()).toEqual([...tableNames].sort());
+    const indexes = raw
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type = 'index' AND name NOT GLOB 'sqlite_autoindex_*'",
+      )
+      .pluck()
+      .all() as string[];
+    expect(indexes.sort()).toEqual(Object.keys(INDEXES).sort());
+    for (const [name, spec] of Object.entries(INDEXES)) {
+      const columns = raw.prepare('SELECT name FROM pragma_index_info(?)').pluck().all(name);
+      expect(columns, name).toEqual(spec.columns);
+      const listed = raw
+        .prepare('SELECT "unique", partial FROM pragma_index_list(?) WHERE name = ?')
+        .all(spec.table, name);
+      const flag = spec.partialUnique ? 1 : 0;
+      expect(listed, name).toEqual([{ unique: flag, partial: flag }]);
+    }
+    expect(raw.pragma('foreign_key_check')).toEqual([]);
+    expect(userVersion(raw)).toBe(real.length);
+    expect(store.migration).toEqual({ from: 0, to: 1, applied: ['0001_init'], backup: null });
+    expect(backups(dir)).toEqual([]);
+  });
+
+  it('keeps rows written at N-1 when migrating to N', async () => {
+    const dir = tempDir();
+    const { raw, db } = rawDb(join(dir, 'board.db'));
+    migrate(raw, real);
+    await insertSampleRows(db);
+
+    const result = migrate(raw, [...real, probe]);
+
+    expect(result.applied).toEqual(['0002_probe']);
+    expect(result).toMatchObject({ from: 1, to: 2 });
+    expect(userVersion(raw)).toBe(2);
+    expectSampleRows(raw, { task: { probe: null } });
+    expect(tables(raw)).toContain('probe');
+    expect(result.backup).not.toBeNull();
+    expect(backups(dir)).toHaveLength(1);
+    const backup = new Database(result.backup ?? '', { readonly: true });
+    cleanup.push(() => backup.close());
+    expect(userVersion(backup)).toBe(1);
+    expectSampleRows(backup);
+  });
+
+  it('rolls back every pending migration when one throws and keeps the backup', async () => {
+    const dir = tempDir();
+    const { raw, db } = rawDb(join(dir, 'board.db'));
+    migrate(raw, real);
+    await insertSampleRows(db);
+
+    expect(() => migrate(raw, [...real, probe, failing])).toThrow(/0003.*v1/);
+
+    expect(userVersion(raw)).toBe(1);
+    expect(tables(raw)).not.toContain('probe');
+    expect(tables(raw)).not.toContain('half');
+    expectSampleRows(raw);
+    expect(backups(dir)).toHaveLength(1);
+    expect(raw.pragma('foreign_keys', { simple: true })).toBe(1);
+  });
+
+  it('applies nothing and writes no backup on a current database', async () => {
+    const dir = tempDir();
+    const file = join(dir, 'board.db');
+    const first = openStore(file);
+    await insertSampleRows(first.db);
+    await first.close();
+    const before = readdirSync(dir).sort();
+
+    const second = openStore(file);
+    expect(second.migration).toEqual({ from: 1, to: 1, applied: [], backup: null });
+    for (const table of tableNames) {
+      expect(await second.db.selectFrom(table).selectAll().execute()).toEqual([sampleRows[table]]);
+    }
+    await second.close();
+
+    expect(readdirSync(dir).sort()).toEqual(before);
+    expect(backups(dir)).toEqual([]);
+  });
+
+  it('refuses a database newer than the code', () => {
+    const dir = tempDir();
+    const file = join(dir, 'board.db');
+    // SQLite's default rollback-journal mode: switching it to WAL would rewrite the header.
+    const fixture = new Database(file);
+    fixture.exec('CREATE TABLE future (x INTEGER)');
+    fixture.pragma('user_version = 99');
+    fixture.close();
+    const hash = sha256(readFileSync(file));
+
+    expect(() => openStore(file)).toThrow(/v99/);
+
+    expect(readdirSync(dir)).toEqual(['board.db']);
+    expect(sha256(readFileSync(file))).toBe(hash);
+  });
+
+  it('backs up an unversioned file that already holds data', () => {
+    const dir = tempDir();
+    const file = join(dir, 'board.db');
+    const fixture = new Database(file);
+    fixture.exec('CREATE TABLE stray (x INTEGER); INSERT INTO stray VALUES (1);');
+    fixture.close();
+
+    const store = openStore(file);
+    cleanup.push(() => store.close());
+
+    expect(store.migration.from).toBe(0);
+    expect(store.migration.backup).not.toBeNull();
+    expect(backups(dir)).toHaveLength(1);
+    const copy = new Database(join(dir, backups(dir)[0] ?? ''), { readonly: true });
+    cleanup.push(() => copy.close());
+    expect(copy.prepare('SELECT x FROM stray').pluck().all()).toEqual([1]);
+  });
+
+  it('rejects a gap or a misnamed migration file', () => {
+    const gap = tempDir();
+    writeFileSync(join(gap, '0001_a.sql'), 'SELECT 1;');
+    writeFileSync(join(gap, '0003_b.sql'), 'SELECT 1;');
+    expect(() => readMigrations(pathToFileURL(`${gap}/`))).toThrow(/0003_b/);
+
+    const misnamed = tempDir();
+    writeFileSync(join(misnamed, '1_bad.sql'), 'SELECT 1;');
+    expect(() => readMigrations(pathToFileURL(`${misnamed}/`))).toThrow(/1_bad\.sql/);
+  });
+});
+
+describe('migration pins', () => {
+  // sha256 of each migration file's raw bytes. A pinned file never changes: add a new file
+  // and its pin instead. Changing the pin of an existing file is a review blocker.
+  const PINS: Record<string, string> = {
+    '0001_init.sql': 'b92894c23ff9a04e97e034ff9b2787f7be48660538dd861119e570ce1ab86f10',
+  };
+
+  interface MigrationFile {
+    name: string;
+    bytes: Buffer;
+  }
+
+  function checkPins(files: MigrationFile[], pins: Record<string, string>): string[] {
+    const problems: string[] = [];
+    for (const { name, bytes } of files) {
+      const actual = sha256(bytes);
+      const pinned = pins[name];
+      if (pinned === undefined) {
+        problems.push(`${name} has no pin; add '${name}': '${actual}' to PINS with the file`);
+      } else if (pinned !== actual) {
+        problems.push(
+          `${name} changed (sha256 ${actual}, pinned ${pinned}); migrations are forward only: restore the file and add a new one`,
+        );
+      }
+    }
+    const names = new Set(files.map((file) => file.name));
+    for (const name of Object.keys(pins)) {
+      if (!names.has(name)) problems.push(`${name} is pinned but missing`);
+    }
+    return problems;
+  }
+
+  it('flags edited, missing and unpinned files and accepts a new file with its pin', () => {
+    const a = { name: '0001_a.sql', bytes: Buffer.from('CREATE TABLE a (x INTEGER);\n') };
+    const b = { name: '0002_b.sql', bytes: Buffer.from('CREATE TABLE b (x INTEGER);\n') };
+    const pins = { [a.name]: sha256(a.bytes) };
+
+    const edited = checkPins([{ ...a, bytes: Buffer.from('CREATE TABLE a (y INTEGER);\n') }], pins);
+    expect(edited).toHaveLength(1);
+    expect(edited[0]).toContain(a.name);
+
+    const missing = checkPins([], pins);
+    expect(missing).toHaveLength(1);
+    expect(missing[0]).toContain(a.name);
+
+    const unpinned = checkPins([a, b], pins);
+    expect(unpinned).toHaveLength(1);
+    expect(unpinned[0]).toContain(`'${b.name}': '${sha256(b.bytes)}'`);
+
+    expect(checkPins([a, b], { ...pins, [b.name]: sha256(b.bytes) })).toEqual([]);
+  });
+
+  it('matches every committed migration file', () => {
+    const files = readdirSync(migrationsDir)
+      .filter((name) => name.endsWith('.sql'))
+      .map((name) => ({ name, bytes: readFileSync(new URL(name, migrationsDir)) }));
+    expect(files.length).toBeGreaterThan(0);
+    expect(checkPins(files, PINS)).toEqual([]);
+  });
+});
