@@ -6,12 +6,13 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { classifyChanges, decideCiOk, jobIdsFromWorkflow, secretsLogOpts } from './ci.ts';
 
-const JOB_IDS = ['changes', 'pr-title', 'secrets', 'workflows', 'quality', 'test'];
+const JOB_IDS = ['changes', 'pr-title', 'guardrails', 'secrets', 'workflows', 'quality', 'test'];
 
 function allSuccess(): Record<string, { result: string; outputs?: Record<string, string> }> {
   return {
     changes: { result: 'success', outputs: { github: 'true' } },
     'pr-title': { result: 'success' },
+    guardrails: { result: 'success' },
     secrets: { result: 'success' },
     workflows: { result: 'success' },
     quality: { result: 'success' },
@@ -93,10 +94,10 @@ describe('decideCiOk', () => {
     expect(decide({ ...docsChange, [id]: { result: 'skipped' } }).ok).toBe(false);
   });
 
-  it('accepts a skipped pr-title only outside pull requests', () => {
-    expect(decide({ 'pr-title': { result: 'skipped' } }, 'pull_request').ok).toBe(false);
-    expect(decide({ 'pr-title': { result: 'skipped' } }, 'push').ok).toBe(true);
-    expect(decide({ 'pr-title': { result: 'skipped' } }, 'workflow_dispatch').ok).toBe(true);
+  it.each(['pr-title', 'guardrails'])('accepts a skipped %s only outside pull requests', (id) => {
+    expect(decide({ [id]: { result: 'skipped' } }, 'pull_request').ok).toBe(false);
+    expect(decide({ [id]: { result: 'skipped' } }, 'push').ok).toBe(true);
+    expect(decide({ [id]: { result: 'skipped' } }, 'workflow_dispatch').ok).toBe(true);
   });
 });
 
