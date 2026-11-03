@@ -28,6 +28,7 @@ describe('conformance cases', () => {
       'origin-key',
       'respond',
       'delivery-faults',
+      'ack-after-sink',
     ]);
   });
 });

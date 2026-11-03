@@ -213,6 +213,50 @@ describe('delivery faults', () => {
     expect(marked(fake, /^k$/)).toHaveLength(1);
   });
 
+  for (const profile of profiles) {
+    it(`attempts counts one per platform call, faults included (${profile})`, async () => {
+      const { fake } = await started({ profile });
+      const conversation = await openConversation(fake);
+      const target = { kind: 'reply', conversation } as const;
+      const counted = async (request: Parameters<typeof deliver>[1]): Promise<number> => {
+        const start = fake.platform.attempts();
+        await deliver(fake, request);
+        return fake.platform.attempts() - start;
+      };
+      expect(await counted({ key: 'r', target, body: text('r') })).toBe(1);
+      fake.platform.rateLimitNext(10);
+      expect(await counted({ key: 'rl', target, body: text('x') })).toBe(1);
+      fake.platform.failNextPermanently({ scope: 'message' });
+      expect(await counted({ key: 'pf', target, body: text('x') })).toBe(1);
+      fake.platform.timeoutNext({ visible: false });
+      expect(await counted({ key: 'to', target, body: text('x') })).toBe(1);
+      const long = paragraphs(30, Math.floor((profile === 'slack-like' ? 4000 : 4096) / 10));
+      expect(await counted({ key: 'L', target, body: long })).toBe(marked(fake, /^L#/).length);
+      // A maybeSent retry costs one call: the search that finds the copy, or the repeat post.
+      expect(await counted({ key: 'r', target, body: text('r'), maybeSent: true })).toBe(1);
+    });
+
+    it(`acknowledges an input only after the sink resolves (${profile})`, async () => {
+      const fake = createFakeGateway({ profile });
+      const entered = Promise.withResolvers<undefined>();
+      const released = Promise.withResolvers<undefined>();
+      await fake.start((event) => {
+        if (event.kind !== 'message') return Promise.resolve();
+        entered.resolve(undefined);
+        return released.promise;
+      });
+      await fake.platform.settle();
+      const conversation = await openConversation(fake);
+      expect(fake.platform.unacknowledged()).toBe(0);
+      const injected = fake.platform.inject({ kind: 'message', conversation, author, text: 'a' });
+      await entered.promise;
+      expect(fake.platform.unacknowledged()).toBe(1);
+      released.resolve(undefined);
+      await injected;
+      expect(fake.platform.unacknowledged()).toBe(0);
+    });
+  }
+
   it('searchNotVisibleYet throws on telegram-like', () => {
     const fake = createFakeGateway({ profile: 'telegram-like' });
     expect(() => {

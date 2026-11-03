@@ -50,7 +50,9 @@ export interface ConformancePlatform {
   /**
    * A user acts on the platform. Resolves after the platform processed the input, whether or not
    * the gateway emitted an event; while the gateway runs, any event it emits for the input has
-   * reached the sink by then. Works while the gateway is stopped.
+   * reached the sink by then. Input the gateway acknowledges is processed once the
+   * acknowledgement arrived, so while the suite holds the sink, `inject` stays pending; the
+   * suite awaits it only after it released the sink. Works while the gateway is stopped.
    */
   inject(
     input: ConformanceInput,
@@ -79,6 +81,17 @@ export interface ConformancePlatform {
    * only this message.
    */
   failNextPermanently(fault: { scope: FailureScope; reason?: string }): Awaitable<void>;
+  /**
+   * How many platform calls the gateway has made so far, each request counted once: rejected,
+   * rate-limited and timed-out calls included (G1). A fake platform API counts the requests it
+   * received. The suite compares two readings.
+   */
+  attempts(): Awaitable<number>;
+  /**
+   * How many inputs the platform handed to the gateway that the gateway has not acknowledged yet
+   * (G11). Input queued for a stopped gateway counts from the moment it is handed over.
+   */
+  unacknowledged(): Awaitable<number>;
 }
 
 export type ConformanceInput =
@@ -121,7 +134,8 @@ type ConformanceCaseId =
   | 'recover-keys'
   | 'origin-key'
   | 'respond'
-  | 'delivery-faults';
+  | 'delivery-faults'
+  | 'ack-after-sink';
 
 interface Harness {
   readonly gateway: Gateway;
@@ -130,6 +144,11 @@ interface Harness {
   /** Every event the sink received, in order. */
   readonly events: InboundEvent[];
   readonly sink: InboundSink;
+  /**
+   * The sink's next call records its event, resolves `entered` with it and stays pending until
+   * `release()`. `release()` is idempotent.
+   */
+  holdNext(): { entered: Promise<InboundEvent>; release(): void };
   deliver(request: Delivery): Promise<DeliveryResult>;
   recover(request: RecoverRequest): Promise<InboundEvent[]>;
 }
@@ -745,27 +764,78 @@ const deliveryFaults: ConformanceCase = {
     const target = { kind: 'reply', conversation } as const;
     const visible = async (): Promise<number> => (await h.platform.messages()).length;
     const before = await visible();
+    /** Delivers a one-part reply and requires exactly one platform call for it (G1). */
+    const once = async (key: string, fault: string): Promise<DeliveryResult> => {
+      const start = await h.platform.attempts();
+      const result = await h.deliver({ key, target, body: text(key) });
+      expect(
+        (await h.platform.attempts()) - start,
+        `G1: one attempt for a ${fault} call, no retries of its own`,
+      ).toBe(1);
+      return result;
+    };
 
     await h.platform.rateLimitNext(1500);
     expect(
-      await h.deliver({ key: 'df-rate', target, body: text('rate') }),
+      await once('df-rate', 'rate-limited'),
       'G2: a rate limit returns retry {afterMs}',
     ).toMatchObject({ status: 'retry', afterMs: 1500 });
     expect(await visible(), 'G2: a rate-limited reply posts nothing').toBe(before);
 
+    await h.platform.timeoutNext({ visible: false });
+    uncertain(
+      await once('df-timeout', 'timed-out'),
+      'G2: a timeout returns retry {uncertain: true}',
+    );
+    expect(await visible(), 'G2: a reply that timed out without effect posts nothing').toBe(before);
+
     await h.platform.failNextPermanently({ scope: 'transport' });
     expect(
-      await h.deliver({ key: 'df-transport', target, body: text('transport') }),
+      await once('df-transport', 'permanently failed'),
       "G2: a transport failure returns failed {permanent: true, scope: 'transport'}",
     ).toMatchObject({ status: 'failed', permanent: true, scope: 'transport' });
     expect(await visible(), 'G2: a reply that failed on transport posts nothing').toBe(before);
 
     await h.platform.failNextPermanently({ scope: 'message' });
     expect(
-      await h.deliver({ key: 'df-message', target, body: text('message') }),
+      await once('df-message', 'rejected'),
       "G2: a rejected message returns failed {permanent: true, scope: 'message'}",
     ).toMatchObject({ status: 'failed', permanent: true, scope: 'message' });
     expect(await visible(), 'G2: a rejected reply posts nothing').toBe(before);
+  },
+};
+
+const ackAfterSink: ConformanceCase = {
+  id: 'ack-after-sink',
+  title: 'inbound input is acknowledged only after the sink resolves',
+  async run(h) {
+    const conversation = await openConversation(h, 'as-open');
+    await h.platform.settle();
+    expect(await h.platform.unacknowledged(), 'harness: no input is pending at the start').toBe(0);
+    const hold = h.holdNext();
+    try {
+      const injected = Promise.resolve(
+        h.platform.inject({ kind: 'message', conversation, author, text: 'held' }),
+      );
+      const reached = await Promise.race([
+        hold.entered.then(() => true),
+        injected.then(() => false),
+      ]);
+      expect(reached, 'G11: the input reaches the sink').toBe(true);
+      expect(
+        await h.platform.unacknowledged(),
+        'G11: the input is not acknowledged while the sink is pending',
+      ).toBeGreaterThan(0);
+      hold.release();
+      await injected;
+      await h.platform.settle();
+      expect(
+        await h.platform.unacknowledged(),
+        'G11: the input is acknowledged after the sink resolves',
+      ).toBe(0);
+    } finally {
+      hold.release();
+    }
   },
 };
 
@@ -780,10 +850,12 @@ export const conformanceCases: readonly ConformanceCase[] = [
   originKey,
   respond,
   deliveryFaults,
+  ackAfterSink,
 ];
 
 function harness(target: ConformanceTarget, created: ConformanceHarness): Harness {
   const events: InboundEvent[] = [];
+  let hold: { enter(event: InboundEvent): void; released: Promise<void> } | undefined;
   const sink: InboundSink = (event) => {
     const parsed = inboundEventSchema.safeParse(event);
     if (!parsed.success) {
@@ -792,7 +864,11 @@ function harness(target: ConformanceTarget, created: ConformanceHarness): Harnes
       );
     }
     events.push(parsed.data);
-    return Promise.resolve();
+    const held = hold;
+    hold = undefined;
+    if (held === undefined) return Promise.resolve();
+    held.enter(parsed.data);
+    return held.released;
   };
   return {
     gateway: created.gateway,
@@ -800,6 +876,17 @@ function harness(target: ConformanceTarget, created: ConformanceHarness): Harnes
     maxTextLength: target.maxTextLength,
     events,
     sink,
+    holdNext() {
+      const entered = Promise.withResolvers<InboundEvent>();
+      const released = Promise.withResolvers<undefined>();
+      hold = { enter: entered.resolve, released: released.promise };
+      return {
+        entered: entered.promise,
+        release: () => {
+          released.resolve(undefined);
+        },
+      };
+    },
     async deliver(request) {
       const result = await created.gateway.deliver({ persona, maybeSent: false, ...request });
       const parsed = deliveryResultSchema.safeParse(result);

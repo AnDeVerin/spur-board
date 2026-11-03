@@ -64,6 +64,9 @@ export interface FakePlatform extends ConformancePlatform {
   failNextPermanently(fault: { scope: FailureScope; reason?: string }): void;
   /** Slack-like only: the next marker search is inconclusive, so `deliver` returns an uncertain retry. */
   searchNotVisibleYet(): void;
+  /** Counts every post, edit, done mark, marker search and rejected call, and public responses. */
+  attempts(): number;
+  unacknowledged(): number;
   now(): Date;
   advance(ms: number): void;
 }
@@ -192,6 +195,8 @@ export function createFakeGateway(options: FakeGatewayOptions): FakeGateway {
   let rateLimit: number | undefined;
   let permanent: { scope: FailureScope; reason: string } | undefined;
   let searchUnknown = false;
+  let attempts = 0;
+  let unacknowledged = 0;
 
   const iso = (): string => new Date(clock).toISOString();
   const permalink = (conversation: StoredConversation, message: MessageRef): string =>
@@ -199,6 +204,7 @@ export function createFakeGateway(options: FakeGatewayOptions): FakeGateway {
 
   /** Runs one observable step, unless the armed timeout fires on it. */
   function step<T>(apply: () => T): T {
+    attempts += 1;
     if (timeout !== undefined) {
       timeout.remaining -= 1;
       if (timeout.remaining <= 0) {
@@ -212,6 +218,7 @@ export function createFakeGateway(options: FakeGatewayOptions): FakeGateway {
   }
 
   function search<T>(find: () => T | undefined): T | undefined {
+    attempts += 1;
     if (searchUnknown) {
       searchUnknown = false;
       throw new SearchUnknown();
@@ -421,10 +428,17 @@ export function createFakeGateway(options: FakeGatewayOptions): FakeGateway {
     return run;
   }
 
+  /** Hands one input's event to the gateway and acknowledges it once the sink resolved (G11). */
+  async function handOver(next: InboundSink, event: InboundEvent): Promise<void> {
+    unacknowledged += 1;
+    await next(event);
+    unacknowledged -= 1;
+  }
+
   /** Hands an event for `inject` input to the gateway: live, queued, or lost. */
   function emit(event: InboundEvent): Promise<void> {
     const current = sink;
-    if (current !== undefined) return enqueue(() => current(event));
+    if (current !== undefined) return enqueue(() => handOver(current, event));
     if (!history) queue.push({ event, atMs: clock });
     return Promise.resolve();
   }
@@ -564,6 +578,8 @@ export function createFakeGateway(options: FakeGatewayOptions): FakeGateway {
     failNextPermanently({ scope, reason = 'fake permanent failure' }) {
       permanent = { scope, reason };
     },
+    attempts: () => attempts,
+    unacknowledged: () => unacknowledged,
     searchNotVisibleYet() {
       if (!capabilities.markerSearch) {
         throw new Error('fake: searchNotVisibleYet needs a profile with marker search');
@@ -591,7 +607,7 @@ export function createFakeGateway(options: FakeGatewayOptions): FakeGateway {
           state: 'up',
         });
         for (const { event, atMs } of queued) {
-          if (startedAt - atMs <= queueWindowMs) await next(event);
+          if (startedAt - atMs <= queueWindowMs) await handOver(next, event);
         }
       }).catch((error: unknown) => {
         backgroundFailure ??= error instanceof Error ? error : new Error(String(error));
@@ -604,11 +620,13 @@ export function createFakeGateway(options: FakeGatewayOptions): FakeGateway {
     },
     deliver(request) {
       if (rateLimit !== undefined) {
+        attempts += 1;
         const afterMs = rateLimit;
         rateLimit = undefined;
         return Promise.resolve({ status: 'retry', afterMs, uncertain: false });
       }
       if (permanent !== undefined) {
+        attempts += 1;
         const { scope, reason } = permanent;
         permanent = undefined;
         return Promise.resolve({ status: 'failed', permanent: true, scope, reason });
@@ -634,7 +652,10 @@ export function createFakeGateway(options: FakeGatewayOptions): FakeGateway {
       if (isPrivate) {
         return Promise.resolve<RespondResult>(capabilities.privateResponses ? 'sent' : 'dropped');
       }
-      if (found.conversation !== undefined) post(found.conversation, render(text));
+      if (found.conversation !== undefined) {
+        attempts += 1;
+        post(found.conversation, render(text));
+      }
       return Promise.resolve<RespondResult>('sent');
     },
   };

@@ -64,6 +64,27 @@ function closeWithoutDone(profile: FakeProfile): ConformanceTarget {
   }));
 }
 
+/** Acknowledges each event to the platform before the sink resolves. */
+function ackFirst(profile: FakeProfile): ConformanceTarget {
+  return broken('ackFirst', profile, (fake) => ({
+    start: (sink) =>
+      fake.start((event) => {
+        void sink(event);
+        return Promise.resolve();
+      }),
+  }));
+}
+
+/** Retries a call that asked to be retried once more on its own. */
+function selfRetry(profile: FakeProfile): ConformanceTarget {
+  return broken('selfRetry', profile, (fake) => ({
+    async deliver(request) {
+      const result = await fake.deliver(request);
+      return result.status === 'retry' ? fake.deliver({ ...request, maybeSent: true }) : result;
+    },
+  }));
+}
+
 const profiles: FakeProfile[] = ['slack-like', 'telegram-like'];
 
 describe('broken fakes fail the suite', () => {
@@ -77,6 +98,18 @@ describe('broken fakes fail the suite', () => {
     it(`closeWithoutDone fails close-steps with G5 or G6 (${profile})`, async () => {
       await expect(runConformanceCase(closeWithoutDone(profile), 'close-steps')).rejects.toThrow(
         /G[56]/,
+      );
+    });
+
+    it(`ackFirst fails ack-after-sink with G11 while the sink is held (${profile})`, async () => {
+      await expect(runConformanceCase(ackFirst(profile), 'ack-after-sink')).rejects.toThrow(
+        /G11: the input is not acknowledged while the sink is pending/,
+      );
+    });
+
+    it(`selfRetry fails delivery-faults with G1 (${profile})`, async () => {
+      await expect(runConformanceCase(selfRetry(profile), 'delivery-faults')).rejects.toThrow(
+        /G1:/,
       );
     });
   }
@@ -93,6 +126,8 @@ describe('broken fakes fail the suite', () => {
       await runConformanceCase(healthy, 'maybe-sent-reply');
       await runConformanceCase(healthy, 'close-steps');
       await runConformanceCase(healthy, 'recover-keys');
+      await runConformanceCase(healthy, 'delivery-faults');
+      await runConformanceCase(healthy, 'ack-after-sink');
     }
   });
 });
