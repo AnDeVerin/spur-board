@@ -234,8 +234,8 @@ export function createDeliveryGateway(client: WebClient, channels: SlackChannels
             if (threadTs === undefined) return failedMessage('invalid_conversation_ref');
             prior = await messages(client, { channel, threadTs });
           }
-        } catch {
-          return { status: 'retry', uncertain: true };
+        } catch (error) {
+          return apiFailure(error);
         }
       }
 

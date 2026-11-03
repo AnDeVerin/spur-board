@@ -129,6 +129,69 @@ describe('one HTTP attempt and error mapping', () => {
 });
 
 describe('marker search and steps', () => {
+  it.each(['history', 'replies'] as const)(
+    'preserves permanent API errors from %s marker search',
+    async (search) => {
+      for (const error of ['invalid_auth', 'not_in_channel', 'missing_scope']) {
+        const { fake, gateway } = await setup();
+        const root = await gateway.deliver(request(`root-${search}-${error}`));
+        if (root.status !== 'delivered' || root.conversation === undefined)
+          throw new Error('root failed');
+        const target =
+          search === 'history'
+            ? request(`search-${error}`)
+            : {
+                ...request(`search-${error}`),
+                target: { kind: 'reply' as const, conversation: root.conversation },
+              };
+        const before = fake.requests().length;
+        fake.respondNext(200, { ok: false, error });
+        expect(await gateway.deliver({ ...target, maybeSent: true })).toEqual({
+          status: 'failed',
+          permanent: true,
+          scope: 'transport',
+          reason: error,
+        });
+        expect(
+          fake
+            .requests()
+            .slice(before)
+            .map((entry) => entry.method),
+        ).toEqual([`conversations.${search}`]);
+      }
+    },
+  );
+
+  it.each(['history', 'replies'] as const)(
+    'preserves Retry-After from %s marker search',
+    async (search) => {
+      const { fake, gateway } = await setup();
+      const root = await gateway.deliver(request(`root-rate-${search}`));
+      if (root.status !== 'delivered' || root.conversation === undefined)
+        throw new Error('root failed');
+      const target =
+        search === 'history'
+          ? request(`rate-${search}`)
+          : {
+              ...request(`rate-${search}`),
+              target: { kind: 'reply' as const, conversation: root.conversation },
+            };
+      const before = fake.requests().length;
+      fake.respondNext(429, { ok: false, error: 'ratelimited' }, { 'Retry-After': '2' });
+      expect(await gateway.deliver({ ...target, maybeSent: true })).toEqual({
+        status: 'retry',
+        uncertain: false,
+        afterMs: 2000,
+      });
+      expect(
+        fake
+          .requests()
+          .slice(before)
+          .map((entry) => entry.method),
+      ).toEqual([`conversations.${search}`]);
+    },
+  );
+
   it('finds a visible uncertain root across paginated history', async () => {
     const { fake, gateway } = await setup({ pageSize: 1 });
     await fake.platform.timeoutNext({ visible: true });
