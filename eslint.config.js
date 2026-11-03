@@ -13,6 +13,26 @@ const local = {
   },
 };
 
+const viMockBan = {
+  selector: "CallExpression[callee.object.name='vi'][callee.property.name=/^(mock|doMock)$/]",
+  message:
+    'Do not mock modules with vi.mock. Pass the dependency in as a parameter and give the test a fake or a local server.',
+};
+
+// Only core owns the database, and daemon wires it; everyone else goes through core.
+// `[/]` instead of `\/`: esquery's regex parser breaks on an escaped slash.
+const sqliteMessage =
+  'Only packages/core and packages/daemon may import the SQLite driver. Go through @spur-board/core.';
+const sqliteImportBan = {
+  selector: 'ImportExpression[source.value=/^(better-sqlite3|node:sqlite)([/]|$)/]',
+  message: sqliteMessage,
+};
+const sqliteTypeImportBan = {
+  selector: 'TSImportType[source.value=/^(better-sqlite3|node:sqlite)([/]|$)/]',
+  message: sqliteMessage,
+};
+const sqliteBoundaryIgnores = ['packages/core/**', 'packages/daemon/**'];
+
 export default defineConfig(
   {
     // ESLint does not read .gitignore.
@@ -52,15 +72,7 @@ export default defineConfig(
     rules: {
       'vitest/no-focused-tests': 'error',
       'local/skip-needs-flaky-issue': 'error',
-      'no-restricted-syntax': [
-        'error',
-        {
-          selector:
-            "CallExpression[callee.object.name='vi'][callee.property.name=/^(mock|doMock)$/]",
-          message:
-            'Do not mock modules with vi.mock. Pass the dependency in as a parameter and give the test a fake or a local server.',
-        },
-      ],
+      'no-restricted-syntax': ['error', viMockBan],
     },
   },
   {
@@ -68,5 +80,30 @@ export default defineConfig(
     files: ['packages/core/**/*.ts'],
     plugins: { local },
     rules: { 'local/no-project-literal-compare': 'error' },
+  },
+  {
+    files: ['**/*.ts', '**/*.js'],
+    ignores: sqliteBoundaryIgnores,
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            { name: 'better-sqlite3', message: sqliteMessage },
+            { name: 'node:sqlite', message: sqliteMessage },
+          ],
+          patterns: [{ group: ['better-sqlite3/*'], message: sqliteMessage }],
+        },
+      ],
+      'no-restricted-syntax': ['error', sqliteImportBan, sqliteTypeImportBan],
+    },
+  },
+  {
+    // Same-rule options replace earlier ones, so test files restate the vi.mock ban.
+    files: ['packages/*/test/**/*.ts', '**/*.test.ts'],
+    ignores: sqliteBoundaryIgnores,
+    rules: {
+      'no-restricted-syntax': ['error', viMockBan, sqliteImportBan, sqliteTypeImportBan],
+    },
   },
 );
