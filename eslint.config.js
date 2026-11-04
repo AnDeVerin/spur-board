@@ -216,6 +216,10 @@ export default defineConfig(
     rules: { 'local/cli-import-boundary': 'error' },
   },
   {
+    files: ['packages/cli/src/**/*.{ts,mjs}'],
+    rules: { 'no-console': 'error' },
+  },
+  {
     files: ['packages/cli/**/*.ts'],
     rules: {
       'no-restricted-imports': cliImports,
@@ -242,15 +246,15 @@ export default defineConfig(
     },
   },
   {
-    // The tiny JavaScript entrypoint may lazily load only the TypeScript CLI.
+    // The tiny JavaScript entrypoint may lazily load only its two command modules.
     files: ['packages/cli/**/*.mjs'],
     rules: {
       'no-restricted-imports': cliImports,
       'no-restricted-syntax': [
         'error',
         {
-          selector: "ImportExpression[source.value!='./cli.ts']",
-          message: 'The CLI entrypoint may dynamically import only its own command module.',
+          selector: "ImportExpression[source.value!='./cli.ts'][source.value!='./mcp.ts']",
+          message: 'The CLI entrypoint may dynamically import only its own command modules.',
         },
       ],
     },

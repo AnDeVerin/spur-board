@@ -98,7 +98,12 @@ export interface Operation<
     modes: readonly CliMode[] | null;
     key: '--key' | null;
   };
-  mcp: { name: string; key: 'idempotencyKey' | null };
+  mcp: {
+    name: string;
+    key: 'idempotencyKey' | null;
+    whenToUse: string;
+    whenNotToUse: string;
+  };
   slack: SlackBinding | null;
   examples: readonly [Example<I, O>, ...Example<I, O>[]];
 }
@@ -132,6 +137,7 @@ export function defineOperation<
   preconditions?: { blockTypes: readonly BlockType[] };
   errors: readonly ServerErrorCode[];
   cli: { command: string; args: readonly string[]; modes?: readonly [CliMode, ...CliMode[]] };
+  mcp: { whenToUse: string; whenNotToUse: string };
   slack: SlackBinding | null;
   examples: readonly [Example<I, O>, ...Example<I, O>[]];
 }): Operation<Id, K, I, O> {
@@ -150,6 +156,10 @@ export function defineOperation<
       modes: spec.cli.modes ?? null,
       key: mutation ? '--key' : null,
     },
-    mcp: { name: spec.id.replace('.', '_'), key: mutation ? 'idempotencyKey' : null },
+    mcp: {
+      name: spec.id.replace('.', '_'),
+      key: mutation ? 'idempotencyKey' : null,
+      ...spec.mcp,
+    },
   };
 }

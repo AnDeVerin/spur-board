@@ -9,14 +9,32 @@
   "exports": {
     ".": "./src/client.ts"
   },
+  "publishConfig": {
+    "bin": {
+      "board": "./dist/bin.mjs"
+    },
+    "exports": {
+      ".": "./dist/client.mjs"
+    }
+  },
+  "files": [
+    "dist"
+  ],
   "scripts": {
-    "typecheck": "tsc --noEmit -p ."
+    "typecheck": "tsc --noEmit -p .",
+    "build": "tsdown",
+    "prepack": "pnpm run build"
   },
   "dependencies": {
     "@commander-js/extra-typings": "catalog:",
-    "@spur-board/contracts": "workspace:*",
+    "@modelcontextprotocol/server": "catalog:",
     "commander": "catalog:",
     "yaml": "catalog:",
     "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/client": "catalog:",
+    "@spur-board/contracts": "workspace:*",
+    "tsdown": "catalog:"
   }
 }
