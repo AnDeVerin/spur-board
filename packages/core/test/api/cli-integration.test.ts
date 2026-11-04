@@ -96,6 +96,12 @@ describe('CLI against the real HTTP API', () => {
       expect(await store.db.selectFrom('outbox').select('kind').execute()).toEqual([
         { kind: 'feed.line' },
       ]);
+      const blockedItem = await store.db
+        .selectFrom('operator_item')
+        .select(['id', 'line_outbox_id', 'cleared_at'])
+        .where('kind', '=', 'post_blocked')
+        .executeTakeFirstOrThrow();
+      expect(blockedItem.cleared_at).toBeNull();
       app = await createApiServer({
         store,
         config,
@@ -128,6 +134,21 @@ describe('CLI against the real HTTP API', () => {
       expect(
         await store.db.selectFrom('block').select('state').where('id', '=', 1).executeTakeFirst(),
       ).toEqual({ state: 'unblocked' });
+      expect(
+        await store.db
+          .selectFrom('operator_item')
+          .select('cleared_at')
+          .where('id', '=', blockedItem.id)
+          .executeTakeFirstOrThrow(),
+      ).toEqual({ cleared_at: new Date(clock.now()).toISOString() });
+      const edits = await store.db
+        .selectFrom('outbox')
+        .select(['parent_outbox_id', 'payload'])
+        .where('kind', '=', 'feed.line.edit')
+        .execute();
+      expect(edits).toHaveLength(1);
+      expect(edits[0]?.parent_outbox_id).toBe(blockedItem.line_outbox_id);
+      expect(JSON.parse(edits[0]?.payload ?? '{}')).toMatchObject({ text: '✓ cleared' });
     } finally {
       try {
         await app?.close();
