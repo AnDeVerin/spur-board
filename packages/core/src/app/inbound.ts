@@ -419,7 +419,10 @@ export function createInbound(input: {
     return `inbound.${event.kind}`;
   }
 
-  async function dispatchInteraction(event: Extract<UserEvent, { kind: 'command' | 'action' }>) {
+  function interactionOperation(event: Extract<UserEvent, { kind: 'command' | 'action' }>): {
+    id: OperationId | undefined;
+    operationInput: unknown;
+  } {
     let id: OperationId | undefined;
     let operationInput: unknown;
     if (event.kind === 'command') {
@@ -436,6 +439,38 @@ export function createInbound(input: {
         operationInput = { item: `I${parts[1] ?? ''}` };
       }
     }
+    return { id, operationInput };
+  }
+
+  async function recordFailure(event: UserEvent, error: unknown, at: string): Promise<void> {
+    await store.transaction(async (trx) => {
+      const context = await taskContext(trx, event, gateway.kind);
+      await journal(trx, {
+        kind: 'inbound_failed',
+        payload: {
+          gateway: gateway.kind,
+          reason: error instanceof Error ? error.message : String(error),
+          normalizedEvent: event,
+        },
+        actor: 'system',
+        taskId: context.taskId,
+        project: context.project,
+        at,
+      });
+      await raiseInboundItem(trx, {
+        sourceKey: `inbound:failure:${event.dedupeKey}`,
+        title: 'Slack message not processed',
+        sourceUrl: event.sourceUrl,
+        event,
+        taskId: context.taskId,
+        at,
+        retry: true,
+      });
+    });
+  }
+
+  async function dispatchInteraction(event: Extract<UserEvent, { kind: 'command' | 'action' }>) {
+    const { id, operationInput } = interactionOperation(event);
     let response: string;
     if (id === undefined) response = 'not available yet';
     else {
@@ -449,6 +484,9 @@ export function createInbound(input: {
         );
         response = JSON.stringify(value);
       } catch (error) {
+        if (!(error instanceof CommandError)) {
+          await recordFailure(event, error, new Date(clock.now()).toISOString());
+        }
         response =
           error instanceof CommandError && error.code !== 'not_implemented'
             ? error.hint
@@ -496,30 +534,7 @@ export function createInbound(input: {
         }
       }
     } catch (error) {
-      await store.transaction(async (trx) => {
-        const context = await taskContext(trx, event, gateway.kind);
-        await journal(trx, {
-          kind: 'inbound_failed',
-          payload: {
-            gateway: gateway.kind,
-            reason: error instanceof Error ? error.message : String(error),
-            normalizedEvent: event,
-          },
-          actor: 'system',
-          taskId: context.taskId,
-          project: context.project,
-          at,
-        });
-        await raiseInboundItem(trx, {
-          sourceKey: `inbound:failure:${event.dedupeKey}`,
-          title: 'Slack message not processed',
-          sourceUrl: event.sourceUrl,
-          event,
-          taskId: context.taskId,
-          at,
-          retry: true,
-        });
-      });
+      await recordFailure(event, error, at);
     }
   }
 
@@ -611,11 +626,35 @@ export function createInbound(input: {
       return running;
     },
     retryStored(itemId) {
-      return serial(() =>
-        store.transaction((trx) =>
+      return serial(async () => {
+        const item = await store.db
+          .selectFrom('operator_item')
+          .select(['cleared_at', 'inbound_event_json'])
+          .where('id', '=', itemId)
+          .executeTakeFirst();
+        if (item === undefined || item.cleared_at !== null || item.inbound_event_json === null) {
+          throw new CommandError('retry_not_applicable', 'This item has no stored event to retry.');
+        }
+        const event = inboundEventSchema.parse(JSON.parse(item.inbound_event_json) as unknown);
+        if (event.kind === 'action' || event.kind === 'command') {
+          const { id, operationInput } = interactionOperation(event);
+          if (id === undefined) {
+            throw new CommandError('retry_not_applicable', 'This interaction cannot be retried.');
+          }
+          await dispatchOperation(
+            { store, clock, config, registry },
+            id,
+            operationInput,
+            'operator',
+            event.dedupeKey,
+          );
+          await store.transaction((trx) => clearOperatorItem(trx, itemId, new Date(clock.now())));
+          return;
+        }
+        await store.transaction((trx) =>
           retryStoredInbound(trx, itemId, new Date(clock.now()).toISOString()),
-        ),
-      );
+        );
+      });
     },
   };
 }

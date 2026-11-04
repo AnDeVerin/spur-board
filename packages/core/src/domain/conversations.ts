@@ -48,7 +48,7 @@ export async function resolveBlockConversation(
   if (!parsed.success || parsed.data.kind !== 'conversation.open') return undefined;
   const block = await trx
     .selectFrom('block')
-    .select(['id', 'state', 'unblocked_at'])
+    .select(['id', 'state', 'unblocked_at', 'created_at'])
     .where('id', '=', parsed.data.payload.blockId)
     .executeTakeFirst();
   if (block === undefined) return undefined;
@@ -64,7 +64,8 @@ export async function resolveBlockConversation(
       state: block.state === 'open' ? 'open' : 'closed',
       root_message_ref: messageRefSchema.parse(input.rootMessage),
       after_message_ref: null,
-      created_at: input.at,
+      // Recovery must include replies sent before this thread was first observed.
+      created_at: block.created_at,
       closed_at: block.state === 'open' ? null : (block.unblocked_at ?? input.at),
     })
     .onConflict((oc) => oc.columns(['gateway', 'ref']).doNothing())

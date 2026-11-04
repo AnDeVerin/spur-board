@@ -305,9 +305,28 @@ describe('inbound apply', () => {
     ]);
   });
 
-  it('registers a second thread only when its origin key names this block open', async () => {
-    const { store, inbound } = await setup();
+  it('registers a second thread with a recovery cutoff before downtime replies', async () => {
+    const { store, gateway } = await setup();
+    const later = now + 60 * 60 * 1000;
+    let recoverySince: Date | undefined;
+    const inbound = createInbound({
+      store,
+      config,
+      clock: { now: () => later },
+      gateway: {
+        ...gateway,
+        recover(options) {
+          recoverySince = options.since;
+          return gateway.recover(options);
+        },
+      },
+    });
     await store.transaction(async (trx) => {
+      await trx
+        .updateTable('conversation')
+        .set({ created_at: new Date(later).toISOString() })
+        .where('ref', '=', 'thread-1')
+        .execute();
       await trx
         .insertInto('comment')
         .values({
@@ -336,15 +355,17 @@ describe('inbound apply', () => {
       .executeTakeFirstOrThrow();
     const second = message({ conversation: 'thread-2', root: 'root-2', key: 'second-thread' });
     await inbound.sink({ ...second, originKey: open.dedupe_key });
+    await inbound.recover();
+    expect(recoverySince?.toISOString()).toBe(at);
     expect(
       await store.db
         .selectFrom('conversation')
-        .select(['ref', 'block_id'])
+        .select(['ref', 'block_id', 'created_at'])
         .orderBy('ref')
         .execute(),
     ).toEqual([
-      { ref: 'thread-1', block_id: 1 },
-      { ref: 'thread-2', block_id: 1 },
+      { ref: 'thread-1', block_id: 1, created_at: new Date(later).toISOString() },
+      { ref: 'thread-2', block_id: 1, created_at: at },
     ]);
     expect(
       await store.db
@@ -629,6 +650,82 @@ describe('inbound apply', () => {
     ]);
   });
 
+  it('records an installed interaction failure before acknowledging and retries its stored event', async () => {
+    const { store, gateway } = await setup();
+    let fail = true;
+    const responses: string[] = [];
+    const eventsAtResponse: string[][] = [];
+    const inbound = createInbound({
+      store,
+      config,
+      clock: { now: () => now },
+      registry: {
+        'status.get': {
+          id: 'status.get',
+          resolveTargets: () =>
+            Promise.resolve([
+              { kind: 'found', value: { project: 'proj', task: null, block: null, workers: [] } },
+            ]),
+          run: () =>
+            fail ? Promise.reject(new Error('handler failed')) : Promise.resolve({ tasks: [] }),
+        },
+      },
+      gateway: {
+        ...gateway,
+        async respond(_interaction, body) {
+          eventsAtResponse.push(
+            (await store.db.selectFrom('event').select('kind').execute()).map((row) => row.kind),
+          );
+          responses.push(
+            body[0]?.kind === 'paragraph'
+              ? body[0].children.map((part) => (part.kind === 'text' ? part.text : '')).join('')
+              : '',
+          );
+          return 'sent' as const;
+        },
+      },
+    });
+    await inbound.sink({
+      kind: 'command',
+      dedupeKey: 'failed-status',
+      interaction: interactionRefSchema.parse('failed-status'),
+      author: userIdSchema.parse('operator'),
+      text: 'status',
+      sourceUrl: 'https://example.test/command',
+    });
+    expect(responses).toEqual(['not available yet']);
+    expect(eventsAtResponse).toEqual([['inbound_failed', 'from_you_raised']]);
+    const item = await getOperatorItem(store, 1);
+    expect(item).toMatchObject({
+      kind: 'inbound_failure',
+      task_id: null,
+      url: 'https://example.test/command',
+    });
+    expect(JSON.parse(item?.inbound_event_json ?? '{}')).toMatchObject({
+      kind: 'command',
+      dedupeKey: 'failed-status',
+    });
+    const feed = await store.db
+      .selectFrom('outbox')
+      .select('payload')
+      .where('kind', '=', 'feed.line')
+      .executeTakeFirstOrThrow();
+    expect(JSON.parse(feed.payload)).toMatchObject({
+      key: 'board',
+      title: 'board: Slack message not processed',
+    });
+    fail = false;
+    await inbound.retryStored(1);
+    expect((await getOperatorItem(store, 1))?.cleared_at).not.toBeNull();
+    expect(
+      await store.db
+        .selectFrom('outbox')
+        .select('kind')
+        .where('kind', '=', 'feed.line.edit')
+        .execute(),
+    ).toHaveLength(1);
+  });
+
   it('raises one item per affected gap even when scans use new event keys', async () => {
     const { store, inbound } = await setup();
     const conversation = conversationRefSchema.parse('thread-1');
@@ -649,6 +746,24 @@ describe('inbound apply', () => {
     expect(first[0]?.item_key).not.toBe(first[1]?.item_key);
     expect(
       await store.db.selectFrom('outbox').select('kind').where('kind', '=', 'feed.line').execute(),
+    ).toHaveLength(2);
+    const boardLine = await store.db
+      .selectFrom('outbox')
+      .select('payload')
+      .where('dedupe_key', 'like', 'feed.line:inbound:gap:%')
+      .orderBy('id', 'desc')
+      .executeTakeFirstOrThrow();
+    expect(JSON.parse(boardLine.payload)).toMatchObject({
+      key: 'board',
+      title: 'board: repeat your answer',
+    });
+    await store.transaction((trx) => clearOperatorItem(trx, 2, new Date(at)));
+    expect(
+      await store.db
+        .selectFrom('outbox')
+        .select('kind')
+        .where('kind', '=', 'feed.line.edit')
+        .execute(),
     ).toHaveLength(1);
     await store.transaction((trx) => clearOperatorItem(trx, 1, new Date(at)));
     await inbound.sink({ kind: 'gap', dedupeKey: 'gap-c', conversation });
@@ -664,7 +779,7 @@ describe('inbound apply', () => {
     expect(later[2]?.item_key).toBe(first[0]?.item_key);
     expect(
       await store.db.selectFrom('outbox').select('id').where('kind', '=', 'feed.line').execute(),
-    ).toHaveLength(2);
+    ).toHaveLength(3);
   });
 
   it('rings a live agent author instead of raising an item', async () => {
