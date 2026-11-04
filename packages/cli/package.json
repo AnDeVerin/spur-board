@@ -28,6 +28,7 @@
   },
   "dependencies": {
     "@commander-js/extra-typings": "catalog:",
+    "@modelcontextprotocol/server": "catalog:",
     "commander": "catalog:",
     "@slack/socket-mode": "catalog:",
     "@slack/web-api": "catalog:",
@@ -37,5 +38,10 @@
     "pino": "catalog:",
     "yaml": "catalog:",
     "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/client": "catalog:",
+    "@spur-board/contracts": "workspace:*",
+    "tsdown": "catalog:"
   }
 }

@@ -32,6 +32,9 @@ catalog:
   '@commander-js/extra-typings': ^15.0.0
   '@slack/socket-mode': 3.1.0
   '@slack/web-api': 8.2.0
+  '@modelcontextprotocol/server': ^2.4.0
+  '@modelcontextprotocol/client': ^2.4.0
+  tsdown: 0.22.3
 
 # GHSA-g3hv-75wg-m249 (moderate, minimatch < 11.0.1) reaches us only through the
 # eslint toolchain, which matches our own glob patterns. The fixed minimatch 11.0.1

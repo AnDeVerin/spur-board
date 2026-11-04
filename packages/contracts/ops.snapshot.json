@@ -1,5 +1,5 @@
 {
-  "version": "ab46c2e1e3541cb4b9069a1e3f73e001b36be3528173fda321286f7cab75dcee",
+  "version": "17a1d06ed0cf72f63f1e07ed55c0b5ab2e6cb9c49af9d1344c86e542f64fbea7",
   "grants": [
     "operator",
     "project-agent",
@@ -37,6 +37,7 @@
           "serverVersion": { "type": "string" },
           "configPath": { "type": "string" },
           "environmentVariable": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+          "idempotencyKey": { "type": "string", "minLength": 1 },
           "causeLabel": {
             "type": "string",
             "enum": ["storage_unavailable", "transport_unavailable", "internal_failure"]
@@ -65,6 +66,7 @@
           "serverVersion": { "type": "string" },
           "configPath": { "type": "string" },
           "environmentVariable": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+          "idempotencyKey": { "type": "string", "minLength": 1 },
           "causeLabel": {
             "type": "string",
             "enum": ["storage_unavailable", "transport_unavailable", "internal_failure"]
@@ -93,6 +95,7 @@
           "serverVersion": { "type": "string" },
           "configPath": { "type": "string" },
           "environmentVariable": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+          "idempotencyKey": { "type": "string", "minLength": 1 },
           "causeLabel": {
             "type": "string",
             "enum": ["storage_unavailable", "transport_unavailable", "internal_failure"]
@@ -121,6 +124,7 @@
           "serverVersion": { "type": "string" },
           "configPath": { "type": "string" },
           "environmentVariable": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+          "idempotencyKey": { "type": "string", "minLength": 1 },
           "causeLabel": {
             "type": "string",
             "enum": ["storage_unavailable", "transport_unavailable", "internal_failure"]
@@ -149,6 +153,7 @@
           "serverVersion": { "type": "string" },
           "configPath": { "type": "string" },
           "environmentVariable": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+          "idempotencyKey": { "type": "string", "minLength": 1 },
           "causeLabel": {
             "type": "string",
             "enum": ["storage_unavailable", "transport_unavailable", "internal_failure"]
@@ -177,6 +182,7 @@
           "serverVersion": { "type": "string" },
           "configPath": { "type": "string" },
           "environmentVariable": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+          "idempotencyKey": { "type": "string", "minLength": 1 },
           "causeLabel": {
             "type": "string",
             "enum": ["storage_unavailable", "transport_unavailable", "internal_failure"]
@@ -205,6 +211,7 @@
           "serverVersion": { "type": "string" },
           "configPath": { "type": "string" },
           "environmentVariable": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+          "idempotencyKey": { "type": "string", "minLength": 1 },
           "causeLabel": {
             "type": "string",
             "enum": ["storage_unavailable", "transport_unavailable", "internal_failure"]
@@ -233,6 +240,7 @@
           "serverVersion": { "type": "string" },
           "configPath": { "type": "string" },
           "environmentVariable": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+          "idempotencyKey": { "type": "string", "minLength": 1 },
           "causeLabel": {
             "type": "string",
             "enum": ["storage_unavailable", "transport_unavailable", "internal_failure"]
@@ -261,6 +269,7 @@
           "serverVersion": { "type": "string" },
           "configPath": { "type": "string" },
           "environmentVariable": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+          "idempotencyKey": { "type": "string", "minLength": 1 },
           "causeLabel": {
             "type": "string",
             "enum": ["storage_unavailable", "transport_unavailable", "internal_failure"]
@@ -289,6 +298,7 @@
           "serverVersion": { "type": "string" },
           "configPath": { "type": "string" },
           "environmentVariable": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+          "idempotencyKey": { "type": "string", "minLength": 1 },
           "causeLabel": {
             "type": "string",
             "enum": ["storage_unavailable", "transport_unavailable", "internal_failure"]
@@ -317,6 +327,7 @@
           "serverVersion": { "type": "string" },
           "configPath": { "type": "string" },
           "environmentVariable": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+          "idempotencyKey": { "type": "string", "minLength": 1 },
           "causeLabel": {
             "type": "string",
             "enum": ["storage_unavailable", "transport_unavailable", "internal_failure"]
@@ -345,6 +356,7 @@
           "serverVersion": { "type": "string" },
           "configPath": { "type": "string" },
           "environmentVariable": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+          "idempotencyKey": { "type": "string", "minLength": 1 },
           "causeLabel": {
             "type": "string",
             "enum": ["storage_unavailable", "transport_unavailable", "internal_failure"]
@@ -373,6 +385,7 @@
           "serverVersion": { "type": "string" },
           "configPath": { "type": "string" },
           "environmentVariable": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+          "idempotencyKey": { "type": "string", "minLength": 1 },
           "causeLabel": {
             "type": "string",
             "enum": ["storage_unavailable", "transport_unavailable", "internal_failure"]
@@ -401,6 +414,7 @@
           "serverVersion": { "type": "string" },
           "configPath": { "type": "string" },
           "environmentVariable": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+          "idempotencyKey": { "type": "string", "minLength": 1 },
           "causeLabel": {
             "type": "string",
             "enum": ["storage_unavailable", "transport_unavailable", "internal_failure"]
@@ -429,6 +443,7 @@
           "serverVersion": { "type": "string" },
           "configPath": { "type": "string" },
           "environmentVariable": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+          "idempotencyKey": { "type": "string", "minLength": 1 },
           "causeLabel": {
             "type": "string",
             "enum": ["storage_unavailable", "transport_unavailable", "internal_failure"]
@@ -457,6 +472,7 @@
           "serverVersion": { "type": "string" },
           "configPath": { "type": "string" },
           "environmentVariable": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+          "idempotencyKey": { "type": "string", "minLength": 1 },
           "causeLabel": {
             "type": "string",
             "enum": ["storage_unavailable", "transport_unavailable", "internal_failure"]
@@ -486,6 +502,7 @@
           "serverVersion": { "type": "string" },
           "configPath": { "type": "string" },
           "environmentVariable": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+          "idempotencyKey": { "type": "string", "minLength": 1 },
           "causeLabel": {
             "type": "string",
             "enum": ["storage_unavailable", "transport_unavailable", "internal_failure"]
@@ -515,6 +532,7 @@
           "serverVersion": { "type": "string" },
           "configPath": { "type": "string" },
           "environmentVariable": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+          "idempotencyKey": { "type": "string", "minLength": 1 },
           "causeLabel": {
             "type": "string",
             "enum": ["storage_unavailable", "transport_unavailable", "internal_failure"]
@@ -540,7 +558,12 @@
         "starting"
       ],
       "cli": { "command": "status", "args": [], "modes": null, "key": null },
-      "mcp": { "name": "status_get", "key": null },
+      "mcp": {
+        "name": "status_get",
+        "key": null,
+        "whenToUse": "Get a board overview.",
+        "whenNotToUse": "Use task_get for one task."
+      },
       "slack": { "kind": "slash-command", "usage": "/board status" },
       "examples": [
         {
@@ -630,7 +653,12 @@
         "starting"
       ],
       "cli": { "command": "task", "args": ["task"], "modes": null, "key": null },
-      "mcp": { "name": "task_get", "key": null },
+      "mcp": {
+        "name": "task_get",
+        "key": null,
+        "whenToUse": "Inspect one task now.",
+        "whenNotToUse": "Use task_history for past events."
+      },
       "slack": { "kind": "slash-command", "usage": "/board task <KEY>" },
       "examples": [
         {
@@ -934,7 +962,12 @@
         "starting"
       ],
       "cli": { "command": "task history", "args": ["task"], "modes": null, "key": null },
-      "mcp": { "name": "task_history", "key": null },
+      "mcp": {
+        "name": "task_history",
+        "key": null,
+        "whenToUse": "Trace changes to one task.",
+        "whenNotToUse": "Use task_get for current state."
+      },
       "slack": { "kind": "slash-command", "usage": "/board task <KEY> history" },
       "examples": [
         {
@@ -1076,7 +1109,12 @@
       "preconditions": null,
       "errors": ["usage", "forbidden", "not_implemented", "identity_unavailable", "starting"],
       "cli": { "command": "schema", "args": [], "modes": null, "key": null },
-      "mcp": { "name": "schema_get", "key": null },
+      "mcp": {
+        "name": "schema_get",
+        "key": null,
+        "whenToUse": "Discover operation contracts.",
+        "whenNotToUse": "Use status_get for board data."
+      },
       "slack": null,
       "examples": [
         {
@@ -1105,7 +1143,12 @@
                   "modes": null,
                   "key": "--key"
                 },
-                "mcp": { "name": "comment_add", "key": "idempotencyKey" },
+                "mcp": {
+                  "name": "comment_add",
+                  "key": "idempotencyKey",
+                  "whenToUse": "Add a task comment.",
+                  "whenNotToUse": "Use comment_edit to revise an existing comment."
+                },
                 "inputSchema": { "type": "object" },
                 "outputSchema": { "type": "object" }
               }
@@ -1255,9 +1298,19 @@
                         { "type": "null" }
                       ],
                       "description": "Idempotency key argument; null for a query."
+                    },
+                    "whenToUse": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "When this MCP tool is appropriate."
+                    },
+                    "whenNotToUse": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "When to use a neighboring tool instead."
                     }
                   },
-                  "required": ["name", "key"],
+                  "required": ["name", "key", "whenToUse", "whenNotToUse"],
                   "additionalProperties": false,
                   "description": "MCP binding."
                 },
@@ -1311,7 +1364,12 @@
         "starting"
       ],
       "cli": { "command": "inbox", "args": [], "modes": null, "key": null },
-      "mcp": { "name": "inbox_get", "key": null },
+      "mcp": {
+        "name": "inbox_get",
+        "key": null,
+        "whenToUse": "Read items awaiting the caller.",
+        "whenNotToUse": "Use inbox_ack to mark them read."
+      },
       "slack": null,
       "examples": [
         {
@@ -1582,7 +1640,12 @@
         "starting"
       ],
       "cli": { "command": "inbox ack", "args": ["entries"], "modes": null, "key": "--key" },
-      "mcp": { "name": "inbox_ack", "key": "idempotencyKey" },
+      "mcp": {
+        "name": "inbox_ack",
+        "key": "idempotencyKey",
+        "whenToUse": "Mark handled inbox items read.",
+        "whenNotToUse": "Use inbox_get to inspect them first."
+      },
       "slack": null,
       "examples": [
         {
@@ -1687,7 +1750,12 @@
         "starting"
       ],
       "cli": { "command": "task add", "args": ["task"], "modes": null, "key": "--key" },
-      "mcp": { "name": "task_add", "key": "idempotencyKey" },
+      "mcp": {
+        "name": "task_add",
+        "key": "idempotencyKey",
+        "whenToUse": "Add a task to the board.",
+        "whenNotToUse": "Use task_get if it already exists."
+      },
       "slack": null,
       "examples": [
         {
@@ -1766,7 +1834,12 @@
         "starting"
       ],
       "cli": { "command": "task archive", "args": ["task"], "modes": null, "key": "--key" },
-      "mcp": { "name": "task_archive", "key": "idempotencyKey" },
+      "mcp": {
+        "name": "task_archive",
+        "key": "idempotencyKey",
+        "whenToUse": "Remove a task from active view.",
+        "whenNotToUse": "Use task_get to inspect its current state."
+      },
       "slack": null,
       "examples": [
         {
@@ -1850,7 +1923,12 @@
         "starting"
       ],
       "cli": { "command": "link", "args": ["task", "target"], "modes": null, "key": "--key" },
-      "mcp": { "name": "link_add", "key": "idempotencyKey" },
+      "mcp": {
+        "name": "link_add",
+        "key": "idempotencyKey",
+        "whenToUse": "Attach a session or pull request.",
+        "whenNotToUse": "Use link_remove to detach one."
+      },
       "slack": null,
       "examples": [
         {
@@ -1914,7 +1992,12 @@
         "starting"
       ],
       "cli": { "command": "unlink", "args": ["task", "target"], "modes": null, "key": "--key" },
-      "mcp": { "name": "link_remove", "key": "idempotencyKey" },
+      "mcp": {
+        "name": "link_remove",
+        "key": "idempotencyKey",
+        "whenToUse": "Detach a linked session or pull request.",
+        "whenNotToUse": "Use link_add to attach one."
+      },
       "slack": null,
       "examples": [
         {
@@ -1979,7 +2062,12 @@
         "starting"
       ],
       "cli": { "command": "item retry", "args": ["item"], "modes": null, "key": "--key" },
-      "mcp": { "name": "item_retry", "key": "idempotencyKey" },
+      "mcp": {
+        "name": "item_retry",
+        "key": "idempotencyKey",
+        "whenToUse": "Retry an actionable item.",
+        "whenNotToUse": "Use item_close when no retry is wanted."
+      },
       "slack": { "kind": "button", "label": "Retry" },
       "examples": [
         {
@@ -2068,7 +2156,12 @@
         "starting"
       ],
       "cli": { "command": "item close", "args": ["item"], "modes": null, "key": "--key" },
-      "mcp": { "name": "item_close", "key": "idempotencyKey" },
+      "mcp": {
+        "name": "item_close",
+        "key": "idempotencyKey",
+        "whenToUse": "Dismiss an item without retrying.",
+        "whenNotToUse": "Use item_retry to try again."
+      },
       "slack": { "kind": "button", "label": "Close" },
       "examples": [
         {
@@ -2158,7 +2251,12 @@
         "starting"
       ],
       "cli": { "command": "ask", "args": ["task", "text"], "modes": null, "key": "--key" },
-      "mcp": { "name": "block_ask", "key": "idempotencyKey" },
+      "mcp": {
+        "name": "block_ask",
+        "key": "idempotencyKey",
+        "whenToUse": "Ask a blocking question.",
+        "whenNotToUse": "Use comment_add for a nonblocking note."
+      },
       "slack": null,
       "examples": [
         {
@@ -2336,7 +2434,12 @@
         "starting"
       ],
       "cli": { "command": "comment", "args": ["task", "text"], "modes": null, "key": "--key" },
-      "mcp": { "name": "comment_add", "key": "idempotencyKey" },
+      "mcp": {
+        "name": "comment_add",
+        "key": "idempotencyKey",
+        "whenToUse": "Add a new task comment.",
+        "whenNotToUse": "Use comment_edit to revise your comment."
+      },
       "slack": null,
       "examples": [
         {
@@ -2480,7 +2583,12 @@
         "modes": null,
         "key": "--key"
       },
-      "mcp": { "name": "comment_edit", "key": "idempotencyKey" },
+      "mcp": {
+        "name": "comment_edit",
+        "key": "idempotencyKey",
+        "whenToUse": "Revise your existing comment.",
+        "whenNotToUse": "Use comment_add for a new comment."
+      },
       "slack": null,
       "examples": [
         {
@@ -2614,7 +2722,12 @@
         "starting"
       ],
       "cli": { "command": "block", "args": ["task"], "modes": null, "key": "--key" },
-      "mcp": { "name": "block_create", "key": "idempotencyKey" },
+      "mcp": {
+        "name": "block_create",
+        "key": "idempotencyKey",
+        "whenToUse": "Record a dependency or external block.",
+        "whenNotToUse": "Use block_ask for a question."
+      },
       "slack": null,
       "examples": [
         {
@@ -2802,7 +2915,12 @@
         "starting"
       ],
       "cli": { "command": "escalate", "args": ["block"], "modes": null, "key": "--key" },
-      "mcp": { "name": "block_escalate", "key": "idempotencyKey" },
+      "mcp": {
+        "name": "block_escalate",
+        "key": "idempotencyKey",
+        "whenToUse": "Escalate an open block.",
+        "whenNotToUse": "Use block_answer to answer a question."
+      },
       "slack": null,
       "examples": [
         {
@@ -2981,7 +3099,12 @@
         "starting"
       ],
       "cli": { "command": "answer", "args": ["block", "text"], "modes": null, "key": "--key" },
-      "mcp": { "name": "block_answer", "key": "idempotencyKey" },
+      "mcp": {
+        "name": "block_answer",
+        "key": "idempotencyKey",
+        "whenToUse": "Answer an open question.",
+        "whenNotToUse": "Use block_unblock to close without an answer."
+      },
       "slack": { "kind": "thread-reply" },
       "examples": [
         {
@@ -3258,7 +3381,12 @@
         ],
         "key": "--key"
       },
-      "mcp": { "name": "block_unblock", "key": "idempotencyKey" },
+      "mcp": {
+        "name": "block_unblock",
+        "key": "idempotencyKey",
+        "whenToUse": "Close an open block.",
+        "whenNotToUse": "Use block_answer for a question answer."
+      },
       "slack": null,
       "examples": [
         {

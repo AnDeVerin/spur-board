@@ -88,6 +88,14 @@ describe('catalog', () => {
     }
   });
 
+  it('provides use and neighboring-tool guidance for every MCP tool', () => {
+    for (const op of OPERATIONS) {
+      expect(op.mcp.whenToUse.trim(), op.id).not.toBe('');
+      expect(op.mcp.whenNotToUse.trim(), op.id).not.toBe('');
+      expect(op.mcp.whenNotToUse, op.id).toMatch(/Use [a-z]+_[a-z]+/);
+    }
+  });
+
   it('describes every property and closes every object in inputs and outputs', () => {
     for (const { op, input, output } of schemas) {
       for (const [side, json] of [
@@ -402,6 +410,7 @@ describe('snapshot', () => {
       grants: 'any',
       errors: [],
       cli: { command: 'test', args: [] },
+      mcp: { whenToUse: 'Test.', whenNotToUse: 'Use another_test instead.' },
       slack: null,
       examples: [{ summary: 'x', input: {}, output: {} }],
     });

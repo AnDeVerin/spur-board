@@ -5,6 +5,7 @@ export default defineConfig({
     cli: 'src/cli.ts',
     client: 'src/client.ts',
     daemon: '../daemon/src/main.ts',
+    mcp: 'src/mcp.ts',
   },
   outDir: 'dist',
   format: 'esm',
@@ -21,6 +22,7 @@ export default defineConfig({
       'kysely',
       'pino',
       'yaml',
+      /^@modelcontextprotocol\/server(?:\/|$)/,
     ],
   },
 });

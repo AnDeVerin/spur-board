@@ -16,6 +16,9 @@ if (argv.length === 1 && (argv[0] === '--version' || argv[0] === '-V')) {
     throw new Error('Invalid package version.');
   }
   process.stdout.write(`${manifest.version}\n`);
+} else if (argv.length === 1 && argv[0] === 'mcp') {
+  const { startMcp } = await import('./mcp.ts');
+  startMcp();
 } else {
   const { runCli } = await import('./cli.ts');
   process.exitCode = await runCli(argv);
