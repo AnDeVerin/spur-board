@@ -94,8 +94,7 @@ export function ticketKeys(title: string, branch: string, prefixes: readonly str
   return [...keys];
 }
 export function normalizePr(repo: string, wire: RecordValue, prefixes: readonly string[]): PrFacts {
-  const commits = connectionNodes(wire.commits);
-  const rollupValue = commits[0] === undefined ? null : record(commits[0].commit).statusCheckRollup;
+  const rollupValue = wire.statusCheckRollup;
   const rollup = rollupValue === null || rollupValue === undefined ? null : record(rollupValue);
   const checks = latestChecks(rollup === null ? [] : connectionNodes(record(rollup).contexts));
   const state = wire.state === 'MERGED' ? 'merged' : wire.state === 'CLOSED' ? 'closed' : 'open';

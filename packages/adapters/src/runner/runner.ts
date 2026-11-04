@@ -173,10 +173,11 @@ function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: nu
           : {
               ...context,
               observe: {
-                ...context.observe,
                 prs: context.observe.prs.filter(
                   (ref) => ref.repo.toLowerCase() === repo.toLowerCase(),
                 ),
+                tickets: [],
+                sessions: [],
               },
             };
       const requested: GoneRef[] = [...projected.observe.prs, ...projected.observe.tickets];

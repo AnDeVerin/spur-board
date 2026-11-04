@@ -8,7 +8,7 @@ import {
   type Adapter,
 } from '@spur-board/contracts';
 import { describe, expect, it, vi } from 'vitest';
-import { initialQuery, type Json } from '../../src/github/client.ts';
+import { initialQuery, pageQuery, type Json } from '../../src/github/client.ts';
 import { githubSources } from '../../src/github/index.ts';
 import { normalizePr, ticketKeys } from '../../src/github/prBatch.ts';
 
@@ -33,40 +33,34 @@ function wire(number = 7) {
     author: { login: 'operator' },
     headRefName: 'DEMO-42-widget',
     headRefOid: sha,
-    commits: conn([
-      {
-        commit: {
-          statusCheckRollup: {
-            contexts: conn([
-              {
-                __typename: 'CheckRun',
-                name: 'build',
-                status: 'COMPLETED',
-                conclusion: 'SUCCESS',
-                completedAt: '2026-01-01T00:00:00.000Z',
-                isRequired: true,
-              },
-              {
-                __typename: 'CheckRun',
-                name: 'build',
-                status: 'COMPLETED',
-                conclusion: 'SKIPPED',
-                completedAt: time,
-                isRequired: true,
-              },
-              {
-                __typename: 'CheckRun',
-                name: 'optional',
-                status: 'COMPLETED',
-                conclusion: 'CANCELLED',
-                completedAt: time,
-                isRequired: false,
-              },
-            ]),
-          },
+    statusCheckRollup: {
+      contexts: conn([
+        {
+          __typename: 'CheckRun',
+          name: 'build',
+          status: 'COMPLETED',
+          conclusion: 'SUCCESS',
+          completedAt: '2026-01-01T00:00:00.000Z',
+          isRequired: true,
         },
-      },
-    ]),
+        {
+          __typename: 'CheckRun',
+          name: 'build',
+          status: 'COMPLETED',
+          conclusion: 'SKIPPED',
+          completedAt: time,
+          isRequired: true,
+        },
+        {
+          __typename: 'CheckRun',
+          name: 'optional',
+          status: 'COMPLETED',
+          conclusion: 'CANCELLED',
+          completedAt: time,
+          isRequired: false,
+        },
+      ]),
+    },
     reviews: conn([
       { author: { login: 'reviewer' }, state: 'APPROVED', commit: { oid: sha }, submittedAt: time },
     ]),
@@ -121,7 +115,7 @@ describe('GitHub PR batch', () => {
   it('pins the initial query and asks for rateLimit, discovery and aliases together', () => {
     const query = initialQuery([7]);
     expect(createHash('sha256').update(query).digest('hex')).toBe(
-      'e7a1fb5c55446d7fee54027f9d5dd867408fd78cd868740047f54c54cfabd2d3',
+      '6b829bfc9640eaa890995f09149453e3fdcc6b9df4662c0c4ab8adc23fb02a62',
     );
     expect(query).toContain('rateLimit { remaining resetAt }');
     expect(query).toContain('pullRequests(first: 100');
@@ -142,6 +136,48 @@ describe('GitHub PR batch', () => {
     ]);
     expect(facts.ticketKeys).toEqual(['DEMO-42']);
     expect(ticketKeys('XDEMO-42 DEMO-420x', 'OTHER-1', ['DEMO'])).toEqual([]);
+  });
+  it('reads checks from the PR head on a multi-commit branch', () => {
+    const olderCommit = {
+      commit: {
+        statusCheckRollup: {
+          contexts: conn([
+            {
+              __typename: 'CheckRun',
+              name: 'build',
+              status: 'COMPLETED',
+              conclusion: 'SKIPPED',
+              completedAt: time,
+              isRequired: true,
+            },
+          ]),
+        },
+      },
+    };
+    const head = {
+      ...wire(),
+      commits: conn([olderCommit, { commit: { oid: sha } }]),
+      statusCheckRollup: {
+        contexts: conn([
+          {
+            __typename: 'CheckRun',
+            name: 'build',
+            status: 'COMPLETED',
+            conclusion: 'FAILURE',
+            completedAt: time,
+            isRequired: true,
+          },
+        ]),
+      },
+    };
+    expect(normalizePr('demo/widgets', head, ['DEMO']).requiredChecks).toEqual([
+      { name: 'build', state: 'failure', completedAt: time },
+    ]);
+    expect(initialQuery([7])).not.toContain('commits(first: 1)');
+    expect(pageQuery('contexts')).not.toContain('commits(first: 1)');
+    expect(pageQuery('contexts')).toContain(
+      'statusCheckRollup { contexts(first: 100, after: $after)',
+    );
   });
   it('registers unique project sources with interval, reserve and duplicate rejection', () => {
     const configured = config(['demo/widgets', 'demo/api']);

@@ -237,6 +237,25 @@ describe('repository projection', () => {
   });
 });
 
+describe('mixed source context', () => {
+  it('projects tickets and sessions out of a GitHub poll and accepts its PR batch', async () => {
+    const foreign: PrEntityRef = { kind: 'pr', repo: 'demo/other', number: 9 };
+    const core = createFakeCore({
+      context: () => context({ prs: [pr, foreign], tickets: [ticket], sessions: [session] }),
+    });
+    const adapter = createFakeAdapter({
+      id: 'github',
+      intervalMs: I,
+      poll: () => Promise.resolve(prNotFound()),
+    });
+    const runner = startRunner({ entries: [{ adapter, repo: pr.repo }], core, config: defaults });
+    runners.push(runner);
+    await flush();
+    expect(adapter.contexts[0]?.observe).toEqual({ prs: [pr], tickets: [], sessions: [] });
+    expect(core.observed).toHaveLength(1);
+  });
+});
+
 describe('schedule', () => {
   it('polls at start and every intervalMs', async () => {
     random(0);

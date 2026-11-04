@@ -80,9 +80,7 @@ function nested(value: RecordValue, ...path: string[]): Json | undefined {
   return current;
 }
 function contexts(pr: RecordValue): RecordValue | undefined {
-  const commits = list(record(pr.commits).nodes);
-  if (commits.length === 0) return undefined;
-  const value = record(record(commits[0]).commit).statusCheckRollup;
+  const value = pr.statusCheckRollup;
   return value === null || value === undefined ? undefined : record(record(value).contexts);
 }
 async function fullPr(
