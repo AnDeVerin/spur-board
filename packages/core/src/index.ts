@@ -26,9 +26,12 @@ export {
 } from './api/server.ts';
 export { identify, type IdentityPorts, type LiveSession } from './api/identity.ts';
 export { createBlockMutations } from './app/blocks.ts';
+export { createInbound, getOperatorItem, type Inbound } from './app/inbound.ts';
 export {
   enqueueConversationOpen,
   enqueueConversationReply,
+  enqueueConversationClose,
+  enqueueDoorbell,
   OUTBOX_KINDS,
   type OutboxKind,
 } from './app/outbox.ts';

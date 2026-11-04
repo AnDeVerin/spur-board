@@ -51,12 +51,18 @@ const dedupeKey = z.string().min(1);
 const at = z.iso.datetime();
 /** Plain text; the gateway converts platform markup before it reaches core. */
 const text = z.string();
+/** Deep link to the source message, or to the source space for a command. */
+const sourceUrl = z.url();
+/** Configured board space for an interaction, or null when it came from outside. */
+const sourceSpace = z.enum(SPACE_IDS).nullable();
 
 const messageEventSchema = z.strictObject({
   kind: z.literal('message'),
   dedupeKey,
   conversation: conversationRefSchema,
   message: messageRefSchema,
+  rootMessage: messageRefSchema,
+  sourceUrl,
   author: userIdSchema,
   text,
   at,
@@ -69,6 +75,8 @@ const messageEditedEventSchema = z.strictObject({
   dedupeKey,
   conversation: conversationRefSchema,
   message: messageRefSchema,
+  rootMessage: messageRefSchema,
+  sourceUrl,
   author: userIdSchema,
   text,
   at,
@@ -80,6 +88,8 @@ const messageDeletedEventSchema = z.strictObject({
   dedupeKey,
   conversation: conversationRefSchema,
   message: messageRefSchema,
+  rootMessage: messageRefSchema,
+  sourceUrl,
   originKey: z.string().min(1).optional(),
 });
 
@@ -91,6 +101,9 @@ const actionEventSchema = z.strictObject({
   author: userIdSchema,
   conversation: conversationRefSchema,
   message: messageRefSchema,
+  rootMessage: messageRefSchema,
+  sourceUrl,
+  sourceSpace,
   originKey: z.string().min(1).optional(),
 });
 
@@ -101,6 +114,8 @@ const commandEventSchema = z.strictObject({
   interaction: interactionRefSchema,
   author: userIdSchema,
   text,
+  sourceUrl,
+  sourceSpace: sourceSpace.optional(),
 });
 
 const mentionEventSchema = z.strictObject({
@@ -108,6 +123,8 @@ const mentionEventSchema = z.strictObject({
   dedupeKey,
   conversation: conversationRefSchema,
   message: messageRefSchema,
+  rootMessage: messageRefSchema,
+  sourceUrl,
   author: userIdSchema,
   text,
   at,

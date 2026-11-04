@@ -207,6 +207,7 @@ export const sampleRows: SampleRows = {
     raised_at: at,
     cleared_at: null,
     line_outbox_id: 1,
+    inbound_event_json: null,
   },
   dismissal: {
     item_key: 'item-1',
