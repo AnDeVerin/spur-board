@@ -83,6 +83,7 @@ function post(input: unknown, operation = 'task.get', headers: Record<string, st
 async function server(
   store: Store,
   options: {
+    port?: number;
     ready?: () => boolean;
     registry?: OperationRegistry;
     logRequest?: ApiOptions['logRequest'];
@@ -91,7 +92,7 @@ async function server(
   return createApiServer({
     store,
     config,
-    port: 4311,
+    port: options.port ?? 4311,
     ready: options.ready ?? (() => true),
     clock: { now: () => Date.parse('2026-11-04T08:00:00.000Z') },
     lookupSession: () => Promise.resolve({ project: 'worker', status: 'running' }),
@@ -466,12 +467,36 @@ describe('catalog HTTP API', () => {
   });
 
   it('listens only through the loopback helper', async () => {
-    const app = await server(newStore());
+    const app = await server(newStore(), { port: 0 });
     try {
       await listenApiServer(app, 0);
       const address = app.server.address();
       expect(address).not.toBeNull();
       expect(typeof address === 'object' && address?.address).toBe('127.0.0.1');
+      if (address === null || typeof address === 'string') throw new Error('Expected TCP address');
+      const url = `http://127.0.0.1:${String(address.port)}/v1/schema`;
+      expect((await fetch(url)).status).toBe(200);
+      expect(
+        (
+          await app.inject({
+            method: 'GET',
+            url: '/v1/schema',
+            headers: { host: 'outside.example' },
+          })
+        ).statusCode,
+      ).toBe(403);
+      expect(
+        (
+          await app.inject({
+            method: 'GET',
+            url: '/v1/schema',
+            headers: {
+              host: `127.0.0.1:${String(address.port)}`,
+              origin: 'https://outside.example',
+            },
+          })
+        ).statusCode,
+      ).toBe(403);
     } finally {
       await app.close();
     }

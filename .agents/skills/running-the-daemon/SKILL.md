@@ -17,8 +17,8 @@ description: Rules for packages/daemon/ - modules, config and secrets, logging a
   including `schema.get`.
 - A module gets `config`, `secrets`, `store`, `log`, `clock`, `logCall` and `state` through
   `ModuleContext`. No shared state, singletons or imports of another module's internals.
-- Use `ctx.store` for daemon storage; `main` opens it through `openStore`. Only core and daemon
-  may import SQLite, pinned by 'sqlite driver boundary' in the testkit lint tests.
+- Use `ctx.store`; only `main` opens it. Only core and daemon import SQLite (`sqlite driver
+  boundary`).
 - Modules start one at a time. A start that throws or rejects gets no `stop()`: its start owns
   its own cleanup. Pinned by 'start failure stops started modules'.
 - `state()` is `starting` until every module is up, then `ready`, then `stopping`. Pinned by
@@ -36,8 +36,7 @@ description: Rules for packages/daemon/ - modules, config and secrets, logging a
 - Invalid config raises `ConfigError` before storage: schema errors list field paths and a hint;
   missing files name the file, and YAML errors include line and column.
 - Refuse `secrets.env` when `mode & 0o077` is nonzero, including write-only access.
-- Secrets live only in `secrets.env`, never in config; pinned by 'has no secret-like property
-  names'. The daemon never writes them to the environment; modules read `ctx.secrets`.
+- Keep secrets in `secrets.env`, never config or the environment; modules read `ctx.secrets`.
 - `resolvePaths` places the files: `BOARD_HOME` holds all four, else the XDG directories.
 - Pass `ctx.secrets` to `startAdapters`. It composes Jira, GitHub PR, GitHub Issues and Spur
   sources; missing tracker credentials produce blind source reports instead of stopping startup.
@@ -51,7 +50,8 @@ description: Rules for packages/daemon/ - modules, config and secrets, logging a
 - Use the `redacting` destination wrapper: censor credential keys at any depth and known secret
   values, raw or JSON-escaped. Withhold a line that cannot be censored; leave short values alone.
 - Logged fields: `module`, `err`, `signal`, `pending`, `call`, `duration_ms`, `outcome`,
-  `requestId`, `method`, `path`, `status`. Name new entity IDs as contracts do, e.g. `taskId`.
+  `requestId`, `method`, `path`, `status`, `port`. Name new entity IDs as contracts do, e.g.
+  `taskId`.
 - Wrap external calls in `ctx.logCall`; it logs duration and outcome, then rethrows.
 - Log sender ticks and `spur send` child calls through the outbox module's `ctx.logCall`.
 - Wrap adapter HTTP calls through `board-adapters.logCall`. Journal unknown Spur
@@ -61,7 +61,10 @@ description: Rules for packages/daemon/ - modules, config and secrets, logging a
 
 - Register `createHttpModule(ctxFor('http'))` last, even without Slack. It answers `503 starting`
   until `state()` is `ready`.
-- Bind with `listenApiServer` on `127.0.0.1` and the configured `http.port`. The module reads a
+- Build one `createOperationRegistry` in `main` and pass it to HTTP and inbound. Do not register
+  individual operations in the HTTP module.
+- Bind with `listenApiServer` on `127.0.0.1` and configured `http.port`; 0 selects a free port.
+  Log the bound port. The module reads a
   session snapshot through core, then uses a bounded live Spur lookup on a miss. Wrap that call
   in `ctx.logCall`; verify bearer tokens against the current store state on each request. Log an
   accepted token's name, never its bearer value.

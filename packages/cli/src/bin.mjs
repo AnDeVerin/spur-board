@@ -1,8 +1,21 @@
 #!/usr/bin/env node
 
+import { readFileSync } from 'node:fs';
+
 const argv = process.argv.slice(2);
 if (argv.length === 1 && (argv[0] === '--version' || argv[0] === '-V')) {
-  process.stdout.write('0.0.0\n');
+  const manifest = /** @type {unknown} */ (
+    JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
+  );
+  if (
+    manifest === null ||
+    typeof manifest !== 'object' ||
+    !('version' in manifest) ||
+    typeof manifest.version !== 'string'
+  ) {
+    throw new Error('Invalid package version.');
+  }
+  process.stdout.write(`${manifest.version}\n`);
 } else if (argv.length === 1 && argv[0] === 'mcp') {
   const { startMcp } = await import('./mcp.ts');
   startMcp();

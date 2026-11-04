@@ -1,34 +1,41 @@
 {
   "name": "spur-board",
-  "version": "0.0.0",
-  "private": true,
+  "version": "0.1.0",
+  "license": "MIT",
+  "engines": {
+    "node": "^24.12.0 || ^26.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/AnDeVerin/spur-board.git"
+  },
   "type": "module",
   "bin": {
-    "board": "./src/bin.mjs"
+    "board": "./dist/bin.mjs"
   },
   "exports": {
-    ".": "./src/client.ts"
-  },
-  "publishConfig": {
-    "bin": {
-      "board": "./dist/bin.mjs"
-    },
-    "exports": {
-      ".": "./dist/client.mjs"
-    }
+    ".": "./dist/client.mjs"
   },
   "files": [
-    "dist"
+    "dist",
+    "skills",
+    "README.md",
+    "LICENSE"
   ],
   "scripts": {
-    "typecheck": "tsc --noEmit -p .",
     "build": "tsdown",
-    "prepack": "pnpm run build"
+    "typecheck": "tsc --noEmit -p ."
   },
   "dependencies": {
     "@commander-js/extra-typings": "catalog:",
     "@modelcontextprotocol/server": "catalog:",
     "commander": "catalog:",
+    "@slack/socket-mode": "catalog:",
+    "@slack/web-api": "catalog:",
+    "better-sqlite3": "catalog:",
+    "fastify": "catalog:",
+    "kysely": "catalog:",
+    "pino": "catalog:",
     "yaml": "catalog:",
     "zod": "catalog:"
   },

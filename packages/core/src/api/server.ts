@@ -67,7 +67,9 @@ export async function createApiServer(options: ApiOptions): Promise<FastifyInsta
     if (request.headers.origin !== undefined) {
       throw new CommandError('forbidden', 'Browser origins are not accepted.');
     }
-    if (header(request.headers.host) !== `127.0.0.1:${String(options.port)}`) {
+    const address = app.server.address();
+    const port = address !== null && typeof address === 'object' ? address.port : options.port;
+    if (header(request.headers.host) !== `127.0.0.1:${String(port)}`) {
       throw new CommandError('forbidden', 'Use the local API host.');
     }
     const contentType = header(request.headers['content-type']);

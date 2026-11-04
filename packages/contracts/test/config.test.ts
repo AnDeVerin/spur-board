@@ -151,6 +151,7 @@ describe('fixtures', () => {
 
   it('accepts an explicit HTTP port', () => {
     expect(configSchema.parse(validConfig({}, { http: { port: 4312 } })).http.port).toBe(4312);
+    expect(configSchema.parse(validConfig({}, { http: { port: 0 } })).http.port).toBe(0);
   });
 });
 
@@ -288,12 +289,6 @@ describe('invalid configs', () => {
       validConfig({}, { sources: { goneAfterPolls: 0 } }),
       'Too small: expected number to be >=1',
       'sources.goneAfterPolls',
-    ],
-    [
-      'zero HTTP port',
-      validConfig({}, { http: { port: 0 } }),
-      'Too small: expected number to be >=1',
-      'http.port',
     ],
     [
       'HTTP port above the TCP range',

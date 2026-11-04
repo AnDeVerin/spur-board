@@ -1,9 +1,28 @@
 import { defineConfig } from 'tsdown';
 
 export default defineConfig({
-  entry: { bin: './src/bin.mjs', client: './src/client.ts' },
+  entry: {
+    cli: 'src/cli.ts',
+    client: 'src/client.ts',
+    daemon: '../daemon/src/main.ts',
+    mcp: 'src/mcp.ts',
+  },
+  outDir: 'dist',
   format: 'esm',
-  dts: false,
-  deps: { alwaysBundle: ['@spur-board/contracts'] },
-  outDir: './dist',
+  platform: 'node',
+  target: 'node24',
+  clean: true,
+  deps: {
+    alwaysBundle: [/^@spur-board\//],
+    neverBundle: [
+      'better-sqlite3',
+      '@slack/socket-mode',
+      '@slack/web-api',
+      'fastify',
+      'kysely',
+      'pino',
+      'yaml',
+      /^@modelcontextprotocol\/server(?:\/|$)/,
+    ],
+  },
 });

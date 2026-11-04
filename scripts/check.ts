@@ -13,7 +13,8 @@ import {
   type ChangedFile,
   type Plan,
 } from './check-plan.ts';
-import { PACKAGE_SMOKE_SCRIPT } from './package-smoke-mcp.ts';
+
+const PACKAGE_SMOKE_SCRIPT = 'scripts/package-smoke.ts';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 
@@ -109,7 +110,7 @@ export function prePushWorkers(value: string | undefined): number | { error: str
   return Number(value);
 }
 
-export function mcpPackageSmokeCommands(
+export function packageSmokeCommands(
   mode: 'full' | 'changed' | 'none',
   packageDirs: string[],
 ): Command[] {
@@ -241,7 +242,7 @@ export function buildSteps(plan: Plan, prePush: boolean, workers = 2): Step[] {
           },
         ]
       : []),
-    ...(!prePush ? mcpPackageSmokeCommands(plan.mode, plan.packageDirs) : []),
+    ...(!prePush ? packageSmokeCommands(plan.mode, plan.packageDirs) : []),
   ];
   return [
     plan.formatFiles.length === 0

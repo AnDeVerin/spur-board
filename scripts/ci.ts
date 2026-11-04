@@ -9,6 +9,7 @@ import { appendFileSync, readFileSync } from 'node:fs';
 
 export interface Changes {
   github: boolean;
+  package: boolean;
   docsOnly: boolean;
   code: boolean;
 }
@@ -21,6 +22,12 @@ function isDocs(path: string): boolean {
 export function classifyChanges(paths: string[]): Changes {
   return {
     github: paths.some((path) => path.startsWith('.github/')),
+    package: paths.some(
+      (path) =>
+        /^(packages\/|scripts\/(package|upgrade-smoke)|package\.json$|pnpm-lock\.yaml$|pnpm-workspace\.yaml$|release\.config\.cjs$)/.test(
+          path,
+        ) || path === '.github/workflows/ci.yml',
+    ),
     docsOnly: paths.length > 0 && paths.every(isDocs),
     code: paths.some((path) => !isDocs(path)),
   };
@@ -40,7 +47,7 @@ const PR_ONLY = new Set(['pr-title', 'guardrails']);
 
 /**
  * Passes only when every job succeeded. Accepted skips: `pr-title` and `guardrails` outside pull
- * requests, and `workflows` when `changes` succeeded and reported `github=false`.
+ * requests, `workflows` when `github=false`, and PR package smoke when `package=false`.
  */
 export function decideCiOk(input: {
   needs: Record<string, NeededJob>;
@@ -65,6 +72,12 @@ export function decideCiOk(input: {
     if (result === 'skipped' && PR_ONLY.has(id)) accepted = event !== 'pull_request';
     if (result === 'skipped' && id === 'workflows') {
       accepted = changes?.result === 'success' && changes.outputs?.['github'] === 'false';
+    }
+    if (result === 'skipped' && id === 'package-smoke') {
+      accepted =
+        event === 'pull_request' &&
+        changes?.result === 'success' &&
+        changes.outputs?.['package'] === 'false';
     }
     report(accepted, `ci-ok: ${id} ${result}`);
   }
@@ -136,7 +149,7 @@ function writeOutputs(outputs: Record<string, string>): void {
 
 function changesCommand(base: string | undefined): number {
   const resolved = base ?? (process.env['GITHUB_EVENT_NAME'] === 'pull_request' ? 'HEAD^1' : null);
-  let changes: Changes = { github: true, docsOnly: true, code: true };
+  let changes: Changes = { github: true, package: true, docsOnly: true, code: true };
   if (resolved !== null) {
     const diff = git(['diff', '--name-only', '-z', resolved, 'HEAD']);
     if (diff.status !== 0) {
@@ -147,6 +160,7 @@ function changesCommand(base: string | undefined): number {
   }
   writeOutputs({
     github: String(changes.github),
+    package: String(changes.package),
     docs_only: String(changes.docsOnly),
     code: String(changes.code),
   });
@@ -216,7 +230,7 @@ function okCommand(): number {
   const verdict = decideCiOk({
     needs: needs as Record<string, NeededJob>,
     event: process.env['GITHUB_EVENT_NAME'] ?? '',
-    jobIds: jobIdsFromWorkflow(workflow).filter((id) => id !== 'ci-ok'),
+    jobIds: jobIdsFromWorkflow(workflow).filter((id) => id !== 'ci-ok' && id !== 'release'),
   });
   for (const line of verdict.lines) console.log(line);
   return verdict.ok ? 0 : 1;

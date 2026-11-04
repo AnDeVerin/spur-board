@@ -149,7 +149,7 @@ export default defineConfig(
   {
     languageOptions: {
       parserOptions: {
-        projectService: { allowDefaultProject: ['eslint.config.js'] },
+        projectService: { allowDefaultProject: ['eslint.config.js', 'release.config.cjs'] },
         tsconfigRootDir: import.meta.dirname,
       },
     },

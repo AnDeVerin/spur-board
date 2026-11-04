@@ -71,9 +71,10 @@ export function createHttpModule(
       });
       try {
         if (aborted()) return;
-        await listenApiServer(server, ctx.config.http.port);
+        const address = await listenApiServer(server, ctx.config.http.port);
         if (aborted()) return;
         app = server;
+        ctx.log.info({ port: Number(new URL(address).port) }, 'http listening');
       } finally {
         if (app !== server) await server.close();
       }
