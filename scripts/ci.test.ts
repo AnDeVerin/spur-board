@@ -6,17 +6,27 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { classifyChanges, decideCiOk, jobIdsFromWorkflow, secretsLogOpts } from './ci.ts';
 
-const JOB_IDS = ['changes', 'pr-title', 'guardrails', 'secrets', 'workflows', 'quality', 'test'];
+const JOB_IDS = [
+  'changes',
+  'pr-title',
+  'guardrails',
+  'secrets',
+  'workflows',
+  'quality',
+  'test',
+  'package-smoke',
+];
 
 function allSuccess(): Record<string, { result: string; outputs?: Record<string, string> }> {
   return {
-    changes: { result: 'success', outputs: { github: 'true' } },
+    changes: { result: 'success', outputs: { github: 'true', package: 'true' } },
     'pr-title': { result: 'success' },
     guardrails: { result: 'success' },
     secrets: { result: 'success' },
     workflows: { result: 'success' },
     quality: { result: 'success' },
     test: { result: 'success' },
+    'package-smoke': { result: 'success' },
   };
 }
 
@@ -99,6 +109,19 @@ describe('decideCiOk', () => {
     expect(decide({ [id]: { result: 'skipped' } }, 'push').ok).toBe(true);
     expect(decide({ [id]: { result: 'skipped' } }, 'workflow_dispatch').ok).toBe(true);
   });
+
+  it('accepts a skipped package smoke only for a package-unaffected pull request', () => {
+    const changes = { result: 'success', outputs: { github: 'false', package: 'false' } };
+    expect(decide({ changes, 'package-smoke': { result: 'skipped' } }).ok).toBe(true);
+    expect(decide({ changes, 'package-smoke': { result: 'skipped' } }, 'push').ok).toBe(false);
+    expect(
+      decide({ changes, 'package-smoke': { result: 'skipped' } }, 'workflow_dispatch').ok,
+    ).toBe(false);
+    expect(decide({ 'package-smoke': { result: 'skipped' } }).ok).toBe(false);
+    expect(
+      decide({ changes: { result: 'failure' }, 'package-smoke': { result: 'skipped' } }).ok,
+    ).toBe(false);
+  });
 });
 
 describe('jobIdsFromWorkflow', () => {
@@ -121,7 +144,7 @@ describe('jobIdsFromWorkflow', () => {
 
   it('reads every job of ci.yml, so ci-ok needs them all', () => {
     const text = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8');
-    expect(jobIdsFromWorkflow(text)).toEqual([...JOB_IDS, 'ci-ok']);
+    expect(jobIdsFromWorkflow(text)).toEqual([...JOB_IDS, 'ci-ok', 'release']);
   });
 });
 
@@ -129,6 +152,7 @@ describe('classifyChanges', () => {
   it('reports a docs-only change', () => {
     expect(classifyChanges(['README.md', 'docs/a.md'])).toEqual({
       github: false,
+      package: false,
       code: false,
       docsOnly: true,
     });
@@ -137,6 +161,7 @@ describe('classifyChanges', () => {
   it('reports a workflow change', () => {
     expect(classifyChanges(['.github/workflows/ci.yml'])).toEqual({
       github: true,
+      package: true,
       code: true,
       docsOnly: false,
     });
@@ -145,13 +170,26 @@ describe('classifyChanges', () => {
   it('reports a code change mixed with docs', () => {
     expect(classifyChanges(['LICENSE', 'scripts/ci.ts'])).toEqual({
       github: false,
+      package: false,
       code: true,
       docsOnly: false,
     });
   });
 
   it('reports nothing for an empty change set', () => {
-    expect(classifyChanges([])).toEqual({ github: false, code: false, docsOnly: false });
+    expect(classifyChanges([])).toEqual({
+      github: false,
+      package: false,
+      code: false,
+      docsOnly: false,
+    });
+  });
+
+  it('classifies package inputs but not unrelated tooling', () => {
+    expect(classifyChanges(['packages/cli/src/bin.mjs']).package).toBe(true);
+    expect(classifyChanges(['scripts/package-smoke.ts']).package).toBe(true);
+    expect(classifyChanges(['pnpm-lock.yaml']).package).toBe(true);
+    expect(classifyChanges(['scripts/ci.ts']).package).toBe(false);
   });
 });
 
@@ -302,14 +340,17 @@ describe('ci.ts CLI', () => {
     const result = box.run(box.repo, { GITHUB_EVENT_NAME: 'pull_request' }, 'changes');
     expect(result).toEqual({
       status: 0,
-      output: 'github=false\ndocs_only=true\ncode=false\n',
+      output: 'github=false\npackage=false\ndocs_only=true\ncode=false\n',
     });
   });
 
   it('changes reports everything without a base', () => {
     const box = prMergeRef();
     const result = box.run(box.repo, { GITHUB_EVENT_NAME: 'push' }, 'changes');
-    expect(result).toEqual({ status: 0, output: 'github=true\ndocs_only=true\ncode=true\n' });
+    expect(result).toEqual({
+      status: 0,
+      output: 'github=true\npackage=true\ndocs_only=true\ncode=true\n',
+    });
   });
 
   it('changes fails closed when the base is missing', () => {
