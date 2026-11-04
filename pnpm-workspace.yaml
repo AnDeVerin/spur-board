@@ -27,6 +27,8 @@ catalog:
   better-sqlite3: ^13.0.3
   '@types/better-sqlite3': ^9.6.0
   kysely: ^0.29.7
+  commander: ^15.0.0
+  '@commander-js/extra-typings': ^15.0.0
 
 # GHSA-g3hv-75wg-m249 (moderate, minimatch < 11.0.1) reaches us only through the
 # eslint toolchain, which matches our own glob patterns. The fixed minimatch 11.0.1

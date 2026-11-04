@@ -25,6 +25,7 @@ export {
   type OperationRegistry,
 } from './api/server.ts';
 export { identify, type IdentityPorts, type LiveSession } from './api/identity.ts';
+export { createBlockMutations } from './app/blocks.ts';
 export {
   enqueueConversationOpen,
   enqueueConversationReply,
@@ -32,3 +33,14 @@ export {
   type OutboxKind,
 } from './app/outbox.ts';
 export { createSender, type Sender, type SpurPort } from './app/sender.ts';
+export {
+  evaluateSessionHealth,
+  type HostLoadEpisode,
+  type SessionHealthFlag,
+  type SessionHealthFlagKind,
+  type SessionHealthInput,
+  type SessionHealthResult,
+  type SessionHealthStatus,
+  type SessionHealthSubject,
+  type TaskPrState,
+} from './domain/health.ts';

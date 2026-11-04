@@ -6,6 +6,9 @@ A map of the repo for agents and contributors. The rules live in the files and s
 
 - `packages/contracts` - zod schemas, config, enums, journal events, the gateway contract, the
   operation catalog, error codes and typed IDs. Skill: `working-with-contracts`.
+- `packages/cli` - the `board` shell commands generated from the operation catalog and the shared
+  daemon HTTP client. It imports only `@spur-board/contracts` among workspace packages; the boundary
+  lint is in `eslint.config.js`.
 - `packages/core` - the SQLite store in `src/store/`. Skill: `working-with-storage`.
 - `packages/gateway-slack` - Slack outbound delivery through the Web API.
 - `packages/adapters` - the adapter runner in `src/runner/`: per-source schedule, backoff,

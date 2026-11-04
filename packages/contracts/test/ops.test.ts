@@ -177,7 +177,7 @@ describe('catalog', () => {
     }
   });
 
-  it('binds unblock as --done <ref> | --reason <reason> | --withdraw', () => {
+  it('binds unblock as --done [ref] | --reason <reason> | --withdraw <answer>', () => {
     const unblock = OPERATIONS.find((op) => op.id === 'block.unblock');
     expect(unblock?.cli).toEqual({
       command: 'unblock',
@@ -185,10 +185,23 @@ describe('catalog', () => {
       modes: [
         { mode: 'done', flag: '--done', value: 'ref' },
         { mode: 'reason', flag: '--reason', value: 'reason' },
-        { mode: 'withdraw', flag: '--withdraw', value: null },
+        { mode: 'withdraw', flag: '--withdraw', value: 'answer' },
       ],
       key: '--key',
     });
+    expect(unblock?.input.safeParse({ mode: 'done', block: 'B13' }).success).toBe(true);
+    expect(unblock?.input.safeParse({ mode: 'withdraw', block: 'B12' }).success).toBe(false);
+    expect(
+      unblock?.input.safeParse({ mode: 'withdraw', block: 'B12', answer: 'Answered elsewhere.' })
+        .success,
+    ).toBe(true);
+  });
+
+  it('requires an exact revision when acknowledging a comment', () => {
+    const ack = OPERATIONS.find((op) => op.id === 'inbox.ack');
+    expect(ack?.input.safeParse({ entries: [{ id: 'C3', revision: 2 }] }).success).toBe(true);
+    expect(ack?.input.safeParse({ entries: [{ id: 'C3' }] }).success).toBe(false);
+    expect(ack?.input.safeParse({ ids: ['C3'] }).success).toBe(false);
   });
 
   it('gives wrong_id_kind for a task key passed as a block ID', () => {
@@ -212,7 +225,7 @@ describe('grants', () => {
     ['task.history', 'query', [operator, projectAgent], null, id],
     ['schema.get', 'query', 'any', null, []],
     ['inbox.get', 'query', [projectAgent, operator], null, ['not_found']],
-    ['inbox.ack', 'mutation', [projectAgent], null, id],
+    ['inbox.ack', 'mutation', [projectAgent], null, [...id, 'stale_comment_revision']],
     ['task.add', 'mutation', [operator], null, id],
     ['task.archive', 'mutation', [operator], null, archived],
     ['link.add', 'mutation', [operator], null, archived],
@@ -221,6 +234,7 @@ describe('grants', () => {
     ['item.close', 'mutation', [operator], null, id],
     ['block.ask', 'mutation', [projectAgent], null, archived],
     ['comment.add', 'mutation', [projectAgent, operator], null, archived],
+    ['comment.edit', 'mutation', [projectAgent, operator], null, archived],
     ['block.create', 'mutation', [{ grant: 'column-orchestrator' }, operator], null, archived],
     [
       'block.escalate',
@@ -262,7 +276,7 @@ describe('grants', () => {
     ]);
   });
 
-  it('pins the 18 operations with kinds, grants, preconditions and errors', () => {
+  it('pins the 19 operations with kinds, grants, preconditions and errors', () => {
     const order = Object.keys(ERRORS);
     expect(
       OPERATIONS.map((op) => [op.id, op.kind, op.grants, op.preconditions, op.errors]),
@@ -276,7 +290,7 @@ describe('grants', () => {
         return [opId, kind, grants, preconditions, errors];
       }),
     );
-    expect(OPERATIONS).toHaveLength(18);
+    expect(OPERATIONS).toHaveLength(19);
   });
 
   it('names a branch of the input discriminator in every grant mode', () => {
@@ -312,10 +326,20 @@ describe('comment shape', () => {
   const comment: JsonObject = { ...z.toJSONSchema(commentSchema, { io: 'output' }) };
   delete comment['$schema'];
 
-  it('is {id, author, at, text, untrusted: true}, all required', () => {
+  it('includes task, block link, revision and trust marker on every comment', () => {
     const properties = isObject(comment['properties']) ? comment['properties'] : {};
-    expect(Object.keys(properties)).toEqual(['id', 'author', 'at', 'text', 'untrusted']);
-    expect(comment['required']).toEqual(['id', 'author', 'at', 'text', 'untrusted']);
+    expect(Object.keys(properties)).toEqual([
+      'id',
+      'task',
+      'block',
+      'author',
+      'at',
+      'text',
+      'revision',
+      'ackedRevision',
+      'untrusted',
+    ]);
+    expect(comment['required']).toEqual(Object.keys(properties));
     expect(properties['untrusted']).toMatchObject({ const: true });
   });
 
@@ -329,6 +353,7 @@ describe('comment shape', () => {
     expect(itemsOf(output('task.get')['comments'])).toEqual(comment);
     expect(itemsOf(output('inbox.get')['comments'])).toEqual(comment);
     expect(output('comment.add')['comment']).toEqual(comment);
+    expect(output('comment.edit')['comment']).toEqual(comment);
     expect(output('block.answer')['comment']).toEqual(comment);
   });
 
@@ -336,10 +361,27 @@ describe('comment shape', () => {
     const timestamps = schemas.flatMap(({ op, output }) =>
       walk(output)
         .properties.filter(({ name }) => name === 'at' || name.endsWith('At'))
-        .map(({ path, node }) => ({ path: `${op.id}${path}`, format: node['format'] })),
+        .map(({ path, node }) => ({ path: `${op.id}${path}`, node })),
     );
     expect(timestamps.length).toBeGreaterThan(0);
-    for (const { path, format } of timestamps) expect(format, path).toBe('date-time');
+    for (const { path, node } of timestamps) {
+      const nullable = path.endsWith('unblockedAt');
+      expect(Array.isArray(node['anyOf']), path).toBe(nullable);
+      const variants: unknown[] = Array.isArray(node['anyOf']) ? node['anyOf'] : [node];
+      expect(
+        variants.map((variant) =>
+          isObject(variant) ? [variant['type'], variant['format']] : [undefined, undefined],
+        ),
+        path,
+      ).toEqual(
+        nullable
+          ? [
+              ['string', 'date-time'],
+              ['null', undefined],
+            ]
+          : [['string', 'date-time']],
+      );
+    }
   });
 });
 

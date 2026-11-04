@@ -1,0 +1,21 @@
+{
+  "name": "spur-board",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "board": "./src/bin.mjs"
+  },
+  "exports": {
+    ".": "./src/client.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p ."
+  },
+  "dependencies": {
+    "@commander-js/extra-typings": "catalog:",
+    "@spur-board/contracts": "workspace:*",
+    "commander": "catalog:",
+    "zod": "catalog:"
+  }
+}

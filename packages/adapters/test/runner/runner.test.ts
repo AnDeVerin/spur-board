@@ -211,6 +211,39 @@ describe('startAdapters', () => {
   });
 });
 
+describe('repository projection', () => {
+  it('sends and validates only PR refs from the source repository', async () => {
+    const foreign: PrEntityRef = { kind: 'pr', repo: 'demo/other', number: 9 };
+    const core = createFakeCore({ context: () => context({ prs: [pr, foreign] }) });
+    const poll = vi.fn(() => Promise.resolve(prNotFound()));
+    const adapter = createFakeAdapter({ id: 'github', intervalMs: I, poll });
+    const runner = startRunner({ entries: [{ adapter, repo: pr.repo }], core, config: defaults });
+    runners.push(runner);
+    await flush();
+    expect(adapter.contexts[0]?.observe.prs).toEqual([pr]);
+    expect(core.observed).toHaveLength(1);
+  });
+});
+
+describe('mixed source context', () => {
+  it('projects tickets and sessions out of a GitHub poll and accepts its PR batch', async () => {
+    const foreign: PrEntityRef = { kind: 'pr', repo: 'demo/other', number: 9 };
+    const core = createFakeCore({
+      context: () => context({ prs: [pr, foreign], tickets: [ticket], sessions: [session] }),
+    });
+    const adapter = createFakeAdapter({
+      id: 'github',
+      intervalMs: I,
+      poll: () => Promise.resolve(prNotFound()),
+    });
+    const runner = startRunner({ entries: [{ adapter, repo: pr.repo }], core, config: defaults });
+    runners.push(runner);
+    await flush();
+    expect(adapter.contexts[0]?.observe).toEqual({ prs: [pr], tickets: [], sessions: [] });
+    expect(core.observed).toHaveLength(1);
+  });
+});
+
 describe('schedule', () => {
   it('polls at start and every intervalMs', async () => {
     random(0);
@@ -598,6 +631,23 @@ describe('gone entities', () => {
     expect(last()).toEqual({ gone: [] });
     await advanceTo(2 * I);
     expect(last()).toEqual({ lastCompleteAt: at(2 * I), gone: [pr] });
+  });
+
+  it('does not count an incomplete no_access placeholder toward gone', async () => {
+    random(0);
+    const { last } = start(
+      (_, n) =>
+        Promise.resolve(
+          n === 1
+            ? batch({ complete: false, entities: [{ ref: pr, status: 'no_access' }] })
+            : prNotFound(),
+        ),
+      requestPr,
+    );
+    await advanceTo(2 * I);
+    expect(last()?.gone).toEqual([]);
+    await advanceTo(3 * I);
+    expect(last()?.gone).toEqual([pr]);
   });
 
   it('counts a ticket the same way', async () => {

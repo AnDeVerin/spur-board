@@ -87,6 +87,11 @@ const samples: { [K in EventKind]: Extract<JournalEvent, { kind: K }> } = {
     kind: 'comment_added',
     payload: { comment: 'cmt-1', addressee: 'worker' },
   },
+  comment_edited: {
+    ...base,
+    kind: 'comment_edited',
+    payload: { comment: 'cmt-1', revision: 2, clarification: true },
+  },
   comment_acked: { ...base, kind: 'comment_acked', payload: { comment: 'cmt-1' } },
   doorbell_rung: {
     ...base,
@@ -120,8 +125,8 @@ const samples: { [K in EventKind]: Extract<JournalEvent, { kind: K }> } = {
 };
 
 describe('event kinds', () => {
-  it('has a payload schema for each of the 25 kinds', () => {
-    expect(EVENT_KINDS).toHaveLength(25);
+  it('has a payload schema for each of the 26 kinds', () => {
+    expect(EVENT_KINDS).toHaveLength(26);
     expect(Object.keys(eventPayloadSchemas).sort()).toEqual([...EVENT_KINDS].sort());
   });
 

@@ -39,6 +39,7 @@ describe('error catalog', () => {
       ['not_found', 404, 1],
       ['block_not_open', 409, 1],
       ['wrong_block_type', 409, 1],
+      ['stale_comment_revision', 409, 1],
       ['task_archived', 409, 1],
       ['retry_not_applicable', 409, 1],
       ['idempotency_key_mismatch', 409, 1],

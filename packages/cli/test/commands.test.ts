@@ -1,0 +1,304 @@
+import { createServer, type Server } from 'node:http';
+import { spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import { afterEach, describe, expect, it } from 'vitest';
+import { OPERATIONS } from '@spur-board/contracts';
+import { createProgram, runCli, type CliIo } from '../src/cli.ts';
+
+const servers: Server[] = [];
+const binary = fileURLToPath(new URL('../src/bin.mjs', import.meta.url));
+
+afterEach(async () => {
+  await Promise.all(
+    servers.splice(0).map(async (server) => {
+      server.closeAllConnections();
+      await new Promise<void>((resolve) =>
+        server.close(() => {
+          resolve();
+        }),
+      );
+    }),
+  );
+});
+
+async function fakeServer(
+  onRequest: (id: string, input: unknown, key: string | undefined) => unknown,
+): Promise<string> {
+  const server = createServer((request, response) => {
+    const chunks: Buffer[] = [];
+    request.on('data', (chunk: Buffer) => chunks.push(chunk));
+    request.on('end', () => {
+      const body = JSON.parse(Buffer.concat(chunks).toString()) as { input: unknown; key?: string };
+      const id = decodeURIComponent(request.url?.split('/').at(-1) ?? '');
+      const value = onRequest(id, body.input, body.key);
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end(JSON.stringify({ ok: true, requestId: 'req-ok', value }));
+    });
+  });
+  servers.push(server);
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  if (!address || typeof address === 'string') throw new Error('Expected a TCP port.');
+  return `http://127.0.0.1:${String(address.port)}`;
+}
+
+function capture(isTTY = false) {
+  let stdout = '';
+  let stderr = '';
+  const io: CliIo = {
+    isTTY,
+    stdout: (text) => {
+      stdout += text;
+    },
+    stderr: (text) => {
+      stderr += text;
+    },
+  };
+  return {
+    io,
+    get stdout() {
+      return stdout;
+    },
+    get stderr() {
+      return stderr;
+    },
+  };
+}
+
+function env(url: string): NodeJS.ProcessEnv {
+  return { BOARD_DAEMON_URL: url, BOARD_TOKEN: 'token' };
+}
+
+describe('catalog commands', () => {
+  it('registers every catalog path and shows each catalog example in help', async () => {
+    const program = createProgram({ env: {}, io: capture().io });
+    for (const op of OPERATIONS) {
+      let command = program;
+      for (const segment of op.cli.command.split(' ')) {
+        const next = command.commands.find((item) => item.name() === segment);
+        expect(next, `${op.id} command segment ${segment}`).toBeDefined();
+        if (!next) throw new Error(`Missing command ${op.id}`);
+        command = next;
+      }
+      const output = capture();
+      expect(
+        await runCli([...op.cli.command.split(' '), '--help'], { env: {}, io: output.io }),
+      ).toBe(0);
+      for (const example of op.examples) expect(output.stdout).toContain(example.summary);
+      expect(output.stdout).toContain('Examples:');
+    }
+  });
+
+  it('prints only the schema-valid result and invokes schema.get through HTTP', async () => {
+    const schema = OPERATIONS.find((op) => op.id === 'schema.get');
+    if (!schema) throw new Error('Missing schema operation.');
+    const calls: { id: string; input: unknown; key: string | undefined }[] = [];
+    const url = await fakeServer((id, input, key) => {
+      calls.push({ id, input, key });
+      return schema.examples[0].output;
+    });
+    const output = capture();
+    expect(await runCli(['schema', '--json'], { env: env(url), io: output.io })).toBe(0);
+    expect(schema.output.parse(JSON.parse(output.stdout))).toEqual(schema.examples[0].output);
+    expect(output.stdout).not.toContain('requestId');
+    expect(output.stderr).toBe('');
+    expect(calls).toEqual([{ id: 'schema.get', input: {}, key: undefined }]);
+  });
+
+  it('maps positional, array, ordinary option, and union-mode inputs without defaults', async () => {
+    const calls: { id: string; input: unknown }[] = [];
+    const url = await fakeServer((id, input) => {
+      calls.push({ id, input });
+      const op = OPERATIONS.find((item) => item.id === id);
+      if (!op) throw new Error(`No operation ${id}`);
+      return op.examples[0].output;
+    });
+    const commands = [
+      ['status', '--project', 'demo'],
+      ['task', 'history', 'PROJ-123'],
+      ['inbox', 'ack', 'C3@2', 'C4@1', '--key', 'ack-1'],
+      ['block', 'PROJ-123', '--type', 'dependency', '--reason', 'Waiting', '--key', 'block-1'],
+      ['unblock', 'B12', '--withdraw', 'No longer needed', '--key', 'unblock-1'],
+    ];
+    for (const command of commands) {
+      const output = capture();
+      expect(await runCli(command, { env: env(url), io: output.io }), command.join(' ')).toBe(0);
+    }
+    expect(calls).toEqual([
+      { id: 'status.get', input: { project: 'demo' } },
+      { id: 'task.history', input: { task: 'PROJ-123' } },
+      {
+        id: 'inbox.ack',
+        input: {
+          entries: [
+            { id: 'C3', revision: 2 },
+            { id: 'C4', revision: 1 },
+          ],
+        },
+      },
+      { id: 'block.create', input: { task: 'PROJ-123', type: 'dependency', reason: 'Waiting' } },
+      {
+        id: 'block.unblock',
+        input: { block: 'B12', mode: 'withdraw', answer: 'No longer needed' },
+      },
+    ]);
+  });
+
+  it('accepts --done with and without a reference', async () => {
+    const calls: unknown[] = [];
+    const unblock = OPERATIONS.find((op) => op.id === 'block.unblock');
+    if (!unblock) throw new Error('Missing unblock operation.');
+    const url = await fakeServer((_id, input) => {
+      calls.push(input);
+      return unblock.examples[0].output;
+    });
+    for (const args of [
+      ['unblock', 'B12', '--done'],
+      ['unblock', 'B12', '--done', 'PROJ-124'],
+    ]) {
+      const output = capture();
+      expect(await runCli(args, { env: env(url), io: output.io })).toBe(0);
+    }
+    expect(calls).toEqual([
+      { block: 'B12', mode: 'done' },
+      { block: 'B12', mode: 'done', ref: 'PROJ-124' },
+    ]);
+  });
+
+  it('rejects malformed inbox revisions and a missing --withdraw answer', async () => {
+    const output = capture();
+    for (const args of [
+      ['inbox', 'ack', 'C3'],
+      ['inbox', 'ack', 'C3@0'],
+      ['inbox', 'ack', 'C3@1.5'],
+      ['unblock', 'B12', '--withdraw'],
+    ]) {
+      expect(await runCli(args, { env: {}, io: output.io }), args.join(' ')).toBe(2);
+    }
+  });
+
+  it('shows the generated revision and mode-value syntax in help', async () => {
+    const ack = capture();
+    expect(await runCli(['inbox', 'ack', '--help'], { env: {}, io: ack.io })).toBe(0);
+    expect(ack.stdout).toContain('board inbox ack C3@1');
+    expect(ack.stdout).not.toContain('[object Object]');
+
+    const unblock = capture();
+    expect(await runCli(['unblock', '--help'], { env: {}, io: unblock.io })).toBe(0);
+    expect(unblock.stdout).toContain('--done [ref]');
+    expect(unblock.stdout).toContain('--withdraw <answer>');
+  });
+
+  it('quotes untrusted comments in human output', async () => {
+    const task = OPERATIONS.find((op) => op.id === 'task.get');
+    if (!task) throw new Error('Missing task operation.');
+    const url = await fakeServer(() => task.examples[0].output);
+    const output = capture(true);
+    expect(await runCli(['task', 'PROJ-123'], { env: env(url), io: output.io })).toBe(0);
+    expect(output.stdout).toContain('> Target v2.');
+    expect(output.stdout).not.toContain('requestId');
+  });
+
+  it('does not treat a positional --version as the top-level version flag', async () => {
+    const comment = OPERATIONS.find((op) => op.id === 'comment.add');
+    if (!comment) throw new Error('Missing comment operation.');
+    let received: { id: string; input: unknown; key: string | undefined } | undefined;
+    const url = await fakeServer((id, input, key) => {
+      received = { id, input, key };
+      return comment.examples[0].output;
+    });
+    const child = spawn(
+      process.execPath,
+      [binary, 'comment', 'PROJ-123', '--key', 'comment-version', '--', '--version'],
+      {
+        env: { ...process.env, BOARD_DAEMON_URL: url, BOARD_TOKEN: 'token', SPUR_SESSION: '' },
+      },
+    );
+    let stdout = '';
+    let stderr = '';
+    child.stdout.setEncoding('utf8').on('data', (text: string) => {
+      stdout += text;
+    });
+    child.stderr.setEncoding('utf8').on('data', (text: string) => {
+      stderr += text;
+    });
+    const exit = await new Promise<number | null>((resolve) => child.once('close', resolve));
+    expect(exit).toBe(0);
+    expect(received).toEqual({
+      id: 'comment.add',
+      input: { task: 'PROJ-123', text: '--version' },
+      key: 'comment-version',
+    });
+    expect(comment.output.parse(JSON.parse(stdout))).toEqual(comment.examples[0].output);
+    expect(stderr).toContain('key: comment-version');
+  });
+
+  it('renders terminal controls in untrusted comments as visible text', async () => {
+    const task = OPERATIONS.find((op) => op.id === 'task.get');
+    if (!task) throw new Error('Missing task operation.');
+    const sample = task.examples[0].output as {
+      task: unknown;
+      blocks: unknown;
+      comments: { id: string; author: string; at: string; text: string; untrusted: true }[];
+    };
+    const firstComment = sample.comments[0];
+    if (!firstComment) throw new Error('Missing sample comment.');
+    const hostileText =
+      'safe\u001b[31mred\u001b[0m\n\u001b]8;;https://example.invalid\u0007link\u001b]8;;\u0007\u009b31m';
+    const url = await fakeServer(() => ({
+      ...sample,
+      comments: [{ ...firstComment, text: hostileText }],
+    }));
+    const output = capture(true);
+    expect(await runCli(['task', 'PROJ-123'], { env: env(url), io: output.io })).toBe(0);
+    expect(output.stdout).toContain('> safe\\u001b[31mred\\u001b[0m');
+    expect(output.stdout).toContain('> \\u001b]8;;https://example.invalid\\u0007link');
+    expect(output.stdout).toContain('\\u009b31m');
+    expect(output.stdout).not.toMatch(/[\u001b\u0007\u009b]/u);
+  });
+
+  it('escapes server-controlled values and object keys in human output', async () => {
+    const task = OPERATIONS.find((op) => op.id === 'task.get');
+    const schema = OPERATIONS.find((op) => op.id === 'schema.get');
+    if (!task || !schema) throw new Error('Missing catalog operations.');
+    const taskSample = task.examples[0].output as {
+      blocks: { reason: string }[];
+    };
+    const firstBlock = taskSample.blocks[0];
+    if (!firstBlock) throw new Error('Missing sample block.');
+    const taskUrl = await fakeServer(() => ({
+      ...taskSample,
+      blocks: [
+        { ...firstBlock, reason: 'blocked\u001b]8;;https://example.invalid\u0007now\u000dnext' },
+      ],
+    }));
+    const taskOutput = capture(true);
+    expect(await runCli(['task', 'PROJ-123'], { env: env(taskUrl), io: taskOutput.io })).toBe(0);
+    expect(taskOutput.stdout).toContain(
+      'reason: blocked\\u001b]8;;https://example.invalid\\u0007now\\u000dnext',
+    );
+    expect(taskOutput.stdout).not.toMatch(/[\u001b\u0007\u000d]/u);
+
+    const schemaSample = schema.examples[0].output as {
+      operations: { inputSchema: Record<string, unknown> }[];
+    };
+    const firstOperation = schemaSample.operations[0];
+    if (!firstOperation) throw new Error('Missing sample operation.');
+    const hostileKey = 'field\u001b[31m';
+    const schemaUrl = await fakeServer(() => ({
+      ...schemaSample,
+      operations: [{ ...firstOperation, inputSchema: { [hostileKey]: 'value\u009b31m' } }],
+    }));
+    const schemaOutput = capture(true);
+    expect(await runCli(['schema'], { env: env(schemaUrl), io: schemaOutput.io })).toBe(0);
+    expect(schemaOutput.stdout).toContain('field\\u001b[31m: value\\u009b31m');
+    expect(schemaOutput.stdout).not.toMatch(/[\u001b\u009b]/u);
+
+    const jsonOutput = capture();
+    expect(await runCli(['schema', '--json'], { env: env(schemaUrl), io: jsonOutput.io })).toBe(0);
+    const json = JSON.parse(jsonOutput.stdout) as {
+      operations: { inputSchema: Record<string, unknown> }[];
+    };
+    expect(json.operations[0]?.inputSchema[hostileKey]).toBe('value\u009b31m');
+  });
+});

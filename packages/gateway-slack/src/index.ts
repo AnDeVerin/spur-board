@@ -1,12 +1,63 @@
 import type { Gateway } from '@spur-board/contracts';
-import { createApi, type ApiConfig } from './api.ts';
+import { apiFailure, createApi, type ApiConfig } from './api.ts';
 import { createDeliveryGateway, type SlackChannels } from './deliver.ts';
+import { parseInteractionRef, type BotIdentity } from './normalize.ts';
+import { recoverThreads } from './recover.ts';
+import { renderText } from './render.ts';
+import { createSocket } from './socket.ts';
 
 interface SlackGatewayConfig extends ApiConfig {
   channels: SlackChannels;
+  appToken?: string;
 }
 
-/** Create the outbound Slack gateway; inbound methods are completed by a later issue. */
+/** Create a Slack gateway. Socket Mode is opt-in until the daemon has a real inbound sink. */
 export function createSlackGateway(config: SlackGatewayConfig): Gateway {
-  return createDeliveryGateway(createApi(config), config.channels);
+  const api = createApi(config);
+  let identity: Promise<BotIdentity> | undefined;
+  function botIdentity(): Promise<BotIdentity> {
+    identity ??= api.auth
+      .test()
+      .then((result) => {
+        if (typeof result.user_id !== 'string' || result.user_id.length === 0) {
+          throw new Error('Slack bot identity unavailable');
+        }
+        return {
+          userId: result.user_id,
+          ...(typeof result.bot_id === 'string' ? { botId: result.bot_id } : {}),
+        };
+      })
+      .catch(() => {
+        identity = undefined;
+        throw new Error('Slack bot identity unavailable');
+      });
+    return identity;
+  }
+
+  const delivery = createDeliveryGateway(api, config.channels);
+  const socket = createSocket(api, config, botIdentity);
+  return {
+    ...delivery,
+    ...socket,
+    recover: (request) => recoverThreads(api, request, botIdentity),
+    async respond(interaction, text, options) {
+      const addressed = parseInteractionRef(interaction);
+      const body = renderText(text);
+      if (addressed === null || body.length === 0) return 'dropped';
+      try {
+        const response = await api.chat.postEphemeral({
+          channel: addressed.channel,
+          user: addressed.user,
+          text: body,
+        });
+        return response.ok ? 'sent' : 'dropped';
+      } catch (error) {
+        if (options.private) {
+          const result = apiFailure(error);
+          if (result.status === 'failed' && result.scope === 'message') return 'dropped';
+        }
+        throw new Error('Slack ephemeral response failed');
+      }
+    },
+  };
 }

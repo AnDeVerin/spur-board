@@ -13,6 +13,64 @@ export interface ApiConfig {
   requestTimeoutMs?: number;
 }
 
+export class IncompleteHistoryError extends Error {}
+
+function messageTs(message: unknown): string | undefined {
+  return typeof message === 'object' &&
+    message !== null &&
+    'ts' in message &&
+    typeof message.ts === 'string'
+    ? message.ts
+    : undefined;
+}
+
+/** Read every page. An incomplete response is unknown, never an empty history. */
+export async function readMessages(
+  client: WebClient,
+  query: { channel: string; threadTs?: string; oldest?: string },
+): Promise<unknown[]> {
+  const found: unknown[] = [];
+  const seen = new Set<string>();
+  let cursor: string | undefined;
+  let latest: string | undefined;
+  for (;;) {
+    const page =
+      query.threadTs === undefined
+        ? await client.conversations.history({
+            channel: query.channel,
+            limit: 100,
+            ...(query.oldest === undefined ? {} : { oldest: query.oldest, inclusive: true }),
+            ...(cursor === undefined ? {} : { cursor }),
+            ...(latest === undefined ? {} : { latest }),
+          })
+        : await client.conversations.replies({
+            channel: query.channel,
+            ts: query.threadTs,
+            limit: 100,
+            ...(cursor === undefined ? {} : { cursor }),
+            ...(latest === undefined ? {} : { latest }),
+          });
+    if (!Array.isArray(page.messages)) throw new IncompleteHistoryError('missing messages');
+    found.push(...page.messages);
+    const nextCursor = page.response_metadata?.next_cursor;
+    if (nextCursor) {
+      const key = `cursor:${nextCursor}`;
+      if (seen.has(key)) throw new IncompleteHistoryError('repeated cursor');
+      seen.add(key);
+      cursor = nextCursor;
+      continue;
+    }
+    if (!page.has_more) return found;
+    const lastTs = messageTs(page.messages.at(-1));
+    if (lastTs === undefined) throw new IncompleteHistoryError('missing pagination timestamp');
+    const key = `latest:${lastTs}`;
+    if (seen.has(key)) throw new IncompleteHistoryError('repeated page');
+    seen.add(key);
+    cursor = undefined;
+    latest = lastTs;
+  }
+}
+
 const DEFAULT_TIMEOUT_MS = 10_000;
 
 /** Both SDK retry paths are disabled: the core outbox schedules every retry. */

@@ -129,6 +129,13 @@ export const ERRORS = {
     hint: 'Read the block type with `board task <KEY>` and use the operation for that type.',
     recovery: noRetry('Use the operation for the current block type.'),
   }),
+  stale_comment_revision: spec('stale_comment_revision', {
+    status: 409,
+    exit: EXIT_CODES.refused,
+    message: 'The comment has a newer revision than the one acknowledged.',
+    hint: 'Read the latest comment revision, then acknowledge that revision.',
+    recovery: noRetry('Read the latest comment revision before acknowledging it.'),
+  }),
   task_archived: spec('task_archived', {
     status: 409,
     exit: EXIT_CODES.refused,
