@@ -13,9 +13,10 @@ export const endMarker = '<!-- END GENERATED BOARD COMMANDS -->';
 const target = fileURLToPath(new URL('../packages/skills/spur-board/SKILL.md', import.meta.url));
 type CatalogOperation = (typeof OPERATIONS)[number];
 const roles = ['worker', 'orchestrator'] as const;
+const program = createProgram({ io: { isTTY: false, stdout: () => {}, stderr: () => {} } });
 
 function commandFor(path: string) {
-  let command = createProgram({ io: { isTTY: false, stdout: () => {}, stderr: () => {} } });
+  let command = program;
   for (const segment of path.split(' ')) {
     const next = command.commands.find((item) => item.name() === segment);
     if (next === undefined) throw new Error(`Unknown CLI command: ${path}`);
