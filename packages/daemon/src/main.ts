@@ -9,6 +9,7 @@ import {
   type ProcessPort,
 } from './lifecycle.ts';
 import { acquireLock } from './lock.ts';
+import { createInboundModule } from './inbound-module.ts';
 import { createOutboxModule, slackSettings } from './outbox-module.ts';
 
 // Below the 2^31-1 ms timer limit; Node turns larger values into 1 ms with a warning.
@@ -70,21 +71,39 @@ export async function main(): Promise<void> {
       const settings = slackSettings(ctx.config, ctx.secrets);
       if (settings === null) return entries;
       const gateway = createSlackGateway(settings);
-      entries.push(
-        {
-          name: 'gateway-slack',
-          stopStage: 'final',
-          module: {
-            start: () => gateway.start(() => Promise.resolve()),
-            stop: () => gateway.stop(),
+      const inbound =
+        settings.appToken === undefined
+          ? undefined
+          : createInboundModule(ctxFor('inbound'), gateway);
+      if (inbound === undefined) ctx.log.info('Slack inbound disabled: SLACK_APP_TOKEN is absent');
+      entries.push({
+        name: 'gateway-slack',
+        stopStage: 'final',
+        module: {
+          start: () =>
+            gateway.start(
+              inbound === undefined ? () => Promise.resolve() : (event) => inbound.sink(event),
+            ),
+          async stop() {
+            try {
+              await gateway.stop();
+            } finally {
+              await inbound?.stop();
+            }
           },
         },
-        {
-          name: 'outbox',
-          stopStage: 'outbox',
-          module: createOutboxModule(ctxFor('outbox'), gateway),
-        },
-      );
+      });
+      if (inbound !== undefined)
+        entries.push({
+          name: 'inbound',
+          stopStage: 'pollers',
+          module: inbound,
+        });
+      entries.push({
+        name: 'outbox',
+        stopStage: 'outbox',
+        module: createOutboxModule(ctxFor('outbox'), gateway),
+      });
       return entries;
     },
     port: processPort(),
