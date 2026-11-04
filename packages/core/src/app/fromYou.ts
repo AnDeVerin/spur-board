@@ -21,7 +21,7 @@ export async function reconcileItems(
   for (const source of sources) {
     if (source.blind_reason === null) continue;
     candidates.push({
-      key: `source:${source.source}:${source.blind_reason}`,
+      key: `source:${source.source}`,
       taskId: null,
       summary: `${source.source}: ${source.blind_message ?? source.blind_reason}`,
       factAt: source.observed_at,
@@ -256,6 +256,11 @@ export async function reconcileItems(
           { item: `I${String(inserted.id)}` },
         );
     } else if (old.fingerprint !== hash || old.active !== active) {
+      const project = taskById.get(candidate.taskId ?? -1)?.project ?? 'board';
+      if (old.active === 1 && (old.fingerprint !== hash || active === 0))
+        await emit(trx, 'from_you_cleared', project, candidate.taskId, at, {
+          item: `I${String(old.id)}`,
+        });
       await trx
         .updateTable('from_you_item')
         .set({
@@ -267,15 +272,10 @@ export async function reconcileItems(
         })
         .where('id', '=', old.id)
         .execute();
-      if (active === 1 && old.active === 0)
-        await emit(
-          trx,
-          'from_you_raised',
-          taskById.get(candidate.taskId ?? -1)?.project ?? 'board',
-          candidate.taskId,
-          at,
-          { item: `I${String(old.id)}` },
-        );
+      if (active === 1 && (old.active === 0 || old.fingerprint !== hash))
+        await emit(trx, 'from_you_raised', project, candidate.taskId, at, {
+          item: `I${String(old.id)}`,
+        });
     }
   }
 }

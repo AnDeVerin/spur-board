@@ -205,6 +205,22 @@ it('keeps a dismissed item hidden until the outcome fingerprint changes', async 
   now += 1_000;
   await observeOutcome('no_access');
   expect((await status()).items.some((entry) => entry.key === item.item_key)).toBe(true);
+  expect(
+    (
+      await store.db
+        .selectFrom('from_you_item')
+        .select('id')
+        .where('item_key', '=', item.item_key)
+        .executeTakeFirst()
+    )?.id,
+  ).toBe(item.id);
+  expect(
+    await store.db
+      .selectFrom('event')
+      .select('kind')
+      .where('kind', '=', 'from_you_raised')
+      .execute(),
+  ).toHaveLength(2);
 });
 
 it('orders operator blocks, delivery failures, then blind sources', async () => {
