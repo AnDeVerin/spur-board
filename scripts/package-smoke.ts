@@ -229,14 +229,11 @@ export function productSkillReferences(packageRoot: string): string[] {
   return references;
 }
 
-/** Keep the packed product skill intact; fixture only the setup skill from its later issue. */
+/** Verify both skills exist in the packed package before installation. */
 export function prepareSkillsForSmoke(packageRoot: string): void {
   productSkillReferences(packageRoot);
   const setup = join(packageRoot, 'skills/setup/SKILL.md');
-  if (!existsSync(setup)) {
-    mkdirSync(dirname(setup), { recursive: true });
-    writeFileSync(setup, '# Packed smoke fixture\n');
-  }
+  if (!existsSync(setup)) throw new Error('Packed setup skill spur-board-setup is missing.');
 }
 
 interface SmokeContext {

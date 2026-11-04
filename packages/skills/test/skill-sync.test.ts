@@ -16,8 +16,10 @@ import {
 } from '../../../scripts/gen-skill.ts';
 
 const skillPath = fileURLToPath(new URL('../spur-board/SKILL.md', import.meta.url));
+const setupSkillPath = fileURLToPath(new URL('../setup/SKILL.md', import.meta.url));
 const referencesPath = fileURLToPath(new URL('../spur-board/references/', import.meta.url));
 const skill = readFileSync(skillPath, 'utf8');
+const setupSkill = readFileSync(setupSkillPath, 'utf8');
 const references = renderCommandReferences();
 const referenceTexts = references.map((reference) =>
   readFileSync(new URL(`../spur-board/references/${reference.fileName}`, import.meta.url), 'utf8'),
@@ -74,6 +76,7 @@ function invocations(text: string): { command: string; example: boolean }[] {
     return ' ';
   });
   const withoutNouns = prose
+    .replace(/\bspur-board\b/g, 'Spur Board')
     .replace(/\ba board overview\b/g, 'a Board overview')
     .replace(/\bfor board data\b/g, 'for Board data')
     .replace(/\bthe board again\b/g, 'the Board again');
@@ -126,6 +129,38 @@ function validateInvocations(text: string): string[] {
       } else {
         keys.add(key);
       }
+    }
+  }
+  return errors;
+}
+
+function validateSetupInvocations(text: string): string[] {
+  const errors: string[] = [];
+  for (const { command } of invocations(text)) {
+    if (command === 'unformatted board invocation') {
+      errors.push(command);
+      continue;
+    }
+    const words = tokens(command);
+    if (words.length === 2 && (words[1] === '--version' || words[1] === 'mcp')) continue;
+    let registered = program;
+    let index = 1;
+    while (index < words.length) {
+      const next = registered.commands.find((candidate) => candidate.name() === words[index]);
+      if (next === undefined) break;
+      registered = next;
+      index++;
+    }
+    if (index === 1 || registered.commands.length > 0) {
+      errors.push(`unknown command: ${command}`);
+      continue;
+    }
+    const flags = new Set([...registered.options, ...program.options].map((option) => option.long));
+    for (const flag of words
+      .slice(index)
+      .filter((word) => word.startsWith('--'))
+      .map((word) => word.split('=')[0] ?? word)) {
+      if (!flags.has(flag)) errors.push(`unknown flag: ${flag}`);
     }
   }
   return errors;
@@ -295,5 +330,25 @@ describe('product skill sync', () => {
     expect(
       validateInvocations(fullText.replace(key, key.replace(/-1432$/, '-worker-1432'))),
     ).toEqual(expect.arrayContaining([expect.stringMatching(/^invalid key:/)]));
+  });
+});
+
+describe('setup skill sync', () => {
+  it('uses only registered board commands and flags', () => {
+    expect(validateSetupInvocations(setupSkill)).toEqual([]);
+    expect(invocations(setupSkill).length).toBeGreaterThan(8);
+  });
+
+  it('rejects misspelled setup commands and flags, including binary routes', () => {
+    expect(validateSetupInvocations('`board doctro --offline`')).toContain(
+      'unknown command: board doctro --offline',
+    );
+    expect(validateSetupInvocations('`board doctor --offlien`')).toContain(
+      'unknown flag: --offlien',
+    );
+    expect(validateSetupInvocations('`board mcpx`')).toContain('unknown command: board mcpx');
+    expect(validateSetupInvocations('`board --versoin`')).toContain(
+      'unknown command: board --versoin',
+    );
   });
 });

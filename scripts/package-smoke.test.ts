@@ -13,7 +13,7 @@ import {
 } from './package-smoke.ts';
 
 describe('packed smoke steps', () => {
-  it('uses the packed product skill and fixtures only setup', () => {
+  it('requires both packed skills without replacing their content', () => {
     const root = mkdtempSync(join(tmpdir(), 'board-packed-skills-'));
     try {
       const product = join(root, 'skills/spur-board/SKILL.md');
@@ -24,13 +24,31 @@ describe('packed smoke steps', () => {
         '# Real product skill\n\n- `board status` — [details](references/commands.md#board-status)\n',
       );
       writeFileSync(reference, '# Worker commands\n');
+      const setup = join(root, 'skills/setup/SKILL.md');
+      mkdirSync(join(root, 'skills/setup'), { recursive: true });
+      writeFileSync(setup, '# Real setup skill\n');
       prepareSkillsForSmoke(root);
       expect(readFileSync(reference, 'utf8')).toBe('# Worker commands\n');
-      expect(readFileSync(join(root, 'skills/setup/SKILL.md'), 'utf8')).toBe(
-        '# Packed smoke fixture\n',
-      );
+      expect(readFileSync(setup, 'utf8')).toBe('# Real setup skill\n');
       prepareSkillsForSmoke(root);
       expect(existsSync(product)).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects a missing packed setup skill', () => {
+    const root = mkdtempSync(join(tmpdir(), 'board-packed-skills-'));
+    try {
+      const product = join(root, 'skills/spur-board/SKILL.md');
+      const reference = join(root, 'skills/spur-board/references/commands.md');
+      mkdirSync(join(root, 'skills/spur-board/references'), { recursive: true });
+      writeFileSync(product, '- `board status` — [details](references/commands.md#board-status)\n');
+      writeFileSync(reference, '# Worker commands\n');
+      expect(() => {
+        prepareSkillsForSmoke(root);
+      }).toThrow('Packed setup skill spur-board-setup is missing.');
+      expect(existsSync(join(root, 'skills/setup/SKILL.md'))).toBe(false);
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
