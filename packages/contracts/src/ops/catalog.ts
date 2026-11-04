@@ -82,6 +82,7 @@ export const OPERATIONS = [
     id: 'status.get',
     kind: 'query',
     description: 'List the tasks on the board.',
+    mcp: { whenToUse: 'Get a board overview.', whenNotToUse: 'Use task_get for one task.' },
     input: z.strictObject({ project }),
     output: z.strictObject({
       tasks: z.array(taskViewSchema).describe('Tasks on the board, by column.'),
@@ -96,6 +97,7 @@ export const OPERATIONS = [
     id: 'task.get',
     kind: 'query',
     description: 'Show a task with its blocks and comments.',
+    mcp: { whenToUse: 'Inspect one task now.', whenNotToUse: 'Use task_history for past events.' },
     input: z.strictObject({ task: taskKeySchema }),
     output: z.strictObject({
       task: taskViewSchema,
@@ -118,6 +120,10 @@ export const OPERATIONS = [
     id: 'task.history',
     kind: 'query',
     description: 'List what happened to a task, oldest first.',
+    mcp: {
+      whenToUse: 'Trace changes to one task.',
+      whenNotToUse: 'Use task_get for current state.',
+    },
     input: z.strictObject({ task: taskKeySchema }),
     output: z.strictObject({
       task: taskViewSchema,
@@ -153,6 +159,10 @@ export const OPERATIONS = [
     id: 'schema.get',
     kind: 'query',
     description: 'Describe the operations: inputs, outputs, errors and bindings.',
+    mcp: {
+      whenToUse: 'Discover operation contracts.',
+      whenNotToUse: 'Use status_get for board data.',
+    },
     input: z.strictObject({
       role: z
         .enum(SCHEMA_ROLES)
@@ -186,7 +196,12 @@ export const OPERATIONS = [
                 'identity_unavailable',
               ],
               cli: { command: 'comment', args: ['task', 'text'], modes: null, key: '--key' },
-              mcp: { name: 'comment_add', key: 'idempotencyKey' },
+              mcp: {
+                name: 'comment_add',
+                key: 'idempotencyKey',
+                whenToUse: 'Add a task comment.',
+                whenNotToUse: 'Use comment_edit to revise an existing comment.',
+              },
               inputSchema: { type: 'object' },
               outputSchema: { type: 'object' },
             },
@@ -199,6 +214,10 @@ export const OPERATIONS = [
     id: 'inbox.get',
     kind: 'query',
     description: 'List the comments and blocks addressed to the caller and not yet handled.',
+    mcp: {
+      whenToUse: 'Read items awaiting the caller.',
+      whenNotToUse: 'Use inbox_ack to mark them read.',
+    },
     input: z.strictObject({ project }),
     output: z.strictObject({
       comments: z.array(commentSchema).describe('Comments not yet acknowledged.'),
@@ -220,6 +239,10 @@ export const OPERATIONS = [
     id: 'inbox.ack',
     kind: 'mutation',
     description: 'Mark comments or agent-addressed blocks as read in the inbox.',
+    mcp: {
+      whenToUse: 'Mark handled inbox items read.',
+      whenNotToUse: 'Use inbox_get to inspect them first.',
+    },
     input: z.strictObject({
       entries: z
         .array(
@@ -260,6 +283,10 @@ export const OPERATIONS = [
     id: 'task.add',
     kind: 'mutation',
     description: 'Put a tracker task on the board.',
+    mcp: {
+      whenToUse: 'Add a task to the board.',
+      whenNotToUse: 'Use task_get if it already exists.',
+    },
     input: z.strictObject({ task: taskKeySchema }),
     output: taskOutput,
     grants: operatorOnly,
@@ -272,6 +299,10 @@ export const OPERATIONS = [
     id: 'task.archive',
     kind: 'mutation',
     description: 'Take a task off the board.',
+    mcp: {
+      whenToUse: 'Remove a task from active view.',
+      whenNotToUse: 'Use task_get to inspect its current state.',
+    },
     input: z.strictObject({ task: taskKeySchema }),
     output: taskOutput,
     grants: operatorOnly,
@@ -290,6 +321,10 @@ export const OPERATIONS = [
     id: 'link.add',
     kind: 'mutation',
     description: 'Link a spur session or a pull request to a task.',
+    mcp: {
+      whenToUse: 'Attach a session or pull request.',
+      whenNotToUse: 'Use link_remove to detach one.',
+    },
     input: z.strictObject({ task: taskKeySchema, target }),
     output: linkOutput,
     grants: operatorOnly,
@@ -308,6 +343,10 @@ export const OPERATIONS = [
     id: 'link.remove',
     kind: 'mutation',
     description: 'Remove a link between a task and a spur session or a pull request.',
+    mcp: {
+      whenToUse: 'Detach a linked session or pull request.',
+      whenNotToUse: 'Use link_add to attach one.',
+    },
     input: z.strictObject({ task: taskKeySchema, target }),
     output: linkOutput,
     grants: operatorOnly,
@@ -326,6 +365,10 @@ export const OPERATIONS = [
     id: 'item.retry',
     kind: 'mutation',
     description: 'Retry the action behind a "from you" item.',
+    mcp: {
+      whenToUse: 'Retry an actionable item.',
+      whenNotToUse: 'Use item_close when no retry is wanted.',
+    },
     input: z.strictObject({ item: itemIdSchema }),
     output: itemOutput,
     grants: operatorOnly,
@@ -338,6 +381,10 @@ export const OPERATIONS = [
     id: 'item.close',
     kind: 'mutation',
     description: 'Close a "from you" item without acting on it.',
+    mcp: {
+      whenToUse: 'Dismiss an item without retrying.',
+      whenNotToUse: 'Use item_retry to try again.',
+    },
     input: z.strictObject({ item: itemIdSchema }),
     output: itemOutput,
     grants: operatorOnly,
@@ -356,6 +403,10 @@ export const OPERATIONS = [
     id: 'block.ask',
     kind: 'mutation',
     description: 'Ask the operator a question; the task is blocked until it is answered.',
+    mcp: {
+      whenToUse: 'Ask a blocking question.',
+      whenNotToUse: 'Use comment_add for a nonblocking note.',
+    },
     input: z.strictObject({ task: taskKeySchema, text: text('The question.') }),
     output: blockOutput,
     grants: [{ grant: 'project-agent' }],
@@ -374,6 +425,10 @@ export const OPERATIONS = [
     id: 'comment.add',
     kind: 'mutation',
     description: 'Comment on a task.',
+    mcp: {
+      whenToUse: 'Add a new task comment.',
+      whenNotToUse: 'Use comment_edit to revise your comment.',
+    },
     input: z.strictObject({
       task: taskKeySchema,
       block: blockIdSchema.optional().describe('Block conversation to join, if any.'),
@@ -396,6 +451,10 @@ export const OPERATIONS = [
     id: 'comment.edit',
     kind: 'mutation',
     description: 'Edit a comment written by the caller; the revision advances.',
+    mcp: {
+      whenToUse: 'Revise your existing comment.',
+      whenNotToUse: 'Use comment_add for a new comment.',
+    },
     input: z.strictObject({
       comment: commentIdSchema,
       text: text('Replacement comment text.'),
@@ -417,6 +476,10 @@ export const OPERATIONS = [
     id: 'block.create',
     kind: 'mutation',
     description: 'Block a task on a dependency or an external party.',
+    mcp: {
+      whenToUse: 'Record a dependency or external block.',
+      whenNotToUse: 'Use block_ask for a question.',
+    },
     input: z.strictObject({
       task: taskKeySchema,
       type: z.enum(BLOCK_TYPES).extract(['dependency', 'external']).describe('Block type.'),
@@ -447,6 +510,10 @@ export const OPERATIONS = [
     id: 'block.escalate',
     kind: 'mutation',
     description: 'Pass a block on to the next addressee up the chain.',
+    mcp: {
+      whenToUse: 'Escalate an open block.',
+      whenNotToUse: 'Use block_answer to answer a question.',
+    },
     input: z.strictObject({ block: blockIdSchema }),
     output: blockOutput,
     grants: [{ grant: 'block-addressee' }],
@@ -465,6 +532,10 @@ export const OPERATIONS = [
     id: 'block.answer',
     kind: 'mutation',
     description: 'Answer a question block; the answer becomes a comment and the block closes.',
+    mcp: {
+      whenToUse: 'Answer an open question.',
+      whenNotToUse: 'Use block_unblock to close without an answer.',
+    },
     input: z.strictObject({ block: blockIdSchema, text: text('The answer.') }),
     output: z.strictObject({ block: blockViewSchema, comment: commentSchema }),
     grants: [{ grant: 'block-addressee' }, { grant: 'operator' }],
@@ -493,6 +564,10 @@ export const OPERATIONS = [
     id: 'block.unblock',
     kind: 'mutation',
     description: 'Close a block: the work is done, a reason is given, or its author withdraws it.',
+    mcp: {
+      whenToUse: 'Close an open block.',
+      whenNotToUse: 'Use block_answer for a question answer.',
+    },
     input: z.discriminatedUnion('mode', [
       z
         .strictObject({
