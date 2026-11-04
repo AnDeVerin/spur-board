@@ -1,4 +1,4 @@
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { configSchema, errorEnvelopeSchema } from '@spur-board/contracts';
@@ -31,50 +31,53 @@ function capture() {
 
 describe('CLI against the real HTTP API', () => {
   it('parses query success, unavailable operation and startup without an unknown outcome', async () => {
-    const store = openStore(join(mkdtempSync(join(tmpdir(), 'board-api-cli-')), 'board.db'));
-    let ready = true;
-    const statuses: number[] = [];
-    const statusGet: Query<'status.get'> = {
-      id: 'status.get',
-      resolveTargets() {
-        return Promise.resolve([
-          {
-            kind: 'found' as const,
-            value: { project: 'board', task: null, block: null, workers: [] },
-          },
-        ]);
-      },
-      run() {
-        return Promise.resolve({ tasks: [] });
-      },
-    };
-    const options = {
-      store,
-      config: configSchema.parse({
-        projects: [
-          {
-            id: 'board',
-            tracker: { type: 'github-issues', repo: 'o/r', milestone: 'M1' },
-            repos: ['o/r'],
-            operatorGithubLogin: 'operator',
-            spurProjects: [{ name: 'worker', role: 'worker' }],
-          },
-        ],
-        operator: { slack: 'operator' },
-        digest: { tz: 'UTC' },
-      }),
-      port: 0,
-      ready: () => ready,
-      clock: { now: () => Date.parse('2026-11-04T08:00:00.000Z') },
-      lookupSession: () => Promise.resolve({ project: 'worker', status: 'running' as const }),
-      verifyToken: () => Promise.resolve(false),
-      registry: { 'status.get': statusGet },
-      logRequest: ({ status }: { status: number }) => {
-        statuses.push(status);
-      },
-    };
-    const app = await createApiServer(options);
+    const home = mkdtempSync(join(tmpdir(), 'board-api-cli-'));
+    let store: ReturnType<typeof openStore> | undefined;
+    let app: Awaited<ReturnType<typeof createApiServer>> | undefined;
     try {
+      store = openStore(join(home, 'board.db'));
+      let ready = true;
+      const statuses: number[] = [];
+      const statusGet: Query<'status.get'> = {
+        id: 'status.get',
+        resolveTargets() {
+          return Promise.resolve([
+            {
+              kind: 'found' as const,
+              value: { project: 'board', task: null, block: null, workers: [] },
+            },
+          ]);
+        },
+        run() {
+          return Promise.resolve({ tasks: [] });
+        },
+      };
+      const options = {
+        store,
+        config: configSchema.parse({
+          projects: [
+            {
+              id: 'board',
+              tracker: { type: 'github-issues', repo: 'o/r', milestone: 'M1' },
+              repos: ['o/r'],
+              operatorGithubLogin: 'operator',
+              spurProjects: [{ name: 'worker', role: 'worker' }],
+            },
+          ],
+          operator: { slack: 'operator' },
+          digest: { tz: 'UTC' },
+        }),
+        port: 0,
+        ready: () => ready,
+        clock: { now: () => Date.parse('2026-11-04T08:00:00.000Z') },
+        lookupSession: () => Promise.resolve({ project: 'worker', status: 'running' as const }),
+        verifyToken: () => Promise.resolve(false),
+        registry: { 'status.get': statusGet },
+        logRequest: ({ status }: { status: number }) => {
+          statuses.push(status);
+        },
+      };
+      app = await createApiServer(options);
       await listenApiServer(app, 0);
       const address = app.server.address();
       if (address === null || typeof address === 'string') throw new Error('Expected a TCP port.');
@@ -115,8 +118,15 @@ describe('CLI against the real HTTP API', () => {
       });
       expect(statuses).toEqual([200, 501, 503]);
     } finally {
-      await app.close();
-      await store.close();
+      try {
+        await app?.close();
+      } finally {
+        try {
+          await store?.close();
+        } finally {
+          rmSync(home, { recursive: true, force: true });
+        }
+      }
     }
   });
 });
