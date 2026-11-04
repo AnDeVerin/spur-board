@@ -208,7 +208,7 @@ async function ringAuthor(
     await enqueueInboundDoorbell(trx, {
       key,
       session: session.id,
-      text: `Answer for ${input.task.key} block B${String(input.block.id)}:\n> ${input.comment.text}`,
+      text: `Answer for ${input.task.key} block B${String(input.block.id)}; read board task ${input.task.key}`,
       at: new Date(input.at),
     });
     return;

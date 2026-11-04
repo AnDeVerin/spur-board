@@ -863,8 +863,8 @@ describe('inbound apply', () => {
     ).toHaveLength(3);
   });
 
-  it('rings a live agent author instead of raising an item', async () => {
-    const { store, inbound } = await setup('agent:proj/sess-1');
+  it('rings a live agent author with a content-free pointer', async () => {
+    const { store, inbound, gateway } = await setup('agent:proj/sess-1');
     await scanTransaction(store, (trx) =>
       trx
         .insertInto('session_snapshot')
@@ -885,10 +885,33 @@ describe('inbound apply', () => {
         })
         .execute(),
     );
-    await inbound.sink(message({ conversation: 'thread-1', root: 'root-1' }));
+    const secret = ['xoxb', '123', 'abc'].join('-');
+    await inbound.sink(message({ conversation: 'thread-1', root: 'root-1', text: secret }));
     expect(
       (await store.db.selectFrom('outbox').select('kind').execute()).map((row) => row.kind),
     ).toEqual(['conversation.close', 'doorbell']);
+    const doorbell = await store.db
+      .selectFrom('outbox')
+      .select('payload')
+      .where('kind', '=', 'doorbell')
+      .executeTakeFirstOrThrow();
+    const pointer = 'Answer for o/r#101 block B1; read board task o/r#101';
+    expect(JSON.parse(doorbell.payload)).toMatchObject({ session: 'sess-1', text: pointer });
+    expect(doorbell.payload).not.toContain(secret);
+    const sends: Array<[string, string]> = [];
+    const sender = createSender({
+      store,
+      gateway,
+      spur: {
+        send: (session, text) => {
+          sends.push([session, text]);
+          return Promise.resolve();
+        },
+      },
+      now: () => new Date(now),
+    });
+    await sender.tick();
+    expect(sends).toEqual([['sess-1', pointer]]);
     expect(await store.db.selectFrom('operator_item').select('id').execute()).toEqual([]);
   });
 
