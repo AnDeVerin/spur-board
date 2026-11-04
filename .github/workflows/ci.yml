@@ -207,7 +207,7 @@ jobs:
 
   release:
     needs: ci-ok
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.ci-ok.result == 'success'
+    if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.ci-ok.result == 'success' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     environment: npm
