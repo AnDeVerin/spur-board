@@ -43,6 +43,9 @@ const question = {
   reason: 'Which API version should the client target?',
   at,
   outcome: null,
+  outcomeReason: null,
+  unblockedBy: null,
+  unblockedAt: null,
 } as const;
 const codeBlock = {
   ...question,
@@ -54,9 +57,13 @@ const codeBlock = {
 } as const;
 const comment = {
   id: 'C3',
+  task: 'PROJ-123',
+  block: 'B12',
   author: 'operator',
   at,
   text: 'Target v2.',
+  revision: 1,
+  ackedRevision: null,
   untrusted: true,
 } as const;
 const item = { id: 'I7', task: 'PROJ-123', at, summary: 'Deploy of PROJ-123 failed.' } as const;
@@ -214,17 +221,29 @@ export const OPERATIONS = [
     kind: 'mutation',
     description: 'Mark comments as read so the inbox no longer lists them.',
     input: z.strictObject({
-      ids: z.array(commentIdSchema).min(1).describe('Comments to acknowledge.'),
+      entries: z
+        .array(
+          z.strictObject({
+            id: commentIdSchema,
+            revision: z.int().positive().describe('Revision the caller read.'),
+          }),
+        )
+        .min(1)
+        .describe('Comments and exact revisions to acknowledge.'),
     }),
     output: z.strictObject({
       acked: z.array(commentIdSchema).describe('Comments now acknowledged.'),
     }),
     grants: [{ grant: 'project-agent' }],
-    errors: ['wrong_id_kind', 'not_found'],
-    cli: { command: 'inbox ack', args: ['ids'] },
+    errors: ['wrong_id_kind', 'not_found', 'stale_comment_revision'],
+    cli: { command: 'inbox ack', args: ['entries'] },
     slack: null,
     examples: [
-      { summary: 'Acknowledge a comment', input: { ids: ['C3'] }, output: { acked: ['C3'] } },
+      {
+        summary: 'Acknowledge a comment revision',
+        input: { entries: [{ id: 'C3', revision: 1 }] },
+        output: { acked: ['C3'] },
+      },
     ],
   }),
   defineOperation({
@@ -345,7 +364,11 @@ export const OPERATIONS = [
     id: 'comment.add',
     kind: 'mutation',
     description: 'Comment on a task.',
-    input: z.strictObject({ task: taskKeySchema, text: text('Comment text.') }),
+    input: z.strictObject({
+      task: taskKeySchema,
+      block: blockIdSchema.optional().describe('Block conversation to join, if any.'),
+      text: text('Comment text.'),
+    }),
     output: z.strictObject({ comment: commentSchema }),
     grants: [{ grant: 'project-agent' }, { grant: 'operator' }],
     errors: ['wrong_id_kind', 'not_found', 'task_archived'],
@@ -355,7 +378,28 @@ export const OPERATIONS = [
       {
         summary: 'Leave a note on a task',
         input: { task: 'PROJ-123', text: 'Target v2.' },
-        output: { comment },
+        output: { comment: { ...comment, block: null } },
+      },
+    ],
+  }),
+  defineOperation({
+    id: 'comment.edit',
+    kind: 'mutation',
+    description: 'Edit a comment written by the caller; the revision advances.',
+    input: z.strictObject({
+      comment: commentIdSchema,
+      text: text('Replacement comment text.'),
+    }),
+    output: z.strictObject({ comment: commentSchema }),
+    grants: [{ grant: 'project-agent' }, { grant: 'operator' }],
+    errors: ['wrong_id_kind', 'not_found', 'task_archived'],
+    cli: { command: 'comment edit', args: ['comment', 'text'] },
+    slack: null,
+    examples: [
+      {
+        summary: 'Correct a comment',
+        input: { comment: 'C3', text: 'Target v3.' },
+        output: { comment: { ...comment, text: 'Target v3.', revision: 2 } },
       },
     ],
   }),
@@ -422,7 +466,16 @@ export const OPERATIONS = [
       {
         summary: 'Answer a question',
         input: { block: 'B12', text: 'Target v2.' },
-        output: { block: { ...question, state: 'unblocked', outcome: 'reason' }, comment },
+        output: {
+          block: {
+            ...question,
+            state: 'unblocked',
+            outcome: 'done',
+            unblockedBy: 'operator',
+            unblockedAt: at,
+          },
+          comment,
+        },
       },
     ],
   }),
@@ -435,7 +488,7 @@ export const OPERATIONS = [
         .strictObject({
           mode: z.literal('done').describe('The blocking work is done.'),
           block: blockIdSchema,
-          ref: text('What resolved the block, e.g. a commit SHA or a pull request.'),
+          ref: text('What resolved the block, e.g. a commit SHA or a pull request.').optional(),
         })
         .describe('Unblock because the work is done.'),
       z
@@ -451,6 +504,7 @@ export const OPERATIONS = [
             .literal('withdraw')
             .describe('The author takes their own question back (needs_input only).'),
           block: blockIdSchema,
+          answer: text('Answer received outside the board.'),
         })
         .describe('Withdraw the block.'),
     ]),
@@ -469,20 +523,37 @@ export const OPERATIONS = [
       modes: [
         { mode: 'done', flag: '--done', value: 'ref' },
         { mode: 'reason', flag: '--reason', value: 'reason' },
-        { mode: 'withdraw', flag: '--withdraw', value: null },
+        { mode: 'withdraw', flag: '--withdraw', value: 'answer' },
       ],
     },
     slack: null,
     examples: [
       {
         summary: 'Unblock after fixing the build',
-        input: { mode: 'done', block: 'B13', ref: 'acme/web#9' },
-        output: { block: { ...codeBlock, state: 'unblocked', outcome: 'done' } },
+        input: { mode: 'done', block: 'B13', ref: 'example/web#9' },
+        output: {
+          block: {
+            ...codeBlock,
+            state: 'unblocked',
+            outcome: 'done',
+            outcomeReason: 'example/web#9',
+            unblockedBy: 'agent:web/web-8',
+            unblockedAt: at,
+          },
+        },
       },
       {
         summary: 'Withdraw a question',
-        input: { mode: 'withdraw', block: 'B12' },
-        output: { block: { ...question, state: 'unblocked', outcome: 'withdrawn' } },
+        input: { mode: 'withdraw', block: 'B12', answer: 'Answered outside the board.' },
+        output: {
+          block: {
+            ...question,
+            state: 'unblocked',
+            outcome: 'withdrawn',
+            unblockedBy: 'agent:web/web-7',
+            unblockedAt: at,
+          },
+        },
       },
     ],
   }),

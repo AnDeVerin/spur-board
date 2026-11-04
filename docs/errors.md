@@ -206,6 +206,40 @@ Example:
 }
 ```
 
+## stale_comment_revision
+
+The comment has a newer revision than the one acknowledged.
+
+HTTP: 409  
+Exit code: 1  
+Hint: Read the latest comment revision, then acknowledge that revision.  
+Recovery: Read the latest comment revision before acknowledging it.  
+Side effects: none  
+Retry: maximum 0; After fixing the cause.
+
+Example:
+
+```json
+{
+  "ok": false,
+  "requestId": "req-example-123",
+  "error": {
+    "code": "stale_comment_revision",
+    "requestId": "req-example-123",
+    "message": "The comment has a newer revision than the one acknowledged.",
+    "hint": "Read the latest comment revision, then acknowledge that revision.",
+    "docs": "docs/errors.md#stale_comment_revision",
+    "recovery": {
+      "action": "Read the latest comment revision before acknowledging it.",
+      "sideEffects": "none",
+      "maxRetries": 0,
+      "retryTiming": "After fixing the cause."
+    },
+    "context": {}
+  }
+}
+```
+
 ## task_archived
 
 The task is archived, so it cannot change.
