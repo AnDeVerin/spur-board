@@ -64,7 +64,7 @@ description: Rules for packages/daemon/ - modules, config and secrets, logging a
 - Use the `redacting` destination wrapper: censor credential keys at any depth and known secret
   values, raw or JSON-escaped. Withhold a line that cannot be censored; leave short values alone.
 - Fields the code writes: `module`, `err`, `signal`, `pending`, `call`, `duration_ms`, `outcome`,
-  `requestId`, `method`, `path`, `status`.
+  `requestId`, `method`, `path`, `status`, `port`.
   A new entity ID takes its contracts field name, e.g. `taskId`.
 - Wrap every external call in `ctx.logCall`, which logs `call`, `duration_ms` and `outcome` and
   rethrows. Pinned by 'logs ok at info with the duration from the clock'.
@@ -74,7 +74,8 @@ description: Rules for packages/daemon/ - modules, config and secrets, logging a
 
 - Register `createHttpModule(ctxFor('http'))` last, including without Slack. It answers
   `503 starting` until `state()` is `ready`. Process tests cover both paths.
-- Bind with `listenApiServer` on `127.0.0.1` and the configured `http.port`. The module reads a
+- Bind with `listenApiServer` on `127.0.0.1` and configured `http.port`; 0 selects a free port.
+  Log the bound port. The module reads a
   session snapshot through core, then uses a bounded live Spur lookup on a miss. Wrap that call
   in `ctx.logCall`; reject bearer tokens until a verifier is provided.
 - Log each request with `requestId`, method, path and status through `ctx.log`. Do not log the
