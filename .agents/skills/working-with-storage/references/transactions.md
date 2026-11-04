@@ -21,3 +21,12 @@
 - Catalog mutations go through `createApply`; inbound events call `replayOperation` inside their
   transaction. The `(actor, key)` lookup, effect and `command` row commit together. A retry of an
   inbound item reuses that transaction's `trx`; it never starts a nested transaction.
+- Probe `BEGIN IMMEDIATE` on a second connection with `timeout: 0` before the callback's first
+  write; later probes cannot distinguish an immediate lock from a deferred one
+  (`packages/core/test/store/store.test.ts`, `describe('store.transaction')`).
+- Share one Store in in-process concurrency tests: its connection mutex queues transactions;
+  two native SQLite connections can block the event loop while waiting for the writer
+  (`packages/core/src/store/store.ts`, `packages/core/test/app/restart.test.ts`).
+- Check whether a caller awaits a write through a failure path; a following query can queue
+  behind an unawaited transaction and hide the missing await
+  (`packages/core/src/app/commands.ts`, `packages/core/test/app/restart.test.ts`).

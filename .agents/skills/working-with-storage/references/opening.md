@@ -12,4 +12,11 @@
   newer database stays byte for byte as it was (`packages/core/test/store/migrations.test.ts`,
   `describe('migrate')`). The busy timeout is a connection setting and writes nothing.
 - Production code opens the store only through `openStore`.
+- `openDatabase` skips version and migration checks and is test-only; it is not exported from
+  `packages/core/src/index.ts`.
+- An up-to-date `openStore` takes no migration write lock (`packages/core/src/store/migrate.ts`),
+  so a second reader can open the database.
+- In tests that need `Store.close()` to release a newly opened file, run one query first:
+  Kysely initializes its driver lazily and skips `destroy()` before initialization
+  (`packages/core/src/store/store.ts`).
 - Check: `packages/core/test/store/store.test.ts`, `describe('openStore')`.

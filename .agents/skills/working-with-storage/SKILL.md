@@ -38,6 +38,8 @@ retry and actor rules.
   in `packages/core/test/store/sample-rows.ts` (in foreign key order), and `INDEXES` in
   `packages/core/test/store/migrations.test.ts` (`packages/core/test/store/store.test.ts`,
   `describe('openStore')`; `packages/core/test/store/migrations.test.ts`, `describe('migrate')`).
+- When moving a row type out of `schema.ts`, check its package export: `packages/core/src/index.ts`
+  re-exports schema types, not types moved to another file.
 - The runner owns the transaction, `foreign_keys`, `user_version` and the backup (`migrate` in
   `packages/core/src/store/migrate.ts`). A migration file has no `BEGIN`, `COMMIT`, `PRAGMA` or
   `VACUUM`.
@@ -47,8 +49,11 @@ retry and actor rules.
   foreign keys off and runs `foreign_key_check` before `COMMIT`.
 - New tables are `STRICT` and follow the header of
   `packages/core/src/store/migrations/0001_init.sql`: timestamps as ISO-8601 UTC text, JSON as
-  text checked by zod, flags as `CHECK (x IN (0, 1))`. Enum columns are `TEXT` with no `CHECK`, so
-  a new value needs no migration; a `CHECK` change would need a rebuild.
+  text checked by zod, flags as `CHECK (x IN (0, 1))` because SQLite bindings reject JS booleans.
+  Enum columns are `TEXT` with no `CHECK`, so a new value needs no migration; a `CHECK` change
+  would need a rebuild.
+- Pair nullable identity columns in a partial unique index with per-entity non-null `CHECK`s:
+  SQLite treats NULL values as distinct (`packages/core/src/store/migrations/0001_init.sql`).
 - Store the token hash and approval metadata in `operator_token`, never the raw bearer value;
   verify the current row on every call so revocation is immediate.
 - A migration that renames, removes or tightens stored data, adds a required column or changes
