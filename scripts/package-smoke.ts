@@ -5,6 +5,7 @@ import { type AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { packPackage } from './package.ts';
+import { handshake } from './package-smoke-mcp.ts';
 
 interface CommandResult {
   code: number | null;
@@ -232,6 +233,12 @@ export const smokeSteps: readonly { name: string; run(ctx: SmokeContext): Promis
           BOARD_DAEMON_URL: `http://127.0.0.1:${String(ctx.port)}`,
         }),
       );
+    },
+  },
+  {
+    name: 'mcp',
+    async run(ctx) {
+      await handshake(ctx.binary, ctx.expectedVersion);
     },
   },
 ];

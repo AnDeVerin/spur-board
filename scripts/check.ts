@@ -11,7 +11,8 @@ import {
   resolveBase,
   type ChangedFile,
 } from './check-plan.ts';
-import { PACKAGE_SMOKE_SCRIPT } from './package-smoke-mcp.ts';
+
+const PACKAGE_SMOKE_SCRIPT = 'scripts/package-smoke.ts';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 
@@ -22,7 +23,7 @@ export interface Command {
 
 export type Step = { name: string; commands: Command[] } | { name: string; skip: string };
 
-export function mcpPackageSmokeCommands(
+export function packageSmokeCommands(
   mode: 'full' | 'changed' | 'none',
   packageDirs: string[],
 ): Command[] {
@@ -166,7 +167,7 @@ function main(): number {
           },
         ]
       : []),
-    ...mcpPackageSmokeCommands(plan.mode, plan.packageDirs),
+    ...packageSmokeCommands(plan.mode, plan.packageDirs),
   ];
   const steps: Step[] = [
     plan.formatFiles.length === 0

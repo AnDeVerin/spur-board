@@ -17,7 +17,9 @@ const files = [
   'package/LICENSE',
   'package/dist/bin.mjs',
   'package/dist/cli.mjs',
+  'package/dist/mcp.mjs',
   'package/dist/client-BD4dc3-F.mjs',
+  'package/dist/config-BJE5kDof.mjs',
   'package/dist/migrations/0001_init.sql',
 ];
 

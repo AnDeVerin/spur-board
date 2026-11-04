@@ -1,18 +1,18 @@
 import { describe, expect, it } from 'vitest';
-import { mcpPackageSmokeCommands } from './check.ts';
+import { packageSmokeCommands } from './check.ts';
 
-describe('MCP package smoke selection', () => {
+describe('package smoke selection', () => {
   it('runs for an affected CLI package', () => {
-    expect(mcpPackageSmokeCommands('changed', ['packages/cli'])).toEqual([
-      { cmd: 'node', args: ['scripts/package-smoke-mcp.ts'] },
+    expect(packageSmokeCommands('changed', ['packages/cli'])).toEqual([
+      { cmd: 'node', args: ['scripts/package-smoke.ts'] },
     ]);
   });
 
   it('runs for a full check', () => {
-    expect(mcpPackageSmokeCommands('full', [])).toHaveLength(1);
+    expect(packageSmokeCommands('full', [])).toHaveLength(1);
   });
 
   it('does not run for unrelated packages', () => {
-    expect(mcpPackageSmokeCommands('changed', ['packages/core'])).toEqual([]);
+    expect(packageSmokeCommands('changed', ['packages/core'])).toEqual([]);
   });
 });

@@ -56,11 +56,17 @@ export function buildPackage(): void {
   run('pnpm', ['build'], packageRoot);
   const dist = join(packageRoot, 'dist');
   const source = readFileSync(join(packageRoot, 'src/bin.mjs'), 'utf8');
-  const developmentEntry = `} else {
+  const developmentEntry = `} else if (argv.length === 1 && argv[0] === 'mcp') {
+  const { startMcp } = await import('./mcp.ts');
+  startMcp();
+} else {
   const { runCli } = await import('./cli.ts');
   process.exitCode = await runCli(argv);
 }`;
-  const packageEntry = `} else if (argv.length === 1 && argv[0] === 'daemon') {
+  const packageEntry = `} else if (argv.length === 1 && argv[0] === 'mcp') {
+  const { startMcp } = await import('./mcp.mjs');
+  startMcp();
+} else if (argv.length === 1 && argv[0] === 'daemon') {
   const { main } = await import('./daemon.mjs');
   await main();
 } else {
@@ -99,7 +105,9 @@ export function validateTarball(entries: readonly string[], manifest: PackageMan
       throw new Error(`Tarball contains a forbidden file: ${entry}`);
     }
     const runtime =
-      /^package\/dist\/(?:bin|cli|client|daemon|(?:src|client)-[A-Za-z0-9_-]{8})\.mjs$/.test(entry);
+      /^package\/dist\/(?:bin|cli|client|daemon|mcp|(?:src|client|config|mcp)-[A-Za-z0-9_-]{8})\.mjs$/.test(
+        entry,
+      );
     const migration = /^package\/dist\/migrations\/\d{4}_[a-z0-9_]+\.sql$/.test(entry);
     if (
       entry !== 'package/package.json' &&

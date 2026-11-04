@@ -9,7 +9,7 @@ import {
 
 describe('packed smoke steps', () => {
   it('keeps the staged checks in one ordered list', () => {
-    expect(smokeSteps.map((step) => step.name)).toEqual(['version', 'daemon', 'schema']);
+    expect(smokeSteps.map((step) => step.name)).toEqual(['version', 'daemon', 'schema', 'mcp']);
   });
 
   it('fails for a broken daemon or schema step', async () => {
