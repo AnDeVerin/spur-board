@@ -5,13 +5,11 @@ description: Branches, commits, pushes and pull requests for this repo - naming,
 
 # Gitflow
 
-One issue, one branch, one PR. The PR body is written for a reviewer who has to judge the
-reasoning, not only the diff.
+One issue, one branch, one PR. Explain why in the PR body.
 
 ## Branch
 
-- Name: `<agent>-<issue-number>-<slug>`, e.g. `claude-10-process-skills`. The slug is a few
-  lowercase words joined by `-`.
+- Name: `<agent>-<issue-number>-<slug>`, e.g. `claude-10-process-skills`; use a short lowercase slug.
 - Branch from `main` at the `origin/main` SHA the handoff gives. One issue per branch.
 
 ## Commits
@@ -19,7 +17,7 @@ reasoning, not only the diff.
 - Conventional commits: `<type>(<scope>): <summary>`, imperative, no trailing period.
 - Changes to agent files (`.agents/`, `.claude/`, `.codex/`, `AGENTS.md`) go in their own
   commit (`chore(agents)`, or `fix(<skill>)` for a stale rule), apart from code changes.
-- Commits and PR titles carry no session marker.
+- Leave the session marker out of commits and PR titles.
 - Run `pnpm check` before opening the PR as `AGENTS.md` requires; use it again when a wider local
   check is needed. Without a `package.json`, report `no checks available`. Never wait for or poll
   remote CI.

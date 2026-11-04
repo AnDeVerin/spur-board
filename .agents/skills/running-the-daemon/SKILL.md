@@ -20,11 +20,11 @@ description: Rules for packages/daemon/ - modules, config and secrets, logging a
 - Use `ctx.store`; only `main` opens it. Only core and daemon import SQLite (`sqlite driver
   boundary`).
 - Modules start one at a time. A start that throws or rejects gets no `stop()`: its start owns
-  its own cleanup. Pinned by 'start failure stops started modules'.
-- `state()` is `starting` until every module is up, then `ready`, then `stopping`. Pinned by
-  'reports starting until all modules are up' and 'module states move to ready and then stopping'.
-- Read time through `ctx.clock` in daemon modules; only `main` binds `Date.now`. Pinned by
-  'module context carries the clock and a bound logCall'.
+  its own cleanup (`packages/daemon/test/lifecycle.test.ts`, `describe('runDaemon')`).
+- `state()` is `starting` until every module is up, then `ready`, then `stopping`
+  (`packages/daemon/test/lifecycle.test.ts`, `describe('runDaemon')`).
+- Read time through `ctx.clock` in daemon modules; only `main` binds `Date.now`
+  (`packages/daemon/test/lifecycle.test.ts`, `describe('runDaemon')`).
 - Test `runDaemon` with injected fakes, never `vi.mock`; process and lock tests use a real daemon
   and flock.
 
@@ -59,61 +59,11 @@ description: Rules for packages/daemon/ - modules, config and secrets, logging a
 
 ## HTTP
 
-- Register `createHttpModule(ctxFor('http'))` last, even without Slack. It answers `503 starting`
-  until `state()` is `ready`.
-- Build one `createOperationRegistry` in `main` and pass it to HTTP and inbound. Do not register
-  individual operations in the HTTP module.
-- Bind with `listenApiServer` on `127.0.0.1` and configured `http.port`; 0 selects a free port.
-  Log the bound port. The module reads a
-  session snapshot through core, then uses a bounded live Spur lookup on a miss. Wrap that call
-  in `ctx.logCall`; verify bearer tokens against the current store state on each request. Log an
-  accepted token's name, never its bearer value.
-- Keep token approval and denial in the authenticated inbound gateway handler, outside the
-  operation catalog; a button press requires the configured gateway user and space.
-- Log each request's `requestId`, method, path and status through `ctx.log`, without the query
-  string. Register HTTP at `stopStage: 'final'` so outbox delivery finishes before close.
+Read references/http.md for startup, authentication, operation registry and request logging.
 
-## Scheduling
+## Scheduling and shutdown
 
-- Start the outbox tick immediately, then arm a `setTimeout` for one second plus under 100 ms of
-  jitter after the tick settles. Never queue a second tick while one runs.
-- Expire pending operator token requests on that tick, clearing their approval items and queuing
-  the feed edit in the same transaction as the token state and journal event.
-- Register the outbox without a gateway so Spur doorbells run; leave gateway rows pending.
-- Pass the start signal to each sender tick. On stop, clear the timer and await the active tick
-  before the store closes. Register the outbox with `stopStage: 'outbox'` and its gateway with
-  `stopStage: 'final'`. Pinned by 'skips timer ticks while a delivery is active'.
-- `board-core` starts a tick immediately, then arms a 60-second `setTimeout` after it settles.
-  On stop, clear the timer and await the active tick before the store closes.
-- `board-adapters` uses `startAdapters`; the runner owns per-source timers, backoff and aborts
-  (`PollContext.signal`, A7 in `packages/contracts/src/adapters.ts`). Adapters never retry on
-  their own (A6). Register it with `stopStage: 'pollers'`; await `runner.stop()` on stop.
-- A poller uses a `setTimeout` chain, handles each tick rejection, and never overlaps ticks.
-  Register it with `stopStage: 'pollers'`; `stop()` clears its timer and awaits its active tick.
-- Inbound recovers, then scans every five minutes; serialize scans and live events through core.
-  Start the gateway with its sink only with `SLACK_APP_TOKEN`; otherwise log. Stop inbound
-  before outbox, then stop the gateway and await the sink before store close.
-- Keep the sole `setInterval` in `main` (`KEEPALIVE_MS`) until a module owns a server.
-
-## Shutdown
-
-- SIGTERM or SIGINT runs one shutdown: state `stopping`, the shutdown timer armed, the start
-  `signal` aborted, the in-flight start awaited, then `stop()` stage by stage in `STOP_STAGES`
-  order (`'pollers'`, then `'outbox'`, then `'final'`), modules within a stage in parallel, then
-  the store closed and the lock released. Pinned by 'starts and stops in order',
-  'signal during a start stops started modules' and
-  'a start that rejects after the abort is part of the stop'.
-- Pick `stopStage` by what the module does: `'pollers'` for anything that observes, `'final'`
-  for HTTP, gateways and `board-core` (the comment on `STOP_STAGES`). `board-adapters` stops in
-  `'pollers'` before `board-core` waits for its active tick in `'final'`. Do not add a stage without
-  changing `STOP_STAGES` and 'starts and stops in order'.
-- A stop past `DEFAULT_SHUTDOWN_TIMEOUT_MS` exits 1 and logs `pending` modules. A failed stop
-  still lets the others stop.
-- Every exit goes through `ProcessPort.exit` exactly once. Pinned by 'two signals run one
-  shutdown' and 'fatal during shutdown exits once'. A fatal error exits 1 at once, with no
-  module stop, pinned by 'fatal error exits 1'.
-- `start(signal)` must return promptly once `signal` aborts; a module that ignores it holds up
-  the whole shutdown.
+Read references/lifecycle.md for poller, timer, stage and signal rules.
 
 ## Single instance
 
