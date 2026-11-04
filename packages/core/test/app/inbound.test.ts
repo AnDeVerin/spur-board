@@ -862,8 +862,8 @@ describe('inbound apply', () => {
     ).toHaveLength(3);
   });
 
-  it('rings a live agent author instead of raising an item', async () => {
-    const { store, inbound } = await setup('agent:proj/sess-1');
+  it('registers a worker answer notification for a live author', async () => {
+    const { store, inbound, gateway } = await setup('agent:proj/sess-1');
     await store.transaction((trx) =>
       trx
         .insertInto('session_snapshot')
@@ -886,13 +886,36 @@ describe('inbound apply', () => {
     );
     await inbound.sink(message({ conversation: 'thread-1', root: 'root-1' }));
     expect(
+      await store.db
+        .selectFrom('notification')
+        .select(['kind', 'comment_id', 'author_session'])
+        .execute(),
+    ).toEqual([{ kind: 'answer', comment_id: 1, author_session: 'sess-1' }]);
+    const sends: { session: string; text: string }[] = [];
+    const sender = createSender({
+      store,
+      gateway,
+      config,
+      now: () => new Date(now),
+      spur: {
+        send: (session, text) => {
+          sends.push({ session, text });
+          return Promise.resolve();
+        },
+      },
+    });
+    await sender.tick();
+    expect(sends).toHaveLength(1);
+    expect(sends[0]?.session).toBe('sess-1');
+    expect(sends[0]?.text).toContain('check board inbox');
+    expect(
       (await store.db.selectFrom('outbox').select('kind').execute()).map((row) => row.kind),
     ).toEqual(['conversation.close', 'doorbell']);
     expect(await store.db.selectFrom('operator_item').select('id').execute()).toEqual([]);
   });
 
-  it('falls back to a linked item for an ended author session', async () => {
-    const { store, inbound } = await setup('agent:proj/sess-1');
+  it('keeps an ended author answer pending until a replacement worker arrives', async () => {
+    const { store, inbound, gateway } = await setup('agent:proj/sess-1');
     await store.transaction((trx) =>
       trx
         .insertInto('session_snapshot')
@@ -904,6 +927,12 @@ describe('inbound apply', () => {
         .execute(),
     );
     await inbound.sink(message({ conversation: 'thread-1', root: 'root-1' }));
+    expect(
+      await store.db
+        .selectFrom('notification')
+        .select(['kind', 'author_session', 'recipient_session'])
+        .execute(),
+    ).toEqual([{ kind: 'answer', author_session: 'sess-1', recipient_session: null }]);
     expect(
       await store.db.selectFrom('outbox').select('kind').where('kind', '=', 'doorbell').execute(),
     ).toEqual([]);
@@ -919,6 +948,91 @@ describe('inbound apply', () => {
     expect(JSON.parse(undelivered.payload)).toMatchObject({
       reason: 'author session is unavailable',
     });
+    const sends: string[] = [];
+    const sender = createSender({
+      store,
+      gateway,
+      config,
+      now: () => new Date(now),
+      spur: {
+        send: (session) => {
+          sends.push(session);
+          return Promise.resolve();
+        },
+      },
+    });
+    await sender.tick();
+    expect(sends).toEqual([]);
+    await store.transaction(async (trx) => {
+      await trx
+        .insertInto('session_snapshot')
+        .values({
+          ...sampleRows.session_snapshot,
+          id: 'sess-2',
+          ended_at: null,
+          end_reason: null,
+        })
+        .execute();
+      await trx
+        .insertInto('link')
+        .values({
+          ...sampleRows.link,
+          entity: 'session',
+          repo: null,
+          number: null,
+          pr_state: null,
+          session_id: 'sess-2',
+          role: 'worker',
+        })
+        .execute();
+    });
+    await sender.tick();
+    expect(sends).toEqual(['sess-2']);
+  });
+
+  it('rings a live linked worker when the original author session ended', async () => {
+    const { store, inbound, gateway } = await setup('agent:proj/sess-1');
+    await store.transaction(async (trx) => {
+      await trx
+        .insertInto('session_snapshot')
+        .values([
+          { ...sampleRows.session_snapshot, id: 'sess-1', ended_at: at },
+          { ...sampleRows.session_snapshot, id: 'sess-2', ended_at: null, end_reason: null },
+        ])
+        .execute();
+      await trx
+        .insertInto('link')
+        .values({
+          ...sampleRows.link,
+          entity: 'session',
+          repo: null,
+          number: null,
+          pr_state: null,
+          session_id: 'sess-2',
+          role: 'worker',
+        })
+        .execute();
+    });
+    await inbound.sink(message({ conversation: 'thread-1', root: 'root-1' }));
+    expect(
+      await store.db.selectFrom('notification').select(['kind', 'author_session']).execute(),
+    ).toEqual([{ kind: 'answer', author_session: 'sess-1' }]);
+    const sends: string[] = [];
+    const sender = createSender({
+      store,
+      gateway,
+      config,
+      now: () => new Date(now),
+      spur: {
+        send: (session) => {
+          sends.push(session);
+          return Promise.resolve();
+        },
+      },
+    });
+    await sender.tick();
+    expect(sends).toEqual(['sess-2']);
+    expect(await store.db.selectFrom('operator_item').select('id').execute()).toEqual([]);
   });
 
   it('recovers a downtime reply and edit after store reopen without a second comment', async () => {

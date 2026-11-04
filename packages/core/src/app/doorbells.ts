@@ -113,7 +113,11 @@ async function liveSession(trx: Trx, id: string): Promise<Row<'session_snapshot'
     : undefined;
 }
 
-async function recipient(trx: Trx, n: Notification): Promise<Row<'session_snapshot'> | undefined> {
+/** Select the current live recipient for a semantic notification. */
+export async function selectNotificationRecipient(
+  trx: Trx,
+  n: Pick<Notification, 'task_id' | 'role' | 'author_session'>,
+): Promise<Row<'session_snapshot'> | undefined> {
   if (n.author_session !== null) {
     const author = await liveSession(trx, n.author_session);
     if (author !== undefined) return author;
@@ -159,7 +163,7 @@ export async function reconcileDoorbells(trx: Trx, at: Date, config?: Config): P
     .orderBy('id')
     .execute();
   for (const n of due) {
-    const session = await recipient(trx, n);
+    const session = await selectNotificationRecipient(trx, n);
     if (session === undefined) {
       if (n.recipient_session !== null) {
         await trx
@@ -310,7 +314,7 @@ export async function ringStillCurrent(
     n.recipient_session !== sessionId
   )
     return 'dead';
-  const session = await recipient(trx, n);
+  const session = await selectNotificationRecipient(trx, n);
   if (session?.id !== sessionId) return 'dead';
   return session.state === 'working' ? 'defer' : 'send';
 }
@@ -377,7 +381,7 @@ export async function notificationAddressedTo(
     ? parsed.actorRef.session === n.author_session || linked !== undefined
     : selectedIsLive
       ? parsed.actorRef.session === n.recipient_session
-      : (await recipient(trx, n))?.id === parsed.actorRef.session;
+      : (await selectNotificationRecipient(trx, n))?.id === parsed.actorRef.session;
 }
 
 export async function closeBlockNotification(trx: Trx, blockId: number, at: Date): Promise<void> {

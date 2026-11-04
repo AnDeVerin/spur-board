@@ -9,7 +9,7 @@ export function createInboundModule(
   ctx: ModuleContext<Store>,
   gateway: Gateway,
   registry: OperationRegistry = {},
-): Module & { sink(event: InboundEvent): Promise<void> } {
+): Module & { sink(event: InboundEvent): Promise<void>; awaitRecovery(): Promise<void> } {
   const inbound = createInbound({
     store: ctx.store,
     gateway,
@@ -41,6 +41,7 @@ export function createInboundModule(
 
   return {
     sink: (event) => inbound.sink(event),
+    awaitRecovery: () => active,
     start(startSignal) {
       signal = startSignal;
       tick();

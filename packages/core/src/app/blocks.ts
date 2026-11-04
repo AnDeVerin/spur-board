@@ -409,7 +409,13 @@ export async function recordInboundBlockMessage(
     at: string;
     config: Config;
   },
-): Promise<{ comment: Comment; block: Block; task: Task; answered: boolean }> {
+): Promise<{
+  comment: Comment;
+  block: Block;
+  task: Task;
+  answered: boolean;
+  workerAuthor: boolean;
+}> {
   const block = await trx
     .selectFrom('block')
     .selectAll()
@@ -435,7 +441,13 @@ export async function recordInboundBlockMessage(
     { conversationRef: input.conversationRef, messageRef: input.messageRef },
   );
   const updated = answered ? await close(trx, task, block, ctx, 'done', null) : block;
-  return { comment, block: updated, task, answered };
+  return {
+    comment,
+    block: updated,
+    task,
+    answered,
+    workerAuthor: authorRole(input.config, task, block.author) === 'worker',
+  };
 }
 
 /** Uses the same revision and acknowledgment rule as the catalog comment.edit mutation. */

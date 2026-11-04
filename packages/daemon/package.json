@@ -20,6 +20,7 @@
     "yaml": "catalog:"
   },
   "devDependencies": {
+    "@spur-board/gateway-testkit": "workspace:*",
     "pino-pretty": "catalog:"
   }
 }
