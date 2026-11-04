@@ -1,9 +1,17 @@
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { type AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { packPackage } from './package.ts';
 import { handshake } from './package-smoke-mcp.ts';
 
@@ -204,19 +212,29 @@ interface SmokeContext {
   binary: string;
   expectedVersion: string;
   env: NodeJS.ProcessEnv;
+  home: string;
+  packageRoot: string;
   daemon?: ChildProcess;
   port?: number;
 }
 
-export const smokeSteps: readonly { name: string; run(ctx: SmokeContext): Promise<void> }[] = [
+interface SmokeStep {
+  name: string;
+  baseline?: true;
+  run(ctx: SmokeContext): Promise<void>;
+}
+
+export const smokeSteps: readonly SmokeStep[] = [
   {
     name: 'version',
+    baseline: true,
     async run(ctx) {
       verifyVersion(await command(ctx.binary, ['--version'], ctx.env), ctx.expectedVersion);
     },
   },
   {
     name: 'daemon',
+    baseline: true,
     async run(ctx) {
       const started = await startDaemon(ctx.binary, ctx.env);
       ctx.daemon = started.child;
@@ -225,6 +243,7 @@ export const smokeSteps: readonly { name: string; run(ctx: SmokeContext): Promis
   },
   {
     name: 'schema',
+    baseline: true,
     async run(ctx) {
       if (ctx.port === undefined) throw new Error('Packed daemon has no HTTP port.');
       verifySchema(
@@ -237,15 +256,91 @@ export const smokeSteps: readonly { name: string; run(ctx: SmokeContext): Promis
   },
   {
     name: 'mcp',
+    baseline: true,
     async run(ctx) {
       await handshake(ctx.binary, ctx.expectedVersion);
+    },
+  },
+  {
+    name: 'service unit',
+    async run(ctx) {
+      const fakeBin = join(ctx.home, 'fake-bin');
+      mkdirSync(fakeBin, { recursive: true });
+      writeFileSync(join(fakeBin, 'systemctl'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+      writeFileSync(join(ctx.home, 'secrets.env'), 'BOARD_TOKEN=smoke\n', { mode: 0o600 });
+      const result = await command(ctx.binary, ['service', 'install'], {
+        ...ctx.env,
+        PATH: `${fakeBin}:${ctx.env['PATH'] ?? ''}`,
+      });
+      if (result.code !== 0) throw new Error(`Packed service install failed: ${result.stderr}`);
+      const daemonEntry = join(ctx.packageRoot, 'dist/daemon.mjs');
+      if (!existsSync(daemonEntry)) throw new Error('Packed daemon entry is missing.');
+      const unit = readFileSync(join(ctx.home, '.config/systemd/user/spur-board.service'), 'utf8');
+      if (!unit.includes(`ExecStart="${process.execPath}" "${daemonEntry}"\n`)) {
+        throw new Error('Packed service unit does not start the installed daemon entry.');
+      }
+    },
+  },
+  {
+    name: 'skills install',
+    async run(ctx) {
+      const skills = [
+        { source: 'spur-board', installed: 'spur-board' },
+        { source: 'setup', installed: 'spur-board-setup' },
+      ];
+      const present = skills.map(({ source }) =>
+        existsSync(join(ctx.packageRoot, 'skills', source, 'SKILL.md')),
+      );
+      if (present.every((value) => !value)) {
+        // Product skills have separate issues; exercise the packed installer with temporary assets.
+        for (const { source } of skills) {
+          const directory = join(ctx.packageRoot, 'skills', source);
+          mkdirSync(directory, { recursive: true });
+          writeFileSync(join(directory, 'SKILL.md'), '# Packed smoke fixture\n');
+        }
+      } else if (present.some((value) => !value)) {
+        throw new Error('Packed product skills are incomplete.');
+      }
+      const result = await command(ctx.binary, ['skills', 'install'], ctx.env);
+      if (result.code !== 0) throw new Error(`Packed skills install failed: ${result.stderr}`);
+      const installed: unknown = JSON.parse(result.stdout) as unknown;
+      if (
+        !Array.isArray(installed) ||
+        installed.length !== 4 ||
+        !installed.every(
+          (entry: unknown) =>
+            entry !== null &&
+            typeof entry === 'object' &&
+            'changed' in entry &&
+            entry.changed === true,
+        )
+      ) {
+        throw new Error('Packed skills install did not report four new skills.');
+      }
+      for (const agent of ['.claude', '.codex']) {
+        for (const { source, installed: name } of skills) {
+          const destination = join(ctx.home, agent, 'skills', name);
+          if (
+            readFileSync(join(destination, 'SKILL.md'), 'utf8') !==
+            readFileSync(join(ctx.packageRoot, 'skills', source, 'SKILL.md'), 'utf8')
+          ) {
+            throw new Error(`Packed skill ${name} differs after installation.`);
+          }
+          const stamp = JSON.parse(
+            readFileSync(join(destination, '.spur-board-install.json'), 'utf8'),
+          ) as { version?: string };
+          if (stamp.version !== ctx.expectedVersion) {
+            throw new Error(`Packed skill ${name} has the wrong version stamp.`);
+          }
+        }
+      }
     },
   },
 ];
 
 export async function runSmokeSteps(
   ctx: SmokeContext,
-  steps: readonly { name: string; run(ctx: SmokeContext): Promise<void> }[] = smokeSteps,
+  steps: readonly SmokeStep[] = smokeSteps,
 ): Promise<void> {
   for (const step of steps) {
     await step.run(ctx);
@@ -257,17 +352,30 @@ export async function smokeInstalled(
   binary: string,
   home: string,
   expectedVersion: string,
+  baselineOnly = false,
 ): Promise<void> {
   mkdirSync(home, { recursive: true });
   const fake = await fakeSessionApi();
   const ctx: SmokeContext = {
     binary,
     expectedVersion,
-    env: { ...process.env, HOME: home, BOARD_HOME: home, SPUR_SESSION: 'smoke-1' },
+    home,
+    packageRoot: dirname(dirname(realpathSync(binary))),
+    env: {
+      ...process.env,
+      HOME: home,
+      BOARD_HOME: home,
+      XDG_CONFIG_HOME: join(home, '.config'),
+      XDG_DATA_HOME: join(home, '.local/share'),
+      SPUR_SESSION: 'smoke-1',
+    },
   };
   writeFileSync(join(home, 'config.yaml'), config(fake.port));
   try {
-    await runSmokeSteps(ctx);
+    await runSmokeSteps(
+      ctx,
+      baselineOnly ? smokeSteps.filter((step) => step.baseline) : smokeSteps,
+    );
   } finally {
     if (ctx.daemon !== undefined) await stopDaemon(ctx.daemon);
     await new Promise<void>((resolve, reject) =>

@@ -61,7 +61,7 @@ export async function smokeUpgrade(tarball?: string): Promise<'skipped' | 'passe
   try {
     const previousBinary = installPackage(`spur-board@${previous}`, join(temporary, 'previous'));
     const home = join(temporary, 'home');
-    await smokeInstalled(previousBinary, home, previous);
+    await smokeInstalled(previousBinary, home, previous, true);
     const candidate = tarball ?? packPackage(temporary);
     const candidateBinary = installPackage(candidate, join(temporary, 'candidate'));
     await smokeInstalled(candidateBinary, home, manifest.version);

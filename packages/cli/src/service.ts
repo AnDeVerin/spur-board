@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { constants } from 'node:fs';
+import { constants, existsSync } from 'node:fs';
 import { access, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { homedir, userInfo } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
@@ -59,10 +59,14 @@ export function servicePaths(options: ServiceOptions = {}): ServicePaths {
           ? [`XDG_DATA_HOME=${env['XDG_DATA_HOME']}`]
           : []),
       ];
+  const packedDaemon = fileURLToPath(new URL('./daemon.mjs', import.meta.url));
   return {
     nodePath: options.nodePath ?? process.execPath,
     daemonEntry:
-      options.daemonEntry ?? fileURLToPath(new URL('../../daemon/src/main.ts', import.meta.url)),
+      options.daemonEntry ??
+      (existsSync(packedDaemon)
+        ? packedDaemon
+        : fileURLToPath(new URL('../../daemon/src/main.ts', import.meta.url))),
     secretsFile: join(secretsDir, 'secrets.env'),
     unitFile: join(configDir, 'systemd', 'user', serviceName),
     environment,

@@ -9,11 +9,24 @@ import {
 
 describe('packed smoke steps', () => {
   it('keeps the staged checks in one ordered list', () => {
-    expect(smokeSteps.map((step) => step.name)).toEqual(['version', 'daemon', 'schema', 'mcp']);
+    expect(smokeSteps.map((step) => step.name)).toEqual([
+      'version',
+      'daemon',
+      'schema',
+      'mcp',
+      'service unit',
+      'skills install',
+    ]);
+    expect(smokeSteps.filter((step) => step.baseline).map((step) => step.name)).toEqual([
+      'version',
+      'daemon',
+      'schema',
+      'mcp',
+    ]);
   });
 
   it('fails for a broken daemon or schema step', async () => {
-    const context = { binary: '', expectedVersion: '', env: {} };
+    const context = { binary: '', expectedVersion: '', env: {}, home: '', packageRoot: '' };
     await expect(
       runSmokeSteps(context, [
         { name: 'daemon', run: () => Promise.reject(new Error('daemon failed')) },
