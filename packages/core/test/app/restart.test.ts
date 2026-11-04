@@ -123,6 +123,9 @@ const touch: Mutation<'block.ask'> = {
         reason: input.text,
         at: ctx.at,
         outcome: null,
+        outcomeReason: null,
+        unblockedBy: null,
+        unblockedAt: null,
       },
     };
   },

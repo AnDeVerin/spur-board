@@ -116,9 +116,9 @@ describe('catalog commands', () => {
     const commands = [
       ['status', '--project', 'demo'],
       ['task', 'history', 'PROJ-123'],
-      ['inbox', 'ack', 'C3', '--key', 'ack-1'],
+      ['inbox', 'ack', 'C3@2', 'C4@1', '--key', 'ack-1'],
       ['block', 'PROJ-123', '--type', 'dependency', '--reason', 'Waiting', '--key', 'block-1'],
-      ['unblock', 'B12', '--withdraw', '--key', 'unblock-1'],
+      ['unblock', 'B12', '--withdraw', 'No longer needed', '--key', 'unblock-1'],
     ];
     for (const command of commands) {
       const output = capture();
@@ -127,10 +127,66 @@ describe('catalog commands', () => {
     expect(calls).toEqual([
       { id: 'status.get', input: { project: 'demo' } },
       { id: 'task.history', input: { task: 'PROJ-123' } },
-      { id: 'inbox.ack', input: { ids: ['C3'] } },
+      {
+        id: 'inbox.ack',
+        input: {
+          entries: [
+            { id: 'C3', revision: 2 },
+            { id: 'C4', revision: 1 },
+          ],
+        },
+      },
       { id: 'block.create', input: { task: 'PROJ-123', type: 'dependency', reason: 'Waiting' } },
-      { id: 'block.unblock', input: { block: 'B12', mode: 'withdraw' } },
+      {
+        id: 'block.unblock',
+        input: { block: 'B12', mode: 'withdraw', answer: 'No longer needed' },
+      },
     ]);
+  });
+
+  it('accepts --done with and without a reference', async () => {
+    const calls: unknown[] = [];
+    const unblock = OPERATIONS.find((op) => op.id === 'block.unblock');
+    if (!unblock) throw new Error('Missing unblock operation.');
+    const url = await fakeServer((_id, input) => {
+      calls.push(input);
+      return unblock.examples[0].output;
+    });
+    for (const args of [
+      ['unblock', 'B12', '--done'],
+      ['unblock', 'B12', '--done', 'PROJ-124'],
+    ]) {
+      const output = capture();
+      expect(await runCli(args, { env: env(url), io: output.io })).toBe(0);
+    }
+    expect(calls).toEqual([
+      { block: 'B12', mode: 'done' },
+      { block: 'B12', mode: 'done', ref: 'PROJ-124' },
+    ]);
+  });
+
+  it('rejects malformed inbox revisions and a missing --withdraw answer', async () => {
+    const output = capture();
+    for (const args of [
+      ['inbox', 'ack', 'C3'],
+      ['inbox', 'ack', 'C3@0'],
+      ['inbox', 'ack', 'C3@1.5'],
+      ['unblock', 'B12', '--withdraw'],
+    ]) {
+      expect(await runCli(args, { env: {}, io: output.io }), args.join(' ')).toBe(2);
+    }
+  });
+
+  it('shows the generated revision and mode-value syntax in help', async () => {
+    const ack = capture();
+    expect(await runCli(['inbox', 'ack', '--help'], { env: {}, io: ack.io })).toBe(0);
+    expect(ack.stdout).toContain('board inbox ack C3@1');
+    expect(ack.stdout).not.toContain('[object Object]');
+
+    const unblock = capture();
+    expect(await runCli(['unblock', '--help'], { env: {}, io: unblock.io })).toBe(0);
+    expect(unblock.stdout).toContain('--done [ref]');
+    expect(unblock.stdout).toContain('--withdraw <answer>');
   });
 
   it('quotes untrusted comments in human output', async () => {
