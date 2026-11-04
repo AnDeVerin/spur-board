@@ -369,7 +369,7 @@ describe('accepted observation', () => {
     expect(first?.value).not.toBe('null');
     const restarted = createObservationCore({ store, config, clock });
     now += 1_000;
-    await tickBoard({ store, config, clock });
+    await tickBoard({ store, config, clock, completeSince: restarted.completeSince });
     const status = await getStatus({
       store,
       config,
@@ -400,9 +400,60 @@ describe('accepted observation', () => {
       outcomes: [],
     });
     now += config.health.needsInputAfterMs;
-    await tickBoard({ store, config, clock });
+    await tickBoard({ store, config, clock, completeSince: core.completeSince });
     const status = await getStatus({ store, config, clock, completeSince: core.completeSince });
     expect(status.items.some((item) => item.key.includes('needs_input'))).toBe(true);
+  });
+
+  it('keeps a confirmed vanished-worker item across ticks until new Spur evidence changes it', async () => {
+    const { store, core, apply, mutations } = setup();
+    await apply(mutations.add, { task: 'o/r#9' }, 'operator');
+    const link = { 'board-worker': 'https://github.com/o/r/issues/9' };
+    await core.observe('spur', {
+      batch: {
+        source: 'spur',
+        observedAt: at,
+        complete: true,
+        items: [{ kind: 'session', facts: sessionFact('worker-1', link) }],
+        entities: [],
+      },
+      effectiveComplete: true,
+      state: { lastCompleteAt: at, gone: [] },
+      outcomes: [],
+    });
+    now += 1_000;
+    const later = new Date(now).toISOString();
+    await core.observe('spur', {
+      batch: {
+        source: 'spur',
+        observedAt: later,
+        complete: true,
+        items: [{ kind: 'session', facts: sessionFact('worker-1', link, true) }],
+        entities: [],
+      },
+      effectiveComplete: true,
+      state: { lastCompleteAt: later, gone: [] },
+      outcomes: [],
+    });
+    const status = () => getStatus({ store, config, clock, completeSince: core.completeSince });
+    expect((await status()).items.some((item) => item.key.includes('worker_vanished'))).toBe(true);
+    now += 60_000;
+    await tickBoard({ store, config, clock, completeSince: core.completeSince });
+    expect((await status()).items.some((item) => item.key.includes('worker_vanished'))).toBe(true);
+    const newest = new Date(now).toISOString();
+    await core.observe('spur', {
+      batch: {
+        source: 'spur',
+        observedAt: newest,
+        complete: true,
+        items: [{ kind: 'session', facts: sessionFact('worker-2', link) }],
+        entities: [],
+      },
+      effectiveComplete: true,
+      state: { lastCompleteAt: newest, gone: [] },
+      outcomes: [],
+    });
+    expect((await status()).items.some((item) => item.key.includes('worker_vanished'))).toBe(false);
   });
 
   it('rolls back source state when an accepted batch cannot be stored', async () => {

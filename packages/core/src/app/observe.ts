@@ -249,12 +249,14 @@ async function ticket(
       .where('task_id', '=', task.id)
       .execute();
   }
-  if (fact.inFilter && task.membership === 'out_of_filter')
+  if (fact.inFilter && task.membership === 'out_of_filter') {
     await trx
       .updateTable('task')
       .set({ membership: 'active', archive_reason: null })
       .where('id', '=', task.id)
       .execute();
+    await emit(trx, 'flag_cleared', project.id, task.id, at, { flag: 'out_of_filter' });
+  }
   await updateTerminal(trx, config, task.id, at);
 }
 
@@ -875,19 +877,14 @@ export function createObservationCore(deps: {
         const currentComplete = new Map(completeSince);
         if (observation.effectiveComplete) currentComplete.set(source, batch.observedAt);
         await reconcileMembership(trx, config, currentComplete, batch.observedAt);
-        await reconcileItems(
-          trx,
-          config,
-          clock.now(),
-          source === 'spur' && observation.effectiveComplete,
-        );
+        await reconcileItems(trx, config, clock.now(), currentComplete.has('spur'));
       });
       if (observation.effectiveComplete) completeSince.set(source, batch.observedAt);
     },
     reportSourceState(source, state) {
       return store.transaction(async (trx) => {
         await sourceState(trx, source, state);
-        await reconcileItems(trx, config, clock.now(), false);
+        await reconcileItems(trx, config, clock.now(), completeSince.has('spur'));
       });
     },
     notice(kind, value) {

@@ -37,7 +37,14 @@ export function createBoardModules(
   const runTick = (): void => {
     if (stopped || signal?.aborted) return;
     active = Promise.resolve()
-      .then(() => tick({ store: coreCtx.store, config: coreCtx.config, clock: coreCtx.clock }))
+      .then(() =>
+        tick({
+          store: coreCtx.store,
+          config: coreCtx.config,
+          clock: coreCtx.clock,
+          completeSince: core.completeSince,
+        }),
+      )
       .catch((err: unknown) => {
         coreCtx.log.error({ err }, 'board tick failed');
       })

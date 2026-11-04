@@ -113,7 +113,13 @@ it('archives terminal tasks on the next UTC Saturday and does not revive them', 
   const { store, core } = setup();
   await ticketPoll(core, true, 'closed');
   now = Date.parse('2026-11-07T00:00:00.000Z');
-  await tickBoard({ store, config, clock });
+  await tickBoard({ store, config, clock, completeSince: core.completeSince });
+  expect(
+    (await store.db.selectFrom('task').select('membership').executeTakeFirst())?.membership,
+  ).toBe('active');
+  now += 1_000;
+  await emptyPoll(core, github);
+  await tickBoard({ store, config, clock, completeSince: core.completeSince });
   expect(
     await store.db.selectFrom('task').select(['membership', 'archive_reason']).executeTakeFirst(),
   ).toMatchObject({ membership: 'archived', archive_reason: 'done' });
@@ -127,8 +133,10 @@ it('archives terminal tasks on the next UTC Saturday and does not revive them', 
 it('catches a Saturday archive slot after downtime', async () => {
   const { store, core } = setup();
   await ticketPoll(core, true, 'closed');
+  now += 1_000;
+  await emptyPoll(core, github);
   now = Date.parse('2026-11-09T09:00:00.000Z');
-  await tickBoard({ store, config, clock });
+  await tickBoard({ store, config, clock, completeSince: core.completeSince });
   const task = await store.db
     .selectFrom('task')
     .select(['membership', 'archive_slot_at'])
@@ -137,7 +145,7 @@ it('catches a Saturday archive slot after downtime', async () => {
     membership: 'archived',
     archive_slot_at: '2026-11-07T00:00:00.000Z',
   });
-  await tickBoard({ store, config, clock });
+  await tickBoard({ store, config, clock, completeSince: core.completeSince });
   expect(
     await store.db.selectFrom('event').select('id').where('kind', '=', 'task_archived').execute(),
   ).toHaveLength(1);
@@ -187,7 +195,7 @@ it('does not mark a done ticket terminal while its linked PR is open', async () 
     (await store.db.selectFrom('task').select('terminal_at').executeTakeFirst())?.terminal_at,
   ).toBeNull();
   now = Date.parse('2026-11-07T00:00:00.000Z');
-  await tickBoard({ store, config, clock });
+  await tickBoard({ store, config, clock, completeSince: core.completeSince });
   expect(
     (await store.db.selectFrom('task').select('membership').executeTakeFirst())?.membership,
   ).toBe('active');
@@ -314,4 +322,62 @@ it('retains filter loss with an open linked PR and raises an item', async () => 
       await store.db.selectFrom('from_you_item').select('summary').where('active', '=', 1).execute()
     ).some((item) => item.summary.includes('left the tracker filter')),
   ).toBe(true);
+});
+
+it('retains filter loss with a live linked session, flag, and item', async () => {
+  const { store, core } = setup();
+  await ticketPoll(core, true);
+  const at = new Date(now).toISOString();
+  await core.observe('spur', {
+    batch: {
+      source: 'spur',
+      observedAt: at,
+      complete: true,
+      items: [
+        {
+          kind: 'session',
+          facts: {
+            id: 'worker-1',
+            spurProject: 'worker',
+            branch: 'o/r#9-work',
+            pr: null,
+            links: { 'board-worker': 'https://github.com/o/r/issues/9' },
+            lifecycle: 'running',
+            health: 'working',
+            healthSince: at,
+            lastActivityAt: null,
+            endedAt: null,
+            endReason: null,
+          },
+        },
+      ],
+      entities: [],
+    },
+    effectiveComplete: true,
+    state: { lastCompleteAt: at, gone: [] },
+    outcomes: [],
+  });
+  now += 1_000;
+  await emptyPoll(core, source);
+  const task = await store.db
+    .selectFrom('task')
+    .select(['id', 'membership'])
+    .executeTakeFirstOrThrow();
+  expect(task.membership).toBe('out_of_filter');
+  expect(
+    await store.db
+      .selectFrom('event')
+      .select('kind')
+      .where('task_id', '=', task.id)
+      .where('kind', '=', 'flag_raised')
+      .execute(),
+  ).toHaveLength(1);
+  expect(
+    await store.db
+      .selectFrom('from_you_item')
+      .select('item_key')
+      .where('task_id', '=', task.id)
+      .where('active', '=', 1)
+      .execute(),
+  ).toEqual([{ item_key: `filter:${String(task.id)}` }]);
 });

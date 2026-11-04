@@ -197,7 +197,7 @@ it('keeps a dismissed item hidden until the outcome fingerprint changes', async 
       })
       .execute();
   });
-  await tickBoard({ store, config, clock });
+  await tickBoard({ store, config, clock, completeSince: core.completeSince });
   expect((await status()).items.some((entry) => entry.key === item.item_key)).toBe(false);
   now += 1_000;
   await observeOutcome('not_found');

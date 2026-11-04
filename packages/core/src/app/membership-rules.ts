@@ -55,12 +55,14 @@ export async function reconcileMembership(
       }
     }
     if (retained) {
-      if (task.membership !== 'out_of_filter')
+      if (task.membership !== 'out_of_filter') {
         await trx
           .updateTable('task')
           .set({ membership: 'out_of_filter' })
           .where('id', '=', task.id)
           .execute();
+        await emit(trx, 'flag_raised', task.project, task.id, at, { flag: 'out_of_filter' });
+      }
     } else {
       const required = [
         'spur',
@@ -83,6 +85,8 @@ export async function reconcileMembership(
         .set({ membership: 'archived', archive_reason: 'out_of_filter', last_change_at: at })
         .where('id', '=', task.id)
         .execute();
+      if (task.membership === 'out_of_filter')
+        await emit(trx, 'flag_cleared', task.project, task.id, at, { flag: 'out_of_filter' });
       await emit(trx, 'task_archived', task.project, task.id, at, { reason: 'out_of_filter' });
     }
   }
