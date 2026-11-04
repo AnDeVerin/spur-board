@@ -364,5 +364,17 @@ describe('CLI boundary', () => {
     expect(
       await textRuleIds("export const command = import('./cli.ts');", 'packages/cli/src/x.mjs'),
     ).toEqual([]);
+    expect(
+      await textRuleIds("export const mcp = import('./mcp.ts');", 'packages/cli/src/x.mjs'),
+    ).toEqual([]);
+    expect(
+      await textRuleIds("export const other = import('./other.ts');", 'packages/cli/src/x.mjs'),
+    ).toEqual(['no-restricted-syntax']);
+  }, 30_000);
+
+  it('rejects console output in CLI source', async () => {
+    expect(await textRuleIds("console.log('oops');", 'packages/cli/src/x.ts')).toEqual([
+      'no-console',
+    ]);
   }, 30_000);
 });

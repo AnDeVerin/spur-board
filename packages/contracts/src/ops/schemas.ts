@@ -135,6 +135,8 @@ export const schemaGetOutputSchema = z
                   .literal('idempotencyKey')
                   .nullable()
                   .describe('Idempotency key argument; null for a query.'),
+                whenToUse: z.string().min(1).describe('When this MCP tool is appropriate.'),
+                whenNotToUse: z.string().min(1).describe('When to use a neighboring tool instead.'),
               })
               .describe('MCP binding.'),
             inputSchema: jsonSchemaPayload('input'),
