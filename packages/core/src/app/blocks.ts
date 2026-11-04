@@ -31,8 +31,7 @@ type Comment = Selectable<CommentTable>;
 type Trx = Kysely<Tables>;
 
 const actorRefSchema = z.strictObject({ project: z.string().min(1), session: z.string().min(1) });
-const blockNumber = (id: string) => Number(id.slice(1));
-const commentNumber = (id: string) => Number(id.slice(1));
+const idNumber = (id: string) => Number(id.slice(1));
 const blockId = (id: number) => `B${String(id)}`;
 const commentId = (id: number) => `C${String(id)}`;
 
@@ -54,15 +53,11 @@ async function taskById(trx: Trx, id: number): Promise<Task> {
 }
 
 async function blockById(trx: Trx, id: string): Promise<Block | undefined> {
-  return trx.selectFrom('block').selectAll().where('id', '=', blockNumber(id)).executeTakeFirst();
+  return trx.selectFrom('block').selectAll().where('id', '=', idNumber(id)).executeTakeFirst();
 }
 
 async function commentById(trx: Trx, id: string): Promise<Comment | undefined> {
-  return trx
-    .selectFrom('comment')
-    .selectAll()
-    .where('id', '=', commentNumber(id))
-    .executeTakeFirst();
+  return trx.selectFrom('comment').selectAll().where('id', '=', idNumber(id)).executeTakeFirst();
 }
 
 function found<T>(value: T | undefined): T {
@@ -117,13 +112,13 @@ async function blockTarget(trx: Trx, id: string): Promise<readonly ResolvedTarge
   ];
 }
 
-async function commentTarget(trx: Trx, id: string): Promise<readonly ResolvedTarget[]> {
+async function commentTarget(trx: Trx, id: string): Promise<ResolvedTarget> {
   const comment = await commentById(trx, id);
   const target = await authorizationTarget(
     trx,
     comment === undefined ? undefined : await taskById(trx, comment.task_id),
   );
-  return [{ ...target, id }];
+  return { ...target, id };
 }
 
 function current(block: Block): CurrentBlock {
@@ -427,7 +422,9 @@ export function createBlockMutations(config: Config) {
   };
   const edit: Mutation<'comment.edit'> = {
     id: 'comment.edit',
-    resolveTargets: (trx, input) => commentTarget(trx, input.comment),
+    async resolveTargets(trx, input) {
+      return [await commentTarget(trx, input.comment)];
+    },
     async run(trx, input, ctx) {
       const comment = found(await commentById(trx, input.comment));
       const task = await taskById(trx, comment.task_id);
@@ -452,13 +449,7 @@ export function createBlockMutations(config: Config) {
   const ack: Mutation<'inbox.ack'> = {
     id: 'inbox.ack',
     async resolveTargets(trx, input) {
-      return Promise.all(
-        input.entries.map(async ({ id }) => {
-          const target = (await commentTarget(trx, id))[0];
-          if (target === undefined) throw new Error('Missing comment target');
-          return target;
-        }),
-      );
+      return Promise.all(input.entries.map(({ id }) => commentTarget(trx, id)));
     },
     async run(trx, input, ctx) {
       for (const entry of input.entries) {
