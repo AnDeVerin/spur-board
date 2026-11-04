@@ -11,6 +11,7 @@ import {
   resolveBase,
   type ChangedFile,
 } from './check-plan.ts';
+import { PACKAGE_SMOKE_SCRIPT } from './package-smoke-mcp.ts';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 
@@ -20,6 +21,15 @@ export interface Command {
 }
 
 export type Step = { name: string; commands: Command[] } | { name: string; skip: string };
+
+export function mcpPackageSmokeCommands(
+  mode: 'full' | 'changed' | 'none',
+  packageDirs: string[],
+): Command[] {
+  return mode === 'full' || packageDirs.includes('packages/cli')
+    ? [{ cmd: 'node', args: [PACKAGE_SMOKE_SCRIPT] }]
+    : [];
+}
 
 /** Runs every step, prints one line per step and returns the first non-zero exit code. */
 export function runSteps(steps: Step[], log: (line: string) => void = console.log): number {
@@ -156,6 +166,7 @@ function main(): number {
           },
         ]
       : []),
+    ...mcpPackageSmokeCommands(plan.mode, plan.packageDirs),
   ];
   const steps: Step[] = [
     plan.formatFiles.length === 0
