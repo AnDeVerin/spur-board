@@ -1,25 +1,116 @@
 import { describe, expect, it } from 'vitest';
-import { buildSteps, mcpPackageSmokeCommands, prePushWorkers, selectPlan } from './check.ts';
+import {
+  buildSteps,
+  mcpPackageSmokeCommands,
+  parsePushRefs,
+  prePushWorkers,
+  pushRanges,
+  selectPlan,
+} from './check.ts';
 
 const packageDirs = ['packages/cli', 'packages/daemon'];
 const base = { kind: 'base' as const, ref: 'main', sha: 'abc' };
 
+describe('pushed ref ranges', () => {
+  const head = 'a'.repeat(40);
+  const previous = 'b'.repeat(40);
+  const zero = '0'.repeat(40);
+
+  it('uses the remote old object for an existing ref', () => {
+    const refs = parsePushRefs(`refs/heads/feature ${head} refs/heads/feature ${previous}\n`);
+    if ('error' in refs) throw new Error(refs.error);
+    expect(pushRanges(refs, head, base)).toEqual([{ from: previous, to: head }]);
+  });
+
+  it('keeps a comparison range for every ref in a multi-ref push', () => {
+    const otherPrevious = 'c'.repeat(40);
+    const refs = parsePushRefs(
+      `refs/heads/first ${head} refs/heads/first ${previous}\n` +
+        `refs/heads/second ${head} refs/heads/second ${otherPrevious}\n`,
+    );
+    if ('error' in refs) throw new Error(refs.error);
+    expect(pushRanges(refs, head, base)).toEqual([
+      { from: previous, to: head },
+      { from: otherPrevious, to: head },
+    ]);
+  });
+
+  it('uses the main merge base for a new remote ref', () => {
+    const refs = parsePushRefs(`refs/heads/feature ${head} refs/heads/feature ${zero}\n`);
+    if ('error' in refs) throw new Error(refs.error);
+    expect(pushRanges(refs, head, base)).toEqual([{ from: 'abc', to: head }]);
+  });
+
+  it('checks each pushed ref and refuses another branch outside the checkout', () => {
+    const refs = parsePushRefs(
+      `refs/heads/current ${head} refs/heads/current ${previous}\n` +
+        `refs/heads/other ${'c'.repeat(40)} refs/heads/other ${previous}\n`,
+    );
+    if ('error' in refs) throw new Error(refs.error);
+    expect(pushRanges(refs, head, base)).toEqual({
+      error:
+        'pre-push: refs/heads/other is not checked out at HEAD; check out the ref before pushing it',
+    });
+  });
+
+  it('skips a deletion because it pushes no new code', () => {
+    const refs = parsePushRefs(`(delete) ${zero} refs/heads/old ${previous}\n`);
+    if ('error' in refs) throw new Error(refs.error);
+    expect(pushRanges(refs, head, base)).toEqual([]);
+  });
+
+  it('requires a base for a new ref and rejects malformed input', () => {
+    const refs = parsePushRefs(`refs/heads/feature ${head} refs/heads/feature ${zero}\n`);
+    if ('error' in refs) throw new Error(refs.error);
+    expect(pushRanges(refs, head, { kind: 'full', reason: 'no base ref' })).toEqual({
+      error: 'pre-push: no base ref; create or update a local main or origin/main ref, then retry',
+    });
+    expect(parsePushRefs('')).toHaveProperty('error');
+    expect(parsePushRefs('bad line\n')).toHaveProperty('error');
+  });
+});
+
 describe('pre-push selection', () => {
-  it('keeps root changes in changed mode without unrelated checks', () => {
+  it('keeps a root documentation change in changed mode without package checks', () => {
     const plan = selectPlan({
       full: false,
       prePush: true,
       base,
-      changed: [{ path: 'scripts/hooks.ts', deleted: false }],
+      changed: [{ path: 'README.md', deleted: false }],
       packageDirs,
     });
     expect(plan).toMatchObject({ mode: 'changed', packageDirs: [] });
     if ('error' in plan) throw new Error(plan.error);
     const steps = buildSteps(plan, true);
     expect(steps.map((step) => step.name)).toEqual(['format', 'lint', 'types', 'knip', 'test']);
-    expect(steps.filter((step) => 'commands' in step).map((step) => step.name)).toEqual([
-      'format',
-      'lint',
+    expect(steps.filter((step) => 'commands' in step).map((step) => step.name)).toEqual(['format']);
+  });
+
+  it('checks all affected packages for a shared config change without full mode', () => {
+    const plan = selectPlan({
+      full: false,
+      prePush: true,
+      base,
+      changed: [{ path: 'tsconfig.base.json', deleted: false }],
+      packageDirs,
+    });
+    if ('error' in plan) throw new Error(plan.error);
+    expect(plan).toMatchObject({ mode: 'changed', packageDirs });
+    const steps = buildSteps(plan, true);
+    const types = steps.find((step) => step.name === 'types');
+    if (!types || !('commands' in types)) throw new Error('missing type checks');
+    expect(types.commands).toHaveLength(packageDirs.length);
+    const tests = steps.find((step) => step.name === 'test');
+    if (!tests || !('commands' in tests)) throw new Error('missing unit tests');
+    expect(tests.commands[0]?.args).toEqual([
+      'run',
+      '--passWithNoTests',
+      '--maxWorkers',
+      '2',
+      '--project',
+      'unit',
+      'packages/cli/',
+      'packages/daemon/',
     ]);
   });
 

@@ -148,9 +148,13 @@ export function planCheck(input: {
   }
 
   const present = input.changed.filter((file) => !file.deleted).map((file) => file.path);
-  const packageDirs = input.packageDirs.filter((dir) =>
-    input.changed.some((file) => file.path.startsWith(`${dir}/`)),
-  );
+  // Shared root files and tooling can affect every package, even in the scoped push mode.
+  const packageDirs =
+    input.prePush && trigger
+      ? input.packageDirs
+      : input.packageDirs.filter((dir) =>
+          input.changed.some((file) => file.path.startsWith(`${dir}/`)),
+        );
   return {
     mode: 'changed',
     reason: `${String(input.changed.length)} changed file(s)`,

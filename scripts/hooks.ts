@@ -7,7 +7,7 @@
 // git runs hooks from the work tree root, so git and prettier run in the current directory.
 // prettier is resolved next to this file, like scripts/check.ts does.
 import { spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -164,9 +164,12 @@ function prePush(): number {
   }
   const env = { ...process.env };
   for (const name of lines(local.stdout)) Reflect.deleteProperty(env, name);
+  // Git sends one old/new object pair per ref on stdin. Preserve it for the check runner.
+  const refs = readFileSync(0, 'utf8');
   const result = spawnSync('pnpm', ['run', 'check', '--pre-push'], {
     env,
-    stdio: ['ignore', 'inherit', 'inherit'],
+    input: refs,
+    stdio: ['pipe', 'inherit', 'inherit'],
   });
   if (result.error) {
     process.stderr.write(

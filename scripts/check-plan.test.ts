@@ -168,7 +168,22 @@ describe('planCheck', () => {
       mode: 'changed',
       formatFiles: ['scripts/check.ts'],
       lintFiles: ['scripts/check.ts'],
-      packageDirs: [],
+      packageDirs,
+    });
+  });
+
+  it('checks every affected package for shared config without entering full mode', () => {
+    expect(
+      planCheck({
+        full: false,
+        prePush: true,
+        changed: [{ path: 'tsconfig.base.json', deleted: false }],
+        packageDirs,
+      }),
+    ).toMatchObject({
+      mode: 'changed',
+      formatFiles: ['tsconfig.base.json'],
+      packageDirs,
     });
   });
 
