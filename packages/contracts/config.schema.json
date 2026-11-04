@@ -191,9 +191,9 @@
       "properties": {
         "port": {
           "default": 4311,
-          "description": "Local HTTP API port.",
+          "description": "Local HTTP API port (0 assigns a free port).",
           "type": "integer",
-          "minimum": 1,
+          "minimum": 0,
           "maximum": 65535
         }
       },
