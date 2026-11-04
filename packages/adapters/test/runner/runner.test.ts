@@ -6,13 +6,14 @@ import {
   type PollContext,
   type PrEntityRef,
   type SessionEntityRef,
+  type SourceState,
   sourceCursorSchema,
   type TicketEntityRef,
 } from '@spur-board/contracts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as entry from '../../src/index.ts';
 import { classifyHttpFailure } from '../../src/runner/http.ts';
-import { type AdapterRunner, type SourceState, startRunner } from '../../src/runner/runner.ts';
+import { type AdapterRunner, startRunner } from '../../src/runner/runner.ts';
 import {
   createFakeAdapter,
   createFakeCore,
@@ -26,7 +27,7 @@ const I = 60_000;
 const sha = 'b'.repeat(40);
 const defaults = {
   sources: { authRetryMs: 900_000, goneAfterPolls: 3 },
-  thresholds: { staleMultiplier: 3 },
+  thresholds: { staleMultiplier: 3, blockOpenMs: 86_400_000 },
 };
 
 const pr: PrEntityRef = { kind: 'pr', repo: 'acme/web', number: 42 };
@@ -197,7 +198,13 @@ describe('startAdapters', () => {
       operator: { slack: 'U0000000000' },
       digest: { tz: 'Europe/Berlin' },
     });
-    const core = createFakeCore();
+    const sourceIds: string[] = [];
+    const core = createFakeCore({
+      context: (source) => {
+        sourceIds.push(source);
+        return context();
+      },
+    });
     const fetchSpur = vi.fn().mockResolvedValue(Response.json([]));
     vi.stubGlobal('fetch', fetchSpur);
     const runner = entry.startAdapters(config, core);
@@ -207,17 +214,79 @@ describe('startAdapters', () => {
     expect(core.observed).toHaveLength(1);
     expect(core.observed[0]?.batch).toMatchObject({ source: 'spur', complete: true, items: [] });
     expect(core.states.at(-1)?.source).toBe('spur');
+    expect(sourceIds).toContain('jira:web');
+    expect(sourceIds).toContain('github:web:example-org/web');
+    expect(sourceIds).toContain('spur');
+    expect(core.reports.find((report) => report.source === 'jira:web')?.state.blind).toEqual({
+      reason: 'config',
+      message: 'Jira credential is missing',
+    });
+    expect(
+      core.reports.find((report) => report.source === 'github:web:example-org/web')?.state.blind,
+    ).toEqual({ reason: 'config', message: 'GitHub credential is missing' });
     expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('waits for an outstanding Spur notice before stop completes', async () => {
+    const config = configSchema.parse({
+      projects: [
+        {
+          id: 'web',
+          tracker: {
+            type: 'jira',
+            baseUrl: 'https://jira.example.test',
+            jql: 'project = PROJ',
+            doneStatuses: ['Done'],
+            readyStatuses: ['Ready'],
+          },
+          repos: ['acme/web'],
+          operatorGithubLogin: 'octocat',
+        },
+      ],
+      operator: { slack: 'U0000000000' },
+      digest: { tz: 'UTC' },
+    });
+    const core = createFakeCore();
+    const fetchSpur = vi.fn().mockResolvedValue(
+      Response.json([
+        {
+          id: 'worker-1',
+          project: 'web',
+          status: 'running',
+          state: 'future_state',
+        },
+      ]),
+    );
+    vi.stubGlobal('fetch', fetchSpur);
+    let release: () => void = () => undefined;
+    const notices: string[] = [];
+    const runner = entry.startAdapters(config, core, {
+      onSpurNotice: (notice) =>
+        new Promise<void>((resolve) => {
+          notices.push(notice.kind);
+          release = resolve;
+        }),
+    });
+    await flush();
+    expect(notices).toEqual(['unknown_state']);
+    let stopped = false;
+    const stop = runner.stop().then(() => {
+      stopped = true;
+    });
+    await flush();
+    expect(stopped).toBe(false);
+    release();
+    await stop;
+    expect(stopped).toBe(true);
   });
 });
 
-describe('repository projection', () => {
-  it('sends and validates only PR refs from the source repository', async () => {
-    const foreign: PrEntityRef = { kind: 'pr', repo: 'demo/other', number: 9 };
-    const core = createFakeCore({ context: () => context({ prs: [pr, foreign] }) });
+describe('repository context', () => {
+  it('uses the source-scoped PR refs supplied by core', async () => {
+    const core = createFakeCore({ context: () => context({ prs: [pr] }) });
     const poll = vi.fn(() => Promise.resolve(prNotFound()));
     const adapter = createFakeAdapter({ id: 'github', intervalMs: I, poll });
-    const runner = startRunner({ entries: [{ adapter, repo: pr.repo }], core, config: defaults });
+    const runner = startRunner({ entries: [{ adapter }], core, config: defaults });
     runners.push(runner);
     await flush();
     expect(adapter.contexts[0]?.observe.prs).toEqual([pr]);
@@ -226,20 +295,31 @@ describe('repository projection', () => {
 });
 
 describe('mixed source context', () => {
-  it('projects tickets and sessions out of a GitHub poll and accepts its PR batch', async () => {
-    const foreign: PrEntityRef = { kind: 'pr', repo: 'demo/other', number: 9 };
+  it('passes through the context core supplied without changing it', async () => {
     const core = createFakeCore({
-      context: () => context({ prs: [pr, foreign], tickets: [ticket], sessions: [session] }),
+      context: () => context({ prs: [pr], tickets: [ticket], sessions: [session] }),
     });
     const adapter = createFakeAdapter({
       id: 'github',
       intervalMs: I,
-      poll: () => Promise.resolve(prNotFound()),
+      poll: () =>
+        Promise.resolve({
+          ...prNotFound(),
+          entities: [
+            { ref: pr, status: 'not_found' },
+            { ref: ticket, status: 'not_found' },
+            { ref: session, status: 'not_found' },
+          ],
+        }),
     });
-    const runner = startRunner({ entries: [{ adapter, repo: pr.repo }], core, config: defaults });
+    const runner = startRunner({ entries: [{ adapter }], core, config: defaults });
     runners.push(runner);
     await flush();
-    expect(adapter.contexts[0]?.observe).toEqual({ prs: [pr], tickets: [], sessions: [] });
+    expect(adapter.contexts[0]?.observe).toEqual({
+      prs: [pr],
+      tickets: [ticket],
+      sessions: [session],
+    });
     expect(core.observed).toHaveLength(1);
   });
 });
@@ -296,8 +376,16 @@ describe('schedule', () => {
     await flush();
     expect(adapter.contexts[0]?.observe).toEqual({ prs: [pr], tickets: [], sessions: [] });
     expect(adapter.contexts[0]?.cursor).toBe(cursor);
-    expect(core.observed).toEqual([
-      { source: 'github', batch: { ...returned, observedAt: at(0) } },
+    expect(core.observed).toMatchObject([
+      {
+        source: 'github',
+        batch: { ...returned, observedAt: at(0) },
+        observation: {
+          effectiveComplete: true,
+          state: { lastCompleteAt: at(0), gone: [] },
+          outcomes: [{ ref: pr, misses: 0, gone: false }],
+        },
+      },
     ]);
     expect(core.observed[0]?.batch.cursor).toBe(next);
   });
@@ -351,6 +439,35 @@ describe('failures', () => {
     await advanceTo(3 * I);
     expect(gaps(starts)).toEqual([2 * I, I]);
     expect(core.states[0]?.state).toEqual({ gone: [] });
+  });
+
+  it('does not consume a miss when core rejects an observation', async () => {
+    random(0);
+    let attempts = 0;
+    const { core } = start(() => Promise.resolve(prNotFound()), {
+      core: {
+        context: () => context({ prs: [pr] }),
+        observe: () => {
+          attempts += 1;
+          if (attempts === 1) throw new Error('store unavailable');
+        },
+      },
+    });
+    await advanceTo(2 * I);
+    expect(core.observed.map((call) => call.observation.outcomes[0]?.misses)).toEqual([1, 1]);
+    expect(core.states.at(-1)?.state.gone).toEqual([]);
+  });
+
+  it('hydrates persisted miss counts after a runner restart', async () => {
+    const { core } = start(() => Promise.resolve(prNotFound()), {
+      core: { context: () => ({ ...context({ prs: [pr] }), missCounts: [{ ref: pr, count: 2 }] }) },
+    });
+    await flush();
+    expect(core.observed[0]?.observation).toMatchObject({
+      effectiveComplete: true,
+      outcomes: [{ ref: pr, misses: 3, gone: true }],
+      state: { gone: [pr] },
+    });
   });
 });
 
@@ -533,58 +650,56 @@ describe('blind and completeness', () => {
     },
   );
 
-  it('the deadline fires during an in-flight poll and the reports arrive in order', async () => {
+  it('accepts an in-flight batch while a stale report is pending', async () => {
     random(0);
     const second = deferred<Batch>();
-    const { core, last } = start((_, n) => (n === 1 ? second.promise : Promise.resolve(batch())));
+    const { core } = start((_, n) => (n === 1 ? second.promise : Promise.resolve(batch())));
     await flush();
-    expect(core.states).toHaveLength(1);
+    expect(core.observed).toHaveLength(1);
     core.holdReports();
     await advanceTo(3 * I + 1);
-    expect(core.states).toHaveLength(1);
+    expect(core.reports).toHaveLength(0);
     await advanceTo(6 * I + 1);
-    expect(core.states).toHaveLength(1);
+    expect(core.reports).toHaveLength(0);
     await advanceTo(6 * I + 2);
-    expect(core.states).toHaveLength(2);
-    expect(last()).toMatchObject({ lastCompleteAt: at(0), blind: { reason: 'stale' } });
+    expect(core.reports).toHaveLength(1);
+    expect(core.reports[0]?.state).toMatchObject({
+      lastCompleteAt: at(0),
+      blind: { reason: 'stale' },
+    });
     second.resolve(batch());
     await flush();
-    expect(core.states).toHaveLength(2);
+    expect(core.observed).toHaveLength(1);
     core.releaseReport();
     await flush();
-    expect(core.states).toHaveLength(3);
-    expect(last()).toMatchObject({ lastCompleteAt: at(I), blind: { reason: 'stale' } });
-    core.releaseReport();
-    await advanceTo(7 * I + 2);
-    expect(core.states).toHaveLength(4);
-    expect(last()).toEqual({ lastCompleteAt: at(7 * I + 2), gone: [] });
-    core.releaseReport();
-    await flush();
+    expect(core.observed).toHaveLength(2);
+    expect(core.observed[1]?.observation.state).toMatchObject({
+      lastCompleteAt: at(I),
+      blind: { reason: 'stale' },
+    });
     expect(core.maxReportsInFlight).toBe(1);
   });
 
-  it('a poll settles while the deadline report is in flight and the reports arrive in order', async () => {
+  it('commits a recovered batch while a stale report is in flight', async () => {
     random(0);
-    const { core, last } = start((_, n) => Promise.resolve(batch({ complete: n >= 4 })));
+    const { core } = start((_, n) => Promise.resolve(batch({ complete: n >= 4 })));
     await flush();
     core.holdReports();
     await advanceTo(3 * I + 1);
-    expect(core.states).toHaveLength(2);
-    expect(last()).toMatchObject({ blind: { reason: 'stale' } });
+    expect(core.reports).toHaveLength(1);
+    expect(core.reports[0]?.state.blind?.reason).toBe('stale');
     await advanceTo(4 * I);
-    expect(core.states).toHaveLength(2);
+    expect(core.observed.at(-1)?.observation.state).not.toEqual({
+      lastCompleteAt: at(4 * I),
+      gone: [],
+    });
     core.releaseReport();
     await flush();
-    expect(core.states.map((call) => call.state)).toEqual([
-      { gone: [] },
-      {
-        blind: { reason: 'stale', message: 'No complete observation in 3 poll intervals' },
-        gone: [],
-      },
-      { lastCompleteAt: at(4 * I), gone: [] },
-    ]);
-    core.releaseReport();
-    await flush();
+    expect(core.observed.at(-1)?.observation.state).toEqual({
+      lastCompleteAt: at(4 * I),
+      gone: [],
+    });
+    expect(core.reports).toHaveLength(1);
     expect(core.maxReportsInFlight).toBe(1);
   });
 
@@ -600,15 +715,16 @@ describe('blind and completeness', () => {
     random(0);
     const { core } = start(() => Promise.resolve(batch({ complete: false })));
     await advanceTo(3 * I);
-    expect(core.states.map((call) => call.state)).toEqual([{ gone: [] }]);
+    expect(core.reports).toEqual([]);
+    expect(core.observed).toHaveLength(4);
     await advanceTo(5 * I);
-    expect(core.states.map((call) => call.state.blind?.reason)).toEqual([undefined, 'stale']);
+    expect(core.reports.map((call) => call.state.blind?.reason)).toEqual(['stale']);
   });
 
   it('retries a rejected report on the next outcome', async () => {
     random(0);
     let calls = 0;
-    const { core } = start(() => Promise.resolve(batch({ complete: false })), {
+    const { core } = start(() => Promise.reject(new Error('poll failed')), {
       core: {
         reportSourceState: () => {
           calls += 1;
@@ -617,7 +733,7 @@ describe('blind and completeness', () => {
       },
     });
     await advanceTo(2 * I);
-    expect(core.states.map((call) => call.state)).toEqual([{ gone: [] }, { gone: [] }]);
+    expect(core.reports.map((call) => call.state)).toEqual([{ gone: [] }, { gone: [] }]);
   });
 });
 

@@ -10,6 +10,7 @@ import {
 import { classifyHttpFailure } from '../runner/http.ts';
 
 type JiraTracker = Extract<Config['projects'][number]['tracker'], { type: 'jira' }>;
+type KnownTicketRef = TicketEntityRef & { id: string };
 type JsonObject = Record<string, unknown>;
 
 export interface JiraAdapterOptions {
@@ -267,7 +268,7 @@ export function createJiraAdapter(options: JiraAdapterOptions): Adapter {
 
   async function fetchById(
     tracker: JiraTracker,
-    ref: TicketEntityRef,
+    ref: KnownTicketRef,
     signal: AbortSignal,
     beforeRequest: () => void,
   ): Promise<JsonObject | null> {
@@ -291,11 +292,11 @@ export function createJiraAdapter(options: JiraAdapterOptions): Adapter {
 
   async function searchByRefs(
     tracker: JiraTracker,
-    refs: readonly TicketEntityRef[],
+    refs: readonly KnownTicketRef[],
     signal: AbortSignal,
     sprintField: string | null,
-    query: (refs: readonly TicketEntityRef[]) => string,
-    onRejectedKey: (ref: TicketEntityRef) => Promise<unknown[]>,
+    query: (refs: readonly KnownTicketRef[]) => string,
+    onRejectedKey: (ref: KnownTicketRef) => Promise<unknown[]>,
     countFallbackRequest: () => void,
     fallback = false,
   ): Promise<unknown[]> {
@@ -340,6 +341,26 @@ export function createJiraAdapter(options: JiraAdapterOptions): Adapter {
     }
   }
 
+  async function fetchPending(
+    tracker: JiraTracker,
+    ref: TicketEntityRef,
+    signal: AbortSignal,
+  ): Promise<{ status: 'ok'; issue: JsonObject } | { status: 'not_found' | 'no_access' }> {
+    try {
+      const issue = object(
+        await request(tracker.baseUrl, `/rest/api/3/issue/${encodeURIComponent(ref.key)}`, signal),
+      );
+      if (string(issue['key']) !== ref.key)
+        throw new AdapterError('transient', 'Jira returned a different ticket key');
+      return { status: 'ok', issue };
+    } catch (error) {
+      if (error instanceof JiraHttpError && error.status === 404) return { status: 'not_found' };
+      if (error instanceof JiraHttpError && error.status === 403 && error.kind === 'auth')
+        return { status: 'no_access' };
+      throw error;
+    }
+  }
+
   return {
     id: options.id,
     intervalMs: options.intervalMs ?? 120_000,
@@ -363,7 +384,20 @@ export function createJiraAdapter(options: JiraAdapterOptions): Adapter {
       if (!filtered.complete)
         options.warn(`Jira filter reached ${String(SEARCH_PAGE_LIMIT)} pages`);
 
-      const missing = ctx.observe.tickets.filter((ref) => !facts.has(ref.id));
+      const pendingOutcomes = new Map<string, 'not_found' | 'no_access'>();
+      for (const ref of ctx.observe.tickets.filter((ticket) => ticket.id === undefined)) {
+        if ([...facts.values()].some((fact) => fact.key === ref.key)) continue;
+        const result = await fetchPending(tracker, ref, ctx.signal);
+        if (result.status === 'ok') {
+          const item = issueFacts(result.issue, options.id, tracker.baseUrl, sprintField, false);
+          facts.set(item.id, item);
+        } else {
+          pendingOutcomes.set(ref.key, result.status);
+        }
+      }
+      const missing = ctx.observe.tickets.filter(
+        (ref): ref is KnownTicketRef => ref.id !== undefined && !facts.has(ref.id),
+      );
       for (let start = 0; start < missing.length; start += OUTSIDE_BATCH_SIZE) {
         const refs = missing.slice(start, start + OUTSIDE_BATCH_SIZE);
         const direct = new Map<string, JsonObject | null>();
@@ -434,7 +468,14 @@ export function createJiraAdapter(options: JiraAdapterOptions): Adapter {
         items: [...facts.values()].map((item) => ({ kind: 'ticket', facts: item })),
         entities: ctx.observe.tickets.map((ref) => ({
           ref,
-          status: facts.has(ref.id) ? 'ok' : 'not_found',
+          status:
+            ref.id === undefined
+              ? [...facts.values()].some((fact) => fact.key === ref.key)
+                ? 'ok'
+                : (pendingOutcomes.get(ref.key) ?? 'not_found')
+              : facts.has(ref.id)
+                ? 'ok'
+                : 'not_found',
         })),
       };
     },

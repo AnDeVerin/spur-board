@@ -4,14 +4,14 @@ import {
   AdapterError,
   batchSchema,
   type Adapter,
-  type Batch,
+  type AdapterCore,
   type Config,
-  type EntityRef,
-  type PollContext,
+  type SourceState,
 } from '@spur-board/contracts';
 import {
   answersRequest,
   applyEntityOutcomes,
+  entityKey,
   nextDelay,
   staleDeadline,
   staleHardBound,
@@ -19,28 +19,8 @@ import {
   type PollOutcome,
 } from './policy.ts';
 
-/** What the runner needs from core. */
-export interface AdapterCore {
-  /** What the next poll of `source` should observe, and the cursor to continue from. */
-  context(source: string): Promise<Omit<PollContext, 'signal'>>;
-  /** Takes a validated batch; `observedAt` is the poll start. */
-  observe(source: string, batch: Batch): Promise<void>;
-  /** Takes the state of a source whenever it changes. */
-  reportSourceState(source: string, state: SourceState): Promise<void>;
-}
-
-export interface SourceState {
-  /** ISO time: `observedAt` of the last effectively complete batch. */
-  lastCompleteAt?: string;
-  blind?: { reason: 'auth' | 'config' | 'stale'; message: string };
-  /** PR and ticket refs only. */
-  gone: readonly EntityRef[];
-}
-
 interface RunnerEntry {
   adapter: Adapter;
-  /** Repository owned by this source, when it observes PRs. */
-  repo?: string;
   /** Pause the source while its reported budget is below this. */
   reserveRemaining?: number | undefined;
 }
@@ -54,10 +34,11 @@ export interface RunnerOptions {
   entries: readonly RunnerEntry[];
   core: AdapterCore;
   config: Pick<Config, 'sources' | 'thresholds'>;
+  now?: () => number;
 }
 
 export function startRunner(options: RunnerOptions): AdapterRunner {
-  const startedAt = Date.now();
+  const startedAt = (options.now ?? Date.now)();
   const sources = options.entries.map((entry) => runSource(entry, options, startedAt));
   return {
     async stop() {
@@ -70,8 +51,9 @@ type Blind = NonNullable<SourceState['blind']>;
 type Timer = ReturnType<typeof setTimeout>;
 
 function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: number) {
-  const { adapter, reserveRemaining, repo } = entry;
+  const { adapter, reserveRemaining } = entry;
   const { core, config } = options;
+  const now = options.now ?? Date.now;
   const source = adapter.id;
   const { intervalMs } = adapter;
   const { staleMultiplier } = config.thresholds;
@@ -85,6 +67,7 @@ function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: nu
   let lastCompleteMs: number | undefined;
   let errorBlind: Blind | undefined;
   let counts: ReadonlyMap<string, number> = new Map();
+  let hydrated = false;
   let gone: readonly GoneRef[] = [];
   /** Set while a poll is in flight. */
   let controller: AbortController | undefined;
@@ -97,7 +80,7 @@ function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: nu
 
   function state(): SourceState {
     const deadline = staleDeadline(lastCompleteMs, runnerStartMs, staleMultiplier, intervalMs);
-    const blind = errorBlind ?? (Date.now() > deadline ? staleBlind : undefined);
+    const blind = errorBlind ?? (now() > deadline ? staleBlind : undefined);
     return {
       ...(lastCompleteMs === undefined ? {} : { lastCompleteAt: iso(lastCompleteMs) }),
       ...(blind === undefined ? {} : { blind }),
@@ -108,8 +91,8 @@ function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: nu
   /** Appends the current state to the serial report chain; resolves when its step is done. */
   function report(): Promise<void> {
     if (stopping) return reports;
-    const next = state();
     reports = reports.then(async () => {
+      const next = state();
       const json = JSON.stringify(next);
       if (json === lastReported) return;
       try {
@@ -126,7 +109,7 @@ function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: nu
     clearTimeout(deadlineTimer);
     deadlineTimer = undefined;
     const deadline = staleDeadline(lastCompleteMs, runnerStartMs, staleMultiplier, intervalMs);
-    const delay = deadline + 1 - Date.now();
+    const delay = deadline + 1 - now();
     if (delay > 0) deadlineTimer = setTimeout(onDeadline, delay);
   }
 
@@ -137,7 +120,7 @@ function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: nu
       return;
     }
     // The poll in flight may still complete: decide when it settles, or at the hard bound.
-    const firedAt = Date.now();
+    const firedAt = now();
     hardBoundTimer = setTimeout(
       onHardBound,
       staleHardBound(firedAt, staleMultiplier, intervalMs) - firedAt,
@@ -162,27 +145,18 @@ function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: nu
     // A function, so each check reads the signal anew after an await.
     const aborted = () => abort.signal.aborted;
     controller = abort;
-    const startMs = Date.now();
+    const startMs = now();
     let outcome: PollOutcome;
     try {
       const context = await core.context(source);
       if (aborted()) return;
-      const projected =
-        repo === undefined
-          ? context
-          : {
-              ...context,
-              observe: {
-                prs: context.observe.prs.filter(
-                  (ref) => ref.repo.toLowerCase() === repo.toLowerCase(),
-                ),
-                tickets: [],
-                sessions: [],
-              },
-            };
-      const requested: GoneRef[] = [...projected.observe.prs, ...projected.observe.tickets];
+      if (!hydrated) {
+        counts = new Map(context.missCounts?.map(({ ref, count }) => [entityKey(ref), count]));
+        hydrated = true;
+      }
+      const requested: GoneRef[] = [...context.observe.prs, ...context.observe.tickets];
       const batch = await untilAborted(
-        adapter.poll({ ...projected, signal: abort.signal }),
+        adapter.poll({ ...context, signal: abort.signal }),
         abort.signal,
       );
       // Only an abort ends the poll here; a missing or malformed batch fails validation below.
@@ -191,22 +165,47 @@ function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: nu
       if (
         !parsed.success ||
         parsed.data.source !== source ||
-        !answersRequest(projected.observe, parsed.data.entities)
+        !answersRequest(context.observe, parsed.data.entities)
       ) {
         outcome = { kind: 'failed', error: new AdapterError('transient', 'Invalid batch') };
       } else {
-        await core.observe(source, parsed.data);
-        if (aborted()) return;
         const outcomes = applyEntityOutcomes({
           counts,
           requested,
           batch: parsed.data,
           goneAfterPolls: config.sources.goneAfterPolls,
         });
-        counts = outcomes.counts;
-        gone = outcomes.gone;
-        if (outcomes.complete) lastCompleteMs = startMs;
-        errorBlind = undefined;
+        const proposedLastCompleteMs = outcomes.complete ? startMs : lastCompleteMs;
+        const proposedBlind =
+          now() > staleDeadline(proposedLastCompleteMs, runnerStartMs, staleMultiplier, intervalMs)
+            ? staleBlind
+            : undefined;
+        const proposedState: SourceState = {
+          ...(proposedLastCompleteMs === undefined
+            ? {}
+            : { lastCompleteAt: iso(proposedLastCompleteMs) }),
+          ...(proposedBlind === undefined ? {} : { blind: proposedBlind }),
+          gone: outcomes.gone,
+        };
+        const accepted = reports.then(async () => {
+          await core.observe(source, {
+            batch: parsed.data,
+            effectiveComplete: outcomes.complete,
+            state: proposedState,
+            outcomes: outcomes.outcomes,
+          });
+          counts = outcomes.counts;
+          gone = outcomes.gone;
+          lastCompleteMs = proposedLastCompleteMs;
+          errorBlind = undefined;
+          lastReported = JSON.stringify(proposedState);
+        });
+        reports = accepted.then(
+          () => undefined,
+          () => undefined,
+        );
+        await accepted;
+        if (aborted()) return;
         outcome = { kind: 'delivered', budget: parsed.data.budget };
       }
     } catch (error) {
@@ -225,7 +224,7 @@ function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: nu
       failures,
       authRetryMs: config.sources.authRetryMs,
       reserveRemaining,
-      now: Date.now(),
+      now: now(),
     });
     failures = delay.failures;
     armDeadline();

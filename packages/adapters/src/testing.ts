@@ -1,7 +1,13 @@
 // Test fakes for the adapter runner: a recording core and a recording adapter. No test
 // framework import, so any harness can use them.
-import type { Adapter, Batch, PollContext } from '@spur-board/contracts';
-import type { AdapterCore, SourceState } from './runner/runner.ts';
+import type {
+  AcceptedObservation,
+  Adapter,
+  AdapterCore,
+  Batch,
+  PollContext,
+  SourceState,
+} from '@spur-board/contracts';
 
 type Context = Omit<PollContext, 'signal'>;
 
@@ -9,15 +15,17 @@ export interface FakeCoreOptions {
   /** What `context` returns; defaults to nothing to observe and no cursor. */
   context?: (source: string) => Context | Promise<Context>;
   /** Runs after `observe` records its call; a rejection rejects the call. */
-  observe?: (source: string, batch: Batch) => void | Promise<void>;
+  observe?: (source: string, observation: AcceptedObservation) => void | Promise<void>;
   /** Runs after `reportSourceState` records its call; a rejection rejects the call. */
   reportSourceState?: (source: string, state: SourceState) => void | Promise<void>;
 }
 
 export interface FakeCore extends AdapterCore {
-  readonly observed: { source: string; batch: Batch }[];
-  /** Every `reportSourceState` call in call order. */
+  readonly observed: { source: string; batch: Batch; observation: AcceptedObservation }[];
+  /** Accepted source states and separate failure/deadline reports, in call order. */
   readonly states: { source: string; state: SourceState }[];
+  /** Only standalone failure/deadline reports. */
+  readonly reports: { source: string; state: SourceState }[];
   /** The most `reportSourceState` calls that were unsettled at once. */
   readonly maxReportsInFlight: number;
   /** From now on each `reportSourceState` waits until `releaseReport` is called. */
@@ -29,6 +37,7 @@ export interface FakeCore extends AdapterCore {
 export function createFakeCore(options: FakeCoreOptions = {}): FakeCore {
   const observed: FakeCore['observed'] = [];
   const states: FakeCore['states'] = [];
+  const reports: FakeCore['reports'] = [];
   const held: (() => void)[] = [];
   let holding = false;
   let inFlight = 0;
@@ -38,6 +47,7 @@ export function createFakeCore(options: FakeCoreOptions = {}): FakeCore {
   return {
     observed,
     states,
+    reports,
     get maxReportsInFlight() {
       return maxInFlight;
     },
@@ -52,12 +62,14 @@ export function createFakeCore(options: FakeCoreOptions = {}): FakeCore {
     async context(source) {
       return options.context ? await options.context(source) : empty;
     },
-    async observe(source, batch) {
-      observed.push({ source, batch });
-      await options.observe?.(source, batch);
+    async observe(source, observation) {
+      observed.push({ source, batch: observation.batch, observation });
+      await options.observe?.(source, observation);
+      states.push({ source, state: observation.state });
     },
     async reportSourceState(source, state) {
       states.push({ source, state });
+      reports.push({ source, state });
       inFlight += 1;
       maxInFlight = Math.max(maxInFlight, inFlight);
       try {

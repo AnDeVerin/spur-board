@@ -123,6 +123,37 @@ afterEach(() => {
 });
 
 describe('Jira adapter', () => {
+  it('resolves a manually included key before its stable id is known', async () => {
+    const pending: TicketEntityRef = { kind: 'ticket', trackerId: 'jira-proj', key: 'PROJ-9' };
+    const { fetcher, calls } = fake(
+      () => ({ issues: [], isLast: true }),
+      undefined,
+      () => issue('109', 'PROJ-9'),
+    );
+    const result = await adapter(fetcher).source.poll(context([pending]));
+    expect(batchSchema.safeParse(result).success).toBe(true);
+    expect(result.entities).toEqual([{ ref: pending, status: 'ok' }]);
+    expect(result.items).toMatchObject([
+      { kind: 'ticket', facts: { id: '109', key: 'PROJ-9', inFilter: false } },
+    ]);
+    expect(calls.some((call) => call.path.endsWith('/issue/PROJ-9'))).toBe(true);
+  });
+
+  it.each([
+    [404, 'not_found'],
+    [403, 'no_access'],
+  ] as const)('reports a pending key HTTP %i as %s', async (status, outcome) => {
+    const pending: TicketEntityRef = { kind: 'ticket', trackerId: 'jira-proj', key: 'PROJ-9' };
+    const { fetcher } = fake(
+      () => ({ issues: [], isLast: true }),
+      undefined,
+      () => new Response('', { status }),
+    );
+    const result = await adapter(fetcher).source.poll(context([pending]));
+    expect(result.entities).toEqual([{ ref: pending, status: outcome }]);
+    expect(result.items).toEqual([]);
+  });
+
   it('walks the full JQL filter and normalizes stable ticket facts', async () => {
     const { fetcher, calls } = fake((body) => {
       if (body['nextPageToken'] === undefined)

@@ -14,6 +14,7 @@ import {
   itemIdSchema,
   taskKeySchema,
 } from '../ids.ts';
+import { prFactsSchema, sessionFactsSchema, ticketFactsSchema } from '../facts.ts';
 import { OPERATION_KINDS, cliModeSchema, grantRuleSchema } from './define.ts';
 
 // Shapes several operations return. Every object is strict and every field is described, so the
@@ -89,6 +90,70 @@ export const itemViewSchema = z
     summary: z.string().describe('What needs the operator, in one line.'),
   })
   .describe('A "from you" item: something waiting for the operator.');
+
+export const statusSessionFactsSchema = z
+  .strictObject({
+    ...sessionFactsSchema.shape,
+    links: z
+      .array(
+        z.strictObject({
+          label: z.string().min(1).describe('Published link label.'),
+          url: z.url({ protocol: /^https?$/ }).describe('Published link URL.'),
+        }),
+      )
+      .describe('Links published by this session.'),
+  })
+  .describe('Session facts with links as display entries.');
+
+export const statusTaskSchema = taskViewSchema
+  .extend({
+    ticket: ticketFactsSchema
+      .nullable()
+      .describe('Latest ticket facts, or null before observation.'),
+    prs: z.array(prFactsSchema).describe('Latest facts for linked pull requests.'),
+    sessions: z.array(statusSessionFactsSchema).describe('Latest facts for linked sessions.'),
+    links: z
+      .array(
+        z.strictObject({
+          kind: z.enum(['pr', 'session']).describe('Linked entity kind.'),
+          ref: z.string().min(1).describe('Pull request or session identifier.'),
+          role: z
+            .enum(['worker', 'other', 'orchestrator'])
+            .nullable()
+            .describe('Session role; null for a pull request.'),
+        }),
+      )
+      .describe('Links fixed when each entity first joined the task.'),
+  })
+  .describe('A board task with its latest observed facts and links.');
+
+export const statusItemSchema = itemViewSchema
+  .extend({
+    key: z.string().min(1).describe('Stable key of this actionable item.'),
+    unconfirmed: z.boolean().describe('Whether a supporting fact is stale or its source is blind.'),
+    factAt: z.iso.datetime().nullable().describe('Time of the supporting fact, when known.'),
+  })
+  .describe('An actionable item with its freshness mark.');
+
+export const sourceViewSchema = z
+  .strictObject({
+    source: z.string().min(1).describe('Adapter source identifier.'),
+    observedAt: z.iso.datetime().nullable().describe('Time of the latest observation, if any.'),
+    lastCompleteAt: z.iso
+      .datetime()
+      .nullable()
+      .describe('Time of the latest complete observation.'),
+    blindReason: z
+      .enum(['auth', 'config', 'stale'])
+      .nullable()
+      .describe('Why this source is blind, or null when it is usable.'),
+    message: z.string().nullable().describe('Short explanation of the source state.'),
+    stale: z.boolean().describe('Whether facts from this source exceed their freshness threshold.'),
+    warmingUp: z
+      .boolean()
+      .describe('Whether this source needs a complete poll in this daemon run.'),
+  })
+  .describe('Freshness and availability of one source.');
 
 /** Roles `schema.get` can filter the catalog for. */
 export const SCHEMA_ROLES = ['operator', 'worker', 'orchestrator'] as const;

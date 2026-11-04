@@ -5,6 +5,9 @@ import {
   EVENT_VERSION,
   type EventKind,
   type JournalEvent,
+  type PrFacts,
+  type SessionFacts,
+  type TicketFacts,
   eventPayloadSchemas,
   parseEvent,
 } from '../src/index.ts';
@@ -21,10 +24,57 @@ const base = {
 } as const;
 
 const pr = { repo: 'example-org/web', pr: 7 };
+const prFacts: PrFacts = {
+  repo: pr.repo,
+  number: pr.pr,
+  url: 'https://github.com/example-org/web/pull/7',
+  title: 'PROJ-1 Work',
+  author: 'octocat',
+  headSha: 'a'.repeat(40),
+  headBranch: 'PROJ-1-work',
+  state: 'open',
+  draft: false,
+  mergeable: 'unknown',
+  mergeState: 'unknown',
+  requiredChecks: [],
+  checks: [],
+  reviews: [],
+  reviewThreads: [],
+  reviewRequests: [],
+  ticketKeys: ['PROJ-1'],
+  updatedAt: base.at,
+};
+const ticketFacts: TicketFacts = {
+  trackerId: 'web',
+  id: '10001',
+  key: 'PROJ-1',
+  title: 'Work',
+  status: 'To Do',
+  assignee: null,
+  sprint: null,
+  labels: [],
+  inFilter: true,
+  url: 'https://example.test/browse/PROJ-1',
+  updatedAt: base.at,
+};
+const sessionFacts: SessionFacts = {
+  id: 'sess-1',
+  spurProject: 'web-worker',
+  branch: null,
+  pr: null,
+  links: {},
+  lifecycle: 'running',
+  health: 'working',
+  healthSince: base.at,
+  lastActivityAt: null,
+  endedAt: null,
+  endReason: null,
+};
 
 // A kind missing here is a compile error.
 const samples: { [K in EventKind]: Extract<JournalEvent, { kind: K }> } = {
   head_moved: { ...base, kind: 'head_moved', payload: { ...pr, from: 'abc1', to: 'def2' } },
+  pr_facts_changed: { ...base, kind: 'pr_facts_changed', payload: { facts: prFacts } },
   checks_changed: {
     ...base,
     kind: 'checks_changed',
@@ -50,10 +100,21 @@ const samples: { [K in EventKind]: Extract<JournalEvent, { kind: K }> } = {
     kind: 'ticket_status_changed',
     payload: { from: 'To Do', to: 'In Progress' },
   },
+  ticket_facts_changed: { ...base, kind: 'ticket_facts_changed', payload: { facts: ticketFacts } },
   session_state_changed: {
     ...base,
     kind: 'session_state_changed',
     payload: { session: 'sess-1', from: 'running', to: 'ended', endReason: 'complete' },
+  },
+  session_facts_changed: {
+    ...base,
+    kind: 'session_facts_changed',
+    payload: { facts: sessionFacts },
+  },
+  spur_unknown_state: {
+    ...base,
+    kind: 'spur_unknown_state',
+    payload: { kind: 'unknown_state', value: 'future-state' },
   },
   link_added: {
     ...base,
@@ -125,8 +186,8 @@ const samples: { [K in EventKind]: Extract<JournalEvent, { kind: K }> } = {
 };
 
 describe('event kinds', () => {
-  it('has a payload schema for each of the 26 kinds', () => {
-    expect(EVENT_KINDS).toHaveLength(26);
+  it('has a payload schema for each of the 30 kinds', () => {
+    expect(EVENT_KINDS).toHaveLength(30);
     expect(Object.keys(eventPayloadSchemas).sort()).toEqual([...EVENT_KINDS].sort());
   });
 
