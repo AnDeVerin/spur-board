@@ -225,6 +225,11 @@ export const configSchema = z.strictObject({
       }
     })
     .prefault({}),
+  http: z
+    .strictObject({
+      port: z.int().min(1).max(65_535).default(4311).describe('Local HTTP API port.'),
+    })
+    .prefault({}),
   adapters: z
     .strictObject({
       spur: spurAdapterSection,

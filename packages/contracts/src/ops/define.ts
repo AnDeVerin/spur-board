@@ -103,7 +103,13 @@ export interface Operation<
   examples: readonly [Example<I, O>, ...Example<I, O>[]];
 }
 
-const COMMON_ERRORS: readonly ServerErrorCode[] = ['usage', 'forbidden', 'identity_unavailable'];
+const COMMON_ERRORS: readonly ServerErrorCode[] = [
+  'usage',
+  'forbidden',
+  'identity_unavailable',
+  'starting',
+  'not_implemented',
+];
 const MUTATION_ERRORS: readonly ServerErrorCode[] = ['idempotency_key_mismatch'];
 
 /**

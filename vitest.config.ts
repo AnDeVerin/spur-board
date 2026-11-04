@@ -25,7 +25,14 @@ export default defineConfig({
         test: {
           name: 'unit',
           include: ['packages/*/test/**/*.test.ts', 'scripts/**/*.test.ts'],
-          exclude: ['**/*.integration.test.ts'],
+          exclude: ['**/*.integration.test.ts', 'packages/cli/test/startup.test.ts'],
+        },
+      },
+      {
+        extends: true,
+        test: {
+          name: 'startup',
+          include: ['packages/cli/test/startup.test.ts'],
         },
       },
       {

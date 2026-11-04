@@ -138,6 +138,40 @@ Example:
 }
 ```
 
+## not_implemented
+
+This operation is not available in this daemon build.
+
+HTTP: 501  
+Exit code: 1  
+Hint: Ask the operator to update the daemon to a build with this operation.  
+Recovery: Update the daemon to a build with this operation.  
+Side effects: none  
+Retry: maximum 0; After fixing the cause.
+
+Example:
+
+```json
+{
+  "ok": false,
+  "requestId": "req-example-123",
+  "error": {
+    "code": "not_implemented",
+    "requestId": "req-example-123",
+    "message": "This operation is not available in this daemon build.",
+    "hint": "Ask the operator to update the daemon to a build with this operation.",
+    "docs": "docs/errors.md#not_implemented",
+    "recovery": {
+      "action": "Update the daemon to a build with this operation.",
+      "sideEffects": "none",
+      "maxRetries": 0,
+      "retryTiming": "After fixing the cause."
+    },
+    "context": {}
+  }
+}
+```
+
 ## block_not_open
 
 The block is already unblocked.
@@ -370,6 +404,40 @@ Example:
       "sideEffects": "none",
       "maxRetries": 3,
       "retryTiming": "After caller identity is available; wait briefly between retries."
+    },
+    "context": {}
+  }
+}
+```
+
+## starting
+
+The daemon is still starting; nothing was applied.
+
+HTTP: 503  
+Exit code: 3  
+Hint: Wait until the daemon is ready, then retry the command with its existing idempotency key if it has one.  
+Recovery: Wait until the daemon is ready, then retry the command with its existing idempotency key if it has one.  
+Side effects: none  
+Retry: maximum 3; After the daemon is ready; wait briefly between retries.
+
+Example:
+
+```json
+{
+  "ok": false,
+  "requestId": "req-example-123",
+  "error": {
+    "code": "starting",
+    "requestId": "req-example-123",
+    "message": "The daemon is still starting; nothing was applied.",
+    "hint": "Wait until the daemon is ready, then retry the command with its existing idempotency key if it has one.",
+    "docs": "docs/errors.md#starting",
+    "recovery": {
+      "action": "Wait until the daemon is ready, then retry the command with its existing idempotency key if it has one.",
+      "sideEffects": "none",
+      "maxRetries": 3,
+      "retryTiming": "After the daemon is ready; wait briefly between retries."
     },
     "context": {}
   }
