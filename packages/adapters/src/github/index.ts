@@ -148,7 +148,6 @@ async function pollRepository({
   rejectUnscoped(response.errors, roots);
   const entities: Batch['entities'] = [];
   const items: Batch['items'] = [];
-  const seenItems = new Set<number>();
   let discoveryOk = scoped(response.errors, 'repository').length === 0;
   const first = discoveryOk ? nested(response.data, 'repository', 'pullRequests') : undefined;
   const nodes = first === undefined ? [] : discoveryNodes(first);
@@ -174,7 +173,6 @@ async function pollRepository({
   }
   if (!discoveryOk) complete = false;
   const found = discover(nodes, ctx.cursor, login);
-  const allNumbers = new Set([...numbers, ...found.numbers]);
   const process = async (
     number: number,
     wire: Json | undefined,
@@ -203,10 +201,7 @@ async function pollRepository({
       return false;
     }
     const facts = normalizePr(ref?.repo ?? repo, full, prefixes);
-    if (!seenItems.has(number)) {
-      items.push({ kind: 'pr', facts });
-      seenItems.add(number);
-    }
+    items.push({ kind: 'pr', facts });
     if (ref) entities.push({ ref, status: 'ok' });
     return true;
   };
@@ -221,7 +216,7 @@ async function pollRepository({
     )
       discoveredOk = false;
   }
-  const discovered = [...allNumbers].filter((number) => !byNumber.has(number));
+  const discovered = found.numbers.filter((number) => !byNumber.has(number));
   if (discovered.length > 0) {
     const detail = await client.query(detailQuery(discovered), { owner, repo: name }, ctx.signal);
     budget = detail.budget;

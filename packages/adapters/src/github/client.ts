@@ -37,11 +37,19 @@ const prFields = (
  reviewRequests(first: 100) { nodes { requestedReviewer { ... on User { login } ... on Team { name } } asCodeOwner } pageInfo { hasNextPage endCursor } }`;
 const DISCOVERY_FIELDS = `nodes { number updatedAt author { login } state } pageInfo { hasNextPage endCursor }`;
 // Alias numbers are literals, so a request can contain an arbitrary set of requested PRs.
+function aliases(numbers: readonly number[]): string {
+  return numbers
+    .map(
+      (number, i) =>
+        `pr${String(i)}: repository(owner: $owner, name: $repo) { pullRequest(number: ${String(number)}) { ${prFields(number)} } }`,
+    )
+    .join('\n');
+}
 export function initialQuery(numbers: readonly number[]): string {
-  return `query PrBatch($owner: String!, $repo: String!) { rateLimit { remaining resetAt } repository(owner: $owner, name: $repo) { pullRequests(first: 100, states: [OPEN, MERGED], orderBy: {field: UPDATED_AT, direction: DESC}) { ${DISCOVERY_FIELDS} } } ${numbers.map((number, i) => `pr${String(i)}: repository(owner: $owner, name: $repo) { pullRequest(number: ${String(number)}) { ${prFields(number)} } }`).join('\n')} }`;
+  return `query PrBatch($owner: String!, $repo: String!) { rateLimit { remaining resetAt } repository(owner: $owner, name: $repo) { pullRequests(first: 100, states: [OPEN, MERGED], orderBy: {field: UPDATED_AT, direction: DESC}) { ${DISCOVERY_FIELDS} } } ${aliases(numbers)} }`;
 }
 export function detailQuery(numbers: readonly number[]): string {
-  return `query PrDetails($owner: String!, $repo: String!) { rateLimit { remaining resetAt } ${numbers.map((number, i) => `pr${String(i)}: repository(owner: $owner, name: $repo) { pullRequest(number: ${String(number)}) { ${prFields(number)} } }`).join('\n')} }`;
+  return `query PrDetails($owner: String!, $repo: String!) { rateLimit { remaining resetAt } ${aliases(numbers)} }`;
 }
 export function pageQuery(
   connection: 'pullRequests' | 'reviews' | 'reviewThreads' | 'reviewRequests' | 'contexts',
