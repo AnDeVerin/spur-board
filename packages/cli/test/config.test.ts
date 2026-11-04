@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -41,12 +41,24 @@ describe('operator token lookup', () => {
     expect(findTokenFile(join(paths.home, 'other'), paths.home)).toBeUndefined();
   });
 
-  it('does not search above home and reads only the current external folder', () => {
+  it('does not search above home and finds an external parent from a subfolder', () => {
     const paths = setup();
+    const nested = join(paths.outside, 'one', 'two');
+    mkdirSync(nested, { recursive: true });
     token(paths.outside, 'outside-token');
     expect(findTokenFile(paths.outside, paths.home)).toBe('outside-token');
+    expect(findTokenFile(nested, paths.home)).toBe('outside-token');
+    expect(loadClientConfig(env, { cwd: nested, home: paths.home }).token).toBe('outside-token');
     expect(findTokenFile(join(paths.home, 'other'), paths.home)).toBeUndefined();
     expect(() => loadClientConfig(env, { cwd: paths.cwd, home: paths.home })).toThrow();
+  });
+
+  it('stops external lookup before a shared ancestor', () => {
+    const paths = setup();
+    const root = join(paths.outside, '..');
+    token(root, 'ambient-token');
+    chmodSync(root, 0o777);
+    expect(findTokenFile(paths.outside, paths.home)).toBeUndefined();
   });
 
   it('uses BOARD_TOKEN before a file and skips lookup for a session', () => {

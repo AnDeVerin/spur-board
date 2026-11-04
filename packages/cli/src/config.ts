@@ -1,4 +1,4 @@
-import { readFileSync, realpathSync } from 'node:fs';
+import { readFileSync, realpathSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, relative, sep } from 'node:path';
 import { CliError } from './exit-codes.ts';
@@ -52,14 +52,19 @@ export function findTokenFile(cwd: string, home: string): string | undefined {
   const boundary = realpathSync(home);
   if (current === boundary) return undefined;
   const toCurrent = relative(boundary, current);
-  if (toCurrent === '..' || toCurrent.startsWith(`..${sep}`) || isAbsolute(toCurrent)) {
-    return tokenInFolder(current);
-  }
+  const outsideHome =
+    toCurrent === '..' || toCurrent.startsWith(`..${sep}`) || isAbsolute(toCurrent);
   let folder = current;
   while (folder !== boundary) {
+    if (outsideHome) {
+      const info = statSync(folder);
+      if (info.uid !== process.getuid() || (info.mode & 0o002) !== 0) break;
+    }
     const token = tokenInFolder(folder);
     if (token !== undefined) return token;
-    folder = dirname(folder);
+    const parent = dirname(folder);
+    if (parent === folder) break;
+    folder = parent;
   }
   return undefined;
 }
