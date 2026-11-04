@@ -19,6 +19,9 @@ export function list(value: Json | undefined): Json[] {
   if (!Array.isArray(value)) throw new AdapterError('transient', 'Malformed GitHub connection');
   return value;
 }
+export function connectionNodes(value: Json | undefined): RecordValue[] {
+  return list(record(value).nodes).map(record);
+}
 export function string(value: Json | undefined): string {
   if (typeof value !== 'string') throw new AdapterError('transient', 'Malformed GitHub field');
   return value;

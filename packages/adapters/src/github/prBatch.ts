@@ -1,9 +1,6 @@
 import { AdapterError, prFactsSchema, type PrFacts } from '@spur-board/contracts';
-import { list, record, string, type Json, type RecordValue } from './client.ts';
+import { connectionNodes, record, string, type Json, type RecordValue } from './client.ts';
 
-function connection(value: Json | undefined): RecordValue[] {
-  return list(record(value).nodes).map(record);
-}
 function lower(value: Json | undefined): string {
   return string(value).toLowerCase();
 }
@@ -97,10 +94,10 @@ export function ticketKeys(title: string, branch: string, prefixes: readonly str
   return [...keys];
 }
 export function normalizePr(repo: string, wire: RecordValue, prefixes: readonly string[]): PrFacts {
-  const commits = connection(wire.commits);
+  const commits = connectionNodes(wire.commits);
   const rollupValue = commits[0] === undefined ? null : record(commits[0].commit).statusCheckRollup;
   const rollup = rollupValue === null || rollupValue === undefined ? null : record(rollupValue);
-  const checks = latestChecks(rollup === null ? [] : connection(record(rollup).contexts));
+  const checks = latestChecks(rollup === null ? [] : connectionNodes(record(rollup).contexts));
   const state = wire.state === 'MERGED' ? 'merged' : wire.state === 'CLOSED' ? 'closed' : 'open';
   const mergeable =
     wire.mergeable === 'MERGEABLE'
@@ -129,9 +126,11 @@ export function normalizePr(repo: string, wire: RecordValue, prefixes: readonly 
     mergeable,
     mergeState,
     ...checks,
-    reviews: latestReviews(connection(wire.reviews)),
-    reviewThreads: connection(wire.reviewThreads).map((node) => ({ resolved: node.isResolved })),
-    reviewRequests: connection(wire.reviewRequests).map((node) => {
+    reviews: latestReviews(connectionNodes(wire.reviews)),
+    reviewThreads: connectionNodes(wire.reviewThreads).map((node) => ({
+      resolved: node.isResolved,
+    })),
+    reviewRequests: connectionNodes(wire.reviewRequests).map((node) => {
       const reviewer = record(node.requestedReviewer);
       return { reviewer: reviewer.login ?? reviewer.name, asCodeOwner: node.asCodeOwner };
     }),

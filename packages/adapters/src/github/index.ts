@@ -9,6 +9,7 @@ import {
 import {
   GithubClient,
   initialQuery,
+  connectionNodes,
   detailQuery,
   pageQuery,
   list,
@@ -17,7 +18,7 @@ import {
   type Json,
   type RecordValue,
 } from './client.ts';
-import { discover, discoveryNodes, nextPage } from './discovery.ts';
+import { discover, nextPage } from './discovery.ts';
 import { normalizePr } from './prBatch.ts';
 
 export interface GithubSource {
@@ -150,7 +151,7 @@ async function pollRepository({
   const items: Batch['items'] = [];
   let discoveryOk = scoped(response.errors, 'repository').length === 0;
   const first = discoveryOk ? nested(response.data, 'repository', 'pullRequests') : undefined;
-  const nodes = first === undefined ? [] : discoveryNodes(first);
+  const nodes = first === undefined ? [] : connectionNodes(first);
   let cursor = first === undefined ? undefined : nextPage(first);
   const seenPages = new Set<string>();
   while (cursor !== undefined && discoveryOk) {
@@ -168,7 +169,7 @@ async function pollRepository({
       break;
     }
     const connection = nested(page.data, 'repository', 'pullRequests');
-    nodes.push(...discoveryNodes(connection));
+    nodes.push(...connectionNodes(connection));
     cursor = nextPage(connection);
   }
   if (!discoveryOk) complete = false;

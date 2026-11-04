@@ -1,5 +1,5 @@
 import { sourceCursorSchema, type SourceCursor } from '@spur-board/contracts';
-import { list, record, string, type Json, type RecordValue } from './client.ts';
+import { record, string, type Json, type RecordValue } from './client.ts';
 
 export interface Discovery {
   numbers: number[];
@@ -26,9 +26,6 @@ export function discover(
     if (typeof number === 'number' && Number.isInteger(number) && number > 0) numbers.add(number);
   }
   return { numbers: [...numbers], ...(high === undefined ? {} : { cursor: high }) };
-}
-export function discoveryNodes(connection: Json | undefined): RecordValue[] {
-  return list(record(connection).nodes).map(record);
 }
 export function nextPage(connection: Json | undefined): string | undefined {
   const info = record(record(connection).pageInfo);
