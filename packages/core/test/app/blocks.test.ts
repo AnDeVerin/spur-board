@@ -255,6 +255,26 @@ describe('block and comment mutations', () => {
     expect(comments.at(-1)?.payload).toMatchObject({ addressee: 'orchestrator:dev' });
   });
 
+  it('routes an author clarification to the operator who answered without escalation', async () => {
+    const { store, apply } = await seeded();
+    const asked = await apply(ops.ask, { task: KEY, text: 'Question?' }, author, 'ask-1');
+    expect(asked.block.addressee).toBe('orchestrator:dev');
+    const answer = await apply(
+      ops.answer,
+      { block: asked.block.id, text: 'Answer.' },
+      'operator',
+      'answer-1',
+    );
+    expect(answer.block.unblockedBy).toBe('operator');
+    await apply(
+      ops.add,
+      { task: KEY, block: asked.block.id, text: 'One follow-up.' },
+      author,
+      'clarify-1',
+    );
+    expect((await events(store)).at(-1)?.payload).toMatchObject({ addressee: 'operator' });
+  });
+
   it('addresses dependency and external blocks from a configured operator agent to operator', async () => {
     const { apply } = await seeded();
     for (const [type, actor] of [

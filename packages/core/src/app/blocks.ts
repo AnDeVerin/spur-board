@@ -454,12 +454,20 @@ export function createBlockMutations(config: Config) {
       if (block !== undefined && block.task_id !== task.id) {
         throw new CommandError('not_found', 'Block does not belong to this task.');
       }
-      const addressee =
-        block === undefined
-          ? 'worker'
-          : ctx.actor === block.author
-            ? block.addressee_role
-            : authorRole(config, task, block.author);
+      let addressee: AddresseeRole = 'worker';
+      if (block !== undefined) {
+        if (ctx.actor !== block.author) {
+          addressee = authorRole(config, task, block.author);
+        } else if (
+          block.outcome === 'done' &&
+          block.unblocked_by !== null &&
+          block.unblocked_by !== block.author
+        ) {
+          addressee = authorRole(config, task, block.unblocked_by);
+        } else {
+          addressee = block.addressee_role;
+        }
+      }
       const comment = await addComment(trx, task, block, input.text, ctx, addressee);
       return { comment: commentView(comment, task) };
     },
