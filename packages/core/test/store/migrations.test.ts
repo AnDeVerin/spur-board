@@ -352,6 +352,8 @@ describe('migration pins', () => {
     '0005_doorbells_items.sql': '6d1a269b593d0f6b342a73761f1a756a94a6c9c2a5c983c191a627654b097570',
     '0006_notification_exhausted.sql':
       '64139694f1bde3e61d7c1b67ebc9eb4858c3974bdd72f84306ac3837f7d8de96',
+    '0007_inbound_item_event.sql':
+      '205aad5987530bce0bd2a96ec5ce836cf76b176e366e27735d1fff692650b8eb',
   };
 
   interface MigrationFile {

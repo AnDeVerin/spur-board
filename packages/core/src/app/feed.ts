@@ -81,19 +81,23 @@ export async function raiseItem(
     .returningAll()
     .executeTakeFirstOrThrow();
   await journal(trx, item, 'from_you_raised', input.at);
-  if (!NO_FEED.has(item.kind) && item.task_id !== null) {
-    const task = await trx
-      .selectFrom('task')
-      .select('key')
-      .where('id', '=', item.task_id)
-      .executeTakeFirstOrThrow();
+  if (!NO_FEED.has(item.kind)) {
+    const task =
+      item.task_id === null
+        ? undefined
+        : await trx
+            .selectFrom('task')
+            .select('key')
+            .where('id', '=', item.task_id)
+            .executeTakeFirstOrThrow();
+    const key = task?.key ?? 'board';
     const line = await enqueueFeedLine(trx, {
       itemId: item.id,
       itemKey: item.item_key,
       raise: item.raise_no,
-      key: task.key,
+      key,
       text: item.text,
-      title: `${task.key}: ${item.text}`,
+      title: `${key}: ${item.text}`,
       url: item.url,
       taskId: item.task_id,
       ...(item.kind === 'worker_not_reading'
@@ -103,7 +107,16 @@ export async function raiseItem(
               { id: `item:${String(item.id)}:close`, label: 'Close' },
             ],
           }
-        : {}),
+        : item.kind === 'inbound_failure'
+          ? {
+              actions: [
+                { id: `item:${String(item.id)}:retry`, label: 'Retry' },
+                { id: `item:${String(item.id)}:close`, label: 'Close' },
+              ],
+            }
+          : item.kind === 'inbound_gap' || item.kind === 'answer_author_unavailable'
+            ? { actions: [{ id: `item:${String(item.id)}:close`, label: 'Close' }] }
+            : {}),
       at: input.at,
     });
     item = await trx
@@ -131,17 +144,20 @@ export async function clearItem(trx: Trx, itemId: number, at: Date): Promise<voi
     .returningAll()
     .executeTakeFirstOrThrow();
   await journal(trx, item, 'from_you_cleared', at);
-  if (item.line_outbox_id === null || item.task_id === null) return;
-  const task = await trx
-    .selectFrom('task')
-    .select('key')
-    .where('id', '=', item.task_id)
-    .executeTakeFirstOrThrow();
+  if (item.line_outbox_id === null) return;
+  const task =
+    item.task_id === null
+      ? undefined
+      : await trx
+          .selectFrom('task')
+          .select('key')
+          .where('id', '=', item.task_id)
+          .executeTakeFirstOrThrow();
   await enqueueFeedEdit(trx, {
     itemKey: item.item_key,
     raise: item.raise_no,
     lineId: item.line_outbox_id,
-    key: task.key,
+    key: task?.key ?? 'board',
     taskId: item.task_id,
     at,
   });

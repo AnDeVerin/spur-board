@@ -17,7 +17,6 @@ numbered migrations. Where a test enforces a rule, the rule names it.
   breaks stored data as users see it (its Breaking changes section lists the cases, a new required
   column and a tightened constraint among them) needs both skills: this one for the migration,
   that one for the break.
-- Not covered yet: the inbox.
 
 ## Transactions
 
@@ -26,8 +25,9 @@ numbered migrations. Where a test enforces a rule, the rule names it.
   (`Store` in `packages/core/src/store/store.ts`).
 - `store.transaction` is the only place application code starts a transaction. It sends
   `BEGIN IMMEDIATE`, so the write lock is held from the start.
-- One unit of work is one `store.transaction`: a tick, one observed batch, one command. Tick and
-  observe code does not exist yet (#31); #31 updates this section with its callers.
+- One unit of work is one `store.transaction`: a tick, one observed batch, one command or one
+  inbound event. On an inbound handler failure, roll back its transaction, then journal the
+  failure and create the linked operator item in a separate transaction before resolving the sink.
 - No IO inside `fn`: no network, file or child process, no await other than `trx` queries. Fetch
   first, then write; a side effect goes out through the outbox after commit (next section). Why:
   the lock is held for all of `fn`, other writers give up after the 5000 ms busy timeout, and a
@@ -35,9 +35,9 @@ numbered migrations. Where a test enforces a rule, the rule names it.
 - No lint checks the last two rules; the reviewer judges them. The transaction itself is pinned
   by 'commits on return and holds the write lock from BEGIN' and
   'rolls back a write when the function throws'.
-- A command goes through `createApply` (`app/commands.ts`): the `(actor, key)` lookup, the
-  effect and the `command` row share one transaction. Pinned by 'returns the stored result
-  after a crash between commit and reply'.
+- Catalog mutations go through `createApply`; inbound events call `replayOperation` inside their
+  transaction. The `(actor, key)` lookup, effect and `command` row commit together. A retry of an
+  inbound item reuses that transaction's `trx`; it never starts a nested transaction.
 
 ## State, journal and outbox
 

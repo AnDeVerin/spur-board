@@ -4,6 +4,7 @@ import { normalizeInteraction, normalizeMessage } from '../src/normalize.ts';
 const bot = { userId: 'U_BOT', botId: 'B_BOT' };
 const root = { ts: '1760000000.000001', blocks: [{ block_id: 'spur:open-key' }] };
 const context = { bot, root, rootTs: root.ts };
+const channels = { orchestrators: 'C_ONE', feed: 'C_FEED' };
 
 describe('Slack inbound normalization', () => {
   it('gives duplicate top-level mentions the same event, including retries', () => {
@@ -34,8 +35,14 @@ describe('Slack inbound normalization', () => {
     expect(regular).toEqual(mention);
     expect(regular).toEqual(retry);
     expect(regular).toMatchObject([
-      { kind: 'mention', dedupeKey: 'slack:C_ONE:1760000001.000002', author: 'U_OPERATOR' },
+      {
+        kind: 'mention',
+        dedupeKey: 'slack:C_ONE:1760000001.000002',
+        author: 'U_OPERATOR',
+        sourceUrl: 'https://app.slack.com/archives/C_ONE/p1760000001000002',
+      },
     ]);
+    expect(regular[0]).toHaveProperty('rootMessage');
   });
 
   it('treats an app mention inside a thread as a message with the root origin key', () => {
@@ -51,8 +58,14 @@ describe('Slack inbound normalization', () => {
       context,
     );
     expect(events).toMatchObject([
-      { kind: 'message', originKey: 'open-key', dedupeKey: 'slack:C_ONE:1760000002.000003' },
+      {
+        kind: 'message',
+        originKey: 'open-key',
+        dedupeKey: 'slack:C_ONE:1760000002.000003',
+        sourceUrl: 'https://app.slack.com/archives/C_ONE/p1760000002000003',
+      },
     ]);
+    expect(events[0]).toHaveProperty('rootMessage');
   });
 
   it('drops own bot echoes and empty edits', () => {
@@ -114,6 +127,20 @@ describe('Slack inbound normalization', () => {
     expect(new Set([original[0]?.dedupeKey, edit[0]?.dedupeKey, deletion[0]?.dedupeKey]).size).toBe(
       3,
     );
+    expect(original[0]).toMatchObject({
+      sourceUrl: 'https://app.slack.com/archives/C_ONE/p1760000005000006',
+    });
+    expect(original[0]).toHaveProperty('rootMessage');
+    const originalEvent = original[0];
+    if (originalEvent?.kind !== 'message') throw new Error('expected original message');
+    expect(edit[0]).toMatchObject({
+      sourceUrl: 'https://app.slack.com/archives/C_ONE/p1760000005000006',
+      rootMessage: originalEvent.rootMessage,
+    });
+    expect(deletion[0]).toMatchObject({
+      sourceUrl: 'https://app.slack.com/archives/C_ONE/p1760000005000006',
+      rootMessage: originalEvent.rootMessage,
+    });
   });
 
   it('maps equivalent live and history messages to equal events', () => {
@@ -190,14 +217,30 @@ describe('Slack inbound normalization', () => {
     const action = {
       trigger_id: 'TRIGGER-2',
       user: { id: 'U_OPERATOR' },
-      channel: { id: 'C_ONE' },
+      channel: { id: 'C_FEED' },
       message: { ts: root.ts, blocks: root.blocks },
       actions: [{ action_id: 'approve' }],
     };
-    expect(normalizeInteraction('slash_commands', command)[0]?.dedupeKey).toBe('slack:TRIGGER-1');
-    expect(normalizeInteraction('slash_commands', { ...command, retry_attempt: 2 })).toEqual(
-      normalizeInteraction('slash_commands', command),
+    expect(normalizeInteraction('slash_commands', command, channels)[0]?.dedupeKey).toBe(
+      'slack:TRIGGER-1',
     );
-    expect(normalizeInteraction('interactive', action)[0]?.dedupeKey).toBe('slack:TRIGGER-2');
+    expect(normalizeInteraction('slash_commands', command, channels)[0]).toMatchObject({
+      sourceUrl: 'https://app.slack.com/archives/C_ONE',
+      sourceSpace: 'orchestrators',
+    });
+    expect(
+      normalizeInteraction('slash_commands', { ...command, retry_attempt: 2 }, channels),
+    ).toEqual(normalizeInteraction('slash_commands', command, channels));
+    expect(normalizeInteraction('interactive', action, channels)[0]?.dedupeKey).toBe(
+      'slack:TRIGGER-2',
+    );
+    expect(normalizeInteraction('interactive', action, channels)[0]).toMatchObject({
+      sourceUrl: 'https://app.slack.com/archives/C_FEED/p1760000000000001',
+      sourceSpace: 'feed',
+    });
+    expect(normalizeInteraction('interactive', action, channels)[0]).toHaveProperty('rootMessage');
+    expect(
+      normalizeInteraction('slash_commands', { ...command, channel_id: 'C_OTHER' }, channels)[0],
+    ).toMatchObject({ sourceSpace: null });
   });
 });

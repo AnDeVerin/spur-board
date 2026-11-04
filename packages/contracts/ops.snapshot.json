@@ -1,5 +1,5 @@
 {
-  "version": "61bac265c007ea6ef27e54a97a5a5819629c1f4e77d17a6c95d6a6f385da56ad",
+  "version": "17a1d06ed0cf72f63f1e07ed55c0b5ab2e6cb9c49af9d1344c86e542f64fbea7",
   "grants": [
     "operator",
     "project-agent",
@@ -1066,6 +1066,7 @@
                     "block_unblocked",
                     "comment_added",
                     "comment_edited",
+                    "comment_deleted",
                     "comment_acked",
                     "doorbell_rung",
                     "doorbell_read",

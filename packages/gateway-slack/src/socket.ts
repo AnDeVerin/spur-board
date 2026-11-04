@@ -4,6 +4,7 @@ import type { WebClient } from '@slack/web-api';
 import type { InboundEvent, InboundSink } from '@spur-board/contracts';
 import type { ApiConfig } from './api.ts';
 import { normalizeInteraction, normalizeMessage, type BotIdentity } from './normalize.ts';
+import type { SlackChannels } from './deliver.ts';
 
 interface Envelope {
   type?: unknown;
@@ -30,6 +31,7 @@ async function rootFor(client: WebClient, channel: string, threadTs: string): Pr
 
 export interface SocketConfig extends ApiConfig {
   appToken?: string;
+  channels: SlackChannels;
 }
 
 /** Socket Mode owns transport reconnects; this layer owns sink-before-ack ordering. */
@@ -97,9 +99,9 @@ export function createSocket(
         channel !== undefined && threadTs !== undefined && threadTs !== ts
           ? await rootFor(api, channel, threadTs)
           : actionMessage;
-      events = normalizeInteraction(type, body, root);
+      events = normalizeInteraction(type, body, config.channels, root);
     } else if (type === 'slash_commands') {
-      events = normalizeInteraction(type, body);
+      events = normalizeInteraction(type, body, config.channels);
     }
     for (const event of events) await emit(event);
     await envelope.ack?.();

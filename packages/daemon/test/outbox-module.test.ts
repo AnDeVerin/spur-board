@@ -8,10 +8,24 @@ import { startFakeSlackApi } from '../../gateway-slack/test/fake-api.ts';
 import { loadConfig, resolvePaths } from '../src/config.ts';
 import type { ModuleContext } from '../src/lifecycle.ts';
 import { createLogger, logCall } from '../src/logger.ts';
-import { createOutboxModule } from '../src/outbox-module.ts';
+import { createOutboxModule, slackSettings } from '../src/outbox-module.ts';
 import { makeHome } from './home.ts';
 
 describe('outbox scheduler', () => {
+  it('passes an optional app token only when inbound is configured', () => {
+    const loaded = loadConfig(resolvePaths({ BOARD_HOME: makeHome() }, ''));
+    const config = {
+      ...loaded.config,
+      slack: { channels: { orchestrators: 'C000000001', feed: 'C000000002' } },
+    };
+    const outbound = slackSettings(config, { SLACK_BOT_TOKEN: 'xoxb-test' });
+    expect(outbound?.appToken).toBeUndefined();
+    const inbound = slackSettings(config, {
+      SLACK_BOT_TOKEN: 'xoxb-test',
+      SLACK_APP_TOKEN: 'xapp-test',
+    });
+    expect(inbound?.appToken).toBe('xapp-test');
+  });
   it('logs one failed tick and schedules a later successful tick', async () => {
     const home = makeHome();
     const base = openStore(join(home, 'board.sqlite'));
