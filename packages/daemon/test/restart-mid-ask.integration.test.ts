@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
+import { openStore } from '@spur-board/core';
 import { createE2eHarness } from './e2e-harness.ts';
 
 type Harness = Awaited<ReturnType<typeof createE2eHarness>>;
@@ -17,9 +18,21 @@ describe('restart during board ask', () => {
     const unknown = await h.cli(['ask', h.taskKey, 'Which release?', '--key', key, '--json']);
     expect(unknown.code).toBe(5);
     expect(unknown.stderr).toContain(`key: ${key}`);
-    expect(await h.store.db.selectFrom('block').select('id').execute()).toHaveLength(1);
-
     await h.stop();
+    expect(h.gateway.platform.conversations()).toHaveLength(0);
+    const persisted = openStore(h.dbFile);
+    try {
+      expect(await persisted.db.selectFrom('block').select('id').execute()).toHaveLength(1);
+      expect(
+        await persisted.db
+          .selectFrom('outbox')
+          .select(['kind', 'state'])
+          .where('kind', '=', 'conversation.open')
+          .execute(),
+      ).toEqual([{ kind: 'conversation.open', state: 'pending' }]);
+    } finally {
+      await persisted.close();
+    }
     await h.start();
     const retry = await h.cli(['ask', h.taskKey, 'Which release?', '--key', key, '--json']);
     expect(retry.code).toBe(0);

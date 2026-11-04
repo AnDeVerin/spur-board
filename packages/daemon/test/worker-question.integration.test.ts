@@ -140,15 +140,6 @@ describe('worker question through the daemon', () => {
       text: 'Answer during downtime.',
     });
     await h.start();
-    for (let attempt = 0; attempt < 100; attempt += 1) {
-      const rows = await h.store.db
-        .selectFrom('comment')
-        .select('id')
-        .where('author', '=', 'operator')
-        .execute();
-      if (rows.length > 0) break;
-      await new Promise<void>((resolve) => setImmediate(resolve));
-    }
     expect(
       await h.store.db
         .selectFrom('comment')

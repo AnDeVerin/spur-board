@@ -113,6 +113,7 @@ export async function createE2eHarness() {
 
   let store: Store | undefined;
   let outbox: ReturnType<typeof createOutboxModule> | undefined;
+  let inbound: ReturnType<typeof createInboundModule> | undefined;
   let address: string | undefined;
   let signal: ((name: string) => void) | undefined;
   let exited: Promise<number> | undefined;
@@ -177,22 +178,23 @@ export async function createE2eHarness() {
             startAdapters: () => ({ stop: () => Promise.resolve() }),
           }),
         );
-        const inbound = createInboundModule(ctxFor('inbound'), gateway, registry);
+        inbound = createInboundModule(ctxFor('inbound'), gateway, registry);
+        const inboundModule = inbound;
         entries.push({
           name: 'gateway-slack',
           stopStage: 'final',
           module: {
-            start: () => gateway.start((event) => inbound.sink(event)),
+            start: () => gateway.start((event) => inboundModule.sink(event)),
             async stop() {
               try {
                 await gateway.stop();
               } finally {
-                await inbound.stop();
+                await inboundModule.stop();
               }
             },
           },
         });
-        entries.push({ name: 'inbound', stopStage: 'pollers', module: inbound });
+        entries.push({ name: 'inbound', stopStage: 'pollers', module: inboundModule });
         outbox = createOutboxModule(ctxFor('outbox'), gateway, {
           spur: {
             send(session, text) {
@@ -215,6 +217,7 @@ export async function createE2eHarness() {
               if (crashNext) {
                 crashNext = false;
                 response.destroy();
+                signal?.('SIGTERM');
               }
             },
           }),
@@ -227,6 +230,8 @@ export async function createE2eHarness() {
       shutdownTimeoutMs: 5_000,
     });
     if (address === undefined) throw new Error('Daemon did not bind HTTP');
+    await gateway.platform.settle();
+    await inbound?.awaitRecovery();
   }
 
   async function stop(): Promise<void> {
@@ -236,6 +241,7 @@ export async function createE2eHarness() {
     if (code !== 0) throw new Error(`Daemon stopped with code ${String(code)}`);
     signal = undefined;
     outbox = undefined;
+    inbound = undefined;
   }
 
   async function cli(args: string[]): Promise<CliResult> {
@@ -294,6 +300,7 @@ export async function createE2eHarness() {
       return store;
     },
     taskKey: TASK_KEY,
+    dbFile: paths.dbFile,
     session: SESSION,
     operator: userIdSchema.parse('operator'),
   };

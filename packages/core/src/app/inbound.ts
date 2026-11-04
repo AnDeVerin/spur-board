@@ -26,7 +26,7 @@ import { toJson } from '../store/json.ts';
 import type { Row, Tables } from '../store/schema.ts';
 import type { Store } from '../store/store.ts';
 import { editInboundComment, recordInboundBlockMessage } from './blocks.ts';
-import { registerAnswerNotification } from './doorbells.ts';
+import { registerAnswerNotification, selectNotificationRecipient } from './doorbells.ts';
 import { replayOperation } from './commands.ts';
 import { CommandError } from './commands.ts';
 import { raiseItem as raiseOperatorItem, clearItem as clearOperatorItem } from './feed.ts';
@@ -197,32 +197,39 @@ async function ringAuthor(
 ): Promise<void> {
   const key = `doorbell:comment:${String(input.comment.id)}:revision:${String(input.comment.revision)}`;
   const parsed = parseActorId(input.block.author);
-  const session =
-    parsed?.actor === 'agent'
-      ? await trx
-          .selectFrom('session_snapshot')
-          .select(['id', 'ended_at'])
-          .where('id', '=', parsed.actorRef.session)
-          .executeTakeFirst()
-      : undefined;
-  if (session !== undefined && session.ended_at === null) {
+  if (parsed?.actor === 'agent') {
     if (input.workerAuthor) {
-      await registerAnswerNotification(trx, {
-        block: input.block,
-        commentId: input.comment.id,
-        revision: input.comment.revision,
-        authorRole: 'worker',
-        at: new Date(input.at),
+      const recipient = await selectNotificationRecipient(trx, {
+        task_id: input.task.id,
+        role: 'worker',
+        author_session: parsed.actorRef.session,
       });
-      return;
+      if (recipient !== undefined) {
+        await registerAnswerNotification(trx, {
+          block: input.block,
+          commentId: input.comment.id,
+          revision: input.comment.revision,
+          authorRole: 'worker',
+          at: new Date(input.at),
+        });
+        return;
+      }
+    } else {
+      const session = await trx
+        .selectFrom('session_snapshot')
+        .select(['id', 'ended_at'])
+        .where('id', '=', parsed.actorRef.session)
+        .executeTakeFirst();
+      if (session !== undefined && session.ended_at === null) {
+        await enqueueInboundDoorbell(trx, {
+          key,
+          session: session.id,
+          text: `Answer for ${input.task.key} block B${String(input.block.id)}:\n> ${input.comment.text}`,
+          at: new Date(input.at),
+        });
+        return;
+      }
     }
-    await enqueueInboundDoorbell(trx, {
-      key,
-      session: session.id,
-      text: `Answer for ${input.task.key} block B${String(input.block.id)}:\n> ${input.comment.text}`,
-      at: new Date(input.at),
-    });
-    return;
   }
   const reason =
     parsed?.actor !== 'agent' ? 'author is not an agent' : 'author session is unavailable';
