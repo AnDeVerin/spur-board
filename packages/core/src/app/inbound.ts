@@ -27,7 +27,7 @@ import type { Row, Tables } from '../store/schema.ts';
 import type { Store } from '../store/store.ts';
 import { editInboundComment, recordInboundBlockMessage } from './blocks.ts';
 import { replayOperation } from './commands.ts';
-import { enqueueConversationClose, enqueueDoorbell, enqueueFeedItem } from './outbox.ts';
+import { enqueueConversationClose, enqueueInboundDoorbell, enqueueFeedItem } from './outbox.ts';
 
 type Trx = Kysely<Tables>;
 type Item = Row<'from_you_item'>;
@@ -222,7 +222,7 @@ async function ringAuthor(
           .executeTakeFirst()
       : undefined;
   if (session !== undefined && session.ended_at === null) {
-    await enqueueDoorbell(trx, {
+    await enqueueInboundDoorbell(trx, {
       key,
       session: session.id,
       text: `Answer for ${input.task.key} block B${String(input.block.id)}:\n> ${input.comment.text}`,

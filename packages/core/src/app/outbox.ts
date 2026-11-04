@@ -7,6 +7,7 @@ import {
   taskKeySchema,
   type ActorId,
   type Persona,
+  type Action,
   type RichText,
   type SpaceId,
 } from '@spur-board/contracts';
@@ -65,18 +66,25 @@ const feedLineEditPayload = z.strictObject({
   itemKey: z.string().min(1),
   taskId: id.optional(),
 });
-const feedLinePayload = feedLineEditPayload.extend({
-  title: z.string().min(1),
-  actions: z.array(z.strictObject({ id: z.string().min(1), label: z.string().min(1) })).optional(),
+const feedLinePayload = feedLineEditPayload.extend({ title: z.string().min(1) });
+const feedLineWithLinkPayload = feedLinePayload.extend({
+  itemId: id.optional(),
+  url: z.url().optional(),
+  actions: z.array(z.strictObject({ id: z.string(), label: z.string() })).optional(),
 });
-const doorbellPayload = z.strictObject({ session: z.string().min(1), text: z.string() });
+const doorbellPayload = z.strictObject({
+  session: z.string().min(1),
+  text: z.string(),
+  notificationId: id.optional(),
+  ring: z.int().min(1).max(3).optional(),
+});
 
 /** A row's kind with its parsed payload. */
 export const outboxBodySchema = z.discriminatedUnion('kind', [
   z.strictObject({ kind: z.literal('conversation.open'), payload: openPayload }),
   z.strictObject({ kind: z.literal('conversation.reply'), payload: replyPayload }),
   z.strictObject({ kind: z.literal('conversation.close'), payload: closePayload }),
-  z.strictObject({ kind: z.literal('feed.line'), payload: feedLinePayload }),
+  z.strictObject({ kind: z.literal('feed.line'), payload: feedLineWithLinkPayload }),
   z.strictObject({ kind: z.literal('feed.line.edit'), payload: feedLineEditPayload }),
   z.strictObject({ kind: z.literal('doorbell'), payload: doorbellPayload }),
 ]);
@@ -99,6 +107,89 @@ export function renderBody(key: string, text: string): RichText {
 }
 
 type Trx = Kysely<Tables>;
+
+/** A distinct semantic ring. Transport retries reuse this row and its text. */
+export async function enqueueDoorbell(
+  trx: Trx,
+  input: { notificationId: number; ring: number; session: string; text: string; at: Date },
+): Promise<number> {
+  const row = await insertOutbox(trx, {
+    kind: 'doorbell',
+    dedupeKey: `doorbell:${String(input.notificationId)}:${input.session}:${String(input.ring)}`,
+    payload: {
+      notificationId: input.notificationId,
+      ring: input.ring,
+      session: input.session,
+      text: input.text,
+    },
+    parent: null,
+    at: input.at,
+  });
+  return row.id;
+}
+
+/** The key includes the item raise, so a restart cannot add a second line. */
+export async function enqueueFeedLine(
+  trx: Trx,
+  input: {
+    itemId: number;
+    itemKey: string;
+    raise: number;
+    key: string;
+    text: string;
+    title: string;
+    url: string;
+    taskId: number | null;
+    actions?: readonly Action[];
+    at: Date;
+  },
+): Promise<number> {
+  const row = await insertOutbox(trx, {
+    kind: 'feed.line',
+    dedupeKey: `feed.line:${input.itemKey}:${String(input.raise)}`,
+    payload: {
+      key: input.key,
+      text: input.text,
+      title: input.title,
+      persona: { name: 'board', role: 'board' },
+      itemKey: input.itemKey,
+      itemId: input.itemId,
+      taskId: input.taskId ?? undefined,
+      url: input.url,
+      actions: input.actions,
+    },
+    parent: null,
+    at: input.at,
+  });
+  return row.id;
+}
+
+export async function enqueueFeedEdit(
+  trx: Trx,
+  input: {
+    itemKey: string;
+    raise: number;
+    lineId: number;
+    key: string;
+    taskId: number | null;
+    at: Date;
+  },
+): Promise<number> {
+  const row = await insertOutbox(trx, {
+    kind: 'feed.line.edit',
+    dedupeKey: `feed.line.edit:${input.itemKey}:${String(input.raise)}`,
+    payload: {
+      key: input.key,
+      text: '✓ cleared',
+      persona: { name: 'board', role: 'board' },
+      itemKey: input.itemKey,
+      taskId: input.taskId ?? undefined,
+    },
+    parent: input.lineId,
+    at: input.at,
+  });
+  return row.id;
+}
 
 /** Inserts a row unless its dedupe key exists; returns the row's id and whether it is new. */
 async function insertOutbox(
@@ -301,7 +392,7 @@ export async function enqueueConversationClose(
     .execute();
 }
 
-export async function enqueueDoorbell(
+export async function enqueueInboundDoorbell(
   trx: Trx,
   input: { key: string; session: string; text: string; at: Date },
 ): Promise<void> {

@@ -5,6 +5,7 @@ import {
   ERRORS,
   GRANTS,
   OPERATIONS,
+  buildCatalogSnapshot,
   type ServerErrorCode,
   commentSchema,
   errorCodeOf,
@@ -281,7 +282,13 @@ describe('grants', () => {
       OPERATIONS.map((op) => [op.id, op.kind, op.grants, op.preconditions, op.errors]),
     ).toEqual(
       table.map(([opId, kind, grants, preconditions, specific]) => {
-        const common: ServerErrorCode[] = ['usage', 'forbidden', 'identity_unavailable'];
+        const common: ServerErrorCode[] = [
+          'usage',
+          'forbidden',
+          'identity_unavailable',
+          'starting',
+          'not_implemented',
+        ];
         if (kind === 'mutation') common.push('idempotency_key_mismatch');
         const errors = [...new Set([...common, ...specific])].sort(
           (a, b) => order.indexOf(a) - order.indexOf(b),
@@ -418,10 +425,12 @@ describe('snapshot', () => {
       readFileSync(new URL('../ops.snapshot.json', import.meta.url), 'utf8'),
     );
     const stale = 'ops.snapshot.json is stale: run pnpm gen:ops-snapshot';
-    expect(committed, stale).toEqual({
+    const expected = {
       version: await catalogVersion(body),
       ...body,
-    });
+    };
+    expect(await buildCatalogSnapshot(OPERATIONS)).toEqual(expected);
+    expect(committed, stale).toEqual(expected);
   });
 
   it('hashes key-sorted JSON, so key order does not change the version', async () => {

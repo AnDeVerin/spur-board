@@ -49,13 +49,19 @@ export function waitForLine(
   return new Promise((resolve, reject) => {
     const lines = createInterface({ input: child.stdout });
     let stderr = '';
+    const stdout: string[] = [];
     const onStderr = (chunk: Buffer): void => {
       stderr += chunk.toString();
     };
     const onExit = (code: number | null): void => {
-      reject(new Error(`daemon exited (${String(code)}) before "${msg}": ${stderr}`));
+      reject(
+        new Error(
+          `daemon exited (${String(code)}) before "${msg}": stdout=${stdout.join('\n')} stderr=${stderr}`,
+        ),
+      );
     };
     lines.on('line', (line) => {
+      stdout.push(line);
       let parsed: Record<string, unknown>;
       try {
         parsed = JSON.parse(line) as Record<string, unknown>;

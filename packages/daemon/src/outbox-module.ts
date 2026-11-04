@@ -61,11 +61,12 @@ export function slackSettings(
 }
 
 /** Own the timer and wait for the last queued sender tick before the store closes. */
-export function createOutboxModule(ctx: ModuleContext<Store>, gateway: Gateway): Module {
+export function createOutboxModule(ctx: ModuleContext<Store>, gateway?: Gateway): Module {
   const spur = createSpurPort();
   const sender = createSender({
     store: ctx.store,
-    gateway,
+    ...(gateway === undefined ? {} : { gateway }),
+    config: ctx.config,
     spur: { send: (session, text) => ctx.logCall('spur.send', () => spur.send(session, text)) },
     now: () => new Date(ctx.clock.now()),
   });

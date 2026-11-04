@@ -275,11 +275,12 @@ const ack: Mutation<'inbox.ack'> = {
   },
   async run(trx, input) {
     runs += 1;
-    for (const { id, revision } of input.entries) {
+    for (const entry of input.entries) {
+      if (!('revision' in entry)) continue;
       await trx
         .updateTable('comment')
-        .set({ acked_revision: revision })
-        .where('id', '=', Number(id.slice(1)))
+        .set({ acked_revision: entry.revision })
+        .where('id', '=', Number(entry.id.slice(1)))
         .execute();
     }
     return { acked: input.entries.map(({ id }) => id) };

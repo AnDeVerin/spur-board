@@ -1,16 +1,28 @@
 import { once } from 'node:events';
-import { existsSync, mkdtempSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openStore } from '@spur-board/core';
 import { afterEach, describe, expect, it } from 'vitest';
 import { startFakeSlackApi } from '../../gateway-slack/test/fake-api.ts';
+import { loadConfig, resolvePaths } from '../src/config.ts';
 import { killDaemons, runDaemonToExit, spawnDaemon, waitForLine } from './daemon-process.ts';
 import { makeHome, VALID_CONFIG_YAML } from './home.ts';
 
 afterEach(killDaemons);
 
 const SLACK_CONFIG = `${VALID_CONFIG_YAML}slack:\n  channels:\n    orchestrators: C000000001\n    feed: C000000002\n`;
+
+function httpPort(home: string): number {
+  return loadConfig(resolvePaths({ BOARD_HOME: home }, home)).config.http.port;
+}
 
 async function queuedHome(apiUrl: string): Promise<string> {
   const home = makeHome({
@@ -94,6 +106,35 @@ describe('daemon process', () => {
     expect({ code, signal }).toEqual({ code: 0, signal: null });
   }, 30_000);
 
+  it.each([false, true])(
+    'serves the schema after main starts with Slack=%s',
+    async (slack) => {
+      const api = slack ? await startFakeSlackApi() : undefined;
+      try {
+        const home =
+          slack && api !== undefined
+            ? makeHome({
+                config: SLACK_CONFIG,
+                secrets: `SLACK_BOT_TOKEN=xoxb-test\nSLACK_API_URL=${api.url}\n`,
+              })
+            : makeHome();
+        const child = spawnDaemon(home);
+        await waitForLine(child, 'daemon ready');
+        const response = await fetch(`http://127.0.0.1:${String(httpPort(home))}/v1/schema`);
+        expect(response.status).toBe(200);
+        expect(response.headers.get('x-request-id')).toMatch(/^[0-9a-f-]{36}$/);
+        expect(await response.json()).toHaveProperty('version');
+        const exited = once(child, 'exit');
+        child.kill('SIGTERM');
+        const [code, signal] = (await exited) as [number | null, string | null];
+        expect({ code, signal }).toEqual({ code: 0, signal: null });
+      } finally {
+        await api?.close();
+      }
+    },
+    30_000,
+  );
+
   it('rejects incomplete Slack settings before opening the database', () => {
     const home = makeHome({ secrets: 'SLACK_BOT_TOKEN=xoxb-test\n' });
     const result = runDaemonToExit(home);
@@ -162,6 +203,75 @@ describe('daemon process', () => {
     }
   }, 30_000);
 
+  it('delivers Spur doorbells without Slack and leaves gateway rows pending', async () => {
+    const home = makeHome();
+    const bin = join(home, 'bin');
+    mkdirSync(bin);
+    const spur = join(bin, 'spur');
+    writeFileSync(spur, '#!/bin/sh\nprintf "%s\\n" "$@" > "$SPUR_CAPTURE"\n');
+    chmodSync(spur, 0o755);
+    const capture = join(home, 'spur-send.txt');
+    const store = openStore(join(home, 'board.sqlite'));
+    await store.transaction(async (trx) => {
+      for (const [kind, key, payload] of [
+        [
+          'doorbell',
+          'doorbell:test',
+          { session: 'worker-1', text: 'o/r#101 block B1: check board inbox' },
+        ],
+        [
+          'feed.line',
+          'feed.line:test',
+          {
+            key: 'o/r#101',
+            title: 'Test',
+            text: 'pending',
+            persona: { name: 'board', role: 'board' },
+            itemKey: 'test',
+          },
+        ],
+      ] as const) {
+        await trx
+          .insertInto('outbox')
+          .values({
+            kind,
+            dedupe_key: key,
+            payload: JSON.stringify(payload),
+            state: 'pending',
+            next_at: new Date().toISOString(),
+            last_error: null,
+            external_ref: null,
+            parent_outbox_id: null,
+            first_attempt_at: null,
+            first_delivery_at: null,
+          })
+          .execute();
+      }
+    });
+    await store.close();
+    const child = spawnDaemon(home, {
+      PATH: `${bin}:${process.env.PATH ?? ''}`,
+      SPUR_CAPTURE: capture,
+    });
+    await waitForLine(child, 'daemon ready');
+    await expect.poll(() => existsSync(capture)).toBe(true);
+    const exited = once(child, 'exit');
+    child.kill('SIGTERM');
+    expect((await exited)[0]).toBe(0);
+    expect(readFileSync(capture, 'utf8')).toContain('check board inbox');
+    const result = openStore(join(home, 'board.sqlite'));
+    try {
+      expect(
+        await result.db.selectFrom('outbox').select(['kind', 'state']).orderBy('id').execute(),
+      ).toEqual([
+        { kind: 'doorbell', state: 'done' },
+        { kind: 'feed.line', state: 'pending' },
+      ]);
+    } finally {
+      await result.close();
+    }
+  }, 30_000);
+
   it('waits for a held delivery on SIGTERM before closing the store', async () => {
     const api = await startFakeSlackApi();
     const hold = api.holdNextWrite();
@@ -174,6 +284,9 @@ describe('daemon process', () => {
       child.kill('SIGTERM');
       await new Promise((resolve) => setTimeout(resolve, 100));
       expect(child.exitCode).toBeNull();
+      const duringStop = await fetch(`http://127.0.0.1:${String(httpPort(home))}/v1/schema`);
+      expect(duringStop.status).toBe(503);
+      expect(await duringStop.json()).toMatchObject({ code: 'starting' });
       hold.release();
       const [code, signal] = (await exited) as [number | null, string | null];
       expect({ code, signal }).toEqual({ code: 0, signal: null });

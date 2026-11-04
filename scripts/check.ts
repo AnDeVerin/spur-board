@@ -127,6 +127,36 @@ function main(): number {
   const noFiles = { skip: 'no files to check' };
   const noPackages = { skip: 'no affected packages' };
   const typeProjects = plan.mode === 'full' ? ['.', ...plan.packageDirs] : plan.packageDirs;
+  const startupTest = 'packages/cli/test/startup.test.ts';
+  const checkStartup = plan.mode === 'full' || plan.packageDirs.includes('packages/cli');
+  const testCommands: Command[] = [
+    {
+      cmd: bin('vitest'),
+      args: [
+        'run',
+        ...(plan.mode === 'full' ? [] : ['--passWithNoTests']),
+        '--project',
+        'unit',
+        '--project',
+        'integration',
+        ...(plan.mode === 'full' ? [] : plan.packageDirs.map((dir) => `${dir}/`)),
+      ],
+    },
+    ...(checkStartup
+      ? [
+          {
+            cmd: bin('vitest'),
+            args: [
+              'run',
+              startupTest,
+              '--project',
+              'startup',
+              '--outputFile.junit=reports/junit-startup.xml',
+            ],
+          },
+        ]
+      : []),
+  ];
   const steps: Step[] = [
     plan.formatFiles.length === 0
       ? { name: 'format', ...noFiles }
@@ -156,19 +186,9 @@ function main(): number {
     plan.mode === 'full'
       ? { name: 'knip', commands: [{ cmd: bin('knip'), args: ['--no-progress'] }] }
       : { name: 'knip', skip: 'full check only' },
-    plan.mode === 'full'
-      ? { name: 'test', commands: [{ cmd: bin('vitest'), args: ['run'] }] }
-      : plan.packageDirs.length === 0
-        ? { name: 'test', ...noPackages }
-        : {
-            name: 'test',
-            commands: [
-              {
-                cmd: bin('vitest'),
-                args: ['run', '--passWithNoTests', ...plan.packageDirs.map((dir) => `${dir}/`)],
-              },
-            ],
-          },
+    plan.mode === 'full' || plan.packageDirs.length > 0
+      ? { name: 'test', commands: testCommands }
+      : { name: 'test', ...noPackages },
   ];
   return runSteps(only === null ? steps : steps.filter((step) => only.has(step.name)));
 }

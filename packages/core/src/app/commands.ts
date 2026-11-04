@@ -1,10 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import {
-  EVENT_VERSION,
   OPERATIONS,
   errorCodeOf,
-  eventPayloadSchemas,
-  parseActorId,
   type ActorId,
   type Config,
   type ServerErrorCode,
@@ -15,10 +12,10 @@ import { parseJson, toJson } from '../store/json.ts';
 import type { Tables } from '../store/schema.ts';
 import type { Store } from '../store/store.ts';
 import { authorize, type ResolvedTarget } from './authorize.ts';
+import { writeDeniedEvent } from './denied-event.ts';
 
 const DAY_MS = 86_400_000;
 const TASKLESS = ['task.add', 'item.retry', 'item.close'] as const;
-const actorRefSchema = z.strictObject({ project: z.string().min(1), session: z.string().min(1) });
 type CatalogMutation = Extract<(typeof OPERATIONS)[number], { kind: 'mutation' }>;
 type MutationId = CatalogMutation['id'];
 type Entry<Id extends MutationId> = Extract<CatalogMutation, { id: Id }>;
@@ -139,34 +136,6 @@ function emptyAllowed(entry: CatalogMutation): boolean {
   return true;
 }
 
-async function deniedEvent(
-  trx: Kysely<Tables>,
-  actor: ActorId,
-  operation: string,
-  target: ResolvedTarget,
-  at: string,
-): Promise<void> {
-  const parsed = parseActorId(actor);
-  if (parsed === null) throw new Error('Invalid actor');
-  await trx
-    .insertInto('event')
-    .values({
-      at,
-      project: target.kind === 'found' ? target.value.project : 'board',
-      task_id: target.kind === 'found' ? (target.value.task?.id ?? null) : null,
-      kind: 'operation_denied',
-      actor: parsed.actor,
-      actor_ref: parsed.actor === 'agent' ? toJson(actorRefSchema, parsed.actorRef) : null,
-      payload: toJson(eventPayloadSchemas.operation_denied, {
-        operation,
-        reason: 'Caller does not match the operation grants.',
-      }),
-      v: EVENT_VERSION,
-      request_id: null,
-    })
-    .execute();
-}
-
 /** Parse, replay, authorize, then apply one catalog mutation in one transaction. */
 export function createApply(deps: { store: Store; clock: Clock; config: Config }): Apply {
   const { store, clock, config } = deps;
@@ -218,7 +187,7 @@ export function createApply(deps: { store: Store; clock: Clock; config: Config }
               ...(mode === undefined ? {} : { mode }),
             });
             if (decision.status === 'denied') {
-              await deniedEvent(trx, actor, entry.id, target, at);
+              await writeDeniedEvent(trx, actor, entry.id, target, at);
               deniedHint = decision.hint;
               return undefined;
             }
