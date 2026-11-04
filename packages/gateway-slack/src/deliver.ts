@@ -1,20 +1,13 @@
-import { randomUUID } from 'node:crypto';
 import type { WebClient } from '@slack/web-api';
-import {
-  conversationRefSchema,
-  messageRefSchema,
-  type ConversationRef,
-  type DeliverRequest,
-  type DeliveryResult,
-  type Gateway,
-  type MessageRef,
-} from '@spur-board/contracts';
-import { apiFailure, isAlreadyReacted } from './api.ts';
+import { type DeliverRequest, type DeliveryResult, type Gateway } from '@spur-board/contracts';
+import { apiFailure, isAlreadyReacted, readMessages } from './api.ts';
+import { conversationRef, messageRef, parseRef } from './ref.ts';
 import {
   iconFor,
   markerFromBlocks,
   markerId,
   messageBlocks,
+  originMarkerId,
   renderText,
   splitText,
 } from './render.ts';
@@ -22,39 +15,6 @@ import {
 export interface SlackChannels {
   orchestrators: string;
   feed: string;
-}
-
-class UnknownSearch extends Error {}
-
-interface SlackRef {
-  channel: string;
-  ts: string;
-  threadTs: string;
-}
-
-function ref(channel: string, ts: string, threadTs: string): SlackRef {
-  return { channel, ts, threadTs };
-}
-
-function conversationRef(channel: string, ts: string): ConversationRef {
-  return conversationRefSchema.parse(JSON.stringify(ref(channel, ts, ts)));
-}
-
-function messageRef(channel: string, ts: string, threadTs: string): MessageRef {
-  return messageRefSchema.parse(JSON.stringify(ref(channel, ts, threadTs)));
-}
-
-function parseRef(value: string): SlackRef | null {
-  try {
-    const parsed: unknown = JSON.parse(value);
-    if (typeof parsed !== 'object' || parsed === null) return null;
-    if (!('channel' in parsed) || typeof parsed.channel !== 'string') return null;
-    if (!('ts' in parsed) || typeof parsed.ts !== 'string') return null;
-    if (!('threadTs' in parsed) || typeof parsed.threadTs !== 'string') return null;
-    return ref(parsed.channel, parsed.ts, parsed.threadTs);
-  } catch {
-    return null;
-  }
 }
 
 function messageTs(message: unknown): string | undefined {
@@ -77,53 +37,6 @@ function oldest(at: Date | undefined): string | undefined {
   return String(Math.max(0, Math.floor(at.getTime() / 1000) - 1));
 }
 
-/** Search every returned page. Incomplete pagination remains uncertain, never absent. */
-async function messages(
-  client: WebClient,
-  query: { channel: string; threadTs?: string; oldest?: string },
-): Promise<unknown[]> {
-  const found: unknown[] = [];
-  const seen = new Set<string>();
-  let cursor: string | undefined;
-  let latest: string | undefined;
-  for (;;) {
-    const page =
-      query.threadTs === undefined
-        ? await client.conversations.history({
-            channel: query.channel,
-            limit: 100,
-            ...(query.oldest === undefined ? {} : { oldest: query.oldest, inclusive: true }),
-            ...(cursor === undefined ? {} : { cursor }),
-            ...(latest === undefined ? {} : { latest }),
-          })
-        : await client.conversations.replies({
-            channel: query.channel,
-            ts: query.threadTs,
-            limit: 100,
-            ...(cursor === undefined ? {} : { cursor }),
-            ...(latest === undefined ? {} : { latest }),
-          });
-    if (!Array.isArray(page.messages)) throw new UnknownSearch('missing messages');
-    found.push(...page.messages);
-    const nextCursor = page.response_metadata?.next_cursor;
-    if (nextCursor) {
-      const key = `cursor:${nextCursor}`;
-      if (seen.has(key)) throw new UnknownSearch('repeated cursor');
-      seen.add(key);
-      cursor = nextCursor;
-      continue;
-    }
-    if (!page.has_more) return found;
-    const lastTs = messageTs(page.messages.at(-1));
-    if (lastTs === undefined) throw new UnknownSearch('missing pagination timestamp');
-    const key = `latest:${lastTs}`;
-    if (seen.has(key)) throw new UnknownSearch('repeated page');
-    seen.add(key);
-    cursor = undefined;
-    latest = lastTs;
-  }
-}
-
 function marked(messages: readonly unknown[], marker: string): string | undefined {
   return messageTs(messages.find((message) => messageMarker(message) === marker));
 }
@@ -132,7 +45,10 @@ function failedMessage(reason: string): DeliveryResult {
   return { status: 'failed', permanent: true, scope: 'message', reason };
 }
 
-export function createDeliveryGateway(client: WebClient, channels: SlackChannels): Gateway {
+export function createDeliveryGateway(
+  client: WebClient,
+  channels: SlackChannels,
+): Pick<Gateway, 'kind' | 'capabilities' | 'deliver'> {
   async function post(
     channel: string,
     threadTs: string | undefined,
@@ -140,12 +56,13 @@ export function createDeliveryGateway(client: WebClient, channels: SlackChannels
     marker: string,
     request: DeliverRequest,
     includeActions: boolean,
+    originKey?: string,
   ): Promise<string> {
     const response = await client.chat.postMessage({
       channel,
       ...(threadTs === undefined ? {} : { thread_ts: threadTs }),
       text,
-      blocks: messageBlocks(text, marker, includeActions ? request.actions : undefined),
+      blocks: messageBlocks(text, marker, includeActions ? request.actions : undefined, originKey),
       username: request.persona.name,
       icon_emoji: iconFor(request.persona),
     });
@@ -172,6 +89,13 @@ export function createDeliveryGateway(client: WebClient, channels: SlackChannels
     );
     const markers = keys.map(markerId);
     if (markers.some((marker) => marker === null)) return failedMessage('marker_too_long');
+    if (
+      request.target.kind === 'open' &&
+      parts.length > 1 &&
+      originMarkerId(request.key) === null
+    ) {
+      return failedMessage('marker_too_long');
+    }
     let confirmed = false;
     try {
       const target = request.target;
@@ -183,7 +107,7 @@ export function createDeliveryGateway(client: WebClient, channels: SlackChannels
           return failedMessage('edit_too_long');
         }
         if (request.maybeSent) {
-          const history = await messages(client, {
+          const history = await readMessages(client, {
             channel: addressed.channel,
             threadTs: addressed.threadTs,
           });
@@ -221,7 +145,7 @@ export function createDeliveryGateway(client: WebClient, channels: SlackChannels
         try {
           if (target.kind === 'open') {
             const lowerBound = oldest(request.firstAttemptAt);
-            prior = await messages(client, {
+            prior = await readMessages(client, {
               channel,
               ...(lowerBound === undefined ? {} : { oldest: lowerBound }),
             });
@@ -229,11 +153,11 @@ export function createDeliveryGateway(client: WebClient, channels: SlackChannels
             if (firstTs !== undefined) {
               threadTs = firstTs;
               confirmed = true;
-              prior = await messages(client, { channel, threadTs });
+              prior = await readMessages(client, { channel, threadTs });
             } else prior = [];
           } else {
             if (threadTs === undefined) return failedMessage('invalid_conversation_ref');
-            prior = await messages(client, { channel, threadTs });
+            prior = await readMessages(client, { channel, threadTs });
           }
         } catch (error) {
           return apiFailure(error);
@@ -249,7 +173,16 @@ export function createDeliveryGateway(client: WebClient, channels: SlackChannels
         const existing = request.maybeSent ? marked(prior, key) : undefined;
         if (i === 0 && firstTs !== undefined) continue;
         const ts =
-          existing ?? (await post(channel, threadTs, parts[i] ?? '', marker, request, i === 0));
+          existing ??
+          (await post(
+            channel,
+            threadTs,
+            parts[i] ?? '',
+            marker,
+            request,
+            i === 0,
+            target.kind === 'open' && i === 0 && parts.length > 1 ? request.key : undefined,
+          ));
         confirmed = true;
         if (i === 0) firstTs = ts;
         if (target.kind === 'open' && i === 0) threadTs = ts;
@@ -278,15 +211,7 @@ export function createDeliveryGateway(client: WebClient, channels: SlackChannels
 
   return {
     kind: 'slack',
-    capabilities: { history: false, markerSearch: true, privateResponses: false },
-    async start() {},
-    async stop() {},
+    capabilities: { history: true, markerSearch: true, privateResponses: true },
     deliver,
-    async *recover() {
-      yield await Promise.resolve({ kind: 'gap' as const, dedupeKey: `slack:gap:${randomUUID()}` });
-    },
-    respond() {
-      return Promise.resolve('dropped');
-    },
   };
 }

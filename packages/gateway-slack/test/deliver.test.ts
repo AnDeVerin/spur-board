@@ -3,7 +3,13 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { DeliverRequest, RichText } from '@spur-board/contracts';
 import { createApi } from '../src/api.ts';
 import { createSlackGateway } from '../src/index.ts';
-import { MAX_PART_TEXT, markerFromBlocks, renderText, splitText } from '../src/render.ts';
+import {
+  MAX_PART_TEXT,
+  markerFromBlocks,
+  originKeyFromBlocks,
+  renderText,
+  splitText,
+} from '../src/render.ts';
 import { startFakeSlackApi, type FakeSlackApi } from './fake-api.ts';
 
 const fakes: FakeSlackApi[] = [];
@@ -340,6 +346,30 @@ describe('rendering and surface', () => {
       reason: 'marker_too_long',
     });
     expect(fake.requests()).toHaveLength(0);
+  });
+
+  it('fails an overlong multipart root origin marker before an HTTP request', async () => {
+    const { fake, gateway } = await setup();
+    expect(
+      await gateway.deliver(request('x'.repeat(244), 'x'.repeat(MAX_PART_TEXT + 100))),
+    ).toEqual({
+      status: 'failed',
+      permanent: true,
+      scope: 'message',
+      reason: 'marker_too_long',
+    });
+    expect(fake.requests()).toHaveLength(0);
+  });
+
+  it('accepts the adjacent valid multipart root origin marker length', async () => {
+    const { fake, gateway } = await setup();
+    const key = 'x'.repeat(243);
+    expect((await gateway.deliver(request(key, 'x'.repeat(MAX_PART_TEXT + 100)))).status).toBe(
+      'delivered',
+    );
+    const posted = fake.requests().find((entry) => entry.method === 'chat.postMessage');
+    const blocks: unknown = JSON.parse(posted?.params.blocks ?? 'null');
+    expect(originKeyFromBlocks(blocks)).toBe(key);
   });
 
   it('exports only createSlackGateway from the package root', async () => {
