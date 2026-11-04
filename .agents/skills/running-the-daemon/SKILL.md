@@ -5,9 +5,8 @@ description: Rules for packages/daemon/ - modules, config and secrets, logging a
 
 # Running the daemon
 
-`packages/daemon/` is the daemon process: `main` in `packages/daemon/src/main.ts` binds the real
-process, and `runDaemon` in `packages/daemon/src/lifecycle.ts` runs lock, config, logger, store,
-modules, then `daemon ready`. Where a test or lint rule enforces a rule, the rule names it.
+`main` binds the process; `runDaemon` runs lock, config, logger, store, modules, then
+`daemon ready`. Where a test or lint enforces a rule, the rule names it.
 
 ## When to use
 
@@ -24,6 +23,9 @@ modules, then `daemon ready`. Where a test or lint rule enforces a rule, the rul
 - A module is a `Module`: `start(signal)` and `stop()`. Register it in the `modules` list in
   `main`, in start order, as a `ModuleEntry` with `name`, `stopStage` and
   `module: createX(ctxFor('<name>'))`.
+- `main` registers `board-core` and `board-adapters` through `createBoardModules` in
+  `board-modules.ts`. Build one observation core from `board-core` context and pass it to the
+  adapter runner; keep its timer and runner state inside that composition instance.
 - A module gets everything through its `ModuleContext`: `config`, `secrets`, `store`, `log`,
   `clock`, `logCall`, `state`. No module-level state, singletons or imports of another module's
   internals; two daemons in one test process must not share anything.
@@ -38,25 +40,23 @@ modules, then `daemon ready`. Where a test or lint rule enforces a rule, the rul
 - Read time from `ctx.clock` in `packages/daemon/` and in every module built from `ctxFor`; a
   `Clock` is the only source of wall time there and only `main` binds `Date.now`. Pinned by
   'module context carries the clock and a bound logCall'.
-- Lifecycle tests drive `runDaemon` with fakes passed as dependencies; no daemon test uses
-  `vi.mock`, pinned by 'keeps the vi.mock ban on %s'. The process and lock tests in
-  `packages/daemon/test/` spawn a real daemon and take a real flock on purpose.
+- Test `runDaemon` with injected fakes; never use `vi.mock` in daemon tests. Process and lock
+  tests spawn a real daemon and take a real flock.
 
 ## Config and secrets
 
 - `loadConfig` in `packages/daemon/src/config.ts` validates `config.yaml` through `configSchema`
   and reads the optional `secrets.env`. A new config field is a contracts change: follow
   `working-with-contracts`.
-- A config that fails `configSchema` throws a `ConfigError` listing each invalid field by path,
-  with a hint, before the database exists. Pinned by 'lists each invalid field by path, with a
-  hint' and 'invalid config exits 1 before creating the database'. A missing file and invalid
-  YAML also throw a `ConfigError`, without field paths: pinned by 'names the missing config file'
-  and 'reports a YAML syntax error with line and column'.
+- Invalid config raises `ConfigError` with field paths and a hint before the database exists;
+  missing files and invalid YAML also raise `ConfigError` with their location.
 - `secrets.env` is refused when group or others have any permission on it, pinned by
   'refuses a secrets.env readable by others'.
 - Secrets live only in `secrets.env`, never in config; pinned by 'has no secret-like property
   names'. The daemon never writes them to the environment; modules read `ctx.secrets`.
 - `resolvePaths` places the files: `BOARD_HOME` holds all four, else the XDG directories.
+- Pass `ctx.secrets` to `startAdapters`. It composes Jira, GitHub PR, GitHub Issues and Spur
+  sources; missing tracker credentials produce blind source reports instead of stopping startup.
 
 ## Logging
 
@@ -65,16 +65,14 @@ modules, then `daemon ready`. Where a test or lint rule enforces a rule, the rul
 - Before the logger exists (lock and config failures), errors go to stderr through
   `ProcessPort.writeErr`.
 - Log through `ctx.log`, the child logger carrying `module`. No console output, no second logger.
-- Redaction is the `redacting` destination wrapper, not pino `redact`: it censors credential keys
-  at any depth and replaces known secret values, raw and JSON-escaped. Pinned by 'redacts secret
-  values and credential keys everywhere', 'censors credential keys at any depth and in any
-  casing', 'withholds a line it cannot censor instead of writing it raw' and 'leaves short secret
-  values alone'.
+- Redact through the destination wrapper: censor credential keys at any depth and known secret
+  values even inside text. Withhold a line that cannot be censored; leave short values alone.
 - Fields the code writes: `module`, `err`, `signal`, `pending`, `call`, `duration_ms`, `outcome`.
   A new entity ID takes its contracts field name, e.g. `taskId`.
-- Wrap every external call in `ctx.logCall`, which logs `call`, `duration_ms` and `outcome` and
-  rethrows. Pinned by 'logs ok at info with the duration from the clock'.
+- Wrap external calls in `ctx.logCall`; it logs duration and outcome, then rethrows.
 - Log sender ticks and `spur send` child calls through the outbox module's `ctx.logCall`.
+- Wrap adapter HTTP calls through `board-adapters.logCall`. Journal unknown Spur
+  state/status notices through core; log a Spur restart once through the module logger.
 
 ## Scheduling
 
@@ -83,10 +81,11 @@ modules, then `daemon ready`. Where a test or lint rule enforces a rule, the rul
 - Pass the start signal to each sender tick. On stop, clear the timer and await the active tick
   before the store closes. Register the outbox with `stopStage: 'outbox'` and its gateway with
   `stopStage: 'final'`. Pinned by 'skips timer ticks while a delivery is active'.
-- A future poller uses a `setTimeout` chain with jitter and passes the start signal into every
-  call (`PollContext.signal`, A7 in `packages/contracts/src/adapters.ts`). Backoff belongs to the
-  poller; an adapter never retries on its own (A6).
-- Register a poller with `stopStage: 'pollers'`; `stop()` clears its timer and awaits its tick.
+- `board-core` starts a tick immediately, then arms a 60-second `setTimeout` after it settles.
+  On stop, clear the timer and await the active tick before the store closes.
+- `board-adapters` uses `startAdapters`; the runner owns per-source timers, backoff and aborts
+  (`PollContext.signal`, A7 in `packages/contracts/src/adapters.ts`). Adapters never retry on
+  their own (A6). Register it with `stopStage: 'pollers'`; await `runner.stop()` on stop.
 - Keep the sole `setInterval` in `main` (`KEEPALIVE_MS`) until a module owns a server.
 - Handle each tick promise; `@typescript-eslint/no-floating-promises` rejects an unhandled one.
 
@@ -99,13 +98,12 @@ modules, then `daemon ready`. Where a test or lint rule enforces a rule, the rul
   'signal during a start stops started modules' and
   'a start that rejects after the abort is part of the stop'.
 - Pick `stopStage` by what the module does: `'pollers'` for anything that observes, `'final'`
-  for HTTP, gateways and core (the comment on `STOP_STAGES`). Do not add a stage without
+  for HTTP, gateways and `board-core` (the comment on `STOP_STAGES`). `board-adapters` stops in
+  `'pollers'` before `board-core` waits for its active tick in `'final'`. Do not add a stage without
   changing `STOP_STAGES` and 'starts and stops in order'.
-- A stop that hangs past `DEFAULT_SHUTDOWN_TIMEOUT_MS` exits 1 and logs the `pending` modules,
-  pinned by 'exits 1 when a stop hangs'. A failed stop logs and still lets the others stop.
-- Every exit goes through `ProcessPort.exit` exactly once. Pinned by 'two signals run one
-  shutdown' and 'fatal during shutdown exits once'. A fatal error exits 1 at once, with no
-  module stop, pinned by 'fatal error exits 1'.
+- A stop past `DEFAULT_SHUTDOWN_TIMEOUT_MS` exits 1 and logs pending modules. A failed stop logs
+  and still lets the others stop.
+- Exit through `ProcessPort.exit` once. A fatal error exits 1 immediately without module stop.
 - `start(signal)` must return promptly once `signal` aborts; a module that ignores it holds up
   the whole shutdown.
 
@@ -114,14 +112,12 @@ modules, then `daemon ready`. Where a test or lint rule enforces a rule, the rul
 - `acquireLock` in `packages/daemon/src/lock.ts` takes an exclusive flock on the lock file
   before anything else. The kernel drops it when the process dies; the file is never unlinked.
   Needs `flock` from util-linux.
-- A second daemon fails with `LockHeldError`, naming the file and PID. Pinned by 'refuses a
-  second holder and names the file and PID' and 'refuses a second daemon and recovers after the
-  first is killed'.
+- A second daemon fails with `LockHeldError`, naming the file and PID.
 
 ## Changing these rules
 
 A PR that changes `packages/daemon/src/` or the tests named here updates this skill in the same
-PR. The runner PR (#23) replaces the Pollers section with its real rules and numbers.
+PR.
 
 ## Checks
 
