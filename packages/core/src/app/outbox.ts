@@ -1,9 +1,11 @@
 // Outbox kinds, their payloads and the producers that write them inside the caller's transaction.
+import { createHash } from 'node:crypto';
 import {
   conversationRefSchema,
   messageRefSchema,
   PERSONA_ROLES,
   taskKeySchema,
+  type ActorId,
   type Persona,
   type Action,
   type RichText,
@@ -53,11 +55,12 @@ const closePayload = z.strictObject({
   taskId: id,
   blockId: id,
   commentId: id.nullable(),
+  targetConversation: conversationRefSchema.optional(),
 });
 const openPayload = closePayload.extend({ title: z.string().min(1) });
 const replyPayload = closePayload.extend({ commentId: id });
 const feedLineEditPayload = z.strictObject({
-  key: z.union([taskKeySchema, z.literal('board')]),
+  key: z.string().min(1),
   text: z.string(),
   persona,
   itemKey: z.string().min(1),
@@ -152,7 +155,7 @@ export async function enqueueFeedLine(
       itemKey: input.itemKey,
       itemId: input.itemId,
       taskId: input.taskId ?? undefined,
-      url: input.url,
+      ...(input.url === '' ? {} : { url: input.url }),
       actions: input.actions,
     },
     parent: null,
@@ -321,4 +324,83 @@ export async function enqueueConversationReply(
   });
   if (row.inserted) await markCommentPending(trx, comment.id);
   return row.id;
+}
+
+/** Queues a close for every registered thread and for an open whose result is still unknown. */
+export async function enqueueConversationClose(
+  trx: Trx,
+  input: { blockId: number; outcome: string; actor: ActorId; at: Date },
+): Promise<void> {
+  const block = await trx
+    .selectFrom('block')
+    .innerJoin('task', 'task.id', 'block.task_id')
+    .select(['task.id as taskId', 'task.key', 'block.id'])
+    .where('block.id', '=', input.blockId)
+    .executeTakeFirstOrThrow();
+  const tail = await trx
+    .selectFrom('outbox')
+    .select(['id', 'state'])
+    .where('kind', 'in', ['conversation.open', 'conversation.reply'])
+    .where(sql<number>`json_extract(payload, '$.blockId')`, '=', input.blockId)
+    .orderBy('id', 'desc')
+    .executeTakeFirst();
+  const open = await trx
+    .selectFrom('outbox')
+    .select(['id', 'state'])
+    .where('kind', '=', 'conversation.open')
+    .where(sql<number>`json_extract(payload, '$.blockId')`, '=', input.blockId)
+    .executeTakeFirst();
+  const parent = tail?.state === 'dead' ? null : (tail?.id ?? null);
+  const conversations = await trx
+    .selectFrom('conversation')
+    .select('ref')
+    .where('block_id', '=', input.blockId)
+    .execute();
+  const payload = {
+    key: block.key,
+    text: `resolved: ${input.outcome} (${input.actor})`,
+    persona: { name: 'board', role: 'board' } as const,
+    taskId: block.taskId,
+    blockId: block.id,
+    commentId: null,
+  };
+  for (const conversation of conversations) {
+    const ref = conversationRefSchema.parse(conversation.ref);
+    const hash = createHash('sha256').update(ref).digest('hex');
+    await insertOutbox(trx, {
+      kind: 'conversation.close',
+      dedupeKey: `conversation.close:block:${String(block.id)}:ref:${hash}`,
+      payload: { ...payload, targetConversation: ref },
+      parent,
+      at: input.at,
+    });
+  }
+  if (open !== undefined && open.state !== 'done' && open.state !== 'dead') {
+    await insertOutbox(trx, {
+      kind: 'conversation.close',
+      dedupeKey: `conversation.close:block:${String(block.id)}:pending:${String(open.id)}`,
+      payload,
+      parent: tail?.state === 'dead' ? open.id : (tail?.id ?? open.id),
+      at: input.at,
+    });
+  }
+  await trx
+    .updateTable('conversation')
+    .set({ state: 'closed', closed_at: input.at.toISOString() })
+    .where('block_id', '=', input.blockId)
+    .where('state', '=', 'open')
+    .execute();
+}
+
+export async function enqueueInboundDoorbell(
+  trx: Trx,
+  input: { key: string; session: string; text: string; at: Date },
+): Promise<void> {
+  await insertOutbox(trx, {
+    kind: 'doorbell',
+    dedupeKey: input.key,
+    payload: { session: input.session, text: input.text },
+    parent: null,
+    at: input.at,
+  });
 }

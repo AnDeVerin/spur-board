@@ -205,6 +205,10 @@ export function createFakeGateway(options: FakeGatewayOptions): FakeGateway {
   const iso = (): string => new Date(clock).toISOString();
   const permalink = (conversation: StoredConversation, message: MessageRef): string =>
     `fake://${profile}/${conversation.ref}/${message}`;
+  const rootMessage = (conversation: StoredConversation): MessageRef => {
+    if (conversation.root === undefined) throw new Error('fake: conversation has no root message');
+    return conversation.root.message;
+  };
 
   /** Runs one observable step, unless the armed timeout fires on it. */
   function step<T>(apply: () => T): T {
@@ -388,6 +392,8 @@ export function createFakeGateway(options: FakeGatewayOptions): FakeGateway {
       dedupeKey: messageKey(message),
       conversation: message.conversation.ref,
       message: message.message,
+      rootMessage: rootMessage(message.conversation),
+      sourceUrl: permalink(message.conversation, message.message),
       author: user.author,
       text: user.text,
       at: user.at,
@@ -405,6 +411,8 @@ export function createFakeGateway(options: FakeGatewayOptions): FakeGateway {
       dedupeKey: `${messageKey(message)}:edit:${String(edit.n)}`,
       conversation: message.conversation.ref,
       message: message.message,
+      rootMessage: rootMessage(message.conversation),
+      sourceUrl: permalink(message.conversation, message.message),
       author: user.author,
       text: message.text,
       at: edit.at,
@@ -418,6 +426,8 @@ export function createFakeGateway(options: FakeGatewayOptions): FakeGateway {
       dedupeKey: `${messageKey(message)}:deleted`,
       conversation: message.conversation.ref,
       message: message.message,
+      rootMessage: rootMessage(message.conversation),
+      sourceUrl: permalink(message.conversation, message.message),
       ...originKey(message.conversation),
     };
   }
@@ -523,6 +533,9 @@ export function createFakeGateway(options: FakeGatewayOptions): FakeGateway {
           author: input.author,
           conversation: message.conversation.ref,
           message: message.message,
+          rootMessage: rootMessage(message.conversation),
+          sourceUrl: permalink(message.conversation, message.message),
+          sourceSpace: message.conversation.space ?? null,
           ...originKey(message.conversation),
         });
         return { conversation: message.conversation.ref, message: message.message, interaction };
@@ -535,6 +548,8 @@ export function createFakeGateway(options: FakeGatewayOptions): FakeGateway {
           interaction,
           author: input.author,
           text: input.text,
+          sourceUrl: `fake://${profile}/commands`,
+          sourceSpace: 'orchestrators',
         });
         return { interaction };
       }

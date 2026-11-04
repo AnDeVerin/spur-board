@@ -336,10 +336,10 @@ describe('migrate', () => {
     expect(raw.pragma('foreign_key_check')).toEqual([]);
   });
 
-  it('preserves shared operator item IDs when upgrading a version 6 store', () => {
+  it('preserves shared operator item IDs when upgrading a version 7 store', () => {
     const dir = tempDir();
     const { raw } = rawDb(join(dir, 'board.db'));
-    migrate(raw, real.slice(0, 6));
+    migrate(raw, real.slice(0, 7));
     insertRaw(
       raw,
       'task',
@@ -364,7 +364,7 @@ describe('migrate', () => {
       ),
     );
     const result = migrate(raw, real);
-    expect(result).toMatchObject({ from: 6, to: 7, applied: ['0007_observation'] });
+    expect(result).toMatchObject({ from: 7, to: 8, applied: ['0008_observation'] });
     expect(
       raw
         .prepare('SELECT id, item_key, fingerprint, fact_at, source, priority FROM operator_item')
@@ -440,7 +440,9 @@ describe('migration pins', () => {
     '0005_doorbells_items.sql': '6d1a269b593d0f6b342a73761f1a756a94a6c9c2a5c983c191a627654b097570',
     '0006_notification_exhausted.sql':
       '64139694f1bde3e61d7c1b67ebc9eb4858c3974bdd72f84306ac3837f7d8de96',
-    '0007_observation.sql': '4bde8ddb6da6dbffa22f270fc8b442c9670bef51ef106e2600bcbba958ecd2eb',
+    '0007_inbound_item_event.sql':
+      '205aad5987530bce0bd2a96ec5ce836cf76b176e366e27735d1fff692650b8eb',
+    '0008_observation.sql': '4bde8ddb6da6dbffa22f270fc8b442c9670bef51ef106e2600bcbba958ecd2eb',
   };
 
   interface MigrationFile {

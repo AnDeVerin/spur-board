@@ -282,6 +282,8 @@ export interface OperatorItemTable {
   fact_at: Generated<string | null>;
   source: Generated<string | null>;
   priority: Generated<number | null>;
+  /** Normalized event retained for a later explicit retry. */
+  inbound_event_json: string | null;
 }
 
 export interface DismissalTable {

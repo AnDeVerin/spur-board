@@ -85,6 +85,7 @@ export async function raiseItem(
       fact_at: input.factAt ?? null,
       source: input.source ?? null,
       priority: input.priority ?? null,
+      inbound_event_json: null,
     })
     .returningAll()
     .executeTakeFirstOrThrow();
@@ -115,7 +116,16 @@ export async function raiseItem(
               { id: `item:${String(item.id)}:close`, label: 'Close' },
             ],
           }
-        : {}),
+        : item.kind === 'inbound_failure'
+          ? {
+              actions: [
+                { id: `item:${String(item.id)}:retry`, label: 'Retry' },
+                { id: `item:${String(item.id)}:close`, label: 'Close' },
+              ],
+            }
+          : item.kind === 'inbound_gap' || item.kind === 'answer_author_unavailable'
+            ? { actions: [{ id: `item:${String(item.id)}:close`, label: 'Close' }] }
+            : {}),
       at: input.at,
     });
     item = await trx

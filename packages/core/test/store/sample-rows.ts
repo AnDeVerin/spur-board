@@ -212,6 +212,7 @@ export const sampleRows: SampleRows = {
     raised_at: at,
     cleared_at: null,
     line_outbox_id: 1,
+    inbound_event_json: null,
     fingerprint: null,
     fact_at: null,
     source: null,

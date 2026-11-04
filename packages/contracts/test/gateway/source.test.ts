@@ -13,7 +13,11 @@ function filesUnder(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
     if (skipped.has(entry.name)) return [];
     const path = join(dir, entry.name);
-    return entry.isDirectory() ? filesUnder(path) : [path];
+    return entry.isDirectory()
+      ? filesUnder(path)
+      : entry.name.endsWith('.tsbuildinfo')
+        ? []
+        : [path];
   });
 }
 

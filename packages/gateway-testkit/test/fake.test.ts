@@ -368,6 +368,19 @@ describe('inbound events', () => {
     expect(emitted[1]).not.toHaveProperty('originKey');
     expect(emitted[2]?.dedupeKey).toBe(`${String(emitted[0]?.dedupeKey)}:edit:1`);
     expect(emitted[6]?.dedupeKey).toBe(`${String(emitted[0]?.dedupeKey)}:deleted`);
+    for (const event of emitted) {
+      if (!('sourceUrl' in event)) throw new Error('missing user source link');
+      expect(event.sourceUrl).toMatch(/^fake:\/\//);
+      if (event.kind === 'command') {
+        expect(event).not.toHaveProperty('rootMessage');
+        expect(event.sourceSpace).toBe('orchestrators');
+      } else if (event.kind === 'action') {
+        expect(event.sourceSpace).toBe('feed');
+      } else if ('message' in event) {
+        expect(event.rootMessage).toBeTruthy();
+        expect(event.sourceUrl).toContain(event.message);
+      }
+    }
   });
 
   it('never emits deletes on telegram-like; inject still resolves', async () => {

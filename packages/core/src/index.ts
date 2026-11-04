@@ -30,9 +30,12 @@ export { createMembershipMutations } from './app/membership.ts';
 export { createObservationCore } from './app/observe.ts';
 export { getStatus } from './app/status.ts';
 export { tickBoard } from './app/tick.ts';
+export { createInbound, getOperatorItem, type Inbound } from './app/inbound.ts';
 export {
   enqueueConversationOpen,
   enqueueConversationReply,
+  enqueueConversationClose,
+  enqueueDoorbell,
   OUTBOX_KINDS,
   type OutboxKind,
 } from './app/outbox.ts';

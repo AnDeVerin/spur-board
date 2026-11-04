@@ -8,12 +8,6 @@ description: Rules for packages/daemon/ - modules, config and secrets, logging a
 `main` binds the process; `runDaemon` starts lock, config, logger, store and modules, then logs
 `daemon ready`.
 
-## When to use
-
-- Any edit under `packages/daemon/`, and any module, poller or timer the daemon runs.
-- Not for config schema fields (use `working-with-contracts`) or the store and its transactions
-  (use `working-with-storage`).
-
 ## Composition root and modules
 
 - `main` binds signals, exit, streams, environment, home and wall time; `runDaemon` receives them
@@ -23,21 +17,18 @@ description: Rules for packages/daemon/ - modules, config and secrets, logging a
   `module: createX(ctxFor('<name>'))`.
 - Register `board-core` and `board-adapters` through `createBoardModules`. Share one observation
   core with the runner; keep timers and runner state in that instance.
-- A module gets everything through its `ModuleContext`: `config`, `secrets`, `store`, `log`,
-  `clock`, `logCall`, `state`. No module-level state, singletons or imports of another module's
-  internals; two daemons in one test process must not share anything.
-- Daemon code reaches the store only through `ctx.store`, which `main` opens with `openStore` from
-  `@spur-board/core`. No lint checks this; the reviewer judges it. The lint boundary itself is
-  wider: only core and daemon may import the SQLite driver, pinned by
-  `describe('sqlite driver boundary')` in `packages/testkit/test/lint-rules.test.ts`.
+- A module gets `config`, `secrets`, `store`, `log`, `clock`, `logCall` and `state` through
+  `ModuleContext`. No shared state, singletons or imports of another module's internals.
+- Use `ctx.store` for daemon storage; `main` opens it through `openStore`. Only core and daemon
+  may import SQLite, pinned by 'sqlite driver boundary' in the testkit lint tests.
 - Modules start one at a time. A start that throws or rejects gets no `stop()`: its start owns
   its own cleanup. Pinned by 'start failure stops started modules'.
 - `state()` is `starting` until every module is up, then `ready`, then `stopping`. Pinned by
   'reports starting until all modules are up' and 'module states move to ready and then stopping'.
 - Read time through `ctx.clock` in daemon modules; only `main` binds `Date.now`. Pinned by
   'module context carries the clock and a bound logCall'.
-- Test `runDaemon` with injected fakes; never use `vi.mock` in daemon tests. Process and lock
-  tests spawn a real daemon and take a real flock.
+- Test `runDaemon` with injected fakes, never `vi.mock`; process and lock tests use a real daemon
+  and flock.
 
 ## Config and secrets
 
@@ -92,8 +83,12 @@ description: Rules for packages/daemon/ - modules, config and secrets, logging a
 - `board-adapters` uses `startAdapters`; the runner owns per-source timers, backoff and aborts
   (`PollContext.signal`, A7 in `packages/contracts/src/adapters.ts`). Adapters never retry on
   their own (A6). Register it with `stopStage: 'pollers'`; await `runner.stop()` on stop.
+- A poller uses a `setTimeout` chain, handles each tick rejection, and never overlaps ticks.
+  Register it with `stopStage: 'pollers'`; `stop()` clears its timer and awaits its active tick.
+- Inbound recovers, then scans every five minutes; serialize scans and live events through core.
+  Start the gateway with its sink only with `SLACK_APP_TOKEN`; otherwise log once. Stop inbound
+  before outbox, then stop the gateway and await the sink before store close.
 - Keep the sole `setInterval` in `main` (`KEEPALIVE_MS`) until a module owns a server.
-- Handle each tick promise; `@typescript-eslint/no-floating-promises` rejects an unhandled one.
 
 ## Shutdown
 
