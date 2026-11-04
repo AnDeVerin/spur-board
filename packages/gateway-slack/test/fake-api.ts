@@ -98,7 +98,7 @@ export async function startFakeSlackApi(
   let nextNetworkError = false;
   let nextSearchUnknown = false;
   let timeout: { remaining: number; visible: boolean } | undefined;
-  let hold: { entered: () => void; waiting: Promise<void>; release: () => void } | undefined;
+  let hold: { entered: () => void; waiting: Promise<void> } | undefined;
   let sequence = 0;
   let nextEnvelope = 0;
   let connected: WebSocket | undefined;
@@ -544,7 +544,6 @@ export async function startFakeSlackApi(
           entered.resolve(undefined);
         },
         waiting: released.promise,
-        release,
       };
       return { entered: entered.promise, release };
     },
