@@ -43,6 +43,7 @@ export interface SessionHealthInput {
   config: Config['health'];
   /** Current Unix time in milliseconds. */
   now: number;
+  /** Pass the previous result's episode to preserve a burst as error-session membership changes. */
   episode?: HostLoadEpisode | null;
 }
 
@@ -80,11 +81,22 @@ export function evaluateSessionHealth(input: SessionHealthInput): SessionHealthR
       episode = previousEpisode;
     }
   } else {
-    const recentEntries = [...errorEntries.values()]
-      .filter((since) => since >= now - config.hostLoad.windowMs && since <= now)
+    const entries = [...errorEntries.values()]
+      .filter((since) => Number.isFinite(since) && since <= now)
       .sort((a, b) => a - b);
-    const thresholdEntry = recentEntries[config.hostLoad.sessions - 1];
-    if (thresholdEntry !== undefined) episode = { startedAt: thresholdEntry };
+    for (let index = config.hostLoad.sessions - 1; index < entries.length; index++) {
+      const thresholdEntry = entries[index];
+      const firstEntry = entries[index - config.hostLoad.sessions + 1];
+      if (
+        thresholdEntry !== undefined &&
+        firstEntry !== undefined &&
+        thresholdEntry - firstEntry <= config.hostLoad.windowMs &&
+        now - thresholdEntry < config.hostLoad.maxEpisodeMs
+      ) {
+        episode = { startedAt: thresholdEntry };
+        break;
+      }
+    }
   }
 
   const flags: SessionHealthFlag[] = [];

@@ -201,13 +201,44 @@ describe('evaluateSessionHealth', () => {
     expect(result.flags).toEqual([{ taskId: 'TASK-1', sessionId: 'd', kind: 'needs_input' }]);
   });
 
-  it('does not start an episode from old entries or duplicate session links', () => {
-    const old = [
+  it('rebuilds a recent burst from error entries after a delayed evaluation', () => {
+    const entries = [
       session('a', 'error', 120_000),
       session('b', 'error', 119_000),
       session('c', 'error', 118_000),
     ];
-    expect(evaluate({ sessions: old }).hostLoad).toBeNull();
+    const result = evaluate({ sessions: entries });
+    expect(result.hostLoad).toEqual({ kind: 'host_under_load' });
+    expect(result.episode).toEqual({ startedAt: start - 118_000 });
+    expect(result.flags).toEqual([]);
+  });
+
+  it('groups a burst whose 60-second window ended before evaluation', () => {
+    const result = evaluate({
+      sessions: [
+        session('a', 'error', 90_000),
+        session('b', 'error', 65_000),
+        session('c', 'error', 40_000),
+      ],
+    });
+    expect(result.hostLoad).toEqual({ kind: 'host_under_load' });
+    expect(result.episode).toEqual({ startedAt: start - 40_000 });
+    expect(result.flags).toEqual([]);
+  });
+
+  it('does not rebuild an expired burst or count duplicate session links', () => {
+    const expired = [
+      session('a', 'error', 300_020),
+      session('b', 'error', 300_010),
+      session('c', 'error', 300_000),
+    ];
+    const result = evaluate({ sessions: expired });
+    expect(result.hostLoad).toBeNull();
+    expect(result.flags.map((flag) => flag.kind)).toEqual([
+      'stuck_worker',
+      'stuck_worker',
+      'stuck_worker',
+    ]);
     const duplicate = session('a', 'error', 30_000);
     expect(
       evaluate({ sessions: [duplicate, { ...duplicate, taskId: 'TASK-2' }] }).hostLoad,
