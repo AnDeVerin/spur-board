@@ -1,9 +1,12 @@
 import { createServer, type Server } from 'node:http';
+import { spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { OPERATIONS } from '@spur-board/contracts';
 import { createProgram, runCli, type CliIo } from '../src/cli.ts';
 
 const servers: Server[] = [];
+const binary = fileURLToPath(new URL('../src/bin.mjs', import.meta.url));
 
 afterEach(async () => {
   await Promise.all(
@@ -138,5 +141,63 @@ describe('catalog commands', () => {
     expect(await runCli(['task', 'PROJ-123'], { env: env(url), io: output.io })).toBe(0);
     expect(output.stdout).toContain('> Target v2.');
     expect(output.stdout).not.toContain('requestId');
+  });
+
+  it('does not treat a positional --version as the top-level version flag', async () => {
+    const comment = OPERATIONS.find((op) => op.id === 'comment.add');
+    if (!comment) throw new Error('Missing comment operation.');
+    let received: { id: string; input: unknown; key: string | undefined } | undefined;
+    const url = await fakeServer((id, input, key) => {
+      received = { id, input, key };
+      return comment.examples[0].output;
+    });
+    const child = spawn(
+      process.execPath,
+      [binary, 'comment', 'PROJ-123', '--key', 'comment-version', '--', '--version'],
+      {
+        env: { ...process.env, BOARD_DAEMON_URL: url, BOARD_TOKEN: 'token', SPUR_SESSION: '' },
+      },
+    );
+    let stdout = '';
+    let stderr = '';
+    child.stdout.setEncoding('utf8').on('data', (text: string) => {
+      stdout += text;
+    });
+    child.stderr.setEncoding('utf8').on('data', (text: string) => {
+      stderr += text;
+    });
+    const exit = await new Promise<number | null>((resolve) => child.once('close', resolve));
+    expect(exit).toBe(0);
+    expect(received).toEqual({
+      id: 'comment.add',
+      input: { task: 'PROJ-123', text: '--version' },
+      key: 'comment-version',
+    });
+    expect(comment.output.parse(JSON.parse(stdout))).toEqual(comment.examples[0].output);
+    expect(stderr).toContain('key: comment-version');
+  });
+
+  it('renders terminal controls in untrusted comments as visible text', async () => {
+    const task = OPERATIONS.find((op) => op.id === 'task.get');
+    if (!task) throw new Error('Missing task operation.');
+    const sample = task.examples[0].output as {
+      task: unknown;
+      blocks: unknown;
+      comments: { id: string; author: string; at: string; text: string; untrusted: true }[];
+    };
+    const firstComment = sample.comments[0];
+    if (!firstComment) throw new Error('Missing sample comment.');
+    const hostileText =
+      'safe\u001b[31mred\u001b[0m\n\u001b]8;;https://example.invalid\u0007link\u001b]8;;\u0007\u009b31m';
+    const url = await fakeServer(() => ({
+      ...sample,
+      comments: [{ ...firstComment, text: hostileText }],
+    }));
+    const output = capture(true);
+    expect(await runCli(['task', 'PROJ-123'], { env: env(url), io: output.io })).toBe(0);
+    expect(output.stdout).toContain('> safe\\u001b[31mred\\u001b[0m');
+    expect(output.stdout).toContain('> \\u001b]8;;https://example.invalid\\u0007link');
+    expect(output.stdout).toContain('\\u009b31m');
+    expect(output.stdout).not.toMatch(/[\u001b\u0007\u009b]/u);
   });
 });

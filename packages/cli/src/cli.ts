@@ -77,6 +77,15 @@ function exampleCommand(op: CatalogOperation, input: Record<string, unknown>): s
   return words.join(' ');
 }
 
+function escapeTerminalControls(text: string): string {
+  return Array.from(text, (character) => {
+    const code = character.charCodeAt(0);
+    return code < 0x20 || (code >= 0x7f && code <= 0x9f)
+      ? `\\u${code.toString(16).padStart(4, '0')}`
+      : character;
+  }).join('');
+}
+
 function formatHuman(value: unknown, indent = 0): string {
   const prefix = ' '.repeat(indent);
   if (Array.isArray(value))
@@ -90,7 +99,7 @@ function formatHuman(value: unknown, indent = 0): string {
         if (key === 'text' && object['untrusted'] === true && typeof item === 'string') {
           return `${prefix}${key}:\n${item
             .split('\n')
-            .map((line) => `${prefix}> ${line}`)
+            .map((line) => `${prefix}> ${escapeTerminalControls(line)}`)
             .join('\n')}`;
         }
         if (item && typeof item === 'object')
