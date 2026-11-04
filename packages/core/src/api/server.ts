@@ -154,8 +154,8 @@ export async function createApiServer(options: ApiOptions): Promise<FastifyInsta
       const handler = options.registry[operation.id];
       if (handler === undefined || handler.id !== operation.id) {
         throw new CommandError(
-          'unexpected',
-          `Operation ${operation.id} is not available in this build.`,
+          'not_implemented',
+          `Operation ${operation.id} is not available in this daemon build. Ask the operator to update the daemon.`,
         );
       }
       const result =
@@ -171,7 +171,7 @@ export async function createApiServer(options: ApiOptions): Promise<FastifyInsta
               actor,
               body.key,
             );
-      return reply.send({ result });
+      return reply.send({ ok: true, requestId: request.id, value: result });
     },
   );
 

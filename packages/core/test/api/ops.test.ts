@@ -1,7 +1,13 @@
 import { readFileSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { configSchema, type ActorId } from '@spur-board/contracts';
+import {
+  configSchema,
+  renderHttpProblem,
+  type ActorId,
+  type ServerErrorCode,
+} from '@spur-board/contracts';
+import type { FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   CommandError,
@@ -49,6 +55,17 @@ afterEach(async () => {
 });
 
 const host = '127.0.0.1:4311';
+type InjectResponse = Awaited<ReturnType<FastifyInstance['inject']>>;
+
+function expectProblem(response: InjectResponse, code: ServerErrorCode, hint?: string): void {
+  const requestId = response.headers['x-request-id'];
+  expect(requestId).toMatch(/^[0-9a-f-]{36}$/);
+  const expected = renderHttpProblem({ code, requestId: String(requestId) });
+  expect(response.statusCode).toBe(expected.status);
+  expect(response.headers['content-type']).toContain('application/problem+json');
+  expect(response.json()).toEqual(hint === undefined ? expected.body : { ...expected.body, hint });
+}
+
 function post(input: unknown, operation = 'task.get', headers: Record<string, string> = {}) {
   return {
     method: 'POST' as const,
@@ -118,10 +135,7 @@ describe('catalog HTTP API', () => {
         post({ task: 'PROJ-123' }),
       ]) {
         const response = await app.inject(request);
-        expect(response.statusCode).toBe(503);
-        expect(response.headers['content-type']).toContain('application/problem+json');
-        expect(response.json()).toMatchObject({ code: 'starting', status: 503 });
-        expect(response.json()).toMatchObject({ requestId: response.headers['x-request-id'] });
+        expectProblem(response, 'starting', 'Wait until the daemon is ready.');
       }
     } finally {
       await app.close();
@@ -215,14 +229,7 @@ describe('catalog HTTP API', () => {
     const app = await server(newStore(), { logRequest });
     try {
       const response = await app.inject({ method: 'GET', url: '/missing', headers: { host } });
-      expect(response.statusCode).toBe(404);
-      expect(response.headers['content-type']).toContain('application/problem+json');
-      expect(response.json()).toMatchObject({
-        code: 'not_found',
-        hint: 'This API route is not available.',
-        requestId: response.headers['x-request-id'],
-        recovery: { sideEffects: 'none' },
-      });
+      expectProblem(response, 'not_found', 'This API route is not available.');
       expect(logRequest).toHaveBeenCalledWith({
         requestId: response.headers['x-request-id'],
         method: 'GET',
@@ -234,8 +241,7 @@ describe('catalog HTTP API', () => {
         url: '/missing',
         headers: { host, origin: 'https://outside.example' },
       });
-      expect(guarded.statusCode).toBe(403);
-      expect(guarded.json()).toMatchObject({ code: 'forbidden' });
+      expectProblem(guarded, 'forbidden', 'Browser origins are not accepted.');
     } finally {
       await app.close();
     }
@@ -257,14 +263,27 @@ describe('catalog HTTP API', () => {
         ...post({ task: 'PROJ-123' }),
         payload: JSON.stringify({ input: { task: 'PROJ-123', padding: 'x'.repeat(1_048_576) } }),
       });
-      expect(response.statusCode).toBe(400);
-      expect(response.headers['content-type']).toContain('application/problem+json');
-      expect(response.json()).toMatchObject({
-        code: 'usage',
-        requestId: response.headers['x-request-id'],
-        recovery: { sideEffects: 'none' },
-      });
+      expectProblem(response, 'usage', 'Send a smaller JSON body.');
       expect(resolveTargets).not.toHaveBeenCalled();
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('renders malformed JSON and wrong content type as catalog problems', async () => {
+    const app = await server(newStore());
+    try {
+      const malformed = await app.inject({
+        ...post({ task: 'PROJ-123' }),
+        payload: '{bad',
+      });
+      expectProblem(malformed, 'usage');
+
+      const wrongType = await app.inject({
+        ...post({ task: 'PROJ-123' }),
+        headers: { host, 'x-board-session': 'session-1', 'content-type': 'text/plain' },
+      });
+      expectProblem(wrongType, 'forbidden', 'Use application/json.');
     } finally {
       await app.close();
     }
@@ -288,9 +307,12 @@ describe('catalog HTTP API', () => {
     const app = await server(newStore());
     try {
       const response = await app.inject(post({ task: 'PROJ-123' }));
-      expect(response.statusCode).toBe(500);
-      expect(response.json()).toMatchObject({ code: 'unexpected' });
-      expect(response.body).toContain('task.get is not available in this build');
+      expectProblem(
+        response,
+        'not_implemented',
+        'Operation task.get is not available in this daemon build. Ask the operator to update the daemon.',
+      );
+      expect(response.json()).toMatchObject({ recovery: { sideEffects: 'none', maxRetries: 0 } });
     } finally {
       await app.close();
     }
@@ -321,7 +343,9 @@ describe('catalog HTTP API', () => {
       });
       expect(response.statusCode).toBe(200);
       expect(response.json()).toEqual({
-        result: {
+        ok: true,
+        requestId: response.headers['x-request-id'],
+        value: {
           task: { key: 'PROJ-123', project: 'board', column: 'todo', membership: 'active' },
         },
       });
