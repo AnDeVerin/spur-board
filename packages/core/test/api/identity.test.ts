@@ -167,6 +167,40 @@ describe('API identity', () => {
     }
   });
 
+  it('allows a configured operator-project session to list tokens without a bearer', async () => {
+    const store = await storeWithSession();
+    const clock = { now: () => Date.parse('2026-11-04T10:00:00.000Z') };
+    const verifyToken = vi.fn();
+    const app = await createApiServer({
+      store,
+      config,
+      port: 4311,
+      ready: () => true,
+      clock,
+      lookupSession: vi.fn().mockResolvedValue({ project: 'ops', status: 'running' }),
+      verifyToken,
+      registry: { 'token.list': tokenListQuery(clock) },
+      logRequest: vi.fn(),
+    });
+    try {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/v1/ops/token.list',
+        headers: {
+          host: '127.0.0.1:4311',
+          'content-type': 'application/json',
+          'x-board-session': 'ops-1',
+        },
+        payload: JSON.stringify({ input: {} }),
+      });
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toMatchObject({ value: { tokens: [] } });
+      expect(verifyToken).not.toHaveBeenCalled();
+    } finally {
+      await app.close();
+    }
+  });
+
   it('uses an active snapshot without a live request', async () => {
     const store = await storeWithSession('active');
     const lookupSession = vi.fn();
