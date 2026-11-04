@@ -17,6 +17,7 @@ export {
   type CommandContext,
   type Mutation,
 } from './app/commands.ts';
+export { createBlockMutations } from './app/blocks.ts';
 export {
   enqueueConversationOpen,
   enqueueConversationReply,

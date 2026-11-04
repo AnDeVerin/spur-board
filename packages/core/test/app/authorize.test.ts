@@ -83,6 +83,7 @@ const allowed = {
   'item.close': ['operator'],
   'block.ask': projectAgents,
   'comment.add': ['operator', ...projectAgents],
+  'comment.edit': ['operator', ...projectAgents],
   'block.create': ['operator', 'orchestrator'],
   'block.escalate': ['worker', 'addressee'],
   'block.answer': ['operator', 'worker', 'addressee'],
@@ -249,7 +250,7 @@ const ack: Mutation<'inbox.ack'> = {
   id: 'inbox.ack',
   async resolveTargets(trx, input) {
     return Promise.all(
-      input.ids.map(async (text) => {
+      input.entries.map(async ({ id: text }) => {
         const id = Number(text.slice(1));
         const row = await trx
           .selectFrom('comment')
@@ -274,16 +275,18 @@ const ack: Mutation<'inbox.ack'> = {
   },
   async run(trx, input) {
     runs += 1;
-    for (const id of input.ids) {
+    for (const { id, revision } of input.entries) {
       await trx
         .updateTable('comment')
-        .set({ acked_revision: 1 })
+        .set({ acked_revision: revision })
         .where('id', '=', Number(id.slice(1)))
         .execute();
     }
-    return { acked: input.ids };
+    return { acked: input.entries.map(({ id }) => id) };
   },
 };
+
+const entries = (...ids: string[]) => ({ entries: ids.map((id) => ({ id, revision: 1 })) });
 
 const emptyAsk: Mutation<'block.ask'> = {
   id: 'block.ask',
@@ -366,7 +369,7 @@ describe('authorization at the command boundary', () => {
   it('commits a denial with actor and operation but no effect or command row', async () => {
     const store = await seeded();
     const apply = createApply({ store, clock, config });
-    const refusal = await apply(ack, { ids: ['C1'] }, actors.other, 'K').catch(
+    const refusal = await apply(ack, entries('C1'), actors.other, 'K').catch(
       (error: unknown) => error,
     );
     expect(refusal).toBeInstanceOf(CommandError);
@@ -399,7 +402,7 @@ describe('authorization at the command boundary', () => {
   it('authorizes every found batch target before applying any acknowledgement', async () => {
     const store = await seeded();
     const apply = createApply({ store, clock, config });
-    await expect(apply(ack, { ids: ['C1', 'C2'] }, actors.same, 'K')).rejects.toMatchObject({
+    await expect(apply(ack, entries('C1', 'C2'), actors.same, 'K')).rejects.toMatchObject({
       code: 'forbidden',
     });
     expect(runs).toBe(0);
@@ -413,12 +416,12 @@ describe('authorization at the command boundary', () => {
   it('defers a missing target until a found target is authorized', async () => {
     const store = await seeded();
     const apply = createApply({ store, clock, config });
-    await expect(apply(ack, { ids: ['C999', 'C1'] }, actors.other, 'K')).rejects.toMatchObject({
+    await expect(apply(ack, entries('C999', 'C1'), actors.other, 'K')).rejects.toMatchObject({
       code: 'forbidden',
     });
-    await expect(
-      apply(ack, { ids: ['C999', 'C1'] }, actors.same, 'other-key'),
-    ).rejects.toMatchObject({ code: 'not_found' });
+    await expect(apply(ack, entries('C999', 'C1'), actors.same, 'other-key')).rejects.toMatchObject(
+      { code: 'not_found' },
+    );
     expect(runs).toBe(0);
   });
 
@@ -428,7 +431,7 @@ describe('authorization at the command boundary', () => {
     await expect(
       apply(emptyAsk, { task: 'o/r#101', text: 'Question?' }, actors.same, 'A'),
     ).rejects.toMatchObject({ code: 'not_found' });
-    await expect(apply(emptyAck, { ids: ['C1'] }, actors.same, 'B')).rejects.toMatchObject({
+    await expect(apply(emptyAck, entries('C1'), actors.same, 'B')).rejects.toMatchObject({
       code: 'not_found',
     });
     expect(runs).toBe(0);
@@ -446,13 +449,13 @@ describe('authorization at the command boundary', () => {
     const partial: Mutation<'inbox.ack'> = {
       ...ack,
       resolveTargets(trx, input) {
-        const first = input.ids.at(0);
+        const first = input.entries.at(0);
         if (first === undefined) throw new Error('Expected a comment ID');
-        return ack.resolveTargets(trx, { ids: [first] });
+        return ack.resolveTargets(trx, { entries: [first] });
       },
     };
     await expect(
-      createApply({ store, clock, config })(partial, { ids: ['C1', 'C2'] }, actors.same, 'K'),
+      createApply({ store, clock, config })(partial, entries('C1', 'C2'), actors.same, 'K'),
     ).rejects.toMatchObject({ code: 'not_found' });
     expect(runs).toBe(0);
   });
@@ -462,15 +465,15 @@ describe('authorization at the command boundary', () => {
     const duplicate: Mutation<'inbox.ack'> = {
       ...ack,
       async resolveTargets(trx, input) {
-        const first = input.ids.at(0);
+        const first = input.entries.at(0);
         if (first === undefined) throw new Error('Expected a comment ID');
-        const [target] = await ack.resolveTargets(trx, { ids: [first] });
+        const [target] = await ack.resolveTargets(trx, { entries: [first] });
         if (target === undefined) throw new Error('Expected a resolved target');
-        return input.ids.map(() => target);
+        return input.entries.map(() => target);
       },
     };
     await expect(
-      createApply({ store, clock, config })(duplicate, { ids: ['C1', 'C2'] }, actors.same, 'K'),
+      createApply({ store, clock, config })(duplicate, entries('C1', 'C2'), actors.same, 'K'),
     ).rejects.toMatchObject({ code: 'not_found' });
     expect(runs).toBe(0);
     expect(await store.db.selectFrom('comment').select('acked_revision').execute()).toEqual([
@@ -484,7 +487,7 @@ describe('authorization at the command boundary', () => {
     const store = await seeded();
     const result = await createApply({ store, clock, config })(
       ack,
-      { ids: ['C1'] },
+      entries('C1'),
       actors.same,
       'K',
     );

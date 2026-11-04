@@ -156,7 +156,10 @@ export function createApply(deps: { store: Store; clock: Clock; config: Config }
       const parsedInput = parsed.data as z.output<Entry<typeof op.id>['input']>;
       const resolved = await op.resolveTargets(trx, parsedInput);
       const taskless = resolved.length === 0 && emptyAllowed(entry);
-      const ackIds = entry.id === 'inbox.ack' && 'ids' in parsed.data ? parsed.data.ids : undefined;
+      const ackIds =
+        entry.id === 'inbox.ack' && 'entries' in parsed.data
+          ? parsed.data.entries.map((item) => item.id)
+          : undefined;
       const ackMismatch =
         ackIds !== undefined &&
         (resolved.length !== ackIds.length ||
