@@ -44,6 +44,7 @@ A map of the repo for agents and contributors. The rules live in the files and s
   to `origin/main`, agents pass the handoff's `origin/main` SHA.
 - `pnpm ci:status [PR]` - the latest CI state of a PR's head commit, by job and step.
 - `pnpm format` - prettier over the repo.
+- `pnpm gen` - regenerate the config schema, operation snapshot and product skill command section.
 - `pnpm package:build` - bundle the CLI and daemon and copy the binary and migrations.
 - `pnpm package:pack [directory]` - build, pack, and validate the npm tarball.
 - `pnpm package:check <tarball>` - reject files outside the package allowlist or a missing binary.
