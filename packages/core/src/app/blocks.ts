@@ -198,11 +198,12 @@ function orchestrator(config: Config, task: Task): string | null {
 function authorRole(config: Config, task: Task, actor: ActorId): AddresseeRole {
   if (actor === 'operator') return 'operator';
   const parsed = parseActorId(actor);
-  const project = config.projects.find((entry) => entry.id === task.project);
   if (
     parsed?.actor === 'agent' &&
-    project?.spurProjects.some(
-      (spur) => spur.name === parsed.actorRef.project && spur.role === 'operator',
+    config.projects.some((project) =>
+      project.spurProjects.some(
+        (spur) => spur.name === parsed.actorRef.project && spur.role === 'operator',
+      ),
     )
   ) {
     return 'operator';

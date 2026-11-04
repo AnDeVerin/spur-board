@@ -20,6 +20,7 @@ const author = 'agent:web/worker-1';
 const secondWorker = 'agent:web/worker-2';
 const orchestrator = 'agent:qa/qa-1';
 const operatorAgent = 'agent:ops/ops-1';
+const remoteOperator = 'agent:remote-ops/ops-2';
 const config = configSchema.parse({
   projects: [
     {
@@ -41,6 +42,13 @@ const config = configSchema.parse({
         { id: 'ready-to-merge', orchestrator: 'none' },
         { id: 'done', orchestrator: 'none' },
       ],
+    },
+    {
+      id: 'other',
+      tracker: { type: 'github-issues', repo: 'x/y', milestone: 'M1' },
+      repos: ['x/y'],
+      operatorGithubLogin: 'operator',
+      spurProjects: [{ name: 'remote-ops', role: 'operator' }],
     },
   ],
   operator: { slack: 'operator' },
@@ -249,14 +257,17 @@ describe('block and comment mutations', () => {
 
   it('addresses dependency and external blocks from a configured operator agent to operator', async () => {
     const { apply } = await seeded();
-    for (const type of ['dependency', 'external'] as const) {
+    for (const [type, actor] of [
+      ['dependency', operatorAgent],
+      ['external', remoteOperator],
+    ] as const) {
       const created = await apply(
         ops.create,
         { task: KEY, type, reason: 'Waiting for a decision.' },
-        operatorAgent,
+        actor,
         `operator-${type}`,
       );
-      expect(created.block).toMatchObject({ author: operatorAgent, addressee: 'operator' });
+      expect(created.block).toMatchObject({ author: actor, addressee: 'operator' });
     }
   });
 
