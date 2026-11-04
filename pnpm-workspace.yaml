@@ -5,7 +5,8 @@ packages:
 # the install if any dependency wants to run an install script.
 minimumReleaseAge: 10080
 strictDepBuilds: true
-allowBuilds: {}
+allowBuilds:
+  better-sqlite3: true
 
 catalog:
   # typescript-eslint needs the TypeScript 6 API; `tsc` (typecheck) is TypeScript 7.
