@@ -44,6 +44,45 @@ function bareSchema(schema: z.ZodType): z.ZodType {
   return schema instanceof z.ZodOptional ? (schema.unwrap() as z.ZodType) : schema;
 }
 
+function revisionEntryArray(schema: z.ZodType | undefined): boolean {
+  if (schema === undefined) return false;
+  const bare = bareSchema(schema);
+  return (
+    bare instanceof z.ZodArray &&
+    bare.element instanceof z.ZodObject &&
+    Object.keys(bare.element.shape).sort().join(',') === 'id,revision'
+  );
+}
+
+function positionalInput(op: CatalogOperation, field: string, value: unknown): unknown {
+  if (!revisionEntryArray(fieldSchema(op, field)) || !Array.isArray(value)) return value;
+  return value.map((item: unknown) => {
+    if (typeof item !== 'string') return item;
+    const match = /^([^@]+)@([1-9][0-9]*)$/.exec(item);
+    const id = match?.[1];
+    const rawRevision = match?.[2];
+    if (id === undefined || rawRevision === undefined) return item;
+    const revision = Number(rawRevision);
+    return Number.isSafeInteger(revision) ? { id, revision } : item;
+  });
+}
+
+function positionalExample(op: CatalogOperation, field: string, value: unknown): string[] {
+  const values: unknown[] = Array.isArray(value) ? value : [value];
+  return values.map((item) => {
+    if (
+      revisionEntryArray(fieldSchema(op, field)) &&
+      item !== null &&
+      typeof item === 'object' &&
+      'id' in item &&
+      'revision' in item
+    ) {
+      return shellValue(`${String(item.id)}@${String(item.revision)}`);
+    }
+    return shellValue(item);
+  });
+}
+
 function optionName(field: string): string {
   return `--${field.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}`;
 }
@@ -54,20 +93,19 @@ function optionField(flag: string): string {
 
 function shellValue(value: unknown): string {
   const text = String(value);
-  return /^[A-Za-z0-9_./#:-]+$/.test(text) ? text : JSON.stringify(text);
+  return /^[A-Za-z0-9_./#:@-]+$/.test(text) ? text : JSON.stringify(text);
 }
 
 function exampleCommand(op: CatalogOperation, input: Record<string, unknown>): string {
   const words = ['board', op.cli.command];
   for (const arg of op.cli.args) {
     const value = input[arg];
-    if (Array.isArray(value)) words.push(...value.map(shellValue));
-    else if (value !== undefined) words.push(shellValue(value));
+    if (value !== undefined) words.push(...positionalExample(op, arg, value));
   }
   const mode = op.cli.modes?.find((item) => item.mode === input['mode']);
   if (mode) {
     words.push(mode.flag);
-    if (mode.value) words.push(shellValue(input[mode.value]));
+    if (mode.value && input[mode.value] !== undefined) words.push(shellValue(input[mode.value]));
   }
   for (const [field, value] of Object.entries(input)) {
     if (op.cli.args.includes(field) || field === 'mode' || mode?.value === field) continue;
@@ -144,7 +182,14 @@ function registerOptions(command: CommandUnknownOpts, op: CatalogOperation): voi
     else throw new Error(`Unsupported CLI field ${field} in ${op.id}.`);
   }
   for (const mode of op.cli.modes ?? []) {
-    command.option(mode.value ? `${mode.flag} <${mode.value}>` : mode.flag);
+    if (mode.value === null) {
+      command.option(mode.flag);
+    } else {
+      const schema = fieldSchema(op, mode.value);
+      if (!schema) throw new Error(`Catalog mode value ${mode.value} is missing from ${op.id}.`);
+      const value = schema instanceof z.ZodOptional ? `[${mode.value}]` : `<${mode.value}>`;
+      command.option(`${mode.flag} ${value}`);
+    }
   }
   if (op.kind === 'mutation') command.option('--key <key>', 'Idempotency key for this action.');
   command.option('--json', 'Print JSON output or a JSON error.');
@@ -156,7 +201,8 @@ function buildInput(
   options: Record<string, unknown>,
 ): unknown {
   const input: Record<string, unknown> = {};
-  for (const [index, field] of op.cli.args.entries()) input[field] = args[index];
+  for (const [index, field] of op.cli.args.entries())
+    input[field] = positionalInput(op, field, args[index]);
   for (const branch of branches(op.input)) {
     for (const field of Object.keys(branch.shape)) {
       if (field === 'mode' || field in input) continue;
@@ -168,7 +214,10 @@ function buildInput(
   if (selected && selected.length !== 1) throw new CliError('usage');
   if (selected?.[0]) {
     input['mode'] = selected[0].mode;
-    if (selected[0].value) input[selected[0].value] = options[optionField(selected[0].flag)];
+    if (selected[0].value) {
+      const value = options[optionField(selected[0].flag)];
+      if (value !== true) input[selected[0].value] = value;
+    }
   }
   const parsed = op.input.safeParse(input);
   if (!parsed.success)
