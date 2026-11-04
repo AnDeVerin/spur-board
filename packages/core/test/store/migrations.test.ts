@@ -12,6 +12,12 @@ import { openDatabase, openStore } from '../../src/store/store.ts';
 import { insertSampleRows, sampleRows, tableNames } from './sample-rows.ts';
 
 const INDEXES: Record<string, { table: string; columns: string[]; partialUnique: boolean }> = {
+  task_stable_tracker_id: {
+    table: 'task',
+    columns: ['project', 'tracker_kind', 'tracker_id'],
+    partialUnique: true,
+  },
+  from_you_item_active: { table: 'from_you_item', columns: ['active', 'id'], partialUnique: false },
   link_pr_pair: { table: 'link', columns: ['task_id', 'repo', 'number'], partialUnique: true },
   link_session_pair: { table: 'link', columns: ['task_id', 'session_id'], partialUnique: true },
   link_one_active_pr: { table: 'link', columns: ['task_id'], partialUnique: true },
@@ -214,7 +220,17 @@ describe('migrate', () => {
       'first_delivery_at',
       'attempt_started',
     ]);
-    insertRaw(raw, 'task', sampleRows.task);
+    insertRaw(
+      raw,
+      'task',
+      without(sampleRows.task, [
+        'manual_include',
+        'manual_exclude',
+        'last_change_at',
+        'terminal_at',
+        'archive_slot_at',
+      ]),
+    );
     insertRaw(raw, 'block', sampleRows.block);
     insertRaw(raw, 'comment', comment);
     insertRaw(raw, 'outbox', outbox);
@@ -334,6 +350,7 @@ describe('migration pins', () => {
     '0002_delivery.sql': '52180cad0a4577d8ad6a60eca748116f4ccd61142115581a3c9ea3a72d2cfa1d',
     '0003_delivery_search.sql': '3e915831a61930771096e91e17273a933cd8b5c2476aaec1c2d23b5f4fc2c755',
     '0004_attempt_started.sql': 'e2f659d551e9aaca510f1b84735eb451d8c8eac7bc8a4eeedd22487545f6f1f2',
+    '0005_observation.sql': 'f476e10dcc0cb38dbd047fec76b65e35ac78f0ef82a4b89180a90d81e3a0673d',
   };
 
   interface MigrationFile {
