@@ -827,22 +827,33 @@ describe('inbound apply', () => {
     await inbound.sink(command);
     expect(responses[0]).toContain(ERRORS.not_found.message);
     expect(responses[0]).toContain(ERRORS.not_found.hint);
-    await inbound.sink({
+    const deniedCommand: Extract<InboundEvent, { kind: 'command' }> = {
       ...command,
       dedupeKey: 'denied-command',
       author: userIdSchema.parse('another'),
-    });
+    };
+    await inbound.sink(deniedCommand);
+    await inbound.sink(deniedCommand);
     expect(responses[1]).toContain('not allowed');
+    expect(responses[2]).toContain('not allowed');
     expect(run).not.toHaveBeenCalled();
-    const denied = await store.db
+    const deniedEvents = await store.db
       .selectFrom('event')
       .select(['kind', 'payload'])
       .where('kind', '=', 'operation_denied')
-      .executeTakeFirstOrThrow();
-    expect(JSON.parse(denied.payload)).toMatchObject({
+      .execute();
+    expect(deniedEvents).toHaveLength(1);
+    expect(JSON.parse(deniedEvents[0]?.payload ?? '{}')).toMatchObject({
       operation: 'inbound.command',
       platformUser: 'another',
     });
+    expect(
+      await store.db
+        .selectFrom('command')
+        .select(['key', 'operation'])
+        .where('key', '=', deniedCommand.dedupeKey)
+        .execute(),
+    ).toEqual([{ key: 'denied-command', operation: 'task.get' }]);
   });
 
   it('returns private usage without dispatching a malformed command', async () => {
