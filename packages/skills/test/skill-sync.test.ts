@@ -58,17 +58,12 @@ function invocations(text: string): { command: string; example: boolean }[] {
     }
     return ' ';
   });
-  const commandStarts = new Set(OPERATIONS.map((operation) => operation.cli.command.split(' ')[0]));
-  const bare = /\bboard[ \t]+([a-z][a-z-]*)/g;
-  for (const match of prose.matchAll(bare)) {
-    const before = prose.slice(prose.lastIndexOf('\n', match.index) + 1, match.index);
-    if (
-      commandStarts.has(match[1] ?? '') ||
-      /(?:^|\s)(?:run|use|call|try|execute|invoke)\s*$/i.test(before) ||
-      before.trim() === ''
-    ) {
-      found.push({ command: 'unformatted board invocation', example: false });
-    }
+  const withoutNouns = prose
+    .replace(/\ba board overview\b/g, 'a Board overview')
+    .replace(/\bfor board data\b/g, 'for Board data')
+    .replace(/\bthe board again\b/g, 'the Board again');
+  if (/\bboard[ \t]+[a-z]/.test(withoutNouns)) {
+    found.push({ command: 'unformatted board invocation', example: false });
   }
   return found;
 }
@@ -157,6 +152,11 @@ describe('product skill sync', () => {
         expect(flags.includes(`\`${option.flags}\``)).toBe(allowed);
       }
       const example = block.match(/^Example: `([^`]+)`/m)?.[1] ?? '';
+      if (operation.id === 'schema.get') {
+        expect(block).toContain(
+          `Describe the operations ${role === 'worker' ? 'a worker' : 'an orchestrator'} may call`,
+        );
+      }
       for (const mode of operation.cli.modes ?? []) {
         if (tokens(example).includes(mode.flag)) {
           expect(roleCanUseOperation(operation, role, mode.mode)).toBe(true);
@@ -198,6 +198,9 @@ describe('product skill sync', () => {
       expect.arrayContaining([expect.stringMatching(/^unknown command:/)]),
     );
     expect(validateInvocations(`${skill}\nRun board no-such-command today.\n`)).toContain(
+      'unformatted board invocation',
+    );
+    expect(validateInvocations(`${skill}\nDo board no-such-command today.\n`)).toContain(
       'unformatted board invocation',
     );
     expect(

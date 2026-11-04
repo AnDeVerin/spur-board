@@ -52,7 +52,9 @@ function exampleFor(
   const selectedInput = operation.id === 'schema.get' ? { ...input, role } : input;
   const command = exampleCommand(operation, selectedInput);
   const summary =
-    operation.id === 'schema.get' ? `Describe the operations an ${role} may call` : example.summary;
+    operation.id === 'schema.get'
+      ? `Describe the operations ${role === 'worker' ? 'a worker' : 'an orchestrator'} may call`
+      : example.summary;
   if (operation.kind === 'query') return { command, summary };
   const operationKey = operation.cli.command.replaceAll(' ', '-');
   const meaning = example.summary

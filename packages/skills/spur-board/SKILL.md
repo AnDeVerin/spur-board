@@ -92,7 +92,7 @@ Arguments: none.
 Flags: `--role <value>`, `--json`.
 Use when: Discover operation contracts.
 Avoid when: Use status_get for board data.
-Example: `board schema --role worker` — Describe the operations an worker may call.
+Example: `board schema --role worker` — Describe the operations a worker may call.
 Errors:
 
 - `usage`: Run `board schema` to see the expected input and fix the arguments.
