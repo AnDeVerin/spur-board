@@ -17,6 +17,7 @@ import type { ModuleContext, ModuleEntry } from './lifecycle.ts';
 import { createOutboxModule, slackSettings } from './outbox-module.ts';
 
 export interface DaemonModulePorts {
+  productVersion?: string;
   gateway?: Gateway;
   spur?: SpurPort;
   startAdapters?: typeof startAdapters;
@@ -40,6 +41,7 @@ export function createDaemonModules(
     store: board.store,
     config: board.config,
     clock: board.clock,
+    ...(ports.productVersion === undefined ? {} : { productVersion: ports.productVersion }),
   });
   const registry = createOperationRegistry({
     config: board.config,
@@ -108,6 +110,7 @@ export function createDaemonModules(
     stopStage: 'final',
     module: createHttpModule(ctxFor('http'), {
       registry,
+      ...(ports.productVersion === undefined ? {} : { productVersion: ports.productVersion }),
       ...(ports.sessionFetcher === undefined ? {} : { fetcher: ports.sessionFetcher }),
       ...(ports.afterOperation === undefined ? {} : { afterOperation: ports.afterOperation }),
       ...(ports.onListening === undefined ? {} : { onListening: ports.onListening }),

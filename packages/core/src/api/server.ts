@@ -23,6 +23,7 @@ export interface ApiOptions extends IdentityPorts {
   readonly clock: { now(): number };
   readonly registry: OperationRegistry;
   readonly afterOperation?: (response: ServerResponse) => void | Promise<void>;
+  readonly doctor?: () => Promise<DoctorReport>;
   readonly logRequest: (entry: {
     requestId: string;
     method: string;
@@ -31,6 +32,35 @@ export interface ApiOptions extends IdentityPorts {
     tokenName?: string;
   }) => void;
 }
+
+interface DoctorCheck {
+  id: string;
+  status: 'pass' | 'fail' | 'warning';
+  blocking: boolean;
+  fix: string | null;
+}
+
+interface DoctorReport {
+  version: string;
+  checks: DoctorCheck[];
+}
+
+const doctorReportSchema = z.strictObject({
+  version: z.string().min(1).max(50),
+  checks: z
+    .array(
+      z.strictObject({
+        id: z
+          .string()
+          .regex(/^[a-z][a-z._]+$/)
+          .max(60),
+        status: z.enum(['pass', 'fail', 'warning']),
+        blocking: z.boolean(),
+        fix: z.string().max(300).nullable(),
+      }),
+    )
+    .max(30),
+});
 
 const tokenRequestSchema = z.strictObject({
   name: z.string().min(1),
@@ -63,6 +93,9 @@ export async function createApiServer(options: ApiOptions): Promise<FastifyInsta
   const app = Fastify({ logger: false, genReqId: () => randomUUID(), trustProxy: false });
   const snapshot = await buildCatalogSnapshot(OPERATIONS);
   const callers = new WeakMap<object, IdentifiedCaller>();
+  let doctorInFlight: Promise<DoctorReport> | null = null;
+  let doctorCached: DoctorReport | null = null;
+  let doctorNextProbeAt = 0;
 
   app.addHook('onRequest', async (request, reply) => {
     reply.header('x-request-id', request.id);
@@ -120,6 +153,24 @@ export async function createApiServer(options: ApiOptions): Promise<FastifyInsta
   app.get('/v1/schema', async (_request, reply) => {
     if (!options.ready()) throw new CommandError('starting', 'Wait until the daemon is ready.');
     return reply.send(snapshot);
+  });
+
+  app.get('/v1/doctor', async (_request, reply) => {
+    if (!options.ready()) throw new CommandError('starting', 'Wait until the daemon is ready.');
+    if (options.doctor === undefined) throw new CommandError('not_found', 'Doctor is unavailable.');
+    if (doctorInFlight !== null) return reply.send(await doctorInFlight);
+    if (options.clock.now() < doctorNextProbeAt) {
+      if (doctorCached !== null) return reply.send(doctorCached);
+      throw new CommandError('starting', 'Retry board doctor in a few seconds.');
+    }
+    doctorNextProbeAt = options.clock.now() + 5_000;
+    doctorInFlight = options.doctor().then((report) => doctorReportSchema.parse(report));
+    try {
+      doctorCached = await doctorInFlight;
+      return await reply.send(doctorCached);
+    } finally {
+      doctorInFlight = null;
+    }
   });
 
   app.post('/v1/tokens/requests', async (request, reply) => {

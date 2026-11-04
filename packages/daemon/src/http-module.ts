@@ -5,10 +5,12 @@ import {
   listenApiServer,
   verifyOperatorToken,
   type LiveSession,
+  type ApiOptions,
   type OperationRegistry,
   type Store,
 } from '@spur-board/core';
 import type { Module, ModuleContext } from './lifecycle.ts';
+import { runDaemonDoctor } from './doctor.ts';
 
 const SESSION_TIMEOUT_MS = 5_000;
 
@@ -48,6 +50,8 @@ export function createHttpModule(
     registry?: OperationRegistry;
     afterOperation?: (response: ServerResponse) => void | Promise<void>;
     onListening?: (address: string) => void;
+    productVersion?: string;
+    doctor?: ApiOptions['doctor'];
   } = {},
 ): Module {
   let app: Awaited<ReturnType<typeof createApiServer>> | undefined;
@@ -68,6 +72,9 @@ export function createHttpModule(
         verifyToken: (token) => verifyOperatorToken(ctx.store, token),
         registry: options.registry ?? {},
         ...(options.afterOperation === undefined ? {} : { afterOperation: options.afterOperation }),
+        doctor:
+          options.doctor ??
+          (() => runDaemonDoctor(ctx, options.productVersion ?? 'unknown', options.fetcher)),
         logRequest: ({ requestId, method, url, status, tokenName }) => {
           const path = new URL(url, 'http://127.0.0.1').pathname;
           ctx.log.info(

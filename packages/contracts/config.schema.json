@@ -108,6 +108,8 @@
       "default": {},
       "type": "object",
       "properties": {
+        "command": { "default": "/board", "type": "string", "pattern": "^\\/[a-z0-9_-]+$" },
+        "appId": { "type": "string", "pattern": "^A[A-Z0-9]+$" },
         "channels": {
           "default": {},
           "type": "object",
