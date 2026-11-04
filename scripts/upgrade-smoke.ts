@@ -23,27 +23,24 @@ function compare(left: string, right: string): number {
   return 0;
 }
 
-/** Find the newest published stable version strictly older than this candidate. */
-export function previousVersion(output: string, candidate: string): string | null {
+/** Find the newest published stable package to seed the upgrade database. */
+export function latestPublishedVersion(output: string): string | null {
   const parsed: unknown = JSON.parse(output) as unknown;
   const versions = typeof parsed === 'string' ? [parsed] : parsed;
   if (!Array.isArray(versions) || !versions.every((value) => typeof value === 'string')) {
     throw new Error('Registry returned an invalid version list.');
   }
-  const older = versions.filter(
-    (value: string) => /^\d+\.\d+\.\d+$/.test(value) && compare(value, candidate) < 0,
-  );
-  older.sort(compare);
-  return older.at(-1) ?? null;
+  const stable = versions.filter((value: string) => /^\d+\.\d+\.\d+$/.test(value));
+  stable.sort(compare);
+  return stable.at(-1) ?? null;
 }
 
 export function registryVersions(
-  candidate: string,
   status: number | null,
   stdout: string,
   stderr: string,
 ): string | null {
-  if (status === 0) return previousVersion(stdout, candidate);
+  if (status === 0) return latestPublishedVersion(stdout);
   if (/\bE404\b/.test(stderr) && /registry\.npmjs\.org\/spur-board/.test(stderr)) return null;
   throw new Error(`Could not read published versions: ${stderr || stdout}`);
 }
@@ -55,7 +52,7 @@ export async function smokeUpgrade(tarball?: string): Promise<'skipped' | 'passe
     timeout: 30_000,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
-  const previous = registryVersions(manifest.version, lookup.status, lookup.stdout, lookup.stderr);
+  const previous = registryVersions(lookup.status, lookup.stdout, lookup.stderr);
   if (previous === null) {
     process.stdout.write('upgrade smoke: skipped (no previous published version)\n');
     return 'skipped';

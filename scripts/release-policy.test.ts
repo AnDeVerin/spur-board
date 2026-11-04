@@ -18,8 +18,6 @@ function git(cwd: string, ...args: string[]): string {
     encoding: 'utf8',
     env: {
       ...process.env,
-      GIT_CONFIG_GLOBAL: '/dev/null',
-      GIT_CONFIG_NOSYSTEM: '1',
       GIT_AUTHOR_NAME: 'Fixture',
       GIT_AUTHOR_EMAIL: 'fixture@example.com',
       GIT_COMMITTER_NAME: 'Fixture',
@@ -87,7 +85,7 @@ describe('release policy', () => {
       },
       {
         cwd: repo,
-        env: { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' },
+        env: { ...process.env },
       },
     );
     expect(result && result.nextRelease.version).toBe(expected);
