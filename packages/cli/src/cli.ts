@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { requestOperation } from './client.ts';
 import { loadClientConfig, type ClientConfig } from './config.ts';
 import { CliError, errorExitCode, renderCliError } from './exit-codes.ts';
+import { escapeTerminalControls } from './terminal.ts';
 
 type CatalogOperation = (typeof OPERATIONS)[number];
 type InputObject = z.ZodObject<z.ZodRawShape>;
@@ -77,15 +78,6 @@ function exampleCommand(op: CatalogOperation, input: Record<string, unknown>): s
   return words.join(' ');
 }
 
-function escapeTerminalControls(text: string): string {
-  return Array.from(text, (character) => {
-    const code = character.charCodeAt(0);
-    return code < 0x20 || (code >= 0x7f && code <= 0x9f)
-      ? `\\u${code.toString(16).padStart(4, '0')}`
-      : character;
-  }).join('');
-}
-
 function formatHuman(value: unknown, indent = 0): string {
   const prefix = ' '.repeat(indent);
   if (Array.isArray(value))
@@ -97,18 +89,18 @@ function formatHuman(value: unknown, indent = 0): string {
     return Object.entries(object)
       .map(([key, item]) => {
         if (key === 'text' && object['untrusted'] === true && typeof item === 'string') {
-          return `${prefix}${key}:\n${item
+          return `${prefix}${escapeTerminalControls(key)}:\n${item
             .split('\n')
             .map((line) => `${prefix}> ${escapeTerminalControls(line)}`)
             .join('\n')}`;
         }
         if (item && typeof item === 'object')
-          return `${prefix}${key}:\n${formatHuman(item, indent + 2)}`;
-        return `${prefix}${key}: ${String(item)}`;
+          return `${prefix}${escapeTerminalControls(key)}:\n${formatHuman(item, indent + 2)}`;
+        return `${prefix}${escapeTerminalControls(key)}: ${escapeTerminalControls(String(item))}`;
       })
       .join('\n');
   }
-  return `${prefix}${String(value)}`;
+  return `${prefix}${escapeTerminalControls(String(value))}`;
 }
 
 function commandFor(root: CommandUnknownOpts, path: string): CommandUnknownOpts {
@@ -216,7 +208,7 @@ export function createProgram(options: CliOptions = {}): CommandUnknownOpts {
       if (op.kind === 'mutation' && env['SPUR_SESSION'] && !keyOption) throw new CliError('usage');
       const config = options.clientConfig ?? loadClientConfig(env);
       const key = op.kind === 'mutation' ? keyOption || randomUUID() : undefined;
-      if (key) io.stderr(`key: ${key}\n`);
+      if (key) io.stderr(`key: ${escapeTerminalControls(key)}\n`);
       try {
         const result = await requestOperation(op, input, key, config);
         io.stdout(`${json || !io.isTTY ? JSON.stringify(result) : formatHuman(result)}\n`);

@@ -5,6 +5,7 @@ import {
   renderJsonError,
   type ErrorCode,
 } from '@spur-board/contracts';
+import { escapeTerminalControls } from './terminal.ts';
 
 type ErrorContext = Parameters<typeof renderJsonError>[0]['context'];
 
@@ -46,11 +47,12 @@ export function renderCliError(error: CliError, json: boolean, key?: string): st
     error: { ...envelope.error, hint },
   });
   if (json) return JSON.stringify(value);
-  return [
-    `error: ${value.error.code}: ${value.error.message}`,
-    `fix: ${value.error.hint}`,
-    `side effects: ${value.error.recovery.sideEffects}`,
-    `recovery: ${value.error.recovery.action}`,
-    `requestId: ${value.requestId}`,
-  ].join('\n');
+  const lines: [string, string][] = [
+    ['error', `${value.error.code}: ${value.error.message}`],
+    ['fix', value.error.hint],
+    ['side effects', value.error.recovery.sideEffects],
+    ['recovery', value.error.recovery.action],
+    ['requestId', value.requestId],
+  ];
+  return lines.map(([label, text]) => `${label}: ${escapeTerminalControls(text)}`).join('\n');
 }

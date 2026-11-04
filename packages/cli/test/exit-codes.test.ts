@@ -198,6 +198,23 @@ describe('CLI exit classes and mutation keys', () => {
     }
   });
 
+  it('escapes a server request ID only in human error output', async () => {
+    const requestId = 'req\u001b[31m\u0007\u000dnext';
+    const problem = renderHttpProblem({ code: 'forbidden', requestId });
+    const { url } = await fakeServer((_request, response) => {
+      response.writeHead(problem.status, { 'content-type': 'application/problem+json' });
+      response.end(JSON.stringify(problem.body));
+    });
+    const human = capture();
+    expect(await runCli(['status'], { env: env(url), io: human.io })).toBe(1);
+    expect(human.stderr).toContain('requestId: req\\u001b[31m\\u0007\\u000dnext');
+    expect(human.stderr).not.toMatch(/[\u001b\u0007\u000d]/u);
+
+    const json = capture();
+    expect(await runCli(['status', '--json'], { env: env(url), io: json.io })).toBe(1);
+    expect(errorEnvelopeSchema.parse(JSON.parse(json.stderr)).requestId).toBe(requestId);
+  });
+
   it('returns 4 for missing token or daemon address', async () => {
     const token = capture();
     expect(

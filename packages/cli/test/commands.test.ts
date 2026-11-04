@@ -200,4 +200,49 @@ describe('catalog commands', () => {
     expect(output.stdout).toContain('\\u009b31m');
     expect(output.stdout).not.toMatch(/[\u001b\u0007\u009b]/u);
   });
+
+  it('escapes server-controlled values and object keys in human output', async () => {
+    const task = OPERATIONS.find((op) => op.id === 'task.get');
+    const schema = OPERATIONS.find((op) => op.id === 'schema.get');
+    if (!task || !schema) throw new Error('Missing catalog operations.');
+    const taskSample = task.examples[0].output as {
+      blocks: { reason: string }[];
+    };
+    const firstBlock = taskSample.blocks[0];
+    if (!firstBlock) throw new Error('Missing sample block.');
+    const taskUrl = await fakeServer(() => ({
+      ...taskSample,
+      blocks: [
+        { ...firstBlock, reason: 'blocked\u001b]8;;https://example.invalid\u0007now\u000dnext' },
+      ],
+    }));
+    const taskOutput = capture(true);
+    expect(await runCli(['task', 'PROJ-123'], { env: env(taskUrl), io: taskOutput.io })).toBe(0);
+    expect(taskOutput.stdout).toContain(
+      'reason: blocked\\u001b]8;;https://example.invalid\\u0007now\\u000dnext',
+    );
+    expect(taskOutput.stdout).not.toMatch(/[\u001b\u0007\u000d]/u);
+
+    const schemaSample = schema.examples[0].output as {
+      operations: { inputSchema: Record<string, unknown> }[];
+    };
+    const firstOperation = schemaSample.operations[0];
+    if (!firstOperation) throw new Error('Missing sample operation.');
+    const hostileKey = 'field\u001b[31m';
+    const schemaUrl = await fakeServer(() => ({
+      ...schemaSample,
+      operations: [{ ...firstOperation, inputSchema: { [hostileKey]: 'value\u009b31m' } }],
+    }));
+    const schemaOutput = capture(true);
+    expect(await runCli(['schema'], { env: env(schemaUrl), io: schemaOutput.io })).toBe(0);
+    expect(schemaOutput.stdout).toContain('field\\u001b[31m: value\\u009b31m');
+    expect(schemaOutput.stdout).not.toMatch(/[\u001b\u009b]/u);
+
+    const jsonOutput = capture();
+    expect(await runCli(['schema', '--json'], { env: env(schemaUrl), io: jsonOutput.io })).toBe(0);
+    const json = JSON.parse(jsonOutput.stdout) as {
+      operations: { inputSchema: Record<string, unknown> }[];
+    };
+    expect(json.operations[0]?.inputSchema[hostileKey]).toBe('value\u009b31m');
+  });
 });
