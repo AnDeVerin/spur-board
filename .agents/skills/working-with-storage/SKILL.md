@@ -26,8 +26,9 @@ numbered migrations. Where a test enforces a rule, the rule names it.
   (`Store` in `packages/core/src/store/store.ts`).
 - `store.transaction` is the only place application code starts a transaction. It sends
   `BEGIN IMMEDIATE`, so the write lock is held from the start.
-- One unit of work is one `store.transaction`: a tick, one observed batch, one command. Tick and
-  observe code does not exist yet (#31); #31 updates this section with its callers.
+- Keep each `tickBoard` tick, accepted `createObservationCore.observe` batch, source-state report,
+  notice and `createApply` command in its own `store.transaction`. Persist their state changes and
+  journal events together so a failed unit rolls back as a whole.
 - No IO inside `fn`: no network, file or child process, no await other than `trx` queries. Fetch
   first, then write; a side effect goes out through the outbox after commit (next section). Why:
   the lock is held for all of `fn`, other writers give up after the 5000 ms busy timeout, and a
