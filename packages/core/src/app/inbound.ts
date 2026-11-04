@@ -374,16 +374,19 @@ export function createInbound(input: {
     });
   }
 
+  function queryId(parts: string[]): 'status.get' | 'task.get' | 'task.history' | undefined {
+    return parts.length === 1 && parts[0] === 'status'
+      ? 'status.get'
+      : parts.length === 2 && parts[0] === 'task'
+        ? 'task.get'
+        : parts.length === 3 && parts[0] === 'task' && parts[2] === 'history'
+          ? 'task.history'
+          : undefined;
+  }
+
   async function query(trx: Trx, command: string): Promise<string> {
     const parts = command.trim().split(/\s+/);
-    const id =
-      parts.length === 1 && parts[0] === 'status'
-        ? 'status.get'
-        : parts.length === 2 && parts[0] === 'task'
-          ? 'task.get'
-          : parts.length === 3 && parts[0] === 'task' && parts[2] === 'history'
-            ? 'task.history'
-            : undefined;
+    const id = queryId(parts);
     const entry = OPERATIONS.find((candidate) => candidate.id === id);
     if (entry?.kind !== 'query' || entry.slack?.kind !== 'slash-command') {
       return 'Usage: /board status | /board task <KEY> | /board task <KEY> history';
@@ -551,11 +554,7 @@ export function createInbound(input: {
         : 'inbound.action';
     }
     if (event.kind === 'command') {
-      const parts = event.text.trim().split(/\s+/);
-      if (parts.length === 1 && parts[0] === 'status') return 'status.get';
-      if (parts.length === 2 && parts[0] === 'task') return 'task.get';
-      if (parts.length === 3 && parts[0] === 'task' && parts[2] === 'history')
-        return 'task.history';
+      return queryId(event.text.trim().split(/\s+/)) ?? 'inbound.command';
     }
     return `inbound.${event.kind}`;
   }
