@@ -114,4 +114,35 @@ describe('operator token lifecycle', () => {
         .execute(),
     ).toHaveLength(1);
   });
+
+  it('bounds live pending requests without writing an extra approval item', async () => {
+    const store = setup();
+    for (let index = 0; index < 10; index += 1) {
+      await requestToken(
+        store,
+        {
+          name: `desk-${index}`,
+          folder: 'workspace/desk',
+          host: 'local',
+          hash: createHash('sha256').update(`secret-${index}`).digest('hex'),
+        },
+        AT,
+      );
+    }
+    const blocked = {
+      name: 'desk-blocked',
+      folder: 'workspace/desk',
+      host: 'local',
+      hash: createHash('sha256').update('blocked').digest('hex'),
+    };
+    await expect(requestToken(store, blocked, AT)).rejects.toMatchObject({ code: 'usage' });
+    expect(await store.db.selectFrom('operator_token').select('id').execute()).toHaveLength(10);
+    expect(await store.db.selectFrom('outbox').select('id').execute()).toHaveLength(10);
+
+    const afterExpiry = new Date(AT.getTime() + 15 * 60 * 1000);
+    await expect(requestToken(store, blocked, afterExpiry)).resolves.toMatchObject({
+      name: 'desk-blocked',
+      status: 'pending',
+    });
+  });
 });

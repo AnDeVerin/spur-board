@@ -10,6 +10,7 @@ import type { Query } from './queries.ts';
 
 type Trx = Kysely<Tables>;
 const REQUEST_LIFETIME_MS = 15 * 60 * 1000;
+const MAX_PENDING_REQUESTS = 10;
 
 function effectiveStatus(row: Row<'operator_token'>, at: Date): OperatorTokenStatus {
   return row.status === 'pending' && row.expires_at <= at.toISOString() ? 'expired' : row.status;
@@ -71,6 +72,16 @@ export async function requestToken(
       .where('name', '=', input.name)
       .executeTakeFirst();
     if (existing !== undefined) throw new CommandError('usage', 'Choose a new token name.');
+    const pending = await trx
+      .selectFrom('operator_token')
+      .select('id')
+      .where('status', '=', 'pending')
+      .where('expires_at', '>', at.toISOString())
+      .limit(MAX_PENDING_REQUESTS)
+      .execute();
+    if (pending.length >= MAX_PENDING_REQUESTS) {
+      throw new CommandError('usage', 'Too many token requests are awaiting approval.');
+    }
     const item = await raiseItem(trx, {
       itemKey: `token:${input.name}`,
       kind: 'token_request',
