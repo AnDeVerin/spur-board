@@ -3,7 +3,7 @@ import type { Mutation } from './commands.ts';
 import { CommandError } from './commands.ts';
 import { emit, projectForKey, taskView, type Trx } from './board-utils.ts';
 
-function canonicalKey(
+export function canonicalKey(
   config: Config,
   key: string,
 ): { project: Config['projects'][number]; key: string } {

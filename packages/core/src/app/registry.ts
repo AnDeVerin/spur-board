@@ -1,38 +1,12 @@
-import {
-  buildCatalogSnapshot,
-  OPERATIONS,
-  type ActorId,
-  type Config,
-  type Grant,
-} from '@spur-board/contracts';
-import { authorize, type ResolvedTarget } from './authorize.ts';
+import { buildCatalogSnapshot, OPERATIONS, type Config, type Grant } from '@spur-board/contracts';
+import { authorize } from './authorize.ts';
 import { createBlockMutations } from './blocks.ts';
 import { createMembershipMutations } from './membership.ts';
 import type { OperationRegistry } from './operations.ts';
 import type { Query } from './queries.ts';
 import { getStatus } from './status.ts';
+import { createTaskQueries, projectTargets, visibleProjects } from './task-queries.ts';
 import { tokenListQuery, tokenRevokeMutation } from './tokens.ts';
-
-function projectTarget(project: string): ResolvedTarget {
-  return {
-    kind: 'found',
-    value: { project, task: null, block: null, workers: [] },
-  };
-}
-
-function visibleProjects(config: Config, actor: ActorId): ReadonlySet<string> {
-  return new Set(
-    config.projects
-      .filter(
-        (project) =>
-          authorize([{ grant: 'operator' }, { grant: 'project-agent' }], actor, {
-            config,
-            target: projectTarget(project.id),
-          }).status === 'allowed',
-      )
-      .map((project) => project.id),
-  );
-}
 
 const ROLE_GRANTS: Record<'operator' | 'worker' | 'orchestrator', ReadonlySet<Grant>> = {
   operator: new Set(['operator', 'block-addressee', 'block-author']),
@@ -55,6 +29,7 @@ export function createOperationRegistry(deps: {
   const { config, clock, completeSince } = deps;
   const membership = createMembershipMutations(config);
   const blocks = createBlockMutations(config);
+  const taskQueries = createTaskQueries(config);
   const schema: Query<'schema.get'> = {
     id: 'schema.get',
     resolveTargets() {
@@ -99,16 +74,7 @@ export function createOperationRegistry(deps: {
   const status: Query<'status.get'> = {
     id: 'status.get',
     resolveTargets(_trx, input, actor) {
-      const visible = visibleProjects(config, actor);
-      const projects =
-        input.project === undefined
-          ? config.projects.filter((project) => visible.has(project.id))
-          : config.projects.filter((project) => project.id === input.project);
-      return Promise.resolve(
-        projects.length === 0
-          ? [{ kind: 'missing' as const }]
-          : projects.map((project) => projectTarget(project.id)),
-      );
+      return Promise.resolve(projectTargets(config, input.project, actor));
     },
     run(trx, input, actor) {
       return getStatus(
@@ -123,6 +89,9 @@ export function createOperationRegistry(deps: {
   return {
     'schema.get': schema,
     'status.get': status,
+    'task.get': taskQueries.get,
+    'task.history': taskQueries.history,
+    'inbox.get': taskQueries.inbox,
     'token.list': tokenListQuery(clock),
     'token.revoke': tokenRevokeMutation,
     'task.add': membership.add,

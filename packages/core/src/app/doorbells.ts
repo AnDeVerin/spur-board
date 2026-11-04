@@ -324,15 +324,44 @@ export async function acknowledgeNotification(
   if (input.blockId !== undefined)
     query = query.where('block_id', '=', input.blockId).where('kind', '=', 'block');
   else if (input.commentId !== undefined)
-    query = query
-      .where('comment_id', '=', input.commentId)
-      .where('revision', '=', input.revision ?? 1);
+    query = query.where('comment_id', '=', input.commentId).where('kind', '=', 'answer');
   else return false;
-  const n = await query.orderBy('id', 'desc').executeTakeFirst();
+  const notices = await query.orderBy('id', 'desc').execute();
+  const n = notices[0];
   if (n === undefined) return false;
-  const parsed = parseActorId(input.actor);
-  if (parsed?.actor !== 'agent')
-    throw new CommandError('forbidden', 'Only the addressed session can acknowledge.');
+  if (!(await notificationAddressedTo(trx, n, input.actor))) {
+    throw new CommandError('forbidden', 'Only the addressed task role can acknowledge.');
+  }
+  for (const notice of notices) {
+    await trx
+      .updateTable('notification')
+      .set({ acked_at: input.at.toISOString() })
+      .where('id', '=', notice.id)
+      .execute();
+    await journal(trx, notice, 'doorbell_read', { doorbell: `N${String(notice.id)}` }, input.at);
+    const item = await trx
+      .selectFrom('operator_item')
+      .select('id')
+      .where(
+        'item_key',
+        '=',
+        `${notice.kind === 'answer' ? 'answer_undelivered' : 'worker_not_reading'}:${notice.source_key}`,
+      )
+      .where('cleared_at', 'is', null)
+      .executeTakeFirst();
+    if (item !== undefined) await clearItem(trx, item.id, input.at);
+  }
+  return true;
+}
+
+/** Use the same current recipient rule when listing and acknowledging an inbox notice. */
+export async function notificationAddressedTo(
+  trx: Trx,
+  n: Notification,
+  actor: ActorId,
+): Promise<boolean> {
+  const parsed = parseActorId(actor);
+  if (parsed?.actor !== 'agent') return false;
   const linked = await trx
     .selectFrom('link')
     .select('id')
@@ -344,33 +373,11 @@ export async function acknowledgeNotification(
     .executeTakeFirst();
   const selectedIsLive =
     n.recipient_session !== null && (await liveSession(trx, n.recipient_session)) !== undefined;
-  const allowed =
-    n.recipient_session === null
-      ? parsed.actorRef.session === n.author_session || linked !== undefined
-      : selectedIsLive
-        ? parsed.actorRef.session === n.recipient_session
-        : (await recipient(trx, n))?.id === parsed.actorRef.session;
-  if (!allowed) {
-    throw new CommandError('forbidden', 'Only the addressed task role can acknowledge.');
-  }
-  await trx
-    .updateTable('notification')
-    .set({ acked_at: input.at.toISOString() })
-    .where('id', '=', n.id)
-    .execute();
-  await journal(trx, n, 'doorbell_read', { doorbell: `N${String(n.id)}` }, input.at);
-  const item = await trx
-    .selectFrom('operator_item')
-    .select('id')
-    .where(
-      'item_key',
-      '=',
-      `${n.kind === 'answer' ? 'answer_undelivered' : 'worker_not_reading'}:${n.source_key}`,
-    )
-    .where('cleared_at', 'is', null)
-    .executeTakeFirst();
-  if (item !== undefined) await clearItem(trx, item.id, input.at);
-  return true;
+  return n.recipient_session === null
+    ? parsed.actorRef.session === n.author_session || linked !== undefined
+    : selectedIsLive
+      ? parsed.actorRef.session === n.recipient_session
+      : (await recipient(trx, n))?.id === parsed.actorRef.session;
 }
 
 export async function closeBlockNotification(trx: Trx, blockId: number, at: Date): Promise<void> {

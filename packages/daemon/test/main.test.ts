@@ -196,7 +196,58 @@ describe('daemon process', () => {
             observed_at: at,
           })
           .execute();
+        await trx
+          .insertInto('block')
+          .values({
+            id: 1,
+            task_id: 1,
+            type: 'code',
+            reason: 'Inspect checks',
+            author: 'operator',
+            addressee_role: 'operator',
+            target_column: null,
+            state: 'open',
+            outcome: null,
+            outcome_reason: null,
+            repeat_of: null,
+            unblocked_by: null,
+            unblocked_at: null,
+            created_at: at,
+          })
+          .execute();
+        await trx
+          .insertInto('event')
+          .values({
+            at,
+            project: 'board',
+            task_id: 1,
+            kind: 'task_added',
+            actor: 'system',
+            actor_ref: null,
+            payload: '{}',
+            v: 1,
+            request_id: null,
+          })
+          .execute();
       });
+      const token = 'test-query-token';
+      await requestToken(
+        store,
+        {
+          name: 'daemon-cli',
+          folder: 'workspace/daemon',
+          host: 'local',
+          hash: createHash('sha256').update(token).digest('hex'),
+        },
+        new Date(at),
+      );
+      await store.transaction((trx) =>
+        trx
+          .updateTable('operator_token')
+          .set({ status: 'approved', decided_at: at })
+          .where('name', '=', 'daemon-cli')
+          .execute(),
+      );
     } finally {
       await store.close();
     }
@@ -236,6 +287,39 @@ describe('daemon process', () => {
       expect(JSON.parse(ask.stdout)).toMatchObject({
         block: { task: 'example-org/board#101', reason: 'Which version?' },
       });
+      const operatorEnv = { ...env, SPUR_SESSION: '', BOARD_TOKEN: 'test-query-token' };
+      const task = spawnSync(
+        process.execPath,
+        [BOARD_CLI, 'task', 'example-org/board#101', '--json'],
+        {
+          env: operatorEnv,
+          encoding: 'utf8',
+        },
+      );
+      expect(task.status, task.stderr).toBe(0);
+      expect(JSON.parse(task.stdout)).toMatchObject({
+        task: { key: 'example-org/board#101' },
+        blocks: [{ id: 'B1' }, { id: 'B2' }],
+      });
+      const history = spawnSync(
+        process.execPath,
+        [BOARD_CLI, 'task', 'history', 'example-org/board#101', '--json'],
+        {
+          env: operatorEnv,
+          encoding: 'utf8',
+        },
+      );
+      expect(history.status, history.stderr).toBe(0);
+      expect(JSON.parse(history.stdout)).toMatchObject({
+        task: { key: 'example-org/board#101' },
+        events: [{ kind: 'task_added' }, { kind: 'block_opened' }, { kind: 'comment_added' }],
+      });
+      const inbox = spawnSync(process.execPath, [BOARD_CLI, 'inbox', '--json'], {
+        env: operatorEnv,
+        encoding: 'utf8',
+      });
+      expect(inbox.status, inbox.stderr).toBe(0);
+      expect(JSON.parse(inbox.stdout)).toMatchObject({ blocks: [{ id: 'B1' }, { id: 'B2' }] });
     } finally {
       const exited = once(child, 'exit');
       child.kill('SIGTERM');
