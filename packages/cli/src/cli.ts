@@ -58,10 +58,11 @@ function bareSchema(schema: z.ZodType): z.ZodType {
 function revisionEntryArray(schema: z.ZodType | undefined): boolean {
   if (schema === undefined) return false;
   const bare = bareSchema(schema);
-  return (
-    bare instanceof z.ZodArray &&
-    bare.element instanceof z.ZodObject &&
-    Object.keys(bare.element.shape).sort().join(',') === 'id,revision'
+  if (!(bare instanceof z.ZodArray)) return false;
+  const shapes = bare.element instanceof z.ZodUnion ? bare.element.options : [bare.element];
+  return shapes.some(
+    (shape) =>
+      shape instanceof z.ZodObject && Object.keys(shape.shape).sort().join(',') === 'id,revision',
   );
 }
 
@@ -69,6 +70,7 @@ function positionalInput(op: CatalogOperation, field: string, value: unknown): u
   if (!revisionEntryArray(fieldSchema(op, field)) || !Array.isArray(value)) return value;
   return value.map((item: unknown) => {
     if (typeof item !== 'string') return item;
+    if (/^B[1-9][0-9]*$/.test(item)) return { id: item };
     const match = /^([^@]+)@([1-9][0-9]*)$/.exec(item);
     const id = match?.[1];
     const rawRevision = match?.[2];
@@ -80,9 +82,10 @@ function positionalInput(op: CatalogOperation, field: string, value: unknown): u
 
 function positionalExample(op: CatalogOperation, field: string, value: unknown): string[] {
   const values: unknown[] = Array.isArray(value) ? value : [value];
+  const isEntryArray = revisionEntryArray(fieldSchema(op, field));
   return values.map((item) => {
     if (
-      revisionEntryArray(fieldSchema(op, field)) &&
+      isEntryArray &&
       item !== null &&
       typeof item === 'object' &&
       'id' in item &&
@@ -90,6 +93,8 @@ function positionalExample(op: CatalogOperation, field: string, value: unknown):
     ) {
       return shellValue(`${String(item.id)}@${String(item.revision)}`);
     }
+    if (isEntryArray && item !== null && typeof item === 'object' && 'id' in item)
+      return shellValue(item.id);
     return shellValue(item);
   });
 }

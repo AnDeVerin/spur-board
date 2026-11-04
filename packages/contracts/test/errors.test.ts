@@ -30,13 +30,14 @@ describe('error catalog', () => {
     });
   });
 
-  it('pins the 16 codes in order, with HTTP status and exit code', () => {
+  it('pins the 18 codes in order, with HTTP status and exit code', () => {
     const table = Object.entries(ERRORS).map(([code, { status, exit }]) => [code, status, exit]);
     expect(table).toEqual([
       ['usage', 400, 2],
       ['wrong_id_kind', 400, 2],
       ['forbidden', 403, 1],
       ['not_found', 404, 1],
+      ['not_implemented', 501, 1],
       ['block_not_open', 409, 1],
       ['wrong_block_type', 409, 1],
       ['stale_comment_revision', 409, 1],
@@ -44,6 +45,7 @@ describe('error catalog', () => {
       ['retry_not_applicable', 409, 1],
       ['idempotency_key_mismatch', 409, 1],
       ['identity_unavailable', 503, 3],
+      ['starting', 503, 3],
       ['version_mismatch', 409, 3],
       ['daemon_unavailable', null, 3],
       ['config', null, 4],
@@ -92,6 +94,26 @@ describe('error catalog', () => {
     expect(daemon.hint).toContain('operator can run `board service start`');
     expect(daemon.recovery.action).toContain('existing idempotency key if it has one');
     expect(daemon.recovery.retryTiming).toContain('daemon is available');
+  });
+
+  it('marks startup as not applied and recoverable after readiness', () => {
+    expect(ERRORS.starting.status).toBe(503);
+    expect(ERRORS.starting.exit).toBe(EXIT_CODES.notApplied);
+    expect(ERRORS.starting.recovery.sideEffects).toBe('none');
+    expect(ERRORS.starting.hint).toContain('daemon is ready');
+    expect(renderHttpProblem({ code: 'starting', requestId: 'req-start' }).status).toBe(503);
+  });
+
+  it('marks an unavailable operation as refused without side effects or retries', () => {
+    const entry = ERRORS.not_implemented;
+    expect(entry.status).toBe(501);
+    expect(entry.exit).toBe(EXIT_CODES.refused);
+    expect(entry.hint).toContain('update the daemon');
+    expect(entry.recovery).toMatchObject({ sideEffects: 'none', maxRetries: 0 });
+    expect(renderHttpProblem({ code: 'not_implemented', requestId: 'req-missing' })).toMatchObject({
+      status: 501,
+      body: { code: 'not_implemented', requestId: 'req-missing' },
+    });
   });
 
   it('rejects incomplete recovery metadata', () => {

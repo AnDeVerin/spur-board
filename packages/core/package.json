@@ -12,6 +12,7 @@
   "dependencies": {
     "@spur-board/contracts": "workspace:*",
     "better-sqlite3": "catalog:",
+    "fastify": "catalog:",
     "kysely": "catalog:",
     "zod": "catalog:"
   },

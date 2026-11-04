@@ -4,6 +4,7 @@
 import {
   SPACE_IDS,
   type ConnectionState,
+  type Config,
   type DeliverRequest,
   type DeliveryResult,
   type DeliveryTarget,
@@ -13,6 +14,7 @@ import {
 import type { Kysely } from 'kysely';
 import type { Store } from '../store/store.ts';
 import type { Row, Tables } from '../store/schema.ts';
+import { reconcileDoorbells, recordRingDelivery, ringStillCurrent } from './doorbells.ts';
 import {
   deliveredRefSchema,
   KIND_PRIORITY,
@@ -31,7 +33,8 @@ export interface SpurPort {
 
 export interface SenderOptions {
   store: Store;
-  gateway: Gateway;
+  gateway?: Gateway;
+  config?: Config;
   spur: SpurPort;
   now?: () => Date;
   /** Minimum time between two deliveries into one space. */
@@ -120,6 +123,7 @@ function target(claim: Claim): DeliveryTarget | null {
 
 export function createSender(options: SenderOptions): Sender {
   const { store, gateway, spur } = options;
+  const gatewayKind = gateway?.kind ?? 'none';
   const now = options.now ?? (() => new Date());
   const spaceIntervalMs = options.spaceIntervalMs ?? SPACE_INTERVAL_MS;
   let downSince: number | undefined;
@@ -199,6 +203,7 @@ export function createSender(options: SenderOptions): Sender {
   /** tx 1: cancels stale rows, raises down-health and claims at most one due row per lane. */
   async function claim(trx: Trx, at: number): Promise<Claim[]> {
     const nowIso = new Date(at).toISOString();
+    await reconcileDoorbells(trx, new Date(at), options.config);
     const rows = await trx
       .selectFrom('outbox')
       .selectAll()
@@ -247,13 +252,13 @@ export function createSender(options: SenderOptions): Sender {
     await kill(trx, stale, 'superseded');
     await cascade(trx);
 
-    if (downSince !== undefined && at - downSince > DOWN_THRESHOLD_MS) {
+    if (gateway !== undefined && downSince !== undefined && at - downSince > DOWN_THRESHOLD_MS) {
       const since = new Date(downSince).toISOString();
       await trx
         .insertInto('transport_health')
         .values(
           SPACE_IDS.map((space) => ({
-            gateway: gateway.kind,
+            gateway: gatewayKind,
             space,
             reason: 'down',
             since,
@@ -277,21 +282,23 @@ export function createSender(options: SenderOptions): Sender {
     // A space takes one send per spaceIntervalMs and, while it has a health row, one probe per
     // HEALTH_PROBE_MS, both counted from when the last send started.
     const sentAt = new Map(
-      (
-        await trx
-          .selectFrom('space_slot')
-          .select(['space', 'sent_at'])
-          .where('gateway', '=', gateway.kind)
-          .execute()
+      (gateway === undefined
+        ? []
+        : await trx
+            .selectFrom('space_slot')
+            .select(['space', 'sent_at'])
+            .where('gateway', '=', gatewayKind)
+            .execute()
       ).map((slot) => [slot.space, Date.parse(slot.sent_at)]),
     );
     const probedAt = new Map(
-      (
-        await trx
-          .selectFrom('transport_health')
-          .select(['space', 'probe_at'])
-          .where('gateway', '=', gateway.kind)
-          .execute()
+      (gateway === undefined
+        ? []
+        : await trx
+            .selectFrom('transport_health')
+            .select(['space', 'probe_at'])
+            .where('gateway', '=', gatewayKind)
+            .execute()
       ).map((h) => [h.space, Date.parse(h.probe_at)]),
     );
     const due = live
@@ -312,6 +319,7 @@ export function createSender(options: SenderOptions): Sender {
     const taken = new Set<SpaceId | null>();
     for (const { row, body } of due) {
       const space = KIND_SPACE[body.kind];
+      if (space !== null && gateway === undefined) continue;
       if (taken.has(space)) continue;
       if (space !== null) {
         const sent = sentAt.get(space);
@@ -364,9 +372,49 @@ export function createSender(options: SenderOptions): Sender {
   async function start(
     trx: Trx,
     c: Claim,
-  ): Promise<{ at: number; firstDeliveryAt: string | null }> {
+  ): Promise<{ at: number; firstDeliveryAt: string | null; skip: boolean }> {
     const at = now().getTime();
     const sentAtIso = new Date(at).toISOString();
+    if (c.body.kind === 'feed.line' && c.body.payload.itemId !== undefined && !c.maybeSent) {
+      const item = await trx
+        .selectFrom('operator_item')
+        .select('cleared_at')
+        .where('id', '=', c.body.payload.itemId)
+        .executeTakeFirst();
+      if (item !== undefined && item.cleared_at !== null) {
+        const edits = await trx
+          .selectFrom('outbox')
+          .select('id')
+          .where('parent_outbox_id', '=', c.id)
+          .where('kind', '=', 'feed.line.edit')
+          .execute();
+        await kill(trx, [c.id, ...edits.map((edit) => edit.id)], 'superseded');
+        return { at, firstDeliveryAt: null, skip: true };
+      }
+    }
+    if (c.body.kind === 'doorbell' && c.body.payload.notificationId !== undefined) {
+      const status = await ringStillCurrent(
+        trx,
+        c.body.payload.notificationId,
+        c.body.payload.session,
+      );
+      if (status === 'dead') {
+        await kill(trx, [c.id], 'notification no longer current');
+        return { at, firstDeliveryAt: null, skip: true };
+      }
+      if (status === 'defer') {
+        await trx
+          .updateTable('outbox')
+          .set((eb) => ({
+            state: 'pending',
+            attempts: eb('attempts', '-', 1),
+            next_at: new Date(at + 1000).toISOString(),
+          }))
+          .where('id', '=', c.id)
+          .execute();
+        return { at, firstDeliveryAt: null, skip: true };
+      }
+    }
     const firstDeliveryAt =
       c.firstDeliveryAt ?? (c.space !== null && !c.maybeSent ? sentAtIso : null);
     await trx
@@ -379,19 +427,19 @@ export function createSender(options: SenderOptions): Sender {
       .where('id', '=', c.id)
       .execute();
     const { space } = c;
-    if (space === null) return { at, firstDeliveryAt };
+    if (space === null) return { at, firstDeliveryAt, skip: false };
     await trx
       .insertInto('space_slot')
-      .values({ gateway: gateway.kind, space, sent_at: sentAtIso })
+      .values({ gateway: gatewayKind, space, sent_at: sentAtIso })
       .onConflict((oc) => oc.columns(['gateway', 'space']).doUpdateSet({ sent_at: sentAtIso }))
       .execute();
     await trx
       .updateTable('transport_health')
       .set({ probe_at: sentAtIso })
-      .where('gateway', '=', gateway.kind)
+      .where('gateway', '=', gatewayKind)
       .where('space', '=', space)
       .execute();
-    return { at, firstDeliveryAt };
+    return { at, firstDeliveryAt, skip: false };
   }
 
   async function attempt(
@@ -403,6 +451,7 @@ export function createSender(options: SenderOptions): Sender {
         await spur.send(c.body.payload.session, c.body.payload.text);
         return { outcome: { status: 'sent' }, error: null };
       }
+      if (gateway === undefined) throw new Error('gateway is not configured');
       const to = target(c);
       if (to === null) throw new Error('a dependent row without its parent ref');
       const request: DeliverRequest = {
@@ -411,7 +460,19 @@ export function createSender(options: SenderOptions): Sender {
         ...(firstDeliveryAt === null ? {} : { firstAttemptAt: new Date(firstDeliveryAt) }),
         target: to,
         persona: c.body.payload.persona,
-        body: renderBody(c.body.payload.key, c.body.payload.text),
+        body:
+          c.body.kind === 'feed.line' && c.body.payload.url !== undefined
+            ? [
+                {
+                  kind: 'paragraph',
+                  children: [{ kind: 'link', url: c.body.payload.url, text: c.body.payload.key }],
+                },
+                { kind: 'quote', children: [{ kind: 'text', text: c.body.payload.text }] },
+              ]
+            : renderBody(c.body.payload.key, c.body.payload.text),
+        ...(c.body.kind === 'feed.line' && c.body.payload.actions !== undefined
+          ? { actions: c.body.payload.actions }
+          : {}),
       };
       return { outcome: await gateway.deliver(request), error: null };
     } catch (error) {
@@ -439,6 +500,20 @@ export function createSender(options: SenderOptions): Sender {
     switch (outcome.status) {
       case 'sent':
         await row.set({ state: 'done', last_error: null }).execute();
+        if (
+          body.kind === 'doorbell' &&
+          body.payload.notificationId !== undefined &&
+          body.payload.ring !== undefined
+        ) {
+          await recordRingDelivery(
+            trx,
+            body.payload.notificationId,
+            body.payload.ring,
+            body.payload.session,
+            new Date(at),
+            options.config,
+          );
+        }
         return;
       case 'delivered': {
         const conversation =
@@ -463,7 +538,7 @@ export function createSender(options: SenderOptions): Sender {
             .insertInto('conversation')
             .values({
               ref: conversation,
-              gateway: gateway.kind,
+              gateway: gatewayKind,
               space: KIND_SPACE[body.kind],
               task_id: taskId,
               block_id: isBlock ? body.payload.blockId : null,
@@ -481,7 +556,7 @@ export function createSender(options: SenderOptions): Sender {
           await trx
             .updateTable('conversation')
             .set({ state: 'closed', closed_at: nowIso })
-            .where('gateway', '=', gateway.kind)
+            .where('gateway', '=', gatewayKind)
             .where('ref', '=', conversation)
             .execute();
         }
@@ -493,7 +568,7 @@ export function createSender(options: SenderOptions): Sender {
         if (space !== null) {
           await trx
             .deleteFrom('transport_health')
-            .where('gateway', '=', gateway.kind)
+            .where('gateway', '=', gatewayKind)
             .where('space', '=', space)
             .execute();
         }
@@ -511,7 +586,7 @@ export function createSender(options: SenderOptions): Sender {
             : await trx
                 .selectFrom('transport_health')
                 .select('since')
-                .where('gateway', '=', gateway.kind)
+                .where('gateway', '=', gatewayKind)
                 .where('space', '=', space)
                 .executeTakeFirst();
         const uncertain = current.uncertain === 1 || outcome.uncertain ? 1 : 0;
@@ -542,7 +617,7 @@ export function createSender(options: SenderOptions): Sender {
         await trx
           .insertInto('transport_health')
           .values({
-            gateway: gateway.kind,
+            gateway: gatewayKind,
             space,
             reason: outcome.reason,
             since: nowIso,
@@ -583,6 +658,7 @@ export function createSender(options: SenderOptions): Sender {
         return;
       }
       const started = await store.transaction((trx) => start(trx, c));
+      if (started.skip) continue;
       // After start() commits, finish and record this attempt even if shutdown begins.
       const { outcome, error } = await attempt(c, started.firstDeliveryAt);
       const at = now().getTime();

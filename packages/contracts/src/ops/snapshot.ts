@@ -48,3 +48,9 @@ export async function catalogVersion(body: unknown): Promise<string> {
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(json));
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
 }
+
+/** The versioned catalog served by the API and committed as ops.snapshot.json. */
+export async function buildCatalogSnapshot(operations: readonly Operation[]) {
+  const body = catalogSnapshotBody(operations);
+  return { version: await catalogVersion(body), ...body };
+}

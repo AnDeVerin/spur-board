@@ -5,9 +5,8 @@ description: Rules for packages/daemon/ - modules, config and secrets, logging a
 
 # Running the daemon
 
-`packages/daemon/` is the daemon process: `main` in `packages/daemon/src/main.ts` binds the real
-process, and `runDaemon` in `packages/daemon/src/lifecycle.ts` runs lock, config, logger, store,
-modules, then `daemon ready`. Where a test or lint rule enforces a rule, the rule names it.
+`main` binds the process; `runDaemon` starts lock, config, logger, store and modules, then logs
+`daemon ready`.
 
 ## When to use
 
@@ -17,10 +16,8 @@ modules, then `daemon ready`. Where a test or lint rule enforces a rule, the rul
 
 ## Composition root and modules
 
-- `main` binds the real process (signal and fatal handlers, exit, stdout, stderr), the
-  environment, the home directory and wall time, and passes them to `runDaemon` as dependencies;
-  tests pass fakes. One exception: `acquireLock` writes `process.pid` into the lock file, pinned
-  by 'creates the directory and writes its PID'.
+- `main` binds signals, exit, streams, environment, home and wall time; `runDaemon` receives them
+  as dependencies so tests pass fakes. `acquireLock` writes `process.pid` into the lock file.
 - A module is a `Module`: `start(signal)` and `stop()`. Register it in the `modules` list in
   `main`, in start order, as a `ModuleEntry` with `name`, `stopStage` and
   `module: createX(ctxFor('<name>'))`.
@@ -60,32 +57,39 @@ modules, then `daemon ready`. Where a test or lint rule enforces a rule, the rul
 
 ## Logging
 
-- The daemon writes JSON lines to stdout through `createLogger` in
-  `packages/daemon/src/logger.ts`. There is no stdio mode; stdio surfaces are left to #54 and #51.
+- Write JSON lines to stdout through `createLogger` in `packages/daemon/src/logger.ts`.
 - Before the logger exists (lock and config failures), errors go to stderr through
   `ProcessPort.writeErr`.
 - Log through `ctx.log`, the child logger carrying `module`. No console output, no second logger.
-- Redaction is the `redacting` destination wrapper, not pino `redact`: it censors credential keys
-  at any depth and replaces known secret values, raw and JSON-escaped. Pinned by 'redacts secret
-  values and credential keys everywhere', 'censors credential keys at any depth and in any
-  casing', 'withholds a line it cannot censor instead of writing it raw' and 'leaves short secret
-  values alone'.
-- Fields the code writes: `module`, `err`, `signal`, `pending`, `call`, `duration_ms`, `outcome`.
+- Use the `redacting` destination wrapper: censor credential keys at any depth and known secret
+  values, raw or JSON-escaped. Withhold a line that cannot be censored; leave short values alone.
+- Fields the code writes: `module`, `err`, `signal`, `pending`, `call`, `duration_ms`, `outcome`,
+  `requestId`, `method`, `path`, `status`.
   A new entity ID takes its contracts field name, e.g. `taskId`.
 - Wrap every external call in `ctx.logCall`, which logs `call`, `duration_ms` and `outcome` and
   rethrows. Pinned by 'logs ok at info with the duration from the clock'.
 - Log sender ticks and `spur send` child calls through the outbox module's `ctx.logCall`.
 
+## HTTP
+
+- Register `createHttpModule(ctxFor('http'))` last, including without Slack. It answers
+  `503 starting` until `state()` is `ready`. Process tests cover both paths.
+- Bind with `listenApiServer` on `127.0.0.1` and the configured `http.port`. The module reads a
+  session snapshot through core, then uses a bounded live Spur lookup on a miss. Wrap that call
+  in `ctx.logCall`; reject bearer tokens until a verifier is provided.
+- Log each request with `requestId`, method, path and status through `ctx.log`. Do not log the
+  query string. Register HTTP at `stopStage: 'final'` so outbox delivery finishes before close.
+
 ## Scheduling
 
 - Start the outbox tick immediately, then arm a `setTimeout` for one second plus under 100 ms of
   jitter after the tick settles. Never queue a second tick while one runs.
+- Register the outbox without a gateway so Spur doorbells run; leave gateway rows pending.
 - Pass the start signal to each sender tick. On stop, clear the timer and await the active tick
   before the store closes. Register the outbox with `stopStage: 'outbox'` and its gateway with
   `stopStage: 'final'`. Pinned by 'skips timer ticks while a delivery is active'.
-- A future poller uses a `setTimeout` chain with jitter and passes the start signal into every
-  call (`PollContext.signal`, A7 in `packages/contracts/src/adapters.ts`). Backoff belongs to the
-  poller; an adapter never retries on its own (A6).
+- A poller uses a `setTimeout` chain with jitter and passes `PollContext.signal` into each call.
+  Backoff belongs to the poller; an adapter does not retry.
 - Register a poller with `stopStage: 'pollers'`; `stop()` clears its timer and awaits its tick.
 - Keep the sole `setInterval` in `main` (`KEEPALIVE_MS`) until a module owns a server.
 - Handle each tick promise; `@typescript-eslint/no-floating-promises` rejects an unhandled one.
@@ -101,8 +105,8 @@ modules, then `daemon ready`. Where a test or lint rule enforces a rule, the rul
 - Pick `stopStage` by what the module does: `'pollers'` for anything that observes, `'final'`
   for HTTP, gateways and core (the comment on `STOP_STAGES`). Do not add a stage without
   changing `STOP_STAGES` and 'starts and stops in order'.
-- A stop that hangs past `DEFAULT_SHUTDOWN_TIMEOUT_MS` exits 1 and logs the `pending` modules,
-  pinned by 'exits 1 when a stop hangs'. A failed stop logs and still lets the others stop.
+- A stop past `DEFAULT_SHUTDOWN_TIMEOUT_MS` exits 1 and logs `pending` modules. A failed stop
+  logs and lets the others stop.
 - Every exit goes through `ProcessPort.exit` exactly once. Pinned by 'two signals run one
   shutdown' and 'fatal during shutdown exits once'. A fatal error exits 1 at once, with no
   module stop, pinned by 'fatal error exits 1'.
@@ -120,7 +124,8 @@ modules, then `daemon ready`. Where a test or lint rule enforces a rule, the rul
 
 ## Changing these rules
 
-Update this skill in the same PR as daemon code or a test named here.
+A PR that changes `packages/daemon/src/` or the tests named here updates this skill in the same
+PR.
 
 ## Checks
 
