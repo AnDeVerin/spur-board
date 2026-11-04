@@ -164,6 +164,9 @@ settings:
 
 catalogs:
   default:
+    '@commander-js/extra-typings':
+      specifier: ^15.0.0
+      version: 15.0.0
     '@eslint-community/eslint-plugin-eslint-comments':
       specifier: ^4.8.1
       version: 4.8.1
@@ -182,6 +185,9 @@ catalogs:
     better-sqlite3:
       specifier: ^13.0.3
       version: 13.0.3
+    commander:
+      specifier: ^15.0.0
+      version: 15.0.0
     eslint:
       specifier: ^10.13.0
       version: 10.13.0
@@ -256,6 +262,21 @@ importers:
       '@spur-board/contracts':
         specifier: workspace:*
         version: link:../contracts
+      zod:
+        specifier: 'catalog:'
+        version: 4.6.7
+
+  packages/cli:
+    dependencies:
+      '@commander-js/extra-typings':
+        specifier: 'catalog:'
+        version: 15.0.0(commander@15.0.0)
+      '@spur-board/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      commander:
+        specifier: 'catalog:'
+        version: 15.0.0
       zod:
         specifier: 'catalog:'
         version: 4.6.7
@@ -348,6 +369,11 @@ packages:
 
   '@cacheable/utils@2.5.0':
     resolution: {integrity: sha512-buipgOVDkkPXNR5+xBpDw7Zk2n1EvU7qBJCNUcL7rhQ//kfpOXPAvQ511Os0vpLYJ1pZnvudNytkQt2hst3wqA==}
+
+  '@commander-js/extra-typings@15.0.0':
+    resolution: {integrity: sha512-yeJlba62xqmkgELUsn7356MEnzLLu/fw2x4lofFqGnXh6YysRdEs2BaLeLtg1+KU0AXvMeqQvTTp+3hBEBK+EA==}
+    peerDependencies:
+      commander: ~15.0.0
 
   '@emnapi/core@1.11.2':
     resolution: {integrity: sha512-TC8MkTuZUtcTSiFeuC0ksCh9QIJ5+F21MvZ4Wn4ORfYaFJ/0dsiudv5tVkejgwZlwQ39jL9WWDe2lz8x0WglOA==}
@@ -1105,6 +1131,10 @@ packages:
   colorette@2.0.20:
     resolution: {integrity: sha512-IfEDxwoWIjkeXL1eXcDiow4UbKjhLdq6/EuSVR9GMN7KVH3r9gQ83e73hsz1Nd1T3ijd5xv1wcWRYO+D6kCI2w==}
 
+  commander@15.0.0:
+    resolution: {integrity: sha512-z67u4ZhzCL/Tydu1lJARtEZYWbWaN7oYLHbsuzocr6y4N6WZAagG3RQ4FW61V1/0+jImpj293XfrcYnd1qxtPg==}
+    engines: {node: '>=22.12.0'}
+
   cross-spawn@7.0.6:
     resolution: {integrity: sha512-uV2QOWP2nWzsy2aMp8aRibhi9dlzF5Hgh5SHaB9OiTGEyDTiJJyx0uy51QXdyWbtAHNua4XJzUKca3OzKUd3vA==}
     engines: {node: '>= 8'}
@@ -1774,6 +1804,10 @@ snapshots:
       hashery: 1.5.1
       keyv: 5.6.0
 
+  '@commander-js/extra-typings@15.0.0(commander@15.0.0)':
+    dependencies:
+      commander: 15.0.0
+
   '@emnapi/core@1.11.2':
     dependencies:
       '@emnapi/wasi-threads': 1.2.2
@@ -2349,6 +2383,8 @@ snapshots:
   chai@6.3.0: {}
 
   colorette@2.0.20: {}
+
+  commander@15.0.0: {}
 
   cross-spawn@7.0.6:
     dependencies:

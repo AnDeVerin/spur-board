@@ -19,7 +19,7 @@ async function ruleIds(fixture: string): Promise<(string | null)[]> {
 const virtual = new ESLint({
   cwd: root,
   ignore: false,
-  overrideConfig: [{ files: ['**/*.ts'], ...tseslint.configs.disableTypeChecked }],
+  overrideConfig: [{ files: ['**/*.{ts,mjs}'], ...tseslint.configs.disableTypeChecked }],
 });
 
 async function textRuleIds(code: string, path: string): Promise<(string | null)[]> {
@@ -249,4 +249,120 @@ describe('adapters boundary', () => {
     },
     30_000,
   );
+});
+
+describe('CLI boundary', () => {
+  const imports = (from: string): string => `import { x } from '${from}';\nexport const y = x;`;
+
+  it('rejects a normalized relative path that reaches core through contracts', async () => {
+    expect(
+      await textRuleIds(imports('../../contracts/../core/src/index.ts'), 'packages/cli/src/x.ts'),
+    ).toEqual(['local/cli-import-boundary']);
+  }, 30_000);
+
+  it.each([
+    ['packages/cli/src/x.ts', '@spur-board/core'],
+    ['packages/cli/src/x.ts', '@spur-board/daemon'],
+    ['packages/cli/src/x.ts', '@spur-board/adapters'],
+    ['packages/cli/src/x.ts', '@spur-board/gateway-slack'],
+    ['packages/cli/src/x.ts', '@spur-board/testkit'],
+    ['packages/cli/src/x.ts', '@spur-board/contracts-extra'],
+    ['packages/cli/src/x.mjs', '@spur-board/core'],
+  ])(
+    '%s: import of %s reports no-restricted-imports',
+    async (path, from) => {
+      expect(await textRuleIds(imports(from), path)).toEqual(['no-restricted-imports']);
+    },
+    30_000,
+  );
+
+  it.each([
+    ['packages/cli/src/x.ts', '../../core/src/index.ts'],
+    ['packages/cli/src/deep/x.ts', '../../../daemon/src/main.ts'],
+    ['packages/cli/test/x.test.ts', '../../core/src/index.ts'],
+    ['packages/cli/test/x.test.ts', '../../../packages/daemon/src/main.ts'],
+    ['packages/cli/src/x.mjs', '../../contracts/../core/src/index.ts'],
+    ['packages/cli/src/x.ts', '../../../scripts/check.ts'],
+  ])(
+    '%s: normalized import of %s reports local/cli-import-boundary',
+    async (path, from) => {
+      expect(await textRuleIds(imports(from), path)).toEqual(['local/cli-import-boundary']);
+    },
+    30_000,
+  );
+
+  it.each([
+    "export * from '../../contracts/../core/src/index.ts';",
+    "import type { X } from '../../contracts/../core/src/index.ts';\nexport type Y = X;",
+  ])(
+    'rejects a normalized relative re-export or type import',
+    async (code) => {
+      expect(await textRuleIds(code, 'packages/cli/src/x.ts')).toEqual([
+        'local/cli-import-boundary',
+      ]);
+    },
+    30_000,
+  );
+
+  it.each([
+    [
+      'packages/cli/src/x.ts',
+      "import type { X } from '@spur-board/core';\nexport type Y = X;",
+      'no-restricted-imports',
+    ],
+    [
+      'packages/cli/src/x.ts',
+      "export const x = import('@spur-board/core');",
+      'no-restricted-syntax',
+    ],
+    [
+      'packages/cli/test/x.test.ts',
+      "export const x = import('../../daemon/src/main.ts');",
+      'no-restricted-syntax',
+    ],
+    [
+      'packages/cli/src/x.ts',
+      "export type X = import('@spur-board/core').X;",
+      'no-restricted-syntax',
+    ],
+    ['packages/cli/test/x.test.ts', "vi.mock('x');", 'no-restricted-syntax'],
+    [
+      'packages/cli/src/x.mjs',
+      "export const x = import('@spur-board/core');",
+      'no-restricted-syntax',
+    ],
+    [
+      'packages/cli/src/x.mjs',
+      "export const x = import('../../core/src/index.ts');",
+      'no-restricted-syntax',
+    ],
+  ])(
+    '%s: forbidden import form reports its boundary rule',
+    async (path, code, rule) => {
+      expect(await textRuleIds(code, path)).toEqual([rule]);
+    },
+    30_000,
+  );
+
+  it.each([
+    ['packages/cli/src/x.ts', '@spur-board/contracts'],
+    ['packages/cli/test/x.test.ts', '@spur-board/contracts'],
+    ['packages/cli/src/x.ts', '../../contracts/src/index.ts'],
+    ['packages/cli/src/x.ts', '../../core/../contracts/src/index.ts'],
+    ['packages/cli/src/x.ts', './client.ts'],
+    ['packages/cli/src/x.mjs', '@spur-board/contracts'],
+    ['packages/core/src/x.ts', '@spur-board/core'],
+  ])(
+    '%s: import of %s passes',
+    async (path, from) => {
+      expect(await textRuleIds(imports(from), path)).toEqual([]);
+    },
+    30_000,
+  );
+
+  it('allows the minimal entrypoint to load its own command module', async () => {
+    expect(
+      await textRuleIds("export const command = import('./cli.ts');", 'packages/cli/src/x.mjs'),
+    ).toEqual([]);
+  }, 30_000);
 });
