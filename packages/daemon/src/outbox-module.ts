@@ -14,6 +14,7 @@ export interface SlackSettings {
   token: string;
   appToken?: string;
   channels: { orchestrators: string; feed: string };
+  command: string;
   apiUrl?: string;
   requestTimeoutMs: number;
 }
@@ -53,6 +54,7 @@ export function slackSettings(
   }
   return {
     token,
+    command: config.slack.command,
     ...(appToken === undefined ? {} : { appToken }),
     channels: { orchestrators, feed },
     ...(apiUrl === undefined ? {} : { apiUrl }),

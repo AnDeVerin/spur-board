@@ -3,12 +3,13 @@ import { apiFailure, createApi, type ApiConfig } from './api.ts';
 import { createDeliveryGateway, type SlackChannels } from './deliver.ts';
 import { parseInteractionRef, type BotIdentity } from './normalize.ts';
 import { recoverThreads } from './recover.ts';
-import { renderText } from './render.ts';
+import { MAX_PART_TEXT, renderText, splitText } from './render.ts';
 import { createSocket } from './socket.ts';
 
 interface SlackGatewayConfig extends ApiConfig {
   channels: SlackChannels;
   appToken?: string;
+  command?: string;
 }
 
 /** Create a Slack gateway. Socket Mode is opt-in until the daemon has a real inbound sink. */
@@ -42,7 +43,12 @@ export function createSlackGateway(config: SlackGatewayConfig): Gateway {
     recover: (request) => recoverThreads(api, request, botIdentity),
     async respond(interaction, text, options) {
       const addressed = parseInteractionRef(interaction);
-      const body = renderText(text);
+      const rendered = renderText(text);
+      const pointer = '\n\nMore: board status (CLI)';
+      const body =
+        rendered.length <= MAX_PART_TEXT
+          ? rendered
+          : `${splitText(rendered, MAX_PART_TEXT - pointer.length)?.[0] ?? ''}${pointer}`;
       if (addressed === null || body.length === 0) return 'dropped';
       try {
         const response = await api.chat.postEphemeral({

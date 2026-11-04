@@ -59,11 +59,20 @@ describe('outbox scheduler', () => {
     };
     const outbound = slackSettings(config, { SLACK_BOT_TOKEN: 'xoxb-test' });
     expect(outbound?.appToken).toBeUndefined();
+    expect(outbound?.command).toBe('/board');
     const inbound = slackSettings(config, {
       SLACK_BOT_TOKEN: 'xoxb-test',
       SLACK_APP_TOKEN: 'xapp-test',
     });
     expect(inbound?.appToken).toBe('xapp-test');
+    expect(
+      slackSettings(
+        { ...config, slack: { ...config.slack, command: '/ops' } },
+        {
+          SLACK_BOT_TOKEN: 'xoxb-test',
+        },
+      )?.command,
+    ).toBe('/ops');
   });
   it('logs one failed tick and schedules a later successful tick', async () => {
     const home = makeHome();

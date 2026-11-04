@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import {
   EVENT_VERSION,
+  ERRORS,
   OPERATIONS,
   conversationRefSchema,
   eventPayloadSchemas,
@@ -29,6 +30,7 @@ import { editInboundComment, recordInboundBlockMessage } from './blocks.ts';
 import { registerAnswerNotification, selectNotificationRecipient } from './doorbells.ts';
 import { replayOperation } from './commands.ts';
 import { CommandError } from './commands.ts';
+import { commandReply } from './command-replies.ts';
 import { raiseItem as raiseOperatorItem, clearItem as clearOperatorItem } from './feed.ts';
 import { dispatchOperation, type OperationRegistry } from './operations.ts';
 import { enqueueConversationClose, enqueueInboundDoorbell } from './outbox.ts';
@@ -356,16 +358,6 @@ export function createInbound(input: {
     return { status: 'applied' };
   }
 
-  function queryId(parts: string[]): 'status.get' | 'task.get' | 'task.history' | undefined {
-    return parts.length === 1 && parts[0] === 'status'
-      ? 'status.get'
-      : parts.length === 2 && parts[0] === 'task'
-        ? 'task.get'
-        : parts.length === 3 && parts[0] === 'task' && parts[2] === 'history'
-          ? 'task.history'
-          : undefined;
-  }
-
   async function retryStoredInbound(trx: Trx, itemId: number, at: string): Promise<void> {
     const item = await trx
       .selectFrom('operator_item')
@@ -433,7 +425,7 @@ export function createInbound(input: {
         : 'inbound.action';
     }
     if (event.kind === 'command') {
-      return queryId(event.text.trim().split(/\s+/)) ?? 'inbound.command';
+      return interactionOperation(event).id ?? 'inbound.command';
     }
     return `inbound.${event.kind}`;
   }
@@ -445,9 +437,17 @@ export function createInbound(input: {
     let id: OperationId | undefined;
     let operationInput: unknown;
     if (event.kind === 'command') {
-      const parts = event.text.trim().split(/\s+/);
-      id = queryId(parts);
-      operationInput = id === 'status.get' ? {} : { task: parts[1] };
+      const command = event.command;
+      if (command.kind === 'query') {
+        const operation = OPERATIONS.find((entry) => entry.id === command.id);
+        if (operation?.kind === 'query' && operation.slack?.kind === 'slash-command') {
+          const parsed = operation.input.safeParse(command.input);
+          if (parsed.success) {
+            id = operation.id;
+            operationInput = parsed.data;
+          }
+        }
+      }
     } else {
       const parts = event.actionId.split(':');
       if (parts.length === 2 && /^I[1-9]\d*$/.test(parts[1] ?? '')) {
@@ -547,8 +547,10 @@ export function createInbound(input: {
       return;
     }
     const { id, operationInput } = interactionOperation(event);
-    let response: string;
-    if (id === undefined) response = 'not available yet';
+    let response: RichText;
+    if (event.kind === 'command' && event.command.kind === 'usage')
+      response = plain(event.command.text);
+    else if (id === undefined) response = plain('not allowed');
     else {
       try {
         const value = await dispatchOperation(
@@ -558,19 +560,25 @@ export function createInbound(input: {
           'operator',
           event.dedupeKey,
         );
-        response = JSON.stringify(value);
+        response =
+          event.kind === 'command'
+            ? commandReply(id as 'status.get' | 'task.get' | 'task.history', value)
+            : plain(JSON.stringify(value));
       } catch (error) {
         if (!(error instanceof CommandError)) {
           await recordFailure(event, error, new Date(clock.now()).toISOString());
         }
-        response =
+        response = plain(
           error instanceof CommandError && error.code !== 'not_implemented'
-            ? error.hint
-            : 'not available yet';
+            ? event.kind === 'command'
+              ? `${ERRORS[error.code].message} ${ERRORS[error.code].hint}`
+              : error.hint
+            : 'not available yet',
+        );
       }
     }
     try {
-      await gateway.respond(event.interaction, plain(response), { private: true });
+      await gateway.respond(event.interaction, response, { private: true });
     } catch {
       // The operation has completed; an ephemeral response failure must not replay it.
     }

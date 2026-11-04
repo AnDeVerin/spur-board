@@ -4,6 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   configSchema,
+  ERRORS,
+  OPERATIONS,
   conversationRefSchema,
   interactionRefSchema,
   messageRefSchema,
@@ -12,7 +14,7 @@ import {
   type InboundEvent,
 } from '@spur-board/contracts';
 import { createFakeGateway } from '@spur-board/gateway-testkit';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   createInbound,
   createSender,
@@ -297,6 +299,7 @@ describe('inbound apply', () => {
       interaction: interactionRefSchema.parse('interaction-1'),
       author: userIdSchema.parse('another'),
       text: 'status',
+      command: { kind: 'query', id: 'status.get', input: {} },
       sourceUrl: 'https://example.test/board',
       sourceSpace: 'orchestrators',
     });
@@ -353,6 +356,7 @@ describe('inbound apply', () => {
       interaction: interactionRefSchema.parse('wrong-command'),
       author: userIdSchema.parse('operator'),
       text: 'status',
+      command: { kind: 'query', id: 'status.get', input: {} },
       sourceUrl: 'https://example.test/other',
       sourceSpace: null,
     });
@@ -639,6 +643,7 @@ describe('inbound apply', () => {
       interaction: interactionRefSchema.parse('command-anywhere'),
       author: userIdSchema.parse('operator'),
       text: 'task o/r#101 history',
+      command: { kind: 'query', id: 'task.history', input: { task: 'o/r#101' } },
       sourceUrl: 'https://example.test/other',
     });
     await inbound.sink({
@@ -704,6 +709,7 @@ describe('inbound apply', () => {
       interaction: interactionRefSchema.parse('catalog-status'),
       author: userIdSchema.parse('operator'),
       text: 'status',
+      command: { kind: 'query', id: 'status.get', input: {} },
       sourceUrl: 'https://example.test/other',
     });
     const button: InboundEvent = {
@@ -721,13 +727,170 @@ describe('inbound apply', () => {
     await inbound.sink(button);
     await inbound.sink(button);
     expect(responses).toEqual([
-      JSON.stringify(emptyStatus()),
+      'Board status: 0 tasks, 0 items needing attention.',
       JSON.stringify({ item: { id: 'I1', task: null, at, summary: 'Closed' } }),
       JSON.stringify({ item: { id: 'I1', task: null, at, summary: 'Closed' } }),
     ]);
     expect(await store.db.selectFrom('command').select(['operation', 'key']).execute()).toEqual([
       { operation: 'item.close', key: 'catalog-close' },
     ]);
+  });
+
+  it('renders task comments as quotes and dated history as private English text', async () => {
+    const { store, gateway } = await setup();
+    const replies: { body: Parameters<typeof gateway.respond>[1]; private: boolean }[] = [];
+    const target = {
+      kind: 'found' as const,
+      value: { project: 'proj', task: null, block: null, workers: [] },
+    };
+    const registry: OperationRegistry = {
+      'task.get': {
+        id: 'task.get',
+        resolveTargets: () => Promise.resolve([target]),
+        run: () => Promise.resolve(OPERATIONS[1].examples[0].output),
+      },
+      'task.history': {
+        id: 'task.history',
+        resolveTargets: () => Promise.resolve([target]),
+        run: () => Promise.resolve(OPERATIONS[2].examples[0].output),
+      },
+    };
+    const inbound = createInbound({
+      store,
+      config,
+      registry,
+      clock: { now: () => now },
+      gateway: {
+        ...gateway,
+        respond(_ref, body, options) {
+          replies.push({ body, private: options.private });
+          return Promise.resolve('sent' as const);
+        },
+      },
+    });
+    for (const [id, text] of [
+      ['task.get', 'task PROJ-123'],
+      ['task.history', 'task PROJ-123 history'],
+    ] as const) {
+      await inbound.sink({
+        kind: 'command',
+        dedupeKey: id,
+        interaction: interactionRefSchema.parse(id),
+        author: userIdSchema.parse('operator'),
+        text,
+        command: { kind: 'query', id, input: { task: 'PROJ-123' } },
+        sourceUrl: 'https://example.test/command',
+      });
+    }
+    expect(replies.map((reply) => reply.private)).toEqual([true, true]);
+    expect(replies[0]?.body).toContainEqual({
+      kind: 'quote',
+      children: [{ kind: 'text', text: 'Target v2.' }],
+    });
+    expect(JSON.stringify(replies[1]?.body)).toContain('2026-01-05T09:30:00.000Z');
+    expect(JSON.stringify(replies[1]?.body)).toContain('Added to Dev.');
+  });
+
+  it('uses catalog not_found copy and never runs a denied command', async () => {
+    const { store, gateway } = await setup();
+    const run = vi.fn(() => Promise.resolve(OPERATIONS[1].examples[0].output));
+    const responses: string[] = [];
+    const inbound = createInbound({
+      store,
+      config,
+      clock: { now: () => now },
+      registry: {
+        'task.get': {
+          id: 'task.get',
+          resolveTargets: () => Promise.resolve([{ kind: 'missing' }]),
+          run,
+        },
+      },
+      gateway: {
+        ...gateway,
+        respond(_ref, body, options) {
+          expect(options.private).toBe(true);
+          responses.push(JSON.stringify(body));
+          return Promise.resolve('sent' as const);
+        },
+      },
+    });
+    const command: Extract<InboundEvent, { kind: 'command' }> = {
+      kind: 'command',
+      dedupeKey: 'missing-task',
+      interaction: interactionRefSchema.parse('missing-task'),
+      author: userIdSchema.parse('operator'),
+      text: 'task MISSING-1',
+      command: { kind: 'query', id: 'task.get', input: { task: 'MISSING-1' } },
+      sourceUrl: 'https://example.test/command',
+    };
+    await inbound.sink(command);
+    expect(responses[0]).toContain(ERRORS.not_found.message);
+    expect(responses[0]).toContain(ERRORS.not_found.hint);
+    await inbound.sink({
+      ...command,
+      dedupeKey: 'denied-command',
+      author: userIdSchema.parse('another'),
+    });
+    expect(responses[1]).toContain('not allowed');
+    expect(run).not.toHaveBeenCalled();
+    const denied = await store.db
+      .selectFrom('event')
+      .select(['kind', 'payload'])
+      .where('kind', '=', 'operation_denied')
+      .executeTakeFirstOrThrow();
+    expect(JSON.parse(denied.payload)).toMatchObject({
+      operation: 'inbound.command',
+      platformUser: 'another',
+    });
+  });
+
+  it('returns private usage without dispatching a malformed command', async () => {
+    const { store, gateway } = await setup();
+    const run = vi.fn(() => Promise.resolve(emptyStatus()));
+    const resolveTargets = vi.fn(() => Promise.resolve([]));
+    const responses: string[] = [];
+    const inbound = createInbound({
+      store,
+      config,
+      clock: { now: () => now },
+      registry: {
+        'status.get': { id: 'status.get', resolveTargets, run },
+      },
+      gateway: {
+        ...gateway,
+        respond(_ref, body, options) {
+          expect(options.private).toBe(true);
+          responses.push(JSON.stringify(body));
+          return Promise.resolve('sent' as const);
+        },
+      },
+    });
+    await inbound.sink({
+      kind: 'command',
+      dedupeKey: 'usage',
+      interaction: interactionRefSchema.parse('usage'),
+      author: userIdSchema.parse('operator'),
+      text: 'unknown',
+      command: {
+        kind: 'usage',
+        text: 'Usage:\n/board status\n/board task <KEY>\n/board task <KEY> history',
+      },
+      sourceUrl: 'https://example.test/command',
+    });
+    expect(responses[0]).toContain('/board task <KEY> history');
+    await inbound.sink({
+      kind: 'command',
+      dedupeKey: 'forged-input',
+      interaction: interactionRefSchema.parse('forged-input'),
+      author: userIdSchema.parse('operator'),
+      text: 'status',
+      command: { kind: 'query', id: 'status.get', input: { item: 'I1' } },
+      sourceUrl: 'https://example.test/command',
+    });
+    expect(responses[1]).toContain('not allowed');
+    expect(resolveTargets).not.toHaveBeenCalled();
+    expect(run).not.toHaveBeenCalled();
   });
 
   it('records an installed interaction failure before acknowledging and retries its stored event', async () => {
@@ -771,6 +934,7 @@ describe('inbound apply', () => {
       interaction: interactionRefSchema.parse('failed-status'),
       author: userIdSchema.parse('operator'),
       text: 'status',
+      command: { kind: 'query', id: 'status.get', input: {} },
       sourceUrl: 'https://example.test/command',
     });
     expect(responses).toEqual(['not available yet']);
