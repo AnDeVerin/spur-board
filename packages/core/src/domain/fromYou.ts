@@ -7,11 +7,19 @@ export interface ItemCandidate {
   factAt: string | null;
   source: string | null;
   priority: number;
+  revision?: string | null;
 }
 
 export function fingerprint(candidate: ItemCandidate): string {
   return createHash('sha256')
-    .update(JSON.stringify([candidate.key, candidate.summary, candidate.source]))
+    .update(
+      JSON.stringify([
+        candidate.key,
+        candidate.summary,
+        candidate.source,
+        candidate.revision ?? null,
+      ]),
+    )
     .digest('hex');
 }
 

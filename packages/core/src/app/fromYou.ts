@@ -3,7 +3,9 @@ import { z } from 'zod';
 import { evaluateSessionHealth } from '../domain/health.ts';
 import { fingerprint, orderItems, type ItemCandidate } from '../domain/fromYou.ts';
 import { parseJson, toJson } from '../store/json.ts';
-import { emit, type Trx } from './board-utils.ts';
+import type { Trx } from './board-utils.ts';
+import { taskUrl } from './doorbells.ts';
+import { clearItem, raiseItem } from './feed.ts';
 
 const episodeSchema = z.object({ startedAt: z.number() }).nullable();
 
@@ -14,7 +16,6 @@ export async function reconcileItems(
   now: number,
   spurComplete: boolean,
 ): Promise<void> {
-  const at = new Date(now).toISOString();
   const candidates: ItemCandidate[] = [];
   const sources = await trx.selectFrom('source_state').selectAll().execute();
   const sourceById = new Map(sources.map((state) => [state.source, state]));
@@ -194,6 +195,7 @@ export async function reconcileItems(
       factAt: health.episode === null ? null : new Date(health.episode.startedAt).toISOString(),
       source: 'spur',
       priority: 4,
+      revision: health.episode === null ? null : String(health.episode.startedAt),
     });
   for (const flag of health.flags) {
     const task = taskById.get(Number(flag.taskId));
@@ -208,19 +210,20 @@ export async function reconcileItems(
       factAt: fact?.healthSince ?? null,
       source: 'spur',
       priority: 4,
+      revision:
+        flag.kind === 'worker_vanished' ? (fact?.endedAt ?? null) : (fact?.healthSince ?? null),
     });
   }
   const ordered = orderItems(candidates);
   const seen = new Set(ordered.map((item) => item.key));
-  const existing = await trx.selectFrom('from_you_item').selectAll().execute();
+  const existing = await trx
+    .selectFrom('operator_item')
+    .selectAll()
+    .where('kind', '=', 'board_observation')
+    .where('cleared_at', 'is', null)
+    .execute();
   for (const item of existing) {
-    if (item.active === 1 && !seen.has(item.item_key)) {
-      await trx.updateTable('from_you_item').set({ active: 0 }).where('id', '=', item.id).execute();
-      const task = item.task_id === null ? null : taskById.get(item.task_id);
-      await emit(trx, 'from_you_cleared', task?.project ?? 'board', item.task_id, at, {
-        item: `I${String(item.id)}`,
-      });
-    }
+    if (!seen.has(item.item_key)) await clearItem(trx, item.id, new Date(now));
   }
   for (const candidate of ordered) {
     const hash = fingerprint(candidate);
@@ -230,52 +233,31 @@ export async function reconcileItems(
       .select('fingerprint')
       .where('item_key', '=', candidate.key)
       .executeTakeFirst();
-    const active = dismissal?.fingerprint === hash ? 0 : 1;
-    if (old === undefined) {
-      const inserted = await trx
-        .insertInto('from_you_item')
-        .values({
-          item_key: candidate.key,
-          task_id: candidate.taskId,
-          summary: candidate.summary,
-          fingerprint: hash,
-          fact_at: candidate.factAt,
-          source: candidate.source,
-          first_raised_at: at,
-          active,
-        })
-        .returning('id')
-        .executeTakeFirstOrThrow();
-      if (active === 1)
-        await emit(
-          trx,
-          'from_you_raised',
-          taskById.get(candidate.taskId ?? -1)?.project ?? 'board',
-          candidate.taskId,
-          at,
-          { item: `I${String(inserted.id)}` },
-        );
-    } else if (old.fingerprint !== hash || old.active !== active) {
-      const project = taskById.get(candidate.taskId ?? -1)?.project ?? 'board';
-      if (old.active === 1 && (old.fingerprint !== hash || active === 0))
-        await emit(trx, 'from_you_cleared', project, candidate.taskId, at, {
-          item: `I${String(old.id)}`,
-        });
-      await trx
-        .updateTable('from_you_item')
-        .set({
-          summary: candidate.summary,
-          fingerprint: hash,
-          fact_at: candidate.factAt,
-          source: candidate.source,
-          active,
-        })
-        .where('id', '=', old.id)
-        .execute();
-      if (active === 1 && (old.active === 0 || old.fingerprint !== hash))
-        await emit(trx, 'from_you_raised', project, candidate.taskId, at, {
-          item: `I${String(old.id)}`,
-        });
+    if (old !== undefined && (dismissal?.fingerprint === hash || old.fingerprint !== hash))
+      await clearItem(trx, old.id, new Date(now));
+    if (dismissal?.fingerprint === hash) continue;
+    if (old !== undefined && old.fingerprint === hash) {
+      if (old.fact_at !== candidate.factAt || old.source !== candidate.source)
+        await trx
+          .updateTable('operator_item')
+          .set({ fact_at: candidate.factAt, source: candidate.source })
+          .where('id', '=', old.id)
+          .execute();
+      continue;
     }
+    const task = candidate.taskId === null ? null : taskById.get(candidate.taskId);
+    await raiseItem(trx, {
+      itemKey: candidate.key,
+      kind: 'board_observation',
+      text: candidate.summary,
+      url: task === null || task === undefined ? 'https://github.com' : taskUrl(task, config),
+      taskId: candidate.taskId,
+      blockId: null,
+      at: new Date(now),
+      fingerprint: hash,
+      factAt: candidate.factAt,
+      source: candidate.source,
+      priority: candidate.priority,
+    });
   }
 }

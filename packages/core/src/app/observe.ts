@@ -38,7 +38,14 @@ function projectForSource(config: Config, source: string) {
   );
 }
 
-async function updateTerminal(trx: Trx, config: Config, taskId: number, at: string): Promise<void> {
+async function updateTerminal(
+  trx: Trx,
+  config: Config,
+  taskId: number,
+  at: string,
+  completeSince: ReadonlyMap<string, string>,
+  blind: ReadonlySet<string>,
+): Promise<void> {
   const task = await trx
     .selectFrom('task')
     .selectAll()
@@ -70,10 +77,23 @@ async function updateTerminal(trx: Trx, config: Config, taskId: number, at: stri
     (project.tracker.type === 'jira'
       ? project.tracker.doneStatuses.includes(ticket.status)
       : ticket.status === 'closed');
-  const terminal = merged || (doneTicket && !hasOpen);
+  const githubComplete = project.repos.every((repo) => {
+    const source = `github:${project.id}:${repo.toLowerCase()}`;
+    const complete = completeSince.get(source);
+    return (
+      !blind.has(source) &&
+      complete !== undefined &&
+      complete > (task.last_change_at ?? task.created_at)
+    );
+  });
+  const terminal = merged || (doneTicket && !hasOpen && githubComplete);
   await trx
     .updateTable('task')
-    .set({ terminal_at: terminal ? (task.terminal_at ?? at) : null })
+    .set({
+      terminal_at: terminal
+        ? (task.terminal_at ?? (merged ? at : (task.last_change_at ?? at)))
+        : null,
+    })
     .where('id', '=', taskId)
     .execute();
 }
@@ -249,15 +269,19 @@ async function ticket(
       .where('task_id', '=', task.id)
       .execute();
   }
-  if (fact.inFilter && task.membership === 'out_of_filter') {
+  if (
+    fact.inFilter &&
+    (task.membership === 'out_of_filter' || task.archive_reason === 'out_of_filter')
+  ) {
     await trx
       .updateTable('task')
       .set({ membership: 'active', archive_reason: null })
       .where('id', '=', task.id)
       .execute();
-    await emit(trx, 'flag_cleared', project.id, task.id, at, { flag: 'out_of_filter' });
+    if (task.membership === 'out_of_filter')
+      await emit(trx, 'flag_cleared', project.id, task.id, at, { flag: 'out_of_filter' });
+    else await emit(trx, 'task_added', project.id, task.id, at, { column: task.column });
   }
-  await updateTerminal(trx, config, task.id, at);
 }
 
 async function pr(
@@ -420,7 +444,6 @@ async function pr(
     }
     await emit(trx, 'pr_facts_changed', task.project, task.id, at, { facts: fact });
     await trx.updateTable('task').set({ last_change_at: at }).where('id', '=', task.id).execute();
-    await updateTerminal(trx, config, task.id, at);
   }
 }
 
@@ -876,6 +899,20 @@ export function createObservationCore(deps: {
         }
         const currentComplete = new Map(completeSince);
         if (observation.effectiveComplete) currentComplete.set(source, batch.observedAt);
+        const states = await trx
+          .selectFrom('source_state')
+          .select(['source', 'blind_reason'])
+          .execute();
+        const blind = new Set(
+          states.filter((state) => state.blind_reason !== null).map((state) => state.source),
+        );
+        const activeTasks = await trx
+          .selectFrom('task')
+          .select('id')
+          .where('membership', '!=', 'archived')
+          .execute();
+        for (const task of activeTasks)
+          await updateTerminal(trx, config, task.id, batch.observedAt, currentComplete, blind);
         await reconcileMembership(trx, config, currentComplete, batch.observedAt);
         await reconcileItems(trx, config, clock.now(), currentComplete.has('spur'));
       });

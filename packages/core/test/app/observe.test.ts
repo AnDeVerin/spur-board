@@ -405,6 +405,65 @@ describe('accepted observation', () => {
     expect(status.items.some((item) => item.key.includes('needs_input'))).toBe(true);
   });
 
+  it('raises a recovered and recurring health incident with a new item identity', async () => {
+    const { store, core, apply, mutations } = setup();
+    await apply(mutations.add, { task: 'o/r#9' }, 'operator');
+    const link = { 'board-worker': 'https://github.com/o/r/issues/9' };
+    const poll = async (health: SessionFacts['health'], since: string) => {
+      const observedAt = new Date(now).toISOString();
+      await core.observe('spur', {
+        batch: {
+          source: 'spur',
+          observedAt,
+          complete: true,
+          items: [
+            {
+              kind: 'session',
+              facts: { ...sessionFact('worker-1', link), health, healthSince: since },
+            },
+          ],
+          entities: [],
+        },
+        effectiveComplete: true,
+        state: { lastCompleteAt: observedAt, gone: [] },
+        outcomes: [],
+      });
+    };
+    await poll('needs_input', at);
+    now += config.health.needsInputAfterMs;
+    await tickBoard({ store, config, clock, completeSince: core.completeSince });
+    const first = await store.db
+      .selectFrom('operator_item')
+      .selectAll()
+      .where('item_key', 'like', 'health:%')
+      .where('cleared_at', 'is', null)
+      .executeTakeFirstOrThrow();
+    if (first.fingerprint === null) throw new Error('Health item needs a fingerprint');
+    await store.transaction((trx) =>
+      trx
+        .insertInto('dismissal')
+        .values({
+          item_key: first.item_key,
+          fingerprint: first.fingerprint ?? '',
+          dismissed_by: 'operator',
+          dismissed_at: new Date(now).toISOString(),
+        })
+        .execute(),
+    );
+    await tickBoard({ store, config, clock, completeSince: core.completeSince });
+    const status = () => getStatus({ store, config, clock, completeSince: core.completeSince });
+    expect((await status()).items.some((item) => item.key === first.item_key)).toBe(false);
+    now += 1_000;
+    await poll('working', new Date(now).toISOString());
+    now += 1_000;
+    await poll('needs_input', new Date(now).toISOString());
+    now += config.health.needsInputAfterMs;
+    await tickBoard({ store, config, clock, completeSince: core.completeSince });
+    const recurring = (await status()).items.find((item) => item.key === first.item_key);
+    expect(recurring).toBeDefined();
+    expect(recurring?.id).not.toBe(`I${String(first.id)}`);
+  });
+
   it('keeps a confirmed vanished-worker item across ticks until new Spur evidence changes it', async () => {
     const { store, core, apply, mutations } = setup();
     await apply(mutations.add, { task: 'o/r#9' }, 'operator');

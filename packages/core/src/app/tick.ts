@@ -3,13 +3,47 @@ import type { Store } from '../store/store.ts';
 import { emit } from './board-utils.ts';
 import { reconcileItems } from './fromYou.ts';
 
-function lastSaturday(now: number): number {
-  const date = new Date(now);
-  const start = Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
-  return start - ((date.getUTCDay() + 1) % 7) * 86_400_000;
+function lastArchiveSlot(now: number, config: Config): number {
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: config.digest.tz,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+  const localDate = (time: number): string => {
+    const parts = formatter.formatToParts(time);
+    const year = parts.find((part) => part.type === 'year')?.value;
+    const month = parts.find((part) => part.type === 'month')?.value;
+    const day = parts.find((part) => part.type === 'day')?.value;
+    if (year === undefined || month === undefined || day === undefined)
+      throw new Error('Archive timezone did not yield a local date');
+    return `${year}-${month}-${day}`;
+  };
+  const [year = 0, month = 0, day = 0] = localDate(now).split('-').map(Number);
+  const localMidnight = Date.UTC(year, month - 1, day);
+  const weekday = new Date(localMidnight).getUTCDay();
+  const target = [
+    'sunday',
+    'monday',
+    'tuesday',
+    'wednesday',
+    'thursday',
+    'friday',
+    'saturday',
+  ].indexOf(config.archive.doneWeekday);
+  const targetUtcDate = localMidnight - ((weekday - target + 7) % 7) * 86_400_000;
+  const targetDate = new Date(targetUtcDate).toISOString().slice(0, 10);
+  let lower = targetUtcDate - 2 * 86_400_000;
+  let upper = targetUtcDate + 2 * 86_400_000;
+  while (lower < upper) {
+    const middle = Math.floor((lower + upper) / 2);
+    if (localDate(middle) < targetDate) lower = middle + 1;
+    else upper = middle;
+  }
+  return lower;
 }
 
-/** One UTC tick, including a Saturday archive slot missed during downtime. */
+/** One board tick, including an archive slot missed during downtime. */
 export async function tickBoard(deps: {
   store: Store;
   config: Config;
@@ -19,7 +53,7 @@ export async function tickBoard(deps: {
   const { store, config, clock, completeSince } = deps;
   const now = clock.now();
   const at = new Date(now).toISOString();
-  const slot = new Date(lastSaturday(now)).toISOString();
+  const slot = new Date(lastArchiveSlot(now, config)).toISOString();
   await store.transaction(async (trx) => {
     const sourceStates = await trx
       .selectFrom('source_state')

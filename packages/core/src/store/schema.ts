@@ -278,6 +278,10 @@ export interface OperatorItemTable {
   raised_at: string;
   cleared_at: string | null;
   line_outbox_id: number | null;
+  fingerprint: Generated<string | null>;
+  fact_at: Generated<string | null>;
+  source: Generated<string | null>;
+  priority: Generated<number | null>;
 }
 
 export interface DismissalTable {
@@ -315,18 +319,6 @@ export interface SourceMissTable {
   outcome: 'ok' | 'not_found' | 'no_access' | null;
 }
 
-export interface FromYouItemTable {
-  id: Generated<number>;
-  item_key: string;
-  task_id: number | null;
-  summary: string;
-  fingerprint: string;
-  fact_at: string | null;
-  source: string | null;
-  first_raised_at: string;
-  active: Flag;
-}
-
 /** Every table in the store, for `Kysely<Tables>`. */
 export interface Tables {
   task: TaskTable;
@@ -345,7 +337,6 @@ export interface Tables {
   meta: MetaTable;
   source_state: SourceStateTable;
   source_miss: SourceMissTable;
-  from_you_item: FromYouItemTable;
   transport_health: TransportHealthTable;
   space_slot: SpaceSlotTable;
   notification: NotificationTable;

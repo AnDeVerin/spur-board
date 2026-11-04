@@ -49,6 +49,10 @@ export async function raiseItem(
     taskId: number | null;
     blockId: number | null;
     at: Date;
+    fingerprint?: string;
+    factAt?: string | null;
+    source?: string | null;
+    priority?: number;
   },
 ): Promise<Row<'operator_item'>> {
   const active = await trx
@@ -77,6 +81,10 @@ export async function raiseItem(
       raised_at: input.at.toISOString(),
       cleared_at: null,
       line_outbox_id: null,
+      fingerprint: input.fingerprint ?? null,
+      fact_at: input.factAt ?? null,
+      source: input.source ?? null,
+      priority: input.priority ?? null,
     })
     .returningAll()
     .executeTakeFirstOrThrow();

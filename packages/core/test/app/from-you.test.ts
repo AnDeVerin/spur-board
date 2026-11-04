@@ -13,6 +13,7 @@ import {
   type Store,
 } from '../../src/index.ts';
 import { sampleRows } from '../store/sample-rows.ts';
+import { raiseItem } from '../../src/app/feed.ts';
 
 const base = Date.parse('2026-11-04T12:00:00.000Z');
 let now = base;
@@ -163,6 +164,17 @@ it('keeps a dismissed item hidden until the outcome fingerprint changes', async 
     { task: 'o/r#9' },
     'operator',
   );
+  await store.transaction((trx) =>
+    raiseItem(trx, {
+      itemKey: 'existing-operator-item',
+      kind: 'test_existing',
+      text: 'Existing item',
+      url: 'https://example.test/item',
+      taskId: null,
+      blockId: null,
+      at: new Date(now),
+    }),
+  );
   const ref = (await core.context(source)).observe.tickets[0];
   if (ref === undefined) throw new Error('Missing ticket request');
   const observeOutcome = async (outcome: 'not_found' | 'no_access') => {
@@ -182,16 +194,22 @@ it('keeps a dismissed item hidden until the outcome fingerprint changes', async 
   };
   await observeOutcome('not_found');
   const item = await store.db
-    .selectFrom('from_you_item')
+    .selectFrom('operator_item')
     .selectAll()
     .where('item_key', 'like', 'lookup:%')
     .executeTakeFirstOrThrow();
+  expect(item.id).toBe(2);
+  expect(
+    await store.db.selectFrom('outbox').select('kind').where('kind', '=', 'feed.line').execute(),
+  ).toHaveLength(1);
+  const itemFingerprint = item.fingerprint;
+  if (itemFingerprint === null) throw new Error('Observation item needs a fingerprint');
   await store.transaction(async (trx) => {
     await trx
       .insertInto('dismissal')
       .values({
         item_key: item.item_key,
-        fingerprint: item.fingerprint,
+        fingerprint: itemFingerprint,
         dismissed_by: 'operator',
         dismissed_at: new Date(now).toISOString(),
       })
@@ -208,19 +226,20 @@ it('keeps a dismissed item hidden until the outcome fingerprint changes', async 
   expect(
     (
       await store.db
-        .selectFrom('from_you_item')
+        .selectFrom('operator_item')
         .select('id')
         .where('item_key', '=', item.item_key)
+        .where('cleared_at', 'is', null)
         .executeTakeFirst()
     )?.id,
-  ).toBe(item.id);
+  ).not.toBe(item.id);
   expect(
     await store.db
       .selectFrom('event')
       .select('kind')
       .where('kind', '=', 'from_you_raised')
       .execute(),
-  ).toHaveLength(2);
+  ).toHaveLength(3);
 });
 
 it('orders operator blocks, delivery failures, then blind sources', async () => {

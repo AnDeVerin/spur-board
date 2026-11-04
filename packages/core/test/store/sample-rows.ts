@@ -212,6 +212,10 @@ export const sampleRows: SampleRows = {
     raised_at: at,
     cleared_at: null,
     line_outbox_id: 1,
+    fingerprint: null,
+    fact_at: null,
+    source: null,
+    priority: null,
   },
   dismissal: {
     item_key: 'item-1',
@@ -237,17 +241,6 @@ export const sampleRows: SampleRows = {
     misses: 1,
     gone: 0,
     outcome: 'not_found',
-  },
-  from_you_item: {
-    id: 1,
-    item_key: 'task:1:attention',
-    task_id: 1,
-    summary: 'Needs attention',
-    fingerprint: 'f1',
-    fact_at: at,
-    source: 'github',
-    first_raised_at: at,
-    active: 1,
   },
   transport_health: {
     gateway: 'fake-slack-like',

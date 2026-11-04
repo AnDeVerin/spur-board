@@ -148,9 +148,9 @@ export async function getStatus(
     };
   });
   const itemRows = await store.db
-    .selectFrom('from_you_item')
+    .selectFrom('operator_item')
     .selectAll()
-    .where('active', '=', 1)
+    .where('cleared_at', 'is', null)
     .execute();
   const itemTasks = new Map(rows.map((task) => [task.id, task]));
   const items = itemRows
@@ -166,7 +166,7 @@ export async function getStatus(
           config.thresholds.staleMultiplier * interval(config, item.source);
       const unconfirmed =
         stale ||
-        item.summary.includes('no_access') ||
+        item.text.includes('no_access') ||
         (source !== null && source !== undefined && source.blind_reason !== null);
       const time =
         item.fact_at === null ? null : new Date(item.fact_at).toISOString().slice(11, 16);
@@ -174,25 +174,17 @@ export async function getStatus(
         id: `I${String(item.id)}`,
         key: item.item_key,
         task: item.task_id === null ? null : (itemTasks.get(item.task_id)?.key ?? null),
-        at: item.first_raised_at,
+        at: item.raised_at,
         summary: unconfirmed
-          ? `${item.summary} (not confirmed${time === null ? '' : `, fact from ${time}`})`
-          : item.summary,
+          ? `${item.text} (not confirmed${time === null ? '' : `, fact from ${time}`})`
+          : item.text,
         factAt: item.fact_at,
         unconfirmed,
       };
     })
     .sort((a, b) => {
       const priority = (key: string) =>
-        key.startsWith('operator-block:')
-          ? 0
-          : key.startsWith('delivery:')
-            ? 1
-            : key.startsWith('source:')
-              ? 2
-              : key.startsWith('block:')
-                ? 3
-                : 4;
+        itemRows.find((item) => item.item_key === key)?.priority ?? 4;
       return priority(a.key) - priority(b.key) || a.at.localeCompare(b.at);
     });
   const host = await store.db

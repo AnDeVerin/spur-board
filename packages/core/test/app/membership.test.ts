@@ -30,10 +30,10 @@ const config = configSchema.parse({
 const source = 'github-issues:board:o/r';
 const github = 'github:board:o/r';
 const stores: Store[] = [];
-function setup() {
+function setup(boardConfig = config) {
   const store = openStore(join(mkdtempSync(join(tmpdir(), 'board-membership-')), 'board.db'));
   stores.push(store);
-  return { store, core: createObservationCore({ store, config, clock }) };
+  return { store, core: createObservationCore({ store, config: boardConfig, clock }) };
 }
 afterEach(async () => {
   for (const store of stores.splice(0)) await store.close();
@@ -109,16 +109,45 @@ it('archives filter loss only after a later complete poll from every required so
   ).toBe('archived');
 });
 
+it('reactivates an out-of-filter archive when its ticket returns to the filter', async () => {
+  const { store, core } = setup();
+  await ticketPoll(core, true);
+  now += 1_000;
+  await emptyPoll(core, source);
+  now += 1_000;
+  await emptyPoll(core, 'spur');
+  now += 1_000;
+  await emptyPoll(core, github);
+  now += 1_000;
+  await emptyPoll(core, source);
+  expect(
+    (await store.db.selectFrom('task').select('archive_reason').executeTakeFirst())?.archive_reason,
+  ).toBe('out_of_filter');
+  now += 1_000;
+  await ticketPoll(core, true);
+  expect(
+    await store.db.selectFrom('task').select(['membership', 'archive_reason']).executeTakeFirst(),
+  ).toMatchObject({
+    membership: 'active',
+    archive_reason: null,
+  });
+  expect(
+    await store.db.selectFrom('event').select('kind').where('kind', '=', 'task_added').execute(),
+  ).toHaveLength(2);
+});
+
 it('archives terminal tasks on the next UTC Saturday and does not revive them', async () => {
   const { store, core } = setup();
   await ticketPoll(core, true, 'closed');
-  now = Date.parse('2026-11-07T00:00:00.000Z');
-  await tickBoard({ store, config, clock, completeSince: core.completeSince });
   expect(
-    (await store.db.selectFrom('task').select('membership').executeTakeFirst())?.membership,
-  ).toBe('active');
+    (await store.db.selectFrom('task').select('terminal_at').executeTakeFirst())?.terminal_at,
+  ).toBeNull();
   now += 1_000;
   await emptyPoll(core, github);
+  expect(
+    (await store.db.selectFrom('task').select('terminal_at').executeTakeFirst())?.terminal_at,
+  ).toBe(new Date(base).toISOString());
+  now = Date.parse('2026-11-07T00:00:00.000Z');
   await tickBoard({ store, config, clock, completeSince: core.completeSince });
   expect(
     await store.db.selectFrom('task').select(['membership', 'archive_reason']).executeTakeFirst(),
@@ -149,6 +178,50 @@ it('catches a Saturday archive slot after downtime', async () => {
   expect(
     await store.db.selectFrom('event').select('id').where('kind', '=', 'task_archived').execute(),
   ).toHaveLength(1);
+});
+
+it('uses the configured weekday at the configured timezone boundary', async () => {
+  const boardConfig = configSchema.parse({
+    projects: config.projects,
+    operator: { slack: 'operator' },
+    archive: { doneWeekday: 'friday' },
+    digest: { tz: 'America/Los_Angeles' },
+  });
+  const { store, core } = setup(boardConfig);
+  await ticketPoll(core, true, 'closed');
+  now += 1_000;
+  await emptyPoll(core, github);
+  now = Date.parse('2026-11-06T07:59:59.000Z');
+  await tickBoard({ store, config: boardConfig, clock, completeSince: core.completeSince });
+  expect(
+    (await store.db.selectFrom('task').select('membership').executeTakeFirst())?.membership,
+  ).toBe('active');
+  now = Date.parse('2026-11-06T08:00:00.000Z');
+  await tickBoard({ store, config: boardConfig, clock, completeSince: core.completeSince });
+  expect(
+    await store.db.selectFrom('task').select(['membership', 'archive_slot_at']).executeTakeFirst(),
+  ).toMatchObject({
+    membership: 'archived',
+    archive_slot_at: '2026-11-06T08:00:00.000Z',
+  });
+});
+
+it('archives on Sunday catch-up after a post-change GitHub poll', async () => {
+  const { store, core } = setup();
+  await ticketPoll(core, true, 'closed');
+  now = Date.parse('2026-11-08T09:00:00.000Z');
+  await tickBoard({ store, config, clock, completeSince: core.completeSince });
+  expect(
+    (await store.db.selectFrom('task').select('terminal_at').executeTakeFirst())?.terminal_at,
+  ).toBeNull();
+  await emptyPoll(core, github);
+  await tickBoard({ store, config, clock, completeSince: core.completeSince });
+  expect(
+    await store.db.selectFrom('task').select(['membership', 'archive_slot_at']).executeTakeFirst(),
+  ).toMatchObject({
+    membership: 'archived',
+    archive_slot_at: '2026-11-07T00:00:00.000Z',
+  });
 });
 
 it('does not mark a done ticket terminal while its linked PR is open', async () => {
@@ -319,8 +392,12 @@ it('retains filter loss with an open linked PR and raises an item', async () => 
   ).toBe('out_of_filter');
   expect(
     (
-      await store.db.selectFrom('from_you_item').select('summary').where('active', '=', 1).execute()
-    ).some((item) => item.summary.includes('left the tracker filter')),
+      await store.db
+        .selectFrom('operator_item')
+        .select('text')
+        .where('cleared_at', 'is', null)
+        .execute()
+    ).some((item) => item.text.includes('left the tracker filter')),
   ).toBe(true);
 });
 
@@ -374,10 +451,10 @@ it('retains filter loss with a live linked session, flag, and item', async () =>
   ).toHaveLength(1);
   expect(
     await store.db
-      .selectFrom('from_you_item')
+      .selectFrom('operator_item')
       .select('item_key')
       .where('task_id', '=', task.id)
-      .where('active', '=', 1)
+      .where('cleared_at', 'is', null)
       .execute(),
   ).toEqual([{ item_key: `filter:${String(task.id)}` }]);
 });

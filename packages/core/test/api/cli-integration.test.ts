@@ -101,7 +101,16 @@ describe('CLI against the real HTTP API', () => {
 
       const success = capture();
       expect(await runCli(['status', '--json'], { clientConfig, io: success.io })).toBe(0);
-      expect(JSON.parse(success.stdout)).toEqual({ tasks: [] });
+      expect(JSON.parse(success.stdout)).toEqual({
+        tasks: [],
+        items: [],
+        unlinkedPrs: [],
+        unlinkedSessions: [],
+        sources: [],
+        warmingUp: true,
+        spurUnavailable: null,
+        hostLoad: null,
+      });
       expect(success.stderr).toBe('');
 
       const unavailable = capture();

@@ -17,7 +17,6 @@ const INDEXES: Record<string, { table: string; columns: string[]; partialUnique:
     columns: ['project', 'tracker_kind', 'tracker_id'],
     partialUnique: true,
   },
-  from_you_item_active: { table: 'from_you_item', columns: ['active', 'id'], partialUnique: false },
   link_pr_pair: { table: 'link', columns: ['task_id', 'repo', 'number'], partialUnique: true },
   link_session_pair: { table: 'link', columns: ['task_id', 'session_id'], partialUnique: true },
   link_one_active_pr: { table: 'link', columns: ['task_id'], partialUnique: true },
@@ -337,6 +336,53 @@ describe('migrate', () => {
     expect(raw.pragma('foreign_key_check')).toEqual([]);
   });
 
+  it('preserves shared operator item IDs when upgrading a version 6 store', () => {
+    const dir = tempDir();
+    const { raw } = rawDb(join(dir, 'board.db'));
+    migrate(raw, real.slice(0, 6));
+    insertRaw(
+      raw,
+      'task',
+      without(sampleRows.task, [
+        'manual_include',
+        'manual_exclude',
+        'last_change_at',
+        'terminal_at',
+        'archive_slot_at',
+      ]),
+    );
+    insertRaw(
+      raw,
+      'operator_item',
+      without(
+        {
+          ...sampleRows.operator_item,
+          block_id: null,
+          line_outbox_id: null,
+        },
+        ['fingerprint', 'fact_at', 'source', 'priority'],
+      ),
+    );
+    const result = migrate(raw, real);
+    expect(result).toMatchObject({ from: 6, to: 7, applied: ['0007_observation'] });
+    expect(
+      raw
+        .prepare('SELECT id, item_key, fingerprint, fact_at, source, priority FROM operator_item')
+        .all(),
+    ).toEqual([
+      {
+        id: 1,
+        item_key: sampleRows.operator_item.item_key,
+        fingerprint: null,
+        fact_at: null,
+        source: null,
+        priority: null,
+      },
+    ]);
+    expect(tables(raw)).not.toContain('from_you_item');
+    expect(raw.pragma('foreign_key_check')).toEqual([]);
+  });
+
   it('refuses a database newer than the code', () => {
     const dir = tempDir();
     const file = join(dir, 'board.db');
@@ -394,7 +440,7 @@ describe('migration pins', () => {
     '0005_doorbells_items.sql': '6d1a269b593d0f6b342a73761f1a756a94a6c9c2a5c983c191a627654b097570',
     '0006_notification_exhausted.sql':
       '64139694f1bde3e61d7c1b67ebc9eb4858c3974bdd72f84306ac3837f7d8de96',
-    '0007_observation.sql': 'f476e10dcc0cb38dbd047fec76b65e35ac78f0ef82a4b89180a90d81e3a0673d',
+    '0007_observation.sql': '4bde8ddb6da6dbffa22f270fc8b442c9670bef51ef106e2600bcbba958ecd2eb',
   };
 
   interface MigrationFile {

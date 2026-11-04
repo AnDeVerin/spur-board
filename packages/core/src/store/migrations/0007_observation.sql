@@ -43,15 +43,7 @@ CREATE TABLE source_miss (
   PRIMARY KEY (source, ref_key)
 ) STRICT;
 
-CREATE TABLE from_you_item (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  item_key TEXT NOT NULL UNIQUE,
-  task_id INTEGER REFERENCES task (id),
-  summary TEXT NOT NULL,
-  fingerprint TEXT NOT NULL,
-  fact_at TEXT,
-  source TEXT,
-  first_raised_at TEXT NOT NULL,
-  active INTEGER NOT NULL CHECK (active IN (0, 1))
-) STRICT;
-CREATE INDEX from_you_item_active ON from_you_item (active, id);
+ALTER TABLE operator_item ADD COLUMN fingerprint TEXT;
+ALTER TABLE operator_item ADD COLUMN fact_at TEXT;
+ALTER TABLE operator_item ADD COLUMN source TEXT;
+ALTER TABLE operator_item ADD COLUMN priority INTEGER;
