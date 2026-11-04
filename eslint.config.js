@@ -64,6 +64,25 @@ function adapterImports(extraPatterns = []) {
     },
   ];
 }
+const cliBoundaryPatterns = [
+  {
+    regex: '^@spur-board/(?!contracts(/|$))',
+    caseSensitive: true,
+    message: 'The CLI imports only @spur-board/contracts among workspace packages.',
+  },
+  {
+    regex: '^([.][.]/)+(packages/)?(core|daemon|adapters|gateway-slack|testkit)(/|$)',
+    caseSensitive: true,
+    message: 'The CLI does not import files from other workspace packages.',
+  },
+];
+const cliImports = [
+  'error',
+  {
+    paths: sqliteImportOptions.paths,
+    patterns: [...sqliteImportOptions.patterns, ...cliBoundaryPatterns],
+  },
+];
 const adapterFolders = ['github', 'jira', 'spur'];
 function siblingPattern(folder) {
   const others = adapterFolders
@@ -165,5 +184,45 @@ export default defineConfig(
   {
     files: ['packages/adapters/test/**/*.ts', 'packages/adapters/**/*.test.ts'],
     rules: { 'no-restricted-syntax': ['error', viMockBan, dynamicImportBan, importTypeBan] },
+  },
+  {
+    files: ['packages/cli/**/*.ts'],
+    rules: {
+      'no-restricted-imports': cliImports,
+      'no-restricted-syntax': [
+        'error',
+        sqliteImportBan,
+        sqliteTypeImportBan,
+        dynamicImportBan,
+        importTypeBan,
+      ],
+    },
+  },
+  {
+    files: ['packages/cli/test/**/*.ts'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        viMockBan,
+        sqliteImportBan,
+        sqliteTypeImportBan,
+        dynamicImportBan,
+        importTypeBan,
+      ],
+    },
+  },
+  {
+    // The tiny JavaScript entrypoint may lazily load only the TypeScript CLI.
+    files: ['packages/cli/**/*.mjs'],
+    rules: {
+      'no-restricted-imports': cliImports,
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: "ImportExpression[source.value!='./cli.ts']",
+          message: 'The CLI entrypoint may dynamically import only its own command module.',
+        },
+      ],
+    },
   },
 );
