@@ -17,11 +17,11 @@ describe('packed smoke steps', () => {
     const root = mkdtempSync(join(tmpdir(), 'board-packed-skills-'));
     try {
       const product = join(root, 'skills/spur-board/SKILL.md');
-      const reference = join(root, 'skills/spur-board/references/worker-1.md');
+      const reference = join(root, 'skills/spur-board/references/commands.md');
       mkdirSync(join(root, 'skills/spur-board/references'), { recursive: true });
       writeFileSync(
         product,
-        '# Real product skill\n\n- `board status` — [details](references/worker-1.md#board-status)\n',
+        '# Real product skill\n\n- `board status` — [details](references/commands.md#board-status)\n',
       );
       writeFileSync(reference, '# Worker commands\n');
       prepareSkillsForSmoke(root);
@@ -53,10 +53,10 @@ describe('packed smoke steps', () => {
     try {
       const product = join(root, 'skills/spur-board/SKILL.md');
       mkdirSync(join(root, 'skills/spur-board'), { recursive: true });
-      writeFileSync(product, '- `board status` — [details](references/worker-1.md#board-status)\n');
+      writeFileSync(product, '- `board status` — [details](references/commands.md#board-status)\n');
       expect(() => {
         prepareSkillsForSmoke(root);
-      }).toThrow('missing references/worker-1.md');
+      }).toThrow('missing references/commands.md');
       expect(existsSync(join(root, 'skills/setup/SKILL.md'))).toBe(false);
     } finally {
       rmSync(root, { recursive: true, force: true });

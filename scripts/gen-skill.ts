@@ -18,8 +18,36 @@ const referencesDir = fileURLToPath(
 const referenceBudget = 8192;
 type CatalogOperation = (typeof OPERATIONS)[number];
 const roles = ['worker', 'orchestrator'] as const;
+const visibleOperations = OPERATIONS.filter((operation) =>
+  roles.some((role) => roleCanUseOperation(operation, role)),
+);
+const commonErrors =
+  visibleOperations[0]?.errors.filter((code) =>
+    visibleOperations.every((operation) => operation.errors.includes(code)),
+  ) ?? [];
+const cliByMcpName = new Map(OPERATIONS.map((operation) => [operation.mcp.name, operation]));
+const keyStopWords = new Set([
+  'a',
+  'an',
+  'the',
+  'to',
+  'for',
+  'on',
+  'after',
+  'why',
+  'which',
+  'ask',
+  'acknowledge',
+  'leave',
+  'correct',
+  'wait',
+  'escalate',
+  'answer',
+  'unblock',
+  'explain',
+  'withdraw',
+]);
 export interface CommandReference {
-  role: SchemaRole;
   fileName: string;
   commands: string[];
   content: string;
@@ -70,83 +98,112 @@ function exampleFor(
   const operationKey = operation.cli.command.replaceAll(' ', '-');
   const meaning = example.summary
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '');
-  const key = `${operationKey}-PROJ-123-${meaning}-${role}-1432`;
+    .match(/[a-z0-9]+/g)
+    ?.filter((word) => !keyStopWords.has(word))
+    .slice(0, 2)
+    .join('-');
+  if (!meaning) throw new Error(`Example has no key meaning: ${operation.id}`);
+  const key = `${operationKey}-PROJ-123-${meaning}-1432`;
   return { command: `${command} --key ${key}`, summary };
 }
 
-function renderOperation(operation: CatalogOperation, role: SchemaRole): string {
-  const errors = operation.errors.map((code) => `- \`${code}\`: ${ERRORS[code].hint}`).join('\n');
-  const example = exampleFor(operation, role);
+function cliGuidance(guidance: string): string {
+  return guidance.replace(/\b[a-z][a-z0-9_]*\b/g, (word) => {
+    const neighbour = cliByMcpName.get(word);
+    if (neighbour === undefined) return word;
+    const args = neighbour.cli.args.map((arg) => ` <${arg}>`).join('');
+    return `\`board ${neighbour.cli.command}${args}\``;
+  });
+}
+
+function renderOperation(operation: CatalogOperation): string {
+  const visibleRoles = roles.filter((role) => roleCanUseOperation(operation, role));
+  const flags = [...new Set(visibleRoles.flatMap((role) => flagsFor(operation, role)))];
+  const examples = visibleRoles.map((role) => ({ role, ...exampleFor(operation, role) }));
+  const distinctExamples = examples.filter(
+    (example, index) => examples.findIndex((item) => item.command === example.command) === index,
+  );
+  const exampleLines = distinctExamples.map((example) =>
+    distinctExamples.length === 1
+      ? `Example: \`${example.command}\` — ${example.summary}.`
+      : `${example.role === 'worker' ? 'Worker' : 'Orchestrator'} example: \`${example.command}\` — ${example.summary}.`,
+  );
+  const modes = operation.cli.modes;
+  const modeGuidance =
+    modes === null
+      ? []
+      : [
+          `Modes by role: ${visibleRoles
+            .map(
+              (role) =>
+                `${role}: ${modes
+                  .filter((mode) => roleCanUseOperation(operation, role, mode.mode))
+                  .map((mode) => `\`${mode.flag}\``)
+                  .join(', ')}`,
+            )
+            .join('; ')}.`,
+        ];
+  const ownErrors = operation.errors.filter((code) => !commonErrors.includes(code));
   return [
-    `#### \`board ${operation.cli.command}\``,
+    `### \`board ${operation.cli.command}\``,
     '',
     `Purpose: ${operation.description}`,
     `Arguments: ${operation.cli.args.length ? operation.cli.args.map((arg) => `\`<${arg}>\``).join(', ') : 'none'}.`,
-    `Flags: ${flagsFor(operation, role)
-      .map((flag) => `\`${flag}\``)
-      .join(', ')}.`,
+    `Flags: ${flags.map((flag) => `\`${flag}\``).join(', ')}.`,
+    ...modeGuidance,
     `Use when: ${operation.mcp.whenToUse}`,
-    `Avoid when: ${operation.mcp.whenNotToUse}`,
-    `Example: \`${example.command}\` — ${example.summary}.`,
-    'Errors:',
-    '',
-    errors,
+    `Avoid when: ${cliGuidance(operation.mcp.whenNotToUse)}`,
+    ...exampleLines,
+    `Other errors: ${ownErrors.length === 0 ? 'none' : ownErrors.map((code) => `\`${code}\``).join(', ')}.`,
   ].join('\n');
 }
 
 export function renderCommandReferences(): CommandReference[] {
-  const references: CommandReference[] = [];
-  for (const role of roles) {
-    const heading = role === 'worker' ? 'Worker' : 'Orchestrator';
-    const contentFor = (part: number, blocks: string[]) =>
-      `# ${heading} commands, part ${String(part)}\n\n${blocks.join('\n\n')}\n`;
-    let part = 1;
-    let blocks: string[] = [];
-    let commands: string[] = [];
-    const flush = () => {
-      if (blocks.length === 0) return;
-      references.push({
-        role,
-        fileName: `${role}-${String(part)}.md`,
-        commands,
-        content: contentFor(part, blocks),
-      });
-      part += 1;
-      blocks = [];
-      commands = [];
-    };
-    for (const operation of OPERATIONS.filter((item) => roleCanUseOperation(item, role))) {
-      const block = renderOperation(operation, role);
-      const candidate = contentFor(part, [...blocks, block]);
-      if (Buffer.byteLength(candidate) > referenceBudget && blocks.length > 0) flush();
-      blocks.push(block);
-      commands.push(operation.cli.command);
-      const current = contentFor(part, blocks);
-      if (Buffer.byteLength(current) > referenceBudget) {
-        throw new Error(
-          `Command reference exceeds ${String(referenceBudget)} bytes: ${operation.id}`,
-        );
-      }
-    }
-    flush();
+  const otherErrors = [
+    ...new Set(visibleOperations.flatMap((operation) => operation.errors)),
+  ].filter((code) => !commonErrors.includes(code));
+  const content = [
+    '# Board command reference',
+    '',
+    'Every command can return the common errors below. Each entry lists its other codes; find their hints here too.',
+    '',
+    '## Errors every command can return',
+    '',
+    ...commonErrors.map((code) => `- \`${code}\`: ${ERRORS[code].hint}`),
+    '',
+    '## Other error hints',
+    '',
+    ...otherErrors.map((code) => `- \`${code}\`: ${ERRORS[code].hint}`),
+    '',
+    visibleOperations.map(renderOperation).join('\n\n'),
+    '',
+  ].join('\n');
+  if (Buffer.byteLength(content) > referenceBudget) {
+    throw new Error(
+      `Command reference is ${String(Buffer.byteLength(content))} bytes; limit is ${String(referenceBudget)}.`,
+    );
   }
-  return references;
+  return [
+    {
+      fileName: 'commands.md',
+      commands: visibleOperations.map((operation) => operation.cli.command),
+      content,
+    },
+  ];
 }
 
 export function renderBoardCommands(references = renderCommandReferences()): string {
   return roles
     .map((role) => {
       const heading = role === 'worker' ? 'Worker' : 'Orchestrator';
-      const entries = references
-        .filter((reference) => reference.role === role)
-        .flatMap((reference) =>
-          reference.commands.map(
-            (command) =>
-              `- \`board ${command}\` — [details](references/${reference.fileName}#board-${command.replaceAll(' ', '-')})`,
-          ),
-        );
+      const entries = visibleOperations
+        .filter((operation) => roleCanUseOperation(operation, role))
+        .map((operation) => {
+          const command = operation.cli.command;
+          const reference = references.find((item) => item.commands.includes(command));
+          if (reference === undefined) throw new Error(`No reference for ${operation.id}`);
+          return `- \`board ${command}\` — [details](references/${reference.fileName}#board-${command.replaceAll(' ', '-')})`;
+        });
       return `### ${heading}\n\n${entries.join('\n')}`;
     })
     .join('\n\n');
@@ -171,7 +228,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   writeFileSync(target, next);
   mkdirSync(referencesDir, { recursive: true });
   for (const file of readdirSync(referencesDir)) {
-    if (/^(?:worker|orchestrator)-[1-9][0-9]*\.md$/.test(file)) {
+    if (/^(?:worker|orchestrator)-[1-9][0-9]*\.md$|^commands\.md$/.test(file)) {
       rmSync(join(referencesDir, file));
     }
   }

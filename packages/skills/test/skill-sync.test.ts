@@ -22,6 +22,7 @@ const references = renderCommandReferences();
 const referenceTexts = references.map((reference) =>
   readFileSync(new URL(`../spur-board/references/${reference.fileName}`, import.meta.url), 'utf8'),
 );
+const referenceText = referenceTexts.join('\n');
 const fullText = [skill, ...referenceTexts].join('\n');
 const operations = [...OPERATIONS].sort(
   (left, right) => right.cli.command.split(' ').length - left.cli.command.split(' ').length,
@@ -115,8 +116,9 @@ function validateInvocations(text: string): string[] {
         keyIndex < 0 ||
         key === undefined ||
         !new RegExp(
-          `^${prefix}-[A-Z][A-Z0-9]*-[1-9][0-9]*-[a-z0-9]+(?:-[a-z0-9]+)*-(?:[01][0-9]|2[0-3])[0-5][0-9]$`,
-        ).test(key)
+          `^${prefix}-[A-Z][A-Z0-9]*-[1-9][0-9]*-[a-z0-9]+(?:-[a-z0-9]+)?-(?:[01][0-9]|2[0-3])[0-5][0-9]$`,
+        ).test(key) ||
+        /-(?:worker|orchestrator)-/.test(key)
       ) {
         errors.push(`invalid key: ${command}`);
       } else if (keys.has(key)) {
@@ -130,15 +132,17 @@ function validateInvocations(text: string): string[] {
 }
 
 function roleSection(role: SchemaRole): string {
-  return references
-    .flatMap((reference, index) => (reference.role === role ? [referenceTexts[index]] : []))
-    .join('\n');
+  const generated = skill.slice(skill.indexOf(startMarker), skill.indexOf(endMarker));
+  const worker = generated.indexOf('### Worker');
+  const orchestrator = generated.indexOf('### Orchestrator');
+  return role === 'worker' ? generated.slice(worker, orchestrator) : generated.slice(orchestrator);
 }
 
 describe('product skill sync', () => {
   it('keeps the skill and bounded references equal to fresh generation', () => {
     expect(replaceGeneratedSection(skill)).toBe(skill);
     expect(Buffer.byteLength(skill)).toBeLessThanOrEqual(5120);
+    expect(references.map((reference) => reference.fileName)).toEqual(['commands.md']);
     expect(readdirSync(referencesPath).sort()).toEqual(
       references.map((reference) => reference.fileName).sort(),
     );
@@ -148,47 +152,87 @@ describe('product skill sync', () => {
     }
   });
 
-  it.each(['worker', 'orchestrator'] as const)('lists only %s grants with CLI metadata', (role) => {
+  it.each(['worker', 'orchestrator'] as const)('indexes exactly the %s grants', (role) => {
     const section = roleSection(role);
     const expected = OPERATIONS.filter((operation) => roleCanUseOperation(operation, role));
-    const index = skill.slice(skill.indexOf(startMarker), skill.indexOf(endMarker));
-    for (const operation of expected) {
-      expect(index).toContain(`\`board ${operation.cli.command}\` — [details]`);
-    }
-    expect([...section.matchAll(/^#### `board ([^`]+)`$/gm)].map((match) => match[1])).toEqual(
-      expected.map((operation) => operation.cli.command),
+    expect(
+      [...section.matchAll(/^- `board ([^`]+)` — \[details\]/gm)].map((match) => match[1]),
+    ).toEqual(expected.map((operation) => operation.cli.command));
+    for (const operation of expected)
+      expect(section).toContain(
+        `references/commands.md#board-${operation.cli.command.replaceAll(' ', '-')}`,
+      );
+  });
+
+  it('renders each command once with CLI guidance, role modes, and shared error hints', () => {
+    const agentRoles = ['worker', 'orchestrator'] as const;
+    const visible = OPERATIONS.filter((operation) =>
+      agentRoles.some((role) => roleCanUseOperation(operation, role)),
     );
-    for (const operation of expected) {
-      const title = `#### \`board ${operation.cli.command}\``;
-      const start = section.indexOf(title);
-      const end = section.indexOf('\n#### ', start + title.length);
-      const block = section.slice(start, end < 0 ? undefined : end);
+    expect([...referenceText.matchAll(/^### `board ([^`]+)`$/gm)].map((match) => match[1])).toEqual(
+      visible.map((operation) => operation.cli.command),
+    );
+    const common = visible[0]?.errors.filter((code) =>
+      visible.every((operation) => operation.errors.includes(code)),
+    );
+    const commonSection = referenceText.slice(
+      referenceText.indexOf('## Errors every command can return'),
+      referenceText.indexOf('## Other error hints'),
+    );
+    for (const code of common ?? []) {
+      expect(commonSection).toContain(`\`${code}\`: ${ERRORS[code].hint}`);
+      expect(referenceText.split(`\`${code}\`: ${ERRORS[code].hint}`).length - 1).toBe(1);
+    }
+    for (const operation of visible) {
+      const title = `### \`board ${operation.cli.command}\``;
+      const start = referenceText.indexOf(title);
+      const end = referenceText.indexOf('\n### ', start + title.length);
+      const block = referenceText.slice(start, end < 0 ? undefined : end);
       expect(block).toContain(`Purpose: ${operation.description}`);
       expect(block).toContain(`Use when: ${operation.mcp.whenToUse}`);
-      expect(block).toContain(`Avoid when: ${operation.mcp.whenNotToUse}`);
-      expect(block).toMatch(/Example: `board /);
-      for (const code of operation.errors) {
-        expect(block).toContain(`\`${code}\``);
-        expect(block).toContain(ERRORS[code].hint);
-      }
+      expect(block).toContain('Avoid when: Use `board ');
+      expect(block).toMatch(/(?:Example|Worker example|Orchestrator example): `board /);
+      for (const code of operation.errors)
+        expect(referenceText).toContain(`\`${code}\`: ${ERRORS[code].hint}`);
+      const ownErrors = operation.errors.filter((code) => !(common ?? []).includes(code));
+      expect(block).toContain(
+        `Other errors: ${ownErrors.length === 0 ? 'none' : ownErrors.map((code) => `\`${code}\``).join(', ')}.`,
+      );
       const flags = block.match(/^Flags: (.+)\.$/m)?.[1] ?? '';
       for (const option of commandFor(operation.cli.command).options) {
         const mode = operation.cli.modes?.find((item) => item.flag === option.long);
-        const allowed = mode === undefined || roleCanUseOperation(operation, role, mode.mode);
+        const allowed =
+          mode === undefined ||
+          agentRoles.some((role) => roleCanUseOperation(operation, role, mode.mode));
         expect(flags.includes(`\`${option.flags}\``)).toBe(allowed);
       }
-      const example = block.match(/^Example: `([^`]+)`/m)?.[1] ?? '';
       if (operation.id === 'schema.get') {
-        expect(block).toContain(
-          `Describe the operations ${role === 'worker' ? 'a worker' : 'an orchestrator'} may call`,
-        );
+        expect(block).toContain('board schema --role worker');
+        expect(block).toContain('board schema --role orchestrator');
       }
-      for (const mode of operation.cli.modes ?? []) {
-        if (tokens(example).includes(mode.flag)) {
-          expect(roleCanUseOperation(operation, role, mode.mode)).toBe(true);
+      for (const role of agentRoles) {
+        if (!roleCanUseOperation(operation, role)) continue;
+        for (const mode of operation.cli.modes ?? []) {
+          const roleModes = block.match(new RegExp(`${role}: ([^;\\n]+)`))?.[1] ?? '';
+          expect(roleModes.includes(`\`${mode.flag}\``)).toBe(
+            roleCanUseOperation(operation, role, mode.mode),
+          );
+        }
+      }
+      for (const match of block.matchAll(/^(Worker|Orchestrator) example: `([^`]+)`/gm)) {
+        const role = match[1] === 'Worker' ? 'worker' : 'orchestrator';
+        const command = match[2] ?? '';
+        for (const mode of operation.cli.modes ?? []) {
+          if (tokens(command).includes(mode.flag)) {
+            expect(roleCanUseOperation(operation, role, mode.mode)).toBe(true);
+          }
         }
       }
     }
+    for (const operation of OPERATIONS)
+      expect(referenceText).not.toMatch(new RegExp(`\\b${operation.mcp.name}\\b`));
+    for (const line of referenceText.split('\n').filter((line) => line.startsWith('Avoid when:')))
+      expect(line).not.toMatch(/\b[a-z]+(?:_[a-z]+)+\b/);
   });
 
   it('validates every invocation and mutation example in the whole skill', () => {
@@ -198,7 +242,7 @@ describe('product skill sync', () => {
 
   it('gives workers operator-safe recovery for archived tasks', () => {
     expect(ERRORS.task_archived.hint).toContain('Ask an operator');
-    expect(roleSection('worker')).toContain(`\`task_archived\`: ${ERRORS.task_archived.hint}`);
+    expect(referenceText).toContain(`\`task_archived\`: ${ERRORS.task_archived.hint}`);
   });
 
   it('rejects a renamed flag, missing or malformed key, invalid command, and bare prose call', () => {
@@ -245,6 +289,11 @@ describe('product skill sync', () => {
     ).toEqual(expect.arrayContaining([expect.stringMatching(/^invalid key:/)]));
     expect(
       validateInvocations(`${fullText}\nTry \`board ask PROJ-123 "Which version?"\`.\n`),
+    ).toEqual(expect.arrayContaining([expect.stringMatching(/^invalid key:/)]));
+    const key = fullText.match(/inbox-ack-PROJ-123-[a-z-]+-1432/)?.[0] ?? '';
+    expect(key).not.toBe('');
+    expect(
+      validateInvocations(fullText.replace(key, key.replace(/-1432$/, '-worker-1432'))),
     ).toEqual(expect.arrayContaining([expect.stringMatching(/^invalid key:/)]));
   });
 });
