@@ -80,7 +80,7 @@ function latestReviews(nodes: RecordValue[]): PrFacts['reviews'] {
     const reviewer = optionalLogin(node.author);
     if (!reviewer || node.submittedAt === null || node.submittedAt === undefined) continue;
     const state = lower(node.state);
-    if (!['approved', 'changes_requested', 'commented', 'dismissed'].includes(state)) continue;
+    if (!['approved', 'changes_requested', 'dismissed'].includes(state)) continue;
     const review = {
       reviewer,
       state,

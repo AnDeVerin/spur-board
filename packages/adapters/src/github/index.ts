@@ -5,6 +5,7 @@ import {
   type Config,
   type PollContext,
   type PrEntityRef,
+  sourceCursorSchema,
 } from '@spur-board/contracts';
 import {
   GithubClient,
@@ -18,7 +19,7 @@ import {
   type Json,
   type RecordValue,
 } from './client.ts';
-import { discover, nextPage } from './discovery.ts';
+import { discover, nextPage, pastCursor } from './discovery.ts';
 import { normalizePr } from './prBatch.ts';
 
 export interface GithubSource {
@@ -135,12 +136,18 @@ async function pollRepository({
   client,
   ctx,
 }: PollArgs): Promise<Batch> {
+  const observedAt = sourceCursorSchema.parse(new Date().toISOString());
+  const bootstrap = ctx.cursor === undefined;
   const [owner, name] = repo.split('/');
   if (!owner || !name) throw new AdapterError('config', 'Invalid repository');
   const requested = ctx.observe.prs.filter((ref) => ref.repo.toLowerCase() === repo.toLowerCase());
   const byNumber = new Map<number, PrEntityRef>(requested.map((ref) => [ref.number, ref]));
   const numbers = [...byNumber.keys()];
-  const response = await client.query(initialQuery(numbers), { owner, repo: name }, ctx.signal);
+  const response = await client.query(
+    initialQuery(numbers, bootstrap),
+    { owner, repo: name },
+    ctx.signal,
+  );
   let budget = response.budget;
   let complete = true;
   const roots = ['repository', ...numbers.map((_, i) => `pr${String(i)}`)];
@@ -150,13 +157,13 @@ async function pollRepository({
   let discoveryOk = scoped(response.errors, 'repository').length === 0;
   const first = discoveryOk ? nested(response.data, 'repository', 'pullRequests') : undefined;
   const nodes = first === undefined ? [] : connectionNodes(first);
-  let cursor = first === undefined ? undefined : nextPage(first);
+  let cursor = first === undefined || pastCursor(nodes, ctx.cursor) ? undefined : nextPage(first);
   const seenPages = new Set<string>();
   while (cursor !== undefined && discoveryOk) {
     if (seenPages.has(cursor)) throw new AdapterError('transient', 'Malformed GitHub pagination');
     seenPages.add(cursor);
     const page = await client.query(
-      pageQuery('pullRequests'),
+      pageQuery('pullRequests', bootstrap),
       { owner, repo: name, after: cursor },
       ctx.signal,
     );
@@ -167,8 +174,9 @@ async function pollRepository({
       break;
     }
     const connection = nested(page.data, 'repository', 'pullRequests');
-    nodes.push(...connectionNodes(connection));
-    cursor = nextPage(connection);
+    const pageNodes = connectionNodes(connection);
+    nodes.push(...pageNodes);
+    cursor = pastCursor(pageNodes, ctx.cursor) ? undefined : nextPage(connection);
   }
   if (!discoveryOk) complete = false;
   const found = discover(nodes, ctx.cursor, login);
@@ -216,14 +224,15 @@ async function pollRepository({
       discoveredOk = false;
   }
   const discovered = found.numbers.filter((number) => !byNumber.has(number));
-  if (discovered.length > 0) {
-    const detail = await client.query(detailQuery(discovered), { owner, repo: name }, ctx.signal);
+  for (let offset = 0; offset < discovered.length; offset += 50) {
+    const chunk = discovered.slice(offset, offset + 50);
+    const detail = await client.query(detailQuery(chunk), { owner, repo: name }, ctx.signal);
     budget = detail.budget;
     rejectUnscoped(
       detail.errors,
-      discovered.map((_, i) => `pr${String(i)}`),
+      chunk.map((_, i) => `pr${String(i)}`),
     );
-    for (const [i, number] of discovered.entries()) {
+    for (const [i, number] of chunk.entries()) {
       const alias = `pr${String(i)}`;
       const wire = aliasPr(detail.data, alias);
       if (!(await process(number, wire, scoped(detail.errors, alias)))) discoveredOk = false;
@@ -232,14 +241,12 @@ async function pollRepository({
   if (ctx.signal.aborted) throw new AdapterError('transient', 'GitHub poll aborted');
   return {
     source: id,
-    observedAt: new Date().toISOString(),
+    observedAt,
     complete,
     items,
     entities,
     ...(discoveryOk && discoveredOk
-      ? found.cursor === undefined
-        ? {}
-        : { cursor: found.cursor }
+      ? { cursor: bootstrap ? observedAt : (found.cursor ?? observedAt) }
       : ctx.cursor === undefined
         ? {}
         : { cursor: ctx.cursor }),

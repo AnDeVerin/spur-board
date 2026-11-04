@@ -120,6 +120,12 @@ describe('GitHub PR batch', () => {
     expect(query).toContain('rateLimit { remaining resetAt }');
     expect(query).toContain('pullRequests(first: 100');
     expect(query).toContain('pr0: repository');
+    const bootstrapQuery = initialQuery([7], true);
+    expect(createHash('sha256').update(bootstrapQuery).digest('hex')).toBe(
+      '1a2185a7e8b6fd4e8e55f9736946689b7a2baf21b54cad4907e88660b83f83c9',
+    );
+    expect(bootstrapQuery).toContain('states: [OPEN]');
+    expect(pageQuery('pullRequests', true)).toContain('states: [OPEN]');
   });
   it('normalizes latest required checks, reviews and configured keys', () => {
     const facts = normalizePr('demo/widgets', wire(), ['DEMO']);
@@ -136,6 +142,18 @@ describe('GitHub PR batch', () => {
     ]);
     expect(facts.ticketKeys).toEqual(['DEMO-42']);
     expect(ticketKeys('XDEMO-42 DEMO-420x', 'OTHER-1', ['DEMO'])).toEqual([]);
+  });
+  it('keeps the latest review opinion after a comment-only review', () => {
+    const pr = wire();
+    pr.reviews.nodes.push({
+      author: { login: 'reviewer' },
+      state: 'COMMENTED',
+      commit: { oid: sha },
+      submittedAt: '2026-01-03T00:00:00.000Z',
+    });
+    expect(normalizePr('demo/widgets', pr, ['DEMO']).reviews).toEqual([
+      { reviewer: 'reviewer', state: 'approved', commitSha: sha, submittedAt: time },
+    ]);
   });
   it('extracts lowercase configured ticket keys as uppercase at full boundaries', () => {
     expect(ticketKeys('demo-42 and xdemo-7', 'feature/proj-123-fix', ['DEMO', 'PROJ'])).toEqual([
@@ -248,6 +266,22 @@ describe('GitHub PR batch', () => {
     expect(batch.items).toHaveLength(1);
     expect(batch.budget?.remaining).toBe(4321);
     expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+  it('records observedAt before the first request', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(new Date('2026-01-01T00:00:00.000Z'));
+      const fetcher = vi.fn<typeof fetch>().mockImplementation(() => {
+        vi.setSystemTime(new Date('2026-01-02T00:00:00.000Z'));
+        return Promise.resolve(
+          response({ repository: { pullRequests: conn([]) }, pr0: { pullRequest: wire() } }),
+        );
+      });
+      const batch = await adapter(fetcher).poll(context());
+      expect(batch.observedAt).toBe('2026-01-01T00:00:00.000Z');
+    } finally {
+      vi.useRealTimers();
+    }
   });
   it('continues a PR review connection and reports the last budget', async () => {
     const first = wire();
@@ -362,5 +396,23 @@ describe('GitHub PR batch', () => {
       .fn<typeof fetch>()
       .mockResolvedValue(new Response('failure', { status: code }));
     await expect(adapter(fetcher).poll(context())).rejects.toMatchObject({ kind });
+  });
+  it('classifies an HTTP 200 GraphQL rate-limit error as throttled', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          data: null,
+          errors: [{ type: 'RATE_LIMITED', message: 'Rate limit exceeded' }],
+        }),
+        {
+          status: 200,
+          headers: { 'x-ratelimit-reset': '1767225600' },
+        },
+      ),
+    );
+    await expect(adapter(fetcher).poll(context())).rejects.toMatchObject({
+      kind: 'throttled',
+      retryAt: new Date('2026-01-01T00:00:00.000Z'),
+    });
   });
 });

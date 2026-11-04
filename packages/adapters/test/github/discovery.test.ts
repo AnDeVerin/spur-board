@@ -90,6 +90,65 @@ describe('GitHub discovery', () => {
     expect(fetcher).toHaveBeenCalledTimes(2);
     expect(fetcher.mock.calls[1]?.[1]?.body as string).toContain('rateLimit');
   });
+  it('stops after the page crosses the saved cursor', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValueOnce(
+      response({
+        repository: {
+          pullRequests: conn(
+            [node(1, newer, 'someone'), node(2, '2025-12-31T00:00:00.000Z')],
+            'unused',
+          ),
+        },
+      }),
+    );
+    const batch = await adapter(fetcher).poll(context);
+    expect(batch.complete).toBe(true);
+    expect(batch.cursor).toBe(newer);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+  it('continues through equal timestamps at the cursor', async () => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        response({ repository: { pullRequests: conn([node(1, old, 'someone')], 'next') } }),
+      )
+      .mockResolvedValueOnce(response({ repository: { pullRequests: conn([]) } }));
+    await adapter(fetcher).poll(context);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+  it('bootstraps from open PRs and advances the cursor even when none are open', async () => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(response({ repository: { pullRequests: conn([], 'next') } }))
+      .mockResolvedValueOnce(response({ repository: { pullRequests: conn([]) } }));
+    const batch = await adapter(fetcher).poll({ ...context, cursor: undefined });
+    expect(batch.complete).toBe(true);
+    expect(batch.cursor).toBe(batch.observedAt);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    for (const call of fetcher.mock.calls) {
+      expect(call[1]?.body as string).toContain('states: [OPEN]');
+      expect(call[1]?.body as string).not.toContain('MERGED');
+    }
+  });
+  it('chunks newly discovered PR details into bounded queries', async () => {
+    const nodes = Array.from({ length: 51 }, (_, index) => node(index + 1, newer));
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(response({ repository: { pullRequests: conn(nodes) } }))
+      .mockResolvedValueOnce(
+        response(
+          Object.fromEntries(nodes.slice(0, 50).map((_, index) => [`pr${String(index)}`, null])),
+        ),
+      )
+      .mockResolvedValueOnce(response({ pr0: null }));
+    await adapter(fetcher).poll(context);
+    expect(fetcher).toHaveBeenCalledTimes(3);
+    const queries = fetcher.mock.calls
+      .slice(1)
+      .map((call) => (JSON.parse(call[1]?.body as string) as { query: string }).query);
+    expect(queries[0]?.match(/: repository\(/g)).toHaveLength(50);
+    expect(queries[1]?.match(/: repository\(/g)).toHaveLength(1);
+  });
   it('keeps the prior cursor when a newly discovered PR detail fails', async () => {
     const fetcher = vi
       .fn<typeof fetch>()

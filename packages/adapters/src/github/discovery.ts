@@ -27,6 +27,17 @@ export function discover(
   }
   return { numbers: [...numbers], ...(high === undefined ? {} : { cursor: high }) };
 }
+/** Pages are sorted newest first; older nodes end the scan, while ties must be revisited. */
+export function pastCursor(
+  nodes: readonly RecordValue[],
+  previous: SourceCursor | undefined,
+): boolean {
+  if (previous === undefined || nodes.length === 0) return false;
+  const oldest = nodes[nodes.length - 1];
+  const updatedMs = Date.parse(string(oldest?.updatedAt));
+  if (Number.isNaN(updatedMs)) throw new Error('Malformed GitHub updatedAt');
+  return updatedMs < Date.parse(previous);
+}
 export function nextPage(connection: Json | undefined): string | undefined {
   const info = record(record(connection).pageInfo);
   if (info.hasNextPage === false) return undefined;
