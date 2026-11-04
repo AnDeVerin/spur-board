@@ -83,12 +83,13 @@ modules, then `daemon ready`. Where a test or lint rule enforces a rule, the rul
 - Pass the start signal to each sender tick. On stop, clear the timer and await the active tick
   before the store closes. Register the outbox with `stopStage: 'outbox'` and its gateway with
   `stopStage: 'final'`. Pinned by 'skips timer ticks while a delivery is active'.
-- A future poller uses a `setTimeout` chain with jitter and passes the start signal into every
-  call (`PollContext.signal`, A7 in `packages/contracts/src/adapters.ts`). Backoff belongs to the
-  poller; an adapter never retries on its own (A6).
-- Register a poller with `stopStage: 'pollers'`; `stop()` clears its timer and awaits its tick.
+- A poller uses a `setTimeout` chain, handles each tick rejection, and never overlaps ticks.
+  Register it with `stopStage: 'pollers'`; `stop()` clears its timer and awaits its active tick.
+- The inbound module starts recovery, then scans every five minutes. It serializes scans
+  and live events through core. Start the gateway with its sink only when `SLACK_APP_TOKEN` is
+  present; otherwise log once that inbound is disabled. Stop inbound before outbox, then stop
+  the gateway and await the sink again before closing the store.
 - Keep the sole `setInterval` in `main` (`KEEPALIVE_MS`) until a module owns a server.
-- Handle each tick promise; `@typescript-eslint/no-floating-promises` rejects an unhandled one.
 
 ## Shutdown
 
@@ -121,7 +122,7 @@ modules, then `daemon ready`. Where a test or lint rule enforces a rule, the rul
 ## Changing these rules
 
 A PR that changes `packages/daemon/src/` or the tests named here updates this skill in the same
-PR. The runner PR (#23) replaces the Pollers section with its real rules and numbers.
+PR.
 
 ## Checks
 
