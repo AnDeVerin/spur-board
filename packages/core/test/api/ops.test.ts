@@ -128,6 +128,62 @@ describe('catalog HTTP API', () => {
     }
   });
 
+  it('checks readiness and identity before parsing malformed POST JSON', async () => {
+    const store = newStore();
+    const logRequest = vi.fn();
+    const startingApp = await server(store, { ready: () => false, logRequest });
+    const malformed = {
+      method: 'POST' as const,
+      url: '/v1/ops/task.get',
+      headers: { host, 'content-type': 'application/json' },
+      payload: '{bad',
+    };
+    try {
+      const response = await startingApp.inject(malformed);
+      expect(response.statusCode).toBe(503);
+      expect(response.json()).toMatchObject({
+        code: 'starting',
+        requestId: response.headers['x-request-id'],
+      });
+      expect(logRequest).toHaveBeenCalledWith({
+        requestId: response.headers['x-request-id'],
+        method: 'POST',
+        url: '/v1/ops/task.get',
+        status: 503,
+      });
+      for (const headers of [
+        { ...malformed.headers, origin: 'https://outside.example' },
+        { ...malformed.headers, host: 'outside.example:4311' },
+        { ...malformed.headers, 'content-type': 'text/plain' },
+      ]) {
+        const guarded = await startingApp.inject({ ...malformed, headers });
+        expect(guarded.statusCode).toBe(403);
+        expect(guarded.json()).toMatchObject({ code: 'forbidden' });
+      }
+    } finally {
+      await startingApp.close();
+    }
+
+    const readyLog = vi.fn();
+    const readyApp = await server(store, { logRequest: readyLog });
+    try {
+      const response = await readyApp.inject(malformed);
+      expect(response.statusCode).toBe(403);
+      expect(response.json()).toMatchObject({
+        code: 'forbidden',
+        requestId: response.headers['x-request-id'],
+      });
+      expect(readyLog).toHaveBeenCalledWith({
+        requestId: response.headers['x-request-id'],
+        method: 'POST',
+        url: '/v1/ops/task.get',
+        status: 403,
+      });
+    } finally {
+      await readyApp.close();
+    }
+  });
+
   it('maps catalog errors to problem JSON with the catalog status and handler hint', async () => {
     const denied: Query<'status.get'> = {
       id: 'status.get',

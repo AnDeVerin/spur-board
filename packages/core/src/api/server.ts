@@ -4,6 +4,7 @@ import {
   buildCatalogSnapshot,
   errorCodeOf,
   renderHttpProblem,
+  type ActorId,
   type OperationId,
   type ServerErrorCode,
 } from '@spur-board/contracts';
@@ -66,6 +67,7 @@ export async function createApiServer(options: ApiOptions): Promise<FastifyInsta
   const snapshot = await buildCatalogSnapshot(OPERATIONS);
   const apply = createApply(options);
   const query = createQuery(options);
+  const actors = new WeakMap<object, ActorId>();
 
   app.addHook('onRequest', async (request, reply) => {
     reply.header('x-request-id', request.id);
@@ -116,45 +118,57 @@ export async function createApiServer(options: ApiOptions): Promise<FastifyInsta
     return reply.send(snapshot);
   });
 
-  app.post<{ Params: { id: string } }>('/v1/ops/:id', async (request, reply) => {
-    if (!options.ready()) throw new CommandError('starting', 'Wait until the daemon is ready.');
-    const sessionHeader = request.headers['x-board-session'];
-    if (Array.isArray(sessionHeader)) {
-      throw new CommandError('forbidden', 'Use one session identity header.');
-    }
-    const actor = await identify(options, {
-      session: sessionHeader,
-      authorization: header(request.headers.authorization),
-    });
-    const operation = OPERATIONS.find((entry) => entry.id === request.params.id);
-    if (operation === undefined) throw new CommandError('usage', 'Unknown catalog operation.');
-    const body = inputBody(request.body);
-    const parsed = operation.input.safeParse(body.input);
-    if (!parsed.success) {
-      throw new CommandError(errorCodeOf(parsed.error), 'Fix the operation input.');
-    }
-    const handler = options.registry[operation.id];
-    if (handler === undefined || handler.id !== operation.id) {
-      throw new CommandError(
-        'unexpected',
-        `Operation ${operation.id} is not available in this build.`,
-      );
-    }
-    const result =
-      operation.kind === 'query'
-        ? await query(
-            handler as unknown as Query<QueryId>,
-            parsed.data as z.input<QueryEntry['input']>,
-            actor,
-          )
-        : await apply(
-            handler as unknown as Mutation<MutationId>,
-            parsed.data as z.input<MutationEntry['input']>,
-            actor,
-            body.key,
-          );
-    return reply.send({ result });
-  });
+  app.post<{ Params: { id: string } }>(
+    '/v1/ops/:id',
+    {
+      onRequest: async (request) => {
+        if (!options.ready()) throw new CommandError('starting', 'Wait until the daemon is ready.');
+        const sessionHeader = request.headers['x-board-session'];
+        if (Array.isArray(sessionHeader)) {
+          throw new CommandError('forbidden', 'Use one session identity header.');
+        }
+        actors.set(
+          request,
+          await identify(options, {
+            session: sessionHeader,
+            authorization: header(request.headers.authorization),
+          }),
+        );
+      },
+    },
+    async (request, reply) => {
+      const actor = actors.get(request);
+      if (actor === undefined) throw new Error('Operation identity was not resolved.');
+      const operation = OPERATIONS.find((entry) => entry.id === request.params.id);
+      if (operation === undefined) throw new CommandError('usage', 'Unknown catalog operation.');
+      const body = inputBody(request.body);
+      const parsed = operation.input.safeParse(body.input);
+      if (!parsed.success) {
+        throw new CommandError(errorCodeOf(parsed.error), 'Fix the operation input.');
+      }
+      const handler = options.registry[operation.id];
+      if (handler === undefined || handler.id !== operation.id) {
+        throw new CommandError(
+          'unexpected',
+          `Operation ${operation.id} is not available in this build.`,
+        );
+      }
+      const result =
+        operation.kind === 'query'
+          ? await query(
+              handler as unknown as Query<QueryId>,
+              parsed.data as z.input<QueryEntry['input']>,
+              actor,
+            )
+          : await apply(
+              handler as unknown as Mutation<MutationId>,
+              parsed.data as z.input<MutationEntry['input']>,
+              actor,
+              body.key,
+            );
+      return reply.send({ result });
+    },
+  );
 
   return app;
 }
