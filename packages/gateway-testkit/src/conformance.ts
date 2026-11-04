@@ -616,7 +616,10 @@ const recoverKeys: ConformanceCase = {
 
     // 2. Live phase.
     const a = await live(h, { kind: 'message', conversation, author, text: 'A' });
-    const keyA = required(ofKind(a.events, 'message')[0], 'G8: message A emits an event').dedupeKey;
+    const eventA = required(ofKind(a.events, 'message')[0], 'G8: message A emits an event');
+    const keyA = eventA.dedupeKey;
+    expect(eventA.sourceUrl, 'G8: a user message links to its source').toBeTruthy();
+    expect(eventA.rootMessage, 'G7: a user message names its conversation root').toBeTruthy();
     const e1 = await live(h, { kind: 'edit', message: a.message, text: 'A1' });
     const keyE1 = required(
       ofKind(e1.events, 'message_edited')[0],
@@ -649,6 +652,10 @@ const recoverKeys: ConformanceCase = {
         messages.filter((e) => e.message === a.message).map((e) => e.dedupeKey),
         'G8: a recovered message keeps its live dedupeKey',
       ).toContain(keyA);
+      expect(
+        messages.find((e) => e.message === a.message),
+        'G8: recovery keeps the source link and root message',
+      ).toMatchObject({ sourceUrl: eventA.sourceUrl, rootMessage: eventA.rootMessage });
       expect(
         edits.filter((e) => e.message === a.message).map((e) => e.dedupeKey),
         'G8: the latest edit is recovered with its live dedupeKey',

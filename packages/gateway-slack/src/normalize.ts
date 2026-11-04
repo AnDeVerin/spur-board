@@ -25,6 +25,11 @@ function iso(ts: string): string | undefined {
   return Number.isFinite(at.getTime()) ? at.toISOString() : undefined;
 }
 
+function sourceUrl(channel: string, ts?: string): string {
+  const channelUrl = `https://app.slack.com/archives/${encodeURIComponent(channel)}`;
+  return ts === undefined ? channelUrl : `${channelUrl}/p${ts.replace('.', '')}`;
+}
+
 export interface BotIdentity {
   userId: string;
   botId?: string;
@@ -121,6 +126,8 @@ export function normalizeMessage(
         dedupeKey: `slack:${channel}:${deletedTs}:deleted`,
         conversation: conversationRef(channel, threadTs),
         message: messageRef(channel, deletedTs, threadTs),
+        rootMessage: messageRef(channel, threadTs, threadTs),
+        sourceUrl: sourceUrl(channel, deletedTs),
         ...(originKey === undefined ? {} : { originKey }),
       },
     ];
@@ -138,6 +145,8 @@ export function normalizeMessage(
   const eventBase = {
     conversation: conversationRef(channel, base.threadTs),
     message: messageRef(channel, base.ts, base.threadTs),
+    rootMessage: messageRef(channel, base.threadTs, base.threadTs),
+    sourceUrl: sourceUrl(channel, base.ts),
     author: base.author,
     text: body,
     ...(base.originKey === undefined ? {} : { originKey: base.originKey }),
@@ -194,6 +203,7 @@ export function normalizeInteraction(
         interaction: interactionRef(channel, user, triggerId),
         author,
         text: text(body.text) ?? '',
+        sourceUrl: sourceUrl(channel),
       },
     ];
   }
@@ -225,6 +235,8 @@ export function normalizeInteraction(
       author,
       conversation: conversationRef(channel, threadTs),
       message: messageRef(channel, ts, threadTs),
+      rootMessage: messageRef(channel, threadTs, threadTs),
+      sourceUrl: sourceUrl(channel, ts),
       ...(originKey === undefined ? {} : { originKey }),
     },
   ];

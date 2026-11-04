@@ -19,10 +19,22 @@ const at = '2026-11-02T10:00:00Z';
 const conversation = 'c-1';
 const message = 'm-1';
 const author = 'u-1';
+const sourceUrl = 'https://example.test/message';
+const rootMessage = 'root-1';
 
 const events: Record<InboundEventKind, Fixtures> = {
   message: {
-    valid: { kind: 'message', dedupeKey: 'k', conversation, message, author, text: 'hi', at },
+    valid: {
+      kind: 'message',
+      dedupeKey: 'k',
+      conversation,
+      message,
+      rootMessage,
+      sourceUrl,
+      author,
+      text: 'hi',
+      at,
+    },
     invalid: { kind: 'message', dedupeKey: 'k', conversation, message, author, text: 'hi' },
   },
   message_edited: {
@@ -31,6 +43,8 @@ const events: Record<InboundEventKind, Fixtures> = {
       dedupeKey: 'k',
       conversation,
       message,
+      rootMessage,
+      sourceUrl,
       author,
       text: 'new',
       at,
@@ -47,7 +61,14 @@ const events: Record<InboundEventKind, Fixtures> = {
     },
   },
   message_deleted: {
-    valid: { kind: 'message_deleted', dedupeKey: 'k', conversation, message },
+    valid: {
+      kind: 'message_deleted',
+      dedupeKey: 'k',
+      conversation,
+      message,
+      rootMessage,
+      sourceUrl,
+    },
     invalid: { kind: 'message_deleted', dedupeKey: '', conversation, message },
   },
   action: {
@@ -59,11 +80,20 @@ const events: Record<InboundEventKind, Fixtures> = {
       author,
       conversation,
       message,
+      rootMessage,
+      sourceUrl,
     },
     invalid: { kind: 'action', dedupeKey: 'k', actionId: 'approve', author, conversation, message },
   },
   command: {
-    valid: { kind: 'command', dedupeKey: 'k', interaction: 'i-1', author, text: 'status' },
+    valid: {
+      kind: 'command',
+      dedupeKey: 'k',
+      interaction: 'i-1',
+      author,
+      text: 'status',
+      sourceUrl,
+    },
     invalid: {
       kind: 'command',
       dedupeKey: 'k',
@@ -74,7 +104,17 @@ const events: Record<InboundEventKind, Fixtures> = {
     },
   },
   mention: {
-    valid: { kind: 'mention', dedupeKey: 'k', conversation, message, author, text: 'hey', at },
+    valid: {
+      kind: 'mention',
+      dedupeKey: 'k',
+      conversation,
+      message,
+      rootMessage,
+      sourceUrl,
+      author,
+      text: 'hey',
+      at,
+    },
     invalid: { kind: 'mention', dedupeKey: 'k', conversation, message, author: '', text: '', at },
   },
   gap: {
@@ -124,6 +164,28 @@ describe('inboundEventSchema', () => {
     const extra = { ...events.message.valid, thread_ts: '1.2' };
     expect(inboundEventSchema.safeParse(extra).success).toBe(false);
   });
+
+  it.each([
+    'message',
+    'message_edited',
+    'message_deleted',
+    'action',
+    'command',
+    'mention',
+  ] as const)('%s: requires a source link', (kind) => {
+    const withoutSourceUrl = { ...events[kind].valid };
+    delete withoutSourceUrl.sourceUrl;
+    expect(inboundEventSchema.safeParse(withoutSourceUrl).success).toBe(false);
+  });
+
+  it.each(['message', 'message_edited', 'message_deleted', 'action', 'mention'] as const)(
+    '%s: requires the conversation root message',
+    (kind) => {
+      const withoutRootMessage = { ...events[kind].valid };
+      delete withoutRootMessage.rootMessage;
+      expect(inboundEventSchema.safeParse(withoutRootMessage).success).toBe(false);
+    },
+  );
 });
 
 describe('deliveryResultSchema', () => {
