@@ -84,6 +84,17 @@ describe('pre-push selection', () => {
     expect(prePushWorkers('3')).toBe(3);
     for (const invalid of ['0', '-1', '1.5', 'nope', '9007199254740992'])
       expect(prePushWorkers(invalid)).toHaveProperty('error');
+    const plan = selectPlan({
+      full: false,
+      prePush: true,
+      base,
+      changed: [{ path: 'packages/daemon/src/main.ts', deleted: false }],
+      packageDirs,
+    });
+    if ('error' in plan) throw new Error(plan.error);
+    const tests = buildSteps(plan, true, 3).find((step) => step.name === 'test');
+    if (!tests || !('commands' in tests)) throw new Error('missing test commands');
+    expect(tests.commands[0]?.args).toContain('3');
   });
 });
 
