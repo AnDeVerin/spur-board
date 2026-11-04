@@ -12,7 +12,7 @@ type Rule = 'no-verify' | 'hooks-path' | 'force-push' | 'merge' | 'nesting';
 
 const REASONS: Record<Rule, string> = {
   'no-verify':
-    'it skips the git hooks (gitleaks and formatting on commit, pnpm check on push) - fix what the hook reports instead',
+    'it skips the git hooks (gitleaks and formatting on commit, changed-file and direct-package checks on push) - fix what the hook reports instead',
   'hooks-path':
     'changing core.hooksPath or git config through the environment turns off the repo git hooks',
   'force-push': 'it rewrites remote history - push a new commit instead',

@@ -9,7 +9,9 @@ import {
   parseNameStatus,
   planCheck,
   resolveBase,
+  type Base,
   type ChangedFile,
+  type Plan,
 } from './check-plan.ts';
 import { PACKAGE_SMOKE_SCRIPT } from './package-smoke-mcp.ts';
 
@@ -21,6 +23,40 @@ export interface Command {
 }
 
 export type Step = { name: string; commands: Command[] } | { name: string; skip: string };
+
+export function selectPlan(input: {
+  full: boolean;
+  prePush: boolean;
+  base: Base;
+  changed: ChangedFile[];
+  packageDirs: string[];
+}): Plan | { error: string } {
+  if (input.full) return planCheck({ full: true, changed: [], packageDirs: input.packageDirs });
+  if (input.base.kind === 'full') {
+    if (input.prePush)
+      return {
+        error: `pre-push: ${input.base.reason}; create or update a local main or origin/main ref, then retry`,
+      };
+    return {
+      ...planCheck({ full: true, changed: [], packageDirs: input.packageDirs }),
+      reason: input.base.reason,
+    };
+  }
+  return planCheck({
+    full: false,
+    prePush: input.prePush,
+    changed: input.changed,
+    packageDirs: input.packageDirs,
+  });
+}
+
+export function prePushWorkers(value: string | undefined): number | { error: string } {
+  if (value === undefined) return 2;
+  if (!/^[1-9]\d*$/.test(value) || !Number.isSafeInteger(Number(value))) {
+    return { error: 'VITEST_MAX_WORKERS must be a positive integer' };
+  }
+  return Number(value);
+}
 
 export function mcpPackageSmokeCommands(
   mode: 'full' | 'changed' | 'none',
@@ -108,47 +144,23 @@ function bin(tool: string): string {
   return join(root, 'node_modules/.bin', tool);
 }
 
-function main(): number {
-  const args = parseCheckArgs(process.argv.slice(2));
-  if ('error' in args) {
-    console.log(`check: ${args.error}`);
-    return 2;
-  }
-  const { full, only } = args;
-  const packageDirs = workspacePackages();
-  let plan;
-  if (full) {
-    plan = planCheck({ full, changed: [], packageDirs });
-  } else {
-    const base = resolveBase({
-      insideWorkTree: git(['rev-parse', '--is-inside-work-tree']) === 'true',
-      headExists: git(['rev-parse', '--verify', '--quiet', 'HEAD']) !== null,
-      originMainMergeBase: git(['merge-base', 'HEAD', 'origin/main']),
-      mainMergeBase: git(['merge-base', 'HEAD', 'main']),
-    });
-    plan =
-      base.kind === 'full'
-        ? { ...planCheck({ full: true, changed: [], packageDirs }), reason: base.reason }
-        : planCheck({ full, changed: changedFiles(base.sha), packageDirs });
-  }
-  if (plan.mode === 'changed') plan.packageDirs = withDependents(plan.packageDirs);
-  console.log(`check: mode ${plan.mode} (${plan.reason})`);
-
+export function buildSteps(plan: Plan, prePush: boolean, workers = 2): Step[] {
   const noFiles = { skip: 'no files to check' };
   const noPackages = { skip: 'no affected packages' };
   const typeProjects = plan.mode === 'full' ? ['.', ...plan.packageDirs] : plan.packageDirs;
   const startupTest = 'packages/cli/test/startup.test.ts';
-  const checkStartup = plan.mode === 'full' || plan.packageDirs.includes('packages/cli');
+  const checkStartup =
+    !prePush && (plan.mode === 'full' || plan.packageDirs.includes('packages/cli'));
   const testCommands: Command[] = [
     {
       cmd: bin('vitest'),
       args: [
         'run',
         ...(plan.mode === 'full' ? [] : ['--passWithNoTests']),
+        ...(prePush ? ['--maxWorkers', String(workers)] : []),
         '--project',
         'unit',
-        '--project',
-        'integration',
+        ...(!prePush ? ['--project', 'integration', '--project', 'process'] : []),
         ...(plan.mode === 'full' ? [] : plan.packageDirs.map((dir) => `${dir}/`)),
       ],
     },
@@ -166,9 +178,9 @@ function main(): number {
           },
         ]
       : []),
-    ...mcpPackageSmokeCommands(plan.mode, plan.packageDirs),
+    ...(!prePush ? mcpPackageSmokeCommands(plan.mode, plan.packageDirs) : []),
   ];
-  const steps: Step[] = [
+  return [
     plan.formatFiles.length === 0
       ? { name: 'format', ...noFiles }
       : {
@@ -201,6 +213,43 @@ function main(): number {
       ? { name: 'test', commands: testCommands }
       : { name: 'test', ...noPackages },
   ];
+}
+
+function main(): number {
+  const args = parseCheckArgs(process.argv.slice(2));
+  if ('error' in args) {
+    console.log(`check: ${args.error}`);
+    return 2;
+  }
+  const { full, prePush, only } = args;
+  const workers = prePushWorkers(process.env['VITEST_MAX_WORKERS']);
+  if (prePush && typeof workers !== 'number') {
+    console.log(`check: ${workers.error}`);
+    return 2;
+  }
+  const packageDirs = workspacePackages();
+  const base = full
+    ? { kind: 'full' as const, reason: '--full' }
+    : resolveBase({
+        insideWorkTree: git(['rev-parse', '--is-inside-work-tree']) === 'true',
+        headExists: git(['rev-parse', '--verify', '--quiet', 'HEAD']) !== null,
+        originMainMergeBase: git(['merge-base', 'HEAD', 'origin/main']),
+        mainMergeBase: git(['merge-base', 'HEAD', 'main']),
+      });
+  const plan = selectPlan({
+    full,
+    prePush,
+    base,
+    changed: base.kind === 'base' ? changedFiles(base.sha) : [],
+    packageDirs,
+  });
+  if ('error' in plan) {
+    console.error(`check: ${plan.error}`);
+    return 2;
+  }
+  if (plan.mode === 'changed' && !prePush) plan.packageDirs = withDependents(plan.packageDirs);
+  console.log(`check: mode ${plan.mode} (${plan.reason})`);
+  const steps = buildSteps(plan, prePush, typeof workers === 'number' ? workers : 2);
   return runSteps(only === null ? steps : steps.filter((step) => only.has(step.name)));
 }
 

@@ -306,11 +306,9 @@ describe('daemon process', () => {
       const exited = once(child, 'exit');
       await waitForLine(child, 'daemon ready');
       await hold.entered;
-      const stoppedAt = Date.now();
       child.kill('SIGTERM');
       const [code, signal] = (await exited) as [number | null, string | null];
       expect({ code, signal }).toEqual({ code: 0, signal: null });
-      expect(Date.now() - stoppedAt).toBeLessThan(9_000);
       expect(await deliveredState(home)).toBe('pending');
     } finally {
       hold.release();

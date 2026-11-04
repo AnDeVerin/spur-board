@@ -2,7 +2,7 @@
 //
 //   node scripts/hooks.ts install     - `pnpm install` runs it as `prepare`; sets core.hooksPath
 //   node scripts/hooks.ts pre-commit  - gitleaks on the staged changes, then prettier on them
-//   node scripts/hooks.ts pre-push    - `pnpm check`
+//   node scripts/hooks.ts pre-push    - `pnpm run check --pre-push`
 //
 // git runs hooks from the work tree root, so git and prettier run in the current directory.
 // prettier is resolved next to this file, like scripts/check.ts does.
@@ -156,7 +156,7 @@ function preCommit(): number {
 
 function prePush(): number {
   // git exports GIT_DIR and friends to hooks; passed on, they would make the git calls in
-  // `pnpm check` (and in the tests it runs) act on this repository.
+  // `pnpm run check --pre-push` (and its tests) act on this repository.
   const local = run('git', ['rev-parse', '--local-env-vars']);
   if (local.status !== 0) {
     process.stderr.write(`pre-push: git rev-parse --local-env-vars failed\n${local.stderr}`);
@@ -164,9 +164,14 @@ function prePush(): number {
   }
   const env = { ...process.env };
   for (const name of lines(local.stdout)) Reflect.deleteProperty(env, name);
-  const result = spawnSync('pnpm', ['check'], { env, stdio: ['ignore', 'inherit', 'inherit'] });
+  const result = spawnSync('pnpm', ['run', 'check', '--pre-push'], {
+    env,
+    stdio: ['ignore', 'inherit', 'inherit'],
+  });
   if (result.error) {
-    process.stderr.write(`pre-push: could not run pnpm check: ${result.error.message}\n`);
+    process.stderr.write(
+      `pre-push: could not run pnpm run check --pre-push: ${result.error.message}\n`,
+    );
     return 127;
   }
   return result.status ?? 1;

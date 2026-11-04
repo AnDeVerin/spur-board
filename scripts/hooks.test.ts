@@ -411,7 +411,7 @@ describe('pre-commit: formatting', () => {
 });
 
 describe('pre-push', () => {
-  it('runs pnpm check without the git local env vars and exits with its status', () => {
+  it('runs the pre-push mode without the git local env vars and exits with its status', () => {
     const box = sandbox();
     fakeBin(box.bin, 'pnpm', { output: 'CHECK FAIL (exit 3)', exit: 3 }, true);
     const r = box.node(SCRIPT, ['pre-push', 'origin', 'url'], {
@@ -419,7 +419,7 @@ describe('pre-push', () => {
       GIT_INDEX_FILE: '/bogus',
     });
     expect(r.status).toBe(3);
-    expect(recorded(box.bin, 'pnpm.args')).toEqual(['check']);
+    expect(recorded(box.bin, 'pnpm.args')).toEqual(['run', 'check', '--pre-push']);
     const env = recorded(box.bin, 'pnpm.env') ?? [];
     expect(env.length).toBeGreaterThan(0);
     expect(env.filter((line) => /^GIT_(DIR|INDEX_FILE)=/.test(line))).toEqual([]);
