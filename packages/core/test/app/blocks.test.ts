@@ -211,6 +211,52 @@ describe('block and comment mutations', () => {
     expect(JSON.parse(clarification.payload)).toMatchObject({ blockId: 1, commentId: 3 });
   });
 
+  it('queues earlier linked comments in order when a block is escalated', async () => {
+    const { store, apply } = await seeded();
+    const asked = await apply(ops.ask, { task: KEY, text: 'Question?' }, author, 'ask-1');
+    await apply(
+      ops.add,
+      { task: KEY, block: asked.block.id, text: 'More context.' },
+      author,
+      'comment-1',
+    );
+    await apply(
+      ops.add,
+      { task: KEY, block: asked.block.id, text: 'My note.' },
+      orchestrator,
+      'comment-2',
+    );
+    expect(await counts(store)).toMatchObject({ outbox: 0 });
+
+    await apply(ops.escalate, { block: asked.block.id }, orchestrator, 'escalate-1');
+    const rows = await store.db.selectFrom('outbox').selectAll().orderBy('id').execute();
+    expect(rows.map((row) => row.kind)).toEqual([
+      'conversation.open',
+      'conversation.reply',
+      'conversation.reply',
+    ]);
+    expect(rows.map((row) => row.parent_outbox_id)).toEqual([null, rows[0]?.id, rows[1]?.id]);
+    const payloads = rows.map((row) => {
+      const payload: unknown = JSON.parse(row.payload);
+      return payload;
+    });
+    expect(payloads).toMatchObject([
+      { commentId: 1, persona: { name: 'web', role: 'worker' } },
+      { commentId: 2, persona: { name: 'web', role: 'worker' } },
+      { commentId: 3, persona: { name: 'qa', role: 'orchestrator' } },
+    ]);
+    expect(
+      await store.db
+        .selectFrom('comment')
+        .select('delivery_state')
+        .where('block_id', '=', 1)
+        .orderBy('id')
+        .execute(),
+    ).toEqual(Array.from({ length: 3 }, () => ({ delivery_state: 'pending' })));
+    await apply(ops.escalate, { block: asked.block.id }, orchestrator, 'escalate-repeat');
+    expect(await counts(store)).toMatchObject({ outbox: 3 });
+  });
+
   it('asks, answers, and clarifies on one block with linked untrusted comments and ordered events', async () => {
     const { store, apply } = await seeded();
     const asked = await apply(ops.ask, { task: KEY, text: 'Which version?' }, author, 'ask-1');

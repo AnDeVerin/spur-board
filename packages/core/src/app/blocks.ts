@@ -232,17 +232,30 @@ async function queueBlockOpen(
   trx: Trx,
   task: Task,
   block: Block,
-  commentId: number | null,
   ctx: CommandContext,
   config: Config,
 ): Promise<void> {
   if (authorRole(config, task, block.author) === 'operator') return;
-  await enqueueConversationOpen(trx, {
+  const comments = await trx
+    .selectFrom('comment')
+    .select(['id', 'author'])
+    .where('block_id', '=', block.id)
+    .orderBy('id')
+    .execute();
+  const opened = await enqueueConversationOpen(trx, {
     blockId: block.id,
-    commentId,
+    commentId: comments[0]?.id ?? null,
     persona: personaFor(config, task, block.author),
     at: new Date(ctx.at),
   });
+  if (opened === null) return;
+  for (const comment of comments.slice(1)) {
+    await enqueueConversationReply(trx, {
+      commentId: comment.id,
+      persona: personaFor(config, task, comment.author),
+      at: new Date(ctx.at),
+    });
+  }
 }
 
 async function hasWorker(trx: Trx, task: Task): Promise<boolean> {
@@ -369,16 +382,8 @@ export function createBlockMutations(config: Config) {
       const task = found(await taskByKey(trx, input.task));
       active(task);
       const block = await openBlock(trx, task, 'needs_input', input.text, ctx, config);
-      const comment = await addComment(
-        trx,
-        task,
-        block,
-        input.text,
-        ctx,
-        block.addressee_role,
-        config,
-      );
-      await queueBlockOpen(trx, task, block, comment.id, ctx, config);
+      await addComment(trx, task, block, input.text, ctx, block.addressee_role, config);
+      await queueBlockOpen(trx, task, block, ctx, config);
       return { block: blockView(block, task) };
     },
   };
@@ -389,7 +394,7 @@ export function createBlockMutations(config: Config) {
       const task = found(await taskByKey(trx, input.task));
       active(task);
       const block = await openBlock(trx, task, input.type, input.reason, ctx, config);
-      await queueBlockOpen(trx, task, block, null, ctx, config);
+      await queueBlockOpen(trx, task, block, ctx, config);
       return { block: blockView(block, task) };
     },
   };
@@ -442,13 +447,7 @@ export function createBlockMutations(config: Config) {
         from: block.addressee_role,
         to: next.addressee,
       });
-      const firstComment = await trx
-        .selectFrom('comment')
-        .select('id')
-        .where('block_id', '=', block.id)
-        .orderBy('id')
-        .executeTakeFirst();
-      await queueBlockOpen(trx, task, updated, firstComment?.id ?? null, ctx, config);
+      await queueBlockOpen(trx, task, updated, ctx, config);
       return { block: blockView(updated, task) };
     },
   };
