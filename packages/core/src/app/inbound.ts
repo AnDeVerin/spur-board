@@ -204,16 +204,14 @@ async function ringAuthor(
         role: 'worker',
         author_session: parsed.actorRef.session,
       });
-      if (recipient !== undefined) {
-        await registerAnswerNotification(trx, {
-          block: input.block,
-          commentId: input.comment.id,
-          revision: input.comment.revision,
-          authorRole: 'worker',
-          at: new Date(input.at),
-        });
-        return;
-      }
+      await registerAnswerNotification(trx, {
+        block: input.block,
+        commentId: input.comment.id,
+        revision: input.comment.revision,
+        authorRole: 'worker',
+        at: new Date(input.at),
+      });
+      if (recipient !== undefined) return;
     } else {
       const session = await trx
         .selectFrom('session_snapshot')
