@@ -5,7 +5,7 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, statSync, symlinkSync } f
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { OPERATIONS } from '@spur-board/contracts';
 import { createProgram, runCli, type CliIo } from '../src/cli.ts';
 
@@ -143,6 +143,53 @@ describe('catalog commands', () => {
       ).toBe(2);
     }
     expect(() => statSync(join(home, '.spur-board', 'token'))).toThrow();
+  });
+
+  it('rejects an existing shared or symlinked token directory before writing a file', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'cli-token-directory-'));
+    dirs.push(root);
+    const home = join(root, 'home');
+    const shared = join(home, 'shared');
+    const linked = join(home, 'linked');
+    const target = join(root, 'target');
+    mkdirSync(shared, { recursive: true });
+    mkdirSync(linked);
+    mkdirSync(target);
+    mkdirSync(join(shared, '.spur-board'), { mode: 0o755 });
+    symlinkSync(target, join(linked, '.spur-board'));
+    for (const folder of [shared, linked]) {
+      const output = capture();
+      expect(
+        await runCli(['token', 'create', '--name', 'desk', '--into', folder], {
+          env: { BOARD_DAEMON_URL: 'http://127.0.0.1:4311' },
+          home,
+          io: output.io,
+        }),
+      ).toBe(4);
+      expect(() => statSync(join(folder, '.spur-board', 'token'))).toThrow();
+    }
+  });
+
+  it('rejects a token directory owned by a different user', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'cli-token-owner-'));
+    dirs.push(root);
+    const home = join(root, 'home');
+    const folder = join(home, 'project');
+    mkdirSync(join(folder, '.spur-board'), { recursive: true, mode: 0o700 });
+    const owner = statSync(join(folder, '.spur-board')).uid;
+    const getuid = vi.spyOn(process, 'getuid').mockReturnValue(owner + 1);
+    try {
+      expect(
+        await runCli(['token', 'create', '--name', 'desk', '--into', folder], {
+          env: { BOARD_DAEMON_URL: 'http://127.0.0.1:4311' },
+          home,
+          io: capture().io,
+        }),
+      ).toBe(4);
+      expect(() => statSync(join(folder, '.spur-board', 'token'))).toThrow();
+    } finally {
+      getuid.mockRestore();
+    }
   });
 
   it('removes only the newly created file after a definite enrollment rejection', async () => {

@@ -2,6 +2,7 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import {
   chmodSync,
   closeSync,
+  lstatSync,
   mkdirSync,
   openSync,
   realpathSync,
@@ -324,12 +325,22 @@ export function createProgram(options: CliOptions = {}): CommandUnknownOpts {
       if (error instanceof CliError) throw error;
       throw new CliError('usage', undefined, undefined, 'Choose an existing folder.');
     }
-    const file = join(folder, '.spur-board', 'token');
+    const tokenFolder = join(folder, '.spur-board');
+    const file = join(tokenFolder, 'token');
     const secret = randomBytes(32).toString('base64url');
     let created = false;
     let descriptor: number | undefined;
     try {
-      mkdirSync(join(folder, '.spur-board'), { recursive: true, mode: 0o700 });
+      mkdirSync(tokenFolder, { recursive: true, mode: 0o700 });
+      const directory = lstatSync(tokenFolder);
+      if (
+        !directory.isDirectory() ||
+        directory.uid !== process.getuid() ||
+        (directory.mode & 0o077) !== 0 ||
+        realpathSync(tokenFolder) !== tokenFolder
+      ) {
+        throw new Error('Token directory must be owned by the caller and private.');
+      }
       descriptor = openSync(file, 'wx', 0o600);
       created = true;
       writeFileSync(descriptor, `${secret}\n`);
