@@ -30,6 +30,10 @@ A map of the repo for agents and contributors. The rules live in the files and s
   worktree; the hooks need `node_modules`. When `node_modules` already exists, pnpm skips
   `prepare`: run `pnpm run prepare` to turn the hooks on.
 - `pnpm check` - format, lint, types, knip and tests for the changed files and affected packages.
+- `pnpm run check --pre-push` - changed-file format and lint, plus types and unit tests for
+  directly changed packages. It uses two Vitest workers by default; set a positive integer
+  `VITEST_MAX_WORKERS` to override that limit. A missing local main base stops this check with
+  recovery guidance.
 - `pnpm check:full [--only format,lint,types,knip,test]` - the same over the whole repo.
 - `pnpm guardrails [base]` - lists the changed tests and checks a PR must explain; base defaults
   to `origin/main`, agents pass the handoff's `origin/main` SHA.
@@ -70,8 +74,9 @@ A map of the repo for agents and contributors. The rules live in the files and s
   staged files and re-stage. It refuses a file that is staged and also has unstaged changes, and
   `git commit <path>` when a file needs formatting. The CI secrets job scans only the PR's net
   diff, so only this hook catches a secret added and removed again inside one PR.
-- pre-push: `pnpm check`.
-- A hook refuses -> fix what it reports and commit again.
+- pre-push: `pnpm run check --pre-push`; CI runs the full quality and test cycle.
+- A hook refuses -> fix what it reports and commit again. If a check is unexpectedly slow,
+  rerun its reported changed-file or direct-package command to identify the delay.
 
 ## Refused commands
 

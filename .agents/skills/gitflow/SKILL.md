@@ -22,6 +22,11 @@ reasoning, not only the diff.
 - Commits and PR titles carry no session marker.
 - Run `pnpm check` before each push; without a `package.json`, report `no checks available`.
   Never wait for or poll remote CI.
+- The pre-push hook runs changed-file format and lint plus direct changed-package types and unit
+  tests, with two Vitest workers by default. `VITEST_MAX_WORKERS` accepts a positive integer
+  override. CI runs `check:full`, including startup and process tests.
+- If pre-push is unexpectedly slow, rerun the reported changed-file or direct-package command
+  to identify the delay, then push again.
 
 ## History
 
