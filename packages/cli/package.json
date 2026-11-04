@@ -16,6 +16,7 @@
     "@commander-js/extra-typings": "catalog:",
     "@spur-board/contracts": "workspace:*",
     "commander": "catalog:",
+    "yaml": "catalog:",
     "zod": "catalog:"
   }
 }
