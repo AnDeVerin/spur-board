@@ -1,5 +1,8 @@
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { validateTarball } from './package.ts';
+import { assembleSkills, validateTarball } from './package.ts';
 
 const manifest = {
   name: 'spur-board',
@@ -14,6 +17,7 @@ const files = [
   'package/LICENSE',
   'package/dist/bin.mjs',
   'package/dist/cli.mjs',
+  'package/dist/client-BD4dc3-F.mjs',
   'package/dist/migrations/0001_init.sql',
 ];
 
@@ -60,5 +64,34 @@ describe('package tarball allowlist', () => {
     expect(() => {
       validateTarball(files, { ...manifest, dependencies: { fastify: 'catalog:' } });
     }).toThrow(/workspace-only dependency/);
+  });
+});
+
+describe('product skill assembly', () => {
+  it('copies named skills and removes stale build output', () => {
+    const root = mkdtempSync(join(tmpdir(), 'board-skills-'));
+    const source = join(root, 'source');
+    const destination = join(root, 'destination');
+    mkdirSync(join(source, 'example', 'references'), { recursive: true });
+    mkdirSync(join(destination, 'old'), { recursive: true });
+    writeFileSync(join(source, 'example', 'SKILL.md'), '# Example\n');
+    writeFileSync(join(source, 'example', 'references', 'detail.md'), '# Detail\n');
+    assembleSkills(source, destination);
+    expect(readFileSync(join(destination, 'example', 'SKILL.md'), 'utf8')).toBe('# Example\n');
+    expect(readFileSync(join(destination, 'example', 'references', 'detail.md'), 'utf8')).toBe(
+      '# Detail\n',
+    );
+    expect(existsSync(join(destination, 'old'))).toBe(false);
+    assembleSkills(join(root, 'absent'), destination);
+    expect(existsSync(destination)).toBe(false);
+  });
+
+  it('fails for a product skill without SKILL.md', () => {
+    const root = mkdtempSync(join(tmpdir(), 'board-skills-'));
+    const source = join(root, 'source');
+    mkdirSync(join(source, 'incomplete'), { recursive: true });
+    expect(() => {
+      assembleSkills(source, join(root, 'destination'));
+    }).toThrow('has no SKILL.md');
   });
 });

@@ -1,4 +1,12 @@
-import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
@@ -27,6 +35,23 @@ function run(command: string, args: string[], cwd = root): string {
   return result.stdout;
 }
 
+/** Copy product skill directories into the publishable package, replacing stale build output. */
+export function assembleSkills(
+  source = join(root, 'packages/skills'),
+  destination = join(packageRoot, 'skills'),
+): void {
+  rmSync(destination, { recursive: true, force: true });
+  if (!existsSync(source)) return;
+  for (const entry of readdirSync(source, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const skill = join(source, entry.name);
+    if (!existsSync(join(skill, 'SKILL.md'))) {
+      throw new Error(`Product skill ${entry.name} has no SKILL.md.`);
+    }
+    cpSync(skill, join(destination, entry.name), { recursive: true });
+  }
+}
+
 export function buildPackage(): void {
   run('pnpm', ['build'], packageRoot);
   const dist = join(packageRoot, 'dist');
@@ -49,6 +74,7 @@ export function buildPackage(): void {
   cpSync(join(root, 'packages/core/src/store/migrations'), join(dist, 'migrations'), {
     recursive: true,
   });
+  assembleSkills();
 }
 
 /** Fail closed on every member, including misplaced tests under otherwise allowed folders. */
@@ -73,7 +99,7 @@ export function validateTarball(entries: readonly string[], manifest: PackageMan
       throw new Error(`Tarball contains a forbidden file: ${entry}`);
     }
     const runtime =
-      /^package\/dist\/(?:bin|cli|client|daemon|(?:src|client)-[A-Za-z0-9]{8})\.mjs$/.test(entry);
+      /^package\/dist\/(?:bin|cli|client|daemon|(?:src|client)-[A-Za-z0-9_-]{8})\.mjs$/.test(entry);
     const migration = /^package\/dist\/migrations\/\d{4}_[a-z0-9_]+\.sql$/.test(entry);
     if (
       entry !== 'package/package.json' &&
