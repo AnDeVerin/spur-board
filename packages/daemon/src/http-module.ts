@@ -1,4 +1,5 @@
 import { SESSION_STATUSES } from '@spur-board/contracts';
+import type { ServerResponse } from 'node:http';
 import {
   createApiServer,
   listenApiServer,
@@ -42,7 +43,12 @@ export async function lookupLiveSession(
 /** Start and close the API as a daemon module, with runtime ports from its context. */
 export function createHttpModule(
   ctx: ModuleContext<Store>,
-  options: { fetcher?: typeof fetch; registry?: OperationRegistry } = {},
+  options: {
+    fetcher?: typeof fetch;
+    registry?: OperationRegistry;
+    afterOperation?: (response: ServerResponse) => void | Promise<void>;
+    onListening?: (address: string) => void;
+  } = {},
 ): Module {
   let app: Awaited<ReturnType<typeof createApiServer>> | undefined;
   return {
@@ -61,6 +67,7 @@ export function createHttpModule(
           ),
         verifyToken: (token) => verifyOperatorToken(ctx.store, token),
         registry: options.registry ?? {},
+        ...(options.afterOperation === undefined ? {} : { afterOperation: options.afterOperation }),
         logRequest: ({ requestId, method, url, status, tokenName }) => {
           const path = new URL(url, 'http://127.0.0.1').pathname;
           ctx.log.info(
@@ -73,6 +80,7 @@ export function createHttpModule(
         if (aborted()) return;
         const address = await listenApiServer(server, ctx.config.http.port);
         if (aborted()) return;
+        options.onListening?.(address);
         app = server;
         ctx.log.info({ port: Number(new URL(address).port) }, 'http listening');
       } finally {

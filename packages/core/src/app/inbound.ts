@@ -26,6 +26,7 @@ import { toJson } from '../store/json.ts';
 import type { Row, Tables } from '../store/schema.ts';
 import type { Store } from '../store/store.ts';
 import { editInboundComment, recordInboundBlockMessage } from './blocks.ts';
+import { registerAnswerNotification } from './doorbells.ts';
 import { replayOperation } from './commands.ts';
 import { CommandError } from './commands.ts';
 import { raiseItem as raiseOperatorItem, clearItem as clearOperatorItem } from './feed.ts';
@@ -190,6 +191,7 @@ async function ringAuthor(
     block: Row<'block'>;
     task: Row<'task'>;
     comment: Row<'comment'>;
+    workerAuthor: boolean;
     at: string;
   },
 ): Promise<void> {
@@ -204,6 +206,16 @@ async function ringAuthor(
           .executeTakeFirst()
       : undefined;
   if (session !== undefined && session.ended_at === null) {
+    if (input.workerAuthor) {
+      await registerAnswerNotification(trx, {
+        block: input.block,
+        commentId: input.comment.id,
+        revision: input.comment.revision,
+        authorRole: 'worker',
+        at: new Date(input.at),
+      });
+      return;
+    }
     await enqueueInboundDoorbell(trx, {
       key,
       session: session.id,
@@ -298,6 +310,7 @@ export function createInbound(input: {
         block: recorded.block,
         task: recorded.task,
         comment: recorded.comment,
+        workerAuthor: recorded.workerAuthor,
         at,
       });
       return { status: 'applied' };

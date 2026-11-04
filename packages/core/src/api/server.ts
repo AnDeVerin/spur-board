@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import type { ServerResponse } from 'node:http';
 import {
   OPERATIONS,
   buildCatalogSnapshot,
@@ -21,6 +22,7 @@ export interface ApiOptions extends IdentityPorts {
   readonly ready: () => boolean;
   readonly clock: { now(): number };
   readonly registry: OperationRegistry;
+  readonly afterOperation?: (response: ServerResponse) => void | Promise<void>;
   readonly logRequest: (entry: {
     requestId: string;
     method: string;
@@ -166,6 +168,7 @@ export async function createApiServer(options: ApiOptions): Promise<FastifyInsta
         caller.actor,
         body.key,
       );
+      await options.afterOperation?.(reply.raw);
       return reply.send(
         successEnvelopeSchema.parse({ ok: true, requestId: request.id, value: result }),
       );

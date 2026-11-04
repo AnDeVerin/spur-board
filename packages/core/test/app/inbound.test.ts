@@ -862,8 +862,8 @@ describe('inbound apply', () => {
     ).toHaveLength(3);
   });
 
-  it('rings a live agent author instead of raising an item', async () => {
-    const { store, inbound } = await setup('agent:proj/sess-1');
+  it('registers a worker answer notification for a live author', async () => {
+    const { store, inbound, gateway } = await setup('agent:proj/sess-1');
     await store.transaction((trx) =>
       trx
         .insertInto('session_snapshot')
@@ -885,6 +885,29 @@ describe('inbound apply', () => {
         .execute(),
     );
     await inbound.sink(message({ conversation: 'thread-1', root: 'root-1' }));
+    expect(
+      await store.db
+        .selectFrom('notification')
+        .select(['kind', 'comment_id', 'author_session'])
+        .execute(),
+    ).toEqual([{ kind: 'answer', comment_id: 1, author_session: 'sess-1' }]);
+    const sends: { session: string; text: string }[] = [];
+    const sender = createSender({
+      store,
+      gateway,
+      config,
+      now: () => new Date(now),
+      spur: {
+        send: (session, text) => {
+          sends.push({ session, text });
+          return Promise.resolve();
+        },
+      },
+    });
+    await sender.tick();
+    expect(sends).toHaveLength(1);
+    expect(sends[0]?.session).toBe('sess-1');
+    expect(sends[0]?.text).toContain('check board inbox');
     expect(
       (await store.db.selectFrom('outbox').select('kind').execute()).map((row) => row.kind),
     ).toEqual(['conversation.close', 'doorbell']);
