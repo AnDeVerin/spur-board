@@ -40,8 +40,8 @@ description: Rules for packages/daemon/ - modules, config and secrets, logging a
   hint' and 'invalid config exits 1 before creating the database'. A missing file and invalid
   YAML also throw a `ConfigError`, without field paths: pinned by 'names the missing config file'
   and 'reports a YAML syntax error with line and column'.
-- `secrets.env` is refused when group or others have any permission on it, pinned by
-  'refuses a secrets.env readable by others'.
+- Refuse `secrets.env` if `mode & 0o077` is nonzero, including write-only access. Pinned by
+  'refuses a secrets.env readable by others' and 'refuses a group-writable secrets.env'.
 - Secrets live only in `secrets.env`, never in config; pinned by 'has no secret-like property
   names'. The daemon never writes them to the environment; modules read `ctx.secrets`.
 - `resolvePaths` places the files: `BOARD_HOME` holds all four, else the XDG directories.

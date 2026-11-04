@@ -29,6 +29,7 @@
     "@commander-js/extra-typings": "catalog:",
     "@modelcontextprotocol/server": "catalog:",
     "commander": "catalog:",
+    "yaml": "catalog:",
     "zod": "catalog:"
   },
   "devDependencies": {
