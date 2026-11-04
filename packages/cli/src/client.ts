@@ -2,15 +2,12 @@ import { request as httpRequest, type IncomingMessage } from 'node:http';
 import { request as httpsRequest } from 'node:https';
 import {
   ERRORS,
-  OPERATIONS,
   errorContextSchema,
   successEnvelopeSchema,
   type Operation,
 } from '@spur-board/contracts';
 import type { ClientConfig } from './config.ts';
 import { CliError } from './exit-codes.ts';
-
-type CatalogOperation = (typeof OPERATIONS)[number];
 
 function problemError(status: number, contentType: string | undefined, body: unknown): CliError {
   if (!body || typeof body !== 'object') return new CliError('outcome_unknown');
@@ -45,7 +42,7 @@ function problemError(status: number, contentType: string | undefined, body: unk
   return new CliError('outcome_unknown', undefined, requestId);
 }
 
-function decodeResponse(op: CatalogOperation, response: IncomingMessage, raw: string): unknown {
+function decodeResponse(op: Operation, response: IncomingMessage, raw: string): unknown {
   let body: unknown;
   try {
     body = JSON.parse(raw);
@@ -64,18 +61,17 @@ function decodeResponse(op: CatalogOperation, response: IncomingMessage, raw: st
 
 /** Shared daemon HTTP client. The CLI owns output; this module owns transport and wire parsing. */
 export async function requestOperation(
-  op: CatalogOperation | Operation,
+  op: Operation,
   input: unknown,
   key: string | undefined,
   config: ClientConfig,
 ): Promise<unknown> {
-  const operation = op as CatalogOperation;
   if (!config.session && !config.token) throw new CliError('config');
   const target = new URL(`/v1/ops/${encodeURIComponent(op.id)}`, config.address);
   const payload = JSON.stringify({ input, ...(key ? { key } : {}) });
   const transport = target.protocol === 'https:' ? httpsRequest : httpRequest;
 
-  return await new Promise<unknown>((resolve, reject) => {
+  return new Promise<unknown>((resolve, reject) => {
     let connected = false;
     let settled = false;
     let timer: NodeJS.Timeout | undefined;
@@ -113,7 +109,7 @@ export async function requestOperation(
         response.once('end', () => {
           try {
             settle({
-              value: decodeResponse(operation, response, Buffer.concat(chunks).toString()),
+              value: decodeResponse(op, response, Buffer.concat(chunks).toString()),
             });
           } catch (error) {
             settle({ error: error instanceof CliError ? error : new CliError('outcome_unknown') });
