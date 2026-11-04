@@ -1,5 +1,6 @@
-import { once } from 'node:events';
 import { createHash } from 'node:crypto';
+import { once } from 'node:events';
+import { spawnSync } from 'node:child_process';
 import {
   chmodSync,
   existsSync,
@@ -10,6 +11,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { openStore, requestToken } from '@spur-board/core';
 import { afterEach, describe, expect, it } from 'vitest';
 import { startFakeSlackApi } from '../../gateway-slack/test/fake-api.ts';
@@ -20,6 +22,7 @@ import { makeHome, VALID_CONFIG_YAML } from './home.ts';
 afterEach(killDaemons);
 
 const SLACK_CONFIG = `${VALID_CONFIG_YAML}slack:\n  channels:\n    orchestrators: C000000001\n    feed: C000000002\n`;
+const BOARD_CLI = fileURLToPath(new URL('../../cli/src/bin.mjs', import.meta.url));
 
 function httpPort(home: string): number {
   return loadConfig(resolvePaths({ BOARD_HOME: home }, home)).config.http.port;
@@ -135,6 +138,110 @@ describe('daemon process', () => {
     },
     30_000,
   );
+
+  it('routes board status and board ask through the daemon registry', async () => {
+    const config = VALID_CONFIG_YAML.replace(
+      'operatorGithubLogin: octocat\n',
+      'operatorGithubLogin: octocat\n    spurProjects:\n      - name: worker\n        role: worker\n',
+    );
+    const home = makeHome({ config });
+    const store = openStore(join(home, 'board.sqlite'));
+    const at = '2026-11-04T08:00:00.000Z';
+    try {
+      await store.transaction(async (trx) => {
+        await trx
+          .insertInto('task')
+          .values({
+            project: 'board',
+            tracker_kind: 'github-issues',
+            tracker_id: '101',
+            key: 'example-org/board#101',
+            membership: 'active',
+            archive_reason: null,
+            column: 'todo',
+            shadow_column: null,
+            created_at: at,
+            last_change_at: at,
+            terminal_at: null,
+            archive_slot_at: null,
+          })
+          .execute();
+        await trx
+          .insertInto('session_snapshot')
+          .values({
+            id: 'session-1',
+            spur_project: 'worker',
+            branch: null,
+            pr: null,
+            raw_state: 'running',
+            state: 'running',
+            first_seen: at,
+            last_seen: at,
+            ended_at: null,
+            end_reason: null,
+            detail: JSON.stringify({
+              id: 'session-1',
+              spurProject: 'worker',
+              branch: null,
+              pr: null,
+              links: {},
+              lifecycle: 'running',
+              health: 'working',
+              healthSince: at,
+              lastActivityAt: null,
+              endedAt: null,
+              endReason: null,
+            }),
+            source: 'spur',
+            observed_at: at,
+          })
+          .execute();
+      });
+    } finally {
+      await store.close();
+    }
+    const child = spawnDaemon(home);
+    try {
+      await waitForLine(child, 'daemon ready');
+      const env = {
+        ...process.env,
+        BOARD_DAEMON_URL: `http://127.0.0.1:${String(httpPort(home))}`,
+        SPUR_SESSION: 'session-1',
+      };
+      const status = spawnSync(process.execPath, [BOARD_CLI, 'status', '--json'], {
+        env,
+        encoding: 'utf8',
+      });
+      expect(status.status, status.stderr).toBe(0);
+      expect(JSON.parse(status.stdout)).toMatchObject({
+        tasks: [{ key: 'example-org/board#101' }],
+      });
+      const schema = spawnSync(process.execPath, [BOARD_CLI, 'schema', '--json'], {
+        env,
+        encoding: 'utf8',
+      });
+      expect(schema.status, schema.stderr).toBe(0);
+      const schemaResult = JSON.parse(schema.stdout) as {
+        version: string;
+        operations: { id: string }[];
+      };
+      expect(schemaResult.version).toMatch(/^[0-9a-f]{64}$/);
+      expect(schemaResult.operations.map((operation) => operation.id)).toContain('status.get');
+      const ask = spawnSync(
+        process.execPath,
+        [BOARD_CLI, 'ask', 'example-org/board#101', 'Which version?', '--key', 'ask-1', '--json'],
+        { env, encoding: 'utf8' },
+      );
+      expect(ask.status, ask.stderr).toBe(0);
+      expect(JSON.parse(ask.stdout)).toMatchObject({
+        block: { task: 'example-org/board#101', reason: 'Which version?' },
+      });
+    } finally {
+      const exited = once(child, 'exit');
+      child.kill('SIGTERM');
+      await exited;
+    }
+  }, 30_000);
 
   it('serves token list and revoke through the production operation registry', async () => {
     const home = makeHome();
@@ -322,11 +429,25 @@ describe('daemon process', () => {
     expect(readFileSync(capture, 'utf8')).toContain('check board inbox');
     const result = openStore(join(home, 'board.sqlite'));
     try {
+      const rows = await result.db
+        .selectFrom('outbox')
+        .select(['kind', 'state', 'payload'])
+        .execute();
       expect(
-        await result.db.selectFrom('outbox').select(['kind', 'state']).orderBy('id').execute(),
+        rows.filter((row) => row.kind === 'doorbell').map(({ kind, state }) => ({ kind, state })),
+      ).toEqual([{ kind: 'doorbell', state: 'done' }]);
+      expect(
+        rows
+          .filter((row) => row.kind === 'feed.line')
+          .map((row) => ({
+            state: row.state,
+            itemKey: (JSON.parse(row.payload) as { itemKey: string }).itemKey,
+          }))
+          .sort((a, b) => a.itemKey.localeCompare(b.itemKey)),
       ).toEqual([
-        { kind: 'doorbell', state: 'done' },
-        { kind: 'feed.line', state: 'pending' },
+        { state: 'pending', itemKey: 'source:github-issues:board:example-org/board' },
+        { state: 'pending', itemKey: 'source:github:board:example-org/board' },
+        { state: 'pending', itemKey: 'test' },
       ]);
     } finally {
       await result.close();

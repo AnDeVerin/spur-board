@@ -142,7 +142,9 @@ export {
   entityRefSchema,
   sourceCursorSchema,
   type Adapter,
+  type AdapterCore,
   type AdapterErrorKind,
+  type AcceptedObservation,
   type Batch,
   type BatchItem,
   type EntityRef,
@@ -151,5 +153,6 @@ export {
   type PrEntityRef,
   type SessionEntityRef,
   type SourceCursor,
+  type SourceState,
   type TicketEntityRef,
 } from './adapters.ts';

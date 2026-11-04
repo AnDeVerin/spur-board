@@ -62,7 +62,7 @@ describe('openStore', () => {
     const { store } = freshStore();
     const { db } = store;
     await insertSampleRows(db);
-    const t2 = { ...sampleRows.task, id: 2, tracker_id: '102' };
+    const t2 = { ...sampleRows.task, id: 2, tracker_id: '102', key: 'o/r#102' };
     await db.insertInto('task').values(t2).execute();
     const prLink = (
       taskId: number,

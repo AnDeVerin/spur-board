@@ -21,8 +21,14 @@ export const entityRefSchema = z.discriminatedUnion('kind', [
   z.strictObject({
     kind: z.literal('ticket').describe('A tracker ticket.'),
     trackerId: z.string().min(1).describe('Stable id of the tracker the ticket lives in.'),
-    id: z.string().min(1).describe("The ticket's stable id; the batch matches the ticket by it."),
-    key: taskKeySchema.describe('The last key core saw; the ticket may have been moved since.'),
+    id: z
+      .string()
+      .min(1)
+      .optional()
+      .describe('Known stable ticket id; omitted for a pending manual include.'),
+    key: taskKeySchema.describe(
+      'Ticket key; matches a pending request before its stable id is known.',
+    ),
   }),
   z.strictObject({
     kind: z.literal('session').describe('A Spur session.'),
@@ -57,7 +63,7 @@ function refIdentity(ref: EntityRef): string {
     case 'pr':
       return JSON.stringify([ref.kind, ref.repo, ref.number]);
     case 'ticket':
-      return JSON.stringify([ref.kind, ref.trackerId, ref.id]);
+      return JSON.stringify([ref.kind, ref.trackerId, ref.id ?? `key:${ref.key}`]);
     case 'session':
       return JSON.stringify([ref.kind, ref.id]);
   }
@@ -77,6 +83,17 @@ function itemIdentity(item: BatchItem): string {
     case 'session':
       return refIdentity({ kind: 'session', id: item.facts.id });
   }
+}
+
+function itemAnswersRef(item: BatchItem, ref: EntityRef): boolean {
+  if (item.kind !== ref.kind) return false;
+  if (ref.kind === 'ticket' && item.kind === 'ticket') {
+    return (
+      item.facts.trackerId === ref.trackerId &&
+      (ref.id === undefined ? item.facts.key === ref.key : item.facts.id === ref.id)
+    );
+  }
+  return itemIdentity(item) === refIdentity(ref);
 }
 
 export const batchSchema = z
@@ -131,7 +148,10 @@ export const batchSchema = z
         return;
       }
       requested.add(identity);
-      if ((entity.status === 'ok') !== items.has(identity)) {
+      if (
+        (entity.status === 'ok') !==
+        batch.items.some((item) => itemAnswersRef(item, entity.ref))
+      ) {
         ctx.addIssue({
           code: 'custom',
           path: ['entities', index, 'status'],
@@ -152,13 +172,15 @@ export interface PollContext {
   observe: {
     /** Pull requests of board tasks. */
     prs: readonly PrEntityRef[];
-    /** Tickets outside the tracker filter, fetched by key and matched by id. */
+    /** Tickets outside the tracker filter; pending manual includes have a key but no id. */
     tickets: readonly TicketEntityRef[];
     /** Sessions linked to board tasks. */
     sessions: readonly SessionEntityRef[];
   };
   /** The cursor the previous batch returned; absent on the first poll. */
   cursor?: SourceCursor | undefined;
+  /** Persisted consecutive misses for requested PRs and tickets; loaded after a restart. */
+  missCounts?: readonly { ref: PrEntityRef | TicketEntityRef; count: number }[] | undefined;
   /** Aborted when core stops the poll (A7). */
   signal: AbortSignal;
 }
@@ -186,6 +208,8 @@ export interface PollContext {
  *   poll rejects with an `AdapterError` of the matching kind; core treats any other rejection
  *   as `transient`.
  * - A7: The adapter honours `PollContext.signal` and returns no batch after it is aborted.
+ * - A8: A pending ticket request has no stable id. Its `ok` item matches by tracker and key;
+ *   the next observation binds the returned stable id. Known tickets still match by id.
  */
 export interface Adapter {
   /** Stable id of this adapter instance; becomes `Batch.source`. */
@@ -194,6 +218,36 @@ export interface Adapter {
   readonly intervalMs: number;
   /** Observes the source once (A1-A7). */
   poll(ctx: PollContext): Promise<Batch>;
+}
+
+/** State accepted with a batch; a separate report handles failures without a batch. */
+export interface SourceState {
+  /** Poll-start time of the last effectively complete batch. */
+  lastCompleteAt?: string | undefined;
+  blind?: { reason: 'auth' | 'config' | 'stale'; message: string } | undefined;
+  gone: readonly EntityRef[];
+}
+
+/** One accepted observation that core commits atomically. */
+export interface AcceptedObservation {
+  batch: Batch;
+  effectiveComplete: boolean;
+  state: SourceState;
+  outcomes: readonly {
+    ref: PrEntityRef | TicketEntityRef;
+    misses: number;
+    gone: boolean;
+  }[];
+}
+
+/** Core-facing side of the adapter runner. */
+export interface AdapterCore {
+  /** Requested entities, cursor, and persisted miss counters for the next poll. */
+  context(source: string): Promise<Omit<PollContext, 'signal'>>;
+  /** Commits the accepted observation and its source state together. */
+  observe(source: string, observation: AcceptedObservation): Promise<void>;
+  /** Reports a source failure or stale deadline without a batch. */
+  reportSourceState(source: string, state: SourceState): Promise<void>;
 }
 
 /** A whole-poll failure (A6). `retryAt` is when the source allows the next attempt. */

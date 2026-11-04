@@ -12,6 +12,11 @@ import { openDatabase, openStore } from '../../src/store/store.ts';
 import { insertSampleRows, sampleRows, tableNames } from './sample-rows.ts';
 
 const INDEXES: Record<string, { table: string; columns: string[]; partialUnique: boolean }> = {
+  task_stable_tracker_id: {
+    table: 'task',
+    columns: ['project', 'tracker_kind', 'tracker_id'],
+    partialUnique: true,
+  },
   link_pr_pair: { table: 'link', columns: ['task_id', 'repo', 'number'], partialUnique: true },
   link_session_pair: { table: 'link', columns: ['task_id', 'session_id'], partialUnique: true },
   link_one_active_pr: { table: 'link', columns: ['task_id'], partialUnique: true },
@@ -234,7 +239,17 @@ describe('migrate', () => {
       'first_delivery_at',
       'attempt_started',
     ]);
-    insertRaw(raw, 'task', sampleRows.task);
+    insertRaw(
+      raw,
+      'task',
+      without(sampleRows.task, [
+        'manual_include',
+        'manual_exclude',
+        'last_change_at',
+        'terminal_at',
+        'archive_slot_at',
+      ]),
+    );
     insertRaw(raw, 'block', sampleRows.block);
     insertRaw(raw, 'comment', comment);
     insertRaw(raw, 'outbox', outbox);
@@ -300,6 +315,83 @@ describe('migrate', () => {
     expect(raw.pragma('foreign_key_check')).toEqual([]);
   });
 
+  it('keeps task and link identities when upgrading an existing observation-free store', () => {
+    const dir = tempDir();
+    const { raw } = rawDb(join(dir, 'board.db'));
+    migrate(raw, real.slice(0, 4));
+    insertRaw(
+      raw,
+      'task',
+      without(sampleRows.task, [
+        'manual_include',
+        'manual_exclude',
+        'last_change_at',
+        'terminal_at',
+        'archive_slot_at',
+      ]),
+    );
+    insertRaw(raw, 'link', sampleRows.link);
+    migrate(raw, real);
+    expect(raw.prepare('SELECT id, tracker_id, key, manual_include FROM task').all()).toEqual([
+      { id: 1, tracker_id: '101', key: 'o/r#101', manual_include: 0 },
+    ]);
+    expect(raw.prepare('SELECT task_id, repo, number FROM link').all()).toEqual([
+      { task_id: 1, repo: 'x/y', number: 7 },
+    ]);
+    expect(raw.pragma('foreign_key_check')).toEqual([]);
+  });
+
+  it('preserves shared operator item IDs when upgrading a version 7 store', () => {
+    const dir = tempDir();
+    const { raw } = rawDb(join(dir, 'board.db'));
+    migrate(raw, real.slice(0, 7));
+    insertRaw(
+      raw,
+      'task',
+      without(sampleRows.task, [
+        'manual_include',
+        'manual_exclude',
+        'last_change_at',
+        'terminal_at',
+        'archive_slot_at',
+      ]),
+    );
+    insertRaw(
+      raw,
+      'operator_item',
+      without(
+        {
+          ...sampleRows.operator_item,
+          block_id: null,
+          line_outbox_id: null,
+        },
+        ['fingerprint', 'fact_at', 'source', 'priority'],
+      ),
+    );
+    const result = migrate(raw, real);
+    expect(result).toMatchObject({
+      from: 7,
+      to: 9,
+      applied: ['0008_observation', '0009_operator_tokens'],
+    });
+    expect(
+      raw
+        .prepare('SELECT id, item_key, fingerprint, fact_at, source, priority FROM operator_item')
+        .all(),
+    ).toEqual([
+      {
+        id: 1,
+        item_key: sampleRows.operator_item.item_key,
+        fingerprint: null,
+        fact_at: null,
+        source: null,
+        priority: null,
+      },
+    ]);
+    expect(tables(raw)).not.toContain('from_you_item');
+    expect(raw.pragma('foreign_key_check')).toEqual([]);
+  });
+
   it('refuses a database newer than the code', () => {
     const dir = tempDir();
     const file = join(dir, 'board.db');
@@ -359,7 +451,8 @@ describe('migration pins', () => {
       '64139694f1bde3e61d7c1b67ebc9eb4858c3974bdd72f84306ac3837f7d8de96',
     '0007_inbound_item_event.sql':
       '205aad5987530bce0bd2a96ec5ce836cf76b176e366e27735d1fff692650b8eb',
-    '0008_operator_tokens.sql': [
+    '0008_observation.sql': '4bde8ddb6da6dbffa22f270fc8b442c9670bef51ef106e2600bcbba958ecd2eb',
+    '0009_operator_tokens.sql': [
       '4a34cd8b138b546fcf1817d510d16639',
       '712f01c6d65901a62e2a199b770ee62a',
     ].join(''),

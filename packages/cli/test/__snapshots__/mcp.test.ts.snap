@@ -8,7 +8,7 @@ exports[`board mcp > lists one catalog tool with schemas, guidance and annotatio
       "idempotentHint": false,
       "readOnlyHint": true,
     },
-    "description": "List the tasks on the board.
+    "description": "List tasks, observations, source freshness and actionable items.
 Use when: Get a board overview.
 When not to use: Use task_get for one task.
 Example: {}",
@@ -31,11 +31,177 @@ Example: {}",
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
       "properties": {
-        "tasks": {
-          "description": "Tasks on the board, by column.",
+        "hostLoad": {
+          "description": "Host-load episode line, or null when absent.",
+          "type": [
+            "string",
+            "null",
+          ],
+        },
+        "items": {
+          "description": "Actionable items in priority order.",
           "items": {
             "additionalProperties": false,
-            "description": "A task on the board.",
+            "description": "An actionable item with its freshness mark.",
+            "properties": {
+              "at": {
+                "description": "When the item was raised, ISO 8601 UTC.",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                "type": "string",
+              },
+              "factAt": {
+                "anyOf": [
+                  {
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                    "type": "string",
+                  },
+                  {
+                    "type": "null",
+                  },
+                ],
+                "description": "Time of the supporting fact, when known.",
+              },
+              "id": {
+                "description": "Item ID: I followed by a number, e.g. I7.",
+                "pattern": "^I[1-9]\\d{0,14}$",
+                "type": "string",
+              },
+              "key": {
+                "description": "Stable key of this actionable item.",
+                "minLength": 1,
+                "type": "string",
+              },
+              "summary": {
+                "description": "What needs the operator, in one line.",
+                "type": "string",
+              },
+              "task": {
+                "anyOf": [
+                  {
+                    "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42).",
+                    "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
+                    "type": "string",
+                  },
+                  {
+                    "type": "null",
+                  },
+                ],
+                "description": "Task the item is about; null for a board-wide item.",
+              },
+              "unconfirmed": {
+                "description": "Whether a supporting fact is stale or its source is blind.",
+                "type": "boolean",
+              },
+            },
+            "required": [
+              "id",
+              "task",
+              "at",
+              "summary",
+              "key",
+              "unconfirmed",
+              "factAt",
+            ],
+            "type": "object",
+          },
+          "type": "array",
+        },
+        "sources": {
+          "description": "Freshness and availability of each source.",
+          "items": {
+            "additionalProperties": false,
+            "description": "Freshness and availability of one source.",
+            "properties": {
+              "blindReason": {
+                "anyOf": [
+                  {
+                    "enum": [
+                      "auth",
+                      "config",
+                      "stale",
+                    ],
+                    "type": "string",
+                  },
+                  {
+                    "type": "null",
+                  },
+                ],
+                "description": "Why this source is blind, or null when it is usable.",
+              },
+              "lastCompleteAt": {
+                "anyOf": [
+                  {
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                    "type": "string",
+                  },
+                  {
+                    "type": "null",
+                  },
+                ],
+                "description": "Time of the latest complete observation.",
+              },
+              "message": {
+                "description": "Short explanation of the source state.",
+                "type": [
+                  "string",
+                  "null",
+                ],
+              },
+              "observedAt": {
+                "anyOf": [
+                  {
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                    "type": "string",
+                  },
+                  {
+                    "type": "null",
+                  },
+                ],
+                "description": "Time of the latest observation, if any.",
+              },
+              "source": {
+                "description": "Adapter source identifier.",
+                "minLength": 1,
+                "type": "string",
+              },
+              "stale": {
+                "description": "Whether facts from this source exceed their freshness threshold.",
+                "type": "boolean",
+              },
+              "warmingUp": {
+                "description": "Whether this source needs a complete poll in this daemon run.",
+                "type": "boolean",
+              },
+            },
+            "required": [
+              "source",
+              "observedAt",
+              "lastCompleteAt",
+              "blindReason",
+              "message",
+              "stale",
+              "warmingUp",
+            ],
+            "type": "object",
+          },
+          "type": "array",
+        },
+        "spurUnavailable": {
+          "description": "One combined Spur availability line, or null when available.",
+          "type": [
+            "string",
+            "null",
+          ],
+        },
+        "tasks": {
+          "description": "Tasks on the board with facts and links.",
+          "items": {
+            "additionalProperties": false,
+            "description": "A board task with its latest observed facts and links.",
             "properties": {
               "column": {
                 "description": "Board column the task is in.",
@@ -55,6 +221,50 @@ Example: {}",
                 "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
                 "type": "string",
               },
+              "links": {
+                "description": "Links fixed when each entity first joined the task.",
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "kind": {
+                      "description": "Linked entity kind.",
+                      "enum": [
+                        "pr",
+                        "session",
+                      ],
+                      "type": "string",
+                    },
+                    "ref": {
+                      "description": "Pull request or session identifier.",
+                      "minLength": 1,
+                      "type": "string",
+                    },
+                    "role": {
+                      "anyOf": [
+                        {
+                          "enum": [
+                            "worker",
+                            "other",
+                            "orchestrator",
+                          ],
+                          "type": "string",
+                        },
+                        {
+                          "type": "null",
+                        },
+                      ],
+                      "description": "Session role; null for a pull request.",
+                    },
+                  },
+                  "required": [
+                    "kind",
+                    "ref",
+                    "role",
+                  ],
+                  "type": "object",
+                },
+                "type": "array",
+              },
               "membership": {
                 "description": "Whether the task is on the board, outside the tracker filter, or archived.",
                 "enum": [
@@ -69,20 +279,1114 @@ Example: {}",
                 "minLength": 1,
                 "type": "string",
               },
+              "prs": {
+                "description": "Latest facts for linked pull requests.",
+                "items": {
+                  "additionalProperties": false,
+                  "description": "Facts about one pull request.",
+                  "properties": {
+                    "author": {
+                      "description": "Login of the pull request author.",
+                      "minLength": 1,
+                      "type": "string",
+                    },
+                    "checks": {
+                      "description": "All check contexts on the head commit, the latest run of each; the fallback for branches without required checks.",
+                      "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "completedAt": {
+                            "anyOf": [
+                              {
+                                "format": "date-time",
+                                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                                "type": "string",
+                              },
+                              {
+                                "type": "null",
+                              },
+                            ],
+                            "description": "When the latest run finished; null while it runs.",
+                          },
+                          "name": {
+                            "description": "Check or status context name.",
+                            "minLength": 1,
+                            "type": "string",
+                          },
+                          "state": {
+                            "description": "State of the latest run of this check on the head commit.",
+                            "enum": [
+                              "expected",
+                              "pending",
+                              "success",
+                              "neutral",
+                              "skipped",
+                              "failure",
+                              "error",
+                              "cancelled",
+                              "timed_out",
+                              "action_required",
+                              "stale",
+                            ],
+                            "type": "string",
+                          },
+                        },
+                        "required": [
+                          "name",
+                          "state",
+                          "completedAt",
+                        ],
+                        "type": "object",
+                      },
+                      "type": "array",
+                    },
+                    "draft": {
+                      "description": "Whether the pull request is a draft.",
+                      "type": "boolean",
+                    },
+                    "headBranch": {
+                      "description": "Branch name of the head of the pull request.",
+                      "minLength": 1,
+                      "type": "string",
+                    },
+                    "headSha": {
+                      "description": "Commit SHA of the head of the pull request.",
+                      "pattern": "^[0-9a-f]{40,64}$",
+                      "type": "string",
+                    },
+                    "mergeState": {
+                      "description": "Merge state as the source reports it; any value not listed is unknown.",
+                      "enum": [
+                        "behind",
+                        "blocked",
+                        "clean",
+                        "dirty",
+                        "draft",
+                        "has_hooks",
+                        "unknown",
+                        "unstable",
+                      ],
+                      "type": "string",
+                    },
+                    "mergeable": {
+                      "description": "Whether the head merges into the base without conflicts.",
+                      "enum": [
+                        "mergeable",
+                        "conflicting",
+                        "unknown",
+                      ],
+                      "type": "string",
+                    },
+                    "number": {
+                      "description": "Pull request number in the repository.",
+                      "maximum": 9007199254740991,
+                      "minimum": 1,
+                      "type": "integer",
+                    },
+                    "repo": {
+                      "description": "Repository as owner/name.",
+                      "pattern": "^[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+$",
+                      "type": "string",
+                    },
+                    "requiredChecks": {
+                      "description": "Required checks on the head commit, the latest run of each.",
+                      "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "completedAt": {
+                            "anyOf": [
+                              {
+                                "format": "date-time",
+                                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                                "type": "string",
+                              },
+                              {
+                                "type": "null",
+                              },
+                            ],
+                            "description": "When the latest run finished; null while it runs.",
+                          },
+                          "name": {
+                            "description": "Check or status context name.",
+                            "minLength": 1,
+                            "type": "string",
+                          },
+                          "state": {
+                            "description": "State of the latest run of this check on the head commit.",
+                            "enum": [
+                              "expected",
+                              "pending",
+                              "success",
+                              "neutral",
+                              "skipped",
+                              "failure",
+                              "error",
+                              "cancelled",
+                              "timed_out",
+                              "action_required",
+                              "stale",
+                            ],
+                            "type": "string",
+                          },
+                        },
+                        "required": [
+                          "name",
+                          "state",
+                          "completedAt",
+                        ],
+                        "type": "object",
+                      },
+                      "type": "array",
+                    },
+                    "reviewRequests": {
+                      "description": "Pending review requests.",
+                      "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "asCodeOwner": {
+                            "description": "Whether the review was requested because the reviewer owns changed code.",
+                            "type": "boolean",
+                          },
+                          "reviewer": {
+                            "description": "Login or team name asked to review.",
+                            "minLength": 1,
+                            "type": "string",
+                          },
+                        },
+                        "required": [
+                          "reviewer",
+                          "asCodeOwner",
+                        ],
+                        "type": "object",
+                      },
+                      "type": "array",
+                    },
+                    "reviewThreads": {
+                      "description": "Review threads on the pull request.",
+                      "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "resolved": {
+                            "description": "Whether the review thread is resolved.",
+                            "type": "boolean",
+                          },
+                        },
+                        "required": [
+                          "resolved",
+                        ],
+                        "type": "object",
+                      },
+                      "type": "array",
+                    },
+                    "reviews": {
+                      "description": "The latest review of each reviewer, with the commit it was given on.",
+                      "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "commitSha": {
+                            "description": "Commit the review was given on.",
+                            "pattern": "^[0-9a-f]{40,64}$",
+                            "type": "string",
+                          },
+                          "reviewer": {
+                            "description": "Login of the reviewer.",
+                            "minLength": 1,
+                            "type": "string",
+                          },
+                          "state": {
+                            "description": "State of the latest review by this reviewer.",
+                            "enum": [
+                              "approved",
+                              "changes_requested",
+                              "commented",
+                              "dismissed",
+                            ],
+                            "type": "string",
+                          },
+                          "submittedAt": {
+                            "description": "When the review was submitted.",
+                            "format": "date-time",
+                            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                            "type": "string",
+                          },
+                        },
+                        "required": [
+                          "reviewer",
+                          "state",
+                          "commitSha",
+                          "submittedAt",
+                        ],
+                        "type": "object",
+                      },
+                      "type": "array",
+                    },
+                    "state": {
+                      "description": "Whether the pull request is open, closed or merged.",
+                      "enum": [
+                        "open",
+                        "closed",
+                        "merged",
+                      ],
+                      "type": "string",
+                    },
+                    "ticketKeys": {
+                      "description": "Ticket keys found in the head branch name and the title.",
+                      "items": {
+                        "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42).",
+                        "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
+                        "type": "string",
+                      },
+                      "type": "array",
+                    },
+                    "title": {
+                      "description": "Pull request title.",
+                      "type": "string",
+                    },
+                    "updatedAt": {
+                      "description": "When the pull request last changed.",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                      "type": "string",
+                    },
+                    "url": {
+                      "description": "Web URL of the pull request.",
+                      "format": "uri",
+                      "type": "string",
+                    },
+                  },
+                  "required": [
+                    "repo",
+                    "number",
+                    "url",
+                    "title",
+                    "author",
+                    "headSha",
+                    "headBranch",
+                    "state",
+                    "draft",
+                    "mergeable",
+                    "mergeState",
+                    "requiredChecks",
+                    "checks",
+                    "reviews",
+                    "reviewThreads",
+                    "reviewRequests",
+                    "ticketKeys",
+                    "updatedAt",
+                  ],
+                  "type": "object",
+                },
+                "type": "array",
+              },
+              "sessions": {
+                "description": "Latest facts for linked sessions.",
+                "items": {
+                  "additionalProperties": false,
+                  "description": "Session facts with links as display entries.",
+                  "properties": {
+                    "branch": {
+                      "anyOf": [
+                        {
+                          "minLength": 1,
+                          "type": "string",
+                        },
+                        {
+                          "type": "null",
+                        },
+                      ],
+                      "description": "Git branch the session works on, or null.",
+                    },
+                    "endReason": {
+                      "anyOf": [
+                        {
+                          "enum": [
+                            "complete",
+                            "kill",
+                            "vanished",
+                            "unknown",
+                          ],
+                          "type": "string",
+                        },
+                        {
+                          "type": "null",
+                        },
+                      ],
+                      "description": "Why the session ended, or null while it is live. Set together with endedAt.",
+                    },
+                    "endedAt": {
+                      "anyOf": [
+                        {
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                          "type": "string",
+                        },
+                        {
+                          "type": "null",
+                        },
+                      ],
+                      "description": "When the session ended, or null while it is live. The adapter supplies it: Spur keeps no end time.",
+                    },
+                    "health": {
+                      "anyOf": [
+                        {
+                          "enum": [
+                            "working",
+                            "waiting",
+                            "needs_input",
+                            "stopped",
+                            "error",
+                            "killed",
+                            "rate_limited",
+                            "stale",
+                          ],
+                          "type": "string",
+                        },
+                        {
+                          "minLength": 1,
+                          "type": "string",
+                        },
+                      ],
+                      "description": "Health state after smoothing: a known value or an unknown one kept as is.",
+                    },
+                    "healthSince": {
+                      "description": "When the current health value began to hold, as the adapter observed it; health durations count from here.",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                      "type": "string",
+                    },
+                    "id": {
+                      "description": "Spur session name.",
+                      "pattern": "^[A-Za-z0-9._-]+$",
+                      "type": "string",
+                    },
+                    "lastActivityAt": {
+                      "anyOf": [
+                        {
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                          "type": "string",
+                        },
+                        {
+                          "type": "null",
+                        },
+                      ],
+                      "description": "When the session last showed activity, or null.",
+                    },
+                    "lifecycle": {
+                      "anyOf": [
+                        {
+                          "enum": [
+                            "spawning",
+                            "running",
+                            "stopped",
+                            "paused",
+                            "errored",
+                            "completed",
+                            "killed",
+                          ],
+                          "type": "string",
+                        },
+                        {
+                          "minLength": 1,
+                          "type": "string",
+                        },
+                      ],
+                      "description": "Lifecycle status: a known value or an unknown one kept as is.",
+                    },
+                    "links": {
+                      "description": "Links published by this session.",
+                      "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "label": {
+                            "description": "Published link label.",
+                            "minLength": 1,
+                            "type": "string",
+                          },
+                          "url": {
+                            "description": "Published link URL.",
+                            "format": "uri",
+                            "type": "string",
+                          },
+                        },
+                        "required": [
+                          "label",
+                          "url",
+                        ],
+                        "type": "object",
+                      },
+                      "type": "array",
+                    },
+                    "pr": {
+                      "anyOf": [
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "number": {
+                              "description": "Pull request number in the repository.",
+                              "maximum": 9007199254740991,
+                              "minimum": 1,
+                              "type": "integer",
+                            },
+                            "repo": {
+                              "description": "Repository as owner/name.",
+                              "pattern": "^[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+$",
+                              "type": "string",
+                            },
+                          },
+                          "required": [
+                            "repo",
+                            "number",
+                          ],
+                          "type": "object",
+                        },
+                        {
+                          "type": "null",
+                        },
+                      ],
+                      "description": "Pull request linked to the session, or null.",
+                    },
+                    "spurProject": {
+                      "description": "Spur project the session belongs to.",
+                      "pattern": "^[A-Za-z0-9._-]+$",
+                      "type": "string",
+                    },
+                  },
+                  "required": [
+                    "id",
+                    "spurProject",
+                    "branch",
+                    "pr",
+                    "links",
+                    "lifecycle",
+                    "health",
+                    "healthSince",
+                    "lastActivityAt",
+                    "endedAt",
+                    "endReason",
+                  ],
+                  "type": "object",
+                },
+                "type": "array",
+              },
+              "ticket": {
+                "anyOf": [
+                  {
+                    "additionalProperties": false,
+                    "description": "Facts about one tracker ticket.",
+                    "properties": {
+                      "assignee": {
+                        "anyOf": [
+                          {
+                            "minLength": 1,
+                            "type": "string",
+                          },
+                          {
+                            "type": "null",
+                          },
+                        ],
+                        "description": "Who the ticket is assigned to, or null.",
+                      },
+                      "id": {
+                        "description": "The ticket's stable id in its tracker; unlike the key, it stays the same when the ticket moves to another project.",
+                        "minLength": 1,
+                        "type": "string",
+                      },
+                      "inFilter": {
+                        "description": "Whether the ticket matched the project's tracker filter; false when it was fetched only by key.",
+                        "type": "boolean",
+                      },
+                      "key": {
+                        "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42).",
+                        "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
+                        "type": "string",
+                      },
+                      "labels": {
+                        "description": "Ticket labels.",
+                        "items": {
+                          "minLength": 1,
+                          "type": "string",
+                        },
+                        "type": "array",
+                      },
+                      "sprint": {
+                        "anyOf": [
+                          {
+                            "minLength": 1,
+                            "type": "string",
+                          },
+                          {
+                            "type": "null",
+                          },
+                        ],
+                        "description": "Current sprint name, or null.",
+                      },
+                      "status": {
+                        "description": "Ticket status as the tracker names it.",
+                        "minLength": 1,
+                        "type": "string",
+                      },
+                      "title": {
+                        "description": "Ticket title.",
+                        "type": "string",
+                      },
+                      "trackerId": {
+                        "description": "Stable id of the tracker the ticket came from; the same across polls.",
+                        "minLength": 1,
+                        "type": "string",
+                      },
+                      "updatedAt": {
+                        "description": "When the ticket last changed.",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                        "type": "string",
+                      },
+                      "url": {
+                        "description": "Web URL of the ticket.",
+                        "format": "uri",
+                        "type": "string",
+                      },
+                    },
+                    "required": [
+                      "trackerId",
+                      "id",
+                      "key",
+                      "title",
+                      "status",
+                      "assignee",
+                      "sprint",
+                      "labels",
+                      "inFilter",
+                      "url",
+                      "updatedAt",
+                    ],
+                    "type": "object",
+                  },
+                  {
+                    "type": "null",
+                  },
+                ],
+                "description": "Latest ticket facts, or null before observation.",
+              },
             },
             "required": [
               "key",
               "project",
               "column",
               "membership",
+              "ticket",
+              "prs",
+              "sessions",
+              "links",
             ],
             "type": "object",
           },
           "type": "array",
         },
+        "unlinkedPrs": {
+          "description": "Observed pull requests without a task link.",
+          "items": {
+            "additionalProperties": false,
+            "description": "Facts about one pull request.",
+            "properties": {
+              "author": {
+                "description": "Login of the pull request author.",
+                "minLength": 1,
+                "type": "string",
+              },
+              "checks": {
+                "description": "All check contexts on the head commit, the latest run of each; the fallback for branches without required checks.",
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "completedAt": {
+                      "anyOf": [
+                        {
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                          "type": "string",
+                        },
+                        {
+                          "type": "null",
+                        },
+                      ],
+                      "description": "When the latest run finished; null while it runs.",
+                    },
+                    "name": {
+                      "description": "Check or status context name.",
+                      "minLength": 1,
+                      "type": "string",
+                    },
+                    "state": {
+                      "description": "State of the latest run of this check on the head commit.",
+                      "enum": [
+                        "expected",
+                        "pending",
+                        "success",
+                        "neutral",
+                        "skipped",
+                        "failure",
+                        "error",
+                        "cancelled",
+                        "timed_out",
+                        "action_required",
+                        "stale",
+                      ],
+                      "type": "string",
+                    },
+                  },
+                  "required": [
+                    "name",
+                    "state",
+                    "completedAt",
+                  ],
+                  "type": "object",
+                },
+                "type": "array",
+              },
+              "draft": {
+                "description": "Whether the pull request is a draft.",
+                "type": "boolean",
+              },
+              "headBranch": {
+                "description": "Branch name of the head of the pull request.",
+                "minLength": 1,
+                "type": "string",
+              },
+              "headSha": {
+                "description": "Commit SHA of the head of the pull request.",
+                "pattern": "^[0-9a-f]{40,64}$",
+                "type": "string",
+              },
+              "mergeState": {
+                "description": "Merge state as the source reports it; any value not listed is unknown.",
+                "enum": [
+                  "behind",
+                  "blocked",
+                  "clean",
+                  "dirty",
+                  "draft",
+                  "has_hooks",
+                  "unknown",
+                  "unstable",
+                ],
+                "type": "string",
+              },
+              "mergeable": {
+                "description": "Whether the head merges into the base without conflicts.",
+                "enum": [
+                  "mergeable",
+                  "conflicting",
+                  "unknown",
+                ],
+                "type": "string",
+              },
+              "number": {
+                "description": "Pull request number in the repository.",
+                "maximum": 9007199254740991,
+                "minimum": 1,
+                "type": "integer",
+              },
+              "repo": {
+                "description": "Repository as owner/name.",
+                "pattern": "^[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+$",
+                "type": "string",
+              },
+              "requiredChecks": {
+                "description": "Required checks on the head commit, the latest run of each.",
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "completedAt": {
+                      "anyOf": [
+                        {
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                          "type": "string",
+                        },
+                        {
+                          "type": "null",
+                        },
+                      ],
+                      "description": "When the latest run finished; null while it runs.",
+                    },
+                    "name": {
+                      "description": "Check or status context name.",
+                      "minLength": 1,
+                      "type": "string",
+                    },
+                    "state": {
+                      "description": "State of the latest run of this check on the head commit.",
+                      "enum": [
+                        "expected",
+                        "pending",
+                        "success",
+                        "neutral",
+                        "skipped",
+                        "failure",
+                        "error",
+                        "cancelled",
+                        "timed_out",
+                        "action_required",
+                        "stale",
+                      ],
+                      "type": "string",
+                    },
+                  },
+                  "required": [
+                    "name",
+                    "state",
+                    "completedAt",
+                  ],
+                  "type": "object",
+                },
+                "type": "array",
+              },
+              "reviewRequests": {
+                "description": "Pending review requests.",
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "asCodeOwner": {
+                      "description": "Whether the review was requested because the reviewer owns changed code.",
+                      "type": "boolean",
+                    },
+                    "reviewer": {
+                      "description": "Login or team name asked to review.",
+                      "minLength": 1,
+                      "type": "string",
+                    },
+                  },
+                  "required": [
+                    "reviewer",
+                    "asCodeOwner",
+                  ],
+                  "type": "object",
+                },
+                "type": "array",
+              },
+              "reviewThreads": {
+                "description": "Review threads on the pull request.",
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "resolved": {
+                      "description": "Whether the review thread is resolved.",
+                      "type": "boolean",
+                    },
+                  },
+                  "required": [
+                    "resolved",
+                  ],
+                  "type": "object",
+                },
+                "type": "array",
+              },
+              "reviews": {
+                "description": "The latest review of each reviewer, with the commit it was given on.",
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "commitSha": {
+                      "description": "Commit the review was given on.",
+                      "pattern": "^[0-9a-f]{40,64}$",
+                      "type": "string",
+                    },
+                    "reviewer": {
+                      "description": "Login of the reviewer.",
+                      "minLength": 1,
+                      "type": "string",
+                    },
+                    "state": {
+                      "description": "State of the latest review by this reviewer.",
+                      "enum": [
+                        "approved",
+                        "changes_requested",
+                        "commented",
+                        "dismissed",
+                      ],
+                      "type": "string",
+                    },
+                    "submittedAt": {
+                      "description": "When the review was submitted.",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                      "type": "string",
+                    },
+                  },
+                  "required": [
+                    "reviewer",
+                    "state",
+                    "commitSha",
+                    "submittedAt",
+                  ],
+                  "type": "object",
+                },
+                "type": "array",
+              },
+              "state": {
+                "description": "Whether the pull request is open, closed or merged.",
+                "enum": [
+                  "open",
+                  "closed",
+                  "merged",
+                ],
+                "type": "string",
+              },
+              "ticketKeys": {
+                "description": "Ticket keys found in the head branch name and the title.",
+                "items": {
+                  "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42).",
+                  "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
+                  "type": "string",
+                },
+                "type": "array",
+              },
+              "title": {
+                "description": "Pull request title.",
+                "type": "string",
+              },
+              "updatedAt": {
+                "description": "When the pull request last changed.",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                "type": "string",
+              },
+              "url": {
+                "description": "Web URL of the pull request.",
+                "format": "uri",
+                "type": "string",
+              },
+            },
+            "required": [
+              "repo",
+              "number",
+              "url",
+              "title",
+              "author",
+              "headSha",
+              "headBranch",
+              "state",
+              "draft",
+              "mergeable",
+              "mergeState",
+              "requiredChecks",
+              "checks",
+              "reviews",
+              "reviewThreads",
+              "reviewRequests",
+              "ticketKeys",
+              "updatedAt",
+            ],
+            "type": "object",
+          },
+          "type": "array",
+        },
+        "unlinkedSessions": {
+          "description": "Observed sessions without a task link.",
+          "items": {
+            "additionalProperties": false,
+            "description": "Session facts with links as display entries.",
+            "properties": {
+              "branch": {
+                "anyOf": [
+                  {
+                    "minLength": 1,
+                    "type": "string",
+                  },
+                  {
+                    "type": "null",
+                  },
+                ],
+                "description": "Git branch the session works on, or null.",
+              },
+              "endReason": {
+                "anyOf": [
+                  {
+                    "enum": [
+                      "complete",
+                      "kill",
+                      "vanished",
+                      "unknown",
+                    ],
+                    "type": "string",
+                  },
+                  {
+                    "type": "null",
+                  },
+                ],
+                "description": "Why the session ended, or null while it is live. Set together with endedAt.",
+              },
+              "endedAt": {
+                "anyOf": [
+                  {
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                    "type": "string",
+                  },
+                  {
+                    "type": "null",
+                  },
+                ],
+                "description": "When the session ended, or null while it is live. The adapter supplies it: Spur keeps no end time.",
+              },
+              "health": {
+                "anyOf": [
+                  {
+                    "enum": [
+                      "working",
+                      "waiting",
+                      "needs_input",
+                      "stopped",
+                      "error",
+                      "killed",
+                      "rate_limited",
+                      "stale",
+                    ],
+                    "type": "string",
+                  },
+                  {
+                    "minLength": 1,
+                    "type": "string",
+                  },
+                ],
+                "description": "Health state after smoothing: a known value or an unknown one kept as is.",
+              },
+              "healthSince": {
+                "description": "When the current health value began to hold, as the adapter observed it; health durations count from here.",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                "type": "string",
+              },
+              "id": {
+                "description": "Spur session name.",
+                "pattern": "^[A-Za-z0-9._-]+$",
+                "type": "string",
+              },
+              "lastActivityAt": {
+                "anyOf": [
+                  {
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                    "type": "string",
+                  },
+                  {
+                    "type": "null",
+                  },
+                ],
+                "description": "When the session last showed activity, or null.",
+              },
+              "lifecycle": {
+                "anyOf": [
+                  {
+                    "enum": [
+                      "spawning",
+                      "running",
+                      "stopped",
+                      "paused",
+                      "errored",
+                      "completed",
+                      "killed",
+                    ],
+                    "type": "string",
+                  },
+                  {
+                    "minLength": 1,
+                    "type": "string",
+                  },
+                ],
+                "description": "Lifecycle status: a known value or an unknown one kept as is.",
+              },
+              "links": {
+                "description": "Links published by this session.",
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "label": {
+                      "description": "Published link label.",
+                      "minLength": 1,
+                      "type": "string",
+                    },
+                    "url": {
+                      "description": "Published link URL.",
+                      "format": "uri",
+                      "type": "string",
+                    },
+                  },
+                  "required": [
+                    "label",
+                    "url",
+                  ],
+                  "type": "object",
+                },
+                "type": "array",
+              },
+              "pr": {
+                "anyOf": [
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "number": {
+                        "description": "Pull request number in the repository.",
+                        "maximum": 9007199254740991,
+                        "minimum": 1,
+                        "type": "integer",
+                      },
+                      "repo": {
+                        "description": "Repository as owner/name.",
+                        "pattern": "^[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+$",
+                        "type": "string",
+                      },
+                    },
+                    "required": [
+                      "repo",
+                      "number",
+                    ],
+                    "type": "object",
+                  },
+                  {
+                    "type": "null",
+                  },
+                ],
+                "description": "Pull request linked to the session, or null.",
+              },
+              "spurProject": {
+                "description": "Spur project the session belongs to.",
+                "pattern": "^[A-Za-z0-9._-]+$",
+                "type": "string",
+              },
+            },
+            "required": [
+              "id",
+              "spurProject",
+              "branch",
+              "pr",
+              "links",
+              "lifecycle",
+              "health",
+              "healthSince",
+              "lastActivityAt",
+              "endedAt",
+              "endReason",
+            ],
+            "type": "object",
+          },
+          "type": "array",
+        },
+        "warmingUp": {
+          "description": "Whether required sources still need a complete poll.",
+          "type": "boolean",
+        },
       },
       "required": [
         "tasks",
+        "items",
+        "unlinkedPrs",
+        "unlinkedSessions",
+        "sources",
+        "warmingUp",
+        "spurUnavailable",
+        "hostLoad",
       ],
       "type": "object",
     },
@@ -494,12 +1798,16 @@ Example: {"task":"acme/web#42"}",
                 "description": "Journal event kind.",
                 "enum": [
                   "head_moved",
+                  "pr_facts_changed",
                   "checks_changed",
                   "review_submitted",
                   "mergeable_changed",
                   "pr_state_changed",
                   "ticket_status_changed",
+                  "ticket_facts_changed",
                   "session_state_changed",
+                  "session_facts_changed",
+                  "spur_unknown_state",
                   "link_added",
                   "link_removed",
                   "task_added",

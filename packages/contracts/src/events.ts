@@ -12,15 +12,20 @@ import {
   SESSION_LINK_ROLES,
 } from './enums.ts';
 import { actorPartSchema } from './ids.ts';
+import { prFactsSchema, sessionFactsSchema, ticketFactsSchema } from './facts.ts';
 
 export const EVENT_KINDS = [
   'head_moved',
+  'pr_facts_changed',
   'checks_changed',
   'review_submitted',
   'mergeable_changed',
   'pr_state_changed',
   'ticket_status_changed',
+  'ticket_facts_changed',
   'session_state_changed',
+  'session_facts_changed',
+  'spur_unknown_state',
   'link_added',
   'link_removed',
   'task_added',
@@ -61,16 +66,23 @@ const prChange = { repo: S, pr: N, from, to: S };
 // Payloads keep unknown keys, so a field added by a newer writer survives parsing.
 export const eventPayloadSchemas = {
   head_moved: z.looseObject(prChange),
+  pr_facts_changed: z.looseObject({ facts: prFactsSchema }),
   checks_changed: z.looseObject({ ...prChange, sha: S }),
   review_submitted: z.looseObject({ repo: S, pr: N, reviewer: S, state: S }),
   mergeable_changed: z.looseObject(prChange),
   pr_state_changed: z.looseObject(prChange),
   ticket_status_changed: z.looseObject({ from, to: S }),
+  ticket_facts_changed: z.looseObject({ facts: ticketFactsSchema }),
   session_state_changed: z.looseObject({
     session: S,
     from,
     to: S,
     endReason: z.enum(SESSION_END_REASONS).optional(),
+  }),
+  session_facts_changed: z.looseObject({ facts: sessionFactsSchema }),
+  spur_unknown_state: z.looseObject({
+    kind: z.enum(['unknown_state', 'unknown_status']),
+    value: S,
   }),
   link_added: z.discriminatedUnion('entity', [
     z.looseObject({
@@ -78,6 +90,7 @@ export const eventPayloadSchemas = {
       session: S,
       role: z.enum(SESSION_LINK_ROLES),
       source: z.enum(LINK_SOURCES),
+      facts: sessionFactsSchema.optional(),
     }),
     z.looseObject({
       entity: z.literal('pr'),
@@ -85,6 +98,7 @@ export const eventPayloadSchemas = {
       pr: N,
       state: z.enum(PR_LINK_STATES),
       source: z.enum(LINK_SOURCES),
+      facts: prFactsSchema.optional(),
     }),
   ]),
   link_removed: z.discriminatedUnion('entity', [

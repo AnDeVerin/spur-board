@@ -1,10 +1,9 @@
 import { homedir } from 'node:os';
 import {
   commandRetention,
+  createObservationCore,
+  createOperationRegistry,
   openStore,
-  tokenListQuery,
-  tokenRevokeMutation,
-  type OperationRegistry,
   type Store,
 } from '@spur-board/core';
 import { createSlackGateway } from '@spur-board/gateway-slack';
@@ -16,6 +15,7 @@ import {
   type ProcessPort,
 } from './lifecycle.ts';
 import { acquireLock } from './lock.ts';
+import { createBoardModules } from './board-modules.ts';
 import { createInboundModule } from './inbound-module.ts';
 import { createHttpModule } from './http-module.ts';
 import { createOutboxModule, slackSettings } from './outbox-module.ts';
@@ -60,11 +60,18 @@ export async function main(): Promise<void> {
     },
     openStore,
     modules: (ctxFor) => {
+      const board = ctxFor('board-core');
+      const core = createObservationCore({
+        store: board.store,
+        config: board.config,
+        clock: board.clock,
+      });
+      const registry = createOperationRegistry({
+        config: board.config,
+        clock: board.clock,
+        completeSince: core.completeSince,
+      });
       const commands = ctxFor('commands');
-      const registry: OperationRegistry = {
-        'token.list': tokenListQuery(commands.clock),
-        'token.revoke': tokenRevokeMutation,
-      };
       const entries: ModuleEntry[] = [
         {
           name: 'commands',
@@ -79,6 +86,7 @@ export async function main(): Promise<void> {
           }),
         },
       ];
+      entries.push(...createBoardModules(ctxFor, { core }));
       const ctx = ctxFor('gateway-slack');
       const settings = slackSettings(ctx.config, ctx.secrets);
       const gateway = settings === null ? undefined : createSlackGateway(settings);

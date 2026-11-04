@@ -381,7 +381,15 @@ describe('comment shape', () => {
     );
     expect(timestamps.length).toBeGreaterThan(0);
     for (const { path, node } of timestamps) {
-      const nullable = path.endsWith('unblockedAt');
+      const nullable = [
+        'unblockedAt',
+        'completedAt',
+        'lastActivityAt',
+        'endedAt',
+        'factAt',
+        'observedAt',
+        'lastCompleteAt',
+      ].some((name) => path.endsWith(name));
       expect(Array.isArray(node['anyOf']), path).toBe(nullable);
       const variants: unknown[] = Array.isArray(node['anyOf']) ? node['anyOf'] : [node];
       expect(
