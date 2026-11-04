@@ -152,6 +152,19 @@ describe('error catalog', () => {
 });
 
 describe('error representations', () => {
+  it('keeps an outcome-unknown retry key in structured MCP errors', () => {
+    const result = renderMcpError({
+      code: 'outcome_unknown',
+      requestId: 'req-1',
+      context: { idempotencyKey: 'ask-PROJ-123-retry-0930' },
+    });
+    expect(result.structuredContent.context).toEqual({
+      idempotencyKey: 'ask-PROJ-123-retry-0930',
+    });
+    expect(errorContextSchema.parse(result.structuredContent.context)).toEqual(
+      result.structuredContent.context,
+    );
+  });
   it('rejects client-side errors from the HTTP formatter', () => {
     expect(renderHttpProblem({ code: 'identity_unavailable', requestId: 'req-1' }).status).toBe(
       503,

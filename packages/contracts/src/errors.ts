@@ -35,6 +35,7 @@ export const errorContextSchema = z.strictObject({
     .string()
     .regex(/^[A-Za-z_][A-Za-z0-9_]*$/)
     .optional(),
+  idempotencyKey: z.string().min(1).optional(),
   causeLabel: z
     .enum(['storage_unavailable', 'transport_unavailable', 'internal_failure'])
     .optional(),
