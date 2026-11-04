@@ -13,7 +13,7 @@ export interface DoctorCheck {
   fix: string | null;
 }
 
-export interface SessionProcess {
+interface SessionProcess {
   id: string;
   project?: string;
   path: string;

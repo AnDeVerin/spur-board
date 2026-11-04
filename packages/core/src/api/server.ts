@@ -31,14 +31,14 @@ export interface ApiOptions extends IdentityPorts {
   }) => void;
 }
 
-export interface DoctorCheck {
+interface DoctorCheck {
   id: string;
   status: 'pass' | 'fail' | 'warning';
   blocking: boolean;
   fix: string | null;
 }
 
-export interface DoctorReport {
+interface DoctorReport {
   version: string;
   checks: DoctorCheck[];
 }
