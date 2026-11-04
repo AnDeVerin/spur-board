@@ -293,10 +293,6 @@ export async function createE2eHarness() {
       if (store === undefined) throw new Error('Store is not open');
       return store;
     },
-    get address(): string {
-      if (address === undefined) throw new Error('Address is not known');
-      return address;
-    },
     taskKey: TASK_KEY,
     session: SESSION,
     operator: userIdSchema.parse('operator'),
