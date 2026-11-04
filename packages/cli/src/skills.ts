@@ -83,24 +83,22 @@ export async function installSkills(
   );
   const home = resolve(options.home ?? homedir());
   const version = await packageVersion(packageRoot);
-  const sources = skills.map((skill) => join(packageRoot, 'skills', skill.source));
-
   // Check all assets before changing an existing installation.
-  await Promise.all(sources.map(requireSource));
+  await Promise.all(
+    skills.map((skill) => requireSource(join(packageRoot, 'skills', skill.source))),
+  );
 
   const installedAt = (options.now ?? (() => new Date()))().toISOString();
   const results: SkillInstallResult[] = [];
   for (const agent of agents) {
     const parent = join(home, agent, 'skills');
-    for (const [index, skill] of skills.entries()) {
+    for (const skill of skills) {
       const destination = join(parent, skill.name);
       const changed = !(await currentVersion(destination, version));
       if (changed) {
         await mkdir(parent, { recursive: true });
         await rm(destination, { recursive: true, force: true });
-        const source = sources[index];
-        if (!source) throw new Error('Bundled skill mapping is incomplete.');
-        await cp(source, destination, { recursive: true });
+        await cp(join(packageRoot, 'skills', skill.source), destination, { recursive: true });
         const stamp: InstallStamp = { version, installedAt };
         await writeFile(join(destination, stampName), `${JSON.stringify(stamp, null, 2)}\n`);
       }
