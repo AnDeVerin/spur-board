@@ -647,7 +647,7 @@ export function createInbound(input: {
           ? undefined
           : (JSON.parse(opened.external_ref) as { permalink?: string });
       await raiseItem(trx, {
-        sourceKey: `inbound:gap:${event.dedupeKey}`,
+        sourceKey: `inbound:gap:${gateway.kind}:${event.conversation === undefined ? 'gateway' : `conversation:${event.conversation}`}`,
         title: 'repeat your answer',
         sourceUrl: ref?.permalink ?? null,
         event,

@@ -469,7 +469,7 @@ export function createSender(options: SenderOptions): Sender {
           const closedBlock = isBlock
             ? await trx
                 .selectFrom('block')
-                .select(['state', 'unblocked_at'])
+                .select(['state', 'unblocked_at', 'created_at'])
                 .where('id', '=', body.payload.blockId)
                 .executeTakeFirstOrThrow()
             : undefined;
@@ -485,7 +485,8 @@ export function createSender(options: SenderOptions): Sender {
               state: closedBlock?.state === 'unblocked' ? 'closed' : 'open',
               root_message_ref: outcome.message,
               after_message_ref: null,
-              created_at: nowIso,
+              // The block predates any answer posted while an uncertain open awaited registration.
+              created_at: closedBlock?.created_at ?? nowIso,
               closed_at:
                 closedBlock?.state === 'unblocked' ? (closedBlock.unblocked_at ?? nowIso) : null,
             })

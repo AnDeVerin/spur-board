@@ -4,6 +4,8 @@ import { join } from 'node:path';
 import {
   BLOCK_TYPES,
   MEMBERSHIPS,
+  configSchema,
+  userIdSchema,
   type ActorId,
   type AddresseeRole,
   type DeliverRequest,
@@ -14,6 +16,7 @@ import { createFakeGateway, type FakeGateway, type FakeProfile } from '@spur-boa
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   createSender,
+  createInbound,
   enqueueConversationClose,
   enqueueConversationOpen,
   enqueueConversationReply,
@@ -1206,6 +1209,75 @@ describe('dependencies', () => {
     expect((await commentRow(ctx, seed.commentId)).delivery_state).toBe('delivered');
     await step(ctx);
     expect((await outboxRow(ctx, reply)).state).toBe('done');
+  });
+
+  it('recovers a reply posted before an uncertain open was registered', async () => {
+    const ctx = setup('slack-like');
+    const seed = await seedBlock(ctx, { author: 'system', addressee: 'operator' });
+    await ctx.store.transaction((trx) =>
+      trx
+        .updateTable('block')
+        .set({ type: 'needs_input' })
+        .where('id', '=', seed.blockId)
+        .execute(),
+    );
+    const openedAt = ctx.fake.platform.now().toISOString();
+    const openId = await enqueueOpen(ctx, seed);
+    ctx.fake.platform.timeoutNext({ visible: true });
+    await ctx.sender.tick();
+    expect(await outboxRow(ctx, openId)).toMatchObject({ state: 'pending', uncertain: 1 });
+    const visible = ctx.fake.platform.conversations()[0];
+    if (visible === undefined) throw new Error('Expected visible uncertain open');
+    ctx.fake.platform.advance(1000);
+    await ctx.fake.platform.inject({
+      kind: 'message',
+      conversation: visible.ref,
+      author: userIdSchema.parse('operator'),
+      text: 'Answer during downtime',
+    });
+    await step(ctx);
+    expect(await outboxRow(ctx, openId)).toMatchObject({ state: 'done' });
+    expect(
+      await ctx.store.db
+        .selectFrom('conversation')
+        .select('created_at')
+        .where('ref', '=', visible.ref)
+        .executeTakeFirst(),
+    ).toEqual({ created_at: openedAt });
+    const config = configSchema.parse({
+      projects: [
+        {
+          id: 'proj',
+          tracker: { type: 'github-issues', repo: 'o/r', milestone: 'M1' },
+          repos: ['o/r'],
+          operatorGithubLogin: 'operator',
+          spurProjects: [{ name: 'web', role: 'worker' }],
+        },
+      ],
+      operator: { slack: 'operator' },
+      digest: { tz: 'UTC' },
+    });
+    const inbound = createInbound({
+      store: ctx.store,
+      gateway: ctx.fake,
+      config,
+      clock: { now: () => ctx.fake.platform.now().getTime() },
+    });
+    await inbound.recover();
+    expect(
+      await ctx.store.db
+        .selectFrom('comment')
+        .select('text')
+        .where('text', '=', 'Answer during downtime')
+        .execute(),
+    ).toHaveLength(1);
+    expect(
+      await ctx.store.db
+        .selectFrom('block')
+        .select('state')
+        .where('id', '=', seed.blockId)
+        .executeTakeFirst(),
+    ).toEqual({ state: 'unblocked' });
   });
 
   it('cancels a deferred close when its pending open is cancelled as stale', async () => {

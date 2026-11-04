@@ -14,11 +14,13 @@ import { createFakeGateway } from '@spur-board/gateway-testkit';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   createInbound,
+  createSender,
   enqueueConversationOpen,
   getFromYouItem,
   openStore,
   type Store,
 } from '../../src/index.ts';
+import { sampleRows } from '../store/sample-rows.ts';
 
 const now = Date.parse('2026-11-03T10:00:00.000Z');
 const at = new Date(now).toISOString();
@@ -321,6 +323,56 @@ describe('inbound apply', () => {
     expect(
       (await store.db.selectFrom('event').select('kind').execute()).map((row) => row.kind),
     ).toContain('comment_deleted');
+    await store.transaction((trx) =>
+      trx
+        .insertInto('comment')
+        .values({
+          task_id: 1,
+          block_id: 1,
+          author: 'system',
+          text: 'System note',
+          conversation_ref: 'thread-1',
+          message_ref: 'system-message',
+          acked_revision: null,
+          created_at: at,
+          delivery_state: null,
+        })
+        .execute(),
+    );
+    for (const [key, ref] of [
+      ['delete-unknown', 'unknown-message'],
+      ['delete-system', 'system-message'],
+    ] as const) {
+      await inbound.sink({
+        kind: 'message_deleted',
+        dedupeKey: key,
+        conversation: conversationRefSchema.parse('thread-1'),
+        message: messageRefSchema.parse(ref),
+        rootMessage: messageRefSchema.parse('root-1'),
+        sourceUrl: 'https://example.test/thread/reply',
+      });
+    }
+    expect(
+      await store.db
+        .selectFrom('event')
+        .select('kind')
+        .where('kind', '=', 'comment_deleted')
+        .execute(),
+    ).toHaveLength(1);
+    expect(
+      await store.db
+        .selectFrom('event')
+        .select('kind')
+        .where('kind', '=', 'operation_denied')
+        .execute(),
+    ).toHaveLength(2);
+    expect(
+      await store.db
+        .selectFrom('comment')
+        .select(['text', 'revision'])
+        .where('message_ref', '=', 'system-message')
+        .executeTakeFirst(),
+    ).toEqual({ text: 'System note', revision: 1 });
   });
 
   it('creates a linked fallback item and feed line when author is unavailable', async () => {
@@ -346,7 +398,7 @@ describe('inbound apply', () => {
   });
 
   it('rolls back a failed handler and stores a linked retry item before resolving', async () => {
-    const { store, inbound } = await setup();
+    const { store, inbound, gateway } = await setup();
     await store.transaction((trx) =>
       trx.updateTable('task').set({ membership: 'archived' }).where('id', '=', 1).execute(),
     );
@@ -365,6 +417,62 @@ describe('inbound apply', () => {
       (await store.db.selectFrom('outbox').select('kind').execute()).map((row) => row.kind),
     ).toEqual(['feed.line']);
     expect(await store.db.selectFrom('command').select('key').execute()).toEqual([]);
+    const sender = createSender({
+      store,
+      gateway,
+      spur: { send: () => Promise.resolve() },
+      now: () => new Date(now),
+    });
+    await sender.tick();
+    expect(
+      gateway.platform
+        .messages()
+        .filter(
+          (entry) =>
+            entry.text.includes('Slack message not processed') &&
+            entry.text.includes('https://example.test/thread/reply'),
+        ),
+    ).toHaveLength(1);
+    expect(
+      await store.db
+        .selectFrom('outbox')
+        .select('state')
+        .where('kind', '=', 'feed.line')
+        .executeTakeFirst(),
+    ).toEqual({ state: 'done' });
+  });
+
+  it('retries the stored failed event and clears its item after the block can be answered', async () => {
+    const { store, inbound } = await setup();
+    await store.transaction((trx) =>
+      trx.updateTable('task').set({ membership: 'archived' }).where('id', '=', 1).execute(),
+    );
+    await inbound.sink(message({ conversation: 'thread-1', root: 'root-1' }));
+    expect((await getFromYouItem(store, 1))?.state).toBe('open');
+    await store.transaction((trx) =>
+      trx.updateTable('task').set({ membership: 'active' }).where('id', '=', 1).execute(),
+    );
+    await inbound.sink({
+      kind: 'action',
+      dedupeKey: 'retry-1',
+      interaction: interactionRefSchema.parse('retry-interaction'),
+      actionId: 'item.retry:I1',
+      author: userIdSchema.parse('operator'),
+      conversation: conversationRefSchema.parse('thread-1'),
+      message: messageRefSchema.parse('root-1'),
+      rootMessage: messageRefSchema.parse('root-1'),
+      sourceUrl: 'https://example.test/thread/reply',
+    });
+    expect(await store.db.selectFrom('comment').select('text').execute()).toEqual([
+      { text: 'Yes' },
+    ]);
+    expect((await getFromYouItem(store, 1))?.state).toBe('closed');
+    expect(
+      await store.db.selectFrom('command').select(['key', 'operation']).orderBy('key').execute(),
+    ).toEqual([
+      { key: 'message-1', operation: 'inbound.message' },
+      { key: 'retry-1', operation: 'item.retry' },
+    ]);
   });
 
   it('uses catalog IDs for queries and item actions with deduped results', async () => {
@@ -407,6 +515,75 @@ describe('inbound apply', () => {
     ]);
   });
 
+  it('returns task details and journal history through catalog queries', async () => {
+    const { store, inbound } = await setup();
+    await inbound.sink(message({ conversation: 'thread-1', root: 'root-1' }));
+    for (const [key, text] of [
+      ['task-query', 'task o/r#101'],
+      ['history-query', 'task o/r#101 history'],
+    ] as const) {
+      await inbound.sink({
+        kind: 'command',
+        dedupeKey: key,
+        interaction: interactionRefSchema.parse(key),
+        author: userIdSchema.parse('operator'),
+        text,
+        sourceUrl: 'https://example.test/board',
+      });
+    }
+    const commands = await store.db
+      .selectFrom('command')
+      .select(['key', 'operation', 'result'])
+      .where('key', 'in', ['task-query', 'history-query'])
+      .execute();
+    const task = commands.find((row) => row.key === 'task-query');
+    const history = commands.find((row) => row.key === 'history-query');
+    expect(task?.operation).toBe('task.get');
+    expect(history?.operation).toBe('task.history');
+    const taskBody = JSON.parse(
+      (JSON.parse(task?.result ?? '{}') as { response?: string }).response ?? '{}',
+    ) as {
+      task?: { key: string };
+      blocks?: { id: string; state: string }[];
+      comments?: { text: string }[];
+    };
+    const historyBody = JSON.parse(
+      (JSON.parse(history?.result ?? '{}') as { response?: string }).response ?? '{}',
+    ) as { task?: { key: string }; events?: { kind: string }[] };
+    expect(taskBody).toMatchObject({
+      task: { key: 'o/r#101' },
+      blocks: [{ id: 'B1', state: 'unblocked' }],
+      comments: [{ text: 'Yes' }],
+    });
+    expect(historyBody.task?.key).toBe('o/r#101');
+    expect(historyBody.events?.map((event) => event.kind)).toContain('block_unblocked');
+  });
+
+  it('raises one item per affected gap even when scans use new event keys', async () => {
+    const { store, inbound, gateway } = await setup();
+    const conversation = conversationRefSchema.parse('thread-1');
+    await inbound.sink({ kind: 'gap', dedupeKey: 'gap-a', conversation });
+    await inbound.sink({ kind: 'gap', dedupeKey: 'gap-b', conversation });
+    await inbound.sink({ kind: 'gap', dedupeKey: 'gateway-gap-a' });
+    await inbound.sink({ kind: 'gap', dedupeKey: 'gateway-gap-b' });
+    expect(
+      await store.db
+        .selectFrom('from_you_item')
+        .select(['source_key', 'title'])
+        .orderBy('id')
+        .execute(),
+    ).toEqual([
+      {
+        source_key: `inbound:gap:${gateway.kind}:conversation:thread-1`,
+        title: 'repeat your answer',
+      },
+      { source_key: `inbound:gap:${gateway.kind}:gateway`, title: 'repeat your answer' },
+    ]);
+    expect(
+      await store.db.selectFrom('outbox').select('kind').where('kind', '=', 'feed.line').execute(),
+    ).toHaveLength(2);
+  });
+
   it('rings a live agent author instead of raising an item', async () => {
     const { store, inbound } = await setup('agent:proj/sess-1');
     await store.transaction((trx) =>
@@ -434,6 +611,36 @@ describe('inbound apply', () => {
       (await store.db.selectFrom('outbox').select('kind').execute()).map((row) => row.kind),
     ).toEqual(['conversation.close', 'doorbell']);
     expect(await store.db.selectFrom('from_you_item').select('id').execute()).toEqual([]);
+  });
+
+  it('falls back to a linked item for an ended author session', async () => {
+    const { store, inbound } = await setup('agent:proj/sess-1');
+    await store.transaction((trx) =>
+      trx
+        .insertInto('session_snapshot')
+        .values({
+          ...sampleRows.session_snapshot,
+          id: 'sess-1',
+          ended_at: at,
+        })
+        .execute(),
+    );
+    await inbound.sink(message({ conversation: 'thread-1', root: 'root-1' }));
+    expect(
+      await store.db.selectFrom('outbox').select('kind').where('kind', '=', 'doorbell').execute(),
+    ).toEqual([]);
+    expect(await getFromYouItem(store, 1)).toMatchObject({
+      title: 'Answer author unavailable',
+      source_url: 'https://example.test/thread/reply',
+    });
+    const undelivered = await store.db
+      .selectFrom('event')
+      .select('payload')
+      .where('kind', '=', 'doorbell_undelivered')
+      .executeTakeFirstOrThrow();
+    expect(JSON.parse(undelivered.payload)).toMatchObject({
+      reason: 'author session is unavailable',
+    });
   });
 
   it('recovers a downtime reply and edit after store reopen without a second comment', async () => {
