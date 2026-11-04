@@ -1,6 +1,7 @@
 import {
   EVENT_KINDS,
   encodeActorId,
+  parseActorId,
   parseRef,
   type ActorId,
   type Config,
@@ -187,6 +188,39 @@ export function createTaskQueries(config: Config) {
           .executeTakeFirst();
         if (comment === undefined || comment.acked_revision === comment.revision) continue;
         comments.push(commentView(comment, task));
+      }
+      const parsedActor = parseActorId(actor);
+      if (parsedActor?.actor === 'agent') {
+        const linkedTasks = await trx
+          .selectFrom('task')
+          .innerJoin('link', 'link.task_id', 'task.id')
+          .selectAll('task')
+          .where('task.project', 'in', [...projects])
+          .where('link.entity', '=', 'session')
+          .where('link.role', '=', 'worker')
+          .where('link.banned', '=', 0)
+          .where('link.session_id', '=', parsedActor.actorRef.session)
+          .execute();
+        const tasksById = new Map(linkedTasks.map((task) => [task.id, task]));
+        if (tasksById.size > 0) {
+          const taskComments = await trx
+            .selectFrom('comment')
+            .selectAll()
+            .where('task_id', 'in', [...tasksById.keys()])
+            .where('block_id', 'is', null)
+            .orderBy('id')
+            .execute();
+          for (const comment of taskComments) {
+            const task = tasksById.get(comment.task_id);
+            if (
+              task === undefined ||
+              comment.author === actor ||
+              comment.acked_revision === comment.revision
+            )
+              continue;
+            comments.push(commentView(comment, task));
+          }
+        }
       }
       comments.sort((left, right) => Number(left.id.slice(1)) - Number(right.id.slice(1)));
       const rows = await trx

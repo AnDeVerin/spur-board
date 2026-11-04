@@ -326,6 +326,50 @@ describe('production query handlers', () => {
     expect((await query(required(registry['inbox.get']), {}, worker)).comments).toEqual([]);
   });
 
+  it('lists a task comment without a block for its linked worker until acknowledged', async () => {
+    const { registry, query, apply } = await seeded();
+    const posted = await apply(
+      required(registry['comment.add']),
+      { task: KEY, text: 'Please also update the README.' },
+      'operator',
+      'operator-task-comment',
+    );
+    const commentId = posted.comment.id;
+    await apply(
+      required(registry['comment.add']),
+      { task: KEY, text: 'My own note.' },
+      worker,
+      'worker-task-comment',
+    );
+    const inbox = await query(required(registry['inbox.get']), {}, worker);
+    expect(inbox.comments).toEqual([
+      expect.objectContaining({
+        id: commentId,
+        block: null,
+        revision: 1,
+        text: 'Please also update the README.',
+        untrusted: true,
+      }),
+    ]);
+    expect((await query(required(registry['inbox.get']), {}, orchestrator)).comments).toEqual([]);
+    await apply(
+      required(registry['inbox.ack']),
+      { entries: [{ id: commentId, revision: 1 }] },
+      worker,
+      'ack-task-comment',
+    );
+    expect((await query(required(registry['inbox.get']), {}, worker)).comments).toEqual([]);
+    await apply(
+      required(registry['comment.edit']),
+      { comment: commentId, text: 'Please update both docs.' },
+      'operator',
+      'edit-task-comment',
+    );
+    expect((await query(required(registry['inbox.get']), {}, worker)).comments).toEqual([
+      expect.objectContaining({ id: commentId, block: null, revision: 2 }),
+    ]);
+  });
+
   it('filters blocks by role and projects before returning inbox data', async () => {
     const { store, registry, query, apply } = await seeded();
     const asked = await apply(

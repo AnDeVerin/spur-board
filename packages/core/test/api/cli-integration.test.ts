@@ -207,7 +207,7 @@ describe('CLI against the real HTTP API', () => {
       });
       const history = capture();
       expect(
-        await runCli(['task', 'o/r#101', 'history', '--json'], { clientConfig, io: history.io }),
+        await runCli(['task', 'history', 'o/r#101', '--json'], { clientConfig, io: history.io }),
       ).toBe(0);
       expect(JSON.parse(history.stdout)).toMatchObject({
         task: { key: 'o/r#101' },

@@ -303,7 +303,7 @@ describe('daemon process', () => {
       });
       const history = spawnSync(
         process.execPath,
-        [BOARD_CLI, 'task', 'example-org/board#101', 'history', '--json'],
+        [BOARD_CLI, 'task', 'history', 'example-org/board#101', '--json'],
         {
           env: operatorEnv,
           encoding: 'utf8',

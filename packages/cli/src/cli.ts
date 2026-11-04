@@ -492,12 +492,7 @@ export function createProgram(options: CliOptions = {}): CommandUnknownOpts {
 export async function runCli(argv: string[], options: CliOptions = {}): Promise<number> {
   const io = options.io ?? processIo;
   try {
-    // Keep the catalog command and accept the task-first form used by board surfaces.
-    const args =
-      argv[0] === 'task' && argv[2] === 'history'
-        ? ['task', 'history', argv[1] ?? '', ...argv.slice(3)]
-        : argv;
-    await createProgram(options).parseAsync(args, { from: 'user' });
+    await createProgram(options).parseAsync(argv, { from: 'user' });
     return 0;
   } catch (error) {
     if (error instanceof CommanderError && error.code === 'board.error') return error.exitCode;
