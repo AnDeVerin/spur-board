@@ -30,7 +30,7 @@ describe('error catalog', () => {
     });
   });
 
-  it('pins the 15 codes in order, with HTTP status and exit code', () => {
+  it('pins the 16 codes in order, with HTTP status and exit code', () => {
     const table = Object.entries(ERRORS).map(([code, { status, exit }]) => [code, status, exit]);
     expect(table).toEqual([
       ['usage', 400, 2],
@@ -43,6 +43,7 @@ describe('error catalog', () => {
       ['retry_not_applicable', 409, 1],
       ['idempotency_key_mismatch', 409, 1],
       ['identity_unavailable', 503, 3],
+      ['starting', 503, 3],
       ['version_mismatch', 409, 3],
       ['daemon_unavailable', null, 3],
       ['config', null, 4],
@@ -91,6 +92,14 @@ describe('error catalog', () => {
     expect(daemon.hint).toContain('operator can run `board service start`');
     expect(daemon.recovery.action).toContain('existing idempotency key if it has one');
     expect(daemon.recovery.retryTiming).toContain('daemon is available');
+  });
+
+  it('marks startup as not applied and recoverable after readiness', () => {
+    expect(ERRORS.starting.status).toBe(503);
+    expect(ERRORS.starting.exit).toBe(EXIT_CODES.notApplied);
+    expect(ERRORS.starting.recovery.sideEffects).toBe('none');
+    expect(ERRORS.starting.hint).toContain('daemon is ready');
+    expect(renderHttpProblem({ code: 'starting', requestId: 'req-start' }).status).toBe(503);
   });
 
   it('rejects incomplete recovery metadata', () => {

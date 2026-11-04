@@ -160,6 +160,16 @@ export const ERRORS = {
       'After caller identity is available; wait briefly between retries.',
     ),
   }),
+  starting: spec('starting', {
+    status: 503,
+    exit: EXIT_CODES.notApplied,
+    message: 'The daemon is still starting; nothing was applied.',
+    hint: 'Wait until the daemon is ready, then retry the command with its existing idempotency key if it has one.',
+    recovery: retry(
+      'Wait until the daemon is ready, then retry the command with its existing idempotency key if it has one.',
+      'After the daemon is ready; wait briefly between retries.',
+    ),
+  }),
   version_mismatch: spec('version_mismatch', {
     status: 409,
     exit: EXIT_CODES.notApplied,

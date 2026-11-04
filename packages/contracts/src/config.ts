@@ -202,6 +202,11 @@ export const configSchema = z.strictObject({
   archive: z.strictObject({ doneWeekday: z.enum(WEEKDAYS).default('saturday') }).prefault({}),
   digest: z.strictObject({ tz: z.string().refine(isTimeZone, 'Unknown IANA time zone') }),
   commands: z.strictObject({ retentionDays: z.int().min(1).default(7) }).prefault({}),
+  http: z
+    .strictObject({
+      port: z.int().min(1).max(65_535).default(4311).describe('Local HTTP API port.'),
+    })
+    .prefault({}),
   adapters: z
     .strictObject({
       spur: spurAdapterSection,

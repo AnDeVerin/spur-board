@@ -342,6 +342,40 @@ Example:
 }
 ```
 
+## starting
+
+The daemon is still starting; nothing was applied.
+
+HTTP: 503  
+Exit code: 3  
+Hint: Wait until the daemon is ready, then retry the command with its existing idempotency key if it has one.  
+Recovery: Wait until the daemon is ready, then retry the command with its existing idempotency key if it has one.  
+Side effects: none  
+Retry: maximum 3; After the daemon is ready; wait briefly between retries.
+
+Example:
+
+```json
+{
+  "ok": false,
+  "requestId": "req-example-123",
+  "error": {
+    "code": "starting",
+    "requestId": "req-example-123",
+    "message": "The daemon is still starting; nothing was applied.",
+    "hint": "Wait until the daemon is ready, then retry the command with its existing idempotency key if it has one.",
+    "docs": "docs/errors.md#starting",
+    "recovery": {
+      "action": "Wait until the daemon is ready, then retry the command with its existing idempotency key if it has one.",
+      "sideEffects": "none",
+      "maxRetries": 3,
+      "retryTiming": "After the daemon is ready; wait briefly between retries."
+    },
+    "context": {}
+  }
+}
+```
+
 ## version_mismatch
 
 The client and daemon catalog versions do not match; nothing was applied.

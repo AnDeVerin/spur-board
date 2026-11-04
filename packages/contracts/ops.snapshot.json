@@ -1,5 +1,5 @@
 {
-  "version": "0fbd66fec6559adf20c8493effdf09ea3dc78ccf72f55306428ebba427355c72",
+  "version": "b939a603bcf46aad86a87fda1e37462283130fcbfd23b2130ccfd610fa52c9c2",
   "grants": [
     "operator",
     "project-agent",
@@ -281,6 +281,34 @@
         "retryTiming": "After caller identity is available; wait briefly between retries."
       },
       "docs": "docs/errors.md#identity_unavailable",
+      "context": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "clientVersion": { "type": "string" },
+          "serverVersion": { "type": "string" },
+          "configPath": { "type": "string" },
+          "environmentVariable": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+          "causeLabel": {
+            "type": "string",
+            "enum": ["storage_unavailable", "transport_unavailable", "internal_failure"]
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "starting": {
+      "status": 503,
+      "exit": 3,
+      "message": "The daemon is still starting; nothing was applied.",
+      "hint": "Wait until the daemon is ready, then retry the command with its existing idempotency key if it has one.",
+      "recovery": {
+        "action": "Wait until the daemon is ready, then retry the command with its existing idempotency key if it has one.",
+        "sideEffects": "none",
+        "maxRetries": 3,
+        "retryTiming": "After the daemon is ready; wait briefly between retries."
+      },
+      "docs": "docs/errors.md#starting",
       "context": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",

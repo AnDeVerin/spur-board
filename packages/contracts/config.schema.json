@@ -157,6 +157,20 @@
       },
       "additionalProperties": false
     },
+    "http": {
+      "default": {},
+      "type": "object",
+      "properties": {
+        "port": {
+          "default": 4311,
+          "description": "Local HTTP API port.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        }
+      },
+      "additionalProperties": false
+    },
     "adapters": {
       "default": {},
       "type": "object",

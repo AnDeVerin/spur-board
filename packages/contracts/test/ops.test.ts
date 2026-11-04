@@ -5,6 +5,7 @@ import {
   ERRORS,
   GRANTS,
   OPERATIONS,
+  buildCatalogSnapshot,
   type ServerErrorCode,
   commentSchema,
   errorCodeOf,
@@ -376,10 +377,12 @@ describe('snapshot', () => {
       readFileSync(new URL('../ops.snapshot.json', import.meta.url), 'utf8'),
     );
     const stale = 'ops.snapshot.json is stale: run pnpm gen:ops-snapshot';
-    expect(committed, stale).toEqual({
+    const expected = {
       version: await catalogVersion(body),
       ...body,
-    });
+    };
+    expect(await buildCatalogSnapshot(OPERATIONS)).toEqual(expected);
+    expect(committed, stale).toEqual(expected);
   });
 
   it('hashes key-sorted JSON, so key order does not change the version', async () => {
