@@ -233,21 +233,28 @@ describe('skills install', () => {
     ).toBe('Board skill\n');
   });
 
-  it('restores a backup after an interrupted swap and removes incomplete staging', async () => {
+  it('restores a backup after an interrupted swap without removing unrelated directories', async () => {
     const { home, packageRoot } = await fixture();
     await installSkills({ home, packageRoot });
     const parent = join(home, '.claude', 'skills');
     const installed = destination(home, '.claude', 'spur-board');
-    const backup = join(parent, '.spur-board-backup-interrupted');
-    const staged = join(parent, '.spur-board-stage-interrupted');
+    const backup = join(parent, '.spur-board-backup-00000000-0000-4000-8000-000000000001');
+    const staged = join(parent, '.spur-board-stage-notes');
+    const unrelatedBackup = join(parent, '.spur-board-backup-notes');
     await rename(installed, backup);
     await mkdir(staged);
-    await writeFile(join(staged, 'partial.txt'), 'incomplete');
+    await writeFile(join(staged, 'keep.txt'), 'stage notes');
+    await mkdir(unrelatedBackup);
+    await writeFile(join(unrelatedBackup, 'keep.txt'), 'backup notes');
 
     const results = await installSkills({ home, packageRoot });
     expect(results.every((result) => !result.changed)).toBe(true);
     expect(await readFile(join(installed, 'SKILL.md'), 'utf8')).toBe('Board skill\n');
-    expect((await readdir(parent)).sort()).toEqual([...names].sort());
+    expect(await readFile(join(staged, 'keep.txt'), 'utf8')).toBe('stage notes');
+    expect(await readFile(join(unrelatedBackup, 'keep.txt'), 'utf8')).toBe('backup notes');
+    expect((await readdir(parent)).sort()).toEqual(
+      [...names, '.spur-board-stage-notes', '.spur-board-backup-notes'].sort(),
+    );
   });
 
   it('serializes concurrent upgrades so only one copy replaces each skill', async () => {

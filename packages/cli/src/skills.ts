@@ -149,9 +149,12 @@ async function withInstallLock<T>(home: string, action: () => Promise<T>): Promi
 async function recoverSkill(parent: string, destination: string, name: string): Promise<void> {
   if (!(await targetDirectory(parent))) return;
   const entries = await readdir(parent);
-  const backups = entries.filter((entry) => entry.startsWith(`.${name}-backup-`));
-  const stages = entries.filter((entry) => entry.startsWith(`.${name}-stage-`));
-  for (const entry of [...backups, ...stages]) await targetDirectory(join(parent, entry));
+  const backupPrefix = `.${name}-backup-`;
+  const backupId = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  const backups = entries.filter(
+    (entry) => entry.startsWith(backupPrefix) && backupId.test(entry.slice(backupPrefix.length)),
+  );
+  for (const entry of backups) await targetDirectory(join(parent, entry));
 
   const exists = await targetDirectory(destination);
   if (!exists && backups.length > 1) {
@@ -161,7 +164,6 @@ async function recoverSkill(parent: string, destination: string, name: string): 
   else if (exists) {
     for (const backup of backups) await rm(join(parent, backup), { recursive: true });
   }
-  for (const stage of stages) await rm(join(parent, stage), { recursive: true });
 }
 
 async function installIntoHome(
