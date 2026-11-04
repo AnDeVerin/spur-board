@@ -71,9 +71,10 @@ function positionalInput(op: CatalogOperation, field: string, value: unknown): u
 
 function positionalExample(op: CatalogOperation, field: string, value: unknown): string[] {
   const values: unknown[] = Array.isArray(value) ? value : [value];
+  const isEntryArray = revisionEntryArray(fieldSchema(op, field));
   return values.map((item) => {
     if (
-      revisionEntryArray(fieldSchema(op, field)) &&
+      isEntryArray &&
       item !== null &&
       typeof item === 'object' &&
       'id' in item &&
@@ -81,12 +82,7 @@ function positionalExample(op: CatalogOperation, field: string, value: unknown):
     ) {
       return shellValue(`${String(item.id)}@${String(item.revision)}`);
     }
-    if (
-      revisionEntryArray(fieldSchema(op, field)) &&
-      item !== null &&
-      typeof item === 'object' &&
-      'id' in item
-    )
+    if (isEntryArray && item !== null && typeof item === 'object' && 'id' in item)
       return shellValue(item.id);
     return shellValue(item);
   });
