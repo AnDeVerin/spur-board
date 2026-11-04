@@ -1297,6 +1297,77 @@ describe('dependencies', () => {
     );
   });
 
+  it('suppresses a deferred close when an explicit close already targets the recovered thread', async () => {
+    const ctx = setup('slack-like');
+    const seed = await seedBlock(ctx);
+    const openId = await enqueueOpen(ctx, seed);
+    ctx.fake.platform.timeoutNext({ visible: true });
+    await ctx.sender.tick();
+    const visible = ctx.fake.platform.conversations()[0];
+    const root = ctx.fake.platform.messages()[0];
+    if (visible === undefined || root === undefined) throw new Error('Expected uncertain root');
+    await ctx.store.transaction(async (trx) => {
+      await trx
+        .insertInto('conversation')
+        .values({
+          gateway: ctx.fake.kind,
+          ref: visible.ref,
+          space: 'orchestrators',
+          task_id: seed.taskId,
+          block_id: seed.blockId,
+          purpose: 'block',
+          state: 'open',
+          root_message_ref: root.message,
+          after_message_ref: null,
+          created_at: ctx.fake.platform.now().toISOString(),
+          closed_at: null,
+        })
+        .execute();
+      await trx
+        .updateTable('block')
+        .set({
+          state: 'unblocked',
+          outcome: 'done',
+          unblocked_by: 'operator',
+          unblocked_at: ctx.fake.platform.now().toISOString(),
+        })
+        .where('id', '=', seed.blockId)
+        .execute();
+      await enqueueConversationClose(trx, {
+        blockId: seed.blockId,
+        outcome: 'done',
+        actor: 'operator',
+        at: ctx.fake.platform.now(),
+      });
+    });
+    const closes = await ctx.store.db
+      .selectFrom('outbox')
+      .select(['id', 'payload'])
+      .where('kind', '=', 'conversation.close')
+      .execute();
+    expect(closes).toHaveLength(2);
+    const explicit = closes.find(
+      (row) =>
+        (JSON.parse(row.payload) as { targetConversation?: string }).targetConversation ===
+        visible.ref,
+    );
+    const deferred = closes.find((row) => row.id !== explicit?.id);
+    if (explicit === undefined || deferred === undefined)
+      throw new Error('Expected both close rows');
+    await step(ctx);
+    expect(await outboxRow(ctx, openId)).toMatchObject({ state: 'done' });
+    expect(await outboxRow(ctx, deferred.id)).toMatchObject({
+      state: 'dead',
+      last_error: 'superseded',
+    });
+    await step(ctx);
+    expect(await outboxRow(ctx, explicit.id)).toMatchObject({ state: 'done' });
+    expect(ctx.observed.requests.filter((request) => request.target.kind === 'close')).toHaveLength(
+      1,
+    );
+    expect(ctx.fake.platform.conversations()).toMatchObject([{ done: true }]);
+  });
+
   it('an uncertain feed line is delivered before its edit', async () => {
     const ctx = setup('slack-like');
     const line = await feedLine(ctx, 'o/r#7', 'item-1');
