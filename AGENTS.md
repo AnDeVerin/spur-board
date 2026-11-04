@@ -19,9 +19,12 @@ A map of the repo for agents and contributors. The rules live in the files and s
   the redacting pino logger and the start and shutdown lifecycle. Run it with
   `pnpm --filter @spur-board/daemon daemon` (`daemon:dev` pretty-prints the log). Skill:
   `running-the-daemon`.
-- `packages/testkit` - the shared Vitest harness: environment scrub and network guard.
-- `scripts/` - repo tooling, run as `node scripts/<name>.ts` through the pnpm scripts below.
-- `.github/` - CI workflows, the PR template and the issue forms.
+- `packages/testkit` - the shared Vitest harness: environment scrub and network guard. Skill:
+  `testing-and-ci`.
+- `scripts/` - repo tooling, run as `node scripts/<name>.ts` through the pnpm scripts below. Check
+  scripts and tests use `testing-and-ci`.
+- `.github/` - CI workflows, the PR template and the issue forms. CI workflows use
+  `testing-and-ci`.
 - A PR that adds a package or a root script updates this map.
 
 ## Commands
@@ -29,7 +32,8 @@ A map of the repo for agents and contributors. The rules live in the files and s
 - `pnpm install` - installs dependencies and turns on the git hooks. Run it in every new
   worktree; the hooks need `node_modules`. When `node_modules` already exists, pnpm skips
   `prepare`: run `pnpm run prepare` to turn the hooks on.
-- `pnpm check` - format, lint, types, knip and tests for the changed files and affected packages.
+- `pnpm check` - format, lint, types and tests for changed files and affected packages; knip runs
+  only when a global change triggers full mode. Use `pnpm check:full --only knip` for export changes.
 - `pnpm run check --pre-push` - checks the Git refs being pushed: changed-file format and lint,
   plus types and unit tests for changed packages (all packages for shared root changes). It
   checks only refs at the current HEAD and uses two Vitest workers by default; set a positive
