@@ -30,10 +30,11 @@ A map of the repo for agents and contributors. The rules live in the files and s
   worktree; the hooks need `node_modules`. When `node_modules` already exists, pnpm skips
   `prepare`: run `pnpm run prepare` to turn the hooks on.
 - `pnpm check` - format, lint, types, knip and tests for the changed files and affected packages.
-- `pnpm run check --pre-push` - changed-file format and lint, plus types and unit tests for
-  directly changed packages. It uses two Vitest workers by default; set a positive integer
-  `VITEST_MAX_WORKERS` to override that limit. A missing local main base stops this check with
-  recovery guidance.
+- `pnpm run check --pre-push` - checks the Git refs being pushed: changed-file format and lint,
+  plus types and unit tests for changed packages (all packages for shared root changes). It
+  checks only refs at the current HEAD and uses two Vitest workers by default; set a positive
+  integer `VITEST_MAX_WORKERS` to override that limit. A missing base for a new ref stops the
+  check with recovery guidance.
 - `pnpm check:full [--only format,lint,types,knip,test]` - the same over the whole repo.
 - `pnpm guardrails [base]` - lists the changed tests and checks a PR must explain; base defaults
   to `origin/main`, agents pass the handoff's `origin/main` SHA.
