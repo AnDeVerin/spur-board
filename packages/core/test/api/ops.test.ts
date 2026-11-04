@@ -210,6 +210,66 @@ describe('catalog HTTP API', () => {
     }
   });
 
+  it('returns a catalog problem for unknown routes after the request guard', async () => {
+    const logRequest = vi.fn();
+    const app = await server(newStore(), { logRequest });
+    try {
+      const response = await app.inject({ method: 'GET', url: '/missing', headers: { host } });
+      expect(response.statusCode).toBe(404);
+      expect(response.headers['content-type']).toContain('application/problem+json');
+      expect(response.json()).toMatchObject({
+        code: 'not_found',
+        hint: 'This API route is not available.',
+        requestId: response.headers['x-request-id'],
+        recovery: { sideEffects: 'none' },
+      });
+      expect(logRequest).toHaveBeenCalledWith({
+        requestId: response.headers['x-request-id'],
+        method: 'GET',
+        url: '/missing',
+        status: 404,
+      });
+      const guarded = await app.inject({
+        method: 'GET',
+        url: '/missing',
+        headers: { host, origin: 'https://outside.example' },
+      });
+      expect(guarded.statusCode).toBe(403);
+      expect(guarded.json()).toMatchObject({ code: 'forbidden' });
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('rejects oversized JSON as usage before dispatch with no side effects', async () => {
+    const resolveTargets = vi.fn();
+    const app = await server(newStore(), {
+      registry: {
+        'task.get': {
+          id: 'task.get',
+          resolveTargets,
+          run: vi.fn(),
+        },
+      },
+    });
+    try {
+      const response = await app.inject({
+        ...post({ task: 'PROJ-123' }),
+        payload: JSON.stringify({ input: { task: 'PROJ-123', padding: 'x'.repeat(1_048_576) } }),
+      });
+      expect(response.statusCode).toBe(400);
+      expect(response.headers['content-type']).toContain('application/problem+json');
+      expect(response.json()).toMatchObject({
+        code: 'usage',
+        requestId: response.headers['x-request-id'],
+        recovery: { sideEffects: 'none' },
+      });
+      expect(resolveTargets).not.toHaveBeenCalled();
+    } finally {
+      await app.close();
+    }
+  });
+
   it.each([
     { input: { task: 'not-an-id' }, code: 'usage' },
     { input: { task: 'B12' }, code: 'wrong_id_kind' },

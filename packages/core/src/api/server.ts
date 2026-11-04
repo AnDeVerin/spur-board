@@ -103,14 +103,19 @@ export async function createApiServer(options: ApiOptions): Promise<FastifyInsta
     if (error instanceof CommandError) {
       code = error.code;
       hint = error.hint;
-    } else if (error instanceof Error && 'statusCode' in error && error.statusCode === 400) {
-      code = 'usage';
+    } else if (error instanceof Error && 'statusCode' in error) {
+      if (error.statusCode === 400 || error.statusCode === 413) code = 'usage';
+      if (error.statusCode === 413) hint = 'Send a smaller JSON body.';
     }
     const problem = renderHttpProblem({ code, requestId: request.id });
     reply
       .code(problem.status)
       .type('application/problem+json')
       .send(hint === undefined ? problem.body : { ...problem.body, hint });
+  });
+
+  app.setNotFoundHandler(() => {
+    throw new CommandError('not_found', 'This API route is not available.');
   });
 
   app.get('/v1/schema', async (_request, reply) => {
