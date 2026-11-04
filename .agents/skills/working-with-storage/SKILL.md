@@ -94,6 +94,8 @@ numbered migrations. Where a test enforces a rule, the rule names it.
   `packages/core/src/store/migrations/0001_init.sql`: timestamps as ISO-8601 UTC text, JSON as
   text checked by zod, flags as `CHECK (x IN (0, 1))`. Enum columns are `TEXT` with no `CHECK`, so
   a new value needs no migration; a `CHECK` change would need a rebuild.
+- Store the token hash and approval metadata in `operator_token`, never the raw bearer value;
+  verify the current row on every call so revocation is immediate.
 - A migration that renames, removes or tightens stored data, adds a required column or changes
   what a value means is a user-visible break: follow `working-with-contracts` as well as these
   rules.

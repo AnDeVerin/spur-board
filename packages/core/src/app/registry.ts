@@ -11,6 +11,7 @@ import { createMembershipMutations } from './membership.ts';
 import type { OperationRegistry } from './operations.ts';
 import type { Query } from './queries.ts';
 import { getStatus } from './status.ts';
+import { tokenListQuery, tokenRevokeMutation } from './tokens.ts';
 
 function projectTarget(project: string): ResolvedTarget {
   return {
@@ -122,6 +123,8 @@ export function createOperationRegistry(deps: {
   return {
     'schema.get': schema,
     'status.get': status,
+    'token.list': tokenListQuery(clock),
+    'token.revoke': tokenRevokeMutation,
     'task.add': membership.add,
     'task.archive': membership.archive,
     'block.ask': blocks.ask,

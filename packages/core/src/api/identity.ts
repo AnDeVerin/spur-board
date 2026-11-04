@@ -12,7 +12,12 @@ export interface IdentityPorts {
   readonly store: Store;
   readonly config: Config;
   readonly lookupSession: (id: string) => Promise<LiveSession | null>;
-  readonly verifyToken: (token: string) => Promise<boolean>;
+  readonly verifyToken: (token: string) => Promise<{ name: string } | null>;
+}
+
+export interface IdentifiedCaller {
+  readonly actor: ActorId;
+  readonly tokenName?: string;
 }
 
 function sessionActor(project: string, session: string, config: Config): ActorId {
@@ -26,10 +31,10 @@ function sessionActor(project: string, session: string, config: Config): ActorId
 }
 
 /** Resolve the caller at the HTTP boundary; a session header always outranks a token. */
-export async function identify(
+export async function identifyCaller(
   ports: IdentityPorts,
   headers: { session: string | undefined; authorization: string | undefined },
-): Promise<ActorId> {
+): Promise<IdentifiedCaller> {
   const { session, authorization } = headers;
   if (session !== undefined) {
     if (!actorIdSchema.safeParse(`agent:project/${session}`).success) {
@@ -50,7 +55,7 @@ export async function identify(
       ) {
         throw new CommandError('forbidden', 'The session has ended.');
       }
-      return sessionActor(snapshot.spur_project, session, ports.config);
+      return { actor: sessionActor(snapshot.spur_project, session, ports.config) };
     }
     let live: LiveSession | null;
     try {
@@ -70,15 +75,24 @@ export async function identify(
     if (live.status === 'completed' || live.status === 'killed') {
       throw new CommandError('forbidden', 'The session has ended.');
     }
-    return sessionActor(live.project, session, ports.config);
+    return { actor: sessionActor(live.project, session, ports.config) };
   }
   const bearer = authorization?.match(/^Bearer (\S+)$/i)?.[1];
   if (bearer !== undefined) {
     try {
-      if (await ports.verifyToken(bearer)) return 'operator';
+      const token = await ports.verifyToken(bearer);
+      if (token !== null) return { actor: 'operator', tokenName: token.name };
     } catch {
       throw new CommandError('identity_unavailable', 'Token verification is unavailable.');
     }
   }
   throw new CommandError('forbidden', 'A session or accepted token is required.');
+}
+
+/** Actor-only form used where audit metadata is unnecessary. */
+export async function identify(
+  ports: IdentityPorts,
+  headers: { session: string | undefined; authorization: string | undefined },
+): Promise<ActorId> {
+  return (await identifyCaller(ports, headers)).actor;
 }

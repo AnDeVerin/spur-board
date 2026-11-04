@@ -50,6 +50,11 @@ const INDEXES: Record<string, { table: string; columns: string[]; partialUnique:
     columns: ['item_key', 'cleared_at'],
     partialUnique: false,
   },
+  operator_token_status_expiry: {
+    table: 'operator_token',
+    columns: ['status', 'expires_at'],
+    partialUnique: false,
+  },
 };
 
 const real = readMigrations(migrationsDir);
@@ -364,7 +369,11 @@ describe('migrate', () => {
       ),
     );
     const result = migrate(raw, real);
-    expect(result).toMatchObject({ from: 7, to: 8, applied: ['0008_observation'] });
+    expect(result).toMatchObject({
+      from: 7,
+      to: 9,
+      applied: ['0008_observation', '0009_operator_tokens'],
+    });
     expect(
       raw
         .prepare('SELECT id, item_key, fingerprint, fact_at, source, priority FROM operator_item')
@@ -443,6 +452,10 @@ describe('migration pins', () => {
     '0007_inbound_item_event.sql':
       '205aad5987530bce0bd2a96ec5ce836cf76b176e366e27735d1fff692650b8eb',
     '0008_observation.sql': '4bde8ddb6da6dbffa22f270fc8b442c9670bef51ef106e2600bcbba958ecd2eb',
+    '0009_operator_tokens.sql': [
+      '4a34cd8b138b546fcf1817d510d16639',
+      '712f01c6d65901a62e2a199b770ee62a',
+    ].join(''),
   };
 
   interface MigrationFile {

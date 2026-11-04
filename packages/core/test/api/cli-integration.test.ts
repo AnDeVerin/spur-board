@@ -80,7 +80,7 @@ describe('CLI against the real HTTP API', () => {
         ready: () => ready,
         clock: { now: () => Date.parse('2026-11-04T08:00:00.000Z') },
         lookupSession: () => Promise.resolve({ project: 'worker', status: 'running' as const }),
-        verifyToken: () => Promise.resolve(false),
+        verifyToken: () => Promise.resolve(null),
         registry: { 'status.get': statusGet },
         logRequest: ({ status }: { status: number }) => {
           statuses.push(status);

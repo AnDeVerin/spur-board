@@ -286,6 +286,22 @@ export interface OperatorItemTable {
   inbound_event_json: string | null;
 }
 
+export type OperatorTokenStatus = 'pending' | 'approved' | 'denied' | 'expired' | 'revoked';
+
+export interface OperatorTokenTable {
+  id: Generated<number>;
+  name: string;
+  /** SHA-256 hex of the file secret; the raw secret never reaches the store. */
+  hash: string;
+  folder: string;
+  host: string;
+  status: OperatorTokenStatus;
+  requested_at: string;
+  expires_at: string;
+  decided_at: string | null;
+  item_id: number;
+}
+
 export interface DismissalTable {
   item_key: string;
   fingerprint: string;
@@ -343,6 +359,7 @@ export interface Tables {
   space_slot: SpaceSlotTable;
   notification: NotificationTable;
   operator_item: OperatorItemTable;
+  operator_token: OperatorTokenTable;
 }
 
 export type Row<T extends keyof Tables> = Selectable<Tables[T]>;

@@ -5,16 +5,12 @@ description: Rules for packages/daemon/ - modules, config and secrets, logging a
 
 # Running the daemon
 
-`main` binds the process; `runDaemon` starts lock, config, logger, store and modules, then logs
-`daemon ready`.
-
 ## Composition root and modules
 
 - `main` binds signals, exit, streams, environment, home and wall time; `runDaemon` receives them
   as dependencies so tests pass fakes. `acquireLock` writes `process.pid` into the lock file.
-- A module is a `Module`: `start(signal)` and `stop()`. Register it in the `modules` list in
-  `main`, in start order, as a `ModuleEntry` with `name`, `stopStage` and
-  `module: createX(ctxFor('<name>'))`.
+- Register modules in start order as `ModuleEntry` values with `name`, `stopStage` and
+  `module: createX(ctxFor('<name>'))`. Each has `start(signal)` and `stop()`.
 - Register `board-core` and `board-adapters` through `createBoardModules`. Share one observation
   core with the runner; keep timers and runner state in that instance.
 - In `main`, pass that core to board modules; share one operation registry with HTTP and inbound,
@@ -67,14 +63,19 @@ description: Rules for packages/daemon/ - modules, config and secrets, logging a
   until `state()` is `ready`.
 - Bind with `listenApiServer` on `127.0.0.1` and the configured `http.port`. The module reads a
   session snapshot through core, then uses a bounded live Spur lookup on a miss. Wrap that call
-  in `ctx.logCall`; reject bearer tokens until a verifier is provided.
-- Log each request with `requestId`, method, path and status through `ctx.log`. Do not log the
-  query string. Register HTTP at `stopStage: 'final'` so outbox delivery finishes before close.
+  in `ctx.logCall`; verify bearer tokens against the current store state on each request. Log an
+  accepted token's name, never its bearer value.
+- Keep token approval and denial in the authenticated inbound gateway handler, outside the
+  operation catalog; a button press requires the configured gateway user and space.
+- Log each request's `requestId`, method, path and status through `ctx.log`, without the query
+  string. Register HTTP at `stopStage: 'final'` so outbox delivery finishes before close.
 
 ## Scheduling
 
 - Start the outbox tick immediately, then arm a `setTimeout` for one second plus under 100 ms of
   jitter after the tick settles. Never queue a second tick while one runs.
+- Expire pending operator token requests on that tick, clearing their approval items and queuing
+  the feed edit in the same transaction as the token state and journal event.
 - Register the outbox without a gateway so Spur doorbells run; leave gateway rows pending.
 - Pass the start signal to each sender tick. On stop, clear the timer and await the active tick
   before the store closes. Register the outbox with `stopStage: 'outbox'` and its gateway with
@@ -87,7 +88,7 @@ description: Rules for packages/daemon/ - modules, config and secrets, logging a
 - A poller uses a `setTimeout` chain, handles each tick rejection, and never overlaps ticks.
   Register it with `stopStage: 'pollers'`; `stop()` clears its timer and awaits its active tick.
 - Inbound recovers, then scans every five minutes; serialize scans and live events through core.
-  Start the gateway with its sink only with `SLACK_APP_TOKEN`; otherwise log once. Stop inbound
+  Start the gateway with its sink only with `SLACK_APP_TOKEN`; otherwise log. Stop inbound
   before outbox, then stop the gateway and await the sink before store close.
 - Keep the sole `setInterval` in `main` (`KEEPALIVE_MS`) until a module owns a server.
 
@@ -117,13 +118,3 @@ description: Rules for packages/daemon/ - modules, config and secrets, logging a
   before anything else. The kernel drops it when the process dies; the file is never unlinked.
   Needs `flock` from util-linux.
 - A second daemon fails with `LockHeldError`, naming the file and PID.
-
-## Changing these rules
-
-A PR that changes `packages/daemon/src/` or the tests named here updates this skill in the same
-PR.
-
-## Checks
-
-- `pnpm check`.
-- `pnpm test packages/daemon`.

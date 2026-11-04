@@ -95,7 +95,7 @@ async function server(
     ready: options.ready ?? (() => true),
     clock: { now: () => Date.parse('2026-11-04T08:00:00.000Z') },
     lookupSession: () => Promise.resolve({ project: 'worker', status: 'running' }),
-    verifyToken: () => Promise.resolve(true),
+    verifyToken: () => Promise.resolve({ name: 'test' }),
     registry: options.registry ?? {},
     logRequest: options.logRequest ?? vi.fn(),
   });
