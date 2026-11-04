@@ -146,6 +146,19 @@ describe('jobIdsFromWorkflow', () => {
     const text = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8');
     expect(jobIdsFromWorkflow(text)).toEqual([...JOB_IDS, 'ci-ok', 'release']);
   });
+
+  it('gates release on a successful main push after both package smoke legs', () => {
+    const workflow = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8');
+    expect(workflow).toContain(
+      "if: github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.ci-ok.result == 'success'",
+    );
+    expect(workflow).toContain(
+      'needs: [changes, pr-title, guardrails, secrets, workflows, quality, test, package-smoke]',
+    );
+    expect(workflow).toMatch(/package-smoke:\n[\s\S]*?node: \[24, 26\]/);
+    expect(workflow).toContain('id-token: write');
+    expect(workflow).not.toMatch(/NPM_TOKEN|NODE_AUTH_TOKEN|npm-token:/);
+  });
 });
 
 describe('classifyChanges', () => {
