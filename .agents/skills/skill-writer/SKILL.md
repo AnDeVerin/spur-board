@@ -16,7 +16,8 @@ Agent files are read by models on every run. Keep them short, exact and in sync.
 - Frontmatter has exactly two keys:
   - `name` - equal to the directory name;
   - `description` - one line, at most 300 characters: what the skill does, then a positive
-    trigger `Use when ...` and a negative trigger `Don't use for ... (use <other skill>)`.
+    trigger `Use when ...` and a negative trigger `Don't use for ...`. Route the negative case to
+    another skill, or to an owning file when no skill covers it.
 - The description is how a model decides to load the skill. Name the actions and paths that
   should trigger it, not the skill's internals.
 
@@ -38,6 +39,11 @@ Agent files are read by models on every run. Keep them short, exact and in sync.
 - Imperative, present tense, English. One rule per bullet; no filler, no history, no
   motivation beyond one short why when the rule is not obvious.
 - Point to another skill or file rather than restating it; two copies of a rule drift.
+- Use one-line bullets of facts, rules and pointers. Reserve step-by-step instructions for
+  process skills whose subject is a procedure, such as `manager` and `gitflow`.
+- State a rule once. Cite an enforcing test or lint check by file, adding its `describe` name
+  when the file is large. Do not quote test titles or restate a condition the check already makes
+  impossible to violate.
 - No emphasis by capitals or bold. State the rule plainly; a rule that needs shouting needs
   rewording. Exempt: verdict tokens such as `MUST FIX` or `CHANGES_REQUESTED`, literal strings a
   command matches, and text inside code blocks or inline code.
@@ -51,7 +57,7 @@ Measured in bytes with `wc -c`:
 
 | File | Budget |
 |---|---|
-| `SKILL.md` | 8192 |
+| `SKILL.md` | 5120 |
 | each `references/*.md` | 8192 |
 | each role `.md` | 4096 |
 | `description` | 300 characters |

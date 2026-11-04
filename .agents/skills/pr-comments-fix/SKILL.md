@@ -5,8 +5,7 @@ description: Answer feedback on your own PR - collect unresolved review threads 
 
 # PR comments fix
 
-Every open point on the PR ends with a fix or a reply that gives a reason. Nothing is left
-unanswered, and nothing is answered twice.
+Fix or answer every open PR point once, with a reason for each rejection.
 
 ## 1. Collect
 

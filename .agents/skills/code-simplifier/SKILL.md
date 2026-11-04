@@ -5,7 +5,7 @@ description: Simplify the branch diff without changing behaviour - remove duplic
 
 # Code simplifier
 
-Make the branch smaller and plainer. What the code does stays the same.
+Make the branch smaller and plainer without changing behavior.
 
 ## Scope
 
