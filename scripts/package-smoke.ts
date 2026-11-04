@@ -208,6 +208,17 @@ export function verifySchema(result: CommandResult): void {
   }
 }
 
+/** Keep the packed product skill intact; fixture only the setup skill from its later issue. */
+export function prepareSkillsForSmoke(packageRoot: string): void {
+  const product = join(packageRoot, 'skills/spur-board/SKILL.md');
+  if (!existsSync(product)) throw new Error('Packed product skill spur-board is missing.');
+  const setup = join(packageRoot, 'skills/setup/SKILL.md');
+  if (!existsSync(setup)) {
+    mkdirSync(dirname(setup), { recursive: true });
+    writeFileSync(setup, '# Packed smoke fixture\n');
+  }
+}
+
 interface SmokeContext {
   binary: string;
   expectedVersion: string;
@@ -329,19 +340,7 @@ export const smokeSteps: readonly SmokeStep[] = [
         { source: 'spur-board', installed: 'spur-board' },
         { source: 'setup', installed: 'spur-board-setup' },
       ];
-      const present = skills.map(({ source }) =>
-        existsSync(join(ctx.packageRoot, 'skills', source, 'SKILL.md')),
-      );
-      if (present.every((value) => !value)) {
-        // Product skills have separate issues; exercise the packed installer with temporary assets.
-        for (const { source } of skills) {
-          const directory = join(ctx.packageRoot, 'skills', source);
-          mkdirSync(directory, { recursive: true });
-          writeFileSync(join(directory, 'SKILL.md'), '# Packed smoke fixture\n');
-        }
-      } else if (present.some((value) => !value)) {
-        throw new Error('Packed product skills are incomplete.');
-      }
+      prepareSkillsForSmoke(ctx.packageRoot);
       const result = await command(ctx.binary, ['skills', 'install'], ctx.env);
       if (result.code !== 0) throw new Error(`Packed skills install failed: ${result.stderr}`);
       const installed: unknown = JSON.parse(result.stdout) as unknown;

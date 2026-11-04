@@ -21,6 +21,7 @@ const files = [
   'package/dist/client-BD4dc3-F.mjs',
   'package/dist/config-BJE5kDof.mjs',
   'package/dist/migrations/0001_init.sql',
+  'package/skills/spur-board/SKILL.md',
 ];
 
 describe('package tarball allowlist', () => {
@@ -56,6 +57,15 @@ describe('package tarball allowlist', () => {
     }).toThrow(/missing the board binary/);
   });
 
+  it('rejects a missing product skill', () => {
+    expect(() => {
+      validateTarball(
+        files.filter((file) => file !== 'package/skills/spur-board/SKILL.md'),
+        manifest,
+      );
+    }).toThrow(/missing package\/skills\/spur-board\/SKILL.md/);
+  });
+
   it('rejects workspace-only dependencies', () => {
     expect(() => {
       validateTarball(files, { ...manifest, dependencies: { '@spur-board/core': '0.0.0' } });
@@ -75,15 +85,18 @@ describe('product skill assembly', () => {
     const source = join(root, 'source');
     const destination = join(root, 'destination');
     mkdirSync(join(source, 'example', 'references'), { recursive: true });
+    mkdirSync(join(source, 'test'), { recursive: true });
     mkdirSync(join(destination, 'old'), { recursive: true });
     writeFileSync(join(source, 'example', 'SKILL.md'), '# Example\n');
     writeFileSync(join(source, 'example', 'references', 'detail.md'), '# Detail\n');
+    writeFileSync(join(source, 'test', 'skill-sync.test.ts'), '// Test only\n');
     assembleSkills(source, destination);
     expect(readFileSync(join(destination, 'example', 'SKILL.md'), 'utf8')).toBe('# Example\n');
     expect(readFileSync(join(destination, 'example', 'references', 'detail.md'), 'utf8')).toBe(
       '# Detail\n',
     );
     expect(existsSync(join(destination, 'old'))).toBe(false);
+    expect(existsSync(join(destination, 'test'))).toBe(false);
     assembleSkills(join(root, 'absent'), destination);
     expect(existsSync(destination)).toBe(false);
   });

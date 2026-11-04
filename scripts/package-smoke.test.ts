@@ -1,9 +1,10 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   command,
+  prepareSkillsForSmoke,
   runSmokeSteps,
   smokeInstalled,
   smokeSteps,
@@ -12,6 +13,36 @@ import {
 } from './package-smoke.ts';
 
 describe('packed smoke steps', () => {
+  it('uses the packed product skill and fixtures only setup', () => {
+    const root = mkdtempSync(join(tmpdir(), 'board-packed-skills-'));
+    try {
+      const product = join(root, 'skills/spur-board/SKILL.md');
+      mkdirSync(join(root, 'skills/spur-board'), { recursive: true });
+      writeFileSync(product, '# Real product skill\n');
+      prepareSkillsForSmoke(root);
+      expect(readFileSync(product, 'utf8')).toBe('# Real product skill\n');
+      expect(readFileSync(join(root, 'skills/setup/SKILL.md'), 'utf8')).toBe(
+        '# Packed smoke fixture\n',
+      );
+      prepareSkillsForSmoke(root);
+      expect(existsSync(product)).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('refuses to replace a missing packed product skill with a fixture', () => {
+    const root = mkdtempSync(join(tmpdir(), 'board-packed-skills-'));
+    try {
+      expect(() => {
+        prepareSkillsForSmoke(root);
+      }).toThrow('Packed product skill spur-board is missing.');
+      expect(existsSync(join(root, 'skills/setup/SKILL.md'))).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('keeps the staged checks in one ordered list', () => {
     expect(smokeSteps.map((step) => step.name)).toEqual([
       'version',
