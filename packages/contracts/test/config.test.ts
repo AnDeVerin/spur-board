@@ -92,6 +92,12 @@ describe('fixtures', () => {
     expect(config.thresholds.blockOpenMs).toBe(86_400_000);
     expect(config.archive.doneWeekday).toBe('saturday');
     expect(config.commands.retentionDays).toBe(7);
+    expect(config.doorbells).toEqual({
+      firstRetryMs: 120_000,
+      secondRetryMs: 300_000,
+      unansweredAfterMs: 900_000,
+    });
+    expect(config.http.port).toBe(4311);
     expect(config.slack.channels).toEqual({});
     expect(adapterKeys(config)).toEqual(adapterDefaults);
     const project = config.projects[0];
@@ -112,6 +118,7 @@ describe('fixtures', () => {
     expect(config.thresholds.blockOpenMs).toBe(86_400_000);
     expect(config.archive.doneWeekday).toBe('saturday');
     expect(config.commands.retentionDays).toBe(7);
+    expect(config.http.port).toBe(4311);
     expect(config.slack.channels).toEqual({});
     expect(adapterKeys(config)).toEqual(adapterDefaults);
     const project = config.projects[0];
@@ -141,6 +148,10 @@ describe('fixtures', () => {
     );
     expect(config.slack.channels).toEqual({ orchestrators: 'C_ORCH', feed: 'C_FEED' });
   });
+
+  it('accepts an explicit HTTP port', () => {
+    expect(configSchema.parse(validConfig({}, { http: { port: 4312 } })).http.port).toBe(4312);
+  });
 });
 
 describe('invalid configs', () => {
@@ -150,6 +161,24 @@ describe('invalid configs', () => {
       validConfig({}, { thresholds: { blockOpenMs: 0 } }),
       'Too small',
       'thresholds.blockOpenMs',
+    ],
+    [
+      'invalid doorbell retry pause',
+      validConfig({}, { doorbells: { firstRetryMs: 0 } }),
+      'Too small: expected number to be >=1',
+      'doorbells.firstRetryMs',
+    ],
+    [
+      'decreasing doorbell retry pause',
+      validConfig({}, { doorbells: { firstRetryMs: 600_000, secondRetryMs: 1000 } }),
+      'Second retry pause must exceed the first retry pause',
+      'doorbells.secondRetryMs',
+    ],
+    [
+      'decreasing final unanswered pause',
+      validConfig({}, { doorbells: { secondRetryMs: 600_000, unansweredAfterMs: 1000 } }),
+      'Final unanswered pause must exceed the second retry pause',
+      'doorbells.unansweredAfterMs',
     ],
     [
       'unknown tracker key',
@@ -261,6 +290,18 @@ describe('invalid configs', () => {
       'sources.goneAfterPolls',
     ],
     [
+      'zero HTTP port',
+      validConfig({}, { http: { port: 0 } }),
+      'Too small: expected number to be >=1',
+      'http.port',
+    ],
+    [
+      'HTTP port above the TCP range',
+      validConfig({}, { http: { port: 65_536 } }),
+      'Too big: expected number to be <=65535',
+      'http.port',
+    ],
+    [
       'invalid Spur base URL',
       validConfig({}, { adapters: { spur: { baseUrl: 'file:///tmp/spur.sock' } } }),
       'Invalid URL',
@@ -340,6 +381,9 @@ describe('JSON Schema', () => {
       '.adapters.github.intervalMs',
       '.adapters.jira.intervalMs',
       '.adapters.spur.intervalMs',
+      '.doorbells.firstRetryMs',
+      '.doorbells.secondRetryMs',
+      '.doorbells.unansweredAfterMs',
       '.health.errorAfterMs',
       '.health.flipSmoothingMs',
       '.health.hostLoad.maxEpisodeMs',

@@ -247,6 +247,39 @@ export interface SpaceSlotTable {
   sent_at: string;
 }
 
+export interface NotificationTable {
+  id: Generated<number>;
+  source_key: string;
+  kind: 'answer' | 'block';
+  task_id: number;
+  block_id: number;
+  comment_id: number | null;
+  revision: number | null;
+  role: AddresseeRole;
+  author_session: string | null;
+  recipient_session: string | null;
+  rings: Generated<number>;
+  next_at: string;
+  last_outbox_id: number | null;
+  acked_at: string | null;
+  exhausted_at: string | null;
+  created_at: string;
+}
+
+export interface OperatorItemTable {
+  id: Generated<number>;
+  item_key: string;
+  raise_no: number;
+  kind: string;
+  text: string;
+  url: string;
+  task_id: number | null;
+  block_id: number | null;
+  raised_at: string;
+  cleared_at: string | null;
+  line_outbox_id: number | null;
+}
+
 export interface DismissalTable {
   item_key: string;
   fingerprint: string;
@@ -315,6 +348,8 @@ export interface Tables {
   from_you_item: FromYouItemTable;
   transport_health: TransportHealthTable;
   space_slot: SpaceSlotTable;
+  notification: NotificationTable;
+  operator_item: OperatorItemTable;
 }
 
 export type Row<T extends keyof Tables> = Selectable<Tables[T]>;

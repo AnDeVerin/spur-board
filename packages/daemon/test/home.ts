@@ -23,13 +23,24 @@ interface HomeOptions {
   secrets?: string;
   /** Mode for secrets.env; defaults to 0o600. */
   secretsMode?: number;
+  /** Test listener port; a distinct port is chosen when omitted. */
+  httpPort?: number;
+}
+
+function nextHttpPort(): number {
+  return 40_000 + Math.floor(Math.random() * 20_000);
 }
 
 /** A fresh BOARD_HOME directory with config.yaml and, if asked, secrets.env. */
 export function makeHome(options: HomeOptions = {}): string {
   const home = mkdtempSync(join(tmpdir(), 'daemon-home-'));
   const config = options.config === undefined ? VALID_CONFIG_YAML : options.config;
-  if (config !== null) writeFileSync(join(home, 'config.yaml'), config);
+  if (config !== null) {
+    writeFileSync(
+      join(home, 'config.yaml'),
+      `${config}\nhttp:\n  port: ${String(options.httpPort ?? nextHttpPort())}\n`,
+    );
+  }
   if (options.secrets !== undefined) {
     const file = join(home, 'secrets.env');
     writeFileSync(file, options.secrets);
