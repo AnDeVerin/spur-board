@@ -96,12 +96,13 @@ export async function reconcileItems(
       });
   }
   const blocks = await trx.selectFrom('block').selectAll().where('state', '=', 'open').execute();
-  const blockedComments = await trx
-    .selectFrom('comment')
+  const blockedRoots = await trx
+    .selectFrom('operator_item')
     .select('block_id')
-    .where('delivery_state', '=', 'post_blocked')
+    .where('kind', '=', 'post_blocked')
+    .where('source', '=', 'conversation.open')
     .execute();
-  const blockedIds = new Set(blockedComments.map((comment) => comment.block_id));
+  const blockedIds = new Set(blockedRoots.map((item) => item.block_id));
   for (const block of blocks) {
     const task = taskById.get(block.task_id);
     if (task === undefined) continue;

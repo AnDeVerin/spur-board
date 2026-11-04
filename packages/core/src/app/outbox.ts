@@ -239,6 +239,7 @@ async function insertOutbox(
         blockId,
         at: row.at,
         rule,
+        source: row.kind,
         suppressFeed: true,
       });
       return { id: null, inserted: false };

@@ -210,17 +210,42 @@ describe('gateway secret scan', () => {
   it('blocks a secret-bearing reply while retaining the clean root', async () => {
     const { store, apply } = await setup();
     const root = await apply(ops.ask, { task: KEY, text: 'Which version?' }, AUTHOR, 'ask-1');
+    await tickBoard({
+      store,
+      config,
+      clock: { now: () => AT.getTime() },
+      completeSince: new Map(),
+    });
+    const originalItem = await store.db
+      .selectFrom('operator_item')
+      .select(['id', 'cleared_at'])
+      .where('item_key', '=', 'operator-block:1')
+      .executeTakeFirstOrThrow();
+    expect(originalItem.cleared_at).toBeNull();
     const token = ['ghp', 'A'.repeat(36)].join('_');
     await apply(ops.add, { task: KEY, block: root.block.id, text: token }, AUTHOR, 'reply-1');
+    await tickBoard({
+      store,
+      config,
+      clock: { now: () => AT.getTime() },
+      completeSince: new Map(),
+    });
+    expect(
+      await store.db
+        .selectFrom('operator_item')
+        .select('cleared_at')
+        .where('id', '=', originalItem.id)
+        .executeTakeFirstOrThrow(),
+    ).toEqual({ cleared_at: null });
     const rows = await store.db.selectFrom('outbox').select('kind').execute();
-    expect(rows).toEqual([{ kind: 'conversation.open' }]);
+    expect(rows).toEqual([{ kind: 'conversation.open' }, { kind: 'feed.line' }]);
     const comments = await store.db
       .selectFrom('comment')
       .select(['delivery_state'])
       .orderBy('id')
       .execute();
     expect(comments).toEqual([{ delivery_state: 'pending' }, { delivery_state: 'post_blocked' }]);
-    expect(await store.db.selectFrom('operator_item').select('id').execute()).toHaveLength(1);
+    expect(await store.db.selectFrom('operator_item').select('id').execute()).toHaveLength(2);
   });
 
   it('blocks feed lines, close lines, and edit text at the common guard', async () => {
