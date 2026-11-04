@@ -201,7 +201,7 @@ it('keeps a dismissed item hidden until the outcome fingerprint changes', async 
   expect(item.id).toBe(2);
   expect(
     await store.db.selectFrom('outbox').select('kind').where('kind', '=', 'feed.line').execute(),
-  ).toHaveLength(1);
+  ).toHaveLength(2);
   const itemFingerprint = item.fingerprint;
   if (itemFingerprint === null) throw new Error('Observation item needs a fingerprint');
   await store.transaction(async (trx) => {
@@ -321,4 +321,36 @@ it('clears a Jira authentication item on the first good poll', async () => {
   expect((await status()).items.some((item) => item.key.startsWith('source:jira:jira-board'))).toBe(
     false,
   );
+});
+
+it('posts and clears a feed line for a taskless source item', async () => {
+  const { store, core, status } = setup();
+  await core.reportSourceState(source, {
+    blind: { reason: 'auth', message: 'Access rejected' },
+    gone: [],
+  });
+  const item = (await status()).items.find((entry) => entry.key === `source:${source}`);
+  expect(item?.task).toBeNull();
+  const line = await store.db
+    .selectFrom('outbox')
+    .selectAll()
+    .where('kind', '=', 'feed.line')
+    .executeTakeFirst();
+  expect(line).toBeDefined();
+  expect(JSON.parse(line?.payload ?? '{}')).toMatchObject({
+    key: 'board',
+    itemId: Number(item?.id.slice(1)),
+  });
+  await core.reportSourceState(source, { gone: [] });
+  expect((await status()).items.some((entry) => entry.key === `source:${source}`)).toBe(false);
+  const edit = await store.db
+    .selectFrom('outbox')
+    .selectAll()
+    .where('kind', '=', 'feed.line.edit')
+    .executeTakeFirst();
+  expect(edit?.parent_outbox_id).toBe(line?.id);
+  expect(JSON.parse(edit?.payload ?? '{}')).toMatchObject({
+    key: 'board',
+    itemKey: `source:${source}`,
+  });
 });

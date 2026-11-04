@@ -57,7 +57,7 @@ const closePayload = z.strictObject({
 const openPayload = closePayload.extend({ title: z.string().min(1) });
 const replyPayload = closePayload.extend({ commentId: id });
 const feedLineEditPayload = z.strictObject({
-  key: taskKeySchema,
+  key: z.union([taskKeySchema, z.literal('board')]),
   text: z.string(),
   persona,
   itemKey: z.string().min(1),
