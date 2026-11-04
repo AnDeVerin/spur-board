@@ -3,6 +3,14 @@ export type { MigrationResult } from './store/migrate.ts';
 export { parseJson, toJson } from './store/json.ts';
 export type * from './store/schema.ts';
 export {
+  authorize,
+  type AuthorizationDecision,
+  type AuthorizationState,
+  type AuthorizationTarget,
+  type ResolvedTarget,
+} from './app/authorize.ts';
+export {
+  CommandError,
   commandRetention,
   createApply,
   type Apply,

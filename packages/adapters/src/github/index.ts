@@ -30,7 +30,7 @@ export interface GithubOptions {
   token: string;
   fetch?: typeof fetch;
 }
-export function sourceId(project: string, repo: string): string {
+function sourceId(project: string, repo: string): string {
   return `github:${project}:${repo.toLowerCase()}`;
 }
 export function githubSources(config: Config, options: GithubOptions): GithubSource[] {

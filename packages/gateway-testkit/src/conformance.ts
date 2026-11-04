@@ -146,6 +146,16 @@ type ConformanceCaseId =
   | 'ack-after-sink'
   | 'connection-loss';
 
+/** Cases an outbound-only gateway can run before it supports inbound events. */
+export const outboundCaseIds = [
+  'deliver-targets',
+  'maybe-sent-reply',
+  'maybe-sent-open',
+  'parts',
+  'close-steps',
+  'delivery-faults',
+] as const satisfies readonly ConformanceCaseId[];
+
 interface Harness {
   readonly gateway: Gateway;
   readonly platform: ConformancePlatform;
@@ -426,11 +436,6 @@ const maybeSentOpen: ConformanceCase = {
     const root = (await h.platform.messages()).find((m) => m.message === result.message);
     expect(root?.root, 'G6: open returns the root as its message').toBe(true);
     expect(root?.conversation, 'G6: the root is in the returned conversation').toBe(conversation);
-    for (const c of marked) {
-      expect(await originKeyIn(h, c.ref), 'G7: events in a keyed conversation set originKey').toBe(
-        key,
-      );
-    }
   },
 };
 
@@ -498,7 +503,6 @@ const parts: ConformanceCase = {
     const root = (await h.platform.messages()).find((m) => m.root && m.conversation === k3);
     expect(root?.marker, 'G7: the root of a multi-part open carries K3#1').toBe('K3#1');
     expect(opened.message, 'G6: open returns the root').toBe(root?.message);
-    expect(await originKeyIn(h, k3), 'G7: originKey is the key without the part suffix').toBe('K3');
   },
 };
 
@@ -771,6 +775,27 @@ const originKey: ConformanceCase = {
     expect(await originKeyIn(h, conversation), 'G7: an event in a delivered conversation').toBe(
       'ok-open',
     );
+    const maybeKey = 'ok-maybe-open';
+    await h.platform.timeoutNext({ visible: true });
+    uncertain(await h.deliver({ key: maybeKey, target: open, body: text('open') }), 'G2: timeout');
+    delivered(
+      await h.deliver({ key: maybeKey, target: open, body: text('open'), maybeSent: true }),
+      'G3: retry of a keyed open',
+    );
+    const marked = (await h.platform.conversations()).filter((c) => c.marker === maybeKey);
+    for (const c of marked) {
+      expect(await originKeyIn(h, c.ref), 'G7: events in a keyed conversation set originKey').toBe(
+        maybeKey,
+      );
+    }
+    const long = delivered(
+      await h.deliver({ key: 'K3', target: open, body: longBody(h.maxTextLength) }),
+      'G6: a long open',
+    );
+    expect(
+      await originKeyIn(h, conversationOf(long, 'G6: open returns the conversation')),
+      'G7: originKey is the key without the part suffix',
+    ).toBe('K3');
     const started = await live(h, { kind: 'message', space, author, text: 'user-started' });
     const event = required(
       ofKind(about(started.events, started.message), 'message')[0],
@@ -835,11 +860,11 @@ const deliveryFaults: ConformanceCase = {
       return result;
     };
 
-    await h.platform.rateLimitNext(1500);
+    await h.platform.rateLimitNext(2000);
     expect(
       await once('df-rate', 'rate-limited'),
       'G2: a rate limit returns retry {afterMs}',
-    ).toMatchObject({ status: 'retry', afterMs: 1500 });
+    ).toMatchObject({ status: 'retry', afterMs: 2000 });
     expect(await visible(), 'G2: a rate-limited reply posts nothing').toBe(before);
 
     await h.platform.timeoutNext({ visible: false });
@@ -1041,10 +1066,17 @@ export async function runConformanceCase(
   }
 }
 
-/** Registers the conformance suite for `target`: one `it` per case. */
-export function runGatewayConformance(target: ConformanceTarget): void {
+/** Registers the full or outbound-only suite for `target`: one `it` per case. */
+export function runGatewayConformance(
+  target: ConformanceTarget,
+  options: { scope?: 'full' | 'outbound' } = {},
+): void {
   describe(`gateway conformance: ${target.name}`, () => {
-    for (const c of conformanceCases) {
+    const cases =
+      options.scope === 'outbound'
+        ? conformanceCases.filter((c) => (outboundCaseIds as readonly string[]).includes(c.id))
+        : conformanceCases;
+    for (const c of cases) {
       it(`${c.id}: ${c.title}`, () => runConformanceCase(target, c.id));
     }
   });

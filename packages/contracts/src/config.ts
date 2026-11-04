@@ -160,6 +160,16 @@ function adapterSection(intervalMs: number) {
     .prefault({});
 }
 
+const spurAdapterSection = z
+  .strictObject({
+    intervalMs: durationMs(15_000, 'Time between two polls'),
+    baseUrl: z
+      .url({ protocol: /^https?$/ })
+      .default('http://127.0.0.1:4310')
+      .describe('Base URL of the local Spur HTTP API.'),
+  })
+  .prefault({});
+
 function isTimeZone(tz: string): boolean {
   try {
     new Intl.DateTimeFormat('en', { timeZone: tz });
@@ -178,13 +188,23 @@ export const configSchema = z.strictObject({
       rejectDuplicates(items, 'id', 'project id', ctx);
     }),
   operator: z.strictObject({ slack: nonEmpty }),
+  slack: z
+    .strictObject({
+      channels: z
+        .strictObject({
+          orchestrators: nonEmpty.optional(),
+          feed: nonEmpty.optional(),
+        })
+        .prefault({}),
+    })
+    .prefault({}),
   thresholds: z.strictObject({ staleMultiplier: z.number().min(1).default(3) }).prefault({}),
   archive: z.strictObject({ doneWeekday: z.enum(WEEKDAYS).default('saturday') }).prefault({}),
   digest: z.strictObject({ tz: z.string().refine(isTimeZone, 'Unknown IANA time zone') }),
   commands: z.strictObject({ retentionDays: z.int().min(1).default(7) }).prefault({}),
   adapters: z
     .strictObject({
-      spur: adapterSection(15_000),
+      spur: spurAdapterSection,
       github: adapterSection(60_000),
       jira: adapterSection(120_000),
     })

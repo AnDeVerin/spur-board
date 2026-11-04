@@ -104,6 +104,22 @@
       "required": ["slack"],
       "additionalProperties": false
     },
+    "slack": {
+      "default": {},
+      "type": "object",
+      "properties": {
+        "channels": {
+          "default": {},
+          "type": "object",
+          "properties": {
+            "orchestrators": { "type": "string", "minLength": 1 },
+            "feed": { "type": "string", "minLength": 1 }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
     "thresholds": {
       "default": {},
       "type": "object",
@@ -155,6 +171,12 @@
               "type": "integer",
               "minimum": 1,
               "maximum": 9007199254740991
+            },
+            "baseUrl": {
+              "default": "http://127.0.0.1:4310",
+              "description": "Base URL of the local Spur HTTP API.",
+              "type": "string",
+              "format": "uri"
             }
           },
           "additionalProperties": false

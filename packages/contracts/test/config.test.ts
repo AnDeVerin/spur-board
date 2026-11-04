@@ -65,7 +65,7 @@ function pathLines(error: string): string[] {
 /** The adapter, source, GitHub and health defaults every config gets when it omits them. */
 const adapterDefaults: Pick<Config, 'adapters' | 'sources' | 'github' | 'health'> = {
   adapters: {
-    spur: { intervalMs: 15_000 },
+    spur: { intervalMs: 15_000, baseUrl: 'http://127.0.0.1:4310' },
     github: { intervalMs: 60_000 },
     jira: { intervalMs: 120_000 },
   },
@@ -91,6 +91,7 @@ describe('fixtures', () => {
     expect(config.thresholds.staleMultiplier).toBe(3);
     expect(config.archive.doneWeekday).toBe('saturday');
     expect(config.commands.retentionDays).toBe(7);
+    expect(config.slack.channels).toEqual({});
     expect(adapterKeys(config)).toEqual(adapterDefaults);
     const project = config.projects[0];
     expect(project?.tracker.type === 'jira' && project.tracker.projectKeys).toEqual([]);
@@ -109,6 +110,7 @@ describe('fixtures', () => {
     expect(config.thresholds.staleMultiplier).toBe(3);
     expect(config.archive.doneWeekday).toBe('saturday');
     expect(config.commands.retentionDays).toBe(7);
+    expect(config.slack.channels).toEqual({});
     expect(adapterKeys(config)).toEqual(adapterDefaults);
     const project = config.projects[0];
     expect(project?.tracker).not.toHaveProperty('projectKeys');
@@ -129,6 +131,13 @@ describe('fixtures', () => {
       { id: 'done', enabled: true, orchestrator: 'none' },
     ]);
     expect(config.projects[0]?.spurProjects).toEqual([]);
+  });
+
+  it('accepts configured Slack channel IDs', () => {
+    const config = configSchema.parse(
+      validConfig({}, { slack: { channels: { orchestrators: 'C_ORCH', feed: 'C_FEED' } } }),
+    );
+    expect(config.slack.channels).toEqual({ orchestrators: 'C_ORCH', feed: 'C_FEED' });
   });
 });
 
@@ -226,6 +235,12 @@ describe('invalid configs', () => {
       'digest.tz',
     ],
     [
+      'empty Slack feed channel',
+      validConfig({}, { slack: { channels: { feed: '' } } }),
+      'Too small: expected string to have >=1 characters',
+      'slack.channels.feed',
+    ],
+    [
       'lowercase Jira project key',
       validConfig({ tracker: { ...jiraTracker, projectKeys: ['proj'] } }),
       'Expected a Jira project key like PROJ',
@@ -236,6 +251,12 @@ describe('invalid configs', () => {
       validConfig({}, { sources: { goneAfterPolls: 0 } }),
       'Too small: expected number to be >=1',
       'sources.goneAfterPolls',
+    ],
+    [
+      'invalid Spur base URL',
+      validConfig({}, { adapters: { spur: { baseUrl: 'file:///tmp/spur.sock' } } }),
+      'Invalid URL',
+      'adapters.spur.baseUrl',
     ],
     [
       'zero error-after duration',

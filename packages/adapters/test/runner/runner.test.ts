@@ -166,6 +166,7 @@ afterEach(async () => {
   await Promise.all(runners.splice(0).map((runner) => runner.stop()));
   vi.useRealTimers();
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 describe('startAdapters', () => {
@@ -177,7 +178,7 @@ describe('startAdapters', () => {
     expect(Object.keys(manifest.exports)).toEqual(['.', './testing']);
   });
 
-  it('registers the configured GitHub repository and stops cleanly', async () => {
+  it('starts the Spur adapter and stops cleanly', async () => {
     const config = configSchema.parse({
       projects: [
         {
@@ -196,29 +197,16 @@ describe('startAdapters', () => {
       operator: { slack: 'U0000000000' },
       digest: { tz: 'Europe/Berlin' },
     });
-    const core = { context: vi.fn(), observe: vi.fn(), reportSourceState: vi.fn() };
-    core.context.mockResolvedValue(context());
-    core.observe.mockResolvedValue(undefined);
-    core.reportSourceState.mockResolvedValue(undefined);
-    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          data: {
-            rateLimit: { remaining: 5000, resetAt: at(I) },
-            repository: {
-              pullRequests: { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } },
-            },
-          },
-        }),
-        { status: 200 },
-      ),
-    );
-    const runner = entry.startAdapters(config, core, { token: 'synthetic-token', fetch: fetcher });
-    await flush();
+    const core = createFakeCore();
+    const fetchSpur = vi.fn().mockResolvedValue(Response.json([]));
+    vi.stubGlobal('fetch', fetchSpur);
+    const runner = entry.startAdapters(config, core);
+    await vi.advanceTimersByTimeAsync(0);
     await expect(runner.stop()).resolves.toBeUndefined();
-    expect(core.context).toHaveBeenCalledWith('github:web:example-org/web');
-    expect(core.observe).toHaveBeenCalledTimes(1);
-    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(fetchSpur).toHaveBeenCalledTimes(1);
+    expect(core.observed).toHaveLength(1);
+    expect(core.observed[0]?.batch).toMatchObject({ source: 'spur', complete: true, items: [] });
+    expect(core.states.at(-1)?.source).toBe('spur');
     expect(vi.getTimerCount()).toBe(0);
   });
 });

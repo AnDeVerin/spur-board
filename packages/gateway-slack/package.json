@@ -1,0 +1,20 @@
+{
+  "name": "@spur-board/gateway-slack",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p .",
+    "test": "vitest run --root ../.. --reporter=tree packages/gateway-slack/"
+  },
+  "dependencies": {
+    "@spur-board/contracts": "workspace:*",
+    "@slack/web-api": "8.2.0"
+  },
+  "devDependencies": {
+    "@spur-board/gateway-testkit": "workspace:*"
+  }
+}
