@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import {
   McpServer,
   fromJsonSchema,
@@ -91,7 +92,10 @@ export function createMcpServer(
   env: NodeJS.ProcessEnv = process.env,
   loadConfig: typeof loadClientConfig = loadClientConfig,
 ): McpServer {
-  const server = new McpServer({ name: 'spur-board', version: '0.0.0' });
+  const { version } = JSON.parse(
+    readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
+  ) as { version: string };
+  const server = new McpServer({ name: 'spur-board', version });
   const agent = Boolean(env['SPUR_SESSION']);
   for (const op of OPERATIONS) {
     server.registerTool(

@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { createServer, type Server, type ServerResponse } from 'node:http';
 import { fileURLToPath } from 'node:url';
 import { Client } from '@modelcontextprotocol/client';
@@ -72,6 +73,10 @@ async function withClient<T>(
 describe('board mcp', () => {
   it('lists one catalog tool with schemas, guidance and annotations per operation', async () => {
     await withClient({}, async (client) => {
+      const manifest = JSON.parse(
+        readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
+      ) as { version: string };
+      expect(client.getServerVersion()?.version).toBe(manifest.version);
       const { tools } = await client.listTools();
       expect(tools.map((tool) => tool.name)).toEqual(OPERATIONS.map((op) => op.mcp.name));
       expect(tools).toMatchSnapshot();

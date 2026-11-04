@@ -24,7 +24,7 @@ function command(args: string[], cwd: string): string {
   return result.stdout.trim();
 }
 
-async function handshake(binary: string): Promise<number> {
+async function handshake(binary: string, expectedVersion: string): Promise<number> {
   const child = spawn(binary, ['mcp'], {
     stdio: ['pipe', 'pipe', 'pipe'],
     env: { ...process.env, BOARD_DAEMON_URL: '', BOARD_TOKEN: '', SPUR_SESSION: '' },
@@ -88,6 +88,10 @@ async function handshake(binary: string): Promise<number> {
     );
     await response;
     if (messages.length !== 2 || pending !== '') throw new Error('unexpected installed MCP stdout');
+    const initialized = messages[0] as { result?: { serverInfo?: { version?: unknown } } };
+    if (initialized.result?.serverInfo?.version !== expectedVersion) {
+      throw new Error('installed MCP server version differs from package version');
+    }
     const listed = messages[1] as { result?: { tools?: unknown } };
     if (!Array.isArray(listed.result?.tools)) {
       throw new Error('installed MCP did not list tools');
@@ -124,6 +128,7 @@ async function main(): Promise<void> {
     const manifest = JSON.parse(
       readFileSync(join(install, 'node_modules/spur-board/package.json'), 'utf8'),
     ) as {
+      version: string;
       bin?: { board?: string };
       dependencies?: Record<string, string>;
     };
@@ -134,7 +139,7 @@ async function main(): Promise<void> {
     ) {
       throw new Error('packed runtime dependency still uses workspace protocol');
     }
-    const count = await handshake(join(install, 'node_modules/.bin/board'));
+    const count = await handshake(join(install, 'node_modules/.bin/board'), manifest.version);
     process.stdout.write(`package smoke: installed board mcp listed ${String(count)} tools\n`);
   } finally {
     rmSync(temp, { recursive: true, force: true });
