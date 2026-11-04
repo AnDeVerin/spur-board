@@ -17,6 +17,7 @@ description: Rules for packages/daemon/ - modules, config and secrets, logging a
   `module: createX(ctxFor('<name>'))`.
 - Register `board-core` and `board-adapters` through `createBoardModules`. Share one observation
   core with the runner; keep timers and runner state in that instance.
+- In `main`, pass that core to board modules; share one operation registry with HTTP and inbound.
 - A module gets `config`, `secrets`, `store`, `log`, `clock`, `logCall` and `state` through
   `ModuleContext`. No shared state, singletons or imports of another module's internals.
 - Use `ctx.store` for daemon storage; `main` opens it through `openStore`. Only core and daemon
