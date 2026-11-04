@@ -21,6 +21,8 @@ import {
 
 interface RunnerEntry {
   adapter: Adapter;
+  /** Repository owned by a GitHub PR source. */
+  repo?: string;
   /** Pause the source while its reported budget is below this. */
   reserveRemaining?: number | undefined;
 }
@@ -148,7 +150,20 @@ function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: nu
     const startMs = now();
     let outcome: PollOutcome;
     try {
-      const context = await core.context(source);
+      const received = await core.context(source);
+      const context =
+        entry.repo === undefined
+          ? received
+          : {
+              ...received,
+              observe: {
+                prs: received.observe.prs.filter(
+                  (ref) => ref.repo.toLowerCase() === entry.repo?.toLowerCase(),
+                ),
+                tickets: [],
+                sessions: [],
+              },
+            };
       if (aborted()) return;
       if (!hydrated) {
         counts = new Map(context.missCounts?.map(({ ref, count }) => [entityKey(ref), count]));

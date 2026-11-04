@@ -33,7 +33,7 @@ export function startAdapters(
 ): AdapterRunner {
   const secrets = options.secrets ?? {};
   const githubToken = secrets['GITHUB_TOKEN'];
-  const entries: { adapter: Adapter; reserveRemaining?: number }[] = [];
+  const entries: { adapter: Adapter; reserveRemaining?: number; repo?: string }[] = [];
   for (const project of config.projects) {
     if (project.tracker.type === 'jira') {
       const tracker = project.tracker;
@@ -73,7 +73,7 @@ export function startAdapters(
       ...githubSources(config, {
         token: githubToken,
         ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
-      }).map(({ adapter, reserveRemaining }) => ({ adapter, reserveRemaining })),
+      }).map(({ adapter, reserveRemaining, repo }) => ({ adapter, reserveRemaining, repo })),
     );
   } else {
     for (const project of config.projects) {

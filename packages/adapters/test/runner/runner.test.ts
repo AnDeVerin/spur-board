@@ -282,11 +282,12 @@ describe('startAdapters', () => {
 });
 
 describe('repository context', () => {
-  it('uses the source-scoped PR refs supplied by core', async () => {
-    const core = createFakeCore({ context: () => context({ prs: [pr] }) });
+  it('sends and validates only PR refs from the source repository', async () => {
+    const foreign: PrEntityRef = { kind: 'pr', repo: 'demo/other', number: 9 };
+    const core = createFakeCore({ context: () => context({ prs: [pr, foreign] }) });
     const poll = vi.fn(() => Promise.resolve(prNotFound()));
     const adapter = createFakeAdapter({ id: 'github', intervalMs: I, poll });
-    const runner = startRunner({ entries: [{ adapter }], core, config: defaults });
+    const runner = startRunner({ entries: [{ adapter, repo: pr.repo }], core, config: defaults });
     runners.push(runner);
     await flush();
     expect(adapter.contexts[0]?.observe.prs).toEqual([pr]);
@@ -295,31 +296,20 @@ describe('repository context', () => {
 });
 
 describe('mixed source context', () => {
-  it('passes through the context core supplied without changing it', async () => {
+  it('projects tickets and sessions out of a GitHub poll and accepts its PR batch', async () => {
+    const foreign: PrEntityRef = { kind: 'pr', repo: 'demo/other', number: 9 };
     const core = createFakeCore({
-      context: () => context({ prs: [pr], tickets: [ticket], sessions: [session] }),
+      context: () => context({ prs: [pr, foreign], tickets: [ticket], sessions: [session] }),
     });
     const adapter = createFakeAdapter({
       id: 'github',
       intervalMs: I,
-      poll: () =>
-        Promise.resolve({
-          ...prNotFound(),
-          entities: [
-            { ref: pr, status: 'not_found' },
-            { ref: ticket, status: 'not_found' },
-            { ref: session, status: 'not_found' },
-          ],
-        }),
+      poll: () => Promise.resolve(prNotFound()),
     });
-    const runner = startRunner({ entries: [{ adapter }], core, config: defaults });
+    const runner = startRunner({ entries: [{ adapter, repo: pr.repo }], core, config: defaults });
     runners.push(runner);
     await flush();
-    expect(adapter.contexts[0]?.observe).toEqual({
-      prs: [pr],
-      tickets: [ticket],
-      sessions: [session],
-    });
+    expect(adapter.contexts[0]?.observe).toEqual({ prs: [pr], tickets: [], sessions: [] });
     expect(core.observed).toHaveLength(1);
   });
 });
