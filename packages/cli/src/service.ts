@@ -29,6 +29,7 @@ export interface ServicePaths {
   daemonEntry: string;
   secretsFile: string;
   unitFile: string;
+  environment?: readonly string[];
 }
 
 export interface ServiceStatus {
@@ -48,12 +49,23 @@ export function servicePaths(options: ServiceOptions = {}): ServicePaths {
   const configDir = configHome(env, home);
   const boardHome = env['BOARD_HOME'];
   const secretsDir = boardHome ? resolve(boardHome) : join(configDir, 'spur-board');
+  const environment = boardHome
+    ? [`BOARD_HOME=${secretsDir}`]
+    : [
+        ...(env['XDG_CONFIG_HOME'] && isAbsolute(env['XDG_CONFIG_HOME'])
+          ? [`XDG_CONFIG_HOME=${configDir}`]
+          : []),
+        ...(env['XDG_DATA_HOME'] && isAbsolute(env['XDG_DATA_HOME'])
+          ? [`XDG_DATA_HOME=${env['XDG_DATA_HOME']}`]
+          : []),
+      ];
   return {
     nodePath: options.nodePath ?? process.execPath,
     daemonEntry:
       options.daemonEntry ?? fileURLToPath(new URL('../../daemon/src/main.ts', import.meta.url)),
     secretsFile: join(secretsDir, 'secrets.env'),
     unitFile: join(configDir, 'systemd', 'user', serviceName),
+    environment,
   };
 }
 
@@ -71,6 +83,7 @@ export function renderUserUnit(paths: ServicePaths): string {
     '[Service]',
     'Type=simple',
     `ExecStart=${unitArgument(paths.nodePath)} ${unitArgument(paths.daemonEntry)}`,
+    ...(paths.environment ?? []).map((entry) => `Environment=${unitArgument(entry)}`),
     `EnvironmentFile=${unitArgument(paths.secretsFile)}`,
     'Restart=on-failure',
     'RestartSec=5s',
@@ -125,9 +138,19 @@ async function preflight(paths: ServicePaths): Promise<void> {
     try {
       const file = await stat(path);
       if (!file.isFile() || (file.mode & 0o444) === 0) throw new Error('not a readable file');
-      await access(path, constants.R_OK);
+      if (label === 'Node executable' && (file.mode & 0o111) === 0) {
+        throw new Error('not executable');
+      }
+      await access(
+        path,
+        label === 'Node executable' ? constants.R_OK | constants.X_OK : constants.R_OK,
+      );
     } catch {
-      throw new Error(`${label} is missing or unreadable: ${path}`);
+      const condition =
+        label === 'Node executable'
+          ? 'missing, unreadable, or not executable'
+          : 'missing or unreadable';
+      throw new Error(`${label} is ${condition}: ${path}`);
     }
   }
   try {
@@ -158,13 +181,20 @@ export async function installService(options: ServiceOptions = {}): Promise<{
   await preflight(paths);
   const runner = options.runner ?? runCommand;
   const unit = renderUserUnit(paths);
-  const changed = (await existingUnit(paths.unitFile)) !== unit;
+  const previousUnit = await existingUnit(paths.unitFile);
+  const changed = previousUnit !== unit;
+  let wasActive = false;
   if (changed) {
     await mkdir(dirname(paths.unitFile), { recursive: true });
     await writeFile(paths.unitFile, unit);
     await requireSuccess(runner, 'systemctl', ['--user', 'daemon-reload']);
+    if (previousUnit !== undefined) {
+      const state = await runner('systemctl', ['--user', 'is-active', serviceName]);
+      wasActive = state.exitCode === 0 && state.stdout.trim() === 'active';
+    }
   }
   await requireSuccess(runner, 'systemctl', ['--user', 'enable', '--now', serviceName]);
+  if (wasActive) await requireSuccess(runner, 'systemctl', ['--user', 'restart', serviceName]);
   return { unitFile: paths.unitFile, changed };
 }
 

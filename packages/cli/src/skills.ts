@@ -1,4 +1,5 @@
-import { cp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { cp, lstat, mkdir, mkdtemp, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -14,6 +15,7 @@ export interface InstallSkillsOptions {
   home?: string;
   packageRoot?: string;
   now?: () => Date;
+  copySkill?: (source: string, destination: string) => Promise<void>;
 }
 
 export interface SkillInstallResult {
@@ -75,6 +77,27 @@ async function currentVersion(path: string, version: string): Promise<boolean> {
   }
 }
 
+async function targetDirectory(path: string): Promise<boolean> {
+  try {
+    const entry = await lstat(path);
+    if (entry.isSymbolicLink() || !entry.isDirectory()) {
+      throw new Error(`Skill install target must be a directory, not a symlink: ${path}`);
+    }
+    return true;
+  } catch (error) {
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return false;
+    throw error;
+  }
+}
+
+async function checkTarget(home: string, agent: string, destination: string): Promise<boolean> {
+  const parent = join(home, agent, 'skills');
+  await targetDirectory(home);
+  await targetDirectory(join(home, agent));
+  await targetDirectory(parent);
+  return targetDirectory(destination);
+}
+
 export async function installSkills(
   options: InstallSkillsOptions = {},
 ): Promise<SkillInstallResult[]> {
@@ -88,6 +111,13 @@ export async function installSkills(
     skills.map((skill) => requireSource(join(packageRoot, 'skills', skill.source))),
   );
 
+  // Reject all redirected targets before changing any of the four installed skills.
+  for (const agent of agents) {
+    for (const skill of skills) {
+      await checkTarget(home, agent, join(home, agent, 'skills', skill.name));
+    }
+  }
+
   const installedAt = (options.now ?? (() => new Date()))().toISOString();
   const results: SkillInstallResult[] = [];
   for (const agent of agents) {
@@ -97,10 +127,32 @@ export async function installSkills(
       const changed = !(await currentVersion(destination, version));
       if (changed) {
         await mkdir(parent, { recursive: true });
-        await rm(destination, { recursive: true, force: true });
-        await cp(join(packageRoot, 'skills', skill.source), destination, { recursive: true });
-        const stamp: InstallStamp = { version, installedAt };
-        await writeFile(join(destination, stampName), `${JSON.stringify(stamp, null, 2)}\n`);
+        await checkTarget(home, agent, destination);
+        const staged = await mkdtemp(join(parent, `.${skill.name}-stage-`));
+        try {
+          const source = join(packageRoot, 'skills', skill.source);
+          if (options.copySkill) await options.copySkill(source, staged);
+          else await cp(source, staged, { recursive: true });
+          const stamp: InstallStamp = { version, installedAt };
+          await writeFile(join(staged, stampName), `${JSON.stringify(stamp, null, 2)}\n`);
+
+          const existing = await checkTarget(home, agent, destination);
+          if (existing) {
+            const backup = join(parent, `.${skill.name}-backup-${randomUUID()}`);
+            await rename(destination, backup);
+            try {
+              await rename(staged, destination);
+            } catch (error) {
+              await rename(backup, destination);
+              throw error;
+            }
+            await rm(backup, { recursive: true });
+          } else {
+            await rename(staged, destination);
+          }
+        } finally {
+          await rm(staged, { recursive: true, force: true });
+        }
       }
       results.push({ agent: agent === '.claude' ? 'claude' : 'codex', skill: skill.name, changed });
     }

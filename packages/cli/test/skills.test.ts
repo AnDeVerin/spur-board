@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -136,6 +136,9 @@ describe('skills install', () => {
     for (const path of [old, unstamped, invalid]) {
       expect((await readdir(path)).sort()).toEqual(['.spur-board-install.json', 'SKILL.md']);
     }
+    for (const agent of agents) {
+      expect((await readdir(join(home, agent, 'skills'))).sort()).toEqual([...names].sort());
+    }
     expect(await readFile(join(current, '.spur-board-install.json'), 'utf8')).toBe(currentStamp);
   });
 
@@ -154,5 +157,58 @@ describe('skills install', () => {
     expect(
       JSON.parse(await readFile(join(installed, '.spur-board-install.json'), 'utf8')),
     ).toMatchObject({ version: '1.2.3' });
+  });
+
+  it('preserves the working skill when copying into staging fails', async () => {
+    const { home, packageRoot } = await fixture();
+    await installSkills({ home, packageRoot });
+    const installed = destination(home, '.claude', 'spur-board');
+    const originalStamp = await readFile(join(installed, '.spur-board-install.json'), 'utf8');
+    await writeFile(join(packageRoot, 'package.json'), JSON.stringify({ version: '2.0.0' }));
+
+    await expect(
+      installSkills({
+        home,
+        packageRoot,
+        copySkill: async (_source, staged) => {
+          await writeFile(join(staged, 'partial.txt'), 'incomplete');
+          throw new Error('copy failed');
+        },
+      }),
+    ).rejects.toThrow('copy failed');
+
+    expect(await readFile(join(installed, 'SKILL.md'), 'utf8')).toBe('Board skill\n');
+    expect(await readFile(join(installed, '.spur-board-install.json'), 'utf8')).toBe(originalStamp);
+    expect((await readdir(join(home, '.claude', 'skills'))).sort()).toEqual([
+      'spur-board',
+      'spur-board-setup',
+    ]);
+  });
+
+  it('rejects symlinks in either agent target before changing any skill', async () => {
+    for (const component of ['.claude', '.codex', 'skills', 'destination'] as const) {
+      const { root, home, packageRoot } = await fixture();
+      const outside = join(root, 'outside');
+      await mkdir(outside);
+      await writeFile(join(outside, 'keep.txt'), 'keep');
+      if (component === '.claude' || component === '.codex') {
+        await symlink(outside, join(home, component), 'dir');
+      } else {
+        await mkdir(join(home, '.claude'));
+        if (component === 'skills') {
+          await symlink(outside, join(home, '.claude', 'skills'), 'dir');
+        } else {
+          await mkdir(join(home, '.claude', 'skills'));
+          await symlink(outside, destination(home, '.claude', 'spur-board'), 'dir');
+        }
+      }
+
+      await expect(installSkills({ home, packageRoot })).rejects.toThrow('symlink');
+      expect(await readdir(outside)).toEqual(['keep.txt']);
+      const otherAgent = component === '.codex' ? '.claude' : '.codex';
+      await expect(readdir(join(home, otherAgent, 'skills'))).rejects.toMatchObject({
+        code: 'ENOENT',
+      });
+    }
   });
 });

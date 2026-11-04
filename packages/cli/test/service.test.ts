@@ -1,6 +1,6 @@
 import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { runCli, type CliIo } from '../src/cli.ts';
 import {
@@ -21,7 +21,7 @@ afterEach(async () => {
   await Promise.all(temporaryDirectories.splice(0).map((path) => rm(path, { recursive: true })));
 });
 
-function fakeRunner(): {
+function fakeRunner(active = false): {
   calls: { command: string; args: string[] }[];
   run: CommandRunner;
 } {
@@ -29,7 +29,11 @@ function fakeRunner(): {
   const run: CommandRunner = (command, args) => {
     calls.push({ command, args: [...args] });
     let result: CommandResult = { exitCode: 0, stdout: '', stderr: '' };
-    if (args.includes('is-active')) result = { exitCode: 3, stdout: 'inactive\n', stderr: '' };
+    if (args.includes('is-active')) {
+      result = active
+        ? { exitCode: 0, stdout: 'active\n', stderr: '' }
+        : { exitCode: 3, stdout: 'inactive\n', stderr: '' };
+    }
     if (args.includes('is-enabled')) result = { exitCode: 1, stdout: 'disabled\n', stderr: '' };
     if (command === 'loginctl') result = { exitCode: 0, stdout: 'no\n', stderr: '' };
     return Promise.resolve(result);
@@ -37,7 +41,8 @@ function fakeRunner(): {
   return { calls, run };
 }
 
-async function fixture(): Promise<{
+async function fixture(active = false): Promise<{
+  root: string;
   options: ServiceOptions;
   paths: ReturnType<typeof servicePaths>;
   calls: { command: string; args: string[] }[];
@@ -54,10 +59,10 @@ async function fixture(): Promise<{
   await mkdir(home);
   await mkdir(join(root, 'package with spaces'));
   await mkdir(env.BOARD_HOME);
-  await writeFile(nodePath, 'node');
+  await writeFile(nodePath, 'node', { mode: 0o700 });
   await writeFile(daemonEntry, 'daemon');
   await writeFile(join(env.BOARD_HOME, 'secrets.env'), 'BOARD_TOKEN=secret\n', { mode: 0o600 });
-  const fake = fakeRunner();
+  const fake = fakeRunner(active);
   const options: ServiceOptions = {
     home,
     env,
@@ -66,7 +71,7 @@ async function fixture(): Promise<{
     username: 'operator',
     runner: fake.run,
   };
-  return { options, paths: servicePaths(options), calls: fake.calls };
+  return { root, options, paths: servicePaths(options), calls: fake.calls };
 }
 
 describe('service', () => {
@@ -91,7 +96,9 @@ describe('service', () => {
 
     expect(await cli(['install'])).toBe(0);
     expect(JSON.parse(output.stdout)).toEqual({ unitFile: paths.unitFile, changed: true });
-    expect(await readFile(paths.unitFile, 'utf8')).toBe(renderUserUnit(paths));
+    const unit = await readFile(paths.unitFile, 'utf8');
+    expect(unit).toBe(renderUserUnit(paths));
+    expect(unit).toContain(`Environment="BOARD_HOME=${dirname(paths.secretsFile)}"`);
     await rm(paths.daemonEntry);
     await rm(paths.secretsFile);
     output.stdout = '';
@@ -139,6 +146,7 @@ describe('service', () => {
         daemonEntry: '/opt/spur board/daemon.ts',
         secretsFile: '/home/user name/.config/spur board/secrets.env',
         unitFile: '/home/user name/.config/systemd/user/spur-board.service',
+        environment: ['BOARD_HOME=/home/user name/.config/spur board'],
       }),
     ).toMatchInlineSnapshot(`
       "[Unit]
@@ -149,6 +157,7 @@ describe('service', () => {
       [Service]
       Type=simple
       ExecStart="/home/user name/bin/node" "/opt/spur board/daemon.ts"
+      Environment="BOARD_HOME=/home/user name/.config/spur board"
       EnvironmentFile="/home/user name/.config/spur board/secrets.env"
       Restart=on-failure
       RestartSec=5s
@@ -175,6 +184,37 @@ describe('service', () => {
     ]);
   });
 
+  it('passes the chosen XDG config and data paths to the daemon', async () => {
+    const { root, options } = await fixture();
+    const configHome = join(root, 'alternate config');
+    const dataHome = join(root, 'alternate data');
+    const env = { XDG_CONFIG_HOME: configHome, XDG_DATA_HOME: dataHome };
+    const custom = { ...options, env };
+    const paths = servicePaths(custom);
+    await mkdir(join(configHome, 'spur-board'), { recursive: true });
+    await writeFile(paths.secretsFile, 'BOARD_TOKEN=secret\n', { mode: 0o600 });
+
+    await installService(custom);
+    const unit = await readFile(paths.unitFile, 'utf8');
+    expect(unit).toContain(`Environment="XDG_CONFIG_HOME=${configHome}"`);
+    expect(unit).toContain(`Environment="XDG_DATA_HOME=${dataHome}"`);
+    expect(unit).not.toContain('Environment="BOARD_HOME=');
+  });
+
+  it('restarts an already active service after changing its unit', async () => {
+    const { options, paths, calls } = await fixture(true);
+    await mkdir(dirname(paths.unitFile), { recursive: true });
+    await writeFile(paths.unitFile, 'old unit\n');
+
+    expect(await installService(options)).toEqual({ unitFile: paths.unitFile, changed: true });
+    expect(calls).toEqual([
+      { command: 'systemctl', args: ['--user', 'daemon-reload'] },
+      { command: 'systemctl', args: ['--user', 'is-active', 'spur-board.service'] },
+      { command: 'systemctl', args: ['--user', 'enable', '--now', 'spur-board.service'] },
+      { command: 'systemctl', args: ['--user', 'restart', 'spur-board.service'] },
+    ]);
+  });
+
   it('rejects missing, directory-valued, and unreadable daemon entries before side effects', async () => {
     for (const kind of ['missing', 'directory', 'unreadable'] as const) {
       const { options, paths, calls } = await fixture();
@@ -190,6 +230,16 @@ describe('service', () => {
       await expect(stat(paths.unitFile)).rejects.toMatchObject({ code: 'ENOENT' });
       expect(calls).toEqual([]);
     }
+  });
+
+  it('rejects a readable but non-executable Node file before service changes', async () => {
+    const { options, paths, calls } = await fixture();
+    await chmod(paths.nodePath, 0o600);
+    await expect(installService(options)).rejects.toThrow(
+      'Node executable is missing, unreadable, or not executable',
+    );
+    await expect(stat(paths.unitFile)).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(calls).toEqual([]);
   });
 
   it('requires a mode 0600 secrets file before writing or starting', async () => {
