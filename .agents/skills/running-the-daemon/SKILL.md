@@ -17,7 +17,7 @@ description: Rules for packages/daemon/ - modules, config and secrets, logging a
   `module: createX(ctxFor('<name>'))`.
 - A module uses its `ModuleContext`: `config`, `secrets`, `store`, `log`, `clock`, `logCall`,
   `state`. No shared module state, singletons or imports of another module's internals.
-- Daemon code uses only `ctx.store`, opened by `main` with `openStore`. Review this manually. Only
+- Daemon code uses only `ctx.store`, opened by `main` with `openStore`. Only
   core and daemon may import the SQLite driver, pinned by
   `describe('sqlite driver boundary')` in `packages/testkit/test/lint-rules.test.ts`.
 - Modules start one at a time. A start that throws or rejects gets no `stop()`: its start owns
