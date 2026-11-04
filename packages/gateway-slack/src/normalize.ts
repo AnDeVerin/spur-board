@@ -1,5 +1,10 @@
 import { randomUUID } from 'node:crypto';
-import { interactionRefSchema, userIdSchema, type InboundEvent } from '@spur-board/contracts';
+import {
+  interactionRefSchema,
+  userIdSchema,
+  type InboundEvent,
+  type InteractionRef,
+} from '@spur-board/contracts';
 import { conversationRef, messageRef } from './ref.ts';
 import { originKeyFromBlocks } from './render.ts';
 
@@ -32,22 +37,20 @@ export interface NormalizeContext {
 }
 
 /** An opaque interaction still carries the data needed for an ephemeral response. */
-function interactionRef(channel: string, user: string, triggerId: string): string {
+function interactionRef(channel: string, user: string, triggerId: string): InteractionRef {
   return interactionRefSchema.parse(JSON.stringify({ channel, user, triggerId }));
 }
 
 export function parseInteractionRef(value: string): { channel: string; user: string } | null {
-  const parsed = (() => {
-    try {
-      return record(JSON.parse(value));
-    } catch {
-      return null;
-    }
-  })();
-  if (parsed === null) return null;
-  const channel = string(parsed.channel);
-  const user = string(parsed.user);
-  return channel === undefined || user === undefined ? null : { channel, user };
+  try {
+    const parsed = record(JSON.parse(value));
+    if (parsed === null) return null;
+    const channel = string(parsed.channel);
+    const user = string(parsed.user);
+    return channel === undefined || user === undefined ? null : { channel, user };
+  } catch {
+    return null;
+  }
 }
 
 function rootKey(context: NormalizeContext): string | undefined {
@@ -57,7 +60,7 @@ function rootKey(context: NormalizeContext): string | undefined {
 function own(message: RecordValue, bot: BotIdentity): boolean {
   return (
     message.subtype === 'bot_message' ||
-    (string(message.bot_id) !== undefined && string(message.bot_id) === bot.botId) ||
+    (bot.botId !== undefined && message.bot_id === bot.botId) ||
     string(message.user) === bot.userId
   );
 }
@@ -67,7 +70,6 @@ function text(value: unknown): string | undefined {
 }
 
 function messageBase(
-  channel: string,
   message: RecordValue,
   context: NormalizeContext,
 ): {
@@ -103,7 +105,7 @@ export function normalizeMessage(
     const priorThreadTs = string(previous?.thread_ts);
     const rootIsDeleted =
       deletedTs !== undefined && priorThreadTs === deletedTs && string(previous?.ts) === deletedTs;
-    const threadTs = priorThreadTs ?? (rootIsDeleted ? deletedTs : undefined);
+    const threadTs = priorThreadTs;
     if (deletedTs === undefined || threadTs === undefined) {
       return [{ kind: 'gap', dedupeKey: `slack:gap:${randomUUID()}` }];
     }
@@ -122,7 +124,7 @@ export function normalizeMessage(
   const changed = source.subtype === 'message_changed';
   const message = changed ? record(source.message) : source;
   if (message === null) return [];
-  const base = messageBase(channel, message, context);
+  const base = messageBase(message, context);
   const body = text(message.text);
   if (base === null || body === undefined) return [];
   const edited = record(message.edited);
@@ -180,7 +182,7 @@ export function normalizeInteraction(type: string, payload: unknown): InboundEve
       {
         kind: 'command',
         dedupeKey: `slack:${triggerId}`,
-        interaction: interactionRefSchema.parse(interactionRef(channel, user, triggerId)),
+        interaction: interactionRef(channel, user, triggerId),
         author,
         text: text(body.text) ?? '',
       },
@@ -207,7 +209,7 @@ export function normalizeInteraction(type: string, payload: unknown): InboundEve
     {
       kind: 'action',
       dedupeKey: `slack:${triggerId}`,
-      interaction: interactionRefSchema.parse(interactionRef(channel, user, triggerId)),
+      interaction: interactionRef(channel, user, triggerId),
       actionId,
       author,
       conversation: conversationRef(channel, threadTs),
