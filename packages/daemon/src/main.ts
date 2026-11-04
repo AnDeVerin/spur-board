@@ -1,5 +1,5 @@
 import { homedir } from 'node:os';
-import { commandRetention, openStore, type Store } from '@spur-board/core';
+import { commandRetention, openStore, type OperationRegistry, type Store } from '@spur-board/core';
 import { createSlackGateway } from '@spur-board/gateway-slack';
 import { loadConfig, resolvePaths } from './config.ts';
 import {
@@ -9,6 +9,7 @@ import {
   type ProcessPort,
 } from './lifecycle.ts';
 import { acquireLock } from './lock.ts';
+import { createInboundModule } from './inbound-module.ts';
 import { createHttpModule } from './http-module.ts';
 import { createOutboxModule, slackSettings } from './outbox-module.ts';
 
@@ -52,6 +53,7 @@ export async function main(): Promise<void> {
     },
     openStore,
     modules: (ctxFor) => {
+      const registry: OperationRegistry = {};
       const commands = ctxFor('commands');
       const entries: ModuleEntry[] = [
         {
@@ -70,14 +72,35 @@ export async function main(): Promise<void> {
       const ctx = ctxFor('gateway-slack');
       const settings = slackSettings(ctx.config, ctx.secrets);
       const gateway = settings === null ? undefined : createSlackGateway(settings);
+      const inbound =
+        gateway === undefined || settings?.appToken === undefined
+          ? undefined
+          : createInboundModule(ctxFor('inbound'), gateway, registry);
+      if (settings !== null && inbound === undefined)
+        ctx.log.info('Slack inbound disabled: SLACK_APP_TOKEN is absent');
       if (gateway !== undefined)
         entries.push({
           name: 'gateway-slack',
           stopStage: 'final',
           module: {
-            start: () => gateway.start(() => Promise.resolve()),
-            stop: () => gateway.stop(),
+            start: () =>
+              gateway.start(
+                inbound === undefined ? () => Promise.resolve() : (event) => inbound.sink(event),
+              ),
+            async stop() {
+              try {
+                await gateway.stop();
+              } finally {
+                await inbound?.stop();
+              }
+            },
           },
+        });
+      if (inbound !== undefined)
+        entries.push({
+          name: 'inbound',
+          stopStage: 'pollers',
+          module: inbound,
         });
       entries.push({
         name: 'outbox',
@@ -87,7 +110,7 @@ export async function main(): Promise<void> {
       entries.push({
         name: 'http',
         stopStage: 'final',
-        module: createHttpModule(ctxFor('http')),
+        module: createHttpModule(ctxFor('http'), { registry }),
       });
       return entries;
     },

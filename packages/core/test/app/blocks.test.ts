@@ -188,7 +188,12 @@ describe('block and comment mutations', () => {
     expect(beforeClarification.map((row) => row.kind)).toEqual([
       'conversation.open',
       'conversation.reply',
+      'conversation.close',
     ]);
+    expect(JSON.parse(beforeClarification[2]?.payload ?? '{}')).toMatchObject({
+      blockId: 1,
+      text: 'resolved: done (operator)',
+    });
 
     await apply(
       ops.add,
@@ -197,16 +202,16 @@ describe('block and comment mutations', () => {
       'comment-1',
     );
     const rows = await store.db.selectFrom('outbox').selectAll().orderBy('id').execute();
-    expect(rows).toHaveLength(3);
+    expect(rows).toHaveLength(4);
     const answer = rows[1];
-    const clarification = rows[2];
+    const clarification = rows[3];
     if (answer === undefined || clarification === undefined) {
       throw new Error('Expected answer and clarification reply rows');
     }
     expect(clarification).toMatchObject({
       kind: 'conversation.reply',
       state: 'pending',
-      parent_outbox_id: answer.id,
+      parent_outbox_id: rows[2]?.id,
     });
     expect(JSON.parse(clarification.payload)).toMatchObject({ blockId: 1, commentId: 3 });
   });
@@ -446,6 +451,87 @@ describe('block and comment mutations', () => {
       },
     ]);
   });
+
+  it.each(['answer', 'done', 'reason', 'withdraw', 'archive'] as const)(
+    'closes a registered conversation through %s',
+    async (mode) => {
+      const { store, apply } = await seeded();
+      const id =
+        mode === 'done' || mode === 'reason'
+          ? await codeBlock(store)
+          : (await apply(ops.ask, { task: KEY, text: 'Question?' }, author, `ask-${mode}`)).block
+              .id;
+      const blockId = Number(id.slice(1));
+      await store.transaction((trx) =>
+        trx
+          .insertInto('conversation')
+          .values({
+            gateway: 'fake-slack-like',
+            ref: 'thread-1',
+            space: 'orchestrators',
+            task_id: 1,
+            block_id: blockId,
+            purpose: 'block',
+            state: 'open',
+            root_message_ref: 'root-1',
+            after_message_ref: null,
+            created_at: new Date(NOW).toISOString(),
+            closed_at: null,
+          })
+          .execute(),
+      );
+      if (mode === 'answer') {
+        await apply(ops.answer, { block: id, text: 'Yes.' }, 'operator', `close-${mode}`);
+      } else if (mode === 'done') {
+        await apply(ops.unblock, { mode: 'done', block: id }, secondWorker, `close-${mode}`);
+      } else if (mode === 'reason') {
+        await apply(
+          ops.unblock,
+          { mode: 'reason', block: id, reason: 'No longer needed.' },
+          'operator',
+          `close-${mode}`,
+        );
+      } else if (mode === 'withdraw') {
+        await apply(
+          ops.unblock,
+          { mode: 'withdraw', block: id, answer: 'Elsewhere.' },
+          author,
+          `close-${mode}`,
+        );
+      } else {
+        await apply(ops.archive, { task: KEY }, 'operator', `close-${mode}`);
+      }
+      const block = await store.db
+        .selectFrom('block')
+        .select(['state', 'outcome', 'unblocked_by'])
+        .where('id', '=', blockId)
+        .executeTakeFirstOrThrow();
+      expect(block.state).toBe('unblocked');
+      expect(
+        await store.db
+          .selectFrom('conversation')
+          .select(['state', 'closed_at'])
+          .where('ref', '=', 'thread-1')
+          .executeTakeFirst(),
+      ).toMatchObject({ state: 'closed', closed_at: new Date(NOW).toISOString() });
+      const closes = await store.db
+        .selectFrom('outbox')
+        .select(['payload', 'dedupe_key'])
+        .where('kind', '=', 'conversation.close')
+        .execute();
+      const explicit = closes.filter(
+        (row) =>
+          (JSON.parse(row.payload) as { targetConversation?: string }).targetConversation ===
+          'thread-1',
+      );
+      expect(explicit).toHaveLength(1);
+      expect(JSON.parse(explicit[0]?.payload ?? '{}')).toMatchObject({
+        blockId,
+        text: `resolved: ${String(block.outcome)} (${String(block.unblocked_by)})`,
+        targetConversation: 'thread-1',
+      });
+    },
+  );
 
   it('withdraws only the author question and stores its outside answer on the block', async () => {
     const { store, apply } = await seeded();

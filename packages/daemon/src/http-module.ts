@@ -4,6 +4,7 @@ import {
   createSchemaQuery,
   listenApiServer,
   type LiveSession,
+  type OperationRegistry,
   type Store,
 } from '@spur-board/core';
 import type { Module, ModuleContext } from './lifecycle.ts';
@@ -41,7 +42,7 @@ export async function lookupLiveSession(
 /** Start and close the API as a daemon module, with runtime ports from its context. */
 export function createHttpModule(
   ctx: ModuleContext<Store>,
-  options: { fetcher?: typeof fetch } = {},
+  options: { fetcher?: typeof fetch; registry?: OperationRegistry } = {},
 ): Module {
   let app: Awaited<ReturnType<typeof createApiServer>> | undefined;
   return {
@@ -59,7 +60,7 @@ export function createHttpModule(
             lookupLiveSession(ctx.config.adapters.spur.baseUrl, id, options.fetcher),
           ),
         verifyToken: () => Promise.resolve(false),
-        registry: { 'schema.get': createSchemaQuery() },
+        registry: { ...options.registry, 'schema.get': createSchemaQuery() },
         logRequest: ({ requestId, method, url, status }) => {
           const path = new URL(url, 'http://127.0.0.1').pathname;
           ctx.log.info({ requestId, method, path, status }, 'http request');

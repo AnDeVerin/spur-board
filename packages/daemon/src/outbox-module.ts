@@ -12,6 +12,7 @@ const CHANNEL_ID = /^[CG][A-Z0-9]{8,}$/;
 
 export interface SlackSettings {
   token: string;
+  appToken?: string;
   channels: { orchestrators: string; feed: string };
   apiUrl?: string;
   requestTimeoutMs: number;
@@ -23,6 +24,7 @@ export function slackSettings(
   secrets: Readonly<Record<string, string>>,
 ): SlackSettings | null {
   const token = secrets['SLACK_BOT_TOKEN'];
+  const appToken = secrets['SLACK_APP_TOKEN'];
   const apiUrl = secrets['SLACK_API_URL'];
   const { orchestrators, feed } = config.slack.channels;
   if (
@@ -51,6 +53,7 @@ export function slackSettings(
   }
   return {
     token,
+    ...(appToken === undefined ? {} : { appToken }),
     channels: { orchestrators, feed },
     ...(apiUrl === undefined ? {} : { apiUrl }),
     requestTimeoutMs: DELIVERY_REQUEST_TIMEOUT_MS,

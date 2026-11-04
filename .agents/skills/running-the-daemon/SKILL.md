@@ -89,11 +89,13 @@ description: Rules for packages/daemon/ - modules, config and secrets, logging a
 - Pass the start signal to each sender tick. On stop, clear the timer and await the active tick
   before the store closes. Register the outbox with `stopStage: 'outbox'` and its gateway with
   `stopStage: 'final'`. Pinned by 'skips timer ticks while a delivery is active'.
-- A poller uses a `setTimeout` chain with jitter and passes `PollContext.signal` into each call.
-  Backoff belongs to the poller; an adapter does not retry.
-- Register a poller with `stopStage: 'pollers'`; `stop()` clears its timer and awaits its tick.
+- A poller uses a `setTimeout` chain, handles each tick rejection, and never overlaps ticks.
+  Register it with `stopStage: 'pollers'`; `stop()` clears its timer and awaits its active tick.
+- The inbound module starts recovery, then scans every five minutes. It serializes scans
+  and live events through core. Start the gateway with its sink only when `SLACK_APP_TOKEN` is
+  present; otherwise log once that inbound is disabled. Stop inbound before outbox, then stop
+  the gateway and await the sink again before closing the store.
 - Keep the sole `setInterval` in `main` (`KEEPALIVE_MS`) until a module owns a server.
-- Handle each tick promise; `@typescript-eslint/no-floating-promises` rejects an unhandled one.
 
 ## Shutdown
 

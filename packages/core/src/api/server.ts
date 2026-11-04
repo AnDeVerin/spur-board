@@ -6,29 +6,14 @@ import {
   renderHttpProblem,
   successEnvelopeSchema,
   type ActorId,
-  type OperationId,
   type ServerErrorCode,
 } from '@spur-board/contracts';
 import Fastify, { type FastifyInstance } from 'fastify';
-import type { z } from 'zod';
-import { createApply, CommandError, type Mutation } from '../app/commands.ts';
-import { createQuery, type Query } from '../app/queries.ts';
+import { CommandError } from '../app/commands.ts';
+import { dispatchOperation, type OperationRegistry } from '../app/operations.ts';
 import { identify, type IdentityPorts } from './identity.ts';
 
-type CatalogEntry = (typeof OPERATIONS)[number];
-type MutationId = Extract<CatalogEntry, { kind: 'mutation' }>['id'];
-type QueryId = Extract<CatalogEntry, { kind: 'query' }>['id'];
-type MutationEntry = Extract<CatalogEntry, { kind: 'mutation' }>;
-type QueryEntry = Extract<CatalogEntry, { kind: 'query' }>;
-
-/** Each catalog ID may have one app-layer handler, supplied by the composition root. */
-export type OperationRegistry = Partial<{
-  [Id in OperationId]: Id extends QueryId
-    ? Query<Id>
-    : Id extends MutationId
-      ? Mutation<Id>
-      : never;
-}>;
+export type { OperationRegistry } from '../app/operations.ts';
 
 export interface ApiOptions extends IdentityPorts {
   readonly port: number;
@@ -66,8 +51,6 @@ function inputBody(body: unknown): { input: unknown; key: string | undefined } {
 export async function createApiServer(options: ApiOptions): Promise<FastifyInstance> {
   const app = Fastify({ logger: false, genReqId: () => randomUUID(), trustProxy: false });
   const snapshot = await buildCatalogSnapshot(OPERATIONS);
-  const apply = createApply(options);
-  const query = createQuery(options);
   const actors = new WeakMap<object, ActorId>();
 
   app.addHook('onRequest', async (request, reply) => {
@@ -154,26 +137,7 @@ export async function createApiServer(options: ApiOptions): Promise<FastifyInsta
       if (!parsed.success) {
         throw new CommandError(errorCodeOf(parsed.error), 'Fix the operation input.');
       }
-      const handler = options.registry[operation.id];
-      if (handler === undefined || handler.id !== operation.id) {
-        throw new CommandError(
-          'not_implemented',
-          `Operation ${operation.id} is not available in this daemon build. Ask the operator to update the daemon.`,
-        );
-      }
-      const result =
-        operation.kind === 'query'
-          ? await query(
-              handler as unknown as Query<QueryId>,
-              parsed.data as z.input<QueryEntry['input']>,
-              actor,
-            )
-          : await apply(
-              handler as unknown as Mutation<MutationId>,
-              parsed.data as z.input<MutationEntry['input']>,
-              actor,
-              body.key,
-            );
+      const result = await dispatchOperation(options, operation.id, parsed.data, actor, body.key);
       return reply.send(
         successEnvelopeSchema.parse({ ok: true, requestId: request.id, value: result }),
       );
