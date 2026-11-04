@@ -326,28 +326,31 @@ export async function acknowledgeNotification(
   else if (input.commentId !== undefined)
     query = query.where('comment_id', '=', input.commentId).where('kind', '=', 'answer');
   else return false;
-  const n = await query.orderBy('id', 'desc').executeTakeFirst();
+  const notices = await query.orderBy('id', 'desc').execute();
+  const n = notices[0];
   if (n === undefined) return false;
   if (!(await notificationAddressedTo(trx, n, input.actor))) {
     throw new CommandError('forbidden', 'Only the addressed task role can acknowledge.');
   }
-  await trx
-    .updateTable('notification')
-    .set({ acked_at: input.at.toISOString() })
-    .where('id', '=', n.id)
-    .execute();
-  await journal(trx, n, 'doorbell_read', { doorbell: `N${String(n.id)}` }, input.at);
-  const item = await trx
-    .selectFrom('operator_item')
-    .select('id')
-    .where(
-      'item_key',
-      '=',
-      `${n.kind === 'answer' ? 'answer_undelivered' : 'worker_not_reading'}:${n.source_key}`,
-    )
-    .where('cleared_at', 'is', null)
-    .executeTakeFirst();
-  if (item !== undefined) await clearItem(trx, item.id, input.at);
+  for (const notice of notices) {
+    await trx
+      .updateTable('notification')
+      .set({ acked_at: input.at.toISOString() })
+      .where('id', '=', notice.id)
+      .execute();
+    await journal(trx, notice, 'doorbell_read', { doorbell: `N${String(notice.id)}` }, input.at);
+    const item = await trx
+      .selectFrom('operator_item')
+      .select('id')
+      .where(
+        'item_key',
+        '=',
+        `${notice.kind === 'answer' ? 'answer_undelivered' : 'worker_not_reading'}:${notice.source_key}`,
+      )
+      .where('cleared_at', 'is', null)
+      .executeTakeFirst();
+    if (item !== undefined) await clearItem(trx, item.id, input.at);
+  }
   return true;
 }
 

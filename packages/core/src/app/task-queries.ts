@@ -1,6 +1,7 @@
 import {
   EVENT_KINDS,
   encodeActorId,
+  parseRef,
   type ActorId,
   type Config,
   type EventKind,
@@ -14,6 +15,7 @@ import { authorizationTarget, blockView, commentView, taskTarget } from './block
 import { taskView } from './board-utils.ts';
 import { CommandError } from './commands.ts';
 import { notificationAddressedTo } from './doorbells.ts';
+import { canonicalKey } from './membership.ts';
 import type { Query } from './queries.ts';
 
 type Trx = Kysely<Tables>;
@@ -96,11 +98,17 @@ async function taskByKey(trx: Trx, key: string) {
 }
 
 export function createTaskQueries(config: Config) {
+  const taskKey = (key: string) => {
+    const parsed = parseRef(key, 'task');
+    return parsed.ok && parsed.value.kind === 'task' && parsed.value.form === 'github-short'
+      ? canonicalKey(config, key).key
+      : key;
+  };
   const get: Query<'task.get'> = {
     id: 'task.get',
-    resolveTargets: (trx, input) => taskTarget(trx, input.task),
+    resolveTargets: (trx, input) => taskTarget(trx, taskKey(input.task)),
     async run(trx, input) {
-      const task = await taskByKey(trx, input.task);
+      const task = await taskByKey(trx, taskKey(input.task));
       const [blocks, comments] = await Promise.all([
         trx.selectFrom('block').selectAll().where('task_id', '=', task.id).orderBy('id').execute(),
         trx
@@ -119,9 +127,9 @@ export function createTaskQueries(config: Config) {
   };
   const history: Query<'task.history'> = {
     id: 'task.history',
-    resolveTargets: (trx, input) => taskTarget(trx, input.task),
+    resolveTargets: (trx, input) => taskTarget(trx, taskKey(input.task)),
     async run(trx, input) {
-      const task = await taskByKey(trx, input.task);
+      const task = await taskByKey(trx, taskKey(input.task));
       const rows = await trx
         .selectFrom('event')
         .selectAll()
@@ -170,6 +178,7 @@ export function createTaskQueries(config: Config) {
           .where('id', '=', notice.task_id)
           .executeTakeFirst();
         if (task === undefined || !projects.has(task.project)) continue;
+        seen.add(notice.comment_id);
         if (!(await notificationAddressedTo(trx, notice, actor))) continue;
         const comment = await trx
           .selectFrom('comment')
@@ -177,7 +186,6 @@ export function createTaskQueries(config: Config) {
           .where('id', '=', notice.comment_id)
           .executeTakeFirst();
         if (comment === undefined || comment.acked_revision === comment.revision) continue;
-        seen.add(comment.id);
         comments.push(commentView(comment, task));
       }
       comments.sort((left, right) => Number(left.id.slice(1)) - Number(right.id.slice(1)));

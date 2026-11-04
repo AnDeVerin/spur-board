@@ -194,6 +194,22 @@ describe('production query handlers', () => {
     });
   });
 
+  it('reads a task added by its short GitHub issue key', async () => {
+    const { registry, query, apply } = await seeded();
+    const added = await apply(
+      required(registry['task.add']),
+      { task: 'r#303' },
+      'operator',
+      'add-short-key',
+    );
+    expect(added.task.key).toBe('o/r#303');
+    const viewed = await query(required(registry['task.get']), { task: 'r#303' }, worker);
+    expect(viewed.task).toEqual(added.task);
+    const history = await query(required(registry['task.history']), { task: 'r#303' }, worker);
+    expect(history.task).toEqual(added.task);
+    expect(history.events.map(({ kind }) => kind)).toEqual(['task_added']);
+  });
+
   it('returns every task event in journal order with an encoded actor and one-line summary', async () => {
     const { store, registry, query } = await seeded();
     await store.transaction(async (trx) => {
@@ -239,7 +255,7 @@ describe('production query handlers', () => {
   });
 
   it('shows the current answer revision, acknowledges it, and shows an edited clarification', async () => {
-    const { registry, query, apply } = await seeded();
+    const { store, registry, query, apply } = await seeded();
     const asked = await apply(
       required(registry['block.ask']),
       { task: KEY, text: 'Which version?' },
@@ -280,9 +296,34 @@ describe('production query handlers', () => {
       orchestrator,
       'edit-2',
     );
+    await apply(
+      required(registry['comment.edit']),
+      { comment: commentId, text: 'Use v5.' },
+      orchestrator,
+      'edit-3',
+    );
     expect((await query(required(registry['inbox.get']), {}, worker)).comments).toEqual([
-      expect.objectContaining({ id: commentId, revision: 3, text: 'Use v4.' }),
+      expect.objectContaining({ id: commentId, revision: 4, text: 'Use v5.' }),
     ]);
+    const commentNumber = Number(commentId.slice(1));
+    const notices = () =>
+      store.db
+        .selectFrom('notification')
+        .select(['revision', 'acked_at'])
+        .where('comment_id', '=', commentNumber)
+        .orderBy('revision')
+        .execute();
+    expect(
+      (await notices()).filter(({ acked_at }) => acked_at === null).map(({ revision }) => revision),
+    ).toEqual([3, 4]);
+    await apply(
+      required(registry['inbox.ack']),
+      { entries: [{ id: commentId, revision: 4 }] },
+      worker,
+      'ack-2',
+    );
+    expect((await notices()).every(({ acked_at }) => acked_at !== null)).toBe(true);
+    expect((await query(required(registry['inbox.get']), {}, worker)).comments).toEqual([]);
   });
 
   it('filters blocks by role and projects before returning inbox data', async () => {
