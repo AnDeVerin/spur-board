@@ -190,6 +190,14 @@ export const configSchema = z.strictObject({
   operator: z.strictObject({ slack: nonEmpty }),
   slack: z
     .strictObject({
+      command: z
+        .string()
+        .regex(/^\/[a-z0-9_-]+$/, 'Expected a slash command such as /board')
+        .default('/board'),
+      appId: z
+        .string()
+        .regex(/^A[A-Z0-9]+$/, 'Expected a Slack app ID')
+        .optional(),
       channels: z
         .strictObject({
           orchestrators: nonEmpty.optional(),

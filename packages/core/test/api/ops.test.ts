@@ -87,6 +87,8 @@ async function server(
     ready?: () => boolean;
     registry?: OperationRegistry;
     logRequest?: ApiOptions['logRequest'];
+    doctor?: ApiOptions['doctor'];
+    clock?: ApiOptions['clock'];
   } = {},
 ) {
   return createApiServer({
@@ -94,10 +96,11 @@ async function server(
     config,
     port: options.port ?? 4311,
     ready: options.ready ?? (() => true),
-    clock: { now: () => Date.parse('2026-11-04T08:00:00.000Z') },
+    clock: options.clock ?? { now: () => Date.parse('2026-11-04T08:00:00.000Z') },
     lookupSession: () => Promise.resolve({ project: 'worker', status: 'running' }),
     verifyToken: () => Promise.resolve({ name: 'test' }),
     registry: options.registry ?? {},
+    ...(options.doctor === undefined ? {} : { doctor: options.doctor }),
     logRequest: options.logRequest ?? vi.fn(),
   });
 }
@@ -128,11 +131,117 @@ describe('catalog HTTP API', () => {
     }
   });
 
+  it('serves bounded doctor checks without identity and keeps unexpected errors private', async () => {
+    const doctor = vi.fn(() =>
+      Promise.resolve({
+        version: '1.2.3',
+        checks: [
+          {
+            id: 'secrets',
+            status: 'fail' as const,
+            blocking: true,
+            fix: 'Add GITHUB_TOKEN to secrets.env.',
+          },
+        ],
+      }),
+    );
+    const app = await server(newStore(), { doctor });
+    try {
+      const response = await app.inject({ method: 'GET', url: '/v1/doctor', headers: { host } });
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual({
+        version: '1.2.3',
+        checks: [
+          {
+            id: 'secrets',
+            status: 'fail',
+            blocking: true,
+            fix: 'Add GITHUB_TOKEN to secrets.env.',
+          },
+        ],
+      });
+      expect(doctor).toHaveBeenCalledOnce();
+      const wrongHost = await app.inject({
+        method: 'GET',
+        url: '/v1/doctor',
+        headers: { host: 'localhost:4311' },
+      });
+      expectProblem(wrongHost, 'forbidden', 'Use the local API host.');
+      expect(doctor).toHaveBeenCalledOnce();
+    } finally {
+      await app.close();
+    }
+    const secret = 'never-print-this-secret';
+    const failing = await server(newStore(), { doctor: () => Promise.reject(new Error(secret)) });
+    try {
+      const response = await failing.inject({
+        method: 'GET',
+        url: '/v1/doctor',
+        headers: { host },
+      });
+      expect(response.statusCode).toBe(500);
+      expect(response.body).not.toContain(secret);
+    } finally {
+      await failing.close();
+    }
+  });
+
+  it('shares concurrent doctor probes and caches them briefly', async () => {
+    let now = 1_000;
+    let finish!: (report: { version: string; checks: [] }) => void;
+    const doctor = vi.fn(
+      () =>
+        new Promise<{ version: string; checks: [] }>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const app = await server(newStore(), { doctor, clock: { now: () => now } });
+    try {
+      const first = app.inject({ method: 'GET', url: '/v1/doctor', headers: { host } });
+      const second = app.inject({ method: 'GET', url: '/v1/doctor', headers: { host } });
+      await vi.waitFor(() => {
+        expect(doctor).toHaveBeenCalledOnce();
+      });
+      finish({ version: '1.2.3', checks: [] });
+      expect((await first).statusCode).toBe(200);
+      expect((await second).statusCode).toBe(200);
+      expect(
+        (await app.inject({ method: 'GET', url: '/v1/doctor', headers: { host } })).statusCode,
+      ).toBe(200);
+      expect(doctor).toHaveBeenCalledOnce();
+      now += 5_001;
+      const refreshed = app.inject({ method: 'GET', url: '/v1/doctor', headers: { host } });
+      await vi.waitFor(() => {
+        expect(doctor).toHaveBeenCalledTimes(2);
+      });
+      finish({ version: '1.2.3', checks: [] });
+      expect((await refreshed).statusCode).toBe(200);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('does not repeat failed doctor probes within the cooldown', async () => {
+    const doctor = vi.fn(() => Promise.reject(new Error('private failure')));
+    const app = await server(newStore(), { doctor, clock: { now: () => 1_000 } });
+    try {
+      const first = await app.inject({ method: 'GET', url: '/v1/doctor', headers: { host } });
+      const second = await app.inject({ method: 'GET', url: '/v1/doctor', headers: { host } });
+      expect(first.statusCode).toBe(500);
+      expect(second.statusCode).toBe(503);
+      expect(first.body + second.body).not.toContain('private failure');
+      expect(doctor).toHaveBeenCalledOnce();
+    } finally {
+      await app.close();
+    }
+  });
+
   it('returns starting before readiness on both routes with a matching request ID', async () => {
     const app = await server(newStore(), { ready: () => false });
     try {
       for (const request of [
         { method: 'GET' as const, url: '/v1/schema', headers: { host } },
+        { method: 'GET' as const, url: '/v1/doctor', headers: { host } },
         post({ task: 'PROJ-123' }),
       ]) {
         const response = await app.inject(request);

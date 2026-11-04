@@ -60,3 +60,14 @@ export type SessionEndReason = (typeof SESSION_END_REASONS)[number];
 /** Who caused a journal event. */
 export const ACTORS = ['operator', 'agent', 'system'] as const;
 export type Actor = (typeof ACTORS)[number];
+
+/** Bot OAuth scopes required by the generated Slack manifest and checked by doctor. */
+export const SLACK_BOT_SCOPES = [
+  'chat:write',
+  'chat:write.customize',
+  'groups:history',
+  'groups:read',
+  'app_mentions:read',
+  'commands',
+  'reactions:write',
+] as const;

@@ -18,6 +18,7 @@ import { requestOperation, requestTokenEnrollment } from './client.ts';
 import { loadClientConfig, loadEnrollmentConfig, type ClientConfig } from './config.ts';
 import { CliError, errorExitCode, renderCliError } from './exit-codes.ts';
 import { renderSlackManifest } from './manifest.ts';
+import { renderDoctor, runDoctor, type DoctorPorts } from './doctor.ts';
 import {
   installService,
   restartService,
@@ -44,6 +45,7 @@ export interface CliOptions {
   clientConfig?: ClientConfig;
   home?: string;
   setup?: InstallSkillsOptions & Omit<ServiceOptions, 'env'>;
+  doctor?: Partial<DoctorPorts>;
 }
 
 const processIo: CliIo = {
@@ -275,6 +277,23 @@ function registerSetupCommands(
       throw error;
     }
   };
+
+  const doctor = commandFor(program, 'doctor');
+  doctor.description('Check whether the installation is ready and show exact fixes.');
+  doctor.option('--offline', 'Validate config only, without network or process checks.');
+  doctor.option('--json', 'Print the check list as JSON.');
+  doctor.action(async () => {
+    const checks = await runDoctor({
+      env,
+      ...(options.home === undefined ? {} : { home: options.home }),
+      ...(doctor.opts()['offline'] ? { offline: true } : {}),
+      ...(options.doctor === undefined ? {} : { ports: options.doctor }),
+    });
+    const json = Boolean(doctor.opts()['json'] || program.opts()['json']);
+    io.stdout(`${renderDoctor(checks, json)}\n`);
+    if (checks.some((check) => check.blocking))
+      throw new CommanderError(1, 'board.error', 'Doctor found blocking failures.');
+  });
 
   commandFor(program, 'skills install')
     .description('Install bundled skills for Claude Code and Codex.')
