@@ -370,13 +370,11 @@ export async function notificationAddressedTo(
     .executeTakeFirst();
   const selectedIsLive =
     n.recipient_session !== null && (await liveSession(trx, n.recipient_session)) !== undefined;
-  const allowed =
-    n.recipient_session === null
-      ? parsed.actorRef.session === n.author_session || linked !== undefined
-      : selectedIsLive
-        ? parsed.actorRef.session === n.recipient_session
-        : (await recipient(trx, n))?.id === parsed.actorRef.session;
-  return allowed;
+  return n.recipient_session === null
+    ? parsed.actorRef.session === n.author_session || linked !== undefined
+    : selectedIsLive
+      ? parsed.actorRef.session === n.recipient_session
+      : (await recipient(trx, n))?.id === parsed.actorRef.session;
 }
 
 export async function closeBlockNotification(trx: Trx, blockId: number, at: Date): Promise<void> {

@@ -58,7 +58,7 @@ const EVENT_SUMMARIES = {
   token_revoked: 'Token revoked',
 } satisfies Record<EventKind, string>;
 
-export function projectTarget(project: string): ResolvedTarget {
+function projectTarget(project: string): ResolvedTarget {
   return { kind: 'found', value: { project, task: null, block: null, workers: [] } };
 }
 
@@ -77,11 +77,13 @@ export function visibleProjects(config: Config, actor: ActorId): ReadonlySet<str
 }
 
 export function projectTargets(config: Config, project: string | undefined, actor: ActorId) {
+  if (project !== undefined) {
+    return config.projects.some((entry) => entry.id === project)
+      ? [projectTarget(project)]
+      : [{ kind: 'missing' as const }];
+  }
   const visible = visibleProjects(config, actor);
-  const projects =
-    project === undefined
-      ? config.projects.filter((entry) => visible.has(entry.id))
-      : config.projects.filter((entry) => entry.id === project);
+  const projects = config.projects.filter((entry) => visible.has(entry.id));
   return projects.length === 0
     ? [{ kind: 'missing' as const }]
     : projects.map((entry) => projectTarget(entry.id));
