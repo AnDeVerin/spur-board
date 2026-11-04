@@ -135,7 +135,7 @@ async function recipient(trx: Trx, n: Notification): Promise<Row<'session_snapsh
   return undefined;
 }
 
-function taskUrl(task: Row<'task'>, config?: Config): string {
+export function taskUrl(task: Row<'task'>, config?: Config): string {
   if (task.tracker_kind === 'github-issues') {
     const match = /^(.+)#(\d+)$/.exec(task.key);
     if (match?.[1] !== undefined && match[2] !== undefined)

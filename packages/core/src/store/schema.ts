@@ -45,7 +45,7 @@ export interface TaskTable {
   id: Generated<number>;
   project: string;
   tracker_kind: TrackerKind;
-  tracker_id: string;
+  tracker_id: string | null;
   key: string;
   membership: Membership;
   archive_reason: ArchiveReason | null;
@@ -55,6 +55,11 @@ export interface TaskTable {
   left_moves: Generated<number>;
   merged_past_gate: Generated<Flag>;
   created_at: string;
+  manual_include: Generated<Flag>;
+  manual_exclude: Generated<Flag>;
+  last_change_at: string | null;
+  terminal_at: string | null;
+  archive_slot_at: string | null;
 }
 
 export interface PrSnapshotTable {
@@ -273,6 +278,10 @@ export interface OperatorItemTable {
   raised_at: string;
   cleared_at: string | null;
   line_outbox_id: number | null;
+  fingerprint: Generated<string | null>;
+  fact_at: Generated<string | null>;
+  source: Generated<string | null>;
+  priority: Generated<number | null>;
   /** Normalized event retained for a later explicit retry. */
   inbound_event_json: string | null;
 }
@@ -296,6 +305,20 @@ export interface SourceStateTable {
   last_complete_at: string | null;
   blind_reason: string | null;
   cursor: string | null;
+  observed_at: string | null;
+  blind_message: string | null;
+  /** JSON array of entity refs. */
+  gone: Generated<string>;
+}
+
+export interface SourceMissTable {
+  source: string;
+  ref_key: string;
+  /** JSON entity ref. */
+  ref: string;
+  misses: number;
+  gone: Flag;
+  outcome: 'ok' | 'not_found' | 'no_access' | null;
 }
 
 /** Every table in the store, for `Kysely<Tables>`. */
@@ -315,6 +338,7 @@ export interface Tables {
   dismissal: DismissalTable;
   meta: MetaTable;
   source_state: SourceStateTable;
+  source_miss: SourceMissTable;
   transport_health: TransportHealthTable;
   space_slot: SpaceSlotTable;
   notification: NotificationTable;

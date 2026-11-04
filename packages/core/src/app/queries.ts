@@ -23,6 +23,7 @@ export interface Query<Id extends QueryId> {
   resolveTargets(
     trx: Kysely<Tables>,
     input: z.output<Entry<Id>['input']>,
+    actor: ActorId,
   ): Promise<readonly ResolvedTarget[]>;
   run(
     trx: Kysely<Tables>,
@@ -93,7 +94,7 @@ export function createQuery(deps: {
       throw new CommandError(errorCodeOf(parsed.error), 'Fix the operation input.');
     const parsedInput = parsed.data as z.output<Entry<typeof query.id>['input']>;
     const result = await store.transaction(async (trx) => {
-      const targets = await query.resolveTargets(trx, parsedInput);
+      const targets = await query.resolveTargets(trx, parsedInput, actor);
       for (const target of targets.length === 0 ? [{ kind: 'missing' as const }] : targets) {
         const decision = authorize(entry.grants, actor, { config, target });
         if (decision.status === 'denied') {

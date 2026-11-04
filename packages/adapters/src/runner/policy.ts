@@ -88,12 +88,12 @@ export function staleHardBound(firedAt: number, staleMultiplier: number, interva
 }
 
 /** The identity a requested entity and its batch entry share. */
-function entityKey(ref: EntityRef): string {
+export function entityKey(ref: EntityRef): string {
   switch (ref.kind) {
     case 'pr':
       return JSON.stringify([ref.kind, ref.repo, ref.number]);
     case 'ticket':
-      return JSON.stringify([ref.kind, ref.trackerId, ref.id]);
+      return JSON.stringify([ref.kind, ref.trackerId, ref.id ?? `key:${ref.key}`]);
     case 'session':
       return JSON.stringify([ref.kind, ref.id]);
   }
@@ -119,6 +119,7 @@ export interface EntityOutcomes {
   /** Per entity key: consecutive complete batches the ref was not_found or no_access in. */
   counts: Map<string, number>;
   gone: GoneRef[];
+  outcomes: { ref: GoneRef; misses: number; gone: boolean }[];
   /** The batch is complete and every requested PR and ticket is ok or gone. */
   complete: boolean;
 }
@@ -134,6 +135,7 @@ export function applyEntityOutcomes(input: {
   const statuses = new Map(batch.entities.map((entity) => [entityKey(entity.ref), entity.status]));
   const counts = new Map<string, number>();
   const gone: GoneRef[] = [];
+  const outcomes: EntityOutcomes['outcomes'] = [];
   let complete = batch.complete;
   for (const ref of input.requested) {
     const key = entityKey(ref);
@@ -145,8 +147,9 @@ export function applyEntityOutcomes(input: {
     else if (batch.complete && status !== undefined) count += 1;
     counts.set(key, count);
     const isGone = count >= goneAfterPolls;
+    outcomes.push({ ref, misses: count, gone: isGone });
     if (isGone) gone.push(ref);
     if (status !== 'ok' && !isGone) complete = false;
   }
-  return { counts, gone, complete };
+  return { counts, gone, outcomes, complete };
 }

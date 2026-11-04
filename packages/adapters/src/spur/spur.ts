@@ -45,7 +45,7 @@ export interface SpurAdapterOptions {
   intervalMs: number;
   flipSmoothingMs: number;
   fetch?: typeof fetch;
-  onNotice?: ((notice: SpurNotice) => void) | undefined;
+  onNotice?: ((notice: SpurNotice) => void | Promise<void>) | undefined;
 }
 
 /** A single Spur source. State is scoped to this adapter instance, never shared across daemons. */
@@ -242,20 +242,20 @@ export function createSpurAdapter(options: SpurAdapterOptions): Adapter {
         items,
         entities,
       };
-      health = next;
-      if (restartNotice) options.onNotice?.(restartNotice);
-      instanceId = newInstanceId;
+      if (restartNotice) await options.onNotice?.(restartNotice);
       for (const wire of [...listed, ...detail.values()]) {
         if (wire === null) continue;
         if (!isKnownHealth(wire.state) && !unknownHealthValues.has(wire.state)) {
+          await options.onNotice?.({ kind: 'unknown_state', value: wire.state });
           unknownHealthValues.add(wire.state);
-          options.onNotice?.({ kind: 'unknown_state', value: wire.state });
         }
         if (!isKnownStatus(wire.status) && !unknownStatusValues.has(wire.status)) {
+          await options.onNotice?.({ kind: 'unknown_status', value: wire.status });
           unknownStatusValues.add(wire.status);
-          options.onNotice?.({ kind: 'unknown_status', value: wire.status });
         }
       }
+      health = next;
+      instanceId = newInstanceId;
       return batch;
     },
   };

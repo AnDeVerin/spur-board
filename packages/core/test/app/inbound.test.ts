@@ -40,6 +40,18 @@ const config = configSchema.parse({
   digest: { tz: 'UTC' },
 });
 const stores: Store[] = [];
+function emptyStatus() {
+  return {
+    tasks: [],
+    items: [],
+    unlinkedPrs: [],
+    unlinkedSessions: [],
+    sources: [],
+    warmingUp: true,
+    spurUnavailable: null,
+    hostLoad: null,
+  };
+}
 
 afterEach(async () => {
   for (const store of stores.splice(0)) await store.close();
@@ -591,7 +603,7 @@ describe('inbound apply', () => {
       'status.get': {
         id: 'status.get',
         resolveTargets: () => Promise.resolve([boardTarget]),
-        run: () => Promise.resolve({ tasks: [] }),
+        run: () => Promise.resolve(emptyStatus()),
       },
       'item.close': {
         id: 'item.close',
@@ -641,7 +653,7 @@ describe('inbound apply', () => {
     await inbound.sink(button);
     await inbound.sink(button);
     expect(responses).toEqual([
-      JSON.stringify({ tasks: [] }),
+      JSON.stringify(emptyStatus()),
       JSON.stringify({ item: { id: 'I1', task: null, at, summary: 'Closed' } }),
       JSON.stringify({ item: { id: 'I1', task: null, at, summary: 'Closed' } }),
     ]);
@@ -667,7 +679,7 @@ describe('inbound apply', () => {
               { kind: 'found', value: { project: 'proj', task: null, block: null, workers: [] } },
             ]),
           run: () =>
-            fail ? Promise.reject(new Error('handler failed')) : Promise.resolve({ tasks: [] }),
+            fail ? Promise.reject(new Error('handler failed')) : Promise.resolve(emptyStatus()),
         },
       },
       gateway: {

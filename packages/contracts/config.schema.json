@@ -123,7 +123,16 @@
     "thresholds": {
       "default": {},
       "type": "object",
-      "properties": { "staleMultiplier": { "default": 3, "type": "number", "minimum": 1 } },
+      "properties": {
+        "staleMultiplier": { "default": 3, "type": "number", "minimum": 1 },
+        "blockOpenMs": {
+          "default": 86400000,
+          "description": "How long a block may stay open before an item is raised in milliseconds.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        }
+      },
       "additionalProperties": false
     },
     "archive": {

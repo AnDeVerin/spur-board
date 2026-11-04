@@ -15,8 +15,13 @@ import {
   commentSchema,
   itemViewSchema,
   schemaGetOutputSchema,
+  sourceViewSchema,
+  statusItemSchema,
+  statusSessionFactsSchema,
+  statusTaskSchema,
   taskViewSchema,
 } from './schemas.ts';
+import { prFactsSchema } from '../facts.ts';
 
 const project = z
   .string()
@@ -81,17 +86,44 @@ export const OPERATIONS = [
   defineOperation({
     id: 'status.get',
     kind: 'query',
-    description: 'List the tasks on the board.',
+    description: 'List tasks, observations, source freshness and actionable items.',
     mcp: { whenToUse: 'Get a board overview.', whenNotToUse: 'Use task_get for one task.' },
     input: z.strictObject({ project }),
     output: z.strictObject({
-      tasks: z.array(taskViewSchema).describe('Tasks on the board, by column.'),
+      tasks: z.array(statusTaskSchema).describe('Tasks on the board with facts and links.'),
+      items: z.array(statusItemSchema).describe('Actionable items in priority order.'),
+      unlinkedPrs: z.array(prFactsSchema).describe('Observed pull requests without a task link.'),
+      unlinkedSessions: z
+        .array(statusSessionFactsSchema)
+        .describe('Observed sessions without a task link.'),
+      sources: z.array(sourceViewSchema).describe('Freshness and availability of each source.'),
+      warmingUp: z.boolean().describe('Whether required sources still need a complete poll.'),
+      spurUnavailable: z
+        .string()
+        .nullable()
+        .describe('One combined Spur availability line, or null when available.'),
+      hostLoad: z.string().nullable().describe('Host-load episode line, or null when absent.'),
     }),
     grants: operatorOrProjectAgent,
     errors: ['not_found'],
     cli: { command: 'status', args: [] },
     slack: { kind: 'slash-command', usage: '/board status' },
-    examples: [{ summary: 'Show the board', input: {}, output: { tasks: [task] } }],
+    examples: [
+      {
+        summary: 'Show the board',
+        input: {},
+        output: {
+          tasks: [{ ...task, ticket: null, prs: [], sessions: [], links: [] }],
+          items: [],
+          unlinkedPrs: [],
+          unlinkedSessions: [],
+          sources: [],
+          warmingUp: true,
+          spurUnavailable: null,
+          hostLoad: null,
+        },
+      },
+    ],
   }),
   defineOperation({
     id: 'task.get',
