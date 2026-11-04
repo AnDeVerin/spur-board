@@ -177,7 +177,7 @@ describe('startAdapters', () => {
     expect(Object.keys(manifest.exports)).toEqual(['.', './testing']);
   });
 
-  it('starts with no adapters and stops cleanly', async () => {
+  it('registers the configured GitHub repository and stops cleanly', async () => {
     const config = configSchema.parse({
       projects: [
         {
@@ -197,13 +197,43 @@ describe('startAdapters', () => {
       digest: { tz: 'Europe/Berlin' },
     });
     const core = { context: vi.fn(), observe: vi.fn(), reportSourceState: vi.fn() };
-    const runner = entry.startAdapters(config, core);
-    await vi.advanceTimersByTimeAsync(10 * I);
+    core.context.mockResolvedValue(context());
+    core.observe.mockResolvedValue(undefined);
+    core.reportSourceState.mockResolvedValue(undefined);
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          data: {
+            rateLimit: { remaining: 5000, resetAt: at(I) },
+            repository: {
+              pullRequests: { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } },
+            },
+          },
+        }),
+        { status: 200 },
+      ),
+    );
+    const runner = entry.startAdapters(config, core, { token: 'synthetic-token', fetch: fetcher });
+    await flush();
     await expect(runner.stop()).resolves.toBeUndefined();
-    expect(core.context).not.toHaveBeenCalled();
-    expect(core.observe).not.toHaveBeenCalled();
-    expect(core.reportSourceState).not.toHaveBeenCalled();
+    expect(core.context).toHaveBeenCalledWith('github:web:example-org/web');
+    expect(core.observe).toHaveBeenCalledTimes(1);
+    expect(fetcher).toHaveBeenCalledTimes(1);
     expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
+describe('repository projection', () => {
+  it('sends and validates only PR refs from the source repository', async () => {
+    const foreign: PrEntityRef = { kind: 'pr', repo: 'demo/other', number: 9 };
+    const core = createFakeCore({ context: () => context({ prs: [pr, foreign] }) });
+    const poll = vi.fn(() => Promise.resolve(prNotFound()));
+    const adapter = createFakeAdapter({ id: 'github', intervalMs: I, poll });
+    const runner = startRunner({ entries: [{ adapter, repo: pr.repo }], core, config: defaults });
+    runners.push(runner);
+    await flush();
+    expect(adapter.contexts[0]?.observe.prs).toEqual([pr]);
+    expect(core.observed).toHaveLength(1);
   });
 });
 
@@ -594,6 +624,23 @@ describe('gone entities', () => {
     expect(last()).toEqual({ gone: [] });
     await advanceTo(2 * I);
     expect(last()).toEqual({ lastCompleteAt: at(2 * I), gone: [pr] });
+  });
+
+  it('does not count an incomplete no_access placeholder toward gone', async () => {
+    random(0);
+    const { last } = start(
+      (_, n) =>
+        Promise.resolve(
+          n === 1
+            ? batch({ complete: false, entities: [{ ref: pr, status: 'no_access' }] })
+            : prNotFound(),
+        ),
+      requestPr,
+    );
+    await advanceTo(2 * I);
+    expect(last()?.gone).toEqual([]);
+    await advanceTo(3 * I);
+    expect(last()?.gone).toEqual([pr]);
   });
 
   it('counts a ticket the same way', async () => {

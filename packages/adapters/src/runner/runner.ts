@@ -39,6 +39,8 @@ export interface SourceState {
 
 interface RunnerEntry {
   adapter: Adapter;
+  /** Repository owned by this source, when it observes PRs. */
+  repo?: string;
   /** Pause the source while its reported budget is below this. */
   reserveRemaining?: number | undefined;
 }
@@ -68,7 +70,7 @@ type Blind = NonNullable<SourceState['blind']>;
 type Timer = ReturnType<typeof setTimeout>;
 
 function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: number) {
-  const { adapter, reserveRemaining } = entry;
+  const { adapter, reserveRemaining, repo } = entry;
   const { core, config } = options;
   const source = adapter.id;
   const { intervalMs } = adapter;
@@ -165,9 +167,21 @@ function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: nu
     try {
       const context = await core.context(source);
       if (aborted()) return;
-      const requested: GoneRef[] = [...context.observe.prs, ...context.observe.tickets];
+      const projected =
+        repo === undefined
+          ? context
+          : {
+              ...context,
+              observe: {
+                ...context.observe,
+                prs: context.observe.prs.filter(
+                  (ref) => ref.repo.toLowerCase() === repo.toLowerCase(),
+                ),
+              },
+            };
+      const requested: GoneRef[] = [...projected.observe.prs, ...projected.observe.tickets];
       const batch = await untilAborted(
-        adapter.poll({ ...context, signal: abort.signal }),
+        adapter.poll({ ...projected, signal: abort.signal }),
         abort.signal,
       );
       // Only an abort ends the poll here; a missing or malformed batch fails validation below.
@@ -176,7 +190,7 @@ function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: nu
       if (
         !parsed.success ||
         parsed.data.source !== source ||
-        !answersRequest(context.observe, parsed.data.entities)
+        !answersRequest(projected.observe, parsed.data.entities)
       ) {
         outcome = { kind: 'failed', error: new AdapterError('transient', 'Invalid batch') };
       } else {
