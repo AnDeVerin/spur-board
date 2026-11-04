@@ -30,6 +30,17 @@ describe('package tarball allowlist', () => {
     }).toThrow(/forbidden file/);
   });
 
+  it.each([
+    'package/dist/credentials.pem',
+    'package/dist/cli.mjs.map',
+    'package/dist/migrations/seed.sql',
+    'package/dist/migrations/0001_init.sql.map',
+  ])('rejects unexpected dist member %s', (file) => {
+    expect(() => {
+      validateTarball([...files, file], manifest);
+    }).toThrow(/outside the allowlist/);
+  });
+
   it('rejects a missing board binary', () => {
     expect(() => {
       validateTarball(
@@ -42,6 +53,12 @@ describe('package tarball allowlist', () => {
   it('rejects workspace-only dependencies', () => {
     expect(() => {
       validateTarball(files, { ...manifest, dependencies: { '@spur-board/core': '0.0.0' } });
+    }).toThrow(/workspace-only dependency/);
+  });
+
+  it('rejects unresolved catalog dependencies', () => {
+    expect(() => {
+      validateTarball(files, { ...manifest, dependencies: { fastify: 'catalog:' } });
     }).toThrow(/workspace-only dependency/);
   });
 });

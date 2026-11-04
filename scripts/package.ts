@@ -72,28 +72,35 @@ export function validateTarball(entries: readonly string[], manifest: PackageMan
     ) {
       throw new Error(`Tarball contains a forbidden file: ${entry}`);
     }
+    const runtime =
+      /^package\/dist\/(?:bin|cli|client|daemon|(?:src|client)-[A-Za-z0-9]{8})\.mjs$/.test(entry);
+    const migration = /^package\/dist\/migrations\/\d{4}_[a-z0-9_]+\.sql$/.test(entry);
     if (
       entry !== 'package/package.json' &&
       entry !== 'package/README.md' &&
       entry !== 'package/LICENSE' &&
-      !entry.startsWith('package/dist/') &&
+      !runtime &&
+      !migration &&
       !entry.startsWith('package/skills/')
     ) {
       throw new Error(`Tarball contains a file outside the allowlist: ${entry}`);
     }
   }
   for (const [name, version] of Object.entries(manifest.dependencies ?? {})) {
-    if (name.startsWith('@spur-board/') || version.startsWith('workspace:')) {
+    if (name.startsWith('@spur-board/') || /^(?:workspace|catalog):/.test(version)) {
       throw new Error(`Tarball has a workspace-only dependency: ${name}`);
     }
   }
 }
 
-export function checkTarball(tarball: string): void {
+export function checkTarball(tarball: string, expectedVersion?: string): void {
   const entries = run('tar', ['-tzf', tarball]).trim().split('\n');
   const manifest = JSON.parse(
     run('tar', ['-xOf', tarball, 'package/package.json']),
   ) as PackageManifest;
+  if (expectedVersion !== undefined && manifest.version !== expectedVersion) {
+    throw new Error(`Tarball version ${manifest.version} differs from release ${expectedVersion}.`);
+  }
   validateTarball(entries, manifest);
 }
 

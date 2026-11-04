@@ -229,7 +229,6 @@ jobs:
         with:
           node-version: 26
       - run: pnpm install --frozen-lockfile
-      - run: pnpm package:pack
       - env:
           GITHUB_TOKEN: ${{ github.token }}
         run: pnpm exec semantic-release

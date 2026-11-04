@@ -19,7 +19,8 @@ module.exports = {
       { preset: 'conventionalcommits' },
     ],
     [require.resolve('@semantic-release/changelog'), { changelogFile: 'RELEASE_CHANGELOG.md' }],
-    [require.resolve('@semantic-release/npm'), { pkgRoot: 'packages/cli' }],
+    [require.resolve('@semantic-release/npm'), { pkgRoot: 'packages/cli', npmPublish: false }],
+    require.resolve('./scripts/release-package.ts'),
     [require.resolve('@semantic-release/github'), { assets: ['RELEASE_CHANGELOG.md'] }],
   ],
 };

@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { runSmokeSteps, smokeSteps, verifySchema, verifyVersion } from './package-smoke.ts';
+import {
+  command,
+  runSmokeSteps,
+  smokeSteps,
+  verifySchema,
+  verifyVersion,
+} from './package-smoke.ts';
 
 describe('packed smoke steps', () => {
   it('keeps the staged checks in one ordered list', () => {
@@ -28,5 +34,18 @@ describe('packed smoke steps', () => {
     expect(() => {
       verifyVersion({ code: 0, stdout: '0.1.0\n', stderr: '' }, '0.1.0');
     }).not.toThrow();
+  });
+
+  it('terminates a hung packed command before smoke can continue', async () => {
+    const started = performance.now();
+    await expect(
+      command(
+        process.execPath,
+        ['-e', 'process.on("SIGTERM", () => {}); setInterval(() => {}, 1000)'],
+        {},
+        50,
+      ),
+    ).rejects.toThrow('timed out');
+    expect(performance.now() - started).toBeLessThan(3_000);
   });
 });

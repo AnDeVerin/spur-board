@@ -12,20 +12,41 @@ interface CommandResult {
   stderr: string;
 }
 
-function command(binary: string, args: string[], env: NodeJS.ProcessEnv): Promise<CommandResult> {
+export function command(
+  binary: string,
+  args: string[],
+  env: NodeJS.ProcessEnv,
+  timeoutMs = 15_000,
+): Promise<CommandResult> {
   return new Promise((resolve, reject) => {
     const child = spawn(binary, args, { env, stdio: ['ignore', 'pipe', 'pipe'] });
     let stdout = '';
     let stderr = '';
+    let timedOut = false;
+    let killTimer: ReturnType<typeof setTimeout> | undefined;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill('SIGTERM');
+      killTimer = setTimeout(() => child.kill('SIGKILL'), 1_000);
+    }, timeoutMs);
+    const clearTimers = () => {
+      clearTimeout(timer);
+      clearTimeout(killTimer);
+    };
     child.stdout.on('data', (chunk: Buffer) => {
       stdout += chunk.toString();
     });
     child.stderr.on('data', (chunk: Buffer) => {
       stderr += chunk.toString();
     });
-    child.once('error', reject);
+    child.once('error', (error) => {
+      clearTimers();
+      reject(error);
+    });
     child.once('close', (code) => {
-      resolve({ code, stdout, stderr });
+      clearTimers();
+      if (timedOut) reject(new Error(`Packed command timed out: ${binary} ${args.join(' ')}`));
+      else resolve({ code, stdout, stderr });
     });
   });
 }
