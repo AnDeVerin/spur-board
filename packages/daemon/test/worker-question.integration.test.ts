@@ -148,6 +148,7 @@ describe('worker question through the daemon', () => {
         .execute(),
     ).toEqual([{ text: 'Answer during downtime.' }]);
     await h.pulse();
+    expect(h.gateway.platform.conversations()).toHaveLength(1);
     expect(h.sends).toHaveLength(1);
     expect(h.sends[0]?.text).toContain('board inbox');
     const inbox = await h.cli(['inbox', '--json']);

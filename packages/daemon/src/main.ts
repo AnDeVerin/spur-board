@@ -1,24 +1,10 @@
 import { homedir } from 'node:os';
-import {
-  commandRetention,
-  createObservationCore,
-  createOperationRegistry,
-  openStore,
-  type Store,
-} from '@spur-board/core';
-import { createSlackGateway } from '@spur-board/gateway-slack';
+import { openStore, type Store } from '@spur-board/core';
 import { loadConfig, resolvePaths } from './config.ts';
-import {
-  DEFAULT_SHUTDOWN_TIMEOUT_MS,
-  runDaemon,
-  type ModuleEntry,
-  type ProcessPort,
-} from './lifecycle.ts';
+import { DEFAULT_SHUTDOWN_TIMEOUT_MS, runDaemon, type ProcessPort } from './lifecycle.ts';
 import { acquireLock } from './lock.ts';
-import { createBoardModules } from './board-modules.ts';
-import { createInboundModule } from './inbound-module.ts';
-import { createHttpModule } from './http-module.ts';
-import { createOutboxModule, slackSettings } from './outbox-module.ts';
+import { createDaemonModules } from './composition.ts';
+import { slackSettings } from './outbox-module.ts';
 
 // Below the 2^31-1 ms timer limit; Node turns larger values into 1 ms with a warning.
 const KEEPALIVE_MS = 3_600_000;
@@ -59,79 +45,7 @@ export async function main(): Promise<void> {
       return loaded;
     },
     openStore,
-    modules: (ctxFor) => {
-      const board = ctxFor('board-core');
-      const core = createObservationCore({
-        store: board.store,
-        config: board.config,
-        clock: board.clock,
-      });
-      const registry = createOperationRegistry({
-        config: board.config,
-        clock: board.clock,
-        completeSince: core.completeSince,
-      });
-      const commands = ctxFor('commands');
-      const entries: ModuleEntry[] = [
-        {
-          name: 'commands',
-          stopStage: 'final',
-          module: commandRetention({
-            store: commands.store,
-            clock: commands.clock,
-            retentionDays: commands.config.commands.retentionDays,
-            onError: (err) => {
-              commands.log.error({ err }, 'command purge failed');
-            },
-          }),
-        },
-      ];
-      entries.push(...createBoardModules(ctxFor, { core }));
-      const ctx = ctxFor('gateway-slack');
-      const settings = slackSettings(ctx.config, ctx.secrets);
-      const gateway = settings === null ? undefined : createSlackGateway(settings);
-      const inbound =
-        gateway === undefined || settings?.appToken === undefined
-          ? undefined
-          : createInboundModule(ctxFor('inbound'), gateway, registry);
-      if (settings !== null && inbound === undefined)
-        ctx.log.info('Slack inbound disabled: SLACK_APP_TOKEN is absent');
-      if (gateway !== undefined)
-        entries.push({
-          name: 'gateway-slack',
-          stopStage: 'final',
-          module: {
-            start: () =>
-              gateway.start(
-                inbound === undefined ? () => Promise.resolve() : (event) => inbound.sink(event),
-              ),
-            async stop() {
-              try {
-                await gateway.stop();
-              } finally {
-                await inbound?.stop();
-              }
-            },
-          },
-        });
-      if (inbound !== undefined)
-        entries.push({
-          name: 'inbound',
-          stopStage: 'pollers',
-          module: inbound,
-        });
-      entries.push({
-        name: 'outbox',
-        stopStage: 'outbox',
-        module: createOutboxModule(ctxFor('outbox'), gateway),
-      });
-      entries.push({
-        name: 'http',
-        stopStage: 'final',
-        module: createHttpModule(ctxFor('http'), { registry }),
-      });
-      return entries;
-    },
+    modules: (ctxFor) => createDaemonModules(ctxFor).entries,
     port: processPort(),
     stdout: process.stdout,
     clock: { now: () => Date.now() },

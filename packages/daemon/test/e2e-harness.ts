@@ -3,19 +3,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ServerResponse } from 'node:http';
 import { configSchema, userIdSchema } from '@spur-board/contracts';
-import {
-  commandRetention,
-  createObservationCore,
-  createOperationRegistry,
-  openStore,
-  type Store,
-} from '@spur-board/core';
+import { openStore, type Store } from '@spur-board/core';
 import { createFakeGateway } from '@spur-board/gateway-testkit';
 import { runCli, type CliIo } from '../../cli/src/cli.ts';
-import { createBoardModules } from '../src/board-modules.ts';
-import { createHttpModule } from '../src/http-module.ts';
+import { createDaemonModules } from '../src/composition.ts';
 import { createInboundModule } from '../src/inbound-module.ts';
-import { runDaemon, type ModuleEntry, type ProcessPort } from '../src/lifecycle.ts';
+import { runDaemon, type ProcessPort } from '../src/lifecycle.ts';
 import { createOutboxModule } from '../src/outbox-module.ts';
 
 const START = Date.parse('2026-11-04T08:00:00.000Z');
@@ -145,84 +138,31 @@ export async function createE2eHarness() {
         return store;
       },
       modules: (ctxFor) => {
-        const board = ctxFor('board-core');
-        const core = createObservationCore({
-          store: board.store,
-          config: board.config,
-          clock: board.clock,
-        });
-        const registry = createOperationRegistry({
-          config: board.config,
-          clock: board.clock,
-          completeSince: core.completeSince,
-        });
-        const commands = ctxFor('commands');
-        const entries: ModuleEntry[] = [
-          {
-            name: 'commands',
-            stopStage: 'final',
-            module: commandRetention({
-              store: commands.store,
-              clock: commands.clock,
-              retentionDays: commands.config.commands.retentionDays,
-              onError: (err) => {
-                commands.log.error({ err }, 'command purge failed');
-              },
-            }),
-          },
-        ];
-        entries.push(
-          ...createBoardModules(ctxFor, {
-            core,
-            tick: () => Promise.resolve(),
-            startAdapters: () => ({ stop: () => Promise.resolve() }),
-          }),
-        );
-        inbound = createInboundModule(ctxFor('inbound'), gateway, registry);
-        const inboundModule = inbound;
-        entries.push({
-          name: 'gateway-slack',
-          stopStage: 'final',
-          module: {
-            start: () => gateway.start((event) => inboundModule.sink(event)),
-            async stop() {
-              try {
-                await gateway.stop();
-              } finally {
-                await inboundModule.stop();
-              }
-            },
-          },
-        });
-        entries.push({ name: 'inbound', stopStage: 'pollers', module: inboundModule });
-        outbox = createOutboxModule(ctxFor('outbox'), gateway, {
+        const composed = createDaemonModules(ctxFor, {
+          gateway,
           spur: {
             send(session, text) {
               sends.push({ session, text });
               return Promise.resolve();
             },
           },
+          tick: () => Promise.resolve(),
+          startAdapters: () => ({ stop: () => Promise.resolve() }),
+          sessionFetcher: () => Promise.reject(new Error('unexpected live session lookup')),
+          onListening: (bound) => {
+            address = bound;
+          },
+          afterOperation: (response: ServerResponse) => {
+            if (crashNext) {
+              crashNext = false;
+              response.destroy();
+              signal?.('SIGTERM');
+            }
+          },
         });
-        entries.push({ name: 'outbox', stopStage: 'outbox', module: outbox });
-        entries.push({
-          name: 'http',
-          stopStage: 'final',
-          module: createHttpModule(ctxFor('http'), {
-            registry,
-            fetcher: () => Promise.reject(new Error('unexpected live session lookup')),
-            onListening: (bound) => {
-              address = bound;
-            },
-            afterOperation: (response: ServerResponse) => {
-              if (crashNext) {
-                crashNext = false;
-                response.destroy();
-                signal?.('SIGTERM');
-              }
-            },
-          }),
-        });
-        return entries;
+        inbound = composed.inbound;
+        outbox = composed.outbox;
+        return composed.entries;
       },
       port,
       stdout: { write() {} },
