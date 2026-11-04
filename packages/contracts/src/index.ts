@@ -98,6 +98,7 @@ export {
 } from './ops/define.ts';
 export { commentSchema, type Comment } from './ops/schemas.ts';
 export { OPERATIONS, type OperationId } from './ops/catalog.ts';
+export { roleCanUseOperation, type SchemaRole } from './ops/roles.ts';
 export { buildCatalogSnapshot } from './ops/snapshot.ts';
 export {
   CHECK_STATES,

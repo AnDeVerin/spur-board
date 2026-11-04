@@ -9,6 +9,7 @@ import {
   type ServerErrorCode,
   commentSchema,
   errorCodeOf,
+  roleCanUseOperation,
 } from '../src/index.ts';
 import { defineOperation } from '../src/ops/define.ts';
 import { catalogSnapshotBody, catalogVersion } from '../src/ops/snapshot.ts';
@@ -55,6 +56,23 @@ describe('schema walker', () => {
 });
 
 describe('catalog', () => {
+  it('projects operation grants and mode grants by role', () => {
+    const byId = new Map(OPERATIONS.map((operation) => [operation.id, operation]));
+    const schema = byId.get('schema.get');
+    const tokenList = byId.get('token.list');
+    const unblock = byId.get('block.unblock');
+    if (schema === undefined || tokenList === undefined || unblock === undefined)
+      throw new Error('Missing catalog operation');
+
+    expect(roleCanUseOperation(schema, 'worker')).toBe(true);
+    expect(roleCanUseOperation(tokenList, 'worker')).toBe(false);
+    expect(roleCanUseOperation(tokenList, 'operator')).toBe(true);
+    expect(roleCanUseOperation(unblock, 'orchestrator', 'reason')).toBe(true);
+    expect(roleCanUseOperation(unblock, 'orchestrator', 'done')).toBe(false);
+    expect(roleCanUseOperation(unblock, 'worker', 'done')).toBe(true);
+    expect(roleCanUseOperation(unblock, 'worker', 'withdraw')).toBe(true);
+  });
+
   it('has unique ids, CLI commands and MCP names', () => {
     for (const pick of [
       (op: (typeof OPERATIONS)[number]) => op.id,
