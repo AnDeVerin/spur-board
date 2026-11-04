@@ -1,0 +1,345 @@
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { EVENT_KINDS, configSchema } from '@spur-board/contracts';
+import { afterEach, describe, expect, it } from 'vitest';
+import {
+  createApply,
+  createOperationRegistry,
+  createQuery,
+  openStore,
+  type Store,
+} from '../../src/index.ts';
+
+const KEY = 'o/r#101';
+const OTHER_KEY = 'x/y#202';
+const AT = '2026-11-04T08:00:00.000Z';
+const clock = { now: () => Date.parse(AT) };
+const worker = 'agent:web/worker-1';
+const orchestrator = 'agent:qa/qa-1';
+const foreign = 'agent:other/worker-2';
+const config = configSchema.parse({
+  projects: [
+    {
+      id: 'board',
+      tracker: { type: 'github-issues', repo: 'o/r', milestone: 'M1' },
+      repos: ['o/r'],
+      operatorGithubLogin: 'operator',
+      spurProjects: [
+        { name: 'web', role: 'worker' },
+        { name: 'qa', role: 'worker' },
+      ],
+      columns: [
+        { id: 'todo', orchestrator: 'none' },
+        { id: 'ready-for-dev', orchestrator: 'none' },
+        { id: 'dev', orchestrator: 'qa' },
+        { id: 'review', orchestrator: 'none' },
+        { id: 'qa', orchestrator: 'none' },
+        { id: 'ready-to-merge', orchestrator: 'none' },
+        { id: 'done', orchestrator: 'none' },
+      ],
+    },
+    {
+      id: 'other',
+      tracker: { type: 'github-issues', repo: 'x/y', milestone: 'M1' },
+      repos: ['x/y'],
+      operatorGithubLogin: 'operator',
+      spurProjects: [{ name: 'other', role: 'worker' }],
+    },
+  ],
+  operator: { slack: 'operator' },
+  digest: { tz: 'UTC' },
+});
+const stores: Store[] = [];
+
+function required<T>(value: T | undefined): T {
+  if (value === undefined) throw new Error('Expected a registered operation');
+  return value;
+}
+
+async function seeded() {
+  const store = openStore(join(mkdtempSync(join(tmpdir(), 'board-queries-')), 'board.db'));
+  stores.push(store);
+  await store.transaction(async (trx) => {
+    for (const [id, project, key] of [
+      [1, 'board', KEY],
+      [2, 'other', OTHER_KEY],
+    ] as const) {
+      await trx
+        .insertInto('task')
+        .values({
+          id,
+          project,
+          key,
+          tracker_kind: 'github-issues',
+          tracker_id: String(id),
+          membership: 'active',
+          archive_reason: null,
+          column: 'dev',
+          shadow_column: null,
+          created_at: AT,
+          last_change_at: AT,
+          terminal_at: null,
+          archive_slot_at: null,
+        })
+        .execute();
+    }
+    await trx
+      .insertInto('link')
+      .values({
+        task_id: 1,
+        entity: 'session',
+        repo: null,
+        number: null,
+        pr_state: null,
+        session_id: 'worker-1',
+        role: 'worker',
+        source: 'manual',
+        created_at: AT,
+      })
+      .execute();
+  });
+  const registry = createOperationRegistry({ config, clock, completeSince: new Map() });
+  const query = createQuery({ store, config, clock });
+  const apply = createApply({ store, config, clock });
+  return { store, registry, query, apply };
+}
+
+afterEach(async () => {
+  for (const store of stores.splice(0)) await store.close();
+});
+
+describe('production query handlers', () => {
+  it('reads the task view, all blocks and oldest-first untrusted comments', async () => {
+    const { store, registry, query } = await seeded();
+    await store.transaction(async (trx) => {
+      for (const [id, state] of [
+        [1, 'unblocked'],
+        [2, 'open'],
+      ] as const) {
+        await trx
+          .insertInto('block')
+          .values({
+            id,
+            task_id: 1,
+            type: 'needs_input',
+            reason: `Question ${String(id)}`,
+            author: worker,
+            addressee_role: 'operator',
+            target_column: null,
+            state,
+            outcome: state === 'open' ? null : 'done',
+            outcome_reason: null,
+            repeat_of: null,
+            unblocked_by: state === 'open' ? null : 'operator',
+            unblocked_at: state === 'open' ? null : AT,
+            created_at: AT,
+          })
+          .execute();
+        await trx
+          .insertInto('comment')
+          .values({
+            id,
+            task_id: 1,
+            block_id: id,
+            author: worker,
+            text: `Text ${String(id)}`,
+            revision: 1,
+            conversation_ref: null,
+            message_ref: null,
+            acked_revision: null,
+            created_at: AT,
+            delivery_state: null,
+          })
+          .execute();
+      }
+      await trx
+        .updateTable('task')
+        .set({ membership: 'archived', archive_reason: 'manual' })
+        .where('id', '=', 1)
+        .execute();
+    });
+    const value = await query(required(registry['task.get']), { task: KEY }, worker);
+    expect(value.task).toEqual({
+      key: KEY,
+      project: 'board',
+      column: 'dev',
+      membership: 'archived',
+    });
+    expect(value.blocks.map(({ id, state }) => [id, state])).toEqual([
+      ['B1', 'unblocked'],
+      ['B2', 'open'],
+    ]);
+    expect(value.comments.map(({ id, text, untrusted }) => [id, text, untrusted])).toEqual([
+      ['C1', 'Text 1', true],
+      ['C2', 'Text 2', true],
+    ]);
+    await expect(
+      query(required(registry['task.get']), { task: 'o/r#999' }, worker),
+    ).rejects.toMatchObject({
+      code: 'not_found',
+    });
+    await expect(
+      query(required(registry['task.history']), { task: 'o/r#999' }, worker),
+    ).rejects.toMatchObject({ code: 'not_found' });
+    await expect(
+      query(required(registry['task.get']), { task: 'B1' }, worker),
+    ).rejects.toMatchObject({
+      code: 'wrong_id_kind',
+    });
+    await expect(
+      query(required(registry['task.history']), { task: 'B1' }, worker),
+    ).rejects.toMatchObject({
+      code: 'wrong_id_kind',
+    });
+  });
+
+  it('returns every task event in journal order with an encoded actor and one-line summary', async () => {
+    const { store, registry, query } = await seeded();
+    await store.transaction(async (trx) => {
+      for (const kind of EVENT_KINDS) {
+        await trx
+          .insertInto('event')
+          .values({
+            at: AT,
+            project: 'board',
+            task_id: 1,
+            kind,
+            actor: 'agent',
+            actor_ref: JSON.stringify({ project: 'web', session: 'worker-1' }),
+            payload: '{}',
+            v: 1,
+            request_id: null,
+          })
+          .execute();
+      }
+      await trx
+        .insertInto('event')
+        .values({
+          at: AT,
+          project: 'other',
+          task_id: 2,
+          kind: 'task_added',
+          actor: 'system',
+          actor_ref: null,
+          payload: '{}',
+          v: 1,
+          request_id: null,
+        })
+        .execute();
+    });
+    const value = await query(required(registry['task.history']), { task: KEY }, worker);
+    expect(value.events.map(({ kind }) => kind)).toEqual(EVENT_KINDS);
+    expect(value.events).toHaveLength(EVENT_KINDS.length);
+    for (const event of value.events) {
+      expect(event.actor).toBe(worker);
+      expect(event.summary.trim()).not.toBe('');
+      expect(event.summary).not.toMatch(/[\r\n]/);
+    }
+  });
+
+  it('shows the current answer revision, acknowledges it, and shows an edited clarification', async () => {
+    const { registry, query, apply } = await seeded();
+    const asked = await apply(
+      required(registry['block.ask']),
+      { task: KEY, text: 'Which version?' },
+      worker,
+      'ask-1',
+    );
+    const answered = await apply(
+      required(registry['block.answer']),
+      { block: asked.block.id, text: 'Use v2.' },
+      orchestrator,
+      'answer-1',
+    );
+    const commentId = answered.comment.id;
+    const first = await query(required(registry['inbox.get']), {}, worker);
+    expect(first.comments).toEqual([
+      expect.objectContaining({ id: commentId, revision: 1, text: 'Use v2.', untrusted: true }),
+    ]);
+    await apply(
+      required(registry['comment.edit']),
+      { comment: commentId, text: 'Use v3.' },
+      orchestrator,
+      'edit-1',
+    );
+    const edited = await query(required(registry['inbox.get']), {}, worker);
+    expect(edited.comments).toEqual([
+      expect.objectContaining({ id: commentId, revision: 2, text: 'Use v3.' }),
+    ]);
+    await apply(
+      required(registry['inbox.ack']),
+      { entries: [{ id: commentId, revision: 2 }] },
+      worker,
+      'ack-1',
+    );
+    expect((await query(required(registry['inbox.get']), {}, worker)).comments).toEqual([]);
+    await apply(
+      required(registry['comment.edit']),
+      { comment: commentId, text: 'Use v4.' },
+      orchestrator,
+      'edit-2',
+    );
+    expect((await query(required(registry['inbox.get']), {}, worker)).comments).toEqual([
+      expect.objectContaining({ id: commentId, revision: 3, text: 'Use v4.' }),
+    ]);
+  });
+
+  it('filters blocks by role and projects before returning inbox data', async () => {
+    const { store, registry, query, apply } = await seeded();
+    const asked = await apply(
+      required(registry['block.ask']),
+      { task: KEY, text: 'Review this?' },
+      worker,
+      'ask-1',
+    );
+    await store.transaction(async (trx) => {
+      await trx
+        .insertInto('block')
+        .values({
+          task_id: 1,
+          type: 'needs_input',
+          reason: 'Operator only',
+          author: worker,
+          addressee_role: 'operator',
+          target_column: null,
+          state: 'open',
+          outcome: null,
+          outcome_reason: null,
+          repeat_of: null,
+          unblocked_by: null,
+          unblocked_at: null,
+          created_at: AT,
+        })
+        .execute();
+    });
+    const inbox = await query(required(registry['inbox.get']), {}, orchestrator);
+    expect(inbox.blocks.map(({ id }) => id)).toEqual([asked.block.id]);
+    expect(inbox.blocks[0]?.addressee).toBe('orchestrator:dev');
+    expect((await query(required(registry['inbox.get']), {}, worker)).blocks).toEqual([]);
+    await expect(
+      query(required(registry['inbox.get']), { project: 'other' }, worker),
+    ).rejects.toMatchObject({ code: 'forbidden' });
+    await expect(
+      query(required(registry['task.get']), { task: OTHER_KEY }, worker),
+    ).rejects.toMatchObject({
+      code: 'forbidden',
+    });
+    await expect(
+      query(required(registry['task.history']), { task: OTHER_KEY }, worker),
+    ).rejects.toMatchObject({ code: 'forbidden' });
+    await expect(
+      query(required(registry['task.get']), { task: KEY }, foreign),
+    ).rejects.toMatchObject({
+      code: 'forbidden',
+    });
+    await expect(
+      query(required(registry['task.history']), { task: KEY }, foreign),
+    ).rejects.toMatchObject({
+      code: 'forbidden',
+    });
+    await expect(
+      query(required(registry['inbox.get']), { project: 'board' }, foreign),
+    ).rejects.toMatchObject({ code: 'forbidden' });
+  });
+});

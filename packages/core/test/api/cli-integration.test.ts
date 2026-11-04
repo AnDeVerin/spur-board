@@ -36,12 +36,79 @@ function capture() {
 }
 
 describe('CLI against the real HTTP API', () => {
-  it('parses query success, unavailable operation and startup without an unknown outcome', async () => {
+  it('parses task queries and startup without an unknown outcome', async () => {
     const home = mkdtempSync(join(tmpdir(), 'board-api-cli-'));
     let store: ReturnType<typeof openStore> | undefined;
     let app: Awaited<ReturnType<typeof createApiServer>> | undefined;
     try {
       store = openStore(join(home, 'board.db'));
+      await store.transaction(async (trx) => {
+        await trx
+          .insertInto('task')
+          .values({
+            id: 1,
+            project: 'board',
+            tracker_kind: 'github-issues',
+            tracker_id: '101',
+            key: 'o/r#101',
+            membership: 'active',
+            archive_reason: null,
+            column: 'todo',
+            shadow_column: null,
+            created_at: '2026-11-04T08:00:00.000Z',
+            last_change_at: null,
+            terminal_at: null,
+            archive_slot_at: null,
+          })
+          .execute();
+        await trx
+          .insertInto('link')
+          .values({
+            task_id: 1,
+            entity: 'session',
+            repo: null,
+            number: null,
+            pr_state: null,
+            session_id: 'session-1',
+            role: 'worker',
+            source: 'manual',
+            created_at: '2026-11-04T08:00:00.000Z',
+          })
+          .execute();
+        await trx
+          .insertInto('block')
+          .values({
+            id: 1,
+            task_id: 1,
+            type: 'code',
+            reason: 'Inspect checks',
+            author: 'operator',
+            addressee_role: 'worker',
+            target_column: null,
+            state: 'open',
+            outcome: null,
+            outcome_reason: null,
+            repeat_of: null,
+            unblocked_by: null,
+            unblocked_at: null,
+            created_at: '2026-11-04T08:00:00.000Z',
+          })
+          .execute();
+        await trx
+          .insertInto('event')
+          .values({
+            at: '2026-11-04T08:00:00.000Z',
+            project: 'board',
+            task_id: 1,
+            kind: 'task_added',
+            actor: 'system',
+            actor_ref: null,
+            payload: '{}',
+            v: 1,
+            request_id: null,
+          })
+          .execute();
+      });
       let ready = true;
       const statuses: number[] = [];
       const statusGet: Query<'status.get'> = {
@@ -131,18 +198,24 @@ describe('CLI against the real HTTP API', () => {
       expect(Array.isArray(schemaValue.operations)).toBe(true);
       expect(schema.stderr).toBe('');
 
-      const unavailable = capture();
-      expect(
-        await runCli(['task', 'PROJ-123', '--json'], { clientConfig, io: unavailable.io }),
-      ).toBe(1);
-      expect(unavailable.stdout).toBe('');
-      expect(errorEnvelopeSchema.parse(JSON.parse(unavailable.stderr))).toMatchObject({
-        ok: false,
-        error: {
-          code: 'not_implemented',
-          recovery: { sideEffects: 'none', maxRetries: 0 },
-        },
+      const task = capture();
+      expect(await runCli(['task', 'o/r#101', '--json'], { clientConfig, io: task.io })).toBe(0);
+      expect(JSON.parse(task.stdout)).toMatchObject({
+        task: { key: 'o/r#101' },
+        blocks: [{ id: 'B1' }],
+        comments: [],
       });
+      const history = capture();
+      expect(
+        await runCli(['task', 'o/r#101', 'history', '--json'], { clientConfig, io: history.io }),
+      ).toBe(0);
+      expect(JSON.parse(history.stdout)).toMatchObject({
+        task: { key: 'o/r#101' },
+        events: [{ kind: 'task_added', actor: 'system' }],
+      });
+      const inbox = capture();
+      expect(await runCli(['inbox', '--json'], { clientConfig, io: inbox.io })).toBe(0);
+      expect(JSON.parse(inbox.stdout)).toMatchObject({ comments: [], blocks: [{ id: 'B1' }] });
 
       ready = false;
       const starting = capture();
@@ -152,7 +225,7 @@ describe('CLI against the real HTTP API', () => {
         ok: false,
         error: { code: 'daemon_unavailable', recovery: { sideEffects: 'none' } },
       });
-      expect(statuses).toEqual([200, 200, 501, 503]);
+      expect(statuses).toEqual([200, 200, 200, 200, 200, 503]);
     } finally {
       try {
         await app?.close();

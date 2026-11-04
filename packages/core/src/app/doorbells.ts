@@ -324,33 +324,11 @@ export async function acknowledgeNotification(
   if (input.blockId !== undefined)
     query = query.where('block_id', '=', input.blockId).where('kind', '=', 'block');
   else if (input.commentId !== undefined)
-    query = query
-      .where('comment_id', '=', input.commentId)
-      .where('revision', '=', input.revision ?? 1);
+    query = query.where('comment_id', '=', input.commentId).where('kind', '=', 'answer');
   else return false;
   const n = await query.orderBy('id', 'desc').executeTakeFirst();
   if (n === undefined) return false;
-  const parsed = parseActorId(input.actor);
-  if (parsed?.actor !== 'agent')
-    throw new CommandError('forbidden', 'Only the addressed session can acknowledge.');
-  const linked = await trx
-    .selectFrom('link')
-    .select('id')
-    .where('task_id', '=', n.task_id)
-    .where('entity', '=', 'session')
-    .where('role', '=', 'worker')
-    .where('banned', '=', 0)
-    .where('session_id', '=', parsed.actorRef.session)
-    .executeTakeFirst();
-  const selectedIsLive =
-    n.recipient_session !== null && (await liveSession(trx, n.recipient_session)) !== undefined;
-  const allowed =
-    n.recipient_session === null
-      ? parsed.actorRef.session === n.author_session || linked !== undefined
-      : selectedIsLive
-        ? parsed.actorRef.session === n.recipient_session
-        : (await recipient(trx, n))?.id === parsed.actorRef.session;
-  if (!allowed) {
+  if (!(await notificationAddressedTo(trx, n, input.actor))) {
     throw new CommandError('forbidden', 'Only the addressed task role can acknowledge.');
   }
   await trx
@@ -371,6 +349,34 @@ export async function acknowledgeNotification(
     .executeTakeFirst();
   if (item !== undefined) await clearItem(trx, item.id, input.at);
   return true;
+}
+
+/** Use the same current recipient rule when listing and acknowledging an inbox notice. */
+export async function notificationAddressedTo(
+  trx: Trx,
+  n: Notification,
+  actor: ActorId,
+): Promise<boolean> {
+  const parsed = parseActorId(actor);
+  if (parsed?.actor !== 'agent') return false;
+  const linked = await trx
+    .selectFrom('link')
+    .select('id')
+    .where('task_id', '=', n.task_id)
+    .where('entity', '=', 'session')
+    .where('role', '=', 'worker')
+    .where('banned', '=', 0)
+    .where('session_id', '=', parsed.actorRef.session)
+    .executeTakeFirst();
+  const selectedIsLive =
+    n.recipient_session !== null && (await liveSession(trx, n.recipient_session)) !== undefined;
+  const allowed =
+    n.recipient_session === null
+      ? parsed.actorRef.session === n.author_session || linked !== undefined
+      : selectedIsLive
+        ? parsed.actorRef.session === n.recipient_session
+        : (await recipient(trx, n))?.id === parsed.actorRef.session;
+  return allowed;
 }
 
 export async function closeBlockNotification(trx: Trx, blockId: number, at: Date): Promise<void> {

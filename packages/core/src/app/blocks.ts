@@ -80,7 +80,7 @@ function active(task: Task): void {
   }
 }
 
-async function authorizationTarget(
+export async function authorizationTarget(
   trx: Trx,
   task: Task | undefined,
   block?: Block,
@@ -106,7 +106,7 @@ async function authorizationTarget(
   };
 }
 
-async function taskTarget(trx: Trx, key: string): Promise<readonly ResolvedTarget[]> {
+export async function taskTarget(trx: Trx, key: string): Promise<readonly ResolvedTarget[]> {
   return [await authorizationTarget(trx, await taskByKey(trx, key))];
 }
 
@@ -141,7 +141,7 @@ function current(block: Block): CurrentBlock {
   };
 }
 
-function blockView(block: Block, task: Task) {
+export function blockView(block: Block, task: Task) {
   return {
     id: blockId(block.id),
     task: task.key,
@@ -158,7 +158,7 @@ function blockView(block: Block, task: Task) {
   };
 }
 
-function commentView(comment: Comment, task: Task) {
+export function commentView(comment: Comment, task: Task) {
   return {
     id: commentId(comment.id),
     task: task.key,
