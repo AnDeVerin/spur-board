@@ -6,7 +6,7 @@ description: Rules for packages/daemon/ - modules, config and secrets, logging a
 # Running the daemon
 
 `main` binds the process; `runDaemon` starts lock, config, logger, store and modules, then logs
-`daemon ready`. Tests and lint enforce the named rules below.
+`daemon ready`.
 
 ## When to use
 
@@ -72,9 +72,8 @@ description: Rules for packages/daemon/ - modules, config and secrets, logging a
 
 ## HTTP
 
-- Register `createHttpModule(ctxFor('http'))` last, including when Slack is absent. Its listener
-  starts before `state()` becomes `ready`; until then it answers `503 starting`. Process tests in
-  `packages/daemon/test/main.test.ts` cover both paths.
+- Register `createHttpModule(ctxFor('http'))` last, including without Slack. It answers
+  `503 starting` until `state()` is `ready`. Process tests cover both paths.
 - Bind with `listenApiServer` on `127.0.0.1` and the configured `http.port`. The module reads a
   session snapshot through core, then uses a bounded live Spur lookup on a miss. Wrap that call
   in `ctx.logCall`; reject bearer tokens until a verifier is provided.
@@ -85,6 +84,7 @@ description: Rules for packages/daemon/ - modules, config and secrets, logging a
 
 - Start the outbox tick immediately, then arm a `setTimeout` for one second plus under 100 ms of
   jitter after the tick settles. Never queue a second tick while one runs.
+- Register the outbox without a gateway so Spur doorbells run; leave gateway rows pending.
 - Pass the start signal to each sender tick. On stop, clear the timer and await the active tick
   before the store closes. Register the outbox with `stopStage: 'outbox'` and its gateway with
   `stopStage: 'final'`. Pinned by 'skips timer ticks while a delivery is active'.
@@ -124,7 +124,8 @@ description: Rules for packages/daemon/ - modules, config and secrets, logging a
 
 ## Changing these rules
 
-A PR that changes `packages/daemon/src/` or the tests named here updates this skill in the same PR.
+A PR that changes `packages/daemon/src/` or the tests named here updates this skill in the same
+PR.
 
 ## Checks
 

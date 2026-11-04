@@ -1,5 +1,5 @@
 {
-  "version": "63cdb4e9d209fe79b3316fc4fb7ddae4256941b3df0bdb3e8625072e2057de7d",
+  "version": "2cd7333f8fe68b09b2548488cc22e6d8399da8e7553853ba43aa693b0e869d32",
   "grants": [
     "operator",
     "project-agent",
@@ -1566,7 +1566,7 @@
     {
       "id": "inbox.ack",
       "kind": "mutation",
-      "description": "Mark comments as read so the inbox no longer lists them.",
+      "description": "Mark comments or agent-addressed blocks as read in the inbox.",
       "grants": [{ "grant": "project-agent" }],
       "preconditions": null,
       "errors": [
@@ -1588,6 +1588,11 @@
           "summary": "Acknowledge a comment revision",
           "input": { "entries": [{ "id": "C3", "revision": 1 }] },
           "output": { "acked": ["C3"] }
+        },
+        {
+          "summary": "Acknowledge an agent-addressed block",
+          "input": { "entries": [{ "id": "B13" }] },
+          "output": { "acked": ["B13"] }
         }
       ],
       "input": {
@@ -1598,24 +1603,40 @@
             "minItems": 1,
             "type": "array",
             "items": {
-              "type": "object",
-              "properties": {
-                "id": {
-                  "type": "string",
-                  "pattern": "^C[1-9]\\d{0,14}$",
-                  "description": "Comment ID: C followed by a number, e.g. C3."
+              "anyOf": [
+                {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "pattern": "^C[1-9]\\d{0,14}$",
+                      "description": "Comment ID: C followed by a number, e.g. C3."
+                    },
+                    "revision": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991,
+                      "description": "Revision the caller read."
+                    }
+                  },
+                  "required": ["id", "revision"],
+                  "additionalProperties": false
                 },
-                "revision": {
-                  "type": "integer",
-                  "exclusiveMinimum": 0,
-                  "maximum": 9007199254740991,
-                  "description": "Revision the caller read."
+                {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "pattern": "^B[1-9]\\d{0,14}$",
+                      "description": "Block ID: B followed by a number, e.g. B12."
+                    }
+                  },
+                  "required": ["id"],
+                  "additionalProperties": false
                 }
-              },
-              "required": ["id", "revision"],
-              "additionalProperties": false
+              ]
             },
-            "description": "Comments and exact revisions to acknowledge."
+            "description": "Comment revisions and blocks to acknowledge."
           }
         },
         "required": ["entries"],
@@ -1628,11 +1649,20 @@
           "acked": {
             "type": "array",
             "items": {
-              "type": "string",
-              "pattern": "^C[1-9]\\d{0,14}$",
-              "description": "Comment ID: C followed by a number, e.g. C3."
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^C[1-9]\\d{0,14}$",
+                  "description": "Comment ID: C followed by a number, e.g. C3."
+                },
+                {
+                  "type": "string",
+                  "pattern": "^B[1-9]\\d{0,14}$",
+                  "description": "Block ID: B followed by a number, e.g. B12."
+                }
+              ]
             },
-            "description": "Comments now acknowledged."
+            "description": "Entries now acknowledged."
           }
         },
         "required": ["acked"],

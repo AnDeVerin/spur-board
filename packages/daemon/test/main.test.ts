@@ -1,5 +1,12 @@
 import { once } from 'node:events';
-import { existsSync, mkdtempSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openStore } from '@spur-board/core';
@@ -168,6 +175,75 @@ describe('daemon process', () => {
       ).toHaveLength(1);
     } finally {
       await api.close();
+    }
+  }, 30_000);
+
+  it('delivers Spur doorbells without Slack and leaves gateway rows pending', async () => {
+    const home = makeHome();
+    const bin = join(home, 'bin');
+    mkdirSync(bin);
+    const spur = join(bin, 'spur');
+    writeFileSync(spur, '#!/bin/sh\nprintf "%s\\n" "$@" > "$SPUR_CAPTURE"\n');
+    chmodSync(spur, 0o755);
+    const capture = join(home, 'spur-send.txt');
+    const store = openStore(join(home, 'board.sqlite'));
+    await store.transaction(async (trx) => {
+      for (const [kind, key, payload] of [
+        [
+          'doorbell',
+          'doorbell:test',
+          { session: 'worker-1', text: 'o/r#101 block B1: check board inbox' },
+        ],
+        [
+          'feed.line',
+          'feed.line:test',
+          {
+            key: 'o/r#101',
+            title: 'Test',
+            text: 'pending',
+            persona: { name: 'board', role: 'board' },
+            itemKey: 'test',
+          },
+        ],
+      ] as const) {
+        await trx
+          .insertInto('outbox')
+          .values({
+            kind,
+            dedupe_key: key,
+            payload: JSON.stringify(payload),
+            state: 'pending',
+            next_at: new Date().toISOString(),
+            last_error: null,
+            external_ref: null,
+            parent_outbox_id: null,
+            first_attempt_at: null,
+            first_delivery_at: null,
+          })
+          .execute();
+      }
+    });
+    await store.close();
+    const child = spawnDaemon(home, {
+      PATH: `${bin}:${process.env.PATH ?? ''}`,
+      SPUR_CAPTURE: capture,
+    });
+    await waitForLine(child, 'daemon ready');
+    await expect.poll(() => existsSync(capture)).toBe(true);
+    const exited = once(child, 'exit');
+    child.kill('SIGTERM');
+    expect((await exited)[0]).toBe(0);
+    expect(readFileSync(capture, 'utf8')).toContain('check board inbox');
+    const result = openStore(join(home, 'board.sqlite'));
+    try {
+      expect(
+        await result.db.selectFrom('outbox').select(['kind', 'state']).orderBy('id').execute(),
+      ).toEqual([
+        { kind: 'doorbell', state: 'done' },
+        { kind: 'feed.line', state: 'pending' },
+      ]);
+    } finally {
+      await result.close();
     }
   }, 30_000);
 

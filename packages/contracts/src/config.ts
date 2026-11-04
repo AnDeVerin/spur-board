@@ -202,6 +202,29 @@ export const configSchema = z.strictObject({
   archive: z.strictObject({ doneWeekday: z.enum(WEEKDAYS).default('saturday') }).prefault({}),
   digest: z.strictObject({ tz: z.string().refine(isTimeZone, 'Unknown IANA time zone') }),
   commands: z.strictObject({ retentionDays: z.int().min(1).default(7) }).prefault({}),
+  doorbells: z
+    .strictObject({
+      firstRetryMs: durationMs(120_000, 'Wait after the first unanswered doorbell'),
+      secondRetryMs: durationMs(300_000, 'Wait after the second unanswered doorbell'),
+      unansweredAfterMs: durationMs(900_000, 'Wait after the third unanswered doorbell'),
+    })
+    .superRefine((pauses, ctx) => {
+      if (pauses.secondRetryMs <= pauses.firstRetryMs) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['secondRetryMs'],
+          message: 'Second retry pause must exceed the first retry pause',
+        });
+      }
+      if (pauses.unansweredAfterMs <= pauses.secondRetryMs) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['unansweredAfterMs'],
+          message: 'Final unanswered pause must exceed the second retry pause',
+        });
+      }
+    })
+    .prefault({}),
   http: z
     .strictObject({
       port: z.int().min(1).max(65_535).default(4311).describe('Local HTTP API port.'),

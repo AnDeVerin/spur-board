@@ -117,6 +117,7 @@ describe('catalog commands', () => {
       ['status', '--project', 'demo'],
       ['task', 'history', 'PROJ-123'],
       ['inbox', 'ack', 'C3@2', 'C4@1', '--key', 'ack-1'],
+      ['inbox', 'ack', 'B13', '--key', 'ack-block'],
       ['block', 'PROJ-123', '--type', 'dependency', '--reason', 'Waiting', '--key', 'block-1'],
       ['unblock', 'B12', '--withdraw', 'No longer needed', '--key', 'unblock-1'],
     ];
@@ -136,6 +137,7 @@ describe('catalog commands', () => {
           ],
         },
       },
+      { id: 'inbox.ack', input: { entries: [{ id: 'B13' }] } },
       { id: 'block.create', input: { task: 'PROJ-123', type: 'dependency', reason: 'Waiting' } },
       {
         id: 'block.unblock',

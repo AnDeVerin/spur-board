@@ -219,20 +219,25 @@ export const OPERATIONS = [
   defineOperation({
     id: 'inbox.ack',
     kind: 'mutation',
-    description: 'Mark comments as read so the inbox no longer lists them.',
+    description: 'Mark comments or agent-addressed blocks as read in the inbox.',
     input: z.strictObject({
       entries: z
         .array(
-          z.strictObject({
-            id: commentIdSchema,
-            revision: z.int().positive().describe('Revision the caller read.'),
-          }),
+          z.union([
+            z.strictObject({
+              id: commentIdSchema,
+              revision: z.int().positive().describe('Revision the caller read.'),
+            }),
+            z.strictObject({ id: blockIdSchema }),
+          ]),
         )
         .min(1)
-        .describe('Comments and exact revisions to acknowledge.'),
+        .describe('Comment revisions and blocks to acknowledge.'),
     }),
     output: z.strictObject({
-      acked: z.array(commentIdSchema).describe('Comments now acknowledged.'),
+      acked: z
+        .array(z.union([commentIdSchema, blockIdSchema]))
+        .describe('Entries now acknowledged.'),
     }),
     grants: [{ grant: 'project-agent' }],
     errors: ['wrong_id_kind', 'not_found', 'stale_comment_revision'],
@@ -243,6 +248,11 @@ export const OPERATIONS = [
         summary: 'Acknowledge a comment revision',
         input: { entries: [{ id: 'C3', revision: 1 }] },
         output: { acked: ['C3'] },
+      },
+      {
+        summary: 'Acknowledge an agent-addressed block',
+        input: { entries: [{ id: 'B13' }] },
+        output: { acked: ['B13'] },
       },
     ],
   }),

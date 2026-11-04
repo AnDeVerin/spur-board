@@ -55,6 +55,10 @@ numbered migrations. Where a test enforces a rule, the rule names it.
   A `feed.line.edit` written before its line is sent means the item was cleared: the sender
   cancels both. A row with `uncertain=1` is never cancelled as stale (it may be posted): it goes
   with `maybeSent`, then its dependents.
+- A doorbell's delivered ring count lives in `notification`, not `outbox.attempts`: transport
+  retries reuse the same outbox row. Reconcile due rings and recheck their recipient before send.
+- A claimed feed line is rechecked against its operator item before send. If the item cleared and
+  delivery has not started, cancel the line and its edit; uncertain lines recover before editing.
 - Retries, the per-space limit and transport health belong to the sender
   (`packages/core/src/app/sender.ts`); it calls the gateway between its two transactions,
   never inside one. Pinned by `packages/core/test/app/delivery.test.ts` and

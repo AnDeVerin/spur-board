@@ -91,6 +91,11 @@ describe('fixtures', () => {
     expect(config.thresholds.staleMultiplier).toBe(3);
     expect(config.archive.doneWeekday).toBe('saturday');
     expect(config.commands.retentionDays).toBe(7);
+    expect(config.doorbells).toEqual({
+      firstRetryMs: 120_000,
+      secondRetryMs: 300_000,
+      unansweredAfterMs: 900_000,
+    });
     expect(config.http.port).toBe(4311);
     expect(config.slack.channels).toEqual({});
     expect(adapterKeys(config)).toEqual(adapterDefaults);
@@ -149,6 +154,24 @@ describe('fixtures', () => {
 
 describe('invalid configs', () => {
   it.each<[string, unknown, string, string]>([
+    [
+      'invalid doorbell retry pause',
+      validConfig({}, { doorbells: { firstRetryMs: 0 } }),
+      'Too small: expected number to be >=1',
+      'doorbells.firstRetryMs',
+    ],
+    [
+      'decreasing doorbell retry pause',
+      validConfig({}, { doorbells: { firstRetryMs: 600_000, secondRetryMs: 1000 } }),
+      'Second retry pause must exceed the first retry pause',
+      'doorbells.secondRetryMs',
+    ],
+    [
+      'decreasing final unanswered pause',
+      validConfig({}, { doorbells: { secondRetryMs: 600_000, unansweredAfterMs: 1000 } }),
+      'Final unanswered pause must exceed the second retry pause',
+      'doorbells.unansweredAfterMs',
+    ],
     [
       'unknown tracker key',
       validConfig({ tracker: { ...jiraTracker, foo: 1 } }),
@@ -350,6 +373,9 @@ describe('JSON Schema', () => {
       '.adapters.github.intervalMs',
       '.adapters.jira.intervalMs',
       '.adapters.spur.intervalMs',
+      '.doorbells.firstRetryMs',
+      '.doorbells.secondRetryMs',
+      '.doorbells.unansweredAfterMs',
       '.health.errorAfterMs',
       '.health.flipSmoothingMs',
       '.health.hostLoad.maxEpisodeMs',
