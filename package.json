@@ -37,7 +37,7 @@
     "@types/node": "catalog:",
     "@typescript/native": "catalog:",
     "@vitest/eslint-plugin": "catalog:",
-    "conventional-changelog-conventionalcommits": "10.4.1",
+    "conventional-changelog-conventionalcommits": "9.1.0",
     "eslint": "catalog:",
     "knip": "catalog:",
     "prettier": "catalog:",

@@ -140,17 +140,16 @@ describe('release policy', () => {
   });
 
   it.each([
-    ['feat(core)!: break API', '0.2.0'],
-    ['fix(core): repair API', '0.1.1'],
-  ])('dry runs from v0.1.0: %s -> %s', async (message, expected) => {
+    ['feat(core)!: break API', '0.2.0', 'break API'],
+    ['fix(core): repair API', '0.1.1', 'repair API'],
+  ])('dry runs from v0.1.0: %s -> %s', async (message, expected, subject) => {
     const { repo, remote } = fixture(message);
-    const analyzer = config.plugins[0];
     const result = await semanticRelease(
       {
         branches: ['main'],
         repositoryUrl: `file://${remote}`,
         tagFormat: 'v${version}',
-        plugins: analyzer === undefined ? [] : [analyzer],
+        plugins: config.plugins.slice(0, 2),
         dryRun: true,
         ci: false,
       },
@@ -160,5 +159,6 @@ describe('release policy', () => {
       },
     );
     expect(result && result.nextRelease.version).toBe(expected);
+    expect(result && result.nextRelease.notes).toContain(subject);
   });
 });
