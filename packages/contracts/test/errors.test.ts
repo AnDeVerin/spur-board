@@ -139,7 +139,7 @@ describe('error catalog', () => {
     ['not_found', 'Check the ID and locate the object.'],
     ['block_not_open', 'Read the current blocks before choosing another action.'],
     ['wrong_block_type', 'Use the operation for the current block type.'],
-    ['task_archived', 'Add the task to the board again if work continues.'],
+    ['task_archived', 'Ask an operator to add the task to the board again if work continues.'],
     ['retry_not_applicable', 'Read the item and close it if no retry is needed.'],
     ['idempotency_key_mismatch', 'Use a new key for new input or repeat the original input.'],
     [

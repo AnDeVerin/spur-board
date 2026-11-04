@@ -1,7 +1,12 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { configSchema, errorEnvelopeSchema } from '@spur-board/contracts';
+import {
+  OPERATIONS,
+  configSchema,
+  errorEnvelopeSchema,
+  roleCanUseOperation,
+} from '@spur-board/contracts';
 import { describe, expect, it } from 'vitest';
 import { runCli, type CliIo } from '../../../cli/src/cli.ts';
 import {
@@ -295,6 +300,24 @@ describe('CLI against the real HTTP API', () => {
       expect(Array.isArray(schemaValue.operations)).toBe(true);
       expect(schema.stderr).toBe('');
 
+      const workerSchema = capture();
+      expect(
+        await runCli(['schema', '--role', 'worker', '--json'], {
+          clientConfig,
+          io: workerSchema.io,
+        }),
+      ).toBe(0);
+      const workerOperations = JSON.parse(workerSchema.stdout) as {
+        operations: { id: string; cli: { command: string } }[];
+      };
+      expect(workerOperations.operations.map(({ id, cli }) => [id, cli.command])).toEqual(
+        OPERATIONS.filter((operation) => roleCanUseOperation(operation, 'worker')).map(
+          (operation) => [operation.id, operation.cli.command],
+        ),
+      );
+      expect(workerOperations.operations.map(({ id }) => id)).not.toContain('token.list');
+      expect(workerSchema.stderr).toBe('');
+
       const task = capture();
       expect(await runCli(['task', 'o/r#101', '--json'], { clientConfig, io: task.io })).toBe(0);
       expect(JSON.parse(task.stdout)).toMatchObject({
@@ -322,7 +345,7 @@ describe('CLI against the real HTTP API', () => {
         ok: false,
         error: { code: 'daemon_unavailable', recovery: { sideEffects: 'none' } },
       });
-      expect(statuses).toEqual([200, 200, 200, 200, 200, 503]);
+      expect(statuses).toEqual([200, 200, 200, 200, 200, 200, 503]);
     } finally {
       try {
         await app?.close();

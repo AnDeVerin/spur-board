@@ -2,7 +2,7 @@ import { scanTransaction } from '../../src/app/secrets.ts';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { configSchema } from '@spur-board/contracts';
+import { OPERATIONS, configSchema, roleCanUseOperation } from '@spur-board/contracts';
 import { afterEach, expect, it } from 'vitest';
 import {
   createObservationCore,
@@ -97,8 +97,16 @@ it('registers status and limits an agent to its configured project', async () =>
   if (schema === undefined) throw new Error('Schema handler was not registered');
   const catalog = await query(schema, { role: 'worker' }, agent);
   expect(catalog.version).toMatch(/^[0-9a-f]{64}$/);
-  expect(catalog.operations.some((operation) => operation.id === 'comment.add')).toBe(true);
-  expect(catalog.operations.some((operation) => operation.id === 'task.add')).toBe(false);
+  expect(catalog.operations.map(({ id, cli }) => [id, cli.command])).toEqual(
+    OPERATIONS.filter((operation) => roleCanUseOperation(operation, 'worker')).map((operation) => [
+      operation.id,
+      operation.cli.command,
+    ]),
+  );
+  expect(catalog.operations.map(({ id }) => id)).toContain('comment.add');
+  expect(catalog.operations.map(({ id }) => id)).not.toContain('task.add');
+  const all = await query(schema, {}, agent);
+  expect(all.operations.map(({ id }) => id)).toEqual(OPERATIONS.map(({ id }) => id));
 });
 
 it('keeps board-wide items from a project agent on a one-project board', async () => {

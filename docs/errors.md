@@ -280,8 +280,8 @@ The task is archived, so it cannot change.
 
 HTTP: 409  
 Exit code: 1  
-Hint: Add the task to the board again with `board task add <KEY>` if work goes on.  
-Recovery: Add the task to the board again if work continues.  
+Hint: Ask an operator to add the task to the board again if work continues.  
+Recovery: Ask an operator to add the task to the board again if work continues.  
 Side effects: none  
 Retry: maximum 0; After fixing the cause.
 
@@ -295,10 +295,10 @@ Example:
     "code": "task_archived",
     "requestId": "req-example-123",
     "message": "The task is archived, so it cannot change.",
-    "hint": "Add the task to the board again with `board task add <KEY>` if work goes on.",
+    "hint": "Ask an operator to add the task to the board again if work continues.",
     "docs": "docs/errors.md#task_archived",
     "recovery": {
-      "action": "Add the task to the board again if work continues.",
+      "action": "Ask an operator to add the task to the board again if work continues.",
       "sideEffects": "none",
       "maxRetries": 0,
       "retryTiming": "After fixing the cause."

@@ -1,5 +1,5 @@
 {
-  "version": "c035a7ba22827bd61f98bd236588369802fb8c0390f73bb0976bdd36859ebb31",
+  "version": "bd660c1f077f3b02cc9ab5954a97c1141c1ff778708f6c3dd74082558ac9e624",
   "grants": [
     "operator",
     "project-agent",
@@ -253,9 +253,9 @@
       "status": 409,
       "exit": 1,
       "message": "The task is archived, so it cannot change.",
-      "hint": "Add the task to the board again with `board task add <KEY>` if work goes on.",
+      "hint": "Ask an operator to add the task to the board again if work continues.",
       "recovery": {
-        "action": "Add the task to the board again if work continues.",
+        "action": "Ask an operator to add the task to the board again if work continues.",
         "sideEffects": "none",
         "maxRetries": 0,
         "retryTiming": "After fixing the cause."
@@ -4645,6 +4645,26 @@
               "at": "2026-01-05T09:30:00.000Z",
               "outcome": "done",
               "outcomeReason": "example/web#9",
+              "unblockedBy": "agent:web/web-8",
+              "unblockedAt": "2026-01-05T09:30:00.000Z"
+            }
+          }
+        },
+        {
+          "summary": "Explain why a code block no longer applies",
+          "input": { "mode": "reason", "block": "B13", "reason": "The build issue was resolved." },
+          "output": {
+            "block": {
+              "id": "B13",
+              "task": "PROJ-123",
+              "type": "code",
+              "state": "unblocked",
+              "author": "agent:web/web-8",
+              "addressee": "worker",
+              "reason": "Tests fail on the main branch.",
+              "at": "2026-01-05T09:30:00.000Z",
+              "outcome": "reason",
+              "outcomeReason": "The build issue was resolved.",
               "unblockedBy": "agent:web/web-8",
               "unblockedAt": "2026-01-05T09:30:00.000Z"
             }

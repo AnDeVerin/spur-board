@@ -1,4 +1,5 @@
 import { SESSION_STATUSES } from '@spur-board/contracts';
+import type { ServerResponse } from 'node:http';
 import {
   createApiServer,
   listenApiServer,
@@ -47,6 +48,8 @@ export function createHttpModule(
   options: {
     fetcher?: typeof fetch;
     registry?: OperationRegistry;
+    afterOperation?: (response: ServerResponse) => void | Promise<void>;
+    onListening?: (address: string) => void;
     productVersion?: string;
     doctor?: ApiOptions['doctor'];
   } = {},
@@ -68,6 +71,7 @@ export function createHttpModule(
           ),
         verifyToken: (token) => verifyOperatorToken(ctx.store, token),
         registry: options.registry ?? {},
+        ...(options.afterOperation === undefined ? {} : { afterOperation: options.afterOperation }),
         doctor:
           options.doctor ??
           (() => runDaemonDoctor(ctx, options.productVersion ?? 'unknown', options.fetcher)),
@@ -83,6 +87,7 @@ export function createHttpModule(
         if (aborted()) return;
         const address = await listenApiServer(server, ctx.config.http.port);
         if (aborted()) return;
+        options.onListening?.(address);
         app = server;
         ctx.log.info({ port: Number(new URL(address).port) }, 'http listening');
       } finally {

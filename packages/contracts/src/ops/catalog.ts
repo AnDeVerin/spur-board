@@ -718,6 +718,20 @@ export const OPERATIONS = [
         },
       },
       {
+        summary: 'Explain why a code block no longer applies',
+        input: { mode: 'reason', block: 'B13', reason: 'The build issue was resolved.' },
+        output: {
+          block: {
+            ...codeBlock,
+            state: 'unblocked',
+            outcome: 'reason',
+            outcomeReason: 'The build issue was resolved.',
+            unblockedBy: 'agent:web/web-8',
+            unblockedAt: at,
+          },
+        },
+      },
+      {
         summary: 'Withdraw a question',
         input: { mode: 'withdraw', block: 'B12', answer: 'Answered outside the board.' },
         output: {

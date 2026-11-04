@@ -1,5 +1,5 @@
 import type { Config, Gateway } from '@spur-board/contracts';
-import { createSender, expirePendingTokens, type Store } from '@spur-board/core';
+import { createSender, expirePendingTokens, type SpurPort, type Store } from '@spur-board/core';
 import { ConfigError } from './config.ts';
 import type { Module, ModuleContext } from './lifecycle.ts';
 import { createSpurPort } from './spur-port.ts';
@@ -61,8 +61,12 @@ export function slackSettings(
 }
 
 /** Own the timer and wait for the last queued sender tick before the store closes. */
-export function createOutboxModule(ctx: ModuleContext<Store>, gateway?: Gateway): Module {
-  const spur = createSpurPort();
+export function createOutboxModule(
+  ctx: ModuleContext<Store>,
+  gateway?: Gateway,
+  options: { spur?: SpurPort } = {},
+): Module & { pulse(): Promise<void> } {
+  const spur = options.spur ?? createSpurPort();
   const sender = createSender({
     store: ctx.store,
     ...(gateway === undefined ? {} : { gateway }),
@@ -79,34 +83,35 @@ export function createOutboxModule(ctx: ModuleContext<Store>, gateway?: Gateway)
     timer = setTimeout(
       () => {
         timer = undefined;
-        tick();
+        void tick().then(schedule);
       },
       TICK_MS + Math.floor(Math.random() * TICK_JITTER_MS),
     );
   };
-  const tick = (): void => {
-    if (stopped || signal?.aborted) return;
-    active = ctx
-      .logCall('outbox.tick', async () => {
-        await expirePendingTokens(ctx.store, new Date(ctx.clock.now()));
-        if (!signal?.aborted) await sender.tick(signal);
-      })
-      .catch(() => undefined)
-      .finally(() => {
-        schedule();
-      });
+  const tick = (): Promise<void> => {
+    if (stopped || signal?.aborted) return active;
+    active = active
+      .then(() =>
+        ctx.logCall('outbox.tick', async () => {
+          await expirePendingTokens(ctx.store, new Date(ctx.clock.now()));
+          if (!signal?.aborted) await sender.tick(signal);
+        }),
+      )
+      .catch(() => undefined);
+    return active;
   };
   return {
     async start(startSignal) {
       signal = startSignal;
       await sender.recover();
       if (signal.aborted) return;
-      tick();
+      void tick().then(schedule);
     },
     async stop() {
       stopped = true;
       if (timer !== undefined) clearTimeout(timer);
       await active;
     },
+    pulse: tick,
   };
 }

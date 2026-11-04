@@ -131,6 +131,10 @@ jobs:
           node-version: 26
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - run: pnpm gen
+      - run: git diff --exit-code -- packages/contracts/config.schema.json packages/contracts/ops.snapshot.json packages/skills/spur-board/SKILL.md packages/skills/spur-board/references
+      - name: Check generated command pages are tracked
+        run: test -z "$(git ls-files --others --exclude-standard packages/skills/spur-board/references)"
       - run: pnpm check:full --only format,lint,types,knip
 
   test:
