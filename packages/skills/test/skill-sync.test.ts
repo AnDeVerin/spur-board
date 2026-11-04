@@ -17,9 +17,11 @@ import {
 
 const skillPath = fileURLToPath(new URL('../spur-board/SKILL.md', import.meta.url));
 const setupSkillPath = fileURLToPath(new URL('../setup/SKILL.md', import.meta.url));
+const binaryPath = fileURLToPath(new URL('../../cli/src/bin.mjs', import.meta.url));
 const referencesPath = fileURLToPath(new URL('../spur-board/references/', import.meta.url));
 const skill = readFileSync(skillPath, 'utf8');
 const setupSkill = readFileSync(setupSkillPath, 'utf8');
+const binarySource = readFileSync(binaryPath, 'utf8');
 const references = renderCommandReferences();
 const referenceTexts = references.map((reference) =>
   readFileSync(new URL(`../spur-board/references/${reference.fileName}`, import.meta.url), 'utf8'),
@@ -134,15 +136,28 @@ function validateInvocations(text: string): string[] {
   return errors;
 }
 
-function validateSetupInvocations(text: string): string[] {
+function binaryCommands(source: string): Set<string> {
+  const commands = new Set<string>();
+  for (const match of source.matchAll(
+    /(?:^|\n)(?:if|} else if) \(argv\.length === 1 && ([^\n]+)\) \{/g,
+  )) {
+    for (const route of match[1]?.matchAll(/argv\[0\] === '([^']+)'/g) ?? []) {
+      if (route[1] !== undefined) commands.add(route[1]);
+    }
+  }
+  return commands;
+}
+
+function validateSetupInvocations(text: string, dispatcher = binarySource): string[] {
   const errors: string[] = [];
+  const directCommands = binaryCommands(dispatcher);
   for (const { command } of invocations(text)) {
     if (command === 'unformatted board invocation') {
       errors.push(command);
       continue;
     }
     const words = tokens(command);
-    if (words.length === 2 && (words[1] === '--version' || words[1] === 'mcp')) continue;
+    if (words.length === 2 && words[1] !== undefined && directCommands.has(words[1])) continue;
     let registered = program;
     let index = 1;
     while (index < words.length) {
@@ -350,5 +365,14 @@ describe('setup skill sync', () => {
     expect(validateSetupInvocations('`board --versoin`')).toContain(
       'unknown command: board --versoin',
     );
+    expect(
+      validateSetupInvocations('`board mcp`', binarySource.replace("argv[0] === 'mcp'", 'false')),
+    ).toContain('unknown command: board mcp');
+    expect(
+      validateSetupInvocations(
+        '`board --version`',
+        binarySource.replace("argv[0] === '--version'", 'false'),
+      ),
+    ).toContain('unknown command: board --version');
   });
 });
