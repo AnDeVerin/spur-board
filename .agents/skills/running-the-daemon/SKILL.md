@@ -80,6 +80,7 @@ modules, then `daemon ready`. Where a test or lint rule enforces a rule, the rul
 
 - Start the outbox tick immediately, then arm a `setTimeout` for one second plus under 100 ms of
   jitter after the tick settles. Never queue a second tick while one runs.
+- Register the outbox without a gateway so Spur doorbells run; leave gateway rows pending.
 - Pass the start signal to each sender tick. On stop, clear the timer and await the active tick
   before the store closes. Register the outbox with `stopStage: 'outbox'` and its gateway with
   `stopStage: 'final'`. Pinned by 'skips timer ticks while a delivery is active'.
@@ -121,7 +122,7 @@ modules, then `daemon ready`. Where a test or lint rule enforces a rule, the rul
 ## Changing these rules
 
 A PR that changes `packages/daemon/src/` or the tests named here updates this skill in the same
-PR. The runner PR (#23) replaces the Pollers section with its real rules and numbers.
+PR.
 
 ## Checks
 
