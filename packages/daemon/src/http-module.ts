@@ -1,7 +1,6 @@
 import { SESSION_STATUSES } from '@spur-board/contracts';
 import {
   createApiServer,
-  createSchemaQuery,
   listenApiServer,
   type LiveSession,
   type OperationRegistry,
@@ -60,7 +59,7 @@ export function createHttpModule(
             lookupLiveSession(ctx.config.adapters.spur.baseUrl, id, options.fetcher),
           ),
         verifyToken: () => Promise.resolve(false),
-        registry: { ...options.registry, 'schema.get': createSchemaQuery() },
+        registry: options.registry ?? {},
         logRequest: ({ requestId, method, url, status }) => {
           const path = new URL(url, 'http://127.0.0.1').pathname;
           ctx.log.info({ requestId, method, path, status }, 'http request');

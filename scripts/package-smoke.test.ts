@@ -17,6 +17,7 @@ describe('packed smoke steps', () => {
       'version',
       'daemon',
       'schema',
+      'status',
       'mcp',
       'service unit',
       'skills install',

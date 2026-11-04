@@ -101,7 +101,7 @@ function config(port: number): string {
     operatorGithubLogin: octocat
     spurProjects:
       - name: smoke
-        role: worker
+        role: operator
 operator:
   slack: U0000000000
 digest:
@@ -252,6 +252,47 @@ export const smokeSteps: readonly SmokeStep[] = [
           BOARD_DAEMON_URL: `http://127.0.0.1:${String(ctx.port)}`,
         }),
       );
+    },
+  },
+  {
+    name: 'status',
+    async run(ctx) {
+      if (ctx.port === undefined) throw new Error('Packed daemon has no HTTP port.');
+      const env = {
+        ...ctx.env,
+        BOARD_DAEMON_URL: `http://127.0.0.1:${String(ctx.port)}`,
+      };
+      const added = await command(
+        ctx.binary,
+        ['task', 'add', 'example-org/board#64', '--key', 'smoke-task-64', '--json'],
+        env,
+      );
+      if (added.code !== 0) throw new Error(`Packed task add failed: ${added.stderr}`);
+      const result = await command(ctx.binary, ['status', '--json'], env);
+      if (result.code !== 0) throw new Error(`Packed board status failed: ${result.stderr}`);
+      const value: unknown = JSON.parse(result.stdout) as unknown;
+      if (
+        value === null ||
+        typeof value !== 'object' ||
+        !('tasks' in value) ||
+        !Array.isArray(value.tasks) ||
+        !value.tasks.some(
+          (task: unknown) =>
+            task !== null &&
+            typeof task === 'object' &&
+            'key' in task &&
+            task.key === 'example-org/board#64' &&
+            'project' in task &&
+            task.project === 'board' &&
+            'membership' in task &&
+            task.membership === 'active',
+        ) ||
+        !('sources' in value) ||
+        !Array.isArray(value.sources) ||
+        value.sources.length === 0
+      ) {
+        throw new Error('Packed board status did not include the created task and sources.');
+      }
     },
   },
   {

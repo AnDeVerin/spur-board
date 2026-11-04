@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 import { runCli, type CliIo } from '../../../cli/src/cli.ts';
 import {
   createApiServer,
-  createSchemaQuery,
+  createOperationRegistry,
   listenApiServer,
   openStore,
   type Query,
@@ -67,27 +67,32 @@ describe('CLI against the real HTTP API', () => {
           });
         },
       };
+      const config = configSchema.parse({
+        projects: [
+          {
+            id: 'board',
+            tracker: { type: 'github-issues', repo: 'o/r', milestone: 'M1' },
+            repos: ['o/r'],
+            operatorGithubLogin: 'operator',
+            spurProjects: [{ name: 'worker', role: 'worker' }],
+          },
+        ],
+        operator: { slack: 'operator' },
+        digest: { tz: 'UTC' },
+      });
+      const clock = { now: () => Date.parse('2026-11-04T08:00:00.000Z') };
       const options = {
         store,
-        config: configSchema.parse({
-          projects: [
-            {
-              id: 'board',
-              tracker: { type: 'github-issues', repo: 'o/r', milestone: 'M1' },
-              repos: ['o/r'],
-              operatorGithubLogin: 'operator',
-              spurProjects: [{ name: 'worker', role: 'worker' }],
-            },
-          ],
-          operator: { slack: 'operator' },
-          digest: { tz: 'UTC' },
-        }),
+        config,
         port: 0,
         ready: () => ready,
-        clock: { now: () => Date.parse('2026-11-04T08:00:00.000Z') },
+        clock,
         lookupSession: () => Promise.resolve({ project: 'worker', status: 'running' as const }),
         verifyToken: () => Promise.resolve(false),
-        registry: { 'status.get': statusGet, 'schema.get': createSchemaQuery() },
+        registry: {
+          ...createOperationRegistry({ config, clock, completeSince: new Map() }),
+          'status.get': statusGet,
+        },
         logRequest: ({ status }: { status: number }) => {
           statuses.push(status);
         },

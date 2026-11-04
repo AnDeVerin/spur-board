@@ -1,5 +1,5 @@
 import { join } from 'node:path';
-import { openStore, type Store } from '@spur-board/core';
+import { createOperationRegistry, openStore, type Store } from '@spur-board/core';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { loadConfig, resolvePaths } from '../src/config.ts';
 import { createHttpModule, lookupLiveSession } from '../src/http-module.ts';
@@ -82,7 +82,14 @@ describe('HTTP module', () => {
       logCall: (call, fn) => logCall(log, clock, call, fn),
       state: () => 'ready',
     };
-    const module = createHttpModule(ctx, { fetcher: () => Promise.resolve(Response.json(wire)) });
+    const module = createHttpModule(ctx, {
+      fetcher: () => Promise.resolve(Response.json(wire)),
+      registry: createOperationRegistry({
+        config: loaded.config,
+        clock,
+        completeSince: new Map(),
+      }),
+    });
     try {
       await module.start(new AbortController().signal);
       const listening = records.find((record) => record['msg'] === 'http listening');
