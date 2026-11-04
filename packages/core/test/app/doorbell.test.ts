@@ -416,4 +416,90 @@ describe('role addressed doorbells', () => {
       .executeTakeFirstOrThrow();
     expect(acked.acked_at).not.toBeNull();
   });
+
+  it.each(['waiting', 'working'] as const)(
+    'allows a %s replacement to acknowledge after the selected worker ends',
+    async (replacementState) => {
+      const ctx = await setup({ replacement: true });
+      const blockId = await workerBlock(ctx.store);
+      await ctx.sender.tick();
+      expect(ctx.sent.map((entry) => entry.session)).toEqual(['worker-1']);
+      await ctx.store.transaction(async (trx) => {
+        await trx
+          .updateTable('session_snapshot')
+          .set({ state: 'stopped', ended_at: new Date(START + 1).toISOString() })
+          .where('id', '=', 'worker-1')
+          .execute();
+        await trx
+          .updateTable('session_snapshot')
+          .set({ state: replacementState })
+          .where('id', '=', 'worker-2')
+          .execute();
+      });
+      await ctx.apply(
+        ops.ack,
+        { entries: [{ id: blockId }] },
+        'agent:web/worker-2',
+        `ack-${replacementState}-handoff`,
+      );
+      const notification = await ctx.store.db
+        .selectFrom('notification')
+        .select(['acked_at', 'recipient_session'])
+        .executeTakeFirstOrThrow();
+      expect(notification.acked_at).not.toBeNull();
+      expect(notification.recipient_session).toBe('worker-1');
+      expect(ctx.sent).toHaveLength(1);
+    },
+  );
+
+  it('rejects another live linked worker after the selected recipient ends', async () => {
+    const ctx = await setup({ replacement: true });
+    const blockId = await workerBlock(ctx.store);
+    await ctx.sender.tick();
+    await ctx.store.transaction(async (trx) => {
+      await trx
+        .updateTable('session_snapshot')
+        .set({ state: 'stopped', ended_at: new Date(START + 1).toISOString() })
+        .where('id', '=', 'worker-1')
+        .execute();
+      await trx
+        .updateTable('link')
+        .set({ created_at: new Date(START + 2).toISOString() })
+        .where('session_id', '=', 'worker-2')
+        .execute();
+      await trx
+        .insertInto('session_snapshot')
+        .values({
+          ...sampleRows.session_snapshot,
+          id: 'worker-3',
+          spur_project: 'web',
+          state: 'waiting',
+          ended_at: null,
+          end_reason: null,
+        })
+        .execute();
+      await trx
+        .insertInto('link')
+        .values({
+          ...sampleRows.link,
+          id: 3,
+          task_id: 1,
+          entity: 'session',
+          repo: null,
+          number: null,
+          pr_state: null,
+          session_id: 'worker-3',
+          role: 'worker',
+          created_at: new Date(START + 1).toISOString(),
+        })
+        .execute();
+    });
+    await expect(
+      ctx.apply(ops.ack, { entries: [{ id: blockId }] }, 'agent:web/worker-3', 'ack-unrelated'),
+    ).rejects.toMatchObject({ code: 'forbidden' });
+    expect(
+      await ctx.store.db.selectFrom('notification').select('acked_at').executeTakeFirst(),
+    ).toEqual({ acked_at: null });
+    await ctx.apply(ops.ack, { entries: [{ id: blockId }] }, 'agent:web/worker-2', 'ack-handoff');
+  });
 });
