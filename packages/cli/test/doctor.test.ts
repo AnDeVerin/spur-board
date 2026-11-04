@@ -53,12 +53,15 @@ function ports(overrides: Partial<DoctorPorts> = {}): DoctorPorts {
   return {
     readText(path) {
       if (path.endsWith('config.yaml')) return yaml;
+      if (path.endsWith('secrets.env'))
+        return 'SLACK_BOT_TOKEN=bot-test-value\nSLACK_APP_TOKEN=app-test-value\nGITHUB_TOKEN=github-test-value\n';
       if (path.endsWith('spur-board.service'))
         return 'ExecStart="/usr/bin/node" "/app/daemon.mjs"\n';
       if (path.endsWith('.spur-board-install.json')) return stamp;
       throw new Error('missing');
     },
     secretFile: (path) => ({ path, isFile: true, mode: 0o600 }),
+    listDir: () => [],
     exists: () => true,
     run: () => ({ exitCode: 0, stdout: '1.2.3\n' }),
     sessions: () => [
@@ -117,6 +120,78 @@ describe('board doctor', () => {
       'versions',
     ]);
     expect(value.checks.every((check) => check.status === 'pass' && check.fix === null)).toBe(true);
+    expect(value.checks.find((check) => check.id === 'secrets')?.present).toEqual([
+      'GITHUB_TOKEN',
+      'SLACK_BOT_TOKEN',
+      'SLACK_APP_TOKEN',
+    ]);
+  });
+
+  it('lists present secret names in text while hiding their values', async () => {
+    const output = capture();
+    const exitCode = await runCli(['doctor'], {
+      io: output.io,
+      env: { BOARD_HOME: '/board', BOARD_DAEMON_URL: 'http://127.0.0.1:4311' },
+      home: '/home',
+      doctor: ports(),
+    });
+    expect(exitCode).toBe(0);
+    expect(output.output()).toContain(
+      'PASS secrets (present: GITHUB_TOKEN, SLACK_BOT_TOKEN, SLACK_APP_TOKEN)',
+    );
+    expect(output.output()).not.toContain('bot-test-value');
+    expect(output.output()).not.toContain('app-test-value');
+    expect(output.output()).not.toContain('github-test-value');
+  });
+
+  it('checks the resolved secrets filename even when the daemon reports healthy', async () => {
+    const secretFile = vi.fn((path: string): ReturnType<DoctorPorts['secretFile']> => {
+      if (path.endsWith('secrets.env')) throw new Error('missing');
+      return { path, isFile: true, mode: 0o600 };
+    });
+    const value = await run(
+      ['doctor', '--json'],
+      ports({
+        secretFile,
+        listDir: () => ['config.yaml', 'slack.env'],
+      }),
+    );
+    expect(secretFile).toHaveBeenCalledWith('/board/secrets.env');
+    expect(value.exitCode).toBe(1);
+    expect(value.checks.find((check) => check.id === 'secrets')).toMatchObject({
+      status: 'fail',
+      blocking: true,
+      present: [],
+      fix: 'Create secrets.env with mode 0600; rename slack.env to secrets.env if it contains the intended tokens.',
+    });
+  });
+
+  it('lists Jira key names when a Jira tracker is configured', async () => {
+    const jiraYaml = yaml.replace(
+      'type: github-issues\n      repo: example/board\n      label: board',
+      'type: jira\n      baseUrl: https://jira.example.invalid\n      jql: project = BOARD\n      doneStatuses: [Done]\n      readyStatuses: [Ready]',
+    );
+    const value = await run(
+      ['doctor', '--json'],
+      ports({
+        readText(path) {
+          if (path.endsWith('config.yaml')) return jiraYaml;
+          if (path.endsWith('secrets.env'))
+            return 'GITHUB_TOKEN=github-test-value\nSLACK_BOT_TOKEN=bot-test-value\nSLACK_APP_TOKEN=app-test-value\nJIRA_EMAIL=jira-test-value\n';
+          if (path.endsWith('spur-board.service'))
+            return 'ExecStart="/usr/bin/node" "/app/daemon.mjs"\n';
+          if (path.endsWith('.spur-board-install.json')) return stamp;
+          throw new Error('missing');
+        },
+      }),
+    );
+    expect(value.exitCode).toBe(1);
+    expect(value.checks.find((check) => check.id === 'secrets')).toMatchObject({
+      status: 'fail',
+      present: ['GITHUB_TOKEN', 'JIRA_EMAIL', 'SLACK_BOT_TOKEN', 'SLACK_APP_TOKEN'],
+      fix: 'Add JIRA_API_TOKEN to the private secrets.env file.',
+    });
+    expect(value.text).not.toContain('jira-test-value');
   });
 
   it('uses only config validation offline and does not call any other port', async () => {

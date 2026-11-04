@@ -11,6 +11,7 @@ export interface DoctorCheck {
   status: 'pass' | 'fail' | 'warning';
   blocking: boolean;
   fix: string | null;
+  present?: string[];
 }
 
 interface SessionProcess {
@@ -24,6 +25,7 @@ interface SessionProcess {
 export interface DoctorPorts {
   readText(path: string): string;
   secretFile(path: string): { path: string; isFile: boolean; mode: number };
+  listDir(path: string): string[];
   exists(path: string): boolean;
   run(
     command: string,
@@ -99,6 +101,7 @@ const defaultPorts: DoctorPorts = {
     const stat = statSync(resolved);
     return { path: resolved, isFile: stat.isFile(), mode: stat.mode & 0o777 };
   },
+  listDir: readdirSync,
   exists: existsSync,
   run: systemRun,
   sessions: liveSessions,
@@ -148,7 +151,23 @@ function localSecrets(config: Config, path: string, ports: DoctorPorts): DoctorC
   try {
     file = ports.secretFile(path);
   } catch {
-    return result('secrets', false, 'Create secrets.env as a regular file with mode 0600.');
+    let candidate: string | undefined;
+    try {
+      candidate = ports.listDir(dirname(path)).find((name) => {
+        if (name === 'secrets.env' || !/^[A-Za-z0-9][A-Za-z0-9._-]*\.env$/.test(name)) return false;
+        try {
+          return ports.secretFile(join(dirname(path), name)).isFile;
+        } catch {
+          return false;
+        }
+      });
+    } catch {
+      // The missing file is still actionable if its directory cannot be read.
+    }
+    const fix = candidate
+      ? `Create secrets.env with mode 0600; rename ${candidate} to secrets.env if it contains the intended tokens.`
+      : 'Create secrets.env as a regular file with mode 0600.';
+    return { ...result('secrets', false, fix), present: [] };
   }
   if (!file.isFile)
     return result('secrets', false, 'Make secrets.env a regular file with mode 0600.');
@@ -170,11 +189,14 @@ function localSecrets(config: Config, path: string, ports: DoctorPorts): DoctorC
       : []),
   ];
   const missing = required.filter((name) => !names[name]);
-  return result(
-    'secrets',
-    missing.length === 0,
-    `Add ${missing.join(', ')} to the private secrets.env file.`,
-  );
+  return {
+    ...result(
+      'secrets',
+      missing.length === 0,
+      `Add ${missing.join(', ')} to the private secrets.env file.`,
+    ),
+    present: required.filter((name) => Boolean(names[name])),
+  };
 }
 
 function stamp(ports: DoctorPorts, path: string): { version: string; installedAt: number } | null {
@@ -402,8 +424,21 @@ export async function runDoctor(
     // A stopped daemon is itself one actionable failure; local checks remain visible.
   }
   checks.push(result('daemon.available', remote !== null, 'Start or restart the user service.'));
+  const secrets = localSecrets(config, join(dirname(configFile(env, home)), 'secrets.env'), ports);
+  const daemonSecrets = remote?.checks.find((check) => check.id === 'secrets');
+  checks.push(
+    secrets.status === 'pass' && daemonSecrets?.status === 'fail'
+      ? {
+          ...secrets,
+          status: 'fail',
+          blocking: true,
+          fix:
+            daemonSecrets.fix ??
+            'Add the missing required keys to secrets.env and restart the daemon.',
+        }
+      : secrets,
+  );
   if (remote === null) {
-    checks.push(localSecrets(config, join(dirname(configFile(env, home)), 'secrets.env'), ports));
     checks.push(
       ...remoteIds
         .filter((id) => id !== 'secrets')
@@ -412,7 +447,7 @@ export async function runDoctor(
         ),
     );
   } else {
-    checks.push(...remote.checks);
+    checks.push(...remote.checks.filter((check) => check.id !== 'secrets'));
   }
   checks.push(
     result(
@@ -431,9 +466,10 @@ export async function runDoctor(
 export function renderDoctor(checks: readonly DoctorCheck[], json: boolean): string {
   if (json) return JSON.stringify(checks);
   return checks
-    .map(
-      (check) =>
-        `${check.status.toUpperCase()} ${check.id}${check.fix === null ? '' : `: ${check.fix}`}`,
-    )
+    .map((check) => {
+      const present =
+        check.present === undefined ? '' : ` (present: ${check.present.join(', ') || 'none'})`;
+      return `${check.status.toUpperCase()} ${check.id}${present}${check.fix === null ? '' : `: ${check.fix}`}`;
+    })
     .join('\n');
 }
