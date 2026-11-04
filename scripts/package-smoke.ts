@@ -356,28 +356,29 @@ export async function smokeInstalled(
 ): Promise<void> {
   mkdirSync(home, { recursive: true });
   const fake = await fakeSessionApi();
-  const ctx: SmokeContext = {
-    binary,
-    expectedVersion,
-    home,
-    packageRoot: dirname(dirname(realpathSync(binary))),
-    env: {
-      ...process.env,
-      HOME: home,
-      BOARD_HOME: home,
-      XDG_CONFIG_HOME: join(home, '.config'),
-      XDG_DATA_HOME: join(home, '.local/share'),
-      SPUR_SESSION: 'smoke-1',
-    },
-  };
-  writeFileSync(join(home, 'config.yaml'), config(fake.port));
+  let ctx: SmokeContext | undefined;
   try {
+    ctx = {
+      binary,
+      expectedVersion,
+      home,
+      packageRoot: dirname(dirname(realpathSync(binary))),
+      env: {
+        ...process.env,
+        HOME: home,
+        BOARD_HOME: home,
+        XDG_CONFIG_HOME: join(home, '.config'),
+        XDG_DATA_HOME: join(home, '.local/share'),
+        SPUR_SESSION: 'smoke-1',
+      },
+    };
+    writeFileSync(join(home, 'config.yaml'), config(fake.port));
     await runSmokeSteps(
       ctx,
       baselineOnly ? smokeSteps.filter((step) => step.baseline) : smokeSteps,
     );
   } finally {
-    if (ctx.daemon !== undefined) await stopDaemon(ctx.daemon);
+    if (ctx?.daemon !== undefined) await stopDaemon(ctx.daemon);
     await new Promise<void>((resolve, reject) =>
       fake.server.close((error) => {
         if (error) reject(error);

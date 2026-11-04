@@ -1,7 +1,11 @@
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   command,
   runSmokeSteps,
+  smokeInstalled,
   smokeSteps,
   verifySchema,
   verifyVersion,
@@ -60,5 +64,16 @@ describe('packed smoke steps', () => {
       ),
     ).rejects.toThrow('timed out');
     expect(performance.now() - started).toBeLessThan(3_000);
+  });
+
+  it('closes the fake API when the installed binary is missing', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'board-missing-bin-'));
+    try {
+      await expect(
+        smokeInstalled(join(root, 'missing-board'), join(root, 'home'), '0.1.0'),
+      ).rejects.toThrow('ENOENT');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
