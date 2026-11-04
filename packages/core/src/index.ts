@@ -17,6 +17,14 @@ export {
   type CommandContext,
   type Mutation,
 } from './app/commands.ts';
+export { createQuery, type Query, type QueryRun } from './app/queries.ts';
+export {
+  createApiServer,
+  listenApiServer,
+  type ApiOptions,
+  type OperationRegistry,
+} from './api/server.ts';
+export { identify, type IdentityPorts, type LiveSession } from './api/identity.ts';
 export {
   enqueueConversationOpen,
   enqueueConversationReply,
