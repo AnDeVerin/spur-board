@@ -19,6 +19,7 @@ const clock = { now: () => NOW };
 const author = 'agent:web/worker-1';
 const secondWorker = 'agent:web/worker-2';
 const orchestrator = 'agent:qa/qa-1';
+const operatorAgent = 'agent:ops/ops-1';
 const config = configSchema.parse({
   projects: [
     {
@@ -29,6 +30,7 @@ const config = configSchema.parse({
       spurProjects: [
         { name: 'web', role: 'worker' },
         { name: 'qa', role: 'worker' },
+        { name: 'ops', role: 'operator' },
       ],
       columns: [
         { id: 'todo', orchestrator: 'none' },
@@ -213,6 +215,19 @@ describe('block and comment mutations', () => {
       'block_opened',
       'block_opened',
     ]);
+  });
+
+  it('addresses dependency and external blocks from a configured operator agent to operator', async () => {
+    const { apply } = await seeded();
+    for (const type of ['dependency', 'external'] as const) {
+      const created = await apply(
+        ops.create,
+        { task: KEY, type, reason: 'Waiting for a decision.' },
+        operatorAgent,
+        `operator-${type}`,
+      );
+      expect(created.block).toMatchObject({ author: operatorAgent, addressee: 'operator' });
+    }
   });
 
   it('accepts done from a later linked worker and records that session', async () => {

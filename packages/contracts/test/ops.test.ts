@@ -364,17 +364,22 @@ describe('comment shape', () => {
     );
     expect(timestamps.length).toBeGreaterThan(0);
     for (const { path, node } of timestamps) {
-      const variants = Array.isArray(node['anyOf']) ? node['anyOf'] : [node];
+      const nullable = path.endsWith('unblockedAt');
+      expect(Array.isArray(node['anyOf']), path).toBe(nullable);
+      const variants: unknown[] = Array.isArray(node['anyOf']) ? node['anyOf'] : [node];
       expect(
-        variants.some((variant) => isObject(variant) && variant['format'] === 'date-time'),
+        variants.map((variant) =>
+          isObject(variant) ? [variant['type'], variant['format']] : [undefined, undefined],
+        ),
         path,
-      ).toBe(true);
-      if (path.endsWith('unblockedAt')) {
-        expect(
-          variants.some((variant) => isObject(variant) && variant['type'] === 'null'),
-          path,
-        ).toBe(true);
-      }
+      ).toEqual(
+        nullable
+          ? [
+              ['string', 'date-time'],
+              ['null', undefined],
+            ]
+          : [['string', 'date-time']],
+      );
     }
   });
 });
