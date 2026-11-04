@@ -71,9 +71,8 @@ export async function runDaemonDoctor(
   const required = [
     'GITHUB_TOKEN',
     ...(jiraTrackers.length > 0 ? ['JIRA_EMAIL', 'JIRA_API_TOKEN'] : []),
-    ...(config.slack.channels.feed || config.slack.channels.orchestrators
-      ? ['SLACK_BOT_TOKEN', 'SLACK_APP_TOKEN']
-      : []),
+    'SLACK_BOT_TOKEN',
+    'SLACK_APP_TOKEN',
   ];
   const missing = required.filter((name) => !secrets[name]);
   checks.push(

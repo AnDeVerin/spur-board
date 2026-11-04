@@ -24,7 +24,11 @@ afterEach(async () => {
 });
 
 function doctorContext(
-  options: { operator?: boolean; secrets?: Readonly<Record<string, string>> } = {},
+  options: {
+    operator?: boolean;
+    channels?: boolean;
+    secrets?: Readonly<Record<string, string>>;
+  } = {},
 ) {
   const store = openStore(join(makeHome(), 'board.sqlite'));
   stores.push(store);
@@ -48,7 +52,8 @@ function doctorContext(
     slack: {
       command: '/board',
       appId: 'A123ABC',
-      channels: { orchestrators: 'C000000001', feed: 'C000000002' },
+      channels:
+        options.channels === false ? {} : { orchestrators: 'C000000001', feed: 'C000000002' },
     },
     digest: { tz: 'UTC' },
   });
@@ -124,6 +129,24 @@ function doctorFetch(fail?: string): typeof fetch {
 }
 
 describe('daemon doctor checks', () => {
+  it('requires Slack tokens before channels are configured', async () => {
+    const ctx = doctorContext({
+      operator: true,
+      channels: false,
+      secrets: {
+        GITHUB_TOKEN: 'github-secret-canary',
+        JIRA_EMAIL: 'email@example.test',
+        JIRA_API_TOKEN: 'jira-secret-canary',
+      },
+    });
+    const report = await runDaemonDoctor(ctx, '1.2.3', doctorFetch());
+    expect(report.checks.find((check) => check.id === 'secrets')).toMatchObject({
+      status: 'fail',
+      blocking: true,
+      fix: 'Add SLACK_BOT_TOKEN, SLACK_APP_TOKEN to the private secrets.env file.',
+    });
+  });
+
   it('reports every daemon-owned check as passing without returning credential values', async () => {
     const ctx = doctorContext({ operator: true });
     const report = await runDaemonDoctor(ctx, '1.2.3', doctorFetch());

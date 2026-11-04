@@ -184,9 +184,8 @@ function localSecrets(config: Config, path: string, ports: DoctorPorts): DoctorC
     ...(config.projects.some((project) => project.tracker.type === 'jira')
       ? ['JIRA_EMAIL', 'JIRA_API_TOKEN']
       : []),
-    ...(config.slack.channels.feed || config.slack.channels.orchestrators
-      ? ['SLACK_BOT_TOKEN', 'SLACK_APP_TOKEN']
-      : []),
+    'SLACK_BOT_TOKEN',
+    'SLACK_APP_TOKEN',
   ];
   const missing = required.filter((name) => !names[name]);
   return {
