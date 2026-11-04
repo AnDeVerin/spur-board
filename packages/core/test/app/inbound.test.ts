@@ -185,6 +185,60 @@ describe('inbound apply', () => {
     ).toEqual({ state: 'open' });
   });
 
+  it('journals unknown conversations and privately denies non-operator commands and buttons', async () => {
+    const { store, gateway } = await setup();
+    const responses: { text: string; private: boolean }[] = [];
+    const inbound = createInbound({
+      store,
+      config,
+      clock: { now: () => now },
+      gateway: {
+        ...gateway,
+        respond(_interaction, body, options) {
+          responses.push({
+            text:
+              body[0]?.kind === 'paragraph'
+                ? body[0].children.map((part) => (part.kind === 'text' ? part.text : '')).join('')
+                : '',
+            private: options.private,
+          });
+          return Promise.resolve('sent' as const);
+        },
+      },
+    });
+    await inbound.sink(message({ conversation: 'unknown', root: 'unknown-root' }));
+    await inbound.sink({
+      kind: 'command',
+      dedupeKey: 'foreign-command',
+      interaction: interactionRefSchema.parse('interaction-1'),
+      author: userIdSchema.parse('another'),
+      text: 'status',
+      sourceUrl: 'https://example.test/board',
+    });
+    await inbound.sink({
+      kind: 'action',
+      dedupeKey: 'foreign-action',
+      interaction: interactionRefSchema.parse('interaction-2'),
+      actionId: 'item.close:I1',
+      author: userIdSchema.parse('another'),
+      conversation: conversationRefSchema.parse('thread-1'),
+      message: messageRefSchema.parse('root-1'),
+      rootMessage: messageRefSchema.parse('root-1'),
+      sourceUrl: 'https://example.test/board',
+    });
+    expect(
+      (await store.db.selectFrom('event').select('kind').execute()).map((row) => row.kind),
+    ).toEqual(['operation_denied', 'operation_denied', 'operation_denied']);
+    expect(await store.db.selectFrom('comment').select('id').execute()).toEqual([]);
+    expect(
+      await store.db.selectFrom('block').select('state').where('id', '=', 1).executeTakeFirst(),
+    ).toEqual({ state: 'open' });
+    expect(responses).toEqual([
+      { text: 'not allowed', private: true },
+      { text: 'not allowed', private: true },
+    ]);
+  });
+
   it('registers a second thread only when its origin key names this block open', async () => {
     const { store, inbound } = await setup();
     await store.transaction(async (trx) => {
@@ -226,7 +280,23 @@ describe('inbound apply', () => {
       { ref: 'thread-1', block_id: 1 },
       { ref: 'thread-2', block_id: 1 },
     ]);
-    expect(await store.db.selectFrom('comment').select('text').execute()).toHaveLength(2);
+    expect(
+      await store.db
+        .selectFrom('comment')
+        .select(['text', 'conversation_ref'])
+        .orderBy('id')
+        .execute(),
+    ).toEqual([
+      { text: 'Which way?', conversation_ref: null },
+      { text: 'Yes', conversation_ref: 'thread-2' },
+    ]);
+    expect(
+      await store.db
+        .selectFrom('block')
+        .select(['state', 'outcome'])
+        .where('id', '=', 1)
+        .executeTakeFirst(),
+    ).toEqual({ state: 'unblocked', outcome: 'done' });
   });
 
   it('records operator edits and journal-only deletion', async () => {
@@ -261,6 +331,11 @@ describe('inbound apply', () => {
       title: 'Answer author unavailable',
       source_url: 'https://example.test/thread/reply',
       task_id: 1,
+    });
+    expect(JSON.parse(item?.event_json ?? '{}')).toMatchObject({
+      kind: 'message',
+      dedupeKey: 'message-1',
+      sourceUrl: 'https://example.test/thread/reply',
     });
     expect(
       await store.db.selectFrom('outbox').select('kind').where('kind', '=', 'feed.line').execute(),

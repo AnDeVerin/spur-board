@@ -6,12 +6,21 @@ import {
   configSchema,
   eventPayloadSchemas,
   parseActorId,
+  userIdSchema,
   type ActorId,
   type ServerErrorCode,
 } from '@spur-board/contracts';
+import { createFakeGateway } from '@spur-board/gateway-testkit';
 import { afterEach, describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { createApply, openStore, toJson, type Mutation, type Store } from '../../src/index.ts';
+import {
+  createApply,
+  createInbound,
+  openStore,
+  toJson,
+  type Mutation,
+  type Store,
+} from '../../src/index.ts';
 import { sampleRows } from '../store/sample-rows.ts';
 
 const NOW = Date.parse('2026-11-03T10:00:00.000Z');
@@ -178,6 +187,71 @@ const agent7: ActorId = 'agent:web/web-7';
 const agent8: ActorId = 'agent:web/web-8';
 const input = { task: 'o/r#101', text: 'which API?' };
 
+async function inboundFixture() {
+  const file = await seededFile();
+  const store = track(openStore(file));
+  const gateway = createFakeGateway({ profile: 'slack-like', start: new Date(NOW) });
+  const delivered = await gateway.deliver({
+    key: 'question-open',
+    maybeSent: false,
+    target: { kind: 'open', space: 'orchestrators', title: 'Question' },
+    persona: { name: 'board', role: 'board' },
+    body: [{ kind: 'paragraph', children: [{ kind: 'text', text: 'Which API?' }] }],
+  });
+  if (delivered.status !== 'delivered' || delivered.conversation === undefined) {
+    throw new Error('Expected a conversation');
+  }
+  const conversation = delivered.conversation;
+  await store.transaction(async (trx) => {
+    await trx
+      .insertInto('block')
+      .values({
+        task_id: 1,
+        type: 'needs_input',
+        reason: 'Which API?',
+        author: 'system',
+        addressee_role: 'operator',
+        target_column: null,
+        state: 'open',
+        outcome: null,
+        outcome_reason: null,
+        repeat_of: null,
+        unblocked_by: null,
+        unblocked_at: null,
+        created_at: new Date(NOW).toISOString(),
+      })
+      .execute();
+    await trx
+      .insertInto('conversation')
+      .values({
+        gateway: gateway.kind,
+        ref: conversation,
+        space: 'orchestrators',
+        task_id: 1,
+        block_id: 1,
+        purpose: 'block',
+        state: 'open',
+        root_message_ref: delivered.message,
+        after_message_ref: null,
+        created_at: new Date(NOW).toISOString(),
+        closed_at: null,
+      })
+      .execute();
+  });
+  return { file, store, gateway, conversation };
+}
+
+async function reopenInbound(
+  file: string,
+  store: Store,
+  gateway: ReturnType<typeof createFakeGateway>,
+) {
+  await store.close();
+  open.splice(open.indexOf(store), 1);
+  const restarted = track(openStore(file));
+  return { store: restarted, inbound: createInbound({ store: restarted, gateway, config, clock }) };
+}
+
 afterEach(async () => {
   calls = 0;
   thrown = undefined;
@@ -339,5 +413,93 @@ describe('apply', () => {
     );
     expect(replayed.block.at).toBe(first.block.at);
     expect(calls).toBe(1);
+  });
+});
+
+describe('inbound restart', () => {
+  const operator = userIdSchema.parse('operator');
+
+  it('keeps one answer when the gateway loses its acknowledgment after commit', async () => {
+    const fixture = await inboundFixture();
+    const inbound = createInbound({
+      store: fixture.store,
+      gateway: fixture.gateway,
+      config,
+      clock,
+    });
+    await fixture.gateway.start(async (event) => {
+      await inbound.sink(event);
+      if (event.kind === 'message') throw new Error('ack lost after commit');
+    });
+    await fixture.gateway.platform.settle();
+    await expect(
+      fixture.gateway.platform.inject({
+        kind: 'message',
+        conversation: fixture.conversation,
+        author: operator,
+        text: 'Use API v2',
+      }),
+    ).rejects.toThrow('ack lost after commit');
+    expect(await fixture.store.db.selectFrom('comment').select('id').execute()).toHaveLength(1);
+    await fixture.gateway.stop();
+    const restarted = await reopenInbound(fixture.file, fixture.store, fixture.gateway);
+    await restarted.inbound.recover();
+    expect(await restarted.store.db.selectFrom('comment').select('id').execute()).toHaveLength(1);
+    expect(await restarted.store.db.selectFrom('command').select('key').execute()).toHaveLength(1);
+  });
+
+  it('applies an answer posted during downtime on connection start', async () => {
+    const fixture = await inboundFixture();
+    await fixture.gateway.platform.inject({
+      kind: 'message',
+      conversation: fixture.conversation,
+      author: operator,
+      text: 'Use API v2',
+    });
+    const restarted = await reopenInbound(fixture.file, fixture.store, fixture.gateway);
+    await fixture.gateway.start((event) => restarted.inbound.sink(event));
+    await fixture.gateway.platform.settle();
+    expect(await restarted.store.db.selectFrom('comment').select('text').execute()).toEqual([
+      { text: 'Use API v2' },
+    ]);
+    expect(
+      await restarted.store.db.selectFrom('block').select(['state', 'outcome']).executeTakeFirst(),
+    ).toEqual({ state: 'unblocked', outcome: 'done' });
+    await fixture.gateway.stop();
+  });
+
+  it('recovers a downtime edit as a new answer revision', async () => {
+    const fixture = await inboundFixture();
+    const inbound = createInbound({
+      store: fixture.store,
+      gateway: fixture.gateway,
+      config,
+      clock,
+    });
+    await fixture.gateway.start((event) => inbound.sink(event));
+    await fixture.gateway.platform.settle();
+    const posted = await fixture.gateway.platform.inject({
+      kind: 'message',
+      conversation: fixture.conversation,
+      author: operator,
+      text: 'Use API v2',
+    });
+    await fixture.gateway.stop();
+    if (posted.message === undefined) throw new Error('Expected posted message');
+    fixture.gateway.platform.advance(1000);
+    now += 1000;
+    await fixture.gateway.platform.inject({
+      kind: 'edit',
+      message: posted.message,
+      text: 'Use API v3',
+    });
+    const restarted = await reopenInbound(fixture.file, fixture.store, fixture.gateway);
+    await fixture.gateway.start((event) => restarted.inbound.sink(event));
+    await fixture.gateway.platform.settle();
+    expect(
+      await restarted.store.db.selectFrom('comment').select(['text', 'revision']).execute(),
+    ).toEqual([{ text: 'Use API v3', revision: 2 }]);
+    expect(await restarted.store.db.selectFrom('comment').select('id').execute()).toHaveLength(1);
+    await fixture.gateway.stop();
   });
 });

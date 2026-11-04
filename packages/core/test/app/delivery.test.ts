@@ -14,6 +14,7 @@ import { createFakeGateway, type FakeGateway, type FakeProfile } from '@spur-boa
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   createSender,
+  enqueueConversationClose,
   enqueueConversationOpen,
   enqueueConversationReply,
   openStore,
@@ -1205,6 +1206,95 @@ describe('dependencies', () => {
     expect((await commentRow(ctx, seed.commentId)).delivery_state).toBe('delivered');
     await step(ctx);
     expect((await outboxRow(ctx, reply)).state).toBe('done');
+  });
+
+  it('cancels a deferred close when its pending open is cancelled as stale', async () => {
+    const ctx = setup('slack-like');
+    const seed = await seedBlock(ctx);
+    const openId = await enqueueOpen(ctx, seed);
+    await ctx.store.transaction(async (trx) => {
+      await trx
+        .updateTable('block')
+        .set({
+          state: 'unblocked',
+          outcome: 'done',
+          unblocked_by: 'operator',
+          unblocked_at: ctx.fake.platform.now().toISOString(),
+        })
+        .where('id', '=', seed.blockId)
+        .execute();
+      await enqueueConversationClose(trx, {
+        blockId: seed.blockId,
+        outcome: 'done',
+        actor: 'operator',
+        at: ctx.fake.platform.now(),
+      });
+    });
+    const close = await ctx.store.db
+      .selectFrom('outbox')
+      .select('id')
+      .where('kind', '=', 'conversation.close')
+      .executeTakeFirstOrThrow();
+    expect(await outboxRow(ctx, close.id)).toMatchObject({
+      state: 'pending',
+      parent_outbox_id: openId,
+    });
+    await ctx.sender.tick();
+    expect(await outboxRow(ctx, openId)).toMatchObject({ state: 'dead', last_error: 'superseded' });
+    expect(await outboxRow(ctx, close.id)).toMatchObject({
+      state: 'dead',
+      last_error: 'superseded',
+    });
+    expect(ctx.fake.platform.messages()).toHaveLength(0);
+  });
+
+  it('delivers one deferred close after an uncertain open succeeds', async () => {
+    const ctx = setup('slack-like');
+    const seed = await seedBlock(ctx);
+    const openId = await enqueueOpen(ctx, seed);
+    ctx.fake.platform.timeoutNext({ visible: true });
+    await ctx.sender.tick();
+    expect(await outboxRow(ctx, openId)).toMatchObject({ state: 'pending', uncertain: 1 });
+    await ctx.store.transaction(async (trx) => {
+      await trx
+        .updateTable('block')
+        .set({
+          state: 'unblocked',
+          outcome: 'done',
+          unblocked_by: 'operator',
+          unblocked_at: ctx.fake.platform.now().toISOString(),
+        })
+        .where('id', '=', seed.blockId)
+        .execute();
+      await enqueueConversationClose(trx, {
+        blockId: seed.blockId,
+        outcome: 'done',
+        actor: 'operator',
+        at: ctx.fake.platform.now(),
+      });
+    });
+    const close = await ctx.store.db
+      .selectFrom('outbox')
+      .select('id')
+      .where('kind', '=', 'conversation.close')
+      .executeTakeFirstOrThrow();
+    expect(await outboxRow(ctx, close.id)).toMatchObject({
+      state: 'pending',
+      parent_outbox_id: openId,
+    });
+    await step(ctx);
+    expect(await outboxRow(ctx, openId)).toMatchObject({ state: 'done' });
+    await step(ctx);
+    expect(await outboxRow(ctx, close.id)).toMatchObject({ state: 'done' });
+    expect(ctx.fake.platform.conversations()).toMatchObject([{ done: true }]);
+    expect(
+      ctx.fake.platform
+        .messages()
+        .filter((message) => message.text.includes('resolved: done (operator)')),
+    ).toHaveLength(1);
+    expect(ctx.observed.requests.filter((request) => request.target.kind === 'close')).toHaveLength(
+      1,
+    );
   });
 
   it('an uncertain feed line is delivered before its edit', async () => {
