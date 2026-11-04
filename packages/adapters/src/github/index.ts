@@ -235,6 +235,7 @@ async function pollRepository({
       if (!(await process(number, wire, scoped(detail.errors, alias)))) discoveredOk = false;
     }
   }
+  if (ctx.signal.aborted) throw new AdapterError('transient', 'GitHub poll aborted');
   return {
     source: id,
     observedAt: new Date().toISOString(),

@@ -265,6 +265,18 @@ describe('GitHub PR batch', () => {
     ]);
     expect(batch.items).toHaveLength(1);
   });
+  it('does not return a batch after the poll signal aborts', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(
+        response({ repository: { pullRequests: conn([]) }, pr0: { pullRequest: wire() } }),
+      );
+    await expect(
+      adapter(fetcher).poll({ ...context(), signal: controller.signal }),
+    ).rejects.toThrow('GitHub poll aborted');
+  });
   it.each([
     [401, 'auth'],
     [403, 'auth'],
