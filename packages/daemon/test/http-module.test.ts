@@ -27,6 +27,7 @@ function doctorContext(
   options: {
     operator?: boolean;
     channels?: boolean;
+    slack?: boolean;
     secrets?: Readonly<Record<string, string>>;
   } = {},
 ) {
@@ -49,12 +50,16 @@ function doctorContext(
       },
     ],
     operator: { slack: 'U0000000000' },
-    slack: {
-      command: '/board',
-      appId: 'A123ABC',
-      channels:
-        options.channels === false ? {} : { orchestrators: 'C000000001', feed: 'C000000002' },
-    },
+    ...(options.slack === false
+      ? {}
+      : {
+          slack: {
+            command: '/board',
+            appId: 'A123ABC',
+            channels:
+              options.channels === false ? {} : { orchestrators: 'C000000001', feed: 'C000000002' },
+          },
+        }),
     digest: { tz: 'UTC' },
   });
   const clock = { now: () => Date.parse('2026-11-04T08:00:00.000Z') };
@@ -140,6 +145,38 @@ function doctorFetch(fail?: string): typeof fetch {
 }
 
 describe('daemon doctor checks', () => {
+  it('does not require Slack tokens when Slack setup is absent', async () => {
+    const report = await runDaemonDoctor(
+      doctorContext({
+        operator: true,
+        slack: false,
+        secrets: {
+          GITHUB_TOKEN: 'github-secret-canary',
+          JIRA_EMAIL: 'email@example.test',
+          JIRA_API_TOKEN: 'jira-secret-canary',
+        },
+      }),
+      '1.2.3',
+      doctorFetch(),
+    );
+    expect(report.checks.find((check) => check.id === 'secrets')).toMatchObject({
+      status: 'pass',
+      blocking: false,
+      fix: null,
+    });
+    for (const id of [
+      'slack.auth',
+      'slack.orchestrators_member',
+      'slack.feed_member',
+      'slack.command',
+    ]) {
+      expect(report.checks.find((check) => check.id === id)).toMatchObject({
+        status: 'warning',
+        blocking: false,
+      });
+    }
+  });
+
   it('fails with the missing bot scope when the token is valid', async () => {
     const report = await runDaemonDoctor(
       doctorContext({ operator: true }),

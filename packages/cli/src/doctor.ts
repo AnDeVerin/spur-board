@@ -194,13 +194,19 @@ function localSecrets(config: Config, path: string, ports: DoctorPorts): DoctorC
   } catch {
     names = {};
   }
+  const slackConfigured =
+    Boolean(
+      config.slack.appId || config.slack.channels.feed || config.slack.channels.orchestrators,
+    ) ||
+    ['SLACK_BOT_TOKEN', 'SLACK_APP_TOKEN', 'SLACK_API_URL', 'SLACK_APP_CONFIG_TOKEN'].some((name) =>
+      Object.hasOwn(names, name),
+    );
   const required = [
     'GITHUB_TOKEN',
     ...(config.projects.some((project) => project.tracker.type === 'jira')
       ? ['JIRA_EMAIL', 'JIRA_API_TOKEN']
       : []),
-    'SLACK_BOT_TOKEN',
-    'SLACK_APP_TOKEN',
+    ...(slackConfigured ? ['SLACK_BOT_TOKEN', 'SLACK_APP_TOKEN'] : []),
   ];
   const missing = required.filter((name) => !names[name]);
   return {

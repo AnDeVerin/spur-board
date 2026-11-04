@@ -69,11 +69,17 @@ export async function runDaemonDoctor(
   const jiraTrackers = config.projects.flatMap((project) =>
     project.tracker.type === 'jira' ? [project.tracker] : [],
   );
+  const slackConfigured =
+    Boolean(
+      config.slack.appId || config.slack.channels.feed || config.slack.channels.orchestrators,
+    ) ||
+    ['SLACK_BOT_TOKEN', 'SLACK_APP_TOKEN', 'SLACK_API_URL', 'SLACK_APP_CONFIG_TOKEN'].some((name) =>
+      Object.hasOwn(secrets, name),
+    );
   const required = [
     'GITHUB_TOKEN',
     ...(jiraTrackers.length > 0 ? ['JIRA_EMAIL', 'JIRA_API_TOKEN'] : []),
-    'SLACK_BOT_TOKEN',
-    'SLACK_APP_TOKEN',
+    ...(slackConfigured ? ['SLACK_BOT_TOKEN', 'SLACK_APP_TOKEN'] : []),
   ];
   const missing = required.filter((name) => !secrets[name]);
   checks.push(
@@ -159,13 +165,15 @@ export async function runDaemonDoctor(
   );
   const missingScopes = SLACK_BOT_SCOPES.filter((scope) => !granted.has(scope));
   checks.push(
-    check(
-      'slack.auth',
-      authorized && missingScopes.length === 0,
-      authorized
-        ? `Add ${missingScopes.join(', ')} to the Slack app and reinstall it.`
-        : 'Check the Slack bot token.',
-    ),
+    slackConfigured
+      ? check(
+          'slack.auth',
+          authorized && missingScopes.length === 0,
+          authorized
+            ? `Add ${missingScopes.join(', ')} to the Slack app and reinstall it.`
+            : 'Check the Slack bot token.',
+        )
+      : warning('slack.auth', 'Configure Slack and rerun board doctor to verify bot access.'),
   );
   for (const [id, channel] of [
     ['slack.orchestrators_member', config.slack.channels.orchestrators],
@@ -182,12 +190,21 @@ export async function runDaemonDoctor(
           )
         : null;
     checks.push(
-      check(id, await slackMember(response), 'Invite the bot to the configured channel ID.'),
+      slackConfigured
+        ? check(id, await slackMember(response), 'Invite the bot to the configured channel ID.')
+        : warning(id, 'Configure Slack channels, then rerun board doctor.'),
     );
   }
 
   const configToken = secrets['SLACK_APP_CONFIG_TOKEN'];
-  if (!configToken || !config.slack.appId) {
+  if (!slackConfigured) {
+    checks.push(
+      warning(
+        'slack.command',
+        'Configure Slack and rerun board doctor to verify the slash command.',
+      ),
+    );
+  } else if (!configToken || !config.slack.appId) {
     checks.push(
       warning(
         'slack.command',
@@ -250,7 +267,6 @@ export async function runDaemonDoctor(
           ),
     );
   }
-
   const operatorProject = config.projects.some((project) =>
     project.spurProjects.some((spurProject) => spurProject.role === 'operator'),
   );

@@ -144,13 +144,22 @@ describe('board doctor', () => {
     expect(output.output()).not.toContain('github-test-value');
   });
 
-  it('expects both Slack tokens even before channel IDs are configured', async () => {
-    const withoutChannels = yaml.replace('slack:\n  channels:\n    feed: C000000002\n', '');
+  it.each([
+    ['Slack-free config', '', 'pass', null, 0],
+    [
+      'pre-channel Slack setup',
+      'slack:\n  appId: A123ABC\n',
+      'fail',
+      'Add SLACK_BOT_TOKEN, SLACK_APP_TOKEN to the private secrets.env file.',
+      1,
+    ],
+  ] as const)('checks secret names for %s', async (_case, slackSection, status, fix, exitCode) => {
+    const config = yaml.replace('slack:\n  channels:\n    feed: C000000002\n', slackSection);
     const value = await run(
       ['doctor', '--json'],
       ports({
         readText(path) {
-          if (path.endsWith('config.yaml')) return withoutChannels;
+          if (path.endsWith('config.yaml')) return config;
           if (path.endsWith('secrets.env')) return 'GITHUB_TOKEN=github-test-value\n';
           if (path.endsWith('spur-board.service'))
             return 'ExecStart="/usr/bin/node" "/app/daemon.mjs"\n';
@@ -159,10 +168,11 @@ describe('board doctor', () => {
         },
       }),
     );
+    expect(value.exitCode).toBe(exitCode);
     expect(value.checks.find((check) => check.id === 'secrets')).toMatchObject({
-      status: 'fail',
+      status,
       present: ['GITHUB_TOKEN'],
-      fix: 'Add SLACK_BOT_TOKEN, SLACK_APP_TOKEN to the private secrets.env file.',
+      fix,
     });
   });
 
