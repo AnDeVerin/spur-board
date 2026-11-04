@@ -373,6 +373,9 @@ describe('inbound events', () => {
       expect(event.sourceUrl).toMatch(/^fake:\/\//);
       if (event.kind === 'command') {
         expect(event).not.toHaveProperty('rootMessage');
+        expect(event.sourceSpace).toBe('orchestrators');
+      } else if (event.kind === 'action') {
+        expect(event.sourceSpace).toBe('feed');
       } else if ('message' in event) {
         expect(event.rootMessage).toBeTruthy();
         expect(event.sourceUrl).toContain(event.message);

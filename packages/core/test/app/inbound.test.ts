@@ -216,6 +216,7 @@ describe('inbound apply', () => {
       author: userIdSchema.parse('another'),
       text: 'status',
       sourceUrl: 'https://example.test/board',
+      sourceSpace: 'orchestrators',
     });
     await inbound.sink({
       kind: 'action',
@@ -227,6 +228,7 @@ describe('inbound apply', () => {
       message: messageRefSchema.parse('root-1'),
       rootMessage: messageRefSchema.parse('root-1'),
       sourceUrl: 'https://example.test/board',
+      sourceSpace: 'feed',
     });
     expect(
       (await store.db.selectFrom('event').select('kind').execute()).map((row) => row.kind),
@@ -239,6 +241,64 @@ describe('inbound apply', () => {
       { text: 'not allowed', private: true },
       { text: 'not allowed', private: true },
     ]);
+  });
+
+  it('privately denies operator interactions outside their configured board spaces', async () => {
+    const { store, gateway } = await setup();
+    const responses: { text: string; private: boolean }[] = [];
+    const inbound = createInbound({
+      store,
+      config,
+      clock: { now: () => now },
+      gateway: {
+        ...gateway,
+        respond(_interaction, body, options) {
+          responses.push({
+            text:
+              body[0]?.kind === 'paragraph'
+                ? body[0].children.map((part) => (part.kind === 'text' ? part.text : '')).join('')
+                : '',
+            private: options.private,
+          });
+          return Promise.resolve('sent' as const);
+        },
+      },
+    });
+    await inbound.sink({ kind: 'gap', dedupeKey: 'gap-for-space' });
+    await inbound.sink({
+      kind: 'command',
+      dedupeKey: 'wrong-command',
+      interaction: interactionRefSchema.parse('wrong-command'),
+      author: userIdSchema.parse('operator'),
+      text: 'status',
+      sourceUrl: 'https://example.test/other',
+      sourceSpace: null,
+    });
+    for (const space of [null, 'orchestrators'] as const) {
+      await inbound.sink({
+        kind: 'action',
+        dedupeKey: `wrong-action-${String(space)}`,
+        interaction: interactionRefSchema.parse(`wrong-action-${String(space)}`),
+        actionId: 'item.close:I1',
+        author: userIdSchema.parse('operator'),
+        conversation: conversationRefSchema.parse('thread-1'),
+        message: messageRefSchema.parse('root-1'),
+        rootMessage: messageRefSchema.parse('root-1'),
+        sourceUrl: 'https://example.test/other',
+        sourceSpace: space,
+      });
+    }
+    expect((await getFromYouItem(store, 1))?.state).toBe('open');
+    expect(
+      await store.db
+        .selectFrom('event')
+        .select('kind')
+        .where('kind', '=', 'operation_denied')
+        .execute(),
+    ).toHaveLength(3);
+    expect(responses).toEqual(
+      Array.from({ length: 3 }, () => ({ text: 'not allowed', private: true })),
+    );
   });
 
   it('registers a second thread only when its origin key names this block open', async () => {
@@ -424,15 +484,9 @@ describe('inbound apply', () => {
       now: () => new Date(now),
     });
     await sender.tick();
-    expect(
-      gateway.platform
-        .messages()
-        .filter(
-          (entry) =>
-            entry.text.includes('Slack message not processed') &&
-            entry.text.includes('https://example.test/thread/reply'),
-        ),
-    ).toHaveLength(1);
+    expect(gateway.platform.messages().map((entry) => entry.text)).toEqual([
+      'o/r#101\n\nSlack message not processed\nhttps://example.test/thread/reply',
+    ]);
     expect(
       await store.db
         .selectFrom('outbox')
@@ -462,6 +516,7 @@ describe('inbound apply', () => {
       message: messageRefSchema.parse('root-1'),
       rootMessage: messageRefSchema.parse('root-1'),
       sourceUrl: 'https://example.test/thread/reply',
+      sourceSpace: 'feed',
     });
     expect(await store.db.selectFrom('comment').select('text').execute()).toEqual([
       { text: 'Yes' },
@@ -475,6 +530,88 @@ describe('inbound apply', () => {
     ]);
   });
 
+  it.each(['command', 'action'] as const)(
+    'replays a stored %s with the catalog operation ID on later delivery',
+    async (kind) => {
+      const { store, inbound } = await setup();
+      if (kind === 'action') await inbound.sink({ kind: 'gap', dedupeKey: 'target-gap' });
+      const stored: InboundEvent =
+        kind === 'command'
+          ? {
+              kind: 'command',
+              dedupeKey: 'stored-command',
+              interaction: interactionRefSchema.parse('stored-command'),
+              author: userIdSchema.parse('operator'),
+              text: 'status',
+              sourceUrl: 'https://example.test/board',
+              sourceSpace: 'orchestrators',
+            }
+          : {
+              kind: 'action',
+              dedupeKey: 'stored-action',
+              interaction: interactionRefSchema.parse('stored-action'),
+              actionId: 'item.close:I1',
+              author: userIdSchema.parse('operator'),
+              conversation: conversationRefSchema.parse('thread-1'),
+              message: messageRefSchema.parse('root-1'),
+              rootMessage: messageRefSchema.parse('root-1'),
+              sourceUrl: 'https://example.test/board',
+              sourceSpace: 'feed',
+            };
+      const item = await store.transaction((trx) =>
+        trx
+          .insertInto('from_you_item')
+          .values({
+            source_key: `retry:${kind}`,
+            title: 'Retry original interaction',
+            source_url: stored.sourceUrl,
+            event_json: JSON.stringify(stored),
+            task_id: null,
+            state: 'open',
+            created_at: at,
+            closed_at: null,
+          })
+          .returning('id')
+          .executeTakeFirstOrThrow(),
+      );
+      await inbound.sink({
+        kind: 'action',
+        dedupeKey: `retry-${kind}`,
+        interaction: interactionRefSchema.parse(`retry-${kind}`),
+        actionId: `item.retry:I${String(item.id)}`,
+        author: userIdSchema.parse('operator'),
+        conversation: conversationRefSchema.parse('thread-1'),
+        message: messageRefSchema.parse('root-1'),
+        rootMessage: messageRefSchema.parse('root-1'),
+        sourceUrl: 'https://example.test/board',
+        sourceSpace: 'feed',
+      });
+      await inbound.sink(stored);
+      expect((await getFromYouItem(store, item.id))?.state).toBe('closed');
+      expect(
+        await store.db
+          .selectFrom('command')
+          .select('operation')
+          .where('key', '=', stored.dedupeKey)
+          .executeTakeFirst(),
+      ).toEqual({ operation: kind === 'command' ? 'status.get' : 'item.close' });
+      expect(
+        await store.db
+          .selectFrom('event')
+          .select('kind')
+          .where('kind', '=', 'inbound_failed')
+          .execute(),
+      ).toEqual([]);
+      expect(
+        await store.db
+          .selectFrom('from_you_item')
+          .select('id')
+          .where('source_key', '=', `inbound:failure:${stored.dedupeKey}`)
+          .execute(),
+      ).toEqual([]);
+    },
+  );
+
   it('uses catalog IDs for queries and item actions with deduped results', async () => {
     const { store, inbound } = await setup();
     const command: InboundEvent = {
@@ -484,6 +621,7 @@ describe('inbound apply', () => {
       author: userIdSchema.parse('operator'),
       text: 'status',
       sourceUrl: 'https://example.test/board',
+      sourceSpace: 'orchestrators',
     };
     await inbound.sink(command);
     await inbound.sink(command);
@@ -503,6 +641,7 @@ describe('inbound apply', () => {
       message: messageRefSchema.parse('root-1'),
       rootMessage: messageRefSchema.parse('root-1'),
       sourceUrl: 'https://example.test/board',
+      sourceSpace: 'feed',
     };
     await inbound.sink(action);
     await inbound.sink(action);
@@ -529,6 +668,7 @@ describe('inbound apply', () => {
         author: userIdSchema.parse('operator'),
         text,
         sourceUrl: 'https://example.test/board',
+        sourceSpace: 'orchestrators',
       });
     }
     const commands = await store.db
@@ -560,28 +700,49 @@ describe('inbound apply', () => {
   });
 
   it('raises one item per affected gap even when scans use new event keys', async () => {
-    const { store, inbound, gateway } = await setup();
+    const { store, inbound } = await setup();
     const conversation = conversationRefSchema.parse('thread-1');
     await inbound.sink({ kind: 'gap', dedupeKey: 'gap-a', conversation });
     await inbound.sink({ kind: 'gap', dedupeKey: 'gap-b', conversation });
     await inbound.sink({ kind: 'gap', dedupeKey: 'gateway-gap-a' });
     await inbound.sink({ kind: 'gap', dedupeKey: 'gateway-gap-b' });
-    expect(
-      await store.db
-        .selectFrom('from_you_item')
-        .select(['source_key', 'title'])
-        .orderBy('id')
-        .execute(),
-    ).toEqual([
-      {
-        source_key: `inbound:gap:${gateway.kind}:conversation:thread-1`,
-        title: 'repeat your answer',
-      },
-      { source_key: `inbound:gap:${gateway.kind}:gateway`, title: 'repeat your answer' },
-    ]);
+    const first = await store.db
+      .selectFrom('from_you_item')
+      .select(['id', 'source_key', 'title'])
+      .orderBy('id')
+      .execute();
+    expect(first).toHaveLength(2);
+    expect(first.map((item) => item.title)).toEqual(['repeat your answer', 'repeat your answer']);
+    expect(first[0]?.source_key).not.toBe(first[1]?.source_key);
     expect(
       await store.db.selectFrom('outbox').select('kind').where('kind', '=', 'feed.line').execute(),
     ).toHaveLength(2);
+    await inbound.sink({
+      kind: 'action',
+      dedupeKey: 'close-gap-1',
+      interaction: interactionRefSchema.parse('close-gap-1'),
+      actionId: 'item.close:I1',
+      author: userIdSchema.parse('operator'),
+      conversation: conversationRefSchema.parse('thread-1'),
+      message: messageRefSchema.parse('root-1'),
+      rootMessage: messageRefSchema.parse('root-1'),
+      sourceUrl: 'https://example.test/board',
+      sourceSpace: 'feed',
+    });
+    await inbound.sink({ kind: 'gap', dedupeKey: 'gap-c', conversation });
+    await inbound.sink({ kind: 'gap', dedupeKey: 'gap-d', conversation });
+    const later = await store.db
+      .selectFrom('from_you_item')
+      .select(['source_key', 'state'])
+      .orderBy('id')
+      .execute();
+    expect(later).toHaveLength(3);
+    expect(later[0]?.state).toBe('closed');
+    expect(later[2]?.state).toBe('open');
+    expect(later[2]?.source_key).not.toBe(first[0]?.source_key);
+    expect(
+      await store.db.selectFrom('outbox').select('id').where('kind', '=', 'feed.line').execute(),
+    ).toHaveLength(3);
   });
 
   it('rings a live agent author instead of raising an item', async () => {

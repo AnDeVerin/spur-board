@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import {
   EVENT_VERSION,
   OPERATIONS,
@@ -516,7 +517,7 @@ export function createInbound(input: {
       await replayOperation(trx, {
         actor,
         key: stored.dedupeKey,
-        operation: `inbound.${stored.kind}`,
+        operation: operationId(stored),
         fingerprintInput: stored,
         output: resultSchema,
         at,
@@ -538,6 +539,19 @@ export function createInbound(input: {
         at,
         privateResponse: event.kind === 'action' || event.kind === 'command',
       });
+    }
+    if (event.kind === 'action' || event.kind === 'command') {
+      const allowed =
+        event.kind === 'action' ? event.sourceSpace === 'feed' : event.sourceSpace !== null;
+      if (!allowed)
+        return deny(trx, {
+          event,
+          reason: 'Interaction came from outside a board space.',
+          actor: 'operator',
+          gateway: gateway.kind,
+          at,
+          privateResponse: true,
+        });
     }
     if (event.kind === 'command') {
       return { status: 'applied', response: await query(trx, event.text) };
@@ -646,8 +660,19 @@ export function createInbound(input: {
         opened?.external_ref === null || opened?.external_ref === undefined
           ? undefined
           : (JSON.parse(opened.external_ref) as { permalink?: string });
+      const scope = createHash('sha256')
+        .update(JSON.stringify([gateway.kind, event.conversation ?? null]))
+        .digest('hex');
+      const baseKey = `inbound:gap:${scope}`;
+      const latest = await trx
+        .selectFrom('from_you_item')
+        .select(['id', 'source_key', 'state'])
+        .where('source_key', 'like', `${baseKey}:%`)
+        .orderBy('id', 'desc')
+        .executeTakeFirst();
       await raiseItem(trx, {
-        sourceKey: `inbound:gap:${gateway.kind}:${event.conversation === undefined ? 'gateway' : `conversation:${event.conversation}`}`,
+        sourceKey:
+          latest?.state === 'open' ? latest.source_key : `${baseKey}:${String(latest?.id ?? 0)}`,
         title: 'repeat your answer',
         sourceUrl: ref?.permalink ?? null,
         event,

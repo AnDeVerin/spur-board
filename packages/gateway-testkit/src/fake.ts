@@ -535,6 +535,7 @@ export function createFakeGateway(options: FakeGatewayOptions): FakeGateway {
           message: message.message,
           rootMessage: rootMessage(message.conversation),
           sourceUrl: permalink(message.conversation, message.message),
+          sourceSpace: message.conversation.space ?? null,
           ...originKey(message.conversation),
         });
         return { conversation: message.conversation.ref, message: message.message, interaction };
@@ -548,6 +549,7 @@ export function createFakeGateway(options: FakeGatewayOptions): FakeGateway {
           author: input.author,
           text: input.text,
           sourceUrl: `fake://${profile}/commands`,
+          sourceSpace: 'orchestrators',
         });
         return { interaction };
       }

@@ -837,6 +837,7 @@ const respond: ConformanceCase = {
       'G15: an action press emits an action event',
     );
     expect(action.actionId, 'G15: the action event names the action').toBe('approve');
+    expect(action.sourceSpace, 'G15: the action names its configured source space').toBe(space);
     const visible = (await h.platform.messages()).length;
     const result = await h.gateway.respond(action.interaction, text('private'), { private: true });
     expect(result, 'G15: a private answer follows capabilities.privateResponses').toBe(

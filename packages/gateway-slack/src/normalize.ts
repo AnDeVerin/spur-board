@@ -4,7 +4,9 @@ import {
   userIdSchema,
   type InboundEvent,
   type InteractionRef,
+  type SpaceId,
 } from '@spur-board/contracts';
+import type { SlackChannels } from './deliver.ts';
 import { conversationRef, messageRef } from './ref.ts';
 import { originKeyFromBlocks } from './render.ts';
 
@@ -28,6 +30,12 @@ function iso(ts: string): string | undefined {
 function sourceUrl(channel: string, ts?: string): string {
   const channelUrl = `https://app.slack.com/archives/${encodeURIComponent(channel)}`;
   return ts === undefined ? channelUrl : `${channelUrl}/p${ts.replace('.', '')}`;
+}
+
+function sourceSpace(channel: string, channels: SlackChannels): SpaceId | null {
+  if (channel === channels.feed) return 'feed';
+  if (channel === channels.orchestrators) return 'orchestrators';
+  return null;
 }
 
 export interface BotIdentity {
@@ -184,6 +192,7 @@ export function normalizeMessage(
 export function normalizeInteraction(
   type: string,
   payload: unknown,
+  channels: SlackChannels,
   root?: unknown,
 ): InboundEvent[] {
   const body = record(payload);
@@ -204,6 +213,7 @@ export function normalizeInteraction(
         author,
         text: text(body.text) ?? '',
         sourceUrl: sourceUrl(channel),
+        sourceSpace: sourceSpace(channel, channels),
       },
     ];
   }
@@ -237,6 +247,7 @@ export function normalizeInteraction(
       message: messageRef(channel, ts, threadTs),
       rootMessage: messageRef(channel, threadTs, threadTs),
       sourceUrl: sourceUrl(channel, ts),
+      sourceSpace: sourceSpace(channel, channels),
       ...(originKey === undefined ? {} : { originKey }),
     },
   ];

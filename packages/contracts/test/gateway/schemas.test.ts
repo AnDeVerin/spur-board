@@ -82,6 +82,7 @@ const events: Record<InboundEventKind, Fixtures> = {
       message,
       rootMessage,
       sourceUrl,
+      sourceSpace: 'feed',
     },
     invalid: { kind: 'action', dedupeKey: 'k', actionId: 'approve', author, conversation, message },
   },
@@ -93,6 +94,7 @@ const events: Record<InboundEventKind, Fixtures> = {
       author,
       text: 'status',
       sourceUrl,
+      sourceSpace: 'orchestrators',
     },
     invalid: {
       kind: 'command',
@@ -186,6 +188,12 @@ describe('inboundEventSchema', () => {
       expect(inboundEventSchema.safeParse(withoutRootMessage).success).toBe(false);
     },
   );
+
+  it.each(['action', 'command'] as const)('%s: requires its source space', (kind) => {
+    const withoutSourceSpace = { ...events[kind].valid };
+    delete withoutSourceSpace.sourceSpace;
+    expect(inboundEventSchema.safeParse(withoutSourceSpace).success).toBe(false);
+  });
 });
 
 describe('deliveryResultSchema', () => {

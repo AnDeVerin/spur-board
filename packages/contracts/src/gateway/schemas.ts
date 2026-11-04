@@ -53,6 +53,8 @@ const at = z.iso.datetime();
 const text = z.string();
 /** Deep link to the source message, or to the source space for a command. */
 const sourceUrl = z.url();
+/** Configured board space for an interaction, or null when it came from outside. */
+const sourceSpace = z.enum(SPACE_IDS).nullable();
 
 const messageEventSchema = z.strictObject({
   kind: z.literal('message'),
@@ -101,6 +103,7 @@ const actionEventSchema = z.strictObject({
   message: messageRefSchema,
   rootMessage: messageRefSchema,
   sourceUrl,
+  sourceSpace,
   originKey: z.string().min(1).optional(),
 });
 
@@ -112,6 +115,7 @@ const commandEventSchema = z.strictObject({
   author: userIdSchema,
   text,
   sourceUrl,
+  sourceSpace,
 });
 
 const mentionEventSchema = z.strictObject({
