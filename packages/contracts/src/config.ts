@@ -208,6 +208,22 @@ export const configSchema = z.strictObject({
       secondRetryMs: durationMs(300_000, 'Wait after the second unanswered doorbell'),
       unansweredAfterMs: durationMs(900_000, 'Wait after the third unanswered doorbell'),
     })
+    .superRefine((pauses, ctx) => {
+      if (pauses.secondRetryMs <= pauses.firstRetryMs) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['secondRetryMs'],
+          message: 'Second retry pause must exceed the first retry pause',
+        });
+      }
+      if (pauses.unansweredAfterMs <= pauses.secondRetryMs) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['unansweredAfterMs'],
+          message: 'Final unanswered pause must exceed the second retry pause',
+        });
+      }
+    })
     .prefault({}),
   adapters: z
     .strictObject({

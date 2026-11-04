@@ -342,7 +342,12 @@ export async function acknowledgeNotification(
     .where('banned', '=', 0)
     .where('session_id', '=', parsed.actorRef.session)
     .executeTakeFirst();
-  if (parsed.actorRef.session !== n.author_session && linked === undefined) {
+  if (
+    (n.recipient_session !== null && parsed.actorRef.session !== n.recipient_session) ||
+    (n.recipient_session === null &&
+      parsed.actorRef.session !== n.author_session &&
+      linked === undefined)
+  ) {
     throw new CommandError('forbidden', 'Only the addressed task role can acknowledge.');
   }
   await trx

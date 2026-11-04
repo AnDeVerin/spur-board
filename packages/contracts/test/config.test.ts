@@ -155,6 +155,18 @@ describe('invalid configs', () => {
       'doorbells.firstRetryMs',
     ],
     [
+      'decreasing doorbell retry pause',
+      validConfig({}, { doorbells: { firstRetryMs: 600_000, secondRetryMs: 1000 } }),
+      'Second retry pause must exceed the first retry pause',
+      'doorbells.secondRetryMs',
+    ],
+    [
+      'decreasing final unanswered pause',
+      validConfig({}, { doorbells: { secondRetryMs: 600_000, unansweredAfterMs: 1000 } }),
+      'Final unanswered pause must exceed the second retry pause',
+      'doorbells.unansweredAfterMs',
+    ],
+    [
       'unknown tracker key',
       validConfig({ tracker: { ...jiraTracker, foo: 1 } }),
       'Unrecognized key: "foo"',

@@ -36,7 +36,12 @@ afterEach(async () => {
 });
 
 async function setup(
-  options: { author?: 'waiting' | 'ended'; replacement?: boolean; tester?: boolean } = {},
+  options: {
+    author?: 'waiting' | 'ended';
+    replacement?: boolean;
+    tester?: boolean;
+    retry?: { firstRetryMs: number; secondRetryMs: number; unansweredAfterMs: number };
+  } = {},
 ) {
   const store = openStore(join(mkdtempSync(join(tmpdir(), 'core-doorbell-')), 'board.db'));
   stores.push(store);
@@ -97,10 +102,13 @@ async function setup(
         .execute();
     }
   });
-  const apply = createApply({ store, clock: { now: () => now }, config });
+  const usedConfig = options.retry
+    ? configSchema.parse({ ...config, doorbells: options.retry })
+    : config;
+  const apply = createApply({ store, clock: { now: () => now }, config: usedConfig });
   const sender = createSender({
     store,
-    config,
+    config: usedConfig,
     spur: {
       send(session, text) {
         if (failNext) {
@@ -264,6 +272,57 @@ describe('role addressed doorbells', () => {
     expect(ctx.sent).toHaveLength(3);
   });
 
+  it('uses the configured pause after each delivered ring', async () => {
+    const ctx = await setup({
+      retry: { firstRetryMs: 2000, secondRetryMs: 6000, unansweredAfterMs: 10_000 },
+    });
+    await workerBlock(ctx.store);
+    await ctx.sender.tick();
+    expect(ctx.sent).toHaveLength(1);
+    ctx.advance(1999);
+    await ctx.sender.tick();
+    expect(ctx.sent).toHaveLength(1);
+    ctx.advance(1);
+    await ctx.sender.tick();
+    expect(ctx.sent).toHaveLength(2);
+    ctx.advance(5999);
+    await ctx.sender.tick();
+    expect(ctx.sent).toHaveLength(2);
+    ctx.advance(1);
+    await ctx.sender.tick();
+    expect(ctx.sent).toHaveLength(3);
+    ctx.advance(9999);
+    await ctx.sender.tick();
+    expect(await ctx.store.db.selectFrom('operator_item').select('kind').execute()).toEqual([]);
+    ctx.advance(1);
+    await ctx.sender.tick();
+    expect(await ctx.store.db.selectFrom('operator_item').select('kind').execute()).toEqual([
+      { kind: 'worker_not_reading' },
+    ]);
+  });
+
+  it('closes a worker notification when its block escalates to the operator', async () => {
+    const ctx = await setup();
+    const blockId = await workerBlock(ctx.store);
+    await ctx.sender.tick();
+    expect(ctx.sent).toHaveLength(1);
+    const escalated = await ctx.apply(
+      ops.escalate,
+      { block: blockId },
+      'agent:web/worker-1',
+      'escalate-worker',
+    );
+    expect(escalated.block.addressee).toBe('operator');
+    const closed = await ctx.store.db
+      .selectFrom('notification')
+      .select('acked_at')
+      .executeTakeFirstOrThrow();
+    expect(closed.acked_at).not.toBeNull();
+    ctx.advance(2_000_000);
+    await ctx.sender.tick();
+    expect(ctx.sent).toHaveLength(1);
+  });
+
   it('raises answer_undelivered only after three unanswered rings to a live role session', async () => {
     const ctx = await setup({ author: 'ended', replacement: true });
     const asked = await ctx.apply(
@@ -332,5 +391,29 @@ describe('role addressed doorbells', () => {
     ctx.advance(2_000_000);
     await ctx.sender.tick();
     expect(ctx.sent).toEqual([]);
+  });
+
+  it('accepts an ack only from the worker selected for a delivered notification', async () => {
+    const ctx = await setup({ replacement: true });
+    const blockId = await workerBlock(ctx.store);
+    await ctx.sender.tick();
+    expect(ctx.sent.map((entry) => entry.session)).toEqual(['worker-1']);
+    await expect(
+      ctx.apply(ops.ack, { entries: [{ id: blockId }] }, 'agent:web/worker-2', 'ack-other-worker'),
+    ).rejects.toMatchObject({ code: 'forbidden' });
+    expect(
+      await ctx.store.db.selectFrom('notification').select('acked_at').executeTakeFirst(),
+    ).toEqual({ acked_at: null });
+    await ctx.apply(
+      ops.ack,
+      { entries: [{ id: blockId }] },
+      'agent:web/worker-1',
+      'ack-selected-worker',
+    );
+    const acked = await ctx.store.db
+      .selectFrom('notification')
+      .select('acked_at')
+      .executeTakeFirstOrThrow();
+    expect(acked.acked_at).not.toBeNull();
   });
 });

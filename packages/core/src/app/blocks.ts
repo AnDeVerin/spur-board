@@ -464,6 +464,7 @@ export function createBlockMutations(config: Config) {
         from: block.addressee_role,
         to: next.addressee,
       });
+      await closeBlockNotification(trx, block.id, new Date(ctx.at));
       await queueBlockOpen(trx, task, updated, ctx, config);
       await registerBlockNotification(trx, updated, new Date(ctx.at));
       return { block: blockView(updated, task) };
