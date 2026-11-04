@@ -45,13 +45,20 @@ interface Fake {
 }
 
 // A fake executable that records its arguments (and `env` when asked) next to itself.
-function fakeBin(dir: string, name: string, fake: Fake, recordEnv = false): void {
+function fakeBin(
+  dir: string,
+  name: string,
+  fake: Fake,
+  recordEnv = false,
+  recordStdin = false,
+): void {
   writeFileSync(
     join(dir, name),
     [
       '#!/bin/sh',
       `printf '%s\\n' "$@" > '${join(dir, `${name}.args`)}'`,
       recordEnv ? `env > '${join(dir, `${name}.env`)}'` : '',
+      recordStdin ? `cat > '${join(dir, `${name}.stdin`)}'` : '',
       `printf '%s\\n' '${fake.output}'`,
       `exit ${String(fake.exit)}`,
     ].join('\n'),
@@ -84,8 +91,19 @@ function sandbox(gitleaks: Fake = NO_LEAKS) {
     GIT_CEILING_DIRECTORIES: dir,
   });
 
-  const exec = (cmd: string, args: string[], extra: NodeJS.ProcessEnv = {}, cwd = repo) => {
-    const result = spawnSync(cmd, args, { cwd, env: { ...env, ...extra }, encoding: 'utf8' });
+  const exec = (
+    cmd: string,
+    args: string[],
+    extra: NodeJS.ProcessEnv = {},
+    cwd = repo,
+    input?: string,
+  ) => {
+    const result = spawnSync(cmd, args, {
+      cwd,
+      env: { ...env, ...extra },
+      encoding: 'utf8',
+      input,
+    });
     return { status: result.status, stdout: result.stdout, stderr: result.stderr };
   };
   const tryGit = (...args: string[]) => exec('git', args);
@@ -98,8 +116,13 @@ function sandbox(gitleaks: Fake = NO_LEAKS) {
     writeFileSync(join(repo, file), content);
   };
   const read = (file: string) => readFileSync(join(repo, file), 'utf8');
-  const node = (script: string, args: string[], extra: NodeJS.ProcessEnv = {}, cwd = repo) =>
-    exec(process.execPath, [script, ...args], extra, cwd);
+  const node = (
+    script: string,
+    args: string[],
+    extra: NodeJS.ProcessEnv = {},
+    cwd = repo,
+    input?: string,
+  ) => exec(process.execPath, [script, ...args], extra, cwd, input);
   const head = () => git('rev-parse', 'HEAD').trim();
 
   mkdirSync(repo);
@@ -411,15 +434,23 @@ describe('pre-commit: formatting', () => {
 });
 
 describe('pre-push', () => {
-  it('runs pnpm check without the git local env vars and exits with its status', () => {
+  it('runs the pre-push mode without the git local env vars and exits with its status', () => {
     const box = sandbox();
-    fakeBin(box.bin, 'pnpm', { output: 'CHECK FAIL (exit 3)', exit: 3 }, true);
-    const r = box.node(SCRIPT, ['pre-push', 'origin', 'url'], {
-      GIT_DIR: '/bogus',
-      GIT_INDEX_FILE: '/bogus',
-    });
+    fakeBin(box.bin, 'pnpm', { output: 'CHECK FAIL (exit 3)', exit: 3 }, true, true);
+    const refs = `refs/heads/main ${box.head()} refs/heads/main ${'0'.repeat(40)}\n`;
+    const r = box.node(
+      SCRIPT,
+      ['pre-push', 'origin', 'url'],
+      {
+        GIT_DIR: '/bogus',
+        GIT_INDEX_FILE: '/bogus',
+      },
+      box.repo,
+      refs,
+    );
     expect(r.status).toBe(3);
-    expect(recorded(box.bin, 'pnpm.args')).toEqual(['check']);
+    expect(recorded(box.bin, 'pnpm.args')).toEqual(['run', 'check', '--pre-push']);
+    expect(readFileSync(join(box.bin, 'pnpm.stdin'), 'utf8')).toBe(refs);
     const env = recorded(box.bin, 'pnpm.env') ?? [];
     expect(env.length).toBeGreaterThan(0);
     expect(env.filter((line) => /^GIT_(DIR|INDEX_FILE)=/.test(line))).toEqual([]);

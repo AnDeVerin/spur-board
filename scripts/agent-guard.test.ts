@@ -193,6 +193,12 @@ const ALLOW: string[] = [
 ];
 
 describe('decide', () => {
+  it('explains the pre-push check scope', () => {
+    const decision = decide('git push --no-verify');
+    expect(decision.allow).toBe(false);
+    if (decision.allow) throw new Error('expected denial');
+    expect(decision.reason).toContain('pushed-ref and affected-package checks on push');
+  });
   it.each(DENY)('denies %j as %s', (command, rule) => {
     const decision = decide(command);
     expect(decision).toMatchObject({ allow: false, rule });
