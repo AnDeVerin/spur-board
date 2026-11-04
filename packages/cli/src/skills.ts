@@ -158,10 +158,17 @@ async function recoverSkill(parent: string, destination: string, name: string): 
     const owner = join(parent, entry);
     const ownerStat = await lstat(owner);
     if (!ownerStat.isFile() || ownerStat.isSymbolicLink()) continue;
-    if ((await readFile(owner, 'utf8')) !== `spur-board backup ${id}\n`) continue;
+    const content = await readFile(owner, 'utf8');
+    const prefix = `spur-board backup ${id} `;
+    if (!content.startsWith(prefix) || !/^\d+:\d+\n$/.test(content.slice(prefix.length))) continue;
     const path = join(parent, `${backupPrefix}${id}`);
-    if (await targetDirectory(path)) backups.push({ path, owner });
-    else await rm(owner);
+    if (!(await targetDirectory(path))) {
+      await rm(owner);
+      continue;
+    }
+    const backupStat = await lstat(path, { bigint: true });
+    if (content !== `${prefix}${String(backupStat.dev)}:${String(backupStat.ino)}\n`) continue;
+    backups.push({ path, owner });
   }
 
   const exists = await targetDirectory(destination);
@@ -236,15 +243,17 @@ async function installIntoHome(
             const backupId = randomUUID();
             const backup = join(parent, `.${skill.name}-backup-${backupId}`);
             const backupOwner = `${backup}.owner`;
-            await mkdir(backup, { mode: 0o700 });
-            let ownerCreated = false;
+            const original = await lstat(destination, { bigint: true });
+            const identity = `${String(original.dev)}:${String(original.ino)}`;
+            await writeFile(backupOwner, `spur-board backup ${backupId} ${identity}\n`, {
+              flag: 'wx',
+              mode: 0o600,
+            });
             let backupContainsSkill = false;
             try {
-              await writeFile(backupOwner, `spur-board backup ${backupId}\n`, {
-                flag: 'wx',
-                mode: 0o600,
-              });
-              ownerCreated = true;
+              if (await targetDirectory(backup)) {
+                throw new Error(`Skill backup path already exists: ${backup}`);
+              }
               await rename(destination, backup);
               backupContainsSkill = true;
               try {
@@ -257,10 +266,7 @@ async function installIntoHome(
               await rm(backup, { recursive: true });
               backupContainsSkill = false;
             } finally {
-              if (!backupContainsSkill) {
-                await rm(backup, { recursive: true, force: true });
-                if (ownerCreated) await rm(backupOwner);
-              }
+              if (!backupContainsSkill) await rm(backupOwner);
             }
           } else {
             await rename(staged, destination);

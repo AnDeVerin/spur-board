@@ -1,5 +1,6 @@
 import {
   cp,
+  lstat,
   mkdtemp,
   mkdir,
   readFile,
@@ -256,7 +257,12 @@ describe('skills install', () => {
     expect((await installSkills({ home, packageRoot })).every((result) => !result.changed)).toBe(
       true,
     );
-    await writeFile(`${backup}.owner`, 'spur-board backup 00000000-0000-4000-8000-000000000001\n');
+    const original = await lstat(installed, { bigint: true });
+    const identity = `${String(original.dev)}:${String(original.ino)}`;
+    await writeFile(
+      `${backup}.owner`,
+      `spur-board backup 00000000-0000-4000-8000-000000000001 ${identity}\n`,
+    );
     await rename(installed, backup);
 
     const results = await installSkills({ home, packageRoot });
@@ -275,6 +281,30 @@ describe('skills install', () => {
         '.spur-board-backup-00000000-0000-4000-8000-000000000002.owner',
       ].sort(),
     );
+  });
+
+  it('does not mistake a user backup for a pending owner record', async () => {
+    const { home, packageRoot } = await fixture();
+    await installSkills({ home, packageRoot });
+    const parent = join(home, '.claude', 'skills');
+    const installed = destination(home, '.claude', 'spur-board');
+    const original = await lstat(installed, { bigint: true });
+    const identity = `${String(original.dev)}:${String(original.ino)}`;
+    const orphanId = '00000000-0000-4000-8000-000000000003';
+    const userId = '00000000-0000-4000-8000-000000000004';
+    const orphan = join(parent, `.spur-board-backup-${orphanId}`);
+    const userBackup = join(parent, `.spur-board-backup-${userId}`);
+    await writeFile(`${orphan}.owner`, `spur-board backup ${orphanId} ${identity}\n`);
+    await mkdir(userBackup);
+    await writeFile(join(userBackup, 'keep.txt'), 'user content');
+    await writeFile(`${userBackup}.owner`, `spur-board backup ${userId} ${identity}\n`);
+
+    expect((await installSkills({ home, packageRoot })).every((result) => !result.changed)).toBe(
+      true,
+    );
+    await expect(readFile(`${orphan}.owner`, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(await readFile(join(userBackup, 'keep.txt'), 'utf8')).toBe('user content');
+    expect(await readFile(join(installed, 'SKILL.md'), 'utf8')).toBe('Board skill\n');
   });
 
   it('removes only staging directories marked by an interrupted install', async () => {
