@@ -222,8 +222,8 @@ function main(): number {
     return 2;
   }
   const { full, prePush, only } = args;
-  const workers = prePushWorkers(process.env['VITEST_MAX_WORKERS']);
-  if (prePush && typeof workers !== 'number') {
+  const workers = prePush ? prePushWorkers(process.env['VITEST_MAX_WORKERS']) : 2;
+  if (typeof workers !== 'number') {
     console.log(`check: ${workers.error}`);
     return 2;
   }
@@ -249,7 +249,7 @@ function main(): number {
   }
   if (plan.mode === 'changed' && !prePush) plan.packageDirs = withDependents(plan.packageDirs);
   console.log(`check: mode ${plan.mode} (${plan.reason})`);
-  const steps = buildSteps(plan, prePush, typeof workers === 'number' ? workers : 2);
+  const steps = buildSteps(plan, prePush, workers);
   return runSteps(only === null ? steps : steps.filter((step) => only.has(step.name)));
 }
 
