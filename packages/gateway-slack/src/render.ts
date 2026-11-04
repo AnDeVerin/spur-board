@@ -3,6 +3,7 @@ import type { Action, Persona, RichText, RichTextInline } from '@spur-board/cont
 /** Slack section mrkdwn is capped at 3000 characters; leave room for formatting. */
 export const MAX_PART_TEXT = 2900;
 const MARKER_PREFIX = 'spur:';
+const ORIGIN_PREFIX = 'spur-origin:';
 
 const roleIcons: Record<Persona['role'], string> = {
   orchestrator: ':compass:',
@@ -37,6 +38,23 @@ export function markerFromBlocks(blocks: unknown): string | undefined {
     }
   }
   return undefined;
+}
+
+/** The first part of a multipart root also carries the unsuffixed delivery key. */
+export function originKeyFromBlocks(blocks: unknown): string | undefined {
+  if (!Array.isArray(blocks)) return undefined;
+  const values: readonly unknown[] = blocks;
+  for (const block of values) {
+    if (typeof block !== 'object' || block === null || !('block_id' in block)) continue;
+    const id = block.block_id;
+    if (typeof id !== 'string' || !id.startsWith(ORIGIN_PREFIX)) continue;
+    try {
+      return decodeURIComponent(id.slice(ORIGIN_PREFIX.length));
+    } catch {
+      return undefined;
+    }
+  }
+  return markerFromBlocks(blocks);
 }
 
 function escapeText(value: string): string {
@@ -102,7 +120,12 @@ export function splitText(text: string, max = MAX_PART_TEXT): string[] | null {
   return parts;
 }
 
-export function messageBlocks(text: string, marker: string, actions: readonly Action[] = []) {
+export function messageBlocks(
+  text: string,
+  marker: string,
+  actions: readonly Action[] = [],
+  originKey?: string,
+) {
   type SectionBlock = {
     type: 'section';
     block_id: string;
@@ -112,9 +135,23 @@ export function messageBlocks(text: string, marker: string, actions: readonly Ac
     type: 'actions';
     elements: { type: 'button'; action_id: string; text: { type: 'plain_text'; text: string } }[];
   };
-  const blocks: (SectionBlock | ActionsBlock)[] = [
+  type OriginBlock = {
+    type: 'context';
+    block_id: string;
+    elements: [{ type: 'plain_text'; text: string }];
+  };
+  const blocks: (SectionBlock | ActionsBlock | OriginBlock)[] = [
     { type: 'section', block_id: marker, text: { type: 'mrkdwn', text } },
   ];
+  if (originKey !== undefined) {
+    const id = `${ORIGIN_PREFIX}${encodeURIComponent(originKey)}`;
+    if (id.length > 255) throw new Error('origin marker too long');
+    blocks.push({
+      type: 'context',
+      block_id: id,
+      elements: [{ type: 'plain_text', text: '\u200b' }],
+    });
+  }
   if (actions.length > 0) {
     blocks.push({
       type: 'actions',

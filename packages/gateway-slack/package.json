@@ -11,8 +11,9 @@
     "test": "vitest run --root ../.. --reporter=tree packages/gateway-slack/"
   },
   "dependencies": {
-    "@spur-board/contracts": "workspace:*",
-    "@slack/web-api": "8.2.0"
+    "@slack/socket-mode": "3.1.0",
+    "@slack/web-api": "8.2.0",
+    "@spur-board/contracts": "workspace:*"
   },
   "devDependencies": {
     "@spur-board/gateway-testkit": "workspace:*"
