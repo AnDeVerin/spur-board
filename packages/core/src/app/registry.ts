@@ -114,6 +114,8 @@ export function createOperationRegistry(deps: {
         { store: { db: trx }, config, clock, completeSince },
         input.project,
         visibleProjects(config, actor),
+        authorize([{ grant: 'operator' }], actor, { config, target: { kind: 'missing' } })
+          .status === 'allowed',
       );
     },
   };

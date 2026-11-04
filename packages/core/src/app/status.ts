@@ -30,6 +30,7 @@ export async function getStatus(
   },
   projectId?: string,
   visibleProjects?: ReadonlySet<string>,
+  includeBoardItems = visibleProjects === undefined,
 ) {
   const { store, config, clock, completeSince } = deps;
   const projects =
@@ -167,7 +168,7 @@ export async function getStatus(
         ? projectIds.has(itemTasks.get(item.task_id)?.project ?? '')
         : item.source !== null
           ? required.has(item.source)
-          : visibleProjects === undefined || visibleProjects.size === config.projects.length,
+          : includeBoardItems,
     )
     .map((item) => {
       const source = item.source === null ? null : sourceById.get(item.source);
