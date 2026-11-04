@@ -9,6 +9,7 @@ import {
   type ProcessPort,
 } from './lifecycle.ts';
 import { acquireLock } from './lock.ts';
+import { createHttpModule } from './http-module.ts';
 import { createOutboxModule, slackSettings } from './outbox-module.ts';
 
 // Below the 2^31-1 ms timer limit; Node turns larger values into 1 ms with a warning.
@@ -68,23 +69,29 @@ export async function main(): Promise<void> {
       ];
       const ctx = ctxFor('gateway-slack');
       const settings = slackSettings(ctx.config, ctx.secrets);
-      if (settings === null) return entries;
-      const gateway = createSlackGateway(settings);
-      entries.push(
-        {
-          name: 'gateway-slack',
-          stopStage: 'final',
-          module: {
-            start: () => gateway.start(() => Promise.resolve()),
-            stop: () => gateway.stop(),
+      if (settings !== null) {
+        const gateway = createSlackGateway(settings);
+        entries.push(
+          {
+            name: 'gateway-slack',
+            stopStage: 'final',
+            module: {
+              start: () => gateway.start(() => Promise.resolve()),
+              stop: () => gateway.stop(),
+            },
           },
-        },
-        {
-          name: 'outbox',
-          stopStage: 'outbox',
-          module: createOutboxModule(ctxFor('outbox'), gateway),
-        },
-      );
+          {
+            name: 'outbox',
+            stopStage: 'outbox',
+            module: createOutboxModule(ctxFor('outbox'), gateway),
+          },
+        );
+      }
+      entries.push({
+        name: 'http',
+        stopStage: 'final',
+        module: createHttpModule(ctxFor('http')),
+      });
       return entries;
     },
     port: processPort(),
