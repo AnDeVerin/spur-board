@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
@@ -8,10 +8,21 @@ import {
   type SchemaRole,
 } from '../../contracts/src/index.ts';
 import { createProgram } from '../../cli/src/cli.ts';
-import { endMarker, replaceGeneratedSection, startMarker } from '../../../scripts/gen-skill.ts';
+import {
+  endMarker,
+  renderCommandReferences,
+  replaceGeneratedSection,
+  startMarker,
+} from '../../../scripts/gen-skill.ts';
 
 const skillPath = fileURLToPath(new URL('../spur-board/SKILL.md', import.meta.url));
+const referencesPath = fileURLToPath(new URL('../spur-board/references/', import.meta.url));
 const skill = readFileSync(skillPath, 'utf8');
+const references = renderCommandReferences();
+const referenceTexts = references.map((reference) =>
+  readFileSync(new URL(`../spur-board/references/${reference.fileName}`, import.meta.url), 'utf8'),
+);
+const fullText = [skill, ...referenceTexts].join('\n');
 const operations = [...OPERATIONS].sort(
   (left, right) => right.cli.command.split(' ').length - left.cli.command.split(' ').length,
 );
@@ -54,7 +65,10 @@ function invocations(text: string): { command: string; example: boolean }[] {
     if (content.startsWith('board ')) {
       const lineStart = withoutFences.lastIndexOf('\n', offset) + 1;
       const line = withoutFences.slice(lineStart, offset);
-      found.push({ command: content, example: /Example:\s*$/.test(line) });
+      found.push({
+        command: content,
+        example: /(?:Example:|for example[, :]?)\s*$/i.test(line),
+      });
     }
     return ' ';
   });
@@ -92,7 +106,8 @@ function validateInvocations(text: string): string[] {
       .map((word) => word.split('=')[0] ?? word)) {
       if (!registeredFlags.has(flag)) errors.push(`unknown flag: ${flag}`);
     }
-    if (operation.kind === 'mutation' && example) {
+    const hasPlaceholder = tail.some((word) => /^<[^>]+>$/.test(word));
+    if (operation.kind === 'mutation' && (example || (tail.length > 0 && !hasPlaceholder))) {
       const keyIndex = tail.indexOf('--key');
       const key = tail[keyIndex + 1];
       const prefix = operation.cli.command.replaceAll(' ', '-');
@@ -115,20 +130,31 @@ function validateInvocations(text: string): string[] {
 }
 
 function roleSection(role: SchemaRole): string {
-  const generated = skill.slice(skill.indexOf(startMarker), skill.indexOf(endMarker));
-  const worker = generated.indexOf('### Worker');
-  const orchestrator = generated.indexOf('### Orchestrator');
-  return role === 'worker' ? generated.slice(worker, orchestrator) : generated.slice(orchestrator);
+  return references
+    .flatMap((reference, index) => (reference.role === role ? [referenceTexts[index]] : []))
+    .join('\n');
 }
 
 describe('product skill sync', () => {
-  it('keeps the marked command section equal to fresh generation', () => {
+  it('keeps the skill and bounded references equal to fresh generation', () => {
     expect(replaceGeneratedSection(skill)).toBe(skill);
+    expect(Buffer.byteLength(skill)).toBeLessThanOrEqual(5120);
+    expect(readdirSync(referencesPath).sort()).toEqual(
+      references.map((reference) => reference.fileName).sort(),
+    );
+    for (const [index, reference] of references.entries()) {
+      expect(referenceTexts[index]).toBe(reference.content);
+      expect(Buffer.byteLength(reference.content)).toBeLessThanOrEqual(8192);
+    }
   });
 
   it.each(['worker', 'orchestrator'] as const)('lists only %s grants with CLI metadata', (role) => {
     const section = roleSection(role);
     const expected = OPERATIONS.filter((operation) => roleCanUseOperation(operation, role));
+    const index = skill.slice(skill.indexOf(startMarker), skill.indexOf(endMarker));
+    for (const operation of expected) {
+      expect(index).toContain(`\`board ${operation.cli.command}\` — [details]`);
+    }
     expect([...section.matchAll(/^#### `board ([^`]+)`$/gm)].map((match) => match[1])).toEqual(
       expected.map((operation) => operation.cli.command),
     );
@@ -166,20 +192,28 @@ describe('product skill sync', () => {
   });
 
   it('validates every invocation and mutation example in the whole skill', () => {
-    expect(validateInvocations(skill)).toEqual([]);
-    expect(invocations(skill).length).toBeGreaterThan(40);
+    expect(validateInvocations(fullText)).toEqual([]);
+    expect(invocations(fullText).length).toBeGreaterThan(40);
+  });
+
+  it('gives workers operator-safe recovery for archived tasks', () => {
+    expect(ERRORS.task_archived.hint).toContain('Ask an operator');
+    expect(roleSection('worker')).toContain(`\`task_archived\`: ${ERRORS.task_archived.hint}`);
   });
 
   it('rejects a renamed flag, missing or malformed key, invalid command, and bare prose call', () => {
     expect(
       validateInvocations(
-        skill.replace('`board schema --role worker --json`', '`board schema --roel worker --json`'),
+        fullText.replace(
+          '`board schema --role worker --json`',
+          '`board schema --roel worker --json`',
+        ),
       ),
     ).toContain('unknown flag: --roel');
     const example = /Example: `board inbox ack ([^`]+)`/;
     expect(
       validateInvocations(
-        skill.replace(
+        fullText.replace(
           example,
           (_full, body: string) => `Example: \`board inbox ack ${body.replace(/ --key \S+/, '')}\``,
         ),
@@ -187,24 +221,30 @@ describe('product skill sync', () => {
     ).toEqual(expect.arrayContaining([expect.stringMatching(/^invalid key:/)]));
     expect(
       validateInvocations(
-        skill.replace(
+        fullText.replace(
           example,
           (_full, body: string) =>
             `Example: \`board inbox ack ${body.replace(/--key \S+/, '--key bad')}\``,
         ),
       ),
     ).toEqual(expect.arrayContaining([expect.stringMatching(/^invalid key:/)]));
-    expect(validateInvocations(`${skill}\n\`board no-such-command\`\n`)).toEqual(
+    expect(validateInvocations(`${fullText}\n\`board no-such-command\`\n`)).toEqual(
       expect.arrayContaining([expect.stringMatching(/^unknown command:/)]),
     );
-    expect(validateInvocations(`${skill}\nRun board no-such-command today.\n`)).toContain(
+    expect(validateInvocations(`${fullText}\nRun board no-such-command today.\n`)).toContain(
       'unformatted board invocation',
     );
-    expect(validateInvocations(`${skill}\nDo board no-such-command today.\n`)).toContain(
+    expect(validateInvocations(`${fullText}\nDo board no-such-command today.\n`)).toContain(
       'unformatted board invocation',
     );
     expect(
-      validateInvocations(`${skill}\n\`\`\`sh\nboard schema --roel worker\n\`\`\`\n`),
+      validateInvocations(`${fullText}\n\`\`\`sh\nboard schema --roel worker\n\`\`\`\n`),
     ).toContain('unknown flag: --roel');
+    expect(
+      validateInvocations(`${fullText}\nFor example, \`board ask PROJ-123 "Which version?"\`.\n`),
+    ).toEqual(expect.arrayContaining([expect.stringMatching(/^invalid key:/)]));
+    expect(
+      validateInvocations(`${fullText}\nTry \`board ask PROJ-123 "Which version?"\`.\n`),
+    ).toEqual(expect.arrayContaining([expect.stringMatching(/^invalid key:/)]));
   });
 });

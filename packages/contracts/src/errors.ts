@@ -148,8 +148,8 @@ export const ERRORS = {
     status: 409,
     exit: EXIT_CODES.refused,
     message: 'The task is archived, so it cannot change.',
-    hint: 'Add the task to the board again with `board task add <KEY>` if work goes on.',
-    recovery: noRetry('Add the task to the board again if work continues.'),
+    hint: 'Ask an operator to add the task to the board again if work continues.',
+    recovery: noRetry('Ask an operator to add the task to the board again if work continues.'),
   }),
   retry_not_applicable: spec('retry_not_applicable', {
     status: 409,

@@ -1,5 +1,5 @@
 {
-  "version": "d5008b1fd5c713745390d09d9f85be2b3bd6231f156d4323e1be64da7afb53de",
+  "version": "bd660c1f077f3b02cc9ab5954a97c1141c1ff778708f6c3dd74082558ac9e624",
   "grants": [
     "operator",
     "project-agent",
@@ -253,9 +253,9 @@
       "status": 409,
       "exit": 1,
       "message": "The task is archived, so it cannot change.",
-      "hint": "Add the task to the board again with `board task add <KEY>` if work goes on.",
+      "hint": "Ask an operator to add the task to the board again if work continues.",
       "recovery": {
-        "action": "Add the task to the board again if work continues.",
+        "action": "Ask an operator to add the task to the board again if work continues.",
         "sideEffects": "none",
         "maxRetries": 0,
         "retryTiming": "After fixing the cause."

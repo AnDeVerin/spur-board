@@ -208,10 +208,30 @@ export function verifySchema(result: CommandResult): void {
   }
 }
 
-/** Keep the packed product skill intact; fixture only the setup skill from its later issue. */
-export function prepareSkillsForSmoke(packageRoot: string): void {
+/** Verify every command page linked by the packed product skill. */
+export function productSkillReferences(packageRoot: string): string[] {
   const product = join(packageRoot, 'skills/spur-board/SKILL.md');
   if (!existsSync(product)) throw new Error('Packed product skill spur-board is missing.');
+  const source = readFileSync(product, 'utf8');
+  const references = [
+    ...new Set(
+      [...source.matchAll(/\]\((references\/[a-z0-9-]+\.md)#board-[a-z0-9-]+\)/g)].map(
+        (match) => match[1] ?? '',
+      ),
+    ),
+  ];
+  if (references.length === 0) throw new Error('Packed product skill has no command references.');
+  for (const reference of references) {
+    if (!existsSync(join(packageRoot, 'skills/spur-board', reference))) {
+      throw new Error(`Packed product skill is missing ${reference}.`);
+    }
+  }
+  return references;
+}
+
+/** Keep the packed product skill intact; fixture only the setup skill from its later issue. */
+export function prepareSkillsForSmoke(packageRoot: string): void {
+  productSkillReferences(packageRoot);
   const setup = join(packageRoot, 'skills/setup/SKILL.md');
   if (!existsSync(setup)) {
     mkdirSync(dirname(setup), { recursive: true });
@@ -341,6 +361,7 @@ export const smokeSteps: readonly SmokeStep[] = [
         { source: 'setup', installed: 'spur-board-setup' },
       ];
       prepareSkillsForSmoke(ctx.packageRoot);
+      const references = productSkillReferences(ctx.packageRoot);
       const result = await command(ctx.binary, ['skills', 'install'], ctx.env);
       if (result.code !== 0) throw new Error(`Packed skills install failed: ${result.stderr}`);
       const installed: unknown = JSON.parse(result.stdout) as unknown;
@@ -365,6 +386,16 @@ export const smokeSteps: readonly SmokeStep[] = [
             readFileSync(join(ctx.packageRoot, 'skills', source, 'SKILL.md'), 'utf8')
           ) {
             throw new Error(`Packed skill ${name} differs after installation.`);
+          }
+          if (source === 'spur-board') {
+            for (const reference of references) {
+              if (
+                readFileSync(join(destination, reference), 'utf8') !==
+                readFileSync(join(ctx.packageRoot, 'skills', source, reference), 'utf8')
+              ) {
+                throw new Error(`Packed skill reference ${reference} differs after installation.`);
+              }
+            }
           }
           const stamp = JSON.parse(
             readFileSync(join(destination, '.spur-board-install.json'), 'utf8'),

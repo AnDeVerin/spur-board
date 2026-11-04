@@ -1,4 +1,5 @@
-import { readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   ERRORS,
@@ -11,8 +12,18 @@ import { createProgram, exampleCommand } from '../packages/cli/src/cli.ts';
 export const startMarker = '<!-- BEGIN GENERATED BOARD COMMANDS -->';
 export const endMarker = '<!-- END GENERATED BOARD COMMANDS -->';
 const target = fileURLToPath(new URL('../packages/skills/spur-board/SKILL.md', import.meta.url));
+const referencesDir = fileURLToPath(
+  new URL('../packages/skills/spur-board/references/', import.meta.url),
+);
+const referenceBudget = 8192;
 type CatalogOperation = (typeof OPERATIONS)[number];
 const roles = ['worker', 'orchestrator'] as const;
+export interface CommandReference {
+  role: SchemaRole;
+  fileName: string;
+  commands: string[];
+  content: string;
+}
 const program = createProgram({ io: { isTTY: false, stdout: () => {}, stderr: () => {} } });
 
 function commandFor(path: string) {
@@ -85,28 +96,87 @@ function renderOperation(operation: CatalogOperation, role: SchemaRole): string 
   ].join('\n');
 }
 
-export function renderBoardCommands(): string {
+export function renderCommandReferences(): CommandReference[] {
+  const references: CommandReference[] = [];
+  for (const role of roles) {
+    const heading = role === 'worker' ? 'Worker' : 'Orchestrator';
+    const contentFor = (part: number, blocks: string[]) =>
+      `# ${heading} commands, part ${String(part)}\n\n${blocks.join('\n\n')}\n`;
+    let part = 1;
+    let blocks: string[] = [];
+    let commands: string[] = [];
+    const flush = () => {
+      if (blocks.length === 0) return;
+      references.push({
+        role,
+        fileName: `${role}-${String(part)}.md`,
+        commands,
+        content: contentFor(part, blocks),
+      });
+      part += 1;
+      blocks = [];
+      commands = [];
+    };
+    for (const operation of OPERATIONS.filter((item) => roleCanUseOperation(item, role))) {
+      const block = renderOperation(operation, role);
+      const candidate = contentFor(part, [...blocks, block]);
+      if (Buffer.byteLength(candidate) > referenceBudget && blocks.length > 0) flush();
+      blocks.push(block);
+      commands.push(operation.cli.command);
+      const current = contentFor(part, blocks);
+      if (Buffer.byteLength(current) > referenceBudget) {
+        throw new Error(
+          `Command reference exceeds ${String(referenceBudget)} bytes: ${operation.id}`,
+        );
+      }
+    }
+    flush();
+  }
+  return references;
+}
+
+export function renderBoardCommands(references = renderCommandReferences()): string {
   return roles
     .map((role) => {
-      const operations = OPERATIONS.filter((operation) => roleCanUseOperation(operation, role));
       const heading = role === 'worker' ? 'Worker' : 'Orchestrator';
-      return `### ${heading}\n\n${operations.map((operation) => renderOperation(operation, role)).join('\n\n')}`;
+      const entries = references
+        .filter((reference) => reference.role === role)
+        .flatMap((reference) =>
+          reference.commands.map(
+            (command) =>
+              `- \`board ${command}\` — [details](references/${reference.fileName}#board-${command.replaceAll(' ', '-')})`,
+          ),
+        );
+      return `### ${heading}\n\n${entries.join('\n')}`;
     })
     .join('\n\n');
 }
 
-export function replaceGeneratedSection(skill: string): string {
+export function replaceGeneratedSection(
+  skill: string,
+  references = renderCommandReferences(),
+): string {
   const start = skill.indexOf(startMarker);
   const end = skill.indexOf(endMarker);
   if (start < 0 || end < 0 || start >= end)
     throw new Error('Skill markers are missing or unordered.');
   if (skill.indexOf(startMarker, start + 1) >= 0 || skill.indexOf(endMarker, end + 1) >= 0)
     throw new Error('Skill markers must appear once.');
-  return `${skill.slice(0, start + startMarker.length)}\n\n${renderBoardCommands()}\n\n${skill.slice(end)}`;
+  return `${skill.slice(0, start + startMarker.length)}\n\n${renderBoardCommands(references)}\n\n${skill.slice(end)}`;
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  const next = replaceGeneratedSection(readFileSync(target, 'utf8'));
+  const references = renderCommandReferences();
+  const next = replaceGeneratedSection(readFileSync(target, 'utf8'), references);
   writeFileSync(target, next);
-  console.log('wrote packages/skills/spur-board/SKILL.md');
+  mkdirSync(referencesDir, { recursive: true });
+  for (const file of readdirSync(referencesDir)) {
+    if (/^(?:worker|orchestrator)-[1-9][0-9]*\.md$/.test(file)) {
+      rmSync(join(referencesDir, file));
+    }
+  }
+  for (const reference of references) {
+    writeFileSync(join(referencesDir, reference.fileName), reference.content);
+  }
+  console.log(`wrote product skill and ${String(references.length)} command references`);
 }
