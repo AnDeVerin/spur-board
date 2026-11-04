@@ -273,6 +273,8 @@ export interface OperatorItemTable {
   raised_at: string;
   cleared_at: string | null;
   line_outbox_id: number | null;
+  /** Normalized event retained for a later explicit retry. */
+  inbound_event_json: string | null;
 }
 
 export interface DismissalTable {

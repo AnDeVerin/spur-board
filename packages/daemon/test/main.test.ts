@@ -178,6 +178,31 @@ describe('daemon process', () => {
     }
   }, 30_000);
 
+  it('logs once when Slack delivery is configured without an app token', async () => {
+    const api = await startFakeSlackApi();
+    try {
+      const home = await queuedHome(api.url);
+      const child = spawnDaemon(home);
+      let output = '';
+      child.stdout.on('data', (chunk: Buffer) => {
+        output += chunk.toString();
+      });
+      await waitForLine(child, 'daemon ready');
+      const exited = once(child, 'exit');
+      child.kill('SIGTERM');
+      await exited;
+      const lines = output.split('\n').flatMap((line) => {
+        if (line === '') return [];
+        return [JSON.parse(line) as Record<string, unknown>];
+      });
+      expect(
+        lines.filter((line) => line['msg'] === 'Slack inbound disabled: SLACK_APP_TOKEN is absent'),
+      ).toHaveLength(1);
+    } finally {
+      await api.close();
+    }
+  }, 30_000);
+
   it('delivers Spur doorbells without Slack and leaves gateway rows pending', async () => {
     const home = makeHome();
     const bin = join(home, 'bin');
