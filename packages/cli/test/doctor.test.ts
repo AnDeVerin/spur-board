@@ -146,18 +146,31 @@ describe('board doctor', () => {
 
   it.each([
     ['Slack-free config', '', 'pass', null, 0],
-    [
-      'pre-channel Slack setup',
-      'slack:\n  appId: A123ABC\n',
-      'fail',
-      'Add SLACK_BOT_TOKEN, SLACK_APP_TOKEN to the private secrets.env file.',
-      1,
-    ],
+    ['pre-channel Slack setup', 'slack:\n  appId: A123ABC\n', 'pass', null, 0],
   ] as const)('checks secret names for %s', async (_case, slackSection, status, fix, exitCode) => {
     const config = yaml.replace('slack:\n  channels:\n    feed: C000000002\n', slackSection);
     const value = await run(
       ['doctor', '--json'],
       ports({
+        fetcher: () =>
+          Promise.resolve(
+            Response.json({
+              version: '1.2.3',
+              checks: [
+                ...remoteIds.filter((id) => !id.startsWith('slack.')),
+                'slack.configured',
+              ].map((id): DoctorCheck =>
+                id === 'slack.configured'
+                  ? {
+                      id,
+                      status: 'warning',
+                      blocking: false,
+                      fix: 'Slack is not configured: questions addressed to you are only visible through board inbox. Run the spur-board-setup skill to configure slack.channels.',
+                    }
+                  : { id, status: 'pass', blocking: false, fix: null },
+              ),
+            }),
+          ),
         readText(path) {
           if (path.endsWith('config.yaml')) return config;
           if (path.endsWith('secrets.env')) return 'GITHUB_TOKEN=github-test-value\n';
@@ -174,6 +187,37 @@ describe('board doctor', () => {
       present: ['GITHUB_TOKEN'],
       fix,
     });
+    expect(value.checks.filter((check) => check.id.startsWith('slack.'))).toEqual([
+      expect.objectContaining({ id: 'slack.configured', status: 'warning', blocking: false }),
+    ]);
+  });
+
+  it('reports one Slack setup warning when a Slack-free daemon is unavailable', async () => {
+    const config = yaml.replace('slack:\n  channels:\n    feed: C000000002\n', '');
+    const value = await run(
+      ['doctor', '--json'],
+      ports({
+        fetcher: () => Promise.reject(new Error('daemon unavailable')),
+        readText(path) {
+          if (path.endsWith('config.yaml')) return config;
+          if (path.endsWith('secrets.env')) return 'GITHUB_TOKEN=github-test-value\n';
+          if (path.endsWith('spur-board.service'))
+            return 'ExecStart="/usr/bin/node" "/app/daemon.mjs"\n';
+          if (path.endsWith('.spur-board-install.json')) return stamp;
+          throw new Error('missing');
+        },
+      }),
+    );
+    expect(value.exitCode).toBe(1);
+    expect(value.checks.find((check) => check.id === 'daemon.available')).toMatchObject({
+      status: 'fail',
+    });
+    const slackChecks = value.checks.filter((check) => check.id.startsWith('slack.'));
+    expect(slackChecks).toMatchObject([
+      { id: 'slack.configured', status: 'warning', blocking: false },
+    ]);
+    expect(slackChecks).toHaveLength(1);
+    expect(slackChecks[0]?.fix).toContain('spur-board-setup');
   });
 
   it('checks the resolved secrets filename even when the daemon reports healthy', async () => {

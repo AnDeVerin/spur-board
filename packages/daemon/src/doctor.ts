@@ -69,13 +69,9 @@ export async function runDaemonDoctor(
   const jiraTrackers = config.projects.flatMap((project) =>
     project.tracker.type === 'jira' ? [project.tracker] : [],
   );
-  const slackConfigured =
-    Boolean(
-      config.slack.appId || config.slack.channels.feed || config.slack.channels.orchestrators,
-    ) ||
-    ['SLACK_BOT_TOKEN', 'SLACK_APP_TOKEN', 'SLACK_API_URL', 'SLACK_APP_CONFIG_TOKEN'].some((name) =>
-      Object.hasOwn(secrets, name),
-    );
+  const slackConfigured = Boolean(
+    config.slack.channels.feed || config.slack.channels.orchestrators,
+  );
   const required = [
     'GITHUB_TOKEN',
     ...(jiraTrackers.length > 0 ? ['JIRA_EMAIL', 'JIRA_API_TOKEN'] : []),
@@ -145,127 +141,125 @@ export async function runDaemonDoctor(
   );
   checks.push(check('spur.api', spur?.ok === true, 'Start or correct the configured Spur API.'));
 
-  const botToken = secrets['SLACK_BOT_TOKEN'];
-  const slackHeaders = botToken ? { Authorization: `Bearer ${botToken}` } : {};
-  const slackApi = secrets['SLACK_API_URL'] || 'https://slack.com/api/';
-  const slackBase = `${slackApi.replace(/\/$/, '')}/`;
-  const auth = botToken
-    ? await request(ctx, fetcher, 'slack.auth', new URL('auth.test', slackBase), {
-        method: 'POST',
-        headers: slackHeaders,
-      })
-    : null;
-  const authorized = await slackOk(auth);
-  const granted = new Set(
-    auth?.headers
-      .get('x-oauth-scopes')
-      ?.split(',')
-      .map((scope) => scope.trim())
-      .filter(Boolean) ?? [],
-  );
-  const missingScopes = SLACK_BOT_SCOPES.filter((scope) => !granted.has(scope));
-  checks.push(
-    slackConfigured
-      ? check(
-          'slack.auth',
-          authorized && missingScopes.length === 0,
-          authorized
-            ? `Add ${missingScopes.join(', ')} to the Slack app and reinstall it.`
-            : 'Check the Slack bot token.',
-        )
-      : warning('slack.auth', 'Configure Slack and rerun board doctor to verify bot access.'),
-  );
-  for (const [id, channel] of [
-    ['slack.orchestrators_member', config.slack.channels.orchestrators],
-    ['slack.feed_member', config.slack.channels.feed],
-  ] as const) {
-    const response =
-      botToken && channel
-        ? await request(
-            ctx,
-            fetcher,
-            id,
-            new URL(`conversations.info?channel=${encodeURIComponent(channel)}`, slackBase),
-            { headers: slackHeaders },
-          )
-        : null;
-    checks.push(
-      slackConfigured
-        ? check(id, await slackMember(response), 'Invite the bot to the configured channel ID.')
-        : warning(id, 'Configure Slack channels, then rerun board doctor.'),
-    );
-  }
-
-  const configToken = secrets['SLACK_APP_CONFIG_TOKEN'];
   if (!slackConfigured) {
     checks.push(
       warning(
-        'slack.command',
-        'Configure Slack and rerun board doctor to verify the slash command.',
-      ),
-    );
-  } else if (!configToken || !config.slack.appId) {
-    checks.push(
-      warning(
-        'slack.command',
-        'Verify the installed Slack slash command against slack.command manually, or provide SLACK_APP_CONFIG_TOKEN and slack.appId.',
+        'slack.configured',
+        'Slack is not configured: questions addressed to you are only visible through board inbox. Run the spur-board-setup skill to configure slack.channels.',
       ),
     );
   } else {
-    const response = await request(
-      ctx,
-      fetcher,
-      'slack.command',
-      new URL('apps.manifest.export', slackBase),
-      {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${configToken}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ app_id: config.slack.appId }),
-      },
+    const botToken = secrets['SLACK_BOT_TOKEN'];
+    const slackHeaders = botToken ? { Authorization: `Bearer ${botToken}` } : {};
+    const slackApi = secrets['SLACK_API_URL'] || 'https://slack.com/api/';
+    const slackBase = `${slackApi.replace(/\/$/, '')}/`;
+    const auth = botToken
+      ? await request(ctx, fetcher, 'slack.auth', new URL('auth.test', slackBase), {
+          method: 'POST',
+          headers: slackHeaders,
+        })
+      : null;
+    const authorized = await slackOk(auth);
+    const granted = new Set(
+      auth?.headers
+        .get('x-oauth-scopes')
+        ?.split(',')
+        .map((scope) => scope.trim())
+        .filter(Boolean) ?? [],
     );
-    let commands: string[] | null = null;
-    if (response?.ok) {
-      try {
-        const body: unknown = await response.json();
-        if (body && typeof body === 'object' && 'ok' in body && body.ok === true) {
-          const manifest = 'manifest' in body ? body.manifest : undefined;
-          const features =
-            manifest && typeof manifest === 'object' && 'features' in manifest
-              ? manifest.features
-              : undefined;
-          const slash =
-            features && typeof features === 'object' && 'slash_commands' in features
-              ? features.slash_commands
-              : undefined;
-          if (Array.isArray(slash))
-            commands = slash.flatMap((entry: unknown) =>
-              entry &&
-              typeof entry === 'object' &&
-              'command' in entry &&
-              typeof entry.command === 'string'
-                ? [entry.command]
-                : [],
-            );
-        }
-      } catch {
-        // An unreadable manifest is an unknown state, not proof of a mismatch.
-      }
-    }
+    const missingScopes = SLACK_BOT_SCOPES.filter((scope) => !granted.has(scope));
     checks.push(
-      commands === null
-        ? warning(
-            'slack.command',
-            'Refresh the Slack app configuration token and verify the installed slash command manually.',
-          )
-        : check(
-            'slack.command',
-            commands.includes(config.slack.command),
-            'Change the installed Slack slash command to match slack.command in config.yaml.',
-          ),
+      check(
+        'slack.auth',
+        authorized && missingScopes.length === 0,
+        authorized
+          ? `Add ${missingScopes.join(', ')} to the Slack app and reinstall it.`
+          : 'Check the Slack bot token.',
+      ),
     );
+    for (const [id, channel] of [
+      ['slack.orchestrators_member', config.slack.channels.orchestrators],
+      ['slack.feed_member', config.slack.channels.feed],
+    ] as const) {
+      const response =
+        botToken && channel
+          ? await request(
+              ctx,
+              fetcher,
+              id,
+              new URL(`conversations.info?channel=${encodeURIComponent(channel)}`, slackBase),
+              { headers: slackHeaders },
+            )
+          : null;
+      checks.push(
+        check(id, await slackMember(response), 'Invite the bot to the configured channel ID.'),
+      );
+    }
+
+    const configToken = secrets['SLACK_APP_CONFIG_TOKEN'];
+    if (!configToken || !config.slack.appId) {
+      checks.push(
+        warning(
+          'slack.command',
+          'Verify the installed Slack slash command against slack.command manually, or provide SLACK_APP_CONFIG_TOKEN and slack.appId.',
+        ),
+      );
+    } else {
+      const response = await request(
+        ctx,
+        fetcher,
+        'slack.command',
+        new URL('apps.manifest.export', slackBase),
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${configToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ app_id: config.slack.appId }),
+        },
+      );
+      let commands: string[] | null = null;
+      if (response?.ok) {
+        try {
+          const body: unknown = await response.json();
+          if (body && typeof body === 'object' && 'ok' in body && body.ok === true) {
+            const manifest = 'manifest' in body ? body.manifest : undefined;
+            const features =
+              manifest && typeof manifest === 'object' && 'features' in manifest
+                ? manifest.features
+                : undefined;
+            const slash =
+              features && typeof features === 'object' && 'slash_commands' in features
+                ? features.slash_commands
+                : undefined;
+            if (Array.isArray(slash))
+              commands = slash.flatMap((entry: unknown) =>
+                entry &&
+                typeof entry === 'object' &&
+                'command' in entry &&
+                typeof entry.command === 'string'
+                  ? [entry.command]
+                  : [],
+              );
+          }
+        } catch {
+          // An unreadable manifest is an unknown state, not proof of a mismatch.
+        }
+      }
+      checks.push(
+        commands === null
+          ? warning(
+              'slack.command',
+              'Refresh the Slack app configuration token and verify the installed slash command manually.',
+            )
+          : check(
+              'slack.command',
+              commands.includes(config.slack.command),
+              'Change the installed Slack slash command to match slack.command in config.yaml.',
+            ),
+      );
+    }
   }
   const operatorProject = config.projects.some((project) =>
     project.spurProjects.some((spurProject) => spurProject.role === 'operator'),

@@ -194,13 +194,9 @@ function localSecrets(config: Config, path: string, ports: DoctorPorts): DoctorC
   } catch {
     names = {};
   }
-  const slackConfigured =
-    Boolean(
-      config.slack.appId || config.slack.channels.feed || config.slack.channels.orchestrators,
-    ) ||
-    ['SLACK_BOT_TOKEN', 'SLACK_APP_TOKEN', 'SLACK_API_URL', 'SLACK_APP_CONFIG_TOKEN'].some((name) =>
-      Object.hasOwn(names, name),
-    );
+  const slackConfigured = Boolean(
+    config.slack.channels.feed || config.slack.channels.orchestrators,
+  );
   const required = [
     'GITHUB_TOKEN',
     ...(config.projects.some((project) => project.tracker.type === 'jira')
@@ -262,17 +258,24 @@ function nodeFromUnit(unit: string): string | null {
   return null;
 }
 
-const remoteIds = [
+const remoteBaseIds = [
   'secrets',
   'jira.credentials',
   'github.credentials',
   'spur.api',
+  'operator.path',
+] as const;
+const remoteSlackIds = [
   'slack.auth',
   'slack.orchestrators_member',
   'slack.feed_member',
   'slack.command',
-  'operator.path',
 ] as const;
+const remoteIds = [...remoteBaseIds, ...remoteSlackIds, 'slack.configured'] as const;
+
+function remoteIdSet(slackConfigured: boolean): string[] {
+  return [...remoteBaseIds, ...(slackConfigured ? remoteSlackIds : ['slack.configured'])];
+}
 
 function remoteChecks(value: unknown): { version: string; checks: DoctorCheck[] } | null {
   if (!value || typeof value !== 'object' || !('version' in value) || !('checks' in value))
@@ -302,7 +305,14 @@ function remoteChecks(value: unknown): { version: string; checks: DoctorCheck[] 
       fix: entry.fix,
     });
   }
-  if (new Set(checks.map((entry) => entry.id)).size !== remoteIds.length) return null;
+  const ids = new Set(checks.map((entry) => entry.id));
+  if (
+    ![true, false].some((slackConfigured) => {
+      const expected = remoteIdSet(slackConfigured);
+      return checks.length === expected.length && expected.every((id) => ids.has(id));
+    })
+  )
+    return null;
   return { version: value.version, checks };
 }
 
@@ -467,10 +477,15 @@ export async function runDoctor(
   );
   if (remote === null) {
     checks.push(
-      ...remoteIds
+      ...remoteIdSet(Boolean(config.slack.channels.feed || config.slack.channels.orchestrators))
         .filter((id) => id !== 'secrets')
         .map((id) =>
-          warning(id, 'Start the daemon, then rerun board doctor to complete this check.'),
+          warning(
+            id,
+            id === 'slack.configured'
+              ? 'Slack is not configured: questions addressed to you are only visible through board inbox. Run the spur-board-setup skill to configure slack.channels.'
+              : 'Start the daemon, then rerun board doctor to complete this check.',
+          ),
         ),
     );
   } else {

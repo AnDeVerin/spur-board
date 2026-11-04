@@ -146,6 +146,7 @@ function doctorFetch(fail?: string): typeof fetch {
 
 describe('daemon doctor checks', () => {
   it('does not require Slack tokens when Slack setup is absent', async () => {
+    const fetcher = doctorFetch();
     const report = await runDaemonDoctor(
       doctorContext({
         operator: true,
@@ -157,24 +158,29 @@ describe('daemon doctor checks', () => {
         },
       }),
       '1.2.3',
-      doctorFetch(),
+      fetcher,
     );
     expect(report.checks.find((check) => check.id === 'secrets')).toMatchObject({
       status: 'pass',
       blocking: false,
       fix: null,
     });
-    for (const id of [
-      'slack.auth',
-      'slack.orchestrators_member',
-      'slack.feed_member',
-      'slack.command',
-    ]) {
-      expect(report.checks.find((check) => check.id === id)).toMatchObject({
-        status: 'warning',
-        blocking: false,
-      });
-    }
+    expect(report.checks.map((check) => check.id)).toEqual([
+      'secrets',
+      'jira.credentials',
+      'github.credentials',
+      'spur.api',
+      'slack.configured',
+      'operator.path',
+    ]);
+    expect(report.checks.find((check) => check.id === 'slack.configured')).toEqual({
+      id: 'slack.configured',
+      status: 'warning',
+      blocking: false,
+      fix: 'Slack is not configured: questions addressed to you are only visible through board inbox. Run the spur-board-setup skill to configure slack.channels.',
+    });
+    expect(report.checks.every((check) => !check.blocking)).toBe(true);
+    expect(fetcher).toHaveBeenCalledTimes(3);
   });
 
   it('fails with the missing bot scope when the token is valid', async () => {
@@ -190,7 +196,7 @@ describe('daemon doctor checks', () => {
     });
   });
 
-  it('requires Slack tokens before channels are configured', async () => {
+  it('does not require Slack tokens when app settings exist without channels', async () => {
     const ctx = doctorContext({
       operator: true,
       channels: false,
@@ -200,12 +206,17 @@ describe('daemon doctor checks', () => {
         JIRA_API_TOKEN: 'jira-secret-canary',
       },
     });
-    const report = await runDaemonDoctor(ctx, '1.2.3', doctorFetch());
+    const fetcher = doctorFetch();
+    const report = await runDaemonDoctor(ctx, '1.2.3', fetcher);
     expect(report.checks.find((check) => check.id === 'secrets')).toMatchObject({
-      status: 'fail',
-      blocking: true,
-      fix: 'Add SLACK_BOT_TOKEN, SLACK_APP_TOKEN to the private secrets.env file.',
+      status: 'pass',
+      blocking: false,
+      fix: null,
     });
+    expect(report.checks.filter((check) => check.id.startsWith('slack.'))).toEqual([
+      expect.objectContaining({ id: 'slack.configured', status: 'warning', blocking: false }),
+    ]);
+    expect(fetcher).toHaveBeenCalledTimes(3);
   });
 
   it('reports every daemon-owned check as passing without returning credential values', async () => {
