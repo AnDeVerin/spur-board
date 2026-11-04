@@ -1,3 +1,4 @@
+import { SLACK_BOT_SCOPES } from '@spur-board/contracts';
 import type { ApiOptions, Store } from '@spur-board/core';
 import type { ModuleContext } from './lifecycle.ts';
 
@@ -148,7 +149,24 @@ export async function runDaemonDoctor(
         headers: slackHeaders,
       })
     : null;
-  checks.push(check('slack.auth', await slackOk(auth), 'Check the Slack bot token.'));
+  const authorized = await slackOk(auth);
+  const granted = new Set(
+    auth?.headers
+      .get('x-oauth-scopes')
+      ?.split(',')
+      .map((scope) => scope.trim())
+      .filter(Boolean) ?? [],
+  );
+  const missingScopes = SLACK_BOT_SCOPES.filter((scope) => !granted.has(scope));
+  checks.push(
+    check(
+      'slack.auth',
+      authorized && missingScopes.length === 0,
+      authorized
+        ? `Add ${missingScopes.join(', ')} to the Slack app and reinstall it.`
+        : 'Check the Slack bot token.',
+    ),
+  );
   for (const [id, channel] of [
     ['slack.orchestrators_member', config.slack.channels.orchestrators],
     ['slack.feed_member', config.slack.channels.feed],

@@ -95,7 +95,18 @@ function doctorFetch(fail?: string): typeof fetch {
     if (path.endsWith('/sessions'))
       return Promise.resolve(new Response(null, { status: fail === 'spur.api' ? 503 : 200 }));
     if (path.endsWith('/auth.test'))
-      return Promise.resolve(Response.json({ ok: fail !== 'slack.auth' }));
+      return Promise.resolve(
+        Response.json(
+          { ok: fail !== 'slack.auth' },
+          {
+            headers: {
+              'x-oauth-scopes':
+                'chat:write,chat:write.customize,groups:history,groups:read,app_mentions:read,commands' +
+                (fail === 'slack.scopes' ? '' : ',reactions:write'),
+            },
+          },
+        ),
+      );
     if (path.endsWith('/conversations.info')) {
       const id = url.searchParams.get('channel');
       const memberFail = id === 'C000000001' ? 'slack.orchestrators_member' : 'slack.feed_member';
@@ -129,6 +140,19 @@ function doctorFetch(fail?: string): typeof fetch {
 }
 
 describe('daemon doctor checks', () => {
+  it('fails with the missing bot scope when the token is valid', async () => {
+    const report = await runDaemonDoctor(
+      doctorContext({ operator: true }),
+      '1.2.3',
+      doctorFetch('slack.scopes'),
+    );
+    expect(report.checks.find((entry) => entry.id === 'slack.auth')).toMatchObject({
+      status: 'fail',
+      blocking: true,
+      fix: 'Add reactions:write to the Slack app and reinstall it.',
+    });
+  });
+
   it('requires Slack tokens before channels are configured', async () => {
     const ctx = doctorContext({
       operator: true,

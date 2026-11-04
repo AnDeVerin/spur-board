@@ -299,7 +299,7 @@ describe('board doctor', () => {
     ],
     [
       'path.spur',
-      'Start a Spur session and install board into its PATH.',
+      'Install board into the live Spur session PATH.',
       {
         run: (command: string, _args: readonly string[], env?: NodeJS.ProcessEnv) => ({
           exitCode: command === 'board' && env !== undefined ? 1 : 0,
@@ -309,8 +309,19 @@ describe('board doctor', () => {
     ],
     [
       'skills.codex_visibility',
-      'Install the spur-board skill into the Codex session-visible CODEX_HOME and restart the session.',
-      { exists: (path: string) => !path.endsWith('/skills/spur-board/SKILL.md') },
+      "Add .agents/skills/spur-board to the Spur project's symlinks in its config and start a new session.",
+      {
+        sessions: () => [
+          {
+            id: 'worker-1',
+            project: 'worker',
+            path: '/usr/bin',
+            codexHome: '/codex',
+            cwd: '/repo',
+          },
+        ],
+        exists: (path: string) => !path.endsWith('/skills/spur-board/SKILL.md'),
+      },
     ],
     [
       'versions',
@@ -323,6 +334,53 @@ describe('board doctor', () => {
     expect(check?.status).toBe('fail');
     expect(check?.fix).toBe(fix);
     expect(value.exitCode).toBe(1);
+  });
+
+  it.each([
+    ['repo skill', '/repo/.agents/skills/spur-board/SKILL.md'],
+    ['session CODEX_HOME skill', '/codex/skills/spur-board/SKILL.md'],
+  ])('accepts a configured Codex session with the %s', async (_label, visibleSkill) => {
+    const value = await run(
+      ['doctor', '--json'],
+      ports({
+        sessions: () => [
+          {
+            id: 'worker-1',
+            project: 'worker',
+            path: '/usr/bin',
+            codexHome: '/codex',
+            cwd: '/repo',
+          },
+        ],
+        exists: (path) => !path.endsWith('/skills/spur-board/SKILL.md') || path === visibleSkill,
+      }),
+    );
+    expect(value.checks.find((check) => check.id === 'skills.codex_visibility')).toMatchObject({
+      status: 'pass',
+      blocking: false,
+      fix: null,
+    });
+  });
+
+  it('warns about an absent Spur session without inventing a version mismatch', async () => {
+    const value = await run(
+      ['doctor', '--json'],
+      ports({
+        sessions: () => [],
+        fetcher: () => Promise.reject(new Error('daemon down')),
+      }),
+    );
+    expect(value.checks.find((check) => check.id === 'path.spur')).toMatchObject({
+      status: 'warning',
+      blocking: false,
+      fix: 'Start a Spur session, then rerun board doctor.',
+    });
+    expect(value.checks.find((check) => check.id === 'daemon.available')?.status).toBe('fail');
+    expect(value.checks.find((check) => check.id === 'versions')).toMatchObject({
+      status: 'pass',
+      blocking: false,
+      fix: null,
+    });
   });
 
   it('keeps local fixes and hides response errors when the daemon is unavailable', async () => {

@@ -1,3 +1,4 @@
+import { SLACK_BOT_SCOPES } from '@spur-board/contracts';
 import YAML from 'yaml';
 import { CliError } from './exit-codes.ts';
 
@@ -5,16 +6,6 @@ export interface SlackManifestOptions {
   appName?: string;
   command?: string;
 }
-
-const botScopes = [
-  'chat:write',
-  'chat:write.customize',
-  'groups:history',
-  'groups:read',
-  'app_mentions:read',
-  'commands',
-  'reactions:write',
-] as const;
 
 export function renderSlackManifest(options: SlackManifestOptions = {}): string {
   const appName = (options.appName ?? 'spur-board').trim();
@@ -49,7 +40,7 @@ export function renderSlackManifest(options: SlackManifestOptions = {}): string 
           },
         ],
       },
-      oauth_config: { scopes: { bot: [...botScopes] } },
+      oauth_config: { scopes: { bot: [...SLACK_BOT_SCOPES] } },
       settings: {
         event_subscriptions: { bot_events: ['message.groups', 'app_mention'] },
         interactivity: { is_enabled: true },

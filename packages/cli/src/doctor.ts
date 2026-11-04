@@ -1,5 +1,12 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from 'node:fs';
+import {
+  existsSync,
+  readFileSync,
+  readdirSync,
+  readlinkSync,
+  realpathSync,
+  statSync,
+} from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { parseEnv } from 'node:util';
@@ -19,6 +26,7 @@ interface SessionProcess {
   project?: string;
   path: string;
   codexHome?: string;
+  cwd?: string;
   startAt?: number;
 }
 
@@ -83,11 +91,18 @@ function liveSessions(): SessionProcess[] {
       started.exitCode === 0 && Number.isFinite(elapsedSeconds) && elapsedSeconds >= 0
         ? Date.now() - elapsedSeconds * 1000
         : NaN;
+    let cwd: string | undefined;
+    try {
+      cwd = readlinkSync(`/proc/${pid}/cwd`);
+    } catch {
+      // The session can still be checked through its CODEX_HOME.
+    }
     sessions.push({
       id: env['SPUR_SESSION'],
       ...(env['SPUR_PROJECT'] ? { project: env['SPUR_PROJECT'] } : {}),
       path: env['PATH'],
       ...(env['CODEX_HOME'] ? { codexHome: env['CODEX_HOME'] } : {}),
+      ...(cwd ? { cwd } : {}),
       ...(Number.isFinite(startAt) ? { startAt } : {}),
     });
   }
@@ -360,29 +375,36 @@ export async function runDoctor(
   const spurBoard =
     live === undefined ? null : ports.run('board', ['--version'], { HOME: home, PATH: live.path });
   checks.push(
-    result(
-      'path.spur',
-      spurBoard?.exitCode === 0,
-      'Start a Spur session and install board into its PATH.',
-    ),
+    live === undefined
+      ? warning('path.spur', 'Start a Spur session, then rerun board doctor.')
+      : result(
+          'path.spur',
+          spurBoard?.exitCode === 0,
+          'Install board into the live Spur session PATH.',
+        ),
   );
   const configured = new Set(
     config.projects.flatMap((project) => project.spurProjects.map((spur) => spur.name)),
   );
-  const codex = sessions.find(
+  const codexSessions = sessions.filter(
     (session) => session.codexHome && session.project && configured.has(session.project),
   );
-  const codexHome = codex?.codexHome;
   checks.push(
-    codexHome === undefined
+    codexSessions.length === 0
       ? warning(
           'skills.codex_visibility',
           'Start a Codex session in a configured Spur project to verify skill visibility.',
         )
       : result(
           'skills.codex_visibility',
-          ports.exists(join(codexHome, 'skills', 'spur-board', 'SKILL.md')),
-          'Install the spur-board skill into the Codex session-visible CODEX_HOME and restart the session.',
+          codexSessions.some(
+            (session) =>
+              (session.cwd !== undefined &&
+                ports.exists(join(session.cwd, '.agents', 'skills', 'spur-board', 'SKILL.md'))) ||
+              (session.codexHome !== undefined &&
+                ports.exists(join(session.codexHome, 'skills', 'spur-board', 'SKILL.md'))),
+          ),
+          "Add .agents/skills/spur-board to the Spur project's symlinks in its config and start a new session.",
         ),
   );
 
@@ -448,14 +470,16 @@ export async function runDoctor(
   } else {
     checks.push(...remote.checks.filter((check) => check.id !== 'secrets'));
   }
+  const availableVersions = [
+    ...(currentBoard.exitCode === 0 ? [currentBoard.stdout.trim()] : []),
+    ...(spurBoard?.exitCode === 0 ? [spurBoard.stdout.trim()] : []),
+    ...(remote === null ? [] : [remote.version]),
+    ...stamps.flatMap((entry) => (entry === null ? [] : [entry.version])),
+  ];
   checks.push(
     result(
       'versions',
-      remote !== null &&
-        remote.version === version &&
-        currentBoard.stdout.trim() === version &&
-        spurBoard?.stdout.trim() === version &&
-        stamps.every((entry) => entry?.version === version),
+      availableVersions.every((available) => available === version),
       'Install matching CLI and skills versions, then restart the daemon.',
     ),
   );
