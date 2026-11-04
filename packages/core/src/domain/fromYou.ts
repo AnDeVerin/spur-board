@@ -8,6 +8,7 @@ export interface ItemCandidate {
   source: string | null;
   priority: number;
   revision?: string | null;
+  suppressFeed?: boolean;
 }
 
 export function fingerprint(candidate: ItemCandidate): string {

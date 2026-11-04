@@ -53,6 +53,7 @@ export async function raiseItem(
     factAt?: string | null;
     source?: string | null;
     priority?: number;
+    suppressFeed?: boolean;
   },
 ): Promise<Row<'operator_item'>> {
   const active = await trx
@@ -90,7 +91,7 @@ export async function raiseItem(
     .returningAll()
     .executeTakeFirstOrThrow();
   await journal(trx, item, 'from_you_raised', input.at);
-  if (!NO_FEED.has(item.kind)) {
+  if (!NO_FEED.has(item.kind) && !input.suppressFeed) {
     const task =
       item.task_id === null
         ? null

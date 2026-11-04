@@ -354,3 +354,67 @@ it('posts and clears a feed line for a taskless source item', async () => {
     itemKey: `source:${source}`,
   });
 });
+
+it('keeps failed feed lines and edits actionable without recursively feeding them', async () => {
+  const { store, core, status } = setup();
+  await store.transaction(async (trx) => {
+    for (const [id, kind] of [
+      [1, 'feed.line'],
+      [2, 'feed.line.edit'],
+      [3, 'conversation.reply'],
+    ] as const)
+      await trx
+        .insertInto('outbox')
+        .values({
+          ...sampleRows.outbox,
+          id,
+          kind,
+          dedupe_key: `failed:${String(id)}`,
+          state: 'post_failed',
+          parent_outbox_id: kind === 'feed.line.edit' ? 1 : null,
+        })
+        .execute();
+  });
+  await tickBoard({ store, config, clock, completeSince: core.completeSince });
+  expect((await status()).items.map((item) => item.key)).toEqual([
+    'delivery:1',
+    'delivery:2',
+    'delivery:3',
+  ]);
+  const firstLines = await store.db
+    .selectFrom('outbox')
+    .select('id')
+    .where('kind', '=', 'feed.line')
+    .execute();
+  expect(firstLines).toHaveLength(2);
+  const ordinaryLine = firstLines.find((line) => line.id !== 1);
+  expect(ordinaryLine).toBeDefined();
+  expect(
+    await store.db
+      .selectFrom('operator_item')
+      .select(['item_key', 'line_outbox_id'])
+      .orderBy('item_key')
+      .execute(),
+  ).toEqual([
+    { item_key: 'delivery:1', line_outbox_id: null },
+    { item_key: 'delivery:2', line_outbox_id: null },
+    { item_key: 'delivery:3', line_outbox_id: ordinaryLine?.id },
+  ]);
+  await store.transaction((trx) =>
+    trx
+      .updateTable('outbox')
+      .set({ state: 'post_failed' })
+      .where('id', '=', ordinaryLine?.id ?? -1)
+      .execute(),
+  );
+  for (let tick = 0; tick < 2; tick++) {
+    now += 1_000;
+    await tickBoard({ store, config, clock, completeSince: core.completeSince });
+    expect(
+      await store.db.selectFrom('outbox').select('id').where('kind', '=', 'feed.line').execute(),
+    ).toHaveLength(2);
+  }
+  expect((await status()).items.map((item) => item.key)).toContain(
+    `delivery:${String(ordinaryLine?.id)}`,
+  );
+});

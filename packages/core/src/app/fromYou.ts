@@ -131,6 +131,7 @@ export async function reconcileItems(
       factAt: null,
       source: null,
       priority: 1,
+      suppressFeed: delivery.kind === 'feed.line' || delivery.kind === 'feed.line.edit',
     });
   const sessionLinks = await trx
     .selectFrom('link')
@@ -258,6 +259,7 @@ export async function reconcileItems(
       factAt: candidate.factAt,
       source: candidate.source,
       priority: candidate.priority,
+      suppressFeed: candidate.suppressFeed ?? false,
     });
   }
 }
