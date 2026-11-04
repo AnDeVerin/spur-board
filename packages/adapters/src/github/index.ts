@@ -180,17 +180,19 @@ async function pollRepository({
     wire: Json | undefined,
     errors: GraphError[],
     ref?: PrEntityRef,
-  ) => {
+  ): Promise<boolean> => {
     const error = errors[0];
     if (error !== undefined) {
       const direct = error.path === undefined || error.path.length <= 2;
-      if (!direct || (error.type !== 'NOT_FOUND' && error.type !== 'FORBIDDEN')) complete = false;
+      if (!ref || !direct || (error.type !== 'NOT_FOUND' && error.type !== 'FORBIDDEN'))
+        complete = false;
       if (ref) entities.push({ ref, status: direct ? status(error) : 'no_access' });
-      return;
+      return false;
     }
     if (wire === null || wire === undefined) {
       if (ref) entities.push({ ref, status: 'not_found' });
-      return;
+      else complete = false;
+      return false;
     }
     const full = await fullPr(client, record(wire), owner, name, number, ctx.signal, (next) => {
       budget = next;
@@ -198,7 +200,7 @@ async function pollRepository({
     if (full === undefined) {
       complete = false;
       if (ref) entities.push({ ref, status: 'no_access' });
-      return;
+      return false;
     }
     const facts = normalizePr(ref?.repo ?? repo, full, prefixes);
     if (!seenItems.has(number)) {
@@ -206,12 +208,18 @@ async function pollRepository({
       seenItems.add(number);
     }
     if (ref) entities.push({ ref, status: 'ok' });
+    return true;
   };
+  let discoveredOk = true;
   for (const [i, number] of numbers.entries()) {
     const alias = `pr${String(i)}`;
     const errors = scoped(response.errors, alias);
     const wire = aliasPr(response.data, alias);
-    await process(number, wire, errors, byNumber.get(number));
+    if (
+      !(await process(number, wire, errors, byNumber.get(number))) &&
+      found.numbers.includes(number)
+    )
+      discoveredOk = false;
   }
   const discovered = [...allNumbers].filter((number) => !byNumber.has(number));
   if (discovered.length > 0) {
@@ -224,7 +232,7 @@ async function pollRepository({
     for (const [i, number] of discovered.entries()) {
       const alias = `pr${String(i)}`;
       const wire = aliasPr(detail.data, alias);
-      await process(number, wire, scoped(detail.errors, alias));
+      if (!(await process(number, wire, scoped(detail.errors, alias)))) discoveredOk = false;
     }
   }
   return {
@@ -233,8 +241,10 @@ async function pollRepository({
     complete,
     items,
     entities,
-    ...(discoveryOk
-      ? { cursor: found.cursor }
+    ...(discoveryOk && discoveredOk
+      ? found.cursor === undefined
+        ? {}
+        : { cursor: found.cursor }
       : ctx.cursor === undefined
         ? {}
         : { cursor: ctx.cursor }),

@@ -90,6 +90,20 @@ describe('GitHub discovery', () => {
     expect(fetcher).toHaveBeenCalledTimes(2);
     expect(fetcher.mock.calls[1]?.[1]?.body as string).toContain('rateLimit');
   });
+  it('keeps the prior cursor when a newly discovered PR detail fails', async () => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        response({ repository: { pullRequests: conn([node(7, newer, 'operator', 'MERGED')]) } }),
+      )
+      .mockResolvedValueOnce(
+        response({ pr0: null }, [{ message: 'temporary', type: 'INTERNAL', path: ['pr0'] }]),
+      );
+    const batch = await adapter(fetcher).poll(context);
+    expect(batch.complete).toBe(false);
+    expect(batch.cursor).toBe(old);
+    expect(batch.items).toEqual([]);
+  });
   it('keeps the prior cursor after a scoped discovery-page error', async () => {
     const fetcher = vi
       .fn<typeof fetch>()
