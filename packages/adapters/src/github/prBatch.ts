@@ -50,7 +50,16 @@ function latestChecks(nodes: RecordValue[]): {
         : node.completedAt === null
           ? null
           : string(node.completedAt);
-    const at = completedAt ?? (node.__typename === 'StatusContext' ? string(node.createdAt) : '');
+    const startedAt = node.startedAt;
+    const suite = node.checkSuite;
+    const at =
+      node.__typename === 'StatusContext'
+        ? string(node.createdAt)
+        : typeof startedAt === 'string'
+          ? startedAt
+          : suite === null || suite === undefined
+            ? (completedAt ?? '')
+            : string(record(suite).createdAt);
     const old = latest.get(name);
     if (old !== undefined && old.at > at) continue;
     latest.set(name, {
@@ -87,9 +96,12 @@ export function ticketKeys(title: string, branch: string, prefixes: readonly str
   const keys = new Set<string>();
   const allowed = new Set(prefixes);
   for (const match of `${title} ${branch}`.matchAll(
-    /(?<![A-Za-z0-9_])([A-Z][A-Z0-9_]*)-([1-9][0-9]*)(?![A-Za-z0-9_])/g,
+    /(?<![A-Za-z0-9_])([A-Z][A-Z0-9_]*)-([1-9][0-9]*)(?![A-Za-z0-9_])/gi,
   )) {
-    if (allowed.has(match[1] ?? '')) keys.add(match[0]);
+    const prefix = match[1]?.toUpperCase();
+    const number = match[2];
+    if (prefix !== undefined && number !== undefined && allowed.has(prefix))
+      keys.add(`${prefix}-${number}`);
   }
   return [...keys];
 }

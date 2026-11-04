@@ -115,7 +115,7 @@ describe('GitHub PR batch', () => {
   it('pins the initial query and asks for rateLimit, discovery and aliases together', () => {
     const query = initialQuery([7]);
     expect(createHash('sha256').update(query).digest('hex')).toBe(
-      '6b829bfc9640eaa890995f09149453e3fdcc6b9df4662c0c4ab8adc23fb02a62',
+      '25df11570dc57ad0f8a29ec4ec2d33eb3c16ef806cd6293927af54fae8b4a1b7',
     );
     expect(query).toContain('rateLimit { remaining resetAt }');
     expect(query).toContain('pullRequests(first: 100');
@@ -136,6 +136,46 @@ describe('GitHub PR batch', () => {
     ]);
     expect(facts.ticketKeys).toEqual(['DEMO-42']);
     expect(ticketKeys('XDEMO-42 DEMO-420x', 'OTHER-1', ['DEMO'])).toEqual([]);
+  });
+  it('extracts lowercase configured ticket keys as uppercase at full boundaries', () => {
+    expect(ticketKeys('demo-42 and xdemo-7', 'feature/proj-123-fix', ['DEMO', 'PROJ'])).toEqual([
+      'DEMO-42',
+      'PROJ-123',
+    ]);
+    expect(ticketKeys('demo-42x', 'other-1', ['DEMO'])).toEqual([]);
+  });
+  it('selects a newer pending rerun over an older completed check', () => {
+    const pr = wire();
+    pr.statusCheckRollup.contexts.nodes.push({
+      __typename: 'CheckRun',
+      name: 'build',
+      status: 'IN_PROGRESS',
+      conclusion: null,
+      startedAt: '2026-01-03T00:00:00.000Z',
+      completedAt: null,
+      checkSuite: { createdAt: '2026-01-03T00:00:00.000Z' },
+      isRequired: true,
+    });
+    expect(normalizePr('demo/widgets', pr, ['DEMO']).requiredChecks).toEqual([
+      { name: 'build', state: 'pending', completedAt: null },
+    ]);
+    expect(pageQuery('contexts')).toContain('startedAt completedAt checkSuite { createdAt }');
+  });
+  it('uses check-suite creation time for a queued rerun without a start time', () => {
+    const pr = wire();
+    pr.statusCheckRollup.contexts.nodes.push({
+      __typename: 'CheckRun',
+      name: 'build',
+      status: 'QUEUED',
+      conclusion: null,
+      startedAt: null,
+      completedAt: null,
+      checkSuite: { createdAt: '2026-01-04T00:00:00.000Z' },
+      isRequired: true,
+    });
+    expect(normalizePr('demo/widgets', pr, ['DEMO']).requiredChecks).toEqual([
+      { name: 'build', state: 'pending', completedAt: null },
+    ]);
   });
   it('reads checks from the PR head on a multi-commit branch', () => {
     const olderCommit = {
