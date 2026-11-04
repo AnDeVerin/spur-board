@@ -172,7 +172,7 @@ export async function enqueueFeedLine(
 export async function enqueueLiveFeedLine(
   trx: Trx,
   input: { version: string; text: string; at: Date },
-): Promise<number> {
+): Promise<number | null> {
   const row = await insertOutbox(trx, {
     kind: 'feed.line',
     dedupeKey: `doctor:live:${input.version}`,
