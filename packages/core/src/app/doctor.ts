@@ -6,7 +6,7 @@ import { enqueueLiveFeedLine } from './outbox.ts';
 const LIVE_VERSION_KEY = 'doctor_live_version';
 
 /** Configured adapter IDs, including repos used by more than one project. */
-export function doctorSources(config: Config): ReadonlySet<string> {
+function doctorSources(config: Config): ReadonlySet<string> {
   return new Set([
     'spur',
     ...config.projects.flatMap((project) => [

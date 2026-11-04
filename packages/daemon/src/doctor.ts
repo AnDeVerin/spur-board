@@ -65,10 +65,12 @@ export async function runDaemonDoctor(
 ): Promise<DoctorReport> {
   const { config, secrets } = ctx;
   const checks: Check[] = [];
-  const jira = config.projects.filter((project) => project.tracker.type === 'jira');
+  const jiraTrackers = config.projects.flatMap((project) =>
+    project.tracker.type === 'jira' ? [project.tracker] : [],
+  );
   const required = [
     'GITHUB_TOKEN',
-    ...(jira.length > 0 ? ['JIRA_EMAIL', 'JIRA_API_TOKEN'] : []),
+    ...(jiraTrackers.length > 0 ? ['JIRA_EMAIL', 'JIRA_API_TOKEN'] : []),
     ...(config.slack.channels.feed || config.slack.channels.orchestrators
       ? ['SLACK_BOT_TOKEN']
       : []),
@@ -84,24 +86,20 @@ export async function runDaemonDoctor(
 
   const jiraEmail = secrets['JIRA_EMAIL'];
   const jiraToken = secrets['JIRA_API_TOKEN'];
-  const jiraOk =
-    jira.length === 0 ||
-    (Boolean(jiraEmail && jiraToken) &&
-      (
-        await Promise.all(
-          jira.map(async (project) => {
-            if (project.tracker.type !== 'jira') return true;
-            const credentials = Buffer.from(`${jiraEmail ?? ''}:${jiraToken ?? ''}`).toString(
-              'base64',
-            );
-            const url = new URL('/rest/api/3/myself', project.tracker.baseUrl);
-            const response = await request(ctx, fetcher, 'jira', url, {
-              headers: { Authorization: `Basic ${credentials}`, Accept: 'application/json' },
-            });
-            return response?.ok === true;
-          }),
-        )
-      ).every(Boolean));
+  let jiraOk = jiraTrackers.length === 0;
+  if (jiraTrackers.length > 0 && jiraEmail && jiraToken) {
+    const credentials = Buffer.from(`${jiraEmail}:${jiraToken}`).toString('base64');
+    const results = await Promise.all(
+      jiraTrackers.map(async (tracker) => {
+        const url = new URL('/rest/api/3/myself', tracker.baseUrl);
+        const response = await request(ctx, fetcher, 'jira', url, {
+          headers: { Authorization: `Basic ${credentials}`, Accept: 'application/json' },
+        });
+        return response?.ok === true;
+      }),
+    );
+    jiraOk = results.every(Boolean);
+  }
   checks.push(
     check('jira.credentials', jiraOk, 'Check the Jira account, API token, and project access.'),
   );

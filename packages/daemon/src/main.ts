@@ -113,7 +113,7 @@ export async function main(): Promise<void> {
           }),
         },
       ];
-      entries.push(...createBoardModules(ctxFor, { core, productVersion }));
+      entries.push(...createBoardModules(ctxFor, { core }));
       const ctx = ctxFor('gateway-slack');
       const settings = slackSettings(ctx.config, ctx.secrets);
       const gateway = settings === null ? undefined : createSlackGateway(settings);
