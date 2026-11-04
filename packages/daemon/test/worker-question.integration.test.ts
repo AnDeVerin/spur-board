@@ -50,7 +50,8 @@ describe('worker question through the daemon', () => {
       .select('payload')
       .where('kind', '=', 'conversation.open')
       .executeTakeFirstOrThrow();
-    expect(open.payload).toContain('worker');
+    const openPayload: unknown = JSON.parse(open.payload);
+    expect(openPayload).toMatchObject({ persona: { name: 'worker', role: 'worker' } });
 
     await h.gateway.platform.inject({
       kind: 'message',
