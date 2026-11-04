@@ -1,5 +1,19 @@
+import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { cp, lstat, mkdir, mkdtemp, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { closeSync, constants, openSync } from 'node:fs';
+import {
+  cp,
+  lstat,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  realpath,
+  rename,
+  rm,
+  stat,
+  writeFile,
+} from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -92,25 +106,70 @@ async function targetDirectory(path: string): Promise<boolean> {
 
 async function checkTarget(home: string, agent: string, destination: string): Promise<boolean> {
   const parent = join(home, agent, 'skills');
-  await targetDirectory(home);
   await targetDirectory(join(home, agent));
   await targetDirectory(parent);
   return targetDirectory(destination);
 }
 
-export async function installSkills(
-  options: InstallSkillsOptions = {},
-): Promise<SkillInstallResult[]> {
-  const packageRoot = resolve(
-    options.packageRoot ?? fileURLToPath(new URL('../', import.meta.url)),
-  );
-  const home = resolve(options.home ?? homedir());
-  const version = await packageVersion(packageRoot);
-  // Check all assets before changing an existing installation.
-  await Promise.all(
-    skills.map((skill) => requireSource(join(packageRoot, 'skills', skill.source))),
-  );
+async function withInstallLock<T>(home: string, action: () => Promise<T>): Promise<T> {
+  const file = join(home, '.spur-board-skills-install.lock');
+  const fd = openSync(file, constants.O_CREAT | constants.O_RDWR | constants.O_NOFOLLOW, 0o600);
+  try {
+    // flock locks the open file description shared by this process and its short-lived child.
+    await new Promise<void>((resolveLock, reject) => {
+      const child = spawn('flock', ['-x', '-w', '30', '3'], {
+        stdio: ['ignore', 'ignore', 'pipe', fd],
+      });
+      let stderr = '';
+      child.stderr?.setEncoding('utf8');
+      child.stderr?.on('data', (chunk: string) => {
+        stderr += chunk;
+      });
+      child.once('error', (error) => {
+        reject(
+          new Error(`flock from util-linux is required for skill installation: ${error.message}`),
+        );
+      });
+      child.once('close', (code) => {
+        if (code === 0) resolveLock();
+        else
+          reject(
+            new Error(
+              `Could not lock skill installation: ${stderr.trim() || `exit ${String(code)}`}`,
+            ),
+          );
+      });
+    });
+    return await action();
+  } finally {
+    closeSync(fd);
+  }
+}
 
+async function recoverSkill(parent: string, destination: string, name: string): Promise<void> {
+  if (!(await targetDirectory(parent))) return;
+  const entries = await readdir(parent);
+  const backups = entries.filter((entry) => entry.startsWith(`.${name}-backup-`));
+  const stages = entries.filter((entry) => entry.startsWith(`.${name}-stage-`));
+  for (const entry of [...backups, ...stages]) await targetDirectory(join(parent, entry));
+
+  const exists = await targetDirectory(destination);
+  if (!exists && backups.length > 1) {
+    throw new Error(`Multiple interrupted backups exist for ${destination}`);
+  }
+  if (!exists && backups[0]) await rename(join(parent, backups[0]), destination);
+  else if (exists) {
+    for (const backup of backups) await rm(join(parent, backup), { recursive: true });
+  }
+  for (const stage of stages) await rm(join(parent, stage), { recursive: true });
+}
+
+async function installIntoHome(
+  home: string,
+  packageRoot: string,
+  version: string,
+  options: InstallSkillsOptions,
+): Promise<SkillInstallResult[]> {
   // Reject all redirected targets before changing any of the four installed skills.
   for (const agent of agents) {
     for (const skill of skills) {
@@ -124,6 +183,7 @@ export async function installSkills(
     const parent = join(home, agent, 'skills');
     for (const skill of skills) {
       const destination = join(parent, skill.name);
+      await recoverSkill(parent, destination, skill.name);
       const changed = !(await currentVersion(destination, version));
       if (changed) {
         await mkdir(parent, { recursive: true });
@@ -158,4 +218,20 @@ export async function installSkills(
     }
   }
   return results;
+}
+
+export async function installSkills(
+  options: InstallSkillsOptions = {},
+): Promise<SkillInstallResult[]> {
+  const packageRoot = resolve(
+    options.packageRoot ?? fileURLToPath(new URL('../', import.meta.url)),
+  );
+  const home = await realpath(resolve(options.home ?? homedir()));
+  const version = await packageVersion(packageRoot);
+  // Check all assets before changing an existing installation.
+  await Promise.all(
+    skills.map((skill) => requireSource(join(packageRoot, 'skills', skill.source))),
+  );
+
+  return withInstallLock(home, () => installIntoHome(home, packageRoot, version, options));
 }

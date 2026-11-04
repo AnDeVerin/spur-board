@@ -1,4 +1,14 @@
-import { mkdtemp, mkdir, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
+import {
+  cp,
+  mkdtemp,
+  mkdir,
+  readFile,
+  readdir,
+  rename,
+  rm,
+  symlink,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -209,6 +219,69 @@ describe('skills install', () => {
       await expect(readdir(join(home, otherAgent, 'skills'))).rejects.toMatchObject({
         code: 'ENOENT',
       });
+    }
+  });
+
+  it('accepts a symlinked home while checking skill directories under its real path', async () => {
+    const { root, home, packageRoot } = await fixture();
+    const linkedHome = join(root, 'linked-home');
+    await symlink(home, linkedHome, 'dir');
+
+    expect(await installSkills({ home: linkedHome, packageRoot })).toHaveLength(4);
+    expect(
+      await readFile(join(destination(home, '.claude', 'spur-board'), 'SKILL.md'), 'utf8'),
+    ).toBe('Board skill\n');
+  });
+
+  it('restores a backup after an interrupted swap and removes incomplete staging', async () => {
+    const { home, packageRoot } = await fixture();
+    await installSkills({ home, packageRoot });
+    const parent = join(home, '.claude', 'skills');
+    const installed = destination(home, '.claude', 'spur-board');
+    const backup = join(parent, '.spur-board-backup-interrupted');
+    const staged = join(parent, '.spur-board-stage-interrupted');
+    await rename(installed, backup);
+    await mkdir(staged);
+    await writeFile(join(staged, 'partial.txt'), 'incomplete');
+
+    const results = await installSkills({ home, packageRoot });
+    expect(results.every((result) => !result.changed)).toBe(true);
+    expect(await readFile(join(installed, 'SKILL.md'), 'utf8')).toBe('Board skill\n');
+    expect((await readdir(parent)).sort()).toEqual([...names].sort());
+  });
+
+  it('serializes concurrent upgrades so only one copy replaces each skill', async () => {
+    const { home, packageRoot } = await fixture();
+    await installSkills({ home, packageRoot });
+    await writeFile(join(packageRoot, 'package.json'), JSON.stringify({ version: '2.0.0' }));
+    let copies = 0;
+    const options = {
+      home,
+      packageRoot,
+      copySkill: async (source: string, staged: string) => {
+        copies += 1;
+        await cp(source, staged, { recursive: true });
+        await new Promise((done) => setTimeout(done, 10));
+      },
+    };
+
+    const installs = await Promise.all([installSkills(options), installSkills(options)]);
+    expect(
+      installs.map((results) => results.filter((result) => result.changed).length).sort(),
+    ).toEqual([0, 4]);
+    expect(copies).toBe(4);
+    for (const agent of agents) {
+      expect((await readdir(join(home, agent, 'skills'))).sort()).toEqual([...names].sort());
+      for (const name of names) {
+        expect(
+          JSON.parse(
+            await readFile(
+              join(destination(home, agent, name), '.spur-board-install.json'),
+              'utf8',
+            ),
+          ),
+        ).toMatchObject({ version: '2.0.0' });
+      }
     }
   });
 });
