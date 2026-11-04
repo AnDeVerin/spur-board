@@ -5,13 +5,12 @@ import {
   type EventKind,
   type EventPayload,
 } from '@spur-board/contracts';
-import type { Kysely } from 'kysely';
+import type { Kysely, Selectable } from 'kysely';
 import { toJson } from '../store/json.ts';
 import type { Tables, TaskTable } from '../store/schema.ts';
-import type { Selectable } from 'kysely';
 
 export type Trx = Kysely<Tables>;
-export type Task = Selectable<TaskTable>;
+type Task = Selectable<TaskTable>;
 
 export function trackerSource(project: Config['projects'][number]): string {
   return project.tracker.type === 'jira'
@@ -20,14 +19,15 @@ export function trackerSource(project: Config['projects'][number]): string {
 }
 
 export function projectForKey(config: Config, key: string): Config['projects'][number] | null {
+  const lowerKey = key.toLowerCase();
   const matched = config.projects.filter((project) => {
     const tracker = project.tracker;
     if (tracker.type === 'github-issues') {
       const prefix = `${tracker.repo.toLowerCase()}#`;
       const short = tracker.repo.split('/')[1];
       return (
-        key.toLowerCase().startsWith(prefix) ||
-        (short !== undefined && key.toLowerCase().startsWith(`${short.toLowerCase()}#`))
+        lowerKey.startsWith(prefix) ||
+        (short !== undefined && lowerKey.startsWith(`${short.toLowerCase()}#`))
       );
     }
     const prefix = /^([A-Za-z][A-Za-z0-9_]*)-/.exec(key)?.[1]?.toUpperCase();
