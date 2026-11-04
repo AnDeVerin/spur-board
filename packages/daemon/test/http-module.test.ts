@@ -1,8 +1,10 @@
 import { join } from 'node:path';
+import { configSchema } from '@spur-board/contracts';
 import { createOperationRegistry, openStore, type Store } from '@spur-board/core';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { loadConfig, resolvePaths } from '../src/config.ts';
 import { createHttpModule, lookupLiveSession } from '../src/http-module.ts';
+import { runDaemonDoctor } from '../src/doctor.ts';
 import type { DaemonState, ModuleContext } from '../src/lifecycle.ts';
 import { createLogger, logCall } from '../src/logger.ts';
 import { makeHome, VALID_CONFIG_YAML } from './home.ts';
@@ -19,6 +21,176 @@ const wire = {
 const stores: Store[] = [];
 afterEach(async () => {
   for (const store of stores.splice(0)) await store.close();
+});
+
+function doctorContext(
+  options: { operator?: boolean; secrets?: Readonly<Record<string, string>> } = {},
+) {
+  const store = openStore(join(makeHome(), 'board.sqlite'));
+  stores.push(store);
+  const config = configSchema.parse({
+    projects: [
+      {
+        id: 'board',
+        tracker: {
+          type: 'jira',
+          baseUrl: 'https://jira.example.test',
+          jql: 'project = BOARD',
+          doneStatuses: ['Done'],
+          readyStatuses: ['Ready'],
+        },
+        repos: ['example/board'],
+        operatorGithubLogin: 'operator',
+        spurProjects: options.operator ? [{ name: 'operator', role: 'operator' }] : [],
+      },
+    ],
+    operator: { slack: 'U0000000000' },
+    slack: {
+      command: '/board',
+      appId: 'A123ABC',
+      channels: { orchestrators: 'C000000001', feed: 'C000000002' },
+    },
+    digest: { tz: 'UTC' },
+  });
+  const clock = { now: () => Date.parse('2026-11-04T08:00:00.000Z') };
+  const log = createLogger({ write: () => undefined }, {}).child({ module: 'doctor' });
+  const ctx: ModuleContext<Store> = {
+    config,
+    store,
+    clock,
+    log,
+    state: () => 'ready',
+    secrets: options.secrets ?? {
+      GITHUB_TOKEN: 'github-secret-canary',
+      JIRA_EMAIL: 'email@example.test',
+      JIRA_API_TOKEN: 'jira-secret-canary',
+      SLACK_BOT_TOKEN: 'slack-secret-canary',
+      SLACK_APP_CONFIG_TOKEN: 'config-secret-canary',
+    },
+    logCall: (_call, fn) => fn(),
+  };
+  return ctx;
+}
+
+function doctorFetch(fail?: string): typeof fetch {
+  return vi.fn((input: RequestInfo | URL) => {
+    const url = new URL(
+      input instanceof URL ? input.href : input instanceof Request ? input.url : input,
+    );
+    const path = url.pathname;
+    if (path.endsWith('/myself'))
+      return Promise.resolve(
+        new Response(null, { status: fail === 'jira.credentials' ? 401 : 200 }),
+      );
+    if (url.host === 'api.github.com')
+      return Promise.resolve(
+        new Response(null, { status: fail === 'github.credentials' ? 403 : 200 }),
+      );
+    if (path.endsWith('/sessions'))
+      return Promise.resolve(new Response(null, { status: fail === 'spur.api' ? 503 : 200 }));
+    if (path.endsWith('/auth.test'))
+      return Promise.resolve(Response.json({ ok: fail !== 'slack.auth' }));
+    if (path.endsWith('/conversations.info')) {
+      const id = url.searchParams.get('channel');
+      const memberFail = id === 'C000000001' ? 'slack.orchestrators_member' : 'slack.feed_member';
+      return Promise.resolve(
+        Response.json({ ok: true, channel: { is_member: fail !== memberFail } }),
+      );
+    }
+    if (path.endsWith('/apps.manifest.export'))
+      return Promise.resolve(
+        Response.json({
+          ok: true,
+          manifest: {
+            features: {
+              slash_commands: [{ command: fail === 'slack.command' ? '/wrong' : '/board' }],
+            },
+          },
+        }),
+      );
+    throw new Error('Unexpected diagnostic URL');
+  });
+}
+
+describe('daemon doctor checks', () => {
+  it('reports every daemon-owned check as passing without returning credential values', async () => {
+    const ctx = doctorContext({ operator: true });
+    const report = await runDaemonDoctor(ctx, '1.2.3', doctorFetch());
+    expect(report.version).toBe('1.2.3');
+    expect(report.checks.map((check) => check.id)).toEqual([
+      'secrets',
+      'jira.credentials',
+      'github.credentials',
+      'spur.api',
+      'slack.auth',
+      'slack.orchestrators_member',
+      'slack.feed_member',
+      'slack.command',
+      'operator.path',
+    ]);
+    expect(report.checks.every((check) => check.status === 'pass' && check.fix === null)).toBe(
+      true,
+    );
+    expect(JSON.stringify(report)).not.toMatch(/secret-canary/);
+  });
+
+  it.each([
+    ['jira.credentials', 'Check the Jira account, API token, and project access.'],
+    ['github.credentials', 'Check the GitHub token and repository access.'],
+    ['spur.api', 'Start or correct the configured Spur API.'],
+    ['slack.auth', 'Check the Slack bot token.'],
+    ['slack.orchestrators_member', 'Invite the bot to the configured channel ID.'],
+    ['slack.feed_member', 'Invite the bot to the configured channel ID.'],
+    [
+      'slack.command',
+      'Change the installed Slack slash command to match slack.command in config.yaml.',
+    ],
+  ])('returns a fixed failure and fix for %s', async (id, fix) => {
+    const report = await runDaemonDoctor(
+      doctorContext({ operator: true }),
+      '1.2.3',
+      doctorFetch(id),
+    );
+    const entry = report.checks.find((check) => check.id === id);
+    expect(entry).toMatchObject({
+      status: 'fail',
+      blocking: true,
+    });
+    expect(entry?.fix).toBe(fix);
+    expect(JSON.stringify(report)).not.toMatch(/secret-canary/);
+  });
+
+  it('names missing secret variables and fails operator access without a project or token', async () => {
+    const report = await runDaemonDoctor(doctorContext({ secrets: {} }), '1.2.3', doctorFetch());
+    expect(report.checks.find((check) => check.id === 'secrets')?.fix).toContain('GITHUB_TOKEN');
+    const operator = report.checks.find((check) => check.id === 'operator.path');
+    expect(operator).toMatchObject({
+      status: 'fail',
+      blocking: true,
+    });
+    expect(operator?.fix).toBe(
+      'Configure a Spur project with the operator role or approve a named operator token.',
+    );
+  });
+
+  it('warns when an installed slash command cannot be verified', async () => {
+    const ctx = doctorContext({
+      operator: true,
+      secrets: {
+        GITHUB_TOKEN: 'github-secret-canary',
+        JIRA_EMAIL: 'email@example.test',
+        JIRA_API_TOKEN: 'jira-secret-canary',
+        SLACK_BOT_TOKEN: 'slack-secret-canary',
+      },
+    });
+    const report = await runDaemonDoctor(ctx, '1.2.3', doctorFetch());
+    const command = report.checks.find((check) => check.id === 'slack.command');
+    expect(command).toMatchObject({
+      status: 'warning',
+      blocking: false,
+    });
+    expect(command?.fix).toContain('Verify the installed Slack slash command');
+  });
 });
 
 describe('live session lookup', () => {

@@ -16,6 +16,7 @@ import { openStore, requestToken } from '@spur-board/core';
 import { afterEach, describe, expect, it } from 'vitest';
 import { startFakeSlackApi } from '../../gateway-slack/test/fake-api.ts';
 import { loadConfig, resolvePaths } from '../src/config.ts';
+import { publishedVersion } from '../src/main.ts';
 import { killDaemons, runDaemonToExit, spawnDaemon, waitForLine } from './daemon-process.ts';
 import { makeHome, VALID_CONFIG_YAML } from './home.ts';
 
@@ -79,6 +80,12 @@ async function deliveredState(home: string): Promise<string> {
 }
 
 describe('daemon process', () => {
+  it('uses the publishable package version for daemon diagnostics and live announcements', () => {
+    const manifest = JSON.parse(
+      readFileSync(new URL('../../cli/package.json', import.meta.url), 'utf8'),
+    ) as { version: string };
+    expect(publishedVersion()).toBe(manifest.version);
+  });
   it('invalid config exits 1 before creating the database', () => {
     const home = makeHome({
       config: VALID_CONFIG_YAML.replace('repo: example-org/board', 'repo: bad'),

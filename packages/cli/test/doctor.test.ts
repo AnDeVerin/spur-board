@@ -1,0 +1,252 @@
+import { describe, expect, it, vi } from 'vitest';
+import { runCli, type CliIo } from '../src/cli.ts';
+import type { DoctorCheck, DoctorPorts } from '../src/doctor.ts';
+
+const yaml = `projects:
+  - id: board
+    tracker:
+      type: github-issues
+      repo: example/board
+      label: board
+    repos: [example/board]
+    operatorGithubLogin: operator
+    spurProjects:
+      - name: worker
+        role: worker
+operator:
+  slack: U0000000000
+digest:
+  tz: UTC
+`;
+const remoteIds = [
+  'secrets',
+  'jira.credentials',
+  'github.credentials',
+  'spur.api',
+  'slack.auth',
+  'slack.orchestrators_member',
+  'slack.feed_member',
+  'slack.command',
+  'operator.path',
+];
+const stamp = JSON.stringify({ version: '1.2.3', installedAt: '2026-11-04T09:00:00.000Z' });
+
+function capture() {
+  let stdout = '';
+  let stderr = '';
+  const io: CliIo = {
+    isTTY: false,
+    stdout(text) {
+      stdout += text;
+    },
+    stderr(text) {
+      stderr += text;
+    },
+  };
+  return { io, output: () => stdout, errors: () => stderr };
+}
+
+function ports(overrides: Partial<DoctorPorts> = {}): DoctorPorts {
+  return {
+    readText(path) {
+      if (path.endsWith('config.yaml')) return yaml;
+      if (path.endsWith('spur-board.service'))
+        return 'ExecStart="/usr/bin/node" "/app/daemon.mjs"\n';
+      if (path.endsWith('.spur-board-install.json')) return stamp;
+      throw new Error('missing');
+    },
+    exists: () => true,
+    run: () => ({ exitCode: 0, stdout: '1.2.3\n' }),
+    sessions: () => [
+      {
+        id: 'worker-1',
+        project: 'worker',
+        path: '/usr/bin',
+        codexHome: '/codex',
+        startAt: Date.parse('2026-11-04T10:00:00.000Z'),
+      },
+    ],
+    fetcher: () =>
+      Promise.resolve(
+        Response.json({
+          version: '1.2.3',
+          checks: remoteIds.map((id): DoctorCheck => ({
+            id,
+            status: 'pass',
+            blocking: false,
+            fix: null,
+          })),
+        }),
+      ),
+    productVersion: () => '1.2.3',
+    ...overrides,
+  };
+}
+
+async function run(args: string[], fake: DoctorPorts) {
+  const output = capture();
+  const exitCode = await runCli(args, {
+    io: output.io,
+    env: { BOARD_HOME: '/board', BOARD_DAEMON_URL: 'http://127.0.0.1:4311' },
+    home: '/home',
+    doctor: fake,
+  });
+  return { exitCode, checks: JSON.parse(output.output()) as DoctorCheck[], text: output.output() };
+}
+
+describe('board doctor', () => {
+  it('returns every local and daemon check in JSON', async () => {
+    const value = await run(['doctor', '--json'], ports());
+    expect(value.exitCode).toBe(0);
+    expect(value.checks.map((check) => check.id)).toEqual([
+      'config',
+      'service.installed',
+      'service.node',
+      'service.running',
+      'flock',
+      'path.current',
+      'path.spur',
+      'skills.codex_visibility',
+      'sessions.stale',
+      'daemon.available',
+      ...remoteIds,
+      'versions',
+    ]);
+    expect(value.checks.every((check) => check.status === 'pass' && check.fix === null)).toBe(true);
+  });
+
+  it('uses only config validation offline and does not call any other port', async () => {
+    const fake = ports({
+      readText(path) {
+        if (path.endsWith('config.yaml')) return yaml;
+        throw new Error('offline touched another file');
+      },
+      exists: () => {
+        throw new Error('offline filesystem check');
+      },
+      run: () => {
+        throw new Error('offline process check');
+      },
+      sessions: () => {
+        throw new Error('offline session check');
+      },
+      fetcher: () => {
+        throw new Error('offline network check');
+      },
+      productVersion: () => {
+        throw new Error('offline version check');
+      },
+    });
+    const value = await run(['doctor', '--offline', '--json'], fake);
+    expect(value.exitCode).toBe(0);
+    expect(value.checks).toEqual([{ id: 'config', status: 'pass', blocking: false, fix: null }]);
+  });
+
+  it('returns a config fix and nonzero exit for invalid offline config', async () => {
+    const fake = ports({ readText: () => 'projects: []\n' });
+    const value = await run(['doctor', '--offline', '--json'], fake);
+    expect(value.exitCode).toBe(1);
+    expect(value.checks).toEqual([
+      {
+        id: 'config',
+        status: 'fail',
+        blocking: true,
+        fix: 'Correct projects in config.yaml using the configuration schema.',
+      },
+    ]);
+  });
+
+  it.each([
+    [
+      'service.installed',
+      {
+        readText: (path: string) =>
+          path.endsWith('spur-board.service')
+            ? (() => {
+                throw new Error('missing');
+              })()
+            : path.endsWith('config.yaml')
+              ? yaml
+              : stamp,
+      },
+    ],
+    ['service.node', { exists: (path: string) => path !== '/usr/bin/node' }],
+    [
+      'service.running',
+      { run: (command: string) => ({ exitCode: command === 'systemctl' ? 1 : 0, stdout: '' }) },
+    ],
+    [
+      'flock',
+      { run: (command: string) => ({ exitCode: command === 'flock' ? 1 : 0, stdout: '' }) },
+    ],
+    [
+      'path.current',
+      {
+        run: (command: string, _args: readonly string[], env?: NodeJS.ProcessEnv) => ({
+          exitCode: command === 'board' && env === undefined ? 1 : 0,
+          stdout: '',
+        }),
+      },
+    ],
+    [
+      'path.spur',
+      {
+        run: (command: string, _args: readonly string[], env?: NodeJS.ProcessEnv) => ({
+          exitCode: command === 'board' && env !== undefined ? 1 : 0,
+          stdout: '',
+        }),
+      },
+    ],
+    [
+      'skills.codex_visibility',
+      { exists: (path: string) => !path.endsWith('/skills/spur-board/SKILL.md') },
+    ],
+    ['versions', { productVersion: () => '9.9.9' }],
+  ] as const)('gives a blocking fix for %s', async (id, override) => {
+    const value = await run(['doctor', '--json'], ports(override));
+    const check = value.checks.find((entry) => entry.id === id);
+    expect(check?.status).toBe('fail');
+    expect(check?.fix).toBeTruthy();
+    expect(value.exitCode).toBe(1);
+  });
+
+  it('keeps local fixes and hides response errors when the daemon is unavailable', async () => {
+    const secret = 'never-print-this-secret';
+    const fake = ports({
+      fetcher: vi.fn(() => Promise.reject(new Error(secret))),
+      readText(path) {
+        if (path.endsWith('config.yaml')) return yaml;
+        if (path.endsWith('spur-board.service'))
+          return 'ExecStart="/usr/bin/node" "/app/daemon.mjs"\n';
+        return stamp;
+      },
+    });
+    const value = await run(['doctor', '--json'], fake);
+    expect(value.exitCode).toBe(1);
+    expect(value.checks.find((entry) => entry.id === 'daemon.available')?.fix).toBe(
+      'Start or restart the user service.',
+    );
+    expect(value.checks.find((entry) => entry.id === 'service.installed')?.status).toBe('pass');
+    expect(value.text).not.toContain(secret);
+  });
+
+  it('warns for confirmed stale sessions without failing doctor', async () => {
+    const fake = ports({
+      sessions: () => [
+        {
+          id: 'old',
+          project: 'worker',
+          path: '/usr/bin',
+          codexHome: '/codex',
+          startAt: Date.parse('2026-11-03T10:00:00.000Z'),
+        },
+      ],
+    });
+    const value = await run(['doctor', '--json'], fake);
+    expect(value.exitCode).toBe(0);
+    expect(value.checks.find((entry) => entry.id === 'sessions.stale')).toMatchObject({
+      status: 'warning',
+      blocking: false,
+    });
+  });
+});

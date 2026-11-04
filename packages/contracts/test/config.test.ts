@@ -99,6 +99,7 @@ describe('fixtures', () => {
     });
     expect(config.http.port).toBe(4311);
     expect(config.slack.channels).toEqual({});
+    expect(config.slack.command).toBe('/board');
     expect(adapterKeys(config)).toEqual(adapterDefaults);
     const project = config.projects[0];
     expect(project?.tracker.type === 'jira' && project.tracker.projectKeys).toEqual([]);
@@ -144,9 +145,20 @@ describe('fixtures', () => {
 
   it('accepts configured Slack channel IDs', () => {
     const config = configSchema.parse(
-      validConfig({}, { slack: { channels: { orchestrators: 'C_ORCH', feed: 'C_FEED' } } }),
+      validConfig(
+        {},
+        {
+          slack: {
+            command: '/board-x',
+            appId: 'A123ABC',
+            channels: { orchestrators: 'C_ORCH', feed: 'C_FEED' },
+          },
+        },
+      ),
     );
     expect(config.slack.channels).toEqual({ orchestrators: 'C_ORCH', feed: 'C_FEED' });
+    expect(config.slack.command).toBe('/board-x');
+    expect(config.slack.appId).toBe('A123ABC');
   });
 
   it('accepts an explicit HTTP port', () => {
@@ -157,6 +169,18 @@ describe('fixtures', () => {
 
 describe('invalid configs', () => {
   it.each<[string, unknown, string, string]>([
+    [
+      'invalid Slack command',
+      validConfig({}, { slack: { command: 'board' } }),
+      'Expected a slash command such as /board',
+      'slack.command',
+    ],
+    [
+      'invalid Slack app ID',
+      validConfig({}, { slack: { appId: 'bad' } }),
+      'Expected a Slack app ID',
+      'slack.appId',
+    ],
     [
       'nonpositive block threshold',
       validConfig({}, { thresholds: { blockOpenMs: 0 } }),

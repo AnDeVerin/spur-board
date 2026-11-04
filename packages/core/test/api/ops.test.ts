@@ -87,6 +87,7 @@ async function server(
     ready?: () => boolean;
     registry?: OperationRegistry;
     logRequest?: ApiOptions['logRequest'];
+    doctor?: ApiOptions['doctor'];
   } = {},
 ) {
   return createApiServer({
@@ -98,6 +99,7 @@ async function server(
     lookupSession: () => Promise.resolve({ project: 'worker', status: 'running' }),
     verifyToken: () => Promise.resolve({ name: 'test' }),
     registry: options.registry ?? {},
+    ...(options.doctor === undefined ? {} : { doctor: options.doctor }),
     logRequest: options.logRequest ?? vi.fn(),
   });
 }
@@ -128,11 +130,67 @@ describe('catalog HTTP API', () => {
     }
   });
 
+  it('serves bounded doctor checks without identity and keeps unexpected errors private', async () => {
+    const doctor = vi.fn(() =>
+      Promise.resolve({
+        version: '1.2.3',
+        checks: [
+          {
+            id: 'secrets',
+            status: 'fail' as const,
+            blocking: true,
+            fix: 'Add GITHUB_TOKEN to secrets.env.',
+          },
+        ],
+      }),
+    );
+    const app = await server(newStore(), { doctor });
+    try {
+      const response = await app.inject({ method: 'GET', url: '/v1/doctor', headers: { host } });
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual({
+        version: '1.2.3',
+        checks: [
+          {
+            id: 'secrets',
+            status: 'fail',
+            blocking: true,
+            fix: 'Add GITHUB_TOKEN to secrets.env.',
+          },
+        ],
+      });
+      expect(doctor).toHaveBeenCalledOnce();
+      const wrongHost = await app.inject({
+        method: 'GET',
+        url: '/v1/doctor',
+        headers: { host: 'localhost:4311' },
+      });
+      expectProblem(wrongHost, 'forbidden', 'Use the local API host.');
+      expect(doctor).toHaveBeenCalledOnce();
+    } finally {
+      await app.close();
+    }
+    const secret = 'never-print-this-secret';
+    const failing = await server(newStore(), { doctor: () => Promise.reject(new Error(secret)) });
+    try {
+      const response = await failing.inject({
+        method: 'GET',
+        url: '/v1/doctor',
+        headers: { host },
+      });
+      expect(response.statusCode).toBe(500);
+      expect(response.body).not.toContain(secret);
+    } finally {
+      await failing.close();
+    }
+  });
+
   it('returns starting before readiness on both routes with a matching request ID', async () => {
     const app = await server(newStore(), { ready: () => false });
     try {
       for (const request of [
         { method: 'GET' as const, url: '/v1/schema', headers: { host } },
+        { method: 'GET' as const, url: '/v1/doctor', headers: { host } },
         post({ task: 'PROJ-123' }),
       ]) {
         const response = await app.inject(request);

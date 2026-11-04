@@ -9,6 +9,7 @@ interface BoardModuleOptions {
   core?: ReturnType<typeof createObservationCore>;
   startAdapters?: typeof startAdapters;
   tick?: typeof tickBoard;
+  productVersion?: string;
 }
 
 /** Compose the board's timer and adapter runner without adding lifecycle state to main. */
@@ -24,6 +25,7 @@ export function createBoardModules(
       store: coreCtx.store,
       config: coreCtx.config,
       clock: coreCtx.clock,
+      ...(options.productVersion === undefined ? {} : { productVersion: options.productVersion }),
     });
   let timer: ReturnType<typeof setTimeout> | undefined;
   let active: Promise<void> = Promise.resolve();

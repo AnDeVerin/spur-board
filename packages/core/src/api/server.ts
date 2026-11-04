@@ -21,6 +21,7 @@ export interface ApiOptions extends IdentityPorts {
   readonly ready: () => boolean;
   readonly clock: { now(): number };
   readonly registry: OperationRegistry;
+  readonly doctor?: () => Promise<DoctorReport>;
   readonly logRequest: (entry: {
     requestId: string;
     method: string;
@@ -29,6 +30,35 @@ export interface ApiOptions extends IdentityPorts {
     tokenName?: string;
   }) => void;
 }
+
+export interface DoctorCheck {
+  id: string;
+  status: 'pass' | 'fail' | 'warning';
+  blocking: boolean;
+  fix: string | null;
+}
+
+export interface DoctorReport {
+  version: string;
+  checks: DoctorCheck[];
+}
+
+const doctorReportSchema = z.strictObject({
+  version: z.string().min(1).max(50),
+  checks: z
+    .array(
+      z.strictObject({
+        id: z
+          .string()
+          .regex(/^[a-z][a-z._]+$/)
+          .max(60),
+        status: z.enum(['pass', 'fail', 'warning']),
+        blocking: z.boolean(),
+        fix: z.string().max(300).nullable(),
+      }),
+    )
+    .max(30),
+});
 
 const tokenRequestSchema = z.strictObject({
   name: z.string().min(1),
@@ -118,6 +148,12 @@ export async function createApiServer(options: ApiOptions): Promise<FastifyInsta
   app.get('/v1/schema', async (_request, reply) => {
     if (!options.ready()) throw new CommandError('starting', 'Wait until the daemon is ready.');
     return reply.send(snapshot);
+  });
+
+  app.get('/v1/doctor', async (_request, reply) => {
+    if (!options.ready()) throw new CommandError('starting', 'Wait until the daemon is ready.');
+    if (options.doctor === undefined) throw new CommandError('not_found', 'Doctor is unavailable.');
+    return reply.send(doctorReportSchema.parse(await options.doctor()));
   });
 
   app.post('/v1/tokens/requests', async (request, reply) => {
