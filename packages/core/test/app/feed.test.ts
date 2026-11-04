@@ -1,3 +1,4 @@
+import { scanTransaction } from '../../src/app/secrets.ts';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -22,7 +23,7 @@ async function setup() {
   const file = join(mkdtempSync(join(tmpdir(), 'core-feed-')), 'board.db');
   const store = openStore(file);
   stores.push(store);
-  await store.transaction((trx) =>
+  await scanTransaction(store, (trx) =>
     trx
       .insertInto('task')
       .values({
@@ -47,7 +48,7 @@ async function setup() {
 }
 
 async function raise(store: Store, kind = 'worker_not_reading', itemKey = 'worker:B1') {
-  return store.transaction((trx) =>
+  return scanTransaction(store, (trx) =>
     raiseItem(trx, {
       itemKey,
       kind,
@@ -79,7 +80,7 @@ describe('operator item feed', () => {
       children: [{ kind: 'link', url: URL, text: KEY }],
     });
     expect(JSON.stringify(ctx.observed.requests[0]?.body)).not.toContain('mention');
-    await ctx.store.transaction((trx) => clearItem(trx, item.id, AT));
+    await scanTransaction(ctx.store, (trx) => clearItem(trx, item.id, AT));
     await ctx.sender.tick();
     expect(ctx.observed.requests[1]).toMatchObject({ target: { kind: 'edit' } });
     expect(JSON.stringify(ctx.observed.requests[1]?.body)).toContain('✓ cleared');
@@ -89,7 +90,7 @@ describe('operator item feed', () => {
   it('cancels a line cleared before delivery and does not duplicate after restart', async () => {
     const ctx = await setup();
     const item = await raise(ctx.store);
-    await ctx.store.transaction((trx) => clearItem(trx, item.id, AT));
+    await scanTransaction(ctx.store, (trx) => clearItem(trx, item.id, AT));
     await ctx.sender.tick();
     expect(ctx.observed.requests).toEqual([]);
     const rows = await ctx.store.db.selectFrom('outbox').select(['kind', 'state']).execute();
@@ -130,7 +131,7 @@ describe('operator item feed', () => {
 
   it('cancels a claimed line when its item clears before send start', async () => {
     const ctx = await setup();
-    await ctx.store.transaction(async (trx) => {
+    await scanTransaction(ctx.store, async (trx) => {
       const block = await trx
         .insertInto('block')
         .values({
@@ -185,7 +186,7 @@ describe('operator item feed', () => {
     });
     const tick = sender.tick();
     await arrived;
-    await ctx.store.transaction((trx) => clearItem(trx, item.id, AT));
+    await scanTransaction(ctx.store, (trx) => clearItem(trx, item.id, AT));
     release();
     await tick;
     expect(ctx.observed.requests).toHaveLength(1);
@@ -209,7 +210,7 @@ describe('operator item feed', () => {
   it('recovers an uncertain line and then edits it after the item clears', async () => {
     const ctx = await setup();
     const item = await raise(ctx.store);
-    await ctx.store.transaction(async (trx) => {
+    await scanTransaction(ctx.store, async (trx) => {
       await trx
         .updateTable('outbox')
         .set({ uncertain: 1 })

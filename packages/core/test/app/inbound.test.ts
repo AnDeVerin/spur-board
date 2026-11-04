@@ -1,3 +1,4 @@
+import { scanTransaction } from '../../src/app/secrets.ts';
 import { clearItem as clearOperatorItem } from '../../src/app/feed.ts';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -65,7 +66,7 @@ async function setup(author: ActorId = 'system') {
   const gateway = createFakeGateway({ profile: 'slack-like', start: new Date(now) });
   const conversation = conversationRefSchema.parse('thread-1');
   const root = messageRefSchema.parse('root-1');
-  await store.transaction(async (trx) => {
+  await scanTransaction(store, async (trx) => {
     await trx
       .insertInto('task')
       .values({
@@ -401,7 +402,7 @@ describe('inbound apply', () => {
         },
       },
     });
-    await store.transaction(async (trx) => {
+    await scanTransaction(store, async (trx) => {
       await trx
         .updateTable('conversation')
         .set({ created_at: new Date(later).toISOString() })
@@ -488,7 +489,7 @@ describe('inbound apply', () => {
     expect(
       (await store.db.selectFrom('event').select('kind').execute()).map((row) => row.kind),
     ).toContain('comment_deleted');
-    await store.transaction((trx) =>
+    await scanTransaction(store, (trx) =>
       trx
         .insertInto('comment')
         .values({
@@ -561,7 +562,7 @@ describe('inbound apply', () => {
 
   it('rolls back a failed handler and stores a linked retry item before resolving', async () => {
     const { store, inbound, gateway } = await setup();
-    await store.transaction((trx) =>
+    await scanTransaction(store, (trx) =>
       trx.updateTable('task').set({ membership: 'archived' }).where('id', '=', 1).execute(),
     );
     await inbound.sink(message({ conversation: 'thread-1', root: 'root-1' }));
@@ -837,7 +838,7 @@ describe('inbound apply', () => {
       key: 'board',
       title: 'board: repeat your answer',
     });
-    await store.transaction((trx) => clearOperatorItem(trx, 2, new Date(at)));
+    await scanTransaction(store, (trx) => clearOperatorItem(trx, 2, new Date(at)));
     expect(
       await store.db
         .selectFrom('outbox')
@@ -845,7 +846,7 @@ describe('inbound apply', () => {
         .where('kind', '=', 'feed.line.edit')
         .execute(),
     ).toHaveLength(1);
-    await store.transaction((trx) => clearOperatorItem(trx, 1, new Date(at)));
+    await scanTransaction(store, (trx) => clearOperatorItem(trx, 1, new Date(at)));
     await inbound.sink({ kind: 'gap', dedupeKey: 'gap-c', conversation });
     await inbound.sink({ kind: 'gap', dedupeKey: 'gap-d', conversation });
     const later = await store.db
@@ -864,7 +865,7 @@ describe('inbound apply', () => {
 
   it('rings a live agent author instead of raising an item', async () => {
     const { store, inbound } = await setup('agent:proj/sess-1');
-    await store.transaction((trx) =>
+    await scanTransaction(store, (trx) =>
       trx
         .insertInto('session_snapshot')
         .values({
@@ -893,7 +894,7 @@ describe('inbound apply', () => {
 
   it('falls back to a linked item for an ended author session', async () => {
     const { store, inbound } = await setup('agent:proj/sess-1');
-    await store.transaction((trx) =>
+    await scanTransaction(store, (trx) =>
       trx
         .insertInto('session_snapshot')
         .values({
@@ -932,7 +933,7 @@ describe('inbound apply', () => {
     });
     if (result.status !== 'delivered' || result.conversation === undefined)
       throw new Error('Expected root delivery');
-    await store.transaction((trx) =>
+    await scanTransaction(store, (trx) =>
       trx
         .updateTable('conversation')
         .set({

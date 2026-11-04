@@ -6,11 +6,14 @@ import { describe, expect, it } from 'vitest';
 import { runCli, type CliIo } from '../../../cli/src/cli.ts';
 import {
   createApiServer,
+  createApply,
+  createBlockMutations,
   createOperationRegistry,
   listenApiServer,
   openStore,
   type Query,
 } from '../../src/index.ts';
+import { sampleRows } from '../store/sample-rows.ts';
 
 function capture() {
   let stdout = '';
@@ -36,6 +39,98 @@ function capture() {
 }
 
 describe('CLI against the real HTTP API', () => {
+  it('answers a question whose gateway post was blocked', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'board-api-secret-answer-'));
+    const store = openStore(join(home, 'board.db'));
+    let app: Awaited<ReturnType<typeof createApiServer>> | undefined;
+    try {
+      const config = configSchema.parse({
+        projects: [
+          {
+            id: 'proj',
+            tracker: { type: 'github-issues', repo: 'o/r', milestone: 'M1' },
+            repos: ['o/r'],
+            operatorGithubLogin: 'operator',
+            spurProjects: [{ name: 'web', role: 'worker' }],
+            columns: [
+              { id: 'todo', orchestrator: 'none' },
+              { id: 'ready-for-dev', orchestrator: 'none' },
+              { id: 'dev', orchestrator: 'none' },
+              { id: 'review', orchestrator: 'none' },
+              { id: 'qa', orchestrator: 'none' },
+              { id: 'ready-to-merge', orchestrator: 'none' },
+              { id: 'done', orchestrator: 'none' },
+            ],
+          },
+        ],
+        operator: { slack: 'operator' },
+        digest: { tz: 'UTC' },
+      });
+      const clock = { now: () => Date.parse('2026-11-04T08:00:00.000Z') };
+      await store.transaction((trx) =>
+        trx
+          .insertInto('task')
+          .values({
+            ...sampleRows.task,
+            key: 'o/r#101',
+            project: 'proj',
+            column: 'qa',
+            membership: 'active',
+            archive_reason: null,
+          })
+          .execute()
+          .then(() => undefined),
+      );
+      const apply = createApply({ store, clock, config });
+      const blocked = await apply(
+        createBlockMutations(config).ask,
+        { task: 'o/r#101', text: ['xoxb', '123', 'abc'].join('-') },
+        'agent:web/worker-1',
+        'blocked-question',
+      );
+      expect(await store.db.selectFrom('outbox').select('id').execute()).toEqual([]);
+      app = await createApiServer({
+        store,
+        config,
+        port: 0,
+        ready: () => true,
+        clock,
+        lookupSession: () => Promise.resolve(null),
+        verifyToken: (token) =>
+          Promise.resolve(token === 'local-test-token' ? { name: 'local' } : null),
+        registry: createOperationRegistry({ config, clock, completeSince: new Map() }),
+        logRequest: () => {},
+      });
+      await listenApiServer(app, 0);
+      const address = app.server.address();
+      if (address === null || typeof address === 'string') throw new Error('Expected a TCP port.');
+      const io = capture();
+      expect(
+        await runCli(['answer', blocked.block.id, 'Handled locally.', '--json'], {
+          clientConfig: {
+            address: new URL(`http://127.0.0.1:${String(address.port)}`),
+            session: undefined,
+            token: 'local-test-token',
+            connectTimeoutMs: 2_000,
+            responseTimeoutMs: 2_000,
+          },
+          io: io.io,
+        }),
+      ).toBe(0);
+      expect(JSON.parse(io.stdout)).toMatchObject({ block: { state: 'unblocked' } });
+      expect(
+        await store.db.selectFrom('block').select('state').where('id', '=', 1).executeTakeFirst(),
+      ).toEqual({ state: 'unblocked' });
+    } finally {
+      try {
+        await app?.close();
+      } finally {
+        await store.close();
+        rmSync(home, { recursive: true, force: true });
+      }
+    }
+  });
+
   it('parses task queries and startup without an unknown outcome', async () => {
     const home = mkdtempSync(join(tmpdir(), 'board-api-cli-'));
     let store: ReturnType<typeof openStore> | undefined;

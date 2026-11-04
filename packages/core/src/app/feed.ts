@@ -13,6 +13,7 @@ async function journal(
   item: Row<'operator_item'>,
   kind: 'from_you_raised' | 'from_you_cleared',
   at: Date,
+  rule?: string,
 ): Promise<void> {
   const task =
     item.task_id === null
@@ -31,7 +32,10 @@ async function journal(
       kind,
       actor: 'system',
       actor_ref: null,
-      payload: toJson(eventPayloadSchemas[kind], { item: `I${String(item.id)}` }),
+      payload: toJson(eventPayloadSchemas[kind], {
+        item: `I${String(item.id)}`,
+        ...(kind === 'from_you_raised' && rule !== undefined ? { rule } : {}),
+      }),
       v: EVENT_VERSION,
       request_id: null,
     })
@@ -54,6 +58,7 @@ export async function raiseItem(
     source?: string | null;
     priority?: number;
     suppressFeed?: boolean;
+    rule?: string;
   },
 ): Promise<Row<'operator_item'>> {
   const active = await trx
@@ -90,7 +95,7 @@ export async function raiseItem(
     })
     .returningAll()
     .executeTakeFirstOrThrow();
-  await journal(trx, item, 'from_you_raised', input.at);
+  await journal(trx, item, 'from_you_raised', input.at, input.rule);
   if (!NO_FEED.has(item.kind) && !input.suppressFeed) {
     const task =
       item.task_id === null
@@ -136,12 +141,14 @@ export async function raiseItem(
               : {}),
       at: input.at,
     });
-    item = await trx
-      .updateTable('operator_item')
-      .set({ line_outbox_id: line })
-      .where('id', '=', item.id)
-      .returningAll()
-      .executeTakeFirstOrThrow();
+    if (line !== null) {
+      item = await trx
+        .updateTable('operator_item')
+        .set({ line_outbox_id: line })
+        .where('id', '=', item.id)
+        .returningAll()
+        .executeTakeFirstOrThrow();
+    }
   }
   return item;
 }

@@ -14,6 +14,8 @@ import {
 import { sql, type Kysely } from 'kysely';
 import { z } from 'zod';
 import type { Tables } from '../store/schema.ts';
+import { raiseItem } from './feed.ts';
+import { checkGatewayStrings } from './secrets.ts';
 
 export const OUTBOX_KINDS = [
   'conversation.open',
@@ -125,6 +127,7 @@ export async function enqueueDoorbell(
     parent: null,
     at: input.at,
   });
+  if (row.id === null) throw new Error('Doorbell cannot be blocked by gateway scan');
   return row.id;
 }
 
@@ -143,7 +146,7 @@ export async function enqueueFeedLine(
     actions?: readonly Action[];
     at: Date;
   },
-): Promise<number> {
+): Promise<number | null> {
   const row = await insertOutbox(trx, {
     kind: 'feed.line',
     dedupeKey: `feed.line:${input.itemKey}:${String(input.raise)}`,
@@ -174,7 +177,7 @@ export async function enqueueFeedEdit(
     taskId: number | null;
     at: Date;
   },
-): Promise<number> {
+): Promise<number | null> {
   const row = await insertOutbox(trx, {
     kind: 'feed.line.edit',
     dedupeKey: `feed.line.edit:${input.itemKey}:${String(input.raise)}`,
@@ -191,11 +194,56 @@ export async function enqueueFeedEdit(
   return row.id;
 }
 
+function payloadStrings(value: unknown): string[] {
+  if (typeof value === 'string') return [value];
+  if (Array.isArray(value)) return value.flatMap(payloadStrings);
+  if (value !== null && typeof value === 'object') {
+    return Object.values(value).flatMap(payloadStrings);
+  }
+  return [];
+}
+
 /** Inserts a row unless its dedupe key exists; returns the row's id and whether it is new. */
 async function insertOutbox(
   trx: Trx,
   row: { kind: OutboxKind; dedupeKey: string; payload: unknown; parent: number | null; at: Date },
-): Promise<{ id: number; inserted: boolean }> {
+): Promise<{ id: number | null; inserted: boolean }> {
+  if (row.kind !== 'doorbell') {
+    const payload = row.payload;
+    if (payload === null || typeof payload !== 'object' || !('key' in payload)) {
+      throw new Error('Invalid gateway outbox payload');
+    }
+    // Scan every payload string, including the outward text, title, name, URL and action labels.
+    const rule = checkGatewayStrings(payloadStrings(payload));
+    if (rule !== null) {
+      const commentId = 'commentId' in payload ? payload.commentId : null;
+      if (typeof commentId === 'number') {
+        await trx
+          .updateTable('comment')
+          .set({ delivery_state: 'post_blocked' })
+          .where('id', '=', commentId)
+          .execute();
+      }
+      const key = typeof payload.key === 'string' ? payload.key : 'the task';
+      const safeKey = checkGatewayStrings([key]) === null ? key : 'the task';
+      const taskId =
+        'taskId' in payload && typeof payload.taskId === 'number' ? payload.taskId : null;
+      const blockId =
+        'blockId' in payload && typeof payload.blockId === 'number' ? payload.blockId : null;
+      await raiseItem(trx, {
+        itemKey: `secret-post:${createHash('sha256').update(row.dedupeKey).digest('hex')}`,
+        kind: 'post_blocked',
+        text: `text on ${safeKey} not sent: looks like a secret (${rule}), read \`board task ${safeKey}\``,
+        url: '',
+        taskId,
+        blockId,
+        at: row.at,
+        rule,
+        suppressFeed: true,
+      });
+      return { id: null, inserted: false };
+    }
+  }
   const inserted = await trx
     .insertInto('outbox')
     .values({

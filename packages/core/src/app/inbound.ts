@@ -1,3 +1,4 @@
+import { scanTransaction } from './secrets.ts';
 import { createHash } from 'node:crypto';
 import {
   EVENT_VERSION,
@@ -458,7 +459,7 @@ export function createInbound(input: {
   }
 
   async function recordFailure(event: UserEvent, error: unknown, at: string): Promise<void> {
-    await store.transaction(async (trx) => {
+    await scanTransaction(store, async (trx) => {
       const context = await taskContext(trx, event, gateway.kind);
       await journal(trx, {
         kind: 'inbound_failed',
@@ -491,7 +492,7 @@ export function createInbound(input: {
       if (event.sourceSpace === 'feed') {
         try {
           const at = new Date(clock.now()).toISOString();
-          const result = await store.transaction((trx) =>
+          const result = await scanTransaction(store, (trx) =>
             replayOperation(trx, {
               actor: 'operator',
               key: event.dedupeKey,
@@ -573,7 +574,7 @@ export function createInbound(input: {
         ? 'operator'
         : 'system';
     try {
-      const result = await store.transaction((trx) =>
+      const result = await scanTransaction(store, (trx) =>
         replayOperation(trx, {
           actor,
           key: event.dedupeKey,
@@ -598,7 +599,7 @@ export function createInbound(input: {
 
   async function applyGap(event: Extract<InboundEvent, { kind: 'gap' }>): Promise<void> {
     const at = new Date(clock.now()).toISOString();
-    await store.transaction(async (trx) => {
+    await scanTransaction(store, async (trx) => {
       const context = await taskContext(trx, event, gateway.kind);
       const conversation =
         event.conversation === undefined
@@ -706,10 +707,12 @@ export function createInbound(input: {
             'operator',
             event.dedupeKey,
           );
-          await store.transaction((trx) => clearOperatorItem(trx, itemId, new Date(clock.now())));
+          await scanTransaction(store, (trx) =>
+            clearOperatorItem(trx, itemId, new Date(clock.now())),
+          );
           return;
         }
-        await store.transaction((trx) =>
+        await scanTransaction(store, (trx) =>
           retryStoredInbound(trx, itemId, new Date(clock.now()).toISOString()),
         );
       });
