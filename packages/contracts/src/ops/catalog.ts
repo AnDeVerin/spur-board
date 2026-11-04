@@ -287,6 +287,10 @@ export const OPERATIONS = [
     id: 'token.list',
     kind: 'query',
     description: 'List named operator tokens and their current status.',
+    mcp: {
+      whenToUse: 'Inspect named operator tokens and their current status.',
+      whenNotToUse: 'Use token_revoke to disable a token.',
+    },
     input: z.strictObject({}),
     output: z.strictObject({
       tokens: z
@@ -315,6 +319,10 @@ export const OPERATIONS = [
     id: 'token.revoke',
     kind: 'mutation',
     description: 'Revoke a named operator token immediately.',
+    mcp: {
+      whenToUse: 'Disable a named operator token immediately.',
+      whenNotToUse: 'Use token_list to inspect tokens without changing them.',
+    },
     input: z.strictObject({ name: tokenName }),
     output: z.strictObject({ name: tokenName, status: tokenStatus }),
     grants: operatorOnly,

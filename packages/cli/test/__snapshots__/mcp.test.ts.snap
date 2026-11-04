@@ -520,6 +520,11 @@ Example: {"task":"acme/web#42"}",
                   "flag_raised",
                   "flag_cleared",
                   "operation_denied",
+                  "token_requested",
+                  "token_approved",
+                  "token_denied",
+                  "token_expired",
+                  "token_revoked",
                 ],
                 "type": "string",
               },
@@ -1266,6 +1271,136 @@ Choose a unique idempotencyKey for each action; reuse it on retries.",
       },
       "required": [
         "acked",
+      ],
+      "type": "object",
+    },
+    "title": undefined,
+  },
+  {
+    "_meta": undefined,
+    "annotations": {
+      "idempotentHint": false,
+      "readOnlyHint": true,
+    },
+    "description": "List named operator tokens and their current status.
+Use when: Inspect named operator tokens and their current status.
+When not to use: Use token_revoke to disable a token.
+Example: {}",
+    "execution": undefined,
+    "icons": undefined,
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {},
+      "type": "object",
+    },
+    "name": "token_list",
+    "outputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "tokens": {
+          "description": "Named tokens in creation order.",
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "folder": {
+                "description": "Folder where the token file was created.",
+                "minLength": 1,
+                "type": "string",
+              },
+              "name": {
+                "description": "Unique name of the operator token.",
+                "minLength": 1,
+                "type": "string",
+              },
+              "status": {
+                "description": "Current token state.",
+                "enum": [
+                  "pending",
+                  "approved",
+                  "denied",
+                  "expired",
+                  "revoked",
+                ],
+                "type": "string",
+              },
+            },
+            "required": [
+              "name",
+              "folder",
+              "status",
+            ],
+            "type": "object",
+          },
+          "type": "array",
+        },
+      },
+      "required": [
+        "tokens",
+      ],
+      "type": "object",
+    },
+    "title": undefined,
+  },
+  {
+    "_meta": undefined,
+    "annotations": {
+      "idempotentHint": true,
+      "readOnlyHint": false,
+    },
+    "description": "Revoke a named operator token immediately.
+Use when: Disable a named operator token immediately.
+When not to use: Use token_list to inspect tokens without changing them.
+Example: {"name":"desk","idempotencyKey":"token_revoke-example-001"}
+Choose a unique idempotencyKey for each action; reuse it on retries.",
+    "execution": undefined,
+    "icons": undefined,
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "idempotencyKey": {
+          "description": "Key to reuse when retrying this action.",
+          "minLength": 1,
+          "type": "string",
+        },
+        "name": {
+          "description": "Unique name of the operator token.",
+          "minLength": 1,
+          "type": "string",
+        },
+      },
+      "required": [
+        "name",
+      ],
+      "type": "object",
+    },
+    "name": "token_revoke",
+    "outputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "description": "Unique name of the operator token.",
+          "minLength": 1,
+          "type": "string",
+        },
+        "status": {
+          "description": "Current token state.",
+          "enum": [
+            "pending",
+            "approved",
+            "denied",
+            "expired",
+            "revoked",
+          ],
+          "type": "string",
+        },
+      },
+      "required": [
+        "name",
+        "status",
       ],
       "type": "object",
     },

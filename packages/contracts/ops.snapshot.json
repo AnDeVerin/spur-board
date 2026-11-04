@@ -1,5 +1,5 @@
 {
-  "version": "ff879db550ef1a705f37ec8a3bb1f65014c163012f7b00cd8750fd4cd8adb021",
+  "version": "80277c4688e8f017bd604afd8bc62034f5ab5c6526db515e18e283a4606e7bb5",
   "grants": [
     "operator",
     "project-agent",
@@ -1746,7 +1746,12 @@
       "preconditions": null,
       "errors": ["usage", "forbidden", "not_implemented", "identity_unavailable", "starting"],
       "cli": { "command": "token list", "args": [], "modes": null, "key": null },
-      "mcp": { "name": "token_list", "key": null },
+      "mcp": {
+        "name": "token_list",
+        "key": null,
+        "whenToUse": "Inspect named operator tokens and their current status.",
+        "whenNotToUse": "Use token_revoke to disable a token."
+      },
       "slack": null,
       "examples": [
         {
@@ -1814,7 +1819,12 @@
         "starting"
       ],
       "cli": { "command": "token revoke", "args": ["name"], "modes": null, "key": "--key" },
-      "mcp": { "name": "token_revoke", "key": "idempotencyKey" },
+      "mcp": {
+        "name": "token_revoke",
+        "key": "idempotencyKey",
+        "whenToUse": "Disable a named operator token immediately.",
+        "whenNotToUse": "Use token_list to inspect tokens without changing them."
+      },
       "slack": null,
       "examples": [
         {
