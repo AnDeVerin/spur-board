@@ -115,6 +115,13 @@ export const ERRORS = {
     hint: 'Check the ID with `board status` or `board task <KEY>`.',
     recovery: noRetry('Check the ID and locate the object.'),
   }),
+  not_implemented: spec('not_implemented', {
+    status: 501,
+    exit: EXIT_CODES.refused,
+    message: 'This operation is not available in this daemon build.',
+    hint: 'Ask the operator to update the daemon to a build with this operation.',
+    recovery: noRetry('Update the daemon to a build with this operation.'),
+  }),
   block_not_open: spec('block_not_open', {
     status: 409,
     exit: EXIT_CODES.refused,

@@ -282,7 +282,13 @@ describe('grants', () => {
       OPERATIONS.map((op) => [op.id, op.kind, op.grants, op.preconditions, op.errors]),
     ).toEqual(
       table.map(([opId, kind, grants, preconditions, specific]) => {
-        const common: ServerErrorCode[] = ['usage', 'forbidden', 'identity_unavailable'];
+        const common: ServerErrorCode[] = [
+          'usage',
+          'forbidden',
+          'identity_unavailable',
+          'starting',
+          'not_implemented',
+        ];
         if (kind === 'mutation') common.push('idempotency_key_mismatch');
         const errors = [...new Set([...common, ...specific])].sort(
           (a, b) => order.indexOf(a) - order.indexOf(b),

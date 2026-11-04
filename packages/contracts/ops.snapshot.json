@@ -1,5 +1,5 @@
 {
-  "version": "d1c4fe009b0424befff8afff6586c7d54bce61aed2b275f505d4a90034a54e23",
+  "version": "63cdb4e9d209fe79b3316fc4fb7ddae4256941b3df0bdb3e8625072e2057de7d",
   "grants": [
     "operator",
     "project-agent",
@@ -113,6 +113,34 @@
         "retryTiming": "After fixing the cause."
       },
       "docs": "docs/errors.md#not_found",
+      "context": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "clientVersion": { "type": "string" },
+          "serverVersion": { "type": "string" },
+          "configPath": { "type": "string" },
+          "environmentVariable": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+          "causeLabel": {
+            "type": "string",
+            "enum": ["storage_unavailable", "transport_unavailable", "internal_failure"]
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "not_implemented": {
+      "status": 501,
+      "exit": 1,
+      "message": "This operation is not available in this daemon build.",
+      "hint": "Ask the operator to update the daemon to a build with this operation.",
+      "recovery": {
+        "action": "Update the daemon to a build with this operation.",
+        "sideEffects": "none",
+        "maxRetries": 0,
+        "retryTiming": "After fixing the cause."
+      },
+      "docs": "docs/errors.md#not_implemented",
       "context": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
@@ -503,7 +531,14 @@
       "description": "List the tasks on the board.",
       "grants": [{ "grant": "operator" }, { "grant": "project-agent" }],
       "preconditions": null,
-      "errors": ["usage", "forbidden", "not_found", "identity_unavailable"],
+      "errors": [
+        "usage",
+        "forbidden",
+        "not_found",
+        "not_implemented",
+        "identity_unavailable",
+        "starting"
+      ],
       "cli": { "command": "status", "args": [], "modes": null, "key": null },
       "mcp": { "name": "status_get", "key": null },
       "slack": { "kind": "slash-command", "usage": "/board status" },
@@ -585,7 +620,15 @@
       "description": "Show a task with its blocks and comments.",
       "grants": [{ "grant": "operator" }, { "grant": "project-agent" }],
       "preconditions": null,
-      "errors": ["usage", "wrong_id_kind", "forbidden", "not_found", "identity_unavailable"],
+      "errors": [
+        "usage",
+        "wrong_id_kind",
+        "forbidden",
+        "not_found",
+        "not_implemented",
+        "identity_unavailable",
+        "starting"
+      ],
       "cli": { "command": "task", "args": ["task"], "modes": null, "key": null },
       "mcp": { "name": "task_get", "key": null },
       "slack": { "kind": "slash-command", "usage": "/board task <KEY>" },
@@ -881,7 +924,15 @@
       "description": "List what happened to a task, oldest first.",
       "grants": [{ "grant": "operator" }, { "grant": "project-agent" }],
       "preconditions": null,
-      "errors": ["usage", "wrong_id_kind", "forbidden", "not_found", "identity_unavailable"],
+      "errors": [
+        "usage",
+        "wrong_id_kind",
+        "forbidden",
+        "not_found",
+        "not_implemented",
+        "identity_unavailable",
+        "starting"
+      ],
       "cli": { "command": "task history", "args": ["task"], "modes": null, "key": null },
       "mcp": { "name": "task_history", "key": null },
       "slack": { "kind": "slash-command", "usage": "/board task <KEY> history" },
@@ -1022,7 +1073,7 @@
       "description": "Describe the operations: inputs, outputs, errors and bindings.",
       "grants": "any",
       "preconditions": null,
-      "errors": ["usage", "forbidden", "identity_unavailable"],
+      "errors": ["usage", "forbidden", "not_implemented", "identity_unavailable", "starting"],
       "cli": { "command": "schema", "args": [], "modes": null, "key": null },
       "mcp": { "name": "schema_get", "key": null },
       "slack": null,
@@ -1250,7 +1301,14 @@
       "description": "List the comments and blocks addressed to the caller and not yet handled.",
       "grants": [{ "grant": "project-agent" }, { "grant": "operator" }],
       "preconditions": null,
-      "errors": ["usage", "forbidden", "not_found", "identity_unavailable"],
+      "errors": [
+        "usage",
+        "forbidden",
+        "not_found",
+        "not_implemented",
+        "identity_unavailable",
+        "starting"
+      ],
       "cli": { "command": "inbox", "args": [], "modes": null, "key": null },
       "mcp": { "name": "inbox_get", "key": null },
       "slack": null,
@@ -1516,9 +1574,11 @@
         "wrong_id_kind",
         "forbidden",
         "not_found",
+        "not_implemented",
         "stale_comment_revision",
         "idempotency_key_mismatch",
-        "identity_unavailable"
+        "identity_unavailable",
+        "starting"
       ],
       "cli": { "command": "inbox ack", "args": ["entries"], "modes": null, "key": "--key" },
       "mcp": { "name": "inbox_ack", "key": "idempotencyKey" },
@@ -1590,8 +1650,10 @@
         "wrong_id_kind",
         "forbidden",
         "not_found",
+        "not_implemented",
         "idempotency_key_mismatch",
-        "identity_unavailable"
+        "identity_unavailable",
+        "starting"
       ],
       "cli": { "command": "task add", "args": ["task"], "modes": null, "key": "--key" },
       "mcp": { "name": "task_add", "key": "idempotencyKey" },
@@ -1666,9 +1728,11 @@
         "wrong_id_kind",
         "forbidden",
         "not_found",
+        "not_implemented",
         "task_archived",
         "idempotency_key_mismatch",
-        "identity_unavailable"
+        "identity_unavailable",
+        "starting"
       ],
       "cli": { "command": "task archive", "args": ["task"], "modes": null, "key": "--key" },
       "mcp": { "name": "task_archive", "key": "idempotencyKey" },
@@ -1748,9 +1812,11 @@
         "wrong_id_kind",
         "forbidden",
         "not_found",
+        "not_implemented",
         "task_archived",
         "idempotency_key_mismatch",
-        "identity_unavailable"
+        "identity_unavailable",
+        "starting"
       ],
       "cli": { "command": "link", "args": ["task", "target"], "modes": null, "key": "--key" },
       "mcp": { "name": "link_add", "key": "idempotencyKey" },
@@ -1810,9 +1876,11 @@
         "wrong_id_kind",
         "forbidden",
         "not_found",
+        "not_implemented",
         "task_archived",
         "idempotency_key_mismatch",
-        "identity_unavailable"
+        "identity_unavailable",
+        "starting"
       ],
       "cli": { "command": "unlink", "args": ["task", "target"], "modes": null, "key": "--key" },
       "mcp": { "name": "link_remove", "key": "idempotencyKey" },
@@ -1872,10 +1940,12 @@
         "wrong_id_kind",
         "forbidden",
         "not_found",
+        "not_implemented",
         "task_archived",
         "retry_not_applicable",
         "idempotency_key_mismatch",
-        "identity_unavailable"
+        "identity_unavailable",
+        "starting"
       ],
       "cli": { "command": "item retry", "args": ["item"], "modes": null, "key": "--key" },
       "mcp": { "name": "item_retry", "key": "idempotencyKey" },
@@ -1961,8 +2031,10 @@
         "wrong_id_kind",
         "forbidden",
         "not_found",
+        "not_implemented",
         "idempotency_key_mismatch",
-        "identity_unavailable"
+        "identity_unavailable",
+        "starting"
       ],
       "cli": { "command": "item close", "args": ["item"], "modes": null, "key": "--key" },
       "mcp": { "name": "item_close", "key": "idempotencyKey" },
@@ -2048,9 +2120,11 @@
         "wrong_id_kind",
         "forbidden",
         "not_found",
+        "not_implemented",
         "task_archived",
         "idempotency_key_mismatch",
-        "identity_unavailable"
+        "identity_unavailable",
+        "starting"
       ],
       "cli": { "command": "ask", "args": ["task", "text"], "modes": null, "key": "--key" },
       "mcp": { "name": "block_ask", "key": "idempotencyKey" },
@@ -2224,9 +2298,11 @@
         "wrong_id_kind",
         "forbidden",
         "not_found",
+        "not_implemented",
         "task_archived",
         "idempotency_key_mismatch",
-        "identity_unavailable"
+        "identity_unavailable",
+        "starting"
       ],
       "cli": { "command": "comment", "args": ["task", "text"], "modes": null, "key": "--key" },
       "mcp": { "name": "comment_add", "key": "idempotencyKey" },
@@ -2361,9 +2437,11 @@
         "wrong_id_kind",
         "forbidden",
         "not_found",
+        "not_implemented",
         "task_archived",
         "idempotency_key_mismatch",
-        "identity_unavailable"
+        "identity_unavailable",
+        "starting"
       ],
       "cli": {
         "command": "comment edit",
@@ -2498,9 +2576,11 @@
         "wrong_id_kind",
         "forbidden",
         "not_found",
+        "not_implemented",
         "task_archived",
         "idempotency_key_mismatch",
-        "identity_unavailable"
+        "identity_unavailable",
+        "starting"
       ],
       "cli": { "command": "block", "args": ["task"], "modes": null, "key": "--key" },
       "mcp": { "name": "block_create", "key": "idempotencyKey" },
@@ -2683,10 +2763,12 @@
         "wrong_id_kind",
         "forbidden",
         "not_found",
+        "not_implemented",
         "block_not_open",
         "task_archived",
         "idempotency_key_mismatch",
-        "identity_unavailable"
+        "identity_unavailable",
+        "starting"
       ],
       "cli": { "command": "escalate", "args": ["block"], "modes": null, "key": "--key" },
       "mcp": { "name": "block_escalate", "key": "idempotencyKey" },
@@ -2859,11 +2941,13 @@
         "wrong_id_kind",
         "forbidden",
         "not_found",
+        "not_implemented",
         "block_not_open",
         "wrong_block_type",
         "task_archived",
         "idempotency_key_mismatch",
-        "identity_unavailable"
+        "identity_unavailable",
+        "starting"
       ],
       "cli": { "command": "answer", "args": ["block", "text"], "modes": null, "key": "--key" },
       "mcp": { "name": "block_answer", "key": "idempotencyKey" },
@@ -3126,10 +3210,12 @@
         "wrong_id_kind",
         "forbidden",
         "not_found",
+        "not_implemented",
         "block_not_open",
         "task_archived",
         "idempotency_key_mismatch",
-        "identity_unavailable"
+        "identity_unavailable",
+        "starting"
       ],
       "cli": {
         "command": "unblock",
