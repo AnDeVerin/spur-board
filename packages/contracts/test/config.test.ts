@@ -91,6 +91,7 @@ describe('fixtures', () => {
     expect(config.thresholds.staleMultiplier).toBe(3);
     expect(config.archive.doneWeekday).toBe('saturday');
     expect(config.commands.retentionDays).toBe(7);
+    expect(config.http.port).toBe(4311);
     expect(config.slack.channels).toEqual({});
     expect(adapterKeys(config)).toEqual(adapterDefaults);
     const project = config.projects[0];
@@ -110,6 +111,7 @@ describe('fixtures', () => {
     expect(config.thresholds.staleMultiplier).toBe(3);
     expect(config.archive.doneWeekday).toBe('saturday');
     expect(config.commands.retentionDays).toBe(7);
+    expect(config.http.port).toBe(4311);
     expect(config.slack.channels).toEqual({});
     expect(adapterKeys(config)).toEqual(adapterDefaults);
     const project = config.projects[0];
@@ -138,6 +140,10 @@ describe('fixtures', () => {
       validConfig({}, { slack: { channels: { orchestrators: 'C_ORCH', feed: 'C_FEED' } } }),
     );
     expect(config.slack.channels).toEqual({ orchestrators: 'C_ORCH', feed: 'C_FEED' });
+  });
+
+  it('accepts an explicit HTTP port', () => {
+    expect(configSchema.parse(validConfig({}, { http: { port: 4312 } })).http.port).toBe(4312);
   });
 });
 
@@ -251,6 +257,18 @@ describe('invalid configs', () => {
       validConfig({}, { sources: { goneAfterPolls: 0 } }),
       'Too small: expected number to be >=1',
       'sources.goneAfterPolls',
+    ],
+    [
+      'zero HTTP port',
+      validConfig({}, { http: { port: 0 } }),
+      'Too small: expected number to be >=1',
+      'http.port',
+    ],
+    [
+      'HTTP port above the TCP range',
+      validConfig({}, { http: { port: 65_536 } }),
+      'Too big: expected number to be <=65535',
+      'http.port',
     ],
     [
       'invalid Spur base URL',

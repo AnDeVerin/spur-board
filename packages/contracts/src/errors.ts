@@ -115,6 +115,13 @@ export const ERRORS = {
     hint: 'Check the ID with `board status` or `board task <KEY>`.',
     recovery: noRetry('Check the ID and locate the object.'),
   }),
+  not_implemented: spec('not_implemented', {
+    status: 501,
+    exit: EXIT_CODES.refused,
+    message: 'This operation is not available in this daemon build.',
+    hint: 'Ask the operator to update the daemon to a build with this operation.',
+    recovery: noRetry('Update the daemon to a build with this operation.'),
+  }),
   block_not_open: spec('block_not_open', {
     status: 409,
     exit: EXIT_CODES.refused,
@@ -165,6 +172,16 @@ export const ERRORS = {
     recovery: retry(
       'Ask in your own session, then retry the same command with its existing idempotency key if it has one.',
       'After caller identity is available; wait briefly between retries.',
+    ),
+  }),
+  starting: spec('starting', {
+    status: 503,
+    exit: EXIT_CODES.notApplied,
+    message: 'The daemon is still starting; nothing was applied.',
+    hint: 'Wait until the daemon is ready, then retry the command with its existing idempotency key if it has one.',
+    recovery: retry(
+      'Wait until the daemon is ready, then retry the command with its existing idempotency key if it has one.',
+      'After the daemon is ready; wait briefly between retries.',
     ),
   }),
   version_mismatch: spec('version_mismatch', {
