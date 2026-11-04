@@ -222,4 +222,36 @@ describe('Slack thread recovery', () => {
       await fake.close();
     }
   });
+
+  it('uses the conversation root key for a button on a reply', async () => {
+    const { fake, gateway, conversation } = await setup();
+    const seen: InboundEvent[] = [];
+    try {
+      const posted = await gateway.deliver({
+        key: 'reply-key',
+        maybeSent: false,
+        target: { kind: 'reply', conversation },
+        persona: { name: 'test', role: 'board' },
+        body,
+        actions: [{ id: 'approve', label: 'Approve' }],
+      });
+      if (posted.status !== 'delivered') throw new Error('fake reply failed');
+      await gateway.start((event) => {
+        seen.push(event);
+        return Promise.resolve();
+      });
+      await fake.platform.inject({
+        kind: 'action',
+        message: posted.message,
+        actionId: 'approve',
+        author,
+      });
+      expect(seen).toContainEqual(
+        expect.objectContaining({ kind: 'action', originKey: 'recover-root' }),
+      );
+    } finally {
+      await gateway.stop();
+      await fake.close();
+    }
+  });
 });

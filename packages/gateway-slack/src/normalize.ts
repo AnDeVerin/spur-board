@@ -102,14 +102,19 @@ export function normalizeMessage(
   if (source.subtype === 'message_deleted') {
     const deletedTs = string(source.deleted_ts);
     const previous = record(source.previous_message);
+    if (own(source, context.bot) || (previous !== null && own(previous, context.bot))) return [];
     const priorThreadTs = string(previous?.thread_ts);
+    const priorOriginKey = originKeyFromBlocks(previous?.blocks);
     const rootIsDeleted =
-      deletedTs !== undefined && priorThreadTs === deletedTs && string(previous?.ts) === deletedTs;
-    const threadTs = priorThreadTs;
+      deletedTs !== undefined &&
+      string(previous?.ts) === deletedTs &&
+      (priorThreadTs === deletedTs ||
+        (priorThreadTs === undefined && priorOriginKey !== undefined));
+    const threadTs = priorThreadTs ?? (rootIsDeleted ? deletedTs : undefined);
     if (deletedTs === undefined || threadTs === undefined) {
       return [{ kind: 'gap', dedupeKey: `slack:gap:${randomUUID()}` }];
     }
-    const originKey = rootIsDeleted ? originKeyFromBlocks(previous?.blocks) : rootKey(context);
+    const originKey = rootIsDeleted ? priorOriginKey : rootKey(context);
     return [
       {
         kind: 'message_deleted',
@@ -167,7 +172,11 @@ export function normalizeMessage(
 }
 
 /** Actions and commands share the same stable trigger identity as their Slack retry. */
-export function normalizeInteraction(type: string, payload: unknown): InboundEvent[] {
+export function normalizeInteraction(
+  type: string,
+  payload: unknown,
+  root?: unknown,
+): InboundEvent[] {
   const body = record(payload);
   if (body === null) return [];
   const triggerId = string(body.trigger_id);
@@ -204,7 +213,9 @@ export function normalizeInteraction(type: string, payload: unknown): InboundEve
   ) {
     return [];
   }
-  const originKey = originKeyFromBlocks(message?.blocks);
+  const originKey = originKeyFromBlocks(
+    root === undefined ? message?.blocks : record(root)?.blocks,
+  );
   return [
     {
       kind: 'action',

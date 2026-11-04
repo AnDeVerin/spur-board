@@ -88,7 +88,17 @@ export function createSocket(
           ...(threadTs === undefined ? {} : { rootTs: threadTs }),
         });
       }
-    } else if (type === 'interactive' || type === 'block_actions' || type === 'slash_commands') {
+    } else if (type === 'interactive' || type === 'block_actions') {
+      const actionMessage = object(body.message);
+      const channel = value(object(body.channel)?.id);
+      const ts = value(actionMessage?.ts);
+      const threadTs = value(actionMessage?.thread_ts) ?? ts;
+      const root =
+        channel !== undefined && threadTs !== undefined && threadTs !== ts
+          ? await rootFor(api, channel, threadTs)
+          : actionMessage;
+      events = normalizeInteraction(type, body, root);
+    } else if (type === 'slash_commands') {
       events = normalizeInteraction(type, body);
     }
     for (const event of events) await emit(event);

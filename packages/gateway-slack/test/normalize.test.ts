@@ -144,6 +144,42 @@ describe('Slack inbound normalization', () => {
     expect(first[0]).not.toHaveProperty('conversation');
   });
 
+  it('drops a deletion of the gateway bot own reply', () => {
+    const events = normalizeMessage(
+      'C_ONE',
+      {
+        subtype: 'message_deleted',
+        deleted_ts: '1760000009.000010',
+        previous_message: {
+          ts: '1760000009.000010',
+          thread_ts: root.ts,
+          bot_id: 'B_BOT',
+        },
+      },
+      context,
+    );
+    expect(events).toEqual([]);
+  });
+
+  it('recognizes a deleted root from its prior delivery marker without thread_ts', () => {
+    const events = normalizeMessage(
+      'C_ONE',
+      {
+        subtype: 'message_deleted',
+        deleted_ts: root.ts,
+        previous_message: { ts: root.ts, blocks: root.blocks },
+      },
+      { bot },
+    );
+    expect(events).toMatchObject([
+      {
+        kind: 'message_deleted',
+        dedupeKey: `slack:C_ONE:${root.ts}:deleted`,
+        originKey: 'open-key',
+      },
+    ]);
+  });
+
   it('uses trigger IDs for command and action retries', () => {
     const command = {
       trigger_id: 'TRIGGER-1',
