@@ -133,17 +133,19 @@ async function events(store: Store) {
 }
 
 async function counts(store: Store) {
-  const [blocks, comments, journal, commands] = await Promise.all([
+  const [blocks, comments, journal, commands, outbox] = await Promise.all([
     store.db.selectFrom('block').select('id').execute(),
     store.db.selectFrom('comment').select('id').execute(),
     store.db.selectFrom('event').select('id').execute(),
     store.db.selectFrom('command').select('key').execute(),
+    store.db.selectFrom('outbox').select('id').execute(),
   ]);
   return {
     blocks: blocks.length,
     comments: comments.length,
     journal: journal.length,
     commands: commands.length,
+    outbox: outbox.length,
   };
 }
 
@@ -152,6 +154,63 @@ afterEach(async () => {
 });
 
 describe('block and comment mutations', () => {
+  it('enqueues one operator conversation open and one linked clarification reply', async () => {
+    const { store, apply } = await seeded();
+    await store.transaction((trx) =>
+      trx.updateTable('task').set({ column: 'qa' }).where('id', '=', 1).execute(),
+    );
+    const asked = await apply(ops.ask, { task: KEY, text: 'Which version?' }, author, 'ask-1');
+    expect(asked.block.addressee).toBe('operator');
+    const first = await store.db.selectFrom('outbox').selectAll().execute();
+    expect(first).toHaveLength(1);
+    expect(first[0]).toMatchObject({ kind: 'conversation.open', state: 'pending' });
+    const open = first[0];
+    if (open === undefined) throw new Error('Expected a conversation.open row');
+    expect(JSON.parse(open.payload)).toMatchObject({
+      blockId: 1,
+      commentId: 1,
+      persona: { name: 'web', role: 'worker' },
+    });
+    expect(
+      await store.db
+        .selectFrom('comment')
+        .select('delivery_state')
+        .where('id', '=', 1)
+        .executeTakeFirst(),
+    ).toEqual({ delivery_state: 'pending' });
+
+    await apply(ops.answer, { block: asked.block.id, text: 'Use v2.' }, 'operator', 'answer-1');
+    const beforeClarification = await store.db
+      .selectFrom('outbox')
+      .selectAll()
+      .orderBy('id')
+      .execute();
+    expect(beforeClarification.map((row) => row.kind)).toEqual([
+      'conversation.open',
+      'conversation.reply',
+    ]);
+
+    await apply(
+      ops.add,
+      { task: KEY, block: asked.block.id, text: 'One clarification.' },
+      author,
+      'comment-1',
+    );
+    const rows = await store.db.selectFrom('outbox').selectAll().orderBy('id').execute();
+    expect(rows).toHaveLength(3);
+    const answer = rows[1];
+    const clarification = rows[2];
+    if (answer === undefined || clarification === undefined) {
+      throw new Error('Expected answer and clarification reply rows');
+    }
+    expect(clarification).toMatchObject({
+      kind: 'conversation.reply',
+      state: 'pending',
+      parent_outbox_id: answer.id,
+    });
+    expect(JSON.parse(clarification.payload)).toMatchObject({ blockId: 1, commentId: 3 });
+  });
+
   it('asks, answers, and clarifies on one block with linked untrusted comments and ordered events', async () => {
     const { store, apply } = await seeded();
     const asked = await apply(ops.ask, { task: KEY, text: 'Which version?' }, author, 'ask-1');
@@ -201,10 +260,12 @@ describe('block and comment mutations', () => {
     const asked = await apply(ops.ask, { task: KEY, text: 'Question?' }, author, 'ask-1');
     const escalated = await apply(ops.escalate, { block: asked.block.id }, orchestrator, 'esc-1');
     expect(escalated.block.addressee).toBe('operator');
+    expect(await counts(store)).toMatchObject({ outbox: 1 });
     const beforeRepeat = await events(store);
     await apply(ops.escalate, { block: asked.block.id }, orchestrator, 'esc-original-repeat');
     expect(await events(store)).toEqual(beforeRepeat);
     await apply(ops.escalate, { block: asked.block.id }, 'operator', 'esc-2');
+    expect(await counts(store)).toMatchObject({ outbox: 1 });
     const dependency = await apply(
       ops.create,
       { task: KEY, type: 'dependency', reason: 'Wait for upstream.' },
@@ -276,7 +337,7 @@ describe('block and comment mutations', () => {
   });
 
   it('addresses dependency and external blocks from a configured operator agent to operator', async () => {
-    const { apply } = await seeded();
+    const { store, apply } = await seeded();
     for (const [type, actor] of [
       ['dependency', operatorAgent],
       ['external', remoteOperator],
@@ -289,6 +350,7 @@ describe('block and comment mutations', () => {
       );
       expect(created.block).toMatchObject({ author: actor, addressee: 'operator' });
     }
+    expect(await counts(store)).toMatchObject({ outbox: 0 });
   });
 
   it('accepts done from a later linked worker and records that session', async () => {
@@ -417,7 +479,7 @@ describe('block and comment mutations', () => {
     'rolls back %s after its comment insert when block update fails',
     async (mode) => {
       const { store, apply } = await seeded();
-      const asked = await apply(ops.ask, { task: KEY, text: 'Question?' }, author, 'ask-1');
+      const asked = await apply(ops.ask, { task: KEY, text: 'Question?' }, orchestrator, 'ask-1');
       const before = await counts(store);
       await sql
         .raw(
@@ -426,16 +488,11 @@ describe('block and comment mutations', () => {
         .execute(store.db);
       const action =
         mode === 'answer'
-          ? apply(
-              ops.answer,
-              { block: asked.block.id, text: 'Answer.' },
-              orchestrator,
-              'answer-fail',
-            )
+          ? apply(ops.answer, { block: asked.block.id, text: 'Answer.' }, 'operator', 'answer-fail')
           : apply(
               ops.unblock,
               { mode: 'withdraw', block: asked.block.id, answer: 'Answer.' },
-              author,
+              orchestrator,
               'withdraw-fail',
             );
       await expect(action).rejects.toThrow('injected');
@@ -454,7 +511,7 @@ describe('block and comment mutations', () => {
 
   it('replays a real ask after reopening the database without another block or comment', async () => {
     const { store, file, apply } = await seeded();
-    const first = await apply(ops.ask, { task: KEY, text: 'Question?' }, author, 'same-key');
+    const first = await apply(ops.ask, { task: KEY, text: 'Question?' }, orchestrator, 'same-key');
     await store.close();
     stores.splice(stores.indexOf(store), 1);
     const reopened = openStore(file);
@@ -462,7 +519,7 @@ describe('block and comment mutations', () => {
     const replay = await createApply({ store: reopened, clock, config })(
       ops.ask,
       { task: KEY, text: 'Question?' },
-      author,
+      orchestrator,
       'same-key',
     );
     expect(replay).toEqual(first);
@@ -471,6 +528,7 @@ describe('block and comment mutations', () => {
       comments: 1,
       journal: 2,
       commands: 1,
+      outbox: 1,
     });
   });
 });

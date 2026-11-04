@@ -7,6 +7,7 @@ import {
   type Config,
   type EventKind,
   type EventPayload,
+  type Persona,
 } from '@spur-board/contracts';
 import type { Kysely, Selectable } from 'kysely';
 import { z } from 'zod';
@@ -24,6 +25,7 @@ import {
 } from '../domain/blocks/blocks.ts';
 import { authorize, type ResolvedTarget } from './authorize.ts';
 import { CommandError, type CommandContext, type Mutation } from './commands.ts';
+import { enqueueConversationOpen, enqueueConversationReply } from './outbox.ts';
 
 type Task = Selectable<TaskTable>;
 type Block = Selectable<BlockTable>;
@@ -214,6 +216,35 @@ function authorRole(config: Config, task: Task, actor: ActorId): AddresseeRole {
     : 'worker';
 }
 
+function personaFor(config: Config, task: Task, actor: ActorId): Persona {
+  if (actor === 'system') return { name: 'board', role: 'board' };
+  if (actor === 'operator') return { name: 'operator', role: 'board' };
+  const parsed = parseActorId(actor);
+  if (parsed?.actor !== 'agent') throw new Error('Invalid actor');
+  const role = authorRole(config, task, actor);
+  return {
+    name: parsed.actorRef.project,
+    role: role === 'operator' ? 'board' : role === 'worker' ? 'worker' : 'orchestrator',
+  };
+}
+
+async function queueBlockOpen(
+  trx: Trx,
+  task: Task,
+  block: Block,
+  commentId: number | null,
+  ctx: CommandContext,
+  config: Config,
+): Promise<void> {
+  if (authorRole(config, task, block.author) === 'operator') return;
+  await enqueueConversationOpen(trx, {
+    blockId: block.id,
+    commentId,
+    persona: personaFor(config, task, block.author),
+    at: new Date(ctx.at),
+  });
+}
+
 async function hasWorker(trx: Trx, task: Task): Promise<boolean> {
   const link = await trx
     .selectFrom('link')
@@ -233,6 +264,7 @@ async function addComment(
   text: string,
   ctx: CommandContext,
   addressee: AddresseeRole,
+  config: Config,
 ): Promise<Comment> {
   const row = await trx
     .insertInto('comment')
@@ -251,6 +283,13 @@ async function addComment(
     .returningAll()
     .executeTakeFirstOrThrow();
   await journal(trx, task, ctx, 'comment_added', { comment: commentId(row.id), addressee });
+  if (block !== undefined) {
+    await enqueueConversationReply(trx, {
+      commentId: row.id,
+      persona: personaFor(config, task, ctx.actor),
+      at: new Date(ctx.at),
+    });
+  }
   return row;
 }
 
@@ -330,7 +369,16 @@ export function createBlockMutations(config: Config) {
       const task = found(await taskByKey(trx, input.task));
       active(task);
       const block = await openBlock(trx, task, 'needs_input', input.text, ctx, config);
-      await addComment(trx, task, block, input.text, ctx, block.addressee_role);
+      const comment = await addComment(
+        trx,
+        task,
+        block,
+        input.text,
+        ctx,
+        block.addressee_role,
+        config,
+      );
+      await queueBlockOpen(trx, task, block, comment.id, ctx, config);
       return { block: blockView(block, task) };
     },
   };
@@ -340,9 +388,9 @@ export function createBlockMutations(config: Config) {
     async run(trx, input, ctx) {
       const task = found(await taskByKey(trx, input.task));
       active(task);
-      return {
-        block: blockView(await openBlock(trx, task, input.type, input.reason, ctx, config), task),
-      };
+      const block = await openBlock(trx, task, input.type, input.reason, ctx, config);
+      await queueBlockOpen(trx, task, block, null, ctx, config);
+      return { block: blockView(block, task) };
     },
   };
   const escalate: Mutation<'block.escalate'> = {
@@ -394,6 +442,13 @@ export function createBlockMutations(config: Config) {
         from: block.addressee_role,
         to: next.addressee,
       });
+      const firstComment = await trx
+        .selectFrom('comment')
+        .select('id')
+        .where('block_id', '=', block.id)
+        .orderBy('id')
+        .executeTakeFirst();
+      await queueBlockOpen(trx, task, updated, firstComment?.id ?? null, ctx, config);
       return { block: blockView(updated, task) };
     },
   };
@@ -414,6 +469,7 @@ export function createBlockMutations(config: Config) {
         input.text,
         ctx,
         authorRole(config, task, block.author),
+        config,
       );
       const updated = await close(trx, task, block, ctx, 'done', null);
       return { block: blockView(updated, task), comment: commentView(comment, task) };
@@ -437,7 +493,7 @@ export function createBlockMutations(config: Config) {
             : closeBlock(current(block), { mode: 'withdraw', actor: ctx.actor }),
       );
       if (input.mode === 'withdraw') {
-        await addComment(trx, task, block, input.answer, ctx, block.addressee_role);
+        await addComment(trx, task, block, input.answer, ctx, block.addressee_role, config);
       }
       const updated = await close(trx, task, block, ctx, decision.outcome, decision.outcomeReason);
       return { block: blockView(updated, task) };
@@ -468,7 +524,7 @@ export function createBlockMutations(config: Config) {
           addressee = block.addressee_role;
         }
       }
-      const comment = await addComment(trx, task, block, input.text, ctx, addressee);
+      const comment = await addComment(trx, task, block, input.text, ctx, addressee, config);
       return { comment: commentView(comment, task) };
     },
   };
