@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { openStore, type Store } from '../../src/index.ts';
 import {
   decideTokenInTransaction,
+  expirePendingTokens,
   requestToken,
   tokenListQuery,
   tokenRevokeMutation,
@@ -111,6 +112,37 @@ describe('operator token lifecycle', () => {
         .selectFrom('event')
         .select('kind')
         .where('kind', '=', 'token_expired')
+        .execute(),
+    ).toHaveLength(1);
+  });
+
+  it('expires unreviewed requests and clears their approval items once', async () => {
+    const store = setup();
+    await enroll(store);
+    const late = new Date(AT.getTime() + 15 * 60 * 1000);
+    expect(await expirePendingTokens(store, late)).toBe(1);
+    expect(await expirePendingTokens(store, late)).toBe(0);
+    expect(
+      await store.db
+        .selectFrom('operator_token')
+        .select(['status', 'decided_at'])
+        .executeTakeFirst(),
+    ).toEqual({ status: 'expired', decided_at: late.toISOString() });
+    expect(
+      await store.db.selectFrom('operator_item').select('cleared_at').executeTakeFirst(),
+    ).toEqual({ cleared_at: late.toISOString() });
+    expect(
+      await store.db
+        .selectFrom('event')
+        .select('kind')
+        .where('kind', '=', 'token_expired')
+        .execute(),
+    ).toHaveLength(1);
+    expect(
+      await store.db
+        .selectFrom('outbox')
+        .select('kind')
+        .where('kind', '=', 'feed.line.edit')
         .execute(),
     ).toHaveLength(1);
   });

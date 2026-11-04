@@ -147,6 +147,36 @@ export async function decideTokenInTransaction(
   return { name: row.name, status: next };
 }
 
+/** Clear unreviewed requests even when no approval button is pressed. */
+export async function expirePendingTokens(store: Store, at: Date): Promise<number> {
+  const expiresAt = at.toISOString();
+  const due = await store.db
+    .selectFrom('operator_token')
+    .select('id')
+    .where('status', '=', 'pending')
+    .where('expires_at', '<=', expiresAt)
+    .executeTakeFirst();
+  if (due === undefined) return 0;
+  return store.transaction(async (trx) => {
+    const rows = await trx
+      .selectFrom('operator_token')
+      .select(['id', 'name', 'item_id'])
+      .where('status', '=', 'pending')
+      .where('expires_at', '<=', expiresAt)
+      .execute();
+    for (const row of rows) {
+      await trx
+        .updateTable('operator_token')
+        .set({ status: 'expired', decided_at: expiresAt })
+        .where('id', '=', row.id)
+        .execute();
+      await journalToken(trx, 'token_expired', row.name, at);
+      await clearItem(trx, row.item_id, at);
+    }
+    return rows.length;
+  });
+}
+
 /** Hash lookup uses the unique index and checks durable state on every call. */
 export async function verifyOperatorToken(
   store: Store,

@@ -33,6 +33,7 @@ export {
 } from './api/identity.ts';
 export {
   requestToken,
+  expirePendingTokens,
   verifyOperatorToken,
   tokenListQuery,
   tokenRevokeMutation,

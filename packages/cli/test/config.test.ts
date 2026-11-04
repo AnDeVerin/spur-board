@@ -61,29 +61,46 @@ describe('operator token lookup', () => {
     expect(findTokenFile(paths.outside, paths.home)).toBeUndefined();
   });
 
-  it('rejects a shared token directory or readable token file', () => {
+  it('skips an unsafe token candidate, warns, and continues to a safe parent', () => {
     const paths = setup();
-    token(paths.project, 'unsafe-token');
+    token(paths.project, 'parent-token');
+    token(join(paths.project, 'one'), 'unsafe-token');
     const directory = join(paths.project, '.spur-board');
+    const nearest = join(paths.project, 'one', '.spur-board');
+    const warnings: string[] = [];
+    chmodSync(nearest, 0o755);
+    expect(findTokenFile(paths.cwd, paths.home, (message) => warnings.push(message))).toBe(
+      'parent-token',
+    );
     chmodSync(directory, 0o755);
-    expect(() => findTokenFile(paths.cwd, paths.home)).toThrow();
+    expect(
+      findTokenFile(paths.cwd, paths.home, (message) => warnings.push(message)),
+    ).toBeUndefined();
     chmodSync(directory, 0o700);
     chmodSync(join(directory, 'token'), 0o644);
-    expect(() => findTokenFile(paths.cwd, paths.home)).toThrow();
+    expect(
+      findTokenFile(paths.cwd, paths.home, (message) => warnings.push(message)),
+    ).toBeUndefined();
+    expect(warnings).toHaveLength(5);
+    expect(warnings.every((message) => message.includes('unsafe .spur-board/token'))).toBe(true);
   });
 
-  it('rejects a symlinked token directory or file', () => {
+  it('skips a symlinked token directory or file', () => {
     const paths = setup();
     const target = join(paths.home, 'target');
     mkdirSync(target);
     token(target, 'linked-token');
     symlinkSync(join(target, '.spur-board'), join(paths.project, '.spur-board'));
-    expect(() => findTokenFile(paths.cwd, paths.home)).toThrow();
+    const warnings: string[] = [];
+    expect(
+      findTokenFile(paths.cwd, paths.home, (message) => warnings.push(message)),
+    ).toBeUndefined();
 
     const other = join(paths.home, 'other');
     mkdirSync(join(other, '.spur-board'), { mode: 0o700 });
     symlinkSync(join(target, '.spur-board', 'token'), join(other, '.spur-board', 'token'));
-    expect(() => findTokenFile(other, paths.home)).toThrow();
+    expect(findTokenFile(other, paths.home, (message) => warnings.push(message))).toBeUndefined();
+    expect(warnings).toHaveLength(2);
   });
 
   it('uses BOARD_TOKEN before a file and skips lookup for a session', () => {

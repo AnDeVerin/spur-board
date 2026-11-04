@@ -42,7 +42,7 @@ function daemonAddress(env: NodeJS.ProcessEnv): URL {
   return address;
 }
 
-function tokenInFolder(folder: string): string | undefined {
+function tokenInFolder(folder: string, warn: (message: string) => void): string | undefined {
   const directory = join(folder, '.spur-board');
   const file = join(directory, 'token');
   try {
@@ -53,31 +53,37 @@ function tokenInFolder(folder: string): string | undefined {
       directoryInfo.uid !== owner ||
       (directoryInfo.mode & 0o077) !== 0
     ) {
-      throw new CliError('config', { environmentVariable: 'BOARD_TOKEN' });
+      throw new Error('unsafe token directory');
     }
     const descriptor = openSync(file, constants.O_RDONLY | constants.O_NOFOLLOW);
     let value: string;
     try {
       const fileInfo = fstatSync(descriptor);
       if (!fileInfo.isFile() || fileInfo.uid !== owner || (fileInfo.mode & 0o077) !== 0) {
-        throw new CliError('config', { environmentVariable: 'BOARD_TOKEN' });
+        throw new Error('unsafe token file');
       }
       value = readFileSync(descriptor, 'utf8').trimEnd();
     } finally {
       closeSync(descriptor);
     }
-    if (value === '') throw new CliError('config', { environmentVariable: 'BOARD_TOKEN' });
+    if (value === '') throw new Error('empty token file');
     return value;
   } catch (error) {
-    if (error instanceof CliError) throw error;
     if (error !== null && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
       return undefined;
     }
-    throw new CliError('config', { environmentVariable: 'BOARD_TOKEN' });
+    warn('Ignoring an unsafe .spur-board/token candidate.\n');
+    return undefined;
   }
 }
 
-export function findTokenFile(cwd: string, home: string): string | undefined {
+export function findTokenFile(
+  cwd: string,
+  home: string,
+  warn: (message: string) => void = (message) => {
+    process.stderr.write(message);
+  },
+): string | undefined {
   const current = realpathSync(cwd);
   const boundary = realpathSync(home);
   if (current === boundary) return undefined;
@@ -90,7 +96,7 @@ export function findTokenFile(cwd: string, home: string): string | undefined {
       const info = statSync(folder);
       if (info.uid !== process.getuid?.() || (info.mode & 0o002) !== 0) break;
     }
-    const token = tokenInFolder(folder);
+    const token = tokenInFolder(folder, warn);
     if (token !== undefined) return token;
     const parent = dirname(folder);
     if (parent === folder) break;
