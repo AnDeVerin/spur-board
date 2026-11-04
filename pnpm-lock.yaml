@@ -318,6 +318,9 @@ importers:
 
   packages/daemon:
     dependencies:
+      '@spur-board/adapters':
+        specifier: workspace:*
+        version: link:../adapters
       '@spur-board/contracts':
         specifier: workspace:*
         version: link:../contracts

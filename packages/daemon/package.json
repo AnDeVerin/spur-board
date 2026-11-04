@@ -12,6 +12,7 @@
     "daemon:dev": "node src/main.ts | pino-pretty"
   },
   "dependencies": {
+    "@spur-board/adapters": "workspace:*",
     "@spur-board/contracts": "workspace:*",
     "@spur-board/core": "workspace:*",
     "@spur-board/gateway-slack": "workspace:*",

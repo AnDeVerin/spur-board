@@ -9,6 +9,7 @@ import {
   type ProcessPort,
 } from './lifecycle.ts';
 import { acquireLock } from './lock.ts';
+import { createBoardModules } from './board-modules.ts';
 import { createOutboxModule, slackSettings } from './outbox-module.ts';
 
 // Below the 2^31-1 ms timer limit; Node turns larger values into 1 ms with a warning.
@@ -66,6 +67,7 @@ export async function main(): Promise<void> {
           }),
         },
       ];
+      entries.push(...createBoardModules(ctxFor));
       const ctx = ctxFor('gateway-slack');
       const settings = slackSettings(ctx.config, ctx.secrets);
       if (settings === null) return entries;
