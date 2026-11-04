@@ -5,8 +5,8 @@ description: Rules for packages/daemon/ - modules, config and secrets, logging a
 
 # Running the daemon
 
-`main` binds the process; `runDaemon` runs lock, config, logger, store, modules, then
-`daemon ready`. Where a test or lint enforces a rule, the rule names it.
+`main` binds the process; `runDaemon` starts lock, config, logger, store and modules, then logs
+`daemon ready`.
 
 ## When to use
 
@@ -21,9 +21,8 @@ description: Rules for packages/daemon/ - modules, config and secrets, logging a
 - A module is a `Module`: `start(signal)` and `stop()`. Register it in the `modules` list in
   `main`, in start order, as a `ModuleEntry` with `name`, `stopStage` and
   `module: createX(ctxFor('<name>'))`.
-- `main` registers `board-core` and `board-adapters` through `createBoardModules` in
-  `board-modules.ts`. Build one observation core from `board-core` context and pass it to the
-  adapter runner; keep its timer and runner state inside that composition instance.
+- Register `board-core` and `board-adapters` through `createBoardModules`. Share one observation
+  core with the runner; keep timers and runner state in that instance.
 - A module gets everything through its `ModuleContext`: `config`, `secrets`, `store`, `log`,
   `clock`, `logCall`, `state`. No module-level state, singletons or imports of another module's
   internals; two daemons in one test process must not share anything.
@@ -35,8 +34,7 @@ description: Rules for packages/daemon/ - modules, config and secrets, logging a
   its own cleanup. Pinned by 'start failure stops started modules'.
 - `state()` is `starting` until every module is up, then `ready`, then `stopping`. Pinned by
   'reports starting until all modules are up' and 'module states move to ready and then stopping'.
-- Read time from `ctx.clock` in `packages/daemon/` and in every module built from `ctxFor`; a
-  `Clock` is the only source of wall time there and only `main` binds `Date.now`. Pinned by
+- Read time through `ctx.clock` in daemon modules; only `main` binds `Date.now`. Pinned by
   'module context carries the clock and a bound logCall'.
 - Test `runDaemon` with injected fakes; never use `vi.mock` in daemon tests. Process and lock
   tests spawn a real daemon and take a real flock.
@@ -64,9 +62,8 @@ description: Rules for packages/daemon/ - modules, config and secrets, logging a
 - Log through `ctx.log`, the child logger carrying `module`. No console output, no second logger.
 - Use the `redacting` destination wrapper: censor credential keys at any depth and known secret
   values, raw or JSON-escaped. Withhold a line that cannot be censored; leave short values alone.
-- Fields the code writes: `module`, `err`, `signal`, `pending`, `call`, `duration_ms`, `outcome`,
-  `requestId`, `method`, `path`, `status`.
-  A new entity ID takes its contracts field name, e.g. `taskId`.
+- Logged fields: `module`, `err`, `signal`, `pending`, `call`, `duration_ms`, `outcome`,
+  `requestId`, `method`, `path`, `status`. Name new entity IDs as contracts do, e.g. `taskId`.
 - Wrap external calls in `ctx.logCall`; it logs duration and outcome, then rethrows.
 - Log sender ticks and `spur send` child calls through the outbox module's `ctx.logCall`.
 - Wrap adapter HTTP calls through `board-adapters.logCall`. Journal unknown Spur
@@ -74,8 +71,8 @@ description: Rules for packages/daemon/ - modules, config and secrets, logging a
 
 ## HTTP
 
-- Register `createHttpModule(ctxFor('http'))` last, including without Slack. It answers
-  `503 starting` until `state()` is `ready`. Process tests cover both paths.
+- Register `createHttpModule(ctxFor('http'))` last, even without Slack. It answers `503 starting`
+  until `state()` is `ready`.
 - Bind with `listenApiServer` on `127.0.0.1` and the configured `http.port`. The module reads a
   session snapshot through core, then uses a bounded live Spur lookup on a miss. Wrap that call
   in `ctx.logCall`; reject bearer tokens until a verifier is provided.
@@ -111,7 +108,7 @@ description: Rules for packages/daemon/ - modules, config and secrets, logging a
   `'pollers'` before `board-core` waits for its active tick in `'final'`. Do not add a stage without
   changing `STOP_STAGES` and 'starts and stops in order'.
 - A stop past `DEFAULT_SHUTDOWN_TIMEOUT_MS` exits 1 and logs `pending` modules. A failed stop
-  logs and lets the others stop.
+  still lets the others stop.
 - Every exit goes through `ProcessPort.exit` exactly once. Pinned by 'two signals run one
   shutdown' and 'fatal during shutdown exits once'. A fatal error exits 1 at once, with no
   module stop, pinned by 'fatal error exits 1'.
