@@ -1,12 +1,28 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { lintSource } from '@secretlint/core';
-import { creator as recommend } from '@secretlint/secretlint-rule-preset-recommend';
+import {
+  creator as recommend,
+  rules as recommendedRules,
+} from '@secretlint/secretlint-rule-preset-recommend';
 import type { Kysely } from 'kysely';
 import type { Tables } from '../store/schema.ts';
 import type { Store } from '../store/store.ts';
 
 const MAX_STRINGS = 4096;
 const receipts = new AsyncLocalStorage<ReadonlyMap<string, string | null>>();
+// Gateway text is untrusted input: an author must not disable scanning with an inline directive.
+const scannerRules = recommendedRules.filter(
+  (rule) => rule.meta.id !== '@secretlint/secretlint-rule-filter-comments',
+);
+const scannerPreset = {
+  ...recommend,
+  rules: scannerRules,
+  create(context: Parameters<typeof recommend.create>[0]) {
+    scannerRules.forEach((rule) => {
+      context.registerRule(rule);
+    });
+  },
+};
 
 class ScanNeeded extends Error {
   readonly strings: readonly string[];
@@ -24,7 +40,7 @@ export async function scanSecret(text: string): Promise<string | null> {
       noPhysicFilePath: true,
       maskSecrets: true,
       config: {
-        rules: [{ id: '@secretlint/secretlint-rule-preset-recommend', rule: recommend }],
+        rules: [{ id: '@secretlint/secretlint-rule-preset-recommend', rule: scannerPreset }],
       },
     },
   });

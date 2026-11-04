@@ -99,6 +99,15 @@ afterEach(async () => {
 });
 
 describe('gateway secret scan', () => {
+  it('does not let pasted lint directives suppress a secret match', async () => {
+    const { store, apply } = await setup();
+    const token = ['xoxb', '123', 'abc'].join('-');
+    const text = ['<!-- secretlint-disable -->', token, '<!-- secretlint-enable -->'].join('\n');
+    expect(await scanSecret(text)).toContain('slack');
+    await apply(ops.ask, { task: KEY, text }, AUTHOR, 'ask-with-directive');
+    expect(await store.db.selectFrom('outbox').select('id').execute()).toEqual([]);
+  });
+
   it.each(samples())(
     'blocks $name in a question before outbox insertion',
     async ({ token, rule }) => {
