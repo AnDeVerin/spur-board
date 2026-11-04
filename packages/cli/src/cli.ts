@@ -205,6 +205,13 @@ export function createProgram(options: CliOptions = {}): CommandUnknownOpts {
       const keyOption = invoked.opts()['key'];
       if (keyOption !== undefined && typeof keyOption !== 'string') throw new CliError('usage');
       if (keyOption === '') throw new CliError('usage');
+      if (keyOption !== undefined && escapeTerminalControls(keyOption) !== keyOption)
+        throw new CliError(
+          'usage',
+          undefined,
+          undefined,
+          'The idempotency key must contain only printable characters.',
+        );
       if (op.kind === 'mutation' && env['SPUR_SESSION'] && !keyOption) throw new CliError('usage');
       const config = options.clientConfig ?? loadClientConfig(env);
       const key = op.kind === 'mutation' ? keyOption || randomUUID() : undefined;

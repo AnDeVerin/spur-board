@@ -307,4 +307,30 @@ describe('CLI exit classes and mutation keys', () => {
     if (!operatorRequest) throw new Error('Expected operator request.');
     expect(operator.stderr).toContain(`key: ${operatorRequest.key}`);
   });
+
+  it('rejects control characters in a supplied key before announcing or sending it', async () => {
+    let requests = 0;
+    const { url } = await fakeServer((_request, response) => {
+      requests += 1;
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end(
+        JSON.stringify({ ok: true, requestId: 'req-ok', value: ask.examples[0].output }),
+      );
+    });
+    for (const key of ['ask\u001b[31m', 'ask\nnext', 'ask\u007f', 'ask\u009b31m']) {
+      for (const agent of [true, false]) {
+        const output = capture();
+        expect(
+          await runCli(['ask', 'PROJ-123', 'Question?', '--key', key, '--json'], {
+            env: env(url, agent),
+            io: output.io,
+          }),
+        ).toBe(2);
+        expect(output.stdout).toBe('');
+        expect(output.stderr.startsWith('{')).toBe(true);
+        expect(errorEnvelopeSchema.parse(JSON.parse(output.stderr)).error.code).toBe('usage');
+      }
+    }
+    expect(requests).toBe(0);
+  });
 });
