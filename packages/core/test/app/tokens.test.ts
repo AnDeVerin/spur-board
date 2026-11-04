@@ -121,10 +121,12 @@ describe('operator token lifecycle', () => {
       await requestToken(
         store,
         {
-          name: `desk-${index}`,
+          name: `desk-${String(index)}`,
           folder: 'workspace/desk',
           host: 'local',
-          hash: createHash('sha256').update(`secret-${index}`).digest('hex'),
+          hash: createHash('sha256')
+            .update(`secret-${String(index)}`)
+            .digest('hex'),
         },
         AT,
       );

@@ -335,7 +335,7 @@ export function createProgram(options: CliOptions = {}): CommandUnknownOpts {
       const directory = lstatSync(tokenFolder);
       if (
         !directory.isDirectory() ||
-        directory.uid !== process.getuid() ||
+        directory.uid !== process.getuid?.() ||
         (directory.mode & 0o077) !== 0 ||
         realpathSync(tokenFolder) !== tokenFolder
       ) {

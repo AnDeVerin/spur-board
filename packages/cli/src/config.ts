@@ -58,7 +58,7 @@ export function findTokenFile(cwd: string, home: string): string | undefined {
   while (folder !== boundary) {
     if (outsideHome) {
       const info = statSync(folder);
-      if (info.uid !== process.getuid() || (info.mode & 0o002) !== 0) break;
+      if (info.uid !== process.getuid?.() || (info.mode & 0o002) !== 0) break;
     }
     const token = tokenInFolder(folder);
     if (token !== undefined) return token;
