@@ -4,6 +4,7 @@ import {
   buildCatalogSnapshot,
   errorCodeOf,
   renderHttpProblem,
+  successEnvelopeSchema,
   type ActorId,
   type OperationId,
   type ServerErrorCode,
@@ -171,7 +172,9 @@ export async function createApiServer(options: ApiOptions): Promise<FastifyInsta
               actor,
               body.key,
             );
-      return reply.send({ ok: true, requestId: request.id, value: result });
+      return reply.send(
+        successEnvelopeSchema.parse({ ok: true, requestId: request.id, value: result }),
+      );
     },
   );
 
