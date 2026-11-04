@@ -236,11 +236,25 @@ describe('daemon process', () => {
     expect(readFileSync(capture, 'utf8')).toContain('check board inbox');
     const result = openStore(join(home, 'board.sqlite'));
     try {
+      const rows = await result.db
+        .selectFrom('outbox')
+        .select(['kind', 'state', 'payload'])
+        .execute();
       expect(
-        await result.db.selectFrom('outbox').select(['kind', 'state']).orderBy('id').execute(),
+        rows.filter((row) => row.kind === 'doorbell').map(({ kind, state }) => ({ kind, state })),
+      ).toEqual([{ kind: 'doorbell', state: 'done' }]);
+      expect(
+        rows
+          .filter((row) => row.kind === 'feed.line')
+          .map((row) => ({
+            state: row.state,
+            itemKey: (JSON.parse(row.payload) as { itemKey: string }).itemKey,
+          }))
+          .sort((a, b) => a.itemKey.localeCompare(b.itemKey)),
       ).toEqual([
-        { kind: 'doorbell', state: 'done' },
-        { kind: 'feed.line', state: 'pending' },
+        { state: 'pending', itemKey: 'source:github-issues:board:example-org/board' },
+        { state: 'pending', itemKey: 'source:github:board:example-org/board' },
+        { state: 'pending', itemKey: 'test' },
       ]);
     } finally {
       await result.close();
