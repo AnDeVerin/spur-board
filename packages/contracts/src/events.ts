@@ -41,6 +41,11 @@ export const EVENT_KINDS = [
   'flag_raised',
   'flag_cleared',
   'operation_denied',
+  'token_requested',
+  'token_approved',
+  'token_denied',
+  'token_expired',
+  'token_revoked',
 ] as const;
 export type EventKind = (typeof EVENT_KINDS)[number];
 
@@ -108,6 +113,11 @@ export const eventPayloadSchemas = {
   flag_raised: z.looseObject({ flag: S, session: S.optional() }),
   flag_cleared: z.looseObject({ flag: S, session: S.optional() }),
   operation_denied: z.looseObject({ operation: S, reason: S }),
+  token_requested: z.looseObject({ name: S }),
+  token_approved: z.looseObject({ name: S }),
+  token_denied: z.looseObject({ name: S }),
+  token_expired: z.looseObject({ name: S }),
+  token_revoked: z.looseObject({ name: S }),
 } satisfies Record<EventKind, z.ZodType>;
 
 export type EventPayload<K extends EventKind> = z.output<(typeof eventPayloadSchemas)[K]>;

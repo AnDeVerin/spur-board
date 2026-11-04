@@ -123,11 +123,16 @@ const samples: { [K in EventKind]: Extract<JournalEvent, { kind: K }> } = {
     kind: 'operation_denied',
     payload: { operation: 'archive', reason: 'task has an open block' },
   },
+  token_requested: { ...base, kind: 'token_requested', payload: { name: 'desk' } },
+  token_approved: { ...base, kind: 'token_approved', payload: { name: 'desk' } },
+  token_denied: { ...base, kind: 'token_denied', payload: { name: 'desk' } },
+  token_expired: { ...base, kind: 'token_expired', payload: { name: 'desk' } },
+  token_revoked: { ...base, kind: 'token_revoked', payload: { name: 'desk' } },
 };
 
 describe('event kinds', () => {
-  it('has a payload schema for each of the 27 kinds', () => {
-    expect(EVENT_KINDS).toHaveLength(27);
+  it('has a payload schema for each of the 32 kinds', () => {
+    expect(EVENT_KINDS).toHaveLength(32);
     expect(Object.keys(eventPayloadSchemas).sort()).toEqual([...EVENT_KINDS].sort());
   });
 

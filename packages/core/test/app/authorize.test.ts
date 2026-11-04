@@ -75,6 +75,7 @@ const projectAgents: readonly ActorLabel[] = [
 ];
 const allowed = {
   'inbox.ack': projectAgents,
+  'token.revoke': ['operator'],
   'task.add': ['operator'],
   'task.archive': ['operator'],
   'link.add': ['operator'],
