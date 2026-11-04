@@ -21,19 +21,16 @@ description: Rules for packages/daemon/ - modules, config and secrets, logging a
 - A module is a `Module`: `start(signal)` and `stop()`. Register it in the `modules` list in
   `main`, in start order, as a `ModuleEntry` with `name`, `stopStage` and
   `module: createX(ctxFor('<name>'))`.
-- A module gets everything through its `ModuleContext`: `config`, `secrets`, `store`, `log`,
-  `clock`, `logCall`, `state`. No module-level state, singletons or imports of another module's
-  internals; two daemons in one test process must not share anything.
-- Daemon code reaches the store only through `ctx.store`, which `main` opens with `openStore` from
-  `@spur-board/core`. No lint checks this; the reviewer judges it. The lint boundary itself is
-  wider: only core and daemon may import the SQLite driver, pinned by
+- A module uses its `ModuleContext`: `config`, `secrets`, `store`, `log`, `clock`, `logCall`,
+  `state`. No shared module state, singletons or imports of another module's internals.
+- Daemon code uses only `ctx.store`, opened by `main` with `openStore`. Review this manually. Only
+  core and daemon may import the SQLite driver, pinned by
   `describe('sqlite driver boundary')` in `packages/testkit/test/lint-rules.test.ts`.
 - Modules start one at a time. A start that throws or rejects gets no `stop()`: its start owns
   its own cleanup. Pinned by 'start failure stops started modules'.
 - `state()` is `starting` until every module is up, then `ready`, then `stopping`. Pinned by
   'reports starting until all modules are up' and 'module states move to ready and then stopping'.
-- Read time from `ctx.clock` in `packages/daemon/` and in every module built from `ctxFor`; a
-  `Clock` is the only source of wall time there and only `main` binds `Date.now`. Pinned by
+- Read time from `ctx.clock`; only `main` binds `Date.now`. Pinned by
   'module context carries the clock and a bound logCall'.
 - Lifecycle tests drive `runDaemon` with fakes passed as dependencies; no daemon test uses
   `vi.mock`, pinned by 'keeps the vi.mock ban on %s'. The process and lock tests in
@@ -72,13 +69,14 @@ description: Rules for packages/daemon/ - modules, config and secrets, logging a
 
 ## HTTP
 
-- Register `createHttpModule(ctxFor('http'))` last, including without Slack. It answers
-  `503 starting` until `state()` is `ready`. Process tests cover both paths.
+- Register `createHttpModule(ctxFor('http'))` last, even without Slack. It returns `503 starting`
+  until ready; process tests cover both paths.
 - Bind with `listenApiServer` on `127.0.0.1` and the configured `http.port`. The module reads a
   session snapshot through core, then uses a bounded live Spur lookup on a miss. Wrap that call
-  in `ctx.logCall`; reject bearer tokens until a verifier is provided.
-- Log each request with `requestId`, method, path and status through `ctx.log`. Do not log the
-  query string. Register HTTP at `stopStage: 'final'` so outbox delivery finishes before close.
+  in `ctx.logCall`; verify bearer tokens against the current store state on each request. Log an
+  accepted token's name, never its bearer value.
+- Log each request's `requestId`, method, path and status through `ctx.log`, without the query
+  string. Register HTTP at `stopStage: 'final'` so outbox delivery finishes before close.
 
 ## Scheduling
 
