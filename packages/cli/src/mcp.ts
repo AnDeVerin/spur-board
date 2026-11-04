@@ -26,7 +26,7 @@ const handlerValidator = {
   },
 };
 
-function toolInputSchema(op: Operation): JsonSchemaType {
+function toolInputSchema(op: Operation, agent: boolean): JsonSchemaType {
   const source = z.toJSONSchema(op.input, { io: 'input' }) as JsonObject;
   if (op.kind === 'query') return { ...source, type: 'object' };
 
@@ -35,33 +35,36 @@ function toolInputSchema(op: Operation): JsonSchemaType {
     minLength: 1,
     description: 'Key to reuse when retrying this action.',
   };
+  const withKey = (schema: JsonObject) => ({
+    ...schema,
+    properties: { ...(schema['properties'] as JsonObject), idempotencyKey: key },
+    ...(agent
+      ? { required: [...((schema['required'] as string[] | undefined) ?? []), 'idempotencyKey'] }
+      : {}),
+  });
   if (Array.isArray(source['oneOf'])) {
     return {
       ...source,
       type: 'object',
-      oneOf: source['oneOf'].map((entry: unknown) => {
-        const branch = entry as JsonObject;
-        return {
-          ...branch,
-          properties: { ...(branch['properties'] as JsonObject), idempotencyKey: key },
-        };
-      }),
+      oneOf: source['oneOf'].map((entry: unknown) => withKey(entry as JsonObject)),
     };
   }
-  return {
-    ...source,
-    type: 'object',
-    properties: { ...(source['properties'] as JsonObject), idempotencyKey: key },
-  };
+  return { ...withKey(source), type: 'object' };
 }
 
 function toolDescription(op: Operation): string {
+  const example =
+    op.kind === 'mutation'
+      ? { ...(op.examples[0].input as JsonObject), idempotencyKey: `${op.mcp.name}-example-001` }
+      : op.examples[0].input;
   return [
     op.description,
     `Use when: ${op.mcp.whenToUse}`,
     `When not to use: ${op.mcp.whenNotToUse}`,
-    `Example: ${JSON.stringify(op.examples[0].input)}`,
-    ...(op.kind === 'mutation' ? ['Retries must reuse the same idempotencyKey.'] : []),
+    `Example: ${JSON.stringify(example)}`,
+    ...(op.kind === 'mutation'
+      ? ['Choose a unique idempotencyKey for each action; reuse it on retries.']
+      : []),
   ].join('\n');
 }
 
@@ -89,12 +92,13 @@ export function createMcpServer(
   loadConfig: typeof loadClientConfig = loadClientConfig,
 ): McpServer {
   const server = new McpServer({ name: 'spur-board', version: '0.0.0' });
+  const agent = Boolean(env['SPUR_SESSION']);
   for (const op of OPERATIONS) {
     server.registerTool(
       op.mcp.name,
       {
         description: toolDescription(op),
-        inputSchema: fromJsonSchema(toolInputSchema(op), handlerValidator),
+        inputSchema: fromJsonSchema(toolInputSchema(op, agent), handlerValidator),
         outputSchema: op.output,
         annotations: {
           readOnlyHint: op.kind === 'query',
@@ -104,7 +108,7 @@ export function createMcpServer(
       async (argumentsValue) => {
         let key: string | undefined;
         try {
-          const parsed = parseArguments(op, argumentsValue, Boolean(env['SPUR_SESSION']));
+          const parsed = parseArguments(op, argumentsValue, agent);
           key = parsed.key;
           const config = loadConfig(env);
           const value = await requestOperation(op, parsed.input, key, config);

@@ -509,6 +509,7 @@ Example: {"task":"acme/web#42"}",
                   "block_unblocked",
                   "comment_added",
                   "comment_edited",
+                  "comment_deleted",
                   "comment_acked",
                   "doorbell_rung",
                   "doorbell_read",
@@ -1176,8 +1177,8 @@ Example: {}",
     "description": "Mark comments or agent-addressed blocks as read in the inbox.
 Use when: Mark handled inbox items read.
 When not to use: Use inbox_get to inspect them first.
-Example: {"entries":[{"id":"C3","revision":1}]}
-Retries must reuse the same idempotencyKey.",
+Example: {"entries":[{"id":"C3","revision":1}],"idempotencyKey":"inbox_ack-example-001"}
+Choose a unique idempotencyKey for each action; reuse it on retries.",
     "execution": undefined,
     "icons": undefined,
     "inputSchema": {
@@ -1279,8 +1280,8 @@ Retries must reuse the same idempotencyKey.",
     "description": "Put a tracker task on the board.
 Use when: Add a task to the board.
 When not to use: Use task_get if it already exists.
-Example: {"task":"PROJ-123"}
-Retries must reuse the same idempotencyKey.",
+Example: {"task":"PROJ-123","idempotencyKey":"task_add-example-001"}
+Choose a unique idempotencyKey for each action; reuse it on retries.",
     "execution": undefined,
     "icons": undefined,
     "inputSchema": {
@@ -1370,8 +1371,8 @@ Retries must reuse the same idempotencyKey.",
     "description": "Take a task off the board.
 Use when: Remove a task from active view.
 When not to use: Use task_get to inspect its current state.
-Example: {"task":"PROJ-123"}
-Retries must reuse the same idempotencyKey.",
+Example: {"task":"PROJ-123","idempotencyKey":"task_archive-example-001"}
+Choose a unique idempotencyKey for each action; reuse it on retries.",
     "execution": undefined,
     "icons": undefined,
     "inputSchema": {
@@ -1461,8 +1462,8 @@ Retries must reuse the same idempotencyKey.",
     "description": "Link a spur session or a pull request to a task.
 Use when: Attach a session or pull request.
 When not to use: Use link_remove to detach one.
-Example: {"task":"PROJ-123","target":"acme/web#7"}
-Retries must reuse the same idempotencyKey.",
+Example: {"task":"PROJ-123","target":"acme/web#7","idempotencyKey":"link_add-example-001"}
+Choose a unique idempotencyKey for each action; reuse it on retries.",
     "execution": undefined,
     "icons": undefined,
     "inputSchema": {
@@ -1524,8 +1525,8 @@ Retries must reuse the same idempotencyKey.",
     "description": "Remove a link between a task and a spur session or a pull request.
 Use when: Detach a linked session or pull request.
 When not to use: Use link_add to attach one.
-Example: {"task":"PROJ-123","target":"web-7"}
-Retries must reuse the same idempotencyKey.",
+Example: {"task":"PROJ-123","target":"web-7","idempotencyKey":"link_remove-example-001"}
+Choose a unique idempotencyKey for each action; reuse it on retries.",
     "execution": undefined,
     "icons": undefined,
     "inputSchema": {
@@ -1587,8 +1588,8 @@ Retries must reuse the same idempotencyKey.",
     "description": "Retry the action behind a "from you" item.
 Use when: Retry an actionable item.
 When not to use: Use item_close when no retry is wanted.
-Example: {"item":"I7"}
-Retries must reuse the same idempotencyKey.",
+Example: {"item":"I7","idempotencyKey":"item_retry-example-001"}
+Choose a unique idempotencyKey for each action; reuse it on retries.",
     "execution": undefined,
     "icons": undefined,
     "inputSchema": {
@@ -1674,8 +1675,8 @@ Retries must reuse the same idempotencyKey.",
     "description": "Close a "from you" item without acting on it.
 Use when: Dismiss an item without retrying.
 When not to use: Use item_retry to try again.
-Example: {"item":"I8"}
-Retries must reuse the same idempotencyKey.",
+Example: {"item":"I8","idempotencyKey":"item_close-example-001"}
+Choose a unique idempotencyKey for each action; reuse it on retries.",
     "execution": undefined,
     "icons": undefined,
     "inputSchema": {
@@ -1761,8 +1762,8 @@ Retries must reuse the same idempotencyKey.",
     "description": "Ask the operator a question; the task is blocked until it is answered.
 Use when: Ask a blocking question.
 When not to use: Use comment_add for a nonblocking note.
-Example: {"task":"PROJ-123","text":"Which API version should the client target?"}
-Retries must reuse the same idempotencyKey.",
+Example: {"task":"PROJ-123","text":"Which API version should the client target?","idempotencyKey":"block_ask-example-001"}
+Choose a unique idempotencyKey for each action; reuse it on retries.",
     "execution": undefined,
     "icons": undefined,
     "inputSchema": {
@@ -1967,8 +1968,8 @@ Retries must reuse the same idempotencyKey.",
     "description": "Comment on a task.
 Use when: Add a new task comment.
 When not to use: Use comment_edit to revise your comment.
-Example: {"task":"PROJ-123","text":"Target v2."}
-Retries must reuse the same idempotencyKey.",
+Example: {"task":"PROJ-123","text":"Target v2.","idempotencyKey":"comment_add-example-001"}
+Choose a unique idempotencyKey for each action; reuse it on retries.",
     "execution": undefined,
     "icons": undefined,
     "inputSchema": {
@@ -2116,8 +2117,8 @@ Retries must reuse the same idempotencyKey.",
     "description": "Edit a comment written by the caller; the revision advances.
 Use when: Revise your existing comment.
 When not to use: Use comment_add for a new comment.
-Example: {"comment":"C3","text":"Target v3."}
-Retries must reuse the same idempotencyKey.",
+Example: {"comment":"C3","text":"Target v3.","idempotencyKey":"comment_edit-example-001"}
+Choose a unique idempotencyKey for each action; reuse it on retries.",
     "execution": undefined,
     "icons": undefined,
     "inputSchema": {
@@ -2260,8 +2261,8 @@ Retries must reuse the same idempotencyKey.",
     "description": "Block a task on a dependency or an external party.
 Use when: Record a dependency or external block.
 When not to use: Use block_ask for a question.
-Example: {"task":"PROJ-123","type":"dependency","reason":"Needs PROJ-120 merged first."}
-Retries must reuse the same idempotencyKey.",
+Example: {"task":"PROJ-123","type":"dependency","reason":"Needs PROJ-120 merged first.","idempotencyKey":"block_create-example-001"}
+Choose a unique idempotencyKey for each action; reuse it on retries.",
     "execution": undefined,
     "icons": undefined,
     "inputSchema": {
@@ -2475,8 +2476,8 @@ Retries must reuse the same idempotencyKey.",
     "description": "Pass a block on to the next addressee up the chain.
 Use when: Escalate an open block.
 When not to use: Use block_answer to answer a question.
-Example: {"block":"B13"}
-Retries must reuse the same idempotencyKey.",
+Example: {"block":"B13","idempotencyKey":"block_escalate-example-001"}
+Choose a unique idempotencyKey for each action; reuse it on retries.",
     "execution": undefined,
     "icons": undefined,
     "inputSchema": {
@@ -2675,8 +2676,8 @@ Retries must reuse the same idempotencyKey.",
     "description": "Answer a question block; the answer becomes a comment and the block closes.
 Use when: Answer an open question.
 When not to use: Use block_unblock to close without an answer.
-Example: {"block":"B12","text":"Target v2."}
-Retries must reuse the same idempotencyKey.",
+Example: {"block":"B12","text":"Target v2.","idempotencyKey":"block_answer-example-001"}
+Choose a unique idempotencyKey for each action; reuse it on retries.",
     "execution": undefined,
     "icons": undefined,
     "inputSchema": {
@@ -2974,8 +2975,8 @@ Retries must reuse the same idempotencyKey.",
     "description": "Close a block: the work is done, a reason is given, or its author withdraws it.
 Use when: Close an open block.
 When not to use: Use block_answer for a question answer.
-Example: {"mode":"done","block":"B13","ref":"example/web#9"}
-Retries must reuse the same idempotencyKey.",
+Example: {"mode":"done","block":"B13","ref":"example/web#9","idempotencyKey":"block_unblock-example-001"}
+Choose a unique idempotencyKey for each action; reuse it on retries.",
     "execution": undefined,
     "icons": undefined,
     "inputSchema": {

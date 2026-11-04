@@ -80,6 +80,10 @@ describe('board mcp', () => {
         if (!op) throw new Error('tool without catalog operation');
         expect(tool.description).toContain(op.mcp.whenToUse);
         expect(tool.description).toContain(op.mcp.whenNotToUse);
+        if (op.kind === 'mutation') {
+          expect(tool.description).toContain(`"idempotencyKey":"${op.mcp.name}-example-001"`);
+          expect(tool.inputSchema.required ?? []).not.toContain('idempotencyKey');
+        }
         expect(tool.annotations?.readOnlyHint).toBe(op.kind === 'query');
         expect(tool.annotations?.idempotentHint).toBe(op.kind === 'mutation');
         expect(tool.outputSchema).toBeDefined();
@@ -116,6 +120,32 @@ describe('board mcp', () => {
           extra: true,
         }).valid,
       ).toBe(false);
+    });
+  });
+
+  it('advertises a required key and a valid example for every agent mutation', async () => {
+    await withClient({ SPUR_SESSION: 'session-1' }, async (client) => {
+      const { tools } = await client.listTools();
+      for (const [index, tool] of tools.entries()) {
+        const op = OPERATIONS[index];
+        if (!op || op.kind !== 'mutation') continue;
+        const schemas = Array.isArray(tool.inputSchema.oneOf)
+          ? (tool.inputSchema.oneOf as Record<string, unknown>[])
+          : [tool.inputSchema];
+        for (const schema of schemas) {
+          expect(schema.required).toContain('idempotencyKey');
+        }
+        const exampleLine = tool.description?.split('Example: ')[1]?.split('\n')[0];
+        if (!exampleLine) throw new Error(`missing example for ${tool.name}`);
+        const example = JSON.parse(exampleLine) as Record<string, unknown>;
+        const validate = new AjvJsonSchemaValidator().getValidator(
+          tool.inputSchema as JsonSchemaType,
+        );
+        expect(validate(example).valid).toBe(true);
+        const withoutKey = { ...example };
+        delete withoutKey['idempotencyKey'];
+        expect(validate(withoutKey).valid).toBe(false);
+      }
     });
   });
 

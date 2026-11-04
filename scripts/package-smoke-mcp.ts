@@ -3,15 +3,22 @@ import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSyn
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { OPERATIONS } from '../packages/contracts/src/index.ts';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 export const PACKAGE_SMOKE_SCRIPT = 'scripts/package-smoke-mcp.ts';
+const PACKAGE_COMMAND_TIMEOUT_MS = 120_000;
 
 function command(args: string[], cwd: string): string {
-  const result = spawnSync('pnpm', args, { cwd, encoding: 'utf8' });
+  const result = spawnSync('pnpm', args, {
+    cwd,
+    encoding: 'utf8',
+    timeout: PACKAGE_COMMAND_TIMEOUT_MS,
+    killSignal: 'SIGKILL',
+  });
   if (result.status !== 0) {
     throw new Error(
-      `pnpm ${args[0] ?? ''} failed (exit ${String(result.status)}): ${result.stdout}\n${result.stderr}`,
+      `pnpm ${args[0] ?? ''} failed (exit ${String(result.status)}): ${result.error?.message ?? ''}\n${result.stdout}\n${result.stderr}`,
     );
   }
   return result.stdout.trim();
@@ -82,10 +89,15 @@ async function handshake(binary: string): Promise<number> {
     await response;
     if (messages.length !== 2 || pending !== '') throw new Error('unexpected installed MCP stdout');
     const listed = messages[1] as { result?: { tools?: unknown } };
-    if (!Array.isArray(listed.result?.tools) || listed.result.tools.length === 0) {
-      throw new Error('installed MCP listed no tools');
+    if (!Array.isArray(listed.result?.tools)) {
+      throw new Error('installed MCP did not list tools');
     }
-    return listed.result.tools.length;
+    const names = listed.result.tools.map((tool: { name?: unknown }) => tool.name);
+    const expected = OPERATIONS.map((op) => op.mcp.name);
+    if (JSON.stringify(names) !== JSON.stringify(expected)) {
+      throw new Error(`installed MCP tools differ from catalog: ${JSON.stringify(names)}`);
+    }
+    return names.length;
   } finally {
     child.kill();
   }
