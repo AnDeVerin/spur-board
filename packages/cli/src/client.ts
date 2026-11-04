@@ -8,6 +8,7 @@ import {
 } from '@spur-board/contracts';
 import type { ClientConfig } from './config.ts';
 import { CliError } from './exit-codes.ts';
+import { z } from 'zod';
 
 function problemError(status: number, contentType: string | undefined, body: unknown): CliError {
   if (!body || typeof body !== 'object') return new CliError('outcome_unknown');
@@ -42,7 +43,11 @@ function problemError(status: number, contentType: string | undefined, body: unk
   return new CliError('outcome_unknown', undefined, requestId);
 }
 
-function decodeResponse(op: Operation, response: IncomingMessage, raw: string): unknown {
+function decodeResponse<Output extends z.ZodType>(
+  output: Output,
+  response: IncomingMessage,
+  raw: string,
+): z.output<Output> {
   let body: unknown;
   try {
     body = JSON.parse(raw);
@@ -52,31 +57,31 @@ function decodeResponse(op: Operation, response: IncomingMessage, raw: string): 
   if (response.statusCode === 200) {
     const envelope = successEnvelopeSchema.safeParse(body);
     if (!envelope.success) throw new CliError('outcome_unknown');
-    const output = op.output.safeParse(envelope.data.value);
-    if (!output.success) throw new CliError('outcome_unknown');
-    return output.data;
+    const parsed = output.safeParse(envelope.data.value);
+    if (!parsed.success) throw new CliError('outcome_unknown');
+    return parsed.data;
   }
   throw problemError(response.statusCode ?? 0, response.headers['content-type'], body);
 }
 
 /** Shared daemon HTTP client. The CLI owns output; this module owns transport and wire parsing. */
-export async function requestOperation(
-  op: Operation,
-  input: unknown,
-  key: string | undefined,
+async function post<Output extends z.ZodType>(
+  path: string,
+  body: unknown,
   config: ClientConfig,
-): Promise<unknown> {
-  if (!config.session && !config.token) throw new CliError('config');
-  const target = new URL(`/v1/ops/${encodeURIComponent(op.id)}`, config.address);
-  const payload = JSON.stringify({ input, ...(key ? { key } : {}) });
+  output: Output,
+  anonymous: boolean,
+): Promise<z.output<Output>> {
+  const target = new URL(path, config.address);
+  const payload = JSON.stringify(body);
   const transport = target.protocol === 'https:' ? httpsRequest : httpRequest;
 
-  return new Promise<unknown>((resolve, reject) => {
+  return new Promise<z.output<Output>>((resolve, reject) => {
     let connected = false;
     let settled = false;
     let timer: NodeJS.Timeout | undefined;
 
-    const settle = (result: { value: unknown } | { error: CliError }) => {
+    const settle = (result: { value: z.output<Output> } | { error: CliError }) => {
       if (settled) return;
       settled = true;
       if (timer) clearTimeout(timer);
@@ -93,9 +98,11 @@ export async function requestOperation(
           'content-type': 'application/json',
           accept: 'application/json, application/problem+json',
           'content-length': Buffer.byteLength(payload),
-          ...(config.session
-            ? { 'x-board-session': config.session }
-            : { authorization: `Bearer ${config.token ?? ''}` }),
+          ...(anonymous
+            ? {}
+            : config.session
+              ? { 'x-board-session': config.session }
+              : { authorization: `Bearer ${config.token ?? ''}` }),
         },
       },
       (response) => {
@@ -109,7 +116,7 @@ export async function requestOperation(
         response.once('end', () => {
           try {
             settle({
-              value: decodeResponse(op, response, Buffer.concat(chunks).toString()),
+              value: decodeResponse(output, response, Buffer.concat(chunks).toString()),
             });
           } catch (error) {
             settle({ error: error instanceof CliError ? error : new CliError('outcome_unknown') });
@@ -141,4 +148,35 @@ export async function requestOperation(
     timer = setTimeout(() => req.destroy(new Error('connection timeout')), config.connectTimeoutMs);
     req.end(payload);
   });
+}
+
+/** Shared daemon HTTP client. The CLI owns output; this module owns transport and wire parsing. */
+export async function requestOperation(
+  op: Operation,
+  input: unknown,
+  key: string | undefined,
+  config: ClientConfig,
+): Promise<unknown> {
+  if (!config.session && !config.token) throw new CliError('config');
+  return post(
+    `/v1/ops/${encodeURIComponent(op.id)}`,
+    { input, ...(key ? { key } : {}) },
+    config,
+    op.output,
+    false,
+  );
+}
+
+const enrollmentOutput = z.strictObject({
+  name: z.string(),
+  status: z.literal('pending'),
+  expiresAt: z.iso.datetime(),
+});
+
+/** Bootstrap sends a hash and no authorization header. */
+export function requestTokenEnrollment(
+  input: { name: string; folder: string; host: string; hash: string },
+  config: ClientConfig,
+): Promise<z.output<typeof enrollmentOutput>> {
+  return post('/v1/tokens/requests', input, config, enrollmentOutput, true);
 }

@@ -1,11 +1,16 @@
 import { createServer, type Server } from 'node:http';
 import { spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, statSync, symlinkSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { OPERATIONS } from '@spur-board/contracts';
 import { createProgram, runCli, type CliIo } from '../src/cli.ts';
 
 const servers: Server[] = [];
+const dirs: string[] = [];
 const binary = fileURLToPath(new URL('../src/bin.mjs', import.meta.url));
 
 afterEach(async () => {
@@ -19,6 +24,7 @@ afterEach(async () => {
       );
     }),
   );
+  for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
 async function fakeServer(
@@ -70,6 +76,120 @@ function env(url: string): NodeJS.ProcessEnv {
 }
 
 describe('catalog commands', () => {
+  it('creates a mode-600 file and registers only its hash without a credential', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'cli-token-create-'));
+    dirs.push(root);
+    const home = join(root, 'home');
+    const folder = join(home, 'project');
+    mkdirSync(folder, { recursive: true });
+    let received:
+      { url: string; authorization: string | undefined; body: Record<string, string> } | undefined;
+    const server = createServer((request, response) => {
+      const chunks: Buffer[] = [];
+      request.on('data', (chunk: Buffer) => chunks.push(chunk));
+      request.on('end', () => {
+        received = {
+          url: request.url ?? '',
+          authorization: request.headers.authorization,
+          body: JSON.parse(Buffer.concat(chunks).toString()) as Record<string, string>,
+        };
+        response.writeHead(200, { 'content-type': 'application/json' });
+        response.end(
+          JSON.stringify({
+            ok: true,
+            requestId: 'request-1',
+            value: { name: 'desk', status: 'pending', expiresAt: '2026-11-04T10:15:00.000Z' },
+          }),
+        );
+      });
+    });
+    servers.push(server);
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('Expected TCP port');
+    const output = capture();
+    expect(
+      await runCli(['token', 'create', '--name', 'desk', '--into', folder, '--json'], {
+        env: { BOARD_DAEMON_URL: `http://127.0.0.1:${String(address.port)}` },
+        home,
+        io: output.io,
+      }),
+    ).toBe(0);
+    const file = join(folder, '.spur-board', 'token');
+    const secret = readFileSync(file, 'utf8').trim();
+    expect(statSync(file).mode & 0o777).toBe(0o600);
+    expect(received).toMatchObject({ url: '/v1/tokens/requests', body: { name: 'desk', folder } });
+    expect(received?.authorization).toBeUndefined();
+    expect(received?.body.hash).toBe(createHash('sha256').update(secret).digest('hex'));
+    expect(output.stdout).not.toContain(secret);
+    expect(output.stdout).toContain('"status":"pending"');
+  });
+
+  it('rejects creation in home, including a symlink to home', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'cli-token-home-'));
+    dirs.push(root);
+    const home = join(root, 'home');
+    const alias = join(root, 'alias');
+    mkdirSync(home);
+    symlinkSync(home, alias);
+    for (const folder of [home, alias]) {
+      const output = capture();
+      expect(
+        await runCli(['token', 'create', '--name', 'desk', '--into', folder], {
+          env: { BOARD_DAEMON_URL: 'http://127.0.0.1:4311' },
+          home,
+          io: output.io,
+        }),
+      ).toBe(2);
+    }
+    expect(() => statSync(join(home, '.spur-board', 'token'))).toThrow();
+  });
+
+  it('removes only the newly created file after a definite enrollment rejection', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'cli-token-rejected-'));
+    dirs.push(root);
+    const home = join(root, 'home');
+    const folder = join(home, 'project');
+    mkdirSync(folder, { recursive: true });
+    const server = createServer((request, response) => {
+      request.resume();
+      request.on('end', () => {
+        response.writeHead(400, { 'content-type': 'application/problem+json' });
+        response.end(JSON.stringify({ status: 400, code: 'usage', requestId: 'rejected' }));
+      });
+    });
+    servers.push(server);
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('Expected TCP port');
+    const output = capture();
+    expect(
+      await runCli(['token', 'create', '--name', 'desk', '--into', folder], {
+        env: { BOARD_DAEMON_URL: `http://127.0.0.1:${String(address.port)}` },
+        home,
+        io: output.io,
+      }),
+    ).toBe(2);
+    expect(() => statSync(join(folder, '.spur-board', 'token'))).toThrow();
+  });
+
+  it('uses generated list and revoke commands for named tokens', async () => {
+    const calls: { id: string; input: unknown }[] = [];
+    const url = await fakeServer((id, input) => {
+      calls.push({ id, input });
+      const op = OPERATIONS.find((entry) => entry.id === id);
+      if (!op) throw new Error('Missing operation');
+      return op.examples[0].output;
+    });
+    const output = capture();
+    expect(await runCli(['token', 'list'], { env: env(url), io: output.io })).toBe(0);
+    expect(await runCli(['token', 'revoke', 'desk'], { env: env(url), io: output.io })).toBe(0);
+    expect(calls).toEqual([
+      { id: 'token.list', input: {} },
+      { id: 'token.revoke', input: { name: 'desk' } },
+    ]);
+  });
+
   it('registers every catalog path and shows each catalog example in help', async () => {
     const program = createProgram({ env: {}, io: capture().io });
     for (const op of OPERATIONS) {

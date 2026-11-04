@@ -1,9 +1,20 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import {
+  chmodSync,
+  closeSync,
+  mkdirSync,
+  openSync,
+  realpathSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs';
+import { hostname, homedir } from 'node:os';
+import { join, resolve } from 'node:path';
 import { Command, CommanderError, type CommandUnknownOpts } from '@commander-js/extra-typings';
 import { OPERATIONS } from '@spur-board/contracts';
 import { z } from 'zod';
-import { requestOperation } from './client.ts';
-import { loadClientConfig, type ClientConfig } from './config.ts';
+import { requestOperation, requestTokenEnrollment } from './client.ts';
+import { loadClientConfig, loadEnrollmentConfig, type ClientConfig } from './config.ts';
 import { CliError, errorExitCode, renderCliError } from './exit-codes.ts';
 import { escapeTerminalControls } from './terminal.ts';
 
@@ -20,6 +31,7 @@ export interface CliOptions {
   env?: NodeJS.ProcessEnv;
   io?: CliIo;
   clientConfig?: ClientConfig;
+  home?: string;
 }
 
 const processIo: CliIo = {
@@ -282,6 +294,102 @@ export function createProgram(options: CliOptions = {}): CommandUnknownOpts {
       }
     });
   }
+  const create = commandFor(program, 'token create');
+  create.description('Request approval for a new token in a chosen folder.');
+  create.requiredOption('--name <name>', 'Unique token name.');
+  create.requiredOption('--into <dir>', 'Existing folder to hold the token file.');
+  create.option('--json', 'Print JSON output or a JSON error.');
+  create.action(async (...parts: unknown[]) => {
+    const invoked = parts.at(-1) as CommandUnknownOpts;
+    const flags = invoked.opts();
+    const json = Boolean(flags['json'] || program.opts()['json']);
+    const name = flags['name'];
+    const into = flags['into'];
+    if (typeof name !== 'string' || !name.trim() || typeof into !== 'string') {
+      throw new CliError('usage');
+    }
+    const config = loadEnrollmentConfig(env);
+    let folder: string;
+    try {
+      folder = realpathSync(resolve(into));
+      if (folder === realpathSync(options.home ?? homedir())) {
+        throw new CliError(
+          'usage',
+          undefined,
+          undefined,
+          'Choose a folder below home, not home itself.',
+        );
+      }
+    } catch (error) {
+      if (error instanceof CliError) throw error;
+      throw new CliError('usage', undefined, undefined, 'Choose an existing folder.');
+    }
+    const file = join(folder, '.spur-board', 'token');
+    const secret = randomBytes(32).toString('base64url');
+    let created = false;
+    let descriptor: number | undefined;
+    try {
+      mkdirSync(join(folder, '.spur-board'), { recursive: true, mode: 0o700 });
+      descriptor = openSync(file, 'wx', 0o600);
+      created = true;
+      writeFileSync(descriptor, `${secret}\n`);
+      closeSync(descriptor);
+      descriptor = undefined;
+      chmodSync(file, 0o600);
+    } catch {
+      if (descriptor !== undefined) closeSync(descriptor);
+      if (created) {
+        try {
+          unlinkSync(file);
+        } catch {
+          throw new CliError(
+            'config',
+            undefined,
+            undefined,
+            'The new token file could not be secured or removed.',
+          );
+        }
+      }
+      throw new CliError(
+        'config',
+        undefined,
+        undefined,
+        'The token file could not be created exclusively.',
+      );
+    }
+    try {
+      const result = await requestTokenEnrollment(
+        {
+          name,
+          folder,
+          host: hostname(),
+          hash: createHash('sha256').update(secret).digest('hex'),
+        },
+        config,
+      );
+      io.stdout(`${json || !io.isTTY ? JSON.stringify(result) : formatHuman(result)}\n`);
+    } catch (error) {
+      if (error instanceof CliError && error.code === 'outcome_unknown') {
+        throw new CliError(
+          'outcome_unknown',
+          undefined,
+          error.requestId,
+          'The request may have reached the daemon. Keep the new token file and check the approval request before retrying.',
+        );
+      }
+      try {
+        unlinkSync(file);
+      } catch {
+        throw new CliError(
+          'config',
+          undefined,
+          undefined,
+          'Registration failed and the new token file could not be removed. Remove it before retrying.',
+        );
+      }
+      throw error;
+    }
+  });
   return program;
 }
 
