@@ -156,7 +156,7 @@ describe('release policy', () => {
       },
       {
         cwd: repo,
-        env: { ...process.env },
+        env: { ...process.env, GITHUB_REF: 'refs/heads/main' },
       },
     );
     expect(result && result.nextRelease.version).toBe(expected);
