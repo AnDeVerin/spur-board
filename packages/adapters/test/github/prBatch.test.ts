@@ -89,17 +89,20 @@ function config(repos = ['demo/widgets']) {
     digest: { tz: 'UTC' },
   });
 }
-const response = (data: unknown, errors?: unknown[]) =>
-  new Response(
+const response = (data: unknown, errors?: unknown[]) => {
+  const repository = (data as { repository?: object }).repository;
+  return new Response(
     JSON.stringify({
       data: {
         rateLimit: { remaining: 4321, resetAt: '2026-01-03T00:00:00.000Z' },
         ...(data as object),
+        ...(repository ? { repository: { mergedBaseline: { nodes: [] }, ...repository } } : {}),
       },
       ...(errors ? { errors } : {}),
     }),
     { status: 200 },
   );
+};
 function adapter(fetcher: typeof fetch): Adapter {
   const source = githubSources(config(), { token: 'synthetic', fetch: fetcher })[0];
   if (source === undefined) throw new Error('Missing GitHub source');
@@ -122,7 +125,7 @@ describe('GitHub PR batch', () => {
     expect(query).toContain('pr0: repository');
     const bootstrapQuery = initialQuery([7], true);
     expect(createHash('sha256').update(bootstrapQuery).digest('hex')).toBe(
-      '1a2185a7e8b6fd4e8e55f9736946689b7a2baf21b54cad4907e88660b83f83c9',
+      '646584d0b3ceaa43a09b6369cbca172ec7da659619a7e5e36c655aa3402edb18',
     );
     expect(bootstrapQuery).toContain('states: [OPEN]');
     expect(pageQuery('pullRequests', true)).toContain('states: [OPEN]');

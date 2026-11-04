@@ -50,7 +50,10 @@ function aliases(numbers: readonly number[]): string {
 }
 export function initialQuery(numbers: readonly number[], bootstrap = false): string {
   const states = bootstrap ? 'OPEN' : 'OPEN, MERGED';
-  return `query PrBatch($owner: String!, $repo: String!) { rateLimit { remaining resetAt } repository(owner: $owner, name: $repo) { pullRequests(first: 100, states: [${states}], orderBy: {field: UPDATED_AT, direction: DESC}) { ${DISCOVERY_FIELDS} } } ${aliases(numbers)} }`;
+  const baseline = bootstrap
+    ? ' mergedBaseline: pullRequests(first: 1, states: [MERGED], orderBy: {field: UPDATED_AT, direction: DESC}) { nodes { updatedAt } }'
+    : '';
+  return `query PrBatch($owner: String!, $repo: String!) { rateLimit { remaining resetAt } repository(owner: $owner, name: $repo) { pullRequests(first: 100, states: [${states}], orderBy: {field: UPDATED_AT, direction: DESC}) { ${DISCOVERY_FIELDS} }${baseline} } ${aliases(numbers)} }`;
 }
 export function detailQuery(numbers: readonly number[]): string {
   return `query PrDetails($owner: String!, $repo: String!) { rateLimit { remaining resetAt } ${aliases(numbers)} }`;

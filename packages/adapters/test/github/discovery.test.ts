@@ -15,13 +15,19 @@ const conn = (nodes: unknown[], endCursor: string | null = null) => ({
   nodes,
   pageInfo: { hasNextPage: endCursor !== null, endCursor },
 });
-const response = (data: object, errors?: object[]) =>
-  new Response(
+const response = (data: object, errors?: object[]) => {
+  const repository = (data as { repository?: object }).repository;
+  return new Response(
     JSON.stringify({
-      data: { rateLimit: { remaining: 90, resetAt: '2026-01-03T00:00:00.000Z' }, ...data },
+      data: {
+        rateLimit: { remaining: 90, resetAt: '2026-01-03T00:00:00.000Z' },
+        ...data,
+        ...(repository ? { repository: { mergedBaseline: { nodes: [] }, ...repository } } : {}),
+      },
       ...(errors ? { errors } : {}),
     }),
   );
+};
 function config() {
   return configSchema.parse({
     projects: [
@@ -116,18 +122,49 @@ describe('GitHub discovery', () => {
     await adapter(fetcher).poll(context);
     expect(fetcher).toHaveBeenCalledTimes(2);
   });
-  it('bootstraps from open PRs and advances the cursor even when none are open', async () => {
+  it('bootstraps from open PRs and uses the empty-repository boundary', async () => {
     const fetcher = vi
       .fn<typeof fetch>()
       .mockResolvedValueOnce(response({ repository: { pullRequests: conn([], 'next') } }))
       .mockResolvedValueOnce(response({ repository: { pullRequests: conn([]) } }));
     const batch = await adapter(fetcher).poll({ ...context, cursor: undefined });
     expect(batch.complete).toBe(true);
-    expect(batch.cursor).toBe(batch.observedAt);
+    expect(batch.cursor).toBe('1970-01-01T00:00:00.000Z');
     expect(fetcher).toHaveBeenCalledTimes(2);
     for (const call of fetcher.mock.calls) {
       expect(call[1]?.body as string).toContain('states: [OPEN]');
-      expect(call[1]?.body as string).not.toContain('MERGED');
+    }
+    expect(fetcher.mock.calls[0]?.[1]?.body as string).toContain(
+      'mergedBaseline: pullRequests(first: 1, states: [MERGED]',
+    );
+  });
+  it('uses GitHub timestamps when the poll host clock is ahead of a later merge', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(new Date('2030-01-01T00:00:00.000Z'));
+      const fetcher = vi
+        .fn<typeof fetch>()
+        .mockResolvedValueOnce(
+          response({
+            repository: {
+              pullRequests: conn([]),
+              mergedBaseline: { nodes: [{ updatedAt: old }] },
+            },
+          }),
+        )
+        .mockResolvedValueOnce(
+          response({ repository: { pullRequests: conn([node(7, newer, 'operator', 'MERGED')]) } }),
+        )
+        .mockResolvedValueOnce(response({ pr0: null }));
+      const source = adapter(fetcher);
+      const first = await source.poll({ ...context, cursor: undefined });
+      expect(first.observedAt).toBe('2030-01-01T00:00:00.000Z');
+      expect(first.cursor).toBe(old);
+      await source.poll({ ...context, cursor: first.cursor });
+      expect(fetcher).toHaveBeenCalledTimes(3);
+      expect(fetcher.mock.calls[2]?.[1]?.body as string).toContain('pullRequest(number: 7)');
+    } finally {
+      vi.useRealTimers();
     }
   });
   it('chunks newly discovered PR details into bounded queries', async () => {

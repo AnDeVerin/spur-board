@@ -5,6 +5,19 @@ export interface Discovery {
   numbers: number[];
   cursor?: SourceCursor;
 }
+export function latestUpdatedAt(
+  nodes: readonly RecordValue[],
+  previous: SourceCursor | undefined,
+): SourceCursor | undefined {
+  let high = previous;
+  for (const node of nodes) {
+    const updated = sourceCursorSchema.parse(string(node.updatedAt));
+    const updatedMs = Date.parse(updated);
+    if (Number.isNaN(updatedMs)) throw new Error('Malformed GitHub updatedAt');
+    if (high === undefined || updatedMs > Date.parse(high)) high = updated;
+  }
+  return high;
+}
 /** The high-water cursor is an ISO timestamp. Equal timestamps are revisited. */
 export function discover(
   nodes: readonly RecordValue[],

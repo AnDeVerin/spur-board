@@ -19,7 +19,7 @@ import {
   type Json,
   type RecordValue,
 } from './client.ts';
-import { discover, nextPage, pastCursor } from './discovery.ts';
+import { discover, latestUpdatedAt, nextPage, pastCursor } from './discovery.ts';
 import { normalizePr } from './prBatch.ts';
 
 export interface GithubSource {
@@ -180,6 +180,13 @@ async function pollRepository({
   }
   if (!discoveryOk) complete = false;
   const found = discover(nodes, ctx.cursor, login);
+  const bootstrapCursor =
+    bootstrap && discoveryOk
+      ? (latestUpdatedAt(
+          connectionNodes(nested(response.data, 'repository', 'mergedBaseline')),
+          found.cursor,
+        ) ?? sourceCursorSchema.parse('1970-01-01T00:00:00.000Z'))
+      : undefined;
   const process = async (
     number: number,
     wire: Json | undefined,
@@ -239,6 +246,7 @@ async function pollRepository({
     }
   }
   if (ctx.signal.aborted) throw new AdapterError('transient', 'GitHub poll aborted');
+  const nextCursor = bootstrap ? bootstrapCursor : found.cursor;
   return {
     source: id,
     observedAt,
@@ -246,7 +254,9 @@ async function pollRepository({
     items,
     entities,
     ...(discoveryOk && discoveredOk
-      ? { cursor: bootstrap ? observedAt : (found.cursor ?? observedAt) }
+      ? nextCursor === undefined
+        ? {}
+        : { cursor: nextCursor }
       : ctx.cursor === undefined
         ? {}
         : { cursor: ctx.cursor }),
