@@ -113,4 +113,11 @@ describe('loadConfig', () => {
       'chmod 600',
     );
   });
+
+  it('refuses a group-writable secrets.env', () => {
+    const message = configError(makeHome({ secrets: SECRETS_TEXT, secretsMode: 0o620 }));
+    expect(message).toContain('0620');
+    expect(message).toContain('chmod 600');
+    expect(message).not.toContain('value-to-hide-123456');
+  });
 });

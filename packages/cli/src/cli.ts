@@ -5,6 +5,16 @@ import { z } from 'zod';
 import { requestOperation } from './client.ts';
 import { loadClientConfig, type ClientConfig } from './config.ts';
 import { CliError, errorExitCode, renderCliError } from './exit-codes.ts';
+import { renderSlackManifest } from './manifest.ts';
+import {
+  installService,
+  restartService,
+  serviceName,
+  statusService,
+  uninstallService,
+  type ServiceOptions,
+} from './service.ts';
+import { installSkills, type InstallSkillsOptions } from './skills.ts';
 import { escapeTerminalControls } from './terminal.ts';
 
 type CatalogOperation = (typeof OPERATIONS)[number];
@@ -20,6 +30,7 @@ export interface CliOptions {
   env?: NodeJS.ProcessEnv;
   io?: CliIo;
   clientConfig?: ClientConfig;
+  setup?: InstallSkillsOptions & Omit<ServiceOptions, 'env'>;
 }
 
 const processIo: CliIo = {
@@ -230,6 +241,78 @@ function buildInput(
   return parsed.data;
 }
 
+function registerSetupCommands(
+  program: CommandUnknownOpts,
+  options: CliOptions,
+  io: CliIo,
+  env: NodeJS.ProcessEnv,
+): void {
+  const serviceOptions = { ...options.setup, env };
+  const print = (value: unknown): void => {
+    io.stdout(
+      `${program.opts()['json'] || !io.isTTY ? JSON.stringify(value) : formatHuman(value)}\n`,
+    );
+  };
+  const runSetup = async <T>(action: () => Promise<T>): Promise<T> => {
+    try {
+      return await action();
+    } catch (error) {
+      if (error instanceof CliError) throw error;
+      if (error instanceof Error) throw new CliError('config', undefined, undefined, error.message);
+      throw error;
+    }
+  };
+
+  commandFor(program, 'skills install')
+    .description('Install bundled skills for Claude Code and Codex.')
+    .action(async () => {
+      print(await runSetup(() => installSkills(options.setup)));
+    });
+
+  commandFor(program, 'service install')
+    .description('Install and start the systemd user service.')
+    .action(async () => {
+      print(await runSetup(() => installService(serviceOptions)));
+    });
+  commandFor(program, 'service restart')
+    .description('Restart the systemd user service.')
+    .action(async () => {
+      await runSetup(() => restartService(serviceOptions));
+      print({ unit: serviceName, restarted: true });
+    });
+  commandFor(program, 'service status')
+    .description('Show the service state and whether lingering is enabled.')
+    .action(async () => {
+      print({ unit: serviceName, ...(await runSetup(() => statusService(serviceOptions))) });
+    });
+  commandFor(program, 'service uninstall')
+    .description('Stop and remove the systemd user service.')
+    .action(async () => {
+      print({ unit: serviceName, ...(await runSetup(() => uninstallService(serviceOptions))) });
+    });
+
+  const manifest = commandFor(program, 'slack manifest');
+  manifest.description('Print a Slack app manifest.');
+  manifest.option('--app-name <name>', 'Slack app name.');
+  manifest.option('--command <command>', 'Slash command, including the leading slash.');
+  manifest.action(() => {
+    const appName = manifest.opts()['appName'];
+    const command = manifest.opts()['command'];
+    if (
+      (appName !== undefined && typeof appName !== 'string') ||
+      (command !== undefined && typeof command !== 'string')
+    ) {
+      throw new CliError('usage');
+    }
+    io.stdout(
+      renderSlackManifest({
+        ...(appName === undefined ? {} : { appName }),
+        ...(command === undefined ? {} : { command }),
+      }),
+    );
+  });
+}
+
 export function createProgram(options: CliOptions = {}): CommandUnknownOpts {
   const io = options.io ?? processIo;
   const env = options.env ?? process.env;
@@ -243,6 +326,8 @@ export function createProgram(options: CliOptions = {}): CommandUnknownOpts {
     writeErr: () => {},
   });
   program.exitOverride();
+
+  registerSetupCommands(program, options, io, env);
 
   for (const op of OPERATIONS) {
     const command = commandFor(program, op.cli.command);

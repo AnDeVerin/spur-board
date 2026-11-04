@@ -37,10 +37,9 @@ description: Rules for packages/daemon/ - modules, config and secrets, logging a
 - `loadConfig` in `packages/daemon/src/config.ts` validates `config.yaml` through `configSchema`
   and reads the optional `secrets.env`. A new config field is a contracts change: follow
   `working-with-contracts`.
-- Invalid config raises `ConfigError` with field paths and a hint before the database exists;
-  missing files and invalid YAML also raise `ConfigError` with their location.
-- `secrets.env` is refused when group or others have any permission on it, pinned by
-  'refuses a secrets.env readable by others'.
+- Invalid config raises `ConfigError` before storage: schema errors list field paths and a hint;
+  missing files name the file, and YAML errors include line and column.
+- Refuse `secrets.env` when `mode & 0o077` is nonzero, including write-only access.
 - Secrets live only in `secrets.env`, never in config; pinned by 'has no secret-like property
   names'. The daemon never writes them to the environment; modules read `ctx.secrets`.
 - `resolvePaths` places the files: `BOARD_HOME` holds all four, else the XDG directories.
