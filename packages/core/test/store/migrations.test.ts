@@ -296,6 +296,32 @@ describe('migrate', () => {
     expect(raw.pragma('foreign_key_check')).toEqual([]);
   });
 
+  it('keeps task and link identities when upgrading an existing observation-free store', () => {
+    const dir = tempDir();
+    const { raw } = rawDb(join(dir, 'board.db'));
+    migrate(raw, real.slice(0, 4));
+    insertRaw(
+      raw,
+      'task',
+      without(sampleRows.task, [
+        'manual_include',
+        'manual_exclude',
+        'last_change_at',
+        'terminal_at',
+        'archive_slot_at',
+      ]),
+    );
+    insertRaw(raw, 'link', sampleRows.link);
+    migrate(raw, real);
+    expect(raw.prepare('SELECT id, tracker_id, key, manual_include FROM task').all()).toEqual([
+      { id: 1, tracker_id: '101', key: 'o/r#101', manual_include: 0 },
+    ]);
+    expect(raw.prepare('SELECT task_id, repo, number FROM link').all()).toEqual([
+      { task_id: 1, repo: 'x/y', number: 7 },
+    ]);
+    expect(raw.pragma('foreign_key_check')).toEqual([]);
+  });
+
   it('refuses a database newer than the code', () => {
     const dir = tempDir();
     const file = join(dir, 'board.db');

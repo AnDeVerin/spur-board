@@ -18,6 +18,10 @@ export {
   type Mutation,
 } from './app/commands.ts';
 export { createBlockMutations } from './app/blocks.ts';
+export { createMembershipMutations } from './app/membership.ts';
+export { createObservationCore } from './app/observe.ts';
+export { getStatus } from './app/status.ts';
+export { tickBoard } from './app/tick.ts';
 export {
   enqueueConversationOpen,
   enqueueConversationReply,
