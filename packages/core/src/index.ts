@@ -17,7 +17,7 @@ export {
   type CommandContext,
   type Mutation,
 } from './app/commands.ts';
-export { createQuery, type Query, type QueryRun } from './app/queries.ts';
+export { createQuery, createSchemaQuery, type Query, type QueryRun } from './app/queries.ts';
 export {
   createApiServer,
   listenApiServer,

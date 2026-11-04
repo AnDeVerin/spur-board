@@ -4,7 +4,13 @@ import { join } from 'node:path';
 import { configSchema, errorEnvelopeSchema } from '@spur-board/contracts';
 import { describe, expect, it } from 'vitest';
 import { runCli, type CliIo } from '../../../cli/src/cli.ts';
-import { createApiServer, listenApiServer, openStore, type Query } from '../../src/index.ts';
+import {
+  createApiServer,
+  createSchemaQuery,
+  listenApiServer,
+  openStore,
+  type Query,
+} from '../../src/index.ts';
 
 function capture() {
   let stdout = '';
@@ -72,7 +78,7 @@ describe('CLI against the real HTTP API', () => {
         clock: { now: () => Date.parse('2026-11-04T08:00:00.000Z') },
         lookupSession: () => Promise.resolve({ project: 'worker', status: 'running' as const }),
         verifyToken: () => Promise.resolve(false),
-        registry: { 'status.get': statusGet },
+        registry: { 'status.get': statusGet, 'schema.get': createSchemaQuery() },
         logRequest: ({ status }: { status: number }) => {
           statuses.push(status);
         },
@@ -95,6 +101,13 @@ describe('CLI against the real HTTP API', () => {
       expect(JSON.parse(success.stdout)).toEqual({ tasks: [] });
       expect(success.stderr).toBe('');
 
+      const schema = capture();
+      expect(await runCli(['schema', '--json'], { clientConfig, io: schema.io })).toBe(0);
+      const schemaValue = JSON.parse(schema.stdout) as { version: string; operations: unknown[] };
+      expect(schemaValue.version).toMatch(/^[0-9a-f]{64}$/);
+      expect(Array.isArray(schemaValue.operations)).toBe(true);
+      expect(schema.stderr).toBe('');
+
       const unavailable = capture();
       expect(
         await runCli(['task', 'PROJ-123', '--json'], { clientConfig, io: unavailable.io }),
@@ -116,7 +129,7 @@ describe('CLI against the real HTTP API', () => {
         ok: false,
         error: { code: 'daemon_unavailable', recovery: { sideEffects: 'none' } },
       });
-      expect(statuses).toEqual([200, 501, 503]);
+      expect(statuses).toEqual([200, 200, 501, 503]);
     } finally {
       try {
         await app?.close();

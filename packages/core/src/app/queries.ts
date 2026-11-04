@@ -1,4 +1,10 @@
-import { OPERATIONS, errorCodeOf, type ActorId, type Config } from '@spur-board/contracts';
+import {
+  OPERATIONS,
+  buildCatalogSnapshot,
+  errorCodeOf,
+  type ActorId,
+  type Config,
+} from '@spur-board/contracts';
 import type { Kysely } from 'kysely';
 import type { z } from 'zod';
 import type { Tables } from '../store/schema.ts';
@@ -8,6 +14,7 @@ import { CommandError } from './commands.ts';
 import { writeDeniedEvent } from './denied-event.ts';
 
 type CatalogQuery = Extract<(typeof OPERATIONS)[number], { kind: 'query' }>;
+type SchemaEntry = Extract<CatalogQuery, { id: 'schema.get' }>;
 type QueryId = CatalogQuery['id'];
 type Entry<Id extends QueryId> = Extract<CatalogQuery, { id: Id }>;
 
@@ -29,6 +36,47 @@ export type QueryRun = <Id extends QueryId>(
   input: z.input<Entry<Id>['input']>,
   actor: ActorId,
 ) => Promise<z.output<Entry<Id>['output']>>;
+
+/** Serve the catalog through the same authorization and response path as other queries. */
+export function createSchemaQuery(): Query<'schema.get'> {
+  const operation = OPERATIONS.find((entry): entry is SchemaEntry => entry.id === 'schema.get');
+  if (operation === undefined) throw new Error('schema.get is missing from the catalog.');
+  const snapshot = buildCatalogSnapshot(OPERATIONS);
+  return {
+    id: 'schema.get',
+    resolveTargets: () => Promise.resolve([]),
+    async run(_trx, input) {
+      const catalog = await snapshot;
+      const grantsByRole = {
+        operator: ['operator'],
+        worker: ['project-agent', 'task-worker', 'block-addressee', 'block-author'],
+        orchestrator: ['project-agent', 'column-orchestrator', 'block-addressee', 'block-author'],
+      } as const;
+      const grants: readonly string[] = input.role === undefined ? [] : grantsByRole[input.role];
+      return operation.output.parse({
+        version: catalog.version,
+        operations: catalog.operations
+          .filter(
+            (operation) =>
+              input.role === undefined ||
+              operation.grants === 'any' ||
+              operation.grants.some((rule) => grants.includes(rule.grant)),
+          )
+          .map((operation) => ({
+            id: operation.id,
+            kind: operation.kind,
+            description: operation.description,
+            grants: operation.grants,
+            errors: operation.errors,
+            cli: operation.cli,
+            mcp: operation.mcp,
+            inputSchema: operation.input,
+            outputSchema: operation.output,
+          })),
+      });
+    },
+  };
+}
 
 /** Authorize a catalog query against current state before reading its result. */
 export function createQuery(deps: {

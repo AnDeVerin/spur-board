@@ -1,5 +1,11 @@
 import { SESSION_STATUSES } from '@spur-board/contracts';
-import { createApiServer, listenApiServer, type LiveSession, type Store } from '@spur-board/core';
+import {
+  createApiServer,
+  createSchemaQuery,
+  listenApiServer,
+  type LiveSession,
+  type Store,
+} from '@spur-board/core';
 import type { Module, ModuleContext } from './lifecycle.ts';
 
 const SESSION_TIMEOUT_MS = 5_000;
@@ -53,7 +59,7 @@ export function createHttpModule(
             lookupLiveSession(ctx.config.adapters.spur.baseUrl, id, options.fetcher),
           ),
         verifyToken: () => Promise.resolve(false),
-        registry: {},
+        registry: { 'schema.get': createSchemaQuery() },
         logRequest: ({ requestId, method, url, status }) => {
           const path = new URL(url, 'http://127.0.0.1').pathname;
           ctx.log.info({ requestId, method, path, status }, 'http request');
@@ -61,9 +67,10 @@ export function createHttpModule(
       });
       try {
         if (aborted()) return;
-        await listenApiServer(server, ctx.config.http.port);
+        const address = await listenApiServer(server, ctx.config.http.port);
         if (aborted()) return;
         app = server;
+        ctx.log.info({ port: Number(new URL(address).port) }, 'http listening');
       } finally {
         if (app !== server) await server.close();
       }
