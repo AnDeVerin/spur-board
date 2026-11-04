@@ -57,7 +57,9 @@ export function createQuery(deps: {
         throw new CommandError('not_found', 'Check the target ID.');
       }
       if (targets.length === 0 && entry.grants !== 'any') {
-        throw new CommandError('not_found', 'Resolve an authorization target before reading.');
+        if (entry.id !== 'token.list' || actor !== 'operator') {
+          throw new CommandError('not_found', 'Resolve an authorization target before reading.');
+        }
       }
       const value = await query.run(trx, parsedInput, actor);
       return { status: 'done' as const, value: entry.output.parse(value) };

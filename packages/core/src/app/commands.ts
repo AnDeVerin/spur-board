@@ -15,7 +15,7 @@ import { authorize, type ResolvedTarget } from './authorize.ts';
 import { writeDeniedEvent } from './denied-event.ts';
 
 const DAY_MS = 86_400_000;
-const TASKLESS = ['task.add', 'item.retry', 'item.close'] as const;
+const TASKLESS = ['task.add', 'item.retry', 'item.close', 'token.revoke'] as const;
 type CatalogMutation = Extract<(typeof OPERATIONS)[number], { kind: 'mutation' }>;
 type MutationId = CatalogMutation['id'];
 type Entry<Id extends MutationId> = Extract<CatalogMutation, { id: Id }>;

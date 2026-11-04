@@ -1,5 +1,12 @@
 import { homedir } from 'node:os';
-import { commandRetention, openStore, type OperationRegistry, type Store } from '@spur-board/core';
+import {
+  commandRetention,
+  openStore,
+  tokenListQuery,
+  tokenRevokeMutation,
+  type OperationRegistry,
+  type Store,
+} from '@spur-board/core';
 import { createSlackGateway } from '@spur-board/gateway-slack';
 import { loadConfig, resolvePaths } from './config.ts';
 import {
@@ -53,8 +60,11 @@ export async function main(): Promise<void> {
     },
     openStore,
     modules: (ctxFor) => {
-      const registry: OperationRegistry = {};
       const commands = ctxFor('commands');
+      const registry: OperationRegistry = {
+        'token.list': tokenListQuery(commands.clock),
+        'token.revoke': tokenRevokeMutation,
+      };
       const entries: ModuleEntry[] = [
         {
           name: 'commands',

@@ -24,7 +24,20 @@ export {
   type ApiOptions,
   type OperationRegistry,
 } from './api/server.ts';
-export { identify, type IdentityPorts, type LiveSession } from './api/identity.ts';
+export {
+  identify,
+  identifyCaller,
+  type IdentifiedCaller,
+  type IdentityPorts,
+  type LiveSession,
+} from './api/identity.ts';
+export {
+  requestToken,
+  verifyOperatorToken,
+  tokenListQuery,
+  tokenRevokeMutation,
+  type TokenRequest,
+} from './app/tokens.ts';
 export { createBlockMutations } from './app/blocks.ts';
 export { createInbound, getOperatorItem, type Inbound } from './app/inbound.ts';
 export {

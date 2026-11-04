@@ -31,6 +31,7 @@ import { CommandError } from './commands.ts';
 import { raiseItem as raiseOperatorItem, clearItem as clearOperatorItem } from './feed.ts';
 import { dispatchOperation, type OperationRegistry } from './operations.ts';
 import { enqueueConversationClose, enqueueInboundDoorbell } from './outbox.ts';
+import { decideTokenInTransaction } from './tokens.ts';
 
 type Trx = Kysely<Tables>;
 type Item = Row<'operator_item'>;
@@ -442,6 +443,20 @@ export function createInbound(input: {
     return { id, operationInput };
   }
 
+  function tokenAction(event: Extract<UserEvent, { kind: 'action' }>): {
+    itemId: number;
+    decision: 'approve' | 'deny';
+  } | null {
+    const match = /^token:([1-9]\d*):(approve|deny)$/.exec(event.actionId);
+    if (match === null) return null;
+    const itemId = Number(match[1]);
+    if (!Number.isSafeInteger(itemId)) return null;
+    return {
+      itemId,
+      decision: match[2] === 'approve' ? 'approve' : 'deny',
+    };
+  }
+
   async function recordFailure(event: UserEvent, error: unknown, at: string): Promise<void> {
     await store.transaction(async (trx) => {
       const context = await taskContext(trx, event, gateway.kind);
@@ -470,6 +485,49 @@ export function createInbound(input: {
   }
 
   async function dispatchInteraction(event: Extract<UserEvent, { kind: 'command' | 'action' }>) {
+    const token = event.kind === 'action' ? tokenAction(event) : null;
+    if (token !== null) {
+      let response = 'not allowed';
+      if (event.sourceSpace === 'feed') {
+        try {
+          const at = new Date(clock.now()).toISOString();
+          const result = await store.transaction((trx) =>
+            replayOperation(trx, {
+              actor: 'operator',
+              key: event.dedupeKey,
+              operation: `token.${token.decision}`,
+              fingerprintInput: token,
+              output: resultSchema,
+              at,
+              run: async () => {
+                const decided = await decideTokenInTransaction(
+                  trx,
+                  token.itemId,
+                  token.decision,
+                  new Date(at),
+                );
+                return {
+                  status: 'applied' as const,
+                  response: `${decided.name}: ${decided.status}`,
+                };
+              },
+            }),
+          );
+          response = result?.response ?? 'not available yet';
+        } catch (error) {
+          if (!(error instanceof CommandError)) {
+            await recordFailure(event, error, new Date(clock.now()).toISOString());
+          }
+          response = error instanceof CommandError ? error.hint : 'not available yet';
+        }
+      }
+      try {
+        await gateway.respond(event.interaction, plain(response), { private: true });
+      } catch {
+        // The decision is already committed; a failed ephemeral reply cannot undo it.
+      }
+      return;
+    }
     const { id, operationInput } = interactionOperation(event);
     let response: string;
     if (id === undefined) response = 'not available yet';

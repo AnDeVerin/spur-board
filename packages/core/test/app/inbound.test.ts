@@ -23,6 +23,7 @@ import {
   type Store,
 } from '../../src/index.ts';
 import { sampleRows } from '../store/sample-rows.ts';
+import { requestToken } from '../../src/app/tokens.ts';
 
 const now = Date.parse('2026-11-03T10:00:00.000Z');
 const at = new Date(now).toISOString();
@@ -187,6 +188,73 @@ describe('inbound apply', () => {
     expect(
       await store.db.selectFrom('block').select('state').where('id', '=', 1).executeTakeFirst(),
     ).toEqual({ state: 'open' });
+  });
+
+  it('lets only the configured feed user decide a token and replays duplicate delivery', async () => {
+    const { store, gateway } = await setup();
+    await requestToken(
+      store,
+      { name: 'desk', folder: 'workspace/desk', host: 'local', hash: 'a'.repeat(64) },
+      new Date(now),
+    );
+    const row = await store.db
+      .selectFrom('operator_token')
+      .select('item_id')
+      .executeTakeFirstOrThrow();
+    const line = await store.db.selectFrom('outbox').select('payload').executeTakeFirstOrThrow();
+    expect(line.payload).toContain(`token:${String(row.item_id)}:approve`);
+    expect(line.payload).toContain(`token:${String(row.item_id)}:deny`);
+    const responses: string[] = [];
+    const inbound = createInbound({
+      store,
+      config,
+      clock: { now: () => now },
+      gateway: {
+        ...gateway,
+        respond(_interaction, body, options) {
+          expect(options.private).toBe(true);
+          responses.push(
+            body[0]?.kind === 'paragraph'
+              ? body[0].children.map((part) => (part.kind === 'text' ? part.text : '')).join('')
+              : '',
+          );
+          return Promise.resolve('sent' as const);
+        },
+      },
+    });
+    const action = (author: string, dedupeKey: string, sourceSpace: 'feed' | 'orchestrators') => ({
+      kind: 'action' as const,
+      dedupeKey,
+      interaction: interactionRefSchema.parse(`interaction-${dedupeKey}`),
+      actionId: `token:${String(row.item_id)}:approve`,
+      author: userIdSchema.parse(author),
+      conversation: conversationRefSchema.parse('thread-1'),
+      message: messageRefSchema.parse('root-1'),
+      rootMessage: messageRefSchema.parse('root-1'),
+      sourceUrl: 'https://example.test/board',
+      sourceSpace,
+    });
+    await inbound.sink(action('another', 'foreign', 'feed'));
+    expect(await store.db.selectFrom('operator_token').select('status').executeTakeFirst()).toEqual(
+      { status: 'pending' },
+    );
+    await inbound.sink(action('operator', 'wrong-space', 'orchestrators'));
+    expect(await store.db.selectFrom('operator_token').select('status').executeTakeFirst()).toEqual(
+      { status: 'pending' },
+    );
+    await inbound.sink(action('operator', 'approved', 'feed'));
+    await inbound.sink(action('operator', 'approved', 'feed'));
+    expect(await store.db.selectFrom('operator_token').select('status').executeTakeFirst()).toEqual(
+      { status: 'approved' },
+    );
+    expect(
+      await store.db
+        .selectFrom('event')
+        .select('kind')
+        .where('kind', '=', 'token_approved')
+        .execute(),
+    ).toHaveLength(1);
+    expect(responses).toEqual(['not allowed', 'not allowed', 'desk: approved', 'desk: approved']);
   });
 
   it('journals unknown conversations and privately denies non-operator commands and buttons', async () => {
