@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { parseEnv } from 'node:util';
@@ -23,6 +23,7 @@ export interface SessionProcess {
 
 export interface DoctorPorts {
   readText(path: string): string;
+  secretFile(path: string): { path: string; isFile: boolean; mode: number };
   exists(path: string): boolean;
   run(
     command: string,
@@ -93,6 +94,11 @@ function liveSessions(): SessionProcess[] {
 
 const defaultPorts: DoctorPorts = {
   readText: (path) => readFileSync(path, 'utf8'),
+  secretFile: (path) => {
+    const resolved = realpathSync(path);
+    const stat = statSync(resolved);
+    return { path: resolved, isFile: stat.isFile(), mode: stat.mode & 0o777 };
+  },
   exists: existsSync,
   run: systemRun,
   sessions: liveSessions,
@@ -138,9 +144,19 @@ function unitFile(env: NodeJS.ProcessEnv, home: string): string {
 }
 
 function localSecrets(config: Config, path: string, ports: DoctorPorts): DoctorCheck {
+  let file: ReturnType<DoctorPorts['secretFile']>;
+  try {
+    file = ports.secretFile(path);
+  } catch {
+    return result('secrets', false, 'Create secrets.env as a regular file with mode 0600.');
+  }
+  if (!file.isFile)
+    return result('secrets', false, 'Make secrets.env a regular file with mode 0600.');
+  if (file.mode !== 0o600)
+    return result('secrets', false, 'Set secrets.env mode to 0600 with chmod 600.');
   let names: Record<string, string | undefined>;
   try {
-    names = parseEnv(ports.readText(path));
+    names = parseEnv(ports.readText(file.path));
   } catch {
     names = {};
   }
@@ -150,7 +166,7 @@ function localSecrets(config: Config, path: string, ports: DoctorPorts): DoctorC
       ? ['JIRA_EMAIL', 'JIRA_API_TOKEN']
       : []),
     ...(config.slack.channels.feed || config.slack.channels.orchestrators
-      ? ['SLACK_BOT_TOKEN']
+      ? ['SLACK_BOT_TOKEN', 'SLACK_APP_TOKEN']
       : []),
   ];
   const missing = required.filter((name) => !names[name]);
@@ -182,8 +198,26 @@ function stamp(ports: DoctorPorts, path: string): { version: string; installedAt
 }
 
 function nodeFromUnit(unit: string): string | null {
-  const match = /^ExecStart="([^"]+)"\s+/m.exec(unit);
-  return match?.[1]?.replaceAll('\\\\', '\\').replaceAll('\\"', '"') ?? null;
+  const match = /^ExecStart=(.*)$/m.exec(unit);
+  const line = match?.[1];
+  if (!line?.startsWith('"')) return null;
+  let path = '';
+  for (let index = 1; index < line.length; index++) {
+    const char = line[index];
+    if (char === '"') return line[index + 1] === ' ' ? path : null;
+    if (char === '\\') {
+      const escaped = line[++index];
+      if (escaped !== '\\' && escaped !== '"') return null;
+      path += escaped;
+    } else if (char === '%') {
+      if (line[++index] !== '%') return null;
+      path += '%';
+    } else {
+      if (char === undefined) return null;
+      path += char;
+    }
+  }
+  return null;
 }
 
 const remoteIds = [

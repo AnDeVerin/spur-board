@@ -65,6 +65,7 @@ function doctorContext(
       JIRA_EMAIL: 'email@example.test',
       JIRA_API_TOKEN: 'jira-secret-canary',
       SLACK_BOT_TOKEN: 'slack-secret-canary',
+      SLACK_APP_TOKEN: 'app-secret-canary',
       SLACK_APP_CONFIG_TOKEN: 'config-secret-canary',
     },
     logCall: (_call, fn) => fn(),
@@ -173,6 +174,7 @@ describe('daemon doctor checks', () => {
   it('names missing secret variables and fails operator access without a project or token', async () => {
     const report = await runDaemonDoctor(doctorContext({ secrets: {} }), '1.2.3', doctorFetch());
     expect(report.checks.find((check) => check.id === 'secrets')?.fix).toContain('GITHUB_TOKEN');
+    expect(report.checks.find((check) => check.id === 'secrets')?.fix).toContain('SLACK_APP_TOKEN');
     const operator = report.checks.find((check) => check.id === 'operator.path');
     expect(operator).toMatchObject({
       status: 'fail',
@@ -191,6 +193,7 @@ describe('daemon doctor checks', () => {
         JIRA_EMAIL: 'email@example.test',
         JIRA_API_TOKEN: 'jira-secret-canary',
         SLACK_BOT_TOKEN: 'slack-secret-canary',
+        SLACK_APP_TOKEN: 'app-secret-canary',
       },
     });
     const report = await runDaemonDoctor(ctx, '1.2.3', doctorFetch());

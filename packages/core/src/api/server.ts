@@ -91,6 +91,9 @@ export async function createApiServer(options: ApiOptions): Promise<FastifyInsta
   const app = Fastify({ logger: false, genReqId: () => randomUUID(), trustProxy: false });
   const snapshot = await buildCatalogSnapshot(OPERATIONS);
   const callers = new WeakMap<object, IdentifiedCaller>();
+  let doctorInFlight: Promise<DoctorReport> | null = null;
+  let doctorCached: DoctorReport | null = null;
+  let doctorNextProbeAt = 0;
 
   app.addHook('onRequest', async (request, reply) => {
     reply.header('x-request-id', request.id);
@@ -153,7 +156,19 @@ export async function createApiServer(options: ApiOptions): Promise<FastifyInsta
   app.get('/v1/doctor', async (_request, reply) => {
     if (!options.ready()) throw new CommandError('starting', 'Wait until the daemon is ready.');
     if (options.doctor === undefined) throw new CommandError('not_found', 'Doctor is unavailable.');
-    return reply.send(doctorReportSchema.parse(await options.doctor()));
+    if (doctorInFlight !== null) return reply.send(await doctorInFlight);
+    if (options.clock.now() < doctorNextProbeAt) {
+      if (doctorCached !== null) return reply.send(doctorCached);
+      throw new CommandError('starting', 'Retry board doctor in a few seconds.');
+    }
+    doctorNextProbeAt = options.clock.now() + 5_000;
+    doctorInFlight = options.doctor().then((report) => doctorReportSchema.parse(report));
+    try {
+      doctorCached = await doctorInFlight;
+      return await reply.send(doctorCached);
+    } finally {
+      doctorInFlight = null;
+    }
   });
 
   app.post('/v1/tokens/requests', async (request, reply) => {

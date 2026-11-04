@@ -15,6 +15,9 @@ const yaml = `projects:
         role: worker
 operator:
   slack: U0000000000
+slack:
+  channels:
+    feed: C000000002
 digest:
   tz: UTC
 `;
@@ -55,6 +58,7 @@ function ports(overrides: Partial<DoctorPorts> = {}): DoctorPorts {
       if (path.endsWith('.spur-board-install.json')) return stamp;
       throw new Error('missing');
     },
+    secretFile: (path) => ({ path, isFile: true, mode: 0o600 }),
     exists: () => true,
     run: () => ({ exitCode: 0, stdout: '1.2.3\n' }),
     sessions: () => [
@@ -254,6 +258,63 @@ describe('board doctor', () => {
     expect(human.output()).toContain('FAIL daemon.available: Start or restart the user service.');
     expect(human.output()).not.toContain(secret);
     expect(human.errors()).not.toContain(secret);
+  });
+
+  it.each([
+    [{ isFile: false, mode: 0o600 }, 'Make secrets.env a regular file with mode 0600.'],
+    [{ isFile: true, mode: 0o644 }, 'Set secrets.env mode to 0600 with chmod 600.'],
+  ])('refuses an unsafe resolved secrets file before reading it', async (info, fix) => {
+    const fake = ports({
+      fetcher: () => Promise.reject(new Error('daemon down')),
+      secretFile: (path) => ({ path, ...info }),
+      readText(path) {
+        if (path.endsWith('config.yaml')) return yaml;
+        if (path.endsWith('spur-board.service'))
+          return 'ExecStart="/usr/bin/node" "/app/daemon.mjs"\n';
+        if (path.endsWith('secrets.env')) throw new Error('unsafe file was read');
+        return stamp;
+      },
+    });
+    const value = await run(['doctor', '--json'], fake);
+    expect(value.checks.find((entry) => entry.id === 'secrets')).toMatchObject({
+      status: 'fail',
+      blocking: true,
+      fix,
+    });
+  });
+
+  it('names the missing Slack app token in local fallback', async () => {
+    const fake = ports({
+      fetcher: () => Promise.reject(new Error('daemon down')),
+      readText(path) {
+        if (path.endsWith('config.yaml')) return yaml;
+        if (path.endsWith('spur-board.service'))
+          return 'ExecStart="/usr/bin/node" "/app/daemon.mjs"\n';
+        if (path.endsWith('secrets.env')) return 'GITHUB_TOKEN=present\nSLACK_BOT_TOKEN=present\n';
+        return stamp;
+      },
+    });
+    const value = await run(['doctor', '--json'], fake);
+    expect(value.checks.find((entry) => entry.id === 'secrets')?.fix).toContain('SLACK_APP_TOKEN');
+  });
+
+  it('decodes the quoted unit executable once', async () => {
+    const seen: string[] = [];
+    const fake = ports({
+      readText(path) {
+        if (path.endsWith('config.yaml')) return yaml;
+        if (path.endsWith('spur-board.service'))
+          return 'ExecStart="/usr/bin/no\\\\\\"de" "/app/daemon.mjs"\n';
+        return stamp;
+      },
+      exists(path) {
+        seen.push(path);
+        return path === '/usr/bin/no\\"de';
+      },
+    });
+    const value = await run(['doctor', '--json'], fake);
+    expect(value.checks.find((entry) => entry.id === 'service.node')?.status).toBe('pass');
+    expect(seen).toContain('/usr/bin/no\\"de');
   });
 
   it('warns for confirmed stale sessions without failing doctor', async () => {
