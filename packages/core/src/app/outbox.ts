@@ -164,6 +164,27 @@ export async function enqueueFeedLine(
   return row.id;
 }
 
+/** One installation or upgrade announcement per published version. */
+export async function enqueueLiveFeedLine(
+  trx: Trx,
+  input: { version: string; text: string; at: Date },
+): Promise<number> {
+  const row = await insertOutbox(trx, {
+    kind: 'feed.line',
+    dedupeKey: `doctor:live:${input.version}`,
+    payload: {
+      key: 'spur-board',
+      text: input.text,
+      title: 'spur-board is live',
+      persona: { name: 'board', role: 'board' },
+      itemKey: `doctor:live:${input.version}`,
+    },
+    parent: null,
+    at: input.at,
+  });
+  return row.id;
+}
+
 export async function enqueueFeedEdit(
   trx: Trx,
   input: {

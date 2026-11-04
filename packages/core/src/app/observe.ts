@@ -16,6 +16,7 @@ import { z } from 'zod';
 import { parseJson, toJson } from '../store/json.ts';
 import type { Store } from '../store/store.ts';
 import { emit, projectForKey, trackerSource, type Trx } from './board-utils.ts';
+import { enqueueLiveAfterFirstPoll } from './doctor.ts';
 import { reconcileMembership } from './membership-rules.ts';
 import { reconcileItems } from './fromYou.ts';
 
@@ -640,6 +641,7 @@ export function createObservationCore(deps: {
   store: Store;
   config: Config;
   clock: { now(): number };
+  productVersion?: string;
 }): AdapterCore & {
   notice(kind: 'unknown_state' | 'unknown_status', value: string): Promise<void>;
   completeSince: Map<string, string>;
@@ -915,6 +917,14 @@ export function createObservationCore(deps: {
           await updateTerminal(trx, config, task.id, batch.observedAt, currentComplete, blind);
         await reconcileMembership(trx, config, currentComplete, batch.observedAt);
         await reconcileItems(trx, config, clock.now(), currentComplete.has('spur'));
+        if (deps.productVersion !== undefined)
+          await enqueueLiveAfterFirstPoll(trx, {
+            config,
+            productVersion: deps.productVersion,
+            completeSince: currentComplete,
+            blind,
+            at: batch.observedAt,
+          });
       });
       if (observation.effectiveComplete) completeSince.set(source, batch.observedAt);
     },
