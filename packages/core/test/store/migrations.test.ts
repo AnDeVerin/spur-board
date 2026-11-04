@@ -30,6 +30,21 @@ const INDEXES: Record<string, { table: string; columns: string[]; partialUnique:
     columns: ['parent_outbox_id'],
     partialUnique: false,
   },
+  notification_due: {
+    table: 'notification',
+    columns: ['acked_at', 'next_at'],
+    partialUnique: false,
+  },
+  notification_block: {
+    table: 'notification',
+    columns: ['block_id', 'id'],
+    partialUnique: false,
+  },
+  operator_item_active: {
+    table: 'operator_item',
+    columns: ['item_key', 'cleared_at'],
+    partialUnique: false,
+  },
 };
 
 const real = readMigrations(migrationsDir);
@@ -334,6 +349,7 @@ describe('migration pins', () => {
     '0002_delivery.sql': '52180cad0a4577d8ad6a60eca748116f4ccd61142115581a3c9ea3a72d2cfa1d',
     '0003_delivery_search.sql': '3e915831a61930771096e91e17273a933cd8b5c2476aaec1c2d23b5f4fc2c755',
     '0004_attempt_started.sql': 'e2f659d551e9aaca510f1b84735eb451d8c8eac7bc8a4eeedd22487545f6f1f2',
+    '0005_doorbells_items.sql': '6d1a269b593d0f6b342a73761f1a756a94a6c9c2a5c983c191a627654b097570',
   };
 
   interface MigrationFile {
