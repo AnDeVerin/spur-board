@@ -8,12 +8,6 @@ description: Rules for packages/daemon/ - modules, config and secrets, logging a
 `main` binds the process; `runDaemon` starts lock, config, logger, store and modules, then logs
 `daemon ready`.
 
-## When to use
-
-- Any edit under `packages/daemon/`, and any module, poller or timer the daemon runs.
-- Not for config schema fields (use `working-with-contracts`) or the store and its transactions
-  (use `working-with-storage`).
-
 ## Composition root and modules
 
 - `main` binds signals, exit, streams, environment, home and wall time; `runDaemon` receives them
@@ -75,6 +69,8 @@ description: Rules for packages/daemon/ - modules, config and secrets, logging a
   session snapshot through core, then uses a bounded live Spur lookup on a miss. Wrap that call
   in `ctx.logCall`; verify bearer tokens against the current store state on each request. Log an
   accepted token's name, never its bearer value.
+- Keep token approval and denial in the authenticated inbound gateway handler, outside the
+  operation catalog; a button press requires the configured gateway user and space.
 - Log each request's `requestId`, method, path and status through `ctx.log`, without the query
   string. Register HTTP at `stopStage: 'final'` so outbox delivery finishes before close.
 
@@ -82,6 +78,8 @@ description: Rules for packages/daemon/ - modules, config and secrets, logging a
 
 - Start the outbox tick immediately, then arm a `setTimeout` for one second plus under 100 ms of
   jitter after the tick settles. Never queue a second tick while one runs.
+- Expire pending operator token requests on that tick, clearing their approval items and queuing
+  the feed edit in the same transaction as the token state and journal event.
 - Register the outbox without a gateway so Spur doorbells run; leave gateway rows pending.
 - Pass the start signal to each sender tick. On stop, clear the timer and await the active tick
   before the store closes. Register the outbox with `stopStage: 'outbox'` and its gateway with
