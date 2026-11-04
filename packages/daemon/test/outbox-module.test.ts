@@ -1,6 +1,6 @@
 import { setTimeout as sleep } from 'node:timers/promises';
 import { join } from 'node:path';
-import { createSender, openStore, type Store } from '@spur-board/core';
+import { createSender, openStore, requestToken, type Store } from '@spur-board/core';
 import { createSlackGateway } from '@spur-board/gateway-slack';
 import pino from 'pino';
 import { describe, expect, it } from 'vitest';
@@ -12,6 +12,45 @@ import { createOutboxModule, slackSettings } from '../src/outbox-module.ts';
 import { makeHome } from './home.ts';
 
 describe('outbox scheduler', () => {
+  it('expires pending token approvals on a tick after fifteen minutes', async () => {
+    const home = makeHome();
+    const store = openStore(join(home, 'board.sqlite'));
+    const requestedAt = new Date('2026-11-04T10:00:00.000Z');
+    const late = requestedAt.getTime() + 15 * 60 * 1000;
+    await requestToken(
+      store,
+      { name: 'desk', folder: 'workspace/desk', host: 'local', hash: 'a'.repeat(64) },
+      requestedAt,
+    );
+    const loaded = loadConfig(resolvePaths({ BOARD_HOME: home }, home));
+    const ctx: ModuleContext<Store> = {
+      ...loaded,
+      store,
+      log: pino({ level: 'silent' }),
+      clock: { now: () => late },
+      logCall: (_call, fn) => fn(),
+      state: () => 'ready',
+    };
+    const module = createOutboxModule(ctx);
+    const controller = new AbortController();
+    try {
+      await module.start(controller.signal);
+      await expect
+        .poll(
+          async () =>
+            (await store.db.selectFrom('operator_token').select('status').executeTakeFirst())
+              ?.status,
+        )
+        .toBe('expired');
+      expect(
+        await store.db.selectFrom('operator_item').select('cleared_at').executeTakeFirst(),
+      ).toEqual({ cleared_at: new Date(late).toISOString() });
+    } finally {
+      controller.abort();
+      await module.stop();
+      await store.close();
+    }
+  });
   it('passes an optional app token only when inbound is configured', () => {
     const loaded = loadConfig(resolvePaths({ BOARD_HOME: makeHome() }, ''));
     const config = {

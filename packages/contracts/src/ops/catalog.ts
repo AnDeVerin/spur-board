@@ -80,6 +80,10 @@ const linkOutput = z.strictObject({ task: taskKeySchema, target });
 
 const operatorOrProjectAgent = [{ grant: 'operator' }, { grant: 'project-agent' }] as const;
 const operatorOnly = [{ grant: 'operator' }] as const;
+const tokenStatus = z
+  .enum(['pending', 'approved', 'denied', 'expired', 'revoked'])
+  .describe('Current token state.');
+const tokenName = text('Unique name of the operator token.');
 
 /** The M1 operations. CLI, MCP and the daemon route are generated from this list. */
 export const OPERATIONS = [
@@ -308,6 +312,60 @@ export const OPERATIONS = [
         summary: 'Acknowledge an agent-addressed block',
         input: { entries: [{ id: 'B13' }] },
         output: { acked: ['B13'] },
+      },
+    ],
+  }),
+  defineOperation({
+    id: 'token.list',
+    kind: 'query',
+    description: 'List named operator tokens and their current status.',
+    mcp: {
+      whenToUse: 'Inspect named operator tokens and their current status.',
+      whenNotToUse: 'Use token_revoke to disable a token.',
+    },
+    input: z.strictObject({}),
+    output: z.strictObject({
+      tokens: z
+        .array(
+          z.strictObject({
+            name: tokenName,
+            folder: text('Folder where the token file was created.'),
+            status: tokenStatus,
+          }),
+        )
+        .describe('Named tokens in creation order.'),
+    }),
+    grants: operatorOnly,
+    errors: [],
+    cli: { command: 'token list', args: [] },
+    slack: null,
+    examples: [
+      {
+        summary: 'List operator tokens',
+        input: {},
+        output: { tokens: [{ name: 'desk', folder: 'workspace/desk', status: 'approved' }] },
+      },
+    ],
+  }),
+  defineOperation({
+    id: 'token.revoke',
+    kind: 'mutation',
+    description: 'Revoke a named operator token immediately.',
+    mcp: {
+      whenToUse: 'Disable a named operator token immediately.',
+      whenNotToUse: 'Use token_list to inspect tokens without changing them.',
+    },
+    input: z.strictObject({ name: tokenName }),
+    output: z.strictObject({ name: tokenName, status: tokenStatus }),
+    grants: operatorOnly,
+    errors: ['not_found'],
+    cli: { command: 'token revoke', args: ['name'] },
+    slack: null,
+    examples: [
+      {
+        summary: 'Revoke an operator token',
+        input: { name: 'desk' },
+        output: { name: 'desk', status: 'revoked' },
       },
     ],
   }),

@@ -234,6 +234,8 @@ describe('grants', () => {
     ['schema.get', 'query', 'any', null, []],
     ['inbox.get', 'query', [projectAgent, operator], null, ['not_found']],
     ['inbox.ack', 'mutation', [projectAgent], null, [...id, 'stale_comment_revision']],
+    ['token.list', 'query', [operator], null, []],
+    ['token.revoke', 'mutation', [operator], null, ['not_found']],
     ['task.add', 'mutation', [operator], null, id],
     ['task.archive', 'mutation', [operator], null, archived],
     ['link.add', 'mutation', [operator], null, archived],
@@ -304,7 +306,7 @@ describe('grants', () => {
         return [opId, kind, grants, preconditions, errors];
       }),
     );
-    expect(OPERATIONS).toHaveLength(19);
+    expect(OPERATIONS).toHaveLength(21);
   });
 
   it('names a branch of the input discriminator in every grant mode', () => {
@@ -328,11 +330,11 @@ describe('grants', () => {
     expect(withWrongType).toEqual(['block.answer']);
   });
 
-  it('lists task_archived on every mutation except task.add, inbox.ack and item.close', () => {
+  it('lists task_archived on task mutations only', () => {
     const missing = OPERATIONS.filter(
       (op) => op.kind === 'mutation' && !op.errors.includes('task_archived'),
     ).map((op) => op.id);
-    expect(missing).toEqual(['inbox.ack', 'task.add', 'item.close']);
+    expect(missing).toEqual(['inbox.ack', 'token.revoke', 'task.add', 'item.close']);
   });
 });
 

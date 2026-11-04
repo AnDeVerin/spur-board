@@ -218,6 +218,18 @@ export const sampleRows: SampleRows = {
     source: null,
     priority: null,
   },
+  operator_token: {
+    id: 1,
+    name: 'desk',
+    hash: 'a'.repeat(64),
+    folder: 'workspace/desk',
+    host: 'local',
+    status: 'pending',
+    requested_at: at,
+    expires_at: at,
+    decided_at: null,
+    item_id: 1,
+  },
   dismissal: {
     item_key: 'item-1',
     fingerprint: 'f1',

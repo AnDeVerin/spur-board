@@ -88,7 +88,7 @@ describe('CLI against the real HTTP API', () => {
         ready: () => ready,
         clock,
         lookupSession: () => Promise.resolve({ project: 'worker', status: 'running' as const }),
-        verifyToken: () => Promise.resolve(false),
+        verifyToken: () => Promise.resolve(null),
         registry: {
           ...createOperationRegistry({ config, clock, completeSince: new Map() }),
           'status.get': statusGet,

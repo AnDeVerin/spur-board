@@ -5,13 +5,14 @@ import {
   errorCodeOf,
   renderHttpProblem,
   successEnvelopeSchema,
-  type ActorId,
   type ServerErrorCode,
 } from '@spur-board/contracts';
 import Fastify, { type FastifyInstance } from 'fastify';
+import { z } from 'zod';
 import { CommandError } from '../app/commands.ts';
 import { dispatchOperation, type OperationRegistry } from '../app/operations.ts';
-import { identify, type IdentityPorts } from './identity.ts';
+import { requestToken } from '../app/tokens.ts';
+import { identifyCaller, type IdentifiedCaller, type IdentityPorts } from './identity.ts';
 
 export type { OperationRegistry } from '../app/operations.ts';
 
@@ -25,8 +26,16 @@ export interface ApiOptions extends IdentityPorts {
     method: string;
     url: string;
     status: number;
+    tokenName?: string;
   }) => void;
 }
+
+const tokenRequestSchema = z.strictObject({
+  name: z.string().min(1),
+  folder: z.string().min(1),
+  host: z.string().min(1),
+  hash: z.string().regex(/^[0-9a-f]{64}$/),
+});
 
 function header(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? undefined : value;
@@ -51,7 +60,7 @@ function inputBody(body: unknown): { input: unknown; key: string | undefined } {
 export async function createApiServer(options: ApiOptions): Promise<FastifyInstance> {
   const app = Fastify({ logger: false, genReqId: () => randomUUID(), trustProxy: false });
   const snapshot = await buildCatalogSnapshot(OPERATIONS);
-  const actors = new WeakMap<object, ActorId>();
+  const callers = new WeakMap<object, IdentifiedCaller>();
 
   app.addHook('onRequest', async (request, reply) => {
     reply.header('x-request-id', request.id);
@@ -74,11 +83,13 @@ export async function createApiServer(options: ApiOptions): Promise<FastifyInsta
   });
 
   app.addHook('onResponse', (request, reply, done) => {
+    const caller = callers.get(request);
     options.logRequest({
       requestId: request.id,
       method: request.method,
       url: request.url,
       status: reply.statusCode,
+      ...(caller?.tokenName === undefined ? {} : { tokenName: caller.tokenName }),
     });
     done();
   });
@@ -109,6 +120,17 @@ export async function createApiServer(options: ApiOptions): Promise<FastifyInsta
     return reply.send(snapshot);
   });
 
+  app.post('/v1/tokens/requests', async (request, reply) => {
+    if (!options.ready()) throw new CommandError('starting', 'Wait until the daemon is ready.');
+    const parsed = tokenRequestSchema.safeParse(request.body);
+    if (!parsed.success)
+      throw new CommandError('usage', 'Provide a name, folder, host and token hash.');
+    const result = await requestToken(options.store, parsed.data, new Date(options.clock.now()));
+    return reply.send(
+      successEnvelopeSchema.parse({ ok: true, requestId: request.id, value: result }),
+    );
+  });
+
   app.post<{ Params: { id: string } }>(
     '/v1/ops/:id',
     {
@@ -118,9 +140,9 @@ export async function createApiServer(options: ApiOptions): Promise<FastifyInsta
         if (Array.isArray(sessionHeader)) {
           throw new CommandError('forbidden', 'Use one session identity header.');
         }
-        actors.set(
+        callers.set(
           request,
-          await identify(options, {
+          await identifyCaller(options, {
             session: sessionHeader,
             authorization: header(request.headers.authorization),
           }),
@@ -128,8 +150,8 @@ export async function createApiServer(options: ApiOptions): Promise<FastifyInsta
       },
     },
     async (request, reply) => {
-      const actor = actors.get(request);
-      if (actor === undefined) throw new Error('Operation identity was not resolved.');
+      const caller = callers.get(request);
+      if (caller === undefined) throw new Error('Operation identity was not resolved.');
       const operation = OPERATIONS.find((entry) => entry.id === request.params.id);
       if (operation === undefined) throw new CommandError('usage', 'Unknown catalog operation.');
       const body = inputBody(request.body);
@@ -137,7 +159,13 @@ export async function createApiServer(options: ApiOptions): Promise<FastifyInsta
       if (!parsed.success) {
         throw new CommandError(errorCodeOf(parsed.error), 'Fix the operation input.');
       }
-      const result = await dispatchOperation(options, operation.id, parsed.data, actor, body.key);
+      const result = await dispatchOperation(
+        options,
+        operation.id,
+        parsed.data,
+        caller.actor,
+        body.key,
+      );
       return reply.send(
         successEnvelopeSchema.parse({ ok: true, requestId: request.id, value: result }),
       );

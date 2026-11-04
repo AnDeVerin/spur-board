@@ -1,5 +1,5 @@
 import type { Config, Gateway } from '@spur-board/contracts';
-import { createSender, type Store } from '@spur-board/core';
+import { createSender, expirePendingTokens, type Store } from '@spur-board/core';
 import { ConfigError } from './config.ts';
 import type { Module, ModuleContext } from './lifecycle.ts';
 import { createSpurPort } from './spur-port.ts';
@@ -87,7 +87,10 @@ export function createOutboxModule(ctx: ModuleContext<Store>, gateway?: Gateway)
   const tick = (): void => {
     if (stopped || signal?.aborted) return;
     active = ctx
-      .logCall('outbox.tick', () => sender.tick(signal))
+      .logCall('outbox.tick', async () => {
+        await expirePendingTokens(ctx.store, new Date(ctx.clock.now()));
+        if (!signal?.aborted) await sender.tick(signal);
+      })
       .catch(() => undefined)
       .finally(() => {
         schedule();

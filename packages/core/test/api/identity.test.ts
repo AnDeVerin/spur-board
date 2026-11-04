@@ -3,7 +3,18 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { configSchema } from '@spur-board/contracts';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { authorize, createApiServer, identify, openStore, type Store } from '../../src/index.ts';
+import {
+  authorize,
+  createApiServer,
+  identify,
+  openStore,
+  requestToken,
+  tokenListQuery,
+  tokenRevokeMutation,
+  verifyOperatorToken,
+  type Store,
+} from '../../src/index.ts';
+import { decideTokenInTransaction } from '../../src/app/tokens.ts';
 import { sampleRows } from '../store/sample-rows.ts';
 
 const config = configSchema.parse({
@@ -50,6 +61,146 @@ afterEach(async () => {
 });
 
 describe('API identity', () => {
+  it('enrolls without a credential and keeps approval pending', async () => {
+    const store = await storeWithSession();
+    const app = await createApiServer({
+      store,
+      config,
+      port: 4311,
+      ready: () => true,
+      clock: { now: () => Date.parse('2026-11-04T10:00:00.000Z') },
+      lookupSession: vi.fn(),
+      verifyToken: (token) => verifyOperatorToken(store, token),
+      registry: {},
+      logRequest: vi.fn(),
+    });
+    try {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/v1/tokens/requests',
+        headers: { host: '127.0.0.1:4311', 'content-type': 'application/json' },
+        payload: JSON.stringify({
+          name: 'desk',
+          folder: 'workspace/desk',
+          host: 'local',
+          hash: createHash('sha256').update('private').digest('hex'),
+        }),
+      });
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toMatchObject({ value: { name: 'desk', status: 'pending' } });
+      expect(await verifyOperatorToken(store, 'private')).toBeNull();
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('keeps a session as agent while an approved token alone is operator and logs its name', async () => {
+    const store = await storeWithSession('active');
+    const at = new Date('2026-11-04T10:00:00.000Z');
+    const secret = 'private';
+    await requestToken(
+      store,
+      {
+        name: 'desk',
+        folder: 'workspace/desk',
+        host: 'local',
+        hash: createHash('sha256').update(secret).digest('hex'),
+      },
+      at,
+    );
+    const row = await store.db
+      .selectFrom('operator_token')
+      .select('item_id')
+      .executeTakeFirstOrThrow();
+    await store.transaction((trx) => decideTokenInTransaction(trx, row.item_id, 'approve', at));
+    const logRequest = vi.fn();
+    const verifyToken = vi.fn((token: string) => verifyOperatorToken(store, token));
+    const clock = { now: () => at.getTime() };
+    const app = await createApiServer({
+      store,
+      config,
+      port: 4311,
+      ready: () => true,
+      clock,
+      lookupSession: vi.fn(),
+      verifyToken,
+      registry: { 'token.list': tokenListQuery(clock), 'token.revoke': tokenRevokeMutation },
+      logRequest,
+    });
+    try {
+      const input = {
+        method: 'POST' as const,
+        url: '/v1/ops/token.list',
+        headers: {
+          host: '127.0.0.1:4311',
+          'content-type': 'application/json',
+          authorization: `Bearer ${secret}`,
+        },
+        payload: JSON.stringify({ input: {} }),
+      };
+      const operator = await app.inject(input);
+      expect(operator.statusCode).toBe(200);
+      expect(operator.json()).toMatchObject({
+        value: { tokens: [{ name: 'desk', status: 'approved' }] },
+      });
+      expect(logRequest).toHaveBeenCalledWith(
+        expect.objectContaining({ tokenName: 'desk', status: 200 }),
+      );
+      const agent = await app.inject({
+        ...input,
+        headers: { ...input.headers, 'x-board-session': 'session-1' },
+      });
+      expect(agent.statusCode).toBe(403);
+      expect(verifyToken).toHaveBeenCalledTimes(1);
+      expect(logRequest.mock.calls[1]?.[0]).toMatchObject({ status: 403 });
+      expect(logRequest.mock.calls[1]?.[0]).not.toHaveProperty('tokenName');
+      const revoked = await app.inject({
+        ...input,
+        url: '/v1/ops/token.revoke',
+        payload: JSON.stringify({ input: { name: 'desk' } }),
+      });
+      expect(revoked.statusCode).toBe(200);
+      expect(revoked.json()).toMatchObject({ value: { name: 'desk', status: 'revoked' } });
+      expect(await verifyOperatorToken(store, secret)).toBeNull();
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('allows a configured operator-project session to list tokens without a bearer', async () => {
+    const store = await storeWithSession();
+    const clock = { now: () => Date.parse('2026-11-04T10:00:00.000Z') };
+    const verifyToken = vi.fn();
+    const app = await createApiServer({
+      store,
+      config,
+      port: 4311,
+      ready: () => true,
+      clock,
+      lookupSession: vi.fn().mockResolvedValue({ project: 'ops', status: 'running' }),
+      verifyToken,
+      registry: { 'token.list': tokenListQuery(clock) },
+      logRequest: vi.fn(),
+    });
+    try {
+      const response = await app.inject({
+        method: 'POST',
+        url: '/v1/ops/token.list',
+        headers: {
+          host: '127.0.0.1:4311',
+          'content-type': 'application/json',
+          'x-board-session': 'ops-1',
+        },
+        payload: JSON.stringify({ input: {} }),
+      });
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toMatchObject({ value: { tokens: [] } });
+      expect(verifyToken).not.toHaveBeenCalled();
+    } finally {
+      await app.close();
+    }
+  });
+
   it('uses an active snapshot without a live request', async () => {
     const store = await storeWithSession('active');
     const lookupSession = vi.fn();
@@ -170,7 +321,7 @@ describe('API identity', () => {
 
   it('rejects an empty session header even with a valid bearer token', async () => {
     const store = await storeWithSession();
-    const verifyToken = vi.fn().mockResolvedValue(true);
+    const verifyToken = vi.fn().mockResolvedValue({ name: 'test' });
     await expect(
       identify(
         { store, config, lookupSession: vi.fn(), verifyToken },
@@ -182,7 +333,7 @@ describe('API identity', () => {
 
   it('rejects multiple session headers instead of falling back to a bearer token', async () => {
     const store = await storeWithSession();
-    const verifyToken = vi.fn().mockResolvedValue(true);
+    const verifyToken = vi.fn().mockResolvedValue({ name: 'test' });
     const app = await createApiServer({
       store,
       config,
@@ -249,3 +400,4 @@ describe('API identity', () => {
     }
   });
 });
+import { createHash } from 'node:crypto';

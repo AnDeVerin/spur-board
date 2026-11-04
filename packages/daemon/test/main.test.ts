@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { once } from 'node:events';
 import { spawnSync } from 'node:child_process';
 import {
@@ -11,7 +12,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { openStore } from '@spur-board/core';
+import { openStore, requestToken } from '@spur-board/core';
 import { afterEach, describe, expect, it } from 'vitest';
 import { startFakeSlackApi } from '../../gateway-slack/test/fake-api.ts';
 import { loadConfig, resolvePaths } from '../src/config.ts';
@@ -239,6 +240,66 @@ describe('daemon process', () => {
       const exited = once(child, 'exit');
       child.kill('SIGTERM');
       await exited;
+    }
+  }, 30_000);
+
+  it('serves token list and revoke through the production operation registry', async () => {
+    const home = makeHome();
+    const file = join(home, 'board.sqlite');
+    const secret = 'test-operator-token';
+    const at = new Date();
+    const seeded = openStore(file);
+    try {
+      await requestToken(
+        seeded,
+        {
+          name: 'desk',
+          folder: 'workspace/desk',
+          host: 'local',
+          hash: createHash('sha256').update(secret).digest('hex'),
+        },
+        at,
+      );
+      await seeded.transaction((trx) =>
+        trx
+          .updateTable('operator_token')
+          .set({ status: 'approved', decided_at: at.toISOString() })
+          .where('name', '=', 'desk')
+          .execute(),
+      );
+    } finally {
+      await seeded.close();
+    }
+    const child = spawnDaemon(home);
+    try {
+      await waitForLine(child, 'daemon ready');
+      const url = `http://127.0.0.1:${String(httpPort(home))}/v1/ops/`;
+      const call = (operation: string, input: object) =>
+        fetch(`${url}${operation}`, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            authorization: `Bearer ${secret}`,
+          },
+          body: JSON.stringify({ input }),
+        });
+      const listed = await call('token.list', {});
+      expect(listed.status).toBe(200);
+      expect(await listed.json()).toMatchObject({
+        value: { tokens: [{ name: 'desk', folder: 'workspace/desk', status: 'approved' }] },
+      });
+      const revoked = await call('token.revoke', { name: 'desk' });
+      expect(revoked.status).toBe(200);
+      expect(await revoked.json()).toMatchObject({ value: { name: 'desk', status: 'revoked' } });
+      const rejected = await call('token.list', {});
+      expect(rejected.status).toBe(403);
+      expect(await rejected.json()).toMatchObject({ code: 'forbidden' });
+    } finally {
+      if (child.exitCode === null && child.signalCode === null) {
+        const exited = once(child, 'exit');
+        child.kill('SIGTERM');
+        await exited;
+      }
     }
   }, 30_000);
 

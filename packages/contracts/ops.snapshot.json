@@ -1,5 +1,5 @@
 {
-  "version": "d2a66542774756db538a31619fae45b4d31be3eb659c4f1ac7ef5288c303c8f8",
+  "version": "c035a7ba22827bd61f98bd236588369802fb8c0390f73bb0976bdd36859ebb31",
   "grants": [
     "operator",
     "project-agent",
@@ -2185,7 +2185,12 @@
                     "from_you_cleared",
                     "flag_raised",
                     "flag_cleared",
-                    "operation_denied"
+                    "operation_denied",
+                    "token_requested",
+                    "token_approved",
+                    "token_denied",
+                    "token_expired",
+                    "token_revoked"
                   ],
                   "description": "Journal event kind."
                 },
@@ -2839,6 +2844,133 @@
           }
         },
         "required": ["acked"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "token.list",
+      "kind": "query",
+      "description": "List named operator tokens and their current status.",
+      "grants": [{ "grant": "operator" }],
+      "preconditions": null,
+      "errors": ["usage", "forbidden", "not_implemented", "identity_unavailable", "starting"],
+      "cli": { "command": "token list", "args": [], "modes": null, "key": null },
+      "mcp": {
+        "name": "token_list",
+        "key": null,
+        "whenToUse": "Inspect named operator tokens and their current status.",
+        "whenNotToUse": "Use token_revoke to disable a token."
+      },
+      "slack": null,
+      "examples": [
+        {
+          "summary": "List operator tokens",
+          "input": {},
+          "output": {
+            "tokens": [{ "name": "desk", "folder": "workspace/desk", "status": "approved" }]
+          }
+        }
+      ],
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "tokens": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Unique name of the operator token."
+                },
+                "folder": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Folder where the token file was created."
+                },
+                "status": {
+                  "type": "string",
+                  "enum": ["pending", "approved", "denied", "expired", "revoked"],
+                  "description": "Current token state."
+                }
+              },
+              "required": ["name", "folder", "status"],
+              "additionalProperties": false
+            },
+            "description": "Named tokens in creation order."
+          }
+        },
+        "required": ["tokens"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "token.revoke",
+      "kind": "mutation",
+      "description": "Revoke a named operator token immediately.",
+      "grants": [{ "grant": "operator" }],
+      "preconditions": null,
+      "errors": [
+        "usage",
+        "forbidden",
+        "not_found",
+        "not_implemented",
+        "idempotency_key_mismatch",
+        "identity_unavailable",
+        "starting"
+      ],
+      "cli": { "command": "token revoke", "args": ["name"], "modes": null, "key": "--key" },
+      "mcp": {
+        "name": "token_revoke",
+        "key": "idempotencyKey",
+        "whenToUse": "Disable a named operator token immediately.",
+        "whenNotToUse": "Use token_list to inspect tokens without changing them."
+      },
+      "slack": null,
+      "examples": [
+        {
+          "summary": "Revoke an operator token",
+          "input": { "name": "desk" },
+          "output": { "name": "desk", "status": "revoked" }
+        }
+      ],
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Unique name of the operator token."
+          }
+        },
+        "required": ["name"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Unique name of the operator token."
+          },
+          "status": {
+            "type": "string",
+            "enum": ["pending", "approved", "denied", "expired", "revoked"],
+            "description": "Current token state."
+          }
+        },
+        "required": ["name", "status"],
         "additionalProperties": false
       }
     },

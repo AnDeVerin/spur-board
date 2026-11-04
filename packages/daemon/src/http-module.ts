@@ -2,6 +2,7 @@ import { SESSION_STATUSES } from '@spur-board/contracts';
 import {
   createApiServer,
   listenApiServer,
+  verifyOperatorToken,
   type LiveSession,
   type OperationRegistry,
   type Store,
@@ -58,11 +59,14 @@ export function createHttpModule(
           ctx.logCall('spur.session.lookup', () =>
             lookupLiveSession(ctx.config.adapters.spur.baseUrl, id, options.fetcher),
           ),
-        verifyToken: () => Promise.resolve(false),
+        verifyToken: (token) => verifyOperatorToken(ctx.store, token),
         registry: options.registry ?? {},
-        logRequest: ({ requestId, method, url, status }) => {
+        logRequest: ({ requestId, method, url, status, tokenName }) => {
           const path = new URL(url, 'http://127.0.0.1').pathname;
-          ctx.log.info({ requestId, method, path, status }, 'http request');
+          ctx.log.info(
+            { requestId, method, path, status, ...(tokenName === undefined ? {} : { tokenName }) },
+            'http request',
+          );
         },
       });
       try {
