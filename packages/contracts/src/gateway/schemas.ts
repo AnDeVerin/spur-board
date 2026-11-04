@@ -115,7 +115,7 @@ const commandEventSchema = z.strictObject({
   author: userIdSchema,
   text,
   sourceUrl,
-  sourceSpace,
+  sourceSpace: sourceSpace.optional(),
 });
 
 const mentionEventSchema = z.strictObject({

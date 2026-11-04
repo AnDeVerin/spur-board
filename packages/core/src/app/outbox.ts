@@ -155,7 +155,7 @@ export async function enqueueFeedLine(
       itemKey: input.itemKey,
       itemId: input.itemId,
       taskId: input.taskId ?? undefined,
-      url: input.url,
+      ...(input.url === '' ? {} : { url: input.url }),
       actions: input.actions,
     },
     parent: null,
@@ -400,39 +400,6 @@ export async function enqueueInboundDoorbell(
     kind: 'doorbell',
     dedupeKey: input.key,
     payload: { session: input.session, text: input.text },
-    parent: null,
-    at: input.at,
-  });
-}
-
-export async function enqueueFeedItem(
-  trx: Trx,
-  input: {
-    itemId: number;
-    title: string;
-    sourceUrl: string | null;
-    taskId: number | null;
-    taskKey: string | null;
-    at: Date;
-    retry: boolean;
-  },
-): Promise<void> {
-  const itemKey = `I${String(input.itemId)}`;
-  await insertOutbox(trx, {
-    kind: 'feed.line',
-    dedupeKey: `feed.line:item:${itemKey}`,
-    payload: {
-      key: input.taskKey ?? 'BOARD',
-      text: input.sourceUrl === null ? input.title : `${input.title}\n${input.sourceUrl}`,
-      title: input.title,
-      persona: { name: 'board', role: 'board' },
-      itemKey,
-      ...(input.taskId === null ? {} : { taskId: input.taskId }),
-      actions: [
-        ...(input.retry ? [{ id: `item.retry:${itemKey}`, label: 'Retry' }] : []),
-        { id: `item.close:${itemKey}`, label: 'Close' },
-      ],
-    },
     parent: null,
     at: input.at,
   });

@@ -189,10 +189,16 @@ describe('inboundEventSchema', () => {
     },
   );
 
-  it.each(['action', 'command'] as const)('%s: requires its source space', (kind) => {
-    const withoutSourceSpace = { ...events[kind].valid };
+  it('requires an action source space to validate its board origin', () => {
+    const withoutSourceSpace = { ...events.action.valid };
     delete withoutSourceSpace.sourceSpace;
     expect(inboundEventSchema.safeParse(withoutSourceSpace).success).toBe(false);
+  });
+
+  it('accepts a command without a board source space', () => {
+    const withoutSourceSpace = { ...events.command.valid };
+    delete withoutSourceSpace.sourceSpace;
+    expect(inboundEventSchema.safeParse(withoutSourceSpace).success).toBe(true);
   });
 });
 

@@ -304,6 +304,15 @@ async function addComment(
     .returningAll()
     .executeTakeFirstOrThrow();
   await journal(trx, task, ctx, 'comment_added', { comment: commentId(row.id), addressee });
+  if (block !== undefined && source === undefined && ctx.actor !== block.author) {
+    await registerAnswerNotification(trx, {
+      block,
+      commentId: row.id,
+      revision: row.revision,
+      authorRole: authorRole(config, task, block.author),
+      at: new Date(ctx.at),
+    });
+  }
   if (block !== undefined && source === undefined) {
     await enqueueConversationReply(trx, {
       commentId: row.id,
@@ -385,6 +394,7 @@ async function close(
     actor: ctx.actor,
     at: new Date(ctx.at),
   });
+  await closeBlockNotification(trx, block.id, new Date(ctx.at));
   return updated;
 }
 
@@ -431,7 +441,7 @@ export async function recordInboundBlockMessage(
 /** Uses the same revision and acknowledgment rule as the catalog comment.edit mutation. */
 export async function editInboundComment(
   trx: Trx,
-  input: { comment: Comment; text: string; at: string; actor: ActorId },
+  input: { comment: Comment; text: string; at: string; actor: ActorId; config: Config },
 ): Promise<Comment> {
   const task = await taskById(trx, input.comment.task_id);
   active(task);
@@ -450,6 +460,22 @@ export async function editInboundComment(
     revision: next.revision,
     clarification: next.clarification,
   });
+  if (next.clarification && updated.block_id !== null) {
+    const block = await trx
+      .selectFrom('block')
+      .selectAll()
+      .where('id', '=', updated.block_id)
+      .executeTakeFirstOrThrow();
+    if (input.actor !== block.author) {
+      await registerAnswerNotification(trx, {
+        block,
+        commentId: updated.id,
+        revision: updated.revision,
+        authorRole: authorRole(input.config, task, block.author),
+        at: new Date(input.at),
+      });
+    }
+  }
   return updated;
 }
 
@@ -623,6 +649,7 @@ export function createBlockMutations(config: Config) {
         text: input.text,
         at: ctx.at,
         actor: ctx.actor,
+        config,
       });
       const task = await taskById(trx, comment.task_id);
       return { comment: commentView(updated, task) };

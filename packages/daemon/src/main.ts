@@ -1,5 +1,5 @@
 import { homedir } from 'node:os';
-import { commandRetention, openStore, type Store } from '@spur-board/core';
+import { commandRetention, openStore, type OperationRegistry, type Store } from '@spur-board/core';
 import { createSlackGateway } from '@spur-board/gateway-slack';
 import { loadConfig, resolvePaths } from './config.ts';
 import {
@@ -53,6 +53,7 @@ export async function main(): Promise<void> {
     },
     openStore,
     modules: (ctxFor) => {
+      const registry: OperationRegistry = {};
       const commands = ctxFor('commands');
       const entries: ModuleEntry[] = [
         {
@@ -74,7 +75,7 @@ export async function main(): Promise<void> {
       const inbound =
         gateway === undefined || settings?.appToken === undefined
           ? undefined
-          : createInboundModule(ctxFor('inbound'), gateway);
+          : createInboundModule(ctxFor('inbound'), gateway, registry);
       if (settings !== null && inbound === undefined)
         ctx.log.info('Slack inbound disabled: SLACK_APP_TOKEN is absent');
       if (gateway !== undefined)
@@ -109,7 +110,7 @@ export async function main(): Promise<void> {
       entries.push({
         name: 'http',
         stopStage: 'final',
-        module: createHttpModule(ctxFor('http')),
+        module: createHttpModule(ctxFor('http'), { registry }),
       });
       return entries;
     },

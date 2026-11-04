@@ -225,20 +225,6 @@ export interface ConversationTable {
   closed_at: string | null;
 }
 
-/** Durable operator item for an inbound failure or recovery gap. */
-export interface FromYouItemTable {
-  id: Generated<number>;
-  source_key: string;
-  title: string;
-  source_url: string | null;
-  /** Normalized inbound event as JSON. */
-  event_json: string;
-  task_id: number | null;
-  state: 'open' | 'closed';
-  created_at: string;
-  closed_at: string | null;
-}
-
 /** A failing transport for one `(gateway, space)`; that space's rows wait while it stands. */
 export interface TransportHealthTable {
   gateway: string;
@@ -287,6 +273,8 @@ export interface OperatorItemTable {
   raised_at: string;
   cleared_at: string | null;
   line_outbox_id: number | null;
+  /** Normalized event retained for a later explicit retry. */
+  inbound_event_json: string | null;
 }
 
 export interface DismissalTable {
@@ -321,7 +309,6 @@ export interface Tables {
   block: BlockTable;
   comment: CommentTable;
   conversation: ConversationTable;
-  from_you_item: FromYouItemTable;
   command: CommandTable;
   event: EventTable;
   outbox: OutboxTable;
