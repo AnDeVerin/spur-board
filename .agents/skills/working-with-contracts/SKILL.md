@@ -1,6 +1,6 @@
 ---
 name: working-with-contracts
-description: Rules for changing packages/contracts - zod schemas, config fields, enums, journal event kinds, port contracts, breaking changes and PR order. Use when you add or change anything under packages/contracts/ or review such a diff. Don't use for package boundaries (see AGENTS.md and eslint.config.js).
+description: Rules for changing packages/contracts - zod schemas, config fields, enums, journal event kinds, port contracts, breaking changes and PR order. Use when you add or change anything under packages/contracts/ or review such a diff. Don't use for package boundaries (read AGENTS.md and eslint.config.js).
 ---
 
 # Working with contracts

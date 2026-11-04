@@ -16,7 +16,8 @@ Agent files are read by models on every run. Keep them short, exact and in sync.
 - Frontmatter has exactly two keys:
   - `name` - equal to the directory name;
   - `description` - one line, at most 300 characters: what the skill does, then a positive
-    trigger `Use when ...` and a negative trigger `Don't use for ... (use <other skill>)`.
+    trigger `Use when ...` and a negative trigger `Don't use for ...`. Route the negative case to
+    another skill, or to an owning file when no skill covers it.
 - The description is how a model decides to load the skill. Name the actions and paths that
   should trigger it, not the skill's internals.
 

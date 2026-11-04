@@ -16,6 +16,8 @@
   `packages/core/src/index.ts`.
 - An up-to-date `openStore` takes no migration write lock (`packages/core/src/store/migrate.ts`),
   so a second reader can open the database.
+- Before migrating a database that already has a schema, write a backup named with its prior
+  version and a timestamp (`packages/core/src/store/migrate.ts`, `backupPath`).
 - In tests that need `Store.close()` to release a newly opened file, run one query first:
   Kysely initializes its driver lazily and skips `destroy()` before initialization
   (`packages/core/src/store/store.ts`).

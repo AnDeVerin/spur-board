@@ -19,6 +19,11 @@ description: Rules for tests, Vitest, testkit, checks and CI. Use when changing 
   `packages/cli/package.json`).
 - Run the TypeScript step for `expectTypeOf` assertions; Vitest does not typecheck them. Package
   tsconfigs include `test`, and `buildSteps` runs `tsc --noEmit` (`scripts/check.ts`).
+- Express rejected type shapes with `expectTypeOf(...).not.toExtend<...>()`, without a
+  `@ts-expect-error` escape (`packages/contracts/test/gateway/gateway-types.test.ts`).
+- With `erasableSyntaxOnly` and `exactOptionalPropertyTypes`, avoid constructor parameter
+  properties and give optional fields an explicit `undefined` union when callers pass it
+  (`tsconfig.base.json`).
 - Give a new package a TypeScript source file before running typecheck, and add runtime
   dependencies when its source uses them; an empty scaffold can fail TypeScript or knip
   (`packages/daemon/tsconfig.json`, `scripts/check.ts`, `knip.json`).
@@ -44,6 +49,8 @@ description: Rules for tests, Vitest, testkit, checks and CI. Use when changing 
 
 ## CI and dependencies
 
+- For CI triggers, reporters, release permissions and dependency update policy, read
+  `references/ci-workflows.md`.
 - Add a new CI job to `ci-ok.needs` and its verdict handling in `scripts/ci.ts`; accepted skips
   are explicit there (`.github/workflows/ci.yml`, `scripts/ci.test.ts`).
 - Keep no-install CI jobs on built-in Node imports and set

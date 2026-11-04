@@ -8,7 +8,8 @@ The numbers are the canonical gate order.
    only the comments), plus the design notes its "Design notes" section cites when the session
    gives access; public text never quotes private notes. `git fetch origin main` once; pass the
    `origin/main` SHA to every role, roles never fetch. Write checkable acceptance criteria.
-2. Tier - score as above. Tier 0 or 3: run Clarify (step 6) here only if intake left an unknown.
+2. Tier - score with the table in `.agents/skills/manager/SKILL.md`. Tier 0 or 3: run Clarify
+   (step 6) here only if intake left an unknown.
 3. Research (tier 2) - `researcher`, then `critic` on its output. Keep the selected option and
    `Split possible`; yes -> the architect splits the change map into scopes with disjoint files.
 4. Plan draft (tier 1-2) - `architect` in draft mode. Write its spec to the spec file.
