@@ -1,4 +1,13 @@
-import { readFileSync, realpathSync, statSync } from 'node:fs';
+import {
+  closeSync,
+  constants,
+  fstatSync,
+  lstatSync,
+  openSync,
+  readFileSync,
+  realpathSync,
+  statSync,
+} from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, relative, sep } from 'node:path';
 import { CliError } from './exit-codes.ts';
@@ -34,8 +43,29 @@ function daemonAddress(env: NodeJS.ProcessEnv): URL {
 }
 
 function tokenInFolder(folder: string): string | undefined {
+  const directory = join(folder, '.spur-board');
+  const file = join(directory, 'token');
   try {
-    const value = readFileSync(join(folder, '.spur-board', 'token'), 'utf8').trimEnd();
+    const owner = process.getuid?.();
+    const directoryInfo = lstatSync(directory);
+    if (
+      !directoryInfo.isDirectory() ||
+      directoryInfo.uid !== owner ||
+      (directoryInfo.mode & 0o077) !== 0
+    ) {
+      throw new CliError('config', { environmentVariable: 'BOARD_TOKEN' });
+    }
+    const descriptor = openSync(file, constants.O_RDONLY | constants.O_NOFOLLOW);
+    let value: string;
+    try {
+      const fileInfo = fstatSync(descriptor);
+      if (!fileInfo.isFile() || fileInfo.uid !== owner || (fileInfo.mode & 0o077) !== 0) {
+        throw new CliError('config', { environmentVariable: 'BOARD_TOKEN' });
+      }
+      value = readFileSync(descriptor, 'utf8').trimEnd();
+    } finally {
+      closeSync(descriptor);
+    }
     if (value === '') throw new CliError('config', { environmentVariable: 'BOARD_TOKEN' });
     return value;
   } catch (error) {

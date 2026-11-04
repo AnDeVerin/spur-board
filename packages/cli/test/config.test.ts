@@ -1,4 +1,4 @@
-import { chmodSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -25,8 +25,8 @@ function setup() {
 }
 
 function token(folder: string, value: string) {
-  mkdirSync(join(folder, '.spur-board'), { recursive: true });
-  writeFileSync(join(folder, '.spur-board', 'token'), `${value}\n`);
+  mkdirSync(join(folder, '.spur-board'), { recursive: true, mode: 0o700 });
+  writeFileSync(join(folder, '.spur-board', 'token'), `${value}\n`, { mode: 0o600 });
 }
 
 const env = { BOARD_DAEMON_URL: 'http://127.0.0.1:4311' };
@@ -59,6 +59,31 @@ describe('operator token lookup', () => {
     token(root, 'ambient-token');
     chmodSync(root, 0o777);
     expect(findTokenFile(paths.outside, paths.home)).toBeUndefined();
+  });
+
+  it('rejects a shared token directory or readable token file', () => {
+    const paths = setup();
+    token(paths.project, 'unsafe-token');
+    const directory = join(paths.project, '.spur-board');
+    chmodSync(directory, 0o755);
+    expect(() => findTokenFile(paths.cwd, paths.home)).toThrow();
+    chmodSync(directory, 0o700);
+    chmodSync(join(directory, 'token'), 0o644);
+    expect(() => findTokenFile(paths.cwd, paths.home)).toThrow();
+  });
+
+  it('rejects a symlinked token directory or file', () => {
+    const paths = setup();
+    const target = join(paths.home, 'target');
+    mkdirSync(target);
+    token(target, 'linked-token');
+    symlinkSync(join(target, '.spur-board'), join(paths.project, '.spur-board'));
+    expect(() => findTokenFile(paths.cwd, paths.home)).toThrow();
+
+    const other = join(paths.home, 'other');
+    mkdirSync(join(other, '.spur-board'), { mode: 0o700 });
+    symlinkSync(join(target, '.spur-board', 'token'), join(other, '.spur-board', 'token'));
+    expect(() => findTokenFile(other, paths.home)).toThrow();
   });
 
   it('uses BOARD_TOKEN before a file and skips lookup for a session', () => {
