@@ -15,13 +15,21 @@ export function iconFor(persona: Persona): string {
   return roleIcons[persona.role];
 }
 
-export function markerId(key: string): string | null {
+function blockId(prefix: string, key: string): string | null {
   try {
-    const id = `${MARKER_PREFIX}${encodeURIComponent(key)}`;
+    const id = `${prefix}${encodeURIComponent(key)}`;
     return id.length <= 255 ? id : null;
   } catch {
     return null;
   }
+}
+
+export function markerId(key: string): string | null {
+  return blockId(MARKER_PREFIX, key);
+}
+
+export function originMarkerId(key: string): string | null {
+  return blockId(ORIGIN_PREFIX, key);
 }
 
 export function markerFromBlocks(blocks: unknown): string | undefined {
@@ -144,8 +152,8 @@ export function messageBlocks(
     { type: 'section', block_id: marker, text: { type: 'mrkdwn', text } },
   ];
   if (originKey !== undefined) {
-    const id = `${ORIGIN_PREFIX}${encodeURIComponent(originKey)}`;
-    if (id.length > 255) throw new Error('origin marker too long');
+    const id = originMarkerId(originKey);
+    if (id === null) throw new Error('origin marker too long');
     blocks.push({
       type: 'context',
       block_id: id,

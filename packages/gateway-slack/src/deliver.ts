@@ -7,6 +7,7 @@ import {
   markerFromBlocks,
   markerId,
   messageBlocks,
+  originMarkerId,
   renderText,
   splitText,
 } from './render.ts';
@@ -88,6 +89,13 @@ export function createDeliveryGateway(
     );
     const markers = keys.map(markerId);
     if (markers.some((marker) => marker === null)) return failedMessage('marker_too_long');
+    if (
+      request.target.kind === 'open' &&
+      parts.length > 1 &&
+      originMarkerId(request.key) === null
+    ) {
+      return failedMessage('marker_too_long');
+    }
     let confirmed = false;
     try {
       const target = request.target;
