@@ -150,18 +150,32 @@ async function recoverSkill(parent: string, destination: string, name: string): 
   if (!(await targetDirectory(parent))) return;
   const entries = await readdir(parent);
   const backupPrefix = `.${name}-backup-`;
-  const backups = entries.filter(
-    (entry) => entry.startsWith(backupPrefix) && installId.test(entry.slice(backupPrefix.length)),
-  );
-  for (const entry of backups) await targetDirectory(join(parent, entry));
+  const backups: { path: string; owner: string }[] = [];
+  for (const entry of entries) {
+    if (!entry.startsWith(backupPrefix) || !entry.endsWith('.owner')) continue;
+    const id = entry.slice(backupPrefix.length, -'.owner'.length);
+    if (!installId.test(id)) continue;
+    const owner = join(parent, entry);
+    const ownerStat = await lstat(owner);
+    if (!ownerStat.isFile() || ownerStat.isSymbolicLink()) continue;
+    if ((await readFile(owner, 'utf8')) !== `spur-board backup ${id}\n`) continue;
+    const path = join(parent, `${backupPrefix}${id}`);
+    if (await targetDirectory(path)) backups.push({ path, owner });
+    else await rm(owner);
+  }
 
   const exists = await targetDirectory(destination);
   if (!exists && backups.length > 1) {
     throw new Error(`Multiple interrupted backups exist for ${destination}`);
   }
-  if (!exists && backups[0]) await rename(join(parent, backups[0]), destination);
-  else if (exists) {
-    for (const backup of backups) await rm(join(parent, backup), { recursive: true });
+  if (!exists && backups[0]) {
+    await rename(backups[0].path, destination);
+    await rm(backups[0].owner);
+  } else if (exists) {
+    for (const backup of backups) {
+      await rm(backup.path, { recursive: true });
+      await rm(backup.owner);
+    }
   }
 
   const stagePrefix = `.${name}-stage-`;
@@ -219,15 +233,35 @@ async function installIntoHome(
 
           const existing = await checkTarget(home, agent, destination);
           if (existing) {
-            const backup = join(parent, `.${skill.name}-backup-${randomUUID()}`);
-            await rename(destination, backup);
+            const backupId = randomUUID();
+            const backup = join(parent, `.${skill.name}-backup-${backupId}`);
+            const backupOwner = `${backup}.owner`;
+            await mkdir(backup, { mode: 0o700 });
+            let ownerCreated = false;
+            let backupContainsSkill = false;
             try {
-              await rename(staged, destination);
-            } catch (error) {
-              await rename(backup, destination);
-              throw error;
+              await writeFile(backupOwner, `spur-board backup ${backupId}\n`, {
+                flag: 'wx',
+                mode: 0o600,
+              });
+              ownerCreated = true;
+              await rename(destination, backup);
+              backupContainsSkill = true;
+              try {
+                await rename(staged, destination);
+              } catch (error) {
+                await rename(backup, destination);
+                backupContainsSkill = false;
+                throw error;
+              }
+              await rm(backup, { recursive: true });
+              backupContainsSkill = false;
+            } finally {
+              if (!backupContainsSkill) {
+                await rm(backup, { recursive: true, force: true });
+                if (ownerCreated) await rm(backupOwner);
+              }
             }
-            await rm(backup, { recursive: true });
           } else {
             await rename(staged, destination);
           }

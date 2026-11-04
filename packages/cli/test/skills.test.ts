@@ -233,7 +233,7 @@ describe('skills install', () => {
     ).toBe('Board skill\n');
   });
 
-  it('restores a backup after an interrupted swap without removing unrelated directories', async () => {
+  it('restores only marked backups and preserves unrelated directories', async () => {
     const { home, packageRoot } = await fixture();
     await installSkills({ home, packageRoot });
     const parent = join(home, '.claude', 'skills');
@@ -241,19 +241,39 @@ describe('skills install', () => {
     const backup = join(parent, '.spur-board-backup-00000000-0000-4000-8000-000000000001');
     const staged = join(parent, '.spur-board-stage-notes');
     const unrelatedBackup = join(parent, '.spur-board-backup-notes');
-    await rename(installed, backup);
+    const unrelatedUuidBackup = join(
+      parent,
+      '.spur-board-backup-00000000-0000-4000-8000-000000000002',
+    );
     await mkdir(staged);
     await writeFile(join(staged, 'keep.txt'), 'stage notes');
     await mkdir(unrelatedBackup);
     await writeFile(join(unrelatedBackup, 'keep.txt'), 'backup notes');
+    await mkdir(unrelatedUuidBackup);
+    await writeFile(join(unrelatedUuidBackup, 'keep.txt'), 'UUID backup notes');
+    await writeFile(`${unrelatedUuidBackup}.owner`, 'user content');
+
+    expect((await installSkills({ home, packageRoot })).every((result) => !result.changed)).toBe(
+      true,
+    );
+    await writeFile(`${backup}.owner`, 'spur-board backup 00000000-0000-4000-8000-000000000001\n');
+    await rename(installed, backup);
 
     const results = await installSkills({ home, packageRoot });
     expect(results.every((result) => !result.changed)).toBe(true);
     expect(await readFile(join(installed, 'SKILL.md'), 'utf8')).toBe('Board skill\n');
     expect(await readFile(join(staged, 'keep.txt'), 'utf8')).toBe('stage notes');
     expect(await readFile(join(unrelatedBackup, 'keep.txt'), 'utf8')).toBe('backup notes');
+    expect(await readFile(join(unrelatedUuidBackup, 'keep.txt'), 'utf8')).toBe('UUID backup notes');
+    expect(await readFile(`${unrelatedUuidBackup}.owner`, 'utf8')).toBe('user content');
     expect((await readdir(parent)).sort()).toEqual(
-      [...names, '.spur-board-stage-notes', '.spur-board-backup-notes'].sort(),
+      [
+        ...names,
+        '.spur-board-stage-notes',
+        '.spur-board-backup-notes',
+        '.spur-board-backup-00000000-0000-4000-8000-000000000002',
+        '.spur-board-backup-00000000-0000-4000-8000-000000000002.owner',
+      ].sort(),
     );
   });
 
