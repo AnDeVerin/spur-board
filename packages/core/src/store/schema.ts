@@ -257,6 +257,7 @@ export interface NotificationTable {
   next_at: string;
   last_outbox_id: number | null;
   acked_at: string | null;
+  exhausted_at: string | null;
   created_at: string;
 }
 

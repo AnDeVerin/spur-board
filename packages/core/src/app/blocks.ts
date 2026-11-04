@@ -25,6 +25,12 @@ import {
 } from '../domain/blocks/blocks.ts';
 import { authorize, type ResolvedTarget } from './authorize.ts';
 import { CommandError, type CommandContext, type Mutation } from './commands.ts';
+import {
+  acknowledgeNotification,
+  closeBlockNotification,
+  registerAnswerNotification,
+  registerBlockNotification,
+} from './doorbells.ts';
 import { enqueueConversationOpen, enqueueConversationReply } from './outbox.ts';
 
 type Task = Selectable<TaskTable>;
@@ -296,6 +302,15 @@ async function addComment(
     .returningAll()
     .executeTakeFirstOrThrow();
   await journal(trx, task, ctx, 'comment_added', { comment: commentId(row.id), addressee });
+  if (block !== undefined && ctx.actor !== block.author) {
+    await registerAnswerNotification(trx, {
+      block,
+      commentId: row.id,
+      revision: row.revision,
+      authorRole: authorRole(config, task, block.author),
+      at: new Date(ctx.at),
+    });
+  }
   if (block !== undefined) {
     await enqueueConversationReply(trx, {
       commentId: row.id,
@@ -342,6 +357,7 @@ async function openBlock(
     .returningAll()
     .executeTakeFirstOrThrow();
   await journal(trx, task, ctx, 'block_opened', { block: blockId(row.id), type, addressee });
+  await registerBlockNotification(trx, row, new Date(ctx.at));
   return row;
 }
 
@@ -370,6 +386,7 @@ async function close(
     outcome,
     ...(outcomeReason === null ? {} : { reason: outcomeReason }),
   });
+  await closeBlockNotification(trx, block.id, new Date(ctx.at));
   return updated;
 }
 
@@ -448,6 +465,7 @@ export function createBlockMutations(config: Config) {
         to: next.addressee,
       });
       await queueBlockOpen(trx, task, updated, ctx, config);
+      await registerBlockNotification(trx, updated, new Date(ctx.at));
       return { block: blockView(updated, task) };
     },
   };
@@ -550,19 +568,58 @@ export function createBlockMutations(config: Config) {
         revision: next.revision,
         clarification: next.clarification,
       });
+      if (next.clarification && updated.block_id !== null) {
+        const block = await trx
+          .selectFrom('block')
+          .selectAll()
+          .where('id', '=', updated.block_id)
+          .executeTakeFirstOrThrow();
+        if (ctx.actor !== block.author) {
+          await registerAnswerNotification(trx, {
+            block,
+            commentId: updated.id,
+            revision: updated.revision,
+            authorRole: authorRole(config, task, block.author),
+            at: new Date(ctx.at),
+          });
+        }
+      }
       return { comment: commentView(updated, task) };
     },
   };
   const ack: Mutation<'inbox.ack'> = {
     id: 'inbox.ack',
     async resolveTargets(trx, input) {
-      return Promise.all(input.entries.map(({ id }) => commentTarget(trx, id)));
+      return Promise.all(
+        input.entries.map(async ({ id }) => {
+          if (id.startsWith('C')) return commentTarget(trx, id);
+          const targets = await blockTarget(trx, id);
+          const target = targets[0];
+          return target === undefined ? { kind: 'missing' as const, id } : { ...target, id };
+        }),
+      );
     },
     async run(trx, input, ctx) {
       for (const entry of input.entries) {
+        if (!('revision' in entry)) {
+          const block = found(await blockById(trx, entry.id));
+          const read = await acknowledgeNotification(trx, {
+            blockId: block.id,
+            actor: ctx.actor,
+            at: new Date(ctx.at),
+          });
+          if (!read) throw new CommandError('not_found', 'No unread block notification.');
+          continue;
+        }
         const comment = found(await commentById(trx, entry.id));
         const task = await taskById(trx, comment.task_id);
         const revision = rule(() => acknowledgeComment(comment.revision, entry.revision));
+        await acknowledgeNotification(trx, {
+          commentId: comment.id,
+          revision,
+          actor: ctx.actor,
+          at: new Date(ctx.at),
+        });
         await trx
           .updateTable('comment')
           .set({ acked_revision: revision })

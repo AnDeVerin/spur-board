@@ -68,23 +68,21 @@ export async function main(): Promise<void> {
       ];
       const ctx = ctxFor('gateway-slack');
       const settings = slackSettings(ctx.config, ctx.secrets);
-      if (settings === null) return entries;
-      const gateway = createSlackGateway(settings);
-      entries.push(
-        {
+      const gateway = settings === null ? undefined : createSlackGateway(settings);
+      if (gateway !== undefined)
+        entries.push({
           name: 'gateway-slack',
           stopStage: 'final',
           module: {
             start: () => gateway.start(() => Promise.resolve()),
             stop: () => gateway.stop(),
           },
-        },
-        {
-          name: 'outbox',
-          stopStage: 'outbox',
-          module: createOutboxModule(ctxFor('outbox'), gateway),
-        },
-      );
+        });
+      entries.push({
+        name: 'outbox',
+        stopStage: 'outbox',
+        module: createOutboxModule(ctxFor('outbox'), gateway),
+      });
       return entries;
     },
     port: processPort(),

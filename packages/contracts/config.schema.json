@@ -157,6 +157,34 @@
       },
       "additionalProperties": false
     },
+    "doorbells": {
+      "default": {},
+      "type": "object",
+      "properties": {
+        "firstRetryMs": {
+          "default": 120000,
+          "description": "Wait after the first unanswered doorbell in milliseconds.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "secondRetryMs": {
+          "default": 300000,
+          "description": "Wait after the second unanswered doorbell in milliseconds.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        },
+        "unansweredAfterMs": {
+          "default": 900000,
+          "description": "Wait after the third unanswered doorbell in milliseconds.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        }
+      },
+      "additionalProperties": false
+    },
     "adapters": {
       "default": {},
       "type": "object",

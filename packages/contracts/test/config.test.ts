@@ -91,6 +91,11 @@ describe('fixtures', () => {
     expect(config.thresholds.staleMultiplier).toBe(3);
     expect(config.archive.doneWeekday).toBe('saturday');
     expect(config.commands.retentionDays).toBe(7);
+    expect(config.doorbells).toEqual({
+      firstRetryMs: 120_000,
+      secondRetryMs: 300_000,
+      unansweredAfterMs: 900_000,
+    });
     expect(config.slack.channels).toEqual({});
     expect(adapterKeys(config)).toEqual(adapterDefaults);
     const project = config.projects[0];
@@ -143,6 +148,12 @@ describe('fixtures', () => {
 
 describe('invalid configs', () => {
   it.each<[string, unknown, string, string]>([
+    [
+      'invalid doorbell retry pause',
+      validConfig({}, { doorbells: { firstRetryMs: 0 } }),
+      'Too small: expected number to be >=1',
+      'doorbells.firstRetryMs',
+    ],
     [
       'unknown tracker key',
       validConfig({ tracker: { ...jiraTracker, foo: 1 } }),
@@ -332,6 +343,9 @@ describe('JSON Schema', () => {
       '.adapters.github.intervalMs',
       '.adapters.jira.intervalMs',
       '.adapters.spur.intervalMs',
+      '.doorbells.firstRetryMs',
+      '.doorbells.secondRetryMs',
+      '.doorbells.unansweredAfterMs',
       '.health.errorAfterMs',
       '.health.flipSmoothingMs',
       '.health.hostLoad.maxEpisodeMs',

@@ -350,6 +350,8 @@ describe('migration pins', () => {
     '0003_delivery_search.sql': '3e915831a61930771096e91e17273a933cd8b5c2476aaec1c2d23b5f4fc2c755',
     '0004_attempt_started.sql': 'e2f659d551e9aaca510f1b84735eb451d8c8eac7bc8a4eeedd22487545f6f1f2',
     '0005_doorbells_items.sql': '6d1a269b593d0f6b342a73761f1a756a94a6c9c2a5c983c191a627654b097570',
+    '0006_notification_exhausted.sql':
+      '64139694f1bde3e61d7c1b67ebc9eb4858c3974bdd72f84306ac3837f7d8de96',
   };
 
   interface MigrationFile {

@@ -193,6 +193,7 @@ export const sampleRows: SampleRows = {
     last_outbox_id: 1,
     acked_at: null,
     created_at: at,
+    exhausted_at: null,
   },
   operator_item: {
     id: 1,
