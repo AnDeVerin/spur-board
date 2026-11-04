@@ -135,6 +135,16 @@ describe('evaluateSessionHealth', () => {
     expect(result.hostLoad).toBeNull();
   });
 
+  it('reports rate limiting for an other-role session without an actionable flag', () => {
+    const result = evaluate({
+      sessions: [session('reviewer', 'rate_limited', 0, { role: 'other' })],
+    });
+    expect(result.statuses).toEqual([
+      { taskId: 'TASK-1', sessionId: 'reviewer', kind: 'rate_limited' },
+    ]);
+    expect(result.flags).toEqual([]);
+  });
+
   it('does not flag waiting workers with an open PR, including draft PRs', () => {
     const waiting = session('a', 'waiting', 1_800_000);
     const result = evaluate({

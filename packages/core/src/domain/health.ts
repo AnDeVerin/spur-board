@@ -91,7 +91,6 @@ export function evaluateSessionHealth(input: SessionHealthInput): SessionHealthR
   const statuses: SessionHealthStatus[] = [];
   const seen = new Set<string>();
   for (const session of sessions) {
-    if (session.role === 'other') continue;
     const identity = JSON.stringify([session.taskId, session.id]);
     if (seen.has(identity)) continue;
     seen.add(identity);
@@ -118,6 +117,7 @@ export function evaluateSessionHealth(input: SessionHealthInput): SessionHealthR
       statuses.push({ taskId: session.taskId, sessionId: session.id, kind: 'rate_limited' });
       continue;
     }
+    if (session.role === 'other') continue;
 
     const heldMs = now - Date.parse(session.healthSince);
     let kind: SessionHealthFlagKind | null = null;
