@@ -211,24 +211,35 @@ describe('block and comment mutations', () => {
     expect(JSON.parse(clarification.payload)).toMatchObject({ blockId: 1, commentId: 3 });
   });
 
-  it('queues earlier linked comments in order when a block is escalated', async () => {
+  it('queues earlier linked comments with their authors when a dependency escalates', async () => {
     const { store, apply } = await seeded();
-    const asked = await apply(ops.ask, { task: KEY, text: 'Question?' }, author, 'ask-1');
+    const created = await apply(
+      ops.create,
+      { task: KEY, type: 'dependency', reason: 'Needs outside work.' },
+      orchestrator,
+      'create-1',
+    );
     await apply(
       ops.add,
-      { task: KEY, block: asked.block.id, text: 'More context.' },
+      { task: KEY, block: created.block.id, text: 'Question?' },
       author,
       'comment-1',
     );
     await apply(
       ops.add,
-      { task: KEY, block: asked.block.id, text: 'My note.' },
+      { task: KEY, block: created.block.id, text: 'My note.' },
       orchestrator,
       'comment-2',
     );
+    await apply(
+      ops.add,
+      { task: KEY, block: created.block.id, text: 'More context.' },
+      author,
+      'comment-3',
+    );
     expect(await counts(store)).toMatchObject({ outbox: 0 });
 
-    await apply(ops.escalate, { block: asked.block.id }, orchestrator, 'escalate-1');
+    await apply(ops.escalate, { block: created.block.id }, orchestrator, 'escalate-1');
     const rows = await store.db.selectFrom('outbox').selectAll().orderBy('id').execute();
     expect(rows.map((row) => row.kind)).toEqual([
       'conversation.open',
@@ -241,9 +252,9 @@ describe('block and comment mutations', () => {
       return payload;
     });
     expect(payloads).toMatchObject([
-      { commentId: 1, persona: { name: 'web', role: 'worker' } },
-      { commentId: 2, persona: { name: 'web', role: 'worker' } },
-      { commentId: 3, persona: { name: 'qa', role: 'orchestrator' } },
+      { commentId: 1, text: 'Question?', persona: { name: 'web', role: 'worker' } },
+      { commentId: 2, persona: { name: 'qa', role: 'orchestrator' } },
+      { commentId: 3, persona: { name: 'web', role: 'worker' } },
     ]);
     expect(
       await store.db
@@ -253,7 +264,7 @@ describe('block and comment mutations', () => {
         .orderBy('id')
         .execute(),
     ).toEqual(Array.from({ length: 3 }, () => ({ delivery_state: 'pending' })));
-    await apply(ops.escalate, { block: asked.block.id }, orchestrator, 'escalate-repeat');
+    await apply(ops.escalate, { block: created.block.id }, orchestrator, 'escalate-repeat');
     expect(await counts(store)).toMatchObject({ outbox: 3 });
   });
 

@@ -245,7 +245,7 @@ async function queueBlockOpen(
   const opened = await enqueueConversationOpen(trx, {
     blockId: block.id,
     commentId: comments[0]?.id ?? null,
-    persona: personaFor(config, task, block.author),
+    persona: personaFor(config, task, comments[0]?.author ?? block.author),
     at: new Date(ctx.at),
   });
   if (opened === null) return;
