@@ -98,21 +98,25 @@ describe('planCheck', () => {
     });
   });
 
-  it.each(['.gitignore', 'pnpm-lock.yaml', 'tsconfig.base.json', 'scripts/check.ts', 'knip.json'])(
-    'runs everything when %s changes',
-    (path) => {
-      expect(
-        planCheck({
-          full: false,
-          changed: [
-            { path: 'packages/contracts/src/index.ts', deleted: false },
-            { path, deleted: false },
-          ],
-          packageDirs,
-        }),
-      ).toEqual({ mode: 'full', reason: `${path} changed`, ...everything });
-    },
-  );
+  it.each([
+    '.gitignore',
+    'pnpm-lock.yaml',
+    'tsconfig.base.json',
+    'scripts/check.ts',
+    'packages/skills/spur-board/SKILL.md',
+    'knip.json',
+  ])('runs everything when %s changes', (path) => {
+    expect(
+      planCheck({
+        full: false,
+        changed: [
+          { path: 'packages/contracts/src/index.ts', deleted: false },
+          { path, deleted: false },
+        ],
+        packageDirs,
+      }),
+    ).toEqual({ mode: 'full', reason: `${path} changed`, ...everything });
+  });
 
   it('checks an untracked file in a package', () => {
     const plan = planCheck({

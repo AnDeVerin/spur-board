@@ -1,4 +1,4 @@
 {
   "extends": "./tsconfig.base.json",
-  "include": ["scripts", "eslint", "vitest.config.ts"]
+  "include": ["scripts", "eslint", "vitest.config.ts", "packages/skills/test"]
 }

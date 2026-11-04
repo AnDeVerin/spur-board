@@ -113,7 +113,7 @@ const GLOBAL_FILES = new Set([
   '.gitignore',
   'knip.json',
 ]);
-const GLOBAL_DIRS = ['eslint/', 'scripts/', 'packages/testkit/'];
+const GLOBAL_DIRS = ['eslint/', 'scripts/', 'packages/testkit/', 'packages/skills/'];
 const LINT_EXTENSIONS = /\.(ts|mts|cts|js|mjs|cjs)$/;
 
 function isGlobal(path: string): boolean {
