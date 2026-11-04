@@ -5,7 +5,6 @@ import {
   cp,
   lstat,
   mkdir,
-  mkdtemp,
   readFile,
   readdir,
   realpath,
@@ -19,6 +18,7 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const stampName = '.spur-board-install.json';
+const installId = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const skills = [
   { source: 'spur-board', name: 'spur-board' },
   { source: 'setup', name: 'spur-board-setup' },
@@ -150,9 +150,8 @@ async function recoverSkill(parent: string, destination: string, name: string): 
   if (!(await targetDirectory(parent))) return;
   const entries = await readdir(parent);
   const backupPrefix = `.${name}-backup-`;
-  const backupId = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
   const backups = entries.filter(
-    (entry) => entry.startsWith(backupPrefix) && backupId.test(entry.slice(backupPrefix.length)),
+    (entry) => entry.startsWith(backupPrefix) && installId.test(entry.slice(backupPrefix.length)),
   );
   for (const entry of backups) await targetDirectory(join(parent, entry));
 
@@ -163,6 +162,20 @@ async function recoverSkill(parent: string, destination: string, name: string): 
   if (!exists && backups[0]) await rename(join(parent, backups[0]), destination);
   else if (exists) {
     for (const backup of backups) await rm(join(parent, backup), { recursive: true });
+  }
+
+  const stagePrefix = `.${name}-stage-`;
+  for (const entry of entries) {
+    if (!entry.startsWith(stagePrefix) || !entry.endsWith('.owner')) continue;
+    const id = entry.slice(stagePrefix.length, -'.owner'.length);
+    if (!installId.test(id)) continue;
+    const owner = join(parent, entry);
+    const ownerStat = await lstat(owner);
+    if (!ownerStat.isFile() || ownerStat.isSymbolicLink()) continue;
+    if ((await readFile(owner, 'utf8')) !== `spur-board stage ${id}\n`) continue;
+    const staged = join(parent, `${stagePrefix}${id}`);
+    if (await targetDirectory(staged)) await rm(staged, { recursive: true });
+    await rm(owner);
   }
 }
 
@@ -190,8 +203,14 @@ async function installIntoHome(
       if (changed) {
         await mkdir(parent, { recursive: true });
         await checkTarget(home, agent, destination);
-        const staged = await mkdtemp(join(parent, `.${skill.name}-stage-`));
+        const stageId = randomUUID();
+        const staged = join(parent, `.${skill.name}-stage-${stageId}`);
+        const owner = `${staged}.owner`;
+        await writeFile(owner, `spur-board stage ${stageId}\n`, { flag: 'wx', mode: 0o600 });
+        let stagedCreated = false;
         try {
+          await mkdir(staged, { mode: 0o700 });
+          stagedCreated = true;
           const source = join(packageRoot, 'skills', skill.source);
           if (options.copySkill) await options.copySkill(source, staged);
           else await cp(source, staged, { recursive: true });
@@ -213,7 +232,8 @@ async function installIntoHome(
             await rename(staged, destination);
           }
         } finally {
-          await rm(staged, { recursive: true, force: true });
+          if (stagedCreated) await rm(staged, { recursive: true, force: true });
+          await rm(owner);
         }
       }
       results.push({ agent: agent === '.claude' ? 'claude' : 'codex', skill: skill.name, changed });

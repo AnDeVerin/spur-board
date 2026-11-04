@@ -257,6 +257,29 @@ describe('skills install', () => {
     );
   });
 
+  it('removes only staging directories marked by an interrupted install', async () => {
+    const { home, packageRoot } = await fixture();
+    await installSkills({ home, packageRoot });
+    const parent = join(home, '.claude', 'skills');
+    const ownedId = '00000000-0000-4000-8000-000000000001';
+    const unownedId = '00000000-0000-4000-8000-000000000002';
+    const owned = join(parent, `.spur-board-stage-${ownedId}`);
+    const unowned = join(parent, `.spur-board-stage-${unownedId}`);
+    await mkdir(owned);
+    await writeFile(join(owned, 'partial.txt'), 'incomplete copy');
+    await writeFile(`${owned}.owner`, `spur-board stage ${ownedId}\n`);
+    await mkdir(unowned);
+    await writeFile(join(unowned, 'keep.txt'), 'user content');
+    await writeFile(`${unowned}.owner`, 'user content');
+
+    const results = await installSkills({ home, packageRoot });
+    expect(results.every((result) => !result.changed)).toBe(true);
+    await expect(readdir(owned)).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(readFile(`${owned}.owner`, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(await readFile(join(unowned, 'keep.txt'), 'utf8')).toBe('user content');
+    expect(await readFile(`${unowned}.owner`, 'utf8')).toBe('user content');
+  });
+
   it('serializes concurrent upgrades so only one copy replaces each skill', async () => {
     const { home, packageRoot } = await fixture();
     await installSkills({ home, packageRoot });
