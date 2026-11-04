@@ -89,6 +89,7 @@ describe('fixtures', () => {
   it('parses the Jira project and fills the defaults', () => {
     const config = configSchema.parse(readFixture('jira-project.yaml'));
     expect(config.thresholds.staleMultiplier).toBe(3);
+    expect(config.thresholds.blockOpenMs).toBe(86_400_000);
     expect(config.archive.doneWeekday).toBe('saturday');
     expect(config.commands.retentionDays).toBe(7);
     expect(config.doorbells).toEqual({
@@ -114,6 +115,7 @@ describe('fixtures', () => {
   it('parses the github-issues project and fills the defaults', () => {
     const config = configSchema.parse(readFixture('github-issues-project.yaml'));
     expect(config.thresholds.staleMultiplier).toBe(3);
+    expect(config.thresholds.blockOpenMs).toBe(86_400_000);
     expect(config.archive.doneWeekday).toBe('saturday');
     expect(config.commands.retentionDays).toBe(7);
     expect(config.http.port).toBe(4311);
@@ -154,6 +156,12 @@ describe('fixtures', () => {
 
 describe('invalid configs', () => {
   it.each<[string, unknown, string, string]>([
+    [
+      'nonpositive block threshold',
+      validConfig({}, { thresholds: { blockOpenMs: 0 } }),
+      'Too small',
+      'thresholds.blockOpenMs',
+    ],
     [
       'invalid doorbell retry pause',
       validConfig({}, { doorbells: { firstRetryMs: 0 } }),
@@ -383,6 +391,7 @@ describe('JSON Schema', () => {
       '.health.idleInDevAfterMs',
       '.health.needsInputAfterMs',
       '.sources.authRetryMs',
+      '.thresholds.blockOpenMs',
     ]);
   });
 

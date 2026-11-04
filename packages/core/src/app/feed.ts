@@ -49,6 +49,11 @@ export async function raiseItem(
     taskId: number | null;
     blockId: number | null;
     at: Date;
+    fingerprint?: string;
+    factAt?: string | null;
+    source?: string | null;
+    priority?: number;
+    suppressFeed?: boolean;
   },
 ): Promise<Row<'operator_item'>> {
   const active = await trx
@@ -77,14 +82,19 @@ export async function raiseItem(
       raised_at: input.at.toISOString(),
       cleared_at: null,
       line_outbox_id: null,
+      fingerprint: input.fingerprint ?? null,
+      fact_at: input.factAt ?? null,
+      source: input.source ?? null,
+      priority: input.priority ?? null,
+      inbound_event_json: null,
     })
     .returningAll()
     .executeTakeFirstOrThrow();
   await journal(trx, item, 'from_you_raised', input.at);
-  if (!NO_FEED.has(item.kind)) {
+  if (!NO_FEED.has(item.kind) && !input.suppressFeed) {
     const task =
       item.task_id === null
-        ? undefined
+        ? null
         : await trx
             .selectFrom('task')
             .select('key')
@@ -147,7 +157,7 @@ export async function clearItem(trx: Trx, itemId: number, at: Date): Promise<voi
   if (item.line_outbox_id === null) return;
   const task =
     item.task_id === null
-      ? undefined
+      ? null
       : await trx
           .selectFrom('task')
           .select('key')

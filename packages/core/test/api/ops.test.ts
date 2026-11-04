@@ -425,7 +425,16 @@ describe('catalog HTTP API', () => {
       },
       run() {
         read();
-        return Promise.resolve({ tasks: [] });
+        return Promise.resolve({
+          tasks: [],
+          items: [],
+          unlinkedPrs: [],
+          unlinkedSessions: [],
+          sources: [],
+          warmingUp: true,
+          spurUnavailable: null,
+          hostLoad: null,
+        });
       },
     };
     const app = await server(newStore(), { registry: { 'status.get': statusGet } });

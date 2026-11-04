@@ -188,6 +188,23 @@ describe('batch', () => {
     ).toBe(false);
   });
 
+  it('matches a pending ticket request by key before its stable id is known', () => {
+    const pending = { kind: 'ticket', trackerId: 'web', key: 'PROJ-123' };
+    expect(
+      batchSchema.safeParse(
+        batch({ entities: [{ ref: pending, status: 'ok' }], items: [items.ticket.valid] }),
+      ).success,
+    ).toBe(true);
+    expect(
+      batchSchema.safeParse(
+        batch({
+          entities: [{ ref: pending, status: 'ok' }],
+          items: [{ kind: 'ticket', facts: { ...ticketFacts, key: 'OTHER-1' } }],
+        }),
+      ).success,
+    ).toBe(false);
+  });
+
   it('keeps an optional budget and rejects a negative one', () => {
     const budget = { remaining: 4200, resetAt: '2026-11-01T13:00:00Z' };
     expect(batchSchema.parse(batch({ budget })).budget).toEqual(budget);
@@ -255,9 +272,9 @@ it('accepts a minimal adapter', () => {
 describe('obligation ids', () => {
   const source = readFileSync(join(root, 'packages/contracts/src/adapters.ts'), 'utf8');
 
-  it('lists A1-A7 in order, each once, in the Adapter TSDoc', () => {
+  it('lists A1-A8 in order, each once, in the Adapter TSDoc', () => {
     const ids = [...source.matchAll(/^\s*\*\s+- (A\d+):/gm)].map((match) => match[1]);
-    expect(ids).toEqual(Array.from({ length: 7 }, (_, i) => `A${String(i + 1)}`));
+    expect(ids).toEqual(Array.from({ length: 8 }, (_, i) => `A${String(i + 1)}`));
   });
 
   it('states the 404 rule in A4', () => {

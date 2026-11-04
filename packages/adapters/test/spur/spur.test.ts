@@ -7,7 +7,7 @@ import { createFakeCore } from '../../src/testing.ts';
 const T0 = Date.parse('2026-01-01T00:00:00.000Z');
 const defaults = {
   sources: { authRetryMs: 900_000, goneAfterPolls: 3 },
-  thresholds: { staleMultiplier: 3 },
+  thresholds: { staleMultiplier: 3, blockOpenMs: 86_400_000 },
 };
 const wire = {
   id: 'demo-worker-1',
@@ -123,6 +123,43 @@ describe('Spur adapter', () => {
       { kind: 'unknown_state', value: 'future_state' },
       { kind: 'unknown_state', value: 'another_state' },
     ]);
+  });
+
+  it('waits for an unknown-value notice before returning the batch', async () => {
+    let release: () => void = () => undefined;
+    let settled = false;
+    const adapter = createSpurAdapter({
+      ...adapterOptions,
+      fetch: () => Promise.resolve(response([{ ...wire, state: 'future_state' }])),
+      onNotice: () =>
+        new Promise<void>((resolve) => {
+          release = resolve;
+        }),
+    });
+    const poll = adapter.poll(context()).then((batch) => {
+      settled = true;
+      return batch;
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(settled).toBe(false);
+    release();
+    await expect(poll).resolves.toMatchObject({ source: 'spur', complete: true });
+  });
+
+  it('retries a notice whose durable callback rejected', async () => {
+    let calls = 0;
+    const adapter = createSpurAdapter({
+      ...adapterOptions,
+      fetch: () => Promise.resolve(response([{ ...wire, state: 'future_state' }])),
+      onNotice: () => {
+        calls += 1;
+        if (calls === 1) return Promise.reject(new Error('store unavailable'));
+        return undefined;
+      },
+    });
+    await expect(adapter.poll(context())).rejects.toThrow('store unavailable');
+    await expect(adapter.poll(context())).resolves.toMatchObject({ source: 'spur' });
+    expect(calls).toBe(2);
   });
 
   it('reports an unknown health value immediately after a known error', async () => {

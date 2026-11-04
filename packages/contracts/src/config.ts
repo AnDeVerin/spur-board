@@ -198,7 +198,15 @@ export const configSchema = z.strictObject({
         .prefault({}),
     })
     .prefault({}),
-  thresholds: z.strictObject({ staleMultiplier: z.number().min(1).default(3) }).prefault({}),
+  thresholds: z
+    .strictObject({
+      staleMultiplier: z.number().min(1).default(3),
+      blockOpenMs: durationMs(
+        86_400_000,
+        'How long a block may stay open before an item is raised',
+      ),
+    })
+    .prefault({}),
   archive: z.strictObject({ doneWeekday: z.enum(WEEKDAYS).default('saturday') }).prefault({}),
   digest: z.strictObject({ tz: z.string().refine(isTimeZone, 'Unknown IANA time zone') }),
   commands: z.strictObject({ retentionDays: z.int().min(1).default(7) }).prefault({}),

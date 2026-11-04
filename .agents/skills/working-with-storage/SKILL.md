@@ -25,8 +25,10 @@ numbered migrations. Where a test enforces a rule, the rule names it.
   (`Store` in `packages/core/src/store/store.ts`).
 - `store.transaction` is the only place application code starts a transaction. It sends
   `BEGIN IMMEDIATE`, so the write lock is held from the start.
-- One unit of work is one `store.transaction`: a tick, one observed batch, one command or one
-  inbound event. On an inbound handler failure, roll back its transaction, then journal the
+- Keep each `tickBoard` tick, accepted observation batch, source-state report,
+  notice and `createApply` command in its own `store.transaction`. Persist their state changes and
+  journal events together so a failed unit rolls back as a whole.
+- Keep each inbound event in one `store.transaction`. On handler failure, roll back, then journal the
   failure and create the linked operator item in a separate transaction before resolving the sink.
 - No IO inside `fn`: no network, file or child process, no await other than `trx` queries. Fetch
   first, then write; a side effect goes out through the outbox after commit (next section). Why:
