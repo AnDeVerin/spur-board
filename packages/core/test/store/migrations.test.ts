@@ -334,6 +334,7 @@ describe('migration pins', () => {
     '0002_delivery.sql': '52180cad0a4577d8ad6a60eca748116f4ccd61142115581a3c9ea3a72d2cfa1d',
     '0003_delivery_search.sql': '3e915831a61930771096e91e17273a933cd8b5c2476aaec1c2d23b5f4fc2c755',
     '0004_attempt_started.sql': 'e2f659d551e9aaca510f1b84735eb451d8c8eac7bc8a4eeedd22487545f6f1f2',
+    '0005_inbound_items.sql': '4bda4ed9649f605a9a1a4f400c3fdcaa8fa9705dc726713f29df2404efb0360e',
   };
 
   interface MigrationFile {

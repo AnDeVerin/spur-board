@@ -141,6 +141,17 @@ export const sampleRows: SampleRows = {
     created_at: at,
     closed_at: at,
   },
+  from_you_item: {
+    id: 1,
+    source_key: 'inbound:failure:k1',
+    title: 'Slack message not processed',
+    source_url: 'https://example.test/message',
+    event_json: '{"kind":"message","dedupeKey":"k1"}',
+    task_id: 1,
+    state: 'open',
+    created_at: at,
+    closed_at: null,
+  },
   command: {
     actor: 'agent:proj/sess-1',
     key: 'k1',

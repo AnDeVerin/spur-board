@@ -79,6 +79,52 @@ function fingerprint(id: string, input: unknown, actor: ActorId): string {
     .digest('hex');
 }
 
+/**
+ * Replays one operation within the caller's transaction. Returning undefined from run leaves
+ * no command row; catalog authorization uses that path so a denial remains journal-only.
+ */
+export async function replayOperation<Output extends z.ZodType>(
+  trx: Kysely<Tables>,
+  input: {
+    actor: ActorId;
+    key: string;
+    operation: string;
+    fingerprintInput: unknown;
+    output: Output;
+    at: string;
+    run: () => Promise<z.input<Output> | undefined>;
+  },
+): Promise<z.output<Output> | undefined> {
+  const hash = fingerprint(input.operation, input.fingerprintInput, input.actor);
+  const row = await trx
+    .selectFrom('command')
+    .select(['operation', 'fingerprint', 'result'])
+    .where('actor', '=', input.actor)
+    .where('key', '=', input.key)
+    .executeTakeFirst();
+  if (row !== undefined) {
+    if (row.operation !== input.operation || row.fingerprint !== hash) {
+      throw new CommandError('idempotency_key_mismatch', 'Use the original input or a new key.');
+    }
+    return parseJson(input.output, row.result);
+  }
+  const value = await input.run();
+  if (value === undefined) return undefined;
+  const resultText = toJson(input.output, value);
+  await trx
+    .insertInto('command')
+    .values({
+      actor: input.actor,
+      key: input.key,
+      operation: input.operation,
+      fingerprint: hash,
+      result: resultText,
+      at: input.at,
+    })
+    .execute();
+  return parseJson(input.output, resultText);
+}
+
 function catalogMutation(id: string): CatalogMutation {
   const entry = OPERATIONS.find((candidate) => candidate.id === id);
   if (entry?.kind !== 'mutation') throw new CommandError('usage', 'Use a catalog mutation.');
@@ -136,74 +182,58 @@ export function createApply(deps: { store: Store; clock: Clock; config: Config }
       );
     }
     const commandKey = key ?? randomUUID();
-    const hash = fingerprint(entry.id, input, actor);
-    const result = await store.transaction(async (trx) => {
-      const row = await trx
-        .selectFrom('command')
-        .select(['operation', 'fingerprint', 'result'])
-        .where('actor', '=', actor)
-        .where('key', '=', commandKey)
-        .executeTakeFirst();
-      if (row !== undefined) {
-        if (row.operation !== entry.id || row.fingerprint !== hash) {
-          throw new CommandError(
-            'idempotency_key_mismatch',
-            'Use the original input or a new key.',
-          );
-        }
-        return { status: 'applied' as const, value: parseJson(entry.output, row.result) };
-      }
-
-      const parsedInput = parsed.data as z.output<Entry<typeof op.id>['input']>;
-      const resolved = await op.resolveTargets(trx, parsedInput, actor);
-      const taskless = resolved.length === 0 && emptyAllowed(entry);
-      const ackIds =
-        entry.id === 'inbox.ack' && 'entries' in parsed.data
-          ? parsed.data.entries.map((item) => item.id)
-          : undefined;
-      const ackMismatch =
-        ackIds !== undefined &&
-        (resolved.length !== ackIds.length ||
-          resolved.some((target, index) => target.id !== ackIds[index]));
-      const targets: readonly ResolvedTarget[] =
-        resolved.length === 0
-          ? [{ kind: 'missing' }]
-          : ackMismatch
-            ? [...resolved, { kind: 'missing' }]
-            : resolved;
-      const mode = 'mode' in parsed.data ? String(parsed.data.mode) : undefined;
-      for (const target of targets) {
-        const decision = authorize(entry.grants, actor, {
-          config,
-          target,
-          ...(mode === undefined ? {} : { mode }),
-        });
-        if (decision.status === 'denied') {
-          await deniedEvent(trx, actor, entry.id, target, new Date(clock.now()).toISOString());
-          return { status: 'denied' as const, hint: decision.hint };
-        }
-      }
-      if (!taskless && targets.some((target) => target.kind === 'missing')) {
-        throw new CommandError('not_found', 'Check the target ID.');
-      }
-      const at = new Date(clock.now()).toISOString();
-      const value = await op.run(trx, parsedInput, { actor, at });
-      const resultText = toJson(entry.output, value);
-      await trx
-        .insertInto('command')
-        .values({
-          actor,
-          key: commandKey,
-          operation: entry.id,
-          fingerprint: hash,
-          result: resultText,
-          at,
-        })
-        .execute();
-      return { status: 'applied' as const, value: parseJson(entry.output, resultText) };
-    });
-    if (result.status === 'denied') throw new CommandError('forbidden', result.hint);
-    return result.value as z.output<Entry<typeof op.id>['output']>;
+    let deniedHint: string | undefined;
+    const at = new Date(clock.now()).toISOString();
+    const result = await store.transaction((trx) =>
+      replayOperation(trx, {
+        actor,
+        key: commandKey,
+        operation: entry.id,
+        fingerprintInput: input,
+        output: entry.output,
+        at,
+        run: async () => {
+          const parsedInput = parsed.data as z.output<Entry<typeof op.id>['input']>;
+          const resolved = await op.resolveTargets(trx, parsedInput, actor);
+          const taskless = resolved.length === 0 && emptyAllowed(entry);
+          const ackIds =
+            entry.id === 'inbox.ack' && 'entries' in parsed.data
+              ? parsed.data.entries.map((item) => item.id)
+              : undefined;
+          const ackMismatch =
+            ackIds !== undefined &&
+            (resolved.length !== ackIds.length ||
+              resolved.some((target, index) => target.id !== ackIds[index]));
+          const targets: readonly ResolvedTarget[] =
+            resolved.length === 0
+              ? [{ kind: 'missing' }]
+              : ackMismatch
+                ? [...resolved, { kind: 'missing' }]
+                : resolved;
+          const mode = 'mode' in parsed.data ? String(parsed.data.mode) : undefined;
+          for (const target of targets) {
+            const decision = authorize(entry.grants, actor, {
+              config,
+              target,
+              ...(mode === undefined ? {} : { mode }),
+            });
+            if (decision.status === 'denied') {
+              await deniedEvent(trx, actor, entry.id, target, at);
+              deniedHint = decision.hint;
+              return undefined;
+            }
+          }
+          if (!taskless && targets.some((target) => target.kind === 'missing')) {
+            throw new CommandError('not_found', 'Check the target ID.');
+          }
+          return op.run(trx, parsedInput, { actor, at });
+        },
+      }),
+    );
+    if (result === undefined) {
+      throw new CommandError('forbidden', deniedHint ?? 'Caller is not allowed.');
+    }
+    return result as z.output<Entry<typeof op.id>['output']>;
   };
 }
 

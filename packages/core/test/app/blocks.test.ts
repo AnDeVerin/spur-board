@@ -188,7 +188,12 @@ describe('block and comment mutations', () => {
     expect(beforeClarification.map((row) => row.kind)).toEqual([
       'conversation.open',
       'conversation.reply',
+      'conversation.close',
     ]);
+    expect(JSON.parse(beforeClarification[2]?.payload ?? '{}')).toMatchObject({
+      blockId: 1,
+      text: 'resolved: done (operator)',
+    });
 
     await apply(
       ops.add,
@@ -197,16 +202,16 @@ describe('block and comment mutations', () => {
       'comment-1',
     );
     const rows = await store.db.selectFrom('outbox').selectAll().orderBy('id').execute();
-    expect(rows).toHaveLength(3);
+    expect(rows).toHaveLength(4);
     const answer = rows[1];
-    const clarification = rows[2];
+    const clarification = rows[3];
     if (answer === undefined || clarification === undefined) {
       throw new Error('Expected answer and clarification reply rows');
     }
     expect(clarification).toMatchObject({
       kind: 'conversation.reply',
       state: 'pending',
-      parent_outbox_id: answer.id,
+      parent_outbox_id: rows[2]?.id,
     });
     expect(JSON.parse(clarification.payload)).toMatchObject({ blockId: 1, commentId: 3 });
   });

@@ -18,9 +18,13 @@ export {
   type Mutation,
 } from './app/commands.ts';
 export { createBlockMutations } from './app/blocks.ts';
+export { createInbound, getFromYouItem, type Inbound } from './app/inbound.ts';
 export {
   enqueueConversationOpen,
   enqueueConversationReply,
+  enqueueConversationClose,
+  enqueueDoorbell,
+  enqueueFeedItem,
   OUTBOX_KINDS,
   type OutboxKind,
 } from './app/outbox.ts';

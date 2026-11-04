@@ -10,7 +10,7 @@ import {
   type Gateway,
   type SpaceId,
 } from '@spur-board/contracts';
-import type { Kysely } from 'kysely';
+import { sql, type Kysely } from 'kysely';
 import type { Store } from '../store/store.ts';
 import type { Row, Tables } from '../store/schema.ts';
 import {
@@ -110,7 +110,9 @@ function target(claim: Claim): DeliveryTarget | null {
     case 'conversation.reply':
       return parent && { kind: 'reply', conversation: parent.conversation };
     case 'conversation.close':
-      return parent && { kind: 'close', conversation: parent.conversation };
+      return body.payload.targetConversation === undefined
+        ? parent && { kind: 'close', conversation: parent.conversation }
+        : { kind: 'close', conversation: body.payload.targetConversation };
     case 'feed.line.edit':
       return parent && { kind: 'edit', message: parent.message };
     case 'doorbell':
@@ -412,6 +414,9 @@ export function createSender(options: SenderOptions): Sender {
         target: to,
         persona: c.body.payload.persona,
         body: renderBody(c.body.payload.key, c.body.payload.text),
+        ...(c.body.kind === 'feed.line' && c.body.payload.actions !== undefined
+          ? { actions: c.body.payload.actions }
+          : {}),
       };
       return { outcome: await gateway.deliver(request), error: null };
     } catch (error) {
@@ -442,9 +447,11 @@ export function createSender(options: SenderOptions): Sender {
         return;
       case 'delivered': {
         const conversation =
-          body.kind === 'feed.line.edit'
-            ? c.parent?.conversation
-            : (outcome.conversation ?? c.parent?.conversation);
+          body.kind === 'conversation.close'
+            ? (body.payload.targetConversation ?? outcome.conversation ?? c.parent?.conversation)
+            : body.kind === 'feed.line.edit'
+              ? c.parent?.conversation
+              : (outcome.conversation ?? c.parent?.conversation);
         if (conversation === undefined) {
           return postFailed({ last_error: 'delivered without a conversation' });
         }
@@ -459,6 +466,13 @@ export function createSender(options: SenderOptions): Sender {
         if (body.kind === 'conversation.open' || body.kind === 'feed.line') {
           const isBlock = body.kind === 'conversation.open';
           const taskId = isBlock ? body.payload.taskId : (body.payload.taskId ?? null);
+          const closedBlock = isBlock
+            ? await trx
+                .selectFrom('block')
+                .select(['state', 'unblocked_at'])
+                .where('id', '=', body.payload.blockId)
+                .executeTakeFirstOrThrow()
+            : undefined;
           await trx
             .insertInto('conversation')
             .values({
@@ -468,14 +482,38 @@ export function createSender(options: SenderOptions): Sender {
               task_id: taskId,
               block_id: isBlock ? body.payload.blockId : null,
               purpose: isBlock ? 'block' : 'feed_line',
-              state: 'open',
+              state: closedBlock?.state === 'unblocked' ? 'closed' : 'open',
               root_message_ref: outcome.message,
               after_message_ref: null,
               created_at: nowIso,
-              closed_at: null,
+              closed_at:
+                closedBlock?.state === 'unblocked' ? (closedBlock.unblocked_at ?? nowIso) : null,
             })
             .onConflict((oc) => oc.columns(['gateway', 'ref']).doNothing())
             .execute();
+          if (isBlock) {
+            const explicit = await trx
+              .selectFrom('outbox')
+              .select('id')
+              .where('kind', '=', 'conversation.close')
+              .where(sql<number>`json_extract(payload, '$.blockId')`, '=', body.payload.blockId)
+              .where(sql<string>`json_extract(payload, '$.targetConversation')`, '=', conversation)
+              .executeTakeFirst();
+            if (explicit !== undefined) {
+              await trx
+                .updateTable('outbox')
+                .set({ state: 'dead', last_error: 'superseded' })
+                .where('parent_outbox_id', '=', c.id)
+                .where('kind', '=', 'conversation.close')
+                .where(
+                  sql<string | null>`json_extract(payload, '$.targetConversation')`,
+                  'is',
+                  null,
+                )
+                .where('state', '=', 'pending')
+                .execute();
+            }
+          }
         }
         if (body.kind === 'conversation.close') {
           await trx

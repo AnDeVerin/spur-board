@@ -26,6 +26,7 @@ import {
 import { authorize, type ResolvedTarget } from './authorize.ts';
 import { CommandError, type CommandContext, type Mutation } from './commands.ts';
 import { enqueueConversationOpen, enqueueConversationReply } from './outbox.ts';
+import { enqueueConversationClose } from './outbox.ts';
 
 type Task = Selectable<TaskTable>;
 type Block = Selectable<BlockTable>;
@@ -278,6 +279,7 @@ async function addComment(
   ctx: CommandContext,
   addressee: AddresseeRole,
   config: Config,
+  source?: { conversationRef: string; messageRef: string },
 ): Promise<Comment> {
   const row = await trx
     .insertInto('comment')
@@ -287,8 +289,8 @@ async function addComment(
       author: ctx.actor,
       text,
       revision: 1,
-      conversation_ref: null,
-      message_ref: null,
+      conversation_ref: source?.conversationRef ?? null,
+      message_ref: source?.messageRef ?? null,
       acked_revision: null,
       created_at: ctx.at,
       delivery_state: null,
@@ -296,7 +298,7 @@ async function addComment(
     .returningAll()
     .executeTakeFirstOrThrow();
   await journal(trx, task, ctx, 'comment_added', { comment: commentId(row.id), addressee });
-  if (block !== undefined) {
+  if (block !== undefined && source === undefined) {
     await enqueueConversationReply(trx, {
       commentId: row.id,
       persona: personaFor(config, task, ctx.actor),
@@ -350,7 +352,7 @@ async function close(
   task: Task,
   block: Block,
   ctx: CommandContext,
-  outcome: 'done' | 'reason' | 'withdrawn',
+  outcome: 'done' | 'reason' | 'withdrawn' | 'archived',
   outcomeReason: string | null,
 ): Promise<Block> {
   const updated = await trx
@@ -369,6 +371,77 @@ async function close(
     block: blockId(block.id),
     outcome,
     ...(outcomeReason === null ? {} : { reason: outcomeReason }),
+  });
+  await enqueueConversationClose(trx, {
+    blockId: block.id,
+    outcome,
+    actor: ctx.actor,
+    at: new Date(ctx.at),
+  });
+  return updated;
+}
+
+/** Applies an operator message to the block selected by its conversation, without echoing it. */
+export async function recordInboundBlockMessage(
+  trx: Trx,
+  input: {
+    blockId: number;
+    text: string;
+    conversationRef: string;
+    messageRef: string;
+    at: string;
+    config: Config;
+  },
+): Promise<{ comment: Comment; block: Block; task: Task; answered: boolean }> {
+  const block = await trx
+    .selectFrom('block')
+    .selectAll()
+    .where('id', '=', input.blockId)
+    .executeTakeFirstOrThrow();
+  const task = await taskById(trx, block.task_id);
+  const ctx: CommandContext = { actor: 'operator', at: input.at };
+  const answered = block.state === 'open';
+  if (answered) {
+    active(task);
+    rule(() => {
+      answerBlock(current(block));
+    });
+  }
+  const comment = await addComment(
+    trx,
+    task,
+    block,
+    input.text,
+    ctx,
+    authorRole(input.config, task, block.author),
+    input.config,
+    { conversationRef: input.conversationRef, messageRef: input.messageRef },
+  );
+  const updated = answered ? await close(trx, task, block, ctx, 'done', null) : block;
+  return { comment, block: updated, task, answered };
+}
+
+/** Uses the same revision and acknowledgment rule as the catalog comment.edit mutation. */
+export async function editInboundComment(
+  trx: Trx,
+  input: { comment: Comment; text: string; at: string; actor: ActorId },
+): Promise<Comment> {
+  const task = await taskById(trx, input.comment.task_id);
+  active(task);
+  if (input.comment.author !== input.actor) {
+    throw new CommandError('forbidden', 'Only the comment author can edit it.');
+  }
+  const next = editComment(input.comment.revision, input.comment.acked_revision);
+  const updated = await trx
+    .updateTable('comment')
+    .set({ text: input.text, revision: next.revision })
+    .where('id', '=', input.comment.id)
+    .returningAll()
+    .executeTakeFirstOrThrow();
+  await journal(trx, task, { actor: input.actor, at: input.at }, 'comment_edited', {
+    comment: commentId(input.comment.id),
+    revision: next.revision,
+    clarification: next.clarification,
   });
   return updated;
 }
@@ -534,23 +607,48 @@ export function createBlockMutations(config: Config) {
     },
     async run(trx, input, ctx) {
       const comment = found(await commentById(trx, input.comment));
-      const task = await taskById(trx, comment.task_id);
-      active(task);
       if (comment.author !== ctx.actor)
         throw new CommandError('forbidden', 'Only the comment author can edit it.');
-      const next = editComment(comment.revision, comment.acked_revision);
+      const updated = await editInboundComment(trx, {
+        comment,
+        text: input.text,
+        at: ctx.at,
+        actor: ctx.actor,
+      });
+      const task = await taskById(trx, comment.task_id);
+      return { comment: commentView(updated, task) };
+    },
+  };
+  const archive: Mutation<'task.archive'> = {
+    id: 'task.archive',
+    resolveTargets: (trx, input) => taskTarget(trx, input.task),
+    async run(trx, input, ctx) {
+      const task = found(await taskByKey(trx, input.task));
+      active(task);
+      const blocks = await trx
+        .selectFrom('block')
+        .selectAll()
+        .where('task_id', '=', task.id)
+        .where('state', '=', 'open')
+        .execute();
+      for (const block of blocks) {
+        await close(trx, task, block, ctx, 'archived', null);
+      }
       const updated = await trx
-        .updateTable('comment')
-        .set({ text: input.text, revision: next.revision })
-        .where('id', '=', comment.id)
+        .updateTable('task')
+        .set({ membership: 'archived', archive_reason: 'manual' })
+        .where('id', '=', task.id)
         .returningAll()
         .executeTakeFirstOrThrow();
-      await journal(trx, task, ctx, 'comment_edited', {
-        comment: input.comment,
-        revision: next.revision,
-        clarification: next.clarification,
-      });
-      return { comment: commentView(updated, task) };
+      await journal(trx, task, ctx, 'task_archived', { reason: 'manual' });
+      return {
+        task: {
+          key: updated.key,
+          project: updated.project,
+          column: updated.column,
+          membership: updated.membership,
+        },
+      };
     },
   };
   const ack: Mutation<'inbox.ack'> = {
@@ -573,5 +671,5 @@ export function createBlockMutations(config: Config) {
       return { acked: input.entries.map(({ id }) => id) };
     },
   };
-  return { ask, create, escalate, answer, unblock, add, edit, ack };
+  return { ask, create, escalate, answer, unblock, add, edit, ack, archive };
 }
