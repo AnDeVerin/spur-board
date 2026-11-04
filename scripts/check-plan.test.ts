@@ -156,6 +156,37 @@ describe('planCheck', () => {
     });
   });
 
+  it('keeps global files in changed mode for pre-push', () => {
+    expect(
+      planCheck({
+        full: false,
+        prePush: true,
+        changed: [{ path: 'scripts/check.ts', deleted: false }],
+        packageDirs,
+      }),
+    ).toMatchObject({
+      mode: 'changed',
+      formatFiles: ['scripts/check.ts'],
+      lintFiles: ['scripts/check.ts'],
+      packageDirs,
+    });
+  });
+
+  it('checks every affected package for shared config without entering full mode', () => {
+    expect(
+      planCheck({
+        full: false,
+        prePush: true,
+        changed: [{ path: 'tsconfig.base.json', deleted: false }],
+        packageDirs,
+      }),
+    ).toMatchObject({
+      mode: 'changed',
+      formatFiles: ['tsconfig.base.json'],
+      packageDirs,
+    });
+  });
+
   it('does nothing without changes', () => {
     expect(planCheck({ full: false, changed: [], packageDirs })).toEqual({
       mode: 'none',
@@ -196,12 +227,13 @@ describe('parseOnly', () => {
 
 describe('parseCheckArgs', () => {
   it('runs every step without flags', () => {
-    expect(parseCheckArgs([])).toEqual({ full: false, only: null });
+    expect(parseCheckArgs([])).toEqual({ full: false, prePush: false, only: null });
   });
 
   it('reads --only as a separate value', () => {
     expect(parseCheckArgs(['--full', '--only', 'format,lint'])).toEqual({
       full: true,
+      prePush: false,
       only: new Set(['format', 'lint']),
     });
   });
@@ -209,6 +241,7 @@ describe('parseCheckArgs', () => {
   it('reads the --only= form', () => {
     expect(parseCheckArgs(['--full', '--only=test'])).toEqual({
       full: true,
+      prePush: false,
       only: new Set(['test']),
     });
   });
@@ -219,6 +252,12 @@ describe('parseCheckArgs', () => {
 
   it('rejects an unknown flag', () => {
     expect(parseCheckArgs(['--ful'])).toHaveProperty('error');
+  });
+
+  it('parses pre-push and rejects full or only alongside it', () => {
+    expect(parseCheckArgs(['--pre-push'])).toEqual({ full: false, prePush: true, only: null });
+    expect(parseCheckArgs(['--pre-push', '--full'])).toHaveProperty('error');
+    expect(parseCheckArgs(['--pre-push', '--only=test'])).toHaveProperty('error');
   });
 });
 

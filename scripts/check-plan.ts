@@ -25,7 +25,8 @@ export function parseOnly(
   return selected;
 }
 
-type CheckArgs = { full: boolean; only: ReadonlySet<string> | null } | { error: string };
+type CheckArgs =
+  { full: boolean; prePush: boolean; only: ReadonlySet<string> | null } | { error: string };
 
 /** Parses the `scripts/check.ts` arguments: `--full` and `--only <steps>`. */
 export function parseCheckArgs(argv: string[]): CheckArgs {
@@ -33,7 +34,11 @@ export function parseCheckArgs(argv: string[]): CheckArgs {
   try {
     ({ values } = parseArgs({
       args: argv,
-      options: { full: { type: 'boolean' }, only: { type: 'string' } },
+      options: {
+        full: { type: 'boolean' },
+        'pre-push': { type: 'boolean' },
+        only: { type: 'string' },
+      },
       strict: true,
       allowPositionals: false,
     }));
@@ -41,8 +46,10 @@ export function parseCheckArgs(argv: string[]): CheckArgs {
     return { error: error instanceof Error ? error.message : String(error) };
   }
   const full = values.full ?? false;
+  const prePush = values['pre-push'] ?? false;
+  if (full && prePush) return { error: '--pre-push and --full are mutually exclusive' };
   const only = parseOnly(values.only, full);
-  return typeof only === 'string' ? { error: only } : { full, only };
+  return typeof only === 'string' ? { error: only } : { full, prePush, only };
 }
 
 export type Base = { kind: 'base'; ref: string; sha: string } | { kind: 'full'; reason: string };
@@ -127,21 +134,27 @@ export interface Plan {
 
 export function planCheck(input: {
   full: boolean;
+  prePush?: boolean;
   changed: ChangedFile[];
   packageDirs: string[];
 }): Plan {
   const everything = { formatFiles: ['.'], lintFiles: ['.'], packageDirs: input.packageDirs };
   if (input.full) return { mode: 'full', reason: '--full', ...everything };
   const trigger = input.changed.find((file) => isGlobal(file.path));
-  if (trigger) return { mode: 'full', reason: `${trigger.path} changed`, ...everything };
+  if (trigger && !input.prePush)
+    return { mode: 'full', reason: `${trigger.path} changed`, ...everything };
   if (input.changed.length === 0) {
     return { mode: 'none', reason: 'no changes', formatFiles: [], lintFiles: [], packageDirs: [] };
   }
 
   const present = input.changed.filter((file) => !file.deleted).map((file) => file.path);
-  const packageDirs = input.packageDirs.filter((dir) =>
-    input.changed.some((file) => file.path.startsWith(`${dir}/`)),
-  );
+  // Shared root files and tooling can affect every package, even in the scoped push mode.
+  const packageDirs =
+    input.prePush && trigger
+      ? input.packageDirs
+      : input.packageDirs.filter((dir) =>
+          input.changed.some((file) => file.path.startsWith(`${dir}/`)),
+        );
   return {
     mode: 'changed',
     reason: `${String(input.changed.length)} changed file(s)`,
