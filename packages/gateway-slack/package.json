@@ -16,6 +16,8 @@
     "@spur-board/contracts": "workspace:*"
   },
   "devDependencies": {
-    "@spur-board/gateway-testkit": "workspace:*"
+    "@spur-board/gateway-testkit": "workspace:*",
+    "@types/ws": "8.18.2",
+    "ws": "8.21.3"
   }
 }

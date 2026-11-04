@@ -1,6 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { once } from 'node:events';
 import type { AddressInfo } from 'node:net';
+import WebSocket, { WebSocketServer } from 'ws';
 import {
   conversationRefSchema,
   messageRefSchema,
@@ -8,10 +9,12 @@ import {
   type MessageRef,
 } from '@spur-board/contracts';
 import type {
+  ConformanceInput,
   ConformancePlatform,
   VisibleConversation,
   VisibleMessage,
 } from '@spur-board/gateway-testkit';
+import { parseRef } from '../src/ref.ts';
 import { markerFromBlocks } from '../src/render.ts';
 
 interface StoredMessage {
@@ -22,6 +25,9 @@ interface StoredMessage {
   blocks: unknown;
   username?: string;
   iconEmoji?: string;
+  user?: string;
+  edited?: { ts: string; user: string };
+  botId?: string;
 }
 
 interface FakeRequest {
@@ -38,6 +44,8 @@ export interface FakeSlackApi {
   searchUnknownNext(): void;
   holdNextWrite(): { entered: Promise<void>; release(): void };
   close(): Promise<void>;
+  /** Send a raw Socket Mode envelope and wait for its acknowledgement when connected. */
+  emitEnvelope(type: string, payload: object, retryAttempt?: number): Promise<void>;
 }
 
 type Fault =
@@ -92,6 +100,13 @@ export async function startFakeSlackApi(
   let timeout: { remaining: number; visible: boolean } | undefined;
   let hold: { entered: () => void; waiting: Promise<void>; release: () => void } | undefined;
   let sequence = 0;
+  let nextEnvelope = 0;
+  let connected: WebSocket | undefined;
+  let waitingSocket: WebSocket | undefined;
+  let acceptSocket = true;
+  const acknowledgements = new Map<string, () => void>();
+  const inFlight = new Set<Promise<void>>();
+  const connectedWaiters = new Set<() => void>();
 
   function ts(): string {
     sequence += 1;
@@ -107,6 +122,26 @@ export async function startFakeSlackApi(
   ) {
     res.writeHead(status, { 'content-type': 'application/json', ...headers });
     res.end(JSON.stringify(body));
+  }
+
+  function send(type: string, payload: object, retryAttempt?: number): Promise<void> {
+    if (connected?.readyState !== WebSocket.OPEN) return Promise.resolve();
+    nextEnvelope += 1;
+    const envelopeId = `E${String(nextEnvelope)}`;
+    const ack = Promise.withResolvers<undefined>();
+    acknowledgements.set(envelopeId, () => {
+      ack.resolve(undefined);
+    });
+    const envelope = {
+      envelope_id: envelopeId,
+      type,
+      payload,
+      ...(retryAttempt === undefined ? {} : { retry_attempt: retryAttempt }),
+    };
+    connected.send(JSON.stringify(envelope));
+    inFlight.add(ack.promise);
+    void ack.promise.finally(() => inFlight.delete(ack.promise));
+    return ack.promise;
   }
 
   async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -177,6 +212,7 @@ export async function startFakeSlackApi(
           blocks: parseBlocks(form.get('blocks') ?? undefined),
           ...(form.has('username') ? { username: formValue(form, 'username') } : {}),
           ...(form.has('icon_emoji') ? { iconEmoji: formValue(form, 'icon_emoji') } : {}),
+          botId: 'B_FAKE',
         };
         stored.push(message);
         result = { ok: true, channel, ts: messageTs, message: { ts: messageTs } };
@@ -190,6 +226,7 @@ export async function startFakeSlackApi(
         else {
           found.text = formValue(form, 'text');
           found.blocks = parseBlocks(form.get('blocks') ?? undefined);
+          found.edited = { ts: ts(), user: 'U_BOT' };
           result = { ok: true, channel: found.channel, ts: found.ts };
         }
         break;
@@ -233,12 +270,27 @@ export async function startFakeSlackApi(
             ts: message.ts,
             text: message.text,
             blocks: message.blocks,
+            thread_ts: message.threadTs,
+            ...(message.user === undefined ? {} : { user: message.user }),
+            ...(message.edited === undefined ? {} : { edited: message.edited }),
+            ...(message.botId === undefined
+              ? {}
+              : { bot_id: message.botId, subtype: 'bot_message' }),
           })),
           has_more: more,
           response_metadata: { next_cursor: more ? String(cursor + pageSize) : '' },
         };
         break;
       }
+      case 'auth.test':
+        result = { ok: true, user_id: 'U_BOT', bot_id: 'B_FAKE', team_id: 'T_FAKE' };
+        break;
+      case 'apps.connections.open':
+        result = { ok: true, url: `ws://127.0.0.1:${String(address.port)}/socket` };
+        break;
+      case 'chat.postEphemeral':
+        result = { ok: true, message_ts: ts() };
+        break;
       default:
         result = { ok: false, error: 'unknown_method' };
     }
@@ -255,16 +307,138 @@ export async function startFakeSlackApi(
       if (!res.headersSent) reply(res, 500, { ok: false, error: String(error) });
     });
   });
+  const sockets = new WebSocketServer({ server, path: '/socket' });
+  function activate(ws: WebSocket): void {
+    connected = ws;
+    waitingSocket = undefined;
+    ws.send(JSON.stringify({ type: 'hello' }));
+    for (const resolve of connectedWaiters) resolve();
+    connectedWaiters.clear();
+  }
+  sockets.on('connection', (ws) => {
+    ws.on('message', (raw) => {
+      try {
+        const wire = Array.isArray(raw)
+          ? Buffer.concat(raw).toString('utf8')
+          : Buffer.isBuffer(raw)
+            ? raw.toString('utf8')
+            : Buffer.from(new Uint8Array(raw)).toString('utf8');
+        const payload = JSON.parse(wire) as unknown;
+        if (typeof payload !== 'object' || payload === null || !('envelope_id' in payload)) return;
+        const envelopeId = payload.envelope_id;
+        if (typeof envelopeId !== 'string') return;
+        acknowledgements.get(envelopeId)?.();
+        acknowledgements.delete(envelopeId);
+      } catch {
+        // A malformed acknowledgement cannot settle the pending envelope.
+      }
+    });
+    ws.on('close', () => {
+      if (connected === ws) connected = undefined;
+      if (waitingSocket === ws) waitingSocket = undefined;
+    });
+    if (acceptSocket) activate(ws);
+    else waitingSocket = ws;
+  });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
   const address = server.address() as AddressInfo;
 
+  async function inject(input: ConformanceInput): Promise<{
+    conversation?: ConversationRef;
+    message?: MessageRef;
+  }> {
+    if (input.kind === 'message') {
+      const addressed = 'conversation' in input ? parseRef(input.conversation) : null;
+      const channel =
+        addressed?.channel ??
+        ('space' in input && input.space === 'orchestrators' ? 'C_ORCH' : 'C_FEED');
+      const messageTs = ts();
+      const threadTs = addressed?.threadTs ?? messageTs;
+      const message: StoredMessage = {
+        channel,
+        ts: messageTs,
+        threadTs,
+        text: input.text,
+        blocks: [],
+        user: input.author,
+      };
+      stored.push(message);
+      await send('events_api', {
+        event: {
+          type: 'message',
+          channel,
+          ts: messageTs,
+          thread_ts: threadTs,
+          text: message.text,
+          user: message.user,
+        },
+      });
+      return { conversation: conversation(message), message: ref(message) };
+    }
+    const addressed = parseRef(input.message);
+    if (addressed === null) throw new Error('invalid fake message reference');
+    const index = stored.findIndex(
+      (message) => message.channel === addressed.channel && message.ts === addressed.ts,
+    );
+    const current = stored[index];
+    if (current === undefined) throw new Error('fake message not found');
+    if (input.kind === 'edit') {
+      const previous = { ...current };
+      current.text = input.text;
+      current.edited = { ts: ts(), user: current.user ?? 'U_BOT' };
+      await send('events_api', {
+        event: {
+          type: 'message',
+          subtype: 'message_changed',
+          channel: current.channel,
+          message: {
+            ts: current.ts,
+            thread_ts: current.threadTs,
+            text: current.text,
+            user: current.user,
+            edited: current.edited,
+          },
+          previous_message: previous,
+        },
+      });
+      return { conversation: conversation(current), message: ref(current) };
+    }
+    if (input.kind === 'delete') {
+      stored.splice(index, 1);
+      await send('events_api', {
+        event: {
+          type: 'message',
+          subtype: 'message_deleted',
+          channel: current.channel,
+          deleted_ts: current.ts,
+          previous_message: {
+            ts: current.ts,
+            thread_ts: current.threadTs,
+            text: current.text,
+            user: current.user,
+            blocks: current.blocks,
+          },
+        },
+      });
+      return { conversation: conversation(current), message: ref(current) };
+    }
+    await send('interactive', {
+      type: 'block_actions',
+      trigger_id: `T${ts()}`,
+      user: { id: input.author },
+      channel: { id: current.channel },
+      message: { ts: current.ts, thread_ts: current.threadTs, blocks: current.blocks },
+      actions: [{ action_id: input.actionId }],
+    });
+    return { conversation: conversation(current), message: ref(current) };
+  }
+
   const platform: ConformancePlatform = {
-    inject() {
-      return Promise.reject(new Error('inbound events are not available in the outbound fake'));
-    },
-    settle() {
-      return Promise.resolve();
+    inject,
+    async settle() {
+      await Promise.all([...inFlight]);
+      await new Promise((resolve) => setImmediate(resolve));
     },
     messages(): readonly VisibleMessage[] {
       return stored.map((message) => {
@@ -317,13 +491,32 @@ export async function startFakeSlackApi(
       return requests.length;
     },
     unacknowledged() {
-      return 0;
+      return acknowledgements.size;
     },
-    dropConnection() {
-      throw new Error('Socket Mode is not available in the outbound fake');
+    async dropConnection() {
+      acceptSocket = false;
+      if (connected === undefined) throw new Error('no Socket Mode connection to drop');
+      const ws = connected;
+      ws.close();
+      await once(ws, 'close');
     },
-    restoreConnection() {
-      throw new Error('Socket Mode is not available in the outbound fake');
+    async restoreConnection() {
+      acceptSocket = true;
+      if (connected?.readyState === WebSocket.OPEN) return;
+      const readyPromise = new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          connectedWaiters.delete(ready);
+          reject(new Error('Socket Mode did not reconnect'));
+        }, 10_000);
+        const ready = () => {
+          clearTimeout(timer);
+          resolve();
+        };
+        connectedWaiters.add(ready);
+      });
+      if (waitingSocket?.readyState === WebSocket.OPEN) activate(waitingSocket);
+      await readyPromise;
+      await new Promise((resolve) => setTimeout(resolve, 20));
     },
   };
 
@@ -356,6 +549,13 @@ export async function startFakeSlackApi(
       return { entered: entered.promise, release };
     },
     async close() {
+      acceptSocket = false;
+      for (const ws of sockets.clients) ws.terminate();
+      await new Promise<void>((resolve) => {
+        sockets.close(() => {
+          resolve();
+        });
+      });
       server.closeAllConnections();
       await new Promise<undefined>((resolve, reject) => {
         server.close((error) => {
@@ -364,5 +564,6 @@ export async function startFakeSlackApi(
         });
       });
     },
+    emitEnvelope: send,
   };
 }
