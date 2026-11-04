@@ -1,5 +1,11 @@
 import { homedir } from 'node:os';
-import { commandRetention, openStore, type OperationRegistry, type Store } from '@spur-board/core';
+import {
+  commandRetention,
+  createObservationCore,
+  createOperationRegistry,
+  openStore,
+  type Store,
+} from '@spur-board/core';
 import { createSlackGateway } from '@spur-board/gateway-slack';
 import { loadConfig, resolvePaths } from './config.ts';
 import {
@@ -54,7 +60,17 @@ export async function main(): Promise<void> {
     },
     openStore,
     modules: (ctxFor) => {
-      const registry: OperationRegistry = {};
+      const board = ctxFor('board-core');
+      const core = createObservationCore({
+        store: board.store,
+        config: board.config,
+        clock: board.clock,
+      });
+      const registry = createOperationRegistry({
+        config: board.config,
+        clock: board.clock,
+        completeSince: core.completeSince,
+      });
       const commands = ctxFor('commands');
       const entries: ModuleEntry[] = [
         {
@@ -70,7 +86,7 @@ export async function main(): Promise<void> {
           }),
         },
       ];
-      entries.push(...createBoardModules(ctxFor));
+      entries.push(...createBoardModules(ctxFor, { core }));
       const ctx = ctxFor('gateway-slack');
       const settings = slackSettings(ctx.config, ctx.secrets);
       const gateway = settings === null ? undefined : createSlackGateway(settings);

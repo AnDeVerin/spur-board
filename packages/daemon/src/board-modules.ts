@@ -6,6 +6,7 @@ const TICK_MS = 60_000;
 
 interface BoardModuleOptions {
   /** Test seams preserve the real core and lifecycle behavior. */
+  core?: ReturnType<typeof createObservationCore>;
   startAdapters?: typeof startAdapters;
   tick?: typeof tickBoard;
 }
@@ -17,11 +18,13 @@ export function createBoardModules(
 ): ModuleEntry[] {
   const coreCtx = ctxFor('board-core');
   const adapterCtx = ctxFor('board-adapters');
-  const core = createObservationCore({
-    store: coreCtx.store,
-    config: coreCtx.config,
-    clock: coreCtx.clock,
-  });
+  const core =
+    options.core ??
+    createObservationCore({
+      store: coreCtx.store,
+      config: coreCtx.config,
+      clock: coreCtx.clock,
+    });
   let timer: ReturnType<typeof setTimeout> | undefined;
   let active: Promise<void> = Promise.resolve();
   let stopped = false;

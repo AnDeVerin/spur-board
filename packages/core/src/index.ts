@@ -27,6 +27,7 @@ export {
 export { identify, type IdentityPorts, type LiveSession } from './api/identity.ts';
 export { createBlockMutations } from './app/blocks.ts';
 export { createMembershipMutations } from './app/membership.ts';
+export { createOperationRegistry } from './app/registry.ts';
 export { createObservationCore } from './app/observe.ts';
 export { getStatus } from './app/status.ts';
 export { tickBoard } from './app/tick.ts';

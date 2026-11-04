@@ -23,18 +23,25 @@ function interval(config: Config, source: string): number {
 /** Reads the board's latest facts, items and source availability. */
 export async function getStatus(
   deps: {
-    store: Store;
+    store: Pick<Store, 'db'>;
     config: Config;
     clock: { now(): number };
     completeSince: ReadonlyMap<string, string>;
   },
   projectId?: string,
+  visibleProjects?: ReadonlySet<string>,
 ) {
   const { store, config, clock, completeSince } = deps;
   const projects =
     projectId === undefined
-      ? config.projects
-      : config.projects.filter((project) => project.id === projectId);
+      ? config.projects.filter(
+          (project) => visibleProjects === undefined || visibleProjects.has(project.id),
+        )
+      : config.projects.filter(
+          (project) =>
+            project.id === projectId &&
+            (visibleProjects === undefined || visibleProjects.has(project.id)),
+        );
   if (projects.length === 0) throw new CommandError('not_found', 'Check the project ID.');
   const projectIds = new Set(projects.map((project) => project.id));
   const rows = await store.db
@@ -129,16 +136,17 @@ export async function getStatus(
   const sources = [...required].map((source) => {
     const row = sourceById.get(source);
     const last = row?.last_complete_at ?? null;
+    const blindReason: 'auth' | 'config' | 'stale' | null =
+      row?.blind_reason === 'auth' ||
+      row?.blind_reason === 'config' ||
+      row?.blind_reason === 'stale'
+        ? row.blind_reason
+        : null;
     return {
       source,
       observedAt: row?.observed_at ?? null,
       lastCompleteAt: last,
-      blindReason:
-        row?.blind_reason === 'auth' ||
-        row?.blind_reason === 'config' ||
-        row?.blind_reason === 'stale'
-          ? row.blind_reason
-          : null,
+      blindReason,
       message: row?.blind_message ?? null,
       stale:
         last === null ||
