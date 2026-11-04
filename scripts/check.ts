@@ -1,7 +1,7 @@
 // `pnpm check` (changed files and affected packages) and `pnpm check:full`.
 // The last stdout line is always `CHECK PASS` or `CHECK FAIL (exit N)`, and the exit code is N.
 import { spawnSync } from 'node:child_process';
-import { existsSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -9,7 +9,9 @@ import {
   parseNameStatus,
   planCheck,
   resolveBase,
+  type Base,
   type ChangedFile,
+  type Plan,
 } from './check-plan.ts';
 
 const PACKAGE_SMOKE_SCRIPT = 'scripts/package-smoke.ts';
@@ -22,6 +24,91 @@ export interface Command {
 }
 
 export type Step = { name: string; commands: Command[] } | { name: string; skip: string };
+
+export interface PushRef {
+  localRef: string;
+  localSha: string;
+  remoteRef: string;
+  remoteSha: string;
+}
+
+export function parsePushRefs(input: string): PushRef[] | { error: string } {
+  const refs: PushRef[] = [];
+  for (const line of input.split('\n')) {
+    if (line === '') continue;
+    const fields = line.split(' ');
+    if (fields.length !== 4 || fields.some((field) => field === '')) {
+      return { error: 'pre-push: invalid ref list from git' };
+    }
+    const [localRef, localSha, remoteRef, remoteSha] = fields;
+    if (!localRef || !localSha || !remoteRef || !remoteSha) {
+      return { error: 'pre-push: invalid ref list from git' };
+    }
+    refs.push({ localRef, localSha, remoteRef, remoteSha });
+  }
+  return refs.length > 0 ? refs : { error: 'pre-push: git supplied no refs to check' };
+}
+
+export function pushRanges(
+  refs: PushRef[],
+  headSha: string | null,
+  newRefBase: Base,
+): { from: string; to: string }[] | { error: string } {
+  const ranges: { from: string; to: string }[] = [];
+  for (const ref of refs) {
+    if (/^0+$/.test(ref.localSha)) continue; // Deleting a remote ref pushes no new code.
+    if (ref.localSha !== headSha) {
+      return {
+        error: `pre-push: ${ref.localRef} is not checked out at HEAD; check out the ref before pushing it`,
+      };
+    }
+    if (/^0+$/.test(ref.remoteSha)) {
+      if (newRefBase.kind === 'full') {
+        return {
+          error: `pre-push: ${newRefBase.reason}; create or update a local main or origin/main ref, then retry`,
+        };
+      }
+      ranges.push({ from: newRefBase.sha, to: ref.localSha });
+    } else {
+      ranges.push({ from: ref.remoteSha, to: ref.localSha });
+    }
+  }
+  return ranges;
+}
+
+export function selectPlan(input: {
+  full: boolean;
+  prePush: boolean;
+  base: Base;
+  changed: ChangedFile[];
+  packageDirs: string[];
+}): Plan | { error: string } {
+  if (input.full) return planCheck({ full: true, changed: [], packageDirs: input.packageDirs });
+  if (input.base.kind === 'full') {
+    if (input.prePush)
+      return {
+        error: `pre-push: ${input.base.reason}; create or update a local main or origin/main ref, then retry`,
+      };
+    return {
+      ...planCheck({ full: true, changed: [], packageDirs: input.packageDirs }),
+      reason: input.base.reason,
+    };
+  }
+  return planCheck({
+    full: false,
+    prePush: input.prePush,
+    changed: input.changed,
+    packageDirs: input.packageDirs,
+  });
+}
+
+export function prePushWorkers(value: string | undefined): number | { error: string } {
+  if (value === undefined) return 2;
+  if (!/^[1-9]\d*$/.test(value) || !Number.isSafeInteger(Number(value))) {
+    return { error: 'VITEST_MAX_WORKERS must be a positive integer' };
+  }
+  return Number(value);
+}
 
 export function packageSmokeCommands(
   mode: 'full' | 'changed' | 'none',
@@ -84,6 +171,18 @@ function changedFiles(sha: string): ChangedFile[] {
   return files;
 }
 
+function pushedFiles(ranges: { from: string; to: string }[]): ChangedFile[] {
+  const files = new Map<string, ChangedFile>();
+  for (const { from, to } of ranges) {
+    const diff = gitRaw(['diff', '--no-renames', '--name-status', '-z', from, to]);
+    if (diff === null) {
+      throw new Error(`pre-push: cannot compare ${from} to ${to}; fetch the remote ref and retry`);
+    }
+    for (const file of parseNameStatus(diff)) files.set(file.path, file);
+  }
+  return [...files.values()];
+}
+
 function workspacePackages(): string[] {
   return readdirSync(join(root, 'packages'))
     .map((name) => `packages/${name}`)
@@ -109,47 +208,23 @@ function bin(tool: string): string {
   return join(root, 'node_modules/.bin', tool);
 }
 
-function main(): number {
-  const args = parseCheckArgs(process.argv.slice(2));
-  if ('error' in args) {
-    console.log(`check: ${args.error}`);
-    return 2;
-  }
-  const { full, only } = args;
-  const packageDirs = workspacePackages();
-  let plan;
-  if (full) {
-    plan = planCheck({ full, changed: [], packageDirs });
-  } else {
-    const base = resolveBase({
-      insideWorkTree: git(['rev-parse', '--is-inside-work-tree']) === 'true',
-      headExists: git(['rev-parse', '--verify', '--quiet', 'HEAD']) !== null,
-      originMainMergeBase: git(['merge-base', 'HEAD', 'origin/main']),
-      mainMergeBase: git(['merge-base', 'HEAD', 'main']),
-    });
-    plan =
-      base.kind === 'full'
-        ? { ...planCheck({ full: true, changed: [], packageDirs }), reason: base.reason }
-        : planCheck({ full, changed: changedFiles(base.sha), packageDirs });
-  }
-  if (plan.mode === 'changed') plan.packageDirs = withDependents(plan.packageDirs);
-  console.log(`check: mode ${plan.mode} (${plan.reason})`);
-
+export function buildSteps(plan: Plan, prePush: boolean, workers = 2): Step[] {
   const noFiles = { skip: 'no files to check' };
   const noPackages = { skip: 'no affected packages' };
   const typeProjects = plan.mode === 'full' ? ['.', ...plan.packageDirs] : plan.packageDirs;
   const startupTest = 'packages/cli/test/startup.test.ts';
-  const checkStartup = plan.mode === 'full' || plan.packageDirs.includes('packages/cli');
+  const checkStartup =
+    !prePush && (plan.mode === 'full' || plan.packageDirs.includes('packages/cli'));
   const testCommands: Command[] = [
     {
       cmd: bin('vitest'),
       args: [
         'run',
         ...(plan.mode === 'full' ? [] : ['--passWithNoTests']),
+        ...(prePush ? ['--maxWorkers', String(workers)] : []),
         '--project',
         'unit',
-        '--project',
-        'integration',
+        ...(!prePush ? ['--project', 'integration', '--project', 'process'] : []),
         ...(plan.mode === 'full' ? [] : plan.packageDirs.map((dir) => `${dir}/`)),
       ],
     },
@@ -167,9 +242,9 @@ function main(): number {
           },
         ]
       : []),
-    ...packageSmokeCommands(plan.mode, plan.packageDirs),
+    ...(!prePush ? packageSmokeCommands(plan.mode, plan.packageDirs) : []),
   ];
-  const steps: Step[] = [
+  return [
     plan.formatFiles.length === 0
       ? { name: 'format', ...noFiles }
       : {
@@ -202,6 +277,59 @@ function main(): number {
       ? { name: 'test', commands: testCommands }
       : { name: 'test', ...noPackages },
   ];
+}
+
+function main(): number {
+  const args = parseCheckArgs(process.argv.slice(2));
+  if ('error' in args) {
+    console.log(`check: ${args.error}`);
+    return 2;
+  }
+  const { full, prePush, only } = args;
+  const workers = prePush ? prePushWorkers(process.env['VITEST_MAX_WORKERS']) : 2;
+  if (typeof workers !== 'number') {
+    console.log(`check: ${workers.error}`);
+    return 2;
+  }
+  const packageDirs = workspacePackages();
+  const base = full
+    ? { kind: 'full' as const, reason: '--full' }
+    : resolveBase({
+        insideWorkTree: git(['rev-parse', '--is-inside-work-tree']) === 'true',
+        headExists: git(['rev-parse', '--verify', '--quiet', 'HEAD']) !== null,
+        originMainMergeBase: git(['merge-base', 'HEAD', 'origin/main']),
+        mainMergeBase: git(['merge-base', 'HEAD', 'main']),
+      });
+  let changed = base.kind === 'base' && !prePush ? changedFiles(base.sha) : [];
+  let planBase = base;
+  if (prePush) {
+    const refs = parsePushRefs(readFileSync(0, 'utf8'));
+    if ('error' in refs) {
+      console.error(`check: ${refs.error}`);
+      return 2;
+    }
+    const ranges = pushRanges(refs, git(['rev-parse', 'HEAD']), base);
+    if ('error' in ranges) {
+      console.error(`check: ${ranges.error}`);
+      return 2;
+    }
+    changed = pushedFiles(ranges);
+    planBase = { kind: 'base', ref: 'push', sha: ranges[0]?.from ?? '' };
+  }
+  const plan = selectPlan({
+    full,
+    prePush,
+    base: planBase,
+    changed,
+    packageDirs,
+  });
+  if ('error' in plan) {
+    console.error(`check: ${plan.error}`);
+    return 2;
+  }
+  if (plan.mode === 'changed' && !prePush) plan.packageDirs = withDependents(plan.packageDirs);
+  console.log(`check: mode ${plan.mode} (${plan.reason})`);
+  const steps = buildSteps(plan, prePush, workers);
   return runSteps(only === null ? steps : steps.filter((step) => only.has(step.name)));
 }
 

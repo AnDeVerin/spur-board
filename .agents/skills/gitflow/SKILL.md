@@ -20,8 +20,15 @@ reasoning, not only the diff.
 - Changes to agent files (`.agents/`, `.claude/`, `.codex/`, `AGENTS.md`) go in their own
   commit (`chore(agents)`, or `fix(<skill>)` for a stale rule), apart from code changes.
 - Commits and PR titles carry no session marker.
-- Run `pnpm check` before each push; without a `package.json`, report `no checks available`.
-  Never wait for or poll remote CI.
+- Run `pnpm check` before opening the PR as `AGENTS.md` requires; use it again when a wider local
+  check is needed. Without a `package.json`, report `no checks available`. Never wait for or poll
+  remote CI.
+- The pre-push hook checks the refs being pushed: changed-file format and lint plus types and unit
+  tests for changed packages (all packages for shared root changes). Push only the checked-out
+  HEAD. `VITEST_MAX_WORKERS` defaults to two and accepts a positive integer override. CI runs
+  `check:full`, including startup and process tests.
+- If pre-push is unexpectedly slow, rerun the reported changed-file or direct-package command
+  to identify the delay, then push again.
 
 ## History
 

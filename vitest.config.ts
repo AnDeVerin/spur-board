@@ -25,7 +25,13 @@ export default defineConfig({
         test: {
           name: 'unit',
           include: ['packages/*/test/**/*.test.ts', 'scripts/**/*.test.ts'],
-          exclude: ['**/*.integration.test.ts', 'packages/cli/test/startup.test.ts'],
+          exclude: [
+            '**/*.integration.test.ts',
+            'packages/cli/test/startup.test.ts',
+            'scripts/hooks.test.ts',
+            'packages/daemon/test/main.test.ts',
+            'packages/daemon/test/single-instance.test.ts',
+          ],
         },
       },
       {
@@ -40,6 +46,18 @@ export default defineConfig({
         test: {
           name: 'integration',
           include: ['packages/*/test/**/*.integration.test.ts'],
+        },
+      },
+      {
+        extends: true,
+        test: {
+          name: 'process',
+          include: [
+            'scripts/hooks.test.ts',
+            'packages/daemon/test/main.test.ts',
+            'packages/daemon/test/single-instance.test.ts',
+          ],
+          testTimeout: 30_000,
         },
       },
     ],
