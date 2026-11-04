@@ -73,7 +73,7 @@ function doctorContext(
 }
 
 function doctorFetch(fail?: string): typeof fetch {
-  return vi.fn((input: RequestInfo | URL) => {
+  return vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(
       input instanceof URL ? input.href : input instanceof Request ? input.url : input,
     );
@@ -97,7 +97,16 @@ function doctorFetch(fail?: string): typeof fetch {
         Response.json({ ok: true, channel: { is_member: fail !== memberFail } }),
       );
     }
-    if (path.endsWith('/apps.manifest.export'))
+    if (path.endsWith('/apps.manifest.export')) {
+      expect(url.search).toBe('');
+      expect(init?.method).toBe('POST');
+      expect(init?.headers).toEqual({
+        Authorization: 'Bearer config-secret-canary',
+        'Content-Type': 'application/json',
+      });
+      expect(typeof init?.body).toBe('string');
+      if (typeof init?.body !== 'string') throw new Error('Expected JSON request body');
+      expect(JSON.parse(init.body)).toEqual({ app_id: 'A123ABC' });
       return Promise.resolve(
         Response.json({
           ok: true,
@@ -108,6 +117,7 @@ function doctorFetch(fail?: string): typeof fetch {
           },
         }),
       );
+    }
     throw new Error('Unexpected diagnostic URL');
   });
 }

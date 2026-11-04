@@ -182,8 +182,15 @@ export async function runDaemonDoctor(
       ctx,
       fetcher,
       'slack.command',
-      new URL(`apps.manifest.export?app_id=${encodeURIComponent(config.slack.appId)}`, slackBase),
-      { headers: { Authorization: `Bearer ${configToken}` } },
+      new URL('apps.manifest.export', slackBase),
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${configToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ app_id: config.slack.appId }),
+      },
     );
     let commands: string[] | null = null;
     if (response?.ok) {

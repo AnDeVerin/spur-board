@@ -159,6 +159,7 @@ describe('board doctor', () => {
   it.each([
     [
       'service.installed',
+      'Run board service install.',
       {
         readText: (path: string) =>
           path.endsWith('spur-board.service')
@@ -170,17 +171,24 @@ describe('board doctor', () => {
               : stamp,
       },
     ],
-    ['service.node', { exists: (path: string) => path !== '/usr/bin/node' }],
+    [
+      'service.node',
+      'Reinstall the service with a valid Node executable path.',
+      { exists: (path: string) => path !== '/usr/bin/node' },
+    ],
     [
       'service.running',
+      'Start or restart the user service and inspect its journal.',
       { run: (command: string) => ({ exitCode: command === 'systemctl' ? 1 : 0, stdout: '' }) },
     ],
     [
       'flock',
+      'Install flock from util-linux.',
       { run: (command: string) => ({ exitCode: command === 'flock' ? 1 : 0, stdout: '' }) },
     ],
     [
       'path.current',
+      'Install board into the current PATH.',
       {
         run: (command: string, _args: readonly string[], env?: NodeJS.ProcessEnv) => ({
           exitCode: command === 'board' && env === undefined ? 1 : 0,
@@ -190,6 +198,7 @@ describe('board doctor', () => {
     ],
     [
       'path.spur',
+      'Start a Spur session and install board into its PATH.',
       {
         run: (command: string, _args: readonly string[], env?: NodeJS.ProcessEnv) => ({
           exitCode: command === 'board' && env !== undefined ? 1 : 0,
@@ -199,14 +208,19 @@ describe('board doctor', () => {
     ],
     [
       'skills.codex_visibility',
+      'Install the spur-board skill into the Codex session-visible CODEX_HOME and restart the session.',
       { exists: (path: string) => !path.endsWith('/skills/spur-board/SKILL.md') },
     ],
-    ['versions', { productVersion: () => '9.9.9' }],
-  ] as const)('gives a blocking fix for %s', async (id, override) => {
+    [
+      'versions',
+      'Install matching CLI and skills versions, then restart the daemon.',
+      { productVersion: () => '9.9.9' },
+    ],
+  ] as const)('gives a blocking fix for %s', async (id, fix, override) => {
     const value = await run(['doctor', '--json'], ports(override));
     const check = value.checks.find((entry) => entry.id === id);
     expect(check?.status).toBe('fail');
-    expect(check?.fix).toBeTruthy();
+    expect(check?.fix).toBe(fix);
     expect(value.exitCode).toBe(1);
   });
 
@@ -228,6 +242,18 @@ describe('board doctor', () => {
     );
     expect(value.checks.find((entry) => entry.id === 'service.installed')?.status).toBe('pass');
     expect(value.text).not.toContain(secret);
+
+    const human = capture();
+    const humanExit = await runCli(['doctor'], {
+      io: human.io,
+      env: { BOARD_HOME: '/board', BOARD_DAEMON_URL: 'http://127.0.0.1:4311' },
+      home: '/home',
+      doctor: fake,
+    });
+    expect(humanExit).toBe(1);
+    expect(human.output()).toContain('FAIL daemon.available: Start or restart the user service.');
+    expect(human.output()).not.toContain(secret);
+    expect(human.errors()).not.toContain(secret);
   });
 
   it('warns for confirmed stale sessions without failing doctor', async () => {
@@ -248,5 +274,8 @@ describe('board doctor', () => {
       status: 'warning',
       blocking: false,
     });
+    expect(value.checks.find((entry) => entry.id === 'sessions.stale')?.fix).toBe(
+      'Restart sessions started before the last skill install: old; verify sessions whose start time is unavailable.',
+    );
   });
 });
