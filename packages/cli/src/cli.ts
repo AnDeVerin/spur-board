@@ -127,7 +127,7 @@ function shellValue(value: unknown): string {
   return /^[A-Za-z0-9_./#:@-]+$/.test(text) ? text : JSON.stringify(text);
 }
 
-function exampleCommand(op: CatalogOperation, input: Record<string, unknown>): string {
+export function exampleCommand(op: CatalogOperation, input: Record<string, unknown>): string {
   const words = ['board', op.cli.command];
   for (const arg of op.cli.args) {
     const value = input[arg];

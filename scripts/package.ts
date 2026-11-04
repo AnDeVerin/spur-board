@@ -43,7 +43,7 @@ export function assembleSkills(
   rmSync(destination, { recursive: true, force: true });
   if (!existsSync(source)) return;
   for (const entry of readdirSync(source, { withFileTypes: true })) {
-    if (!entry.isDirectory()) continue;
+    if (!entry.isDirectory() || entry.name === 'test') continue;
     const skill = join(source, entry.name);
     if (!existsSync(join(skill, 'SKILL.md'))) {
       throw new Error(`Product skill ${entry.name} has no SKILL.md.`);
@@ -91,7 +91,12 @@ export function validateTarball(entries: readonly string[], manifest: PackageMan
   const files = new Set(entries.map((entry) => entry.replace(/^\.\//, '').replace(/\/$/, '')));
   const binary = `package/${manifest.bin.board.replace(/^\.\//, '')}`;
   if (!files.has(binary)) throw new Error('Tarball is missing the board binary.');
-  for (const required of ['package/README.md', 'package/LICENSE', 'package/package.json']) {
+  for (const required of [
+    'package/README.md',
+    'package/LICENSE',
+    'package/package.json',
+    'package/skills/spur-board/SKILL.md',
+  ]) {
     if (!files.has(required)) throw new Error(`Tarball is missing ${required}.`);
   }
   for (const entry of files) {

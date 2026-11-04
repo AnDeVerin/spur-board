@@ -1,4 +1,9 @@
-import { buildCatalogSnapshot, OPERATIONS, type Config, type Grant } from '@spur-board/contracts';
+import {
+  buildCatalogSnapshot,
+  OPERATIONS,
+  roleCanUseOperation,
+  type Config,
+} from '@spur-board/contracts';
 import { authorize } from './authorize.ts';
 import { createBlockMutations } from './blocks.ts';
 import { createMembershipMutations } from './membership.ts';
@@ -8,16 +13,6 @@ import { getStatus } from './status.ts';
 import { createTaskQueries, projectTargets, visibleProjects } from './task-queries.ts';
 import { tokenListQuery, tokenRevokeMutation } from './tokens.ts';
 
-const ROLE_GRANTS: Record<'operator' | 'worker' | 'orchestrator', ReadonlySet<Grant>> = {
-  operator: new Set(['operator', 'block-addressee', 'block-author']),
-  worker: new Set(['project-agent', 'task-worker', 'block-addressee', 'block-author']),
-  orchestrator: new Set([
-    'project-agent',
-    'column-orchestrator',
-    'block-addressee',
-    'block-author',
-  ]),
-};
 const catalog = await buildCatalogSnapshot(OPERATIONS);
 
 /** Concrete handlers shared by the daemon's HTTP and inbound transports. */
@@ -40,12 +35,7 @@ export function createOperationRegistry(deps: {
       return Promise.resolve({
         version: catalog.version,
         operations: catalog.operations
-          .filter(
-            (operation) =>
-              role === undefined ||
-              operation.grants === 'any' ||
-              operation.grants.some((rule) => ROLE_GRANTS[role].has(rule.grant)),
-          )
+          .filter((operation) => role === undefined || roleCanUseOperation(operation, role))
           .map((operation) => ({
             id: operation.id,
             kind: operation.kind,
