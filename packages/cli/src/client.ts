@@ -64,7 +64,6 @@ function decodeResponse<Output extends z.ZodType>(
   throw problemError(response.statusCode ?? 0, response.headers['content-type'], body);
 }
 
-/** Shared daemon HTTP client. The CLI owns output; this module owns transport and wire parsing. */
 async function post<Output extends z.ZodType>(
   path: string,
   body: unknown,

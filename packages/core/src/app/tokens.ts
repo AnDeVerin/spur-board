@@ -179,13 +179,14 @@ export const tokenRevokeMutation: Mutation<'token.revoke'> = {
       .executeTakeFirst();
     if (row === undefined) throw new CommandError('not_found', 'Token name was not found.');
     if (row.status !== 'revoked') {
+      const at = new Date(ctx.at);
       await trx
         .updateTable('operator_token')
         .set({ status: 'revoked', decided_at: ctx.at })
         .where('id', '=', row.id)
         .execute();
-      await journalToken(trx, 'token_revoked', row.name, new Date(ctx.at));
-      await clearItem(trx, row.item_id, new Date(ctx.at));
+      await journalToken(trx, 'token_revoked', row.name, at);
+      await clearItem(trx, row.item_id, at);
     }
     return { name: row.name, status: 'revoked' };
   },

@@ -56,10 +56,12 @@ export function createQuery(deps: {
       if (targets.some((target) => target.kind === 'missing')) {
         throw new CommandError('not_found', 'Check the target ID.');
       }
-      if (targets.length === 0 && entry.grants !== 'any') {
-        if (entry.id !== 'token.list' || actor !== 'operator') {
-          throw new CommandError('not_found', 'Resolve an authorization target before reading.');
-        }
+      if (
+        targets.length === 0 &&
+        entry.grants !== 'any' &&
+        (entry.id !== 'token.list' || actor !== 'operator')
+      ) {
+        throw new CommandError('not_found', 'Resolve an authorization target before reading.');
       }
       const value = await query.run(trx, parsedInput, actor);
       return { status: 'done' as const, value: entry.output.parse(value) };

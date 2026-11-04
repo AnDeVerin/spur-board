@@ -50,13 +50,11 @@ function tokenInFolder(folder: string): string | undefined {
 export function findTokenFile(cwd: string, home: string): string | undefined {
   const current = realpathSync(cwd);
   const boundary = realpathSync(home);
+  if (current === boundary) return undefined;
   const toCurrent = relative(boundary, current);
-  const insideHome =
-    toCurrent !== '' &&
-    toCurrent !== '..' &&
-    !toCurrent.startsWith(`..${sep}`) &&
-    !isAbsolute(toCurrent);
-  if (!insideHome) return current === boundary ? undefined : tokenInFolder(current);
+  if (toCurrent === '..' || toCurrent.startsWith(`..${sep}`) || isAbsolute(toCurrent)) {
+    return tokenInFolder(current);
+  }
   let folder = current;
   while (folder !== boundary) {
     const token = tokenInFolder(folder);
