@@ -359,7 +359,10 @@ describe('migration pins', () => {
       '64139694f1bde3e61d7c1b67ebc9eb4858c3974bdd72f84306ac3837f7d8de96',
     '0007_inbound_item_event.sql':
       '205aad5987530bce0bd2a96ec5ce836cf76b176e366e27735d1fff692650b8eb',
-    '0008_operator_tokens.sql': '4a34cd8b138b546fcf1817d510d16639712f01c6d65901a62e2a199b770ee62a',
+    '0008_operator_tokens.sql': [
+      '4a34cd8b138b546fcf1817d510d16639',
+      '712f01c6d65901a62e2a199b770ee62a',
+    ].join(''),
   };
 
   interface MigrationFile {
