@@ -203,6 +203,29 @@ describe('event kinds', () => {
 });
 
 describe('parseEvent', () => {
+  it('accepts a manual ticket link and a reason while retaining older link events', () => {
+    expect(parseEvent(samples.link_added).status).toBe('ok');
+    expect(
+      parseEvent({
+        ...base,
+        kind: 'link_added',
+        payload: {
+          entity: 'ticket',
+          ticket: 'PROJ-456',
+          source: 'manual',
+          reason: 'Related work.',
+        },
+      }).status,
+    ).toBe('ok');
+    expect(
+      parseEvent({
+        ...base,
+        kind: 'link_removed',
+        payload: { entity: 'ticket', ticket: 'PROJ-456', reason: 'No longer related.' },
+      }).status,
+    ).toBe('ok');
+  });
+
   it.each(EVENT_KINDS)('round-trips a %s event through JSON', (kind) => {
     const sample = samples[kind];
     expect(parseEvent(JSON.parse(JSON.stringify(sample)))).toEqual({

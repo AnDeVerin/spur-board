@@ -105,6 +105,17 @@ export const statusSessionFactsSchema = z
   })
   .describe('Session facts with links as display entries.');
 
+export const linkViewSchema = z
+  .strictObject({
+    kind: z.enum(['pr', 'session', 'ticket']).describe('Linked entity kind.'),
+    ref: z.string().min(1).describe('Pull request, session, or ticket identifier.'),
+    role: z
+      .enum(['worker', 'other', 'orchestrator'])
+      .nullable()
+      .describe('Session role; null for a pull request or ticket.'),
+  })
+  .describe('An effective link to a task.');
+
 export const statusTaskSchema = taskViewSchema
   .extend({
     ticket: ticketFactsSchema
@@ -112,18 +123,7 @@ export const statusTaskSchema = taskViewSchema
       .describe('Latest ticket facts, or null before observation.'),
     prs: z.array(prFactsSchema).describe('Latest facts for linked pull requests.'),
     sessions: z.array(statusSessionFactsSchema).describe('Latest facts for linked sessions.'),
-    links: z
-      .array(
-        z.strictObject({
-          kind: z.enum(['pr', 'session']).describe('Linked entity kind.'),
-          ref: z.string().min(1).describe('Pull request or session identifier.'),
-          role: z
-            .enum(['worker', 'other', 'orchestrator'])
-            .nullable()
-            .describe('Session role; null for a pull request.'),
-        }),
-      )
-      .describe('Links fixed when each entity first joined the task.'),
+    links: z.array(linkViewSchema).describe('Effective pull request, session, and ticket links.'),
   })
   .describe('A board task with its latest observed facts and links.');
 
