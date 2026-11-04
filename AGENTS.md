@@ -33,7 +33,7 @@ A map of the repo for agents and contributors. The rules live in the files and s
   worktree; the hooks need `node_modules`. When `node_modules` already exists, pnpm skips
   `prepare`: run `pnpm run prepare` to turn the hooks on.
 - `pnpm check` - format, lint, types and tests for changed files and affected packages; knip runs
-  only when a global change triggers full mode. Use `pnpm check:full --only knip` for export changes.
+  only when a global change triggers full mode.
 - `pnpm run check --pre-push` - checks the Git refs being pushed: changed-file format and lint,
   plus types and unit tests for changed packages (all packages for shared root changes). It
   checks only refs at the current HEAD and uses two Vitest workers by default; set a positive
