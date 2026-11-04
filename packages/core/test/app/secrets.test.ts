@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { actorIdSchema, configSchema } from '@spur-board/contracts';
 import { sql } from 'kysely';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   createApply,
   createBlockMutations,
@@ -105,7 +105,9 @@ describe('gateway secret scan', () => {
     const text = ['<!-- secretlint-disable -->', token, '<!-- secretlint-enable -->'].join('\n');
     expect(await scanSecret(text)).toContain('slack');
     await apply(ops.ask, { task: KEY, text }, AUTHOR, 'ask-with-directive');
-    expect(await store.db.selectFrom('outbox').select('id').execute()).toEqual([]);
+    expect(await store.db.selectFrom('outbox').select('kind').execute()).toEqual([
+      { kind: 'feed.line' },
+    ]);
   });
 
   it.each(samples())(
@@ -120,7 +122,15 @@ describe('gateway secret scan', () => {
         'ask-1',
       );
       expect(asked.block.state).toBe('open');
-      expect(await store.db.selectFrom('outbox').select('id').execute()).toEqual([]);
+      const outbox = await store.db.selectFrom('outbox').select(['kind', 'payload']).execute();
+      expect(outbox).toHaveLength(1);
+      expect(outbox[0]?.kind).toBe('feed.line');
+      expect(outbox[0]?.payload).toContain(KEY);
+      expect(outbox[0]?.payload).toContain(rule);
+      expect(outbox[0]?.payload).not.toContain(token);
+      expect(JSON.parse(outbox[0]?.payload ?? '{}')).toMatchObject({
+        url: 'https://github.com/o/r/issues/101',
+      });
       const comments = await store.db
         .selectFrom('comment')
         .select(['text', 'delivery_state'])
@@ -131,6 +141,8 @@ describe('gateway secret scan', () => {
       const items = await store.db.selectFrom('operator_item').selectAll().execute();
       expect(items).toHaveLength(1);
       expect(items[0]?.text).toContain(rule);
+      expect(items[0]?.url).toBe('https://github.com/o/r/issues/101');
+      expect(items[0]?.line_outbox_id).not.toBeNull();
       expect(JSON.stringify(items)).not.toContain(token);
       const raised = await store.db
         .selectFrom('event')
@@ -159,12 +171,16 @@ describe('gateway secret scan', () => {
       )
       .execute(store.db);
     await apply(ops.ask, { task: KEY, text: token }, AUTHOR, 'ask-1');
-    expect(await store.db.selectFrom('outbox').select('id').execute()).toEqual([]);
+    expect(await store.db.selectFrom('outbox').select('kind').execute()).toEqual([
+      { kind: 'feed.line' },
+    ]);
     await store.close();
     stores.splice(stores.indexOf(store), 1);
     const reopened = openStore(file);
     stores.push(reopened);
-    expect(await reopened.db.selectFrom('outbox').select('id').execute()).toEqual([]);
+    expect(await reopened.db.selectFrom('outbox').select('kind').execute()).toEqual([
+      { kind: 'feed.line' },
+    ]);
   });
 
   it('queues clean text unchanged and lets a blocked question be answered', async () => {
@@ -190,6 +206,7 @@ describe('gateway secret scan', () => {
 
   it('accepts 128 distinct clean feed lines in one operation', async () => {
     const { store } = await setup();
+    const transaction = vi.spyOn(store, 'transaction');
     await scanTransaction(store, async (trx) => {
       for (let i = 0; i < 128; i += 1) {
         await raiseItem(trx, {
@@ -205,7 +222,8 @@ describe('gateway secret scan', () => {
     });
     const rows = await store.db.selectFrom('outbox').select('id').execute();
     expect(rows).toHaveLength(128);
-  }, 30_000);
+    expect(transaction).toHaveBeenCalledTimes(2);
+  });
 
   it('blocks a secret-bearing reply while retaining the clean root', async () => {
     const { store, apply } = await setup();
@@ -238,7 +256,11 @@ describe('gateway secret scan', () => {
         .executeTakeFirstOrThrow(),
     ).toEqual({ cleared_at: null });
     const rows = await store.db.selectFrom('outbox').select('kind').execute();
-    expect(rows).toEqual([{ kind: 'conversation.open' }, { kind: 'feed.line' }]);
+    expect(rows).toEqual([
+      { kind: 'conversation.open' },
+      { kind: 'feed.line' },
+      { kind: 'feed.line' },
+    ]);
     const comments = await store.db
       .selectFrom('comment')
       .select(['delivery_state'])
@@ -262,7 +284,7 @@ describe('gateway secret scan', () => {
     );
     expect(
       (await store.db.selectFrom('outbox').select('kind').execute()).map((row) => row.kind),
-    ).toEqual(['conversation.open']);
+    ).toEqual(['conversation.open', 'feed.line']);
 
     const blockedItem = await scanTransaction(store, (trx) =>
       raiseItem(trx, {
@@ -278,7 +300,7 @@ describe('gateway secret scan', () => {
     expect(blockedItem.line_outbox_id).toBeNull();
     expect(
       (await store.db.selectFrom('outbox').select('kind').execute()).map((row) => row.kind),
-    ).toEqual(['conversation.open']);
+    ).toEqual(['conversation.open', 'feed.line', 'feed.line']);
 
     const cleanItem = await scanTransaction(store, (trx) =>
       raiseItem(trx, {
@@ -304,7 +326,7 @@ describe('gateway secret scan', () => {
     );
     expect(
       (await store.db.selectFrom('outbox').select('kind').execute()).map((row) => row.kind),
-    ).toEqual(['conversation.open', 'feed.line']);
+    ).toEqual(['conversation.open', 'feed.line', 'feed.line', 'feed.line', 'feed.line']);
     const notices = await store.db
       .selectFrom('operator_item')
       .select(['kind', 'text'])

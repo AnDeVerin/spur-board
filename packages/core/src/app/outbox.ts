@@ -14,8 +14,9 @@ import {
 import { sql, type Kysely } from 'kysely';
 import { z } from 'zod';
 import type { Tables } from '../store/schema.ts';
+import { taskUrl } from './doorbells.ts';
 import { raiseItem } from './feed.ts';
-import { checkGatewayStrings } from './secrets.ts';
+import { SCAN_PENDING, checkGatewayStrings } from './secrets.ts';
 
 export const OUTBOX_KINDS = [
   'conversation.open',
@@ -215,7 +216,17 @@ async function insertOutbox(
     }
     // Scan every payload string, including the outward text, title, name, URL and action labels.
     const rule = checkGatewayStrings(payloadStrings(payload));
+    if (rule === SCAN_PENDING) return { id: null, inserted: false };
     if (rule !== null) {
+      // A blocked notice cannot raise another blocked notice if its own link is unsafe.
+      if (
+        row.kind === 'feed.line' &&
+        'itemKey' in payload &&
+        typeof payload.itemKey === 'string' &&
+        payload.itemKey.startsWith('secret-post:')
+      ) {
+        return { id: null, inserted: false };
+      }
       const commentId = 'commentId' in payload ? payload.commentId : null;
       if (typeof commentId === 'number') {
         await trx
@@ -230,17 +241,24 @@ async function insertOutbox(
         'taskId' in payload && typeof payload.taskId === 'number' ? payload.taskId : null;
       const blockId =
         'blockId' in payload && typeof payload.blockId === 'number' ? payload.blockId : null;
+      const task =
+        taskId === null
+          ? null
+          : await trx
+              .selectFrom('task')
+              .selectAll()
+              .where('id', '=', taskId)
+              .executeTakeFirstOrThrow();
       await raiseItem(trx, {
         itemKey: `secret-post:${createHash('sha256').update(row.dedupeKey).digest('hex')}`,
         kind: 'post_blocked',
         text: `text on ${safeKey} not sent: looks like a secret (${rule}), read \`board task ${safeKey}\``,
-        url: '',
+        url: task === null ? '' : taskUrl(task),
         taskId,
         blockId,
         at: row.at,
         rule,
         source: row.kind,
-        suppressFeed: true,
       });
       return { id: null, inserted: false };
     }

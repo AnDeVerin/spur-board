@@ -88,7 +88,9 @@ describe('CLI against the real HTTP API', () => {
         'agent:web/worker-1',
         'blocked-question',
       );
-      expect(await store.db.selectFrom('outbox').select('id').execute()).toEqual([]);
+      expect(await store.db.selectFrom('outbox').select('kind').execute()).toEqual([
+        { kind: 'feed.line' },
+      ]);
       app = await createApiServer({
         store,
         config,
