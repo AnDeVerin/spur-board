@@ -1,13 +1,43 @@
 import comments from '@eslint-community/eslint-plugin-eslint-comments';
 import vitest from '@vitest/eslint-plugin';
+import { dirname, resolve, sep } from 'node:path';
 import { defineConfig } from 'eslint/config';
 import tseslint from 'typescript-eslint';
 import noProjectLiteralCompare from './eslint/no-project-literal-compare.ts';
 import skipNeedsFlakyIssue from './eslint/skip-needs-flaky-issue.ts';
 
+const cliRoot = resolve(import.meta.dirname, 'packages/cli');
+const contractsRoot = resolve(import.meta.dirname, 'packages/contracts');
+const within = (root, target) => target === root || target.startsWith(`${root}${sep}`);
+const cliImportBoundary = {
+  meta: {
+    type: 'problem',
+    schema: [],
+    messages: {
+      outside: 'The CLI may import only its own files and packages/contracts by relative path.',
+    },
+  },
+  create(context) {
+    const check = (node) => {
+      const source = node.source;
+      const specifier = source?.value;
+      if (typeof specifier !== 'string' || !specifier.startsWith('.')) return;
+      const target = resolve(dirname(context.filename), specifier);
+      if (within(cliRoot, target) || within(contractsRoot, target)) return;
+      context.report({ node: source, messageId: 'outside' });
+    };
+    return {
+      ImportDeclaration: check,
+      ExportNamedDeclaration: check,
+      ExportAllDeclaration: check,
+    };
+  },
+};
+
 // One plugin object: ESLint rejects two different objects under the same plugin name.
 const local = {
   rules: {
+    'cli-import-boundary': cliImportBoundary,
     'no-project-literal-compare': noProjectLiteralCompare,
     'skip-needs-flaky-issue': skipNeedsFlakyIssue,
   },
@@ -69,11 +99,6 @@ const cliBoundaryPatterns = [
     regex: '^@spur-board/(?!contracts(/|$))',
     caseSensitive: true,
     message: 'The CLI imports only @spur-board/contracts among workspace packages.',
-  },
-  {
-    regex: '^([.][.]/)+(packages/)?(core|daemon|adapters|gateway-slack|testkit)(/|$)',
-    caseSensitive: true,
-    message: 'The CLI does not import files from other workspace packages.',
   },
 ];
 const cliImports = [
@@ -184,6 +209,11 @@ export default defineConfig(
   {
     files: ['packages/adapters/test/**/*.ts', 'packages/adapters/**/*.test.ts'],
     rules: { 'no-restricted-syntax': ['error', viMockBan, dynamicImportBan, importTypeBan] },
+  },
+  {
+    files: ['packages/cli/**/*.{ts,mjs}'],
+    plugins: { local },
+    rules: { 'local/cli-import-boundary': 'error' },
   },
   {
     files: ['packages/cli/**/*.ts'],
