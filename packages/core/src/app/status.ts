@@ -162,8 +162,12 @@ export async function getStatus(
     .execute();
   const itemTasks = new Map(rows.map((task) => [task.id, task]));
   const items = itemRows
-    .filter(
-      (item) => item.task_id === null || projectIds.has(itemTasks.get(item.task_id)?.project ?? ''),
+    .filter((item) =>
+      item.task_id !== null
+        ? projectIds.has(itemTasks.get(item.task_id)?.project ?? '')
+        : item.source !== null
+          ? required.has(item.source)
+          : visibleProjects === undefined || visibleProjects.size === config.projects.length,
     )
     .map((item) => {
       const source = item.source === null ? null : sourceById.get(item.source);

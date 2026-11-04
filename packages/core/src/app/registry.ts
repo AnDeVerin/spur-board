@@ -1,4 +1,10 @@
-import type { ActorId, Config } from '@spur-board/contracts';
+import {
+  buildCatalogSnapshot,
+  OPERATIONS,
+  type ActorId,
+  type Config,
+  type Grant,
+} from '@spur-board/contracts';
 import { authorize, type ResolvedTarget } from './authorize.ts';
 import { createBlockMutations } from './blocks.ts';
 import { createMembershipMutations } from './membership.ts';
@@ -27,6 +33,18 @@ function visibleProjects(config: Config, actor: ActorId): ReadonlySet<string> {
   );
 }
 
+const ROLE_GRANTS: Record<'operator' | 'worker' | 'orchestrator', ReadonlySet<Grant>> = {
+  operator: new Set(['operator', 'block-addressee', 'block-author']),
+  worker: new Set(['project-agent', 'task-worker', 'block-addressee', 'block-author']),
+  orchestrator: new Set([
+    'project-agent',
+    'column-orchestrator',
+    'block-addressee',
+    'block-author',
+  ]),
+};
+const catalog = await buildCatalogSnapshot(OPERATIONS);
+
 /** Concrete handlers shared by the daemon's HTTP and inbound transports. */
 export function createOperationRegistry(deps: {
   config: Config;
@@ -36,6 +54,47 @@ export function createOperationRegistry(deps: {
   const { config, clock, completeSince } = deps;
   const membership = createMembershipMutations(config);
   const blocks = createBlockMutations(config);
+  const schema: Query<'schema.get'> = {
+    id: 'schema.get',
+    resolveTargets() {
+      return Promise.resolve([]);
+    },
+    run(_trx, input) {
+      const role = input.role;
+      return Promise.resolve({
+        version: catalog.version,
+        operations: catalog.operations
+          .filter(
+            (operation) =>
+              role === undefined ||
+              operation.grants === 'any' ||
+              operation.grants.some((rule) => ROLE_GRANTS[role].has(rule.grant)),
+          )
+          .map((operation) => ({
+            id: operation.id,
+            kind: operation.kind,
+            description: operation.description,
+            grants:
+              operation.grants === 'any'
+                ? ('any' as const)
+                : operation.grants.map((rule) => ({
+                    grant: rule.grant,
+                    ...(rule.mode === undefined ? {} : { mode: rule.mode }),
+                    ...(rule.blockTypes === undefined ? {} : { blockTypes: [...rule.blockTypes] }),
+                  })),
+            errors: [...operation.errors],
+            cli: {
+              ...operation.cli,
+              args: [...operation.cli.args],
+              modes: operation.cli.modes?.map((mode) => ({ ...mode })) ?? null,
+            },
+            mcp: { ...operation.mcp },
+            inputSchema: operation.input,
+            outputSchema: operation.output,
+          })),
+      });
+    },
+  };
   const status: Query<'status.get'> = {
     id: 'status.get',
     resolveTargets(_trx, input, actor) {
@@ -59,6 +118,7 @@ export function createOperationRegistry(deps: {
     },
   };
   return {
+    'schema.get': schema,
     'status.get': status,
     'task.add': membership.add,
     'task.archive': membership.archive,

@@ -215,6 +215,17 @@ describe('daemon process', () => {
       expect(JSON.parse(status.stdout)).toMatchObject({
         tasks: [{ key: 'example-org/board#101' }],
       });
+      const schema = spawnSync(process.execPath, [BOARD_CLI, 'schema', '--json'], {
+        env,
+        encoding: 'utf8',
+      });
+      expect(schema.status, schema.stderr).toBe(0);
+      const schemaResult = JSON.parse(schema.stdout) as {
+        version: string;
+        operations: { id: string }[];
+      };
+      expect(schemaResult.version).toMatch(/^[0-9a-f]{64}$/);
+      expect(schemaResult.operations.map((operation) => operation.id)).toContain('status.get');
       const ask = spawnSync(
         process.execPath,
         [BOARD_CLI, 'ask', 'example-org/board#101', 'Which version?', '--key', 'ask-1', '--json'],
