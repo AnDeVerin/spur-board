@@ -2,6 +2,7 @@ import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promis
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { runCli, type CliIo } from '../src/cli.ts';
 import { installSkills } from '../src/skills.ts';
 
 const temporaryDirectories: string[] = [];
@@ -31,6 +32,32 @@ function destination(home: string, agent: (typeof agents)[number], name: (typeof
 }
 
 describe('skills install', () => {
+  it('dispatches through runCli without daemon configuration', async () => {
+    const { home, packageRoot } = await fixture();
+    const output = { stdout: '', stderr: '' };
+    const io: CliIo = {
+      isTTY: false,
+      stdout: (text) => {
+        output.stdout += text;
+      },
+      stderr: (text) => {
+        output.stderr += text;
+      },
+    };
+    expect(
+      await runCli(['skills', 'install'], {
+        env: {},
+        io,
+        setup: { home, packageRoot, now: () => new Date('2026-11-04T12:00:00.000Z') },
+      }),
+    ).toBe(0);
+    expect(JSON.parse(output.stdout)).toHaveLength(4);
+    expect(output.stderr).toBe('');
+    expect(
+      await readFile(join(destination(home, '.codex', 'spur-board-setup'), 'SKILL.md'), 'utf8'),
+    ).toBe('Setup skill\n');
+  });
+
   it('installs both package skills with version and time in both user skill folders', async () => {
     const { home, packageRoot } = await fixture();
     const installedAt = '2026-11-04T12:00:00.000Z';

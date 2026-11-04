@@ -1,5 +1,6 @@
 import YAML from 'yaml';
 import { describe, expect, it } from 'vitest';
+import { runCli, type CliIo } from '../src/cli.ts';
 import { CliError } from '../src/exit-codes.ts';
 import { renderSlackManifest } from '../src/manifest.ts';
 
@@ -44,9 +45,25 @@ function assertManifest(text: string, appName: string, command: string): void {
   expect(manifest.settings.socket_mode_enabled).toBe(true);
 }
 
+async function commandOutput(args: string[]): Promise<string> {
+  const output = { stdout: '', stderr: '' };
+  const io: CliIo = {
+    isTTY: false,
+    stdout: (text) => {
+      output.stdout += text;
+    },
+    stderr: (text) => {
+      output.stderr += text;
+    },
+  };
+  expect(await runCli(['slack', 'manifest', ...args], { env: {}, io })).toBe(0);
+  expect(output.stderr).toBe('');
+  return output.stdout;
+}
+
 describe('slack manifest', () => {
-  it('prints a default manifest with the exact bot scopes and M1 usage hint', () => {
-    const text = renderSlackManifest();
+  it('prints a default manifest with the exact bot scopes and M1 usage hint', async () => {
+    const text = await commandOutput([]);
     assertManifest(text, 'spur-board', '/board');
     expect(text).toMatchInlineSnapshot(`
       "_metadata:
@@ -85,8 +102,8 @@ describe('slack manifest', () => {
     `);
   });
 
-  it('uses operator-selected names without changing permissions or events', () => {
-    const text = renderSlackManifest({ appName: 'My Board', command: '/board-me' });
+  it('uses operator-selected names without changing permissions or events', async () => {
+    const text = await commandOutput(['--app-name', 'My Board', '--command', '/board-me']);
     assertManifest(text, 'My Board', '/board-me');
     expect(text).toMatchInlineSnapshot(`
       "_metadata:
@@ -130,5 +147,21 @@ describe('slack manifest', () => {
     for (const command of ['board', '/', '/board name', '/board/again']) {
       expect(() => renderSlackManifest({ command })).toThrow(CliError);
     }
+  });
+
+  it('returns a usage error for an invalid command flag', async () => {
+    const output = { stdout: '', stderr: '' };
+    const io: CliIo = {
+      isTTY: false,
+      stdout: (text) => {
+        output.stdout += text;
+      },
+      stderr: (text) => {
+        output.stderr += text;
+      },
+    };
+    expect(await runCli(['slack', 'manifest', '--command', 'board'], { env: {}, io })).toBe(2);
+    expect(output.stdout).toBe('');
+    expect(output.stderr).toContain('usage');
   });
 });

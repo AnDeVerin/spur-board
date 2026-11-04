@@ -2,6 +2,7 @@ import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/pr
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { runCli, type CliIo } from '../src/cli.ts';
 import {
   installService,
   renderUserUnit,
@@ -69,6 +70,68 @@ async function fixture(): Promise<{
 }
 
 describe('service', () => {
+  it('dispatches lifecycle commands without daemon config through a fake runner', async () => {
+    const { options, paths, calls } = await fixture();
+    const output = { stdout: '', stderr: '' };
+    const io: CliIo = {
+      isTTY: false,
+      stdout: (text) => {
+        output.stdout += text;
+      },
+      stderr: (text) => {
+        output.stderr += text;
+      },
+    };
+    const cli = (args: string[]) =>
+      runCli(['service', ...args], {
+        env: options.env ?? {},
+        io,
+        setup: options,
+      });
+
+    expect(await cli(['install'])).toBe(0);
+    expect(JSON.parse(output.stdout)).toEqual({ unitFile: paths.unitFile, changed: true });
+    expect(await readFile(paths.unitFile, 'utf8')).toBe(renderUserUnit(paths));
+    await rm(paths.daemonEntry);
+    await rm(paths.secretsFile);
+    output.stdout = '';
+    expect(await cli(['status'])).toBe(0);
+    expect(JSON.parse(output.stdout)).toEqual({
+      unit: 'spur-board.service',
+      active: 'inactive',
+      enabled: 'disabled',
+      lingering: false,
+    });
+    expect(await cli(['restart'])).toBe(0);
+    expect(await cli(['uninstall'])).toBe(0);
+    expect(output.stderr).toBe('');
+    expect(calls.some((call) => call.command === 'loginctl')).toBe(true);
+    expect(calls.every((call) => !call.args.includes('enable-linger'))).toBe(true);
+    await expect(stat(paths.unitFile)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('reports a missing daemon entry before CLI service install has side effects', async () => {
+    const { options, paths, calls } = await fixture();
+    await rm(paths.daemonEntry);
+    const output = { stdout: '', stderr: '' };
+    const io: CliIo = {
+      isTTY: false,
+      stdout: (text) => {
+        output.stdout += text;
+      },
+      stderr: (text) => {
+        output.stderr += text;
+      },
+    };
+    expect(
+      await runCli(['service', 'install'], { env: options.env ?? {}, io, setup: options }),
+    ).toBe(4);
+    expect(output.stdout).toBe('');
+    expect(output.stderr).toContain('daemon entry is missing or unreadable');
+    expect(calls).toEqual([]);
+    await expect(stat(paths.unitFile)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
   it('renders an exact systemd user unit with absolute paths and stop timeout', () => {
     expect(
       renderUserUnit({
