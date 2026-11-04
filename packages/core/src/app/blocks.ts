@@ -22,7 +22,7 @@ import {
   escalateBlock,
   type CurrentBlock,
 } from '../domain/blocks/blocks.ts';
-import type { ResolvedTarget } from './authorize.ts';
+import { authorize, type ResolvedTarget } from './authorize.ts';
 import { CommandError, type CommandContext, type Mutation } from './commands.ts';
 
 type Task = Selectable<TaskTable>;
@@ -346,7 +346,36 @@ export function createBlockMutations(config: Config) {
   };
   const escalate: Mutation<'block.escalate'> = {
     id: 'block.escalate',
-    resolveTargets: (trx, input) => blockTarget(trx, input.block),
+    async resolveTargets(trx, input, actor) {
+      const block = await blockById(trx, input.block);
+      if (block === undefined || block.addressee_role !== 'operator') {
+        return blockTarget(trx, input.block);
+      }
+      const task = await taskById(trx, block.task_id);
+      const target = await authorizationTarget(trx, task, block);
+      if (target.kind !== 'found' || target.value.block === null) return [target];
+      const original = blockAddressee({
+        type: block.type,
+        author: block.author,
+        authorRole: authorRole(config, task, block.author),
+        column: task.column,
+        orchestrator: orchestrator(config, task),
+        hasWorker: block.author === 'system' && (await hasWorker(trx, task)),
+      });
+      if (original === 'operator') return [target];
+      const originalTarget: ResolvedTarget = {
+        kind: 'found',
+        value: {
+          ...target.value,
+          block: { ...target.value.block, addressee_role: original },
+        },
+      };
+      const originalAllowed = authorize([{ grant: 'block-addressee' }], actor, {
+        config,
+        target: originalTarget,
+      });
+      return [originalAllowed.status === 'allowed' ? originalTarget : target];
+    },
     async run(trx, input, ctx) {
       const block = found(await blockById(trx, input.block));
       const task = await taskById(trx, block.task_id);
@@ -424,7 +453,12 @@ export function createBlockMutations(config: Config) {
       if (block !== undefined && block.task_id !== task.id) {
         throw new CommandError('not_found', 'Block does not belong to this task.');
       }
-      const addressee = block?.addressee_role ?? 'worker';
+      const addressee =
+        block === undefined
+          ? 'worker'
+          : ctx.actor === block.author
+            ? block.addressee_role
+            : authorRole(config, task, block.author);
       const comment = await addComment(trx, task, block, input.text, ctx, addressee);
       return { comment: commentView(comment, task) };
     },

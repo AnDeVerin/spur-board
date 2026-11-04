@@ -448,10 +448,10 @@ describe('authorization at the command boundary', () => {
     const store = await seeded();
     const partial: Mutation<'inbox.ack'> = {
       ...ack,
-      resolveTargets(trx, input) {
+      resolveTargets(trx, input, actor) {
         const first = input.entries.at(0);
         if (first === undefined) throw new Error('Expected a comment ID');
-        return ack.resolveTargets(trx, { entries: [first] });
+        return ack.resolveTargets(trx, { entries: [first] }, actor);
       },
     };
     await expect(
@@ -464,10 +464,10 @@ describe('authorization at the command boundary', () => {
     const store = await seeded();
     const duplicate: Mutation<'inbox.ack'> = {
       ...ack,
-      async resolveTargets(trx, input) {
+      async resolveTargets(trx, input, actor) {
         const first = input.entries.at(0);
         if (first === undefined) throw new Error('Expected a comment ID');
-        const [target] = await ack.resolveTargets(trx, { entries: [first] });
+        const [target] = await ack.resolveTargets(trx, { entries: [first] }, actor);
         if (target === undefined) throw new Error('Expected a resolved target');
         return input.entries.map(() => target);
       },

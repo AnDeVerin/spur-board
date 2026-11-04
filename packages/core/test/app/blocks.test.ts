@@ -193,6 +193,9 @@ describe('block and comment mutations', () => {
     const asked = await apply(ops.ask, { task: KEY, text: 'Question?' }, author, 'ask-1');
     const escalated = await apply(ops.escalate, { block: asked.block.id }, orchestrator, 'esc-1');
     expect(escalated.block.addressee).toBe('operator');
+    const beforeRepeat = await events(store);
+    await apply(ops.escalate, { block: asked.block.id }, orchestrator, 'esc-original-repeat');
+    expect(await events(store)).toEqual(beforeRepeat);
     await apply(ops.escalate, { block: asked.block.id }, 'operator', 'esc-2');
     const dependency = await apply(
       ops.create,
@@ -215,6 +218,33 @@ describe('block and comment mutations', () => {
       'block_opened',
       'block_opened',
     ]);
+    await expect(
+      apply(ops.escalate, { block: asked.block.id }, author, 'esc-unrelated'),
+    ).rejects.toMatchObject({ code: 'forbidden' });
+    expect((await events(store)).filter((event) => event.kind === 'block_escalated')).toHaveLength(
+      1,
+    );
+  });
+
+  it('addresses linked clarification comments to the other participant in both directions', async () => {
+    const { store, apply } = await seeded();
+    const asked = await apply(ops.ask, { task: KEY, text: 'Question?' }, author, 'ask-1');
+    await apply(ops.answer, { block: asked.block.id, text: 'Answer.' }, orchestrator, 'answer-1');
+    await apply(
+      ops.add,
+      { task: KEY, block: asked.block.id, text: 'More detail.' },
+      orchestrator,
+      'clarify-answerer',
+    );
+    await apply(
+      ops.add,
+      { task: KEY, block: asked.block.id, text: 'Thanks.' },
+      author,
+      'clarify-asker',
+    );
+    const comments = (await events(store)).filter((event) => event.kind === 'comment_added');
+    expect(comments.at(-2)?.payload).toMatchObject({ addressee: 'worker' });
+    expect(comments.at(-1)?.payload).toMatchObject({ addressee: 'orchestrator:dev' });
   });
 
   it('addresses dependency and external blocks from a configured operator agent to operator', async () => {
