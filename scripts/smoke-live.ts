@@ -104,6 +104,12 @@ export async function verifyLiveChannel(
     metadata.is_ext_shared !== false ||
     !('is_pending_ext_shared' in metadata) ||
     metadata.is_pending_ext_shared !== false ||
+    !('pending_shared' in metadata) ||
+    !Array.isArray(metadata.pending_shared) ||
+    metadata.pending_shared.length !== 0 ||
+    !('pending_connected_team_ids' in metadata) ||
+    !Array.isArray(metadata.pending_connected_team_ids) ||
+    metadata.pending_connected_team_ids.length !== 0 ||
     !('is_archived' in metadata) ||
     metadata.is_archived !== false
   ) {
