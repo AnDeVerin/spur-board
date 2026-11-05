@@ -50,6 +50,7 @@ const EVENT_SUMMARIES = {
   doorbell_read: 'Doorbell read',
   doorbell_undelivered: 'Doorbell delivery exhausted',
   inbound_failed: 'Inbound message failed',
+  inbound_skipped: 'Inbound message skipped',
   from_you_raised: 'Operator item raised',
   from_you_cleared: 'Operator item cleared',
   flag_raised: 'Flag raised',
