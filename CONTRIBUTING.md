@@ -6,9 +6,14 @@ security problems privately as described in [SECURITY.md](SECURITY.md), not in a
 
 ## Set up
 
+Install [gitleaks](https://github.com/gitleaks/gitleaks#installing) and keep it on `PATH`; the
+pre-commit hook refuses commits without it.
+
 Run `pnpm install` in every new clone or worktree. It installs dependencies and turns on the git
 hooks: pre-commit runs gitleaks and prettier on staged changes, pre-push runs
-`pnpm run check --pre-push`. Fix what a hook reports and commit again; never skip the hooks.
+`pnpm run check --pre-push`. When `node_modules` already exists, pnpm skips `prepare`; run
+`pnpm run prepare` to turn the hooks on. Fix what a hook reports and commit again; never skip the
+hooks.
 
 ## Issue to PR
 
