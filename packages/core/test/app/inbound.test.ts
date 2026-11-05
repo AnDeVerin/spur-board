@@ -1096,12 +1096,23 @@ describe('inbound apply', () => {
     });
     const legacy = JSON.parse(item?.inbound_event_json ?? '{}') as Record<string, unknown>;
     delete legacy.command;
+    legacy.name = '/other';
     await store.db
       .updateTable('operator_item')
       .set({ inbound_event_json: JSON.stringify(legacy) })
       .where('id', '=', 1)
       .execute();
     fail = false;
+    await expect(inbound.retryStored(1)).rejects.toMatchObject({ code: 'retry_not_applicable' });
+    expect((await getOperatorItem(store, 1))?.cleared_at).toBeNull();
+    expect(await store.db.selectFrom('command').select('key').execute()).toEqual([]);
+
+    delete legacy.name;
+    await store.db
+      .updateTable('operator_item')
+      .set({ inbound_event_json: JSON.stringify(legacy) })
+      .where('id', '=', 1)
+      .execute();
     await inbound.retryStored(1);
     expect((await getOperatorItem(store, 1))?.cleared_at).not.toBeNull();
     expect(

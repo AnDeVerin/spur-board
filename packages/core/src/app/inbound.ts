@@ -771,6 +771,13 @@ export function createInbound(input: {
           throw new CommandError('retry_not_applicable', 'This item has no stored event to retry.');
         }
         let event = inboundEventSchema.parse(JSON.parse(item.inbound_event_json) as unknown);
+        if (
+          event.kind === 'command' &&
+          event.name !== undefined &&
+          event.name !== config.slack.command
+        ) {
+          throw new CommandError('retry_not_applicable', 'This interaction cannot be retried.');
+        }
         if (event.kind === 'command' && event.command === undefined) {
           const command = legacyCommand(event.text);
           if (command === null) {
