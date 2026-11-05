@@ -39,9 +39,18 @@ catalog:
   tsdown: 0.22.3
 
 # GHSA-g3hv-75wg-m249 (moderate, minimatch < 11.0.1) reaches us only through the
-# eslint toolchain, which matches our own glob patterns. The fixed minimatch 11.0.1
+# eslint and Stryker toolchains (@stryker-mutator/core 10.1.1 depends on
+# minimatch ~10.2.4), which match our own glob patterns. The fixed minimatch 11.0.1
 # and its new dependency are younger than minimumReleaseAge, so the override
 # that removes it waits until they mature. #82 adds that override and drops this entry.
+# The four qs advisories (moderate DoS in qs.stringify and qs.parse) reach us only
+# through @stryker-mutator/core > typed-rest-client, which pins qs 6.15.1 and serves
+# only the Stryker dashboard reporter and `stryker init`. This repo uses neither, so
+# no request is built with qs; drop the entries when Stryker moves past qs 6.15.1.
 auditConfig:
   ignoreGhsas:
     - GHSA-g3hv-75wg-m249
+    - GHSA-q8mj-m7cp-5q26
+    - GHSA-x5fp-wj9c-mxmx
+    - GHSA-4mjr-xmp4-gh2g
+    - GHSA-6pq8-jhm2-2vcw

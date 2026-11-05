@@ -142,6 +142,7 @@ export default defineConfig(
       '**/dist/**',
       '**/coverage/**',
       '.vitest/**',
+      '.stryker-tmp/**',
     ],
   },
   { linterOptions: { reportUnusedDisableDirectives: 'error' } },
