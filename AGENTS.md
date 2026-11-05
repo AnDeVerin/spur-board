@@ -94,6 +94,7 @@ Generated from frontmatter by `pnpm agents:sync`; edit the source file, not this
 | [testing-and-ci](.agents/skills/testing-and-ci/SKILL.md) | skill | Rules for tests, Vitest, testkit, checks and CI |
 | [working-with-contracts](.agents/skills/working-with-contracts/SKILL.md) | skill | Rules for changing packages/contracts - zod schemas, config fields, enums, journal event kinds, port contracts, breaking changes and PR order |
 | [working-with-storage](.agents/skills/working-with-storage/SKILL.md) | skill | Rules for the SQLite store (packages/core/src/store/) and outbox (packages/core/src/app/{outbox,sender}.ts) - transactions, outbox, migrations and tests, PRAGMAs |
+| [writing-adapters](.agents/skills/writing-adapters/SKILL.md) | skill | Rules for packages/adapters/ - port, untrusted responses, failure kinds, rate limits, budget, fakes and tests |
 | [architect](.agents/agents/architect.md) | role | Turn the issue into an executable spec after repo recon - findings, change map, invariants, acceptance criteria bound to verification |
 | [critic](.agents/agents/critic.md) | role | Falsify the researcher's options, score each against doing nothing, and select one |
 | [designer](.agents/agents/designer.md) | role | UI design gate. Plan mode reviews the UI in a spec before code; code mode checks layout, tokens and states of the changed web UI |
