@@ -800,6 +800,69 @@ describe('inbound apply', () => {
     expect(JSON.stringify(replies[1]?.body)).toContain('Added to Dev.');
   });
 
+  it('redacts detected text in a private task reply and keeps the surrounding status', async () => {
+    const { store, gateway } = await setup();
+    const token = ['xoxb', '123', 'abc'].join('-');
+    const secondToken = ['xoxb', '456', 'def'].join('-');
+    const operation = OPERATIONS.find((entry) => entry.id === 'task.get');
+    if (operation === undefined) throw new Error('task.get is missing from the catalog');
+    const example = operation.output.parse(operation.examples[0].output);
+    const output = {
+      ...example,
+      blocks: example.blocks.map((block) => ({ ...block, reason: `Which ${token} target?` })),
+      comments: example.comments.map((comment) => ({
+        ...comment,
+        text: `Use ${token} and ${secondToken} for the check.`,
+      })),
+    };
+    const replies: Parameters<typeof gateway.respond>[1][] = [];
+    const inbound = createInbound({
+      store,
+      config,
+      clock: { now: () => now },
+      registry: {
+        'task.get': {
+          id: 'task.get',
+          resolveTargets: () =>
+            Promise.resolve([
+              { kind: 'found', value: { project: 'proj', task: null, block: null, workers: [] } },
+            ]),
+          run: () => Promise.resolve(output),
+        },
+      },
+      gateway: {
+        ...gateway,
+        respond(_ref, body) {
+          replies.push(body);
+          return Promise.resolve('sent' as const);
+        },
+      },
+    });
+    await inbound.sink({
+      kind: 'command',
+      dedupeKey: 'redacted-task',
+      interaction: interactionRefSchema.parse('redacted-task'),
+      author: userIdSchema.parse('operator'),
+      text: 'task PROJ-123',
+      command: { kind: 'query', id: 'task.get', input: { task: 'PROJ-123' } },
+      sourceUrl: 'https://example.test/command',
+    });
+
+    const marker = '[redacted: @secretlint/secretlint-rule-slack]';
+    expect(replies).toHaveLength(1);
+    expect(replies[0]).toContainEqual({
+      kind: 'quote',
+      children: [{ kind: 'text', text: `Which ${marker} target?` }],
+    });
+    expect(replies[0]).toContainEqual({
+      kind: 'quote',
+      children: [{ kind: 'text', text: `Use ${marker} and ${marker} for the check.` }],
+    });
+    expect(JSON.stringify(replies[0])).not.toContain(token);
+    expect(JSON.stringify(replies[0])).not.toContain(secondToken);
+    expect(JSON.stringify(replies[0])).toContain('Task PROJ-123:');
+  });
+
   it('uses catalog not_found copy and never runs a denied command', async () => {
     const { store, gateway } = await setup();
     const run = vi.fn(() => Promise.resolve(OPERATIONS[1].examples[0].output));

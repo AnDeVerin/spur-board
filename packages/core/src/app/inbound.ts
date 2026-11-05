@@ -35,6 +35,7 @@ import { commandReply } from './command-replies.ts';
 import { raiseItem as raiseOperatorItem, clearItem as clearOperatorItem } from './feed.ts';
 import { dispatchOperation, type OperationRegistry } from './operations.ts';
 import { enqueueConversationClose, enqueueInboundDoorbell } from './outbox.ts';
+import { redactPrivateReply, redactSecretMatches } from './secrets.ts';
 import { decideTokenInTransaction } from './tokens.ts';
 
 type Trx = Kysely<Tables>;
@@ -604,12 +605,17 @@ export function createInbound(input: {
       }
     }
     try {
-      await gateway.respond(event.interaction, response, {
+      const safeResponse = event.kind === 'command' ? await redactPrivateReply(response) : response;
+      const safeHint =
+        event.kind === 'command' && cliHint !== undefined
+          ? await redactSecretMatches(cliHint)
+          : cliHint;
+      await gateway.respond(event.interaction, safeResponse, {
         private: true,
-        ...(cliHint === undefined ? {} : { cliHint }),
+        ...(safeHint === undefined ? {} : { cliHint: safeHint }),
       });
     } catch {
-      // The operation has completed; an ephemeral response failure must not replay it.
+      // The operation has completed; failed scanning or delivery must not replay it.
     }
   }
 
