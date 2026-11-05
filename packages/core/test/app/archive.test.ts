@@ -371,6 +371,50 @@ describe('task archive', () => {
     },
   );
 
+  it.each(['answer', 'inbound'] as const)(
+    'still delivers an uncertain %s ring of an archived task',
+    async (kind) => {
+      const ctx = setup();
+      await ctx.poll(tracker, true);
+      await liveWorker(ctx.store);
+      const asked = await ctx.apply(ctx.ops.ask, { task: KEY, text: 'Which version?' }, worker);
+      if (kind === 'answer') {
+        await ctx.apply(ctx.ops.answer, { block: asked.block.id, text: 'Use v2.' }, 'operator');
+        await ctx.store.transaction((trx) => reconcileDoorbells(trx, new Date(now), config));
+      } else {
+        const comment = await ctx.apply(ctx.ops.comment, { task: KEY, text: 'Note.' }, worker);
+        await ctx.store.transaction((trx) =>
+          enqueueInboundDoorbell(trx, {
+            key: `doorbell:comment:${comment.comment.id.slice(1)}:revision:1`,
+            session: 'worker-1',
+            text: 'New reply',
+            at: new Date(now),
+          }),
+        );
+      }
+      // A send that started before a crash: it may have reached Spur.
+      await ctx.store.transaction((trx) =>
+        trx
+          .updateTable('outbox')
+          .set({ state: 'in_flight', attempts: 1, attempt_started: 1 })
+          .where('kind', '=', 'doorbell')
+          .execute(),
+      );
+      await ctx.apply(ctx.ops.archive, { task: KEY }, 'operator');
+      await ctx.sender.recover();
+      await ctx.sender.tick();
+
+      expect(ctx.spur.sends).toHaveLength(1);
+      expect(
+        await ctx.store.db
+          .selectFrom('outbox')
+          .select(['state', 'uncertain'])
+          .where('kind', '=', 'doorbell')
+          .executeTakeFirstOrThrow(),
+      ).toEqual({ state: 'done', uncertain: 1 });
+    },
+  );
+
   it('rings a cancelled answer again after task.add', async () => {
     const ctx = setup();
     await ctx.poll(tracker, true);
@@ -547,6 +591,42 @@ describe('task archive', () => {
     await expect(ctx.apply(ctx.ops.add, { task: KEY }, 'operator')).resolves.toMatchObject({
       task: { membership: 'active' },
     });
+  });
+
+  it('refuses to retry a failed delivery of an archived task and still closes it', async () => {
+    const ctx = setup();
+    await ctx.poll(tracker, true);
+    await ctx.apply(ctx.ops.ask, { task: KEY, text: 'Which version?' }, worker);
+    const open = await ctx.store.db
+      .selectFrom('outbox')
+      .select('id')
+      .where('kind', '=', 'conversation.open')
+      .executeTakeFirstOrThrow();
+    await ctx.store.transaction((trx) =>
+      trx.updateTable('outbox').set({ state: 'post_failed' }).where('id', '=', open.id).execute(),
+    );
+    await tickBoard({ store: ctx.store, config, clock, completeSince: ctx.core.completeSince });
+    const item = await ctx.store.db
+      .selectFrom('operator_item')
+      .select(['id', 'task_id'])
+      .where('item_key', '=', `delivery:${String(open.id)}`)
+      .executeTakeFirstOrThrow();
+    expect(item.task_id).toBeNull();
+    await ctx.apply(ctx.ops.archive, { task: KEY }, 'operator');
+
+    await expect(
+      ctx.apply(ctx.ops.retry, { item: `I${String(item.id)}` }, 'operator'),
+    ).rejects.toMatchObject({ code: 'task_archived' });
+    expect(
+      await ctx.store.db
+        .selectFrom('outbox')
+        .select('state')
+        .where('id', '=', open.id)
+        .executeTakeFirstOrThrow(),
+    ).toEqual({ state: 'post_failed' });
+    await expect(
+      ctx.apply(ctx.ops.close, { item: `I${String(item.id)}` }, 'operator'),
+    ).resolves.toBeDefined();
   });
 
   it('task.add brings an archived task back without reopening its blocks', async () => {

@@ -38,7 +38,8 @@ export async function archiveTask(
     .select('id')
     .where('task_id', '=', task.id)
     .execute();
-  // An uncertain ring may already be sent: it is left to the sender's recovery.
+  // An uncertain ring may already be sent: the sender delivers it with maybeSent. A claimed ring
+  // is the sender's; it drops one that has not started (`ringTask`).
   await trx
     .updateTable('outbox')
     .set({ state: 'dead', last_error: 'superseded' })

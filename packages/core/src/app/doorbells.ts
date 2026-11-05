@@ -347,10 +347,7 @@ export async function recordRingDelivery(
   );
 }
 
-/**
- * Confirm that a queued ring still belongs to a live, idle, unread recipient on a board task.
- * Archive kills only unclaimed rings; a ring claimed before the archive is dropped here.
- */
+/** Confirm that a queued ring still belongs to a live, idle, unread recipient. */
 export async function ringStillCurrent(
   trx: Trx,
   notificationId: number,
@@ -358,14 +355,11 @@ export async function ringStillCurrent(
 ): Promise<'send' | 'defer' | 'dead'> {
   const n = await trx
     .selectFrom('notification')
-    .innerJoin('task', 'task.id', 'notification.task_id')
-    .selectAll('notification')
-    .select('task.membership')
-    .where('notification.id', '=', notificationId)
+    .selectAll()
+    .where('id', '=', notificationId)
     .executeTakeFirst();
   if (
     n === undefined ||
-    n.membership === 'archived' ||
     n.acked_at !== null ||
     n.exhausted_at !== null ||
     n.recipient_session !== sessionId
@@ -376,17 +370,23 @@ export async function ringStillCurrent(
   return session.state === 'working' ? 'defer' : 'send';
 }
 
-/** Whether an inbound author ring (`doorbell:comment:<id>:...`) belongs to an archived task. */
-export async function inboundRingTaskArchived(trx: Trx, dedupeKey: string): Promise<boolean> {
+/**
+ * The task of a ring: through its notification, or for an inbound author ring (no notification)
+ * through the comment in its `doorbell:comment:<id>:` key. Archive kills only unclaimed rings;
+ * the sender drops a claimed one of an archived task before its send starts.
+ */
+export async function ringTask(
+  trx: Trx,
+  notificationId: number | undefined,
+  dedupeKey: string,
+): Promise<Row<'task'> | undefined> {
   const commentId = /^doorbell:comment:(\d+):/.exec(dedupeKey)?.[1];
-  if (commentId === undefined) return false;
-  const row = await trx
-    .selectFrom('comment')
-    .innerJoin('task', 'task.id', 'comment.task_id')
-    .select('task.membership')
-    .where('comment.id', '=', Number(commentId))
-    .executeTakeFirst();
-  return row?.membership === 'archived';
+  if (notificationId === undefined && commentId === undefined) return undefined;
+  const owner =
+    notificationId !== undefined
+      ? trx.selectFrom('notification').select('task_id').where('id', '=', notificationId)
+      : trx.selectFrom('comment').select('task_id').where('id', '=', Number(commentId));
+  return trx.selectFrom('task').selectAll().where('id', 'in', owner).executeTakeFirst();
 }
 
 /** Stop notifications acknowledged by the addressed session. */
