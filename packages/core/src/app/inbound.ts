@@ -33,6 +33,7 @@ import { replayOperation } from './commands.ts';
 import { CommandError } from './commands.ts';
 import { commandReply } from './command-replies.ts';
 import { raiseItem as raiseOperatorItem, clearItem as clearOperatorItem } from './feed.ts';
+import type { ReapplyInbound } from './items.ts';
 import { dispatchOperation, type OperationRegistry } from './operations.ts';
 import { enqueueConversationClose, enqueueInboundDoorbell } from './outbox.ts';
 import { redactPrivateReply, redactSecretMatches } from './secrets.ts';
@@ -62,7 +63,7 @@ export interface Inbound {
    * A stored query needs nothing re-applied; an event that cannot be re-applied throws
    * `retry_not_applicable`.
    */
-  reapply: (trx: Trx, itemId: number, at: string) => Promise<void>;
+  reapply: ReapplyInbound;
 }
 
 function plain(text: string): RichText {

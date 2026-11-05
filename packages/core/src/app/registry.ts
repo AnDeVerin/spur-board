@@ -26,9 +26,7 @@ export function createOperationRegistry(deps: {
   reapplyInbound?: () => ReapplyInbound | undefined;
 }): OperationRegistry {
   const { config, clock, completeSince } = deps;
-  const items = createItemMutations(
-    deps.reapplyInbound === undefined ? {} : { reapplyInbound: deps.reapplyInbound },
-  );
+  const items = createItemMutations(deps);
   const membership = createMembershipMutations(config);
   const links = createLinkMutations(config);
   const blocks = createBlockMutations(config);
