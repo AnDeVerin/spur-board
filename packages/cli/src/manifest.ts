@@ -1,4 +1,8 @@
-import { SLACK_BOT_SCOPES } from '@spur-board/contracts';
+import {
+  DEFAULT_SLACK_APP_NAME,
+  DEFAULT_SLACK_COMMAND,
+  SLACK_BOT_SCOPES,
+} from '@spur-board/contracts';
 import YAML from 'yaml';
 import { CliError } from './exit-codes.ts';
 
@@ -8,8 +12,8 @@ export interface SlackManifestOptions {
 }
 
 export function renderSlackManifest(options: SlackManifestOptions = {}): string {
-  const appName = (options.appName ?? 'spur-board').trim();
-  const command = options.command ?? '/board';
+  const appName = (options.appName ?? DEFAULT_SLACK_APP_NAME).trim();
+  const command = options.command ?? DEFAULT_SLACK_COMMAND;
   if (!appName) {
     throw new CliError('usage', undefined, undefined, 'Set a nonempty --app-name.');
   }
