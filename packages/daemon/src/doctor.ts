@@ -1,4 +1,4 @@
-import { SLACK_BOT_SCOPES } from '@spur-board/contracts';
+import { SLACK_BOT_SCOPES, requiredSecretKeys } from '@spur-board/contracts';
 import type { ApiOptions, Store } from '@spur-board/core';
 import type { ModuleContext } from './lifecycle.ts';
 
@@ -72,11 +72,7 @@ export async function runDaemonDoctor(
   const slackConfigured = Boolean(
     config.slack.channels.feed || config.slack.channels.orchestrators,
   );
-  const required = [
-    'GITHUB_TOKEN',
-    ...(jiraTrackers.length > 0 ? ['JIRA_EMAIL', 'JIRA_API_TOKEN'] : []),
-    ...(slackConfigured ? ['SLACK_BOT_TOKEN', 'SLACK_APP_TOKEN'] : []),
-  ];
+  const required = requiredSecretKeys(config);
   const missing = required.filter((name) => !secrets[name]);
   checks.push(
     check(
