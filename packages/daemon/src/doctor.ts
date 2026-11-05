@@ -10,6 +10,8 @@ const GITHUB_CHECKS_FIX =
   'Use a classic GitHub personal access token with the repo scope, authorized for organization SSO where required, to read check runs.';
 const GITHUB_TEAMS_FIX =
   'Use a classic GitHub personal access token with the repo and read:org scopes to read requested review teams.';
+// GitHub normalizes granted scopes: write:org and admin:org include read:org.
+const GITHUB_ORG_READ_SCOPES = new Set(['read:org', 'write:org', 'admin:org']);
 const GITHUB_PROBE = `query DoctorGithubPermissions($owner: String!, $repo: String!) {
   repository(owner: $owner, name: $repo) {
     pullRequests(first: 10, states: [OPEN], orderBy: {field: UPDATED_AT, direction: DESC}) {
@@ -235,7 +237,7 @@ export async function runDaemonDoctor(
             const scopes = response.headers.get('x-oauth-scopes');
             if (
               scopes !== null &&
-              !scopes.split(',').some((scope) => scope.trim() === 'read:org')
+              !scopes.split(',').some((scope) => GITHUB_ORG_READ_SCOPES.has(scope.trim()))
             ) {
               return GITHUB_TEAMS_FIX;
             }

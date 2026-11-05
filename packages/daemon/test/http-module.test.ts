@@ -194,7 +194,16 @@ function doctorFetch(fail?: string): typeof fetch {
           headers:
             fail === 'github.no-header' || fail === 'github.team-readable'
               ? {}
-              : { 'x-oauth-scopes': fail === 'github.no-read-org' ? 'repo' : 'repo, read:org' },
+              : {
+                  'x-oauth-scopes':
+                    fail === 'github.no-read-org'
+                      ? 'repo'
+                      : fail === 'github.write-org'
+                        ? 'repo, write:org'
+                        : fail === 'github.admin-org'
+                          ? 'repo, admin:org'
+                          : 'repo, read:org',
+                },
         }),
       );
     if (path.endsWith('/sessions'))
@@ -292,6 +301,8 @@ describe('daemon doctor checks', () => {
     ['no contexts', 'github.no-contexts'],
     ['no contexts or team requests with an absent scope header', 'github.no-header'],
     ['readable team field without a scope header', 'github.team-readable'],
+    ['write:org without redundant read:org', 'github.write-org'],
+    ['admin:org without redundant read:org', 'github.admin-org'],
   ])('passes with %s', async (_case, mode) => {
     const fetcher = doctorFetch(mode);
     const report = await runDaemonDoctor(
