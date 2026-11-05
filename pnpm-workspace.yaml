@@ -38,10 +38,8 @@ catalog:
   '@modelcontextprotocol/client': ^2.4.0
   tsdown: 0.22.3
 
-# GHSA-g3hv-75wg-m249 (moderate, minimatch < 11.0.1) reaches us only through the
-# eslint toolchain, which matches our own glob patterns. The fixed minimatch 11.0.1
-# and its new dependency are younger than minimumReleaseAge, so the override
-# that removes it waits until they mature. #82 adds that override and drops this entry.
-auditConfig:
-  ignoreGhsas:
-    - GHSA-g3hv-75wg-m249
+# eslint 10 and typescript-eslint 8 still ask for minimatch ^10, which is affected
+# by GHSA-g3hv-75wg-m249 (moderate, minimatch < 11.0.1). Drop this override once
+# both depend on minimatch >= 11.0.1 themselves.
+overrides:
+  minimatch@<11.0.1: ^11.0.1
