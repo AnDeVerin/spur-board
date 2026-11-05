@@ -1,7 +1,7 @@
 # Add or change an operation
 
 The catalog is `OPERATIONS` in `packages/contracts/src/ops/catalog.ts`. The daemon route, the
-CLI and the MCP tools are to be generated from it, so one entry is the whole contract. The tests named
+CLI and the MCP tools are generated from it, so one entry is the whole contract. The tests named
 here are in `packages/contracts/test/ops.test.ts`.
 
 ## Entry
