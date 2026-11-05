@@ -2,6 +2,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { configSchema } from '@spur-board/contracts';
+import { createFakeGateway } from '@spur-board/gateway-testkit';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   createApply,
@@ -41,6 +42,7 @@ async function setup(
     replacement?: boolean;
     tester?: boolean;
     retry?: { firstRetryMs: number; secondRetryMs: number; unansweredAfterMs: number };
+    gateway?: boolean;
   } = {},
 ) {
   const store = openStore(join(mkdtempSync(join(tmpdir(), 'core-doorbell-')), 'board.db'));
@@ -106,8 +108,10 @@ async function setup(
     ? configSchema.parse({ ...config, doorbells: options.retry })
     : config;
   const apply = createApply({ store, clock: { now: () => now }, config: usedConfig });
+  const fake = options.gateway ? createFakeGateway({ profile: 'slack-like' }) : undefined;
   const sender = createSender({
     store,
+    ...(fake === undefined ? {} : { gateway: fake }),
     config: usedConfig,
     spur: {
       send(session, text) {
@@ -126,6 +130,8 @@ async function setup(
     apply,
     sender,
     sent,
+    fake,
+    now: () => new Date(now),
     advance(ms: number) {
       now += ms;
     },
@@ -269,6 +275,64 @@ describe('role addressed doorbells', () => {
     expect(
       await ctx.store.db.selectFrom('block').select('addressee_role').executeTakeFirst(),
     ).toEqual({ addressee_role: 'worker' });
+    expect(ctx.sent).toHaveLength(3);
+  });
+
+  it('records down health when the threshold tick replays after a secret scan', async () => {
+    const ctx = await setup({ gateway: true });
+    const fake = ctx.fake;
+    if (fake === undefined) throw new Error('no gateway');
+    await workerBlock(ctx.store);
+    await ctx.sender.tick();
+    expect(ctx.sent).toHaveLength(1);
+    await ctx.store.transaction((trx) =>
+      trx
+        .updateTable('session_snapshot')
+        .set({ state: 'working' })
+        .where('id', '=', 'worker-1')
+        .execute(),
+    );
+    ctx.advance(120_000);
+    await ctx.sender.tick();
+    expect(ctx.sent).toHaveLength(1);
+    await ctx.store.transaction((trx) =>
+      trx
+        .updateTable('session_snapshot')
+        .set({ state: 'waiting' })
+        .where('id', '=', 'worker-1')
+        .execute(),
+    );
+    await ctx.sender.tick();
+    expect(ctx.sent).toHaveLength(2);
+    ctx.advance(300_000);
+    await ctx.sender.tick();
+    expect(ctx.sent).toHaveLength(3);
+    await ctx.sender.recordConnection('down', ctx.now());
+    // The feed line claimed in the threshold tick must not deliver and delete the feed row.
+    fake.platform.timeoutNext({ visible: false });
+    ctx.advance(900_000);
+    await ctx.sender.tick();
+    const refusal = await ctx.store.db
+      .selectFrom('operator_item')
+      .selectAll()
+      .where('kind', '=', 'worker_not_reading')
+      .executeTakeFirstOrThrow();
+    // Its feed line is the outbox write that made the scan replay the claim transaction.
+    expect(refusal.line_outbox_id).not.toBeNull();
+    expect(
+      (
+        await ctx.store.db.selectFrom('transport_health').select('space').orderBy('space').execute()
+      ).map((row) => row.space),
+    ).toEqual(['feed', 'orchestrators']);
+    const transport = await ctx.store.db
+      .selectFrom('operator_item')
+      .selectAll()
+      .where('item_key', '=', `transport:${fake.kind}`)
+      .where('cleared_at', 'is', null)
+      .execute();
+    expect(transport).toEqual([
+      expect.objectContaining({ kind: 'transport_health', line_outbox_id: null }),
+    ]);
     expect(ctx.sent).toHaveLength(3);
   });
 
