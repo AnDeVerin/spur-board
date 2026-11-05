@@ -20,6 +20,7 @@ export interface JiraAdapterOptions {
   intervalMs?: number;
   fetch?: typeof fetch;
   warn: (message: string) => void;
+  searchMethod?: 'GET';
 }
 
 const SEARCH_PAGE_LIMIT = 20;
@@ -168,6 +169,9 @@ export function createJiraAdapter(options: JiraAdapterOptions): Adapter {
       if (signal.aborted) throw new AdapterError('transient', 'Jira poll aborted');
       throw new AdapterError('transient', 'Jira request failed');
     }
+    if (response.status === 414 && options.searchMethod === 'GET') {
+      throw new AdapterError('config', 'Jira GET search URL is too long');
+    }
     if (!response.ok)
       throw new JiraHttpError(
         response.status,
@@ -237,20 +241,36 @@ export function createJiraAdapter(options: JiraAdapterOptions): Adapter {
     const seen = new Set<string>();
     for (let page = 0; page < SEARCH_PAGE_LIMIT; page += 1) {
       beforePage?.();
+      const fields = [
+        'summary',
+        'status',
+        'assignee',
+        'labels',
+        'updated',
+        ...(sprintField === null ? [] : [sprintField]),
+      ];
+      const body = {
+        jql,
+        maxResults: 100,
+        fields,
+        ...(token === undefined ? {} : { nextPageToken: token }),
+      };
+      const path =
+        options.searchMethod === 'GET'
+          ? `/rest/api/3/search/jql?${new URLSearchParams({
+              jql,
+              maxResults: '100',
+              fields: fields.join(','),
+              ...(token === undefined ? {} : { nextPageToken: token }),
+            }).toString()}`
+          : '/rest/api/3/search/jql';
       const result = object(
-        await request(tracker.baseUrl, '/rest/api/3/search/jql', signal, {
-          jql,
-          maxResults: 100,
-          fields: [
-            'summary',
-            'status',
-            'assignee',
-            'labels',
-            'updated',
-            ...(sprintField === null ? [] : [sprintField]),
-          ],
-          ...(token === undefined ? {} : { nextPageToken: token }),
-        }),
+        await request(
+          tracker.baseUrl,
+          path,
+          signal,
+          options.searchMethod === 'GET' ? undefined : body,
+        ),
       );
       issues.push(...array(result['issues']));
       const next = result['nextPageToken'];

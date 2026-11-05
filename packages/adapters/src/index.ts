@@ -15,6 +15,8 @@ export interface StartAdaptersOptions {
   now?: () => number;
   warn?: (message: string) => void;
   onSpurNotice?: (notice: SpurNotice) => void | Promise<void>;
+  oneShot?: boolean;
+  jiraSearchMethod?: 'GET';
 }
 
 function blindSource(id: string, intervalMs: number, message: string): Adapter {
@@ -50,6 +52,9 @@ export function startAdapters(
                 intervalMs: config.adapters.jira.intervalMs,
                 ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
                 warn: options.warn ?? (() => undefined),
+                ...(options.jiraSearchMethod === undefined
+                  ? {}
+                  : { searchMethod: options.jiraSearchMethod }),
               })
             : blindSource(id, config.adapters.jira.intervalMs, 'Jira credential is missing'),
       });
@@ -113,8 +118,10 @@ export function startAdapters(
     core,
     config,
     ...(options.now === undefined ? {} : { now: options.now }),
+    ...(options.oneShot === undefined ? {} : { oneShot: options.oneShot }),
   });
   return {
+    firstAttempts: runner.firstAttempts,
     async stop() {
       await runner.stop();
       await Promise.allSettled([...notices]);

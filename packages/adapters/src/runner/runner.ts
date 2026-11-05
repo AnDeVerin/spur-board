@@ -28,6 +28,9 @@ interface RunnerEntry {
 }
 
 export interface AdapterRunner {
+  /** Outcome of the first poll of each source, after its observation or failure report. */
+  firstAttempts?:
+    Promise<readonly { source: string; outcome: PollOutcome | undefined }[]> | undefined;
   /** Aborts the in-flight polls, clears every timer and waits for pending reports. */
   stop(): Promise<void>;
 }
@@ -37,12 +40,19 @@ export interface RunnerOptions {
   core: AdapterCore;
   config: Pick<Config, 'sources' | 'thresholds'>;
   now?: () => number;
+  oneShot?: boolean;
 }
 
 export function startRunner(options: RunnerOptions): AdapterRunner {
   const startedAt = (options.now ?? Date.now)();
   const sources = options.entries.map((entry) => runSource(entry, options, startedAt));
   return {
+    firstAttempts: Promise.all(
+      sources.map(async (source) => ({
+        source: source.id,
+        outcome: await source.firstAttempt,
+      })),
+    ),
     async stop() {
       await Promise.all(sources.map((source) => source.stop()));
     },
@@ -138,11 +148,11 @@ function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: nu
     if (stopping) return;
     pollTimer = setTimeout(() => {
       pollTimer = undefined;
-      current = poll();
+      current = poll().then(() => undefined);
     }, delayMs);
   }
 
-  async function poll(): Promise<void> {
+  async function poll(): Promise<PollOutcome | undefined> {
     const abort = new AbortController();
     // A function, so each check reads the signal anew after an await.
     const aborted = () => abort.signal.aborted;
@@ -242,15 +252,19 @@ function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: nu
       now: now(),
     });
     failures = delay.failures;
-    armDeadline();
+    if (!options.oneShot) armDeadline();
     await report();
-    schedule(delay.delayMs);
+    if (!options.oneShot) schedule(delay.delayMs);
+    return outcome;
   }
 
-  armDeadline();
-  current = poll();
+  if (!options.oneShot) armDeadline();
+  const firstAttempt = poll();
+  current = firstAttempt.then(() => undefined);
 
   return {
+    id: source,
+    firstAttempt,
     async stop(): Promise<void> {
       stopping = true;
       clearTimeout(pollTimer);
