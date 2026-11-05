@@ -71,7 +71,11 @@ export async function main(): Promise<void> {
       return loaded;
     },
     openStore,
-    modules: (ctxFor) => createDaemonModules(ctxFor, { productVersion }).entries,
+    modules: (ctxFor) =>
+      createDaemonModules(ctxFor, {
+        productVersion,
+        systemd: { env: process.env, pid: process.pid },
+      }).entries,
     port: processPort(),
     stdout: process.stdout,
     clock: { now: () => Date.now() },

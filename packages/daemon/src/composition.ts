@@ -15,6 +15,7 @@ import { createHttpModule } from './http-module.ts';
 import { createInboundModule } from './inbound-module.ts';
 import type { ModuleContext, ModuleEntry } from './lifecycle.ts';
 import { createOutboxModule, slackSettings } from './outbox-module.ts';
+import { createSystemdModule, createSystemdNotifier, type NotifySend } from './systemd.ts';
 
 export interface DaemonModulePorts {
   productVersion?: string;
@@ -25,6 +26,8 @@ export interface DaemonModulePorts {
   sessionFetcher?: typeof fetch;
   afterOperation?: (response: ServerResponse) => void | Promise<void>;
   onListening?: (address: string) => void;
+  /** Without it the daemon sends no systemd notifications. */
+  systemd?: { env: Readonly<Record<string, string | undefined>>; pid: number; send?: NotifySend };
 }
 
 /** The production module graph, with replaceable external ports for in-process tests. */
@@ -48,6 +51,10 @@ export function createDaemonModules(
     clock: board.clock,
     completeSince: core.completeSince,
   });
+  const notifier = createSystemdNotifier({
+    log: ctxFor('systemd').log,
+    ...(ports.systemd ?? { env: {}, pid: 0 }),
+  });
   const commands = ctxFor('commands');
   const entries: ModuleEntry[] = [
     {
@@ -68,6 +75,9 @@ export function createDaemonModules(
       core,
       ...(ports.startAdapters === undefined ? {} : { startAdapters: ports.startAdapters }),
       ...(ports.tick === undefined ? {} : { tick: ports.tick }),
+      onTick: () => {
+        notifier.watchdog();
+      },
     }),
   );
   const ctx = ctxFor('gateway-slack');
@@ -116,5 +126,6 @@ export function createDaemonModules(
       ...(ports.onListening === undefined ? {} : { onListening: ports.onListening }),
     }),
   });
+  entries.push({ name: 'systemd', stopStage: 'pollers', module: createSystemdModule(notifier) });
   return { entries, inbound, outbox };
 }
