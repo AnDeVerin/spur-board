@@ -165,8 +165,9 @@ async function deliver(
   request: Omit<DeliverRequest, 'persona'>,
 ): Promise<DeliveryResult> {
   let result = await ctx.gateway.deliver({ ...request, persona });
-  if (result.status !== 'retry' || result.uncertain) return result;
+  if (result.status !== 'retry') return result;
   if (result.afterMs === undefined) {
+    if (result.uncertain) return result;
     ctx.rateLimit = { status: 'fail', observation: '429 lacked a usable Retry-After.' };
     return result;
   }

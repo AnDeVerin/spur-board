@@ -172,6 +172,40 @@ describe('live conformance runner against the local Slack API', () => {
     }
   });
 
+  it('waits and confirms a post when permalink lookup receives 429', async () => {
+    const fake = await startFakeSlackApi();
+    let releaseFault: Promise<void> = Promise.resolve();
+    try {
+      const report = await runLiveConformance({
+        token: 'xoxb-test',
+        appToken: 'xapp-test',
+        channel: 'C_FEED',
+        operator,
+        apiUrl: fake.url,
+        caseIds: ['delivery'],
+        prompt: async () => {},
+        beforeCase: (id) => {
+          if (id === 'delivery') {
+            const held = fake.holdNextWrite();
+            releaseFault = held.entered.then(() => {
+              fake.respondNext(429, { ok: false, error: 'ratelimited' }, { 'Retry-After': '0.02' });
+              held.release();
+            });
+          }
+          return Promise.resolve();
+        },
+      });
+      await releaseFault;
+      expect(report.results.map((result) => result.status)).toEqual(['pass']);
+      expect(report.rateLimit.status).toBe('pass');
+      expect(
+        fake.requests().filter((request) => request.method === 'chat.postMessage'),
+      ).toHaveLength(3);
+    } finally {
+      await fake.close();
+    }
+  });
+
   it('runs only the guided mention while creating its root thread', async () => {
     const fake = await startFakeSlackApi();
     let instruction = '';
