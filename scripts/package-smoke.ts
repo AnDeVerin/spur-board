@@ -330,6 +330,14 @@ export const smokeSteps: readonly SmokeStep[] = [
       ) {
         throw new Error('Packed board status did not include the created task and sources.');
       }
+      for (const output of [added.stderr, result.stderr]) {
+        if (output.split('\n').some((line) => line.startsWith('warning:'))) {
+          throw new Error(`Packed CLI warned about the packed daemon: ${output}`);
+        }
+      }
+      if (!existsSync(join(ctx.home, 'version-check.json'))) {
+        throw new Error('Packed CLI did not record its catalog check in version-check.json.');
+      }
     },
   },
   {

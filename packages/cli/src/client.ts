@@ -65,23 +65,43 @@ function decodeResponse<Output extends z.ZodType>(
   throw problemError(response.statusCode ?? 0, response.headers['content-type'], body);
 }
 
-async function post<Output extends z.ZodType>(
-  path: string,
-  body: unknown,
-  config: ClientConfig,
-  output: Output,
-  anonymous: boolean,
-): Promise<z.output<Output>> {
+const instanceHeader = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** The daemon instance a response came from, when it sends a well-formed one. */
+function responseInstance(response: IncomingMessage): string | undefined {
+  const value = response.headers['x-board-instance'];
+  return typeof value === 'string' && instanceHeader.test(value) ? value : undefined;
+}
+
+interface SendOptions<Value> {
+  method: 'GET' | 'POST';
+  path: string;
+  body?: unknown;
+  config: ClientConfig;
+  anonymous: boolean;
+  decode: (response: IncomingMessage, raw: string) => Value;
+  observe?: ((instance: string) => void) | undefined;
+}
+
+function send<Value>({
+  method,
+  path,
+  body,
+  config,
+  anonymous,
+  decode,
+  observe,
+}: SendOptions<Value>): Promise<Value> {
   const target = new URL(path, config.address);
-  const payload = JSON.stringify(body);
+  const payload = method === 'POST' ? JSON.stringify(body) : undefined;
   const transport = target.protocol === 'https:' ? httpsRequest : httpRequest;
 
-  return new Promise<z.output<Output>>((resolve, reject) => {
+  return new Promise<Value>((resolve, reject) => {
     let connected = false;
     let settled = false;
     let timer: NodeJS.Timeout | undefined;
 
-    const settle = (result: { value: z.output<Output> } | { error: CliError }) => {
+    const settle = (result: { value: Value } | { error: CliError }) => {
       if (settled) return;
       settled = true;
       if (timer) clearTimeout(timer);
@@ -92,12 +112,16 @@ async function post<Output extends z.ZodType>(
     const req = transport(
       target,
       {
-        method: 'POST',
+        method,
         agent: false,
         headers: {
-          'content-type': 'application/json',
           accept: 'application/json, application/problem+json',
-          'content-length': Buffer.byteLength(payload),
+          ...(payload === undefined
+            ? {}
+            : {
+                'content-type': 'application/json',
+                'content-length': Buffer.byteLength(payload),
+              }),
           ...(anonymous
             ? {}
             : config.session
@@ -106,6 +130,8 @@ async function post<Output extends z.ZodType>(
         },
       },
       (response) => {
+        const instance = responseInstance(response);
+        if (instance !== undefined) observe?.(instance);
         const chunks: Buffer[] = [];
         response.on('data', (chunk: Buffer) => {
           chunks.push(chunk);
@@ -115,9 +141,7 @@ async function post<Output extends z.ZodType>(
         });
         response.once('end', () => {
           try {
-            settle({
-              value: decodeResponse(output, response, Buffer.concat(chunks).toString()),
-            });
+            settle({ value: decode(response, Buffer.concat(chunks).toString()) });
           } catch (error) {
             settle({ error: error instanceof CliError ? error : new CliError('outcome_unknown') });
           }
@@ -156,15 +180,53 @@ export async function requestOperation(
   input: unknown,
   key: string | undefined,
   config: ClientConfig,
+  observe?: (instance: string) => void,
 ): Promise<unknown> {
   if (!config.session && !config.token) throw new CliError('config');
-  return post(
-    `/v1/ops/${encodeURIComponent(op.id)}`,
-    { input, ...(key ? { key } : {}) },
+  return send({
+    method: 'POST',
+    path: `/v1/ops/${encodeURIComponent(op.id)}`,
+    body: { input, ...(key ? { key } : {}) },
     config,
-    op.output,
-    false,
-  );
+    anonymous: false,
+    decode: (response, raw) => decodeResponse(op.output, response, raw),
+    observe,
+  });
+}
+
+const schemaVersion = z.looseObject({ version: z.string().regex(/^[0-9a-f]{64}$/) });
+
+/**
+ * The daemon's catalog version and instance. `/v1/schema` answers with the bare snapshot, not a
+ * success envelope.
+ */
+export function fetchCatalogVersion(
+  config: ClientConfig,
+): Promise<{ version: string; instance: string | undefined }> {
+  let instance: string | undefined;
+  return send({
+    method: 'GET',
+    path: '/v1/schema',
+    config,
+    anonymous: true,
+    observe: (seen) => {
+      instance = seen;
+    },
+    decode: (response, raw) => {
+      let body: unknown;
+      try {
+        body = JSON.parse(raw);
+      } catch {
+        throw new CliError('outcome_unknown');
+      }
+      if (response.statusCode !== 200) {
+        throw problemError(response.statusCode ?? 0, response.headers['content-type'], body);
+      }
+      const parsed = schemaVersion.safeParse(body);
+      if (!parsed.success) throw new CliError('outcome_unknown');
+      return { version: parsed.data.version, instance };
+    },
+  });
 }
 
 const enrollmentOutput = z.strictObject({
@@ -178,5 +240,12 @@ export function requestTokenEnrollment(
   input: { name: string; folder: string; host: string; hash: string },
   config: ClientConfig,
 ): Promise<z.output<typeof enrollmentOutput>> {
-  return post('/v1/tokens/requests', input, config, enrollmentOutput, true);
+  return send({
+    method: 'POST',
+    path: '/v1/tokens/requests',
+    body: input,
+    config,
+    anonymous: true,
+    decode: (response, raw) => decodeResponse(enrollmentOutput, response, raw),
+  });
 }

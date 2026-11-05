@@ -12,6 +12,13 @@ export default defineConfig({
   platform: 'node',
   target: 'node24',
   clean: true,
+  // Rolldown names a shared chunk after its last module. Keep the chunk holding `src/config.ts`
+  // named `config-*`, which the package allowlist admits (scripts/package.ts), whichever module
+  // ends up last in it.
+  outputOptions: {
+    chunkFileNames: (chunk) =>
+      `${chunk.moduleIds.some((id) => /[\\/]cli[\\/]src[\\/]config\.ts$/.test(id)) ? 'config' : '[name]'}-[hash].mjs`,
+  },
   deps: {
     alwaysBundle: [/^@spur-board\//],
     neverBundle: [
