@@ -1,14 +1,47 @@
+import { readFileSync } from 'node:fs';
 import {
   DEFAULT_SLACK_APP_NAME,
   DEFAULT_SLACK_COMMAND,
   SLACK_BOT_SCOPES,
+  configSchema,
 } from '@spur-board/contracts';
 import YAML from 'yaml';
+import { configFile } from './config.ts';
 import { CliError } from './exit-codes.ts';
 
 export interface SlackManifestOptions {
   appName?: string;
   command?: string;
+}
+
+export function loadSlackManifestDefaults(
+  env: NodeJS.ProcessEnv,
+  home: string,
+): SlackManifestOptions {
+  let contents: string;
+  try {
+    contents = readFileSync(configFile(env, home), 'utf8');
+  } catch (error) {
+    if (error !== null && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
+      return {};
+    }
+    throw new CliError(
+      'config',
+      undefined,
+      undefined,
+      'Read config.yaml before generating a manifest.',
+    );
+  }
+  const document = YAML.parseDocument(contents);
+  if (document.errors.length > 0) {
+    throw new CliError('config', undefined, undefined, 'Fix the YAML in config.yaml.');
+  }
+  const parsed = configSchema.safeParse(document.toJS());
+  if (!parsed.success) {
+    const key = parsed.error.issues[0]?.path.map(String).join('.') || 'config.yaml';
+    throw new CliError('config', undefined, undefined, `Fix ${key} in config.yaml.`);
+  }
+  return { appName: parsed.data.slack.appName, command: parsed.data.slack.command };
 }
 
 export function renderSlackManifest(options: SlackManifestOptions = {}): string {

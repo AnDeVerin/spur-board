@@ -17,7 +17,7 @@ import { z } from 'zod';
 import { requestOperation, requestTokenEnrollment } from './client.ts';
 import { loadClientConfig, loadEnrollmentConfig, type ClientConfig } from './config.ts';
 import { CliError, errorExitCode, renderCliError } from './exit-codes.ts';
-import { renderSlackManifest } from './manifest.ts';
+import { loadSlackManifestDefaults, renderSlackManifest } from './manifest.ts';
 import { renderDoctor, runDoctor, type DoctorPorts } from './doctor.ts';
 import {
   installService,
@@ -337,8 +337,13 @@ function registerSetupCommands(
     ) {
       throw new CliError('usage');
     }
+    const defaults =
+      appName === undefined || command === undefined
+        ? loadSlackManifestDefaults(env, options.home ?? homedir())
+        : {};
     io.stdout(
       renderSlackManifest({
+        ...defaults,
         ...(appName === undefined ? {} : { appName }),
         ...(command === undefined ? {} : { command }),
       }),
