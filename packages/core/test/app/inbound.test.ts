@@ -738,7 +738,11 @@ describe('inbound apply', () => {
 
   it('renders task comments as quotes and dated history as private English text', async () => {
     const { store, gateway } = await setup();
-    const replies: { body: Parameters<typeof gateway.respond>[1]; private: boolean }[] = [];
+    const replies: {
+      body: Parameters<typeof gateway.respond>[1];
+      private: boolean;
+      cliHint: string | undefined;
+    }[] = [];
     const target = {
       kind: 'found' as const,
       value: { project: 'proj', task: null, block: null, workers: [] },
@@ -763,7 +767,7 @@ describe('inbound apply', () => {
       gateway: {
         ...gateway,
         respond(_ref, body, options) {
-          replies.push({ body, private: options.private });
+          replies.push({ body, private: options.private, cliHint: options.cliHint });
           return Promise.resolve('sent' as const);
         },
       },
@@ -783,6 +787,10 @@ describe('inbound apply', () => {
       });
     }
     expect(replies.map((reply) => reply.private)).toEqual([true, true]);
+    expect(replies.map((reply) => reply.cliHint)).toEqual([
+      'board task PROJ-123',
+      'board task history PROJ-123',
+    ]);
     expect(replies[0]?.body).toContainEqual({
       kind: 'quote',
       children: [{ kind: 'text', text: 'Target v2.' }],

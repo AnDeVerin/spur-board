@@ -44,7 +44,7 @@ export function createSlackGateway(config: SlackGatewayConfig): Gateway {
     async respond(interaction, text, options) {
       const addressed = parseInteractionRef(interaction);
       const rendered = renderText(text);
-      const pointer = '\n\nMore: board status (CLI)';
+      const pointer = options.cliHint === undefined ? '' : `\n\nMore: ${options.cliHint} (CLI)`;
       const body =
         rendered.length <= MAX_PART_TEXT
           ? rendered

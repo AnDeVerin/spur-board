@@ -2,7 +2,7 @@ import { interactionRefSchema } from '@spur-board/contracts';
 import { afterEach, describe, expect, it } from 'vitest';
 import { commandUsage, parseCommand } from '../src/commands.ts';
 import { createSlackGateway } from '../src/index.ts';
-import { MAX_PART_TEXT } from '../src/render.ts';
+import { MAX_PART_TEXT, renderText } from '../src/render.ts';
 import { startFakeSlackApi, type FakeSlackApi } from './fake-api.ts';
 
 const fakes: FakeSlackApi[] = [];
@@ -43,7 +43,13 @@ describe('Slack board commands', () => {
     });
   });
 
-  it('bounds an ephemeral response without tearing an escaped entity or CLI pointer', async () => {
+  it('renders quoted agent text without expanding a Slack mention', () => {
+    expect(
+      renderText([{ kind: 'quote', children: [{ kind: 'text', text: '<!channel> *bold*' }] }]),
+    ).toBe('> &lt;!channel&gt; *bold*');
+  });
+
+  it('bounds a history reply without tearing an escaped entity or its CLI pointer', async () => {
     const fake = await startFakeSlackApi();
     fakes.push(fake);
     const gateway = createSlackGateway({
@@ -52,7 +58,7 @@ describe('Slack board commands', () => {
       apiUrl: fake.url,
       requestTimeoutMs: 500,
     });
-    const pointer = '\n\nMore: board status (CLI)';
+    const pointer = '\n\nMore: board task history PROJ-123 (CLI)';
     const content = `${'x'.repeat(MAX_PART_TEXT - pointer.length - 2)}&${'y'.repeat(200)}`;
     const interaction = interactionRefSchema.parse(
       JSON.stringify({
@@ -65,7 +71,7 @@ describe('Slack board commands', () => {
       await gateway.respond(
         interaction,
         [{ kind: 'paragraph', children: [{ kind: 'text', text: content }] }],
-        { private: true },
+        { private: true, cliHint: 'board task history PROJ-123' },
       ),
     ).toBe('sent');
     const posted = fake.requests().find((request) => request.method === 'chat.postEphemeral');

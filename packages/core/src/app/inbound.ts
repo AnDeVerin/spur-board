@@ -548,6 +548,7 @@ export function createInbound(input: {
     }
     const { id, operationInput } = interactionOperation(event);
     let response: RichText;
+    let cliHint: string | undefined;
     if (event.kind === 'command' && event.command.kind === 'usage')
       response = plain(event.command.text);
     else if (id === undefined) response = plain('not allowed');
@@ -560,10 +561,15 @@ export function createInbound(input: {
           'operator',
           event.dedupeKey,
         );
-        response =
-          event.kind === 'command'
-            ? commandReply(id as 'status.get' | 'task.get' | 'task.history', value)
-            : plain(JSON.stringify(value));
+        if (event.kind === 'command') {
+          const reply = commandReply(
+            id as 'status.get' | 'task.get' | 'task.history',
+            value,
+            operationInput,
+          );
+          response = reply.body;
+          cliHint = reply.cliHint;
+        } else response = plain(JSON.stringify(value));
       } catch (error) {
         if (!(error instanceof CommandError)) {
           await recordFailure(event, error, new Date(clock.now()).toISOString());
@@ -578,7 +584,10 @@ export function createInbound(input: {
       }
     }
     try {
-      await gateway.respond(event.interaction, response, { private: true });
+      await gateway.respond(event.interaction, response, {
+        private: true,
+        ...(cliHint === undefined ? {} : { cliHint }),
+      });
     } catch {
       // The operation has completed; an ephemeral response failure must not replay it.
     }
