@@ -49,6 +49,8 @@ A map of the repo for agents and contributors. The rules live in the files and s
 - `pnpm package:pack [directory]` - build, pack, and validate the npm tarball.
 - `pnpm package:check <tarball>` - reject files outside the package allowlist or a missing binary.
 - `pnpm package:smoke [tarball]` - install and exercise the packed CLI and daemon.
+- `BOARD_LIVE_CHANNEL=<test-channel-id> pnpm smoke:live` - manually run Slack gateway conformance
+  in a private test channel; use before M1 acceptance, after Slack SDK updates and before releases.
 - `pnpm upgrade:smoke [tarball]` - test migration from the previous published version when present.
 - `pnpm gen:config-schema`, `pnpm gen:ops-snapshot` - regenerate the config JSON schema and the
   operation catalog snapshot.
