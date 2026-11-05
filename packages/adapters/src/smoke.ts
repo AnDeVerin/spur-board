@@ -65,6 +65,38 @@ function secretForms(value: string): string[] {
     .sort((a, b) => b.length - a.length);
 }
 
+function decodePercent(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    // A malformed escape elsewhere in a link must not hide a valid encoded secret.
+    return value.replace(/(?:%[0-9a-f]{2})+/gi, (part) => {
+      try {
+        return decodeURIComponent(part);
+      } catch {
+        return part;
+      }
+    });
+  }
+}
+
+function containsDecodedSecret(value: string, secrets: Readonly<Record<string, string>>): boolean {
+  const values = Object.values(secrets).filter((secret) => secret.length > 0);
+  let current = value;
+  for (let depth = 0; depth < 8; depth += 1) {
+    if (
+      [current, current.replaceAll('+', ' ')].some((form) =>
+        values.some((secret) => form.includes(secret)),
+      )
+    )
+      return true;
+    const decoded = decodePercent(current);
+    if (decoded === current) break;
+    current = decoded;
+  }
+  return false;
+}
+
 function redact(line: string, secrets: Readonly<Record<string, string>>): string {
   const forms = Object.values(secrets)
     .filter((value) => value.length > 0)
@@ -84,6 +116,7 @@ function redact(line: string, secrets: Readonly<Record<string, string>>): string
     }
     if (cursor > 0) result = `${parts.join('')}${result.slice(cursor)}`;
   }
+  if (containsDecodedSecret(result, secrets)) return '[REDACTED]';
   return result;
 }
 
@@ -185,7 +218,8 @@ export async function runSmoke(
       Object.values(secrets)
         .filter((value) => value.length > 0)
         .flatMap(secretForms)
-        .some((form) => normalizePercentEscapes(output).includes(normalizePercentEscapes(form)))
+        .some((form) => normalizePercentEscapes(output).includes(normalizePercentEscapes(form))) ||
+      containsDecodedSecret(output, secrets)
     )
       return 1;
     for (const line of out) options.writeOut(line);

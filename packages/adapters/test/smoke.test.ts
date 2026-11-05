@@ -77,6 +77,7 @@ function fixture(
     githubChecksForbidden?: boolean;
     secretInFacts?: string;
     secretInSpurLink?: string;
+    mixedSecretInSpurLink?: string;
   } = {},
 ) {
   const calls: { url: URL; method: string }[] = [];
@@ -251,6 +252,26 @@ function fixture(
                     ],
                   },
                 }),
+            ...(options.mixedSecretInSpurLink === undefined
+              ? {}
+              : {
+                  slots: {
+                    links: [
+                      {
+                        label: 'percent',
+                        url: `https://example.test/${options.mixedSecretInSpurLink.replaceAll(' ', '%20')}`,
+                      },
+                      {
+                        label: 'form',
+                        url: `https://example.test/?token=${options.mixedSecretInSpurLink.replaceAll(' ', '+')}`,
+                      },
+                      {
+                        label: 'malformed',
+                        url: `https://example.test/%oops/${options.mixedSecretInSpurLink.replaceAll(' ', '%20')}`,
+                      },
+                    ],
+                  },
+                }),
           },
         ]),
       );
@@ -416,6 +437,31 @@ describe('adapter smoke', () => {
     );
     expect(result.out).not.toContain(new URLSearchParams({ token: value }).toString().slice(6));
     expect(result.out).toContain('[REDACTED]');
+  });
+
+  it('redacts mixed literal and encoded secret values in session links', async () => {
+    const value = 'a/b c';
+    const result = await run(fixture({ mixedSecretInSpurLink: value }), {
+      secrets: { ...secrets, EXTRA: value },
+    });
+    expect(result.code).toBe(0);
+    expect(result.err).toBe('');
+    expect(result.out).not.toContain(value.replaceAll(' ', '%20'));
+    expect(result.out).not.toContain(value.replaceAll(' ', '+'));
+    expect(result.out).toContain('[REDACTED]');
+    expect(result.records.find((record) => record['source'] === 'spur')).toMatchObject({
+      items: [
+        {
+          facts: {
+            links: {
+              percent: '[REDACTED]',
+              form: '[REDACTED]',
+              malformed: '[REDACTED]',
+            },
+          },
+        },
+      ],
+    });
   });
 
   it.each(['source', '4321', 'true', 'pass', '"'])(
