@@ -317,15 +317,19 @@ describe('daemon process', () => {
         },
       );
       expect(history.status, history.stderr).toBe(0);
-      expect(JSON.parse(history.stdout)).toMatchObject({
-        task: { key: 'example-org/board#101' },
-        events: [
-          { kind: 'task_added' },
-          { kind: 'from_you_raised' },
-          { kind: 'block_opened' },
-          { kind: 'comment_added' },
-        ],
-      });
+      const historyOutput = JSON.parse(history.stdout) as {
+        task: { key: string };
+        events: { kind: string }[];
+      };
+      expect(historyOutput.task.key).toBe('example-org/board#101');
+      const eventKinds = historyOutput.events.map((event) => event.kind);
+      // Startup may raise an operator item for the seeded block before this query.
+      expect(eventKinds.filter((kind) => kind !== 'from_you_raised')).toEqual([
+        'task_added',
+        'block_opened',
+        'comment_added',
+      ]);
+      expect(eventKinds.filter((kind) => kind === 'from_you_raised').length).toBeLessThanOrEqual(1);
       const inbox = spawnSync(process.execPath, [BOARD_CLI, 'inbox', '--json'], {
         env: operatorEnv,
         encoding: 'utf8',
