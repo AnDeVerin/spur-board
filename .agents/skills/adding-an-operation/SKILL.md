@@ -49,6 +49,9 @@ path order. A PR that changes this path or these rules updates this skill in the
   product skill `packages/skills/spur-board/SKILL.md` with its pages in
   `packages/skills/spur-board/references/`, and `docs/cli.md`. The gen job in
   `.github/workflows/ci.yml` fails on a diff or an untracked page.
+- Any catalog change moves the `version` in `packages/contracts/ops.snapshot.json`: a running
+  daemon and live `board mcp` sessions answer `version_mismatch` until both restart. Say so in
+  the PR Description.
 
 ## 7. Tests to extend
 
@@ -66,9 +69,9 @@ path order. A PR that changes this path or these rules updates this skill in the
 - `comment.add`, the plain mutation: its entry in `packages/contracts/src/ops/catalog.ts` ->
   `add` in `createBlockMutations` -> `addComment` (both `packages/core/src/app/blocks.ts`) ->
   `'comment.add'` in `createOperationRegistry` -> `dispatchOperation` -> `/v1/ops/:id` ->
-  `createProgram` and `createMcpServer`. Tests: `describe('block and comment mutations')` in
-  `packages/core/test/app/blocks.test.ts`, `describe('board mcp')` in
-  `packages/cli/test/mcp.test.ts`.
+  `createProgram` and `createMcpServer`. Tests: `describe('production query handlers')` in
+  `packages/core/test/app/queries.test.ts`, which calls it through `createOperationRegistry`, and
+  `describe('board mcp')` in `packages/cli/test/mcp.test.ts`.
 - `block.ask`, through a gateway: `packages/daemon/test/worker-question.integration.test.ts`.
 - `link.add`, a union input with `cli.modes` (`linkModes` in the catalog) and a migration
   (`packages/core/src/store/migrations/0010_manual_links.sql`); handler `createLinkMutations` in
