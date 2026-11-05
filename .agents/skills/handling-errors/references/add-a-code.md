@@ -8,9 +8,15 @@
 - `status` is the HTTP status the daemon answers with, or `null` for a code the client raises.
   Only codes with a status are in `ServerErrorCode`, so only they can be thrown as
   `CommandError` or listed on an operation.
-- `exit` agrees with `recovery.sideEffects`: `outcomeUnknown` (5) exactly for `unknown`;
-  `notApplied` (3) when nothing applied and the same call can succeed later; `refused` (1) or
-  `usage` (2) when the call itself must change.
+- `exit`: `outcomeUnknown` (5) exactly when `recovery.sideEffects` is `unknown`. Codes 1 to 4
+  all have no side effects, so pick among them by what the daemon did with the call:
+  - `notApplied` (3): the daemon could not evaluate the call - identity, startup, catalog
+    version or reachability (`identity_unavailable`, `starting`, `version_mismatch`,
+    `daemon_unavailable`);
+  - `refused` (1): the daemon evaluated the call and rejected it, even when an operator action
+    would let the same call pass later (`forbidden`, `not_implemented`, `task_archived`);
+  - `usage` (2): the call is malformed (`usage`, `wrong_id_kind`);
+  - `config` (4): the client's configuration must be fixed (`config`).
 - Build `recovery` with the helpers in `packages/contracts/src/errors.ts`: `noRetry`, `retry`,
   `unknownOutcome` or `unexpectedOutcome`. Write a literal only when none fits.
 - `recoverySchema` requires `outcomeCheck` when `sideEffects` is `unknown`, and

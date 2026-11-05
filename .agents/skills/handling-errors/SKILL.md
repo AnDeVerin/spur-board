@@ -57,7 +57,8 @@ description: Rules for errors - Result vs throw, retries, the ERRORS catalog, hi
 ## Exit codes
 
 - `EXIT_CODES`: 0 ok, 1 refused, 2 usage, 3 not applied, 4 config, 5 outcome unknown.
-- 3: nothing applied; retry after the hint's step.
+- 3: the daemon could not evaluate the call, so nothing applied; retry after the hint's step.
+  A call the daemon evaluated and rejected is 1, even if it can pass later.
 - 5: it may have applied; check, then retry with the same key (`renderCliError` adds
   `retry with --key`, MCP adds `idempotencyKey` to `context`).
 
