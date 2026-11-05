@@ -319,7 +319,12 @@ describe('daemon process', () => {
       expect(history.status, history.stderr).toBe(0);
       expect(JSON.parse(history.stdout)).toMatchObject({
         task: { key: 'example-org/board#101' },
-        events: [{ kind: 'task_added' }, { kind: 'block_opened' }, { kind: 'comment_added' }],
+        events: [
+          { kind: 'task_added' },
+          { kind: 'from_you_raised' },
+          { kind: 'block_opened' },
+          { kind: 'comment_added' },
+        ],
       });
       const inbox = spawnSync(process.execPath, [BOARD_CLI, 'inbox', '--json'], {
         env: operatorEnv,

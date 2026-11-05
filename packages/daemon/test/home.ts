@@ -28,7 +28,8 @@ interface HomeOptions {
 }
 
 function nextHttpPort(): number {
-  return 40_000 + Math.floor(Math.random() * 20_000);
+  // Stay below the Linux ephemeral range used by outbound test connections.
+  return 20_000 + Math.floor(Math.random() * 10_000);
 }
 
 /** A fresh BOARD_HOME directory with config.yaml and, if asked, secrets.env. */
