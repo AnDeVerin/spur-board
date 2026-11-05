@@ -13,6 +13,9 @@
   `describe('outbox scheduler')`).
 - `board-core` starts a tick immediately, then arms a 60-second `setTimeout` after it settles.
   On stop, clear the timer and await the active tick before the store closes.
+- Register `systemd` last with `stopStage: 'pollers'`: its start sends READY, its stop STOPPING.
+  `board-core` calls `onTick` only after a successful tick; the notifier drops WATCHDOG before
+  READY and after STOPPING (`packages/daemon/test/systemd.test.ts`).
 - `board-adapters` uses `startAdapters`; the runner owns per-source timers, backoff and aborts
   (`PollContext.signal`, A7 in `packages/contracts/src/adapters.ts`). Adapters never retry on
   their own (A6). Register it with `stopStage: 'pollers'`; await `runner.stop()` on stop.
