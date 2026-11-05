@@ -271,6 +271,39 @@ describe('skills install', () => {
     }
   });
 
+  it('keeps writes in the checked directory when its pathname is replaced during copy', async () => {
+    const { root, home, packageRoot } = await fixture();
+    const parent = join(home, '.claude', 'skills');
+    const moved = join(home, '.claude', 'skills-moved');
+    const outside = join(root, 'outside');
+    await mkdir(parent, { recursive: true });
+    await mkdir(outside);
+    await writeFile(join(outside, 'keep.txt'), 'keep');
+    let swapped = false;
+
+    expect(
+      await installSkills({
+        home,
+        packageRoot,
+        copySkill: async (source, staged) => {
+          if (!swapped) {
+            await rename(parent, moved);
+            await symlink(outside, parent, 'dir');
+            swapped = true;
+          }
+          await cp(source, staged, { recursive: true });
+        },
+      }),
+    ).toHaveLength(4);
+    expect(swapped).toBe(true);
+    expect(await readdir(outside)).toEqual(['keep.txt']);
+    for (const name of names) {
+      expect(await readFile(join(moved, name, 'SKILL.md'), 'utf8')).toBe(
+        name === 'spur-board' ? 'Board skill\n' : 'Setup skill\n',
+      );
+    }
+  });
+
   it('rejects a symlinked destination before changing any skill', async () => {
     for (const agent of agents) {
       const { root, home, packageRoot } = await fixture();

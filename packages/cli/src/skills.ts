@@ -132,19 +132,40 @@ async function resolvedParent(path: string): Promise<ResolvedParent> {
   return { parent: canonical, missing: [] };
 }
 
-async function createMissingParents(paths: string[]): Promise<void> {
-  for (const path of paths) {
-    try {
-      await mkdir(path, { mode: 0o700 });
-    } catch (error) {
-      if (!(error instanceof Error && 'code' in error && error.code === 'EEXIST')) {
-        throw error;
+async function pinParent({ parent, missing }: ResolvedParent): Promise<number> {
+  // Walk from open directories so later pathname swaps cannot redirect skill writes.
+  const flags = constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW;
+  const missingPaths = new Set(missing);
+  let fd = openSync('/', flags);
+  let current = '/';
+  try {
+    for (const component of parent.split('/').filter(Boolean)) {
+      current = join(current, component);
+      const child = join('/proc/self/fd', String(fd), component);
+      if (missingPaths.has(current)) {
+        try {
+          await mkdir(child, { mode: 0o700 });
+        } catch (error) {
+          if (!(error instanceof Error && 'code' in error && error.code === 'EEXIST')) {
+            throw error;
+          }
+        }
       }
+      let next: number;
+      try {
+        next = openSync(child, flags);
+      } catch (error) {
+        throw new Error(`Skill install parent cannot be safely opened: ${current}`, {
+          cause: error,
+        });
+      }
+      closeSync(fd);
+      fd = next;
     }
-    const entry = await lstat(path);
-    if (!entry.isDirectory() || entry.isSymbolicLink() || (await realpath(path)) !== path) {
-      throw new Error(`Skill install parent must be a directory, not a new symlink: ${path}`);
-    }
+    return fd;
+  } catch (error) {
+    closeSync(fd);
+    throw error;
   }
 }
 
@@ -193,7 +214,6 @@ async function withInstallLock<T>(
 }
 
 async function recoverSkill(parent: string, destination: string, name: string): Promise<void> {
-  if (!(await targetDirectory(parent))) return;
   const entries = await readdir(parent);
   const backupPrefix = `.${name}-backup-`;
   const backups: { path: string; owner: string }[] = [];
@@ -268,76 +288,87 @@ async function installIntoHome(
   }
 
   const installedAt = (options.now ?? (() => new Date()))().toISOString();
-  for (const { parent, missing } of targets) {
-    await createMissingParents(missing);
-    if ((await realpath(parent)) !== parent) {
-      throw new Error(`Skill install parent changed after preflight: ${parent}`);
+  const pinned: { agent: (typeof agents)[number]; parent: string; fd: number }[] = [];
+  try {
+    for (const target of targets) {
+      const fd = await pinParent(target);
+      pinned.push({ agent: target.agent, parent: join('/proc/self/fd', String(fd)), fd });
     }
-  }
-  const results: SkillInstallResult[] = [];
-  for (const { agent, parent } of targets) {
-    for (const skill of skills) {
-      const destination = join(parent, skill.name);
-      await recoverSkill(parent, destination, skill.name);
-      const changed = !(await currentVersion(destination, version));
-      if (changed) {
-        await targetDirectory(destination);
-        const stageId = randomUUID();
-        const staged = join(parent, `.${skill.name}-stage-${stageId}`);
-        const owner = `${staged}.owner`;
-        await writeFile(owner, `spur-board stage ${stageId}\n`, { flag: 'wx', mode: 0o600 });
-        let stagedCreated = false;
-        try {
-          await mkdir(staged, { mode: 0o700 });
-          stagedCreated = true;
-          const source = join(packageRoot, 'skills', skill.source);
-          if (options.copySkill) await options.copySkill(source, staged);
-          else await cp(source, staged, { recursive: true });
-          const stamp: InstallStamp = { version, installedAt };
-          await writeFile(join(staged, stampName), `${JSON.stringify(stamp, null, 2)}\n`);
+    // Recheck destinations through pinned directories before changing any skill.
+    for (const { parent } of pinned) {
+      for (const skill of skills) await targetDirectory(join(parent, skill.name));
+    }
+    const results: SkillInstallResult[] = [];
+    for (const { agent, parent } of pinned) {
+      for (const skill of skills) {
+        const destination = join(parent, skill.name);
+        await recoverSkill(parent, destination, skill.name);
+        const changed = !(await currentVersion(destination, version));
+        if (changed) {
+          await targetDirectory(destination);
+          const stageId = randomUUID();
+          const staged = join(parent, `.${skill.name}-stage-${stageId}`);
+          const owner = `${staged}.owner`;
+          await writeFile(owner, `spur-board stage ${stageId}\n`, { flag: 'wx', mode: 0o600 });
+          let stagedCreated = false;
+          try {
+            await mkdir(staged, { mode: 0o700 });
+            stagedCreated = true;
+            const source = join(packageRoot, 'skills', skill.source);
+            if (options.copySkill) await options.copySkill(source, staged);
+            else await cp(source, staged, { recursive: true });
+            const stamp: InstallStamp = { version, installedAt };
+            await writeFile(join(staged, stampName), `${JSON.stringify(stamp, null, 2)}\n`);
 
-          const existing = await targetDirectory(destination);
-          if (existing) {
-            const backupId = randomUUID();
-            const backup = join(parent, `.${skill.name}-backup-${backupId}`);
-            const backupOwner = `${backup}.owner`;
-            const original = await lstat(destination, { bigint: true });
-            const identity = `${String(original.dev)}:${String(original.ino)}`;
-            await writeFile(backupOwner, `spur-board backup ${backupId} ${identity}\n`, {
-              flag: 'wx',
-              mode: 0o600,
-            });
-            let backupContainsSkill = false;
-            try {
-              if (await targetDirectory(backup)) {
-                throw new Error(`Skill backup path already exists: ${backup}`);
-              }
-              await rename(destination, backup);
-              backupContainsSkill = true;
+            const existing = await targetDirectory(destination);
+            if (existing) {
+              const backupId = randomUUID();
+              const backup = join(parent, `.${skill.name}-backup-${backupId}`);
+              const backupOwner = `${backup}.owner`;
+              const original = await lstat(destination, { bigint: true });
+              const identity = `${String(original.dev)}:${String(original.ino)}`;
+              await writeFile(backupOwner, `spur-board backup ${backupId} ${identity}\n`, {
+                flag: 'wx',
+                mode: 0o600,
+              });
+              let backupContainsSkill = false;
               try {
-                await rename(staged, destination);
-              } catch (error) {
-                await rename(backup, destination);
+                if (await targetDirectory(backup)) {
+                  throw new Error(`Skill backup path already exists: ${backup}`);
+                }
+                await rename(destination, backup);
+                backupContainsSkill = true;
+                try {
+                  await rename(staged, destination);
+                } catch (error) {
+                  await rename(backup, destination);
+                  backupContainsSkill = false;
+                  throw error;
+                }
+                await rm(backup, { recursive: true });
                 backupContainsSkill = false;
-                throw error;
+              } finally {
+                if (!backupContainsSkill) await rm(backupOwner);
               }
-              await rm(backup, { recursive: true });
-              backupContainsSkill = false;
-            } finally {
-              if (!backupContainsSkill) await rm(backupOwner);
+            } else {
+              await rename(staged, destination);
             }
-          } else {
-            await rename(staged, destination);
+          } finally {
+            if (stagedCreated) await rm(staged, { recursive: true, force: true });
+            await rm(owner);
           }
-        } finally {
-          if (stagedCreated) await rm(staged, { recursive: true, force: true });
-          await rm(owner);
         }
+        results.push({
+          agent: agent === '.claude' ? 'claude' : 'codex',
+          skill: skill.name,
+          changed,
+        });
       }
-      results.push({ agent: agent === '.claude' ? 'claude' : 'codex', skill: skill.name, changed });
     }
+    return results;
+  } finally {
+    for (const { fd } of pinned) closeSync(fd);
   }
-  return results;
 }
 
 export async function installSkills(
