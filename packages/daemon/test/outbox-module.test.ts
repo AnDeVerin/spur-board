@@ -55,7 +55,10 @@ describe('outbox scheduler', () => {
     const loaded = loadConfig(resolvePaths({ BOARD_HOME: makeHome() }, ''));
     const config = {
       ...loaded.config,
-      slack: { command: '/board', channels: { orchestrators: 'C000000001', feed: 'C000000002' } },
+      slack: {
+        ...loaded.config.slack,
+        channels: { orchestrators: 'C000000001', feed: 'C000000002' },
+      },
     };
     const outbound = slackSettings(config, { SLACK_BOT_TOKEN: 'xoxb-test' });
     expect(outbound?.appToken).toBeUndefined();
