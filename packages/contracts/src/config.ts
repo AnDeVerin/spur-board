@@ -4,6 +4,12 @@ import { COLUMN_IDS, REQUIRED_COLUMN_IDS } from './enums.ts';
 export const DEFAULT_HTTP_PORT = 4311;
 export const DEFAULT_SLACK_APP_NAME = 'spur-board';
 export const DEFAULT_SLACK_COMMAND = '/board';
+/**
+ * The journal project of board-wide events that belong to no configured project: token
+ * lifecycle, unknown Spur states and denials with no resolvable project. It sits outside the
+ * project id pattern, so no configured project can take it.
+ */
+export const RESERVED_PROJECT = '_board';
 
 export const WEEKDAYS = [
   'monday',
@@ -123,7 +129,13 @@ function checkBoard(items: readonly ColumnConfig[], ctx: z.RefinementCtx): void 
 
 const projectSchema = z
   .strictObject({
-    id: z.string().regex(/^[a-z][a-z0-9-]*$/, 'Expected lowercase letters, digits and dashes'),
+    id: z
+      .string()
+      .refine((id) => id !== RESERVED_PROJECT, {
+        message: `"${RESERVED_PROJECT}" is reserved for board-wide journal events; choose another project id`,
+        abort: true,
+      })
+      .regex(/^[a-z][a-z0-9-]*$/, 'Expected lowercase letters, digits and dashes'),
     tracker: z.discriminatedUnion('type', [jiraTracker, githubIssuesTracker]),
     repos: z.array(repoSlugSchema).min(1),
     operatorGithubLogin: z.string().regex(/^[A-Za-z0-9-]{1,39}$/, 'Expected a GitHub login'),
