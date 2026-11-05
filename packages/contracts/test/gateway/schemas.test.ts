@@ -216,6 +216,12 @@ describe('inboundEventSchema', () => {
       }).success,
     ).toBe(false);
   });
+
+  it('accepts command events stored before selections were added', () => {
+    const legacy = { ...events.command.valid };
+    delete legacy.command;
+    expect(inboundEventSchema.safeParse(legacy).success).toBe(true);
+  });
 });
 
 describe('deliveryResultSchema', () => {

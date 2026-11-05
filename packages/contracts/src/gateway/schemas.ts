@@ -114,14 +114,16 @@ const commandEventSchema = z.strictObject({
   interaction: interactionRefSchema,
   author: userIdSchema,
   text,
-  command: z.discriminatedUnion('kind', [
-    z.strictObject({
-      kind: z.literal('query'),
-      id: z.enum(['status.get', 'task.get', 'task.history']),
-      input: z.unknown(),
-    }),
-    z.strictObject({ kind: z.literal('usage'), text: z.string().min(1) }),
-  ]),
+  command: z
+    .discriminatedUnion('kind', [
+      z.strictObject({
+        kind: z.literal('query'),
+        id: z.enum(['status.get', 'task.get', 'task.history']),
+        input: z.unknown(),
+      }),
+      z.strictObject({ kind: z.literal('usage'), text: z.string().min(1) }),
+    ])
+    .optional(),
   sourceUrl,
   sourceSpace: sourceSpace.optional(),
 });

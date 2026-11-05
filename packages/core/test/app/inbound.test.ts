@@ -977,6 +977,13 @@ describe('inbound apply', () => {
       key: 'board',
       title: 'board: Slack message not processed',
     });
+    const legacy = JSON.parse(item?.inbound_event_json ?? '{}') as Record<string, unknown>;
+    delete legacy.command;
+    await store.db
+      .updateTable('operator_item')
+      .set({ inbound_event_json: JSON.stringify(legacy) })
+      .where('id', '=', 1)
+      .execute();
     fail = false;
     await inbound.retryStored(1);
     expect((await getOperatorItem(store, 1))?.cleared_at).not.toBeNull();

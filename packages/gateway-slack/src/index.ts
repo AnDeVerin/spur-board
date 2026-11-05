@@ -3,7 +3,7 @@ import { apiFailure, createApi, type ApiConfig } from './api.ts';
 import { createDeliveryGateway, type SlackChannels } from './deliver.ts';
 import { parseInteractionRef, type BotIdentity } from './normalize.ts';
 import { recoverThreads } from './recover.ts';
-import { MAX_PART_TEXT, renderText, splitText } from './render.ts';
+import { renderResponse } from './render.ts';
 import { createSocket } from './socket.ts';
 
 interface SlackGatewayConfig extends ApiConfig {
@@ -43,18 +43,16 @@ export function createSlackGateway(config: SlackGatewayConfig): Gateway {
     recover: (request) => recoverThreads(api, request, botIdentity),
     async respond(interaction, text, options) {
       const addressed = parseInteractionRef(interaction);
-      const rendered = renderText(text);
-      const pointer = options.cliHint === undefined ? '' : `\n\nMore: ${options.cliHint} (CLI)`;
-      const body =
-        rendered.length <= MAX_PART_TEXT
-          ? rendered
-          : `${splitText(rendered, MAX_PART_TEXT - pointer.length)?.[0] ?? ''}${pointer}`;
-      if (addressed === null || body.length === 0) return 'dropped';
+      const rendered = renderResponse(text, options.cliHint);
+      if (addressed === null || rendered.text.length === 0) return 'dropped';
       try {
         const response = await api.chat.postEphemeral({
           channel: addressed.channel,
           user: addressed.user,
-          text: body,
+          text: rendered.text,
+          blocks: rendered.blocks,
+          parse: 'none',
+          link_names: false,
         });
         return response.ok ? 'sent' : 'dropped';
       } catch (error) {

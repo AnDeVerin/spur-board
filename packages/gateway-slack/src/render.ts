@@ -102,6 +102,58 @@ export function renderText(body: RichText): string {
     .join('\n\n');
 }
 
+function literal(value: RichTextInline): string {
+  switch (value.kind) {
+    case 'text':
+    case 'emphasis':
+    case 'code':
+      return value.text;
+    case 'link':
+      return `${value.text} (${value.url})`;
+    case 'mention':
+      return `<@${value.user}>`;
+  }
+}
+
+/** Private replies use structured text so quoted data is never parsed as mrkdwn. */
+export function renderResponse(body: RichText, cliHint?: string) {
+  const pointer = cliHint === undefined ? '' : `More: ${cliHint} (CLI)`;
+  const suffix = pointer === '' ? '' : `\n\n${pointer}`;
+  let remaining = MAX_PART_TEXT - suffix.length;
+  const maxElements = 40;
+  const shown: Extract<RichText[number], { kind: 'paragraph' | 'quote' }>[] = [];
+  let truncated = false;
+  for (const block of body) {
+    const value = block.kind === 'code_block' ? block.text : block.children.map(literal).join('');
+    if (value.length === 0) continue;
+    if (shown.length >= maxElements || remaining <= 0) {
+      truncated = true;
+      break;
+    }
+    const part = value.slice(0, remaining);
+    shown.push({
+      kind: block.kind === 'quote' ? 'quote' : 'paragraph',
+      children: [{ kind: 'text', text: part }],
+    });
+    remaining -= part.length + 2;
+    if (part.length < value.length) {
+      truncated = true;
+      break;
+    }
+  }
+  const elements = shown.map((block) => ({
+    type: block.kind === 'quote' ? ('rich_text_quote' as const) : ('rich_text_section' as const),
+    elements: [{ type: 'text' as const, text: block.children.map(literal).join('') }],
+  }));
+  if (truncated && pointer !== '') {
+    elements.push({ type: 'rich_text_section', elements: [{ type: 'text', text: pointer }] });
+  }
+  const fallback = renderText(shown);
+  const limit = MAX_PART_TEXT - (truncated ? suffix.length : 0);
+  const text = `${fallback.length <= limit ? fallback : (splitText(fallback, limit)?.[0] ?? '')}${truncated ? suffix : ''}`;
+  return { text, blocks: [{ type: 'rich_text' as const, elements }] };
+}
+
 /** Prefer a paragraph or word boundary; never cut a Slack entity or angle-bracket token. */
 export function splitText(text: string, max = MAX_PART_TEXT): string[] | null {
   if (text.length === 0) return [];

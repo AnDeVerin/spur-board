@@ -430,6 +430,25 @@ export function createInbound(input: {
     return `inbound.${event.kind}`;
   }
 
+  /** Decode command text only for events stored before parsed selections were added. */
+  function legacyCommand(
+    text: string,
+  ): NonNullable<Extract<UserEvent, { kind: 'command' }>['command']> | null {
+    const parts = text.trim().split(/\s+/).filter(Boolean);
+    if (parts.length === 0 || (parts.length === 1 && parts[0] === 'status')) {
+      return { kind: 'query', id: 'status.get', input: {} };
+    }
+    if (parts[0] === 'task' && parts[1] !== undefined) {
+      if (parts.length === 2) {
+        return { kind: 'query', id: 'task.get', input: { task: parts[1] } };
+      }
+      if (parts.length === 3 && parts[2] === 'history') {
+        return { kind: 'query', id: 'task.history', input: { task: parts[1] } };
+      }
+    }
+    return null;
+  }
+
   function interactionOperation(event: Extract<UserEvent, { kind: 'command' | 'action' }>): {
     id: OperationId | undefined;
     operationInput: unknown;
@@ -438,7 +457,7 @@ export function createInbound(input: {
     let operationInput: unknown;
     if (event.kind === 'command') {
       const command = event.command;
-      if (command.kind === 'query') {
+      if (command?.kind === 'query') {
         const operation = OPERATIONS.find((entry) => entry.id === command.id);
         if (operation?.kind === 'query' && operation.slack?.kind === 'slash-command') {
           const parsed = operation.input.safeParse(command.input);
@@ -549,7 +568,7 @@ export function createInbound(input: {
     const { id, operationInput } = interactionOperation(event);
     let response: RichText;
     let cliHint: string | undefined;
-    if (event.kind === 'command' && event.command.kind === 'usage')
+    if (event.kind === 'command' && event.command?.kind === 'usage')
       response = plain(event.command.text);
     else if (id === undefined) response = plain('not allowed');
     else {
@@ -728,7 +747,14 @@ export function createInbound(input: {
         if (item === undefined || item.cleared_at !== null || item.inbound_event_json === null) {
           throw new CommandError('retry_not_applicable', 'This item has no stored event to retry.');
         }
-        const event = inboundEventSchema.parse(JSON.parse(item.inbound_event_json) as unknown);
+        let event = inboundEventSchema.parse(JSON.parse(item.inbound_event_json) as unknown);
+        if (event.kind === 'command' && event.command === undefined) {
+          const command = legacyCommand(event.text);
+          if (command === null) {
+            throw new CommandError('retry_not_applicable', 'This interaction cannot be retried.');
+          }
+          event = { ...event, command };
+        }
         if (event.kind === 'action' || event.kind === 'command') {
           const { id, operationInput } = interactionOperation(event);
           if (id === undefined) {
