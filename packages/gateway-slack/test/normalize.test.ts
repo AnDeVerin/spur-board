@@ -246,7 +246,7 @@ describe('Slack inbound normalization', () => {
     ).toMatchObject({ sourceSpace: null });
     expect(
       normalizeInteraction('slash_commands', { ...command, command: '/other' }, channels),
-    ).toEqual([]);
+    ).toMatchObject([{ kind: 'command', name: '/other', text: 'status' }]);
     expect(
       normalizeInteraction(
         'slash_commands',
@@ -255,6 +255,6 @@ describe('Slack inbound normalization', () => {
         undefined,
         '/ops',
       )[0],
-    ).toMatchObject({ command: { kind: 'query', id: 'status.get', input: {} } });
+    ).toMatchObject({ name: '/ops', command: { kind: 'query', id: 'status.get', input: {} } });
   });
 });

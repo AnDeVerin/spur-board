@@ -110,6 +110,7 @@ describe('fixtures', () => {
     expect(config.http.port).toBe(DEFAULT_HTTP_PORT);
     expect(config.slack.channels).toEqual({});
     expect(config.slack.command).toBe('/board');
+    expect(config.slack.appName).toBe('spur-board');
     expect(adapterKeys(config)).toEqual(adapterDefaults);
     const project = config.projects[0];
     expect(project?.tracker.type === 'jira' && project.tracker.projectKeys).toEqual([]);
@@ -159,6 +160,7 @@ describe('fixtures', () => {
         {},
         {
           slack: {
+            appName: 'My Board',
             command: '/board-x',
             appId: 'A123ABC',
             channels: { orchestrators: 'C_ORCH', feed: 'C_FEED' },
@@ -168,6 +170,7 @@ describe('fixtures', () => {
     );
     expect(config.slack.channels).toEqual({ orchestrators: 'C_ORCH', feed: 'C_FEED' });
     expect(config.slack.command).toBe('/board-x');
+    expect(config.slack.appName).toBe('My Board');
     expect(config.slack.appId).toBe('A123ABC');
   });
 
@@ -179,6 +182,12 @@ describe('fixtures', () => {
 
 describe('invalid configs', () => {
   it.each<[string, unknown, string, string]>([
+    [
+      'blank Slack app name',
+      validConfig({}, { slack: { appName: '  ' } }),
+      'Too small',
+      'slack.appName',
+    ],
     [
       'invalid Slack command',
       validConfig({}, { slack: { command: 'board' } }),

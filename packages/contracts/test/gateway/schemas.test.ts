@@ -202,6 +202,14 @@ describe('inboundEventSchema', () => {
     expect(inboundEventSchema.safeParse(withoutSourceSpace).success).toBe(true);
   });
 
+  it('accepts named and legacy commands but rejects an empty received name', () => {
+    expect(inboundEventSchema.safeParse({ ...events.command.valid, name: '/ops' }).success).toBe(
+      true,
+    );
+    expect(inboundEventSchema.safeParse(events.command.valid).success).toBe(true);
+    expect(inboundEventSchema.safeParse({ ...events.command.valid, name: '' }).success).toBe(false);
+  });
+
   it('accepts usage but rejects a mutation command selection', () => {
     expect(
       inboundEventSchema.safeParse({

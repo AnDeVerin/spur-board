@@ -390,6 +390,19 @@ export function createInbound(input: {
   }
 
   async function runUser(trx: Trx, event: UserEvent, at: string): Promise<Result> {
+    if (
+      event.kind === 'command' &&
+      event.name !== undefined &&
+      event.name !== config.slack.command
+    ) {
+      return deny(trx, {
+        event,
+        reason: 'Command name does not match the configured command.',
+        actor: 'system',
+        gateway: gateway.kind,
+        at,
+      });
+    }
     if (event.kind !== 'message_deleted' && event.author !== config.operator.slack) {
       return deny(trx, {
         event,
@@ -623,6 +636,9 @@ export function createInbound(input: {
     if (
       (event.kind === 'command' || event.kind === 'action') &&
       event.author === config.operator.slack &&
+      (event.kind !== 'command' ||
+        event.name === undefined ||
+        event.name === config.slack.command) &&
       (event.kind === 'command' || event.sourceSpace !== null)
     ) {
       await dispatchInteraction(event);
@@ -755,6 +771,13 @@ export function createInbound(input: {
           throw new CommandError('retry_not_applicable', 'This item has no stored event to retry.');
         }
         let event = inboundEventSchema.parse(JSON.parse(item.inbound_event_json) as unknown);
+        if (
+          event.kind === 'command' &&
+          event.name !== undefined &&
+          event.name !== config.slack.command
+        ) {
+          throw new CommandError('retry_not_applicable', 'This interaction cannot be retried.');
+        }
         if (event.kind === 'command' && event.command === undefined) {
           const command = legacyCommand(event.text);
           if (command === null) {

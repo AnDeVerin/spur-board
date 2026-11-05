@@ -737,6 +737,59 @@ describe('inbound apply', () => {
     ]);
   });
 
+  it('journals another command name once without dispatching or responding', async () => {
+    const { store, gateway } = await setup();
+    const selectedConfig = configSchema.parse({
+      ...config,
+      slack: { ...config.slack, command: '/ops' },
+    });
+    const run = vi.fn(() => Promise.resolve(emptyStatus()));
+    const respond = vi.fn(() => Promise.resolve('sent' as const));
+    const registry: OperationRegistry = {
+      'status.get': {
+        id: 'status.get',
+        resolveTargets: () =>
+          Promise.resolve([
+            { kind: 'found', value: { project: 'proj', task: null, block: null, workers: [] } },
+          ]),
+        run,
+      },
+    };
+    const inbound = createInbound({
+      store,
+      config: selectedConfig,
+      registry,
+      clock: { now: () => now },
+      gateway: { ...gateway, respond },
+    });
+    const wrong: InboundEvent = {
+      kind: 'command',
+      name: '/other',
+      dedupeKey: 'wrong-command',
+      interaction: interactionRefSchema.parse('wrong-command'),
+      author: userIdSchema.parse('operator'),
+      text: 'status',
+      command: { kind: 'query', id: 'status.get', input: {} },
+      sourceUrl: 'https://example.test/command',
+    };
+    await inbound.sink(wrong);
+    await inbound.sink(wrong);
+    expect(run).not.toHaveBeenCalled();
+    expect(respond).not.toHaveBeenCalled();
+    const denied = await store.db
+      .selectFrom('event')
+      .select(['kind', 'payload'])
+      .where('kind', '=', 'operation_denied')
+      .execute();
+    expect(denied).toHaveLength(1);
+    expect(JSON.parse(denied[0]?.payload ?? '{}')).toMatchObject({
+      reason: 'Command name does not match the configured command.',
+    });
+    await inbound.sink({ ...wrong, name: '/ops', dedupeKey: 'selected-command' });
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(respond).toHaveBeenCalledTimes(1);
+  });
+
   it('renders task comments as quotes and dated history as private English text', async () => {
     const { store, gateway } = await setup();
     const replies: {
@@ -1043,12 +1096,23 @@ describe('inbound apply', () => {
     });
     const legacy = JSON.parse(item?.inbound_event_json ?? '{}') as Record<string, unknown>;
     delete legacy.command;
+    legacy.name = '/other';
     await store.db
       .updateTable('operator_item')
       .set({ inbound_event_json: JSON.stringify(legacy) })
       .where('id', '=', 1)
       .execute();
     fail = false;
+    await expect(inbound.retryStored(1)).rejects.toMatchObject({ code: 'retry_not_applicable' });
+    expect((await getOperatorItem(store, 1))?.cleared_at).toBeNull();
+    expect(await store.db.selectFrom('command').select('key').execute()).toEqual([]);
+
+    delete legacy.name;
+    await store.db
+      .updateTable('operator_item')
+      .set({ inbound_event_json: JSON.stringify(legacy) })
+      .where('id', '=', 1)
+      .execute();
     await inbound.retryStored(1);
     expect((await getOperatorItem(store, 1))?.cleared_at).not.toBeNull();
     expect(

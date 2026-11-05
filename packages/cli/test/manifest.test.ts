@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import YAML from 'yaml';
 import { describe, expect, it } from 'vitest';
 import { runCli, type CliIo } from '../src/cli.ts';
@@ -45,7 +48,7 @@ function assertManifest(text: string, appName: string, command: string): void {
   expect(manifest.settings.socket_mode_enabled).toBe(true);
 }
 
-async function commandOutput(args: string[]): Promise<string> {
+async function commandOutput(args: string[], env: NodeJS.ProcessEnv = {}): Promise<string> {
   const output = { stdout: '', stderr: '' };
   const io: CliIo = {
     isTTY: false,
@@ -56,7 +59,7 @@ async function commandOutput(args: string[]): Promise<string> {
       output.stderr += text;
     },
   };
-  expect(await runCli(['slack', 'manifest', ...args], { env: {}, io })).toBe(0);
+  expect(await runCli(['slack', 'manifest', ...args], { env, io })).toBe(0);
   expect(output.stderr).toBe('');
   return output.stdout;
 }
@@ -140,6 +143,52 @@ describe('slack manifest', () => {
         socket_mode_enabled: true
       "
     `);
+  });
+
+  it('uses config names by default while explicit flags take precedence', async () => {
+    const boardHome = mkdtempSync(join(tmpdir(), 'board-manifest-'));
+    try {
+      const boardConfig = {
+        projects: [
+          {
+            id: 'board',
+            tracker: { type: 'github-issues', repo: 'example/board', label: 'board' },
+            repos: ['example/board'],
+            operatorGithubLogin: 'operator',
+            spurProjects: [{ name: 'worker', role: 'worker' }],
+          },
+        ],
+        operator: { slack: 'U0000000000' },
+        slack: { appName: 'Configured Board', command: '/myboard' },
+        digest: { tz: 'UTC' },
+      };
+      const configPath = join(boardHome, 'config.yaml');
+      writeFileSync(configPath, YAML.stringify(boardConfig));
+      const env = { BOARD_HOME: boardHome };
+      assertManifest(await commandOutput([], env), 'Configured Board', '/myboard');
+      assertManifest(
+        await commandOutput(['--command', '/override'], env),
+        'Configured Board',
+        '/override',
+      );
+      assertManifest(
+        await commandOutput(['--app-name', 'Flag Board'], env),
+        'Flag Board',
+        '/myboard',
+      );
+      assertManifest(
+        await commandOutput(['--app-name', 'Flag Board', '--command', '/flag'], env),
+        'Flag Board',
+        '/flag',
+      );
+      writeFileSync(
+        configPath,
+        YAML.stringify({ ...boardConfig, slack: { appName: 'Configured Board' } }),
+      );
+      assertManifest(await commandOutput([], env), 'Configured Board', '/board');
+    } finally {
+      rmSync(boardHome, { recursive: true, force: true });
+    }
   });
 
   it('rejects blank app names and invalid slash commands', () => {

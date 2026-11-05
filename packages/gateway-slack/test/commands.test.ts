@@ -1,4 +1,4 @@
-import { interactionRefSchema } from '@spur-board/contracts';
+import { interactionRefSchema, type InboundEvent } from '@spur-board/contracts';
 import { afterEach, describe, expect, it } from 'vitest';
 import { commandUsage, parseCommand } from '../src/commands.ts';
 import { createSlackGateway } from '../src/index.ts';
@@ -11,6 +11,53 @@ afterEach(async () => {
 });
 
 describe('Slack board commands', () => {
+  it('passes another command name through unparsed and parses the configured name', async () => {
+    const fake = await startFakeSlackApi();
+    fakes.push(fake);
+    const gateway = createSlackGateway({
+      token: 'xoxb-test',
+      appToken: 'xapp-test',
+      command: '/ops',
+      channels: { orchestrators: 'C_ORCH', feed: 'C_FEED' },
+      apiUrl: fake.url,
+    });
+    const events: InboundEvent[] = [];
+    await gateway.start((event) => {
+      events.push(event);
+      return Promise.resolve();
+    });
+    try {
+      const body = {
+        user_id: 'U_OPERATOR',
+        channel_id: 'C_ORCH',
+        text: 'status',
+      };
+      await fake.emitEnvelope('slash_commands', {
+        ...body,
+        trigger_id: 'T-WRONG',
+        command: '/other',
+      });
+      await fake.emitEnvelope('slash_commands', {
+        ...body,
+        trigger_id: 'T-RIGHT',
+        command: '/ops',
+      });
+      const commands = events.filter((event) => event.kind === 'command');
+      expect(commands).toMatchObject([
+        { kind: 'command', name: '/other', dedupeKey: 'slack:T-WRONG' },
+        {
+          kind: 'command',
+          name: '/ops',
+          dedupeKey: 'slack:T-RIGHT',
+          command: { kind: 'query', id: 'status.get', input: {} },
+        },
+      ]);
+      expect(commands[0]).not.toHaveProperty('command');
+    } finally {
+      await gateway.stop();
+    }
+  });
+
   it('maps the three catalog forms and the empty status alias', () => {
     expect(parseCommand('', '/board')).toEqual({ kind: 'query', id: 'status.get', input: {} });
     expect(parseCommand('status', '/board')).toEqual({
