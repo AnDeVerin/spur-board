@@ -88,7 +88,7 @@ describe('parseNameStatus', () => {
 
 describe('planCheck', () => {
   const packageDirs = ['packages/contracts', 'packages/testkit'];
-  const everything = { formatFiles: ['.'], lintFiles: ['.'], packageDirs };
+  const everything = { formatFiles: ['.'], lintFiles: ['.'], packageDirs, agents: true };
 
   it('runs everything with --full', () => {
     expect(planCheck({ full: true, changed: [], packageDirs })).toEqual({
@@ -198,16 +198,58 @@ describe('planCheck', () => {
       formatFiles: [],
       lintFiles: [],
       packageDirs: [],
+      agents: false,
     });
+  });
+
+  it.each([
+    '.agents/skills/a/SKILL.md',
+    '.claude/agents/x.md',
+    '.codex/agents/x.toml',
+    '.claude/skills',
+    'AGENTS.md',
+    'scripts/agents.ts',
+  ])('runs the agents step when %s changes', (path) => {
+    expect(
+      planCheck({ full: false, prePush: true, changed: [{ path, deleted: false }], packageDirs })
+        .agents,
+    ).toBe(true);
+  });
+
+  it('runs the agents step when an agent file is deleted', () => {
+    expect(
+      planCheck({
+        full: false,
+        prePush: true,
+        changed: [{ path: '.agents/agents/old.md', deleted: true }],
+        packageDirs,
+      }).agents,
+    ).toBe(true);
+  });
+
+  it('skips the agents step for other paths', () => {
+    expect(
+      planCheck({
+        full: false,
+        prePush: true,
+        changed: [
+          { path: 'README.md', deleted: false },
+          { path: 'docs/AGENTS.md', deleted: false },
+          { path: '.agentsx/a', deleted: false },
+        ],
+        packageDirs,
+      }).agents,
+    ).toBe(false);
   });
 });
 
 describe('parseOnly', () => {
   const unknown = (name: string) =>
-    `--only: unknown step "${name}" (steps: format, lint, types, knip, test)`;
+    `--only: unknown step "${name}" (steps: format, lint, types, knip, agents, test)`;
 
   it('selects the listed steps', () => {
     expect(parseOnly('test,format', true)).toEqual(new Set(['test', 'format']));
+    expect(parseOnly('agents', true)).toEqual(new Set(['agents']));
   });
 
   it('returns null when --only is absent', () => {

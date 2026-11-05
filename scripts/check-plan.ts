@@ -2,7 +2,7 @@
 import { parseArgs } from 'node:util';
 
 /** Every check step, in the order they run. */
-const STEP_NAMES = ['format', 'lint', 'types', 'knip', 'test'] as const;
+const STEP_NAMES = ['format', 'lint', 'types', 'knip', 'agents', 'test'] as const;
 
 /**
  * The steps `--only` selects: null when `--only` is absent (run every step), the selected set,
@@ -115,6 +115,13 @@ const GLOBAL_FILES = new Set([
 ]);
 const GLOBAL_DIRS = ['eslint/', 'scripts/', 'packages/testkit/', 'packages/skills/'];
 const LINT_EXTENSIONS = /\.(ts|mts|cts|js|mjs|cjs)$/;
+// A change to any of these runs the agents step (`node scripts/agents.ts lint`).
+const AGENT_DIRS = ['.agents/', '.claude/', '.codex/'];
+const AGENT_FILES = new Set(['AGENTS.md', 'scripts/agents.ts']);
+
+function isAgentPath(path: string): boolean {
+  return AGENT_FILES.has(path) || AGENT_DIRS.some((dir) => path.startsWith(dir));
+}
 
 function isGlobal(path: string): boolean {
   return (
@@ -130,6 +137,7 @@ export interface Plan {
   formatFiles: string[];
   lintFiles: string[];
   packageDirs: string[];
+  agents: boolean;
 }
 
 export function planCheck(input: {
@@ -138,13 +146,25 @@ export function planCheck(input: {
   changed: ChangedFile[];
   packageDirs: string[];
 }): Plan {
-  const everything = { formatFiles: ['.'], lintFiles: ['.'], packageDirs: input.packageDirs };
+  const everything = {
+    formatFiles: ['.'],
+    lintFiles: ['.'],
+    packageDirs: input.packageDirs,
+    agents: true,
+  };
   if (input.full) return { mode: 'full', reason: '--full', ...everything };
   const trigger = input.changed.find((file) => isGlobal(file.path));
   if (trigger && !input.prePush)
     return { mode: 'full', reason: `${trigger.path} changed`, ...everything };
   if (input.changed.length === 0) {
-    return { mode: 'none', reason: 'no changes', formatFiles: [], lintFiles: [], packageDirs: [] };
+    return {
+      mode: 'none',
+      reason: 'no changes',
+      formatFiles: [],
+      lintFiles: [],
+      packageDirs: [],
+      agents: false,
+    };
   }
 
   const present = input.changed.filter((file) => !file.deleted).map((file) => file.path);
@@ -161,5 +181,6 @@ export function planCheck(input: {
     formatFiles: present,
     lintFiles: present.filter((path) => LINT_EXTENSIONS.test(path)),
     packageDirs,
+    agents: input.changed.some((file) => isAgentPath(file.path)),
   };
 }

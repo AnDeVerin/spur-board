@@ -273,6 +273,9 @@ export function buildSteps(plan: Plan, prePush: boolean, workers = 2): Step[] {
     plan.mode === 'full'
       ? { name: 'knip', commands: [{ cmd: bin('knip'), args: ['--no-progress'] }] }
       : { name: 'knip', skip: 'full check only' },
+    plan.agents
+      ? { name: 'agents', commands: [{ cmd: 'node', args: ['scripts/agents.ts', 'lint'] }] }
+      : { name: 'agents', skip: 'no agent files changed' },
     plan.mode === 'full' || plan.packageDirs.length > 0
       ? { name: 'test', commands: testCommands }
       : { name: 'test', ...noPackages },
