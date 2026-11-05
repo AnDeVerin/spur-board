@@ -1,5 +1,5 @@
 {
-  "version": "1bf11f3dd23f223782134c704af941fb81dff1f3642bdf6bdef89314d783d198",
+  "version": "b406b032a66b32f81a6db039094fcc46b6dfb3689e816d9f352e017feecb5c3a",
   "grants": [
     "operator",
     "project-agent",
@@ -456,7 +456,7 @@
       "status": null,
       "exit": 3,
       "message": "The daemon is not running or cannot be reached; nothing was applied.",
-      "hint": "Ask in your own session; the operator can run `board service start`. Retry the same command with its existing idempotency key if it has one once the daemon is available.",
+      "hint": "Ask in your own session; the operator can check `board service status`, then run `board service restart`, or `board service install` if the service was never installed. Retry the same command with its existing idempotency key if it has one once the daemon is available.",
       "recovery": {
         "action": "Ask in your own session, then retry the same command with its existing idempotency key if it has one.",
         "sideEffects": "none",
