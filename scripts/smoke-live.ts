@@ -98,6 +98,8 @@ export async function verifyLiveChannel(
     metadata.is_mpim !== false ||
     !('is_member' in metadata) ||
     metadata.is_member !== true ||
+    !('is_shared' in metadata) ||
+    metadata.is_shared !== false ||
     !('is_ext_shared' in metadata) ||
     metadata.is_ext_shared !== false ||
     !('is_archived' in metadata) ||

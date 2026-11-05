@@ -130,6 +130,7 @@ describe('live conformance process preflight', () => {
       is_im: false,
       is_mpim: false,
       is_member: true,
+      is_shared: false,
       is_ext_shared: false,
       is_archived: false,
     };
@@ -143,6 +144,8 @@ describe('live conformance process preflight', () => {
       { is_im: true },
       { is_mpim: true },
       { is_member: false },
+      { is_shared: true },
+      { is_shared: true, is_org_shared: true },
       { is_ext_shared: true },
       { is_archived: true },
     ]) {
@@ -157,6 +160,7 @@ describe('live conformance process preflight', () => {
       'is_im',
       'is_mpim',
       'is_member',
+      'is_shared',
       'is_ext_shared',
       'is_archived',
     ]) {
