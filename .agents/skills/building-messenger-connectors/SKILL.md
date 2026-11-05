@@ -5,8 +5,7 @@ description: Messenger gateway rules - obligations, conformance, inbound ack and
 
 # Building messenger connectors
 
-A gateway adapts one chat platform to the `Gateway` port. These rules add the judgment the
-obligations leave open.
+A gateway adapts one chat platform to the `Gateway` port.
 
 ## Checklist and conformance
 
@@ -40,8 +39,7 @@ obligations leave open.
 
 ## Capabilities
 
-- Declare `capabilities` truthfully (G12); the other capability rules are in
-  `.agents/skills/working-with-contracts/references/port-contract.md`.
+- Declare `capabilities` truthfully (G12); the port contract file above has the other rules.
 - A platform difference core must act on becomes an event or result shape, or an obligation,
   never a capability core reads.
 
@@ -66,7 +64,8 @@ obligations leave open.
   loss (G13). Core runs `recover` on `up`.
 - `recover` works from its request alone (G10).
 - Yield `gap` whenever completeness cannot be proven (`recoverThreads` in
-  `packages/gateway-slack/src/recover.ts`).
+  `packages/gateway-slack/src/recover.ts`). Copy its `gap` cases, not the rate-limit sleep in
+  `readThread`: that loop breaks G1 and is a known deviation.
 - Core turns a `gap` into a "repeat your answer" item (`applyGap` in
   `packages/core/src/app/inbound.ts`).
 
