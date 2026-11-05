@@ -72,18 +72,34 @@ so it restarts every 5 seconds until Slack is reachable again.
 **Symptom.** Feed lines, questions and answers stop arriving in Slack, and `/board` gets no
 reply, while the daemon itself is running.
 
-**Known gap.** The Board does not raise an operator item for transport failures yet, and the
-core path that would mark a connection down for more than 5 minutes exists but is never
-called. Until both land, diagnose with the doctor and the journal.
+**Signals.** The Board reports the outage on its own surfaces, because Slack cannot carry
+it:
+
+- `board status` (also `--json` and the MCP `status_get` tool) lists each gateway under
+  `transport`, with `state` (`up` or `down`), `since`, `reason` and the suspended `spaces`.
+  `reason` is `down` when the Socket Mode connection has been lost for more than 5 minutes,
+  or the permanent failure Slack returned, such as `token_revoked`.
+- While a gateway is down, the operator's `board status` lists one item,
+  `transport:<gateway>`, for example "slack delivery down since <time> (token_revoked)". It
+  names a permanent failure ahead of a lost connection, and it is never posted to Slack.
+
+Both clear on their own: a lost connection clears when the socket reconnects, and a
+permanent failure clears when a probe send succeeds. While a space is held, its messages wait
+without using up their 30-minute retry window.
+
+A socket outage shorter than 5 minutes does not show. Without `SLACK_APP_TOKEN` there is no
+socket, so only permanent failures show.
 
 **Check.**
 
 ```sh
+board status
 board doctor
 journalctl --user -u spur-board.service --since -1h
 ```
 
-Read the `slack.auth`, `slack.orchestrators_member` and `slack.feed_member` checks.
+Read `transport` and the reason first, then the `slack.auth`, `slack.orchestrators_member`
+and `slack.feed_member` checks.
 
 **Fix.**
 
@@ -91,12 +107,13 @@ Read the `slack.auth`, `slack.orchestrators_member` and `slack.feed_member` chec
   `board service restart`.
 - Bot removed from a channel, or the channel archived: invite the bot again, or point
   `slack.channels.*` in `config.yaml` at a live channel.
-- Network or Slack outage: wait. Sends back off up to 60 seconds between attempts. A message
-  that still fails after 30 minutes is marked `post_failed` and is retried at the next start,
-  so run `board service restart` once Slack is back.
+- Network or Slack outage (`reason` is `down`): wait. The item and the hold clear when the
+  connection returns, and the waiting messages go out.
 
-When a permanent failure holds a whole space, the Board probes it once a minute. The first
-successful send clears the hold, and the waiting messages go out.
+When a permanent failure holds a space, the Board probes it once a minute. After a fix, run
+`board item retry <item> --key <key>` on the transport item to probe now instead. The retry
+does not clear the item; the first successful send does. A message that failed while no hold
+stood is marked `post_failed` after 30 minutes and is retried at the next start.
 
 ## 4. Answer never reached the agent (`answer_undelivered`)
 
