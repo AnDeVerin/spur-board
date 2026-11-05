@@ -4,7 +4,9 @@ import { z } from 'zod';
 import {
   ERRORS,
   GRANTS,
+  type Grant,
   OPERATIONS,
+  type SchemaRole,
   buildCatalogSnapshot,
   type ServerErrorCode,
   commentSchema,
@@ -12,6 +14,7 @@ import {
   roleCanUseOperation,
 } from '../src/index.ts';
 import { defineOperation } from '../src/ops/define.ts';
+import { SCHEMA_ROLES } from '../src/ops/schemas.ts';
 import { catalogSnapshotBody, catalogVersion } from '../src/ops/snapshot.ts';
 import { type JsonObject, isObject, walk } from './json-schema-walk.ts';
 
@@ -116,6 +119,27 @@ describe('catalog', () => {
     expect(roleCanUseOperation(unblock, 'orchestrator', 'done')).toBe(false);
     expect(roleCanUseOperation(unblock, 'worker', 'done')).toBe(true);
     expect(roleCanUseOperation(unblock, 'worker', 'withdraw')).toBe(true);
+  });
+
+  it('maps every grant to the roles that may hold it', () => {
+    // Pins ROLE_GRANTS in src/ops/roles.ts; changing a row is a Changed checks entry.
+    const GRANT_HOLDERS: Record<Grant, readonly SchemaRole[]> = {
+      operator: ['operator'],
+      'project-agent': ['worker', 'orchestrator'],
+      'task-worker': ['worker'],
+      'column-orchestrator': ['orchestrator'],
+      'block-addressee': ['operator', 'worker', 'orchestrator'],
+      'block-author': ['operator', 'worker', 'orchestrator'],
+    };
+
+    for (const grant of GRANTS) {
+      const holders = SCHEMA_ROLES.filter((role) =>
+        roleCanUseOperation({ grants: [{ grant }] }, role),
+      );
+      expect(holders, grant).toEqual(GRANT_HOLDERS[grant]);
+      expect(holders.length, grant).toBeGreaterThan(0);
+    }
+    expect(Object.keys(GRANT_HOLDERS).sort()).toEqual([...GRANTS].sort());
   });
 
   it('has unique ids, CLI commands and MCP names', () => {
