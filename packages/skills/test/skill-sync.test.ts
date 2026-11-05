@@ -17,10 +17,16 @@ import {
 
 const skillPath = fileURLToPath(new URL('../spur-board/SKILL.md', import.meta.url));
 const setupSkillPath = fileURLToPath(new URL('../setup/SKILL.md', import.meta.url));
+const setupReferencesPath = fileURLToPath(new URL('../setup/references/', import.meta.url));
 const binaryPath = fileURLToPath(new URL('../../cli/src/bin.mjs', import.meta.url));
 const referencesPath = fileURLToPath(new URL('../spur-board/references/', import.meta.url));
 const skill = readFileSync(skillPath, 'utf8');
 const setupSkill = readFileSync(setupSkillPath, 'utf8');
+const setupReferenceNames = ['secrets.md', 'slack.md', 'update.md'];
+const setupReferenceTexts = setupReferenceNames.map((name) =>
+  readFileSync(new URL(`../setup/references/${name}`, import.meta.url), 'utf8'),
+);
+const setupFullText = [setupSkill, ...setupReferenceTexts].join('\n');
 const binarySource = readFileSync(binaryPath, 'utf8');
 const references = renderCommandReferences();
 const referenceTexts = references.map((reference) =>
@@ -349,9 +355,18 @@ describe('product skill sync', () => {
 });
 
 describe('setup skill sync', () => {
+  it('keeps the skill and references within their byte budgets', () => {
+    expect(Buffer.byteLength(setupSkill)).toBeLessThanOrEqual(5120);
+    expect(readdirSync(setupReferencesPath).sort()).toEqual(setupReferenceNames);
+    for (const [index, name] of setupReferenceNames.entries()) {
+      expect(setupSkill).toContain(`references/${name}`);
+      expect(Buffer.byteLength(setupReferenceTexts[index] ?? '')).toBeLessThanOrEqual(8192);
+    }
+  });
+
   it('uses only registered board commands and flags', () => {
-    expect(validateSetupInvocations(setupSkill)).toEqual([]);
-    expect(invocations(setupSkill).length).toBeGreaterThan(8);
+    expect(validateSetupInvocations(setupFullText)).toEqual([]);
+    expect(invocations(setupFullText).length).toBeGreaterThan(8);
   });
 
   it('rejects misspelled setup commands and flags, including binary routes', () => {

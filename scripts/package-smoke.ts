@@ -234,6 +234,15 @@ export function prepareSkillsForSmoke(packageRoot: string): void {
   productSkillReferences(packageRoot);
   const setup = join(packageRoot, 'skills/setup/SKILL.md');
   if (!existsSync(setup)) throw new Error('Packed setup skill spur-board-setup is missing.');
+  const source = readFileSync(setup, 'utf8');
+  const references = new Set(
+    [...source.matchAll(/\]\((references\/[a-z0-9-]+\.md)\)/g)].map((match) => match[1]),
+  );
+  for (const reference of references) {
+    if (reference !== undefined && !existsSync(join(packageRoot, 'skills/setup', reference))) {
+      throw new Error(`Packed setup skill is missing ${reference}.`);
+    }
+  }
 }
 
 interface SmokeContext {

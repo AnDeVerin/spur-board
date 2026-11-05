@@ -25,13 +25,35 @@ describe('packed smoke steps', () => {
       );
       writeFileSync(reference, '# Worker commands\n');
       const setup = join(root, 'skills/setup/SKILL.md');
-      mkdirSync(join(root, 'skills/setup'), { recursive: true });
-      writeFileSync(setup, '# Real setup skill\n');
+      const setupReference = join(root, 'skills/setup/references/slack.md');
+      mkdirSync(join(root, 'skills/setup/references'), { recursive: true });
+      writeFileSync(setup, '# Real setup skill\n\n[Slack setup](references/slack.md)\n');
+      writeFileSync(setupReference, '# Slack setup\n');
       prepareSkillsForSmoke(root);
       expect(readFileSync(reference, 'utf8')).toBe('# Worker commands\n');
-      expect(readFileSync(setup, 'utf8')).toBe('# Real setup skill\n');
+      expect(readFileSync(setup, 'utf8')).toContain('[Slack setup](references/slack.md)');
+      expect(readFileSync(setupReference, 'utf8')).toBe('# Slack setup\n');
       prepareSkillsForSmoke(root);
       expect(existsSync(product)).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects a packed setup skill with a missing linked reference', () => {
+    const root = mkdtempSync(join(tmpdir(), 'board-packed-skills-'));
+    try {
+      const product = join(root, 'skills/spur-board/SKILL.md');
+      const reference = join(root, 'skills/spur-board/references/commands.md');
+      mkdirSync(join(root, 'skills/spur-board/references'), { recursive: true });
+      writeFileSync(product, '- `board status` — [details](references/commands.md#board-status)\n');
+      writeFileSync(reference, '# Worker commands\n');
+      const setup = join(root, 'skills/setup/SKILL.md');
+      mkdirSync(join(root, 'skills/setup'), { recursive: true });
+      writeFileSync(setup, '[Slack setup](references/slack.md)\n');
+      expect(() => {
+        prepareSkillsForSmoke(root);
+      }).toThrow('Packed setup skill is missing references/slack.md.');
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
