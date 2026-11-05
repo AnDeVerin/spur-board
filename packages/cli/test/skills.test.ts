@@ -7,12 +7,13 @@ import {
   readdir,
   rename,
   rm,
+  stat,
   symlink,
   writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { runCli, type CliIo } from '../src/cli.ts';
 import { installSkills } from '../src/skills.ts';
 
@@ -20,8 +21,14 @@ const temporaryDirectories: string[] = [];
 const agents = ['.claude', '.codex'] as const;
 const names = ['spur-board', 'spur-board-setup'] as const;
 
+beforeEach(() => {
+  vi.stubEnv('CODEX_HOME', '');
+  vi.stubEnv('XDG_STATE_HOME', '');
+});
+
 afterEach(async () => {
   await Promise.all(temporaryDirectories.splice(0).map((path) => rm(path, { recursive: true })));
+  vi.unstubAllEnvs();
 });
 
 async function fixture(): Promise<{ root: string; home: string; packageRoot: string }> {
@@ -92,6 +99,20 @@ describe('skills install', () => {
         );
       }
     }
+    expect(
+      (await stat(join(home, '.local', 'state', 'spur-board', 'skills-install.lock'))).isFile(),
+    ).toBe(true);
+    expect(await readdir(home)).not.toContain('.spur-board-skills-install.lock');
+  });
+
+  it('places the lock under a custom XDG state directory', async () => {
+    const { root, home, packageRoot } = await fixture();
+    const stateHome = join(root, 'state');
+
+    await installSkills({ home, packageRoot, env: { XDG_STATE_HOME: stateHome } });
+
+    expect((await stat(join(stateHome, 'spur-board', 'skills-install.lock'))).isFile()).toBe(true);
+    expect(await readdir(home)).not.toContain('.spur-board-skills-install.lock');
   });
 
   it('leaves current installations byte-for-byte unchanged on a second run', async () => {
@@ -196,8 +217,8 @@ describe('skills install', () => {
     ]);
   });
 
-  it('rejects symlinks in either agent target before changing any skill', async () => {
-    for (const component of ['.claude', '.codex', 'skills', 'destination'] as const) {
+  it('installs through symlinked agent and skills parent directories', async () => {
+    for (const component of ['.claude', '.codex', 'skills'] as const) {
       const { root, home, packageRoot } = await fixture();
       const outside = join(root, 'outside');
       await mkdir(outside);
@@ -206,20 +227,73 @@ describe('skills install', () => {
         await symlink(outside, join(home, component), 'dir');
       } else {
         await mkdir(join(home, '.claude'));
-        if (component === 'skills') {
-          await symlink(outside, join(home, '.claude', 'skills'), 'dir');
-        } else {
-          await mkdir(join(home, '.claude', 'skills'));
-          await symlink(outside, destination(home, '.claude', 'spur-board'), 'dir');
-        }
+        await symlink(outside, join(home, '.claude', 'skills'), 'dir');
       }
+
+      expect(await installSkills({ home, packageRoot })).toHaveLength(4);
+      expect(await readFile(join(outside, 'keep.txt'), 'utf8')).toBe('keep');
+      const linkedParent = component === 'skills' ? outside : join(outside, 'skills');
+      for (const name of names) {
+        expect(await readFile(join(linkedParent, name, 'SKILL.md'), 'utf8')).toBe(
+          name === 'spur-board' ? 'Board skill\n' : 'Setup skill\n',
+        );
+      }
+    }
+  });
+
+  it('rejects a symlinked destination before changing any skill', async () => {
+    for (const agent of agents) {
+      const { root, home, packageRoot } = await fixture();
+      const outside = join(root, 'outside');
+      await mkdir(outside);
+      await writeFile(join(outside, 'keep.txt'), 'keep');
+      await mkdir(join(home, agent, 'skills'), { recursive: true });
+      await symlink(outside, destination(home, agent, 'spur-board'), 'dir');
 
       await expect(installSkills({ home, packageRoot })).rejects.toThrow('symlink');
       expect(await readdir(outside)).toEqual(['keep.txt']);
-      const otherAgent = component === '.codex' ? '.claude' : '.codex';
-      await expect(readdir(join(home, otherAgent, 'skills'))).rejects.toMatchObject({
-        code: 'ENOENT',
-      });
+      for (const other of agents) {
+        await expect(readdir(destination(home, other, 'spur-board-setup'))).rejects.toMatchObject({
+          code: 'ENOENT',
+        });
+      }
+    }
+  });
+
+  it('honors CODEX_HOME through the CLI for existing and absent directories', async () => {
+    for (const existing of [false, true]) {
+      const { root, home, packageRoot } = await fixture();
+      const codexHome = join(root, 'custom-codex');
+      if (existing) {
+        await mkdir(codexHome);
+        await writeFile(join(codexHome, 'keep.txt'), 'keep');
+      }
+      const output = { stdout: '', stderr: '' };
+      const io: CliIo = {
+        isTTY: false,
+        stdout: (text) => {
+          output.stdout += text;
+        },
+        stderr: (text) => {
+          output.stderr += text;
+        },
+      };
+
+      expect(
+        await runCli(['skills', 'install'], {
+          env: { CODEX_HOME: codexHome },
+          io,
+          setup: { home, packageRoot },
+        }),
+      ).toBe(0);
+      expect(output.stderr).toBe('');
+      for (const name of names) {
+        expect(await readFile(join(codexHome, 'skills', name, 'SKILL.md'), 'utf8')).toBe(
+          name === 'spur-board' ? 'Board skill\n' : 'Setup skill\n',
+        );
+      }
+      if (existing) expect(await readFile(join(codexHome, 'keep.txt'), 'utf8')).toBe('keep');
+      await expect(stat(join(home, '.codex'))).rejects.toMatchObject({ code: 'ENOENT' });
     }
   });
 

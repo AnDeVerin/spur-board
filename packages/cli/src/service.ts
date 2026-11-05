@@ -81,8 +81,6 @@ export function renderUserUnit(paths: ServicePaths): string {
   return [
     '[Unit]',
     'Description=spur-board daemon',
-    'After=network-online.target',
-    'Wants=network-online.target',
     '',
     '[Service]',
     'Type=simple',

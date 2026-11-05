@@ -140,19 +140,17 @@ describe('service', () => {
   });
 
   it('renders an exact systemd user unit with absolute paths and stop timeout', () => {
-    expect(
-      renderUserUnit({
-        nodePath: '/home/user name/bin/node',
-        daemonEntry: '/opt/spur board/daemon.ts',
-        secretsFile: '/home/user name/.config/spur board/secrets.env',
-        unitFile: '/home/user name/.config/systemd/user/spur-board.service',
-        environment: ['BOARD_HOME=/home/user name/.config/spur board'],
-      }),
-    ).toMatchInlineSnapshot(`
+    const unit = renderUserUnit({
+      nodePath: '/home/user name/bin/node',
+      daemonEntry: '/opt/spur board/daemon.ts',
+      secretsFile: '/home/user name/.config/spur board/secrets.env',
+      unitFile: '/home/user name/.config/systemd/user/spur-board.service',
+      environment: ['BOARD_HOME=/home/user name/.config/spur board'],
+    });
+    expect(unit).not.toContain('network-online.target');
+    expect(unit).toMatchInlineSnapshot(`
       "[Unit]
       Description=spur-board daemon
-      After=network-online.target
-      Wants=network-online.target
 
       [Service]
       Type=simple
