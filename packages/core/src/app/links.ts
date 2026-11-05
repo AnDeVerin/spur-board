@@ -3,7 +3,7 @@ import { prFactsSchema } from '@spur-board/contracts';
 import { sql, type Selectable } from 'kysely';
 import { parseJson } from '../store/json.ts';
 import type { LinkTable } from '../store/schema.ts';
-import { emit, type Trx } from './board-utils.ts';
+import { emit, projectForKey, type Trx } from './board-utils.ts';
 import { taskTarget } from './blocks.ts';
 import { CommandError, type Mutation } from './commands.ts';
 import { canonicalKey } from './membership.ts';
@@ -32,6 +32,17 @@ function ref(input: LinkInput): string {
   return input.mode === 'session' ? input.session : input.ticket;
 }
 
+function ticketIdentity(config: Config, key: string): string {
+  const hash = key.lastIndexOf('#');
+  if (hash < 0) return key;
+  const repo = key.slice(0, hash);
+  if (!repo.includes('/')) return canonicalKey(config, key).key;
+  const project = projectForKey(config, key);
+  const canonicalRepo =
+    project?.tracker.type === 'github-issues' ? project.tracker.repo : repo.toLowerCase();
+  return `${canonicalRepo}${key.slice(hash)}`;
+}
+
 async function snapshot(trx: Trx, repo: string, number: number): Promise<PrFacts | null> {
   const row = await trx
     .selectFrom('pr_snapshot')
@@ -42,7 +53,12 @@ async function snapshot(trx: Trx, repo: string, number: number): Promise<PrFacts
   return row === undefined ? null : parseJson(prFactsSchema, row.detail);
 }
 
-async function existingLink(trx: Trx, taskId: number, input: LinkInput): Promise<Link | undefined> {
+async function existingLink(
+  trx: Trx,
+  taskId: number,
+  input: LinkInput,
+  ticket: string | null,
+): Promise<Link | undefined> {
   let query = trx.selectFrom('link').selectAll().where('task_id', '=', taskId);
   if (input.mode === 'pr') {
     const pr = prIdentity(input.pr);
@@ -53,7 +69,7 @@ async function existingLink(trx: Trx, taskId: number, input: LinkInput): Promise
   } else if (input.mode === 'session') {
     query = query.where('entity', '=', 'session').where('session_id', '=', input.session);
   } else {
-    query = query.where('entity', '=', 'ticket').where('ticket_key', '=', input.ticket);
+    query = query.where('entity', '=', 'ticket').where('ticket_key', '=', ticket ?? input.ticket);
   }
   return query.executeTakeFirst();
 }
@@ -107,8 +123,9 @@ async function run(
   const task = await trx.selectFrom('task').selectAll().where('key', '=', key).executeTakeFirst();
   if (task === undefined) throw new CommandError('not_found', 'Check the task key.');
   if (task.membership === 'archived') throw new CommandError('task_archived', 'Task is archived.');
-  const target = ref(input);
-  const current = await existingLink(trx, task.id, input);
+  const ticket = input.mode === 'ticket' ? ticketIdentity(config, input.ticket) : null;
+  const target = ticket ?? ref(input);
+  const current = await existingLink(trx, task.id, input, ticket);
   const pr = input.mode === 'pr' ? prIdentity(input.pr) : null;
   const facts = pr === null ? null : await snapshot(trx, pr.repo, pr.number);
   const open = facts?.state !== 'closed' && facts?.state !== 'merged';
@@ -130,7 +147,7 @@ async function run(
           source: 'manual',
           banned: 1,
           created_at: ctx.at,
-          ticket_key: input.mode === 'ticket' ? input.ticket : null,
+          ticket_key: ticket,
           pr_open: pr === null ? null : open ? 1 : 0,
         })
         .execute();
@@ -147,7 +164,7 @@ async function run(
         ? { entity: 'pr', repo: pr?.repo ?? '', pr: pr?.number ?? 0, reason: input.reason }
         : input.mode === 'session'
           ? { entity: 'session', session: input.session, reason: input.reason }
-          : { entity: 'ticket', ticket: input.ticket, reason: input.reason },
+          : { entity: 'ticket', ticket: ticket ?? input.ticket, reason: input.reason },
       ctx.actor,
     );
     return { task: key, target };
@@ -175,7 +192,7 @@ async function run(
         source: 'manual',
         banned: 0,
         created_at: ctx.at,
-        ticket_key: input.mode === 'ticket' ? input.ticket : null,
+        ticket_key: ticket,
         pr_open: pr === null ? null : open ? 1 : 0,
       })
       .execute();
@@ -215,7 +232,12 @@ async function run(
             source: 'manual',
             reason: input.reason,
           }
-        : { entity: 'ticket', ticket: input.ticket, source: 'manual', reason: input.reason },
+        : {
+            entity: 'ticket',
+            ticket: ticket ?? input.ticket,
+            source: 'manual',
+            reason: input.reason,
+          },
     ctx.actor,
   );
   return { task: key, target };

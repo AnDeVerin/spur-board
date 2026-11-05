@@ -418,6 +418,47 @@ describe('manual task links', () => {
     );
   });
 
+  it('uses one ticket link for short and full GitHub issue keys', async () => {
+    const { store, registry, call } = await setup();
+    const short = { mode: 'ticket', task, ticket: 'r#10', reason: 'Related ticket.' };
+    const full = { ...short, ticket: 'o/r#10' };
+
+    expect(await call('link.add', short)).toMatchObject({ target: 'o/r#10' });
+    await call('link.add', full);
+    await call('link.add', { ...full, ticket: 'O/R#10' });
+    expect(await store.db.selectFrom('link').select(['ticket_key', 'banned']).execute()).toEqual([
+      { ticket_key: 'o/r#10', banned: 0 },
+    ]);
+    const linked = (await dispatchOperation(
+      { store, config, clock, registry },
+      'task.get',
+      { task },
+      'operator',
+    )) as { links: unknown[] };
+    expect(linked.links).toEqual([{ kind: 'ticket', ref: 'o/r#10', role: null }]);
+
+    await call('link.remove', { ...full, reason: 'No longer related.' });
+    expect(await store.db.selectFrom('link').select(['ticket_key', 'banned']).execute()).toEqual([
+      { ticket_key: 'o/r#10', banned: 1 },
+    ]);
+    const detail = (await dispatchOperation(
+      { store, config, clock, registry },
+      'task.get',
+      { task },
+      'operator',
+    )) as { links: unknown[] };
+    expect(detail.links).toEqual([]);
+    const history = (await dispatchOperation(
+      { store, config, clock, registry },
+      'task.history',
+      { task },
+      'operator',
+    )) as { events: { summary: string }[] };
+    expect(history.events.filter((event) => event.summary.includes('ticket o/r#10'))).toHaveLength(
+      2,
+    );
+  });
+
   it('denies a worker with the operator-only hint and no link effect', async () => {
     const { store, call } = await setup();
     await expect(
