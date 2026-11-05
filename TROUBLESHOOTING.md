@@ -73,9 +73,10 @@ passes without Jira trackers. It cannot be repaired by an offline doctor pass.
 
 ### github.credentials
 
-Check `GITHUB_TOKEN` and repository access. This check verifies repository access, but a token
-can pass it and still lack check-run access. If check runs show `FORBIDDEN`, use the GitHub
-recovery section below.
+Check `GITHUB_TOKEN` and repository access. This check also probes check-run contexts and
+requested review team names. A `FORBIDDEN` result for a `CheckRun` or `INSUFFICIENT_SCOPES` for
+a team name needs the GitHub recovery below. A repository without check contexts can pass the
+check-data probe.
 
 ### spur.api
 
@@ -140,12 +141,13 @@ Read the service journal with `journalctl --user -u spur-board`. Logs are JSON l
 `requestId` from the CLI error in the journal to follow one request through the daemon. Share
 the request ID and a redacted error with an issue report, never tokens or private file contents.
 
-## GitHub check runs show FORBIDDEN
+## GitHub check runs or review teams lack access
 
 A fine-grained personal access token can read a private repository and its pull requests while
 every `CheckRun` under `statusCheckRollup.contexts` returns `FORBIDDEN` with a resource-access
-error: "Resource not accessible by personal access token". It lacks Checks permission. Use a
-**classic personal access token with the `repo`
-scope**, and authorize it for organization SSO where applicable. Put it in `GITHUB_TOKEN`
-through private local input, restart the service, and check the next poll. A GitHub App with
+error: "Resource not accessible by personal access token". It lacks Checks permission. A classic
+token with `repo` but without `read:org` can return `INSUFFICIENT_SCOPES` for a requested
+review team's `Team.name`. Use a **classic personal access token with the `repo` and `read:org`
+scopes**, and authorize it for organization SSO where applicable. Put it in `GITHUB_TOKEN`
+through private local input, restart the service, and rerun `board doctor`. A GitHub App with
 the needed permissions may be an alternative in a future release.
