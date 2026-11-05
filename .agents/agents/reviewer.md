@@ -17,7 +17,9 @@ checks.
    `packages/contracts/` also reads `working-with-contracts`; a diff under
    `packages/core/src/store/` or `packages/core/test/store/`, or one that adds a `.transaction(`
    call, also reads `working-with-storage`; a diff under `packages/daemon/`, or one that adds a
-   `setTimeout(` or `setInterval(` call outside tests, also reads `running-the-daemon`.
+   `setTimeout(` or `setInterval(` call outside tests, also reads `running-the-daemon`; a diff
+   under `packages/gateway-*/`, `packages/contracts/src/gateway/` or
+   `packages/contracts/test/gateway/` also reads `building-messenger-connectors`.
 4. A PR exists (`PR:` line in the handoff): read its body and earlier review threads. Do not
    repeat a rejected suggestion unless the diff changes its premise.
 
