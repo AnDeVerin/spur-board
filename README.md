@@ -40,7 +40,11 @@ Follow [SETUP.md](SETUP.md) for the commands and file locations. Use
 
 ## Live Slack conformance
 
-Run the live gateway check manually in a private test channel:
+Run this check from a repository clone after `pnpm install`. Invite the Slack app to the designated
+private test channel, and stop any running board daemon that uses the same app token. Concurrent
+Socket Mode connections can split events between the daemon and this check.
+
+Run the live gateway check manually in that channel:
 
 ```sh
 BOARD_LIVE_CHANNEL=<test-channel-id> BOARD_LIVE_CHANNEL_NAME=<test-channel-name> pnpm smoke:live
@@ -56,6 +60,7 @@ non-interactive input and `CI=true` before sending a live post. It never prints 
 ID or the channel name. It prints timed instructions for a thread reply,
 edit, button press, slash command, mention, and a reply while disconnected. Press Enter after each
 guided action. A case fails if its required observation does not arrive.
+The guided slash instruction uses `slack.command` from the local config.
 
 To rerun only the thread mention, use:
 

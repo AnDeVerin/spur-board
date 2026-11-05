@@ -190,6 +190,36 @@ describe('live conformance runner against the local Slack API', () => {
     }
   });
 
+  it('prompts for the configured slash command', async () => {
+    const fake = await startFakeSlackApi();
+    let instruction = '';
+    try {
+      const report = await runLiveConformance({
+        token: 'xoxb-test',
+        appToken: 'xapp-test',
+        channel: 'C_FEED',
+        operator,
+        command: '/launch-test',
+        apiUrl: fake.url,
+        caseIds: ['delivery', 'guided-slash'],
+        prompt: async (_id, text) => {
+          instruction = text;
+          await fake.emitEnvelope('slash_commands', {
+            command: '/launch-test',
+            trigger_id: 'T_CUSTOM',
+            channel_id: 'C_FEED',
+            user_id: operator,
+            text: instructionToken(text),
+          });
+        },
+      });
+      expect(instruction).toContain('Run /launch-test ');
+      expect(report.results.filter((result) => result.status !== 'pass')).toEqual([]);
+    } finally {
+      await fake.close();
+    }
+  });
+
   it('reports rate-limit not run when no incidental 429 occurs', async () => {
     const fake = await startFakeSlackApi();
     try {

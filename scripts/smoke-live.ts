@@ -16,6 +16,7 @@ interface LiveSettings {
   appToken: string;
   channel: string;
   channelName: string;
+  command: string;
   operator: UserId;
 }
 
@@ -65,6 +66,7 @@ export async function liveSettings(
     appToken,
     channel,
     channelName,
+    command: loaded.config.slack.command,
     operator: userIdSchema.parse(loaded.config.operator.slack),
   };
 }

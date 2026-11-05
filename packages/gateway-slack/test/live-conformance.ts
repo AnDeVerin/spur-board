@@ -1,14 +1,15 @@
 import { randomUUID } from 'node:crypto';
 import type { WebClient } from '@slack/web-api';
-import type {
-  ConversationRef,
-  DeliverRequest,
-  DeliveryResult,
-  Gateway,
-  InboundEvent,
-  MessageRef,
-  RecoverRequest,
-  UserId,
+import {
+  DEFAULT_SLACK_COMMAND,
+  type ConversationRef,
+  type DeliverRequest,
+  type DeliveryResult,
+  type Gateway,
+  type InboundEvent,
+  type MessageRef,
+  type RecoverRequest,
+  type UserId,
 } from '@spur-board/contracts';
 import {
   assertExactLiveResults,
@@ -39,6 +40,7 @@ export interface LiveRunOptions {
   token: string;
   appToken: string;
   channel: string;
+  command?: string;
   operator: UserId;
   prompt: LivePrompt;
   /** Local fake API only. The process command refuses API overrides. */
@@ -128,6 +130,7 @@ async function promptWithTimeout(
 
 interface RunContext {
   options: LiveRunOptions;
+  command: string;
   gateway: Gateway;
   api: WebClient;
   events: InboundEvent[];
@@ -368,7 +371,7 @@ async function guidedCase(ctx: RunContext, id: LiveCaseId): Promise<string> {
       instruction = 'Press the Confirm button on the run root, then press Enter.';
       break;
     case 'guided-slash':
-      instruction = `Run /board ${token} in the test channel, then press Enter.`;
+      instruction = `Run ${ctx.command} ${token} in the test channel, then press Enter.`;
       break;
     case 'guided-mention':
       instruction = `On the run root message, select Reply in thread. In the thread composer, type @ and select the app from autocomplete, include ${token}, then press Enter.`;
@@ -394,6 +397,7 @@ async function guidedCase(ctx: RunContext, id: LiveCaseId): Promise<string> {
     if (id === 'guided-slash') {
       return (
         event.kind === 'command' &&
+        event.name === ctx.command &&
         event.text.includes(token) &&
         parseInteractionRef(event.interaction)?.channel === ctx.options.channel &&
         event.author === ctx.options.operator
@@ -460,10 +464,12 @@ async function execute(ctx: RunContext, id: LiveCaseId): Promise<string> {
 export async function runLiveConformance(options: LiveRunOptions): Promise<LiveRunReport> {
   const caseIds = options.caseIds ?? liveCaseIds;
   assertSupportedLiveCaseSet(caseIds);
+  const command = options.command ?? DEFAULT_SLACK_COMMAND;
   const gateway = createSlackGateway({
     token: options.token,
     appToken: options.appToken,
     channels: { orchestrators: options.channel, feed: options.channel },
+    command,
     ...(options.apiUrl === undefined ? {} : { apiUrl: options.apiUrl }),
   });
   const api = createApi({
@@ -477,6 +483,7 @@ export async function runLiveConformance(options: LiveRunOptions): Promise<LiveR
   }
   const ctx: RunContext = {
     options,
+    command,
     gateway,
     api,
     events,

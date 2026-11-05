@@ -63,6 +63,19 @@ describe('live conformance process preflight', () => {
     ).rejects.toThrow(/BOARD_LIVE_CHANNEL_NAME/);
   });
 
+  it('loads the configured slash command for the guided run', async () => {
+    const testHome = home({
+      config: `${VALID_CONFIG_YAML}\nslack:\n  command: /launch-test`,
+      secrets: 'SLACK_BOT_TOKEN=bot-secret-canary\nSLACK_APP_TOKEN=app-secret-canary\n',
+    });
+    const settings = await liveSettings({
+      BOARD_HOME: testHome,
+      BOARD_LIVE_CHANNEL: 'CTEST00000',
+      BOARD_LIVE_CHANNEL_NAME: 'conformance-test',
+    });
+    expect(settings.command).toBe('/launch-test');
+  });
+
   it('rejects configured destinations without exposing the channel or tokens', async () => {
     const testHome = home({
       config: `${VALID_CONFIG_YAML}\nslack:\n  channels:\n    feed: CTEST00000`,
