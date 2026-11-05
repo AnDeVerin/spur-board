@@ -1,6 +1,6 @@
 ---
 name: working-with-contracts
-description: Rules for changing packages/contracts - zod schemas, config fields, enums, journal event kinds, port contracts, breaking changes and PR order. Use when you add or change anything under packages/contracts/ or review such a diff. Don't use for package boundaries (read AGENTS.md and eslint.config.js).
+description: Rules for changing packages/contracts - zod schemas, config fields, enums, journal event kinds, port contracts, breaking changes and PR order. Use when you add or change anything under packages/contracts/ or review such a diff. Don't use for package boundaries (use working-in-the-monorepo).
 ---
 
 # Working with contracts
@@ -12,7 +12,7 @@ rule, the rule names it.
 
 - Any edit under `packages/contracts/`, or to `scripts/gen-config-schema.ts` or
   `scripts/gen-ops-snapshot.ts`.
-- For package boundaries and dependencies, read `AGENTS.md` and `eslint.config.js`.
+- For package boundaries and dependencies, use `working-in-the-monorepo`.
 
 ## Single source of types
 
@@ -84,8 +84,8 @@ Read references/breaking-changes.md for the user-visible break and rename rules.
   `packages/testkit/`. An optional field or config key may ship with its first writer and reader.
   A new required port member is the exception once implementations exist: see
   `.agents/skills/working-with-contracts/references/port-contract.md`.
-- This is the contracts exception to one PR per package; package boundaries are in `AGENTS.md`
-  and `eslint.config.js`.
+- This is the contracts exception to one issue, one PR; package boundaries are in
+  `working-in-the-monorepo`.
 - A rename is never contract-first. An internal rename is one PR with contracts and every
   consumer.
 - A user-visible rename of stored data or config is the expand PR, contracts and writers

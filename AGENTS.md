@@ -29,7 +29,8 @@ A map of the repo for agents and contributors. The rules live in the files and s
   scripts and tests use `testing-and-ci`.
 - `.github/` - CI workflows, the PR template and the issue forms. CI workflows use
   `testing-and-ci`.
-- A PR that adds a package or a root script updates this map.
+- A PR that adds a package or a root script updates this map. Adding a package, a dependency
+  or a cross-package import: skill `working-in-the-monorepo`.
 
 ## Commands
 

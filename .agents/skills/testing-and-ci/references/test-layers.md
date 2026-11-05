@@ -32,7 +32,7 @@ Pick the lowest layer that can fail for the bug you guard against. Projects are 
   (`packages/gateway-testkit/src/fake.ts`); shared inbound and outbound cases from
   `@spur-board/gateway-testkit/cases` (`packages/gateway-testkit/src/cases.ts`).
 - Builders: there is no shared test-data builder yet. Inline the data while one test needs it;
-  when a second test needs the same shape, move a builder into that package's `test/`.
+  when a second test needs the same shape, move a builder into `packages/<x>/test/`.
 
 ## Clock and ids
 
@@ -101,7 +101,7 @@ Every test runs through the root config, so all of these hold:
 ## Flaky tests
 
 - Quarantine: `.skip` the test with `// flaky: #<issue>` on the same line or the line above; the
-  `local/skip-needs-flaky-issue` lint rejects a skip without it (`eslint/skip-needs-flaky-issue.ts`,
+  `skip-needs-flaky-issue` lint rule rejects a skip without it (`eslint/skip-needs-flaky-issue.ts`,
   `packages/testkit/test/lint-rules.test.ts`, `describe('test-file lint rules',`).
 - The linked issue is open and labelled `flaky`. Fix it within one week, as the label says, or
   delete the test.
