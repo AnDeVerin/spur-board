@@ -92,6 +92,10 @@ function adapterKeys(config: Config): Pick<Config, 'adapters' | 'sources' | 'git
 }
 
 describe('fixtures', () => {
+  it('pins the default HTTP port', () => {
+    expect(DEFAULT_HTTP_PORT).toBe(4311);
+  });
+
   it('parses the Jira project and fills the defaults', () => {
     const config = configSchema.parse(readFixture('jira-project.yaml'));
     expect(config.thresholds.staleMultiplier).toBe(3);

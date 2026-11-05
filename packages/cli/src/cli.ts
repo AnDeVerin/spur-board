@@ -43,6 +43,7 @@ export interface CliOptions {
   env?: NodeJS.ProcessEnv;
   io?: CliIo;
   clientConfig?: ClientConfig;
+  sendOperation?: typeof requestOperation;
   home?: string;
   setup?: InstallSkillsOptions & Omit<ServiceOptions, 'env'>;
   doctor?: Partial<DoctorPorts>;
@@ -388,7 +389,7 @@ export function createProgram(options: CliOptions = {}): CommandUnknownOpts {
       const key = op.kind === 'mutation' ? keyOption || randomUUID() : undefined;
       if (key) io.stderr(`key: ${escapeTerminalControls(key)}\n`);
       try {
-        const result = await requestOperation(op, input, key, config);
+        const result = await (options.sendOperation ?? requestOperation)(op, input, key, config);
         io.stdout(`${json || !io.isTTY ? JSON.stringify(result) : formatHuman(result)}\n`);
       } catch (error) {
         if (error instanceof CliError) {

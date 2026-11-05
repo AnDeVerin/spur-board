@@ -10,7 +10,7 @@ import {
   renderHttpProblem,
 } from '@spur-board/contracts';
 import { runCli, type CliIo } from '../src/cli.ts';
-import { resolveDaemonAddress, type ClientConfig } from '../src/config.ts';
+import type { ClientConfig } from '../src/config.ts';
 
 const servers: Server[] = [];
 const homes: string[] = [];
@@ -126,11 +126,25 @@ describe('CLI exit classes and mutation keys', () => {
     expect(JSON.parse(output.stdout)).toEqual(OPERATIONS[0].examples[0].output);
   });
 
-  it('uses the default daemon address when config is missing', () => {
+  it('dispatches status to the default daemon address when config is missing', async () => {
     const home = boardHome();
-    expect(resolveDaemonAddress({ BOARD_HOME: home }).href).toBe(
-      `http://127.0.0.1:${String(DEFAULT_HTTP_PORT)}/`,
-    );
+    const addresses: string[] = [];
+    const output = capture();
+    expect(
+      await runCli(['status', '--json'], {
+        env: { BOARD_HOME: home, BOARD_TOKEN: 'token' },
+        io: output.io,
+        sendOperation(op, input, key, config) {
+          expect(op.id).toBe('status.get');
+          expect(input).toEqual({});
+          expect(key).toBeUndefined();
+          addresses.push(config.address.href);
+          return Promise.resolve(OPERATIONS[0].examples[0].output);
+        },
+      }),
+    ).toBe(0);
+    expect(addresses).toEqual([`http://127.0.0.1:${String(DEFAULT_HTTP_PORT)}/`]);
+    expect(JSON.parse(output.stdout)).toEqual(OPERATIONS[0].examples[0].output);
   });
   it('returns 3 when a connection is refused before dispatch', async () => {
     const { url, server } = await fakeServer(() => {});
