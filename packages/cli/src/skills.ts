@@ -105,13 +105,20 @@ async function targetDirectory(path: string): Promise<boolean> {
   }
 }
 
-async function resolvedParent(path: string): Promise<string> {
+interface ResolvedParent {
+  parent: string;
+  missing: string[];
+}
+
+async function resolvedParent(path: string): Promise<ResolvedParent> {
   let entry;
   try {
     entry = await lstat(path);
   } catch (error) {
     if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
-      return join(await resolvedParent(dirname(path)), basename(path));
+      const ancestor = await resolvedParent(dirname(path));
+      const parent = join(ancestor.parent, basename(path));
+      return { parent, missing: [...ancestor.missing, parent] };
     }
     throw error;
   }
@@ -122,7 +129,23 @@ async function resolvedParent(path: string): Promise<string> {
   if (!(await stat(canonical)).isDirectory()) {
     throw new Error(`Skill install parent must be a directory: ${path}`);
   }
-  return canonical;
+  return { parent: canonical, missing: [] };
+}
+
+async function createMissingParents(paths: string[]): Promise<void> {
+  for (const path of paths) {
+    try {
+      await mkdir(path, { mode: 0o700 });
+    } catch (error) {
+      if (!(error instanceof Error && 'code' in error && error.code === 'EEXIST')) {
+        throw error;
+      }
+    }
+    const entry = await lstat(path);
+    if (!entry.isDirectory() || entry.isSymbolicLink() || (await realpath(path)) !== path) {
+      throw new Error(`Skill install parent must be a directory, not a new symlink: ${path}`);
+    }
+  }
 }
 
 async function withInstallLock<T>(
@@ -234,7 +257,7 @@ async function installIntoHome(
     agents.map(async (agent) => {
       const configured = agent === '.codex' ? env['CODEX_HOME'] : undefined;
       const root = configured ? resolve(configured) : join(home, agent);
-      return { agent, parent: await resolvedParent(join(root, 'skills')) };
+      return { agent, ...(await resolvedParent(join(root, 'skills'))) };
     }),
   );
   // Reject all redirected targets before changing any of the four installed skills.
@@ -245,6 +268,12 @@ async function installIntoHome(
   }
 
   const installedAt = (options.now ?? (() => new Date()))().toISOString();
+  for (const { parent, missing } of targets) {
+    await createMissingParents(missing);
+    if ((await realpath(parent)) !== parent) {
+      throw new Error(`Skill install parent changed after preflight: ${parent}`);
+    }
+  }
   const results: SkillInstallResult[] = [];
   for (const { agent, parent } of targets) {
     for (const skill of skills) {
@@ -252,7 +281,6 @@ async function installIntoHome(
       await recoverSkill(parent, destination, skill.name);
       const changed = !(await currentVersion(destination, version));
       if (changed) {
-        await mkdir(parent, { recursive: true });
         await targetDirectory(destination);
         const stageId = randomUUID();
         const staged = join(parent, `.${skill.name}-stage-${stageId}`);

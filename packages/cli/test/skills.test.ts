@@ -1,3 +1,4 @@
+import { symlinkSync } from 'node:fs';
 import {
   cp,
   lstat,
@@ -237,6 +238,35 @@ describe('skills install', () => {
         expect(await readFile(join(linkedParent, name, 'SKILL.md'), 'utf8')).toBe(
           name === 'spur-board' ? 'Board skill\n' : 'Setup skill\n',
         );
+      }
+    }
+  });
+
+  it('refuses a parent symlink introduced after preflight', async () => {
+    for (const component of ['.claude', '.codex', 'skills'] as const) {
+      const { root, home, packageRoot } = await fixture();
+      const outside = join(root, 'outside');
+      await mkdir(outside);
+      await writeFile(join(outside, 'keep.txt'), 'keep');
+      if (component === 'skills') await mkdir(join(home, '.claude'));
+      const parent =
+        component === 'skills' ? join(home, '.claude', 'skills') : join(home, component);
+
+      await expect(
+        installSkills({
+          home,
+          packageRoot,
+          now: () => {
+            symlinkSync(outside, parent, 'dir');
+            return new Date('2026-11-05T12:00:00.000Z');
+          },
+        }),
+      ).rejects.toThrow('Skill install parent');
+      expect(await readdir(outside)).toEqual(['keep.txt']);
+      for (const agent of agents) {
+        await expect(readdir(destination(home, agent, 'spur-board'))).rejects.toMatchObject({
+          code: 'ENOENT',
+        });
       }
     }
   });
