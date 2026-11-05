@@ -157,4 +157,4 @@ export {
   type SourceState,
   type TicketEntityRef,
 } from './adapters.ts';
-export { BOARD_TICK_MS, SYSTEMD_SERVICE_SETTINGS, WATCHDOG_MS } from './systemd.ts';
+export { BOARD_TICK_MS, SYSTEMD_SERVICE_SETTINGS } from './systemd.ts';

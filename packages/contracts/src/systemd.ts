@@ -8,7 +8,7 @@
 
 export const BOARD_TICK_MS = 60_000;
 
-export const WATCHDOG_MS = 3 * BOARD_TICK_MS;
+const WATCHDOG_MS = 3 * BOARD_TICK_MS;
 
 export const SYSTEMD_SERVICE_SETTINGS: readonly string[] = [
   'Type=notify',
