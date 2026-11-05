@@ -6,7 +6,7 @@ import { z } from 'zod';
 import { fetchCatalogVersion } from './client.ts';
 import type { ClientConfig } from './config.ts';
 
-export interface CatalogVerdict {
+interface CatalogVerdict {
   clientVersion: string;
   serverVersion: string;
   matches: boolean;
@@ -50,6 +50,22 @@ export function cliPackageVersion(): string | undefined {
   }
 }
 
+/** Compares the client catalog with the daemon's; rejects when the daemon cannot answer. */
+export async function compareCatalogs(
+  config: ClientConfig,
+): Promise<CatalogVerdict & { instance: string | undefined }> {
+  const [clientVersion, served] = await Promise.all([
+    clientCatalogVersion(),
+    fetchCatalogVersion(config),
+  ]);
+  return {
+    clientVersion,
+    serverVersion: served.version,
+    matches: clientVersion === served.version,
+    instance: served.instance,
+  };
+}
+
 /**
  * Compares the client catalog with the daemon instance's catalog once per cache entry. Any
  * failure returns `undefined`, so the caller carries on unchanged.
@@ -59,21 +75,9 @@ export function checkCatalog(
   instance: string,
   cache: VerdictCache,
 ): Promise<CatalogVerdict | undefined> {
-  return cache.check(config.address, instance, async () => {
-    try {
-      const [client, server] = await Promise.all([
-        clientCatalogVersion(),
-        fetchCatalogVersion(config),
-      ]);
-      return {
-        clientVersion: client,
-        serverVersion: server.version,
-        matches: client === server.version,
-      };
-    } catch {
-      return undefined;
-    }
-  });
+  return cache.check(config.address, instance, () =>
+    compareCatalogs(config).catch(() => undefined),
+  );
 }
 
 /** In-process cache that shares an in-flight check between overlapping callers. */

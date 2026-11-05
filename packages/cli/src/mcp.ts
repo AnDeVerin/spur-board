@@ -9,10 +9,10 @@ import {
 import { serveStdio } from '@modelcontextprotocol/server/stdio';
 import { OPERATIONS, ERRORS, renderMcpError, type Operation } from '@spur-board/contracts';
 import { z } from 'zod';
-import { fetchCatalogVersion, requestOperation } from './client.ts';
+import { requestOperation } from './client.ts';
 import { loadClientConfig, type ClientConfig } from './config.ts';
 import { CliError } from './exit-codes.ts';
-import { checkCatalog, clientCatalogVersion, memoryVerdictCache } from './version.ts';
+import { checkCatalog, compareCatalogs, memoryVerdictCache } from './version.ts';
 
 type JsonObject = Record<string, unknown>;
 
@@ -106,18 +106,12 @@ export function createMcpServer(
   const probe = async (config: ClientConfig) => {
     const marked = mismatched.get(config.address.href);
     if (marked === undefined) return;
-    let current: { clientVersion: string; serverVersion: string; instance: string | undefined };
-    try {
-      const [clientVersion, served] = await Promise.all([
-        clientCatalogVersion(),
-        fetchCatalogVersion(config),
-      ]);
-      current = { clientVersion, serverVersion: served.version, instance: served.instance };
-    } catch {
-      throw new CliError('version_mismatch', marked);
-    }
-    const { clientVersion, serverVersion, instance } = current;
-    if (clientVersion !== serverVersion) {
+    const { clientVersion, serverVersion, matches, instance } = await compareCatalogs(config).catch(
+      () => {
+        throw new CliError('version_mismatch', marked);
+      },
+    );
+    if (!matches) {
       mismatched.set(config.address.href, { clientVersion, serverVersion });
       throw new CliError('version_mismatch', { clientVersion, serverVersion });
     }

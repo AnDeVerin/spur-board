@@ -203,15 +203,11 @@ const schemaVersion = z.looseObject({ version: z.string().regex(/^[0-9a-f]{64}$/
 export function fetchCatalogVersion(
   config: ClientConfig,
 ): Promise<{ version: string; instance: string | undefined }> {
-  let instance: string | undefined;
   return send({
     method: 'GET',
     path: '/v1/schema',
     config,
     anonymous: true,
-    observe: (seen) => {
-      instance = seen;
-    },
     decode: (response, raw) => {
       let body: unknown;
       try {
@@ -224,7 +220,7 @@ export function fetchCatalogVersion(
       }
       const parsed = schemaVersion.safeParse(body);
       if (!parsed.success) throw new CliError('outcome_unknown');
-      return { version: parsed.data.version, instance };
+      return { version: parsed.data.version, instance: responseInstance(response) };
     },
   });
 }
