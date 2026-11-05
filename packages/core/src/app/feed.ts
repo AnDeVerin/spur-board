@@ -1,4 +1,9 @@
-import { EVENT_VERSION, eventPayloadSchemas } from '@spur-board/contracts';
+import {
+  EVENT_VERSION,
+  eventPayloadSchemas,
+  parseActorId,
+  type ActorId,
+} from '@spur-board/contracts';
 import type { Kysely } from 'kysely';
 import { toJson } from '../store/json.ts';
 import type { Row, Tables } from '../store/schema.ts';
@@ -14,7 +19,10 @@ async function journal(
   kind: 'from_you_raised' | 'from_you_cleared',
   at: Date,
   rule?: string,
+  actor: ActorId = 'system',
 ): Promise<void> {
+  const parsed = parseActorId(actor);
+  if (parsed === null) throw new Error('Invalid journal actor');
   const task =
     item.task_id === null
       ? undefined
@@ -30,8 +38,8 @@ async function journal(
       project: task?.project ?? 'board',
       task_id: item.task_id,
       kind,
-      actor: 'system',
-      actor_ref: null,
+      actor: parsed.actor,
+      actor_ref: parsed.actor === 'agent' ? JSON.stringify(parsed.actorRef) : null,
       payload: toJson(eventPayloadSchemas[kind], {
         item: `I${String(item.id)}`,
         ...(kind === 'from_you_raised' && rule !== undefined ? { rule } : {}),
@@ -153,8 +161,16 @@ export async function raiseItem(
   return item;
 }
 
-/** Clear an item once; the edit waits for its line and is cancelled with a stale pending line. */
-export async function clearItem(trx: Trx, itemId: number, at: Date): Promise<void> {
+/**
+ * Clear an item once; the edit waits for its line and is cancelled with a stale pending line.
+ * The journal names `actor`, `system` unless an operator action cleared it.
+ */
+export async function clearItem(
+  trx: Trx,
+  itemId: number,
+  at: Date,
+  actor: ActorId = 'system',
+): Promise<void> {
   const current = await trx
     .selectFrom('operator_item')
     .selectAll()
@@ -167,7 +183,7 @@ export async function clearItem(trx: Trx, itemId: number, at: Date): Promise<voi
     .where('id', '=', itemId)
     .returningAll()
     .executeTakeFirstOrThrow();
-  await journal(trx, item, 'from_you_cleared', at);
+  await journal(trx, item, 'from_you_cleared', at, undefined, actor);
   if (item.line_outbox_id === null) return;
   const task =
     item.task_id === null

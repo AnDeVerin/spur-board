@@ -111,14 +111,27 @@ export function renderBody(key: string, text: string): RichText {
 
 type Trx = Kysely<Tables>;
 
-/** A distinct semantic ring. Transport retries reuse this row and its text. */
+/**
+ * A distinct semantic ring. Transport retries reuse this row and its text. A restarted series
+ * (`series` > 0) gets its own keys; the first series keeps the unsuffixed key.
+ */
 export async function enqueueDoorbell(
   trx: Trx,
-  input: { notificationId: number; ring: number; session: string; text: string; at: Date },
+  input: {
+    notificationId: number;
+    ring: number;
+    session: string;
+    text: string;
+    at: Date;
+    series?: number;
+  },
 ): Promise<number> {
+  const series = input.series ?? 0;
   const row = await insertOutbox(trx, {
     kind: 'doorbell',
-    dedupeKey: `doorbell:${String(input.notificationId)}:${input.session}:${String(input.ring)}`,
+    dedupeKey: `doorbell:${String(input.notificationId)}:${input.session}:${String(input.ring)}${
+      series > 0 ? `:s${String(series)}` : ''
+    }`,
     payload: {
       notificationId: input.notificationId,
       ring: input.ring,

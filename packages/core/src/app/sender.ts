@@ -101,6 +101,40 @@ function commentOf(body: OutboxBody): number | null {
   }
 }
 
+async function setComment(
+  trx: Trx,
+  body: OutboxBody,
+  patch: Partial<Pick<Row<'comment'>, 'delivery_state' | 'conversation_ref' | 'message_ref'>>,
+): Promise<void> {
+  const commentId = commentOf(body);
+  if (commentId === null) return;
+  await trx.updateTable('comment').set(patch).where('id', '=', commentId).execute();
+}
+
+/**
+ * Returns the `post_failed` rows among `ids` to `pending` with a fresh retry window, and their
+ * comments to `pending`. Returns how many rows it requeued.
+ */
+export async function requeuePostFailed(
+  trx: Trx,
+  ids: readonly number[],
+  nowIso: string,
+): Promise<number> {
+  if (ids.length === 0) return 0;
+  const rows = await trx
+    .updateTable('outbox')
+    .set({ state: 'pending', first_attempt_at: null, next_at: nowIso })
+    .where('id', 'in', ids)
+    .where('state', '=', 'post_failed')
+    .returning(['kind', 'payload'])
+    .execute();
+  for (const row of rows) {
+    const body = parseBody(row);
+    if (typeof body !== 'string') await setComment(trx, body, { delivery_state: 'pending' });
+  }
+  return rows.length;
+}
+
 function backoff(attempts: number): number {
   return Math.min(1000 * 2 ** Math.max(attempts - 1, 0), MAX_BACKOFF_MS);
 }
@@ -132,16 +166,6 @@ export function createSender(options: SenderOptions): Sender {
   let downSince: number | undefined;
   /** The last tick started; a new tick runs after it, so two ticks never interleave. */
   let ticking: Promise<void> = Promise.resolve();
-
-  async function setComment(
-    trx: Trx,
-    body: OutboxBody,
-    patch: Partial<Pick<Row<'comment'>, 'delivery_state' | 'conversation_ref' | 'message_ref'>>,
-  ): Promise<void> {
-    const commentId = commentOf(body);
-    if (commentId === null) return;
-    await trx.updateTable('comment').set(patch).where('id', '=', commentId).execute();
-  }
 
   /** Sets the comments of `rows` that carry one to `superseded`. */
   async function supersedeComments(
@@ -709,7 +733,7 @@ export function createSender(options: SenderOptions): Sender {
       await scanTransaction(store, async (trx) => {
         const rows = await trx
           .selectFrom('outbox')
-          .select(['id', 'kind', 'payload'])
+          .select(['id', 'kind', 'payload', 'state'])
           .where('state', 'in', ['in_flight', 'post_failed'])
           .execute();
         await trx
@@ -724,12 +748,12 @@ export function createSender(options: SenderOptions): Sender {
           .where('state', '=', 'in_flight')
           .where('attempt_started', '=', 1)
           .execute();
-        await trx
-          .updateTable('outbox')
-          .set({ state: 'pending', first_attempt_at: null, next_at: nowIso })
-          .where('state', '=', 'post_failed')
-          .execute();
-        for (const row of rows) {
+        await requeuePostFailed(
+          trx,
+          rows.filter((row) => row.state === 'post_failed').map((row) => row.id),
+          nowIso,
+        );
+        for (const row of rows.filter((candidate) => candidate.state === 'in_flight')) {
           const body = parseBody(row);
           if (typeof body !== 'string') await setComment(trx, body, { delivery_state: 'pending' });
         }
