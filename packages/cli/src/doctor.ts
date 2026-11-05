@@ -8,10 +8,11 @@ import {
   statSync,
 } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, isAbsolute, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join } from 'node:path';
 import { parseEnv } from 'node:util';
 import { configSchema, type Config } from '@spur-board/contracts';
 import YAML from 'yaml';
+import { configFile, resolveDaemonAddress } from './config.ts';
 
 export interface DoctorCheck {
   id: string;
@@ -142,13 +143,6 @@ function result(id: string, ok: boolean, fix: string): DoctorCheck {
 
 function warning(id: string, fix: string): DoctorCheck {
   return { id, status: 'warning', blocking: false, fix };
-}
-
-function configFile(env: NodeJS.ProcessEnv, home: string): string {
-  const boardHome = env['BOARD_HOME'];
-  if (boardHome) return join(resolve(boardHome), 'config.yaml');
-  const xdg = env['XDG_CONFIG_HOME'];
-  return join(xdg && isAbsolute(xdg) ? xdg : join(home, '.config'), 'spur-board', 'config.yaml');
 }
 
 function unitFile(env: NodeJS.ProcessEnv, home: string): string {
@@ -452,8 +446,8 @@ export async function runDoctor(
 
   let remote: { version: string; checks: DoctorCheck[] } | null = null;
   try {
-    const base = env['BOARD_DAEMON_URL'] || `http://127.0.0.1:${String(config.http.port)}`;
-    const response = await ports.fetcher(new URL('/v1/doctor', base), {
+    const address = resolveDaemonAddress(env, home, config.http.port);
+    const response = await ports.fetcher(new URL('/v1/doctor', address), {
       signal: AbortSignal.timeout(8_000),
     });
     if (response.ok) remote = remoteChecks(await response.json());

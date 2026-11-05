@@ -1,6 +1,8 @@
 import { z } from 'zod';
 import { COLUMN_IDS, REQUIRED_COLUMN_IDS } from './enums.ts';
 
+export const DEFAULT_HTTP_PORT = 4311;
+
 export const WEEKDAYS = [
   'monday',
   'tuesday',
@@ -247,7 +249,7 @@ export const configSchema = z.strictObject({
         .int()
         .min(0)
         .max(65_535)
-        .default(4311)
+        .default(DEFAULT_HTTP_PORT)
         .describe('Local HTTP API port (0 assigns a free port).'),
     })
     .prefault({}),

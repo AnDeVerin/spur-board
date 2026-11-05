@@ -1,6 +1,8 @@
 import { spawn } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, type Server, type ServerResponse } from 'node:http';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Client } from '@modelcontextprotocol/client';
 import {
@@ -15,12 +17,14 @@ import { createMcpServer } from '../src/mcp.ts';
 import { loadClientConfig } from '../src/config.ts';
 
 const children: Server[] = [];
+const homes: string[] = [];
 
 afterEach(() => {
   for (const server of children.splice(0)) {
     server.closeAllConnections();
     server.close();
   }
+  for (const home of homes.splice(0)) rmSync(home, { recursive: true, force: true });
 });
 
 async function fakeDaemon(
@@ -71,6 +75,30 @@ async function withClient<T>(
 }
 
 describe('board mcp', () => {
+  it('uses the configured daemon without BOARD_DAEMON_URL', async () => {
+    const daemon = await fakeDaemon((_request, response) => {
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end(
+        JSON.stringify({
+          ok: true,
+          requestId: 'req-status',
+          value: OPERATIONS[0].examples[0].output,
+        }),
+      );
+    });
+    const home = mkdtempSync(join(tmpdir(), 'mcp-address-'));
+    homes.push(home);
+    writeFileSync(
+      join(home, 'config.yaml'),
+      `projects:\n  - id: board\n    tracker: { type: github-issues, repo: example/board, label: board }\n    repos: [example/board]\n    operatorGithubLogin: operator\noperator: { slack: U0000000000 }\ndigest: { tz: UTC }\nhttp: { port: ${new URL(daemon.url).port} }\n`,
+    );
+    await withClient({ BOARD_HOME: home, BOARD_TOKEN: 'token' }, async (client) => {
+      const result = await client.callTool({ name: 'status_get', arguments: {} });
+      expect(result.isError).not.toBe(true);
+      expect(result.structuredContent).toEqual(OPERATIONS[0].examples[0].output);
+      expect(daemon.requests).toHaveLength(1);
+    });
+  });
   it('lists one catalog tool with schemas, guidance and annotations per operation', async () => {
     await withClient({}, async (client) => {
       const manifest = JSON.parse(

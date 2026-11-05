@@ -102,6 +102,41 @@ async function run(args: string[], fake: DoctorPorts) {
 }
 
 describe('board doctor', () => {
+  it.each([
+    ['configured port', undefined, 'http://127.0.0.1:4567/v1/doctor'],
+    ['explicit URL', 'http://127.0.0.1:9876', 'http://127.0.0.1:9876/v1/doctor'],
+  ] as const)('probes the %s address', async (_name, explicit, expected) => {
+    const urls: string[] = [];
+    const output = capture();
+    const exitCode = await runCli(['doctor', '--json'], {
+      io: output.io,
+      env: { BOARD_HOME: '/board', ...(explicit ? { BOARD_DAEMON_URL: explicit } : {}) },
+      home: '/home',
+      doctor: ports({
+        readText(path) {
+          if (path.endsWith('config.yaml')) return `${yaml}\nhttp: { port: 4567 }\n`;
+          return ports().readText(path);
+        },
+        fetcher(input) {
+          if (!(input instanceof URL)) throw new Error('Expected a URL.');
+          urls.push(input.href);
+          return Promise.resolve(
+            Response.json({
+              version: '1.2.3',
+              checks: remoteIds.map((id): DoctorCheck => ({
+                id,
+                status: 'pass',
+                blocking: false,
+                fix: null,
+              })),
+            }),
+          );
+        },
+      }),
+    });
+    expect(exitCode).toBe(0);
+    expect(urls).toEqual([expected]);
+  });
   it('returns every local and daemon check in JSON', async () => {
     const value = await run(['doctor', '--json'], ports());
     expect(value.exitCode).toBe(0);
