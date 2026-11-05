@@ -13,7 +13,7 @@ import type {
 import {
   assertExactLiveResults,
   assertSupportedLiveCaseSet,
-  liveCases,
+  liveCaseIds,
   type LiveCaseId,
 } from '@spur-board/gateway-testkit/cases';
 import { createApi, isAlreadyReacted, readMessages } from '../src/api.ts';
@@ -87,14 +87,6 @@ function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function eventFrom(
-  events: readonly InboundEvent[],
-  start: number,
-  match: (event: InboundEvent) => boolean,
-): InboundEvent | undefined {
-  return events.slice(start).find(match);
-}
-
 async function waitForEvent(
   events: readonly InboundEvent[],
   start: number,
@@ -103,7 +95,7 @@ async function waitForEvent(
 ): Promise<InboundEvent> {
   const until = Date.now() + timeoutMs;
   for (;;) {
-    const found = eventFrom(events, start, match);
+    const found = events.slice(start).find(match);
     if (found !== undefined) return found;
     if (Date.now() >= until) throw new CaseError('expected interaction was not received');
     await wait(100);
@@ -246,7 +238,6 @@ async function maybeSentCase(ctx: RunContext): Promise<string> {
     body: textBody('Live conformance recent post.'),
   };
   requireResult(await deliver(ctx, { ...request, maybeSent: false }));
-  let first = true;
   let unknown = false;
   const until = Date.now() + 15_000;
   for (;;) {
@@ -255,8 +246,7 @@ async function maybeSentCase(ctx: RunContext): Promise<string> {
     if (result.status !== 'retry' || Date.now() >= until) {
       throw new CaseError('recent post could not be confirmed');
     }
-    if (first) unknown = true;
-    first = false;
+    unknown = true;
     await wait(Math.min(result.afterMs ?? 500, 1000));
   }
   need(countMarker(await history(ctx), key) === 1, 'recent post was duplicated');
@@ -462,7 +452,7 @@ async function execute(ctx: RunContext, id: LiveCaseId): Promise<string> {
 
 /** Runs every declared case and records failures without exposing SDK errors or private values. */
 export async function runLiveConformance(options: LiveRunOptions): Promise<LiveRunReport> {
-  const caseIds = options.caseIds ?? liveCases.map((item) => item.id);
+  const caseIds = options.caseIds ?? liveCaseIds;
   assertSupportedLiveCaseSet(caseIds);
   const gateway = createSlackGateway({
     token: options.token,
