@@ -343,6 +343,50 @@ describe('item.retry and item.close', () => {
     });
   });
 
+  it('closes a failed post so no restart resends it', async () => {
+    const ctx = await setup();
+    await ctx.apply(blocks.ask, { task: KEY, text: 'Which release?' }, AGENT, 'ask-closed');
+    ctx.gateway.platform.failNextPermanently({ scope: 'message' });
+    await ctx.sender.tick();
+    await ctx.tick();
+    const failed = await ctx.store.db
+      .selectFrom('operator_item')
+      .selectAll()
+      .where('item_key', 'like', 'delivery:%')
+      .executeTakeFirstOrThrow();
+    const outboxId = Number(failed.item_key.slice('delivery:'.length));
+    await ctx.close(`I${String(failed.id)}`, 'close-post');
+    const row = await ctx.store.db
+      .selectFrom('outbox')
+      .selectAll()
+      .where('id', '=', outboxId)
+      .executeTakeFirstOrThrow();
+    expect(row).toMatchObject({
+      state: 'dead',
+      last_error: `closed by operator (I${String(failed.id)})`,
+    });
+    await ctx.sender.recover();
+    ctx.advance(60_000);
+    await ctx.sender.tick();
+    await ctx.tick();
+    expect(
+      (
+        await ctx.store.db
+          .selectFrom('outbox')
+          .select('state')
+          .where('id', '=', outboxId)
+          .executeTakeFirstOrThrow()
+      ).state,
+    ).toBe('dead');
+    expect(
+      ctx.gateway.platform.messages().filter((m) => m.marker?.startsWith('conversation.open')),
+    ).toEqual([]);
+    expect((await item(ctx, failed.id)).cleared_at).not.toBeNull();
+    await expect(ctx.retry(`I${String(failed.id)}`, 'retry-closed')).rejects.toMatchObject({
+      code: 'retry_not_applicable',
+    });
+  });
+
   it('restarts an exhausted doorbell series once per key', async () => {
     for (const kind of ['block', 'answer'] as const) {
       const ctx = await setup({ worker: true });

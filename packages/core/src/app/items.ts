@@ -131,6 +131,15 @@ export function createItemMutations(deps: { reapplyInbound?: () => ReapplyInboun
               }),
             )
             .execute();
+          if (item.item_key.startsWith('delivery:')) {
+            // A closed failed post stays unsent: neither `recover()` nor a retry may resend it.
+            await trx
+              .updateTable('outbox')
+              .set({ state: 'dead', last_error: `closed by ${ctx.actor} (I${String(item.id)})` })
+              .where('id', '=', Number(item.item_key.slice('delivery:'.length)))
+              .where('state', '=', 'post_failed')
+              .execute();
+          }
           await clearItem(trx, item.id, new Date(ctx.at), ctx.actor);
         }
         return view(item, task);
