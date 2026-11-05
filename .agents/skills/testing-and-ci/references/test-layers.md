@@ -12,7 +12,7 @@ Pick the lowest layer that can fail for the bug you guard against. Projects are 
 - `process` - tests that spawn a real process (`scripts/hooks.test.ts`,
   `packages/daemon/test/main.test.ts`, `packages/daemon/test/single-instance.test.ts`); a 30 s
   timeout. Add a file here only when the behaviour lives in the OS process: signals, locks, exit.
-- `startup` - `packages/cli/test/startup.test.ts` only; timing-sensitive, kept apart.
+- `startup` - `packages/cli/test/startup.test.ts` only.
 - HTTP level - adapters take an injected `fetch` (`packages/adapters/test/spur/spur.test.ts`);
   Slack code runs against the local HTTP and WebSocket fake in
   `packages/gateway-slack/test/fake-api.ts`.
@@ -24,8 +24,7 @@ Pick the lowest layer that can fail for the bug you guard against. Projects are 
 
 ## Fakes, not module mocks
 
-- `vi.mock` and `vi.doMock` fail lint (`viMockBan` in `eslint.config.js`). Pass the dependency in
-  and give the test a fake or a local server.
+- Pass the dependency in; `vi.mock` and `vi.doMock` fail lint (`viMockBan`).
 - Adapters and the runner: `createFakeCore`, `createFakeAdapter` from
   `@spur-board/adapters/testing` (`packages/adapters/src/testing.ts`).
 - Gateways: `createFakeGateway` from `@spur-board/gateway-testkit`
@@ -35,8 +34,6 @@ Pick the lowest layer that can fail for the bug you guard against. Projects are 
   when a second test needs the same shape, move a builder into `packages/<x>/test/`.
 
 ## Clock and ids
-
-Production code never reads `Date.now()` where a test needs to control time; it takes a seam.
 
 - Core app and API functions take `clock: { now(): number }`, usually as `deps.clock` or an
   options field: `createApply` requires it; `createInbound` takes an optional `clock` and falls
@@ -75,8 +72,7 @@ Every test runs through the root config, so all of these hold:
   variables and points `HOME`, `TMPDIR` and the XDG directories at a fresh temporary root, so no
   test reads or writes the real home.
 - `packages/testkit/src/setup.ts` installs the network guard in each worker: a connection to a
-  non-local host throws, so a test cannot reach a real service by accident. A spawned child is not
-  guarded; give it its own isolation (`BOARD_HOME`, a local server).
+  non-local host throws, so a test cannot reach a real service by accident.
 - Pinned by `packages/testkit/test/env.test.ts` and
   `packages/testkit/test/network.integration.test.ts`.
 
@@ -96,7 +92,6 @@ Every test runs through the root config, so all of these hold:
   when `classifyChanges` in `scripts/ci.ts` marks a package change.
 - `.github/workflows/nightly.yml`: runs the published package's `--version`; on failure
   `scripts/nightly.ts` opens or updates one `ci-nightly` issue.
-- `pnpm smoke:live`: by hand only, from an interactive terminal (`AGENTS.md`).
 
 ## Flaky tests
 

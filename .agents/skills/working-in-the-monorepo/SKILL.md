@@ -28,7 +28,7 @@ description: Package map, allowed dependencies, PR order, new packages, catalog 
 
 ## New package
 
-Follow `references/new-package.md`, then add the package to the `AGENTS.md` map.
+Follow `references/new-package.md`.
 
 ## Dependency versions
 
