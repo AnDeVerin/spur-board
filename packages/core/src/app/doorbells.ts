@@ -187,7 +187,7 @@ export async function restartNotification(trx: Trx, sourceKey: string, at: Date)
 
 /** Reconcile due semantic notifications in the sender's claim transaction. */
 export async function reconcileDoorbells(trx: Trx, at: Date, config?: Config): Promise<void> {
-  // An archived task rings nobody.
+  // Archive cancels unsent rings (`archiveTask`); ringing again before `task.add` would undo that.
   const due = await trx
     .selectFrom('notification')
     .innerJoin('task', 'task.id', 'notification.task_id')
@@ -280,6 +280,13 @@ export async function reconcileDoorbells(trx: Trx, at: Date, config?: Config): P
       .select((eb) => eb.fn.max('raise_no').as('series'))
       .where('item_key', '=', itemKey)
       .executeTakeFirst();
+    // Archive killed any unsent ring of this task; a resumed ring needs a key the dead row lacks.
+    const archived = await trx
+      .selectFrom('event')
+      .select((eb) => eb.fn.countAll<number>().as('count'))
+      .where('task_id', '=', n.task_id)
+      .where('kind', '=', 'task_archived')
+      .executeTakeFirst();
     const ring = rings + 1;
     const text = `${task.key} block B${String(n.block_id)}: check board inbox (N${String(n.id)}-${String(ring)})`;
     const outboxId = await enqueueDoorbell(trx, {
@@ -289,6 +296,7 @@ export async function reconcileDoorbells(trx: Trx, at: Date, config?: Config): P
       text,
       at,
       series: raised?.series ?? 0,
+      archives: archived?.count ?? 0,
     });
     await trx
       .updateTable('notification')

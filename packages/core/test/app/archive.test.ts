@@ -16,6 +16,7 @@ import {
 } from '../../src/index.ts';
 import { reconcileDoorbells } from '../../src/app/doorbells.ts';
 import { raiseItem } from '../../src/app/feed.ts';
+import { enqueueInboundDoorbell } from '../../src/app/outbox.ts';
 import { scanTransaction } from '../../src/app/secrets.ts';
 import { observeGateway, observeSpur } from '../support/observe.ts';
 import { sampleRows } from '../store/sample-rows.ts';
@@ -278,6 +279,55 @@ describe('task archive', () => {
     expect(rings).toEqual([
       { id: notification.last_outbox_id, state: 'dead', last_error: 'superseded' },
     ]);
+    expect(ctx.spur.sends).toEqual([]);
+  });
+
+  it('rings a cancelled answer again after task.add', async () => {
+    const ctx = setup();
+    await ctx.poll(tracker, true);
+    await liveWorker(ctx.store);
+    const asked = await ctx.apply(ctx.ops.ask, { task: KEY, text: 'Which version?' }, worker);
+    await ctx.apply(ctx.ops.answer, { block: asked.block.id, text: 'Use v2.' }, 'operator');
+    await ctx.store.transaction((trx) => reconcileDoorbells(trx, new Date(now), config));
+    await ctx.apply(ctx.ops.archive, { task: KEY }, 'operator');
+    await ctx.sender.tick();
+    now += 1_000;
+    await ctx.apply(ctx.ops.add, { task: KEY }, 'operator');
+    await ctx.sender.tick();
+
+    expect(ctx.spur.sends).toEqual([['worker-1', expect.stringContaining('check board inbox')]]);
+    expect(
+      await ctx.store.db
+        .selectFrom('notification')
+        .select(['rings', 'exhausted_at'])
+        .where('kind', '=', 'answer')
+        .executeTakeFirstOrThrow(),
+    ).toEqual({ rings: 1, exhausted_at: null });
+  });
+
+  it('cancels an unsent inbound doorbell for a task comment', async () => {
+    const ctx = setup();
+    await ctx.poll(tracker, true);
+    const comment = await ctx.apply(ctx.ops.comment, { task: KEY, text: 'Note.' }, worker);
+    const key = `doorbell:comment:${comment.comment.id.slice(1)}:revision:1`;
+    await ctx.store.transaction((trx) =>
+      enqueueInboundDoorbell(trx, {
+        key,
+        session: 'worker-1',
+        text: 'New reply',
+        at: new Date(now),
+      }),
+    );
+    await ctx.apply(ctx.ops.archive, { task: KEY }, 'operator');
+    await ctx.sender.tick();
+
+    expect(
+      await ctx.store.db
+        .selectFrom('outbox')
+        .select(['state', 'last_error'])
+        .where('dedupe_key', '=', key)
+        .executeTakeFirstOrThrow(),
+    ).toEqual({ state: 'dead', last_error: 'superseded' });
     expect(ctx.spur.sends).toEqual([]);
   });
 
