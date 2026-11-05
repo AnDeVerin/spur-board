@@ -29,10 +29,11 @@ Agent files are read by models on every run. Keep them short, exact and in sync.
   `Use after <role>, before <role>.`
 - `.claude/agents/<role>.md` is a byte-for-byte copy of the source.
 - `.codex/agents/<role>.toml` has `name` and `description` equal to the source,
-  `model_reasoning_effort` equal to `effort`, `sandbox_mode` (`read-only` for roles that only
-  read, `workspace-write` for roles that edit or commit), and `developer_instructions` holding
-  the source body byte for byte in a `'''` literal string.
-- Change the source and both copies in the same commit.
+  `model_reasoning_effort` equal to `effort`, `sandbox_mode` from `ROLE_SANDBOX` in
+  `scripts/agents.ts` (`read-only` for roles that only read, `workspace-write` for roles that
+  edit or commit; add a new role there), and `developer_instructions` holding the source body
+  byte for byte in a `'''` literal string.
+- `pnpm agents:sync` writes both copies and the AGENTS.md table; commit them with the source.
 
 ## Writing
 
@@ -72,10 +73,8 @@ not leave it for later and do not mix it into the task's commits.
 
 ## Checking
 
-Until a lint covers these rules, check by hand before committing:
-
-- frontmatter keys, `name` equal to the directory, both triggers, description length;
-- `wc -c` of every changed agent file against the budget;
-- capitals or bold used for emphasis outside code;
-- `cmp` of each role source with its `.claude/agents/` copy, and its body against the
-  `developer_instructions` of the `.codex/agents/` copy.
+- `git add` new agent files, then run `pnpm agents:sync` and `pnpm lint:agents`
+  (`scripts/agents.ts`): frontmatter, name, triggers, budgets, cited paths and `describe` names,
+  named skills and roles, machine paths, hostnames, emails, and drift of generated files. It
+  reads only tracked files; `pnpm check`, pre-push and CI run it as the `agents` step.
+- Check by hand: capitals or bold used for emphasis outside code.
