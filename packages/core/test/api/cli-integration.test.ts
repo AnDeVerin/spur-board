@@ -366,7 +366,7 @@ describe('CLI against the real HTTP API', () => {
         ok: false,
         error: { code: 'daemon_unavailable', recovery: { sideEffects: 'none' } },
       });
-      expect(statuses).toEqual([200, 200, 200, 200, 200, 200, 503]);
+      expect(statuses).toEqual([200, 200, 200, 200, 200, 200, 200, 503]);
     } finally {
       try {
         await app?.close();

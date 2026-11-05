@@ -10,12 +10,12 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { hostname, homedir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { Command, CommanderError, type CommandUnknownOpts } from '@commander-js/extra-typings';
-import { OPERATIONS } from '@spur-board/contracts';
+import { ERRORS, OPERATIONS } from '@spur-board/contracts';
 import { z } from 'zod';
 import { requestOperation, requestTokenEnrollment } from './client.ts';
-import { loadClientConfig, loadEnrollmentConfig, type ClientConfig } from './config.ts';
+import { configFile, loadClientConfig, loadEnrollmentConfig, type ClientConfig } from './config.ts';
 import { CliError, errorExitCode, renderCliError } from './exit-codes.ts';
 import { loadSlackManifestDefaults, renderSlackManifest } from './manifest.ts';
 import { renderDoctor, runDoctor, type DoctorPorts } from './doctor.ts';
@@ -29,6 +29,12 @@ import {
 } from './service.ts';
 import { installSkills, type InstallSkillsOptions } from './skills.ts';
 import { escapeTerminalControls } from './terminal.ts';
+import {
+  checkCatalog,
+  cliPackageVersion,
+  fileVerdictCache,
+  memoryVerdictCache,
+} from './version.ts';
 
 type CatalogOperation = (typeof OPERATIONS)[number];
 type InputObject = z.ZodObject<z.ZodRawShape>;
@@ -393,8 +399,47 @@ export function createProgram(options: CliOptions = {}): CommandUnknownOpts {
       const config = options.clientConfig ?? loadClientConfig(env);
       const key = op.kind === 'mutation' ? keyOption || randomUUID() : undefined;
       if (key) io.stderr(`key: ${escapeTerminalControls(key)}\n`);
+      let instance: string | undefined;
+      let outcome: { value: unknown } | { error: unknown };
       try {
-        const result = await (options.sendOperation ?? requestOperation)(op, input, key, config);
+        outcome = {
+          value: await (options.sendOperation ?? requestOperation)(
+            op,
+            input,
+            key,
+            config,
+            (seen) => {
+              instance = seen;
+            },
+          ),
+        };
+      } catch (error) {
+        outcome = { error };
+      }
+      // The daemon already reported the mismatch with its own hint; do not warn twice.
+      const reportedMismatch =
+        'error' in outcome &&
+        outcome.error instanceof CliError &&
+        outcome.error.code === 'version_mismatch';
+      if (instance !== undefined && !reportedMismatch) {
+        const cliVersion = cliPackageVersion();
+        const cache =
+          cliVersion === undefined
+            ? memoryVerdictCache()
+            : fileVerdictCache(
+                join(dirname(configFile(env, options.home ?? homedir())), 'version-check.json'),
+                cliVersion,
+              );
+        const verdict = await checkCatalog(config, instance, cache);
+        if (verdict !== undefined && !verdict.matches) {
+          io.stderr(
+            `warning: the daemon catalog ${verdict.serverVersion.slice(0, 12)} differs from this CLI's ${verdict.clientVersion.slice(0, 12)}. ${ERRORS.version_mismatch.hint}\n`,
+          );
+        }
+      }
+      try {
+        if ('error' in outcome) throw outcome.error;
+        const result = outcome.value;
         io.stdout(`${json || !io.isTTY ? JSON.stringify(result) : formatHuman(result)}\n`);
       } catch (error) {
         if (error instanceof CliError) {

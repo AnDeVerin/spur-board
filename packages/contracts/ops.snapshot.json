@@ -1,5 +1,5 @@
 {
-  "version": "b406b032a66b32f81a6db039094fcc46b6dfb3689e816d9f352e017feecb5c3a",
+  "version": "4a5d32f7edaaa930961af4e2e38b8eac593bd49d61adeb0fb3189aec424ebb53",
   "grants": [
     "operator",
     "project-agent",
@@ -433,6 +433,15 @@
         "sideEffects": "none",
         "maxRetries": 0,
         "retryTiming": "After fixing the cause."
+      },
+      "mcp": {
+        "hint": "Restart your agent session so `board mcp` loads the daemon's catalog; if the mismatch remains, run `board service restart`.",
+        "recovery": {
+          "action": "Restart your agent session; if the mismatch remains, run `board service restart`. Then retry the tool call.",
+          "sideEffects": "none",
+          "maxRetries": 0,
+          "retryTiming": "After fixing the cause."
+        }
       },
       "docs": "docs/errors.md#version_mismatch",
       "context": {

@@ -22,6 +22,8 @@ interface ErrorSpec {
   /** What to do next. */
   hint: string;
   recovery: z.output<typeof recoverySchema>;
+  /** Replaces `hint` and `recovery` in MCP errors, where the agent session is the client. */
+  mcp?: { hint: string; recovery: z.output<typeof recoverySchema> };
   docs: `docs/errors.md#${string}`;
   context: typeof errorContextSchema;
 }
@@ -198,6 +200,12 @@ export const ERRORS = {
     message: 'The client and daemon catalog versions do not match; nothing was applied.',
     hint: 'Run `board service restart` to update the daemon, then retry.',
     recovery: noRetry('Run `board service restart`, then retry the command.'),
+    mcp: {
+      hint: "Restart your agent session so `board mcp` loads the daemon's catalog; if the mismatch remains, run `board service restart`.",
+      recovery: noRetry(
+        'Restart your agent session; if the mismatch remains, run `board service restart`. Then retry the tool call.',
+      ),
+    },
   }),
   daemon_unavailable: spec('daemon_unavailable', {
     status: null,
