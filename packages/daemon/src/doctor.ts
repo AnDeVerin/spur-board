@@ -5,6 +5,104 @@ import type { ModuleContext } from './lifecycle.ts';
 type DoctorReport = Awaited<ReturnType<NonNullable<ApiOptions['doctor']>>>;
 type Check = DoctorReport['checks'][number];
 const TIMEOUT_MS = 5_000;
+const GITHUB_FIX = 'Check the GitHub token and repository access.';
+const GITHUB_CHECKS_FIX =
+  'Use a classic GitHub personal access token with the repo scope, authorized for organization SSO where required, to read check runs.';
+const GITHUB_TEAMS_FIX =
+  'Use a classic GitHub personal access token with the repo and read:org scopes to read requested review teams.';
+// GitHub normalizes granted scopes: write:org and admin:org include read:org.
+const GITHUB_ORG_READ_SCOPES = new Set(['read:org', 'write:org', 'admin:org']);
+const GITHUB_PROBE = `query DoctorGithubPermissions($owner: String!, $repo: String!) {
+  repository(owner: $owner, name: $repo) {
+    pullRequests(first: 10, states: [OPEN], orderBy: {field: UPDATED_AT, direction: DESC}) {
+      nodes {
+        statusCheckRollup { contexts(first: 100) { nodes { ... on CheckRun { name } } } }
+        reviewRequests(first: 100) { nodes { requestedReviewer { ... on Team { name } } } }
+      }
+    }
+    defaultBranchRef { target { ... on Commit {
+      statusCheckRollup { contexts(first: 100) { nodes { ... on CheckRun { name } } } }
+    } } }
+  }
+}`;
+
+function object(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function scopedGithubError(value: unknown): string | null {
+  const error = object(value);
+  const path = error?.['path'];
+  if (!Array.isArray(path)) return null;
+  const fields = path.filter((part): part is string => typeof part === 'string');
+  if (
+    error?.['type'] === 'FORBIDDEN' &&
+    fields.includes('statusCheckRollup') &&
+    fields.includes('contexts')
+  )
+    return GITHUB_CHECKS_FIX;
+  if (
+    error?.['type'] === 'INSUFFICIENT_SCOPES' &&
+    fields.includes('reviewRequests') &&
+    fields.includes('requestedReviewer') &&
+    fields.includes('name')
+  )
+    return GITHUB_TEAMS_FIX;
+  return null;
+}
+
+async function githubGraphql(
+  ctx: ModuleContext<Store>,
+  fetcher: typeof fetch,
+  token: string,
+  repo: string,
+): Promise<{ response: Response; body: unknown } | null> {
+  const [owner, name] = repo.split('/');
+  if (!owner || !name) return null;
+  const controller = new AbortController();
+  const deadline = setTimeout(() => {
+    controller.abort();
+  }, TIMEOUT_MS);
+  const aborted = new Promise<never>((_resolve, reject) => {
+    controller.signal.addEventListener(
+      'abort',
+      () => {
+        reject(new Error('GitHub doctor probe timed out'));
+      },
+      { once: true },
+    );
+  });
+  try {
+    return await ctx.logCall('doctor.github', async () => {
+      try {
+        return await Promise.race([
+          (async () => {
+            const response = await fetcher('https://api.github.com/graphql', {
+              method: 'POST',
+              headers: {
+                Authorization: `Bearer ${token}`,
+                Accept: 'application/vnd.github+json',
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({ query: GITHUB_PROBE, variables: { owner, repo: name } }),
+              signal: controller.signal,
+            });
+            return { response, body: response.ok ? ((await response.json()) as unknown) : null };
+          })(),
+          aborted,
+        ]);
+      } catch {
+        throw new Error('GitHub doctor probe failed');
+      }
+    });
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(deadline);
+  }
+}
 
 function check(id: string, ok: boolean, fix: string): Check {
   return { id, status: ok ? 'pass' : 'fail', blocking: !ok, fix: ok ? null : fix };
@@ -104,30 +202,50 @@ export async function runDaemonDoctor(
 
   const githubToken = secrets['GITHUB_TOKEN'];
   const githubRepos = new Set(config.projects.flatMap((project) => project.repos));
-  const githubOk =
-    githubToken !== undefined &&
-    (
-      await Promise.all(
-        [...githubRepos].map(async (repo) => {
-          const response = await request(
-            ctx,
-            fetcher,
-            'github',
-            `https://api.github.com/repos/${repo}`,
-            {
-              headers: {
-                Authorization: `Bearer ${githubToken}`,
-                Accept: 'application/vnd.github+json',
+  const githubFailures =
+    githubToken === undefined
+      ? [GITHUB_FIX]
+      : await Promise.all(
+          [...githubRepos].map(async (repo): Promise<string | null> => {
+            const response = await request(
+              ctx,
+              fetcher,
+              'github',
+              `https://api.github.com/repos/${repo}`,
+              {
+                headers: {
+                  Authorization: `Bearer ${githubToken}`,
+                  Accept: 'application/vnd.github+json',
+                },
               },
-            },
-          );
-          return response?.ok === true;
-        }),
-      )
-    ).every(Boolean);
-  checks.push(
-    check('github.credentials', githubOk, 'Check the GitHub token and repository access.'),
-  );
+            );
+            if (response?.ok !== true) return GITHUB_FIX;
+            const probe = await githubGraphql(ctx, fetcher, githubToken, repo);
+            if (probe?.response.ok !== true) return GITHUB_FIX;
+            const payload = object(probe.body);
+            const errors = payload?.['errors'];
+            if (errors !== undefined) {
+              if (!Array.isArray(errors)) return GITHUB_FIX;
+              const scoped = errors.map(scopedGithubError).find((fix) => fix !== null);
+              if (scoped) return scoped;
+              if (errors.length > 0) return GITHUB_FIX;
+            }
+            const data = object(payload?.['data']);
+            const repository = object(data?.['repository']);
+            const pullRequests = object(repository?.['pullRequests']);
+            if (!Array.isArray(pullRequests?.['nodes'])) return GITHUB_FIX;
+            const scopes = response.headers.get('x-oauth-scopes');
+            if (
+              scopes !== null &&
+              !scopes.split(',').some((scope) => GITHUB_ORG_READ_SCOPES.has(scope.trim()))
+            ) {
+              return GITHUB_TEAMS_FIX;
+            }
+            return null;
+          }),
+        );
+  const githubFailure = githubFailures.find((failure) => failure !== null) ?? null;
+  checks.push(check('github.credentials', githubFailure === null, githubFailure ?? GITHUB_FIX));
 
   const spur = await request(
     ctx,

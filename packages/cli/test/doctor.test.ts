@@ -103,6 +103,34 @@ async function run(args: string[], fake: DoctorPorts) {
 }
 
 describe('board doctor', () => {
+  it('exits with a blocking GitHub permission hint from the daemon', async () => {
+    const fix =
+      'Use a classic GitHub personal access token with the repo scope and SSO authorization.';
+    const value = await run(
+      ['doctor', '--json'],
+      ports({
+        fetcher: () =>
+          Promise.resolve(
+            Response.json({
+              version: '1.2.3',
+              checks: remoteIds.map((id): DoctorCheck =>
+                id === 'github.credentials'
+                  ? { id, status: 'fail', blocking: true, fix }
+                  : { id, status: 'pass', blocking: false, fix: null },
+              ),
+            }),
+          ),
+      }),
+    );
+    expect(value.exitCode).toBe(1);
+    expect(value.checks.find((check) => check.id === 'github.credentials')).toEqual({
+      id: 'github.credentials',
+      status: 'fail',
+      blocking: true,
+      fix,
+    });
+  });
+
   it('documents each check ID emitted with and without Slack exactly once', async () => {
     const configured = await run(['doctor', '--json'], ports());
     const withoutSlack = yaml.replace('slack:\n  channels:\n    feed: C000000002\n', '');

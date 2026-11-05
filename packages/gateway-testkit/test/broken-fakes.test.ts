@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { Gateway, InboundEvent, MessageRef } from '@spur-board/contracts';
 import { describe, expect, it } from 'vitest';
+import { fakeCaseIds } from '../src/cases.ts';
 import { runConformanceCase, type ConformanceTarget } from '../src/conformance.ts';
 import { createFakeGateway, type FakeGateway, type FakeProfile } from '../src/index.ts';
 
@@ -14,6 +15,7 @@ function broken(
 ): ConformanceTarget {
   return {
     name: `${name} ${profile}`,
+    caseIds: fakeCaseIds,
     maxTextLength: maxTextLength[profile],
     create() {
       const fake = createFakeGateway({ profile });
@@ -116,6 +118,7 @@ function losesMissed(reportsGap: boolean): ConformanceTarget {
   const profile = 'telegram-like';
   return {
     name: `losesMissed ${reportsGap ? 'with gap' : 'silently'} ${profile}`,
+    caseIds: fakeCaseIds,
     maxTextLength: maxTextLength[profile],
     create() {
       const fake = createFakeGateway({ profile });

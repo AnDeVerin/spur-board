@@ -10,8 +10,9 @@ import { serveStdio } from '@modelcontextprotocol/server/stdio';
 import { OPERATIONS, ERRORS, renderMcpError, type Operation } from '@spur-board/contracts';
 import { z } from 'zod';
 import { requestOperation } from './client.ts';
-import { loadClientConfig } from './config.ts';
+import { loadClientConfig, type ClientConfig } from './config.ts';
 import { CliError } from './exit-codes.ts';
+import { checkCatalog, compareCatalogs, memoryVerdictCache } from './version.ts';
 
 type JsonObject = Record<string, unknown>;
 
@@ -97,6 +98,31 @@ export function createMcpServer(
   ) as { version: string };
   const server = new McpServer({ name: 'spur-board', version });
   const agent = Boolean(env['SPUR_SESSION']);
+  const verdicts = memoryVerdictCache();
+  /** Addresses whose daemon served a different catalog; each call probes before sending. */
+  const mismatched = new Map<string, { clientVersion: string; serverVersion: string }>();
+
+  /** Refuses the call unless the daemon at a marked address now serves the client's catalog. */
+  const probe = async (config: ClientConfig) => {
+    const marked = mismatched.get(config.address.href);
+    if (marked === undefined) return;
+    // The call was not sent, so a failed probe applied nothing: pass on an error that says so,
+    // and report any other failure as an unreachable daemon. The mark stays for the next call.
+    const { clientVersion, serverVersion, matches, instance } = await compareCatalogs(config).catch(
+      (cause: unknown) => {
+        throw cause instanceof CliError && ERRORS[cause.code].recovery.sideEffects === 'none'
+          ? cause
+          : new CliError('daemon_unavailable');
+      },
+    );
+    if (!matches) {
+      mismatched.set(config.address.href, { clientVersion, serverVersion });
+      throw new CliError('version_mismatch', { clientVersion, serverVersion });
+    }
+    mismatched.delete(config.address.href);
+    if (instance !== undefined)
+      verdicts.remember(config.address, instance, { clientVersion, serverVersion, matches: true });
+  };
   for (const op of OPERATIONS) {
     server.registerTool(
       op.mcp.name,
@@ -115,7 +141,32 @@ export function createMcpServer(
           const parsed = parseArguments(op, argumentsValue, agent);
           key = parsed.key;
           const config = loadConfig(env);
-          const value = await requestOperation(op, parsed.input, key, config);
+          await probe(config);
+          let instance: string | undefined;
+          let outcome: { value: unknown } | { error: unknown };
+          try {
+            outcome = {
+              value: await requestOperation(op, parsed.input, key, config, (seen) => {
+                instance = seen;
+              }),
+            };
+          } catch (error) {
+            outcome = { error };
+          }
+          if (instance !== undefined) {
+            const verdict = await checkCatalog(config, instance, verdicts);
+            if (verdict !== undefined && !verdict.matches) {
+              const context = {
+                clientVersion: verdict.clientVersion,
+                serverVersion: verdict.serverVersion,
+              };
+              mismatched.set(config.address.href, context);
+              // A query applied nothing, so it can fail; a mutation reports what it did.
+              if (op.kind === 'query') throw new CliError('version_mismatch', context);
+            }
+          }
+          if ('error' in outcome) throw outcome.error;
+          const value = outcome.value;
           return {
             content: [{ type: 'text' as const, text: JSON.stringify(value) }],
             structuredContent: value as Record<string, unknown>,

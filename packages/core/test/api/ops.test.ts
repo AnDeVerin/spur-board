@@ -570,6 +570,45 @@ describe('catalog HTTP API', () => {
       });
       const notFound = await app.inject({ method: 'GET', url: '/missing', headers: { host } });
       expect(notFound.headers['x-request-id']).toMatch(/^[0-9a-f-]{36}$/);
+      const forbidden = await app.inject({
+        method: 'GET',
+        url: '/v1/schema',
+        headers: { host, origin: 'https://outside.example' },
+      });
+      expect(forbidden.statusCode).toBe(403);
+      const instance = response.headers['x-board-instance'];
+      expect(instance).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+      expect(notFound.headers['x-board-instance']).toBe(instance);
+      expect(forbidden.headers['x-board-instance']).toBe(instance);
+      const other = await server(newStore());
+      try {
+        const second = await other.inject({ method: 'GET', url: '/v1/schema', headers: { host } });
+        expect(second.headers['x-board-instance']).toMatch(/^[0-9a-f-]{36}$/);
+        expect(second.headers['x-board-instance']).not.toBe(instance);
+      } finally {
+        await other.close();
+      }
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('answers an unknown catalog operation with version_mismatch and the service restart hint', async () => {
+    const app = await server(newStore());
+    try {
+      const response = await app.inject(post({}, 'task.renamed'));
+      expectProblem(
+        response,
+        'version_mismatch',
+        'This daemon does not know the operation. Run `board service restart` to update the daemon, then retry.',
+      );
+      expect(response.statusCode).toBe(409);
+      expect(response.json<{ hint: string }>().hint).toContain('board service restart');
+      const anonymous = await app.inject({
+        ...post({}, 'task.renamed'),
+        headers: { host, 'content-type': 'application/json' },
+      });
+      expect(anonymous.json()).toMatchObject({ code: 'forbidden' });
     } finally {
       await app.close();
     }

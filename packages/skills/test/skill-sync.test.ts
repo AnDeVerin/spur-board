@@ -412,16 +412,18 @@ describe('public guide command mentions', () => {
     expect(publicGuides.flatMap(invocations).length).toBeGreaterThan(12);
   });
 
-  it('keeps the agent bootstrap line and GitHub check-run recovery', () => {
+  it('keeps the agent bootstrap line and GitHub permission recovery', () => {
     const [readme, setup, troubleshooting] = publicGuides;
     expect(readme).toMatch(/^npx -y spur-board@latest skills install$/m);
     expect(readme).toContain('`spur-board-setup`');
     for (const guide of [setup, troubleshooting]) {
       expect(guide).toContain('classic personal access token');
       expect(guide).toContain('`repo`');
+      expect(guide).toContain('`read:org`');
       expect(guide).toContain('SSO');
       expect(guide).toContain('`FORBIDDEN`');
       expect(guide).toContain('`CheckRun`');
+      expect(guide).toContain('`INSUFFICIENT_SCOPES`');
     }
   });
 });
