@@ -31,7 +31,7 @@ Use the daemon's local `config.yaml` and mode-protected `secrets.env`. The secre
 `BOARD_LIVE_CHANNEL` and `BOARD_LIVE_CHANNEL_NAME`. The command looks up the channel with
 `conversations.info` and requires its ID and name to match, its privacy flag to be true, and its
 type to be a channel rather than a direct message. The bot token needs `groups:read` to read private
-channel metadata. The command rejects configured delivery channels, shared or archived channels,
+channel metadata. The command rejects configured delivery channels, shared channels, pending external shares, or archived channels,
 non-interactive input and `CI=true` before sending a live post. It never prints tokens, the channel
 ID or the channel name. It prints timed instructions for a thread reply,
 edit, button press, slash command, mention, and a reply while disconnected. Press Enter after each

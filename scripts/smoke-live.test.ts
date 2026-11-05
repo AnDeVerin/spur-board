@@ -152,6 +152,7 @@ describe('live conformance process preflight', () => {
       is_member: true,
       is_shared: false,
       is_ext_shared: false,
+      is_pending_ext_shared: false,
       is_archived: false,
     };
     const lookup = vi.fn(() => Promise.resolve({ ok: true, channel }));
@@ -167,6 +168,7 @@ describe('live conformance process preflight', () => {
       { is_shared: true },
       { is_shared: true, is_org_shared: true },
       { is_ext_shared: true },
+      { is_pending_ext_shared: true },
       { is_archived: true },
     ]) {
       await expect(
@@ -182,6 +184,7 @@ describe('live conformance process preflight', () => {
       'is_member',
       'is_shared',
       'is_ext_shared',
+      'is_pending_ext_shared',
       'is_archived',
     ]) {
       const incomplete = Object.fromEntries(

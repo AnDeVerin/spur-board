@@ -102,6 +102,8 @@ export async function verifyLiveChannel(
     metadata.is_shared !== false ||
     !('is_ext_shared' in metadata) ||
     metadata.is_ext_shared !== false ||
+    !('is_pending_ext_shared' in metadata) ||
+    metadata.is_pending_ext_shared !== false ||
     !('is_archived' in metadata) ||
     metadata.is_archived !== false
   ) {
