@@ -4,7 +4,7 @@ import type { Row, Tables } from '../store/schema.ts';
 import { CommandError, type Mutation } from './commands.ts';
 import { restartNotification } from './doorbells.ts';
 import { clearItem } from './feed.ts';
-import { requeuePostFailed } from './sender.ts';
+import { requeuePostFailed, retryTransport } from './sender.ts';
 
 type Trx = Kysely<Tables>;
 type Item = Row<'operator_item'>;
@@ -50,7 +50,10 @@ function notApplicable(hint: string): CommandError {
   return new CommandError('retry_not_applicable', hint);
 }
 
-/** Item actions: retry runs the action behind the item's kind; close dismisses it. Both clear it. */
+/**
+ * Item actions: retry runs the action behind the item's kind; close dismisses it. Both clear it,
+ * except a retry on a transport item, which the sender clears when the transport is back.
+ */
 export function createItemMutations(deps: { reapplyInbound?: () => ReapplyInbound | undefined }): {
   retry: Mutation<'item.retry'>;
   close: Mutation<'item.close'>;
@@ -93,6 +96,15 @@ export function createItemMutations(deps: { reapplyInbound?: () => ReapplyInboun
           throw new CommandError('task_archived', 'Add the task again before retrying its item.');
         }
         if (item.cleared_at !== null) throw notApplicable('The item is already cleared.');
+        if (item.kind === 'transport_health') {
+          // Probe now; only the sender clears this item, once the transport is back. A probe
+          // that fails again adds no row, so nothing would raise the item again if retry cleared it.
+          const gateway = item.item_key.slice('transport:'.length);
+          if ((await retryTransport(trx, gateway, ctx.at)) === 0) {
+            throw notApplicable('No transport outage is recorded; the item clears on its own.');
+          }
+          return view(item, task);
+        }
         await retryAction(trx, item, ctx.at);
         await clearItem(trx, item.id, new Date(ctx.at), ctx.actor);
         return view(item, task);

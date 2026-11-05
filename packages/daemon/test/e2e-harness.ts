@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -14,6 +15,7 @@ import { createOutboxModule } from '../src/outbox-module.ts';
 const START = Date.parse('2026-11-04T08:00:00.000Z');
 const TASK_KEY = 'PROJ-123';
 const SESSION = 'worker-session';
+const OPERATOR_TOKEN = 'e2e-operator-token';
 const config = configSchema.parse({
   projects: [
     {
@@ -80,7 +82,20 @@ export async function createE2eHarness() {
           last_seen: at,
           ended_at: null,
           end_reason: null,
-          detail: '{}',
+          // Valid facts: status.get parses every linked session's detail.
+          detail: JSON.stringify({
+            id: SESSION,
+            spurProject: 'worker',
+            branch: 'work',
+            pr: null,
+            links: {},
+            lifecycle: 'running',
+            health: 'working',
+            healthSince: at,
+            lastActivityAt: null,
+            endedAt: null,
+            endReason: null,
+          }),
           source: 'spur',
           observed_at: at,
         })
@@ -97,6 +112,42 @@ export async function createE2eHarness() {
           role: 'worker',
           source: 'manual',
           created_at: at,
+        })
+        .execute();
+      // An approved operator token whose request item is already cleared, so no feed line waits.
+      const item = await trx
+        .insertInto('operator_item')
+        .values({
+          item_key: 'token:e2e',
+          raise_no: 1,
+          kind: 'token_request',
+          text: 'Approve operator token e2e',
+          url: '',
+          task_id: null,
+          block_id: null,
+          raised_at: at,
+          cleared_at: at,
+          line_outbox_id: null,
+          fingerprint: null,
+          fact_at: null,
+          source: null,
+          priority: null,
+          inbound_event_json: null,
+        })
+        .returning('id')
+        .executeTakeFirstOrThrow();
+      await trx
+        .insertInto('operator_token')
+        .values({
+          name: 'e2e',
+          hash: createHash('sha256').update(OPERATOR_TOKEN).digest('hex'),
+          folder: 'workspace/e2e',
+          host: 'local',
+          status: 'approved',
+          requested_at: at,
+          expires_at: at,
+          decided_at: at,
+          item_id: item.id,
         })
         .execute();
     });
@@ -184,12 +235,17 @@ export async function createE2eHarness() {
     inbound = undefined;
   }
 
-  async function cli(args: string[]): Promise<CliResult> {
+  /** Runs as the worker session; `operator` runs with the operator token instead. */
+  async function cli(
+    args: string[],
+    options: { operator?: boolean; tty?: boolean } = {},
+  ): Promise<CliResult> {
     if (address === undefined) throw new Error('Daemon has not bound HTTP');
+    const operator = options.operator ?? false;
     let stdout = '';
     let stderr = '';
     const io: CliIo = {
-      isTTY: false,
+      isTTY: options.tty ?? false,
       stdout: (text) => {
         stdout += text;
       },
@@ -198,12 +254,13 @@ export async function createE2eHarness() {
       },
     };
     const code = await runCli(args, {
-      env: { SPUR_SESSION: SESSION },
+      // A session header wins over a token, so operator mode sends none.
+      env: operator ? {} : { SPUR_SESSION: SESSION },
       io,
       clientConfig: {
         address: new URL(address),
-        session: SESSION,
-        token: undefined,
+        session: operator ? undefined : SESSION,
+        token: operator ? OPERATOR_TOKEN : undefined,
         connectTimeoutMs: 200,
         // An ask may scan and replay its outbox write before returning under CI load.
         responseTimeoutMs: 2_000,

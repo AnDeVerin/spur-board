@@ -46,10 +46,14 @@ export function createDaemonModules(
     clock: board.clock,
     ...(ports.productVersion === undefined ? {} : { productVersion: ports.productVersion }),
   });
+  const ctx = ctxFor('gateway-slack');
+  const settings = slackSettings(ctx.config, ctx.secrets);
+  const gateway = ports.gateway ?? (settings === null ? undefined : createSlackGateway(settings));
   const registry = createOperationRegistry({
     config: board.config,
     clock: board.clock,
     completeSince: core.completeSince,
+    gateways: gateway === undefined ? [] : [gateway.kind],
     reapplyInbound: () => inbound?.reapply,
   });
   const notifier = createSystemdNotifier({
@@ -81,24 +85,30 @@ export function createDaemonModules(
       },
     }),
   );
-  const ctx = ctxFor('gateway-slack');
-  const settings = slackSettings(ctx.config, ctx.secrets);
-  const gateway = ports.gateway ?? (settings === null ? undefined : createSlackGateway(settings));
   const inbound =
     gateway === undefined || (ports.gateway === undefined && settings?.appToken === undefined)
       ? undefined
       : createInboundModule(ctxFor('inbound'), gateway, registry);
   if (settings !== null && inbound === undefined)
     ctx.log.info('Slack inbound disabled: SLACK_APP_TOKEN is absent');
+  const outbox = createOutboxModule(
+    ctxFor('outbox'),
+    gateway,
+    ports.spur === undefined ? {} : { spur: ports.spur },
+  );
   if (gateway !== undefined)
     entries.push({
       name: 'gateway-slack',
       stopStage: 'final',
       module: {
+        // Inbound's result is the gateway's ack (G11); the outbox logs its own failure.
         start: () =>
-          gateway.start(
-            inbound === undefined ? () => Promise.resolve() : (event) => inbound.sink(event),
-          ),
+          gateway.start(async (event) => {
+            await Promise.all([
+              inbound?.sink(event),
+              event.kind === 'connection' ? outbox.connection(event.state) : undefined,
+            ]);
+          }),
         async stop() {
           try {
             await gateway.stop();
@@ -110,11 +120,6 @@ export function createDaemonModules(
     });
   if (inbound !== undefined)
     entries.push({ name: 'inbound', stopStage: 'pollers', module: inbound });
-  const outbox = createOutboxModule(
-    ctxFor('outbox'),
-    gateway,
-    ports.spur === undefined ? {} : { spur: ports.spur },
-  );
   entries.push({ name: 'outbox', stopStage: 'outbox', module: outbox });
   entries.push({
     name: 'http',

@@ -16,6 +16,7 @@ import { sql, type Kysely } from 'kysely';
 import type { Store } from '../store/store.ts';
 import type { Row, Tables } from '../store/schema.ts';
 import { reconcileDoorbells, recordRingDelivery, ringStillCurrent } from './doorbells.ts';
+import { clearItem, raiseItem } from './feed.ts';
 import {
   deliveredRefSchema,
   KIND_PRIORITY,
@@ -51,8 +52,11 @@ export interface Sender {
    * runs waits for it, then runs.
    */
   tick(signal?: AbortSignal): Promise<void>;
-  /** Feeds the gateway's connection events; down for over 5 min raises health for every space. */
-  recordConnection(state: ConnectionState, at: Date): void;
+  /**
+   * Feeds the gateway's connection events; down for over 5 min raises health for every space,
+   * once per outage. `up` clears the down health. Runs between ticks, never inside one.
+   */
+  recordConnection(state: ConnectionState, at: Date): Promise<void>;
 }
 
 /** 1 msg/s per space: a platform limit, not an operator setting. */
@@ -102,6 +106,84 @@ function commentOf(body: OutboxBody): number | null {
     default:
       return null;
   }
+}
+
+/** The kinds whose rows wait in one of `spaces`. */
+function kindsIn(spaces: readonly SpaceId[]) {
+  return OUTBOX_KINDS.filter((kind) => {
+    const space = KIND_SPACE[kind];
+    return space !== null && spaces.includes(space);
+  });
+}
+
+/**
+ * Raises the gateway's one transport item while it has health rows and clears it once none are
+ * left. Call it in the transaction that changed the rows, only when they changed.
+ */
+async function syncTransportItem(trx: Trx, gateway: string, at: Date): Promise<void> {
+  const itemKey = `transport:${gateway}`;
+  const rows = await trx
+    .selectFrom('transport_health')
+    .select(['reason', 'since'])
+    .where('gateway', '=', gateway)
+    .orderBy('since')
+    .orderBy('space')
+    .execute();
+  const first = rows[0];
+  if (first !== undefined) {
+    // A permanent failure needs the operator's action, so it names the item over a lost socket.
+    const permanent = rows.find((r) => r.reason !== 'down');
+    const reason = permanent?.reason ?? 'connection lost';
+    const text = `${gateway} delivery down since ${first.since} (${reason})`;
+    const item = await raiseItem(trx, {
+      itemKey,
+      kind: 'transport_health',
+      text,
+      url: '',
+      taskId: null,
+      blockId: null,
+      priority: 1,
+      suppressFeed: true,
+      at,
+    });
+    // raiseItem keeps an active item as it is; the item has no feed line, so its text is
+    // updated in place when the rows change the reason.
+    if (item.text !== text) {
+      await trx.updateTable('operator_item').set({ text }).where('id', '=', item.id).execute();
+    }
+    return;
+  }
+  const active = await trx
+    .selectFrom('operator_item')
+    .select('id')
+    .where('item_key', '=', itemKey)
+    .where('cleared_at', 'is', null)
+    .executeTakeFirst();
+  if (active !== undefined) await clearItem(trx, active.id, at);
+}
+
+/**
+ * Makes the next tick probe every space of `gateway` that has a health row: the probe clock is
+ * set one interval back and waiting rows there become due at `at` (ISO-8601 UTC). Returns the
+ * number of spaces armed; 0 when no outage is recorded.
+ */
+export async function retryTransport(trx: Trx, gateway: string, at: string): Promise<number> {
+  const rows = await trx
+    .updateTable('transport_health')
+    .set({ probe_at: new Date(Date.parse(at) - HEALTH_PROBE_MS).toISOString() })
+    .where('gateway', '=', gateway)
+    .returning('space')
+    .execute();
+  const kinds = kindsIn(rows.map((row) => row.space));
+  if (kinds.length === 0) return rows.length;
+  await trx
+    .updateTable('outbox')
+    .set({ next_at: at })
+    .where('state', '=', 'pending')
+    .where('kind', 'in', kinds)
+    .where('next_at', '>', at)
+    .execute();
+  return rows.length;
 }
 
 async function setComment(
@@ -192,6 +274,8 @@ export function createSender(options: SenderOptions): Sender {
   const now = options.now ?? (() => new Date());
   const spaceIntervalMs = options.spaceIntervalMs ?? SPACE_INTERVAL_MS;
   let downSince: number | undefined;
+  /** Set once this outage's down rows were written; reset on `up`. */
+  let downRecorded = false;
   /** The last tick started; a new tick runs after it, so two ticks never interleave. */
   let ticking: Promise<void> = Promise.resolve();
 
@@ -242,10 +326,7 @@ export function createSender(options: SenderOptions): Sender {
    * there, so a row that retried before the outage gets a full window once the space recovers.
    */
   async function suspendWindows(trx: Trx, spaces: readonly SpaceId[]): Promise<void> {
-    const kinds = OUTBOX_KINDS.filter((kind) => {
-      const space = KIND_SPACE[kind];
-      return space !== null && spaces.includes(space);
-    });
+    const kinds = kindsIn(spaces);
     if (kinds.length === 0) return;
     await trx
       .updateTable('outbox')
@@ -255,8 +336,11 @@ export function createSender(options: SenderOptions): Sender {
       .execute();
   }
 
-  /** tx 1: cancels stale rows, raises down-health and claims at most one due row per lane. */
-  async function claim(trx: Trx, at: number): Promise<Claim[]> {
+  /**
+   * tx 1: cancels stale rows, raises down-health and claims at most one due row per lane.
+   * `ranThreshold` says the outage's down rows were written; the caller records that after commit.
+   */
+  async function claim(trx: Trx, at: number): Promise<{ claims: Claim[]; ranThreshold: boolean }> {
     const nowIso = new Date(at).toISOString();
     await reconcileDoorbells(trx, new Date(at), options.config);
     const rows = await trx
@@ -307,9 +391,16 @@ export function createSender(options: SenderOptions): Sender {
     await kill(trx, stale, 'superseded');
     await cascade(trx);
 
-    if (gateway !== undefined && downSince !== undefined && at - downSince > DOWN_THRESHOLD_MS) {
+    let ranThreshold = false;
+    // Once per outage: a delivery that later clears a space's row is not undone by a re-insert.
+    if (
+      gateway !== undefined &&
+      !downRecorded &&
+      downSince !== undefined &&
+      at - downSince > DOWN_THRESHOLD_MS
+    ) {
       const since = new Date(downSince).toISOString();
-      await trx
+      const inserted = await trx
         .insertInto('transport_health')
         .values(
           SPACE_IDS.map((space) => ({
@@ -322,8 +413,11 @@ export function createSender(options: SenderOptions): Sender {
           })),
         )
         .onConflict((oc) => oc.columns(['gateway', 'space']).doNothing())
+        .returning('space')
         .execute();
       await suspendWindows(trx, SPACE_IDS);
+      if (inserted.length > 0) await syncTransportItem(trx, gatewayKind, new Date(at));
+      ranThreshold = true;
     }
 
     const live = await trx
@@ -415,7 +509,10 @@ export function createSender(options: SenderOptions): Sender {
         .execute();
     }
     // Doorbells go last; gateway lanes keep priority order.
-    return claims.sort((a, b) => Number(a.space === null) - Number(b.space === null));
+    return {
+      claims: claims.sort((a, b) => Number(a.space === null) - Number(b.space === null)),
+      ranThreshold,
+    };
   }
 
   /**
@@ -655,11 +752,13 @@ export function createSender(options: SenderOptions): Sender {
           message_ref: outcome.message,
         });
         if (space !== null) {
-          await trx
+          const cleared = await trx
             .deleteFrom('transport_health')
             .where('gateway', '=', gatewayKind)
             .where('space', '=', space)
+            .returning('space')
             .execute();
+          if (cleared.length > 0) await syncTransportItem(trx, gatewayKind, new Date(at));
         }
         return;
       }
@@ -703,7 +802,7 @@ export function createSender(options: SenderOptions): Sender {
         if (outcome.scope === 'message' || space === null) {
           return postFailed({ last_error: outcome.reason });
         }
-        await trx
+        const raised = await trx
           .insertInto('transport_health')
           .values({
             gateway: gatewayKind,
@@ -712,9 +811,17 @@ export function createSender(options: SenderOptions): Sender {
             since: nowIso,
             probe_at: new Date(startedAt).toISOString(),
           })
-          // A standing row keeps its reason, since and the probe clock that start() stamped.
-          .onConflict((oc) => oc.columns(['gateway', 'space']).doNothing())
+          // A standing row keeps its since and the probe clock that start() stamped. A socket-down
+          // row takes the permanent reason, so a reconnect does not clear a failure it cannot fix.
+          .onConflict((oc) =>
+            oc
+              .columns(['gateway', 'space'])
+              .doUpdateSet({ reason: outcome.reason })
+              .where('transport_health.reason', '=', 'down'),
+          )
+          .returning('space')
           .execute();
+        if (raised.length > 0) await syncTransportItem(trx, gatewayKind, new Date(at));
         await suspendWindows(trx, [space]);
         await row
           .set({
@@ -732,7 +839,9 @@ export function createSender(options: SenderOptions): Sender {
   async function runTick(signal?: AbortSignal): Promise<void> {
     if (signal?.aborted) return;
     const claimedAt = now().getTime();
-    const claims = await scanTransaction(store, (trx) => claim(trx, claimedAt));
+    const { claims, ranThreshold } = await scanTransaction(store, (trx) => claim(trx, claimedAt));
+    // Only after commit: a scan replay reruns claim() and a rolled-back pass wrote nothing.
+    if (ranThreshold) downRecorded = true;
     for (const [i, c] of claims.entries()) {
       if (signal?.aborted) {
         const ids = claims.slice(i).map((c) => c.id);
@@ -798,8 +907,27 @@ export function createSender(options: SenderOptions): Sender {
     },
 
     recordConnection(state, at) {
-      if (state === 'up') downSince = undefined;
-      else downSince ??= at.getTime();
+      const run = ticking.then(async () => {
+        if (state === 'down') {
+          downSince ??= at.getTime();
+          return;
+        }
+        downSince = undefined;
+        downRecorded = false;
+        if (gateway === undefined) return;
+        // A permanent-failure row stays: only a probe that delivers clears it.
+        await scanTransaction(store, async (trx) => {
+          const cleared = await trx
+            .deleteFrom('transport_health')
+            .where('gateway', '=', gatewayKind)
+            .where('reason', '=', 'down')
+            .returning('space')
+            .execute();
+          if (cleared.length > 0) await syncTransportItem(trx, gatewayKind, at);
+        });
+      });
+      ticking = run.catch(() => undefined);
+      return run;
     },
   };
 }

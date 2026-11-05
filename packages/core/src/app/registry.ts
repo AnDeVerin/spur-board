@@ -22,10 +22,12 @@ export function createOperationRegistry(deps: {
   config: Config;
   clock: { now(): number };
   completeSince: ReadonlyMap<string, string>;
+  /** Configured chat gateway kinds, reported by `status.get` `transport`. */
+  gateways?: readonly string[];
   /** Read at operation time: inbound is built after the registry and may be absent. */
   reapplyInbound?: () => ReapplyInbound | undefined;
 }): OperationRegistry {
-  const { config, clock, completeSince } = deps;
+  const { config, clock, completeSince, gateways } = deps;
   const items = createItemMutations(deps);
   const membership = createMembershipMutations(config);
   const links = createLinkMutations(config);
@@ -74,7 +76,7 @@ export function createOperationRegistry(deps: {
     },
     run(trx, input, actor) {
       return getStatus(
-        { store: { db: trx }, config, clock, completeSince },
+        { store: { db: trx }, config, clock, completeSince, gateways },
         input.project,
         visibleProjects(config, actor),
         authorize([{ grant: 'operator' }], actor, { config, target: { kind: 'missing' } })

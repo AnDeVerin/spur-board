@@ -102,8 +102,8 @@ export type RespondResult = 'sent' | 'dropped';
  * - G2: A timeout, network error or other unknown request outcome returns
  *   `retry {uncertain: true}`; a rate limit returns `retry {afterMs}`. A known-invalid token,
  *   removed app, missing scope, or unavailable space destination returns
- *   `failed {permanent: true, scope: 'transport'}`: core raises one health item per gateway and
- *   space, and that space's rows wait. A rejection of this message only returns
+ *   `failed {permanent: true, scope: 'transport'}`: core raises one health item per gateway,
+ *   and that space's rows wait. A rejection of this message only returns
  *   `scope: 'message'`, and only that row fails.
  * - G3: `deliver` is idempotent by `key`. With `maybeSent` the gateway prevents a duplicate its
  *   own way: a marker search, a marked repeat, or a second conversation carrying the same key.

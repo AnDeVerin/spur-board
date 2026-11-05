@@ -55,6 +55,7 @@ function emptyStatus() {
     warmingUp: true,
     spurUnavailable: null,
     hostLoad: null,
+    transport: [],
   };
 }
 

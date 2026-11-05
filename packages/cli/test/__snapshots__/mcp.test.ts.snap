@@ -885,6 +885,68 @@ Example: {}",
           },
           "type": "array",
         },
+        "transport": {
+          "description": "Transport health of each chat gateway.",
+          "items": {
+            "additionalProperties": false,
+            "description": "Transport health of one gateway.",
+            "properties": {
+              "gateway": {
+                "description": "Chat gateway kind.",
+                "minLength": 1,
+                "type": "string",
+              },
+              "reason": {
+                "description": "Reason of the earliest outage, or null when up.",
+                "type": [
+                  "string",
+                  "null",
+                ],
+              },
+              "since": {
+                "anyOf": [
+                  {
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                    "type": "string",
+                  },
+                  {
+                    "type": "null",
+                  },
+                ],
+                "description": "When the earliest outage started, ISO 8601 UTC, or null when up.",
+              },
+              "spaces": {
+                "description": "Spaces whose delivery is suspended.",
+                "items": {
+                  "enum": [
+                    "orchestrators",
+                    "feed",
+                  ],
+                  "type": "string",
+                },
+                "type": "array",
+              },
+              "state": {
+                "description": "down while delivery to any space of the gateway is suspended.",
+                "enum": [
+                  "up",
+                  "down",
+                ],
+                "type": "string",
+              },
+            },
+            "required": [
+              "gateway",
+              "state",
+              "since",
+              "reason",
+              "spaces",
+            ],
+            "type": "object",
+          },
+          "type": "array",
+        },
         "unlinkedPrs": {
           "description": "Observed pull requests without a task link.",
           "items": {
@@ -1389,6 +1451,7 @@ Example: {}",
         "warmingUp",
         "spurUnavailable",
         "hostLoad",
+        "transport",
       ],
       "type": "object",
     },

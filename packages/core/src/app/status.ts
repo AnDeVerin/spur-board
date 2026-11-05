@@ -28,12 +28,14 @@ export async function getStatus(
     config: Config;
     clock: { now(): number };
     completeSince: ReadonlyMap<string, string>;
+    /** Configured chat gateway kinds; each is reported even with no health rows. */
+    gateways?: readonly string[] | undefined;
   },
   projectId?: string,
   visibleProjects?: ReadonlySet<string>,
   includeBoardItems = visibleProjects === undefined,
 ) {
-  const { store, config, clock, completeSince } = deps;
+  const { store, config, clock, completeSince, gateways = [] } = deps;
   const projects =
     projectId === undefined
       ? config.projects.filter(
@@ -203,6 +205,26 @@ export async function getStatus(
     .where('key', '=', 'host_load_episode')
     .executeTakeFirst();
   const spur = sourceById.get('spur');
+  const healthRows = await store.db
+    .selectFrom('transport_health')
+    .select(['gateway', 'space', 'reason', 'since'])
+    .orderBy('since')
+    .orderBy('space')
+    .execute();
+  // Board-wide: every caller sees it; the health item itself stays operator-only.
+  const transport = [...new Set([...gateways, ...healthRows.map((row) => row.gateway)])]
+    .sort()
+    .map((gateway) => {
+      const down = healthRows.filter((row) => row.gateway === gateway);
+      const first = down[0];
+      return {
+        gateway,
+        state: first === undefined ? ('up' as const) : ('down' as const),
+        since: first?.since ?? null,
+        reason: first?.reason ?? null,
+        spaces: down.map((row) => row.space).sort(),
+      };
+    });
   return {
     tasks,
     items,
@@ -215,5 +237,6 @@ export async function getStatus(
         ? null
         : `Spur unavailable: ${spur.blind_message ?? spur.blind_reason}`,
     hostLoad: host?.value !== undefined && host.value !== 'null' ? 'Host under load' : null,
+    transport,
   };
 }

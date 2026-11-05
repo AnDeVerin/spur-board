@@ -740,6 +740,64 @@ describe('item.retry and item.close', () => {
     expect((await item(ctx, blocked.id)).cleared_at).toBeNull();
   });
 
+  it('probes a transport outage now on retry and leaves the item to the sender', async () => {
+    const ctx = await setup();
+    await ctx.apply(blocks.ask, { task: KEY, text: 'Which release?' }, AGENT, 'ask-transport');
+    const revoke = () => {
+      ctx.gateway.platform.failNextPermanently({ scope: 'transport', reason: 'token_revoked' });
+    };
+    revoke();
+    await ctx.sender.tick();
+    const outage = await ctx.store.db
+      .selectFrom('operator_item')
+      .selectAll()
+      .where('item_key', '=', `transport:${ctx.gateway.kind}`)
+      .executeTakeFirstOrThrow();
+    const attempts = async () =>
+      (
+        await ctx.store.db
+          .selectFrom('outbox')
+          .select('attempts')
+          .where('kind', '=', 'conversation.open')
+          .executeTakeFirstOrThrow()
+      ).attempts;
+    const health = () => ctx.store.db.selectFrom('transport_health').select('reason').execute();
+    const cleared = async () =>
+      (await rows(ctx, 'event')).filter((event) => event.kind === 'from_you_cleared');
+    ctx.advance(1000);
+    await ctx.sender.tick();
+    expect(await attempts()).toBe(1);
+
+    // A retry whose probe fails again keeps the item and the row.
+    const result = await ctx.retry(`I${String(outage.id)}`, 'retry-transport-1');
+    expect(result.item.id).toBe(`I${String(outage.id)}`);
+    revoke();
+    await ctx.sender.tick();
+    expect(await attempts()).toBe(2);
+    expect((await item(ctx, outage.id)).cleared_at).toBeNull();
+    expect(await health()).toEqual([{ reason: 'token_revoked' }]);
+    expect(await cleared()).toEqual([]);
+
+    // A retry whose probe delivers clears the row, and the sender clears the item.
+    ctx.advance(1000);
+    await ctx.retry(`I${String(outage.id)}`, 'retry-transport-2');
+    expect((await item(ctx, outage.id)).cleared_at).toBeNull();
+    await ctx.sender.tick();
+    expect(await attempts()).toBe(3);
+    expect(await health()).toEqual([]);
+    expect((await item(ctx, outage.id)).cleared_at).not.toBeNull();
+    expect(await cleared()).toHaveLength(1);
+  });
+
+  it('refuses retry on a transport item with no recorded outage', async () => {
+    const ctx = await setup();
+    const id = await raise(ctx, { key: 'transport:slack', kind: 'transport_health' });
+    await expect(ctx.retry(`I${String(id)}`, 'retry-transport-none')).rejects.toMatchObject({
+      code: 'retry_not_applicable',
+    });
+    expect((await item(ctx, id)).cleared_at).toBeNull();
+  });
+
   it('refuses kinds without a retry action', async () => {
     const ctx = await setup();
     for (const [key, kind] of [

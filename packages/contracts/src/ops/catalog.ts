@@ -23,6 +23,7 @@ import {
   taskViewSchema,
 } from './schemas.ts';
 import { prFactsSchema } from '../facts.ts';
+import { SPACE_IDS } from '../gateway/schemas.ts';
 
 const project = z
   .string()
@@ -133,6 +134,27 @@ export const OPERATIONS = [
         .nullable()
         .describe('One combined Spur availability line, or null when available.'),
       hostLoad: z.string().nullable().describe('Host-load episode line, or null when absent.'),
+      transport: z
+        .array(
+          z
+            .strictObject({
+              gateway: z.string().min(1).describe('Chat gateway kind.'),
+              state: z
+                .enum(['up', 'down'])
+                .describe('down while delivery to any space of the gateway is suspended.'),
+              since: z.iso
+                .datetime()
+                .nullable()
+                .describe('When the earliest outage started, ISO 8601 UTC, or null when up.'),
+              reason: z
+                .string()
+                .nullable()
+                .describe('Reason of the earliest outage, or null when up.'),
+              spaces: z.array(z.enum(SPACE_IDS)).describe('Spaces whose delivery is suspended.'),
+            })
+            .describe('Transport health of one gateway.'),
+        )
+        .describe('Transport health of each chat gateway.'),
     }),
     grants: operatorOrProjectAgent,
     errors: ['not_found'],
@@ -151,6 +173,7 @@ export const OPERATIONS = [
           warmingUp: true,
           spurUnavailable: null,
           hostLoad: null,
+          transport: [],
         },
       },
     ],

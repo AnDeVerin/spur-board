@@ -26,7 +26,7 @@ import {
   type Sender,
   type Store,
 } from '../../src/index.ts';
-import { HEALTH_PROBE_MS } from '../../src/app/sender.ts';
+import { HEALTH_PROBE_MS, retryTransport } from '../../src/app/sender.ts';
 import {
   observeGateway,
   observeSpur,
@@ -283,6 +283,25 @@ async function step(ctx: Ctx, ms = 1000): Promise<void> {
 
 async function healthRows(ctx: Ctx) {
   return ctx.store.db.selectFrom('transport_health').selectAll().orderBy('space').execute();
+}
+
+/** The gateway's transport items, every raise, oldest first. */
+async function transportItems(ctx: Ctx) {
+  return ctx.store.db
+    .selectFrom('operator_item')
+    .selectAll()
+    .where('item_key', '=', `transport:${ctx.observed.gateway.kind}`)
+    .orderBy('raise_no')
+    .execute();
+}
+
+async function activeTransportItems(ctx: Ctx) {
+  return (await transportItems(ctx)).filter((item) => item.cleared_at === null);
+}
+
+async function eventCount(ctx: Ctx, kind: 'from_you_raised' | 'from_you_cleared') {
+  return (await ctx.store.db.selectFrom('event').select('id').where('kind', '=', kind).execute())
+    .length;
 }
 
 async function unblock(ctx: Ctx, seed: Seed): Promise<void> {
@@ -1622,12 +1641,15 @@ describe('transport health', () => {
   it('gateway down over 5 min raises health and suspends the retry window', async () => {
     const ctx = setup();
     const id = await enqueueOpen(ctx, await seedBlock(ctx));
-    ctx.sender.recordConnection('down', ctx.fake.platform.now());
+    await ctx.sender.recordConnection('down', ctx.fake.platform.now());
     ctx.fake.platform.timeoutNext({ visible: false });
     await step(ctx, 5 * 60_000 + 1000);
     expect((await healthRows(ctx)).map((h) => [h.space, h.reason])).toEqual([
       ['feed', 'down'],
       ['orchestrators', 'down'],
+    ]);
+    expect(await activeTransportItems(ctx)).toEqual([
+      expect.objectContaining({ kind: 'transport_health', line_outbox_id: null, priority: 1 }),
     ]);
     // The probe's own send starts the probe clock: the row, due again in 1 s, waits.
     await step(ctx);
@@ -1638,19 +1660,157 @@ describe('transport health', () => {
     }
     expect(ctx.observed.requests).toHaveLength(33);
     expect(await outboxRow(ctx, id)).toMatchObject({ state: 'pending', first_attempt_at: null });
+    expect(await activeTransportItems(ctx)).toHaveLength(1);
+    expect(await eventCount(ctx, 'from_you_raised')).toBe(1);
   });
 
-  it('next delivery clears health', async () => {
+  it('up clears the down health and its item, then the next probe delivers', async () => {
     const ctx = setup();
     const id = await enqueueOpen(ctx, await seedBlock(ctx));
-    ctx.sender.recordConnection('down', ctx.fake.platform.now());
+    await ctx.sender.recordConnection('down', ctx.fake.platform.now());
     ctx.fake.platform.timeoutNext({ visible: false });
     await step(ctx, 5 * 60_000 + 1000);
     expect(await healthRows(ctx)).toHaveLength(2);
-    ctx.sender.recordConnection('up', ctx.fake.platform.now());
+    await ctx.sender.recordConnection('up', ctx.fake.platform.now());
+    expect(await healthRows(ctx)).toEqual([]);
+    expect(await activeTransportItems(ctx)).toEqual([]);
+    expect(await eventCount(ctx, 'from_you_cleared')).toBe(1);
     await step(ctx, HEALTH_PROBE_MS);
     expect((await outboxRow(ctx, id)).state).toBe('done');
     expect(marked(ctx.fake, request(ctx, 0).key)).toBe(1);
+    expect(await healthRows(ctx)).toEqual([]);
+  });
+
+  it('raises one transport item per gateway and clears it with the last row', async () => {
+    const ctx = setup();
+    const revoke = () => {
+      ctx.fake.platform.failNextPermanently({ scope: 'transport', reason: 'token_revoked' });
+    };
+    const open = await enqueueOpen(ctx, await seedBlock(ctx));
+    revoke();
+    await ctx.sender.tick();
+    expect((await healthRows(ctx)).map((h) => h.space)).toEqual(['orchestrators']);
+    expect(await activeTransportItems(ctx)).toEqual([
+      expect.objectContaining({ kind: 'transport_health', line_outbox_id: null }),
+    ]);
+    await step(ctx, 30_000);
+    const line = await feedLine(ctx, 'o/r#1', 'feed:1');
+    revoke();
+    await step(ctx);
+    expect((await healthRows(ctx)).map((h) => h.space)).toEqual(['feed', 'orchestrators']);
+    expect(await activeTransportItems(ctx)).toHaveLength(1);
+    // The orchestrators probe delivers; the feed row still stands.
+    await step(ctx, HEALTH_PROBE_MS - 31_000);
+    expect((await outboxRow(ctx, open)).state).toBe('done');
     expect((await healthRows(ctx)).map((h) => h.space)).toEqual(['feed']);
+    expect(await activeTransportItems(ctx)).toHaveLength(1);
+    await step(ctx, 31_000);
+    expect((await outboxRow(ctx, line)).state).toBe('done');
+    expect(await healthRows(ctx)).toEqual([]);
+    expect(await activeTransportItems(ctx)).toEqual([]);
+    expect(await transportItems(ctx)).toEqual([
+      expect.objectContaining({ cleared_at: expect.any(String) as unknown }),
+    ]);
+    expect(await eventCount(ctx, 'from_you_raised')).toBe(1);
+    expect(await eventCount(ctx, 'from_you_cleared')).toBe(1);
+  });
+
+  it('keeps a permanent-failure row and its item on up', async () => {
+    const ctx = setup();
+    const revoke = () => {
+      ctx.fake.platform.failNextPermanently({ scope: 'transport', reason: 'token_revoked' });
+    };
+    await enqueueOpen(ctx, await seedBlock(ctx));
+    revoke();
+    await ctx.sender.tick();
+    await ctx.sender.recordConnection('down', ctx.fake.platform.now());
+    revoke();
+    await step(ctx, 5 * 60_000 + 1000);
+    expect((await healthRows(ctx)).map((h) => [h.space, h.reason])).toEqual([
+      ['feed', 'down'],
+      ['orchestrators', 'token_revoked'],
+    ]);
+    expect(await activeTransportItems(ctx)).toHaveLength(1);
+    await ctx.sender.recordConnection('up', ctx.fake.platform.now());
+    expect((await healthRows(ctx)).map((h) => [h.space, h.reason])).toEqual([
+      ['orchestrators', 'token_revoked'],
+    ]);
+    expect(await activeTransportItems(ctx)).toHaveLength(1);
+    expect(await eventCount(ctx, 'from_you_raised')).toBe(1);
+    expect(await eventCount(ctx, 'from_you_cleared')).toBe(0);
+  });
+
+  it('keeps a permanent failure that lands on a socket-down row on up', async () => {
+    const ctx = setup();
+    await enqueueOpen(ctx, await seedBlock(ctx));
+    await ctx.sender.recordConnection('down', ctx.fake.platform.now());
+    ctx.fake.platform.failNextPermanently({ scope: 'transport', reason: 'token_revoked' });
+    await step(ctx, 5 * 60_000 + 1000);
+    expect((await healthRows(ctx)).map((h) => [h.space, h.reason])).toEqual([
+      ['feed', 'down'],
+      ['orchestrators', 'token_revoked'],
+    ]);
+    const promoted = await activeTransportItems(ctx);
+    expect(promoted).toHaveLength(1);
+    expect(promoted[0]?.text).toContain('(token_revoked)');
+    await ctx.sender.recordConnection('up', ctx.fake.platform.now());
+    expect((await healthRows(ctx)).map((h) => [h.space, h.reason])).toEqual([
+      ['orchestrators', 'token_revoked'],
+    ]);
+    const kept = await activeTransportItems(ctx);
+    expect(kept).toHaveLength(1);
+    expect(kept[0]?.id).toBe(promoted[0]?.id);
+    expect(kept[0]?.text).toContain('(token_revoked)');
+    expect(await eventCount(ctx, 'from_you_raised')).toBe(1);
+    expect(await eventCount(ctx, 'from_you_cleared')).toBe(0);
+  });
+
+  it('keeps one transport item while the socket is down but delivery works', async () => {
+    const ctx = setup();
+    const open = await enqueueOpen(ctx, await seedBlock(ctx));
+    const line = await feedLine(ctx, 'o/r#1', 'feed:1');
+    await ctx.sender.recordConnection('down', ctx.fake.platform.now());
+    await step(ctx, 5 * 60_000 + 1000);
+    expect((await outboxRow(ctx, open)).state).toBe('done');
+    expect((await outboxRow(ctx, line)).state).toBe('done');
+    expect(await healthRows(ctx)).toEqual([]);
+    expect(await eventCount(ctx, 'from_you_raised')).toBe(1);
+    expect(await eventCount(ctx, 'from_you_cleared')).toBe(1);
+    expect(await activeTransportItems(ctx)).toEqual([]);
+    for (let i = 0; i < 10; i++) await step(ctx, HEALTH_PROBE_MS);
+    expect(await healthRows(ctx)).toEqual([]);
+    expect(await eventCount(ctx, 'from_you_raised')).toBe(1);
+    expect(await eventCount(ctx, 'from_you_cleared')).toBe(1);
+    await ctx.sender.recordConnection('up', ctx.fake.platform.now());
+    await ctx.sender.recordConnection('down', ctx.fake.platform.now());
+    await step(ctx, 5 * 60_000 + 1000);
+    expect((await healthRows(ctx)).map((h) => h.space)).toEqual(['feed', 'orchestrators']);
+    expect(await eventCount(ctx, 'from_you_raised')).toBe(2);
+    expect(await activeTransportItems(ctx)).toHaveLength(1);
+  });
+
+  it('retryTransport makes the next tick probe now', async () => {
+    const ctx = setup();
+    const open = await enqueueOpen(ctx, await seedBlock(ctx));
+    ctx.fake.platform.failNextPermanently({ scope: 'transport', reason: 'token_revoked' });
+    await ctx.sender.tick();
+    expect(ctx.observed.requests).toHaveLength(1);
+    await step(ctx);
+    expect(ctx.observed.requests).toHaveLength(1);
+    const gateway = ctx.observed.gateway.kind;
+    const armed = await scanTransaction(ctx.store, (trx) =>
+      retryTransport(trx, gateway, ctx.fake.platform.now().toISOString()),
+    );
+    expect(armed).toBe(1);
+    await step(ctx);
+    expect(ctx.observed.requests).toHaveLength(2);
+    expect((await outboxRow(ctx, open)).state).toBe('done');
+    expect(await healthRows(ctx)).toEqual([]);
+    expect(await activeTransportItems(ctx)).toEqual([]);
+    expect(
+      await scanTransaction(ctx.store, (trx) =>
+        retryTransport(trx, gateway, ctx.fake.platform.now().toISOString()),
+      ),
+    ).toBe(0);
   });
 });
