@@ -1,3 +1,4 @@
+import { scanTransaction } from '../../src/app/secrets.ts';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -164,7 +165,7 @@ it('keeps a dismissed item hidden until the outcome fingerprint changes', async 
     { task: 'o/r#9' },
     'operator',
   );
-  await store.transaction((trx) =>
+  await scanTransaction(store, (trx) =>
     raiseItem(trx, {
       itemKey: 'existing-operator-item',
       kind: 'test_existing',
@@ -204,7 +205,7 @@ it('keeps a dismissed item hidden until the outcome fingerprint changes', async 
   ).toHaveLength(2);
   const itemFingerprint = item.fingerprint;
   if (itemFingerprint === null) throw new Error('Observation item needs a fingerprint');
-  await store.transaction(async (trx) => {
+  await scanTransaction(store, async (trx) => {
     await trx
       .insertInto('dismissal')
       .values({
@@ -250,7 +251,7 @@ it('orders operator blocks, delivery failures, then blind sources', async () => 
     'operator',
   );
   const task = await store.db.selectFrom('task').select('id').executeTakeFirstOrThrow();
-  await store.transaction(async (trx) => {
+  await scanTransaction(store, async (trx) => {
     await trx
       .insertInto('block')
       .values({
@@ -357,7 +358,7 @@ it('posts and clears a feed line for a taskless source item', async () => {
 
 it('keeps failed feed lines and edits actionable without recursively feeding them', async () => {
   const { store, core, status } = setup();
-  await store.transaction(async (trx) => {
+  await scanTransaction(store, async (trx) => {
     for (const [id, kind] of [
       [1, 'feed.line'],
       [2, 'feed.line.edit'],
@@ -400,7 +401,7 @@ it('keeps failed feed lines and edits actionable without recursively feeding the
     { item_key: 'delivery:2', line_outbox_id: null },
     { item_key: 'delivery:3', line_outbox_id: ordinaryLine?.id },
   ]);
-  await store.transaction((trx) =>
+  await scanTransaction(store, (trx) =>
     trx
       .updateTable('outbox')
       .set({ state: 'post_failed' })

@@ -203,6 +203,18 @@ describe('event kinds', () => {
 });
 
 describe('parseEvent', () => {
+  it('accepts an optional rule on a raised operator item', () => {
+    const event = {
+      ...samples.from_you_raised,
+      payload: { item: 'I1', rule: '@secretlint/secretlint-rule-slack' },
+    };
+    expect(parseEvent(event)).toEqual({ status: 'ok', event });
+    expect(parseEvent(samples.from_you_raised)).toEqual({
+      status: 'ok',
+      event: samples.from_you_raised,
+    });
+  });
+
   it.each(EVENT_KINDS)('round-trips a %s event through JSON', (kind) => {
     const sample = samples[kind];
     expect(parseEvent(JSON.parse(JSON.stringify(sample)))).toEqual({

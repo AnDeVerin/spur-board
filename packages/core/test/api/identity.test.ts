@@ -1,3 +1,4 @@
+import { scanTransaction } from '../../src/app/secrets.ts';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -39,7 +40,7 @@ async function storeWithSession(status?: 'active' | 'ended' | 'completed' | 'kil
   const store = openStore(join(mkdtempSync(join(tmpdir(), 'board-api-identity-')), 'board.db'));
   stores.push(store);
   if (status !== undefined) {
-    await store.transaction(async (trx) => {
+    await scanTransaction(store, async (trx) => {
       await trx
         .insertInto('session_snapshot')
         .values({
@@ -112,7 +113,9 @@ describe('API identity', () => {
       .selectFrom('operator_token')
       .select('item_id')
       .executeTakeFirstOrThrow();
-    await store.transaction((trx) => decideTokenInTransaction(trx, row.item_id, 'approve', at));
+    await scanTransaction(store, (trx) =>
+      decideTokenInTransaction(trx, row.item_id, 'approve', at),
+    );
     const logRequest = vi.fn();
     const verifyToken = vi.fn((token: string) => verifyOperatorToken(store, token));
     const clock = { now: () => at.getTime() };

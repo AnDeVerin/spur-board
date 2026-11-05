@@ -1,3 +1,4 @@
+import { scanTransaction } from './secrets.ts';
 import { createHash, randomUUID } from 'node:crypto';
 import {
   OPERATIONS,
@@ -153,7 +154,7 @@ export function createApply(deps: { store: Store; clock: Clock; config: Config }
     const commandKey = key ?? randomUUID();
     let deniedHint: string | undefined;
     const at = new Date(clock.now()).toISOString();
-    const result = await store.transaction((trx) =>
+    const result = await scanTransaction(store, (trx) =>
       replayOperation(trx, {
         actor,
         key: commandKey,
@@ -222,7 +223,7 @@ export function commandRetention(deps: {
   // Deletes rows older than the cutoff; a row exactly at the cutoff stays.
   const run = async () => {
     const cutoff = new Date(clock.now() - retentionDays * DAY_MS).toISOString();
-    await store.transaction(async (trx) => {
+    await scanTransaction(store, async (trx) => {
       await trx.deleteFrom('command').where('at', '<', cutoff).execute();
     });
   };

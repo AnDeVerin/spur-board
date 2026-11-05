@@ -1,3 +1,4 @@
+import { scanTransaction } from './secrets.ts';
 import { createHash } from 'node:crypto';
 import { EVENT_VERSION, eventPayloadSchemas, type EventKind } from '@spur-board/contracts';
 import type { Kysely } from 'kysely';
@@ -65,7 +66,7 @@ export async function requestToken(
     throw new CommandError('usage', 'Provide a name, folder and SHA-256 token hash.');
   }
   const expiresAt = new Date(at.getTime() + REQUEST_LIFETIME_MS).toISOString();
-  return store.transaction(async (trx) => {
+  return scanTransaction(store, async (trx) => {
     const existing = await trx
       .selectFrom('operator_token')
       .select('id')
@@ -157,7 +158,7 @@ export async function expirePendingTokens(store: Store, at: Date): Promise<numbe
     .where('expires_at', '<=', expiresAt)
     .executeTakeFirst();
   if (due === undefined) return 0;
-  return store.transaction(async (trx) => {
+  return scanTransaction(store, async (trx) => {
     const rows = await trx
       .selectFrom('operator_token')
       .select(['id', 'name', 'item_id'])

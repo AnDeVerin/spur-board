@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { configSchema } from '@spur-board/contracts';
 import { afterEach, describe, expect, it } from 'vitest';
 import { enqueueLiveAfterFirstPoll } from '../../src/app/doctor.ts';
+import { scanTransaction } from '../../src/app/secrets.ts';
 import { createObservationCore, openStore, type Store } from '../../src/index.ts';
 
 const at = '2026-11-04T12:00:00.000Z';
@@ -164,7 +165,7 @@ describe('live feed announcement', () => {
   it('rolls back the marker and feed row with the observation transaction', async () => {
     const { store } = setup();
     await expect(
-      store.transaction(async (trx) => {
+      scanTransaction(store, async (trx) => {
         await enqueueLiveAfterFirstPoll(trx, {
           config,
           productVersion: '1.2.3',

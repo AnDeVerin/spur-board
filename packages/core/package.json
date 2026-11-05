@@ -10,6 +10,8 @@
     "typecheck": "tsc --noEmit -p ."
   },
   "dependencies": {
+    "@secretlint/core": "catalog:",
+    "@secretlint/secretlint-rule-preset-recommend": "catalog:",
     "@spur-board/contracts": "workspace:*",
     "better-sqlite3": "catalog:",
     "fastify": "catalog:",
