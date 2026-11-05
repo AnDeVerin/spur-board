@@ -47,6 +47,7 @@ export function createDaemonModules(
     config: board.config,
     clock: board.clock,
     completeSince: core.completeSince,
+    reapplyInbound: () => inbound?.reapply,
   });
   const commands = ctxFor('commands');
   const entries: ModuleEntry[] = [
