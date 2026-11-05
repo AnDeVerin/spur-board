@@ -84,6 +84,7 @@ describe('live conformance runner against the local Slack API', () => {
       } else if (id === 'guided-slash') {
         await fake.platform.restoreConnection();
         await fake.emitEnvelope('slash_commands', {
+          command: '/board',
           trigger_id: 'T_LIVE',
           channel_id: 'C_FEED',
           user_id: operator,
@@ -175,6 +176,7 @@ describe('live conformance runner against the local Slack API', () => {
         prompt: async (_id, instruction) => {
           await fake.platform.restoreConnection();
           await fake.emitEnvelope('slash_commands', {
+            command: '/board',
             trigger_id: 'T_RECONNECTED',
             channel_id: 'C_FEED',
             user_id: operator,
