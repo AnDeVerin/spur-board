@@ -73,6 +73,7 @@ function fixture(
     jiraAuth?: boolean;
     jiraBadStatus?: boolean;
     jiraMalformed?: boolean;
+    jiraTitle?: string;
     githubRepositoryNotFound?: boolean;
     githubChecksForbidden?: boolean;
     secretInFacts?: string;
@@ -209,7 +210,7 @@ function fixture(
                       id: '42',
                       key: 'DEMO-42',
                       fields: {
-                        summary: 'Synthetic ticket',
+                        summary: options.jiraTitle ?? 'Synthetic ticket',
                         status: { name: 'Ready' },
                         assignee: null,
                         labels: [],
@@ -249,6 +250,10 @@ function fixture(
                       {
                         label: 'lowercase',
                         url: `https://example.test/${encodeURIComponent(options.secretInSpurLink).replace(/%[0-9A-F]{2}/g, (escape) => escape.toLowerCase())}`,
+                      },
+                      {
+                        label: 'double',
+                        url: `https://example.test/${encodeURIComponent(encodeURIComponent(options.secretInSpurLink))}`,
                       },
                     ],
                   },
@@ -449,6 +454,7 @@ describe('adapter smoke', () => {
       encodeURIComponent(value).replace(/%[0-9A-F]{2}/g, (escape) => escape.toLowerCase()),
     );
     expect(result.out).not.toContain(new URLSearchParams({ token: value }).toString().slice(6));
+    expect(result.out).not.toContain(encodeURIComponent(encodeURIComponent(value)));
     expect(result.out).toContain('[REDACTED]');
   });
 
@@ -488,6 +494,17 @@ describe('adapter smoke', () => {
     expect(result.out).not.toContain(encoded);
     expect(result.records.find((record) => record['source'] === 'spur')).toMatchObject({
       items: [{ facts: { links: { 'invalid-utf8': '[REDACTED]' } } }],
+    });
+  });
+
+  it('preserves unrelated ticket text containing an invalid UTF-8 escape', async () => {
+    const title = 'Synthetic title %C3';
+    const result = await run(fixture({ jiraTitle: title }));
+    expect(result.code).toBe(0);
+    expect(result.err).toBe('');
+    expect(result.records.find((record) => record['source'] === 'jira:demo')).toMatchObject({
+      status: 'pass',
+      items: [{ facts: { title } }],
     });
   });
 

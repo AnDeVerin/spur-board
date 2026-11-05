@@ -69,34 +69,21 @@ function decodePercent(value: string): string {
   try {
     return decodeURIComponent(value);
   } catch {
-    // A malformed escape elsewhere in a link must not hide a valid encoded secret.
+    // Decode valid bytes beside malformed UTF-8 so a neighboring secret stays detectable.
     return value.replace(/(?:%[0-9a-f]{2})+/gi, (part) => {
-      try {
-        return decodeURIComponent(part);
-      } catch {
-        return part;
+      const bytes = new Uint8Array(part.length / 3);
+      for (let offset = 0; offset < part.length; offset += 3) {
+        bytes[offset / 3] = Number.parseInt(part.slice(offset + 1, offset + 3), 16);
       }
+      return new TextDecoder().decode(bytes);
     });
   }
-}
-
-function hasInvalidPercentRun(value: string): boolean {
-  for (const [run] of value.matchAll(/(?:%[0-9a-f]{2})+/gi)) {
-    try {
-      decodeURIComponent(run);
-    } catch {
-      return true;
-    }
-  }
-  return false;
 }
 
 function containsDecodedSecret(value: string, secrets: Readonly<Record<string, string>>): boolean {
   const values = Object.values(secrets).filter((secret) => secret.length > 0);
   let current = value;
   for (let depth = 0; depth < 8; depth += 1) {
-    // A malformed UTF-8 run can conceal an adjacent encoded secret segment.
-    if (hasInvalidPercentRun(current)) return true;
     if (
       [current, current.replaceAll('+', ' ')].some((form) =>
         values.some((secret) => form.includes(secret)),
