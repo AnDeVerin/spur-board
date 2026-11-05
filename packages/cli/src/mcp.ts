@@ -106,9 +106,13 @@ export function createMcpServer(
   const probe = async (config: ClientConfig) => {
     const marked = mismatched.get(config.address.href);
     if (marked === undefined) return;
+    // The call was not sent, so a failed probe applied nothing: pass on an error that says so,
+    // and report any other failure as an unreachable daemon. The mark stays for the next call.
     const { clientVersion, serverVersion, matches, instance } = await compareCatalogs(config).catch(
-      () => {
-        throw new CliError('version_mismatch', marked);
+      (cause: unknown) => {
+        throw cause instanceof CliError && ERRORS[cause.code].recovery.sideEffects === 'none'
+          ? cause
+          : new CliError('daemon_unavailable');
       },
     );
     if (!matches) {

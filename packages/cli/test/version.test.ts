@@ -32,6 +32,8 @@ async function fakeDaemon(initial: { version: string; instance?: string | undefi
     instance: initial.instance,
     version: initial.version,
     schemaReady: true,
+    /** `/v1/schema` answers 200 with a body that is not JSON. */
+    brokenSchema: false,
     unknownOps: false,
   };
   const log: string[] = [];
@@ -56,6 +58,10 @@ async function fakeDaemon(initial: { version: string; instance?: string | undefi
             return;
           }
           response.writeHead(200, { 'content-type': 'application/json', ...instanceHeader });
+          if (state.brokenSchema) {
+            response.end('not json');
+            return;
+          }
           response.end(JSON.stringify({ version: state.version, operations: [] }));
           return;
         }
@@ -279,7 +285,7 @@ describe('catalog version check', () => {
     expect(daemon.log.filter((entry) => entry === schemaGet)).toHaveLength(1);
   });
 
-  it('board mcp keeps refusing while the probe fails and clears the mismatch once the daemon serves a matching catalog', async () => {
+  it('board mcp reports a failed probe as not applied, keeps the mismatch mark and clears it once the daemon serves a matching catalog', async () => {
     const version = await clientCatalogVersion();
     const daemon = await fakeDaemon({ version, instance: randomUUID() });
     await withMcp(daemon.url, async (client) => {
@@ -290,14 +296,28 @@ describe('catalog version check', () => {
 
       daemon.state.schemaReady = false;
       let before = daemon.log.length;
-      const unavailable = await client.callTool(query());
-      expect(unavailable.isError).toBe(true);
-      expect(structured(unavailable).code).toBe('version_mismatch');
-      expect(structured(unavailable).context.serverVersion).toBe(otherVersion);
+      const starting = await client.callTool(query());
+      expect(starting.isError).toBe(true);
+      expect(structured(starting).code).toBe('daemon_unavailable');
+      expect(structured(starting).hint).not.toContain(restartHint);
+      expect(daemon.log.slice(before)).toEqual([schemaGet]);
+
+      daemon.state.schemaReady = true;
+      daemon.state.brokenSchema = true;
+      before = daemon.log.length;
+      const broken = await client.callTool(query());
+      expect(broken.isError).toBe(true);
+      expect(structured(broken).code).toBe('daemon_unavailable');
+      expect(daemon.log.slice(before)).toEqual([schemaGet]);
+
+      daemon.state.brokenSchema = false;
+      before = daemon.log.length;
+      const stillMismatched = await client.callTool(query());
+      expect(structured(stillMismatched).code).toBe('version_mismatch');
+      expect(structured(stillMismatched).context.serverVersion).toBe(otherVersion);
       expect(daemon.log.slice(before)).toEqual([schemaGet]);
 
       daemon.restart(version);
-      daemon.state.schemaReady = true;
       before = daemon.log.length;
       const recovered = await client.callTool(query());
       expect(recovered.isError).not.toBe(true);
