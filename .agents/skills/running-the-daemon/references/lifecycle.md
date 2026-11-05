@@ -17,7 +17,8 @@
   STOPPING. `board-core` calls `onTick` only after a successful tick; the notifier drops WATCHDOG
   before READY and after STOPPING (`packages/daemon/test/systemd.test.ts`).
 - A module's optional `ready()` hook runs synchronously, in start order, once the state is
-  `ready`; a failed or aborted start runs none (`packages/daemon/test/lifecycle.test.ts`,
+  `ready`; a failed or aborted start runs none. A hook that throws logs `ready failed`, skips the
+  later hooks and runs the failed shutdown, exit code 1 (`packages/daemon/test/lifecycle.test.ts`,
   `describe('ready hooks')`).
 - `board-adapters` uses `startAdapters`; the runner owns per-source timers, backoff and aborts
   (`PollContext.signal`, A7 in `packages/contracts/src/adapters.ts`). Adapters never retry on
