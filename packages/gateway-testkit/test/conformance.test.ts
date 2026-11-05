@@ -58,6 +58,7 @@ describe('conformance cases', () => {
   });
 
   it('accepts supported live subsets and rejects invalid selections', () => {
+    expect(liveCaseIds).not.toContain('rate-limit');
     expect(() => {
       assertSupportedLiveCaseSet(['delivery', 'multipart']);
     }).not.toThrow();
@@ -69,6 +70,9 @@ describe('conformance cases', () => {
     }).toThrow(/unique/);
     expect(() => {
       assertSupportedLiveCaseSet(['unknown']);
+    }).toThrow(/unknown/);
+    expect(() => {
+      assertSupportedLiveCaseSet(['rate-limit']);
     }).toThrow(/unknown/);
   });
 

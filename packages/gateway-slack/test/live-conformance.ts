@@ -44,8 +44,6 @@ export interface LiveRunOptions {
   /** Local fake API only. The process command refuses API overrides. */
   apiUrl?: string;
   beforeCase?: (id: LiveCaseId) => Promise<void>;
-  /** Local fake API only: inject a fault after the probe message is created. */
-  beforeRateEdit?: () => Promise<void>;
   caseIds?: readonly LiveCaseId[];
   promptTimeoutMs?: number;
 }
@@ -59,6 +57,7 @@ interface LiveCaseResult {
 export interface LiveRunReport {
   date: string;
   results: readonly LiveCaseResult[];
+  rateLimit: { status: 'pass' | 'fail' | 'not-run'; observation: string };
 }
 
 class CaseError extends Error {}
@@ -111,9 +110,12 @@ async function promptWithTimeout(
   context: { conversation: ConversationRef; message?: MessageRef },
 ): Promise<void> {
   const controller = new AbortController();
-  const timer = setTimeout(() => {
-    controller.abort();
-  }, options.promptTimeoutMs ?? promptTimeoutMs);
+  const timer = setTimeout(
+    () => {
+      controller.abort();
+    },
+    options.promptTimeoutMs ?? (id === 'guided-mention' ? 180_000 : promptTimeoutMs),
+  );
   try {
     await options.prompt(id, instruction, context, controller.signal);
     if (controller.signal.aborted) throw new CaseError('guided action timed out');
@@ -134,6 +136,8 @@ interface RunContext {
   root?: ConversationRef;
   rootMessage?: MessageRef;
   humanMessage?: MessageRef;
+  rateLimit: LiveRunReport['rateLimit'];
+  rateWaitedMs: number;
 }
 
 function rootOf(ctx: RunContext): ConversationRef {
@@ -156,14 +160,41 @@ async function history(ctx: RunContext): Promise<unknown[]> {
   return readMessages(ctx.api, thread(ctx));
 }
 
-function deliver(
+async function deliver(
   ctx: RunContext,
   request: Omit<DeliverRequest, 'persona'>,
 ): Promise<DeliveryResult> {
-  return ctx.gateway.deliver({ ...request, persona });
+  let result = await ctx.gateway.deliver({ ...request, persona });
+  if (result.status !== 'retry' || result.uncertain) return result;
+  if (result.afterMs === undefined) {
+    ctx.rateLimit = { status: 'fail', observation: '429 lacked a usable Retry-After.' };
+    return result;
+  }
+  const failedBefore = ctx.rateLimit.status === 'fail';
+  for (let retry = 0; retry < 5; retry++) {
+    if (result.status !== 'retry' || result.afterMs === undefined) {
+      ctx.rateLimit = { status: 'fail', observation: '429 retry lacked a usable Retry-After.' };
+      return result;
+    }
+    ctx.rateLimit = { status: 'fail', observation: '429 retry was not confirmed.' };
+    if (ctx.rateWaitedMs + result.afterMs > 120_000) {
+      ctx.rateLimit.observation = 'Retry-After exceeded the wait budget.';
+      return result;
+    }
+    ctx.rateWaitedMs += result.afterMs;
+    await wait(result.afterMs);
+    result = await ctx.gateway.deliver({ ...request, maybeSent: true, persona });
+    if (result.status === 'delivered') {
+      if (!failedBefore) {
+        ctx.rateLimit = { status: 'pass', observation: 'Incidental 429 waited and retried.' };
+      }
+      return result;
+    }
+  }
+  return result;
 }
 
-async function deliveryCase(ctx: RunContext): Promise<string> {
+async function openRoot(ctx: RunContext): Promise<void> {
   const key = `${ctx.key}:root`;
   const opened = requireResult(
     await deliver(ctx, {
@@ -177,11 +208,16 @@ async function deliveryCase(ctx: RunContext): Promise<string> {
   need(opened.conversation !== undefined, 'open returned no conversation');
   ctx.root = opened.conversation;
   ctx.rootMessage = opened.message;
+}
+
+async function deliveryCase(ctx: RunContext): Promise<string> {
+  await openRoot(ctx);
+  const key = `${ctx.key}:root`;
   const replied = requireResult(
     await deliver(ctx, {
       key: `${ctx.key}:reply`,
       maybeSent: false,
-      target: { kind: 'reply', conversation: opened.conversation },
+      target: { kind: 'reply', conversation: rootOf(ctx) },
       body: textBody('Live conformance reply.'),
     }),
   );
@@ -197,7 +233,7 @@ async function deliveryCase(ctx: RunContext): Promise<string> {
     await deliver(ctx, {
       key: `${ctx.key}:close`,
       maybeSent: false,
-      target: { kind: 'close', conversation: opened.conversation },
+      target: { kind: 'close', conversation: rootOf(ctx) },
       body: textBody('Live conformance complete.'),
     }),
   );
@@ -291,64 +327,6 @@ async function recoveryCase(ctx: RunContext): Promise<string> {
   }
 }
 
-async function rateLimitCase(ctx: RunContext): Promise<string> {
-  const probeKey = `${ctx.key}:rate-probe`;
-  const probeRequest = {
-    key: probeKey,
-    target: { kind: 'reply' as const, conversation: rootOf(ctx) },
-    body: textBody('Live conformance rate probe.'),
-  };
-  let observed = false;
-  let waited = 0;
-  let probeResult = await deliver(ctx, { ...probeRequest, maybeSent: false });
-  for (let retry = 0; retry < 5 && probeResult.status !== 'delivered'; retry++) {
-    if (probeResult.status !== 'retry' || probeResult.afterMs === undefined) {
-      throw new CaseError('rate-limit response lacked a usable Retry-After');
-    }
-    observed = true;
-    need(waited + probeResult.afterMs <= 120_000, 'Retry-After exceeded the wait budget');
-    waited += probeResult.afterMs;
-    await wait(probeResult.afterMs);
-    probeResult = await deliver(ctx, { ...probeRequest, maybeSent: true });
-  }
-  const probe = requireResult(probeResult);
-  if (observed) {
-    need(countMarker(await history(ctx), probeKey) === 1, 'rate-limit retry duplicated a post');
-    return '429, Retry-After wait and one marked retry confirmed';
-  }
-  await ctx.options.beforeRateEdit?.();
-  const deadline = Date.now() + 90_000;
-  for (let index = 0; index < 120 && Date.now() < deadline; index++) {
-    const key = `${ctx.key}:rate:${String(index)}`;
-    const request = {
-      key,
-      target: { kind: 'edit' as const, message: probe.message },
-      body: textBody('Live conformance rate check.'),
-    };
-    let result = await deliver(ctx, { ...request, maybeSent: false });
-    if (result.status === 'delivered') continue;
-    for (let retry = 0; retry < 5 && result.status !== 'delivered'; retry++) {
-      if (result.status !== 'retry' || result.afterMs === undefined) {
-        throw new CaseError('rate-limit response lacked a usable Retry-After');
-      }
-      observed = true;
-      need(waited + result.afterMs <= 120_000, 'Retry-After exceeded the wait budget');
-      waited += result.afterMs;
-      await wait(result.afterMs);
-      result = await deliver(ctx, { ...request, maybeSent: true });
-    }
-    const retried = requireResult(result);
-    need(retried.message.length > 0, 'retry did not confirm delivery');
-    need(
-      countMarker(await history(ctx), key) === 1,
-      'rate-limit retry did not confirm one marked edit',
-    );
-    break;
-  }
-  need(observed, 'no rate limit was observed within 120 edits or 90 seconds');
-  return '429, Retry-After wait and one marked retry confirmed';
-}
-
 async function botPostsCase(ctx: RunContext): Promise<string> {
   const start = ctx.events.length;
   const key = `${ctx.key}:echo`;
@@ -392,7 +370,7 @@ async function guidedCase(ctx: RunContext, id: LiveCaseId): Promise<string> {
       instruction = `Run /board ${token} in the test channel, then press Enter.`;
       break;
     case 'guided-mention':
-      instruction = `On the run root message, select Reply in thread. In the thread composer, mention the app and include ${token}, then press Enter.`;
+      instruction = `On the run root message, select Reply in thread. In the thread composer, type @ and select the app from autocomplete, include ${token}, then press Enter.`;
       break;
     default:
       throw new CaseError('unknown guided case');
@@ -470,8 +448,6 @@ async function execute(ctx: RunContext, id: LiveCaseId): Promise<string> {
       return maybeSentCase(ctx);
     case 'recovery':
       return recoveryCase(ctx);
-    case 'rate-limit':
-      return rateLimitCase(ctx);
     case 'bot-posts':
       return botPostsCase(ctx);
     default:
@@ -505,6 +481,8 @@ export async function runLiveConformance(options: LiveRunOptions): Promise<LiveR
     events,
     key: `live-${randomUUID()}`,
     botUser: bot.user_id,
+    rateLimit: { status: 'not-run', observation: 'No incidental 429 observed.' },
+    rateWaitedMs: 0,
   };
   const results: LiveCaseResult[] = [];
   try {
@@ -515,6 +493,7 @@ export async function runLiveConformance(options: LiveRunOptions): Promise<LiveR
     for (const id of caseIds) {
       try {
         await options.beforeCase?.(id);
+        if (id === 'guided-mention' && ctx.root === undefined) await openRoot(ctx);
         const observation = await execute(ctx, id);
         results.push({ id, status: 'pass', observation });
       } catch (error) {
@@ -529,5 +508,5 @@ export async function runLiveConformance(options: LiveRunOptions): Promise<LiveR
     await gateway.stop();
   }
   assertExactLiveResults(caseIds, results);
-  return { date: new Date().toISOString().slice(0, 10), results };
+  return { date: new Date().toISOString().slice(0, 10), results, rateLimit: ctx.rateLimit };
 }

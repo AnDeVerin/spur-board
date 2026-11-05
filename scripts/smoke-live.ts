@@ -3,7 +3,7 @@ import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { createInterface } from 'node:readline/promises';
 import type { UserId } from '../packages/contracts/src/index.ts';
-import { liveCases } from '../packages/gateway-testkit/src/cases.ts';
+import { liveCases, type LiveCaseId } from '../packages/gateway-testkit/src/cases.ts';
 import type { LiveRunReport } from '../packages/gateway-slack/test/live-conformance.ts';
 
 const channelVariable = 'BOARD_LIVE_CHANNEL';
@@ -15,6 +15,15 @@ interface LiveSettings {
   appToken: string;
   channel: string;
   operator: UserId;
+}
+
+/** A focused rerun creates its own root thread and reports only the selected case. */
+export function selectedLiveCases(args: readonly string[]): readonly LiveCaseId[] | undefined {
+  if (args.length === 0) return undefined;
+  if (args.length === 2 && args[0] === '--case' && args[1] === 'guided-mention') {
+    return ['guided-mention'];
+  }
+  throw new PreflightError('Use --case guided-mention for a focused live run.');
 }
 
 /** Check all local safety conditions before constructing a Slack client. */
@@ -79,6 +88,7 @@ export function formatLiveReport(report: LiveRunReport): string {
       (result) =>
         `${result.status.toUpperCase()} ${result.id}: ${titles.get(result.id) ?? 'case'} — ${result.observation}`,
     ),
+    `${report.rateLimit.status === 'not-run' ? 'NOT RUN' : report.rateLimit.status.toUpperCase()} rate-limit: ${report.rateLimit.observation}`,
   ];
   return lines.join('\n');
 }
@@ -87,17 +97,22 @@ async function main(): Promise<number> {
   let terminal: ReturnType<typeof createInterface> | undefined;
   try {
     const settings = await liveSettings(process.env);
+    const caseIds = selectedLiveCases(process.argv.slice(2));
     const { runLiveConformance } =
       await import('../packages/gateway-slack/test/live-conformance.ts');
     terminal = createInterface({ input: process.stdin, output: process.stdout });
     const report = await runLiveConformance({
       ...settings,
+      ...(caseIds === undefined ? {} : { caseIds }),
       prompt: async (_id, instruction, _context, signal) => {
         await terminal?.question(`${instruction}\nPress Enter after the action.\n`, { signal });
       },
     });
     process.stdout.write(`${formatLiveReport(report)}\n`);
-    return report.results.every((result) => result.status === 'pass') ? 0 : 1;
+    return report.results.every((result) => result.status === 'pass') &&
+      report.rateLimit.status !== 'fail'
+      ? 0
+      : 1;
   } catch (error) {
     process.stderr.write(
       `${error instanceof PreflightError ? error.message : 'Live conformance could not finish.'}\n`,

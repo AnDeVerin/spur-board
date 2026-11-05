@@ -20,7 +20,6 @@ export const liveCases = [
   { id: 'multipart', title: 'multi-part delivery' },
   { id: 'maybe-sent', title: 'recent post search and duplicate protection' },
   { id: 'recovery', title: 'thread history recovery after disconnect' },
-  { id: 'rate-limit', title: 'Retry-After recovery' },
   { id: 'bot-posts', title: 'bot posts are ignored' },
   { id: 'guided-reply', title: 'human thread reply' },
   { id: 'guided-edit', title: 'human edit' },

@@ -3,7 +3,7 @@ import { rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { makeHome, VALID_CONFIG_YAML } from '../packages/daemon/test/home.ts';
-import { formatLiveReport, liveSettings } from './smoke-live.ts';
+import { formatLiveReport, liveSettings, selectedLiveCases } from './smoke-live.ts';
 
 const script = join(import.meta.dirname, 'smoke-live.ts');
 const homes: string[] = [];
@@ -14,12 +14,15 @@ function home(options: Parameters<typeof makeHome>[0]): string {
   return path;
 }
 
-function run(env: Record<string, string>): {
+function run(
+  env: Record<string, string>,
+  args: readonly string[] = [],
+): {
   status: number | null;
   stdout: string;
   stderr: string;
 } {
-  const result = spawnSync(process.execPath, [script], {
+  const result = spawnSync(process.execPath, [script, ...args], {
     cwd: join(import.meta.dirname, '..'),
     env: { PATH: process.env['PATH'] ?? '', ...env },
     encoding: 'utf8',
@@ -38,7 +41,10 @@ afterEach(() => {
 
 describe('live conformance process preflight', () => {
   it('refuses CI before reading config or connecting', () => {
-    const result = run({ CI: 'true', BOARD_HOME: '/missing', BOARD_LIVE_CHANNEL: 'CTEST00000' });
+    const result = run({ CI: 'true', BOARD_HOME: '/missing', BOARD_LIVE_CHANNEL: 'CTEST00000' }, [
+      '--case',
+      'guided-mention',
+    ]);
     expect(result.status).not.toBe(0);
     expect(result.stdout).toBe('');
     expect(result.stderr).toContain('Live conformance is disabled in CI.');
@@ -77,15 +83,22 @@ describe('live conformance process preflight', () => {
   it('formats a complete safe report with declared SDK versions', () => {
     const output = formatLiveReport({
       date: '2026-11-05',
-      results: [
-        { id: 'delivery', status: 'pass', observation: 'delivery confirmed' },
-        { id: 'rate-limit', status: 'fail', observation: '429 not observed' },
-      ],
+      results: [{ id: 'delivery', status: 'pass', observation: 'delivery confirmed' }],
+      rateLimit: { status: 'not-run', observation: 'No incidental 429 observed.' },
     });
     expect(output).toContain('2026-11-05');
     expect(output).toContain('@slack/web-api 8.2.0');
     expect(output).toContain('@slack/socket-mode 3.1.0');
     expect(output).toContain('PASS delivery');
-    expect(output).toContain('FAIL rate-limit');
+    expect(output).toContain('NOT RUN rate-limit');
+  });
+
+  it('selects only the guided mention for a focused rerun', () => {
+    expect(selectedLiveCases([])).toBeUndefined();
+    expect(selectedLiveCases(['--case', 'guided-mention'])).toEqual(['guided-mention']);
+    expect(() => selectedLiveCases(['--case', 'rate-limit'])).toThrow(/focused live run/);
+    expect(() => selectedLiveCases(['--case', 'guided-mention', 'delivery'])).toThrow(
+      /focused live run/,
+    );
   });
 });

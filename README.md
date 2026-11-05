@@ -31,8 +31,19 @@ Use the daemon's local `config.yaml` and mode-protected `secrets.env`. The secre
 `BOARD_LIVE_CHANNEL`. The command rejects either configured delivery channel, refuses `CI=true`,
 and does not print tokens or the channel ID. It prints timed instructions for a thread reply,
 edit, button press, slash command, mention, and a reply while disconnected. Press Enter after each
-guided action. A case fails if its required observation does not arrive; a rate-limit case passes
-only when the run sees a real 429 and honors `Retry-After`.
+guided action. A case fails if its required observation does not arrive.
+
+To rerun only the thread mention, use:
+
+```sh
+BOARD_LIVE_CHANNEL=<test-channel-id> pnpm smoke:live --case guided-mention
+```
+
+The focused run creates a root thread and reports only the mention case. In Slack, use **Reply in
+thread** on that root message, type `@`, select the app from autocomplete, and include the prompt's
+marker. The mention prompt allows three minutes; other guided prompts allow 90 seconds. Rate-limit
+is outside the supported live case set. The report says `NOT RUN rate-limit` unless a normal
+delivery happens to receive a 429; then it records whether the `Retry-After` wait and retry worked.
 
 Run this check before M1 acceptance (#66), after each Slack SDK update, and before every release.
 Capture the final case report for the change review. The fake and live coverage is described in

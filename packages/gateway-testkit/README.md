@@ -3,7 +3,7 @@
 Fake gateway targets run the complete shared conformance suite in CI. A fake target cannot declare
 only a subset. The manual Slack target declares its supported case IDs from the same registry and
 reports one pass or fail for each declared case. Its cases cover real delivery, marker lookup,
-thread-history recovery, rate limits, bot echoes, and guided inbound interactions. The live target
+thread-history recovery, bot echoes, and guided inbound interactions. The live target
 uses the production gateway and does not inject faults into its client.
 
 The live run is manual because it requires a private test channel and human actions. Run it with
@@ -13,6 +13,7 @@ remaining difference here with the observed behavior and consequence.
 
 ## Known differences
 
-- A local fake can force a 429 on the next write, but a real run accepted 30 serial posts without
-  one. The live probe now edits one dedicated message up to 120 times or 90 seconds and reports a
-  failure unless it observes a 429, waits for Retry-After and confirms the marked retry.
+- The fake deterministically covers 429 and Retry-After. Several live runs did not encounter 429,
+  even during bounded write bursts. The live runner no longer provokes one: it reports rate-limit
+  as NOT RUN unless a normal delivery receives an incidental 429. In that case it waits for
+  Retry-After, retries, and reports whether delivery was confirmed.
