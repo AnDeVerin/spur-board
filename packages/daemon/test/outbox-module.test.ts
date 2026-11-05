@@ -2,6 +2,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { join } from 'node:path';
 import { createSender, openStore, requestToken, type Store } from '@spur-board/core';
 import { createSlackGateway } from '@spur-board/gateway-slack';
+import { createFakeGateway } from '@spur-board/gateway-testkit';
 import pino from 'pino';
 import { describe, expect, it } from 'vitest';
 import { startFakeSlackApi } from '../../gateway-slack/test/fake-api.ts';
@@ -242,4 +243,72 @@ describe('outbox scheduler', () => {
       await api.close();
     }
   }, 30_000);
+
+  it('ignores connection updates after stop and waits for one in flight', async () => {
+    const home = makeHome();
+    const base = openStore(join(home, 'board.sqlite'));
+    const gateway = createFakeGateway({ profile: 'slack-like' });
+    const at = new Date().toISOString();
+    const seedDown = (space: 'feed' | 'orchestrators') =>
+      base.transaction((trx) =>
+        trx
+          .insertInto('transport_health')
+          .values({ gateway: gateway.kind, space, reason: 'down', since: at, probe_at: at })
+          .execute(),
+      );
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let entered: () => void = () => undefined;
+    const holding = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    let transactions = 0;
+    const store: Store = {
+      ...base,
+      async transaction(fn) {
+        transactions += 1;
+        entered();
+        await held;
+        return base.transaction(fn);
+      },
+    };
+    const loaded = loadConfig(resolvePaths({ BOARD_HOME: home }, home));
+    const ctx: ModuleContext<Store> = {
+      ...loaded,
+      store,
+      log: pino({ level: 'silent' }),
+      clock: { now: () => Date.now() },
+      logCall: (_call, fn) => fn(),
+      state: () => 'ready',
+    };
+    const module = createOutboxModule(ctx, gateway);
+    try {
+      await seedDown('feed');
+      const update = module.connection('up');
+      await holding;
+      let stopped = false;
+      const stopping = module.stop().then(() => {
+        stopped = true;
+      });
+      await sleep(50);
+      expect(stopped).toBe(false);
+      release();
+      await stopping;
+      await update;
+      expect(await base.db.selectFrom('transport_health').select('space').execute()).toEqual([]);
+      const before = transactions;
+      await seedDown('orchestrators');
+      await module.connection('up');
+      expect(transactions).toBe(before);
+      expect(await base.db.selectFrom('transport_health').select('space').execute()).toEqual([
+        { space: 'orchestrators' },
+      ]);
+    } finally {
+      release();
+      await module.stop();
+      await base.close();
+    }
+  });
 });

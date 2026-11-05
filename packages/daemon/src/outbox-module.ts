@@ -1,4 +1,4 @@
-import type { Config, Gateway } from '@spur-board/contracts';
+import type { Config, ConnectionState, Gateway } from '@spur-board/contracts';
 import { createSender, expirePendingTokens, type SpurPort, type Store } from '@spur-board/core';
 import { ConfigError } from './config.ts';
 import type { Module, ModuleContext } from './lifecycle.ts';
@@ -62,12 +62,19 @@ export function slackSettings(
   };
 }
 
-/** Own the timer and wait for the last queued sender tick before the store closes. */
+/**
+ * Own the timer and wait for the last queued sender tick and connection update before the store
+ * closes.
+ */
 export function createOutboxModule(
   ctx: ModuleContext<Store>,
   gateway?: Gateway,
   options: { spur?: SpurPort } = {},
-): Module & { pulse(): Promise<void> } {
+): Module & {
+  pulse(): Promise<void>;
+  /** Records a gateway connection change; logs its own failure and ignores events after stop. */
+  connection(state: ConnectionState): Promise<void>;
+} {
   const spur = options.spur ?? createSpurPort();
   const sender = createSender({
     store: ctx.store,
@@ -78,6 +85,7 @@ export function createOutboxModule(
   });
   let timer: ReturnType<typeof setTimeout> | undefined;
   let active: Promise<void> = Promise.resolve();
+  let updating: Promise<void> = Promise.resolve();
   let stopped = false;
   let signal: AbortSignal | undefined;
   const schedule = (): void => {
@@ -113,7 +121,18 @@ export function createOutboxModule(
       stopped = true;
       if (timer !== undefined) clearTimeout(timer);
       await active;
+      await updating;
     },
     pulse: tick,
+    connection(state) {
+      if (stopped) return Promise.resolve();
+      const update = sender
+        .recordConnection(state, new Date(ctx.clock.now()))
+        .catch((err: unknown) => {
+          ctx.log.error({ err }, 'transport state update failed');
+        });
+      updating = Promise.all([updating, update]).then(() => undefined);
+      return update;
+    },
   };
 }
