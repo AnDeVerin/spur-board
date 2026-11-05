@@ -603,9 +603,7 @@ describe('catalog HTTP API', () => {
         'This daemon does not know the operation. Run `board service restart` to update the daemon, then retry.',
       );
       expect(response.statusCode).toBe(409);
-      expect(response.json()).toMatchObject({
-        hint: expect.stringContaining('board service restart'),
-      });
+      expect(response.json<{ hint: string }>().hint).toContain('board service restart');
       const anonymous = await app.inject({
         ...post({}, 'task.renamed'),
         headers: { host, 'content-type': 'application/json' },
