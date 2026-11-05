@@ -36,7 +36,7 @@ Follow [SETUP.md](SETUP.md) for the commands and file locations. Use
 
 - [CLI commands](docs/cli.md), [configuration](docs/configuration.md), and the [docs index](docs/)
 - [MIT license](LICENSE)
-- Contribution and security guidance is tracked in [issue #7](https://github.com/AnDeVerin/spur-board/issues/7).
+- [Contributing](CONTRIBUTING.md) and the [security policy](SECURITY.md)
 
 ## Live Slack conformance
 
