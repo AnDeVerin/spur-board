@@ -1750,11 +1750,17 @@ describe('transport health', () => {
       ['feed', 'down'],
       ['orchestrators', 'token_revoked'],
     ]);
+    const promoted = await activeTransportItems(ctx);
+    expect(promoted).toHaveLength(1);
+    expect(promoted[0]?.text).toContain('(token_revoked)');
     await ctx.sender.recordConnection('up', ctx.fake.platform.now());
     expect((await healthRows(ctx)).map((h) => [h.space, h.reason])).toEqual([
       ['orchestrators', 'token_revoked'],
     ]);
-    expect(await activeTransportItems(ctx)).toHaveLength(1);
+    const kept = await activeTransportItems(ctx);
+    expect(kept).toHaveLength(1);
+    expect(kept[0]?.id).toBe(promoted[0]?.id);
+    expect(kept[0]?.text).toContain('(token_revoked)');
     expect(await eventCount(ctx, 'from_you_raised')).toBe(1);
     expect(await eventCount(ctx, 'from_you_cleared')).toBe(0);
   });

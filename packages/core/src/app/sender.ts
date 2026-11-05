@@ -128,11 +128,14 @@ async function syncTransportItem(trx: Trx, gateway: string, at: Date): Promise<v
     .execute();
   const first = rows[0];
   if (first !== undefined) {
-    const reason = first.reason === 'down' ? 'connection lost' : first.reason;
-    await raiseItem(trx, {
+    // A permanent failure needs the operator's action, so it names the item over a lost socket.
+    const permanent = rows.find((r) => r.reason !== 'down');
+    const reason = permanent?.reason ?? 'connection lost';
+    const text = `${gateway} delivery down since ${first.since} (${reason})`;
+    const item = await raiseItem(trx, {
       itemKey,
       kind: 'transport_health',
-      text: `${gateway} delivery down since ${first.since} (${reason})`,
+      text,
       url: '',
       taskId: null,
       blockId: null,
@@ -140,6 +143,11 @@ async function syncTransportItem(trx: Trx, gateway: string, at: Date): Promise<v
       suppressFeed: true,
       at,
     });
+    // raiseItem keeps an active item as it is; the item has no feed line, so its text is
+    // updated in place when the rows change the reason.
+    if (item.text !== text) {
+      await trx.updateTable('operator_item').set({ text }).where('id', '=', item.id).execute();
+    }
     return;
   }
   const active = await trx
