@@ -41,7 +41,7 @@ Follow [SETUP.md](SETUP.md) for the commands and file locations. Use
 ## Live Slack conformance
 
 Run this check from a repository clone after `pnpm install`. Invite the Slack app to the designated
-private test channel, and stop any running board daemon that uses the same app token. Concurrent
+private test channel, and stop any running daemon process that uses the same app token. Concurrent
 Socket Mode connections can split events between the daemon and this check.
 
 Run the live gateway check manually in that channel:
