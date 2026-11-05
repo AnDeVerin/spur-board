@@ -32,7 +32,7 @@ Other errors: `not_found`.
 
 ### `board task`
 
-Purpose: Show a task with its blocks and comments.
+Purpose: Show a task with its links, blocks and comments.
 Arguments: `<task>`.
 Flags: `--json`.
 Use when: Inspect one task now.
