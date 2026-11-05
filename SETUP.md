@@ -80,11 +80,13 @@ and `SLACK_BOT_TOKEN` and `SLACK_APP_TOKEN` are needed when Slack is configured.
 [configuration reference](docs/configuration.md#secretsenv-keys) lists optional names. Provide
 values through a private local input method and check only key names and file mode afterward.
 
-For GitHub check runs on private repositories, use a **classic personal access token with the
-`repo` scope**. Authorize it for organization SSO where applicable. A fine-grained personal
-access token can resolve the repository and pull requests yet return `FORBIDDEN` for every
-`CheckRun` in `statusCheckRollup.contexts`, because it lacks Checks permission. A GitHub App
-with the needed permissions may be an alternative in a future release.
+For GitHub check runs and requested review teams on private repositories, use a
+**classic personal access token with the `repo` and `read:org` scopes**. Authorize it for organization
+SSO where applicable. A fine-grained personal access token can resolve the repository and pull
+requests yet return `FORBIDDEN` for every `CheckRun` in `statusCheckRollup.contexts`, because it
+lacks Checks permission. A classic token without `read:org` can return `INSUFFICIENT_SCOPES` for
+a requested team's name. A GitHub App with the needed permissions may be an alternative in a
+future release.
 
 Validate the file before starting the service:
 

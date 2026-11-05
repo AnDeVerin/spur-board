@@ -94,9 +94,117 @@ function doctorFetch(fail?: string): typeof fetch {
       return Promise.resolve(
         new Response(null, { status: fail === 'jira.credentials' ? 401 : 200 }),
       );
+    if (path === '/graphql') {
+      expect(init?.method).toBe('POST');
+      expect(init?.signal).toBeInstanceOf(AbortSignal);
+      if (typeof init?.body !== 'string') throw new Error('Expected GitHub GraphQL body');
+      const sent = JSON.parse(init.body) as { query: string; variables: unknown };
+      expect(sent.query).toContain('pullRequests(first: 10');
+      expect(sent.query).toContain('statusCheckRollup');
+      expect(sent.query).toContain('... on Team { name }');
+      expect(sent.variables).toEqual({ owner: 'example', repo: 'board' });
+      if (fail === 'github.stalled-body')
+        return Promise.resolve(new Response(new ReadableStream({ start() {} })));
+      const requestedTeam =
+        fail === 'github.team-readable'
+          ? [{ requestedReviewer: { __typename: 'Team', name: 'reviewers' } }]
+          : [];
+      const prs =
+        fail === 'github.checked-older'
+          ? [
+              { statusCheckRollup: null, reviewRequests: { nodes: [] } },
+              {
+                statusCheckRollup: { contexts: { nodes: [{ name: null }] } },
+                reviewRequests: { nodes: [] },
+              },
+            ]
+          : [{ statusCheckRollup: null, reviewRequests: { nodes: requestedTeam } }];
+      return Promise.resolve(
+        Response.json({
+          data: {
+            repository: {
+              pullRequests: { nodes: prs },
+              defaultBranchRef: {
+                target: {
+                  statusCheckRollup:
+                    fail === 'github.no-contexts' || fail === 'github.no-header'
+                      ? null
+                      : { contexts: { nodes: [{ name: 'build' }] } },
+                },
+              },
+            },
+          },
+          errors:
+            fail === 'github.checks' || fail === 'github.checked-older'
+              ? [
+                  {
+                    type: 'FORBIDDEN',
+                    path:
+                      fail === 'github.checked-older'
+                        ? [
+                            'repository',
+                            'pullRequests',
+                            'nodes',
+                            1,
+                            'statusCheckRollup',
+                            'contexts',
+                            'nodes',
+                            0,
+                            'name',
+                          ]
+                        : [
+                            'repository',
+                            'defaultBranchRef',
+                            'target',
+                            'statusCheckRollup',
+                            'contexts',
+                            'nodes',
+                            0,
+                            'name',
+                          ],
+                  },
+                ]
+              : fail === 'github.team'
+                ? [
+                    {
+                      type: 'INSUFFICIENT_SCOPES',
+                      path: [
+                        'repository',
+                        'pullRequests',
+                        'nodes',
+                        0,
+                        'reviewRequests',
+                        'nodes',
+                        0,
+                        'requestedReviewer',
+                        'name',
+                      ],
+                    },
+                  ]
+                : fail === 'github.unrelated'
+                  ? [{ type: 'FORBIDDEN', path: ['repository', 'name'] }]
+                  : [],
+        }),
+      );
+    }
     if (url.host === 'api.github.com')
       return Promise.resolve(
-        new Response(null, { status: fail === 'github.credentials' ? 403 : 200 }),
+        new Response(null, {
+          status: fail === 'github.credentials' ? 403 : 200,
+          headers:
+            fail === 'github.no-header' || fail === 'github.team-readable'
+              ? {}
+              : {
+                  'x-oauth-scopes':
+                    fail === 'github.no-read-org'
+                      ? 'repo'
+                      : fail === 'github.write-org'
+                        ? 'repo, write:org'
+                        : fail === 'github.admin-org'
+                          ? 'repo, admin:org'
+                          : 'repo, read:org',
+                },
+        }),
       );
     if (path.endsWith('/sessions'))
       return Promise.resolve(new Response(null, { status: fail === 'spur.api' ? 503 : 200 }));
@@ -146,6 +254,102 @@ function doctorFetch(fail?: string): typeof fetch {
 }
 
 describe('daemon doctor checks', () => {
+  it('rejects a token denied access to CheckRun data after repository access succeeds', async () => {
+    const report = await runDaemonDoctor(
+      doctorContext({ operator: true, slack: false }),
+      '1.2.3',
+      doctorFetch('github.checks'),
+    );
+    const github = report.checks.find((entry) => entry.id === 'github.credentials');
+    expect(github).toMatchObject({ status: 'fail', blocking: true });
+    expect(github?.fix).toContain('classic');
+    expect(github?.fix).toContain('repo');
+    expect(github?.fix).toContain('SSO');
+  });
+
+  it('finds a check denial on an older sampled PR after an unchecked newer PR', async () => {
+    const report = await runDaemonDoctor(
+      doctorContext({ operator: true, slack: false }),
+      '1.2.3',
+      doctorFetch('github.checked-older'),
+    );
+    const github = report.checks.find((entry) => entry.id === 'github.credentials');
+    expect(github).toMatchObject({
+      status: 'fail',
+      blocking: true,
+    });
+    expect(github?.fix).toContain('repo');
+  });
+
+  it('names read:org when a requested team name is denied with partial data', async () => {
+    const report = await runDaemonDoctor(
+      doctorContext({ operator: true, slack: false }),
+      '1.2.3',
+      doctorFetch('github.team'),
+    );
+    const github = report.checks.find((entry) => entry.id === 'github.credentials');
+    expect(github).toMatchObject({
+      status: 'fail',
+      blocking: true,
+    });
+    expect(github?.fix).toContain('read:org');
+    expect(JSON.stringify(report)).not.toMatch(/secret-canary|reviewers|example\/board/);
+  });
+
+  it.each([
+    ['contexts present', undefined],
+    ['no contexts', 'github.no-contexts'],
+    ['no contexts or team requests with an absent scope header', 'github.no-header'],
+    ['readable team field without a scope header', 'github.team-readable'],
+    ['write:org without redundant read:org', 'github.write-org'],
+    ['admin:org without redundant read:org', 'github.admin-org'],
+  ])('passes with %s', async (_case, mode) => {
+    const fetcher = doctorFetch(mode);
+    const report = await runDaemonDoctor(
+      doctorContext({ operator: true, slack: false }),
+      '1.2.3',
+      fetcher,
+    );
+    expect(report.checks.find((entry) => entry.id === 'github.credentials')).toMatchObject({
+      status: 'pass',
+      blocking: false,
+      fix: null,
+    });
+    expect(fetcher).toHaveBeenCalledTimes(4);
+  });
+
+  it.each([
+    ['missing read:org', 'github.no-read-org', 'read:org'],
+    ['unrelated GraphQL error', 'github.unrelated', 'repository access'],
+  ])('fails safely for %s', async (_case, mode, hint) => {
+    const report = await runDaemonDoctor(
+      doctorContext({ operator: true, slack: false }),
+      '1.2.3',
+      doctorFetch(mode),
+    );
+    const github = report.checks.find((entry) => entry.id === 'github.credentials');
+    expect(github).toMatchObject({
+      status: 'fail',
+      blocking: true,
+    });
+    expect(github?.fix).toContain(hint);
+  });
+
+  it('bounds GraphQL body consumption with the doctor deadline', async () => {
+    const started = Date.now();
+    const report = await runDaemonDoctor(
+      doctorContext({ operator: true, slack: false }),
+      '1.2.3',
+      doctorFetch('github.stalled-body'),
+    );
+    expect(Date.now() - started).toBeLessThan(7_000);
+    expect(report.checks.find((entry) => entry.id === 'github.credentials')).toMatchObject({
+      status: 'fail',
+      blocking: true,
+      fix: 'Check the GitHub token and repository access.',
+    });
+  }, 8_000);
+
   it('documents every check ID emitted by the daemon with and without Slack', async () => {
     const configured = await runDaemonDoctor(
       doctorContext({ operator: true }),
@@ -203,7 +407,7 @@ describe('daemon doctor checks', () => {
       fix: 'Slack is not configured: questions addressed to you are only visible through board inbox. Run the spur-board-setup skill to configure slack.channels.',
     });
     expect(report.checks.every((check) => !check.blocking)).toBe(true);
-    expect(fetcher).toHaveBeenCalledTimes(3);
+    expect(fetcher).toHaveBeenCalledTimes(4);
   });
 
   it('fails with the missing bot scope when the token is valid', async () => {
@@ -239,7 +443,7 @@ describe('daemon doctor checks', () => {
     expect(report.checks.filter((check) => check.id.startsWith('slack.'))).toEqual([
       expect.objectContaining({ id: 'slack.configured', status: 'warning', blocking: false }),
     ]);
-    expect(fetcher).toHaveBeenCalledTimes(3);
+    expect(fetcher).toHaveBeenCalledTimes(4);
   });
 
   it('reports every daemon-owned check as passing without returning credential values', async () => {
