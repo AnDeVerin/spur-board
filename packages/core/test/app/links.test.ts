@@ -206,6 +206,25 @@ describe('manual task links', () => {
     ]);
   });
 
+  it('matches mixed-case observed PRs when manually linked and unlinked', async () => {
+    const { store, call, observe } = await setup();
+    const facts = { ...prFact(7), repo: 'O/R', url: 'https://github.com/O/R/pull/7' };
+    await observe('github:board:o/r', { kind: 'pr', facts });
+    await call('link.add', { mode: 'pr', task, pr: prUrl(7), reason: 'Confirm PR.' });
+    expect(await store.db.selectFrom('link').select('id').execute()).toHaveLength(1);
+    const status = await getStatus({ store, config, clock, completeSince: new Map() });
+    expect(status.tasks[0]?.prs).toHaveLength(1);
+    expect(status.unlinkedPrs).toHaveLength(0);
+    await call('link.remove', { mode: 'pr', task, pr: prUrl(7), reason: 'Wrong PR.' });
+    await observe('github:board:o/r', { kind: 'pr', facts });
+    expect(await store.db.selectFrom('link').select(['repo', 'banned']).execute()).toEqual([
+      { repo: 'O/R', banned: 1 },
+    ]);
+    expect(await store.db.selectFrom('pr_snapshot').select('repo').execute()).toEqual([
+      { repo: 'O/R' },
+    ]);
+  });
+
   it('bans a session only for the named task', async () => {
     const { store, registry, call, observe } = await setup();
     await call('link.remove', {

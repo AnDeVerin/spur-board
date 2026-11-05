@@ -1,6 +1,6 @@
 import type { PrFacts } from '@spur-board/contracts';
 import { prFactsSchema } from '@spur-board/contracts';
-import type { Selectable } from 'kysely';
+import { sql, type Selectable } from 'kysely';
 import { parseJson } from '../store/json.ts';
 import type { LinkTable } from '../store/schema.ts';
 import { emit, type Trx } from './board-utils.ts';
@@ -36,7 +36,7 @@ async function snapshot(trx: Trx, repo: string, number: number): Promise<PrFacts
   const row = await trx
     .selectFrom('pr_snapshot')
     .select('detail')
-    .where('repo', '=', repo)
+    .where(sql<boolean>`lower(repo) = ${repo.toLowerCase()}`)
     .where('number', '=', number)
     .executeTakeFirst();
   return row === undefined ? null : parseJson(prFactsSchema, row.detail);
@@ -48,7 +48,7 @@ async function existingLink(trx: Trx, taskId: number, input: LinkInput): Promise
     const pr = prIdentity(input.pr);
     query = query
       .where('entity', '=', 'pr')
-      .where('repo', '=', pr.repo)
+      .where(sql<boolean>`lower(repo) = ${pr.repo}`)
       .where('number', '=', pr.number);
   } else if (input.mode === 'session') {
     query = query.where('entity', '=', 'session').where('session_id', '=', input.session);
@@ -75,7 +75,7 @@ async function prConflict(trx: Trx, taskId: number, repo: string, number: number
     .selectFrom('link')
     .leftJoin('pr_snapshot', (join) =>
       join
-        .onRef('pr_snapshot.repo', '=', 'link.repo')
+        .on(sql<boolean>`lower(pr_snapshot.repo) = lower(link.repo)`)
         .onRef('pr_snapshot.number', '=', 'link.number'),
     )
     .select(['link.repo', 'link.number', 'link.pr_state', 'link.pr_open', 'pr_snapshot.state'])
@@ -84,7 +84,7 @@ async function prConflict(trx: Trx, taskId: number, repo: string, number: number
     .where('link.banned', '=', 0)
     .execute();
   for (const link of links) {
-    if (link.repo === repo && link.number === number) continue;
+    if (link.repo?.toLowerCase() === repo && link.number === number) continue;
     const blocking = `${link.repo ?? ''}#${String(link.number ?? '')}`;
     if (link.state === 'merged')
       throw new CommandError(

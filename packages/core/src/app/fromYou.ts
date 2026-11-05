@@ -1,5 +1,6 @@
 import { sessionFactsSchema, type Config } from '@spur-board/contracts';
 import { z } from 'zod';
+import { sql } from 'kysely';
 import { evaluateSessionHealth } from '../domain/health.ts';
 import { fingerprint, orderItems, type ItemCandidate } from '../domain/fromYou.ts';
 import { parseJson, toJson } from '../store/json.ts';
@@ -51,7 +52,7 @@ export async function reconcileItems(
         .selectFrom('link')
         .select('task_id')
         .where('entity', '=', 'pr')
-        .where('repo', '=', ref.repo)
+        .where(sql<boolean>`lower(repo) = ${ref.repo.toLowerCase()}`)
         .where('number', '=', ref.number)
         .execute();
       for (const link of links) {
@@ -149,7 +150,7 @@ export async function reconcileItems(
     .selectFrom('link')
     .leftJoin('pr_snapshot', (join) =>
       join
-        .onRef('pr_snapshot.repo', '=', 'link.repo')
+        .on(sql<boolean>`lower(pr_snapshot.repo) = lower(link.repo)`)
         .onRef('pr_snapshot.number', '=', 'link.number'),
     )
     .select(['link.task_id', 'pr_snapshot.state'])

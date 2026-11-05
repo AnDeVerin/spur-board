@@ -13,6 +13,7 @@ import {
   type TicketFacts,
 } from '@spur-board/contracts';
 import { z } from 'zod';
+import { sql } from 'kysely';
 import { parseJson, toJson } from '../store/json.ts';
 import type { Store } from '../store/store.ts';
 import { emit, projectForKey, trackerSource, type Trx } from './board-utils.ts';
@@ -63,7 +64,7 @@ async function updateTerminal(
     .selectFrom('link')
     .innerJoin('pr_snapshot', (join) =>
       join
-        .onRef('pr_snapshot.repo', '=', 'link.repo')
+        .on(sql<boolean>`lower(pr_snapshot.repo) = lower(link.repo)`)
         .onRef('pr_snapshot.number', '=', 'link.number'),
     )
     .select('pr_snapshot.state')
@@ -295,7 +296,7 @@ async function pr(
   const old = await trx
     .selectFrom('pr_snapshot')
     .selectAll()
-    .where('repo', '=', fact.repo)
+    .where(sql<boolean>`lower(repo) = ${fact.repo.toLowerCase()}`)
     .where('number', '=', fact.number)
     .executeTakeFirst();
   const previous = old === undefined ? null : parseJson(prFactsSchema, old.detail);
@@ -303,7 +304,7 @@ async function pr(
   await trx
     .insertInto('pr_snapshot')
     .values({
-      repo: fact.repo,
+      repo: old?.repo ?? fact.repo,
       number: fact.number,
       head_sha: fact.headSha,
       head_branch: fact.headBranch,
@@ -344,7 +345,7 @@ async function pr(
       .selectAll()
       .where('task_id', '=', task.id)
       .where('entity', '=', 'pr')
-      .where('repo', '=', fact.repo)
+      .where(sql<boolean>`lower(repo) = ${fact.repo.toLowerCase()}`)
       .where('number', '=', fact.number)
       .executeTakeFirst();
     if (linked === undefined) {
@@ -389,7 +390,7 @@ async function pr(
     .selectFrom('link')
     .select(['id', 'task_id', 'pr_state', 'source', 'banned'])
     .where('entity', '=', 'pr')
-    .where('repo', '=', fact.repo)
+    .where(sql<boolean>`lower(repo) = ${fact.repo.toLowerCase()}`)
     .where('number', '=', fact.number)
     .execute();
   for (const link of linkedPrs) {
@@ -437,7 +438,7 @@ async function pr(
     .selectFrom('link')
     .select(['task_id'])
     .where('entity', '=', 'pr')
-    .where('repo', '=', fact.repo)
+    .where(sql<boolean>`lower(repo) = ${fact.repo.toLowerCase()}`)
     .where('number', '=', fact.number)
     .execute();
   for (const link of links) {
@@ -569,7 +570,7 @@ async function session(
       .innerJoin('task', 'task.id', 'link.task_id')
       .select(['task.key', 'task.project'])
       .where('link.entity', '=', 'pr')
-      .where('link.repo', '=', fact.pr.repo)
+      .where(sql<boolean>`lower(link.repo) = ${fact.pr.repo.toLowerCase()}`)
       .where('link.number', '=', fact.pr.number)
       .where('link.banned', '=', 0)
       .executeTakeFirst();
@@ -589,7 +590,7 @@ async function session(
       .selectFrom('link')
       .innerJoin('pr_snapshot', (join) =>
         join
-          .onRef('pr_snapshot.repo', '=', 'link.repo')
+          .on(sql<boolean>`lower(pr_snapshot.repo) = lower(link.repo)`)
           .onRef('pr_snapshot.number', '=', 'link.number'),
       )
       .select(['link.task_id', 'pr_snapshot.head_branch'])
@@ -753,7 +754,7 @@ export function createObservationCore(deps: {
                 .selectFrom('link')
                 .select(['repo', 'number'])
                 .where('entity', '=', 'pr')
-                .where('repo', '=', repo)
+                .where(sql<boolean>`lower(repo) = ${repo.toLowerCase()}`)
                 .where('banned', '=', 0)
                 .execute()
             ).flatMap((link) =>

@@ -5,6 +5,7 @@ import {
   type Config,
   type SessionFacts,
 } from '@spur-board/contracts';
+import { sql } from 'kysely';
 import { parseJson } from '../store/json.ts';
 import type { Store } from '../store/store.ts';
 import { linkView, trackerSource } from './board-utils.ts';
@@ -71,7 +72,7 @@ export async function getStatus(
         const snapshot = await store.db
           .selectFrom('pr_snapshot')
           .select('detail')
-          .where('repo', '=', link.repo)
+          .where(sql<boolean>`lower(repo) = ${link.repo.toLowerCase()}`)
           .where('number', '=', link.number)
           .executeTakeFirst();
         if (snapshot !== undefined) prs.push(parseJson(prFactsSchema, snapshot.detail));
@@ -106,7 +107,10 @@ export async function getStatus(
           project.repos.some((repo) => repo.toLowerCase() === pr.repo.toLowerCase()),
         ) &&
         !allLinks.some(
-          (link) => link.entity === 'pr' && link.repo === pr.repo && link.number === pr.number,
+          (link) =>
+            link.entity === 'pr' &&
+            link.repo?.toLowerCase() === pr.repo.toLowerCase() &&
+            link.number === pr.number,
         ),
     )
     .map((pr) => parseJson(prFactsSchema, pr.detail));
