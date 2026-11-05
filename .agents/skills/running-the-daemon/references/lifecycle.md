@@ -21,6 +21,10 @@
 - Inbound recovers, then scans every five minutes; serialize scans and live events through core.
   Start the gateway with its sink only with `SLACK_APP_TOKEN`; otherwise log. Stop inbound
   before outbox, then stop the gateway and await the sink before store close.
+- The gateway sink also routes `connection` events to the outbox module, isolated from inbound:
+  inbound's result is the gateway's ack, the outbox logs its own failure. The outbox ignores them
+  after stop and awaits the update in flight before the store closes
+  (`packages/daemon/test/transport-health.integration.test.ts`, `describe('gateway sink wiring')`).
 - Keep the sole `setInterval` in `main` (`KEEPALIVE_MS`) until a module owns a server.
 
 ## Shutdown
