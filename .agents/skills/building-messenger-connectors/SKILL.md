@@ -15,8 +15,9 @@ obligations leave open.
 - Register `runGatewayConformance` with `caseIds: fakeCaseIds` against a fake of the platform
   API, as `packages/gateway-slack/test/conformance.test.ts` does with
   `packages/gateway-slack/test/fake-api.ts`.
-- Set `maxTextLength` to the platform limit minus the marker overhead (`MAX_PART_TEXT` in
-  `packages/gateway-slack/src/render.ts`).
+- Set `maxTextLength` to the platform limit, less any marker or repeat mark rendered in the
+  text. Slack keeps its marker out of the text, so its target uses the limit itself
+  (`MAX_PART_TEXT` in `packages/gateway-slack/src/render.ts`).
 - A live run passes a subset of `liveCaseIds` (`packages/gateway-testkit/src/cases.ts`, checked by
   `assertSupportedLiveCaseSet`) to `runLiveConformance`
   (`packages/gateway-slack/test/live-conformance.ts`), launched by `pnpm smoke:live`.
@@ -39,9 +40,10 @@ obligations leave open.
 
 ## Capabilities
 
-- Declare `capabilities` truthfully and keep them constant (G12).
-- Never make core behaviour depend on them: a difference core must act on becomes an event or
-  result shape, or an obligation, through the contract change above.
+- Declare `capabilities` truthfully (G12); the other capability rules are in
+  `.agents/skills/working-with-contracts/references/port-contract.md`.
+- A platform difference core must act on becomes an event or result shape, or an obligation,
+  never a capability core reads.
 
 ## Inbound
 
