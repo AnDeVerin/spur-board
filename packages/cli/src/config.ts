@@ -25,6 +25,13 @@ export interface ClientConfig {
 const CONNECT_TIMEOUT_MS = 2_000;
 const RESPONSE_TIMEOUT_MS = 30_000;
 
+export function configFile(env: NodeJS.ProcessEnv, home: string): string {
+  const boardHome = env['BOARD_HOME'];
+  if (boardHome) return join(resolve(boardHome), 'config.yaml');
+  const xdg = env['XDG_CONFIG_HOME'];
+  return join(xdg && isAbsolute(xdg) ? xdg : join(home, '.config'), 'spur-board', 'config.yaml');
+}
+
 export function resolveDaemonAddress(
   env: NodeJS.ProcessEnv = process.env,
   home = homedir(),
@@ -34,13 +41,8 @@ export function resolveDaemonAddress(
   if (rawAddress === undefined) {
     let port = configuredPort ?? DEFAULT_HTTP_PORT;
     if (configuredPort === undefined) {
-      const boardHome = env['BOARD_HOME'];
-      const xdg = env['XDG_CONFIG_HOME'];
-      const file = boardHome
-        ? join(resolve(boardHome), 'config.yaml')
-        : join(xdg && isAbsolute(xdg) ? xdg : join(home, '.config'), 'spur-board', 'config.yaml');
       try {
-        const parsed = YAML.parseDocument(readFileSync(file, 'utf8'));
+        const parsed = YAML.parseDocument(readFileSync(configFile(env, home), 'utf8'));
         if (parsed.errors.length === 0) {
           const config = configSchema.safeParse(parsed.toJS());
           if (config.success) port = config.data.http.port;
