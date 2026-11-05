@@ -1,5 +1,6 @@
 import {
   EVENT_KINDS,
+  eventPayloadSchemas,
   encodeActorId,
   parseActorId,
   parseRef,
@@ -13,7 +14,7 @@ import { parseJson } from '../store/json.ts';
 import type { Tables } from '../store/schema.ts';
 import { authorize, type ResolvedTarget } from './authorize.ts';
 import { authorizationTarget, blockView, commentView, taskTarget } from './blocks.ts';
-import { taskView } from './board-utils.ts';
+import { linkView, taskView } from './board-utils.ts';
 import { CommandError } from './commands.ts';
 import { notificationAddressedTo } from './doorbells.ts';
 import { canonicalKey } from './membership.ts';
@@ -60,6 +61,24 @@ const EVENT_SUMMARIES = {
   token_expired: 'Token expired',
   token_revoked: 'Token revoked',
 } satisfies Record<EventKind, string>;
+
+function linkSummary(kind: EventKind, payloadText: string): string | null {
+  if (kind !== 'link_added' && kind !== 'link_removed') return null;
+  try {
+    const payload = eventPayloadSchemas[kind].safeParse(JSON.parse(payloadText));
+    if (!payload.success) return null;
+    const target =
+      payload.data.entity === 'pr'
+        ? `${payload.data.repo}#${String(payload.data.pr)}`
+        : payload.data.entity === 'session'
+          ? payload.data.session
+          : payload.data.ticket;
+    const verb = kind === 'link_added' ? 'Link added' : 'Link removed';
+    return `${verb}: ${payload.data.entity} ${target}${payload.data.reason === undefined ? '' : ` — ${payload.data.reason}`}`;
+  } catch {
+    return null;
+  }
+}
 
 function projectTarget(project: string): ResolvedTarget {
   return { kind: 'found', value: { project, task: null, block: null, workers: [] } };
@@ -110,7 +129,7 @@ export function createTaskQueries(config: Config) {
     resolveTargets: (trx, input) => taskTarget(trx, taskKey(input.task)),
     async run(trx, input) {
       const task = await taskByKey(trx, taskKey(input.task));
-      const [blocks, comments] = await Promise.all([
+      const [blocks, comments, links] = await Promise.all([
         trx.selectFrom('block').selectAll().where('task_id', '=', task.id).orderBy('id').execute(),
         trx
           .selectFrom('comment')
@@ -118,9 +137,17 @@ export function createTaskQueries(config: Config) {
           .where('task_id', '=', task.id)
           .orderBy('id')
           .execute(),
+        trx
+          .selectFrom('link')
+          .selectAll()
+          .where('task_id', '=', task.id)
+          .where('banned', '=', 0)
+          .orderBy('id')
+          .execute(),
       ]);
       return {
         task: taskView(task),
+        links: links.map(linkView),
         blocks: blocks.map((block) => blockView(block, task)),
         comments: comments.map((comment) => commentView(comment, task)),
       };
@@ -147,7 +174,7 @@ export function createTaskQueries(config: Config) {
             at: row.at,
             kind,
             actor: encodeActorId({ actor: row.actor, actorRef }),
-            summary: EVENT_SUMMARIES[kind],
+            summary: linkSummary(kind, row.payload) ?? EVENT_SUMMARIES[kind],
           },
         ];
       });

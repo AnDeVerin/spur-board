@@ -1,16 +1,19 @@
 import {
   EVENT_VERSION,
   eventPayloadSchemas,
+  parseActorId,
+  type ActorId,
   type Config,
   type EventKind,
   type EventPayload,
 } from '@spur-board/contracts';
 import type { Kysely, Selectable } from 'kysely';
 import { toJson } from '../store/json.ts';
-import type { Tables, TaskTable } from '../store/schema.ts';
+import type { LinkTable, Tables, TaskTable } from '../store/schema.ts';
 
 export type Trx = Kysely<Tables>;
 type Task = Selectable<TaskTable>;
+type Link = Selectable<LinkTable>;
 
 export function trackerSource(project: Config['projects'][number]): string {
   return project.tracker.type === 'jira'
@@ -46,8 +49,10 @@ export async function emit<K extends EventKind>(
   taskId: number | null,
   at: string,
   payload: EventPayload<K>,
-  actor: 'operator' | 'system' = 'system',
+  actor: ActorId = 'system',
 ): Promise<void> {
+  const parsed = parseActorId(actor);
+  if (parsed === null) throw new Error('Invalid journal actor');
   await trx
     .insertInto('event')
     .values({
@@ -55,8 +60,8 @@ export async function emit<K extends EventKind>(
       project,
       task_id: taskId,
       kind,
-      actor,
-      actor_ref: null,
+      actor: parsed.actor,
+      actor_ref: parsed.actor === 'agent' ? JSON.stringify(parsed.actorRef) : null,
       payload: toJson(eventPayloadSchemas[kind], payload),
       v: EVENT_VERSION,
       request_id: null,
@@ -70,5 +75,18 @@ export function taskView(task: Task) {
     project: task.project,
     column: task.column,
     membership: task.membership,
+  };
+}
+
+export function linkView(link: Link) {
+  return {
+    kind: link.entity,
+    ref:
+      link.entity === 'pr'
+        ? `${link.repo ?? ''}#${String(link.number ?? '')}`
+        : link.entity === 'session'
+          ? (link.session_id ?? '')
+          : (link.ticket_key ?? ''),
+    role: link.role,
   };
 }

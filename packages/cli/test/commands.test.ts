@@ -313,6 +313,75 @@ describe('catalog commands', () => {
     ]);
   });
 
+  it('maps link and unlink target flags, reason, and idempotency keys', async () => {
+    const calls: { id: string; input: unknown; key: string | undefined }[] = [];
+    const url = await fakeServer((id, input, key) => {
+      calls.push({ id, input, key });
+      const operation = OPERATIONS.find((entry) => entry.id === id);
+      if (operation === undefined) throw new Error(`No operation ${id}`);
+      return operation.examples[0].output;
+    });
+    for (const [command, flag, value, key] of [
+      ['link', '--pr', 'https://github.com/o/r/pull/7', 'link-pr'],
+      ['link', '--session', 'worker-1', 'link-session'],
+      ['link', '--ticket', 'o/r#10', 'link-ticket'],
+      ['unlink', '--ticket', 'o/r#10', 'unlink-ticket'],
+    ] as const) {
+      const output = capture();
+      expect(
+        await runCli([command, 'o/r#9', flag, value, '--reason', 'Correction.', '--key', key], {
+          env: env(url),
+          io: output.io,
+        }),
+      ).toBe(0);
+    }
+    expect(calls).toEqual([
+      {
+        id: 'link.add',
+        input: {
+          task: 'o/r#9',
+          mode: 'pr',
+          pr: 'https://github.com/o/r/pull/7',
+          reason: 'Correction.',
+        },
+        key: 'link-pr',
+      },
+      {
+        id: 'link.add',
+        input: { task: 'o/r#9', mode: 'session', session: 'worker-1', reason: 'Correction.' },
+        key: 'link-session',
+      },
+      {
+        id: 'link.add',
+        input: { task: 'o/r#9', mode: 'ticket', ticket: 'o/r#10', reason: 'Correction.' },
+        key: 'link-ticket',
+      },
+      {
+        id: 'link.remove',
+        input: { task: 'o/r#9', mode: 'ticket', ticket: 'o/r#10', reason: 'Correction.' },
+        key: 'unlink-ticket',
+      },
+    ]);
+    for (const args of [
+      ['link', 'o/r#9', '--pr', 'https://github.com/o/r/pull/7'],
+      [
+        'link',
+        'o/r#9',
+        '--pr',
+        'https://github.com/o/r/pull/7',
+        '--session',
+        'worker-1',
+        '--reason',
+        'Wrong.',
+      ],
+      ['unlink', 'o/r#9', '--reason', 'Wrong.'],
+    ]) {
+      const output = capture();
+      expect(await runCli(args, { env: env(url), io: output.io })).toBe(2);
+    }
+    expect(calls).toHaveLength(4);
+  });
+
   it('accepts --done with and without a reference', async () => {
     const calls: unknown[] = [];
     const unblock = OPERATIONS.find((op) => op.id === 'block.unblock');

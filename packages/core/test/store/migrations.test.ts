@@ -19,6 +19,7 @@ const INDEXES: Record<string, { table: string; columns: string[]; partialUnique:
   },
   link_pr_pair: { table: 'link', columns: ['task_id', 'repo', 'number'], partialUnique: true },
   link_session_pair: { table: 'link', columns: ['task_id', 'session_id'], partialUnique: true },
+  link_ticket_pair: { table: 'link', columns: ['task_id', 'ticket_key'], partialUnique: true },
   link_one_active_pr: { table: 'link', columns: ['task_id'], partialUnique: true },
   submission_task_column_submitted: {
     table: 'submission',
@@ -330,7 +331,7 @@ describe('migrate', () => {
         'archive_slot_at',
       ]),
     );
-    insertRaw(raw, 'link', sampleRows.link);
+    insertRaw(raw, 'link', without(sampleRows.link, ['ticket_key', 'pr_open']));
     migrate(raw, real);
     expect(raw.prepare('SELECT id, tracker_id, key, manual_include FROM task').all()).toEqual([
       { id: 1, tracker_id: '101', key: 'o/r#101', manual_include: 0 },
@@ -338,6 +339,42 @@ describe('migrate', () => {
     expect(raw.prepare('SELECT task_id, repo, number FROM link').all()).toEqual([
       { task_id: 1, repo: 'x/y', number: 7 },
     ]);
+    expect(raw.pragma('foreign_key_check')).toEqual([]);
+  });
+
+  it('backfills linked PR openness and preserves closed PR history', () => {
+    const dir = tempDir();
+    const { raw } = rawDb(join(dir, 'board.db'));
+    migrate(raw, real.slice(0, 9));
+    insertRaw(raw, 'task', sampleRows.task);
+    insertRaw(raw, 'pr_snapshot', { ...sampleRows.pr_snapshot, state: 'closed' });
+    insertRaw(raw, 'link', without(sampleRows.link, ['ticket_key', 'pr_open']));
+
+    migrate(raw, real);
+
+    expect(raw.prepare('SELECT id, source, ticket_key, pr_open FROM link').all()).toEqual([
+      { id: 1, source: sampleRows.link.source, ticket_key: null, pr_open: 0 },
+    ]);
+    raw
+      .prepare(
+        `INSERT INTO link (task_id, entity, repo, number, pr_state, source, created_at, pr_open)
+       VALUES (1, 'pr', 'x/y', 8, 'active', 'manual', ?, 1)`,
+      )
+      .run(sampleRows.link.created_at);
+    expect(
+      raw.prepare('SELECT number, pr_open FROM link WHERE entity = ? ORDER BY number').all('pr'),
+    ).toEqual([
+      { number: 7, pr_open: 0 },
+      { number: 8, pr_open: 1 },
+    ]);
+    expect(() =>
+      raw
+        .prepare(
+          `INSERT INTO link (task_id, entity, repo, number, pr_state, source, created_at, pr_open)
+         VALUES (1, 'pr', 'x/y', 9, 'active', 'manual', ?, 1)`,
+        )
+        .run(sampleRows.link.created_at),
+    ).toThrow();
     expect(raw.pragma('foreign_key_check')).toEqual([]);
   });
 
@@ -371,8 +408,8 @@ describe('migrate', () => {
     const result = migrate(raw, real);
     expect(result).toMatchObject({
       from: 7,
-      to: 9,
-      applied: ['0008_observation', '0009_operator_tokens'],
+      to: 10,
+      applied: ['0008_observation', '0009_operator_tokens', '0010_manual_links'],
     });
     expect(
       raw
@@ -456,6 +493,7 @@ describe('migration pins', () => {
       '4a34cd8b138b546fcf1817d510d16639',
       '712f01c6d65901a62e2a199b770ee62a',
     ].join(''),
+    '0010_manual_links.sql': '40142af689b91dd9ffbf835baa831534a91498bce4685299b3c66ff45513bbee',
   };
 
   interface MigrationFile {

@@ -7,7 +7,7 @@ import {
 } from '@spur-board/contracts';
 import { parseJson } from '../store/json.ts';
 import type { Store } from '../store/store.ts';
-import { trackerSource } from './board-utils.ts';
+import { linkView, trackerSource } from './board-utils.ts';
 import { CommandError } from './commands.ts';
 
 function sessionView(fact: SessionFacts) {
@@ -75,7 +75,7 @@ export async function getStatus(
           .where('number', '=', link.number)
           .executeTakeFirst();
         if (snapshot !== undefined) prs.push(parseJson(prFactsSchema, snapshot.detail));
-      } else if (link.session_id !== null) {
+      } else if (link.entity === 'session' && link.session_id !== null) {
         const snapshot = await store.db
           .selectFrom('session_snapshot')
           .select('detail')
@@ -93,14 +93,7 @@ export async function getStatus(
       ticket: ticket === undefined ? null : parseJson(ticketFactsSchema, ticket.detail),
       prs,
       sessions,
-      links: links.map((link) => ({
-        kind: link.entity,
-        ref:
-          link.entity === 'pr'
-            ? `${link.repo ?? ''}#${String(link.number ?? '')}`
-            : (link.session_id ?? ''),
-        role: link.role,
-      })),
+      links: links.map(linkView),
     });
   }
   const allPrs = await store.db.selectFrom('pr_snapshot').selectAll().execute();
