@@ -20,12 +20,12 @@ A PR that changes a practice named here updates this skill.
   `describe('no wire formats')` in `packages/contracts/test/adapters.test.ts` checks A1.
 - Imports: `adapterBoundaryPatterns` and `siblingPattern` in `eslint.config.js`.
 - Honour `PollContext.signal` (A7): rethrow the abort and return no batch.
-- Network calls go only through the injected fetch. Take `options.fetch`
-  (`StartAdaptersOptions.fetch` in `packages/adapters/src/index.ts`) and pass it to the client,
-  as `githubSources` passes `GithubOptions.fetch` to `GithubClient` in
+- Network calls go only through the injected fetch, never the global `fetch`. Take
+  `options.fetch` (`StartAdaptersOptions.fetch` in `packages/adapters/src/index.ts`) and pass it
+  to the client, as `githubSources` passes `GithubOptions.fetch` to `GithubClient` in
   `packages/adapters/src/github/index.ts`.
-- Never call the global `fetch` in adapter code. A client's global default applies only when no
-  fetch is passed; the daemon always passes one, wrapped for logging (`running-the-daemon`).
+- A client's global default applies only when no fetch is passed; the daemon always passes one,
+  wrapped for logging (`running-the-daemon`).
 - A vendor SDK lives only inside its adapter folder, after a design decision and a lint rule that
   confines it.
 
@@ -45,7 +45,7 @@ A PR that changes a practice named here updates this skill.
 ## Failures, backoff and budget
 
 - One attempt per request (A6): no retry, no sleep. Reject the poll with an `AdapterError` of the
-  matching kind; the runner schedules by kind.
+  matching kind.
 - Map a failed HTTP response with `classifyHttpFailure` in `packages/adapters/src/runner/http.ts`:
   429, or 403 with a rate-limit sign, is `throttled` with `retryAt`; other 401 and 403 are `auth`;
   the rest is `transient`.
@@ -79,4 +79,4 @@ A PR that changes a practice named here updates this skill.
 
 ## Checks
 
-- `pnpm check` runs lint, types and tests for `packages/adapters/`.
+- `pnpm check`.
