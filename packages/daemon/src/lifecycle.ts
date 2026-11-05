@@ -230,5 +230,13 @@ export async function runDaemon<S extends { close(): Promise<void> }>(
   if (aborted()) return;
   state = 'ready';
   log.info('daemon ready');
-  for (const entry of started) entry.module.ready?.();
+  for (const entry of started) {
+    try {
+      entry.module.ready?.();
+    } catch (err) {
+      log.error({ err, module: entry.name }, 'ready failed');
+      void stop(true);
+      return;
+    }
+  }
 }

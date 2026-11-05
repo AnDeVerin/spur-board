@@ -412,6 +412,37 @@ describe('runDaemon', () => {
       expect(h.events).toContain('m2:stop');
       expect(h.events.filter((event) => event.includes(':ready'))).toEqual([]);
     });
+
+    it('a throwing hook stops later hooks and runs the failed shutdown', async () => {
+      const h: ReturnType<typeof harness> = harness({
+        modules: [
+          { name: 'm1', stopStage: 'final' },
+          { name: 'm2', stopStage: 'final' },
+        ],
+        factory: (ctxFor) =>
+          withReady(h, ctxFor).map((entry, i) =>
+            i === 0
+              ? {
+                  ...entry,
+                  module: {
+                    ...entry.module,
+                    ready() {
+                      throw new Error('no ready');
+                    },
+                  },
+                }
+              : entry,
+          ),
+      });
+      await expect(h.start()).resolves.toBeUndefined();
+      await exitsWith(h.port, [1]);
+      expect(h.events.filter((event) => event.includes(':ready'))).toEqual([]);
+      expect(h.events.slice(-4)).toEqual(['m1:stop', 'm2:stop', 'db:close', 'lock:release']);
+      const failed = h.lines().find((line) => line.msg === 'ready failed');
+      expect(failed?.level).toBe(50);
+      expect(failed?.['module']).toBe('m1');
+      expect((failed?.['err'] as { message: string }).message).toBe('no ready');
+    });
   });
 
   it('fatal error exits 1', async () => {
