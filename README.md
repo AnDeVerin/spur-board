@@ -36,4 +36,4 @@ Follow [SETUP.md](SETUP.md) for the commands and file locations. Use
 
 - [CLI commands](docs/cli.md), [configuration](docs/configuration.md), and the [docs index](docs/)
 - [MIT license](LICENSE)
-- [Contributing](CONTRIBUTING.md) and [security policy](SECURITY.md) (planned in #7)
+- Contribution and security guidance is tracked in [issue #7](https://github.com/AnDeVerin/spur-board/issues/7).
