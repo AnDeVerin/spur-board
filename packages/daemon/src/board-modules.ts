@@ -1,14 +1,15 @@
 import { startAdapters, type AdapterRunner, type StartAdaptersOptions } from '@spur-board/adapters';
+import { BOARD_TICK_MS } from '@spur-board/contracts';
 import { createObservationCore, tickBoard, type Store } from '@spur-board/core';
 import type { ModuleContext, ModuleEntry } from './lifecycle.ts';
-
-const TICK_MS = 60_000;
 
 interface BoardModuleOptions {
   /** Test seams preserve the real core and lifecycle behavior. */
   core?: ReturnType<typeof createObservationCore>;
   startAdapters?: typeof startAdapters;
   tick?: typeof tickBoard;
+  /** Called only after a tick resolves; a failed or stalled tick never calls it. */
+  onTick?: () => void;
 }
 
 /** Compose the board's timer and adapter runner without adding lifecycle state to main. */
@@ -35,7 +36,7 @@ export function createBoardModules(
     timer = setTimeout(() => {
       timer = undefined;
       runTick();
-    }, TICK_MS);
+    }, BOARD_TICK_MS);
   };
   const runTick = (): void => {
     if (stopped || signal?.aborted) return;
@@ -48,6 +49,7 @@ export function createBoardModules(
           completeSince: core.completeSince,
         }),
       )
+      .then(() => options.onTick?.())
       .catch((err: unknown) => {
         coreCtx.log.error({ err }, 'board tick failed');
       })

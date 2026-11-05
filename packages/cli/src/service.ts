@@ -4,6 +4,7 @@ import { access, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { homedir, userInfo } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { SYSTEMD_SERVICE_SETTINGS } from '@spur-board/contracts';
 
 export const serviceName = 'spur-board.service';
 
@@ -83,13 +84,10 @@ export function renderUserUnit(paths: ServicePaths): string {
     'Description=spur-board daemon',
     '',
     '[Service]',
-    'Type=simple',
     `ExecStart=${unitArgument(paths.nodePath)} ${unitArgument(paths.daemonEntry)}`,
     ...(paths.environment ?? []).map((entry) => `Environment=${unitArgument(entry)}`),
     `EnvironmentFile=${unitArgument(paths.secretsFile)}`,
-    'Restart=on-failure',
-    'RestartSec=5s',
-    'TimeoutStopSec=15s',
+    ...SYSTEMD_SERVICE_SETTINGS,
     '',
     '[Install]',
     'WantedBy=default.target',
