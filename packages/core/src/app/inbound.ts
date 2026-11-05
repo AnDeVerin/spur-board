@@ -432,8 +432,8 @@ export function createInbound(input: {
   }
 
   /**
-   * A stored query needs no re-apply. A stored item press replays as the operator under its own
-   * key, only when it passed the same gate as a live press.
+   * A stored query needs no re-apply. A stored item or token press replays as the operator under
+   * its own key, only when it passed the same gate as a live press.
    */
   async function reapplyInteraction(
     trx: Trx,
@@ -454,6 +454,19 @@ export function createInbound(input: {
         throw new CommandError('retry_not_applicable', 'This interaction cannot be retried.');
       }
       event = { ...event, command };
+    }
+    const token = event.kind === 'action' ? tokenAction(event) : null;
+    if (token !== null) {
+      // The live gate: the configured operator, pressed in the feed.
+      if (
+        event.kind !== 'action' ||
+        event.author !== config.operator.slack ||
+        event.sourceSpace !== 'feed'
+      ) {
+        throw new CommandError('retry_not_applicable', 'This interaction cannot be retried.');
+      }
+      await decideToken(trx, event.dedupeKey, token, at);
+      return;
     }
     const { id, operationInput } = interactionOperation(event);
     if (id === undefined) {
@@ -608,6 +621,35 @@ export function createInbound(input: {
     };
   }
 
+  /** A token press decides once per dedupe key, live or replayed from its failure item. */
+  function decideToken(
+    trx: Trx,
+    key: string,
+    token: { itemId: number; decision: 'approve' | 'deny' },
+    at: string,
+  ) {
+    return replayOperation(trx, {
+      actor: 'operator',
+      key,
+      operation: `token.${token.decision}`,
+      fingerprintInput: token,
+      output: resultSchema,
+      at,
+      run: async () => {
+        const decided = await decideTokenInTransaction(
+          trx,
+          token.itemId,
+          token.decision,
+          new Date(at),
+        );
+        return {
+          status: 'applied' as const,
+          response: `${decided.name}: ${decided.status}`,
+        };
+      },
+    });
+  }
+
   async function recordFailure(event: UserEvent, error: unknown, at: string): Promise<void> {
     await scanTransaction(store, async (trx) => {
       const context = await taskContext(trx, event, gateway.kind);
@@ -643,26 +685,7 @@ export function createInbound(input: {
         try {
           const at = new Date(clock.now()).toISOString();
           const result = await scanTransaction(store, (trx) =>
-            replayOperation(trx, {
-              actor: 'operator',
-              key: event.dedupeKey,
-              operation: `token.${token.decision}`,
-              fingerprintInput: token,
-              output: resultSchema,
-              at,
-              run: async () => {
-                const decided = await decideTokenInTransaction(
-                  trx,
-                  token.itemId,
-                  token.decision,
-                  new Date(at),
-                );
-                return {
-                  status: 'applied' as const,
-                  response: `${decided.name}: ${decided.status}`,
-                };
-              },
-            }),
+            decideToken(trx, event.dedupeKey, token, at),
           );
           response = result?.response ?? 'not available yet';
         } catch (error) {

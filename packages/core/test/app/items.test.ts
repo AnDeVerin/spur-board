@@ -28,6 +28,7 @@ import {
   createSender,
   listenApiServer,
   openStore,
+  requestToken,
   tickBoard,
   type Inbound,
   type Store,
@@ -615,6 +616,45 @@ describe('item.retry and item.close', () => {
       code: 'retry_not_applicable',
       hint: expect.stringContaining('Slack inbound') as unknown,
     });
+  });
+
+  it('replays a stored token press through the token decision', async () => {
+    const ctx = await setup();
+    await requestToken(
+      ctx.store,
+      { name: 'laptop', folder: '/w', host: 'h', hash: 'a'.repeat(64) },
+      new Date(START),
+    );
+    const request = await ctx.store.db
+      .selectFrom('operator_token')
+      .select('item_id')
+      .executeTakeFirstOrThrow();
+    const actionId = `token:${String(request.item_id)}:approve`;
+    for (const [key, author, sourceSpace] of [
+      ['token-intruder', 'intruder', 'feed'],
+      ['token-outside', 'operator', null],
+    ] as const) {
+      const gated = await storeEvent(ctx, press({ key, actionId, author, sourceSpace }));
+      await expect(ctx.retry(`I${String(gated)}`, `retry-${key}`)).rejects.toMatchObject({
+        code: 'retry_not_applicable',
+      });
+      expect((await item(ctx, gated)).cleared_at).toBeNull();
+    }
+    const failure = await storeEvent(ctx, press({ key: 'token-press', actionId }));
+    await ctx.retry(`I${String(failure)}`, 'retry-token');
+    expect(
+      await ctx.store.db.selectFrom('operator_token').select('status').executeTakeFirstOrThrow(),
+    ).toEqual({ status: 'approved' });
+    expect((await item(ctx, request.item_id)).cleared_at).not.toBeNull();
+    expect((await item(ctx, failure)).cleared_at).not.toBeNull();
+    expect(
+      (await rows(ctx, 'command'))
+        .filter((row) => row.key.includes('token'))
+        .map((row) => [row.actor, row.key, row.operation]),
+    ).toEqual([
+      ['operator', 'token-press', 'token.approve'],
+      ['operator', 'retry-token', 'item.retry'],
+    ]);
   });
 
   it('refuses to retry a blocked post and points to close', async () => {
