@@ -1,9 +1,14 @@
 import { spawnSync } from 'node:child_process';
-import { rmSync } from 'node:fs';
+import { existsSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { makeHome, VALID_CONFIG_YAML } from '../packages/daemon/test/home.ts';
-import { formatLiveReport, liveSettings, selectedLiveCases } from './smoke-live.ts';
+import {
+  formatLiveReport,
+  liveSettings,
+  selectedLiveCases,
+  verifyLiveChannel,
+} from './smoke-live.ts';
 
 const script = join(import.meta.dirname, 'smoke-live.ts');
 const homes: string[] = [];
@@ -53,6 +58,9 @@ describe('live conformance process preflight', () => {
 
   it('requires an environment channel before loading local secrets', async () => {
     await expect(liveSettings({ BOARD_HOME: '/missing' })).rejects.toThrow(/BOARD_LIVE_CHANNEL/);
+    await expect(
+      liveSettings({ BOARD_HOME: '/missing', BOARD_LIVE_CHANNEL: 'CTEST00000' }),
+    ).rejects.toThrow(/BOARD_LIVE_CHANNEL_NAME/);
   });
 
   it('rejects configured destinations without printing the channel or tokens', () => {
@@ -60,7 +68,11 @@ describe('live conformance process preflight', () => {
       config: `${VALID_CONFIG_YAML}\nslack:\n  channels:\n    feed: CTEST00000`,
       secrets: 'SLACK_BOT_TOKEN=bot-secret-canary\nSLACK_APP_TOKEN=app-secret-canary\n',
     });
-    const result = run({ BOARD_HOME: testHome, BOARD_LIVE_CHANNEL: 'CTEST00000' });
+    const result = run({
+      BOARD_HOME: testHome,
+      BOARD_LIVE_CHANNEL: 'CTEST00000',
+      BOARD_LIVE_CHANNEL_NAME: 'conformance-test',
+    });
     expect(result.status).not.toBe(0);
     expect(result.stderr).toContain('test channel must differ');
     expect(result.stdout + result.stderr).not.toContain('CTEST00000');
@@ -70,7 +82,11 @@ describe('live conformance process preflight', () => {
 
   it('rejects missing tokens and API overrides before any network call', async () => {
     const testHome = home({ secrets: 'SLACK_BOT_TOKEN=bot-secret-canary\n' });
-    const env = { BOARD_HOME: testHome, BOARD_LIVE_CHANNEL: 'CTEST00000' };
+    const env = {
+      BOARD_HOME: testHome,
+      BOARD_LIVE_CHANNEL: 'CTEST00000',
+      BOARD_LIVE_CHANNEL_NAME: 'conformance-test',
+    };
     await expect(liveSettings(env)).rejects.toThrow(/both Slack tokens/);
     await expect(
       liveSettings({ ...env, SLACK_API_URL: 'http://127.0.0.1:1/api/' }),
@@ -78,6 +94,66 @@ describe('live conformance process preflight', () => {
     const result = run(env);
     expect(result.status).not.toBe(0);
     expect(result.stdout + result.stderr).not.toContain('bot-secret-canary');
+  });
+
+  it('refuses non-interactive input before a live connection', () => {
+    const testHome = home({
+      secrets: 'SLACK_BOT_TOKEN=bot-secret-canary\nSLACK_APP_TOKEN=app-secret-canary\n',
+    });
+    const sentinel = join(testHome, 'network-attempted');
+    const preload = join(testHome, 'block-network.cjs');
+    writeFileSync(
+      preload,
+      "const net = require('node:net'); const fs = require('node:fs'); net.Socket.prototype.connect = function () { fs.writeFileSync(process.env.BOARD_NETWORK_SENTINEL, 'attempt'); throw new Error('network blocked'); };",
+    );
+    const result = run({
+      BOARD_HOME: testHome,
+      BOARD_LIVE_CHANNEL: 'CTEST00000',
+      BOARD_LIVE_CHANNEL_NAME: 'conformance-test',
+      BOARD_NETWORK_SENTINEL: sentinel,
+      NODE_OPTIONS: `--require=${preload}`,
+    });
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('interactive terminal');
+    expect(existsSync(sentinel)).toBe(false);
+    expect(result.stdout + result.stderr).not.toContain('CTEST00000');
+    expect(result.stdout + result.stderr).not.toContain('conformance-test');
+    expect(result.stdout + result.stderr).not.toContain('bot-secret-canary');
+  });
+
+  it('requires an exact private channel metadata match', async () => {
+    const settings = { channel: 'CTEST00000', channelName: 'conformance-test' };
+    const channel = {
+      id: settings.channel,
+      name: settings.channelName,
+      is_private: true,
+      is_im: false,
+      is_mpim: false,
+      is_ext_shared: false,
+      is_archived: false,
+    };
+    const lookup = vi.fn(() => Promise.resolve({ ok: true, channel }));
+    await expect(verifyLiveChannel(settings, lookup)).resolves.toBeUndefined();
+    expect(lookup).toHaveBeenCalledExactlyOnceWith(settings.channel);
+    for (const mismatch of [
+      { name: 'another-channel' },
+      { id: 'CANOTHER00' },
+      { is_private: false },
+      { is_im: true },
+      { is_mpim: true },
+      { is_member: false },
+      { is_ext_shared: true },
+      { is_archived: true },
+    ]) {
+      await expect(
+        verifyLiveChannel(settings, () =>
+          Promise.resolve({ ok: true, channel: { ...channel, ...mismatch } }),
+        ),
+      ).rejects.toThrow('The live channel must match the designated private test channel.');
+    }
+    await expect(
+      verifyLiveChannel(settings, () => Promise.resolve({ ok: false, channel })),
+    ).rejects.toThrow('The live channel must match the designated private test channel.');
   });
 
   it('formats a complete safe report with declared SDK versions', () => {

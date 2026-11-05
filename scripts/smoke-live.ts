@@ -7,6 +7,7 @@ import { liveCases, type LiveCaseId } from '../packages/gateway-testkit/src/case
 import type { LiveRunReport } from '../packages/gateway-slack/test/live-conformance.ts';
 
 const channelVariable = 'BOARD_LIVE_CHANNEL';
+const channelNameVariable = 'BOARD_LIVE_CHANNEL_NAME';
 
 class PreflightError extends Error {}
 
@@ -14,6 +15,7 @@ interface LiveSettings {
   token: string;
   appToken: string;
   channel: string;
+  channelName: string;
   operator: UserId;
 }
 
@@ -35,6 +37,10 @@ export async function liveSettings(
   if (channel === undefined || !/^[CG][A-Z0-9]{8,}$/.test(channel)) {
     throw new PreflightError(`Set ${channelVariable} to a test channel ID.`);
   }
+  const channelName = env[channelNameVariable];
+  if (channelName === undefined || !/^[a-z0-9_-]{1,79}$/.test(channelName)) {
+    throw new PreflightError(`Set ${channelNameVariable} to the designated test channel name.`);
+  }
   const [{ loadConfig, resolvePaths }, { userIdSchema }] = await Promise.all([
     import('../packages/daemon/src/config.ts'),
     import('../packages/contracts/src/index.ts'),
@@ -54,7 +60,46 @@ export async function liveSettings(
   if (!token || !appToken) {
     throw new PreflightError('The local secrets file needs both Slack tokens.');
   }
-  return { token, appToken, channel, operator: userIdSchema.parse(loaded.config.operator.slack) };
+  return {
+    token,
+    appToken,
+    channel,
+    channelName,
+    operator: userIdSchema.parse(loaded.config.operator.slack),
+  };
+}
+
+/** Reject a channel unless Slack confirms the designated private destination. */
+export async function verifyLiveChannel(
+  settings: Pick<LiveSettings, 'channel' | 'channelName'>,
+  lookup: (channel: string) => Promise<unknown>,
+): Promise<void> {
+  const response: unknown = await lookup(settings.channel);
+  const metadata =
+    typeof response === 'object' &&
+    response !== null &&
+    'ok' in response &&
+    response.ok === true &&
+    'channel' in response
+      ? response.channel
+      : undefined;
+  if (
+    typeof metadata !== 'object' ||
+    metadata === null ||
+    !('id' in metadata) ||
+    metadata.id !== settings.channel ||
+    !('name' in metadata) ||
+    metadata.name !== settings.channelName ||
+    !('is_private' in metadata) ||
+    metadata.is_private !== true ||
+    ('is_im' in metadata && metadata.is_im === true) ||
+    ('is_mpim' in metadata && metadata.is_mpim === true) ||
+    ('is_member' in metadata && metadata.is_member === false) ||
+    ('is_ext_shared' in metadata && metadata.is_ext_shared === true) ||
+    ('is_archived' in metadata && metadata.is_archived === true)
+  ) {
+    throw new PreflightError('The live channel must match the designated private test channel.');
+  }
 }
 
 function sdkVersions(): { web: string; socket: string } {
@@ -98,6 +143,12 @@ async function main(): Promise<number> {
   try {
     const settings = await liveSettings(process.env);
     const caseIds = selectedLiveCases(process.argv.slice(2));
+    if (!process.stdin.isTTY) {
+      throw new PreflightError('Live conformance requires an interactive terminal.');
+    }
+    const { createApi } = await import('../packages/gateway-slack/src/api.ts');
+    const api = createApi({ token: settings.token });
+    await verifyLiveChannel(settings, (channel) => api.conversations.info({ channel }));
     const { runLiveConformance } =
       await import('../packages/gateway-slack/test/live-conformance.ts');
     terminal = createInterface({ input: process.stdin, output: process.stdout });

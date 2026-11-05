@@ -23,20 +23,24 @@ into chat.
 Run the live gateway check manually in a private test channel:
 
 ```sh
-BOARD_LIVE_CHANNEL=<test-channel-id> pnpm smoke:live
+BOARD_LIVE_CHANNEL=<test-channel-id> BOARD_LIVE_CHANNEL_NAME=<test-channel-name> pnpm smoke:live
 ```
 
 Use the daemon's local `config.yaml` and mode-protected `secrets.env`. The secrets file must provide
-`SLACK_BOT_TOKEN` and `SLACK_APP_TOKEN`; the test channel ID comes only from
-`BOARD_LIVE_CHANNEL`. The command rejects either configured delivery channel, refuses `CI=true`,
-and does not print tokens or the channel ID. It prints timed instructions for a thread reply,
+`SLACK_BOT_TOKEN` and `SLACK_APP_TOKEN`; the test channel ID and expected name come only from
+`BOARD_LIVE_CHANNEL` and `BOARD_LIVE_CHANNEL_NAME`. The command looks up the channel with
+`conversations.info` and requires its ID and name to match, its privacy flag to be true, and its
+type to be a channel rather than a direct message. The bot token needs `groups:read` to read private
+channel metadata. The command rejects configured delivery channels, shared or archived channels,
+non-interactive input and `CI=true` before sending a live post. It never prints tokens, the channel
+ID or the channel name. It prints timed instructions for a thread reply,
 edit, button press, slash command, mention, and a reply while disconnected. Press Enter after each
 guided action. A case fails if its required observation does not arrive.
 
 To rerun only the thread mention, use:
 
 ```sh
-BOARD_LIVE_CHANNEL=<test-channel-id> pnpm smoke:live --case guided-mention
+BOARD_LIVE_CHANNEL=<test-channel-id> BOARD_LIVE_CHANNEL_NAME=<test-channel-name> pnpm smoke:live --case guided-mention
 ```
 
 The focused run creates a root thread and reports only the mention case. In Slack, use **Reply in
