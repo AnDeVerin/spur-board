@@ -3,7 +3,8 @@
 Run `board doctor --json` for check IDs, status, and a specific `fix`. A failed check blocks
 readiness; a warning names a condition to review. Run `board doctor --offline` when the daemon
 is down to validate `config.yaml` first. The checks below include both Slack-configured and
-Slack-free installations.
+Slack-free installations. For a hung or stopped daemon, a Slack outage, an answer that never
+reached its agent, or a planned pause, follow the [runbook](docs/runbook.md).
 
 ## Doctor checks
 

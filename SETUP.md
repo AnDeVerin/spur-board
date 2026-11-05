@@ -135,6 +135,9 @@ complete poll, look for the `spur-board is live` line in the configured feed cha
 [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for check-specific fixes and logs.
 
 For upgrades, repeat the checks with the new package and skill versions. Preserve settled
-configuration and operator access. If the package or Node path changes, rerun
-`board service install` to rewrite the unit's absolute paths. If the paths stay the same, use
-`board service restart` after upgrading the package.
+configuration and operator access. Before upgrading, note whether `board service status`
+reports `active` as `active`. After upgrading the package, run `board service install`: it
+rewrites the unit's absolute paths and settings when they differ, starts a stopped service, and
+restarts an active service when the unit changed. Run `board service restart` only when the
+service was active before, install reported `changed` as `false`, and the daemon version
+changed.
