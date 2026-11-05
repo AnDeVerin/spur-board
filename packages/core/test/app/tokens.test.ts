@@ -1,3 +1,4 @@
+import { scanTransaction } from '../../src/app/secrets.ts';
 import { createHash } from 'node:crypto';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -50,17 +51,19 @@ describe('operator token lifecycle', () => {
     ]);
     expect(persisted).not.toContain(SECRET);
     expect(
-      await store.transaction((trx) => decideTokenInTransaction(trx, row.item_id, 'approve', AT)),
+      await scanTransaction(store, (trx) =>
+        decideTokenInTransaction(trx, row.item_id, 'approve', AT),
+      ),
     ).toEqual({ name: 'desk', status: 'approved' });
     expect(await verifyOperatorToken(store, SECRET)).toEqual({ name: 'desk' });
     expect(
-      await store.transaction((trx) =>
+      await scanTransaction(store, (trx) =>
         tokenRevokeMutation.run(trx, { name: 'desk' }, { actor: 'operator', at: AT.toISOString() }),
       ),
     ).toEqual({ name: 'desk', status: 'revoked' });
     expect(await verifyOperatorToken(store, SECRET)).toBeNull();
     expect(
-      await store.transaction((trx) =>
+      await scanTransaction(store, (trx) =>
         tokenListQuery({ now: () => AT.getTime() }).run(trx, {}, 'operator'),
       ),
     ).toEqual({ tokens: [{ name: 'desk', folder: 'workspace/desk', status: 'revoked' }] });
@@ -75,11 +78,11 @@ describe('operator token lifecycle', () => {
       .select('item_id')
       .executeTakeFirstOrThrow();
     expect(
-      await store.transaction((trx) => decideTokenInTransaction(trx, row.item_id, 'deny', AT)),
+      await scanTransaction(store, (trx) => decideTokenInTransaction(trx, row.item_id, 'deny', AT)),
     ).toEqual({ name: 'desk', status: 'denied' });
     expect(await verifyOperatorToken(store, SECRET)).toBeNull();
     expect(
-      await store.transaction((trx) => decideTokenInTransaction(trx, row.item_id, 'deny', AT)),
+      await scanTransaction(store, (trx) => decideTokenInTransaction(trx, row.item_id, 'deny', AT)),
     ).toEqual({ name: 'desk', status: 'denied' });
     expect(
       await store.db
@@ -95,7 +98,7 @@ describe('operator token lifecycle', () => {
     await enroll(store);
     const late = new Date(AT.getTime() + 15 * 60 * 1000);
     expect(
-      await store.transaction((trx) =>
+      await scanTransaction(store, (trx) =>
         tokenListQuery({ now: () => late.getTime() }).run(trx, {}, 'operator'),
       ),
     ).toEqual({ tokens: [{ name: 'desk', folder: 'workspace/desk', status: 'expired' }] });
@@ -104,7 +107,9 @@ describe('operator token lifecycle', () => {
       .select('item_id')
       .executeTakeFirstOrThrow();
     expect(
-      await store.transaction((trx) => decideTokenInTransaction(trx, row.item_id, 'approve', late)),
+      await scanTransaction(store, (trx) =>
+        decideTokenInTransaction(trx, row.item_id, 'approve', late),
+      ),
     ).toEqual({ name: 'desk', status: 'expired' });
     expect(await verifyOperatorToken(store, SECRET)).toBeNull();
     expect(

@@ -1,3 +1,4 @@
+import { scanTransaction } from '../../src/app/secrets.ts';
 import { clearItem as clearOperatorItem } from '../../src/app/feed.ts';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -65,7 +66,7 @@ async function setup(author: ActorId = 'system') {
   const gateway = createFakeGateway({ profile: 'slack-like', start: new Date(now) });
   const conversation = conversationRefSchema.parse('thread-1');
   const root = messageRefSchema.parse('root-1');
-  await store.transaction(async (trx) => {
+  await scanTransaction(store, async (trx) => {
     await trx
       .insertInto('task')
       .values({
@@ -401,7 +402,7 @@ describe('inbound apply', () => {
         },
       },
     });
-    await store.transaction(async (trx) => {
+    await scanTransaction(store, async (trx) => {
       await trx
         .updateTable('conversation')
         .set({ created_at: new Date(later).toISOString() })
@@ -488,7 +489,7 @@ describe('inbound apply', () => {
     expect(
       (await store.db.selectFrom('event').select('kind').execute()).map((row) => row.kind),
     ).toContain('comment_deleted');
-    await store.transaction((trx) =>
+    await scanTransaction(store, (trx) =>
       trx
         .insertInto('comment')
         .values({
@@ -561,7 +562,7 @@ describe('inbound apply', () => {
 
   it('rolls back a failed handler and stores a linked retry item before resolving', async () => {
     const { store, inbound, gateway } = await setup();
-    await store.transaction((trx) =>
+    await scanTransaction(store, (trx) =>
       trx.updateTable('task').set({ membership: 'archived' }).where('id', '=', 1).execute(),
     );
     await inbound.sink(message({ conversation: 'thread-1', root: 'root-1' }));
@@ -837,7 +838,7 @@ describe('inbound apply', () => {
       key: 'board',
       title: 'board: repeat your answer',
     });
-    await store.transaction((trx) => clearOperatorItem(trx, 2, new Date(at)));
+    await scanTransaction(store, (trx) => clearOperatorItem(trx, 2, new Date(at)));
     expect(
       await store.db
         .selectFrom('outbox')
@@ -845,7 +846,7 @@ describe('inbound apply', () => {
         .where('kind', '=', 'feed.line.edit')
         .execute(),
     ).toHaveLength(1);
-    await store.transaction((trx) => clearOperatorItem(trx, 1, new Date(at)));
+    await scanTransaction(store, (trx) => clearOperatorItem(trx, 1, new Date(at)));
     await inbound.sink({ kind: 'gap', dedupeKey: 'gap-c', conversation });
     await inbound.sink({ kind: 'gap', dedupeKey: 'gap-d', conversation });
     const later = await store.db
@@ -862,9 +863,9 @@ describe('inbound apply', () => {
     ).toHaveLength(3);
   });
 
-  it('registers a worker answer notification for a live author', async () => {
+  it('registers a content-free worker answer notification for a live author', async () => {
     const { store, inbound, gateway } = await setup('agent:proj/sess-1');
-    await store.transaction((trx) =>
+    await scanTransaction(store, (trx) =>
       trx
         .insertInto('session_snapshot')
         .values({
@@ -884,7 +885,8 @@ describe('inbound apply', () => {
         })
         .execute(),
     );
-    await inbound.sink(message({ conversation: 'thread-1', root: 'root-1' }));
+    const secret = ['xoxb', '123', 'abc'].join('-');
+    await inbound.sink(message({ conversation: 'thread-1', root: 'root-1', text: secret }));
     expect(
       await store.db
         .selectFrom('notification')
@@ -908,15 +910,71 @@ describe('inbound apply', () => {
     expect(sends).toHaveLength(1);
     expect(sends[0]?.session).toBe('sess-1');
     expect(sends[0]?.text).toContain('check board inbox');
+    expect(sends[0]?.text).not.toContain(secret);
     expect(
       (await store.db.selectFrom('outbox').select('kind').execute()).map((row) => row.kind),
     ).toEqual(['conversation.close', 'doorbell']);
+    const doorbell = await store.db
+      .selectFrom('outbox')
+      .select('payload')
+      .where('kind', '=', 'doorbell')
+      .executeTakeFirstOrThrow();
+    expect(JSON.parse(doorbell.payload)).toMatchObject({ session: 'sess-1' });
+    expect(doorbell.payload).not.toContain(secret);
     expect(await store.db.selectFrom('operator_item').select('id').execute()).toEqual([]);
+  });
+
+  it('rings a non-worker author with a content-free task pointer', async () => {
+    const { store, gateway } = await setup('agent:proj/sess-1');
+    const operatorConfig = configSchema.parse({
+      ...config,
+      projects: config.projects.map((project) => ({
+        ...project,
+        spurProjects: [...project.spurProjects, { name: 'proj', role: 'operator' }],
+      })),
+    });
+    const inbound = createInbound({
+      store,
+      gateway,
+      config: operatorConfig,
+      clock: { now: () => now },
+    });
+    await scanTransaction(store, (trx) =>
+      trx
+        .insertInto('session_snapshot')
+        .values({ ...sampleRows.session_snapshot, id: 'sess-1', ended_at: null })
+        .execute(),
+    );
+    const secret = ['xoxb', '123', 'abc'].join('-');
+    await inbound.sink(message({ conversation: 'thread-1', root: 'root-1', text: secret }));
+    const doorbell = await store.db
+      .selectFrom('outbox')
+      .select('payload')
+      .where('kind', '=', 'doorbell')
+      .executeTakeFirstOrThrow();
+    const pointer = 'Answer for o/r#101 block B1; read board task o/r#101';
+    expect(JSON.parse(doorbell.payload)).toMatchObject({ session: 'sess-1', text: pointer });
+    expect(doorbell.payload).not.toContain(secret);
+    const sends: string[] = [];
+    const sender = createSender({
+      store,
+      gateway,
+      config: operatorConfig,
+      spur: {
+        send: (_session, text) => {
+          sends.push(text);
+          return Promise.resolve();
+        },
+      },
+      now: () => new Date(now),
+    });
+    await sender.tick();
+    expect(sends).toEqual([pointer]);
   });
 
   it('keeps an ended author answer pending until a replacement worker arrives', async () => {
     const { store, inbound, gateway } = await setup('agent:proj/sess-1');
-    await store.transaction((trx) =>
+    await scanTransaction(store, (trx) =>
       trx
         .insertInto('session_snapshot')
         .values({
@@ -1046,7 +1104,7 @@ describe('inbound apply', () => {
     });
     if (result.status !== 'delivered' || result.conversation === undefined)
       throw new Error('Expected root delivery');
-    await store.transaction((trx) =>
+    await scanTransaction(store, (trx) =>
       trx
         .updateTable('conversation')
         .set({

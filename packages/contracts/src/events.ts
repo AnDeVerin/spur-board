@@ -131,7 +131,7 @@ export const eventPayloadSchemas = {
   doorbell_read: z.looseObject({ doorbell: S }),
   doorbell_undelivered: z.looseObject({ doorbell: S, reason: S }),
   inbound_failed: z.looseObject({ gateway: S, reason: S }),
-  from_you_raised: z.looseObject({ item: S }),
+  from_you_raised: z.looseObject({ item: S, rule: S.optional() }),
   from_you_cleared: z.looseObject({ item: S }),
   flag_raised: z.looseObject({ flag: S, session: S.optional() }),
   flag_cleared: z.looseObject({ flag: S, session: S.optional() }),

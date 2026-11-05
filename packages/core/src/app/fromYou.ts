@@ -97,10 +97,21 @@ export async function reconcileItems(
       });
   }
   const blocks = await trx.selectFrom('block').selectAll().where('state', '=', 'open').execute();
+  const blockedRoots = await trx
+    .selectFrom('operator_item')
+    .select('block_id')
+    .where('kind', '=', 'post_blocked')
+    .where('source', '=', 'conversation.open')
+    .execute();
+  const blockedIds = new Set(blockedRoots.map((item) => item.block_id));
   for (const block of blocks) {
     const task = taskById.get(block.task_id);
     if (task === undefined) continue;
-    if (block.addressee_role === 'operator' && block.author !== 'operator')
+    if (
+      block.addressee_role === 'operator' &&
+      block.author !== 'operator' &&
+      !blockedIds.has(block.id)
+    )
       candidates.push({
         key: `operator-block:${String(block.id)}`,
         taskId: task.id,

@@ -31,6 +31,7 @@ import {
   registerAnswerNotification,
   registerBlockNotification,
 } from './doorbells.ts';
+import { clearItem } from './feed.ts';
 import { enqueueConversationOpen, enqueueConversationReply } from './outbox.ts';
 import { enqueueConversationClose } from './outbox.ts';
 
@@ -395,6 +396,14 @@ async function close(
     at: new Date(ctx.at),
   });
   await closeBlockNotification(trx, block.id, new Date(ctx.at));
+  const blockedItems = await trx
+    .selectFrom('operator_item')
+    .select('id')
+    .where('kind', '=', 'post_blocked')
+    .where('block_id', '=', block.id)
+    .where('cleared_at', 'is', null)
+    .execute();
+  for (const item of blockedItems) await clearItem(trx, item.id, new Date(ctx.at));
   return updated;
 }
 
