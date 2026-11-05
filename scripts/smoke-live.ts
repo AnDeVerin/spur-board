@@ -92,11 +92,16 @@ export async function verifyLiveChannel(
     metadata.name !== settings.channelName ||
     !('is_private' in metadata) ||
     metadata.is_private !== true ||
-    ('is_im' in metadata && metadata.is_im === true) ||
-    ('is_mpim' in metadata && metadata.is_mpim === true) ||
-    ('is_member' in metadata && metadata.is_member === false) ||
-    ('is_ext_shared' in metadata && metadata.is_ext_shared === true) ||
-    ('is_archived' in metadata && metadata.is_archived === true)
+    !('is_im' in metadata) ||
+    metadata.is_im !== false ||
+    !('is_mpim' in metadata) ||
+    metadata.is_mpim !== false ||
+    !('is_member' in metadata) ||
+    metadata.is_member !== true ||
+    !('is_ext_shared' in metadata) ||
+    metadata.is_ext_shared !== false ||
+    !('is_archived' in metadata) ||
+    metadata.is_archived !== false
   ) {
     throw new PreflightError('The live channel must match the designated private test channel.');
   }

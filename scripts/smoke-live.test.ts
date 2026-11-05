@@ -129,6 +129,7 @@ describe('live conformance process preflight', () => {
       is_private: true,
       is_im: false,
       is_mpim: false,
+      is_member: true,
       is_ext_shared: false,
       is_archived: false,
     };
@@ -149,6 +150,21 @@ describe('live conformance process preflight', () => {
         verifyLiveChannel(settings, () =>
           Promise.resolve({ ok: true, channel: { ...channel, ...mismatch } }),
         ),
+      ).rejects.toThrow('The live channel must match the designated private test channel.');
+    }
+    for (const flag of [
+      'is_private',
+      'is_im',
+      'is_mpim',
+      'is_member',
+      'is_ext_shared',
+      'is_archived',
+    ]) {
+      const incomplete = Object.fromEntries(
+        Object.entries(channel).filter(([key]) => key !== flag),
+      );
+      await expect(
+        verifyLiveChannel(settings, () => Promise.resolve({ ok: true, channel: incomplete })),
       ).rejects.toThrow('The live channel must match the designated private test channel.');
     }
     await expect(
