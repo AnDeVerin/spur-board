@@ -5,7 +5,7 @@ description: Install, configure, check, and update spur-board with an operator. 
 
 # Set up spur-board
 
-Ask one question at a time, only when current state cannot answer it. Check before every write. Ask before enabling lingering, writing agent skill folders, migrating secrets, or touching a project's checkout. Never show secret values or put them in chat, logs, or shell history. A same-version rerun changes nothing and repeats no answered question. Never uninstall the service or revoke a token without an explicit operator request.
+Ask one question at a time, only when current state cannot answer it. Check before every write. Ask before changing package, config, secret, service, token, skill-folder, or project-checkout state, or enabling lingering. Never show secret values or put them in chat, logs, or shell history. A same-version rerun changes nothing and repeats no answered question. Never uninstall the service or revoke a token without an explicit operator request.
 
 ## 1. Inspect
 
