@@ -220,8 +220,11 @@ export async function runSmoke(
         .flatMap(secretForms)
         .some((form) => normalizePercentEscapes(output).includes(normalizePercentEscapes(form))) ||
       containsDecodedSecret(output, secrets)
-    )
+    ) {
+      const warning = 'Smoke output withheld: it would contain a configured secret value\n';
+      if (!containsDecodedSecret(warning, secrets)) options.writeErr(warning);
       return 1;
+    }
     for (const line of out) options.writeOut(line);
     for (const line of err) options.writeErr(line);
     return failed ? 1 : 0;

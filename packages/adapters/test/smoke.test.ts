@@ -535,9 +535,20 @@ describe('adapter smoke', () => {
       const result = await run(fixture(), { secrets: { ...secrets, EXTRA: value } });
       expect(result.code).toBe(1);
       expect(result.out).toBe('');
-      expect(result.err).toBe('');
+      expect(result.err).toBe(
+        'Smoke output withheld: it would contain a configured secret value\n',
+      );
     },
   );
+
+  it('keeps the withheld-output warning silent when it contains a configured secret', async () => {
+    const result = await run(fixture(), {
+      secrets: { ...secrets, EXTRA: 'pass', WARNING: 'Smoke' },
+    });
+    expect(result.code).toBe(1);
+    expect(result.out).toBe('');
+    expect(result.err).toBe('');
+  });
 
   it('shows missing explicit probes without treating a complete source listing as a failed batch', async () => {
     const probes: SmokeProbes = {
