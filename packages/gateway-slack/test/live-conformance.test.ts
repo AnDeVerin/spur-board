@@ -179,4 +179,31 @@ describe('live conformance runner against the local Slack API', () => {
       await fake.close();
     }
   });
+
+  it('retries a rate-limited probe post before editing', async () => {
+    const fake = await startFakeSlackApi();
+    try {
+      const report = await runLiveConformance({
+        token: 'xoxb-test',
+        appToken: 'xapp-test',
+        channel: 'C_FEED',
+        operator,
+        apiUrl: fake.url,
+        caseIds: ['delivery', 'rate-limit'],
+        prompt: async () => {},
+        beforeCase: async (id) => {
+          if (id === 'rate-limit') await fake.platform.rateLimitNext(20);
+        },
+      });
+      expect(report.results.map((result) => [result.id, result.status])).toEqual([
+        ['delivery', 'pass'],
+        ['rate-limit', 'pass'],
+      ]);
+      expect(
+        fake.requests().filter((request) => request.method === 'chat.postMessage'),
+      ).toHaveLength(5);
+    } finally {
+      await fake.close();
+    }
+  });
 });

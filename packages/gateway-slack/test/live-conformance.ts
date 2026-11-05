@@ -292,17 +292,31 @@ async function recoveryCase(ctx: RunContext): Promise<string> {
 }
 
 async function rateLimitCase(ctx: RunContext): Promise<string> {
-  const probe = requireResult(
-    await deliver(ctx, {
-      key: `${ctx.key}:rate-probe`,
-      maybeSent: false,
-      target: { kind: 'reply', conversation: rootOf(ctx) },
-      body: textBody('Live conformance rate probe.'),
-    }),
-  );
-  await ctx.options.beforeRateEdit?.();
+  const probeKey = `${ctx.key}:rate-probe`;
+  const probeRequest = {
+    key: probeKey,
+    target: { kind: 'reply' as const, conversation: rootOf(ctx) },
+    body: textBody('Live conformance rate probe.'),
+  };
   let observed = false;
   let waited = 0;
+  let probeResult = await deliver(ctx, { ...probeRequest, maybeSent: false });
+  for (let retry = 0; retry < 5 && probeResult.status !== 'delivered'; retry++) {
+    if (probeResult.status !== 'retry' || probeResult.afterMs === undefined) {
+      throw new CaseError('rate-limit response lacked a usable Retry-After');
+    }
+    observed = true;
+    need(waited + probeResult.afterMs <= 120_000, 'Retry-After exceeded the wait budget');
+    waited += probeResult.afterMs;
+    await wait(probeResult.afterMs);
+    probeResult = await deliver(ctx, { ...probeRequest, maybeSent: true });
+  }
+  const probe = requireResult(probeResult);
+  if (observed) {
+    need(countMarker(await history(ctx), probeKey) === 1, 'rate-limit retry duplicated a post');
+    return '429, Retry-After wait and one marked retry confirmed';
+  }
+  await ctx.options.beforeRateEdit?.();
   const deadline = Date.now() + 90_000;
   for (let index = 0; index < 120 && Date.now() < deadline; index++) {
     const key = `${ctx.key}:rate:${String(index)}`;
