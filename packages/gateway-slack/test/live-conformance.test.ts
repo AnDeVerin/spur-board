@@ -71,6 +71,7 @@ describe('live conformance runner against the local Slack API', () => {
           author: operator,
         });
       } else if (id === 'guided-slash') {
+        await fake.platform.restoreConnection();
         await fake.emitEnvelope('slash_commands', {
           trigger_id: 'T_LIVE',
           channel_id: 'C_FEED',
@@ -95,7 +96,7 @@ describe('live conformance runner against the local Slack API', () => {
         },
       });
       expect(report.results).toHaveLength(10);
-      expect(report.results.map((result) => result.status)).toEqual(Array(10).fill('pass'));
+      expect(report.results.filter((result) => result.status !== 'pass')).toEqual([]);
       expect(report.rateLimit.status).toBe('pass');
       expect(
         fake
@@ -142,6 +143,35 @@ describe('live conformance runner against the local Slack API', () => {
         ['guided-reply', 'fail'],
       ]);
       expect(report.results[1]?.observation).toMatch(/timed out/);
+    } finally {
+      await fake.close();
+    }
+  });
+
+  it('delivers a guided slash envelope after a socket reconnect', async () => {
+    const fake = await startFakeSlackApi();
+    try {
+      const report = await runLiveConformance({
+        token: 'xoxb-test',
+        appToken: 'xapp-test',
+        channel: 'C_FEED',
+        operator,
+        apiUrl: fake.url,
+        caseIds: ['delivery', 'guided-slash'],
+        beforeCase: async (id) => {
+          if (id === 'guided-slash') await fake.platform.dropConnection();
+        },
+        prompt: async (_id, instruction) => {
+          await fake.platform.restoreConnection();
+          await fake.emitEnvelope('slash_commands', {
+            trigger_id: 'T_RECONNECTED',
+            channel_id: 'C_FEED',
+            user_id: operator,
+            text: instructionToken(instruction),
+          });
+        },
+      });
+      expect(report.results.filter((result) => result.status !== 'pass')).toEqual([]);
     } finally {
       await fake.close();
     }
