@@ -12,6 +12,7 @@ import {
 } from '@spur-board/contracts';
 import { z } from 'zod';
 import { classifyHttpFailure } from '../runner/http.ts';
+import { parseWire } from '../runner/wire.ts';
 
 const REQUEST_TIMEOUT_MS = 5_000;
 const sessionWire = z.object({
@@ -174,7 +175,7 @@ export function createSpurAdapter(options: SpurAdapterOptions): Adapter {
           Date.now(),
         );
       }
-      const listed = z.array(sessionWire).parse(listBody);
+      const listed = parseWire(z.array(sessionWire), listBody, 'Invalid Spur response');
       const byId = new Map(listed.map((wire) => [wire.id, wire]));
       const detail = new Map<string, SessionWire | null>();
       for (const ref of ctx.observe.sessions) {
@@ -193,7 +194,7 @@ export function createSpurAdapter(options: SpurAdapterOptions): Adapter {
             Date.now(),
           );
         }
-        const wire = sessionWire.parse(body);
+        const wire = parseWire(sessionWire, body, 'Invalid Spur response');
         if (wire.id !== ref.id) {
           throw new AdapterError('transient', 'Unresolved Spur session detail');
         }

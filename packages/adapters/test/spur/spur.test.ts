@@ -191,9 +191,32 @@ describe('Spur adapter', () => {
         ...adapterOptions,
         fetch: () => Promise.resolve(response([malformed])),
       });
-      await expect(adapter.poll(context())).rejects.toThrow();
+      await expect(adapter.poll(context())).rejects.toMatchObject({
+        kind: 'transient',
+        message: `Invalid Spur response at 0.${field}`,
+      });
     },
   );
+
+  it('passes extra fields on a session, its slots and its links', async () => {
+    const extra = {
+      ...wire,
+      extra: { nested: true },
+      slots: {
+        ...wire.slots,
+        other: [1],
+        links: wire.slots.links.map((link) => ({ ...link, kind: 'x' })),
+      },
+    };
+    const poll = (body: unknown) =>
+      createSpurAdapter({
+        ...adapterOptions,
+        fetch: () => Promise.resolve(response([body])),
+      }).poll(context());
+    const [plain, extended] = [await poll(wire), await poll(extra)];
+    expect(extended.items).toEqual(plain.items);
+    expect(plain.items).toHaveLength(1);
+  });
 
   it('resolves ended linked sessions and a vanished session without polling completed lists', async () => {
     const ids = ['done-1', 'killed-1', 'gone-1'];
