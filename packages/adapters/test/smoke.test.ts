@@ -77,6 +77,7 @@ function fixture(
     githubRepositoryNotFound?: boolean;
     githubChecksForbidden?: boolean;
     githubInsufficientScopes?: boolean;
+    githubTeamScopeDenied?: boolean;
     secretInFacts?: string;
     secretInSpurLink?: string;
     mixedSecretInSpurLink?: string;
@@ -143,6 +144,19 @@ function fixture(
           Response.json({
             data: null,
             errors: [{ type: 'INSUFFICIENT_SCOPES', message: 'Synthetic private scope detail' }],
+          }),
+        );
+      }
+      if (isWidgets && isDetail && options.githubTeamScopeDenied) {
+        return Promise.resolve(
+          Response.json({
+            data: null,
+            errors: [
+              {
+                type: 'INSUFFICIENT_SCOPES',
+                message: "Field 'name' requires read:org or read:discussion scope",
+              },
+            ],
           }),
         );
       }
@@ -443,6 +457,21 @@ describe('adapter smoke', () => {
     expect(
       result.records.find((record) => record['source'] === 'github:demo:demo/widgets'),
     ).toMatchObject({ status: 'fail', reason: 'GitHub token lacks a required GraphQL read scope' });
+  });
+
+  it('names the team-reviewer scope requirement without exposing GraphQL text', async () => {
+    const result = await run(fixture({ githubTeamScopeDenied: true }));
+    expect(result.code).toBe(1);
+    expect(result.err).toContain(
+      'github:demo:demo/widgets: GitHub token needs read:org for team review requests',
+    );
+    expect(result.out + result.err).not.toContain("Field 'name' requires");
+    expect(
+      result.records.find((record) => record['source'] === 'github:demo:demo/widgets'),
+    ).toMatchObject({
+      status: 'fail',
+      reason: 'GitHub token needs read:org for team review requests',
+    });
   });
 
   it('redacts configured values in facts and errors, including short values', async () => {

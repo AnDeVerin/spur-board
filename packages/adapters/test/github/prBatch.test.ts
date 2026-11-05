@@ -470,16 +470,66 @@ describe('GitHub PR batch', () => {
       retryAt: new Date('2026-01-01T00:00:00.000Z'),
     });
   });
-  it('classifies a null-data GraphQL scope denial without exposing its message', async () => {
+  it('keeps an unrelated null-data scope denial generic', async () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
       Response.json({
         data: null,
-        errors: [{ type: 'INSUFFICIENT_SCOPES', message: 'Synthetic private scope detail' }],
+        errors: [
+          { type: 'INSUFFICIENT_SCOPES', message: "Field 'description' requires read:org scope" },
+        ],
       }),
     );
     await expect(adapter(fetcher).poll(context())).rejects.toMatchObject({
       kind: 'auth',
       message: 'GitHub token lacks a required GraphQL read scope',
+    });
+  });
+  it('names read:org for a pathless team-name scope denial on a detail query', async () => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        response({
+          repository: {
+            pullRequests: conn([
+              { number: 7, updatedAt: time, author: { login: 'operator' }, state: 'OPEN' },
+            ]),
+          },
+        }),
+      )
+      .mockResolvedValueOnce(
+        Response.json({
+          data: null,
+          errors: [
+            {
+              type: 'INSUFFICIENT_SCOPES',
+              message: "Field 'name' requires read:org or read:discussion scope",
+            },
+          ],
+        }),
+      );
+    await expect(adapter(fetcher).poll(context([]))).rejects.toMatchObject({
+      kind: 'auth',
+      message: 'GitHub token needs read:org for team review requests',
+    });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+  it('names read:org before normalizing a team reviewer with its name withheld', async () => {
+    const partial = {
+      ...wire(),
+      reviewRequests: conn([{ requestedReviewer: {}, asCodeOwner: false }]),
+    };
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      response({ repository: { pullRequests: conn([]) }, pr0: { pullRequest: partial } }, [
+        {
+          type: 'INSUFFICIENT_SCOPES',
+          path: ['pr0', 'pullRequest', 'reviewRequests', 'nodes', 0, 'requestedReviewer', 'name'],
+          message: 'Synthetic review data denied',
+        },
+      ]),
+    );
+    await expect(adapter(fetcher).poll(context())).rejects.toMatchObject({
+      kind: 'auth',
+      message: 'GitHub token needs read:org for team review requests',
     });
   });
 });
