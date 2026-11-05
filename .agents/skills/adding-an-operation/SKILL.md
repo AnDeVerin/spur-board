@@ -11,10 +11,9 @@ path order. A PR that changes this path or these rules updates this skill in the
 ## 1. Catalog entry
 
 - Add the entry to `OPERATIONS` in `packages/contracts/src/ops/catalog.ts`; shapes, grants,
-  errors and bindings follow `.agents/skills/working-with-contracts/references/operation.md`.
-- Checks: `describe('catalog')` (described and closed objects, parsing examples, unique names,
-  guidance) and `describe('snapshot')` (a `.transform` throws) in
-  `packages/contracts/test/ops.test.ts`. A `.preprocess` passes them all; only review catches it.
+  errors and bindings follow `.agents/skills/working-with-contracts/references/operation.md`,
+  which names each check in `describe('catalog')` and `describe('snapshot')` of
+  `packages/contracts/test/ops.test.ts`.
 
 ## 2. Core handler
 

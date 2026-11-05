@@ -12,16 +12,14 @@ per operation. A PR that changes these rules updates this skill in the same PR.
 
 ## MCP tools
 
-- The tool name is the operation id with `.` -> `_`, set by `defineOperation`
-  (`packages/contracts/src/ops/define.ts`); uniqueness is tested under `describe('catalog')` in
-  `packages/contracts/test/ops.test.ts`.
+- Tool names and annotations: "Entry" and "Bindings" in
+  `.agents/skills/working-with-contracts/references/operation.md`.
 - `toolDescription` in `packages/cli/src/mcp.ts` joins the description, `whenToUse`,
   `whenNotToUse` and the first example. Keep the description one short sentence; lead
   `whenToUse` with the situation, and make `whenNotToUse` name the neighbour tool an agent
   should pick instead (the guidance test under `describe('catalog')` checks the form).
 - `outputSchema` is the operation's `output`; the handler returns the result as
   `structuredContent`. Change the catalog output, not the tool.
-- Annotations: "Bindings" in `.agents/skills/working-with-contracts/references/operation.md`.
 - Input is checked against the catalog zod schema inside the tool callback; `handlerValidator`
   admits everything first so a bad call gets the catalog `usage` error shape. Keep it so.
 - No operation has a limit, cursor, pagination or concise and detailed modes. A new list
