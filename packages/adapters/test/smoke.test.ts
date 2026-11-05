@@ -341,6 +341,16 @@ describe('adapter smoke', () => {
     expect(failed.err).not.toContain('DEMO');
   });
 
+  it.each(['source', '4321', 'true', 'pass', '"'])(
+    'fails closed when a secret collides with serialized output: %s',
+    async (value) => {
+      const result = await run(fixture(), { secrets: { ...secrets, EXTRA: value } });
+      expect(result.code).toBe(1);
+      expect(result.out).toBe('');
+      expect(result.err).toBe('');
+    },
+  );
+
   it('shows missing explicit probes without treating a complete source listing as a failed batch', async () => {
     const probes: SmokeProbes = {
       prs: [{ kind: 'pr', repo: 'demo/issues', number: 9 }],

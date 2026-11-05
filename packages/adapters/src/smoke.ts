@@ -120,6 +120,9 @@ export async function runSmoke(
     if (runner.firstAttempts === undefined) throw new Error('Smoke runner has no first attempts');
     const attempts = await runner.firstAttempts;
     let failed = false;
+    let unsafeOutput = false;
+    const out: string[] = [];
+    const err: string[] = [];
     for (const { source, outcome } of attempts) {
       const observation = observed.get(source);
       const reason =
@@ -145,15 +148,29 @@ export async function runSmoke(
         outcomes: observation?.outcomes ?? [],
         ...(observation?.batch.budget === undefined ? {} : { budget: observation.batch.budget }),
       };
+      if (redact(source, secrets) !== source || redact(record.status, secrets) !== record.status)
+        unsafeOutput = true;
       const line = JSON.stringify(record, (_key: string, value: unknown) =>
         typeof value === 'string' ? redact(value, secrets) : value,
       );
-      options.writeOut(`${line}\n`);
+      out.push(`${line}\n`);
       if (reason !== undefined) {
         failed = true;
-        options.writeErr(`${redact(`${source}: ${reason}`, secrets)}\n`);
+        err.push(`${redact(`${source}: ${reason}`, secrets)}\n`);
       }
     }
+    const output = `${out.join('')}${err.join('')}`;
+    if (
+      unsafeOutput ||
+      Object.values(secrets).some(
+        (value) =>
+          value.length > 0 &&
+          (output.includes(value) || output.includes(JSON.stringify(value).slice(1, -1))),
+      )
+    )
+      return 1;
+    for (const line of out) options.writeOut(line);
+    for (const line of err) options.writeErr(line);
     return failed ? 1 : 0;
   } finally {
     await runner.stop();
