@@ -53,7 +53,7 @@ interface Finding {
   line?: number;
   message: string;
   /** Sync cannot render the outputs while this finding stands. */
-  blocks?: boolean;
+  blocks: boolean;
 }
 
 interface Field {
@@ -254,6 +254,11 @@ function analyze(root: string): State {
       blocks,
     });
   };
+  const budget = (path: string, text: string, limit: number) => {
+    const size = Buffer.byteLength(text);
+    if (size > limit)
+      add(path, undefined, `${String(size)} bytes, over the ${String(limit)}-byte budget`);
+  };
   const exists = (path: string): boolean => {
     const clean = path.replace(/\/+$/, '');
     return (tracked.has(clean) || dirs.has(clean)) && existsSync(join(root, clean));
@@ -311,13 +316,7 @@ function analyze(root: string): State {
     } else {
       add('AGENTS.md', undefined, `needs one "${BEGIN}" line before one "${END}" line`, true);
     }
-    const size = Buffer.byteLength(agentsText);
-    if (size > BUDGET.agents)
-      add(
-        'AGENTS.md',
-        undefined,
-        `${String(size)} bytes, over the ${String(BUDGET.agents)}-byte budget`,
-      );
+    budget('AGENTS.md', agentsText, BUDGET.agents);
   }
 
   // Frontmatter, schema, triggers and budgets.
@@ -331,10 +330,7 @@ function analyze(root: string): State {
         kind === 'skill' ? `.agents/skills/${name}/SKILL.md` : `.agents/agents/${name}.md`;
       const text = texts.get(path);
       if (text === undefined) continue;
-      const size = Buffer.byteLength(text);
-      const budget = kind === 'skill' ? BUDGET.skill : BUDGET.role;
-      if (size > budget)
-        add(path, undefined, `${String(size)} bytes, over the ${String(budget)}-byte budget`);
+      budget(path, text, kind === 'skill' ? BUDGET.skill : BUDGET.role);
       const parsed = parseFrontmatter(text);
       if ('message' in parsed) {
         add(path, parsed.line, parsed.message, true);
@@ -417,14 +413,7 @@ function analyze(root: string): State {
   }
   for (const path of sources) {
     if (/^\.agents\/skills\/[^/]+\/references\/[^/]+\.md$/.test(path)) {
-      const text = texts.get(path);
-      const size = text === undefined ? 0 : Buffer.byteLength(text);
-      if (size > BUDGET.reference)
-        add(
-          path,
-          undefined,
-          `${String(size)} bytes, over the ${String(BUDGET.reference)}-byte budget`,
-        );
+      budget(path, texts.get(path) ?? '', BUDGET.reference);
     }
   }
 
@@ -537,7 +526,7 @@ function analyze(root: string): State {
   }
 
   // Render.
-  const blocked = findings.some((finding) => finding.blocks === true);
+  const blocked = findings.some((finding) => finding.blocks);
   let expected: Map<string, string> | null = null;
   if (!blocked && agentsText !== null && region !== null) {
     expected = new Map();
@@ -592,14 +581,15 @@ function analyze(root: string): State {
     (path) => !(expected?.has(path) ?? true) && lstat(join(root, path)) !== null,
   );
   const linkStats = lstat(join(root, LINK));
+  const target = linkStats?.isSymbolicLink() ? readlinkSync(join(root, LINK)) : null;
   const link: State['link'] =
     linkStats === null
       ? 'missing'
-      : !linkStats.isSymbolicLink()
+      : target === null
         ? 'not-symlink'
-        : readlinkSync(join(root, LINK)) === LINK_TARGET
+        : target === LINK_TARGET
           ? 'ok'
-          : { target: readlinkSync(join(root, LINK)) };
+          : { target };
   let indexMode: string | null = null;
   for (const entry of nulList(git(root, ['ls-files', '-s', '-z', '--', LINK]))) {
     const match = /^(\d+) \S+ \d+\t(.*)$/s.exec(entry);
@@ -655,7 +645,7 @@ const driftLine = (prefix: string, entry: Drift): string =>
 function sync(root: string, check: boolean, log: (line: string) => void): number {
   const prefix = 'agents:sync';
   const state = analyze(root);
-  const blockers = state.findings.filter((finding) => finding.blocks === true);
+  const blockers = state.findings.filter((finding) => finding.blocks);
   if (blockers.length > 0 || state.expected === null) {
     for (const finding of blockers) log(findingLine(prefix, finding));
     return 1;
