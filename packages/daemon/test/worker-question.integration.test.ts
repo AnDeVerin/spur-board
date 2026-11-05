@@ -23,7 +23,7 @@ async function ask(harness: Harness, key: string) {
     key,
     '--json',
   ]);
-  expect(result.code).toBe(0);
+  expect(result.code, result.stderr).toBe(0);
   expect(result.stderr).toContain(`key: ${key}`);
   const output = JSON.parse(result.stdout) as { block: { id: string } };
   expect(output.block.id).toMatch(/^B[1-9][0-9]*$/);
