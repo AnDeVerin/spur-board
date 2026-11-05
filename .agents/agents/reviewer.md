@@ -18,8 +18,9 @@ checks.
    `packages/core/src/store/` or `packages/core/test/store/`, or one that adds a `.transaction(`
    call, also reads `working-with-storage`; a diff under `packages/daemon/`, or one that adds a
    `setTimeout(` or `setInterval(` call outside tests, also reads `running-the-daemon`; a diff
-   under `packages/*/test/` or `packages/testkit/`, to `vitest.config.ts`, or to any `*.test.ts`
-   file also reads `testing-and-ci`.
+   under `packages/adapters/` also reads `writing-adapters`; a diff under `packages/*/test/` or
+   `packages/testkit/`, to `vitest.config.ts`, or to any `*.test.ts` file also reads
+   `testing-and-ci`.
 4. A PR exists (`PR:` line in the handoff): read its body and earlier review threads. Do not
    repeat a rejected suggestion unless the diff changes its premise.
 

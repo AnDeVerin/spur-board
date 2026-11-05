@@ -73,4 +73,5 @@ Follow `references/new-package.md`.
 - `working-with-contracts` - schemas, events, ports and the contracts-first order.
 - `working-with-storage` - the SQLite store in core.
 - `running-the-daemon` - daemon modules and lifecycle.
+- `writing-adapters` - adapters and the runner.
 - `testing-and-ci` - tests, checks and CI.
