@@ -579,4 +579,49 @@ describe('Jira adapter', () => {
     expect(search).toHaveLength(1);
     expect(search[0]?.body?.['jql']).toBe(current.jql);
   });
+
+  it('passes extra fields and an unknown status name', async () => {
+    const base = issue('100', 'PROJ-1');
+    const extended = {
+      ...base,
+      expand: 'names',
+      fields: {
+        ...base.fields,
+        status: { name: 'Future Status', statusCategory: { key: 'new' } },
+        assignee: { accountId: 'user-123', active: true },
+        priority: { name: 'High' },
+      },
+    };
+    const { fetcher } = fake(() => ({ issues: [extended], isLast: true, total: 1 }));
+    const result = await adapter(fetcher).source.poll(context());
+    expect(result.items.map((item) => item.facts)).toEqual([
+      expect.objectContaining({ id: '100', status: 'Future Status', assignee: 'user-123' }),
+    ]);
+  });
+
+  it('fails the poll naming a missing search issue field', async () => {
+    const base = issue('100', 'PROJ-1');
+    const fields: Partial<typeof base.fields> = { ...base.fields };
+    delete fields.summary;
+    const { fetcher } = fake(() => ({ issues: [{ ...base, fields }], isLast: true }));
+    const error = await rejection(adapter(fetcher).source.poll(context()));
+    expect(error).toMatchObject({
+      kind: 'transient',
+      message: 'Invalid Jira response at issues.0.fields.summary',
+    });
+    expect(error.cause).toBeUndefined();
+  });
+
+  it('fails the poll on an empty summary as today', async () => {
+    const base = issue('100', 'PROJ-1');
+    const { fetcher } = fake(() => ({
+      issues: [{ ...base, fields: { ...base.fields, summary: '' } }],
+      isLast: true,
+    }));
+    const error = await rejection(adapter(fetcher).source.poll(context()));
+    expect(error).toMatchObject({
+      kind: 'transient',
+      message: 'Invalid Jira response at issues.0.fields.summary',
+    });
+  });
 });

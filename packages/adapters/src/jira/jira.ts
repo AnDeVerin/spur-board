@@ -7,7 +7,9 @@ import {
   type TicketEntityRef,
   type TicketFacts,
 } from '@spur-board/contracts';
+import { z } from 'zod';
 import { classifyHttpFailure } from '../runner/http.ts';
+import { parseWire } from '../runner/wire.ts';
 
 type JiraTracker = Extract<Config['projects'][number]['tracker'], { type: 'jira' }>;
 type KnownTicketRef = TicketEntityRef & { id: string };
@@ -28,6 +30,44 @@ const MAX_GET_SEARCH_URL_LENGTH = 2_000;
 const OUTSIDE_BATCH_SIZE = 50;
 const FALLBACK_REQUEST_LIMIT = 100;
 const SPRINT_SCHEMA = 'com.pyxis.greenhopper.jira:gh-sprint';
+const INVALID = 'Invalid Jira response';
+
+const text = z.string().min(1);
+const timestamp = text.refine((value) => !Number.isNaN(Date.parse(value)));
+const statusesWire = z.array(z.object({ statuses: z.array(z.object({ name: text })) }));
+const fieldWire = z.object({
+  id: text,
+  schema: z.object({ custom: z.string().optional() }).nullish(),
+});
+// Every field the adapter reads; `fields` stays loose because the sprint field id is found at runtime.
+const issueWire = z.object({
+  id: text,
+  key: text,
+  fields: z.looseObject({
+    summary: text,
+    status: z.object({ name: text }),
+    assignee: z
+      .object({ accountId: z.string().nullish(), displayName: z.string().nullish() })
+      .refine((assignee) => (assignee.accountId ?? assignee.displayName ?? '').length > 0, {
+        path: ['accountId'],
+      })
+      .nullish(),
+    labels: z.array(text),
+    updated: timestamp,
+  }),
+});
+type JiraIssue = z.output<typeof issueWire>;
+// An empty token marks the last page, so it stays a plain string.
+const searchPageWire = z.object({
+  issues: z.array(issueWire),
+  nextPageToken: z.string().nullish(),
+  isLast: z.boolean().optional(),
+});
+const sprintWire = z
+  .array(
+    z.union([z.string(), z.object({ name: z.string().optional(), state: z.string().optional() })]),
+  )
+  .nullish();
 
 class JiraHttpError extends AdapterError {
   readonly status: number;
@@ -36,23 +76,6 @@ class JiraHttpError extends AdapterError {
     super(failure.kind, failure.message, { retryAt: failure.retryAt });
     this.status = status;
   }
-}
-
-function object(value: unknown): JsonObject {
-  if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
-    return value as JsonObject;
-  }
-  throw new AdapterError('transient', 'Invalid Jira response');
-}
-
-function string(value: unknown): string {
-  if (typeof value === 'string' && value.length > 0) return value;
-  throw new AdapterError('transient', 'Invalid Jira response');
-}
-
-function array(value: unknown): unknown[] {
-  if (Array.isArray(value)) return value;
-  throw new AdapterError('transient', 'Invalid Jira response');
 }
 
 function keyQuery(refs: readonly { key: string }[]): string {
@@ -82,61 +105,46 @@ function membershipQuery(jql: string, refs: readonly { key: string }[]): string 
   return `(${jql.trim()}) AND ${keyQuery(refs)}`;
 }
 
-function sprintName(value: unknown): string | null {
-  if (!Array.isArray(value)) return null;
-  const sprints = value.map((entry) => {
-    if (typeof entry === 'string') {
-      const state = /(?:^|,)state=([^,\]]+)/i.exec(entry)?.[1]?.toLowerCase();
-      const name = /(?:^|,)name=(.*?)(?:,goal=|,startDate=|,endDate=|\]$)/i.exec(entry)?.[1];
-      return { state, name };
-    }
-    if (entry !== null && typeof entry === 'object' && !Array.isArray(entry)) {
-      const sprint = entry as JsonObject;
-      return { state: sprint['state'], name: sprint['name'] };
-    }
-    return { state: undefined, name: undefined };
+function sprintName(value: z.output<typeof sprintWire>): string | null {
+  const sprints = (value ?? []).map((entry) => {
+    if (typeof entry !== 'string') return entry;
+    const state = /(?:^|,)state=([^,\]]+)/i.exec(entry)?.[1];
+    const name = /(?:^|,)name=(.*?)(?:,goal=|,startDate=|,endDate=|\]$)/i.exec(entry)?.[1];
+    return { state, name };
   });
   for (const state of ['active', 'future']) {
     const selected = sprints.find(
-      (sprint) =>
-        typeof sprint.state === 'string' &&
-        sprint.state.toLowerCase() === state &&
-        typeof sprint.name === 'string' &&
-        sprint.name.length > 0,
+      (sprint) => sprint.state?.toLowerCase() === state && (sprint.name?.length ?? 0) > 0,
     );
-    if (typeof selected?.name === 'string') return selected.name;
+    if (selected?.name !== undefined) return selected.name;
   }
   return null;
 }
 
 function issueFacts(
-  value: unknown,
+  issue: JiraIssue,
   trackerId: string,
   baseUrl: string,
   sprintField: string | null,
   inFilter: boolean,
 ): TicketFacts {
-  const issue = object(value);
-  const fields = object(issue['fields']);
-  const status = object(fields['status']);
-  const assignee = fields['assignee'] == null ? null : object(fields['assignee']);
-  const key = string(issue['key']);
-  const updated = string(fields['updated']);
-  const updatedAt = new Date(updated);
-  if (Number.isNaN(updatedAt.getTime()))
-    throw new AdapterError('transient', 'Invalid Jira response');
+  const { fields, key } = issue;
+  const assignee = fields.assignee ?? null;
   return {
     trackerId,
-    id: string(issue['id']),
+    id: issue.id,
     key,
-    title: string(fields['summary']),
-    status: string(status['name']),
-    assignee: assignee === null ? null : string(assignee['accountId'] ?? assignee['displayName']),
-    sprint: sprintField === null ? null : sprintName(fields[sprintField]),
-    labels: array(fields['labels']).map(string),
+    title: fields.summary,
+    status: fields.status.name,
+    assignee: assignee === null ? null : (assignee.accountId ?? assignee.displayName ?? null),
+    sprint:
+      sprintField === null
+        ? null
+        : sprintName(parseWire(sprintWire, fields[sprintField], INVALID, ['fields', sprintField])),
+    labels: fields.labels,
     inFilter,
     url: new URL(`/browse/${encodeURIComponent(key)}`, baseUrl).toString(),
-    updatedAt: updatedAt.toISOString(),
+    updatedAt: new Date(fields.updated).toISOString(),
   };
 }
 
@@ -181,7 +189,7 @@ export function createJiraAdapter(options: JiraAdapterOptions): Adapter {
     try {
       return await response.json();
     } catch {
-      throw new AdapterError('transient', 'Invalid Jira response');
+      throw new AdapterError('transient', INVALID);
     }
   }
 
@@ -204,8 +212,8 @@ export function createJiraAdapter(options: JiraAdapterOptions): Adapter {
         throw error;
       }
       const names = new Set(
-        array(result).flatMap((entry) =>
-          array(object(entry)['statuses']).map((status) => string(object(status)['name'])),
+        parseWire(statusesWire, result, INVALID).flatMap((entry) =>
+          entry.statuses.map((status) => status.name),
         ),
       );
       for (const name of [...tracker.doneStatuses, ...tracker.readyStatuses]) {
@@ -219,15 +227,12 @@ export function createJiraAdapter(options: JiraAdapterOptions): Adapter {
     tracker: JiraTracker,
     signal: AbortSignal,
   ): Promise<string | null> {
-    const fields = array(await request(tracker.baseUrl, '/rest/api/3/field', signal));
-    for (const field of fields) {
-      const entry = object(field);
-      const schema = entry['schema'];
-      if (schema !== null && typeof schema === 'object' && !Array.isArray(schema)) {
-        if ((schema as JsonObject)['custom'] === SPRINT_SCHEMA) return string(entry['id']);
-      }
-    }
-    return null;
+    const fields = parseWire(
+      z.array(fieldWire),
+      await request(tracker.baseUrl, '/rest/api/3/field', signal),
+      INVALID,
+    );
+    return fields.find((field) => field.schema?.custom === SPRINT_SCHEMA)?.id ?? null;
   }
 
   async function search(
@@ -236,8 +241,8 @@ export function createJiraAdapter(options: JiraAdapterOptions): Adapter {
     jql: string,
     sprintField: string | null,
     beforePage?: () => void,
-  ): Promise<{ issues: unknown[]; complete: boolean }> {
-    const issues: unknown[] = [];
+  ): Promise<{ issues: JiraIssue[]; complete: boolean }> {
+    const issues: JiraIssue[] = [];
     let token: string | undefined;
     const seen = new Set<string>();
     for (let page = 0; page < SEARCH_PAGE_LIMIT; page += 1) {
@@ -274,22 +279,24 @@ export function createJiraAdapter(options: JiraAdapterOptions): Adapter {
           `Jira GET search URL is too long (over ${String(MAX_GET_SEARCH_URL_LENGTH)} characters)`,
         );
       }
-      const result = object(
+      const result = parseWire(
+        searchPageWire,
         await request(
           tracker.baseUrl,
           path,
           signal,
           options.searchMethod === 'GET' ? undefined : body,
         ),
+        INVALID,
       );
-      issues.push(...array(result['issues']));
-      const next = result['nextPageToken'];
+      issues.push(...result.issues);
+      const next = result.nextPageToken;
       if (next == null || next === '') {
-        if (result['isLast'] === false)
+        if (result.isLast === false)
           throw new AdapterError('transient', 'Jira search omitted its next page token');
         return { issues, complete: true };
       }
-      token = string(next);
+      token = next;
       if (seen.has(token)) throw new AdapterError('transient', 'Jira search repeated a page token');
       seen.add(token);
     }
@@ -301,13 +308,15 @@ export function createJiraAdapter(options: JiraAdapterOptions): Adapter {
     ref: KnownTicketRef,
     signal: AbortSignal,
     beforeRequest: () => void,
-  ): Promise<JsonObject | null> {
+  ): Promise<JiraIssue | null> {
     try {
       beforeRequest();
-      const issue = object(
+      const issue = parseWire(
+        issueWire,
         await request(tracker.baseUrl, `/rest/api/3/issue/${encodeURIComponent(ref.id)}`, signal),
+        INVALID,
       );
-      if (string(issue['id']) !== ref.id)
+      if (issue.id !== ref.id)
         throw new AdapterError('transient', 'Jira returned a different ticket id');
       return issue;
     } catch (error) {
@@ -326,10 +335,10 @@ export function createJiraAdapter(options: JiraAdapterOptions): Adapter {
     signal: AbortSignal,
     sprintField: string | null,
     query: (refs: readonly KnownTicketRef[]) => string,
-    onRejectedKey: (ref: KnownTicketRef) => Promise<unknown[]>,
+    onRejectedKey: (ref: KnownTicketRef) => Promise<JiraIssue[]>,
     countFallbackRequest: () => void,
     fallback = false,
-  ): Promise<unknown[]> {
+  ): Promise<JiraIssue[]> {
     const first = refs[0];
     if (first === undefined) return [];
     try {
@@ -375,12 +384,14 @@ export function createJiraAdapter(options: JiraAdapterOptions): Adapter {
     tracker: JiraTracker,
     ref: TicketEntityRef,
     signal: AbortSignal,
-  ): Promise<{ status: 'ok'; issue: JsonObject } | { status: 'not_found' | 'no_access' }> {
+  ): Promise<{ status: 'ok'; issue: JiraIssue } | { status: 'not_found' | 'no_access' }> {
     try {
-      const issue = object(
+      const issue = parseWire(
+        issueWire,
         await request(tracker.baseUrl, `/rest/api/3/issue/${encodeURIComponent(ref.key)}`, signal),
+        INVALID,
       );
-      if (string(issue['key']) !== ref.key)
+      if (issue.key !== ref.key)
         throw new AdapterError('transient', 'Jira returned a different ticket key');
       return { status: 'ok', issue };
     } catch (error) {
@@ -430,7 +441,7 @@ export function createJiraAdapter(options: JiraAdapterOptions): Adapter {
       );
       for (let start = 0; start < missing.length; start += OUTSIDE_BATCH_SIZE) {
         const refs = missing.slice(start, start + OUTSIDE_BATCH_SIZE);
-        const direct = new Map<string, JsonObject | null>();
+        const direct = new Map<string, JiraIssue | null>();
         if (!filtered.complete) {
           const membership = await searchByRefs(
             tracker,
@@ -445,7 +456,7 @@ export function createJiraAdapter(options: JiraAdapterOptions): Adapter {
               const current = await search(
                 tracker,
                 ctx.signal,
-                membershipQuery(tracker.jql, [{ ...ref, key: string(issue['key']) }]),
+                membershipQuery(tracker.jql, [{ ...ref, key: issue.key }]),
                 sprintField,
                 countFallbackRequest,
               );
@@ -465,7 +476,7 @@ export function createJiraAdapter(options: JiraAdapterOptions): Adapter {
         }
         const outsideRefs = refs.filter((ref) => !facts.has(ref.id));
         if (outsideRefs.length === 0) continue;
-        const outsideIssues: unknown[] = outsideRefs.flatMap((ref) => {
+        const outsideIssues: JiraIssue[] = outsideRefs.flatMap((ref) => {
           const issue = direct.get(ref.id);
           return issue == null ? [] : [issue];
         });
