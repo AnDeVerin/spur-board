@@ -188,7 +188,14 @@ export function createApply(deps: { store: Store; clock: Clock; config: Config }
               ...(mode === undefined ? {} : { mode }),
             });
             if (decision.status === 'denied') {
-              await writeDeniedEvent(trx, actor, entry.id, target, at);
+              await writeDeniedEvent(trx, {
+                config,
+                actor,
+                operation: entry.id,
+                input: parsedInput,
+                target,
+                at,
+              });
               deniedHint = decision.hint;
               return undefined;
             }

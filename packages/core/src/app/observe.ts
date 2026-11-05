@@ -1,5 +1,6 @@
 import { scanTransaction } from './secrets.ts';
 import {
+  RESERVED_PROJECT,
   entityRefSchema,
   prFactsSchema,
   sessionFactsSchema,
@@ -1003,10 +1004,17 @@ export function createObservationCore(deps: {
           .executeTakeFirst();
         if (old !== undefined) return;
         await trx.insertInto('meta').values({ key, value: 'true' }).execute();
-        await emit(trx, 'spur_unknown_state', 'board', null, new Date(clock.now()).toISOString(), {
-          kind,
-          value,
-        });
+        await emit(
+          trx,
+          'spur_unknown_state',
+          RESERVED_PROJECT,
+          null,
+          new Date(clock.now()).toISOString(),
+          {
+            kind,
+            value,
+          },
+        );
       });
     },
   };

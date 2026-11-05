@@ -1,4 +1,5 @@
 import { scanTransaction } from '../../src/app/secrets.ts';
+import { RESERVED_PROJECT } from '@spur-board/contracts';
 import { createHash } from 'node:crypto';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -67,6 +68,18 @@ describe('operator token lifecycle', () => {
         tokenListQuery({ now: () => AT.getTime() }).run(trx, {}, 'operator'),
       ),
     ).toEqual({ tokens: [{ name: 'desk', folder: 'workspace/desk', status: 'revoked' }] });
+    expect(
+      await store.db
+        .selectFrom('event')
+        .select(['kind', 'project'])
+        .where('kind', 'like', 'token_%')
+        .orderBy('id')
+        .execute(),
+    ).toEqual([
+      { kind: 'token_requested', project: RESERVED_PROJECT },
+      { kind: 'token_approved', project: RESERVED_PROJECT },
+      { kind: 'token_revoked', project: RESERVED_PROJECT },
+    ]);
   });
 
   it('denies a request and never accepts a duplicate name', async () => {
