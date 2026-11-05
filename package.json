@@ -7,6 +7,7 @@
     "node": ">=24.12"
   },
   "scripts": {
+    "agents:sync": "node scripts/agents.ts sync",
     "check": "node scripts/check.ts",
     "check:full": "node scripts/check.ts --full",
     "ci:changes": "node scripts/ci.ts changes",
@@ -21,6 +22,7 @@
     "gen:skill": "node scripts/gen-skill.ts",
     "guardrails": "node scripts/guardrails.ts",
     "lint": "eslint . --max-warnings=0",
+    "lint:agents": "node scripts/agents.ts lint",
     "package:build": "node scripts/package.ts build",
     "package:pack": "node scripts/package.ts pack",
     "package:check": "node scripts/package.ts check",
