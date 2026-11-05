@@ -1,3 +1,4 @@
+import { scanTransaction } from './secrets.ts';
 import type { Config } from '@spur-board/contracts';
 import type { Store } from '../store/store.ts';
 import { emit } from './board-utils.ts';
@@ -54,7 +55,7 @@ export async function tickBoard(deps: {
   const now = clock.now();
   const at = new Date(now).toISOString();
   const slot = new Date(lastArchiveSlot(now, config)).toISOString();
-  await store.transaction(async (trx) => {
+  await scanTransaction(store, async (trx) => {
     const sourceStates = await trx
       .selectFrom('source_state')
       .select(['source', 'blind_reason'])

@@ -1,3 +1,4 @@
+import { scanTransaction } from '../../src/app/secrets.ts';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -41,7 +42,7 @@ afterEach(async () => {
 it('registers status and limits an agent to its configured project', async () => {
   const store = openStore(join(mkdtempSync(join(tmpdir(), 'board-registry-')), 'board.db'));
   stores.push(store);
-  await store.transaction(async (trx) => {
+  await scanTransaction(store, async (trx) => {
     for (const [project, key] of [
       ['first', 'o/first#1'],
       ['second', 'o/second#2'],
@@ -112,7 +113,7 @@ it('keeps board-wide items from a project agent on a one-project board', async (
   const oneProject = configSchema.parse({ ...config, projects: [config.projects[0]] });
   const store = openStore(join(mkdtempSync(join(tmpdir(), 'board-registry-')), 'board.db'));
   stores.push(store);
-  await store.transaction(async (trx) => {
+  await scanTransaction(store, async (trx) => {
     await raiseItem(trx, {
       itemKey: 'delivery:1',
       kind: 'post_failed',

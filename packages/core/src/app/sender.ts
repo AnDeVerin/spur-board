@@ -1,3 +1,4 @@
+import { scanTransaction } from './secrets.ts';
 // Delivers outbox rows: claim in one transaction, stamp the send's start, IO outside any
 // transaction, record the result in another. The daemon calls `recover()` once on start, then
 // `tick()` on its schedule.
@@ -679,11 +680,11 @@ export function createSender(options: SenderOptions): Sender {
   async function runTick(signal?: AbortSignal): Promise<void> {
     if (signal?.aborted) return;
     const claimedAt = now().getTime();
-    const claims = await store.transaction((trx) => claim(trx, claimedAt));
+    const claims = await scanTransaction(store, (trx) => claim(trx, claimedAt));
     for (const [i, c] of claims.entries()) {
       if (signal?.aborted) {
         const ids = claims.slice(i).map((c) => c.id);
-        await store.transaction((trx) =>
+        await scanTransaction(store, (trx) =>
           trx
             .updateTable('outbox')
             .set((eb) => ({ state: 'pending', attempts: eb('attempts', '-', 1) }))
@@ -693,19 +694,19 @@ export function createSender(options: SenderOptions): Sender {
         );
         return;
       }
-      const started = await store.transaction((trx) => start(trx, c));
+      const started = await scanTransaction(store, (trx) => start(trx, c));
       if (started.skip) continue;
       // After start() commits, finish and record this attempt even if shutdown begins.
       const { outcome, error } = await attempt(c, started.firstDeliveryAt);
       const at = now().getTime();
-      await store.transaction((trx) => record(trx, c, outcome, error, at, started.at));
+      await scanTransaction(store, (trx) => record(trx, c, outcome, error, at, started.at));
     }
   }
 
   return {
     async recover() {
       const nowIso = now().toISOString();
-      await store.transaction(async (trx) => {
+      await scanTransaction(store, async (trx) => {
         const rows = await trx
           .selectFrom('outbox')
           .select(['id', 'kind', 'payload'])

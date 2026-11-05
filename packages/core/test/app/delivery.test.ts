@@ -1,3 +1,4 @@
+import { scanTransaction } from '../../src/app/secrets.ts';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -86,7 +87,7 @@ async function seedBlock(
   taskCount += 1;
   const key = `o/r#${String(100 + taskCount)}`;
   const at = ctx.fake.platform.now().toISOString();
-  return ctx.store.transaction(async (trx) => {
+  return scanTransaction(ctx.store, async (trx) => {
     const task = await trx
       .insertInto('task')
       .values({
@@ -153,11 +154,13 @@ async function insertComment(
 
 async function addComment(ctx: Ctx, seed: Seed, text: string): Promise<number> {
   const at = ctx.fake.platform.now().toISOString();
-  return ctx.store.transaction((trx) => insertComment(trx, seed.taskId, seed.blockId, text, at));
+  return scanTransaction(ctx.store, (trx) =>
+    insertComment(trx, seed.taskId, seed.blockId, text, at),
+  );
 }
 
 async function enqueueOpen(ctx: Ctx, seed: Seed): Promise<number> {
-  const id = await ctx.store.transaction((trx) =>
+  const id = await scanTransaction(ctx.store, (trx) =>
     enqueueConversationOpen(trx, {
       blockId: seed.blockId,
       commentId: seed.commentId,
@@ -170,7 +173,7 @@ async function enqueueOpen(ctx: Ctx, seed: Seed): Promise<number> {
 }
 
 async function enqueueReply(ctx: Ctx, commentId: number): Promise<number> {
-  const id = await ctx.store.transaction((trx) =>
+  const id = await scanTransaction(ctx.store, (trx) =>
     enqueueConversationReply(trx, { commentId, persona: PERSONA, at: ctx.fake.platform.now() }),
   );
   if (id === null) throw new Error('no reply row');
@@ -185,7 +188,7 @@ async function insertRow(
   payload: unknown,
   parent: number | null = null,
 ): Promise<number> {
-  const row = await ctx.store.transaction((trx) =>
+  const row = await scanTransaction(ctx.store, (trx) =>
     trx
       .insertInto('outbox')
       .values({
@@ -283,7 +286,7 @@ async function healthRows(ctx: Ctx) {
 }
 
 async function unblock(ctx: Ctx, seed: Seed): Promise<void> {
-  await ctx.store.transaction((trx) =>
+  await scanTransaction(ctx.store, (trx) =>
     trx.updateTable('block').set({ state: 'unblocked' }).where('id', '=', seed.blockId).execute(),
   );
 }
@@ -317,7 +320,7 @@ async function replyRow(ctx: Ctx, seed: Seed, commentId: number, parent: number)
     },
     parent,
   );
-  await ctx.store.transaction((trx) =>
+  await scanTransaction(ctx.store, (trx) =>
     trx
       .updateTable('comment')
       .set({ delivery_state: 'pending' })
@@ -331,7 +334,7 @@ describe('producers', () => {
   it('writes one open per block, idempotent by its dedupe key', async () => {
     const ctx = setup();
     const seed = await seedBlock(ctx);
-    const ids = await ctx.store.transaction(async (trx) => {
+    const ids = await scanTransaction(ctx.store, async (trx) => {
       const input = {
         blockId: seed.blockId,
         commentId: seed.commentId,
@@ -351,7 +354,7 @@ describe('producers', () => {
     const ctx = setup();
     const seed = await seedBlock(ctx);
     await expect(
-      ctx.store.transaction(async (trx) => {
+      scanTransaction(ctx.store, async (trx) => {
         await enqueueConversationOpen(trx, {
           blockId: seed.blockId,
           commentId: seed.commentId,
@@ -369,7 +372,7 @@ describe('producers', () => {
     const ctx = setup();
     for (const block of [{ author: 'operator' as const }, { addressee: 'worker' as const }]) {
       const seed = await seedBlock(ctx, block);
-      const id = await ctx.store.transaction((trx) =>
+      const id = await scanTransaction(ctx.store, (trx) =>
         enqueueConversationOpen(trx, {
           blockId: seed.blockId,
           commentId: null,
@@ -399,7 +402,7 @@ describe('producers', () => {
   it('writes no reply for a block without an open row', async () => {
     const ctx = setup();
     const seed = await seedBlock(ctx);
-    const id = await ctx.store.transaction((trx) =>
+    const id = await scanTransaction(ctx.store, (trx) =>
       enqueueConversationReply(trx, {
         commentId: seed.commentId,
         persona: PERSONA,
@@ -416,7 +419,7 @@ describe('producers', () => {
     await unblock(ctx, seed);
     await ctx.sender.tick();
     const c2 = await addComment(ctx, seed, 'too late');
-    const id = await ctx.store.transaction((trx) =>
+    const id = await scanTransaction(ctx.store, (trx) =>
       enqueueConversationReply(trx, {
         commentId: c2,
         persona: PERSONA,
@@ -434,7 +437,7 @@ describe('producers', () => {
     await invalidOpen(ctx, seed);
     await ctx.sender.tick();
     const c2 = await addComment(ctx, seed, 'too late');
-    const id = await ctx.store.transaction((trx) =>
+    const id = await scanTransaction(ctx.store, (trx) =>
       enqueueConversationReply(trx, {
         commentId: c2,
         persona: PERSONA,
@@ -597,7 +600,7 @@ describe('tick', () => {
         if (transactions === 2) {
           return ctx.store.close().then(() => Promise.reject(new Error('crash before send start')));
         }
-        return ctx.store.transaction(fn);
+        return scanTransaction(ctx.store, fn);
       },
     };
     const sender = createSender({
@@ -641,7 +644,7 @@ describe('tick', () => {
     const ctx = setup('slack-like', 0);
     const id = await feedLine(ctx, 'o/r#46', 'uncertain-crash');
     const at = ctx.fake.platform.now().toISOString();
-    await ctx.store.transaction((trx) =>
+    await scanTransaction(ctx.store, (trx) =>
       trx
         .updateTable('outbox')
         .set({ uncertain: 1, attempts: 2, first_attempt_at: at, first_delivery_at: at })
@@ -719,7 +722,7 @@ describe('tick', () => {
     const openId = await enqueueOpen(ctx, seed);
     const feedId = await feedLine(ctx, seed.key, 'stale-lane');
     const previousAt = ctx.fake.platform.now().toISOString();
-    await ctx.store.transaction((trx) =>
+    await scanTransaction(ctx.store, (trx) =>
       trx
         .updateTable('outbox')
         .set({
@@ -738,7 +741,7 @@ describe('tick', () => {
       ...ctx.store,
       transaction(fn) {
         transactions += 1;
-        const run = ctx.store.transaction(fn);
+        const run = scanTransaction(ctx.store, fn);
         if (transactions !== 1) return run;
         return run.then(async (value) => {
           claimed.resolve(undefined);
@@ -793,7 +796,7 @@ describe('tick', () => {
       ...ctx.store,
       transaction(fn) {
         transactions += 1;
-        const run = ctx.store.transaction(fn);
+        const run = scanTransaction(ctx.store, fn);
         if (transactions !== 2) return run;
         return run.then(async (value) => {
           stamped.resolve(undefined);
@@ -826,7 +829,7 @@ describe('tick', () => {
     const store: Store = {
       ...ctx.store,
       transaction: (fn) => {
-        if (!fail) return ctx.store.transaction(fn);
+        if (!fail) return scanTransaction(ctx.store, fn);
         fail = false;
         return Promise.reject(new Error('disk full'));
       },
@@ -925,7 +928,7 @@ describe('maybeSent', () => {
   it('leaves a legacy uncertain row unbounded on retry', async () => {
     const ctx = setup('slack-like');
     const id = await enqueueOpen(ctx, await seedBlock(ctx));
-    await ctx.store.transaction((trx) =>
+    await scanTransaction(ctx.store, (trx) =>
       trx.updateTable('outbox').set({ uncertain: 1 }).where('id', '=', id).execute(),
     );
 
@@ -1016,7 +1019,7 @@ describe('delivered records refs', () => {
       persona: PERSONA,
       body: [],
     };
-    await ctx.store.transaction(() => probe.gateway.deliver(req));
+    await scanTransaction(ctx.store, () => probe.gateway.deliver(req));
     expect(probe.violations).toHaveLength(1);
   });
 });
@@ -1136,7 +1139,7 @@ describe('dependencies', () => {
     const c2 = await addComment(ctx, seed, 'more');
     const reply = await enqueueReply(ctx, c2);
     const close = await closeRow(ctx, seed, reply);
-    await ctx.store.transaction((trx) =>
+    await scanTransaction(ctx.store, (trx) =>
       trx.updateTable('block').set({ state: 'unblocked' }).where('id', '=', seed.blockId).execute(),
     );
     await ctx.sender.tick();
@@ -1214,7 +1217,7 @@ describe('dependencies', () => {
   it('recovers a reply posted before an uncertain open was registered', async () => {
     const ctx = setup('slack-like');
     const seed = await seedBlock(ctx, { author: 'system', addressee: 'operator' });
-    await ctx.store.transaction((trx) =>
+    await scanTransaction(ctx.store, (trx) =>
       trx
         .updateTable('block')
         .set({ type: 'needs_input' })
@@ -1284,7 +1287,7 @@ describe('dependencies', () => {
     const ctx = setup('slack-like');
     const seed = await seedBlock(ctx);
     const openId = await enqueueOpen(ctx, seed);
-    await ctx.store.transaction(async (trx) => {
+    await scanTransaction(ctx.store, async (trx) => {
       await trx
         .updateTable('block')
         .set({
@@ -1327,7 +1330,7 @@ describe('dependencies', () => {
     ctx.fake.platform.timeoutNext({ visible: true });
     await ctx.sender.tick();
     expect(await outboxRow(ctx, openId)).toMatchObject({ state: 'pending', uncertain: 1 });
-    await ctx.store.transaction(async (trx) => {
+    await scanTransaction(ctx.store, async (trx) => {
       await trx
         .updateTable('block')
         .set({
@@ -1378,7 +1381,7 @@ describe('dependencies', () => {
     const visible = ctx.fake.platform.conversations()[0];
     const root = ctx.fake.platform.messages()[0];
     if (visible === undefined || root === undefined) throw new Error('Expected uncertain root');
-    await ctx.store.transaction(async (trx) => {
+    await scanTransaction(ctx.store, async (trx) => {
       await trx
         .insertInto('conversation')
         .values({
@@ -1598,7 +1601,7 @@ describe('transport health', () => {
       ...ctx.store,
       transaction: (fn) => {
         ctx.fake.platform.advance(3000);
-        return ctx.store.transaction(fn);
+        return scanTransaction(ctx.store, fn);
       },
     };
     const sender = createSender({
