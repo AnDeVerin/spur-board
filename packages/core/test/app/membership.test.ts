@@ -373,6 +373,7 @@ it('retains filter loss with an open linked PR and raises an item', async () => 
         repo: 'o/r',
         number: 7,
         pr_state: 'active',
+        pr_open: 1,
         session_id: null,
         role: null,
         source: 'manual',

@@ -1,4 +1,5 @@
 import type { Config } from '@spur-board/contracts';
+import { sql } from 'kysely';
 import { emit, trackerSource, type Trx } from './board-utils.ts';
 
 /** Run-local completeness is the only evidence allowed to authorize filter absence. */
@@ -41,7 +42,7 @@ export async function reconcileMembership(
         const pr = await trx
           .selectFrom('pr_snapshot')
           .select('state')
-          .where('repo', '=', link.repo)
+          .where(sql<boolean>`lower(repo) = ${link.repo.toLowerCase()}`)
           .where('number', '=', link.number)
           .executeTakeFirst();
         if (pr?.state === 'open') retained = true;

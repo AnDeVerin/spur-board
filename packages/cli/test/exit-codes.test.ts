@@ -266,6 +266,35 @@ describe('CLI exit classes and mutation keys', () => {
     }
   });
 
+  it('shows operation-specific forbidden and PR conflict hints from the daemon', async () => {
+    for (const [code, hint] of [
+      ['forbidden', 'Allowed role: operator.'],
+      ['link_conflict', 'o/r#7 is already the open PR for this task.'],
+    ] as const) {
+      const problem = renderHttpProblem({ code, requestId: `req-${code}` });
+      const { url } = await fakeServer((_request, response) => {
+        response.writeHead(problem.status, { 'content-type': 'application/problem+json' });
+        response.end(JSON.stringify({ ...problem.body, hint }));
+      });
+      const args = [
+        'link',
+        'o/r#9',
+        '--pr',
+        'https://github.com/o/r/pull/8',
+        '--reason',
+        'Manual correction.',
+      ];
+      const human = capture();
+      expect(await runCli(args, { env: env(url), io: human.io })).toBe(1);
+      expect(human.stderr).toContain(`fix: ${hint}`);
+      const json = capture();
+      expect(await runCli([...args, '--json'], { env: env(url), io: json.io })).toBe(1);
+      const errorLine = json.stderr.trim().split('\n').at(-1);
+      if (!errorLine) throw new Error('Expected a JSON error line.');
+      expect(errorEnvelopeSchema.parse(JSON.parse(errorLine)).error.hint).toBe(hint);
+    }
+  });
+
   it('escapes a server request ID only in human error output', async () => {
     const requestId = 'req\u001b[31m\u0007\u000dnext';
     const problem = renderHttpProblem({ code: 'forbidden', requestId });

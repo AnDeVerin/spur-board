@@ -153,7 +153,7 @@ describe('daemon process', () => {
     );
     const home = makeHome({ config });
     const store = openStore(join(home, 'board.sqlite'));
-    const at = '2026-11-04T08:00:00.000Z';
+    const at = new Date().toISOString();
     try {
       await store.transaction(async (trx) => {
         await trx

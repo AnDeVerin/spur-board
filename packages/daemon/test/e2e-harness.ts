@@ -6,7 +6,6 @@ import { configSchema, userIdSchema } from '@spur-board/contracts';
 import { openStore, type Store } from '@spur-board/core';
 import { createFakeGateway } from '@spur-board/gateway-testkit';
 import { runCli, type CliIo } from '../../cli/src/cli.ts';
-import { loadClientConfig } from '../../cli/src/config.ts';
 import { createDaemonModules } from '../src/composition.ts';
 import { createInboundModule } from '../src/inbound-module.ts';
 import { runDaemon, type ProcessPort } from '../src/lifecycle.ts';
@@ -201,7 +200,14 @@ export async function createE2eHarness() {
     const code = await runCli(args, {
       env: { SPUR_SESSION: SESSION },
       io,
-      clientConfig: loadClientConfig({ BOARD_DAEMON_URL: address, SPUR_SESSION: SESSION }),
+      clientConfig: {
+        address: new URL(address),
+        session: SESSION,
+        token: undefined,
+        connectTimeoutMs: 200,
+        // An ask may scan and replay its outbox write before returning under CI load.
+        responseTimeoutMs: 2_000,
+      },
     });
     return { code, stdout, stderr };
   }

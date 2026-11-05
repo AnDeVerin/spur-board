@@ -151,6 +151,13 @@ export const ERRORS = {
     hint: 'Ask an operator to add the task to the board again if work continues.',
     recovery: noRetry('Ask an operator to add the task to the board again if work continues.'),
   }),
+  link_conflict: spec('link_conflict', {
+    status: 409,
+    exit: EXIT_CODES.refused,
+    message: 'Another linked pull request prevents this manual link.',
+    hint: 'Read the task links and use a different task or resolve the existing pull request link.',
+    recovery: noRetry('Read the task links and resolve the blocking pull request.'),
+  }),
   retry_not_applicable: spec('retry_not_applicable', {
     status: 409,
     exit: EXIT_CODES.refused,

@@ -9,6 +9,7 @@ import {
 import type { SlackChannels } from './deliver.ts';
 import { conversationRef, messageRef } from './ref.ts';
 import { originKeyFromBlocks } from './render.ts';
+import { parseCommand } from './commands.ts';
 
 type RecordValue = Record<string, unknown>;
 
@@ -194,6 +195,7 @@ export function normalizeInteraction(
   payload: unknown,
   channels: SlackChannels,
   root?: unknown,
+  commandName = '/board',
 ): InboundEvent[] {
   const body = record(payload);
   if (body === null) return [];
@@ -203,6 +205,7 @@ export function normalizeInteraction(
   if (user === undefined) return [];
   const author = userIdSchema.parse(user);
   if (type === 'slash_commands') {
+    if (body.command !== commandName) return [];
     const channel = string(body.channel_id);
     if (channel === undefined) return [];
     return [
@@ -212,6 +215,7 @@ export function normalizeInteraction(
         interaction: interactionRef(channel, user, triggerId),
         author,
         text: text(body.text) ?? '',
+        command: parseCommand(text(body.text) ?? '', commandName),
         sourceUrl: sourceUrl(channel),
         sourceSpace: sourceSpace(channel, channels),
       },

@@ -76,6 +76,7 @@ describe('openStore', () => {
       repo,
       number,
       pr_state: prState,
+      pr_open: 1,
       source: LINK_SOURCES[0],
       banned,
       created_at: t2.created_at,

@@ -56,6 +56,51 @@ describe('schema walker', () => {
 });
 
 describe('catalog', () => {
+  it('requires one link target mode and a reason', () => {
+    for (const id of ['link.add', 'link.remove']) {
+      const operation = OPERATIONS.find((entry) => entry.id === id);
+      if (operation === undefined) throw new Error(`Missing ${id}`);
+      for (const input of [
+        { mode: 'pr', pr: 'https://github.com/example/web/pull/7' },
+        { mode: 'session', session: 'web-7' },
+        { mode: 'ticket', ticket: 'PROJ-456' },
+      ]) {
+        expect(
+          operation.input.safeParse({ task: 'PROJ-123', reason: 'Correction.', ...input }).success,
+        ).toBe(true);
+        expect(operation.input.safeParse({ task: 'PROJ-123', ...input }).success).toBe(false);
+      }
+      expect(
+        operation.input.safeParse({
+          mode: 'pr',
+          task: 'PROJ-123',
+          pr: 'https://github.com/example/web/pull/7',
+          session: 'web-7',
+          reason: 'Correction.',
+        }).success,
+      ).toBe(false);
+      expect(operation.cli.args).toEqual(['task']);
+      expect(operation.cli.modes?.map(({ flag }) => flag)).toEqual([
+        '--pr',
+        '--session',
+        '--ticket',
+      ]);
+    }
+  });
+
+  it('shows a separate ticket link in task detail without changing the task view', () => {
+    const operation = OPERATIONS.find((entry) => entry.id === 'task.get');
+    if (operation === undefined) throw new Error('Missing task.get');
+    expect(
+      operation.output.safeParse({
+        task: { key: 'PROJ-123', project: 'web', column: 'dev', membership: 'active' },
+        links: [{ kind: 'ticket', ref: 'PROJ-456', role: null }],
+        blocks: [],
+        comments: [],
+      }).success,
+    ).toBe(true);
+  });
+
   it('projects operation grants and mode grants by role', () => {
     const byId = new Map(OPERATIONS.map((operation) => [operation.id, operation]));
     const schema = byId.get('schema.get');
@@ -167,6 +212,9 @@ describe('catalog', () => {
       OPERATIONS.filter((op) => op.slack !== null).map((op) => [op.id, op.slack]),
     );
     expect(slack).toEqual(slackExceptions);
+    expect(
+      OPERATIONS.filter((op) => op.slack?.kind === 'slash-command').map((op) => op.id),
+    ).toEqual(['status.get', 'task.get', 'task.history']);
     for (const op of OPERATIONS) {
       expect(op.cli.command).not.toBe('');
       expect(op.mcp.name).toBe(op.id.replace('.', '_'));
@@ -256,7 +304,7 @@ describe('grants', () => {
     ['token.revoke', 'mutation', [operator], null, ['not_found']],
     ['task.add', 'mutation', [operator], null, id],
     ['task.archive', 'mutation', [operator], null, archived],
-    ['link.add', 'mutation', [operator], null, archived],
+    ['link.add', 'mutation', [operator], null, [...archived, 'link_conflict']],
     ['link.remove', 'mutation', [operator], null, archived],
     ['item.retry', 'mutation', [operator], null, [...archived, 'retry_not_applicable']],
     ['item.close', 'mutation', [operator], null, id],

@@ -6,6 +6,7 @@ import {
 } from '@spur-board/contracts';
 import { authorize } from './authorize.ts';
 import { createBlockMutations } from './blocks.ts';
+import { createLinkMutations } from './links.ts';
 import { createMembershipMutations } from './membership.ts';
 import type { OperationRegistry } from './operations.ts';
 import type { Query } from './queries.ts';
@@ -23,6 +24,7 @@ export function createOperationRegistry(deps: {
 }): OperationRegistry {
   const { config, clock, completeSince } = deps;
   const membership = createMembershipMutations(config);
+  const links = createLinkMutations(config);
   const blocks = createBlockMutations(config);
   const taskQueries = createTaskQueries(config);
   const schema: Query<'schema.get'> = {
@@ -86,6 +88,8 @@ export function createOperationRegistry(deps: {
     'token.revoke': tokenRevokeMutation,
     'task.add': membership.add,
     'task.archive': membership.archive,
+    'link.add': links.add,
+    'link.remove': links.remove,
     'block.ask': blocks.ask,
     'block.create': blocks.create,
     'block.escalate': blocks.escalate,

@@ -14,6 +14,7 @@ import {
   type TicketFacts,
 } from '@spur-board/contracts';
 import { z } from 'zod';
+import { sql } from 'kysely';
 import { parseJson, toJson } from '../store/json.ts';
 import type { Store } from '../store/store.ts';
 import { emit, projectForKey, trackerSource, type Trx } from './board-utils.ts';
@@ -64,7 +65,7 @@ async function updateTerminal(
     .selectFrom('link')
     .innerJoin('pr_snapshot', (join) =>
       join
-        .onRef('pr_snapshot.repo', '=', 'link.repo')
+        .on(sql<boolean>`lower(pr_snapshot.repo) = lower(link.repo)`)
         .onRef('pr_snapshot.number', '=', 'link.number'),
     )
     .select('pr_snapshot.state')
@@ -296,7 +297,7 @@ async function pr(
   const old = await trx
     .selectFrom('pr_snapshot')
     .selectAll()
-    .where('repo', '=', fact.repo)
+    .where(sql<boolean>`lower(repo) = ${fact.repo.toLowerCase()}`)
     .where('number', '=', fact.number)
     .executeTakeFirst();
   const previous = old === undefined ? null : parseJson(prFactsSchema, old.detail);
@@ -304,7 +305,7 @@ async function pr(
   await trx
     .insertInto('pr_snapshot')
     .values({
-      repo: fact.repo,
+      repo: old?.repo ?? fact.repo,
       number: fact.number,
       head_sha: fact.headSha,
       head_branch: fact.headBranch,
@@ -345,7 +346,7 @@ async function pr(
       .selectAll()
       .where('task_id', '=', task.id)
       .where('entity', '=', 'pr')
-      .where('repo', '=', fact.repo)
+      .where(sql<boolean>`lower(repo) = ${fact.repo.toLowerCase()}`)
       .where('number', '=', fact.number)
       .executeTakeFirst();
     if (linked === undefined) {
@@ -356,8 +357,9 @@ async function pr(
         .where('entity', '=', 'pr')
         .where('pr_state', '=', 'active')
         .where('banned', '=', 0)
+        .where('pr_open', '=', 1)
         .executeTakeFirst();
-      const state = active === undefined ? 'active' : 'conflict';
+      const state = fact.state !== 'open' || active === undefined ? 'active' : 'conflict';
       await trx
         .insertInto('link')
         .values({
@@ -371,6 +373,8 @@ async function pr(
           source: 'branch',
           banned: 0,
           created_at: at,
+          ticket_key: null,
+          pr_open: fact.state === 'open' ? 1 : 0,
         })
         .execute();
       await emit(trx, 'link_added', task.project, task.id, at, {
@@ -383,12 +387,59 @@ async function pr(
       });
     }
   }
+  const linkedPrs = await trx
+    .selectFrom('link')
+    .select(['id', 'task_id', 'pr_state', 'source', 'banned'])
+    .where('entity', '=', 'pr')
+    .where(sql<boolean>`lower(repo) = ${fact.repo.toLowerCase()}`)
+    .where('number', '=', fact.number)
+    .execute();
+  for (const link of linkedPrs) {
+    if (fact.state !== 'open' || link.banned === 1) {
+      await trx
+        .updateTable('link')
+        .set({ pr_open: fact.state === 'open' ? 1 : 0 })
+        .where('id', '=', link.id)
+        .execute();
+      continue;
+    }
+    const other = await trx
+      .selectFrom('link')
+      .select(['id', 'source'])
+      .where('task_id', '=', link.task_id)
+      .where('entity', '=', 'pr')
+      .where('pr_state', '=', 'active')
+      .where('pr_open', '=', 1)
+      .where('banned', '=', 0)
+      .where('id', '!=', link.id)
+      .executeTakeFirst();
+    if (other !== undefined && link.source === 'manual' && other.source !== 'manual') {
+      await trx
+        .updateTable('link')
+        .set({ pr_state: 'conflict' })
+        .where('id', '=', other.id)
+        .execute();
+      await trx
+        .updateTable('link')
+        .set({ pr_state: 'active', pr_open: 1 })
+        .where('id', '=', link.id)
+        .execute();
+    } else if (other !== undefined) {
+      await trx
+        .updateTable('link')
+        .set({ pr_state: 'conflict', pr_open: 1 })
+        .where('id', '=', link.id)
+        .execute();
+    } else {
+      await trx.updateTable('link').set({ pr_open: 1 }).where('id', '=', link.id).execute();
+    }
+  }
   if (!changed) return;
   const links = await trx
     .selectFrom('link')
     .select(['task_id'])
     .where('entity', '=', 'pr')
-    .where('repo', '=', fact.repo)
+    .where(sql<boolean>`lower(repo) = ${fact.repo.toLowerCase()}`)
     .where('number', '=', fact.number)
     .execute();
   for (const link of links) {
@@ -520,8 +571,9 @@ async function session(
       .innerJoin('task', 'task.id', 'link.task_id')
       .select(['task.key', 'task.project'])
       .where('link.entity', '=', 'pr')
-      .where('link.repo', '=', fact.pr.repo)
+      .where(sql<boolean>`lower(link.repo) = ${fact.pr.repo.toLowerCase()}`)
       .where('link.number', '=', fact.pr.number)
+      .where('link.banned', '=', 0)
       .executeTakeFirst();
     const project = config.projects.find((entry) => entry.id === linked?.project);
     if (
@@ -539,12 +591,13 @@ async function session(
       .selectFrom('link')
       .innerJoin('pr_snapshot', (join) =>
         join
-          .onRef('pr_snapshot.repo', '=', 'link.repo')
+          .on(sql<boolean>`lower(pr_snapshot.repo) = lower(link.repo)`)
           .onRef('pr_snapshot.number', '=', 'link.number'),
       )
       .select(['link.task_id', 'pr_snapshot.head_branch'])
       .where('link.entity', '=', 'pr')
       .where('pr_snapshot.head_branch', '=', fact.branch)
+      .where('link.banned', '=', 0)
       .execute();
     const matches = tasks.filter((task) => {
       const project = config.projects.find((entry) => entry.id === task.project);
@@ -566,6 +619,7 @@ async function session(
               .where('task_id', '=', candidate.id)
               .where('entity', '=', 'session')
               .where('role', '=', 'worker')
+              .where('banned', '=', 0)
               .executeTakeFirst();
       if (!ambiguousBranches.has(fact.branch) || worker !== undefined) key = candidate?.key;
     }
@@ -578,6 +632,7 @@ async function session(
         .selectAll()
         .where('entity', '=', 'session')
         .where('session_id', '=', fact.id)
+        .where('task_id', '=', task.id)
         .executeTakeFirst();
       if (existing === undefined) {
         const worker = await trx
@@ -586,6 +641,7 @@ async function session(
           .where('task_id', '=', task.id)
           .where('entity', '=', 'session')
           .where('role', '=', 'worker')
+          .where('banned', '=', 0)
           .executeTakeFirst();
         const chosenRole = role ?? (worker === undefined ? 'worker' : 'other');
         await trx
@@ -601,6 +657,8 @@ async function session(
             source: role === undefined ? 'branch' : 'spawn_link',
             banned: 0,
             created_at: at,
+            ticket_key: null,
+            pr_open: null,
           })
           .execute();
         await emit(trx, 'link_added', task.project, task.id, at, {
@@ -697,7 +755,7 @@ export function createObservationCore(deps: {
                 .selectFrom('link')
                 .select(['repo', 'number'])
                 .where('entity', '=', 'pr')
-                .where('repo', '=', repo)
+                .where(sql<boolean>`lower(repo) = ${repo.toLowerCase()}`)
                 .where('banned', '=', 0)
                 .execute()
             ).flatMap((link) =>
