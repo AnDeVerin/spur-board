@@ -696,14 +696,15 @@ export function createSender(options: SenderOptions): Sender {
           .execute();
         if (body.kind === 'conversation.open' || body.kind === 'feed.line') {
           const isBlock = body.kind === 'conversation.open';
-          const taskId = isBlock ? body.payload.taskId : (body.payload.taskId ?? null);
           const closedBlock = isBlock
             ? await trx
                 .selectFrom('block')
-                .select(['state', 'unblocked_at', 'created_at'])
+                .select(['task_id', 'state', 'unblocked_at', 'created_at'])
                 .where('id', '=', body.payload.blockId)
                 .executeTakeFirstOrThrow()
             : undefined;
+          // The block's own task: a key merge may have moved it after this row was claimed.
+          const taskId = closedBlock?.task_id ?? body.payload.taskId ?? null;
           await trx
             .insertInto('conversation')
             .values({

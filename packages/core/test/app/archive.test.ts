@@ -120,7 +120,7 @@ function setup() {
     history: required(registry['task.history']),
     status: required(registry['status.get']),
   };
-  async function poll(source: string, inFilter?: boolean, status = 'open') {
+  async function poll(source: string, inFilter?: boolean, status = 'open', key = KEY) {
     const at = new Date(now).toISOString();
     const items =
       inFilter === undefined
@@ -131,7 +131,7 @@ function setup() {
               facts: {
                 trackerId: tracker,
                 id: 'node-9',
-                key: KEY,
+                key,
                 title: 'Ticket',
                 status,
                 assignee: null,
@@ -673,6 +673,67 @@ describe('task archive', () => {
     expect(history.events.map((event) => event.kind)).toContain('task_archived');
     const status = await ctx.query(ctx.ops.status, {}, 'operator');
     expect(status.tasks.map((entry) => entry.key)).not.toContain(KEY);
+  });
+
+  it('moves the open work of a merged pending key to the surviving task', async () => {
+    const ctx = setup();
+    await ctx.poll(tracker, true, 'open', 'o/r#8');
+    await ctx.apply(ctx.ops.add, { task: KEY }, 'operator');
+    await liveWorker(ctx.store);
+    const asked = await ctx.apply(ctx.ops.ask, { task: KEY, text: 'Which version?' }, worker);
+    await ctx.drain();
+    expect(ctx.fake.platform.conversations()).toHaveLength(1);
+    now += 1_000;
+    await ctx.poll(tracker, true, 'open', KEY);
+
+    const tasks = await ctx.store.db
+      .selectFrom('task')
+      .select(['id', 'key', 'membership', 'tracker_id'])
+      .orderBy('id')
+      .execute();
+    expect(tasks).toEqual([
+      { id: 1, key: KEY, membership: 'active', tracker_id: 'node-9' },
+      { id: 2, key: 'o/r#8', membership: 'archived', tracker_id: null },
+    ]);
+    for (const table of [
+      'block',
+      'comment',
+      'conversation',
+      'notification',
+      'operator_item',
+    ] as const) {
+      const rows = await ctx.store.db.selectFrom(table).select('task_id').execute();
+      expect(rows.map((row) => row.task_id)).toEqual(rows.map(() => 1));
+    }
+    const view = await ctx.query(ctx.ops.get, { task: KEY }, 'operator');
+    expect(view.blocks.map(({ id, state }) => [id, state])).toEqual([[asked.block.id, 'open']]);
+
+    await ctx.apply(ctx.ops.answer, { block: asked.block.id, text: 'Use v2.' }, 'operator');
+    await ctx.drain();
+    expect(ctx.spur.sends).toEqual([['worker-1', expect.stringContaining('check board inbox')]]);
+    expect(
+      ctx.fake.platform
+        .conversations()
+        .filter((conversation) => conversation.marker?.startsWith('conversation.open:') === true),
+    ).toMatchObject([{ done: true }]);
+  });
+
+  it('registers a thread on the surviving task when the merge lands mid-delivery', async () => {
+    const ctx = setup();
+    await ctx.poll(tracker, true, 'open', 'o/r#8');
+    await ctx.apply(ctx.ops.add, { task: KEY }, 'operator');
+    await ctx.apply(ctx.ops.ask, { task: KEY, text: 'Which version?' }, worker);
+    const hold = ctx.holdNextDelivery();
+    const tick = ctx.sender.tick();
+    await hold.reached;
+    now += 1_000;
+    await ctx.poll(tracker, true, 'open', KEY);
+    hold.release();
+    await tick;
+
+    expect(
+      await ctx.store.db.selectFrom('conversation').select(['task_id', 'purpose']).execute(),
+    ).toEqual([{ task_id: 1, purpose: 'block' }]);
   });
 
   it('Done archive clears open blocks', async () => {
