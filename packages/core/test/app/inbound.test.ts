@@ -1091,8 +1091,8 @@ describe('inbound apply', () => {
       .where('kind', '=', 'feed.line')
       .executeTakeFirstOrThrow();
     expect(JSON.parse(feed.payload)).toMatchObject({
-      key: 'board',
-      title: 'board: Slack message not processed',
+      key: 'spur-board',
+      title: 'spur-board: Slack message not processed',
     });
     const legacy = JSON.parse(item?.inbound_event_json ?? '{}') as Record<string, unknown>;
     delete legacy.command;
@@ -1152,8 +1152,8 @@ describe('inbound apply', () => {
       .orderBy('id', 'desc')
       .executeTakeFirstOrThrow();
     expect(JSON.parse(boardLine.payload)).toMatchObject({
-      key: 'board',
-      title: 'board: repeat your answer',
+      key: 'spur-board',
+      title: 'spur-board: repeat your answer',
     });
     await scanTransaction(store, (trx) => clearOperatorItem(trx, 2, new Date(at)));
     expect(

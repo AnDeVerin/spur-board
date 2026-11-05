@@ -69,15 +69,12 @@ describe('operator token lifecycle', () => {
       ),
     ).toEqual({ tokens: [{ name: 'desk', folder: 'workspace/desk', status: 'revoked' }] });
     expect(
-      await store.db
-        .selectFrom('event')
-        .select(['kind', 'project'])
-        .where('kind', 'like', 'token_%')
-        .orderBy('id')
-        .execute(),
+      await store.db.selectFrom('event').select(['kind', 'project']).orderBy('id').execute(),
     ).toEqual([
+      { kind: 'from_you_raised', project: RESERVED_PROJECT },
       { kind: 'token_requested', project: RESERVED_PROJECT },
       { kind: 'token_approved', project: RESERVED_PROJECT },
+      { kind: 'from_you_cleared', project: RESERVED_PROJECT },
       { kind: 'token_revoked', project: RESERVED_PROJECT },
     ]);
   });

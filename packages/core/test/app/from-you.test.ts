@@ -2,7 +2,7 @@ import { scanTransaction } from '../../src/app/secrets.ts';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { configSchema } from '@spur-board/contracts';
+import { RESERVED_PROJECT, configSchema } from '@spur-board/contracts';
 import { afterEach, expect, it } from 'vitest';
 import {
   createApply,
@@ -339,7 +339,7 @@ it('posts and clears a feed line for a taskless source item', async () => {
     .executeTakeFirst();
   expect(line).toBeDefined();
   expect(JSON.parse(line?.payload ?? '{}')).toMatchObject({
-    key: 'board',
+    key: 'spur-board',
     itemId: Number(item?.id.slice(1)),
   });
   await core.reportSourceState(source, { gone: [] });
@@ -351,9 +351,20 @@ it('posts and clears a feed line for a taskless source item', async () => {
     .executeTakeFirst();
   expect(edit?.parent_outbox_id).toBe(line?.id);
   expect(JSON.parse(edit?.payload ?? '{}')).toMatchObject({
-    key: 'board',
+    key: 'spur-board',
     itemKey: `source:${source}`,
   });
+  expect(
+    await store.db
+      .selectFrom('event')
+      .select(['kind', 'project', 'task_id'])
+      .where('kind', 'in', ['from_you_raised', 'from_you_cleared'])
+      .orderBy('id')
+      .execute(),
+  ).toEqual([
+    { kind: 'from_you_raised', project: RESERVED_PROJECT, task_id: null },
+    { kind: 'from_you_cleared', project: RESERVED_PROJECT, task_id: null },
+  ]);
 });
 
 it('keeps failed feed lines and edits actionable without recursively feeding them', async () => {
