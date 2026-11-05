@@ -15,7 +15,7 @@ const GITHUB_PROBE = `query DoctorGithubPermissions($owner: String!, $repo: Stri
     pullRequests(first: 10, states: [OPEN], orderBy: {field: UPDATED_AT, direction: DESC}) {
       nodes {
         statusCheckRollup { contexts(first: 100) { nodes { ... on CheckRun { name } } } }
-        reviewRequests(first: 100) { nodes { requestedReviewer { __typename ... on Team { name } } } }
+        reviewRequests(first: 100) { nodes { requestedReviewer { ... on Team { name } } } }
       }
     }
     defaultBranchRef { target { ... on Commit {
@@ -49,23 +49,6 @@ function scopedGithubError(value: unknown): string | null {
   )
     return GITHUB_TEAMS_FIX;
   return null;
-}
-
-function hasReadableTeam(value: unknown): boolean {
-  const repository = object(object(value)?.['repository']);
-  const pullRequests = object(repository?.['pullRequests']);
-  const prs = pullRequests?.['nodes'];
-  if (!Array.isArray(prs)) return false;
-  return prs.some((pr: unknown) => {
-    const requests = object(object(pr)?.['reviewRequests'])?.['nodes'];
-    return (
-      Array.isArray(requests) &&
-      requests.some((request: unknown) => {
-        const reviewer = object(object(request)?.['requestedReviewer']);
-        return reviewer?.['__typename'] === 'Team' && typeof reviewer['name'] === 'string';
-      })
-    );
-  });
 }
 
 async function githubGraphql(
@@ -250,10 +233,10 @@ export async function runDaemonDoctor(
             const pullRequests = object(repository?.['pullRequests']);
             if (!Array.isArray(pullRequests?.['nodes'])) return GITHUB_FIX;
             const scopes = response.headers.get('x-oauth-scopes');
-            if (scopes !== null) {
-              if (!scopes.split(',').some((scope) => scope.trim() === 'read:org'))
-                return GITHUB_TEAMS_FIX;
-            } else if (!hasReadableTeam(data)) {
+            if (
+              scopes !== null &&
+              !scopes.split(',').some((scope) => scope.trim() === 'read:org')
+            ) {
               return GITHUB_TEAMS_FIX;
             }
             return null;

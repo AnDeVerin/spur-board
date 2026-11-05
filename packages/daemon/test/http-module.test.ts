@@ -127,7 +127,7 @@ function doctorFetch(fail?: string): typeof fetch {
               defaultBranchRef: {
                 target: {
                   statusCheckRollup:
-                    fail === 'github.no-contexts'
+                    fail === 'github.no-contexts' || fail === 'github.no-header'
                       ? null
                       : { contexts: { nodes: [{ name: 'build' }] } },
                 },
@@ -290,7 +290,8 @@ describe('daemon doctor checks', () => {
   it.each([
     ['contexts present', undefined],
     ['no contexts', 'github.no-contexts'],
-    ['team field proves access without scope header', 'github.team-readable'],
+    ['no contexts or team requests with an absent scope header', 'github.no-header'],
+    ['readable team field without a scope header', 'github.team-readable'],
   ])('passes with %s', async (_case, mode) => {
     const fetcher = doctorFetch(mode);
     const report = await runDaemonDoctor(
@@ -308,7 +309,6 @@ describe('daemon doctor checks', () => {
 
   it.each([
     ['missing read:org', 'github.no-read-org', 'read:org'],
-    ['scope header absent without team evidence', 'github.no-header', 'read:org'],
     ['unrelated GraphQL error', 'github.unrelated', 'repository access'],
   ])('fails safely for %s', async (_case, mode, hint) => {
     const report = await runDaemonDoctor(
