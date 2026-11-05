@@ -167,14 +167,11 @@ describe('catalog', () => {
   );
 
   it('marks only the mutations that write new rows as non-destructive', () => {
+    const additive = ['block.ask', 'comment.add', 'block.create'];
     const mutations = OPERATIONS.filter((op) => op.kind === 'mutation');
-    expect(mutations.filter((op) => !op.mcp.destructive).map((op) => op.id)).toEqual([
-      'block.ask',
-      'comment.add',
-      'block.create',
-    ]);
+    expect(mutations.filter((op) => !op.mcp.destructive).map((op) => op.id)).toEqual(additive);
     for (const op of mutations) {
-      if (['block.ask', 'comment.add', 'block.create'].includes(op.id)) continue;
+      if (additive.includes(op.id)) continue;
       expect(op.mcp.destructive, op.id).toBe(true);
     }
     for (const op of OPERATIONS.filter((entry) => entry.kind === 'query')) {
