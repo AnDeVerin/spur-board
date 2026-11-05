@@ -2,6 +2,8 @@ import { z } from 'zod';
 import { COLUMN_IDS, REQUIRED_COLUMN_IDS } from './enums.ts';
 
 export const DEFAULT_HTTP_PORT = 4311;
+export const DEFAULT_SLACK_APP_NAME = 'spur-board';
+export const DEFAULT_SLACK_COMMAND = '/board';
 
 export const WEEKDAYS = [
   'monday',
@@ -192,10 +194,11 @@ export const configSchema = z.strictObject({
   operator: z.strictObject({ slack: nonEmpty }),
   slack: z
     .strictObject({
+      appName: z.string().trim().min(1).default(DEFAULT_SLACK_APP_NAME),
       command: z
         .string()
         .regex(/^\/[a-z0-9_-]+$/, 'Expected a slash command such as /board')
-        .default('/board'),
+        .default(DEFAULT_SLACK_COMMAND),
       appId: z
         .string()
         .regex(/^A[A-Z0-9]+$/, 'Expected a Slack app ID')

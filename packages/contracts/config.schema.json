@@ -108,6 +108,7 @@
       "default": {},
       "type": "object",
       "properties": {
+        "appName": { "default": "spur-board", "type": "string", "minLength": 1 },
         "command": { "default": "/board", "type": "string", "pattern": "^\\/[a-z0-9_-]+$" },
         "appId": { "type": "string", "pattern": "^A[A-Z0-9]+$" },
         "channels": {

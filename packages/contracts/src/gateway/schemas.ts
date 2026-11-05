@@ -110,6 +110,7 @@ const actionEventSchema = z.strictObject({
 /** `text` is the command's argument text. */
 const commandEventSchema = z.strictObject({
   kind: z.literal('command'),
+  name: z.string().min(1).optional(),
   dedupeKey,
   interaction: interactionRefSchema,
   author: userIdSchema,
