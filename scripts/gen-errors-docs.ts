@@ -22,6 +22,9 @@ export function renderErrorsDocs(): string {
       `Exit code: ${String(spec.exit)}  `,
       `Hint: ${spec.hint}  `,
       `Recovery: ${spec.recovery.action}  `,
+      ...(spec.mcp
+        ? [`MCP hint: ${spec.mcp.hint}  `, `MCP recovery: ${spec.mcp.recovery.action}  `]
+        : []),
       `Side effects: ${spec.recovery.sideEffects}  `,
       `Retry: maximum ${String(spec.recovery.maxRetries)}; ${spec.recovery.retryTiming}`,
       ...(spec.recovery.outcomeCheck ? [`Outcome check: ${spec.recovery.outcomeCheck}`] : []),

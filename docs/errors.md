@@ -486,6 +486,8 @@ HTTP: 409
 Exit code: 3  
 Hint: Run `board service restart` to update the daemon, then retry.  
 Recovery: Run `board service restart`, then retry the command.  
+MCP hint: Restart your agent session so `board mcp` loads the daemon's catalog; if the mismatch remains, run `board service restart`.  
+MCP recovery: Restart your agent session; if the mismatch remains, run `board service restart`. Then retry the tool call.  
 Side effects: none  
 Retry: maximum 0; After fixing the cause.
 

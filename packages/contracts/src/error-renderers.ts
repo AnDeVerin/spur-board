@@ -9,17 +9,18 @@ export const errorInputSchema = z.strictObject({
 });
 export type ErrorInput = z.output<typeof errorInputSchema>;
 
-function fields(input: ErrorInput) {
+function fields(input: ErrorInput, transport: 'mcp' | 'default' = 'default') {
   const { code, requestId, context } = errorInputSchema.parse(input);
   const spec = ERRORS[code];
+  const guidance = (transport === 'mcp' ? spec.mcp : undefined) ?? spec;
   const trace = code === 'unexpected' ? { requestId, logLocation: 'daemon log' } : undefined;
   return {
     code,
     requestId,
     message: spec.message,
-    hint: spec.hint,
+    hint: guidance.hint,
     docs: spec.docs,
-    recovery: spec.recovery,
+    recovery: guidance.recovery,
     context: context ?? {},
     ...(trace ? { trace } : {}),
   };
@@ -42,10 +43,10 @@ export function renderHttpProblem(input: ErrorInput & { code: ServerErrorCode })
 }
 
 export function renderMcpError(input: ErrorInput) {
-  const content = fields(input);
+  const content = fields(input, 'mcp');
   return {
     isError: true as const,
-    content: [{ type: 'text' as const, text: renderStderrError(input) }],
+    content: [{ type: 'text' as const, text: renderLines(content) }],
     structuredContent: content,
   };
 }
@@ -55,7 +56,10 @@ export function renderJsonError(input: ErrorInput) {
 }
 
 export function renderStderrError(input: ErrorInput): string {
-  const value = fields(input);
+  return renderLines(fields(input));
+}
+
+function renderLines(value: ReturnType<typeof fields>): string {
   const context = Object.entries(value.context);
   return [
     `error: ${value.code}: ${value.message}`,
