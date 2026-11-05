@@ -10,7 +10,7 @@ import {
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join } from 'node:path';
 import { parseEnv } from 'node:util';
-import { configSchema, type Config } from '@spur-board/contracts';
+import { configSchema, requiredSecretKeys, type Config } from '@spur-board/contracts';
 import YAML from 'yaml';
 import { configFile, resolveDaemonAddress } from './config.ts';
 
@@ -188,16 +188,7 @@ function localSecrets(config: Config, path: string, ports: DoctorPorts): DoctorC
   } catch {
     names = {};
   }
-  const slackConfigured = Boolean(
-    config.slack.channels.feed || config.slack.channels.orchestrators,
-  );
-  const required = [
-    'GITHUB_TOKEN',
-    ...(config.projects.some((project) => project.tracker.type === 'jira')
-      ? ['JIRA_EMAIL', 'JIRA_API_TOKEN']
-      : []),
-    ...(slackConfigured ? ['SLACK_BOT_TOKEN', 'SLACK_APP_TOKEN'] : []),
-  ];
+  const required = requiredSecretKeys(config);
   const missing = required.filter((name) => !names[name]);
   return {
     ...result(
