@@ -106,11 +106,11 @@ export interface SessionSnapshotTable {
   observed_at: string;
 }
 
-/** PR fields are set when `entity` is `pr`, session fields when it is `session`. */
+/** Only the identity columns for `entity` are set on a link. */
 export interface LinkTable {
   id: Generated<number>;
   task_id: number;
-  entity: 'pr' | 'session';
+  entity: 'pr' | 'session' | 'ticket';
   repo: string | null;
   number: number | null;
   pr_state: PrLinkState | null;
@@ -119,6 +119,8 @@ export interface LinkTable {
   source: LinkSource;
   banned: Generated<Flag>;
   created_at: string;
+  ticket_key: string | null;
+  pr_open: Flag | null;
 }
 
 /** A column executor's finished turn at a head commit. No unique key per epoch. */

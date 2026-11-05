@@ -93,6 +93,8 @@ export const sampleRows: SampleRows = {
     source: first(LINK_SOURCES),
     banned: 0,
     created_at: at,
+    ticket_key: null,
+    pr_open: 1,
   },
   submission: {
     id: 1,

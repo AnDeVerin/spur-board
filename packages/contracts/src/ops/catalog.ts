@@ -14,6 +14,7 @@ import {
   blockViewSchema,
   commentSchema,
   itemViewSchema,
+  linkViewSchema,
   schemaGetOutputSchema,
   sourceViewSchema,
   statusItemSchema,
@@ -29,7 +30,32 @@ const project = z
   .optional()
   .describe('Project to limit the answer to; absent means every project the caller may see.');
 const text = (what: string) => z.string().min(1).describe(what);
-const target = text('What to link: a spur session name, or a pull request as owner/repo#n.');
+const target = text('Pull request, session, or ticket linked to the task.');
+const linkInput = z.discriminatedUnion('mode', [
+  z.strictObject({
+    mode: z.literal('pr').describe('Link a pull request.'),
+    task: taskKeySchema,
+    pr: z.url({ protocol: /^https?$/ }).describe('Pull request URL.'),
+    reason: text('Why this link is being changed.'),
+  }),
+  z.strictObject({
+    mode: z.literal('session').describe('Link a spur session.'),
+    task: taskKeySchema,
+    session: text('Spur session ID.'),
+    reason: text('Why this link is being changed.'),
+  }),
+  z.strictObject({
+    mode: z.literal('ticket').describe('Link an additional tracker ticket.'),
+    task: taskKeySchema,
+    ticket: taskKeySchema,
+    reason: text('Why this link is being changed.'),
+  }),
+]);
+const linkModes = [
+  { mode: 'pr', flag: '--pr', value: 'pr' },
+  { mode: 'session', flag: '--session', value: 'session' },
+  { mode: 'ticket', flag: '--ticket', value: 'ticket' },
+] as const;
 
 const at = '2026-01-05T09:30:00.000Z';
 const task = {
@@ -132,11 +158,12 @@ export const OPERATIONS = [
   defineOperation({
     id: 'task.get',
     kind: 'query',
-    description: 'Show a task with its blocks and comments.',
+    description: 'Show a task with its links, blocks and comments.',
     mcp: { whenToUse: 'Inspect one task now.', whenNotToUse: 'Use task_history for past events.' },
     input: z.strictObject({ task: taskKeySchema }),
     output: z.strictObject({
       task: taskViewSchema,
+      links: z.array(linkViewSchema).describe('Effective pull request, session, and ticket links.'),
       blocks: z.array(blockViewSchema).describe('Blocks on the task, open and unblocked.'),
       comments: z.array(commentSchema).describe('Comments on the task, oldest first.'),
     }),
@@ -148,7 +175,7 @@ export const OPERATIONS = [
       {
         summary: 'Show one task',
         input: { task: 'PROJ-123' },
-        output: { task, blocks: [question], comments: [comment] },
+        output: { task, links: [], blocks: [question], comments: [comment] },
       },
     ],
   }),
@@ -410,43 +437,48 @@ export const OPERATIONS = [
   defineOperation({
     id: 'link.add',
     kind: 'mutation',
-    description: 'Link a spur session or a pull request to a task.',
+    description: 'Manually link a pull request, session, or additional ticket to a task.',
     mcp: {
-      whenToUse: 'Attach a session or pull request.',
+      whenToUse: 'Attach a pull request, session, or additional ticket.',
       whenNotToUse: 'Use link_remove to detach one.',
     },
-    input: z.strictObject({ task: taskKeySchema, target }),
+    input: linkInput,
     output: linkOutput,
     grants: operatorOnly,
-    errors: ['wrong_id_kind', 'not_found', 'task_archived'],
-    cli: { command: 'link', args: ['task', 'target'] },
+    errors: ['wrong_id_kind', 'not_found', 'task_archived', 'link_conflict'],
+    cli: { command: 'link', args: ['task'], modes: linkModes },
     slack: null,
     examples: [
       {
         summary: 'Link a pull request',
-        input: { task: 'PROJ-123', target: 'acme/web#7' },
-        output: { task: 'PROJ-123', target: 'acme/web#7' },
+        input: {
+          mode: 'pr',
+          task: 'PROJ-123',
+          pr: 'https://github.com/example/web/pull/7',
+          reason: 'Attach work started before the ticket was named.',
+        },
+        output: { task: 'PROJ-123', target: 'example/web#7' },
       },
     ],
   }),
   defineOperation({
     id: 'link.remove',
     kind: 'mutation',
-    description: 'Remove a link between a task and a spur session or a pull request.',
+    description: 'Manually remove a pull request, session, or ticket link from a task.',
     mcp: {
-      whenToUse: 'Detach a linked session or pull request.',
+      whenToUse: 'Detach a linked pull request, session, or ticket.',
       whenNotToUse: 'Use link_add to attach one.',
     },
-    input: z.strictObject({ task: taskKeySchema, target }),
+    input: linkInput,
     output: linkOutput,
     grants: operatorOnly,
     errors: ['wrong_id_kind', 'not_found', 'task_archived'],
-    cli: { command: 'unlink', args: ['task', 'target'] },
+    cli: { command: 'unlink', args: ['task'], modes: linkModes },
     slack: null,
     examples: [
       {
         summary: 'Unlink a session',
-        input: { task: 'PROJ-123', target: 'web-7' },
+        input: { mode: 'session', task: 'PROJ-123', session: 'web-7', reason: 'Wrong task.' },
         output: { task: 'PROJ-123', target: 'web-7' },
       },
     ],

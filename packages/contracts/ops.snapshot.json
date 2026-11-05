@@ -1,5 +1,5 @@
 {
-  "version": "bd660c1f077f3b02cc9ab5954a97c1141c1ff778708f6c3dd74082558ac9e624",
+  "version": "1bf11f3dd23f223782134c704af941fb81dff1f3642bdf6bdef89314d783d198",
   "grants": [
     "operator",
     "project-agent",
@@ -261,6 +261,35 @@
         "retryTiming": "After fixing the cause."
       },
       "docs": "docs/errors.md#task_archived",
+      "context": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "clientVersion": { "type": "string" },
+          "serverVersion": { "type": "string" },
+          "configPath": { "type": "string" },
+          "environmentVariable": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+          "idempotencyKey": { "type": "string", "minLength": 1 },
+          "causeLabel": {
+            "type": "string",
+            "enum": ["storage_unavailable", "transport_unavailable", "internal_failure"]
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "link_conflict": {
+      "status": 409,
+      "exit": 1,
+      "message": "Another linked pull request prevents this manual link.",
+      "hint": "Read the task links and use a different task or resolve the existing pull request link.",
+      "recovery": {
+        "action": "Read the task links and resolve the blocking pull request.",
+        "sideEffects": "none",
+        "maxRetries": 0,
+        "retryTiming": "After fixing the cause."
+      },
+      "docs": "docs/errors.md#link_conflict",
       "context": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
@@ -1139,26 +1168,27 @@
                     "properties": {
                       "kind": {
                         "type": "string",
-                        "enum": ["pr", "session"],
+                        "enum": ["pr", "session", "ticket"],
                         "description": "Linked entity kind."
                       },
                       "ref": {
                         "type": "string",
                         "minLength": 1,
-                        "description": "Pull request or session identifier."
+                        "description": "Pull request, session, or ticket identifier."
                       },
                       "role": {
                         "anyOf": [
                           { "type": "string", "enum": ["worker", "other", "orchestrator"] },
                           { "type": "null" }
                         ],
-                        "description": "Session role; null for a pull request."
+                        "description": "Session role; null for a pull request or ticket."
                       }
                     },
                     "required": ["kind", "ref", "role"],
-                    "additionalProperties": false
+                    "additionalProperties": false,
+                    "description": "An effective link to a task."
                   },
-                  "description": "Links fixed when each entity first joined the task."
+                  "description": "Effective pull request, session, and ticket links."
                 }
               },
               "required": [
@@ -1745,7 +1775,7 @@
     {
       "id": "task.get",
       "kind": "query",
-      "description": "Show a task with its blocks and comments.",
+      "description": "Show a task with its links, blocks and comments.",
       "grants": [{ "grant": "operator" }, { "grant": "project-agent" }],
       "preconditions": null,
       "errors": [
@@ -1776,6 +1806,7 @@
               "column": "dev",
               "membership": "active"
             },
+            "links": [],
             "blocks": [
               {
                 "id": "B12",
@@ -1852,6 +1883,35 @@
             "required": ["key", "project", "column", "membership"],
             "additionalProperties": false,
             "description": "A task on the board."
+          },
+          "links": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": ["pr", "session", "ticket"],
+                  "description": "Linked entity kind."
+                },
+                "ref": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Pull request, session, or ticket identifier."
+                },
+                "role": {
+                  "anyOf": [
+                    { "type": "string", "enum": ["worker", "other", "orchestrator"] },
+                    { "type": "null" }
+                  ],
+                  "description": "Session role; null for a pull request or ticket."
+                }
+              },
+              "required": ["kind", "ref", "role"],
+              "additionalProperties": false,
+              "description": "An effective link to a task."
+            },
+            "description": "Effective pull request, session, and ticket links."
           },
           "blocks": {
             "type": "array",
@@ -2047,7 +2107,7 @@
             "description": "Comments on the task, oldest first."
           }
         },
-        "required": ["task", "blocks", "comments"],
+        "required": ["task", "links", "blocks", "comments"],
         "additionalProperties": false
       }
     },
@@ -3149,7 +3209,7 @@
     {
       "id": "link.add",
       "kind": "mutation",
-      "description": "Link a spur session or a pull request to a task.",
+      "description": "Manually link a pull request, session, or additional ticket to a task.",
       "grants": [{ "grant": "operator" }],
       "preconditions": null,
       "errors": [
@@ -3159,42 +3219,113 @@
         "not_found",
         "not_implemented",
         "task_archived",
+        "link_conflict",
         "idempotency_key_mismatch",
         "identity_unavailable",
         "starting"
       ],
-      "cli": { "command": "link", "args": ["task", "target"], "modes": null, "key": "--key" },
+      "cli": {
+        "command": "link",
+        "args": ["task"],
+        "modes": [
+          { "mode": "pr", "flag": "--pr", "value": "pr" },
+          { "mode": "session", "flag": "--session", "value": "session" },
+          { "mode": "ticket", "flag": "--ticket", "value": "ticket" }
+        ],
+        "key": "--key"
+      },
       "mcp": {
         "name": "link_add",
         "key": "idempotencyKey",
-        "whenToUse": "Attach a session or pull request.",
+        "whenToUse": "Attach a pull request, session, or additional ticket.",
         "whenNotToUse": "Use link_remove to detach one."
       },
       "slack": null,
       "examples": [
         {
           "summary": "Link a pull request",
-          "input": { "task": "PROJ-123", "target": "acme/web#7" },
-          "output": { "task": "PROJ-123", "target": "acme/web#7" }
+          "input": {
+            "mode": "pr",
+            "task": "PROJ-123",
+            "pr": "https://github.com/example/web/pull/7",
+            "reason": "Attach work started before the ticket was named."
+          },
+          "output": { "task": "PROJ-123", "target": "example/web#7" }
         }
       ],
       "input": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "type": "object",
-        "properties": {
-          "task": {
-            "type": "string",
-            "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
-            "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "mode": { "type": "string", "const": "pr", "description": "Link a pull request." },
+              "task": {
+                "type": "string",
+                "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
+                "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
+              },
+              "pr": { "type": "string", "format": "uri", "description": "Pull request URL." },
+              "reason": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Why this link is being changed."
+              }
+            },
+            "required": ["mode", "task", "pr", "reason"],
+            "additionalProperties": false
           },
-          "target": {
-            "type": "string",
-            "minLength": 1,
-            "description": "What to link: a spur session name, or a pull request as owner/repo#n."
+          {
+            "type": "object",
+            "properties": {
+              "mode": {
+                "type": "string",
+                "const": "session",
+                "description": "Link a spur session."
+              },
+              "task": {
+                "type": "string",
+                "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
+                "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
+              },
+              "session": { "type": "string", "minLength": 1, "description": "Spur session ID." },
+              "reason": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Why this link is being changed."
+              }
+            },
+            "required": ["mode", "task", "session", "reason"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "mode": {
+                "type": "string",
+                "const": "ticket",
+                "description": "Link an additional tracker ticket."
+              },
+              "task": {
+                "type": "string",
+                "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
+                "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
+              },
+              "ticket": {
+                "type": "string",
+                "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
+                "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Why this link is being changed."
+              }
+            },
+            "required": ["mode", "task", "ticket", "reason"],
+            "additionalProperties": false
           }
-        },
-        "required": ["task", "target"],
-        "additionalProperties": false
+        ]
       },
       "output": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -3208,7 +3339,7 @@
           "target": {
             "type": "string",
             "minLength": 1,
-            "description": "What to link: a spur session name, or a pull request as owner/repo#n."
+            "description": "Pull request, session, or ticket linked to the task."
           }
         },
         "required": ["task", "target"],
@@ -3218,7 +3349,7 @@
     {
       "id": "link.remove",
       "kind": "mutation",
-      "description": "Remove a link between a task and a spur session or a pull request.",
+      "description": "Manually remove a pull request, session, or ticket link from a task.",
       "grants": [{ "grant": "operator" }],
       "preconditions": null,
       "errors": [
@@ -3232,38 +3363,108 @@
         "identity_unavailable",
         "starting"
       ],
-      "cli": { "command": "unlink", "args": ["task", "target"], "modes": null, "key": "--key" },
+      "cli": {
+        "command": "unlink",
+        "args": ["task"],
+        "modes": [
+          { "mode": "pr", "flag": "--pr", "value": "pr" },
+          { "mode": "session", "flag": "--session", "value": "session" },
+          { "mode": "ticket", "flag": "--ticket", "value": "ticket" }
+        ],
+        "key": "--key"
+      },
       "mcp": {
         "name": "link_remove",
         "key": "idempotencyKey",
-        "whenToUse": "Detach a linked session or pull request.",
+        "whenToUse": "Detach a linked pull request, session, or ticket.",
         "whenNotToUse": "Use link_add to attach one."
       },
       "slack": null,
       "examples": [
         {
           "summary": "Unlink a session",
-          "input": { "task": "PROJ-123", "target": "web-7" },
+          "input": {
+            "mode": "session",
+            "task": "PROJ-123",
+            "session": "web-7",
+            "reason": "Wrong task."
+          },
           "output": { "task": "PROJ-123", "target": "web-7" }
         }
       ],
       "input": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "type": "object",
-        "properties": {
-          "task": {
-            "type": "string",
-            "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
-            "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "mode": { "type": "string", "const": "pr", "description": "Link a pull request." },
+              "task": {
+                "type": "string",
+                "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
+                "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
+              },
+              "pr": { "type": "string", "format": "uri", "description": "Pull request URL." },
+              "reason": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Why this link is being changed."
+              }
+            },
+            "required": ["mode", "task", "pr", "reason"],
+            "additionalProperties": false
           },
-          "target": {
-            "type": "string",
-            "minLength": 1,
-            "description": "What to link: a spur session name, or a pull request as owner/repo#n."
+          {
+            "type": "object",
+            "properties": {
+              "mode": {
+                "type": "string",
+                "const": "session",
+                "description": "Link a spur session."
+              },
+              "task": {
+                "type": "string",
+                "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
+                "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
+              },
+              "session": { "type": "string", "minLength": 1, "description": "Spur session ID." },
+              "reason": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Why this link is being changed."
+              }
+            },
+            "required": ["mode", "task", "session", "reason"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "mode": {
+                "type": "string",
+                "const": "ticket",
+                "description": "Link an additional tracker ticket."
+              },
+              "task": {
+                "type": "string",
+                "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
+                "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
+              },
+              "ticket": {
+                "type": "string",
+                "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
+                "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Why this link is being changed."
+              }
+            },
+            "required": ["mode", "task", "ticket", "reason"],
+            "additionalProperties": false
           }
-        },
-        "required": ["task", "target"],
-        "additionalProperties": false
+        ]
       },
       "output": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -3277,7 +3478,7 @@
           "target": {
             "type": "string",
             "minLength": 1,
-            "description": "What to link: a spur session name, or a pull request as owner/repo#n."
+            "description": "Pull request, session, or ticket linked to the task."
           }
         },
         "required": ["task", "target"],

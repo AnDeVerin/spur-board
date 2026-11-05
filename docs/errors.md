@@ -308,6 +308,40 @@ Example:
 }
 ```
 
+## link_conflict
+
+Another linked pull request prevents this manual link.
+
+HTTP: 409  
+Exit code: 1  
+Hint: Read the task links and use a different task or resolve the existing pull request link.  
+Recovery: Read the task links and resolve the blocking pull request.  
+Side effects: none  
+Retry: maximum 0; After fixing the cause.
+
+Example:
+
+```json
+{
+  "ok": false,
+  "requestId": "req-example-123",
+  "error": {
+    "code": "link_conflict",
+    "requestId": "req-example-123",
+    "message": "Another linked pull request prevents this manual link.",
+    "hint": "Read the task links and use a different task or resolve the existing pull request link.",
+    "docs": "docs/errors.md#link_conflict",
+    "recovery": {
+      "action": "Read the task links and resolve the blocking pull request.",
+      "sideEffects": "none",
+      "maxRetries": 0,
+      "retryTiming": "After fixing the cause."
+    },
+    "context": {}
+  }
+}
+```
+
 ## retry_not_applicable
 
 The item is not in a state that can be retried.

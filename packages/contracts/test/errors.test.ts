@@ -30,7 +30,7 @@ describe('error catalog', () => {
     });
   });
 
-  it('pins the 18 codes in order, with HTTP status and exit code', () => {
+  it('pins the 19 codes in order, with HTTP status and exit code', () => {
     const table = Object.entries(ERRORS).map(([code, { status, exit }]) => [code, status, exit]);
     expect(table).toEqual([
       ['usage', 400, 2],
@@ -42,6 +42,7 @@ describe('error catalog', () => {
       ['wrong_block_type', 409, 1],
       ['stale_comment_revision', 409, 1],
       ['task_archived', 409, 1],
+      ['link_conflict', 409, 1],
       ['retry_not_applicable', 409, 1],
       ['idempotency_key_mismatch', 409, 1],
       ['identity_unavailable', 503, 3],
