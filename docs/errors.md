@@ -520,7 +520,7 @@ The daemon is not running or cannot be reached; nothing was applied.
 
 HTTP: client-side  
 Exit code: 3  
-Hint: Ask in your own session; the operator can run `board service start`. Retry the same command with its existing idempotency key if it has one once the daemon is available.  
+Hint: Ask in your own session; the operator can check `board service status`, then run `board service restart`, or `board service install` if the service was never installed. Retry the same command with its existing idempotency key if it has one once the daemon is available.  
 Recovery: Ask in your own session, then retry the same command with its existing idempotency key if it has one.  
 Side effects: none  
 Retry: maximum 3; After the daemon is available; wait briefly between retries.
@@ -535,7 +535,7 @@ Example:
     "code": "daemon_unavailable",
     "requestId": "req-example-123",
     "message": "The daemon is not running or cannot be reached; nothing was applied.",
-    "hint": "Ask in your own session; the operator can run `board service start`. Retry the same command with its existing idempotency key if it has one once the daemon is available.",
+    "hint": "Ask in your own session; the operator can check `board service status`, then run `board service restart`, or `board service install` if the service was never installed. Retry the same command with its existing idempotency key if it has one once the daemon is available.",
     "docs": "docs/errors.md#daemon_unavailable",
     "recovery": {
       "action": "Ask in your own session, then retry the same command with its existing idempotency key if it has one.",

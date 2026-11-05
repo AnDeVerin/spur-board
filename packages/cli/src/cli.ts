@@ -305,7 +305,7 @@ function registerSetupCommands(
   commandFor(program, 'skills install')
     .description('Install bundled skills for Claude Code and Codex.')
     .action(async () => {
-      print(await runSetup(() => installSkills(options.setup)));
+      print(await runSetup(() => installSkills({ ...options.setup, env })));
     });
 
   commandFor(program, 'service install')

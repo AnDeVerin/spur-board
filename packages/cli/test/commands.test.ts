@@ -6,8 +6,36 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { OPERATIONS } from '@spur-board/contracts';
+import { ERRORS, OPERATIONS } from '@spur-board/contracts';
 import { createProgram, runCli, type CliIo } from '../src/cli.ts';
+
+type Program = ReturnType<typeof createProgram>;
+
+/** Resolves a `board …` span from error guidance against the registered command tree. */
+function resolveGuidance(program: Program, span: string): string | undefined {
+  let command = program;
+  const chain = [program];
+  let used = 0;
+  const words = span.split(' ');
+  for (let index = 0; index < words.length; index += 1) {
+    const word = words[index] ?? '';
+    if (word.startsWith('--')) {
+      const option = chain.flatMap((item) => item.options).find((item) => item.long === word);
+      if (!option) return `unknown flag ${word}`;
+      if (/[<[]/.test(option.flags) && words[index + 1]?.startsWith('<')) index += 1;
+    } else if (/^<[^>]+>$/.test(word)) {
+      if (used >= command.registeredArguments.length) return `no argument slot for ${word}`;
+      used += 1;
+    } else {
+      const next = command.commands.find((item) => item.name() === word);
+      if (!next) return `unknown command ${word}`;
+      command = next;
+      chain.push(next);
+      used = 0;
+    }
+  }
+  return undefined;
+}
 
 const servers: Server[] = [];
 const dirs: string[] = [];
@@ -235,6 +263,25 @@ describe('catalog commands', () => {
       { id: 'token.list', input: {} },
       { id: 'token.revoke', input: { name: 'desk' } },
     ]);
+  });
+
+  it('names only registered commands, arguments and flags in error guidance', () => {
+    const program = createProgram({ env: {}, io: capture().io });
+    const spans = new Set<string>();
+    for (const entry of Object.values(ERRORS)) {
+      const texts = [entry.message, entry.hint, ...Object.values(entry.recovery)];
+      for (const text of texts) {
+        if (typeof text !== 'string') continue;
+        for (const match of text.matchAll(/`board ([^`]+)`/g)) spans.add(match[1] ?? '');
+      }
+    }
+    for (const span of spans)
+      expect(resolveGuidance(program, span), `board ${span}`).toBeUndefined();
+    for (const span of ['service status', 'service restart', 'service install', 'task <KEY>'])
+      expect(spans).toContain(span);
+    expect(resolveGuidance(program, 'service start')).toBe('unknown command start');
+    expect(resolveGuidance(program, 'status --bogus')).toBe('unknown flag --bogus');
+    expect(resolveGuidance(program, 'status <EXTRA>')).toBe('no argument slot for <EXTRA>');
   });
 
   it('registers every catalog path and shows each catalog example in help', async () => {

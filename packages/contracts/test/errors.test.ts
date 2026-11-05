@@ -96,7 +96,10 @@ describe('error catalog', () => {
 
     const daemon = ERRORS.daemon_unavailable;
     expect(daemon.hint).toContain('Ask in your own session');
-    expect(daemon.hint).toContain('operator can run `board service start`');
+    expect(daemon.hint).toContain('`board service status`');
+    expect(daemon.hint).toContain('`board service restart`');
+    expect(daemon.hint).toContain('`board service install`');
+    expect(daemon.hint).not.toContain('board service start');
     expect(daemon.recovery.action).toContain('existing idempotency key if it has one');
     expect(daemon.recovery.retryTiming).toContain('daemon is available');
   });

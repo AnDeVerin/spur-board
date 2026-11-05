@@ -19,12 +19,15 @@ import {
   type UserId,
 } from '@spur-board/contracts';
 import { describe, expect, it } from 'vitest';
+import { assertFullFakeCaseSet, type FakeCaseId } from './cases.ts';
 
 type Awaitable<T> = T | Promise<T>;
 
 /** A gateway under test, with a way to drive and inspect the platform behind it. */
 export interface ConformanceTarget {
   name: string;
+  /** Fake targets always run the complete case set. */
+  caseIds: readonly FakeCaseId[];
   /**
    * Upper bound on one part's `VisibleMessage.text.length`. A gateway whose platform renders the
    * marker or repeat mark inside the message text counts them against the platform limit when it
@@ -133,29 +136,6 @@ export interface VisibleConversation {
   done: boolean;
 }
 
-type ConformanceCaseId =
-  | 'deliver-targets'
-  | 'maybe-sent-reply'
-  | 'maybe-sent-open'
-  | 'parts'
-  | 'close-steps'
-  | 'recover-keys'
-  | 'origin-key'
-  | 'respond'
-  | 'delivery-faults'
-  | 'ack-after-sink'
-  | 'connection-loss';
-
-/** Cases an outbound-only gateway can run before it supports inbound events. */
-export const outboundCaseIds = [
-  'deliver-targets',
-  'maybe-sent-reply',
-  'maybe-sent-open',
-  'parts',
-  'close-steps',
-  'delivery-faults',
-] as const satisfies readonly ConformanceCaseId[];
-
 interface Harness {
   readonly gateway: Gateway;
   readonly platform: ConformancePlatform;
@@ -178,7 +158,7 @@ type Delivery = Pick<DeliverRequest, 'key' | 'target' | 'body'> & {
 };
 
 interface ConformanceCase {
-  id: ConformanceCaseId;
+  id: FakeCaseId;
   title: string;
   run(h: Harness): Promise<void>;
 }
@@ -996,6 +976,8 @@ export const conformanceCases: readonly ConformanceCase[] = [
   connectionLoss,
 ];
 
+assertFullFakeCaseSet(conformanceCases.map((c) => c.id));
+
 function harness(target: ConformanceTarget, created: ConformanceHarness): Harness {
   const events: InboundEvent[] = [];
   let hold: { enter(event: InboundEvent): void; released: Promise<void> } | undefined;
@@ -1056,10 +1038,7 @@ function harness(target: ConformanceTarget, created: ConformanceHarness): Harnes
  * Runs one case against a fresh gateway from `target`: starts it, waits for `settle()`, runs the
  * case, then stops and disposes it. Rejects with the first failed assertion.
  */
-export async function runConformanceCase(
-  target: ConformanceTarget,
-  id: ConformanceCaseId,
-): Promise<void> {
+export async function runConformanceCase(target: ConformanceTarget, id: FakeCaseId): Promise<void> {
   const found = conformanceCases.find((c) => c.id === id);
   if (found === undefined) throw new Error(`unknown conformance case: ${id}`);
   const created = await target.create();
@@ -1074,17 +1053,11 @@ export async function runConformanceCase(
   }
 }
 
-/** Registers the full or outbound-only suite for `target`: one `it` per case. */
-export function runGatewayConformance(
-  target: ConformanceTarget,
-  options: { scope?: 'full' | 'outbound' } = {},
-): void {
+/** Registers the complete fake suite for `target`: one `it` per case. */
+export function runGatewayConformance(target: ConformanceTarget): void {
+  assertFullFakeCaseSet(target.caseIds);
   describe(`gateway conformance: ${target.name}`, () => {
-    const cases =
-      options.scope === 'outbound'
-        ? conformanceCases.filter((c) => (outboundCaseIds as readonly string[]).includes(c.id))
-        : conformanceCases;
-    for (const c of cases) {
+    for (const c of conformanceCases) {
       it(`${c.id}: ${c.title}`, () => runConformanceCase(target, c.id));
     }
   });

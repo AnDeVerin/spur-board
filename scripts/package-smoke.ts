@@ -454,6 +454,8 @@ export async function smokeInstalled(
         BOARD_HOME: home,
         XDG_CONFIG_HOME: join(home, '.config'),
         XDG_DATA_HOME: join(home, '.local/share'),
+        XDG_STATE_HOME: join(home, '.local/state'),
+        CODEX_HOME: '',
         SPUR_SESSION: 'smoke-1',
       },
     };
