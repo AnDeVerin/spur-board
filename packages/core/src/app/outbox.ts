@@ -493,7 +493,7 @@ export async function enqueueConversationClose(
     .execute();
   const payload = {
     key: block.key,
-    text: `resolved: ${input.outcome} (${input.actor})`,
+    text: `resolved: ${input.outcome === 'archived' ? 'task archived' : input.outcome} (${input.actor})`,
     persona: { name: 'board', role: 'board' } as const,
     taskId: block.taskId,
     blockId: block.id,

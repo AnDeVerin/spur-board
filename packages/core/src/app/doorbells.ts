@@ -187,13 +187,16 @@ export async function restartNotification(trx: Trx, sourceKey: string, at: Date)
 
 /** Reconcile due semantic notifications in the sender's claim transaction. */
 export async function reconcileDoorbells(trx: Trx, at: Date, config?: Config): Promise<void> {
+  // An archived task rings nobody.
   const due = await trx
     .selectFrom('notification')
-    .selectAll()
-    .where('acked_at', 'is', null)
-    .where('exhausted_at', 'is', null)
-    .where('next_at', '<=', at.toISOString())
-    .orderBy('id')
+    .innerJoin('task', 'task.id', 'notification.task_id')
+    .selectAll('notification')
+    .where('task.membership', '!=', 'archived')
+    .where('notification.acked_at', 'is', null)
+    .where('notification.exhausted_at', 'is', null)
+    .where('notification.next_at', '<=', at.toISOString())
+    .orderBy('notification.id')
     .execute();
   for (const n of due) {
     const session = await selectNotificationRecipient(trx, n);

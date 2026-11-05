@@ -1,6 +1,7 @@
 import { parseRef, type Config } from '@spur-board/contracts';
 import type { Mutation } from './commands.ts';
 import { CommandError } from './commands.ts';
+import { archiveTask } from './archive.ts';
 import { emit, projectForKey, taskView, type Trx } from './board-utils.ts';
 
 export function canonicalKey(
@@ -124,24 +125,10 @@ export function createMembershipMutations(config: Config): {
           throw new CommandError('task_archived', 'Task is archived.');
         await trx
           .updateTable('task')
-          .set({
-            membership: 'archived',
-            archive_reason: 'manual',
-            manual_include: 0,
-            manual_exclude: 1,
-            last_change_at: ctx.at,
-          })
+          .set({ manual_include: 0, manual_exclude: 1 })
           .where('id', '=', task.id)
           .execute();
-        await emit(
-          trx,
-          'task_archived',
-          task.project,
-          task.id,
-          ctx.at,
-          { reason: 'manual' },
-          'operator',
-        );
+        await archiveTask(trx, { task, reason: 'manual', actor: ctx.actor, at: ctx.at });
         return { task: { ...taskView(task), membership: 'archived' as const } };
       },
     },
