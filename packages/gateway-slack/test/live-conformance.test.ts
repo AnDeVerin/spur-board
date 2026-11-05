@@ -19,7 +19,10 @@ describe('live conformance runner against the local Slack API', () => {
     const fake = await startFakeSlackApi();
     let recoveryStart = 0;
     let recoveryEnd = 0;
+    let rateEnd = 0;
+    let mentionInstruction = '';
     const prompt: LivePrompt = async (id, instruction, context) => {
+      if (id === 'guided-mention') mentionInstruction = instruction;
       if (id === 'recovery') {
         recoveryStart = fake.requests().length;
         await fake.platform.inject({
@@ -85,12 +88,12 @@ describe('live conformance runner against the local Slack API', () => {
         operator,
         apiUrl: fake.url,
         prompt,
-        beforeCase: async (id) => {
-          if (id === 'rate-limit') {
-            recoveryEnd = fake.requests().length;
-            await fake.platform.rateLimitNext(20);
-          }
+        beforeCase: (id) => {
+          if (id === 'rate-limit') recoveryEnd = fake.requests().length;
+          if (id === 'bot-posts') rateEnd = fake.requests().length;
+          return Promise.resolve();
         },
+        beforeRateEdit: async () => fake.platform.rateLimitNext(20),
       });
       expect(report.results).toHaveLength(11);
       expect(report.results.map((result) => result.status)).toEqual(Array(11).fill('pass'));
@@ -100,6 +103,14 @@ describe('live conformance runner against the local Slack API', () => {
           .slice(recoveryStart, recoveryEnd)
           .some((request) => request.method === 'conversations.replies'),
       ).toBe(true);
+      const rateRequests = fake.requests().slice(recoveryEnd, rateEnd);
+      expect(rateRequests.filter((request) => request.method === 'chat.postMessage')).toHaveLength(
+        1,
+      );
+      expect(
+        rateRequests.filter((request) => request.method === 'chat.update').length,
+      ).toBeGreaterThanOrEqual(2);
+      expect(mentionInstruction).toContain('Reply in thread');
       expect(report.date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
       expect(JSON.stringify(report)).not.toContain('C_FEED');
       expect(JSON.stringify(report)).not.toContain('xoxb-test');
@@ -136,6 +147,34 @@ describe('live conformance runner against the local Slack API', () => {
         ['guided-reply', 'fail'],
       ]);
       expect(report.results[1]?.observation).toMatch(/timed out/);
+    } finally {
+      await fake.close();
+    }
+  });
+
+  it('fails honestly when the bounded edit probe sees no rate limit', async () => {
+    const fake = await startFakeSlackApi();
+    try {
+      const report = await runLiveConformance({
+        token: 'xoxb-test',
+        appToken: 'xapp-test',
+        channel: 'C_FEED',
+        operator,
+        apiUrl: fake.url,
+        caseIds: ['delivery', 'rate-limit'],
+        prompt: async () => {},
+      });
+      expect(report.results.map((result) => [result.id, result.status])).toEqual([
+        ['delivery', 'pass'],
+        ['rate-limit', 'fail'],
+      ]);
+      expect(report.results[1]?.observation).toContain('120 edits');
+      expect(fake.requests().filter((request) => request.method === 'chat.update')).toHaveLength(
+        121,
+      );
+      expect(
+        fake.requests().filter((request) => request.method === 'chat.postMessage'),
+      ).toHaveLength(4);
     } finally {
       await fake.close();
     }

@@ -44,6 +44,8 @@ export interface LiveRunOptions {
   /** Local fake API only. The process command refuses API overrides. */
   apiUrl?: string;
   beforeCase?: (id: LiveCaseId) => Promise<void>;
+  /** Local fake API only: inject a fault after the probe message is created. */
+  beforeRateEdit?: () => Promise<void>;
   caseIds?: readonly LiveCaseId[];
   promptTimeoutMs?: number;
 }
@@ -290,13 +292,23 @@ async function recoveryCase(ctx: RunContext): Promise<string> {
 }
 
 async function rateLimitCase(ctx: RunContext): Promise<string> {
+  const probe = requireResult(
+    await deliver(ctx, {
+      key: `${ctx.key}:rate-probe`,
+      maybeSent: false,
+      target: { kind: 'reply', conversation: rootOf(ctx) },
+      body: textBody('Live conformance rate probe.'),
+    }),
+  );
+  await ctx.options.beforeRateEdit?.();
   let observed = false;
   let waited = 0;
-  for (let index = 0; index < 30; index++) {
-    const key = `${ctx.key}:burst:${String(index)}`;
+  const deadline = Date.now() + 90_000;
+  for (let index = 0; index < 120 && Date.now() < deadline; index++) {
+    const key = `${ctx.key}:rate:${String(index)}`;
     const request = {
       key,
-      target: { kind: 'reply' as const, conversation: rootOf(ctx) },
+      target: { kind: 'edit' as const, message: probe.message },
       body: textBody('Live conformance rate check.'),
     };
     let result = await deliver(ctx, { ...request, maybeSent: false });
@@ -313,10 +325,13 @@ async function rateLimitCase(ctx: RunContext): Promise<string> {
     }
     const retried = requireResult(result);
     need(retried.message.length > 0, 'retry did not confirm delivery');
-    need(countMarker(await history(ctx), key) === 1, 'rate-limit retry duplicated a post');
+    need(
+      countMarker(await history(ctx), key) === 1,
+      'rate-limit retry did not confirm one marked edit',
+    );
     break;
   }
-  need(observed, 'no rate limit was observed within 30 attempts');
+  need(observed, 'no rate limit was observed within 120 edits or 90 seconds');
   return '429, Retry-After wait and one marked retry confirmed';
 }
 
@@ -363,7 +378,7 @@ async function guidedCase(ctx: RunContext, id: LiveCaseId): Promise<string> {
       instruction = `Run /board ${token} in the test channel, then press Enter.`;
       break;
     case 'guided-mention':
-      instruction = `Mention the app in a reply in the test thread, include ${token}, then press Enter.`;
+      instruction = `On the run root message, select Reply in thread. In the thread composer, mention the app and include ${token}, then press Enter.`;
       break;
     default:
       throw new CaseError('unknown guided case');

@@ -13,4 +13,6 @@ remaining difference here with the observed behavior and consequence.
 
 ## Known differences
 
-None recorded before the first full live conformance run.
+- A local fake can force a 429 on the next write, but a real run accepted 30 serial posts without
+  one. The live probe now edits one dedicated message up to 120 times or 90 seconds and reports a
+  failure unless it observes a 429, waits for Retry-After and confirms the marked retry.
