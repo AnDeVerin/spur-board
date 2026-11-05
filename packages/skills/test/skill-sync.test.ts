@@ -17,11 +17,17 @@ import {
 
 const skillPath = fileURLToPath(new URL('../spur-board/SKILL.md', import.meta.url));
 const setupSkillPath = fileURLToPath(new URL('../setup/SKILL.md', import.meta.url));
+const readmePath = fileURLToPath(new URL('../../../README.md', import.meta.url));
+const setupGuidePath = fileURLToPath(new URL('../../../SETUP.md', import.meta.url));
+const troubleshootingPath = fileURLToPath(new URL('../../../TROUBLESHOOTING.md', import.meta.url));
 const setupReferencesPath = fileURLToPath(new URL('../setup/references/', import.meta.url));
 const binaryPath = fileURLToPath(new URL('../../cli/src/bin.mjs', import.meta.url));
 const referencesPath = fileURLToPath(new URL('../spur-board/references/', import.meta.url));
 const skill = readFileSync(skillPath, 'utf8');
 const setupSkill = readFileSync(setupSkillPath, 'utf8');
+const publicGuides = [readmePath, setupGuidePath, troubleshootingPath].map((path) =>
+  readFileSync(path, 'utf8'),
+);
 const setupReferenceNames = ['secrets.md', 'slack.md', 'update.md'];
 const setupReferenceTexts = setupReferenceNames.map((name) =>
   readFileSync(new URL(`../setup/references/${name}`, import.meta.url), 'utf8'),
@@ -389,5 +395,25 @@ describe('setup skill sync', () => {
         binarySource.replace("argv[0] === '--version'", 'false'),
       ),
     ).toContain('unknown command: board --version');
+  });
+});
+
+describe('public guide command mentions', () => {
+  it('uses only registered board commands and flags in each guide', () => {
+    for (const guide of publicGuides) expect(validateSetupInvocations(guide)).toEqual([]);
+    expect(publicGuides.flatMap(invocations).length).toBeGreaterThan(12);
+  });
+
+  it('keeps the agent bootstrap line and GitHub check-run recovery', () => {
+    const [readme, setup, troubleshooting] = publicGuides;
+    expect(readme).toMatch(/^npx -y spur-board@latest skills install$/m);
+    expect(readme).toContain('`spur-board-setup`');
+    for (const guide of [setup, troubleshooting]) {
+      expect(guide).toContain('classic personal access token');
+      expect(guide).toContain('`repo`');
+      expect(guide).toContain('SSO');
+      expect(guide).toContain('`FORBIDDEN`');
+      expect(guide).toContain('`CheckRun`');
+    }
   });
 });

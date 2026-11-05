@@ -1,23 +1,39 @@
 # spur-board
 
-A kanban board for agent-driven development on top of [Spur](https://github.com/ashugaev/spur):
-a local daemon that tracks tasks across GitHub, Jira and agent sessions, a `board` CLI and MCP
-server for agents, and Slack for the human operator.
+spur-board is a local kanban view for development with agents. It joins tasks from Jira and
+GitHub with Spur sessions, offers a `board` CLI and MCP server, and sends operator updates to
+Slack.
 
-**Status:** early development. Work is tracked in
-[GitHub Issues](https://github.com/AnDeVerin/spur-board/issues).
+It needs Linux with systemd user services, Node 24.12+ (24.x) or 26.x, a running
+[Spur](https://github.com/ashugaev/spur), a Slack app, and Jira and GitHub tokens. The project is
+in early development; work is tracked in [GitHub Issues](https://github.com/AnDeVerin/spur-board/issues).
 
-## Setup with an agent
+## Set up with an agent
 
-Ask your agent to check whether `spur-board-setup` is already installed. If it is missing, the
-agent asks your approval to write its skill folders before running
-`npx -y spur-board@latest skills install`. It then reads the installed `spur-board-setup` skill
-and follows it through a green `board doctor` and the live announcement. The agent checks state
-before each action, asks one question at a time, and asks before changing package, config,
-secret, service, token, skill-folder, or project-checkout state or enabling lingering. You create
-the Slack app and supply Jira and GitHub tokens through private local input; never paste tokens
-into chat.
+Give your agent this command:
 
-## License
+```sh
+npx -y spur-board@latest skills install
+```
 
-[MIT](LICENSE)
+Then ask it to use the `spur-board-setup` skill. The skill checks the installation, asks for
+missing choices one at a time, and finishes with a green `board doctor` and a live announcement
+in the feed channel. Enter tokens through a private local method, never in chat.
+
+## Set up by hand
+
+1. Check the prerequisites and install the package with the Node executable visible to Spur
+   sessions.
+2. Create the Slack app and put configuration and tokens in private local files.
+3. Install the user service, choose an operator access path, install the agent skills, and run
+   the doctor checks.
+
+Follow [SETUP.md](SETUP.md) for the commands and file locations. Use
+[TROUBLESHOOTING.md](TROUBLESHOOTING.md) when a check fails. The default Slack names are
+`#orchestrators`, `#board-feed`, and `/board`; all are configurable.
+
+## Reference and project files
+
+- [CLI commands](docs/cli.md), [configuration](docs/configuration.md), and the [docs index](docs/)
+- [MIT license](LICENSE)
+- [Contributing](CONTRIBUTING.md) and [security policy](SECURITY.md) (planned in #7)
