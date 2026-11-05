@@ -39,10 +39,10 @@ operation result or current state before retrying.
 - Exit 4 means this session lacks Board configuration. Ask in your own session immediately
   and say the Board is not configured so the operator can fix it. Keep the original key for
   retry after setup; never make a new key for that retry.
-- Exit 5 (outcome unknown): retry reads (`board inbox`, `board task`) without `--key`. For mutations, check
-  the outcome, then retry the same command, input, and key at most three times within about
-  a minute. If exhausted, ask in your own session. Keep that key for recovery; use a fresh
-  key for each new action.
+- Exit 5 (unknown): retry up to three times within about a minute, then ask in your
+  own session. Repeat reads (`board inbox`, `board task`) without `--key`. For mutations,
+  check the outcome first; if unclear, repeat the same command, input, and key. Keep that
+  mutation key for recovery; give each new action a fresh key.
 - For an answer received in your own session, add one keyed task-level comment recording
   provenance only, without the answer. Use keyed `board unblock <block> --withdraw <answer>`
   on the recovered B<number> question: it records the block answer and sends the conversation
