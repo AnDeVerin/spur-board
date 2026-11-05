@@ -152,9 +152,16 @@ export function taskUrl(task: Row<'task'>, config?: Config): string {
   return `https://github.com/${task.key.replace('#', '/issues/')}`;
 }
 
-/** The operator item raised when a notification's rings are exhausted. */
+/** The operator item kind raised when a notification's rings are exhausted. */
+function exhaustedItemKind(
+  n: Pick<Notification, 'kind'>,
+): 'answer_undelivered' | 'worker_not_reading' {
+  return n.kind === 'answer' ? 'answer_undelivered' : 'worker_not_reading';
+}
+
+/** The operator item key raised when a notification's rings are exhausted. */
 function exhaustedItemKey(n: Pick<Notification, 'kind' | 'source_key'>): string {
-  return `${n.kind === 'answer' ? 'answer_undelivered' : 'worker_not_reading'}:${n.source_key}`;
+  return `${exhaustedItemKind(n)}:${n.source_key}`;
 }
 
 /**
@@ -235,10 +242,9 @@ export async function reconcileDoorbells(trx: Trx, at: Date, config?: Config): P
       .executeTakeFirstOrThrow();
     const itemKey = exhaustedItemKey(n);
     if (rings >= 3) {
-      const kind = n.kind === 'answer' ? 'answer_undelivered' : 'worker_not_reading';
       await raiseItem(trx, {
         itemKey,
-        kind,
+        kind: exhaustedItemKind(n),
         text:
           n.kind === 'answer'
             ? `Answer to block B${String(n.block_id)} on ${task.key} was not read`
