@@ -203,7 +203,7 @@ export const ERRORS = {
     status: null,
     exit: EXIT_CODES.notApplied,
     message: 'The daemon is not running or cannot be reached; nothing was applied.',
-    hint: 'Ask in your own session; the operator can run `board service start`. Retry the same command with its existing idempotency key if it has one once the daemon is available.',
+    hint: 'Ask in your own session; the operator can check `board service status`, then run `board service restart`, or `board service install` if the service was never installed. Retry the same command with its existing idempotency key if it has one once the daemon is available.',
     recovery: retry(
       'Ask in your own session, then retry the same command with its existing idempotency key if it has one.',
       'After the daemon is available; wait briefly between retries.',
