@@ -548,6 +548,10 @@ export function createFakeGateway(options: FakeGatewayOptions): FakeGateway {
           interaction,
           author: input.author,
           text: input.text,
+          command:
+            input.text.trim() === '' || input.text.trim() === 'status'
+              ? { kind: 'query', id: 'status.get', input: {} }
+              : { kind: 'usage', text: 'Usage: /board status' },
           sourceUrl: `fake://${profile}/commands`,
           sourceSpace: 'orchestrators',
         });

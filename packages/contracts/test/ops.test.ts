@@ -212,6 +212,9 @@ describe('catalog', () => {
       OPERATIONS.filter((op) => op.slack !== null).map((op) => [op.id, op.slack]),
     );
     expect(slack).toEqual(slackExceptions);
+    expect(
+      OPERATIONS.filter((op) => op.slack?.kind === 'slash-command').map((op) => op.id),
+    ).toEqual(['status.get', 'task.get', 'task.history']);
     for (const op of OPERATIONS) {
       expect(op.cli.command).not.toBe('');
       expect(op.mcp.name).toBe(op.id.replace('.', '_'));
