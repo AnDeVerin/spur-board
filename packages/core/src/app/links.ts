@@ -106,13 +106,13 @@ async function run(
   const key = canonicalKey(config, input.task).key;
   const task = await trx.selectFrom('task').selectAll().where('key', '=', key).executeTakeFirst();
   if (task === undefined) throw new CommandError('not_found', 'Check the task key.');
+  if (task.membership === 'archived') throw new CommandError('task_archived', 'Task is archived.');
   const target = ref(input);
   const current = await existingLink(trx, task.id, input);
   const pr = input.mode === 'pr' ? prIdentity(input.pr) : null;
   const facts = pr === null ? null : await snapshot(trx, pr.repo, pr.number);
   const open = facts?.state !== 'closed' && facts?.state !== 'merged';
   if (!remove && pr !== null) await prConflict(trx, task.id, pr.repo, pr.number, open);
-  if (task.membership === 'archived') throw new CommandError('task_archived', 'Task is archived.');
 
   if (remove) {
     if (current?.banned === 1) return { task: key, target };

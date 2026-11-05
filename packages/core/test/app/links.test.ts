@@ -325,6 +325,20 @@ describe('manual task links', () => {
     ]);
   });
 
+  it('reports an archived task before a merged PR conflict', async () => {
+    const { store, call, observe } = await setup();
+    await call('link.add', { mode: 'pr', task, pr: prUrl(7), reason: 'Original PR.' });
+    await observe('github:board:o/r', { kind: 'pr', facts: prFact(7, 'merged') });
+    await store.transaction((trx) =>
+      trx.updateTable('task').set({ membership: 'archived' }).where('key', '=', task).execute(),
+    );
+
+    await expect(
+      call('link.add', { mode: 'pr', task, pr: prUrl(8), reason: 'Later PR.' }),
+    ).rejects.toMatchObject({ code: 'task_archived' });
+    expect(await store.db.selectFrom('link').select('number').execute()).toEqual([{ number: 7 }]);
+  });
+
   it('shows separate ticket links and records actor, reason, and idempotent replay', async () => {
     const { store, registry, call, core, observe } = await setup();
     await observe('github-issues:board:o/r', { kind: 'ticket', facts: ticketFact() });
