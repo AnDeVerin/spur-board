@@ -51,6 +51,7 @@ export function createDaemonModules(
     clock: board.clock,
     completeSince: core.completeSince,
     gateways: gateway === undefined ? [] : [gateway.kind],
+    reapplyInbound: () => inbound?.reapply,
   });
   const commands = ctxFor('commands');
   const entries: ModuleEntry[] = [

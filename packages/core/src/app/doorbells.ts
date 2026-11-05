@@ -152,6 +152,39 @@ export function taskUrl(task: Row<'task'>, config?: Config): string {
   return `https://github.com/${task.key.replace('#', '/issues/')}`;
 }
 
+/** The operator item kind raised when a notification's rings are exhausted. */
+function exhaustedItemKind(
+  n: Pick<Notification, 'kind'>,
+): 'answer_undelivered' | 'worker_not_reading' {
+  return n.kind === 'answer' ? 'answer_undelivered' : 'worker_not_reading';
+}
+
+/** The operator item key raised when a notification's rings are exhausted. */
+function exhaustedItemKey(n: Pick<Notification, 'kind' | 'source_key'>): string {
+  return `${exhaustedItemKind(n)}:${n.source_key}`;
+}
+
+/**
+ * Restart an exhausted, unacknowledged ring series at `at`. The recipient and last row stay, so
+ * the next reconcile rings the same session under the next series key.
+ */
+export async function restartNotification(trx: Trx, sourceKey: string, at: Date): Promise<void> {
+  const restarted = await trx
+    .updateTable('notification')
+    .set({ rings: 0, exhausted_at: null, next_at: at.toISOString() })
+    .where('source_key', '=', sourceKey)
+    .where('acked_at', 'is', null)
+    .where('exhausted_at', 'is not', null)
+    .returning('id')
+    .executeTakeFirst();
+  if (restarted === undefined) {
+    throw new CommandError(
+      'retry_not_applicable',
+      'The doorbell was read or is still ringing; close the item instead.',
+    );
+  }
+}
+
 /** Reconcile due semantic notifications in the sender's claim transaction. */
 export async function reconcileDoorbells(trx: Trx, at: Date, config?: Config): Promise<void> {
   const due = await trx
@@ -207,11 +240,11 @@ export async function reconcileDoorbells(trx: Trx, at: Date, config?: Config): P
       .selectAll()
       .where('id', '=', n.task_id)
       .executeTakeFirstOrThrow();
+    const itemKey = exhaustedItemKey(n);
     if (rings >= 3) {
-      const kind = n.kind === 'answer' ? 'answer_undelivered' : 'worker_not_reading';
       await raiseItem(trx, {
-        itemKey: `${kind}:${n.source_key}`,
-        kind,
+        itemKey,
+        kind: exhaustedItemKind(n),
         text:
           n.kind === 'answer'
             ? `Answer to block B${String(n.block_id)} on ${task.key} was not read`
@@ -238,6 +271,12 @@ export async function reconcileDoorbells(trx: Trx, at: Date, config?: Config): P
       );
       continue;
     }
+    // Each exhausted series raised one item generation; a restarted series rings under it.
+    const raised = await trx
+      .selectFrom('operator_item')
+      .select((eb) => eb.fn.max('raise_no').as('series'))
+      .where('item_key', '=', itemKey)
+      .executeTakeFirst();
     const ring = rings + 1;
     const text = `${task.key} block B${String(n.block_id)}: check board inbox (N${String(n.id)}-${String(ring)})`;
     const outboxId = await enqueueDoorbell(trx, {
@@ -246,6 +285,7 @@ export async function reconcileDoorbells(trx: Trx, at: Date, config?: Config): P
       session: session.id,
       text,
       at,
+      series: raised?.series ?? 0,
     });
     await trx
       .updateTable('notification')
@@ -346,11 +386,7 @@ export async function acknowledgeNotification(
     const item = await trx
       .selectFrom('operator_item')
       .select('id')
-      .where(
-        'item_key',
-        '=',
-        `${notice.kind === 'answer' ? 'answer_undelivered' : 'worker_not_reading'}:${notice.source_key}`,
-      )
+      .where('item_key', '=', exhaustedItemKey(notice))
       .where('cleared_at', 'is', null)
       .executeTakeFirst();
     if (item !== undefined) await clearItem(trx, item.id, input.at);
@@ -391,13 +427,13 @@ export async function closeBlockNotification(trx: Trx, blockId: number, at: Date
     .where('block_id', '=', blockId)
     .where('kind', '=', 'block')
     .where('acked_at', 'is', null)
-    .returning('source_key')
+    .returning(['kind', 'source_key'])
     .execute();
   for (const row of closed) {
     const item = await trx
       .selectFrom('operator_item')
       .select('id')
-      .where('item_key', '=', `worker_not_reading:${row.source_key}`)
+      .where('item_key', '=', exhaustedItemKey(row))
       .where('cleared_at', 'is', null)
       .executeTakeFirst();
     if (item !== undefined) await clearItem(trx, item.id, at);

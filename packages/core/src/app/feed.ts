@@ -1,4 +1,11 @@
-import { EVENT_VERSION, RESERVED_PROJECT, eventPayloadSchemas } from '@spur-board/contracts';
+import {
+  EVENT_VERSION,
+  RESERVED_PROJECT,
+  eventPayloadSchemas,
+  parseActorId,
+  type Action,
+  type ActorId,
+} from '@spur-board/contracts';
 import type { Kysely } from 'kysely';
 import { toJson } from '../store/json.ts';
 import type { Row, Tables } from '../store/schema.ts';
@@ -16,7 +23,10 @@ async function journal(
   kind: 'from_you_raised' | 'from_you_cleared',
   at: Date,
   rule?: string,
+  actor: ActorId = 'system',
 ): Promise<void> {
+  const parsed = parseActorId(actor);
+  if (parsed === null) throw new Error('Invalid journal actor');
   const task =
     item.task_id === null
       ? undefined
@@ -32,8 +42,8 @@ async function journal(
       project: task?.project ?? RESERVED_PROJECT,
       task_id: item.task_id,
       kind,
-      actor: 'system',
-      actor_ref: null,
+      actor: parsed.actor,
+      actor_ref: parsed.actor === 'agent' ? JSON.stringify(parsed.actorRef) : null,
       payload: toJson(eventPayloadSchemas[kind], {
         item: `I${String(item.id)}`,
         ...(kind === 'from_you_raised' && rule !== undefined ? { rule } : {}),
@@ -42,6 +52,25 @@ async function journal(
       request_id: null,
     })
     .execute();
+}
+
+/** Kinds whose item has a retry action besides `delivery:<id>` (see `items.ts`). */
+const RETRY_KINDS = new Set(['answer_undelivered', 'worker_not_reading', 'inbound_failure']);
+
+/** Every item line gets Close, after Retry when its kind has a retry action. */
+function itemActions(item: Row<'operator_item'>): Action[] {
+  const id = String(item.id);
+  const close = { id: `item:${id}:close`, label: 'Close' };
+  if (item.kind === 'token_request') {
+    return [
+      { id: `token:${id}:approve`, label: 'Approve' },
+      { id: `token:${id}:deny`, label: 'Deny' },
+      close,
+    ];
+  }
+  return item.item_key.startsWith('delivery:') || RETRY_KINDS.has(item.kind)
+    ? [{ id: `item:${id}:retry`, label: 'Retry' }, close]
+    : [close];
 }
 
 /** Raise one item generation. A repeated raise of an active key is idempotent. */
@@ -117,30 +146,7 @@ export async function raiseItem(
       title: `${key}: ${item.text}`,
       url: item.url,
       taskId: item.task_id,
-      ...(item.kind === 'worker_not_reading'
-        ? {
-            actions: [
-              { id: `item:${String(item.id)}:retry`, label: 'Retry' },
-              { id: `item:${String(item.id)}:close`, label: 'Close' },
-            ],
-          }
-        : item.kind === 'token_request'
-          ? {
-              actions: [
-                { id: `token:${String(item.id)}:approve`, label: 'Approve' },
-                { id: `token:${String(item.id)}:deny`, label: 'Deny' },
-              ],
-            }
-          : item.kind === 'inbound_failure'
-            ? {
-                actions: [
-                  { id: `item:${String(item.id)}:retry`, label: 'Retry' },
-                  { id: `item:${String(item.id)}:close`, label: 'Close' },
-                ],
-              }
-            : item.kind === 'inbound_gap' || item.kind === 'answer_author_unavailable'
-              ? { actions: [{ id: `item:${String(item.id)}:close`, label: 'Close' }] }
-              : {}),
+      actions: itemActions(item),
       at: input.at,
     });
     if (line !== null) {
@@ -155,8 +161,16 @@ export async function raiseItem(
   return item;
 }
 
-/** Clear an item once; the edit waits for its line and is cancelled with a stale pending line. */
-export async function clearItem(trx: Trx, itemId: number, at: Date): Promise<void> {
+/**
+ * Clear an item once; the edit waits for its line and is cancelled with a stale pending line.
+ * The journal names `actor`, `system` unless an operator action cleared it.
+ */
+export async function clearItem(
+  trx: Trx,
+  itemId: number,
+  at: Date,
+  actor: ActorId = 'system',
+): Promise<void> {
   const current = await trx
     .selectFrom('operator_item')
     .selectAll()
@@ -169,7 +183,7 @@ export async function clearItem(trx: Trx, itemId: number, at: Date): Promise<voi
     .where('id', '=', itemId)
     .returningAll()
     .executeTakeFirstOrThrow();
-  await journal(trx, item, 'from_you_cleared', at);
+  await journal(trx, item, 'from_you_cleared', at, undefined, actor);
   if (item.line_outbox_id === null) return;
   const task =
     item.task_id === null

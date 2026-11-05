@@ -21,6 +21,23 @@
       "groupName": "github actions"
     },
     {
+      "description": [
+        "@types/node follows the oldest supported Node major, the lower bound of engines.node.",
+        "Move allowedVersions with engines.node in package.json and packages/cli/package.json and the catalog range in pnpm-workspace.yaml."
+      ],
+      "matchPackageNames": ["@types/node"],
+      "allowedVersions": "24.x"
+    },
+    {
+      "description": [
+        "Runner image majors (ubuntu-24.04 to ubuntu-26.04) are a separate decision, not a weekly update.",
+        "The github-actions manager extracts runners under the github-runners datasource; there is no github-runners manager to match."
+      ],
+      "matchDatasources": ["github-runners"],
+      "matchUpdateTypes": ["major"],
+      "enabled": false
+    },
+    {
       "matchPackageNames": ["*"],
       "semanticCommitType": "chore"
     }
