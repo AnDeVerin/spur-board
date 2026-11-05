@@ -470,4 +470,16 @@ describe('GitHub PR batch', () => {
       retryAt: new Date('2026-01-01T00:00:00.000Z'),
     });
   });
+  it('classifies a null-data GraphQL scope denial without exposing its message', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      Response.json({
+        data: null,
+        errors: [{ type: 'INSUFFICIENT_SCOPES', message: 'Synthetic private scope detail' }],
+      }),
+    );
+    await expect(adapter(fetcher).poll(context())).rejects.toMatchObject({
+      kind: 'auth',
+      message: 'GitHub token lacks a required GraphQL read scope',
+    });
+  });
 });

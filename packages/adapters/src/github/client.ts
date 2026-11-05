@@ -136,6 +136,8 @@ export class GithubClient {
           });
     if (errors.some((error) => error.type === 'RATE_LIMITED' || /rate limit/i.test(error.message)))
       throw classifyHttpFailure({ status: 429, headers: response.headers }, Date.now());
+    if (errors.some((error) => error.type === 'INSUFFICIENT_SCOPES'))
+      throw new AdapterError('auth', 'GitHub token lacks a required GraphQL read scope');
     const data = record(wire.data);
     const rate = record(data.rateLimit);
     const remaining = rate.remaining;

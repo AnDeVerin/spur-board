@@ -76,6 +76,7 @@ function fixture(
     jiraTitle?: string;
     githubRepositoryNotFound?: boolean;
     githubChecksForbidden?: boolean;
+    githubInsufficientScopes?: boolean;
     secretInFacts?: string;
     secretInSpurLink?: string;
     mixedSecretInSpurLink?: string;
@@ -134,6 +135,14 @@ function fixture(
                 message: 'Resource not accessible by personal access token',
               },
             ],
+          }),
+        );
+      }
+      if (isWidgets && isDetail && options.githubInsufficientScopes) {
+        return Promise.resolve(
+          Response.json({
+            data: null,
+            errors: [{ type: 'INSUFFICIENT_SCOPES', message: 'Synthetic private scope detail' }],
           }),
         );
       }
@@ -422,6 +431,18 @@ describe('adapter smoke', () => {
       status: 'fail',
       reason: 'GitHub token lacks Checks read permission',
     });
+  });
+
+  it('names a GitHub scope denial without exposing the GraphQL error', async () => {
+    const result = await run(fixture({ githubInsufficientScopes: true }));
+    expect(result.code).toBe(1);
+    expect(result.err).toContain(
+      'github:demo:demo/widgets: GitHub token lacks a required GraphQL read scope',
+    );
+    expect(result.out + result.err).not.toContain('Synthetic private scope detail');
+    expect(
+      result.records.find((record) => record['source'] === 'github:demo:demo/widgets'),
+    ).toMatchObject({ status: 'fail', reason: 'GitHub token lacks a required GraphQL read scope' });
   });
 
   it('redacts configured values in facts and errors, including short values', async () => {
