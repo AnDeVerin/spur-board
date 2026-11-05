@@ -120,6 +120,32 @@ describe('operator item feed', () => {
     expect(ctx.observed.requests).toHaveLength(1);
   });
 
+  it.each([
+    ['a doorbell kind', 'worker_not_reading', 'worker_not_reading:block:1', ['retry', 'close']],
+    ['an inbound failure', 'inbound_failure', 'inbound:failure:x', ['retry', 'close']],
+    ['a failed post', 'board_observation', 'delivery:7', ['retry', 'close']],
+    ['a blocked post', 'post_blocked', 'secret-post:abc', ['close']],
+    ['another observation', 'board_observation', 'block:1', ['close']],
+    ['an inbound gap', 'inbound_gap', 'inbound:gap:x', ['close']],
+    ['a token request', 'token_request', 'token:1', ['approve', 'deny', 'close']],
+  ])('gives %s line its item buttons', async (_name, kind, itemKey, verbs) => {
+    const ctx = await setup();
+    const item = await raise(ctx.store, kind, itemKey);
+    const line = await ctx.store.db
+      .selectFrom('outbox')
+      .select('payload')
+      .where('kind', '=', 'feed.line')
+      .executeTakeFirstOrThrow();
+    const actions = (JSON.parse(line.payload) as { actions: { id: string }[] }).actions;
+    expect(actions.map((action) => action.id)).toEqual(
+      verbs.map((verb) =>
+        verb === 'approve' || verb === 'deny'
+          ? `token:${String(item.id)}:${verb}`
+          : `item:${String(item.id)}:${verb}`,
+      ),
+    );
+  });
+
   it.each(['post_failed', 'answer_undelivered', 'transport_health'])(
     'does not enqueue a feed line for %s',
     async (kind) => {

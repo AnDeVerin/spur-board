@@ -1,4 +1,4 @@
-import { scanTransaction } from './secrets.ts';
+import { SCAN_PENDING, scanTransaction } from './secrets.ts';
 // Delivers outbox rows: claim in one transaction, stamp the send's start, IO outside any
 // transaction, record the result in another. The daemon calls `recover()` once on start, then
 // `tick()` on its schedule.
@@ -23,6 +23,7 @@ import {
   OUTBOX_KINDS,
   outboxBodySchema,
   renderBody,
+  rescanStoredPost,
   type DeliveredRef,
   type OutboxBody,
 } from './outbox.ts';
@@ -60,6 +61,8 @@ const RETRY_WINDOW_MS = 30 * 60_000;
 const DOWN_THRESHOLD_MS = 5 * 60_000;
 export const HEALTH_PROBE_MS = 60_000;
 const MAX_BACKOFF_MS = 60_000;
+/** post_failed rows rescanned per `recover()` transaction: far below the scan's string limit. */
+const RECOVER_BATCH = 100;
 
 type Trx = Kysely<Tables>;
 type OutboxRow = Row<'outbox'>;
@@ -101,6 +104,65 @@ function commentOf(body: OutboxBody): number | null {
   }
 }
 
+async function setComment(
+  trx: Trx,
+  body: OutboxBody,
+  patch: Partial<Pick<Row<'comment'>, 'delivery_state' | 'conversation_ref' | 'message_ref'>>,
+): Promise<void> {
+  const commentId = commentOf(body);
+  if (commentId === null) return;
+  await trx.updateTable('comment').set(patch).where('id', '=', commentId).execute();
+}
+
+/**
+ * Returns the `post_failed` rows among `ids` to `pending` with a fresh retry window, and their
+ * comments to `pending`. Each stored payload is scanned again first: a row that now looks like a
+ * secret goes `dead` unsent, handled as a blocked post at insert. Returns how many rows left
+ * `post_failed`.
+ */
+export async function requeuePostFailed(
+  trx: Trx,
+  ids: readonly number[],
+  nowIso: string,
+): Promise<number> {
+  if (ids.length === 0) return 0;
+  const failed = await trx
+    .selectFrom('outbox')
+    .select(['id', 'kind', 'dedupe_key', 'payload'])
+    .where('id', 'in', ids)
+    .where('state', '=', 'post_failed')
+    .execute();
+  const clean: number[] = [];
+  for (const row of failed) {
+    const kind = OUTBOX_KINDS.find((candidate) => candidate === row.kind);
+    const rule =
+      kind === undefined ? null : await rescanStoredPost(trx, { ...row, kind }, new Date(nowIso));
+    if (rule === SCAN_PENDING) continue;
+    if (rule === null) {
+      clean.push(row.id);
+      continue;
+    }
+    await trx
+      .updateTable('outbox')
+      .set({ state: 'dead', last_error: `blocked: looks like a secret (${rule})` })
+      .where('id', '=', row.id)
+      .execute();
+  }
+  // A pending scan re-runs the whole transaction, so the count is only read once it is complete.
+  if (clean.length === 0) return failed.length;
+  const rows = await trx
+    .updateTable('outbox')
+    .set({ state: 'pending', first_attempt_at: null, next_at: nowIso })
+    .where('id', 'in', clean)
+    .returning(['kind', 'payload'])
+    .execute();
+  for (const row of rows) {
+    const body = parseBody(row);
+    if (typeof body !== 'string') await setComment(trx, body, { delivery_state: 'pending' });
+  }
+  return failed.length;
+}
+
 function backoff(attempts: number): number {
   return Math.min(1000 * 2 ** Math.max(attempts - 1, 0), MAX_BACKOFF_MS);
 }
@@ -132,16 +194,6 @@ export function createSender(options: SenderOptions): Sender {
   let downSince: number | undefined;
   /** The last tick started; a new tick runs after it, so two ticks never interleave. */
   let ticking: Promise<void> = Promise.resolve();
-
-  async function setComment(
-    trx: Trx,
-    body: OutboxBody,
-    patch: Partial<Pick<Row<'comment'>, 'delivery_state' | 'conversation_ref' | 'message_ref'>>,
-  ): Promise<void> {
-    const commentId = commentOf(body);
-    if (commentId === null) return;
-    await trx.updateTable('comment').set(patch).where('id', '=', commentId).execute();
-  }
 
   /** Sets the comments of `rows` that carry one to `superseded`. */
   async function supersedeComments(
@@ -706,10 +758,10 @@ export function createSender(options: SenderOptions): Sender {
   return {
     async recover() {
       const nowIso = now().toISOString();
-      await scanTransaction(store, async (trx) => {
+      const failed = await scanTransaction(store, async (trx) => {
         const rows = await trx
           .selectFrom('outbox')
-          .select(['id', 'kind', 'payload'])
+          .select(['id', 'kind', 'payload', 'state'])
           .where('state', 'in', ['in_flight', 'post_failed'])
           .execute();
         await trx
@@ -724,16 +776,18 @@ export function createSender(options: SenderOptions): Sender {
           .where('state', '=', 'in_flight')
           .where('attempt_started', '=', 1)
           .execute();
-        await trx
-          .updateTable('outbox')
-          .set({ state: 'pending', first_attempt_at: null, next_at: nowIso })
-          .where('state', '=', 'post_failed')
-          .execute();
-        for (const row of rows) {
+        for (const row of rows.filter((candidate) => candidate.state === 'in_flight')) {
           const body = parseBody(row);
           if (typeof body !== 'string') await setComment(trx, body, { delivery_state: 'pending' });
         }
+        return rows.filter((row) => row.state === 'post_failed').map((row) => row.id);
       });
+      // Each batch rescans its payloads in its own transaction, so a large failed backlog stays
+      // under the per-transaction scan limit and cannot stop the daemon from starting.
+      for (let i = 0; i < failed.length; i += RECOVER_BATCH) {
+        const batch = failed.slice(i, i + RECOVER_BATCH);
+        await scanTransaction(store, (trx) => requeuePostFailed(trx, batch, nowIso));
+      }
     },
 
     tick(signal?: AbortSignal) {

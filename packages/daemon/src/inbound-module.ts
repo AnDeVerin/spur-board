@@ -1,5 +1,5 @@
 import type { Gateway, InboundEvent } from '@spur-board/contracts';
-import { createInbound, type OperationRegistry, type Store } from '@spur-board/core';
+import { createInbound, type Inbound, type OperationRegistry, type Store } from '@spur-board/core';
 import type { Module, ModuleContext } from './lifecycle.ts';
 
 const RECOVERY_MS = 5 * 60_000;
@@ -9,7 +9,11 @@ export function createInboundModule(
   ctx: ModuleContext<Store>,
   gateway: Gateway,
   registry: OperationRegistry = {},
-): Module & { sink(event: InboundEvent): Promise<void>; awaitRecovery(): Promise<void> } {
+): Module & {
+  sink(event: InboundEvent): Promise<void>;
+  awaitRecovery(): Promise<void>;
+  reapply: Inbound['reapply'];
+} {
   const inbound = createInbound({
     store: ctx.store,
     gateway,
@@ -41,6 +45,7 @@ export function createInboundModule(
 
   return {
     sink: (event) => inbound.sink(event),
+    reapply: inbound.reapply,
     awaitRecovery: () => active,
     start(startSignal) {
       signal = startSignal;

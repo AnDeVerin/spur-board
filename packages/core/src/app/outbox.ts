@@ -111,14 +111,27 @@ export function renderBody(key: string, text: string): RichText {
 
 type Trx = Kysely<Tables>;
 
-/** A distinct semantic ring. Transport retries reuse this row and its text. */
+/**
+ * A distinct semantic ring. Transport retries reuse this row and its text. A restarted series
+ * (`series` > 0) gets its own keys; the first series keeps the unsuffixed key.
+ */
 export async function enqueueDoorbell(
   trx: Trx,
-  input: { notificationId: number; ring: number; session: string; text: string; at: Date },
+  input: {
+    notificationId: number;
+    ring: number;
+    session: string;
+    text: string;
+    at: Date;
+    series?: number;
+  },
 ): Promise<number> {
+  const series = input.series ?? 0;
   const row = await insertOutbox(trx, {
     kind: 'doorbell',
-    dedupeKey: `doorbell:${String(input.notificationId)}:${input.session}:${String(input.ring)}`,
+    dedupeKey: `doorbell:${String(input.notificationId)}:${input.session}:${String(input.ring)}${
+      series > 0 ? `:s${String(series)}` : ''
+    }`,
     payload: {
       notificationId: input.notificationId,
       ring: input.ring,
@@ -225,6 +238,81 @@ function payloadStrings(value: unknown): string[] {
   return [];
 }
 
+/**
+ * Keeps a gateway text that looks like a secret unsent: its comment goes `post_blocked` and a
+ * `post_blocked` item names the task. A blocked notice never raises another one.
+ */
+async function blockPost(
+  trx: Trx,
+  row: { kind: OutboxKind; dedupeKey: string; at: Date },
+  payload: object & { key: unknown },
+  rule: string,
+): Promise<void> {
+  // A blocked notice cannot raise another blocked notice if its own link is unsafe.
+  if (
+    row.kind === 'feed.line' &&
+    'itemKey' in payload &&
+    typeof payload.itemKey === 'string' &&
+    payload.itemKey.startsWith('secret-post:')
+  ) {
+    return;
+  }
+  const commentId = 'commentId' in payload ? payload.commentId : null;
+  if (typeof commentId === 'number') {
+    await trx
+      .updateTable('comment')
+      .set({ delivery_state: 'post_blocked' })
+      .where('id', '=', commentId)
+      .execute();
+  }
+  const key = typeof payload.key === 'string' ? payload.key : 'the task';
+  const safeKey = checkGatewayStrings([key]) === null ? key : 'the task';
+  const taskId = 'taskId' in payload && typeof payload.taskId === 'number' ? payload.taskId : null;
+  const blockId =
+    'blockId' in payload && typeof payload.blockId === 'number' ? payload.blockId : null;
+  const task =
+    taskId === null
+      ? null
+      : await trx.selectFrom('task').selectAll().where('id', '=', taskId).executeTakeFirstOrThrow();
+  await raiseItem(trx, {
+    itemKey: `secret-post:${createHash('sha256').update(row.dedupeKey).digest('hex')}`,
+    kind: 'post_blocked',
+    text: `text on ${safeKey} not sent: looks like a secret (${rule}), read \`board task ${safeKey}\``,
+    url: task === null ? '' : taskUrl(task),
+    taskId,
+    blockId,
+    at: row.at,
+    rule,
+    source: row.kind,
+  });
+}
+
+/**
+ * Scans a stored gateway row's payload again before it is resent, with the rules used at
+ * insert. A hit is handled as at insert (`blockPost`); the caller keeps the row unsent.
+ * Returns the rule, null when clean, or `SCAN_PENDING` (the scan transaction re-runs).
+ */
+export async function rescanStoredPost(
+  trx: Trx,
+  row: { kind: OutboxKind; dedupe_key: string; payload: string },
+  at: Date,
+): Promise<string | null | typeof SCAN_PENDING> {
+  if (row.kind === 'doorbell') return null;
+  let payload: unknown;
+  try {
+    payload = JSON.parse(row.payload);
+  } catch {
+    // The sender kills an unreadable payload before it sends anything.
+    return null;
+  }
+  if (payload === null || typeof payload !== 'object' || !('key' in payload)) return null;
+  const rule = checkGatewayStrings(payloadStrings(payload));
+  if (rule !== null && rule !== SCAN_PENDING) {
+    await blockPost(trx, { kind: row.kind, dedupeKey: row.dedupe_key, at }, payload, rule);
+  }
+  return rule;
+}
+
 /** Inserts a row unless its dedupe key exists; returns the row's id and whether it is new. */
 async function insertOutbox(
   trx: Trx,
@@ -239,48 +327,7 @@ async function insertOutbox(
     const rule = checkGatewayStrings(payloadStrings(payload));
     if (rule === SCAN_PENDING) return { id: null, inserted: false };
     if (rule !== null) {
-      // A blocked notice cannot raise another blocked notice if its own link is unsafe.
-      if (
-        row.kind === 'feed.line' &&
-        'itemKey' in payload &&
-        typeof payload.itemKey === 'string' &&
-        payload.itemKey.startsWith('secret-post:')
-      ) {
-        return { id: null, inserted: false };
-      }
-      const commentId = 'commentId' in payload ? payload.commentId : null;
-      if (typeof commentId === 'number') {
-        await trx
-          .updateTable('comment')
-          .set({ delivery_state: 'post_blocked' })
-          .where('id', '=', commentId)
-          .execute();
-      }
-      const key = typeof payload.key === 'string' ? payload.key : 'the task';
-      const safeKey = checkGatewayStrings([key]) === null ? key : 'the task';
-      const taskId =
-        'taskId' in payload && typeof payload.taskId === 'number' ? payload.taskId : null;
-      const blockId =
-        'blockId' in payload && typeof payload.blockId === 'number' ? payload.blockId : null;
-      const task =
-        taskId === null
-          ? null
-          : await trx
-              .selectFrom('task')
-              .selectAll()
-              .where('id', '=', taskId)
-              .executeTakeFirstOrThrow();
-      await raiseItem(trx, {
-        itemKey: `secret-post:${createHash('sha256').update(row.dedupeKey).digest('hex')}`,
-        kind: 'post_blocked',
-        text: `text on ${safeKey} not sent: looks like a secret (${rule}), read \`board task ${safeKey}\``,
-        url: task === null ? '' : taskUrl(task),
-        taskId,
-        blockId,
-        at: row.at,
-        rule,
-        source: row.kind,
-      });
+      await blockPost(trx, row, payload, rule);
       return { id: null, inserted: false };
     }
   }

@@ -35,6 +35,7 @@ import { CommandError } from './commands.ts';
 import { commandReply } from './command-replies.ts';
 import { deniedProject } from './denied-event.ts';
 import { raiseItem as raiseOperatorItem, clearItem as clearOperatorItem } from './feed.ts';
+import type { ReapplyInbound } from './items.ts';
 import { dispatchOperation, type OperationRegistry } from './operations.ts';
 import { enqueueConversationClose, enqueueInboundDoorbell } from './outbox.ts';
 import { redactPrivateReply, redactSecretMatches } from './secrets.ts';
@@ -52,12 +53,19 @@ const resultSchema = z.strictObject({
   response: z.string().optional(),
 });
 type Result = z.output<typeof resultSchema>;
+type ItemEntry = Extract<(typeof OPERATIONS)[number], { id: 'item.close' | 'item.retry' }>;
 
 export interface Inbound {
   sink(event: InboundEvent): Promise<void>;
   recover(): Promise<void>;
   stop(): Promise<void>;
   retryStored(itemId: number): Promise<void>;
+  /**
+   * Re-applies an item's stored event in the caller's transaction, without clearing the item.
+   * A stored query needs nothing re-applied; an event that cannot be re-applied throws
+   * `retry_not_applicable`.
+   */
+  reapply: ReapplyInbound;
 }
 
 function plain(text: string): RichText {
@@ -391,7 +399,7 @@ export function createInbound(input: {
     return { status: 'applied' };
   }
 
-  async function retryStoredInbound(trx: Trx, itemId: number, at: string): Promise<void> {
+  async function reapply(trx: Trx, itemId: number, at: string): Promise<void> {
     const item = await trx
       .selectFrom('operator_item')
       .selectAll()
@@ -400,24 +408,94 @@ export function createInbound(input: {
     if (item === undefined || item.cleared_at !== null || item.inbound_event_json === null) {
       throw new CommandError('retry_not_applicable', 'This item has no stored event to retry.');
     }
-    const stored = inboundEventSchema.parse(JSON.parse(item.inbound_event_json) as unknown);
-    if (stored.kind === 'gap' || stored.kind === 'connection') {
+    const event = inboundEventSchema.parse(JSON.parse(item.inbound_event_json) as unknown);
+    if (event.kind === 'gap' || event.kind === 'connection') {
       throw new CommandError('retry_not_applicable', 'This event cannot be retried.');
     }
+    if (event.kind === 'command' || event.kind === 'action') {
+      await reapplyInteraction(trx, event, at);
+      return;
+    }
     const actor: ActorId =
-      stored.kind === 'message_deleted' || stored.author === config.operator.slack
+      event.kind === 'message_deleted' || event.author === config.operator.slack
         ? 'operator'
         : 'system';
     await replayOperation(trx, {
       actor,
-      key: stored.dedupeKey,
-      operation: operationId(stored),
-      fingerprintInput: stored,
+      key: event.dedupeKey,
+      operation: operationId(event),
+      fingerprintInput: event,
       output: resultSchema,
       at,
-      run: () => runUser(trx, stored, at),
+      run: () => runUser(trx, event, at),
     });
-    await clearOperatorItem(trx, item.id, new Date(at));
+  }
+
+  /**
+   * A stored query needs no re-apply. A stored item or token press replays as the operator under
+   * its own key, only when it passed the same gate as a live press.
+   */
+  async function reapplyInteraction(
+    trx: Trx,
+    stored: Extract<UserEvent, { kind: 'command' | 'action' }>,
+    at: string,
+  ): Promise<void> {
+    let event = stored;
+    if (
+      event.kind === 'command' &&
+      event.name !== undefined &&
+      event.name !== config.slack.command
+    ) {
+      throw new CommandError('retry_not_applicable', 'This interaction cannot be retried.');
+    }
+    if (event.kind === 'command' && event.command === undefined) {
+      const command = legacyCommand(event.text);
+      if (command === null) {
+        throw new CommandError('retry_not_applicable', 'This interaction cannot be retried.');
+      }
+      event = { ...event, command };
+    }
+    const token = event.kind === 'action' ? tokenAction(event) : null;
+    if (token !== null) {
+      // The live gate: the configured operator, pressed in the feed.
+      if (
+        event.kind !== 'action' ||
+        event.author !== config.operator.slack ||
+        event.sourceSpace !== 'feed'
+      ) {
+        throw new CommandError('retry_not_applicable', 'This interaction cannot be retried.');
+      }
+      await decideToken(trx, event.dedupeKey, token, at);
+      return;
+    }
+    const { id, operationInput } = interactionOperation(event);
+    if (id === undefined) {
+      throw new CommandError('retry_not_applicable', 'This interaction cannot be retried.');
+    }
+    if (id !== 'item.close' && id !== 'item.retry') return;
+    const handler = registry[id];
+    const entry = OPERATIONS.find((candidate): candidate is ItemEntry => candidate.id === id);
+    const parsed = entry?.input.safeParse(operationInput);
+    if (
+      event.kind !== 'action' ||
+      event.author !== config.operator.slack ||
+      event.sourceSpace === null ||
+      handler === undefined ||
+      entry === undefined ||
+      parsed?.success !== true
+    ) {
+      throw new CommandError('retry_not_applicable', 'This interaction cannot be retried.');
+    }
+    const input = parsed.data;
+    await replayOperation(trx, {
+      actor: 'operator',
+      key: event.dedupeKey,
+      operation: id,
+      fingerprintInput: operationInput,
+      output: entry.output,
+      at,
+      run: () => handler.run(trx, input, { actor: 'operator', at }),
+    });
   }
 
   async function runUser(trx: Trx, event: UserEvent, at: string): Promise<Result> {
@@ -543,6 +621,35 @@ export function createInbound(input: {
     };
   }
 
+  /** A token press decides once per dedupe key, live or replayed from its failure item. */
+  function decideToken(
+    trx: Trx,
+    key: string,
+    token: { itemId: number; decision: 'approve' | 'deny' },
+    at: string,
+  ) {
+    return replayOperation(trx, {
+      actor: 'operator',
+      key,
+      operation: `token.${token.decision}`,
+      fingerprintInput: token,
+      output: resultSchema,
+      at,
+      run: async () => {
+        const decided = await decideTokenInTransaction(
+          trx,
+          token.itemId,
+          token.decision,
+          new Date(at),
+        );
+        return {
+          status: 'applied' as const,
+          response: `${decided.name}: ${decided.status}`,
+        };
+      },
+    });
+  }
+
   async function recordFailure(event: UserEvent, error: unknown, at: string): Promise<void> {
     await scanTransaction(store, async (trx) => {
       const context = await taskContext(trx, event, gateway.kind);
@@ -578,26 +685,7 @@ export function createInbound(input: {
         try {
           const at = new Date(clock.now()).toISOString();
           const result = await scanTransaction(store, (trx) =>
-            replayOperation(trx, {
-              actor: 'operator',
-              key: event.dedupeKey,
-              operation: `token.${token.decision}`,
-              fingerprintInput: token,
-              output: resultSchema,
-              at,
-              run: async () => {
-                const decided = await decideTokenInTransaction(
-                  trx,
-                  token.itemId,
-                  token.decision,
-                  new Date(at),
-                );
-                return {
-                  status: 'applied' as const,
-                  response: `${decided.name}: ${decided.status}`,
-                };
-              },
-            }),
+            decideToken(trx, event.dedupeKey, token, at),
           );
           response = result?.response ?? 'not available yet';
         } catch (error) {
@@ -796,51 +884,14 @@ export function createInbound(input: {
     },
     retryStored(itemId) {
       return serial(async () => {
-        const item = await store.db
-          .selectFrom('operator_item')
-          .select(['cleared_at', 'inbound_event_json'])
-          .where('id', '=', itemId)
-          .executeTakeFirst();
-        if (item === undefined || item.cleared_at !== null || item.inbound_event_json === null) {
-          throw new CommandError('retry_not_applicable', 'This item has no stored event to retry.');
-        }
-        let event = inboundEventSchema.parse(JSON.parse(item.inbound_event_json) as unknown);
-        if (
-          event.kind === 'command' &&
-          event.name !== undefined &&
-          event.name !== config.slack.command
-        ) {
-          throw new CommandError('retry_not_applicable', 'This interaction cannot be retried.');
-        }
-        if (event.kind === 'command' && event.command === undefined) {
-          const command = legacyCommand(event.text);
-          if (command === null) {
-            throw new CommandError('retry_not_applicable', 'This interaction cannot be retried.');
-          }
-          event = { ...event, command };
-        }
-        if (event.kind === 'action' || event.kind === 'command') {
-          const { id, operationInput } = interactionOperation(event);
-          if (id === undefined) {
-            throw new CommandError('retry_not_applicable', 'This interaction cannot be retried.');
-          }
-          await dispatchOperation(
-            { store, clock, config, registry },
-            id,
-            operationInput,
-            'operator',
-            event.dedupeKey,
-          );
-          await scanTransaction(store, (trx) =>
-            clearOperatorItem(trx, itemId, new Date(clock.now())),
-          );
-          return;
-        }
-        await scanTransaction(store, (trx) =>
-          retryStoredInbound(trx, itemId, new Date(clock.now()).toISOString()),
-        );
+        const at = new Date(clock.now()).toISOString();
+        await scanTransaction(store, async (trx) => {
+          await reapply(trx, itemId, at);
+          await clearOperatorItem(trx, itemId, new Date(at));
+        });
       });
     },
+    reapply,
   };
 }
 

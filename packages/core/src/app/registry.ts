@@ -6,6 +6,7 @@ import {
 } from '@spur-board/contracts';
 import { authorize } from './authorize.ts';
 import { createBlockMutations } from './blocks.ts';
+import { createItemMutations, type ReapplyInbound } from './items.ts';
 import { createLinkMutations } from './links.ts';
 import { createMembershipMutations } from './membership.ts';
 import type { OperationRegistry } from './operations.ts';
@@ -21,8 +22,11 @@ export function createOperationRegistry(deps: {
   config: Config;
   clock: { now(): number };
   completeSince: ReadonlyMap<string, string>;
+  /** Read at operation time: inbound is built after the registry and may be absent. */
+  reapplyInbound?: () => ReapplyInbound | undefined;
 }): OperationRegistry {
   const { config, clock, completeSince } = deps;
+  const items = createItemMutations(deps);
   const membership = createMembershipMutations(config);
   const links = createLinkMutations(config);
   const blocks = createBlockMutations(config);
@@ -98,5 +102,7 @@ export function createOperationRegistry(deps: {
     'comment.add': blocks.add,
     'comment.edit': blocks.edit,
     'inbox.ack': blocks.ack,
+    'item.retry': items.retry,
+    'item.close': items.close,
   };
 }
