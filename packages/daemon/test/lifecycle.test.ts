@@ -346,6 +346,74 @@ describe('runDaemon', () => {
     await exitsWith(h.port, [0]);
   });
 
+  describe('ready hooks', () => {
+    /** Adds a `ready` hook to each module that records its name and the daemon state. */
+    function withReady(
+      h: ReturnType<typeof harness>,
+      ctxFor: (name: string) => ModuleContext<FakeStore>,
+    ): ModuleEntry[] {
+      const probe = ctxFor('probe');
+      return h.entriesFor(ctxFor).map((entry) => ({
+        ...entry,
+        module: {
+          ...entry.module,
+          ready() {
+            h.events.push(`${entry.name}:ready:${probe.state()}`);
+          },
+        },
+      }));
+    }
+
+    it('run in start order once the state is ready', async () => {
+      const h: ReturnType<typeof harness> = harness({
+        modules: [
+          { name: 'm1', stopStage: 'final' },
+          { name: 'm2', stopStage: 'pollers' },
+        ],
+        factory: (ctxFor) => withReady(h, ctxFor),
+      });
+      await h.start();
+      expect(h.events.slice(-2)).toEqual(['m1:ready:ready', 'm2:ready:ready']);
+      expect(hasMsg(h.lines(), 'daemon ready')).toBe(true);
+      h.port.signal('SIGTERM');
+      await exitsWith(h.port, [0]);
+    });
+
+    it('do not run when a start fails', async () => {
+      const h: ReturnType<typeof harness> = harness({
+        modules: [
+          { name: 'm1', stopStage: 'final' },
+          { name: 'm2', stopStage: 'final', start: () => Promise.reject(new Error('no start')) },
+        ],
+        factory: (ctxFor) => withReady(h, ctxFor),
+      });
+      await h.start();
+      await exitsWith(h.port, [1]);
+      expect(h.events.filter((event) => event.includes(':ready'))).toEqual([]);
+    });
+
+    it('do not run when a signal arrives during the last start', async () => {
+      const starting = Promise.withResolvers<undefined>();
+      const h: ReturnType<typeof harness> = harness({
+        modules: [
+          { name: 'm1', stopStage: 'final' },
+          { name: 'm2', stopStage: 'pollers', start: () => starting.promise },
+        ],
+        factory: (ctxFor) => withReady(h, ctxFor),
+      });
+      const run = h.start();
+      await vi.waitFor(() => {
+        expect(h.events).toContain('m2:start');
+      });
+      h.port.signal('SIGTERM');
+      starting.resolve(undefined);
+      await run;
+      await exitsWith(h.port, [0]);
+      expect(h.events).toContain('m2:stop');
+      expect(h.events.filter((event) => event.includes(':ready'))).toEqual([]);
+    });
+  });
+
   it('fatal error exits 1', async () => {
     const h = harness({ modules: [{ name: 'a', stopStage: 'final' }] });
     await h.start();

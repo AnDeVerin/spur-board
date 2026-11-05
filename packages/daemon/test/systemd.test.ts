@@ -146,6 +146,28 @@ describe('systemd notifications from the composed daemon', () => {
     await stopped(daemon);
   });
 
+  it('sends READY only once the daemon state is ready', async () => {
+    const daemon = run((ctxFor, log) => {
+      const probe = ctxFor('probe');
+      return createDaemonModules(ctxFor, {
+        spur: { send: () => Promise.resolve() },
+        tick: () => Promise.resolve(),
+        startAdapters: () => ({ stop: () => Promise.resolve() }),
+        sessionFetcher: () => Promise.reject(new Error('unexpected live session lookup')),
+        systemd: {
+          env: NOTIFY_ENV,
+          pid: 42,
+          send: (state) => {
+            log.push(`${state} ${probe.state()}`);
+          },
+        },
+      }).entries;
+    });
+    await daemon.started;
+    expect(daemon.log[0]).toBe('READY=1 ready');
+    await stopped(daemon);
+  });
+
   it('drops the WATCHDOG of a tick that completes before READY', async () => {
     const daemon = run(composed());
     await daemon.started;

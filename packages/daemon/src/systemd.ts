@@ -90,12 +90,18 @@ export function createSystemdNotifier(options: {
   };
 }
 
-/** Registered last, so READY follows every other module's start, HTTP included. */
+/**
+ * READY is sent from the `ready` hook, after every module started and the daemon state became
+ * `ready`, so HTTP `/ready` already answers 200 when systemd releases the unit. A failed or
+ * aborted start runs no hook and sends nothing.
+ */
 export function createSystemdModule(notifier: SystemdNotifier): Module {
   return {
     start() {
-      notifier.ready();
       return Promise.resolve();
+    },
+    ready() {
+      notifier.ready();
     },
     stop() {
       notifier.stopping();

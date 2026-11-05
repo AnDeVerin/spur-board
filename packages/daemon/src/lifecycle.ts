@@ -14,6 +14,8 @@ export type DaemonState = 'starting' | 'ready' | 'stopping';
 export interface Module {
   start(signal: AbortSignal): Promise<void>;
   stop(): Promise<void>;
+  /** Runs once, synchronously, after every module started and the state became `ready`. */
+  ready?(): void;
 }
 
 export interface ModuleEntry {
@@ -62,9 +64,9 @@ function messageOf(err: unknown): string {
 }
 
 /**
- * Runs the daemon: lock, config, logger, store, modules in order, then `daemon ready`. A signal
- * runs one ordered shutdown. Every exit goes through `port.exit`, exactly once.
- * Resolves when start is over; the process then lives until the port exits it.
+ * Runs the daemon: lock, config, logger, store, modules in order, then `daemon ready` and each
+ * module's `ready` hook. A signal runs one ordered shutdown. Every exit goes through `port.exit`,
+ * exactly once. Resolves when start is over; the process then lives until the port exits it.
  */
 export async function runDaemon<S extends { close(): Promise<void> }>(
   deps: DaemonDeps<S>,
@@ -228,4 +230,5 @@ export async function runDaemon<S extends { close(): Promise<void> }>(
   if (aborted()) return;
   state = 'ready';
   log.info('daemon ready');
+  for (const entry of started) entry.module.ready?.();
 }
