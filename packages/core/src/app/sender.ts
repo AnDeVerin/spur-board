@@ -751,8 +751,14 @@ export function createSender(options: SenderOptions): Sender {
             since: nowIso,
             probe_at: new Date(startedAt).toISOString(),
           })
-          // A standing row keeps its reason, since and the probe clock that start() stamped.
-          .onConflict((oc) => oc.columns(['gateway', 'space']).doNothing())
+          // A standing row keeps its since and the probe clock that start() stamped. A socket-down
+          // row takes the permanent reason, so a reconnect does not clear a failure it cannot fix.
+          .onConflict((oc) =>
+            oc
+              .columns(['gateway', 'space'])
+              .doUpdateSet({ reason: outcome.reason })
+              .where('transport_health.reason', '=', 'down'),
+          )
           .returning('space')
           .execute();
         if (raised.length > 0) await syncTransportItem(trx, gatewayKind, new Date(at));

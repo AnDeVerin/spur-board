@@ -1740,6 +1740,25 @@ describe('transport health', () => {
     expect(await eventCount(ctx, 'from_you_cleared')).toBe(0);
   });
 
+  it('keeps a permanent failure that lands on a socket-down row on up', async () => {
+    const ctx = setup();
+    await enqueueOpen(ctx, await seedBlock(ctx));
+    await ctx.sender.recordConnection('down', ctx.fake.platform.now());
+    ctx.fake.platform.failNextPermanently({ scope: 'transport', reason: 'token_revoked' });
+    await step(ctx, 5 * 60_000 + 1000);
+    expect((await healthRows(ctx)).map((h) => [h.space, h.reason])).toEqual([
+      ['feed', 'down'],
+      ['orchestrators', 'token_revoked'],
+    ]);
+    await ctx.sender.recordConnection('up', ctx.fake.platform.now());
+    expect((await healthRows(ctx)).map((h) => [h.space, h.reason])).toEqual([
+      ['orchestrators', 'token_revoked'],
+    ]);
+    expect(await activeTransportItems(ctx)).toHaveLength(1);
+    expect(await eventCount(ctx, 'from_you_raised')).toBe(1);
+    expect(await eventCount(ctx, 'from_you_cleared')).toBe(0);
+  });
+
   it('keeps one transport item while the socket is down but delivery works', async () => {
     const ctx = setup();
     const open = await enqueueOpen(ctx, await seedBlock(ctx));
