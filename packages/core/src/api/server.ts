@@ -92,6 +92,8 @@ function inputBody(body: unknown): { input: unknown; key: string | undefined } {
 export async function createApiServer(options: ApiOptions): Promise<FastifyInstance> {
   const app = Fastify({ logger: false, genReqId: () => randomUUID(), trustProxy: false });
   const snapshot = await buildCatalogSnapshot(OPERATIONS);
+  /** Lets clients notice a daemon restart and check its catalog again. */
+  const instance = randomUUID();
   const callers = new WeakMap<object, IdentifiedCaller>();
   let doctorInFlight: Promise<DoctorReport> | null = null;
   let doctorCached: DoctorReport | null = null;
@@ -99,6 +101,7 @@ export async function createApiServer(options: ApiOptions): Promise<FastifyInsta
 
   app.addHook('onRequest', async (request, reply) => {
     reply.header('x-request-id', request.id);
+    reply.header('x-board-instance', instance);
     if (request.headers.origin !== undefined) {
       throw new CommandError('forbidden', 'Browser origins are not accepted.');
     }
@@ -206,7 +209,12 @@ export async function createApiServer(options: ApiOptions): Promise<FastifyInsta
       const caller = callers.get(request);
       if (caller === undefined) throw new Error('Operation identity was not resolved.');
       const operation = OPERATIONS.find((entry) => entry.id === request.params.id);
-      if (operation === undefined) throw new CommandError('usage', 'Unknown catalog operation.');
+      if (operation === undefined) {
+        throw new CommandError(
+          'version_mismatch',
+          'This daemon does not know the operation. Run `board service restart` to update the daemon, then retry.',
+        );
+      }
       const body = inputBody(request.body);
       const parsed = operation.input.safeParse(body.input);
       if (!parsed.success) {
