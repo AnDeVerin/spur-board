@@ -153,10 +153,12 @@ describe('service', () => {
       Description=spur-board daemon
 
       [Service]
-      Type=simple
       ExecStart="/home/user name/bin/node" "/opt/spur board/daemon.ts"
       Environment="BOARD_HOME=/home/user name/.config/spur board"
       EnvironmentFile="/home/user name/.config/spur board/secrets.env"
+      Type=notify
+      NotifyAccess=all
+      WatchdogSec=180000ms
       Restart=on-failure
       RestartSec=5s
       TimeoutStopSec=15s
