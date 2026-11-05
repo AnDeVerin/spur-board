@@ -15,7 +15,12 @@ import {
 import { sql, type Kysely } from 'kysely';
 import type { Store } from '../store/store.ts';
 import type { Row, Tables } from '../store/schema.ts';
-import { reconcileDoorbells, recordRingDelivery, ringStillCurrent } from './doorbells.ts';
+import {
+  inboundRingTaskArchived,
+  reconcileDoorbells,
+  recordRingDelivery,
+  ringStillCurrent,
+} from './doorbells.ts';
 import { clearItem, raiseItem } from './feed.ts';
 import {
   deliveredRefSchema,
@@ -543,6 +548,14 @@ export function createSender(options: SenderOptions): Sender {
         await kill(trx, [c.id, ...edits.map((edit) => edit.id)], 'superseded');
         return { at, firstDeliveryAt: null, skip: true };
       }
+    }
+    if (
+      c.body.kind === 'doorbell' &&
+      c.body.payload.notificationId === undefined &&
+      (await inboundRingTaskArchived(trx, c.key))
+    ) {
+      await kill(trx, [c.id], 'superseded');
+      return { at, firstDeliveryAt: null, skip: true };
     }
     if (c.body.kind === 'doorbell' && c.body.payload.notificationId !== undefined) {
       const status = await ringStillCurrent(

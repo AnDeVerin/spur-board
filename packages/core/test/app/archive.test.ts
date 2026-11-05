@@ -1,7 +1,7 @@
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { configSchema, type ActorId } from '@spur-board/contracts';
+import { configSchema, type ActorId, type Gateway } from '@spur-board/contracts';
 import { createFakeGateway } from '@spur-board/gateway-testkit';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
@@ -62,9 +62,39 @@ function setup() {
   const fake = createFakeGateway({ profile: 'slack-like' });
   const observed = observeGateway(fake, file);
   const spur = observeSpur(file);
+  // While `held` is set, the next gateway delivery waits for it, so a test can act mid-tick.
+  let held: { entered: () => void; release: Promise<undefined> } | undefined;
+  const gateway: Gateway = {
+    ...observed.gateway,
+    async deliver(request) {
+      const hold = held;
+      held = undefined;
+      if (hold !== undefined) {
+        hold.entered();
+        await hold.release;
+      }
+      return observed.gateway.deliver(request);
+    },
+  };
+  function holdNextDelivery() {
+    const reached = Promise.withResolvers<undefined>();
+    const release = Promise.withResolvers<undefined>();
+    held = {
+      entered: () => {
+        reached.resolve(undefined);
+      },
+      release: release.promise,
+    };
+    return {
+      reached: reached.promise,
+      release: () => {
+        release.resolve(undefined);
+      },
+    };
+  }
   const sender = createSender({
     store,
-    gateway: observed.gateway,
+    gateway,
     spur: spur.spur,
     config,
     now: () => new Date(now),
@@ -132,7 +162,20 @@ function setup() {
     }
     throw new Error('Outbox did not drain');
   }
-  return { store, core, fake, observed, spur, sender, apply, query, ops, poll, drain };
+  return {
+    store,
+    core,
+    fake,
+    observed,
+    spur,
+    sender,
+    apply,
+    query,
+    ops,
+    poll,
+    drain,
+    holdNextDelivery,
+  };
 }
 
 type Ctx = ReturnType<typeof setup>;
@@ -281,6 +324,52 @@ describe('task archive', () => {
     ]);
     expect(ctx.spur.sends).toEqual([]);
   });
+
+  it.each(['answer', 'inbound'] as const)(
+    'drops a claimed %s ring when the task is archived before its send starts',
+    async (kind) => {
+      const ctx = setup();
+      await ctx.poll(tracker, true);
+      await liveWorker(ctx.store);
+      const asked = await ctx.apply(ctx.ops.ask, { task: KEY, text: 'Which version?' }, worker);
+      if (kind === 'answer') {
+        await ctx.apply(ctx.ops.answer, { block: asked.block.id, text: 'Use v2.' }, 'operator');
+      } else {
+        const comment = await ctx.apply(ctx.ops.comment, { task: KEY, text: 'Note.' }, worker);
+        await ctx.store.transaction((trx) =>
+          enqueueInboundDoorbell(trx, {
+            key: `doorbell:comment:${comment.comment.id.slice(1)}:revision:1`,
+            session: 'worker-1',
+            text: 'New reply',
+            at: new Date(now),
+          }),
+        );
+      }
+      await ctx.apply(ctx.ops.ask, { task: KEY, text: 'Still open?' }, worker);
+      // Gateway lanes go before doorbells, so the ring is claimed while the open is held.
+      const hold = ctx.holdNextDelivery();
+      const tick = ctx.sender.tick();
+      await hold.reached;
+      const claimed = await ctx.store.db
+        .selectFrom('outbox')
+        .select(['state', 'attempt_started'])
+        .where('kind', '=', 'doorbell')
+        .executeTakeFirstOrThrow();
+      expect(claimed).toEqual({ state: 'in_flight', attempt_started: 0 });
+      await ctx.apply(ctx.ops.archive, { task: KEY }, 'operator');
+      hold.release();
+      await tick;
+
+      expect(ctx.spur.sends).toEqual([]);
+      expect(
+        await ctx.store.db
+          .selectFrom('outbox')
+          .select('state')
+          .where('kind', '=', 'doorbell')
+          .executeTakeFirstOrThrow(),
+      ).toEqual({ state: 'dead' });
+    },
+  );
 
   it('rings a cancelled answer again after task.add', async () => {
     const ctx = setup();

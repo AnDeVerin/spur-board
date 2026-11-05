@@ -347,7 +347,10 @@ export async function recordRingDelivery(
   );
 }
 
-/** Confirm that a queued ring still belongs to a live, idle, unread recipient. */
+/**
+ * Confirm that a queued ring still belongs to a live, idle, unread recipient on a board task.
+ * Archive kills only unclaimed rings; a ring claimed before the archive is dropped here.
+ */
 export async function ringStillCurrent(
   trx: Trx,
   notificationId: number,
@@ -355,11 +358,14 @@ export async function ringStillCurrent(
 ): Promise<'send' | 'defer' | 'dead'> {
   const n = await trx
     .selectFrom('notification')
-    .selectAll()
-    .where('id', '=', notificationId)
+    .innerJoin('task', 'task.id', 'notification.task_id')
+    .selectAll('notification')
+    .select('task.membership')
+    .where('notification.id', '=', notificationId)
     .executeTakeFirst();
   if (
     n === undefined ||
+    n.membership === 'archived' ||
     n.acked_at !== null ||
     n.exhausted_at !== null ||
     n.recipient_session !== sessionId
@@ -368,6 +374,19 @@ export async function ringStillCurrent(
   const session = await selectNotificationRecipient(trx, n);
   if (session?.id !== sessionId) return 'dead';
   return session.state === 'working' ? 'defer' : 'send';
+}
+
+/** Whether an inbound author ring (`doorbell:comment:<id>:...`) belongs to an archived task. */
+export async function inboundRingTaskArchived(trx: Trx, dedupeKey: string): Promise<boolean> {
+  const commentId = /^doorbell:comment:(\d+):/.exec(dedupeKey)?.[1];
+  if (commentId === undefined) return false;
+  const row = await trx
+    .selectFrom('comment')
+    .innerJoin('task', 'task.id', 'comment.task_id')
+    .select('task.membership')
+    .where('comment.id', '=', Number(commentId))
+    .executeTakeFirst();
+  return row?.membership === 'archived';
 }
 
 /** Stop notifications acknowledged by the addressed session. */
