@@ -129,6 +129,58 @@ describe('worker question through the daemon', () => {
     expect(h.sends).toHaveLength(3);
   });
 
+  it('retries an archived-task answer from its feed Retry button', async () => {
+    const h = await setup();
+    const { conversation } = await ask(h, 'ask-proj-123-archived-0800');
+    const setMembership = (membership: 'active' | 'archived') =>
+      h.store.transaction(async (trx) => {
+        await trx.updateTable('task').set({ membership }).where('key', '=', h.taskKey).execute();
+      });
+    await setMembership('archived');
+    await h.gateway.platform.inject({
+      kind: 'message',
+      conversation,
+      author: h.operator,
+      text: 'Ship the stable release.',
+    });
+    await h.gateway.platform.settle();
+    const failure = await h.store.db
+      .selectFrom('operator_item')
+      .select(['id', 'cleared_at'])
+      .where('kind', '=', 'inbound_failure')
+      .executeTakeFirstOrThrow();
+    expect(failure.cleared_at).toBeNull();
+    h.advance(1001);
+    await h.pulse();
+    const line = h.gateway.platform
+      .messages()
+      .find((message) => message.text.includes('Slack message not processed'));
+    if (line === undefined) throw new Error('Missing feed line for the failed answer');
+
+    await setMembership('active');
+    await h.gateway.platform.inject({
+      kind: 'action',
+      message: line.message,
+      actionId: `item:${String(failure.id)}:retry`,
+      author: h.operator,
+    });
+    await h.gateway.platform.settle();
+    expect(
+      await h.store.db
+        .selectFrom('comment')
+        .select('text')
+        .where('author', '=', 'operator')
+        .execute(),
+    ).toEqual([{ text: 'Ship the stable release.' }]);
+    expect(
+      await h.store.db
+        .selectFrom('operator_item')
+        .select('cleared_at')
+        .where('id', '=', failure.id)
+        .executeTakeFirstOrThrow(),
+    ).not.toEqual({ cleared_at: null });
+  });
+
   it('recovers an answer posted while the daemon is down', async () => {
     const h = await setup();
     const { conversation } = await ask(h, 'ask-proj-123-downtime-0800');
