@@ -1,10 +1,19 @@
 import { createServer, type RequestListener, type Server } from 'node:http';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { OPERATIONS, errorEnvelopeSchema, renderHttpProblem } from '@spur-board/contracts';
+import {
+  DEFAULT_HTTP_PORT,
+  OPERATIONS,
+  errorEnvelopeSchema,
+  renderHttpProblem,
+} from '@spur-board/contracts';
 import { runCli, type CliIo } from '../src/cli.ts';
-import type { ClientConfig } from '../src/config.ts';
+import { resolveDaemonAddress, type ClientConfig } from '../src/config.ts';
 
 const servers: Server[] = [];
+const homes: string[] = [];
 
 afterEach(async () => {
   await Promise.all(
@@ -17,6 +26,7 @@ afterEach(async () => {
       );
     }),
   );
+  for (const home of homes.splice(0)) rmSync(home, { recursive: true, force: true });
 });
 
 async function fakeServer(respond: RequestListener): Promise<{ url: string; server: Server }> {
@@ -26,6 +36,28 @@ async function fakeServer(respond: RequestListener): Promise<{ url: string; serv
   const address = server.address();
   if (!address || typeof address === 'string') throw new Error('Expected a TCP port.');
   return { url: `http://127.0.0.1:${String(address.port)}`, server };
+}
+
+function boardHome(config?: string): string {
+  const home = mkdtempSync(join(tmpdir(), 'cli-address-'));
+  homes.push(home);
+  if (config !== undefined) writeFileSync(join(home, 'config.yaml'), config);
+  return home;
+}
+
+function statusResponse(
+  request: Parameters<RequestListener>[0],
+  response: Parameters<RequestListener>[1],
+) {
+  expect(request.url).toBe('/v1/ops/status.get');
+  response.writeHead(200, { 'content-type': 'application/json' });
+  response.end(
+    JSON.stringify({
+      ok: true,
+      requestId: 'req-status',
+      value: OPERATIONS[0].examples[0].output,
+    }),
+  );
 }
 
 function capture(tty = false) {
@@ -78,6 +110,28 @@ const ask = OPERATIONS.find((op) => op.id === 'block.ask');
 if (!ask) throw new Error('Catalog has no ask operation.');
 
 describe('CLI exit classes and mutation keys', () => {
+  it('reaches the configured daemon without BOARD_DAEMON_URL', async () => {
+    const { url } = await fakeServer(statusResponse);
+    const port = new URL(url).port;
+    const home = boardHome(
+      `projects:\n  - id: board\n    tracker: { type: github-issues, repo: example/board, label: board }\n    repos: [example/board]\n    operatorGithubLogin: operator\noperator: { slack: U0000000000 }\ndigest: { tz: UTC }\nhttp: { port: ${port} }\n`,
+    );
+    const output = capture();
+    expect(
+      await runCli(['status', '--json'], {
+        env: { BOARD_HOME: home, BOARD_TOKEN: 'token' },
+        io: output.io,
+      }),
+    ).toBe(0);
+    expect(JSON.parse(output.stdout)).toEqual(OPERATIONS[0].examples[0].output);
+  });
+
+  it('uses the default daemon address when config is missing', () => {
+    const home = boardHome();
+    expect(resolveDaemonAddress({ BOARD_HOME: home }).href).toBe(
+      `http://127.0.0.1:${String(DEFAULT_HTTP_PORT)}/`,
+    );
+  });
   it('returns 3 when a connection is refused before dispatch', async () => {
     const { url, server } = await fakeServer(() => {});
     await new Promise<void>((resolve) =>
@@ -215,7 +269,7 @@ describe('CLI exit classes and mutation keys', () => {
     expect(errorEnvelopeSchema.parse(JSON.parse(json.stderr)).requestId).toBe(requestId);
   });
 
-  it('returns 4 for missing token or daemon address', async () => {
+  it('returns 4 for missing token or invalid explicit daemon address', async () => {
     const token = capture();
     expect(
       await runCli(['status', '--json'], {
@@ -228,7 +282,10 @@ describe('CLI exit classes and mutation keys', () => {
     ).toBe('BOARD_TOKEN');
     const address = capture();
     expect(
-      await runCli(['status', '--json'], { env: { BOARD_TOKEN: 'token' }, io: address.io }),
+      await runCli(['status', '--json'], {
+        env: { BOARD_DAEMON_URL: 'ftp://example.com', BOARD_TOKEN: 'token' },
+        io: address.io,
+      }),
     ).toBe(4);
     expect(
       errorEnvelopeSchema.parse(JSON.parse(address.stderr)).error.context.environmentVariable,

@@ -9,7 +9,9 @@ import {
   statSync,
 } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, isAbsolute, join, relative, sep } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { DEFAULT_HTTP_PORT, configSchema } from '@spur-board/contracts';
+import YAML from 'yaml';
 import { CliError } from './exit-codes.ts';
 
 export interface ClientConfig {
@@ -23,10 +25,31 @@ export interface ClientConfig {
 const CONNECT_TIMEOUT_MS = 2_000;
 const RESPONSE_TIMEOUT_MS = 30_000;
 
-function daemonAddress(env: NodeJS.ProcessEnv): URL {
+export function resolveDaemonAddress(
+  env: NodeJS.ProcessEnv = process.env,
+  home = homedir(),
+  configuredPort?: number,
+): URL {
   const rawAddress = env['BOARD_DAEMON_URL'];
   if (!rawAddress) {
-    throw new CliError('config', { environmentVariable: 'BOARD_DAEMON_URL' });
+    let port = configuredPort ?? DEFAULT_HTTP_PORT;
+    if (configuredPort === undefined) {
+      const boardHome = env['BOARD_HOME'];
+      const xdg = env['XDG_CONFIG_HOME'];
+      const file = boardHome
+        ? join(resolve(boardHome), 'config.yaml')
+        : join(xdg && isAbsolute(xdg) ? xdg : join(home, '.config'), 'spur-board', 'config.yaml');
+      try {
+        const parsed = YAML.parseDocument(readFileSync(file, 'utf8'));
+        if (parsed.errors.length === 0) {
+          const config = configSchema.safeParse(parsed.toJS());
+          if (config.success) port = config.data.http.port;
+        }
+      } catch {
+        // The daemon can report the config error; clients still try its default port.
+      }
+    }
+    return new URL(`http://127.0.0.1:${String(port)}`);
   }
 
   let address: URL;
@@ -109,7 +132,7 @@ export function loadClientConfig(
   env: NodeJS.ProcessEnv = process.env,
   paths: { cwd: string; home: string } = { cwd: process.cwd(), home: homedir() },
 ): ClientConfig {
-  const address = daemonAddress(env);
+  const address = resolveDaemonAddress(env, paths.home);
   const session = env['SPUR_SESSION'] || undefined;
   const token = session
     ? undefined
@@ -132,7 +155,7 @@ export function loadClientConfig(
 /** Enrollment sends only a hash and works before any operator credential exists. */
 export function loadEnrollmentConfig(env: NodeJS.ProcessEnv = process.env): ClientConfig {
   return {
-    address: daemonAddress(env),
+    address: resolveDaemonAddress(env),
     session: undefined,
     token: undefined,
     connectTimeoutMs: CONNECT_TIMEOUT_MS,

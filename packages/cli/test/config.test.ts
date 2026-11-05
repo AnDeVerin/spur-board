@@ -2,7 +2,8 @@ import { chmodSync, mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync }
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { findTokenFile, loadClientConfig } from '../src/config.ts';
+import { DEFAULT_HTTP_PORT } from '@spur-board/contracts';
+import { findTokenFile, loadClientConfig, resolveDaemonAddress } from '../src/config.ts';
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -30,6 +31,51 @@ function token(folder: string, value: string) {
 }
 
 const env = { BOARD_DAEMON_URL: 'http://127.0.0.1:4311' };
+
+const validYaml = `projects:
+  - id: board
+    tracker: { type: github-issues, repo: example/board, label: board }
+    repos: [example/board]
+    operatorGithubLogin: operator
+operator: { slack: U0000000000 }
+digest: { tz: UTC }
+`;
+
+describe('daemon address', () => {
+  it.each([
+    ['explicit URL', validYaml, 'http://127.0.0.1:9999', false, 9999],
+    ['configured port', validYaml, undefined, false, 4567],
+    ['missing config', undefined, undefined, false, DEFAULT_HTTP_PORT],
+    ['malformed YAML', 'http: [', undefined, false, DEFAULT_HTTP_PORT],
+    ['schema-invalid config', 'http: { port: -1 }', undefined, false, DEFAULT_HTTP_PORT],
+    ['XDG config path', validYaml, undefined, true, 4567],
+  ] as const)('%s', (_name, yaml, explicit, xdg, expectedPort) => {
+    const paths = setup();
+    const location = xdg ? join(paths.home, 'xdg', 'spur-board') : join(paths.home, 'board');
+    if (yaml !== undefined) {
+      mkdirSync(location, { recursive: true });
+      writeFileSync(
+        join(location, 'config.yaml'),
+        yaml.replace('digest:', 'http: { port: 4567 }\ndigest:'),
+      );
+    }
+    const address = resolveDaemonAddress(
+      {
+        ...(xdg ? { XDG_CONFIG_HOME: join(paths.home, 'xdg') } : { BOARD_HOME: location }),
+        ...(explicit ? { BOARD_DAEMON_URL: explicit } : {}),
+      },
+      paths.home,
+    );
+    expect(address.href).toBe(`http://127.0.0.1:${String(expectedPort)}/`);
+  });
+
+  it('rejects invalid explicit URLs', () => {
+    expect(() => resolveDaemonAddress({ BOARD_DAEMON_URL: 'ftp://example.com' })).toThrow();
+    expect(() =>
+      resolveDaemonAddress({ BOARD_DAEMON_URL: 'http://user:pass@example.com' }),
+    ).toThrow();
+  });
+});
 
 describe('operator token lookup', () => {
   it('finds a file two folders up and never uses a home-wide token', () => {
