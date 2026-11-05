@@ -74,6 +74,7 @@ function fixture(
     jiraBadStatus?: boolean;
     jiraMalformed?: boolean;
     githubRepositoryNotFound?: boolean;
+    githubChecksForbidden?: boolean;
     secretInFacts?: string;
     secretInSpurLink?: string;
   } = {},
@@ -103,6 +104,31 @@ function fixture(
                 type: 'NOT_FOUND',
                 path: ['repository'],
                 message: 'Synthetic repository unavailable',
+              },
+            ],
+          }),
+        );
+      }
+      if (isWidgets && isDetail && options.githubChecksForbidden) {
+        return Promise.resolve(
+          Response.json({
+            data: {
+              rateLimit: { remaining: 4321, resetAt: '2026-01-03T00:00:00.000Z' },
+              pr0: { pullRequest: { ...pr, statusCheckRollup: { contexts: connection([null]) } } },
+            },
+            errors: [
+              {
+                type: 'FORBIDDEN',
+                path: [
+                  'pr0',
+                  'pullRequest',
+                  'statusCheckRollup',
+                  'contexts',
+                  'nodes',
+                  0,
+                  'isRequired',
+                ],
+                message: 'Resource not accessible by personal access token',
               },
             ],
           }),
@@ -342,6 +368,21 @@ describe('adapter smoke', () => {
       'mergeStateStatus',
     );
     expect(result.out).not.toContain('"requiredChecks"');
+  });
+
+  it('names a GitHub check-data permission failure without exposing the GraphQL error', async () => {
+    const result = await run(fixture({ githubChecksForbidden: true }));
+    expect(result.code).toBe(1);
+    expect(result.err).toContain(
+      'github:demo:demo/widgets: GitHub token lacks Checks read permission',
+    );
+    expect(result.out).not.toContain('Resource not accessible by personal access token');
+    expect(
+      result.records.find((record) => record['source'] === 'github:demo:demo/widgets'),
+    ).toMatchObject({
+      status: 'fail',
+      reason: 'GitHub token lacks Checks read permission',
+    });
   });
 
   it('redacts configured values in facts and errors, including short values', async () => {

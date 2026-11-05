@@ -360,6 +360,58 @@ describe('GitHub PR batch', () => {
     expect(batch.entities).toEqual([{ ref, status: expected }]);
     expect(batch.items).toEqual([]);
   });
+  it('classifies a scoped check-context denial as a safe authentication error', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      response({ repository: { pullRequests: conn([]) }, pr0: { pullRequest: wire() } }, [
+        {
+          message: 'Resource not accessible by personal access token',
+          type: 'FORBIDDEN',
+          path: ['pr0', 'pullRequest', 'statusCheckRollup', 'contexts', 'nodes', 0, 'isRequired'],
+        },
+      ]),
+    );
+    await expect(adapter(fetcher).poll(context())).rejects.toMatchObject({
+      kind: 'auth',
+      message: 'GitHub token lacks Checks read permission',
+    });
+  });
+  it('classifies a paged check-context denial as the same safe authentication error', async () => {
+    const first = wire();
+    first.statusCheckRollup.contexts.pageInfo = { hasNextPage: true, endCursor: 'checks-next' };
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        response({ repository: { pullRequests: conn([]) }, pr0: { pullRequest: first } }),
+      )
+      .mockResolvedValueOnce(
+        response({ repository: { pullRequest: { statusCheckRollup: { contexts: null } } } }, [
+          {
+            message: 'Resource not accessible by personal access token',
+            type: 'FORBIDDEN',
+            path: ['repository', 'pullRequest', 'statusCheckRollup', 'contexts', 'nodes', 0],
+          },
+        ]),
+      );
+    await expect(adapter(fetcher).poll(context())).rejects.toMatchObject({
+      kind: 'auth',
+      message: 'GitHub token lacks Checks read permission',
+    });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+  it('keeps unrelated deep FORBIDDEN alias errors as incomplete observations', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      response({ repository: { pullRequests: conn([]) }, pr0: { pullRequest: wire() } }, [
+        {
+          message: 'Synthetic review data denied',
+          type: 'FORBIDDEN',
+          path: ['pr0', 'pullRequest', 'reviews', 'nodes', 0],
+        },
+      ]),
+    );
+    const batch = await adapter(fetcher).poll(context());
+    expect(batch.complete).toBe(false);
+    expect(batch.entities).toEqual([{ ref, status: 'no_access' }]);
+  });
   it('keeps a generic alias error incomplete and other facts intact', async () => {
     const other = { ...ref, number: 8 };
     const fetcher = vi
