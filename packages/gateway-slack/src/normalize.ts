@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import {
+  DEFAULT_SLACK_COMMAND,
   interactionRefSchema,
   userIdSchema,
   type InboundEvent,
@@ -195,7 +196,7 @@ export function normalizeInteraction(
   payload: unknown,
   channels: SlackChannels,
   root?: unknown,
-  commandName = '/board',
+  commandName = DEFAULT_SLACK_COMMAND,
 ): InboundEvent[] {
   const body = record(payload);
   if (body === null) return [];
@@ -205,17 +206,21 @@ export function normalizeInteraction(
   if (user === undefined) return [];
   const author = userIdSchema.parse(user);
   if (type === 'slash_commands') {
-    if (body.command !== commandName) return [];
+    const name = string(body.command);
+    if (name === undefined) return [];
     const channel = string(body.channel_id);
     if (channel === undefined) return [];
     return [
       {
         kind: 'command',
+        name,
         dedupeKey: `slack:${triggerId}`,
         interaction: interactionRef(channel, user, triggerId),
         author,
         text: text(body.text) ?? '',
-        command: parseCommand(text(body.text) ?? '', commandName),
+        ...(name === commandName
+          ? { command: parseCommand(text(body.text) ?? '', commandName) }
+          : {}),
         sourceUrl: sourceUrl(channel),
         sourceSpace: sourceSpace(channel, channels),
       },

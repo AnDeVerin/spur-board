@@ -11,7 +11,7 @@ function descriptors(commandName: string) {
     operation,
     usage:
       operation.slack?.kind === 'slash-command'
-        ? operation.slack.usage.replace(/^\/board\b/, commandName)
+        ? operation.slack.usage.replace(/^\/\S+/, commandName)
         : '',
   }));
 }
