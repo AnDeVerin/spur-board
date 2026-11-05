@@ -1,4 +1,5 @@
 import { runGatewayConformance } from '@spur-board/gateway-testkit';
+import { fakeCaseIds } from '@spur-board/gateway-testkit/cases';
 import { vi } from 'vitest';
 import { createSlackGateway } from '../src/index.ts';
 import { MAX_PART_TEXT } from '../src/render.ts';
@@ -9,6 +10,7 @@ vi.setConfig({ testTimeout: 10_000 });
 
 runGatewayConformance({
   name: 'Slack HTTP and Socket Mode fake',
+  caseIds: fakeCaseIds,
   maxTextLength: MAX_PART_TEXT,
   async create() {
     const fake = await startFakeSlackApi();
