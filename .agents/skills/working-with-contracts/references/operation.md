@@ -50,6 +50,13 @@ here are in `packages/contracts/test/ops.test.ts`.
   branch" test checks it.
 - A union input's JSON Schema root is `oneOf` with no `type`; the MCP generator has to add
   `type: 'object'`.
+- MCP annotations in `packages/cli/src/mcp.ts`: `kind` sets `readOnlyHint` and `idempotentHint`;
+  `destructiveHint` is `mcp.destructive`, `false` for a query and `true` by default for a
+  mutation. Set `destructive: false` only on a mutation whose handler inserts rows and updates
+  only rows it inserted earlier in the same call; delivery, notification and operator-item rows
+  count, and so does an `onConflict` `doNothing` insert. An update or delete of a row that
+  existed before the call keeps `true`. The non-destructive test under `describe('catalog')`
+  pins the list; changing it is a Changed checks entry.
 
 ## Snapshot
 
