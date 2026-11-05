@@ -3,6 +3,7 @@ import {
   RESERVED_PROJECT,
   eventPayloadSchemas,
   parseActorId,
+  type Action,
   type ActorId,
 } from '@spur-board/contracts';
 import type { Kysely } from 'kysely';
@@ -51,6 +52,25 @@ async function journal(
       request_id: null,
     })
     .execute();
+}
+
+/** Kinds whose item has a retry action besides `delivery:<id>` (see `items.ts`). */
+const RETRY_KINDS = new Set(['answer_undelivered', 'worker_not_reading', 'inbound_failure']);
+
+/** Every item line gets Close, after Retry when its kind has a retry action. */
+function itemActions(item: Row<'operator_item'>): Action[] {
+  const id = String(item.id);
+  const close = { id: `item:${id}:close`, label: 'Close' };
+  if (item.kind === 'token_request') {
+    return [
+      { id: `token:${id}:approve`, label: 'Approve' },
+      { id: `token:${id}:deny`, label: 'Deny' },
+      close,
+    ];
+  }
+  return item.item_key.startsWith('delivery:') || RETRY_KINDS.has(item.kind)
+    ? [{ id: `item:${id}:retry`, label: 'Retry' }, close]
+    : [close];
 }
 
 /** Raise one item generation. A repeated raise of an active key is idempotent. */
@@ -126,30 +146,7 @@ export async function raiseItem(
       title: `${key}: ${item.text}`,
       url: item.url,
       taskId: item.task_id,
-      ...(item.kind === 'worker_not_reading'
-        ? {
-            actions: [
-              { id: `item:${String(item.id)}:retry`, label: 'Retry' },
-              { id: `item:${String(item.id)}:close`, label: 'Close' },
-            ],
-          }
-        : item.kind === 'token_request'
-          ? {
-              actions: [
-                { id: `token:${String(item.id)}:approve`, label: 'Approve' },
-                { id: `token:${String(item.id)}:deny`, label: 'Deny' },
-              ],
-            }
-          : item.kind === 'inbound_failure'
-            ? {
-                actions: [
-                  { id: `item:${String(item.id)}:retry`, label: 'Retry' },
-                  { id: `item:${String(item.id)}:close`, label: 'Close' },
-                ],
-              }
-            : item.kind === 'inbound_gap' || item.kind === 'answer_author_unavailable'
-              ? { actions: [{ id: `item:${String(item.id)}:close`, label: 'Close' }] }
-              : {}),
+      actions: itemActions(item),
       at: input.at,
     });
     if (line !== null) {
