@@ -14,7 +14,7 @@ import {
   writeFile,
 } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const stampName = '.spur-board-install.json';
@@ -27,6 +27,7 @@ const agents = ['.claude', '.codex'] as const;
 
 export interface InstallSkillsOptions {
   home?: string;
+  env?: NodeJS.ProcessEnv;
   packageRoot?: string;
   now?: () => Date;
   copySkill?: (source: string, destination: string) => Promise<void>;
@@ -104,15 +105,60 @@ async function targetDirectory(path: string): Promise<boolean> {
   }
 }
 
-async function checkTarget(home: string, agent: string, destination: string): Promise<boolean> {
-  const parent = join(home, agent, 'skills');
-  await targetDirectory(join(home, agent));
-  await targetDirectory(parent);
-  return targetDirectory(destination);
+interface ResolvedParent {
+  parent: string;
+  missing: string[];
 }
 
-async function withInstallLock<T>(home: string, action: () => Promise<T>): Promise<T> {
-  const file = join(home, '.spur-board-skills-install.lock');
+async function resolvedParent(path: string): Promise<ResolvedParent> {
+  let entry;
+  try {
+    entry = await lstat(path);
+  } catch (error) {
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+      const ancestor = await resolvedParent(dirname(path));
+      const parent = join(ancestor.parent, basename(path));
+      return { parent, missing: [...ancestor.missing, parent] };
+    }
+    throw error;
+  }
+  if (!entry.isDirectory() && !entry.isSymbolicLink()) {
+    throw new Error(`Skill install parent must be a directory: ${path}`);
+  }
+  const canonical = await realpath(path);
+  if (!(await stat(canonical)).isDirectory()) {
+    throw new Error(`Skill install parent must be a directory: ${path}`);
+  }
+  return { parent: canonical, missing: [] };
+}
+
+async function createMissingParents(paths: string[]): Promise<void> {
+  for (const path of paths) {
+    try {
+      await mkdir(path, { mode: 0o700 });
+    } catch (error) {
+      if (!(error instanceof Error && 'code' in error && error.code === 'EEXIST')) {
+        throw error;
+      }
+    }
+    const entry = await lstat(path);
+    if (!entry.isDirectory() || entry.isSymbolicLink() || (await realpath(path)) !== path) {
+      throw new Error(`Skill install parent must be a directory, not a new symlink: ${path}`);
+    }
+  }
+}
+
+async function withInstallLock<T>(
+  home: string,
+  env: NodeJS.ProcessEnv,
+  action: () => Promise<T>,
+): Promise<T> {
+  const configured = env['XDG_STATE_HOME'];
+  const stateHome =
+    configured && isAbsolute(configured) ? configured : join(home, '.local', 'state');
+  const stateDir = join(stateHome, 'spur-board');
+  await mkdir(stateDir, { recursive: true, mode: 0o700 });
+  const file = join(stateDir, 'skills-install.lock');
   const fd = openSync(file, constants.O_CREAT | constants.O_RDWR | constants.O_NOFOLLOW, 0o600);
   try {
     // flock locks the open file description shared by this process and its short-lived child.
@@ -205,25 +251,37 @@ async function installIntoHome(
   packageRoot: string,
   version: string,
   options: InstallSkillsOptions,
+  env: NodeJS.ProcessEnv,
 ): Promise<SkillInstallResult[]> {
+  const targets = await Promise.all(
+    agents.map(async (agent) => {
+      const configured = agent === '.codex' ? env['CODEX_HOME'] : undefined;
+      const root = configured ? resolve(configured) : join(home, agent);
+      return { agent, ...(await resolvedParent(join(root, 'skills'))) };
+    }),
+  );
   // Reject all redirected targets before changing any of the four installed skills.
-  for (const agent of agents) {
+  for (const { parent } of targets) {
     for (const skill of skills) {
-      await checkTarget(home, agent, join(home, agent, 'skills', skill.name));
+      await targetDirectory(join(parent, skill.name));
     }
   }
 
   const installedAt = (options.now ?? (() => new Date()))().toISOString();
+  for (const { parent, missing } of targets) {
+    await createMissingParents(missing);
+    if ((await realpath(parent)) !== parent) {
+      throw new Error(`Skill install parent changed after preflight: ${parent}`);
+    }
+  }
   const results: SkillInstallResult[] = [];
-  for (const agent of agents) {
-    const parent = join(home, agent, 'skills');
+  for (const { agent, parent } of targets) {
     for (const skill of skills) {
       const destination = join(parent, skill.name);
       await recoverSkill(parent, destination, skill.name);
       const changed = !(await currentVersion(destination, version));
       if (changed) {
-        await mkdir(parent, { recursive: true });
-        await checkTarget(home, agent, destination);
+        await targetDirectory(destination);
         const stageId = randomUUID();
         const staged = join(parent, `.${skill.name}-stage-${stageId}`);
         const owner = `${staged}.owner`;
@@ -238,7 +296,7 @@ async function installIntoHome(
           const stamp: InstallStamp = { version, installedAt };
           await writeFile(join(staged, stampName), `${JSON.stringify(stamp, null, 2)}\n`);
 
-          const existing = await checkTarget(home, agent, destination);
+          const existing = await targetDirectory(destination);
           if (existing) {
             const backupId = randomUUID();
             const backup = join(parent, `.${skill.name}-backup-${backupId}`);
@@ -289,11 +347,14 @@ export async function installSkills(
     options.packageRoot ?? fileURLToPath(new URL('../', import.meta.url)),
   );
   const home = await realpath(resolve(options.home ?? homedir()));
+  const env = options.env ?? process.env;
   const version = await packageVersion(packageRoot);
   // Check all assets before changing an existing installation.
   await Promise.all(
     skills.map((skill) => requireSource(join(packageRoot, 'skills', skill.source))),
   );
 
-  return withInstallLock(home, () => installIntoHome(home, packageRoot, version, options));
+  return withInstallLock(home, env, () =>
+    installIntoHome(home, packageRoot, version, options, env),
+  );
 }
