@@ -17,6 +17,9 @@
   publish (`.github/workflows/ci.yml`, `release.config.cjs`).
 - Keep Renovate on its weekly schedule with a seven-day minimum release age, no automerge and
   `chore(deps)` commits (`renovate.json`). Match catalog-specific dependency types when grouping.
+- Keep `@types/node` on the major of the oldest Node in `engines.node`. Change its
+  `allowedVersions` rule and catalog range with `engines.node` (`renovate.json`,
+  `pnpm-workspace.yaml`, `package.json`, `packages/cli/package.json`).
 - Keep pnpm's seven-day minimum release age and strict dependency builds. Permit install scripts
   only through `allowBuilds` (`pnpm-workspace.yaml`).
 - Keep audit exceptions keyed to an exact advisory ID with a reason and removal path; the
