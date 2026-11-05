@@ -401,6 +401,65 @@ describe('item.retry and item.close', () => {
     }
   });
 
+  it('recovers a failed backlog larger than one scan transaction allows', async () => {
+    const ctx = await setup();
+    const secret = ['xoxb', '123', 'abc'].join('-');
+    const line = (n: number, text: string) => ({
+      ...sampleRows.outbox,
+      id: n,
+      kind: 'feed.line' as const,
+      dedupe_key: `backlog:${String(n)}`,
+      // Four distinct strings per row: 1101 rows exceed the 4096-string scan limit together.
+      payload: JSON.stringify({
+        key: `k-${String(n)}`,
+        text,
+        title: `title ${String(n)}`,
+        persona: { name: 'board', role: 'board' },
+        itemKey: `backlog:item:${String(n)}`,
+      }),
+      state: 'post_failed' as const,
+      first_attempt_at: new Date(START).toISOString(),
+    });
+    await ctx.store.transaction(async (trx) => {
+      const backlog = Array.from({ length: 1100 }, (_, i) => line(i + 1, `failed ${String(i)}`));
+      for (let i = 0; i < backlog.length; i += 100) {
+        await trx
+          .insertInto('outbox')
+          .values(backlog.slice(i, i + 100))
+          .execute();
+      }
+      await trx
+        .insertInto('outbox')
+        .values(line(1101, `token ${secret}`))
+        .execute();
+    });
+    await ctx.sender.recover();
+    const states = await ctx.store.db
+      .selectFrom('outbox')
+      .select(['state', (eb) => eb.fn.countAll<number>().as('n')])
+      .where('dedupe_key', 'like', 'backlog:%')
+      .groupBy('state')
+      .orderBy('state')
+      .execute();
+    expect(states).toEqual([
+      { state: 'dead', n: 1 },
+      { state: 'pending', n: 1100 },
+    ]);
+    const blocked = await ctx.store.db
+      .selectFrom('outbox')
+      .select('last_error')
+      .where('id', '=', 1101)
+      .executeTakeFirstOrThrow();
+    expect(blocked.last_error).toMatch(/^blocked: looks like a secret/);
+    expect(
+      await ctx.store.db
+        .selectFrom('operator_item')
+        .select('kind')
+        .where('kind', '=', 'post_blocked')
+        .execute(),
+    ).toHaveLength(1);
+  }, 60_000);
+
   it('closes a failed post so no restart resends it', async () => {
     const ctx = await setup();
     await ctx.apply(blocks.ask, { task: KEY, text: 'Which release?' }, AGENT, 'ask-closed');

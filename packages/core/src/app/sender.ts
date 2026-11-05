@@ -61,6 +61,8 @@ const RETRY_WINDOW_MS = 30 * 60_000;
 const DOWN_THRESHOLD_MS = 5 * 60_000;
 export const HEALTH_PROBE_MS = 60_000;
 const MAX_BACKOFF_MS = 60_000;
+/** post_failed rows rescanned per `recover()` transaction: far below the scan's string limit. */
+const RECOVER_BATCH = 100;
 
 type Trx = Kysely<Tables>;
 type OutboxRow = Row<'outbox'>;
@@ -756,7 +758,7 @@ export function createSender(options: SenderOptions): Sender {
   return {
     async recover() {
       const nowIso = now().toISOString();
-      await scanTransaction(store, async (trx) => {
+      const failed = await scanTransaction(store, async (trx) => {
         const rows = await trx
           .selectFrom('outbox')
           .select(['id', 'kind', 'payload', 'state'])
@@ -774,16 +776,18 @@ export function createSender(options: SenderOptions): Sender {
           .where('state', '=', 'in_flight')
           .where('attempt_started', '=', 1)
           .execute();
-        await requeuePostFailed(
-          trx,
-          rows.filter((row) => row.state === 'post_failed').map((row) => row.id),
-          nowIso,
-        );
         for (const row of rows.filter((candidate) => candidate.state === 'in_flight')) {
           const body = parseBody(row);
           if (typeof body !== 'string') await setComment(trx, body, { delivery_state: 'pending' });
         }
+        return rows.filter((row) => row.state === 'post_failed').map((row) => row.id);
       });
+      // Each batch rescans its payloads in its own transaction, so a large failed backlog stays
+      // under the per-transaction scan limit and cannot stop the daemon from starting.
+      for (let i = 0; i < failed.length; i += RECOVER_BATCH) {
+        const batch = failed.slice(i, i + RECOVER_BATCH);
+        await scanTransaction(store, (trx) => requeuePostFailed(trx, batch, nowIso));
+      }
     },
 
     tick(signal?: AbortSignal) {
