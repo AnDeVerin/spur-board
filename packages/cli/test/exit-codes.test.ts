@@ -294,16 +294,34 @@ describe('CLI exit classes and mutation keys', () => {
     expect(
       errorEnvelopeSchema.parse(JSON.parse(token.stderr)).error.context.environmentVariable,
     ).toBe('BOARD_TOKEN');
-    const address = capture();
+    for (const rawAddress of ['ftp://example.com', '']) {
+      const address = capture();
+      expect(
+        await runCli(['status', '--json'], {
+          env: { BOARD_DAEMON_URL: rawAddress, BOARD_TOKEN: 'token' },
+          io: address.io,
+        }),
+      ).toBe(4);
+      expect(
+        errorEnvelopeSchema.parse(JSON.parse(address.stderr)).error.context.environmentVariable,
+      ).toBe('BOARD_DAEMON_URL');
+    }
+  });
+
+  it('explains how to reach a daemon configured with a runtime-assigned port', async () => {
+    const home = boardHome(
+      `projects:\n  - id: board\n    tracker: { type: github-issues, repo: example/board, label: board }\n    repos: [example/board]\n    operatorGithubLogin: operator\noperator: { slack: U0000000000 }\ndigest: { tz: UTC }\nhttp: { port: 0 }\n`,
+    );
+    const output = capture();
     expect(
       await runCli(['status', '--json'], {
-        env: { BOARD_DAEMON_URL: 'ftp://example.com', BOARD_TOKEN: 'token' },
-        io: address.io,
+        env: { BOARD_HOME: home, BOARD_TOKEN: 'token' },
+        io: output.io,
       }),
     ).toBe(4);
-    expect(
-      errorEnvelopeSchema.parse(JSON.parse(address.stderr)).error.context.environmentVariable,
-    ).toBe('BOARD_DAEMON_URL');
+    expect(errorEnvelopeSchema.parse(JSON.parse(output.stderr)).error.hint).toContain(
+      'Set BOARD_DAEMON_URL',
+    );
   });
 
   it('rejects a missing agent key without sending and announces supplied and generated keys first', async () => {

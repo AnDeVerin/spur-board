@@ -31,7 +31,7 @@ export function resolveDaemonAddress(
   configuredPort?: number,
 ): URL {
   const rawAddress = env['BOARD_DAEMON_URL'];
-  if (!rawAddress) {
+  if (rawAddress === undefined) {
     let port = configuredPort ?? DEFAULT_HTTP_PORT;
     if (configuredPort === undefined) {
       const boardHome = env['BOARD_HOME'];
@@ -48,6 +48,14 @@ export function resolveDaemonAddress(
       } catch {
         // The daemon can report the config error; clients still try its default port.
       }
+    }
+    if (port === 0) {
+      throw new CliError(
+        'config',
+        undefined,
+        undefined,
+        'http.port: 0 assigns a runtime port that clients cannot discover. Set BOARD_DAEMON_URL to the daemon listening address.',
+      );
     }
     return new URL(`http://127.0.0.1:${String(port)}`);
   }

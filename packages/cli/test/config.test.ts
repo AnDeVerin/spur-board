@@ -75,6 +75,23 @@ describe('daemon address', () => {
       resolveDaemonAddress({ BOARD_DAEMON_URL: 'http://user:pass@example.com' }),
     ).toThrow();
   });
+
+  it('requires an explicit address when the configured port is runtime-assigned', () => {
+    const paths = setup();
+    const location = join(paths.home, 'board');
+    mkdirSync(location);
+    writeFileSync(
+      join(location, 'config.yaml'),
+      validYaml.replace('digest:', 'http: { port: 0 }\ndigest:'),
+    );
+    expect(() => resolveDaemonAddress({ BOARD_HOME: location }, paths.home)).toThrow();
+    expect(() =>
+      resolveDaemonAddress(
+        { BOARD_HOME: location, BOARD_DAEMON_URL: 'http://127.0.0.1:4567' },
+        paths.home,
+      ),
+    ).not.toThrow();
+  });
 });
 
 describe('operator token lookup', () => {
