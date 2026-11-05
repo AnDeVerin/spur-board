@@ -552,4 +552,31 @@ describe('Jira adapter', () => {
     expect(noKey.message).toContain('project key');
     expect(calls).toHaveLength(1);
   });
+
+  it('rejects an oversized smoke GET URL before sending search and keeps normal POST search', async () => {
+    const current = tracker();
+    current.jql = `project = PROJ AND text ~ "${'x'.repeat(4000)}"`;
+    const { fetcher, calls } = fake();
+    const smoke = createJiraAdapter({
+      id: 'jira-proj',
+      tracker: () => current,
+      credentials: CREDENTIALS,
+      fetch: fetcher,
+      warn: vi.fn(),
+      searchMethod: 'GET',
+    });
+    const error = await rejection(smoke.poll(context()));
+    expect(error.kind).toBe('config');
+    expect(error.message).toContain('Jira GET search URL is too long');
+    expect(calls.map((call) => call.path)).toEqual([
+      '/rest/api/3/project/PROJ/statuses',
+      '/rest/api/3/field',
+    ]);
+
+    const ordinary = adapter(fetcher, current).source;
+    await expect(ordinary.poll(context())).resolves.toMatchObject({ complete: true });
+    const search = calls.filter((call) => call.path.endsWith('/search/jql'));
+    expect(search).toHaveLength(1);
+    expect(search[0]?.body?.['jql']).toBe(current.jql);
+  });
 });

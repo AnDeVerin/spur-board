@@ -75,6 +75,7 @@ function fixture(
     jiraMalformed?: boolean;
     githubRepositoryNotFound?: boolean;
     secretInFacts?: string;
+    secretInSpurLink?: string;
   } = {},
 ) {
   const calls: { url: URL; method: string }[] = [];
@@ -204,6 +205,26 @@ function fixture(
             branch: null,
             status: 'running',
             state: 'working',
+            ...(options.secretInSpurLink === undefined
+              ? {}
+              : {
+                  slots: {
+                    links: [
+                      {
+                        label: 'path',
+                        url: `https://example.test/${encodeURIComponent(options.secretInSpurLink)}`,
+                      },
+                      {
+                        label: 'query',
+                        url: `https://example.test/?${new URLSearchParams({ token: options.secretInSpurLink }).toString()}`,
+                      },
+                      {
+                        label: 'lowercase',
+                        url: `https://example.test/${encodeURIComponent(options.secretInSpurLink).replace(/%[0-9A-F]{2}/g, (escape) => escape.toLowerCase())}`,
+                      },
+                    ],
+                  },
+                }),
           },
         ]),
       );
@@ -339,6 +360,21 @@ describe('adapter smoke', () => {
     expect(failed.code).toBe(1);
     expect(failed.err).toContain('jira:demo:');
     expect(failed.err).not.toContain('DEMO');
+  });
+
+  it('redacts URL-encoded secret values in session links', async () => {
+    const value = 'value/with spaces';
+    const result = await run(fixture({ secretInSpurLink: value }), {
+      secrets: { ...secrets, EXTRA: value },
+    });
+    expect(result.code).toBe(0);
+    expect(result.out).not.toContain(value);
+    expect(result.out).not.toContain(encodeURIComponent(value));
+    expect(result.out).not.toContain(
+      encodeURIComponent(value).replace(/%[0-9A-F]{2}/g, (escape) => escape.toLowerCase()),
+    );
+    expect(result.out).not.toContain(new URLSearchParams({ token: value }).toString().slice(6));
+    expect(result.out).toContain('[REDACTED]');
   });
 
   it.each(['source', '4321', 'true', 'pass', '"'])(

@@ -24,6 +24,7 @@ export interface JiraAdapterOptions {
 }
 
 const SEARCH_PAGE_LIMIT = 20;
+const MAX_GET_SEARCH_URL_LENGTH = 2_000;
 const OUTSIDE_BATCH_SIZE = 50;
 const FALLBACK_REQUEST_LIMIT = 100;
 const SPRINT_SCHEMA = 'com.pyxis.greenhopper.jira:gh-sprint';
@@ -264,6 +265,15 @@ export function createJiraAdapter(options: JiraAdapterOptions): Adapter {
               ...(token === undefined ? {} : { nextPageToken: token }),
             }).toString()}`
           : '/rest/api/3/search/jql';
+      if (
+        options.searchMethod === 'GET' &&
+        new URL(path, tracker.baseUrl).href.length > MAX_GET_SEARCH_URL_LENGTH
+      ) {
+        throw new AdapterError(
+          'config',
+          `Jira GET search URL is too long (over ${String(MAX_GET_SEARCH_URL_LENGTH)} characters)`,
+        );
+      }
       const result = object(
         await request(
           tracker.baseUrl,

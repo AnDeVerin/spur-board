@@ -54,15 +54,35 @@ function safeFetch(transport: typeof fetch): typeof fetch {
   };
 }
 
+function normalizePercentEscapes(value: string): string {
+  return value.replace(/%[0-9a-f]{2}/gi, (escape) => escape.toUpperCase());
+}
+
+function secretForms(value: string): string[] {
+  const form = new URLSearchParams({ value }).toString().slice('value='.length);
+  return [...new Set([value, JSON.stringify(value).slice(1, -1), encodeURIComponent(value), form])]
+    .filter((part) => part.length > 0)
+    .sort((a, b) => b.length - a.length);
+}
+
 function redact(line: string, secrets: Readonly<Record<string, string>>): string {
-  const values = Object.values(secrets)
+  const forms = Object.values(secrets)
     .filter((value) => value.length > 0)
+    .flatMap(secretForms)
     .sort((a, b) => b.length - a.length);
   let result = line;
-  for (const value of values) {
-    result = result.replaceAll(value, '[REDACTED]');
-    const escaped = JSON.stringify(value).slice(1, -1);
-    if (escaped !== value) result = result.replaceAll(escaped, '[REDACTED]');
+  for (const form of forms) {
+    const needle = normalizePercentEscapes(form);
+    const normalized = normalizePercentEscapes(result);
+    const parts: string[] = [];
+    let cursor = 0;
+    let index = normalized.indexOf(needle, cursor);
+    while (index !== -1) {
+      parts.push(result.slice(cursor, index), '[REDACTED]');
+      cursor = index + form.length;
+      index = normalized.indexOf(needle, cursor);
+    }
+    if (cursor > 0) result = `${parts.join('')}${result.slice(cursor)}`;
   }
   return result;
 }
@@ -162,11 +182,10 @@ export async function runSmoke(
     const output = `${out.join('')}${err.join('')}`;
     if (
       unsafeOutput ||
-      Object.values(secrets).some(
-        (value) =>
-          value.length > 0 &&
-          (output.includes(value) || output.includes(JSON.stringify(value).slice(1, -1))),
-      )
+      Object.values(secrets)
+        .filter((value) => value.length > 0)
+        .flatMap(secretForms)
+        .some((form) => normalizePercentEscapes(output).includes(normalizePercentEscapes(form)))
     )
       return 1;
     for (const line of out) options.writeOut(line);
