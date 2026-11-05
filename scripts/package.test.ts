@@ -22,6 +22,7 @@ const files = [
   'package/dist/config-BJE5kDof.mjs',
   'package/dist/migrations/0001_init.sql',
   'package/skills/spur-board/SKILL.md',
+  'package/skills/setup/SKILL.md',
 ];
 
 describe('package tarball allowlist', () => {
@@ -64,6 +65,15 @@ describe('package tarball allowlist', () => {
         manifest,
       );
     }).toThrow(/missing package\/skills\/spur-board\/SKILL.md/);
+  });
+
+  it('rejects a missing setup skill', () => {
+    expect(() => {
+      validateTarball(
+        files.filter((file) => file !== 'package/skills/setup/SKILL.md'),
+        manifest,
+      );
+    }).toThrow(/missing package\/skills\/setup\/SKILL.md/);
   });
 
   it('rejects workspace-only dependencies', () => {

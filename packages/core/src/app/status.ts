@@ -5,9 +5,10 @@ import {
   type Config,
   type SessionFacts,
 } from '@spur-board/contracts';
+import { sql } from 'kysely';
 import { parseJson } from '../store/json.ts';
 import type { Store } from '../store/store.ts';
-import { trackerSource } from './board-utils.ts';
+import { linkView, trackerSource } from './board-utils.ts';
 import { CommandError } from './commands.ts';
 
 function sessionView(fact: SessionFacts) {
@@ -71,11 +72,11 @@ export async function getStatus(
         const snapshot = await store.db
           .selectFrom('pr_snapshot')
           .select('detail')
-          .where('repo', '=', link.repo)
+          .where(sql<boolean>`lower(repo) = ${link.repo.toLowerCase()}`)
           .where('number', '=', link.number)
           .executeTakeFirst();
         if (snapshot !== undefined) prs.push(parseJson(prFactsSchema, snapshot.detail));
-      } else if (link.session_id !== null) {
+      } else if (link.entity === 'session' && link.session_id !== null) {
         const snapshot = await store.db
           .selectFrom('session_snapshot')
           .select('detail')
@@ -93,14 +94,7 @@ export async function getStatus(
       ticket: ticket === undefined ? null : parseJson(ticketFactsSchema, ticket.detail),
       prs,
       sessions,
-      links: links.map((link) => ({
-        kind: link.entity,
-        ref:
-          link.entity === 'pr'
-            ? `${link.repo ?? ''}#${String(link.number ?? '')}`
-            : (link.session_id ?? ''),
-        role: link.role,
-      })),
+      links: links.map(linkView),
     });
   }
   const allPrs = await store.db.selectFrom('pr_snapshot').selectAll().execute();
@@ -113,7 +107,10 @@ export async function getStatus(
           project.repos.some((repo) => repo.toLowerCase() === pr.repo.toLowerCase()),
         ) &&
         !allLinks.some(
-          (link) => link.entity === 'pr' && link.repo === pr.repo && link.number === pr.number,
+          (link) =>
+            link.entity === 'pr' &&
+            link.repo?.toLowerCase() === pr.repo.toLowerCase() &&
+            link.number === pr.number,
         ),
     )
     .map((pr) => parseJson(prFactsSchema, pr.detail));

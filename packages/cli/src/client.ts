@@ -38,6 +38,7 @@ function problemError(status: number, contentType: string | undefined, body: unk
       code as keyof typeof ERRORS,
       context.success ? context.data : undefined,
       requestId,
+      typeof problem['hint'] === 'string' && problem['hint'] ? problem['hint'] : undefined,
     );
   }
   return new CliError('outcome_unknown', undefined, requestId);

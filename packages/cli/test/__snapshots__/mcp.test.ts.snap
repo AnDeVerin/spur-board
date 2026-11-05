@@ -222,20 +222,22 @@ Example: {}",
                 "type": "string",
               },
               "links": {
-                "description": "Links fixed when each entity first joined the task.",
+                "description": "Effective pull request, session, and ticket links.",
                 "items": {
                   "additionalProperties": false,
+                  "description": "An effective link to a task.",
                   "properties": {
                     "kind": {
                       "description": "Linked entity kind.",
                       "enum": [
                         "pr",
                         "session",
+                        "ticket",
                       ],
                       "type": "string",
                     },
                     "ref": {
-                      "description": "Pull request or session identifier.",
+                      "description": "Pull request, session, or ticket identifier.",
                       "minLength": 1,
                       "type": "string",
                     },
@@ -253,7 +255,7 @@ Example: {}",
                           "type": "null",
                         },
                       ],
-                      "description": "Session role; null for a pull request.",
+                      "description": "Session role; null for a pull request or ticket.",
                     },
                   },
                   "required": [
@@ -1398,7 +1400,7 @@ Example: {}",
       "idempotentHint": false,
       "readOnlyHint": true,
     },
-    "description": "Show a task with its blocks and comments.
+    "description": "Show a task with its links, blocks and comments.
 Use when: Inspect one task now.
 When not to use: Use task_history for past events.
 Example: {"task":"PROJ-123"}",
@@ -1678,6 +1680,52 @@ Example: {"task":"PROJ-123"}",
           },
           "type": "array",
         },
+        "links": {
+          "description": "Effective pull request, session, and ticket links.",
+          "items": {
+            "additionalProperties": false,
+            "description": "An effective link to a task.",
+            "properties": {
+              "kind": {
+                "description": "Linked entity kind.",
+                "enum": [
+                  "pr",
+                  "session",
+                  "ticket",
+                ],
+                "type": "string",
+              },
+              "ref": {
+                "description": "Pull request, session, or ticket identifier.",
+                "minLength": 1,
+                "type": "string",
+              },
+              "role": {
+                "anyOf": [
+                  {
+                    "enum": [
+                      "worker",
+                      "other",
+                      "orchestrator",
+                    ],
+                    "type": "string",
+                  },
+                  {
+                    "type": "null",
+                  },
+                ],
+                "description": "Session role; null for a pull request or ticket.",
+              },
+            },
+            "required": [
+              "kind",
+              "ref",
+              "role",
+            ],
+            "type": "object",
+          },
+          "type": "array",
+        },
         "task": {
           "additionalProperties": false,
           "description": "A task on the board.",
@@ -1726,6 +1774,7 @@ Example: {"task":"PROJ-123"}",
       },
       "required": [
         "task",
+        "links",
         "blocks",
         "comments",
       ],
@@ -2902,36 +2951,127 @@ Choose a unique idempotencyKey for each action; reuse it on retries.",
       "idempotentHint": true,
       "readOnlyHint": false,
     },
-    "description": "Link a spur session or a pull request to a task.
-Use when: Attach a session or pull request.
+    "description": "Manually link a pull request, session, or additional ticket to a task.
+Use when: Attach a pull request, session, or additional ticket.
 When not to use: Use link_remove to detach one.
-Example: {"task":"PROJ-123","target":"acme/web#7","idempotencyKey":"link_add-example-001"}
+Example: {"mode":"pr","task":"PROJ-123","pr":"https://github.com/example/web/pull/7","reason":"Attach work started before the ticket was named.","idempotencyKey":"link_add-example-001"}
 Choose a unique idempotencyKey for each action; reuse it on retries.",
     "execution": undefined,
     "icons": undefined,
     "inputSchema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "additionalProperties": false,
-      "properties": {
-        "idempotencyKey": {
-          "description": "Key to reuse when retrying this action.",
-          "minLength": 1,
-          "type": "string",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "idempotencyKey": {
+              "description": "Key to reuse when retrying this action.",
+              "minLength": 1,
+              "type": "string",
+            },
+            "mode": {
+              "const": "pr",
+              "description": "Link a pull request.",
+              "type": "string",
+            },
+            "pr": {
+              "description": "Pull request URL.",
+              "format": "uri",
+              "type": "string",
+            },
+            "reason": {
+              "description": "Why this link is being changed.",
+              "minLength": 1,
+              "type": "string",
+            },
+            "task": {
+              "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42).",
+              "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
+              "type": "string",
+            },
+          },
+          "required": [
+            "mode",
+            "task",
+            "pr",
+            "reason",
+          ],
+          "type": "object",
         },
-        "target": {
-          "description": "What to link: a spur session name, or a pull request as owner/repo#n.",
-          "minLength": 1,
-          "type": "string",
+        {
+          "additionalProperties": false,
+          "properties": {
+            "idempotencyKey": {
+              "description": "Key to reuse when retrying this action.",
+              "minLength": 1,
+              "type": "string",
+            },
+            "mode": {
+              "const": "session",
+              "description": "Link a spur session.",
+              "type": "string",
+            },
+            "reason": {
+              "description": "Why this link is being changed.",
+              "minLength": 1,
+              "type": "string",
+            },
+            "session": {
+              "description": "Spur session ID.",
+              "minLength": 1,
+              "type": "string",
+            },
+            "task": {
+              "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42).",
+              "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
+              "type": "string",
+            },
+          },
+          "required": [
+            "mode",
+            "task",
+            "session",
+            "reason",
+          ],
+          "type": "object",
         },
-        "task": {
-          "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42).",
-          "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
-          "type": "string",
+        {
+          "additionalProperties": false,
+          "properties": {
+            "idempotencyKey": {
+              "description": "Key to reuse when retrying this action.",
+              "minLength": 1,
+              "type": "string",
+            },
+            "mode": {
+              "const": "ticket",
+              "description": "Link an additional tracker ticket.",
+              "type": "string",
+            },
+            "reason": {
+              "description": "Why this link is being changed.",
+              "minLength": 1,
+              "type": "string",
+            },
+            "task": {
+              "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42).",
+              "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
+              "type": "string",
+            },
+            "ticket": {
+              "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42).",
+              "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
+              "type": "string",
+            },
+          },
+          "required": [
+            "mode",
+            "task",
+            "ticket",
+            "reason",
+          ],
+          "type": "object",
         },
-      },
-      "required": [
-        "task",
-        "target",
       ],
       "type": "object",
     },
@@ -2941,7 +3081,7 @@ Choose a unique idempotencyKey for each action; reuse it on retries.",
       "additionalProperties": false,
       "properties": {
         "target": {
-          "description": "What to link: a spur session name, or a pull request as owner/repo#n.",
+          "description": "Pull request, session, or ticket linked to the task.",
           "minLength": 1,
           "type": "string",
         },
@@ -2965,36 +3105,127 @@ Choose a unique idempotencyKey for each action; reuse it on retries.",
       "idempotentHint": true,
       "readOnlyHint": false,
     },
-    "description": "Remove a link between a task and a spur session or a pull request.
-Use when: Detach a linked session or pull request.
+    "description": "Manually remove a pull request, session, or ticket link from a task.
+Use when: Detach a linked pull request, session, or ticket.
 When not to use: Use link_add to attach one.
-Example: {"task":"PROJ-123","target":"web-7","idempotencyKey":"link_remove-example-001"}
+Example: {"mode":"session","task":"PROJ-123","session":"web-7","reason":"Wrong task.","idempotencyKey":"link_remove-example-001"}
 Choose a unique idempotencyKey for each action; reuse it on retries.",
     "execution": undefined,
     "icons": undefined,
     "inputSchema": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "additionalProperties": false,
-      "properties": {
-        "idempotencyKey": {
-          "description": "Key to reuse when retrying this action.",
-          "minLength": 1,
-          "type": "string",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "idempotencyKey": {
+              "description": "Key to reuse when retrying this action.",
+              "minLength": 1,
+              "type": "string",
+            },
+            "mode": {
+              "const": "pr",
+              "description": "Link a pull request.",
+              "type": "string",
+            },
+            "pr": {
+              "description": "Pull request URL.",
+              "format": "uri",
+              "type": "string",
+            },
+            "reason": {
+              "description": "Why this link is being changed.",
+              "minLength": 1,
+              "type": "string",
+            },
+            "task": {
+              "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42).",
+              "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
+              "type": "string",
+            },
+          },
+          "required": [
+            "mode",
+            "task",
+            "pr",
+            "reason",
+          ],
+          "type": "object",
         },
-        "target": {
-          "description": "What to link: a spur session name, or a pull request as owner/repo#n.",
-          "minLength": 1,
-          "type": "string",
+        {
+          "additionalProperties": false,
+          "properties": {
+            "idempotencyKey": {
+              "description": "Key to reuse when retrying this action.",
+              "minLength": 1,
+              "type": "string",
+            },
+            "mode": {
+              "const": "session",
+              "description": "Link a spur session.",
+              "type": "string",
+            },
+            "reason": {
+              "description": "Why this link is being changed.",
+              "minLength": 1,
+              "type": "string",
+            },
+            "session": {
+              "description": "Spur session ID.",
+              "minLength": 1,
+              "type": "string",
+            },
+            "task": {
+              "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42).",
+              "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
+              "type": "string",
+            },
+          },
+          "required": [
+            "mode",
+            "task",
+            "session",
+            "reason",
+          ],
+          "type": "object",
         },
-        "task": {
-          "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42).",
-          "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
-          "type": "string",
+        {
+          "additionalProperties": false,
+          "properties": {
+            "idempotencyKey": {
+              "description": "Key to reuse when retrying this action.",
+              "minLength": 1,
+              "type": "string",
+            },
+            "mode": {
+              "const": "ticket",
+              "description": "Link an additional tracker ticket.",
+              "type": "string",
+            },
+            "reason": {
+              "description": "Why this link is being changed.",
+              "minLength": 1,
+              "type": "string",
+            },
+            "task": {
+              "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42).",
+              "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
+              "type": "string",
+            },
+            "ticket": {
+              "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42).",
+              "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
+              "type": "string",
+            },
+          },
+          "required": [
+            "mode",
+            "task",
+            "ticket",
+            "reason",
+          ],
+          "type": "object",
         },
-      },
-      "required": [
-        "task",
-        "target",
       ],
       "type": "object",
     },
@@ -3004,7 +3235,7 @@ Choose a unique idempotencyKey for each action; reuse it on retries.",
       "additionalProperties": false,
       "properties": {
         "target": {
-          "description": "What to link: a spur session name, or a pull request as owner/repo#n.",
+          "description": "Pull request, session, or ticket linked to the task.",
           "minLength": 1,
           "type": "string",
         },
