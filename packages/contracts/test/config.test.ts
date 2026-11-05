@@ -5,6 +5,7 @@ import { z } from 'zod';
 import {
   COLUMN_IDS,
   DEFAULT_HTTP_PORT,
+  RESERVED_PROJECT,
   type Config,
   configJsonSchema,
   configSchema,
@@ -369,6 +370,14 @@ describe('invalid configs', () => {
     expect(pathLines(error)).toContain(`→ at ${path}`);
   });
 
+  it('rejects the reserved project id with one issue', () => {
+    const result = configSchema.safeParse(validConfig({ id: RESERVED_PROJECT }));
+    expect(result.success).toBe(false);
+    expect(result.error?.issues).toHaveLength(1);
+    expect(result.error?.issues[0]?.path).toEqual(['projects', 0, 'id']);
+    expect(result.error?.issues[0]?.message).toContain('"_board" is reserved');
+  });
+
   it('rejects an unknown root key without a path', () => {
     const error = errorFor(validConfig({}, { bogus: 1 }));
     expect(error).toContain('Unrecognized key: "bogus"');
@@ -376,6 +385,7 @@ describe('invalid configs', () => {
   });
 
   it.each<[string, Record<string, unknown>, Record<string, unknown>]>([
+    ['a project with id board', { id: 'board' }, {}],
     ['time zone UTC', {}, { digest: { tz: 'UTC' } }],
     ['Jira project keys', { tracker: { ...jiraTracker, projectKeys: ['PROJ'] } }, {}],
     ['github-issues with only a label', { tracker: { ...githubTracker, label: 'board' } }, {}],

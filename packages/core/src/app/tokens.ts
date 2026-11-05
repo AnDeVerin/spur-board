@@ -1,6 +1,11 @@
 import { scanTransaction } from './secrets.ts';
 import { createHash } from 'node:crypto';
-import { EVENT_VERSION, eventPayloadSchemas, type EventKind } from '@spur-board/contracts';
+import {
+  EVENT_VERSION,
+  RESERVED_PROJECT,
+  eventPayloadSchemas,
+  type EventKind,
+} from '@spur-board/contracts';
 import type { Kysely } from 'kysely';
 import { toJson } from '../store/json.ts';
 import type { OperatorTokenStatus, Row, Tables } from '../store/schema.ts';
@@ -30,7 +35,7 @@ async function journalToken(
     .insertInto('event')
     .values({
       at: at.toISOString(),
-      project: 'board',
+      project: RESERVED_PROJECT,
       task_id: null,
       kind,
       actor:

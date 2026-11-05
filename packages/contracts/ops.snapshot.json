@@ -1,5 +1,5 @@
 {
-  "version": "4a5d32f7edaaa930961af4e2e38b8eac593bd49d61adeb0fb3189aec424ebb53",
+  "version": "055b042d8b5498804054adb72202d567e8ea11d6c3c9e8538868ff032f5af262",
   "grants": [
     "operator",
     "project-agent",
@@ -2250,6 +2250,7 @@
                     "doorbell_read",
                     "doorbell_undelivered",
                     "inbound_failed",
+                    "inbound_skipped",
                     "from_you_raised",
                     "from_you_cleared",
                     "flag_raised",

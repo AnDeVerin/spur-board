@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import {
   configSchema,
   OPERATIONS,
+  RESERVED_PROJECT,
   type PrFacts,
   type SessionFacts,
   type TicketFacts,
@@ -542,10 +543,10 @@ describe('accepted observation', () => {
     expect(
       await store.db
         .selectFrom('event')
-        .select('kind')
+        .select(['kind', 'project'])
         .where('kind', '=', 'spur_unknown_state')
         .execute(),
-    ).toHaveLength(1);
+    ).toEqual([{ kind: 'spur_unknown_state', project: RESERVED_PROJECT }]);
   });
 
   it('replays the latest linked ticket, PR, and session facts from one task history', async () => {

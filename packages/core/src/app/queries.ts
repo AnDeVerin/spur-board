@@ -50,7 +50,14 @@ export function createQuery(deps: {
       for (const target of targets.length === 0 ? [{ kind: 'missing' as const }] : targets) {
         const decision = authorize(entry.grants, actor, { config, target });
         if (decision.status === 'denied') {
-          await writeDeniedEvent(trx, actor, entry.id, target, new Date(clock.now()).toISOString());
+          await writeDeniedEvent(trx, {
+            config,
+            actor,
+            operation: entry.id,
+            input: parsedInput,
+            target,
+            at: new Date(clock.now()).toISOString(),
+          });
           return { status: 'denied' as const, hint: decision.hint };
         }
       }

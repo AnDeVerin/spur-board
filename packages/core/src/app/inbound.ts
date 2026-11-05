@@ -4,6 +4,7 @@ import {
   EVENT_VERSION,
   ERRORS,
   OPERATIONS,
+  RESERVED_PROJECT,
   conversationRefSchema,
   eventPayloadSchemas,
   inboundEventSchema,
@@ -32,6 +33,7 @@ import { registerAnswerNotification, selectNotificationRecipient } from './doorb
 import { replayOperation } from './commands.ts';
 import { CommandError } from './commands.ts';
 import { commandReply } from './command-replies.ts';
+import { deniedProject } from './denied-event.ts';
 import { raiseItem as raiseOperatorItem, clearItem as clearOperatorItem } from './feed.ts';
 import { dispatchOperation, type OperationRegistry } from './operations.ts';
 import { enqueueConversationClose, enqueueInboundDoorbell } from './outbox.ts';
@@ -96,21 +98,20 @@ async function taskContext(
   trx: Trx,
   event: InboundEvent,
   gateway: string,
-): Promise<{ taskId: number | null; project: string; taskKey: string | null }> {
+): Promise<{ taskId: number | null; project: string | null }> {
   if (!('conversation' in event) || event.conversation === undefined) {
-    return { taskId: null, project: 'board', taskKey: null };
+    return { taskId: null, project: null };
   }
   const row = await trx
     .selectFrom('conversation')
     .leftJoin('task', 'task.id', 'conversation.task_id')
-    .select(['conversation.task_id as taskId', 'task.project', 'task.key'])
+    .select(['conversation.task_id as taskId', 'task.project'])
     .where('conversation.gateway', '=', gateway)
     .where('conversation.ref', '=', event.conversation)
     .executeTakeFirst();
   return {
     taskId: row?.taskId ?? null,
-    project: row?.project ?? 'board',
-    taskKey: row?.key ?? null,
+    project: row?.project ?? null,
   };
 }
 
@@ -149,9 +150,17 @@ async function raiseInboundItem(
   return item;
 }
 
+/** The operation input a parsed query command carries; legacy stored commands carry none. */
+function commandInput(event: UserEvent): unknown {
+  return event.kind === 'command' && event.command?.kind === 'query'
+    ? event.command.input
+    : undefined;
+}
+
 async function deny(
   trx: Trx,
   input: {
+    config: Config;
     event: UserEvent;
     reason: string;
     actor: ActorId;
@@ -171,12 +180,34 @@ async function deny(
     },
     actor: input.actor,
     taskId: context.taskId,
-    project: context.project,
+    project: context.project ?? deniedProject(input.config, input.actor, commandInput(input.event)),
     at: input.at,
   });
   return input.privateResponse
     ? { status: 'denied', response: 'not allowed' }
     : { status: 'ignored' };
+}
+
+/** Journal an inbound message the board does not act on; no gateway response. */
+async function skip(
+  trx: Trx,
+  input: { event: UserEvent; reason: string; actor: ActorId; gateway: string; at: string },
+): Promise<Result> {
+  const context = await taskContext(trx, input.event, input.gateway);
+  await journal(trx, {
+    kind: 'inbound_skipped',
+    payload: {
+      gateway: input.gateway,
+      reason: input.reason,
+      normalizedEvent: input.event,
+      ...('author' in input.event ? { platformUser: input.event.author } : {}),
+    },
+    actor: input.actor,
+    taskId: context.taskId,
+    project: context.project ?? RESERVED_PROJECT,
+    at: input.at,
+  });
+  return { status: 'ignored' };
 }
 
 async function linkedComment(trx: Trx, event: MessageEvent): Promise<Row<'comment'> | undefined> {
@@ -296,7 +327,7 @@ export function createInbound(input: {
   async function processMessage(trx: Trx, event: MessageEvent, at: string): Promise<Result> {
     const conversation = await sourceContext(trx, event, at);
     if (conversation?.block_id === null || conversation === undefined) {
-      return deny(trx, {
+      return skip(trx, {
         event,
         reason: 'Unknown board conversation.',
         actor: 'operator',
@@ -326,7 +357,7 @@ export function createInbound(input: {
     }
     const comment = await linkedComment(trx, event);
     if (comment === undefined || comment.author !== 'operator') {
-      return deny(trx, {
+      return skip(trx, {
         event,
         reason: 'Original operator comment not found.',
         actor: 'system',
@@ -396,6 +427,7 @@ export function createInbound(input: {
       event.name !== config.slack.command
     ) {
       return deny(trx, {
+        config,
         event,
         reason: 'Command name does not match the configured command.',
         actor: 'system',
@@ -405,6 +437,7 @@ export function createInbound(input: {
     }
     if (event.kind !== 'message_deleted' && event.author !== config.operator.slack) {
       return deny(trx, {
+        config,
         event,
         reason: 'Only the configured operator may act.',
         actor: 'system',
@@ -417,6 +450,7 @@ export function createInbound(input: {
       const allowed = event.kind === 'action' ? event.sourceSpace !== null : true;
       if (!allowed)
         return deny(trx, {
+          config,
           event,
           reason: 'Interaction came from outside a board space.',
           actor: 'operator',
@@ -521,7 +555,7 @@ export function createInbound(input: {
         },
         actor: 'system',
         taskId: context.taskId,
-        project: context.project,
+        project: context.project ?? RESERVED_PROJECT,
         at,
       });
       await raiseInboundItem(trx, {
