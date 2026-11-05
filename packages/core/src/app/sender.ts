@@ -1,4 +1,4 @@
-import { scanTransaction } from './secrets.ts';
+import { SCAN_PENDING, scanTransaction } from './secrets.ts';
 // Delivers outbox rows: claim in one transaction, stamp the send's start, IO outside any
 // transaction, record the result in another. The daemon calls `recover()` once on start, then
 // `tick()` on its schedule.
@@ -23,6 +23,7 @@ import {
   OUTBOX_KINDS,
   outboxBodySchema,
   renderBody,
+  rescanStoredPost,
   type DeliveredRef,
   type OutboxBody,
 } from './outbox.ts';
@@ -113,7 +114,9 @@ async function setComment(
 
 /**
  * Returns the `post_failed` rows among `ids` to `pending` with a fresh retry window, and their
- * comments to `pending`. Returns how many rows it requeued.
+ * comments to `pending`. Each stored payload is scanned again first: a row that now looks like a
+ * secret goes `dead` unsent, handled as a blocked post at insert. Returns how many rows left
+ * `post_failed`.
  */
 export async function requeuePostFailed(
   trx: Trx,
@@ -121,18 +124,41 @@ export async function requeuePostFailed(
   nowIso: string,
 ): Promise<number> {
   if (ids.length === 0) return 0;
+  const failed = await trx
+    .selectFrom('outbox')
+    .select(['id', 'kind', 'dedupe_key', 'payload'])
+    .where('id', 'in', ids)
+    .where('state', '=', 'post_failed')
+    .execute();
+  const clean: number[] = [];
+  for (const row of failed) {
+    const kind = OUTBOX_KINDS.find((candidate) => candidate === row.kind);
+    const rule =
+      kind === undefined ? null : await rescanStoredPost(trx, { ...row, kind }, new Date(nowIso));
+    if (rule === SCAN_PENDING) continue;
+    if (rule === null) {
+      clean.push(row.id);
+      continue;
+    }
+    await trx
+      .updateTable('outbox')
+      .set({ state: 'dead', last_error: `blocked: looks like a secret (${rule})` })
+      .where('id', '=', row.id)
+      .execute();
+  }
+  // A pending scan re-runs the whole transaction, so the count is only read once it is complete.
+  if (clean.length === 0) return failed.length;
   const rows = await trx
     .updateTable('outbox')
     .set({ state: 'pending', first_attempt_at: null, next_at: nowIso })
-    .where('id', 'in', ids)
-    .where('state', '=', 'post_failed')
+    .where('id', 'in', clean)
     .returning(['kind', 'payload'])
     .execute();
   for (const row of rows) {
     const body = parseBody(row);
     if (typeof body !== 'string') await setComment(trx, body, { delivery_state: 'pending' });
   }
-  return rows.length;
+  return failed.length;
 }
 
 function backoff(attempts: number): number {

@@ -343,6 +343,63 @@ describe('item.retry and item.close', () => {
     });
   });
 
+  it('scans a failed post again and keeps a secret unsent on retry and restart', async () => {
+    const secret = ['xoxb', '123', 'abc'].join('-');
+    for (const path of ['retry', 'recover'] as const) {
+      const ctx = await setup();
+      await ctx.apply(blocks.ask, { task: KEY, text: 'Which release?' }, AGENT, `ask-${path}`);
+      ctx.gateway.platform.failNextPermanently({ scope: 'message' });
+      await ctx.sender.tick();
+      await ctx.tick();
+      const open = await ctx.store.db
+        .selectFrom('outbox')
+        .selectAll()
+        .where('kind', '=', 'conversation.open')
+        .executeTakeFirstOrThrow();
+      expect(open.state).toBe('post_failed');
+      // The stored text now matches a rule, as after a scanner update.
+      await ctx.store.transaction((trx) =>
+        trx
+          .updateTable('outbox')
+          .set({ payload: open.payload.replace('Which release?', secret) })
+          .where('id', '=', open.id)
+          .execute(),
+      );
+      if (path === 'retry') {
+        const failed = await ctx.store.db
+          .selectFrom('operator_item')
+          .select('id')
+          .where('item_key', '=', `delivery:${String(open.id)}`)
+          .executeTakeFirstOrThrow();
+        await ctx.retry(`I${String(failed.id)}`, 'retry-secret');
+        expect((await item(ctx, failed.id)).cleared_at).not.toBeNull();
+      } else {
+        await ctx.sender.recover();
+      }
+      const row = await ctx.store.db
+        .selectFrom('outbox')
+        .selectAll()
+        .where('id', '=', open.id)
+        .executeTakeFirstOrThrow();
+      expect(row.state).toBe('dead');
+      expect(row.last_error).toMatch(/^blocked: looks like a secret/);
+      const comment = await ctx.store.db
+        .selectFrom('comment')
+        .select('delivery_state')
+        .executeTakeFirstOrThrow();
+      expect(comment.delivery_state).toBe('post_blocked');
+      const blocked = await ctx.store.db
+        .selectFrom('operator_item')
+        .selectAll()
+        .where('kind', '=', 'post_blocked')
+        .executeTakeFirstOrThrow();
+      expect(blocked.text).not.toContain(secret);
+      ctx.advance(60_000);
+      await ctx.sender.tick();
+      expect(ctx.gateway.platform.messages().filter((m) => m.text.includes(secret))).toEqual([]);
+    }
+  });
+
   it('closes a failed post so no restart resends it', async () => {
     const ctx = await setup();
     await ctx.apply(blocks.ask, { task: KEY, text: 'Which release?' }, AGENT, 'ask-closed');
