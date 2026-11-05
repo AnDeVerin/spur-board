@@ -63,21 +63,19 @@ describe('live conformance process preflight', () => {
     ).rejects.toThrow(/BOARD_LIVE_CHANNEL_NAME/);
   });
 
-  it('rejects configured destinations without printing the channel or tokens', () => {
+  it('rejects configured destinations without exposing the channel or tokens', async () => {
     const testHome = home({
       config: `${VALID_CONFIG_YAML}\nslack:\n  channels:\n    feed: CTEST00000`,
       secrets: 'SLACK_BOT_TOKEN=bot-secret-canary\nSLACK_APP_TOKEN=app-secret-canary\n',
     });
-    const result = run({
+    const settings = liveSettings({
       BOARD_HOME: testHome,
       BOARD_LIVE_CHANNEL: 'CTEST00000',
       BOARD_LIVE_CHANNEL_NAME: 'conformance-test',
     });
-    expect(result.status).not.toBe(0);
-    expect(result.stderr).toContain('test channel must differ');
-    expect(result.stdout + result.stderr).not.toContain('CTEST00000');
-    expect(result.stdout + result.stderr).not.toContain('bot-secret-canary');
-    expect(result.stdout + result.stderr).not.toContain('app-secret-canary');
+    await expect(settings).rejects.toThrow(
+      /^The test channel must differ from configured destinations\.$/,
+    );
   });
 
   it('rejects missing tokens and API overrides before any network call', async () => {
@@ -119,6 +117,28 @@ describe('live conformance process preflight', () => {
     expect(result.stdout + result.stderr).not.toContain('CTEST00000');
     expect(result.stdout + result.stderr).not.toContain('conformance-test');
     expect(result.stdout + result.stderr).not.toContain('bot-secret-canary');
+  });
+
+  it('refuses non-interactive input before reading local config or secrets', () => {
+    const testHome = home({ config: null });
+    const sentinel = join(testHome, 'network-attempted');
+    const preload = join(testHome, 'block-network.cjs');
+    writeFileSync(
+      preload,
+      "const net = require('node:net'); const fs = require('node:fs'); net.Socket.prototype.connect = function () { fs.writeFileSync(process.env.BOARD_NETWORK_SENTINEL, 'attempt'); throw new Error('network blocked'); };",
+    );
+    const result = run({
+      BOARD_HOME: testHome,
+      BOARD_LIVE_CHANNEL: 'CTEST00000',
+      BOARD_LIVE_CHANNEL_NAME: 'conformance-test',
+      BOARD_NETWORK_SENTINEL: sentinel,
+      NODE_OPTIONS: `--require=${preload}`,
+    });
+    expect(result.status).toBe(1);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toBe('Live conformance requires an interactive terminal.\n');
+    expect(existsSync(sentinel)).toBe(false);
+    expect(result.stderr).not.toContain(testHome);
   });
 
   it('requires an exact private channel metadata match', async () => {

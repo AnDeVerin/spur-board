@@ -148,11 +148,11 @@ export function formatLiveReport(report: LiveRunReport): string {
 async function main(): Promise<number> {
   let terminal: ReturnType<typeof createInterface> | undefined;
   try {
-    const settings = await liveSettings(process.env);
-    const caseIds = selectedLiveCases(process.argv.slice(2));
-    if (!process.stdin.isTTY) {
+    if (!process.stdin.isTTY && process.env['CI'] !== 'true') {
       throw new PreflightError('Live conformance requires an interactive terminal.');
     }
+    const settings = await liveSettings(process.env);
+    const caseIds = selectedLiveCases(process.argv.slice(2));
     const { createApi } = await import('../packages/gateway-slack/src/api.ts');
     const api = createApi({ token: settings.token });
     await verifyLiveChannel(settings, (channel) => api.conversations.info({ channel }));
