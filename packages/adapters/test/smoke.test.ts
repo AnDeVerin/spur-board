@@ -78,6 +78,7 @@ function fixture(
     secretInFacts?: string;
     secretInSpurLink?: string;
     mixedSecretInSpurLink?: string;
+    invalidUtf8SecretInSpurLink?: string;
   } = {},
 ) {
   const calls: { url: URL; method: string }[] = [];
@@ -272,6 +273,18 @@ function fixture(
                     ],
                   },
                 }),
+            ...(options.invalidUtf8SecretInSpurLink === undefined
+              ? {}
+              : {
+                  slots: {
+                    links: [
+                      {
+                        label: 'invalid-utf8',
+                        url: `https://example.test/${options.invalidUtf8SecretInSpurLink.replaceAll(' ', '%20')}%C3`,
+                      },
+                    ],
+                  },
+                }),
           },
         ]),
       );
@@ -461,6 +474,20 @@ describe('adapter smoke', () => {
           },
         },
       ],
+    });
+  });
+
+  it('redacts a secret adjacent to an invalid UTF-8 escape run', async () => {
+    const value = 'a/b ';
+    const encoded = 'a/b%20%C3';
+    const result = await run(fixture({ invalidUtf8SecretInSpurLink: value }), {
+      secrets: { ...secrets, EXTRA: value },
+    });
+    expect(result.code).toBe(0);
+    expect(result.err).toBe('');
+    expect(result.out).not.toContain(encoded);
+    expect(result.records.find((record) => record['source'] === 'spur')).toMatchObject({
+      items: [{ facts: { links: { 'invalid-utf8': '[REDACTED]' } } }],
     });
   });
 
