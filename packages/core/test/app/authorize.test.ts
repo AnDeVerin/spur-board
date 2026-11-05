@@ -4,18 +4,23 @@ import { join } from 'node:path';
 import {
   COLUMN_IDS,
   OPERATIONS,
+  RESERVED_PROJECT,
   configSchema,
   type ActorId,
   type BlockType,
 } from '@spur-board/contracts';
 import { afterEach, describe, expect, it } from 'vitest';
+import { z } from 'zod';
+import { deniedProject } from '../../src/app/denied-event.ts';
 import {
   CommandError,
   authorize,
   createApply,
+  createQuery,
   openStore,
   type AuthorizationTarget,
   type Mutation,
+  type Query,
   type Store,
 } from '../../src/index.ts';
 import { sampleRows } from '../store/sample-rows.ts';
@@ -209,6 +214,43 @@ describe('authorize catalog grants', () => {
     expect(authorize(unblock.grants, actors.orchestrator, state('external', 'reason')).status).toBe(
       'denied',
     );
+  });
+
+  it('classifies every operation input key as a project hint or not', () => {
+    const HINT = ['task', 'project'];
+    const NOT_HINT = [
+      'role',
+      'entries',
+      'name',
+      'mode',
+      'pr',
+      'session',
+      'ticket',
+      'reason',
+      'item',
+      'text',
+      'comment',
+      'type',
+      'block',
+      'ref',
+      'answer',
+    ];
+    const keys = new Set<string>();
+    for (const entry of OPERATIONS) {
+      const input: z.ZodType = entry.input;
+      const shapes =
+        input instanceof z.ZodObject
+          ? [input]
+          : input instanceof z.ZodDiscriminatedUnion
+            ? (input.options as z.ZodObject[])
+            : [];
+      expect(shapes, `${entry.id} input is an object or a union of objects`).not.toHaveLength(0);
+      for (const shape of shapes) for (const key of Object.keys(shape.shape)) keys.add(key);
+    }
+    expect(
+      [...keys].filter((key) => !HINT.includes(key) && !NOT_HINT.includes(key)),
+      'classify each new input key: a project hint goes in HINT and in deniedProject',
+    ).toEqual([]);
   });
 });
 
@@ -562,5 +604,108 @@ describe('authorization at the command boundary', () => {
     ).rejects.toMatchObject({ code: 'wrong_block_type' });
     expect(await store.db.selectFrom('event').selectAll().execute()).toHaveLength(0);
     expect(await store.db.selectFrom('command').selectAll().execute()).toHaveLength(0);
+  });
+});
+
+describe('target-less denial project', () => {
+  const stranger = 'agent:stranger/s-1';
+  const rows = (store: Store) =>
+    store.db
+      .selectFrom('event')
+      .select(['kind', 'project', 'task_id', 'actor'])
+      .orderBy('id')
+      .execute();
+
+  it('journals under the project the task key names', async () => {
+    const store = await seeded();
+    const apply = createApply({ store, clock, config });
+    await expect(apply(taskless, { task: 'x/y#5' }, actors.same, 'D1')).rejects.toMatchObject({
+      code: 'forbidden',
+    });
+    expect(await rows(store)).toEqual([
+      { kind: 'operation_denied', project: 'other', task_id: null, actor: 'agent' },
+    ]);
+  });
+
+  it('uses a configured project input and falls through on an unconfigured one', () => {
+    expect(deniedProject(config, actors.same, { project: 'other' })).toBe('other');
+    expect(deniedProject(config, actors.same, { project: 'nope' })).toBe('proj');
+    expect(deniedProject(config, stranger, { project: 'nope' })).toBe(RESERVED_PROJECT);
+    expect(deniedProject(config, 'operator', undefined)).toBe(RESERVED_PROJECT);
+    expect(deniedProject(config, stranger, 'o/r#1')).toBe(RESERVED_PROJECT);
+    expect(deniedProject(config, stranger, { task: 7, project: null })).toBe(RESERVED_PROJECT);
+  });
+
+  it("journals under the actor's only board project", async () => {
+    const store = await seeded();
+    const apply = createApply({ store, clock, config });
+    await expect(apply(taskless, { task: 'zz/q#1' }, actors.same, 'D2')).rejects.toMatchObject({
+      code: 'forbidden',
+    });
+    const tokenList: Query<'token.list'> = {
+      id: 'token.list',
+      resolveTargets: () => Promise.resolve([]),
+      run: () => Promise.reject(new Error('must not run')),
+    };
+    await expect(
+      createQuery({ store, clock, config })(tokenList, {}, actors.same),
+    ).rejects.toMatchObject({ code: 'forbidden' });
+    expect(await rows(store)).toEqual([
+      { kind: 'operation_denied', project: 'proj', task_id: null, actor: 'agent' },
+      { kind: 'operation_denied', project: 'proj', task_id: null, actor: 'agent' },
+    ]);
+  });
+
+  it('falls back to the reserved project', async () => {
+    const store = await seeded();
+    await expect(
+      createApply({ store, clock, config })(taskless, { task: 'zz/q#1' }, stranger, 'D3'),
+    ).rejects.toMatchObject({ code: 'forbidden' });
+    const shared = configSchema.parse({
+      ...config,
+      projects: config.projects.map((project) => ({
+        ...project,
+        spurProjects: [...project.spurProjects, { name: 'shared', role: 'worker' }],
+      })),
+    });
+    await expect(
+      createApply({ store, clock, config: shared })(
+        taskless,
+        { task: 'zz/q#1' },
+        'agent:shared/s-1',
+        'D4',
+      ),
+    ).rejects.toMatchObject({ code: 'forbidden' });
+    expect(await rows(store)).toEqual([
+      { kind: 'operation_denied', project: RESERVED_PROJECT, task_id: null, actor: 'agent' },
+      { kind: 'operation_denied', project: RESERVED_PROJECT, task_id: null, actor: 'agent' },
+    ]);
+  });
+
+  it('never journals a target-less denial under a configured board project', async () => {
+    const store = await seeded();
+    const withBoard = configSchema.parse({
+      ...config,
+      projects: [
+        ...config.projects,
+        {
+          id: 'board',
+          tracker: { type: 'github-issues', repo: 'b/c', milestone: 'M1' },
+          repos: ['b/c'],
+          operatorGithubLogin: 'operator',
+        },
+      ],
+    });
+    const apply = createApply({ store, clock, config: withBoard });
+    await expect(apply(taskless, { task: 'zz/q#1' }, stranger, 'D5')).rejects.toMatchObject({
+      code: 'forbidden',
+    });
+    await expect(apply(taskless, { task: 'b/c#1' }, stranger, 'D6')).rejects.toMatchObject({
+      code: 'forbidden',
+    });
+    const [unmapped, named] = await rows(store);
+    expect(unmapped?.project).toBe(RESERVED_PROJECT);
+    expect(unmapped?.project).not.toBe('board');
+    expect(named?.project).toBe('board');
   });
 });

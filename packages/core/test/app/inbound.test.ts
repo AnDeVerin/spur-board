@@ -4,6 +4,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
+  RESERVED_PROJECT,
   configSchema,
   ERRORS,
   OPERATIONS,
@@ -317,8 +318,27 @@ describe('inbound apply', () => {
       sourceSpace: 'feed',
     });
     expect(
-      (await store.db.selectFrom('event').select('kind').execute()).map((row) => row.kind),
-    ).toEqual(['operation_denied', 'operation_denied', 'operation_denied']);
+      await store.db
+        .selectFrom('event')
+        .select(['kind', 'project', 'task_id', 'actor'])
+        .orderBy('id')
+        .execute(),
+    ).toEqual([
+      { kind: 'inbound_skipped', project: RESERVED_PROJECT, task_id: null, actor: 'operator' },
+      { kind: 'operation_denied', project: RESERVED_PROJECT, task_id: null, actor: 'system' },
+      { kind: 'operation_denied', project: 'proj', task_id: 1, actor: 'system' },
+    ]);
+    const skipped = await store.db
+      .selectFrom('event')
+      .select('payload')
+      .where('kind', '=', 'inbound_skipped')
+      .executeTakeFirstOrThrow();
+    const skippedPayload = JSON.parse(skipped.payload) as Record<string, unknown>;
+    expect(skippedPayload).toMatchObject({
+      gateway: gateway.kind,
+      reason: 'Unknown board conversation.',
+    });
+    expect(skippedPayload).not.toHaveProperty('operation');
     expect(await store.db.selectFrom('comment').select('id').execute()).toEqual([]);
     expect(
       await store.db.selectFrom('block').select('state').where('id', '=', 1).executeTakeFirst(),
@@ -535,7 +555,22 @@ describe('inbound apply', () => {
         .select('kind')
         .where('kind', '=', 'operation_denied')
         .execute(),
-    ).toHaveLength(2);
+    ).toHaveLength(0);
+    const skipped = await store.db
+      .selectFrom('event')
+      .select(['project', 'task_id', 'actor', 'payload'])
+      .where('kind', '=', 'inbound_skipped')
+      .orderBy('id')
+      .execute();
+    expect(skipped.map(({ project, task_id, actor }) => ({ project, task_id, actor }))).toEqual([
+      { project: 'proj', task_id: 1, actor: 'system' },
+      { project: 'proj', task_id: 1, actor: 'system' },
+    ]);
+    for (const row of skipped) {
+      expect(JSON.parse(row.payload)).toMatchObject({
+        reason: 'Original operator comment not found.',
+      });
+    }
     expect(
       await store.db
         .selectFrom('comment')
@@ -964,10 +999,11 @@ describe('inbound apply', () => {
     expect(run).not.toHaveBeenCalled();
     const deniedEvents = await store.db
       .selectFrom('event')
-      .select(['kind', 'payload'])
+      .select(['kind', 'project', 'payload'])
       .where('kind', '=', 'operation_denied')
       .execute();
     expect(deniedEvents).toHaveLength(1);
+    expect(deniedEvents[0]?.project).toBe(RESERVED_PROJECT);
     expect(JSON.parse(deniedEvents[0]?.payload ?? '{}')).toMatchObject({
       operation: 'inbound.command',
       platformUser: 'another',
@@ -979,6 +1015,22 @@ describe('inbound apply', () => {
         .where('key', '=', deniedCommand.dedupeKey)
         .execute(),
     ).toEqual([{ key: 'denied-command', operation: 'task.get' }]);
+  });
+
+  it('journals a denied command under the project its task names', async () => {
+    const { store, inbound } = await setup();
+    await inbound.sink({
+      kind: 'command',
+      dedupeKey: 'denied-task-command',
+      interaction: interactionRefSchema.parse('denied-task-command'),
+      author: userIdSchema.parse('another'),
+      text: 'task o/r#5',
+      command: { kind: 'query', id: 'task.get', input: { task: 'o/r#5' } },
+      sourceUrl: 'https://example.test/command',
+    });
+    expect(
+      await store.db.selectFrom('event').select(['kind', 'project', 'task_id', 'actor']).execute(),
+    ).toEqual([{ kind: 'operation_denied', project: 'proj', task_id: null, actor: 'system' }]);
   });
 
   it('returns private usage without dispatching a malformed command', async () => {
@@ -1091,8 +1143,8 @@ describe('inbound apply', () => {
       .where('kind', '=', 'feed.line')
       .executeTakeFirstOrThrow();
     expect(JSON.parse(feed.payload)).toMatchObject({
-      key: 'board',
-      title: 'board: Slack message not processed',
+      key: 'spur-board',
+      title: 'spur-board: Slack message not processed',
     });
     const legacy = JSON.parse(item?.inbound_event_json ?? '{}') as Record<string, unknown>;
     delete legacy.command;
@@ -1152,8 +1204,8 @@ describe('inbound apply', () => {
       .orderBy('id', 'desc')
       .executeTakeFirstOrThrow();
     expect(JSON.parse(boardLine.payload)).toMatchObject({
-      key: 'board',
-      title: 'board: repeat your answer',
+      key: 'spur-board',
+      title: 'spur-board: repeat your answer',
     });
     await scanTransaction(store, (trx) => clearOperatorItem(trx, 2, new Date(at)));
     expect(

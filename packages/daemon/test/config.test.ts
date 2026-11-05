@@ -99,6 +99,14 @@ describe('loadConfig', () => {
     );
   });
 
+  it('refuses the reserved project id', () => {
+    const message = configError(
+      makeHome({ config: VALID_CONFIG_YAML.replace('id: board', 'id: _board') }),
+    );
+    expect(message).toContain('  projects.0.id: "_board" is reserved');
+    expect(message).not.toContain('Expected lowercase');
+  });
+
   it('refuses a secrets.env readable by others', () => {
     const home = makeHome({ secrets: SECRETS_TEXT });
     chmodSync(join(home, 'secrets.env'), 0o644);

@@ -58,6 +58,10 @@ describe('error catalog', () => {
   it.each(Object.entries(ERRORS))('%s has a printable ASCII message and hint', (_, entry) => {
     expect(entry.message).toMatch(/^[\x20-\x7e]+$/);
     expect(entry.hint).toMatch(/^[\x20-\x7e]+$/);
+    if (entry.mcp) {
+      expect(entry.mcp.hint).toMatch(/^[\x20-\x7e]+$/);
+      expect(entry.mcp.recovery.action).toMatch(/^[\x20-\x7e]+$/);
+    }
   });
 
   it.each(Object.entries(ERRORS))('%s has complete recovery and a docs path', (code, entry) => {
@@ -256,6 +260,47 @@ describe('error representations', () => {
       delete process.env.SPUR_TEST_SECRET;
     }
   });
+
+  it('renders the MCP hint for version_mismatch only in MCP errors', () => {
+    const spec = ERRORS.version_mismatch;
+    expect(spec.mcp?.hint).toContain('Restart your agent session');
+    expect(spec.mcp?.recovery).toMatchObject({ sideEffects: 'none', maxRetries: 0 });
+    const input = {
+      code: 'version_mismatch' as const,
+      requestId: 'req-v',
+      context: { clientVersion: 'a'.repeat(64), serverVersion: 'b'.repeat(64) },
+    };
+    const mcp = renderMcpError(input);
+    expect(mcp.structuredContent.hint).toBe(spec.mcp?.hint);
+    expect(mcp.structuredContent.recovery).toEqual(spec.mcp?.recovery);
+    expect(mcp.structuredContent.context).toEqual(input.context);
+    expect(mcp.content[0]?.text).toContain(`fix: ${String(spec.mcp?.hint)}`);
+    expect(mcp.content[0]?.text).toContain(`recovery: ${String(spec.mcp?.recovery.action)}`);
+    expect(renderJsonError(input).error.hint).toBe(spec.hint);
+    expect(renderHttpProblem(input).body.hint).toBe(spec.hint);
+    expect(renderStderrError(input)).toContain(`fix: ${spec.hint}`);
+    expect(renderStderrError(input)).not.toContain('agent session');
+  });
+
+  it.each(Object.keys(ERRORS).filter((code) => code !== 'version_mismatch'))(
+    '%s renders MCP like JSON and stderr',
+    (code) => {
+      const input = {
+        code: code as keyof typeof ERRORS,
+        requestId: 'req-same',
+        context: { configPath: '/tmp/config.yaml' },
+      };
+      const mcp = renderMcpError(input);
+      expect(mcp.content[0]?.text).toBe(renderStderrError(input));
+      expect(mcp.structuredContent).toEqual(renderJsonError(input).error);
+      expect(mcp.structuredContent).not.toHaveProperty('mcp');
+      expect(renderJsonError(input).error).not.toHaveProperty('mcp');
+      if (ERRORS[input.code].status !== null)
+        expect(
+          renderHttpProblem(input as typeof input & { code: 'usage' }).body,
+        ).not.toHaveProperty('mcp');
+    },
+  );
 });
 
 describe('generated error documentation', () => {
@@ -278,7 +323,12 @@ describe('generated error documentation', () => {
       expect(section).toContain(`Retry: maximum ${String(spec.recovery.maxRetries)}`);
       expect(section).toContain('req-example-123');
       expect(section).toContain('```json');
+      if (spec.mcp) {
+        expect(section).toContain(`MCP hint: ${spec.mcp.hint}  \n`);
+        expect(section).toContain(`MCP recovery: ${spec.mcp.recovery.action}  \n`);
+      }
     }
+    expect(rendered).toContain('MCP hint: Restart your agent session');
   });
 });
 

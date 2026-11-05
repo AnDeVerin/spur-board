@@ -1,5 +1,6 @@
 import {
   EVENT_VERSION,
+  RESERVED_PROJECT,
   eventPayloadSchemas,
   parseActorId,
   type ActorId,
@@ -12,6 +13,8 @@ import { enqueueFeedEdit, enqueueFeedLine } from './outbox.ts';
 type Trx = Kysely<Tables>;
 
 const NO_FEED = new Set(['post_failed', 'answer_undelivered', 'transport_health']);
+/** Display label of a feed line with no task; not part of the line's identity. */
+const TASKLESS_FEED_KEY = 'spur-board';
 
 async function journal(
   trx: Trx,
@@ -35,7 +38,7 @@ async function journal(
     .insertInto('event')
     .values({
       at: at.toISOString(),
-      project: task?.project ?? 'board',
+      project: task?.project ?? RESERVED_PROJECT,
       task_id: item.task_id,
       kind,
       actor: parsed.actor,
@@ -113,7 +116,7 @@ export async function raiseItem(
             .select('key')
             .where('id', '=', item.task_id)
             .executeTakeFirstOrThrow();
-    const key = task?.key ?? 'board';
+    const key = task?.key ?? TASKLESS_FEED_KEY;
     const line = await enqueueFeedLine(trx, {
       itemId: item.id,
       itemKey: item.item_key,
@@ -197,7 +200,7 @@ export async function clearItem(
     itemKey: item.item_key,
     raise: item.raise_no,
     lineId: item.line_outbox_id,
-    key: task?.key ?? 'board',
+    key: task?.key ?? TASKLESS_FEED_KEY,
     taskId: item.task_id,
     at,
   });

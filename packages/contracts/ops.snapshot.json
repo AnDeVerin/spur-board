@@ -1,5 +1,5 @@
 {
-  "version": "b406b032a66b32f81a6db039094fcc46b6dfb3689e816d9f352e017feecb5c3a",
+  "version": "055b042d8b5498804054adb72202d567e8ea11d6c3c9e8538868ff032f5af262",
   "grants": [
     "operator",
     "project-agent",
@@ -433,6 +433,15 @@
         "sideEffects": "none",
         "maxRetries": 0,
         "retryTiming": "After fixing the cause."
+      },
+      "mcp": {
+        "hint": "Restart your agent session so `board mcp` loads the daemon's catalog; if the mismatch remains, run `board service restart`.",
+        "recovery": {
+          "action": "Restart your agent session; if the mismatch remains, run `board service restart`. Then retry the tool call.",
+          "sideEffects": "none",
+          "maxRetries": 0,
+          "retryTiming": "After fixing the cause."
+        }
       },
       "docs": "docs/errors.md#version_mismatch",
       "context": {
@@ -2241,6 +2250,7 @@
                     "doorbell_read",
                     "doorbell_undelivered",
                     "inbound_failed",
+                    "inbound_skipped",
                     "from_you_raised",
                     "from_you_cleared",
                     "flag_raised",

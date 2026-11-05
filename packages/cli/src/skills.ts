@@ -253,6 +253,7 @@ async function installIntoHome(
   options: InstallSkillsOptions,
   env: NodeJS.ProcessEnv,
 ): Promise<SkillInstallResult[]> {
+  // Parents are checked here, not pinned: see "Accepted risks" in AGENTS.md.
   const targets = await Promise.all(
     agents.map(async (agent) => {
       const configured = agent === '.codex' ? env['CODEX_HOME'] : undefined;

@@ -1,5 +1,13 @@
 import { spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -10,16 +18,21 @@ const SCRIPT = fileURLToPath(new URL('./gitleaks.sh', import.meta.url));
 interface Fake {
   output: string;
   exit: number;
+  killParent?: true;
 }
 
-// Writes a fake executable that records its arguments and the safe.directory setting it
-// sees, prints `output` and exits with `exit`.
+// Writes a fake executable that records its arguments, the safe.directory setting and the
+// TMPDIR entries it sees, prints `output` and exits with `exit`. `killParent` sends SIGTERM
+// to the shell that started it.
 function fakeBin(dir: string, name: string, fake: Fake): void {
   writeFileSync(
     join(dir, name),
     [
       '#!/bin/sh',
       `printf '%s\\n' "$@" "safe=$GIT_CONFIG_KEY_0=$GIT_CONFIG_VALUE_0" > '${join(dir, `${name}.args`)}'`,
+      `ls -A "$TMPDIR" > '${join(dir, `${name}.tmpdir`)}'`,
+      // $PPID is the script's own shell only while gitleaks is not run inside $(...).
+      ...(fake.killParent ? ['kill -TERM "$PPID"'] : []),
       `printf '%s\\n' '${fake.output}'`,
       `exit ${String(fake.exit)}`,
     ].join('\n'),
@@ -38,9 +51,14 @@ const SCANNED: Fake = { output: '8:16PM INF 1 commits scanned.', exit: 0 };
 // Runs scripts/gitleaks.sh with fake `git` and `gitleaks` first on PATH.
 function scan(opts: { git?: Fake; gitleaks?: Fake; logOpts?: string } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'gitleaks-sh-'));
+  const tmp = join(dir, 'tmp');
+  mkdirSync(tmp);
   fakeBin(dir, 'git', opts.git ?? RANGE_OK);
   fakeBin(dir, 'gitleaks', opts.gitleaks ?? SCANNED);
-  const env: Record<string, string> = { PATH: `${dir}:${process.env['PATH'] ?? ''}` };
+  const env: Record<string, string> = {
+    PATH: `${dir}:${process.env['PATH'] ?? ''}`,
+    TMPDIR: tmp,
+  };
   if (opts.logOpts !== undefined) env['GITLEAKS_LOG_OPTS'] = opts.logOpts;
   const result = spawnSync('sh', [SCRIPT], { cwd: dir, env, encoding: 'utf8' });
   return {
@@ -49,12 +67,30 @@ function scan(opts: { git?: Fake; gitleaks?: Fake; logOpts?: string } = {}) {
     git: argsOf(dir, 'git'),
     gitleaks: argsOf(dir, 'gitleaks'),
     dir,
+    seen: seenBy(dir, 'gitleaks'),
+    leftovers: readdirSync(tmp),
   };
+}
+
+// The TMPDIR entries a fake saw while it ran; [] when it did not run or saw none.
+function seenBy(dir: string, name: string): string[] {
+  const file = join(dir, `${name}.tmpdir`);
+  if (!existsSync(file)) return [];
+  const text = readFileSync(file, 'utf8').trim();
+  return text === '' ? [] : text.split('\n');
+}
+
+// The script's temp file was in the test's TMPDIR while gitleaks ran and is gone after.
+function expectTempRemoved(r: { seen: string[]; leftovers: string[] }): void {
+  expect(r.seen).toHaveLength(1);
+  expect(r.leftovers).toEqual([]);
 }
 
 describe('scripts/gitleaks.sh', () => {
   it('passes when gitleaks scanned commits and found nothing', () => {
-    expect(scan().status).toBe(0);
+    const r = scan();
+    expect(r.status).toBe(0);
+    expectTempRemoved(r);
   });
 
   it('passes a valid range that scans 0 commits, such as a deletion-only change', () => {
@@ -71,6 +107,7 @@ describe('scripts/gitleaks.sh', () => {
     });
     expect(r.status).toBe(1);
     expect(r.stderr).toContain('gitleaks logged an error');
+    expectTempRemoved(r);
   });
 
   it('fails closed without running gitleaks when git log fails on the range', () => {
@@ -87,7 +124,15 @@ describe('scripts/gitleaks.sh', () => {
   });
 
   it('keeps the gitleaks exit code when it finds a leak', () => {
-    expect(scan({ gitleaks: { output: 'WRN leaks found: 1', exit: 1 } }).status).toBe(1);
+    const r = scan({ gitleaks: { output: 'WRN leaks found: 1', exit: 1 } });
+    expect(r.status).toBe(1);
+    expectTempRemoved(r);
+  });
+
+  it('removes its temp file when terminated by SIGTERM', () => {
+    const r = scan({ gitleaks: { ...SCANNED, killParent: true } });
+    expect(r.status).toBe(143);
+    expectTempRemoved(r);
   });
 
   it('passes the log options to gitleaks as one argument and to git log as flags', () => {

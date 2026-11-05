@@ -171,6 +171,11 @@ const samples: { [K in EventKind]: Extract<JournalEvent, { kind: K }> } = {
     kind: 'inbound_failed',
     payload: { gateway: 'slack', reason: 'bad signature' },
   },
+  inbound_skipped: {
+    ...base,
+    kind: 'inbound_skipped',
+    payload: { gateway: 'slack', reason: 'Unknown board conversation.' },
+  },
   from_you_raised: { ...base, kind: 'from_you_raised', payload: { item: 'item-1' } },
   from_you_cleared: { ...base, kind: 'from_you_cleared', payload: { item: 'item-1' } },
   flag_raised: {
@@ -192,8 +197,8 @@ const samples: { [K in EventKind]: Extract<JournalEvent, { kind: K }> } = {
 };
 
 describe('event kinds', () => {
-  it('has a payload schema for each of the 36 kinds', () => {
-    expect(EVENT_KINDS).toHaveLength(36);
+  it('has a payload schema for each of the 37 kinds', () => {
+    expect(EVENT_KINDS).toHaveLength(37);
     expect(Object.keys(eventPayloadSchemas).sort()).toEqual([...EVENT_KINDS].sort());
   });
 
