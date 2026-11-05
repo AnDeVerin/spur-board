@@ -69,11 +69,13 @@ function operationFor(command: string) {
 
 function invocations(text: string): { command: string; example: boolean }[] {
   const found: { command: string; example: boolean }[] = [];
-  const fenced = /```(?:sh|bash|shell)?\n([\s\S]*?)```/g;
-  const withoutFences = text.replace(fenced, (_match, body: string) => {
-    for (const line of body.split('\n')) {
-      const command = line.trim().replace(/^\$\s*/, '');
-      if (command.startsWith('board ')) found.push({ command, example: true });
+  const fenced = /```([^\n]*)\n([\s\S]*?)```/g;
+  const withoutFences = text.replace(fenced, (_match, language: string, body: string) => {
+    if (['', 'sh', 'bash', 'shell'].includes(language.trim())) {
+      for (const line of body.split('\n')) {
+        const command = line.trim().replace(/^\$\s*/, '');
+        if (command.startsWith('board ')) found.push({ command, example: true });
+      }
     }
     return ' ';
   });
@@ -399,6 +401,12 @@ describe('setup skill sync', () => {
 });
 
 describe('public guide command mentions', () => {
+  it('still checks shell commands after a YAML example', () => {
+    expect(
+      validateSetupInvocations('```yaml\nkey: value\n```\n```sh\nboard doctro --offline\n```'),
+    ).toContain('unknown command: board doctro --offline');
+  });
+
   it('uses only registered board commands and flags in each guide', () => {
     for (const guide of publicGuides) expect(validateSetupInvocations(guide)).toEqual([]);
     expect(publicGuides.flatMap(invocations).length).toBeGreaterThan(12);

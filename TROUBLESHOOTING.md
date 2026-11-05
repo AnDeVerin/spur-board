@@ -56,7 +56,9 @@ new skill files automatically. Verify any session whose start time cannot be rea
 ### daemon.available
 
 Start or restart the user service, then rerun `board doctor --json`. If it still fails, check
-the service journal and the daemon address in `config.yaml`.
+the service journal. The CLI connects to `http.port` in `config.yaml` (default `4311`) unless
+`BOARD_DAEMON_URL` is set; that variable overrides the configured port. An empty or invalid
+`BOARD_DAEMON_URL`, or `http.port: 0` without the variable, fails before any request is sent.
 
 ### secrets
 
@@ -122,8 +124,12 @@ old Node or package path, run `board service install` again.
 
 - **3 — not applied:** a dependency prevented the action. Fix the dependency, then retry the
   same action with its existing idempotency key.
-- **4 — configuration:** correct the named config field or private secret key and retry after
-  validation. Use `board doctor --offline` to check `config.yaml` while the service is down.
+- **4 — configuration:** correct the named config field, private secret key, or environment
+  variable and retry after validation. Outside a Spur session, `BOARD_TOKEN` must contain an
+  operator token or the CLI must find `.spur-board/token` while walking from the current folder
+  up to home; an empty override also fails. `BOARD_DAEMON_URL` must be a valid HTTP(S) address
+  when set; an empty value fails. Use `board doctor --offline` to check `config.yaml` while the
+  service is down.
 - **5 — outcome unknown:** the action may already have happened. Read the task or item first;
   if a mutation still needs to be retried, reuse its original idempotency key. A read-only
   request can be repeated after the dependency recovers.
@@ -138,7 +144,8 @@ the request ID and a redacted error with an issue report, never tokens or privat
 
 A fine-grained personal access token can read a private repository and its pull requests while
 every `CheckRun` under `statusCheckRollup.contexts` returns `FORBIDDEN` with a resource-access
-error. It lacks Checks permission. Use a **classic personal access token with the `repo`
+error: "Resource not accessible by personal access token". It lacks Checks permission. Use a
+**classic personal access token with the `repo`
 scope**, and authorize it for organization SSO where applicable. Put it in `GITHUB_TOKEN`
 through private local input, restart the service, and check the next poll. A GitHub App with
 the needed permissions may be an alternative in a future release.

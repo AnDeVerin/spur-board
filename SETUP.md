@@ -40,8 +40,37 @@ board slack manifest --app-name spur-board --command /board
 ```
 
 The manifest does not create the app-level token. Create one with `connections:write` in the
-app settings. Store channel IDs, the chosen app name and slash command, project details, and
-the operator's Slack user ID in `config.yaml`. Use the
+app settings. Install the app to the workspace to obtain its bot token (`xoxb-…`); put that
+value in `SLACK_BOT_TOKEN`. Put the app-level `connections:write` token (`xapp-…`) in
+`SLACK_APP_TOKEN`. Store channel IDs, the chosen app name and slash command, project details,
+and the operator's Slack user ID in `config.yaml`. For example, replace every placeholder with
+your own values:
+
+```yaml
+projects:
+  - id: board
+    tracker:
+      type: jira
+      baseUrl: https://jira.example.invalid
+      jql: 'project = BOARD'
+      doneStatuses: [Done]
+      readyStatuses: [Ready]
+    repos: [example/board]
+    operatorGithubLogin: example-user
+    spurProjects:
+      - name: operator
+        role: operator
+operator:
+  slack: U0123456789
+slack:
+  channels:
+    orchestrators: C0123456789
+    feed: C0123456790
+digest:
+  tz: UTC
+```
+
+The `spurProjects` name must match a live Spur project, and `digest.tz` is required. Use the
 [configuration reference](docs/configuration.md) and [JSON Schema](packages/contracts/config.schema.json)
 for fields and defaults.
 
@@ -104,4 +133,6 @@ complete poll, look for the `spur-board is live` line in the configured feed cha
 [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for check-specific fixes and logs.
 
 For upgrades, repeat the checks with the new package and skill versions. Preserve settled
-configuration and operator access; restart the service when its package or Node path changes.
+configuration and operator access. If the package or Node path changes, rerun
+`board service install` to rewrite the unit's absolute paths. If the paths stay the same, use
+`board service restart` after upgrading the package.
