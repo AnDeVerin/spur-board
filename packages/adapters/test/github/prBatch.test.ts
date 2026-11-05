@@ -360,6 +360,58 @@ describe('GitHub PR batch', () => {
     expect(batch.entities).toEqual([{ ref, status: expected }]);
     expect(batch.items).toEqual([]);
   });
+  it('classifies a scoped check-context denial as a safe authentication error', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      response({ repository: { pullRequests: conn([]) }, pr0: { pullRequest: wire() } }, [
+        {
+          message: 'Resource not accessible by personal access token',
+          type: 'FORBIDDEN',
+          path: ['pr0', 'pullRequest', 'statusCheckRollup', 'contexts', 'nodes', 0, 'isRequired'],
+        },
+      ]),
+    );
+    await expect(adapter(fetcher).poll(context())).rejects.toMatchObject({
+      kind: 'auth',
+      message: 'GitHub token lacks Checks read permission',
+    });
+  });
+  it('classifies a paged check-context denial as the same safe authentication error', async () => {
+    const first = wire();
+    first.statusCheckRollup.contexts.pageInfo = { hasNextPage: true, endCursor: 'checks-next' };
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        response({ repository: { pullRequests: conn([]) }, pr0: { pullRequest: first } }),
+      )
+      .mockResolvedValueOnce(
+        response({ repository: { pullRequest: { statusCheckRollup: { contexts: null } } } }, [
+          {
+            message: 'Resource not accessible by personal access token',
+            type: 'FORBIDDEN',
+            path: ['repository', 'pullRequest', 'statusCheckRollup', 'contexts', 'nodes', 0],
+          },
+        ]),
+      );
+    await expect(adapter(fetcher).poll(context())).rejects.toMatchObject({
+      kind: 'auth',
+      message: 'GitHub token lacks Checks read permission',
+    });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+  it('keeps unrelated deep FORBIDDEN alias errors as incomplete observations', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      response({ repository: { pullRequests: conn([]) }, pr0: { pullRequest: wire() } }, [
+        {
+          message: 'Synthetic review data denied',
+          type: 'FORBIDDEN',
+          path: ['pr0', 'pullRequest', 'reviews', 'nodes', 0],
+        },
+      ]),
+    );
+    const batch = await adapter(fetcher).poll(context());
+    expect(batch.complete).toBe(false);
+    expect(batch.entities).toEqual([{ ref, status: 'no_access' }]);
+  });
   it('keeps a generic alias error incomplete and other facts intact', async () => {
     const other = { ...ref, number: 8 };
     const fetcher = vi
@@ -416,6 +468,68 @@ describe('GitHub PR batch', () => {
     await expect(adapter(fetcher).poll(context())).rejects.toMatchObject({
       kind: 'throttled',
       retryAt: new Date('2026-01-01T00:00:00.000Z'),
+    });
+  });
+  it('keeps an unrelated null-data scope denial generic', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      Response.json({
+        data: null,
+        errors: [
+          { type: 'INSUFFICIENT_SCOPES', message: "Field 'description' requires read:org scope" },
+        ],
+      }),
+    );
+    await expect(adapter(fetcher).poll(context())).rejects.toMatchObject({
+      kind: 'auth',
+      message: 'GitHub token lacks a required GraphQL read scope',
+    });
+  });
+  it('names read:org for a pathless team-name scope denial on a detail query', async () => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        response({
+          repository: {
+            pullRequests: conn([
+              { number: 7, updatedAt: time, author: { login: 'operator' }, state: 'OPEN' },
+            ]),
+          },
+        }),
+      )
+      .mockResolvedValueOnce(
+        Response.json({
+          data: null,
+          errors: [
+            {
+              type: 'INSUFFICIENT_SCOPES',
+              message: "Field 'name' requires read:org or read:discussion scope",
+            },
+          ],
+        }),
+      );
+    await expect(adapter(fetcher).poll(context([]))).rejects.toMatchObject({
+      kind: 'auth',
+      message: 'GitHub token needs read:org for team review requests',
+    });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+  it('names read:org before normalizing a team reviewer with its name withheld', async () => {
+    const partial = {
+      ...wire(),
+      reviewRequests: conn([{ requestedReviewer: {}, asCodeOwner: false }]),
+    };
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      response({ repository: { pullRequests: conn([]) }, pr0: { pullRequest: partial } }, [
+        {
+          type: 'INSUFFICIENT_SCOPES',
+          path: ['pr0', 'pullRequest', 'reviewRequests', 'nodes', 0, 'requestedReviewer', 'name'],
+          message: 'Synthetic review data denied',
+        },
+      ]),
+    );
+    await expect(adapter(fetcher).poll(context())).rejects.toMatchObject({
+      kind: 'auth',
+      message: 'GitHub token needs read:org for team review requests',
     });
   });
 });

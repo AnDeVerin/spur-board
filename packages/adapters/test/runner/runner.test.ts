@@ -176,7 +176,7 @@ describe('startAdapters', () => {
     const manifest = JSON.parse(
       readFileSync(new URL('../../package.json', import.meta.url), 'utf8'),
     ) as { exports: Record<string, string> };
-    expect(Object.keys(manifest.exports)).toEqual(['.', './testing']);
+    expect(Object.keys(manifest.exports)).toEqual(['.', './smoke', './testing']);
   });
 
   it('starts the Spur adapter and stops cleanly', async () => {

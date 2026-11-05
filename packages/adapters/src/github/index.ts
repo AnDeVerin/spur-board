@@ -63,6 +63,18 @@ export function githubSources(config: Config, options: GithubOptions): GithubSou
 function scoped(errors: readonly GraphError[], root: string): GraphError[] {
   return errors.filter((error) => error.path?.[0] === root);
 }
+function checkAccessDenied(errors: readonly GraphError[]): boolean {
+  return errors.some(
+    (error) =>
+      error.type === 'FORBIDDEN' &&
+      error.path?.includes('statusCheckRollup') === true &&
+      error.path.includes('contexts'),
+  );
+}
+function requireCheckAccess(errors: readonly GraphError[]): void {
+  if (checkAccessDenied(errors))
+    throw new AdapterError('auth', 'GitHub token lacks Checks read permission');
+}
 function rejectUnscoped(errors: readonly GraphError[], roots: readonly string[]): void {
   if (errors.some((error) => error.path === undefined || !roots.includes(String(error.path[0])))) {
     throw new AdapterError('transient', 'Unscoped GitHub GraphQL error');
@@ -108,6 +120,7 @@ async function fullPr(
       );
       budget(response.budget);
       rejectUnscoped(response.errors, ['repository']);
+      requireCheckAccess(response.errors);
       if (response.errors.length > 0) return undefined;
       const pagePr = record(nested(response.data, 'repository', 'pullRequest'));
       const page = field === 'contexts' ? contexts(pagePr) : record(pagePr[field]);
@@ -193,6 +206,7 @@ async function pollRepository({
     errors: GraphError[],
     ref?: PrEntityRef,
   ): Promise<boolean> => {
+    requireCheckAccess(errors);
     const error = errors[0];
     if (error !== undefined) {
       const direct = error.path === undefined || error.path.length <= 2;

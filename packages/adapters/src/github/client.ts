@@ -9,6 +9,17 @@ export interface GraphError {
   type?: string;
 }
 
+function teamNameScopeDenied(error: GraphError, query: string): boolean {
+  if (error.type !== 'INSUFFICIENT_SCOPES' || !query.includes('... on Team { name }')) return false;
+  if (error.path !== undefined)
+    return (
+      error.path.includes('reviewRequests') &&
+      error.path.includes('requestedReviewer') &&
+      error.path.at(-1) === 'name'
+    );
+  return /\bname\b/i.test(error.message) && /\bread:(?:org|discussion)\b/i.test(error.message);
+}
+
 export function record(value: Json | undefined): RecordValue {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
     throw new AdapterError('transient', 'Malformed GitHub response');
@@ -136,6 +147,10 @@ export class GithubClient {
           });
     if (errors.some((error) => error.type === 'RATE_LIMITED' || /rate limit/i.test(error.message)))
       throw classifyHttpFailure({ status: 429, headers: response.headers }, Date.now());
+    if (errors.some((error) => teamNameScopeDenied(error, query)))
+      throw new AdapterError('auth', 'GitHub token needs read:org for team review requests');
+    if (errors.some((error) => error.type === 'INSUFFICIENT_SCOPES'))
+      throw new AdapterError('auth', 'GitHub token lacks a required GraphQL read scope');
     const data = record(wire.data);
     const rate = record(data.rateLimit);
     const remaining = rate.remaining;
