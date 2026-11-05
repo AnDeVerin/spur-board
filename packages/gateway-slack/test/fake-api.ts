@@ -144,6 +144,13 @@ export async function startFakeSlackApi(
     return ack.promise;
   }
 
+  function emitEnvelope(type: string, payload: object, retryAttempt?: number): Promise<void> {
+    if (connected?.readyState !== WebSocket.OPEN) {
+      return Promise.reject(new Error('Socket Mode connection is not open'));
+    }
+    return send(type, payload, retryAttempt);
+  }
+
   async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const method = new URL(req.url ?? '', 'http://localhost').pathname.replace(/^\/api\//, '');
     const form =
@@ -502,21 +509,23 @@ export async function startFakeSlackApi(
     },
     async restoreConnection() {
       acceptSocket = true;
-      if (connected?.readyState === WebSocket.OPEN) return;
-      const readyPromise = new Promise<void>((resolve, reject) => {
-        const timer = setTimeout(() => {
-          connectedWaiters.delete(ready);
-          reject(new Error('Socket Mode did not reconnect'));
-        }, 10_000);
-        const ready = () => {
-          clearTimeout(timer);
-          resolve();
-        };
-        connectedWaiters.add(ready);
-      });
-      if (waitingSocket?.readyState === WebSocket.OPEN) activate(waitingSocket);
-      await readyPromise;
-      await new Promise((resolve) => setTimeout(resolve, 20));
+      if (connected?.readyState !== WebSocket.OPEN) {
+        const readyPromise = new Promise<void>((resolve, reject) => {
+          const timer = setTimeout(() => {
+            connectedWaiters.delete(ready);
+            reject(new Error('Socket Mode did not reconnect'));
+          }, 10_000);
+          const ready = () => {
+            clearTimeout(timer);
+            resolve();
+          };
+          connectedWaiters.add(ready);
+        });
+        if (waitingSocket?.readyState === WebSocket.OPEN) activate(waitingSocket);
+        await readyPromise;
+      }
+      // The server's open event can precede the gateway's hello handler.
+      await emitEnvelope('probe', {});
     },
   };
 
@@ -563,6 +572,6 @@ export async function startFakeSlackApi(
         });
       });
     },
-    emitEnvelope: send,
+    emitEnvelope,
   };
 }

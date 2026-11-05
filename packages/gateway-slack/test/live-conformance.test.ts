@@ -15,6 +15,17 @@ function instructionToken(instruction: string): string {
 }
 
 describe('live conformance runner against the local Slack API', () => {
+  it('rejects an envelope when the fake socket is disconnected', async () => {
+    const fake = await startFakeSlackApi();
+    try {
+      await expect(fake.emitEnvelope('slash_commands', {})).rejects.toThrow(
+        'Socket Mode connection is not open',
+      );
+    } finally {
+      await fake.close();
+    }
+  });
+
   it('reports every automated and guided case with history-only recovery', async () => {
     const fake = await startFakeSlackApi();
     let recoveryStart = 0;
