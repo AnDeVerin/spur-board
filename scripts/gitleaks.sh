@@ -28,6 +28,12 @@ commits=$(git log --format=%H ${GITLEAKS_LOG_OPTS:-}) || fail 'git log failed on
 [ -n "$commits" ] || fail 'the scan range has no commits'
 
 out=$(mktemp)
+# dash and busybox sh skip the EXIT trap when a signal kills the shell, so each signal trap
+# exits with 128+n and that exit runs the EXIT trap.
+trap 'rm -f "$out"' EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 status=0
 if [ -n "${GITLEAKS_LOG_OPTS:-}" ]; then
   gitleaks git --redact --no-banner --no-color --log-opts="$GITLEAKS_LOG_OPTS" . >"$out" 2>&1 ||
