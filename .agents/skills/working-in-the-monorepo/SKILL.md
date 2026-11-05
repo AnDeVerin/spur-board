@@ -15,8 +15,9 @@ description: Package map, allowed dependencies, PR order, new packages, catalog 
   takes contracts as a dev dependency because its bundle inlines it. A dev dependency on
   `packages/testkit` or `packages/gateway-testkit` is allowed from any package except adapters
   and the CLI: their boundary lint covers their tests too and rejects both imports
-  (`adapterBoundaryPatterns`, `cliBoundaryPatterns`). Their tests use local fakes, such as
-  `@spur-board/adapters/testing`.
+  (`adapterBoundaryPatterns`, `cliBoundaryPatterns`), even `@spur-board/adapters/testing` inside
+  adapters. Their tests import local fakes by relative path, e.g. `createFakeCore` from
+  `packages/adapters/src/testing.ts`.
 - Declare every workspace import in the importing package's `package.json` as `workspace:*`.
 - Lint enforces only three edges: adapters import only contracts and
   `packages/adapters/src/runner/`, and adapter folders do not import each other; the CLI imports

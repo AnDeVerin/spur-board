@@ -1,6 +1,6 @@
 # New package checklist
 
-Model it on `packages/gateway-testkit/package.json` and `packages/gateway-testkit/tsconfig.json`.
+Model it on `packages/adapters/package.json` and `packages/adapters/tsconfig.json`.
 There is no template.
 
 - `packages/<x>/package.json`:

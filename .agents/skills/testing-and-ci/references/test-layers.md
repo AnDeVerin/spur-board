@@ -12,6 +12,8 @@ Pick the lowest layer that can fail for the bug you guard against. Projects are 
 - `process` - tests that spawn a real process (`scripts/hooks.test.ts`,
   `packages/daemon/test/main.test.ts`, `packages/daemon/test/single-instance.test.ts`); a 30 s
   timeout. Add a file here only when the behaviour lives in the OS process: signals, locks, exit.
+  List it in both the `process` include and the `unit` exclude in `vitest.config.ts`, or it runs
+  in both projects.
 - `startup` - `packages/cli/test/startup.test.ts` only.
 - HTTP level - adapters take an injected `fetch` (`packages/adapters/test/spur/spur.test.ts`);
   Slack code runs against the local HTTP and WebSocket fake in
@@ -83,7 +85,7 @@ Every test runs through the root config, so all of these hold:
   (`withDependents`, `buildSteps` in `scripts/check.ts`). `startup` and package smoke run only when
   `packages/cli` is affected.
 - A change to a file in `GLOBAL_FILES` or `GLOBAL_DIRS` (`scripts/check-plan.ts`), or to a
-  `tsconfig*.json`, switches to full mode.
+  root `tsconfig*.json`, switches to full mode; a package's own `tsconfig.json` does not.
 - `pnpm run check --pre-push` (the pre-push hook): changed-file format and lint, types and `unit`
   only.
 - `pnpm check:full --only test`: all four projects plus `scripts/package-smoke.ts`.
