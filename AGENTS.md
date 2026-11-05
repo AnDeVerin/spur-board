@@ -126,3 +126,13 @@ variables expanded into commands, and the GitHub API through `curl`.
 
 Issue forms live in `.github/ISSUE_TEMPLATE/`: feature, bug and spike. Each has Context, Scope,
 Out of scope, Acceptance criteria, Design notes and Dependencies.
+
+## Accepted risks
+
+Gaps kept on purpose. Do not raise them in reviews or open issues for them.
+
+- `board skills install` (`packages/cli/src/skills.ts`) checks the skill parent directories
+  before it changes any skill and refuses a symlinked skill directory. It does not guard against
+  a process of the same user replacing a parent directory with a symlink mid-install: that
+  process can already write those files itself, and Node has no directory-relative file
+  operations to pin the parent (#151).
