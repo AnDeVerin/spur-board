@@ -168,4 +168,57 @@ describe('GitHub Issues source', () => {
     await adapter.poll(context());
     expect(fetcher.mock.calls[1]?.[0]).toContain('milestone=3');
   });
+
+  it('passes extra fields and an unknown issue state', async () => {
+    const extended = {
+      ...issue(1),
+      state: 'archived',
+      state_reason: 'completed',
+      user: { login: 'someone', id: 5 },
+      labels: [{ name: 'on-board', color: 'ffffff' }],
+      assignee: { login: 'operator', id: 6 },
+    };
+    const adapter = createGithubIssuesAdapter({
+      id,
+      tracker: labelTracker,
+      token: 'test',
+      intervalMs: 60_000,
+      fetch: vi.fn<typeof fetch>().mockResolvedValueOnce(Response.json([extended])),
+    });
+    const batch = await adapter.poll(context());
+    expect(batchSchema.safeParse(batch).success).toBe(true);
+    expect(batch.items[0]).toMatchObject({
+      kind: 'ticket',
+      facts: { status: 'archived', assignee: 'operator', labels: ['on-board'] },
+    });
+  });
+
+  it('fails the poll naming a missing issue field', async () => {
+    const malformed: Partial<ReturnType<typeof issue>> = issue(1);
+    delete malformed.title;
+    const adapter = createGithubIssuesAdapter({
+      id,
+      tracker: labelTracker,
+      token: 'test',
+      intervalMs: 60_000,
+      fetch: vi.fn<typeof fetch>().mockResolvedValueOnce(Response.json([malformed])),
+    });
+    await expect(adapter.poll(context())).rejects.toMatchObject({
+      kind: 'transient',
+      message: 'Malformed GitHub issue response at title',
+    });
+  });
+
+  it('keeps a non-array listing page as an incomplete batch', async () => {
+    const adapter = createGithubIssuesAdapter({
+      id,
+      tracker: labelTracker,
+      token: 'test',
+      intervalMs: 60_000,
+      fetch: vi.fn<typeof fetch>().mockResolvedValueOnce(Response.json({ message: 'odd' })),
+    });
+    const batch = await adapter.poll(context());
+    expect(batch.complete).toBe(false);
+    expect(batch.items).toEqual([]);
+  });
 });
