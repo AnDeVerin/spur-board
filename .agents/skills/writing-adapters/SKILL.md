@@ -5,7 +5,8 @@ description: Rules for packages/adapters/ - port, untrusted responses, failure k
 
 # Writing adapters
 
-These rules apply to every adapter under `packages/adapters/src/`; GitHub is the cited example.
+These rules apply to every adapter under `packages/adapters/src/`. Spur is the cited example for
+parsing responses, GitHub for the rest.
 A PR that changes a practice named here updates this skill.
 
 ## When to use
@@ -31,8 +32,14 @@ A PR that changes a practice named here updates this skill.
 
 ## Untrusted responses
 
-- Check every response before use. Current practice: the `record`, `list` and `string` guards in
-  `packages/adapters/src/github/client.ts` throw a transient `Malformed GitHub ...` error.
+- Parse every external response with a zod wire schema that reads only the fields the adapter
+  needs. Reference: `sessionWire` in `packages/adapters/src/spur/spur.ts`, used as
+  `sessionWire.parse(body)` and `z.array(sessionWire).parse(listBody)`. It is a plain `z.object`:
+  zod 4 accepts unknown keys and strips them from the output.
+- A failed wire parse rejects the poll; core treats that rejection as `transient` (A6).
+- Open migration, tracked in #168: the GitHub adapter checks by hand with `record`, `list` and
+  `string` in `packages/adapters/src/github/client.ts`, the Jira adapter with `object`, `array`
+  and `string` in `packages/adapters/src/jira/jira.ts`. #168 removes this note once both comply.
 - Parse normalized output with the contracts schema: `prFactsSchema.safeParse` in `normalizePr`
   (`packages/adapters/src/github/prBatch.ts`). The runner re-validates each batch with
   `batchSchema` (`describe('batch validation')` in `packages/adapters/test/runner/runner.test.ts`).
