@@ -72,13 +72,7 @@ export function createOperationRegistry(deps: {
     },
     run(trx, input, actor) {
       return getStatus(
-        {
-          store: { db: trx },
-          config,
-          clock,
-          completeSince,
-          ...(gateways === undefined ? {} : { gateways }),
-        },
+        { store: { db: trx }, config, clock, completeSince, gateways },
         input.project,
         visibleProjects(config, actor),
         authorize([{ grant: 'operator' }], actor, { config, target: { kind: 'missing' } })

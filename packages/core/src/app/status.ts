@@ -29,7 +29,7 @@ export async function getStatus(
     clock: { now(): number };
     completeSince: ReadonlyMap<string, string>;
     /** Configured chat gateway kinds; each is reported even with no health rows. */
-    gateways?: readonly string[];
+    gateways?: readonly string[] | undefined;
   },
   projectId?: string,
   visibleProjects?: ReadonlySet<string>,
