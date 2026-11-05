@@ -73,10 +73,12 @@ function fixture(
     jiraAuth?: boolean;
     jiraBadStatus?: boolean;
     jiraMalformed?: boolean;
+    githubRepositoryNotFound?: boolean;
     secretInFacts?: string;
   } = {},
 ) {
   const calls: { url: URL; method: string }[] = [];
+  const graphQueries: { repo: string; query: string }[] = [];
   let jiraPage = 0;
   const fetcher: typeof fetch = (input, init) => {
     const url = new URL(input instanceof Request ? input.url : String(input));
@@ -85,8 +87,26 @@ function fixture(
     if (url.pathname === '/graphql') {
       if (typeof init?.body !== 'string') throw new Error('Missing GraphQL request body');
       const body = JSON.parse(init.body) as { query: string; variables: { repo: string } };
+      graphQueries.push({ repo: body.variables.repo, query: body.query });
       const isWidgets = body.variables.repo === 'widgets';
       const isDetail = body.query.includes('query PrDetails');
+      if (isWidgets && !isDetail && options.githubRepositoryNotFound) {
+        return Promise.resolve(
+          Response.json({
+            data: {
+              rateLimit: { remaining: 4321, resetAt: '2026-01-03T00:00:00.000Z' },
+              repository: null,
+            },
+            errors: [
+              {
+                type: 'NOT_FOUND',
+                path: ['repository'],
+                message: 'Synthetic repository unavailable',
+              },
+            ],
+          }),
+        );
+      }
       return Promise.resolve(
         Response.json({
           data: {
@@ -189,7 +209,7 @@ function fixture(
       );
     throw new Error(`Unexpected fake URL ${url.pathname}`);
   };
-  return { fetcher, calls };
+  return { fetcher, calls, graphQueries };
 }
 
 const secrets = {
@@ -211,7 +231,14 @@ async function run(
     ...(options.probes === undefined ? {} : { probes: options.probes }),
   });
   const records = out.map((line) => JSON.parse(line) as Record<string, unknown>);
-  return { code, records, out: out.join(''), err: err.join(''), calls: fake.calls };
+  return {
+    code,
+    records,
+    out: out.join(''),
+    err: err.join(''),
+    calls: fake.calls,
+    graphQueries: fake.graphQueries,
+  };
 }
 
 afterEach(() => {
@@ -275,6 +302,25 @@ describe('adapter smoke', () => {
     const malformed = await run(fixture({ jiraMalformed: true }));
     expect(malformed.code).toBe(1);
     expect(malformed.err).toContain('jira:demo:');
+  });
+
+  it('reports a repository-root GraphQL NOT_FOUND as a named incomplete GitHub PR source', async () => {
+    const result = await run(fixture({ githubRepositoryNotFound: true }));
+    expect(result.code).toBe(1);
+    expect(result.err).toContain('github:demo:demo/widgets: Incomplete batch');
+    expect(
+      result.records.find((record) => record['source'] === 'github:demo:demo/widgets'),
+    ).toMatchObject({
+      status: 'fail',
+      reason: 'Incomplete batch',
+      complete: false,
+      items: [],
+    });
+    expect(result.graphQueries.filter(({ repo }) => repo === 'widgets')).toHaveLength(1);
+    expect(result.graphQueries.find(({ repo }) => repo === 'widgets')?.query).not.toContain(
+      'mergeStateStatus',
+    );
+    expect(result.out).not.toContain('"requiredChecks"');
   });
 
   it('redacts configured values in facts and errors, including short values', async () => {
