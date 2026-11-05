@@ -1,5 +1,5 @@
 {
-  "version": "055b042d8b5498804054adb72202d567e8ea11d6c3c9e8538868ff032f5af262",
+  "version": "bc6f75e3ce204e3ab85f9a120400a071e614d4eab8d0f9615ba796b109bdd83a",
   "grants": [
     "operator",
     "project-agent",
@@ -626,7 +626,8 @@
             "sources": [],
             "warmingUp": true,
             "spurUnavailable": null,
-            "hostLoad": null
+            "hostLoad": null,
+            "transport": []
           }
         }
       ],
@@ -1766,6 +1767,48 @@
           "hostLoad": {
             "description": "Host-load episode line, or null when absent.",
             "type": ["string", "null"]
+          },
+          "transport": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "gateway": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Chat gateway kind."
+                },
+                "state": {
+                  "type": "string",
+                  "enum": ["up", "down"],
+                  "description": "down while delivery to any space of the gateway is suspended."
+                },
+                "since": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                    },
+                    { "type": "null" }
+                  ],
+                  "description": "When the earliest outage started, ISO 8601 UTC, or null when up."
+                },
+                "reason": {
+                  "description": "Reason of the earliest outage, or null when up.",
+                  "type": ["string", "null"]
+                },
+                "spaces": {
+                  "type": "array",
+                  "items": { "type": "string", "enum": ["orchestrators", "feed"] },
+                  "description": "Spaces whose delivery is suspended."
+                }
+              },
+              "required": ["gateway", "state", "since", "reason", "spaces"],
+              "additionalProperties": false,
+              "description": "Transport health of one gateway."
+            },
+            "description": "Transport health of each chat gateway."
           }
         },
         "required": [
@@ -1776,7 +1819,8 @@
           "sources",
           "warmingUp",
           "spurUnavailable",
-          "hostLoad"
+          "hostLoad",
+          "transport"
         ],
         "additionalProperties": false
       }

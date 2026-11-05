@@ -254,6 +254,7 @@ describe('CLI against the real HTTP API', () => {
             warmingUp: true,
             spurUnavailable: null,
             hostLoad: null,
+            transport: [],
           });
         },
       };
@@ -311,6 +312,7 @@ describe('CLI against the real HTTP API', () => {
         warmingUp: true,
         spurUnavailable: null,
         hostLoad: null,
+        transport: [],
       });
       expect(success.stderr).toBe('');
 

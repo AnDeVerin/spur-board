@@ -21,8 +21,10 @@ export function createOperationRegistry(deps: {
   config: Config;
   clock: { now(): number };
   completeSince: ReadonlyMap<string, string>;
+  /** Configured chat gateway kinds, reported by `status.get` `transport`. */
+  gateways?: readonly string[];
 }): OperationRegistry {
-  const { config, clock, completeSince } = deps;
+  const { config, clock, completeSince, gateways } = deps;
   const membership = createMembershipMutations(config);
   const links = createLinkMutations(config);
   const blocks = createBlockMutations(config);
@@ -70,7 +72,13 @@ export function createOperationRegistry(deps: {
     },
     run(trx, input, actor) {
       return getStatus(
-        { store: { db: trx }, config, clock, completeSince },
+        {
+          store: { db: trx },
+          config,
+          clock,
+          completeSince,
+          ...(gateways === undefined ? {} : { gateways }),
+        },
         input.project,
         visibleProjects(config, actor),
         authorize([{ grant: 'operator' }], actor, { config, target: { kind: 'missing' } })

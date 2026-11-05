@@ -133,3 +133,61 @@ it('keeps board-wide items from a project agent on a one-project board', async (
   const operator = await query(status, {}, 'operator');
   expect(operator.items.map((item) => item.key)).toEqual(['delivery:1']);
 });
+
+it('reports transport state per gateway and keeps the health item board-wide', async () => {
+  const store = openStore(join(mkdtempSync(join(tmpdir(), 'board-registry-')), 'board.db'));
+  stores.push(store);
+  const since = '2026-11-04T07:50:00.000Z';
+  await scanTransaction(store, async (trx) => {
+    await trx
+      .insertInto('transport_health')
+      .values(
+        (['orchestrators', 'feed'] as const).map((space) => ({
+          gateway: 'slack',
+          space,
+          reason: 'down',
+          since,
+          probe_at: since,
+        })),
+      )
+      .execute();
+    await raiseItem(trx, {
+      itemKey: 'transport:slack',
+      kind: 'transport_health',
+      text: 'slack delivery down',
+      url: '',
+      taskId: null,
+      blockId: null,
+      priority: 1,
+      suppressFeed: true,
+      at: new Date(clock.now()),
+    });
+  });
+  const registry = createOperationRegistry({
+    config,
+    clock,
+    completeSince: new Map(),
+    gateways: ['slack'],
+  });
+  const status = registry['status.get'];
+  if (status === undefined) throw new Error('Status handler was not registered');
+  const query = createQuery({ store, config, clock });
+  const down = {
+    gateway: 'slack',
+    state: 'down',
+    since,
+    reason: 'down',
+    spaces: ['feed', 'orchestrators'],
+  };
+  const operator = await query(status, {}, 'operator');
+  expect(operator.transport).toEqual([down]);
+  expect(operator.items.map((item) => item.key)).toEqual(['transport:slack']);
+  const agent = await query(status, {}, 'agent:first-worker/session-1');
+  expect(agent.transport).toEqual([down]);
+  expect(agent.items).toEqual([]);
+
+  await scanTransaction(store, (trx) => trx.deleteFrom('transport_health').execute());
+  expect((await query(status, {}, 'operator')).transport).toEqual([
+    { gateway: 'slack', state: 'up', since: null, reason: null, spaces: [] },
+  ]);
+});

@@ -544,6 +544,7 @@ describe('catalog HTTP API', () => {
           warmingUp: true,
           spurUnavailable: null,
           hostLoad: null,
+          transport: [],
         });
       },
     };
