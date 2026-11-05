@@ -1010,10 +1010,7 @@ export function createObservationCore(deps: {
           RESERVED_PROJECT,
           null,
           new Date(clock.now()).toISOString(),
-          {
-            kind,
-            value,
-          },
+          { kind, value },
         );
       });
     },

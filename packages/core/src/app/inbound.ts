@@ -98,21 +98,20 @@ async function taskContext(
   trx: Trx,
   event: InboundEvent,
   gateway: string,
-): Promise<{ taskId: number | null; project: string | null; taskKey: string | null }> {
+): Promise<{ taskId: number | null; project: string | null }> {
   if (!('conversation' in event) || event.conversation === undefined) {
-    return { taskId: null, project: null, taskKey: null };
+    return { taskId: null, project: null };
   }
   const row = await trx
     .selectFrom('conversation')
     .leftJoin('task', 'task.id', 'conversation.task_id')
-    .select(['conversation.task_id as taskId', 'task.project', 'task.key'])
+    .select(['conversation.task_id as taskId', 'task.project'])
     .where('conversation.gateway', '=', gateway)
     .where('conversation.ref', '=', event.conversation)
     .executeTakeFirst();
   return {
     taskId: row?.taskId ?? null,
     project: row?.project ?? null,
-    taskKey: row?.key ?? null,
   };
 }
 
