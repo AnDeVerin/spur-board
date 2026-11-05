@@ -5,6 +5,7 @@ exports[`board mcp > lists one catalog tool with schemas, guidance and annotatio
   {
     "_meta": undefined,
     "annotations": {
+      "destructiveHint": false,
       "idempotentHint": false,
       "readOnlyHint": true,
     },
@@ -1460,6 +1461,7 @@ Example: {}",
   {
     "_meta": undefined,
     "annotations": {
+      "destructiveHint": false,
       "idempotentHint": false,
       "readOnlyHint": true,
     },
@@ -1848,6 +1850,7 @@ Example: {"task":"PROJ-123"}",
   {
     "_meta": undefined,
     "annotations": {
+      "destructiveHint": false,
       "idempotentHint": false,
       "readOnlyHint": true,
     },
@@ -2021,6 +2024,7 @@ Example: {"task":"acme/web#42"}",
   {
     "_meta": undefined,
     "annotations": {
+      "destructiveHint": false,
       "idempotentHint": false,
       "readOnlyHint": true,
     },
@@ -2229,6 +2233,10 @@ Example: {"role":"worker"}",
                 "additionalProperties": false,
                 "description": "MCP binding.",
                 "properties": {
+                  "destructive": {
+                    "description": "MCP destructiveHint: false only for a mutation that writes only new rows.",
+                    "type": "boolean",
+                  },
                   "key": {
                     "anyOf": [
                       {
@@ -2261,6 +2269,7 @@ Example: {"role":"worker"}",
                   "key",
                   "whenToUse",
                   "whenNotToUse",
+                  "destructive",
                 ],
                 "type": "object",
               },
@@ -2305,6 +2314,7 @@ Example: {"role":"worker"}",
   {
     "_meta": undefined,
     "annotations": {
+      "destructiveHint": false,
       "idempotentHint": false,
       "readOnlyHint": true,
     },
@@ -2597,6 +2607,7 @@ Example: {}",
   {
     "_meta": undefined,
     "annotations": {
+      "destructiveHint": true,
       "idempotentHint": true,
       "readOnlyHint": false,
     },
@@ -2700,6 +2711,7 @@ Choose a unique idempotencyKey for each action; reuse it on retries.",
   {
     "_meta": undefined,
     "annotations": {
+      "destructiveHint": false,
       "idempotentHint": false,
       "readOnlyHint": true,
     },
@@ -2767,6 +2779,7 @@ Example: {}",
   {
     "_meta": undefined,
     "annotations": {
+      "destructiveHint": true,
       "idempotentHint": true,
       "readOnlyHint": false,
     },
@@ -2830,6 +2843,7 @@ Choose a unique idempotencyKey for each action; reuse it on retries.",
   {
     "_meta": undefined,
     "annotations": {
+      "destructiveHint": true,
       "idempotentHint": true,
       "readOnlyHint": false,
     },
@@ -2921,6 +2935,7 @@ Choose a unique idempotencyKey for each action; reuse it on retries.",
   {
     "_meta": undefined,
     "annotations": {
+      "destructiveHint": true,
       "idempotentHint": true,
       "readOnlyHint": false,
     },
@@ -3012,6 +3027,7 @@ Choose a unique idempotencyKey for each action; reuse it on retries.",
   {
     "_meta": undefined,
     "annotations": {
+      "destructiveHint": true,
       "idempotentHint": true,
       "readOnlyHint": false,
     },
@@ -3166,6 +3182,7 @@ Choose a unique idempotencyKey for each action; reuse it on retries.",
   {
     "_meta": undefined,
     "annotations": {
+      "destructiveHint": true,
       "idempotentHint": true,
       "readOnlyHint": false,
     },
@@ -3320,6 +3337,7 @@ Choose a unique idempotencyKey for each action; reuse it on retries.",
   {
     "_meta": undefined,
     "annotations": {
+      "destructiveHint": true,
       "idempotentHint": true,
       "readOnlyHint": false,
     },
@@ -3407,6 +3425,7 @@ Choose a unique idempotencyKey for each action; reuse it on retries.",
   {
     "_meta": undefined,
     "annotations": {
+      "destructiveHint": true,
       "idempotentHint": true,
       "readOnlyHint": false,
     },
@@ -3494,6 +3513,7 @@ Choose a unique idempotencyKey for each action; reuse it on retries.",
   {
     "_meta": undefined,
     "annotations": {
+      "destructiveHint": false,
       "idempotentHint": true,
       "readOnlyHint": false,
     },
@@ -3700,6 +3720,7 @@ Choose a unique idempotencyKey for each action; reuse it on retries.",
   {
     "_meta": undefined,
     "annotations": {
+      "destructiveHint": false,
       "idempotentHint": true,
       "readOnlyHint": false,
     },
@@ -3849,6 +3870,7 @@ Choose a unique idempotencyKey for each action; reuse it on retries.",
   {
     "_meta": undefined,
     "annotations": {
+      "destructiveHint": true,
       "idempotentHint": true,
       "readOnlyHint": false,
     },
@@ -3993,6 +4015,7 @@ Choose a unique idempotencyKey for each action; reuse it on retries.",
   {
     "_meta": undefined,
     "annotations": {
+      "destructiveHint": false,
       "idempotentHint": true,
       "readOnlyHint": false,
     },
@@ -4208,6 +4231,7 @@ Choose a unique idempotencyKey for each action; reuse it on retries.",
   {
     "_meta": undefined,
     "annotations": {
+      "destructiveHint": true,
       "idempotentHint": true,
       "readOnlyHint": false,
     },
@@ -4408,6 +4432,7 @@ Choose a unique idempotencyKey for each action; reuse it on retries.",
   {
     "_meta": undefined,
     "annotations": {
+      "destructiveHint": true,
       "idempotentHint": true,
       "readOnlyHint": false,
     },
@@ -4707,6 +4732,7 @@ Choose a unique idempotencyKey for each action; reuse it on retries.",
   {
     "_meta": undefined,
     "annotations": {
+      "destructiveHint": true,
       "idempotentHint": true,
       "readOnlyHint": false,
     },

@@ -1,5 +1,5 @@
 {
-  "version": "bc6f75e3ce204e3ab85f9a120400a071e614d4eab8d0f9615ba796b109bdd83a",
+  "version": "969567a296287e7824f27d115eb2fe45f959aef4e14ff4f773162a252bb3dff8",
   "grants": [
     "operator",
     "project-agent",
@@ -600,7 +600,8 @@
         "name": "status_get",
         "key": null,
         "whenToUse": "Get a board overview.",
-        "whenNotToUse": "Use task_get for one task."
+        "whenNotToUse": "Use task_get for one task.",
+        "destructive": false
       },
       "slack": { "kind": "slash-command", "usage": "/board status" },
       "examples": [
@@ -1845,7 +1846,8 @@
         "name": "task_get",
         "key": null,
         "whenToUse": "Inspect one task now.",
-        "whenNotToUse": "Use task_history for past events."
+        "whenNotToUse": "Use task_history for past events.",
+        "destructive": false
       },
       "slack": { "kind": "slash-command", "usage": "/board task <KEY>" },
       "examples": [
@@ -2184,7 +2186,8 @@
         "name": "task_history",
         "key": null,
         "whenToUse": "Trace changes to one task.",
-        "whenNotToUse": "Use task_get for current state."
+        "whenNotToUse": "Use task_get for current state.",
+        "destructive": false
       },
       "slack": { "kind": "slash-command", "usage": "/board task <KEY> history" },
       "examples": [
@@ -2341,7 +2344,8 @@
         "name": "schema_get",
         "key": null,
         "whenToUse": "Discover operation contracts.",
-        "whenNotToUse": "Use status_get for board data."
+        "whenNotToUse": "Use status_get for board data.",
+        "destructive": false
       },
       "slack": null,
       "examples": [
@@ -2375,7 +2379,8 @@
                   "name": "comment_add",
                   "key": "idempotencyKey",
                   "whenToUse": "Add a task comment.",
-                  "whenNotToUse": "Use comment_edit to revise an existing comment."
+                  "whenNotToUse": "Use comment_edit to revise an existing comment.",
+                  "destructive": false
                 },
                 "inputSchema": { "type": "object" },
                 "outputSchema": { "type": "object" }
@@ -2536,9 +2541,13 @@
                       "type": "string",
                       "minLength": 1,
                       "description": "When to use a neighboring tool instead."
+                    },
+                    "destructive": {
+                      "type": "boolean",
+                      "description": "MCP destructiveHint: false only for a mutation that writes only new rows."
                     }
                   },
-                  "required": ["name", "key", "whenToUse", "whenNotToUse"],
+                  "required": ["name", "key", "whenToUse", "whenNotToUse", "destructive"],
                   "additionalProperties": false,
                   "description": "MCP binding."
                 },
@@ -2596,7 +2605,8 @@
         "name": "inbox_get",
         "key": null,
         "whenToUse": "Read items awaiting the caller.",
-        "whenNotToUse": "Use inbox_ack to mark them read."
+        "whenNotToUse": "Use inbox_ack to mark them read.",
+        "destructive": false
       },
       "slack": null,
       "examples": [
@@ -2872,7 +2882,8 @@
         "name": "inbox_ack",
         "key": "idempotencyKey",
         "whenToUse": "Mark handled inbox items read.",
-        "whenNotToUse": "Use inbox_get to inspect them first."
+        "whenNotToUse": "Use inbox_get to inspect them first.",
+        "destructive": true
       },
       "slack": null,
       "examples": [
@@ -2973,7 +2984,8 @@
         "name": "token_list",
         "key": null,
         "whenToUse": "Inspect named operator tokens and their current status.",
-        "whenNotToUse": "Use token_revoke to disable a token."
+        "whenNotToUse": "Use token_revoke to disable a token.",
+        "destructive": false
       },
       "slack": null,
       "examples": [
@@ -3046,7 +3058,8 @@
         "name": "token_revoke",
         "key": "idempotencyKey",
         "whenToUse": "Disable a named operator token immediately.",
-        "whenNotToUse": "Use token_list to inspect tokens without changing them."
+        "whenNotToUse": "Use token_list to inspect tokens without changing them.",
+        "destructive": true
       },
       "slack": null,
       "examples": [
@@ -3109,7 +3122,8 @@
         "name": "task_add",
         "key": "idempotencyKey",
         "whenToUse": "Add a task to the board.",
-        "whenNotToUse": "Use task_get if it already exists."
+        "whenNotToUse": "Use task_get if it already exists.",
+        "destructive": true
       },
       "slack": null,
       "examples": [
@@ -3193,7 +3207,8 @@
         "name": "task_archive",
         "key": "idempotencyKey",
         "whenToUse": "Remove a task from active view.",
-        "whenNotToUse": "Use task_get to inspect its current state."
+        "whenNotToUse": "Use task_get to inspect its current state.",
+        "destructive": true
       },
       "slack": null,
       "examples": [
@@ -3292,7 +3307,8 @@
         "name": "link_add",
         "key": "idempotencyKey",
         "whenToUse": "Attach a pull request, session, or additional ticket.",
-        "whenNotToUse": "Use link_remove to detach one."
+        "whenNotToUse": "Use link_remove to detach one.",
+        "destructive": true
       },
       "slack": null,
       "examples": [
@@ -3431,7 +3447,8 @@
         "name": "link_remove",
         "key": "idempotencyKey",
         "whenToUse": "Detach a linked pull request, session, or ticket.",
-        "whenNotToUse": "Use link_add to attach one."
+        "whenNotToUse": "Use link_add to attach one.",
+        "destructive": true
       },
       "slack": null,
       "examples": [
@@ -3562,7 +3579,8 @@
         "name": "item_retry",
         "key": "idempotencyKey",
         "whenToUse": "Retry an actionable item.",
-        "whenNotToUse": "Use item_close when no retry is wanted."
+        "whenNotToUse": "Use item_close when no retry is wanted.",
+        "destructive": true
       },
       "slack": { "kind": "button", "label": "Retry" },
       "examples": [
@@ -3656,7 +3674,8 @@
         "name": "item_close",
         "key": "idempotencyKey",
         "whenToUse": "Dismiss an item without retrying.",
-        "whenNotToUse": "Use item_retry to try again."
+        "whenNotToUse": "Use item_retry to try again.",
+        "destructive": true
       },
       "slack": { "kind": "button", "label": "Close" },
       "examples": [
@@ -3751,7 +3770,8 @@
         "name": "block_ask",
         "key": "idempotencyKey",
         "whenToUse": "Ask a blocking question.",
-        "whenNotToUse": "Use comment_add for a nonblocking note."
+        "whenNotToUse": "Use comment_add for a nonblocking note.",
+        "destructive": false
       },
       "slack": null,
       "examples": [
@@ -3934,7 +3954,8 @@
         "name": "comment_add",
         "key": "idempotencyKey",
         "whenToUse": "Add a new task comment.",
-        "whenNotToUse": "Use comment_edit to revise your comment."
+        "whenNotToUse": "Use comment_edit to revise your comment.",
+        "destructive": false
       },
       "slack": null,
       "examples": [
@@ -4083,7 +4104,8 @@
         "name": "comment_edit",
         "key": "idempotencyKey",
         "whenToUse": "Revise your existing comment.",
-        "whenNotToUse": "Use comment_add for a new comment."
+        "whenNotToUse": "Use comment_add for a new comment.",
+        "destructive": true
       },
       "slack": null,
       "examples": [
@@ -4222,7 +4244,8 @@
         "name": "block_create",
         "key": "idempotencyKey",
         "whenToUse": "Record a dependency or external block.",
-        "whenNotToUse": "Use block_ask for a question."
+        "whenNotToUse": "Use block_ask for a question.",
+        "destructive": false
       },
       "slack": null,
       "examples": [
@@ -4415,7 +4438,8 @@
         "name": "block_escalate",
         "key": "idempotencyKey",
         "whenToUse": "Escalate an open block.",
-        "whenNotToUse": "Use block_answer to answer a question."
+        "whenNotToUse": "Use block_answer to answer a question.",
+        "destructive": true
       },
       "slack": null,
       "examples": [
@@ -4599,7 +4623,8 @@
         "name": "block_answer",
         "key": "idempotencyKey",
         "whenToUse": "Answer an open question.",
-        "whenNotToUse": "Use block_unblock to close without an answer."
+        "whenNotToUse": "Use block_unblock to close without an answer.",
+        "destructive": true
       },
       "slack": { "kind": "thread-reply" },
       "examples": [
@@ -4881,7 +4906,8 @@
         "name": "block_unblock",
         "key": "idempotencyKey",
         "whenToUse": "Close an open block.",
-        "whenNotToUse": "Use block_answer for a question answer."
+        "whenNotToUse": "Use block_answer for a question answer.",
+        "destructive": true
       },
       "slack": null,
       "examples": [

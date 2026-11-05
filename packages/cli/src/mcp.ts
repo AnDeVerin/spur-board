@@ -133,6 +133,7 @@ export function createMcpServer(
         annotations: {
           readOnlyHint: op.kind === 'query',
           idempotentHint: op.kind === 'mutation',
+          destructiveHint: op.mcp.destructive,
         },
       },
       async (argumentsValue) => {

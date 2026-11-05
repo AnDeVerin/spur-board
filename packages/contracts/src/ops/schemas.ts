@@ -202,6 +202,11 @@ export const schemaGetOutputSchema = z
                   .describe('Idempotency key argument; null for a query.'),
                 whenToUse: z.string().min(1).describe('When this MCP tool is appropriate.'),
                 whenNotToUse: z.string().min(1).describe('When to use a neighboring tool instead.'),
+                destructive: z
+                  .boolean()
+                  .describe(
+                    'MCP destructiveHint: false only for a mutation that writes only new rows.',
+                  ),
               })
               .describe('MCP binding.'),
             inputSchema: jsonSchemaPayload('input'),

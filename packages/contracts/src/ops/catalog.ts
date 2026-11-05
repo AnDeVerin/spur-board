@@ -287,6 +287,7 @@ export const OPERATIONS = [
                 key: 'idempotencyKey',
                 whenToUse: 'Add a task comment.',
                 whenNotToUse: 'Use comment_edit to revise an existing comment.',
+                destructive: false,
               },
               inputSchema: { type: 'object' },
               outputSchema: { type: 'object' },
@@ -551,6 +552,7 @@ export const OPERATIONS = [
     mcp: {
       whenToUse: 'Ask a blocking question.',
       whenNotToUse: 'Use comment_add for a nonblocking note.',
+      destructive: false,
     },
     input: z.strictObject({ task: taskKeySchema, text: text('The question.') }),
     output: blockOutput,
@@ -573,6 +575,7 @@ export const OPERATIONS = [
     mcp: {
       whenToUse: 'Add a new task comment.',
       whenNotToUse: 'Use comment_edit to revise your comment.',
+      destructive: false,
     },
     input: z.strictObject({
       task: taskKeySchema,
@@ -624,6 +627,7 @@ export const OPERATIONS = [
     mcp: {
       whenToUse: 'Record a dependency or external block.',
       whenNotToUse: 'Use block_ask for a question.',
+      destructive: false,
     },
     input: z.strictObject({
       task: taskKeySchema,
