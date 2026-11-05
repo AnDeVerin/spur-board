@@ -205,7 +205,8 @@ export async function createE2eHarness() {
         session: SESSION,
         token: undefined,
         connectTimeoutMs: 200,
-        responseTimeoutMs: 200,
+        // An ask may scan and replay its outbox write before returning under CI load.
+        responseTimeoutMs: 2_000,
       },
     });
     return { code, stdout, stderr };

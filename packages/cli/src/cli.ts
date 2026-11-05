@@ -17,7 +17,7 @@ import { z } from 'zod';
 import { requestOperation, requestTokenEnrollment } from './client.ts';
 import { loadClientConfig, loadEnrollmentConfig, type ClientConfig } from './config.ts';
 import { CliError, errorExitCode, renderCliError } from './exit-codes.ts';
-import { renderSlackManifest } from './manifest.ts';
+import { loadSlackManifestDefaults, renderSlackManifest } from './manifest.ts';
 import { renderDoctor, runDoctor, type DoctorPorts } from './doctor.ts';
 import {
   installService,
@@ -43,6 +43,7 @@ export interface CliOptions {
   env?: NodeJS.ProcessEnv;
   io?: CliIo;
   clientConfig?: ClientConfig;
+  sendOperation?: typeof requestOperation;
   home?: string;
   setup?: InstallSkillsOptions & Omit<ServiceOptions, 'env'>;
   doctor?: Partial<DoctorPorts>;
@@ -336,8 +337,13 @@ function registerSetupCommands(
     ) {
       throw new CliError('usage');
     }
+    const defaults =
+      appName === undefined || command === undefined
+        ? loadSlackManifestDefaults(env, options.home ?? homedir())
+        : {};
     io.stdout(
       renderSlackManifest({
+        ...defaults,
         ...(appName === undefined ? {} : { appName }),
         ...(command === undefined ? {} : { command }),
       }),
@@ -388,7 +394,7 @@ export function createProgram(options: CliOptions = {}): CommandUnknownOpts {
       const key = op.kind === 'mutation' ? keyOption || randomUUID() : undefined;
       if (key) io.stderr(`key: ${escapeTerminalControls(key)}\n`);
       try {
-        const result = await requestOperation(op, input, key, config);
+        const result = await (options.sendOperation ?? requestOperation)(op, input, key, config);
         io.stdout(`${json || !io.isTTY ? JSON.stringify(result) : formatHuman(result)}\n`);
       } catch (error) {
         if (error instanceof CliError) {

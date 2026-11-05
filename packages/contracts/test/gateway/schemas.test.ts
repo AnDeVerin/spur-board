@@ -93,6 +93,7 @@ const events: Record<InboundEventKind, Fixtures> = {
       interaction: 'i-1',
       author,
       text: 'status',
+      command: { kind: 'query', id: 'status.get', input: {} },
       sourceUrl,
       sourceSpace: 'orchestrators',
     },
@@ -199,6 +200,35 @@ describe('inboundEventSchema', () => {
     const withoutSourceSpace = { ...events.command.valid };
     delete withoutSourceSpace.sourceSpace;
     expect(inboundEventSchema.safeParse(withoutSourceSpace).success).toBe(true);
+  });
+
+  it('accepts named and legacy commands but rejects an empty received name', () => {
+    expect(inboundEventSchema.safeParse({ ...events.command.valid, name: '/ops' }).success).toBe(
+      true,
+    );
+    expect(inboundEventSchema.safeParse(events.command.valid).success).toBe(true);
+    expect(inboundEventSchema.safeParse({ ...events.command.valid, name: '' }).success).toBe(false);
+  });
+
+  it('accepts usage but rejects a mutation command selection', () => {
+    expect(
+      inboundEventSchema.safeParse({
+        ...events.command.valid,
+        command: { kind: 'usage', text: 'Usage: /board status' },
+      }).success,
+    ).toBe(true);
+    expect(
+      inboundEventSchema.safeParse({
+        ...events.command.valid,
+        command: { kind: 'query', id: 'item.close', input: { item: 'I1' } },
+      }).success,
+    ).toBe(false);
+  });
+
+  it('accepts command events stored before selections were added', () => {
+    const legacy = { ...events.command.valid };
+    delete legacy.command;
+    expect(inboundEventSchema.safeParse(legacy).success).toBe(true);
   });
 });
 

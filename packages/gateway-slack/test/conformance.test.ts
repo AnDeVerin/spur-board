@@ -19,6 +19,7 @@ runGatewayConformance({
         token: 'xoxb-test',
         appToken: 'xapp-test',
         channels: { orchestrators: 'C_ORCH', feed: 'C_FEED' },
+        command: '/ops',
         apiUrl: fake.url,
         requestTimeoutMs: 500,
       }),

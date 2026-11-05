@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
 import { runCli, type CliIo } from '../src/cli.ts';
 import type { DoctorCheck, DoctorPorts } from '../src/doctor.ts';
@@ -102,6 +103,81 @@ async function run(args: string[], fake: DoctorPorts) {
 }
 
 describe('board doctor', () => {
+  it('documents each check ID emitted with and without Slack exactly once', async () => {
+    const configured = await run(['doctor', '--json'], ports());
+    const withoutSlack = yaml.replace('slack:\n  channels:\n    feed: C000000002\n', '');
+    const unconfigured = await run(
+      ['doctor', '--json'],
+      ports({
+        readText(path) {
+          if (path.endsWith('config.yaml')) return withoutSlack;
+          if (path.endsWith('secrets.env')) return 'GITHUB_TOKEN=github-test-value\n';
+          return ports().readText(path);
+        },
+        fetcher: () =>
+          Promise.resolve(
+            Response.json({
+              version: '1.2.3',
+              checks: [
+                ...remoteIds.filter((id) => !id.startsWith('slack.')),
+                'slack.configured',
+              ].map((id): DoctorCheck => ({
+                id,
+                status: id === 'slack.configured' ? 'warning' : 'pass',
+                blocking: false,
+                fix: id === 'slack.configured' ? 'Configure Slack channels.' : null,
+              })),
+            }),
+          ),
+      }),
+    );
+    expect(configured.exitCode).toBe(0);
+    expect(unconfigured.exitCode).toBe(0);
+    const emitted = [
+      ...new Set([...configured.checks, ...unconfigured.checks].map(({ id }) => id)),
+    ].sort();
+    const guide = readFileSync(new URL('../../../TROUBLESHOOTING.md', import.meta.url), 'utf8');
+    const section = guide.split('## Doctor checks\n')[1]?.split('\n## ')[0] ?? '';
+    const documented = [...section.matchAll(/^### ([a-z][a-z0-9_.]+)$/gm)].map((match) => match[1]);
+    expect(documented.length).toBe(new Set(documented).size);
+    expect(documented.sort()).toEqual(emitted);
+  });
+
+  it.each([
+    ['configured port', undefined, 'http://127.0.0.1:4567/v1/doctor'],
+    ['explicit URL', 'http://127.0.0.1:9876', 'http://127.0.0.1:9876/v1/doctor'],
+  ] as const)('probes the %s address', async (_name, explicit, expected) => {
+    const urls: string[] = [];
+    const output = capture();
+    const exitCode = await runCli(['doctor', '--json'], {
+      io: output.io,
+      env: { BOARD_HOME: '/board', ...(explicit ? { BOARD_DAEMON_URL: explicit } : {}) },
+      home: '/home',
+      doctor: ports({
+        readText(path) {
+          if (path.endsWith('config.yaml')) return `${yaml}\nhttp: { port: 4567 }\n`;
+          return ports().readText(path);
+        },
+        fetcher(input) {
+          if (!(input instanceof URL)) throw new Error('Expected a URL.');
+          urls.push(input.href);
+          return Promise.resolve(
+            Response.json({
+              version: '1.2.3',
+              checks: remoteIds.map((id): DoctorCheck => ({
+                id,
+                status: 'pass',
+                blocking: false,
+                fix: null,
+              })),
+            }),
+          );
+        },
+      }),
+    });
+    expect(exitCode).toBe(0);
+    expect(urls).toEqual([expected]);
+  });
   it('returns every local and daemon check in JSON', async () => {
     const value = await run(['doctor', '--json'], ports());
     expect(value.exitCode).toBe(0);

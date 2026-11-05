@@ -2,6 +2,7 @@ import { scanTransaction } from './secrets.ts';
 import { createHash } from 'node:crypto';
 import {
   EVENT_VERSION,
+  ERRORS,
   OPERATIONS,
   conversationRefSchema,
   eventPayloadSchemas,
@@ -30,9 +31,11 @@ import { editInboundComment, recordInboundBlockMessage } from './blocks.ts';
 import { registerAnswerNotification, selectNotificationRecipient } from './doorbells.ts';
 import { replayOperation } from './commands.ts';
 import { CommandError } from './commands.ts';
+import { commandReply } from './command-replies.ts';
 import { raiseItem as raiseOperatorItem, clearItem as clearOperatorItem } from './feed.ts';
 import { dispatchOperation, type OperationRegistry } from './operations.ts';
 import { enqueueConversationClose, enqueueInboundDoorbell } from './outbox.ts';
+import { redactPrivateReply, redactSecretMatches } from './secrets.ts';
 import { decideTokenInTransaction } from './tokens.ts';
 
 type Trx = Kysely<Tables>;
@@ -357,16 +360,6 @@ export function createInbound(input: {
     return { status: 'applied' };
   }
 
-  function queryId(parts: string[]): 'status.get' | 'task.get' | 'task.history' | undefined {
-    return parts.length === 1 && parts[0] === 'status'
-      ? 'status.get'
-      : parts.length === 2 && parts[0] === 'task'
-        ? 'task.get'
-        : parts.length === 3 && parts[0] === 'task' && parts[2] === 'history'
-          ? 'task.history'
-          : undefined;
-  }
-
   async function retryStoredInbound(trx: Trx, itemId: number, at: string): Promise<void> {
     const item = await trx
       .selectFrom('operator_item')
@@ -397,6 +390,19 @@ export function createInbound(input: {
   }
 
   async function runUser(trx: Trx, event: UserEvent, at: string): Promise<Result> {
+    if (
+      event.kind === 'command' &&
+      event.name !== undefined &&
+      event.name !== config.slack.command
+    ) {
+      return deny(trx, {
+        event,
+        reason: 'Command name does not match the configured command.',
+        actor: 'system',
+        gateway: gateway.kind,
+        at,
+      });
+    }
     if (event.kind !== 'message_deleted' && event.author !== config.operator.slack) {
       return deny(trx, {
         event,
@@ -434,9 +440,28 @@ export function createInbound(input: {
         : 'inbound.action';
     }
     if (event.kind === 'command') {
-      return queryId(event.text.trim().split(/\s+/)) ?? 'inbound.command';
+      return interactionOperation(event).id ?? 'inbound.command';
     }
     return `inbound.${event.kind}`;
+  }
+
+  /** Decode command text only for events stored before parsed selections were added. */
+  function legacyCommand(
+    text: string,
+  ): NonNullable<Extract<UserEvent, { kind: 'command' }>['command']> | null {
+    const parts = text.trim().split(/\s+/).filter(Boolean);
+    if (parts.length === 0 || (parts.length === 1 && parts[0] === 'status')) {
+      return { kind: 'query', id: 'status.get', input: {} };
+    }
+    if (parts[0] === 'task' && parts[1] !== undefined) {
+      if (parts.length === 2) {
+        return { kind: 'query', id: 'task.get', input: { task: parts[1] } };
+      }
+      if (parts.length === 3 && parts[2] === 'history') {
+        return { kind: 'query', id: 'task.history', input: { task: parts[1] } };
+      }
+    }
+    return null;
   }
 
   function interactionOperation(event: Extract<UserEvent, { kind: 'command' | 'action' }>): {
@@ -446,9 +471,17 @@ export function createInbound(input: {
     let id: OperationId | undefined;
     let operationInput: unknown;
     if (event.kind === 'command') {
-      const parts = event.text.trim().split(/\s+/);
-      id = queryId(parts);
-      operationInput = id === 'status.get' ? {} : { task: parts[1] };
+      const command = event.command;
+      if (command?.kind === 'query') {
+        const operation = OPERATIONS.find((entry) => entry.id === command.id);
+        if (operation?.kind === 'query' && operation.slack?.kind === 'slash-command') {
+          const parsed = operation.input.safeParse(command.input);
+          if (parsed.success) {
+            id = operation.id;
+            operationInput = parsed.data;
+          }
+        }
+      }
     } else {
       const parts = event.actionId.split(':');
       if (parts.length === 2 && /^I[1-9]\d*$/.test(parts[1] ?? '')) {
@@ -548,8 +581,11 @@ export function createInbound(input: {
       return;
     }
     const { id, operationInput } = interactionOperation(event);
-    let response: string;
-    if (id === undefined) response = 'not available yet';
+    let response: RichText;
+    let cliHint: string | undefined;
+    if (event.kind === 'command' && event.command?.kind === 'usage')
+      response = plain(event.command.text);
+    else if (id === undefined) response = plain('not allowed');
     else {
       try {
         const value = await dispatchOperation(
@@ -559,21 +595,40 @@ export function createInbound(input: {
           'operator',
           event.dedupeKey,
         );
-        response = JSON.stringify(value);
+        if (event.kind === 'command') {
+          const reply = commandReply(
+            id as 'status.get' | 'task.get' | 'task.history',
+            value,
+            operationInput,
+          );
+          response = reply.body;
+          cliHint = reply.cliHint;
+        } else response = plain(JSON.stringify(value));
       } catch (error) {
         if (!(error instanceof CommandError)) {
           await recordFailure(event, error, new Date(clock.now()).toISOString());
         }
-        response =
+        response = plain(
           error instanceof CommandError && error.code !== 'not_implemented'
-            ? error.hint
-            : 'not available yet';
+            ? event.kind === 'command'
+              ? `${ERRORS[error.code].message} ${ERRORS[error.code].hint}`
+              : error.hint
+            : 'not available yet',
+        );
       }
     }
     try {
-      await gateway.respond(event.interaction, plain(response), { private: true });
+      const safeResponse = event.kind === 'command' ? await redactPrivateReply(response) : response;
+      const safeHint =
+        event.kind === 'command' && cliHint !== undefined
+          ? await redactSecretMatches(cliHint)
+          : cliHint;
+      await gateway.respond(event.interaction, safeResponse, {
+        private: true,
+        ...(safeHint === undefined ? {} : { cliHint: safeHint }),
+      });
     } catch {
-      // The operation has completed; an ephemeral response failure must not replay it.
+      // The operation has completed; failed scanning or delivery must not replay it.
     }
   }
 
@@ -581,6 +636,9 @@ export function createInbound(input: {
     if (
       (event.kind === 'command' || event.kind === 'action') &&
       event.author === config.operator.slack &&
+      (event.kind !== 'command' ||
+        event.name === undefined ||
+        event.name === config.slack.command) &&
       (event.kind === 'command' || event.sourceSpace !== null)
     ) {
       await dispatchInteraction(event);
@@ -712,7 +770,21 @@ export function createInbound(input: {
         if (item === undefined || item.cleared_at !== null || item.inbound_event_json === null) {
           throw new CommandError('retry_not_applicable', 'This item has no stored event to retry.');
         }
-        const event = inboundEventSchema.parse(JSON.parse(item.inbound_event_json) as unknown);
+        let event = inboundEventSchema.parse(JSON.parse(item.inbound_event_json) as unknown);
+        if (
+          event.kind === 'command' &&
+          event.name !== undefined &&
+          event.name !== config.slack.command
+        ) {
+          throw new CommandError('retry_not_applicable', 'This interaction cannot be retried.');
+        }
+        if (event.kind === 'command' && event.command === undefined) {
+          const command = legacyCommand(event.text);
+          if (command === null) {
+            throw new CommandError('retry_not_applicable', 'This interaction cannot be retried.');
+          }
+          event = { ...event, command };
+        }
         if (event.kind === 'action' || event.kind === 'command') {
           const { id, operationInput } = interactionOperation(event);
           if (id === undefined) {

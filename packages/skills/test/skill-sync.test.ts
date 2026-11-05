@@ -17,11 +17,17 @@ import {
 
 const skillPath = fileURLToPath(new URL('../spur-board/SKILL.md', import.meta.url));
 const setupSkillPath = fileURLToPath(new URL('../setup/SKILL.md', import.meta.url));
+const readmePath = fileURLToPath(new URL('../../../README.md', import.meta.url));
+const setupGuidePath = fileURLToPath(new URL('../../../SETUP.md', import.meta.url));
+const troubleshootingPath = fileURLToPath(new URL('../../../TROUBLESHOOTING.md', import.meta.url));
 const setupReferencesPath = fileURLToPath(new URL('../setup/references/', import.meta.url));
 const binaryPath = fileURLToPath(new URL('../../cli/src/bin.mjs', import.meta.url));
 const referencesPath = fileURLToPath(new URL('../spur-board/references/', import.meta.url));
 const skill = readFileSync(skillPath, 'utf8');
 const setupSkill = readFileSync(setupSkillPath, 'utf8');
+const publicGuides = [readmePath, setupGuidePath, troubleshootingPath].map((path) =>
+  readFileSync(path, 'utf8'),
+);
 const setupReferenceNames = ['secrets.md', 'slack.md', 'update.md'];
 const setupReferenceTexts = setupReferenceNames.map((name) =>
   readFileSync(new URL(`../setup/references/${name}`, import.meta.url), 'utf8'),
@@ -63,11 +69,13 @@ function operationFor(command: string) {
 
 function invocations(text: string): { command: string; example: boolean }[] {
   const found: { command: string; example: boolean }[] = [];
-  const fenced = /```(?:sh|bash|shell)?\n([\s\S]*?)```/g;
-  const withoutFences = text.replace(fenced, (_match, body: string) => {
-    for (const line of body.split('\n')) {
-      const command = line.trim().replace(/^\$\s*/, '');
-      if (command.startsWith('board ')) found.push({ command, example: true });
+  const fenced = /```([^\n]*)\n([\s\S]*?)```/g;
+  const withoutFences = text.replace(fenced, (_match, language: string, body: string) => {
+    if (['', 'sh', 'bash', 'shell'].includes(language.trim())) {
+      for (const line of body.split('\n')) {
+        const command = line.trim().replace(/^\$\s*/, '');
+        if (command.startsWith('board ')) found.push({ command, example: true });
+      }
     }
     return ' ';
   });
@@ -389,5 +397,31 @@ describe('setup skill sync', () => {
         binarySource.replace("argv[0] === '--version'", 'false'),
       ),
     ).toContain('unknown command: board --version');
+  });
+});
+
+describe('public guide command mentions', () => {
+  it('still checks shell commands after a YAML example', () => {
+    expect(
+      validateSetupInvocations('```yaml\nkey: value\n```\n```sh\nboard doctro --offline\n```'),
+    ).toContain('unknown command: board doctro --offline');
+  });
+
+  it('uses only registered board commands and flags in each guide', () => {
+    for (const guide of publicGuides) expect(validateSetupInvocations(guide)).toEqual([]);
+    expect(publicGuides.flatMap(invocations).length).toBeGreaterThan(12);
+  });
+
+  it('keeps the agent bootstrap line and GitHub check-run recovery', () => {
+    const [readme, setup, troubleshooting] = publicGuides;
+    expect(readme).toMatch(/^npx -y spur-board@latest skills install$/m);
+    expect(readme).toContain('`spur-board-setup`');
+    for (const guide of [setup, troubleshooting]) {
+      expect(guide).toContain('classic personal access token');
+      expect(guide).toContain('`repo`');
+      expect(guide).toContain('SSO');
+      expect(guide).toContain('`FORBIDDEN`');
+      expect(guide).toContain('`CheckRun`');
+    }
   });
 });

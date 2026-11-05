@@ -153,6 +153,6 @@ export interface Gateway {
   respond(
     interaction: InteractionRef,
     text: RichText,
-    options: { private: boolean },
+    options: { private: boolean; cliHint?: string },
   ): Promise<RespondResult>;
 }

@@ -1,6 +1,10 @@
 import { z } from 'zod';
 import { COLUMN_IDS, REQUIRED_COLUMN_IDS } from './enums.ts';
 
+export const DEFAULT_HTTP_PORT = 4311;
+export const DEFAULT_SLACK_APP_NAME = 'spur-board';
+export const DEFAULT_SLACK_COMMAND = '/board';
+
 export const WEEKDAYS = [
   'monday',
   'tuesday',
@@ -190,10 +194,11 @@ export const configSchema = z.strictObject({
   operator: z.strictObject({ slack: nonEmpty }),
   slack: z
     .strictObject({
+      appName: z.string().trim().min(1).default(DEFAULT_SLACK_APP_NAME),
       command: z
         .string()
         .regex(/^\/[a-z0-9_-]+$/, 'Expected a slash command such as /board')
-        .default('/board'),
+        .default(DEFAULT_SLACK_COMMAND),
       appId: z
         .string()
         .regex(/^A[A-Z0-9]+$/, 'Expected a Slack app ID')
@@ -247,7 +252,7 @@ export const configSchema = z.strictObject({
         .int()
         .min(0)
         .max(65_535)
-        .default(4311)
+        .default(DEFAULT_HTTP_PORT)
         .describe('Local HTTP API port (0 assigns a free port).'),
     })
     .prefault({}),
@@ -315,6 +320,40 @@ export const configSchema = z.strictObject({
 
 export type Config = z.output<typeof configSchema>;
 export type ConfigInput = z.input<typeof configSchema>;
+
+/** Recognized names in the private secrets.env file; values never belong in config.yaml. */
+export const SECRET_ENV_KEYS = [
+  {
+    name: 'GITHUB_TOKEN',
+    requiredWhen: 'always',
+    purpose: 'Read GitHub repositories and check runs.',
+  },
+  { name: 'JIRA_EMAIL', requiredWhen: 'jira', purpose: 'Jira account email.' },
+  { name: 'JIRA_API_TOKEN', requiredWhen: 'jira', purpose: 'Jira API token.' },
+  { name: 'SLACK_BOT_TOKEN', requiredWhen: 'slack', purpose: 'Slack bot Web API token.' },
+  { name: 'SLACK_APP_TOKEN', requiredWhen: 'slack', purpose: 'Slack app-level Socket Mode token.' },
+  {
+    name: 'SLACK_APP_CONFIG_TOKEN',
+    requiredWhen: 'optional',
+    purpose: 'Verify the installed slash command through the Slack app manifest API.',
+  },
+  {
+    name: 'SLACK_API_URL',
+    requiredWhen: 'optional',
+    purpose: 'Override the Slack API URL for local testing.',
+  },
+] as const;
+
+export function requiredSecretKeys(config: Config): string[] {
+  const jira = config.projects.some((project) => project.tracker.type === 'jira');
+  const slack = Boolean(config.slack.channels.feed || config.slack.channels.orchestrators);
+  return SECRET_ENV_KEYS.filter(
+    ({ requiredWhen }) =>
+      requiredWhen === 'always' ||
+      (requiredWhen === 'jira' && jira) ||
+      (requiredWhen === 'slack' && slack),
+  ).map(({ name }) => name);
+}
 
 /** The JSON Schema committed as `packages/contracts/config.schema.json`. */
 export function configJsonSchema() {

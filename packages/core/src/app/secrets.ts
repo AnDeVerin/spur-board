@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { lintSource } from '@secretlint/core';
+import type { RichText, RichTextInline } from '@spur-board/contracts';
 import {
   creator as recommend,
   rules as recommendedRules,
@@ -38,9 +39,8 @@ class ScanNeeded extends Error {
   }
 }
 
-/** Return a rule ID, never a finding message or a copy of the matched text. */
-export async function scanSecret(text: string): Promise<string | null> {
-  const result = await lintSource({
+function lintGatewayText(text: string) {
+  return lintSource({
     source: { content: text, filePath: 'board.txt', contentType: 'text' },
     options: {
       noPhysicFilePath: true,
@@ -50,7 +50,74 @@ export async function scanSecret(text: string): Promise<string | null> {
       },
     },
   });
+}
+
+/** Return a rule ID, never a finding message or a copy of the matched text. */
+export async function scanSecret(text: string): Promise<string | null> {
+  const result = await lintGatewayText(text);
   return result.messages[0]?.ruleId ?? null;
+}
+
+/** Replace each detected span while preserving the rest of a private reply. */
+export async function redactSecretMatches(text: string): Promise<string> {
+  const result = await lintGatewayText(text);
+  const matches = result.messages
+    .map(({ range, ruleId }) => ({ start: range[0], end: range[1], ruleId }))
+    .sort((a, b) => a.start - b.start || b.end - a.end);
+  const regions: { start: number; end: number; ruleId: string }[] = [];
+  for (const match of matches) {
+    if (
+      !Number.isInteger(match.start) ||
+      !Number.isInteger(match.end) ||
+      match.start < 0 ||
+      match.end <= match.start ||
+      match.end > text.length
+    ) {
+      throw new Error('Invalid gateway secret scan range');
+    }
+    const previous = regions.at(-1);
+    if (previous !== undefined && match.start < previous.end) {
+      previous.end = Math.max(previous.end, match.end);
+    } else {
+      regions.push({ ...match });
+    }
+  }
+  let safe = '';
+  let offset = 0;
+  for (const { start, end, ruleId } of regions) {
+    safe += `${text.slice(offset, start)}[redacted: ${ruleId}]`;
+    offset = end;
+  }
+  return safe + text.slice(offset);
+}
+
+function visibleInline(value: RichTextInline): string {
+  switch (value.kind) {
+    case 'text':
+    case 'emphasis':
+    case 'code':
+      return value.text;
+    case 'link':
+      return `${value.text} (${value.url})`;
+    case 'mention':
+      return `<@${value.user}>`;
+  }
+}
+
+/** Scan the exact text the Slack private-reply renderer will display. */
+export async function redactPrivateReply(body: RichText): Promise<RichText> {
+  return Promise.all(
+    body.map(async (block) => {
+      if (block.kind === 'code_block') {
+        return { kind: 'code_block', text: await redactSecretMatches(block.text) };
+      }
+      const text = block.children.map(visibleInline).join('');
+      return {
+        kind: block.kind,
+        children: [{ kind: 'text', text: await redactSecretMatches(text) }],
+      };
+    }),
+  );
 }
 
 /** Used by the common outbox insertion point before it issues SQL. */

@@ -213,6 +213,7 @@ describe('Slack inbound normalization', () => {
       user_id: 'U_OPERATOR',
       channel_id: 'C_ONE',
       text: 'status',
+      command: '/board',
     };
     const action = {
       trigger_id: 'TRIGGER-2',
@@ -227,6 +228,7 @@ describe('Slack inbound normalization', () => {
     expect(normalizeInteraction('slash_commands', command, channels)[0]).toMatchObject({
       sourceUrl: 'https://app.slack.com/archives/C_ONE',
       sourceSpace: 'orchestrators',
+      command: { kind: 'query', id: 'status.get', input: {} },
     });
     expect(
       normalizeInteraction('slash_commands', { ...command, retry_attempt: 2 }, channels),
@@ -242,5 +244,17 @@ describe('Slack inbound normalization', () => {
     expect(
       normalizeInteraction('slash_commands', { ...command, channel_id: 'C_OTHER' }, channels)[0],
     ).toMatchObject({ sourceSpace: null });
+    expect(
+      normalizeInteraction('slash_commands', { ...command, command: '/other' }, channels),
+    ).toMatchObject([{ kind: 'command', name: '/other', text: 'status' }]);
+    expect(
+      normalizeInteraction(
+        'slash_commands',
+        { ...command, command: '/ops' },
+        channels,
+        undefined,
+        '/ops',
+      )[0],
+    ).toMatchObject({ name: '/ops', command: { kind: 'query', id: 'status.get', input: {} } });
   });
 });

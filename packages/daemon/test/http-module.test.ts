@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { configSchema } from '@spur-board/contracts';
 import { createOperationRegistry, openStore, type Store } from '@spur-board/core';
@@ -145,6 +146,28 @@ function doctorFetch(fail?: string): typeof fetch {
 }
 
 describe('daemon doctor checks', () => {
+  it('documents every check ID emitted by the daemon with and without Slack', async () => {
+    const configured = await runDaemonDoctor(
+      doctorContext({ operator: true }),
+      '1.2.3',
+      doctorFetch(),
+    );
+    const unconfigured = await runDaemonDoctor(
+      doctorContext({ operator: true, slack: false }),
+      '1.2.3',
+      doctorFetch(),
+    );
+    const emitted = [
+      ...new Set([...configured.checks, ...unconfigured.checks].map(({ id }) => id)),
+    ];
+    const guide = readFileSync(new URL('../../../TROUBLESHOOTING.md', import.meta.url), 'utf8');
+    const section = guide.split('## Doctor checks\n')[1]?.split('\n## ')[0] ?? '';
+    const documented = new Set(
+      [...section.matchAll(/^### ([a-z][a-z0-9_.]+)$/gm)].map((match) => match[1]),
+    );
+    expect(emitted.filter((id) => !documented.has(id))).toEqual([]);
+  });
+
   it('does not require Slack tokens when Slack setup is absent', async () => {
     const fetcher = doctorFetch();
     const report = await runDaemonDoctor(

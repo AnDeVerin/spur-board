@@ -32,6 +32,7 @@ async function rootFor(client: WebClient, channel: string, threadTs: string): Pr
 export interface SocketConfig extends ApiConfig {
   appToken?: string;
   channels: SlackChannels;
+  command?: string;
 }
 
 /** Socket Mode owns transport reconnects; this layer owns sink-before-ack ordering. */
@@ -101,7 +102,7 @@ export function createSocket(
           : actionMessage;
       events = normalizeInteraction(type, body, config.channels, root);
     } else if (type === 'slash_commands') {
-      events = normalizeInteraction(type, body, config.channels);
+      events = normalizeInteraction(type, body, config.channels, undefined, config.command);
     }
     for (const event of events) await emit(event);
     await envelope.ack?.();

@@ -2,7 +2,13 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import YAML from 'yaml';
 import { z } from 'zod';
-import { COLUMN_IDS, type Config, configJsonSchema, configSchema } from '../src/index.ts';
+import {
+  COLUMN_IDS,
+  DEFAULT_HTTP_PORT,
+  type Config,
+  configJsonSchema,
+  configSchema,
+} from '../src/index.ts';
 import { walk as walkJsonSchema } from './json-schema-walk.ts';
 
 function readFixture(name: string): unknown {
@@ -86,6 +92,10 @@ function adapterKeys(config: Config): Pick<Config, 'adapters' | 'sources' | 'git
 }
 
 describe('fixtures', () => {
+  it('pins the default HTTP port', () => {
+    expect(DEFAULT_HTTP_PORT).toBe(4311);
+  });
+
   it('parses the Jira project and fills the defaults', () => {
     const config = configSchema.parse(readFixture('jira-project.yaml'));
     expect(config.thresholds.staleMultiplier).toBe(3);
@@ -97,9 +107,10 @@ describe('fixtures', () => {
       secondRetryMs: 300_000,
       unansweredAfterMs: 900_000,
     });
-    expect(config.http.port).toBe(4311);
+    expect(config.http.port).toBe(DEFAULT_HTTP_PORT);
     expect(config.slack.channels).toEqual({});
     expect(config.slack.command).toBe('/board');
+    expect(config.slack.appName).toBe('spur-board');
     expect(adapterKeys(config)).toEqual(adapterDefaults);
     const project = config.projects[0];
     expect(project?.tracker.type === 'jira' && project.tracker.projectKeys).toEqual([]);
@@ -149,6 +160,7 @@ describe('fixtures', () => {
         {},
         {
           slack: {
+            appName: 'My Board',
             command: '/board-x',
             appId: 'A123ABC',
             channels: { orchestrators: 'C_ORCH', feed: 'C_FEED' },
@@ -158,6 +170,7 @@ describe('fixtures', () => {
     );
     expect(config.slack.channels).toEqual({ orchestrators: 'C_ORCH', feed: 'C_FEED' });
     expect(config.slack.command).toBe('/board-x');
+    expect(config.slack.appName).toBe('My Board');
     expect(config.slack.appId).toBe('A123ABC');
   });
 
@@ -169,6 +182,12 @@ describe('fixtures', () => {
 
 describe('invalid configs', () => {
   it.each<[string, unknown, string, string]>([
+    [
+      'blank Slack app name',
+      validConfig({}, { slack: { appName: '  ' } }),
+      'Too small',
+      'slack.appName',
+    ],
     [
       'invalid Slack command',
       validConfig({}, { slack: { command: 'board' } }),
