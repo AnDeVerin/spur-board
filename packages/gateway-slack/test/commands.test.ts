@@ -75,6 +75,8 @@ describe('Slack board commands', () => {
       ),
     ).toBe('sent');
     const posted = fake.requests().find((request) => request.method === 'chat.postEphemeral');
+    expect(posted?.params.text).toBe(`Block B12 (open, needs_input):\n\nQuote: ${quote}`);
+    expect(posted?.params.mrkdwn).toBe('false');
     expect(posted?.params.parse).toBe('none');
     expect(posted?.params.link_names).toBe('false');
     expect(JSON.parse(posted?.params.blocks ?? '[]')).toEqual([

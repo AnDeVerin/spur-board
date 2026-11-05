@@ -148,7 +148,12 @@ export function renderResponse(body: RichText, cliHint?: string) {
   if (truncated && pointer !== '') {
     elements.push({ type: 'rich_text_section', elements: [{ type: 'text', text: pointer }] });
   }
-  const fallback = renderText(shown);
+  const fallback = shown
+    .map((block) => {
+      const value = block.children.map(literal).join('');
+      return block.kind === 'quote' ? `Quote: ${value}` : value;
+    })
+    .join('\n\n');
   const limit = MAX_PART_TEXT - (truncated ? suffix.length : 0);
   const text = `${fallback.length <= limit ? fallback : (splitText(fallback, limit)?.[0] ?? '')}${truncated ? suffix : ''}`;
   return { text, blocks: [{ type: 'rich_text' as const, elements }] };

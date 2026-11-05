@@ -46,14 +46,17 @@ export function createSlackGateway(config: SlackGatewayConfig): Gateway {
       const rendered = renderResponse(text, options.cliHint);
       if (addressed === null || rendered.text.length === 0) return 'dropped';
       try {
-        const response = await api.chat.postEphemeral({
+        // The Web API accepts mrkdwn=false although the SDK's ephemeral type omits it.
+        const payload = {
           channel: addressed.channel,
           user: addressed.user,
           text: rendered.text,
           blocks: rendered.blocks,
-          parse: 'none',
+          mrkdwn: false,
+          parse: 'none' as const,
           link_names: false,
-        });
+        };
+        const response = await api.chat.postEphemeral(payload);
         return response.ok ? 'sent' : 'dropped';
       } catch (error) {
         if (options.private) {
