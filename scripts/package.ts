@@ -96,6 +96,7 @@ export function validateTarball(entries: readonly string[], manifest: PackageMan
     'package/LICENSE',
     'package/package.json',
     'package/skills/spur-board/SKILL.md',
+    'package/skills/setup/SKILL.md',
   ]) {
     if (!files.has(required)) throw new Error(`Tarball is missing ${required}.`);
   }
