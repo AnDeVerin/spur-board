@@ -114,7 +114,7 @@ async function promptWithTimeout(
     () => {
       controller.abort();
     },
-    options.promptTimeoutMs ?? (id === 'guided-mention' ? 180_000 : promptTimeoutMs),
+    options.promptTimeoutMs ?? (id === 'guided-mention' ? 300_000 : promptTimeoutMs),
   );
   try {
     await options.prompt(id, instruction, context, controller.signal);

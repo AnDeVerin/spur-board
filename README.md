@@ -41,7 +41,7 @@ BOARD_LIVE_CHANNEL=<test-channel-id> pnpm smoke:live --case guided-mention
 
 The focused run creates a root thread and reports only the mention case. In Slack, use **Reply in
 thread** on that root message, type `@`, select the app from autocomplete, and include the prompt's
-marker. The mention prompt allows three minutes; other guided prompts allow 90 seconds. Rate-limit
+marker. The mention prompt allows five minutes; other guided prompts allow 90 seconds. Rate-limit
 is outside the supported live case set. The report says `NOT RUN rate-limit` unless a normal
 delivery happens to receive a 429; then it records whether the `Retry-After` wait and retry worked.
 
