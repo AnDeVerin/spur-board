@@ -76,4 +76,5 @@ Follow `references/new-package.md`.
 - `running-the-daemon` - daemon modules and lifecycle.
 - `writing-adapters` - adapters and the runner.
 - `handling-errors` - error codes, hints and exit codes.
+- `building-messenger-connectors` - messenger gateways and conformance.
 - `testing-and-ci` - tests, checks and CI.
