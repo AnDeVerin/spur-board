@@ -5,11 +5,12 @@ A map of the repo for agents and contributors. The rules live in the files and s
 ## Packages
 
 - `packages/contracts` - zod schemas, config, enums, journal events, the gateway contract, the
-  operation catalog, error codes and typed IDs. Skills: `working-with-contracts`; `handling-errors`
-  for error codes.
+  operation catalog, error codes and typed IDs. Skills: `working-with-contracts`,
+  `adding-an-operation`; `handling-errors` for error codes.
 - `packages/cli` - the sole publishable `spur-board` package. Its built `board` binary bundles
   workspace code; the source CLI has catalog commands and the shared daemon HTTP client. It imports
   only `@spur-board/contracts` among workspace packages; the boundary lint is in `eslint.config.js`.
+  Skill: `designing-agent-surfaces`.
 - `packages/core` - the SQLite store in `src/store/`. Skill: `working-with-storage`.
 - `packages/gateway-slack` - the Slack gateway: Web API delivery, Socket Mode inbound,
   thread-history recovery and the board slash commands. Skill: `building-messenger-connectors`.
@@ -93,13 +94,18 @@ Generated from frontmatter by `pnpm agents:sync`; edit the source file, not this
 
 | Name | Kind | Description |
 | --- | --- | --- |
+| [adding-an-operation](.agents/skills/adding-an-operation/SKILL.md) | skill | Path of an operation from catalog to handler, store, CLI, MCP, generated files and tests |
+| [building-messenger-connectors](.agents/skills/building-messenger-connectors/SKILL.md) | skill | Messenger gateway rules - obligations, conformance, inbound ack and dedupe, recover and gap, outbound results |
 | [code-simplifier](.agents/skills/code-simplifier/SKILL.md) | skill | Simplify the branch diff without changing behaviour - remove duplication, dead code and needless layers |
+| [designing-agent-surfaces](.agents/skills/designing-agent-surfaces/SKILL.md) | skill | Rules for what agents see from the board - MCP tool names, descriptions, schemas and annotations, and CLI output, stdout and help |
 | [gitflow](.agents/skills/gitflow/SKILL.md) | skill | Branches, commits, pushes and pull requests for this repo - naming, history rules, the PR title and a body filled from the PR template and the spec |
+| [handling-errors](.agents/skills/handling-errors/SKILL.md) | skill | Rules for errors - Result vs throw, retries, the ERRORS catalog, hints, exit codes, boundary catches, one shape over HTTP, CLI and MCP |
 | [manager](.agents/skills/manager/SKILL.md) | skill | Run a GitHub issue through tiered gates of role agents - plan, spec check, one Clarify round, implement, review, PR, close-out |
 | [pr-comments-fix](.agents/skills/pr-comments-fix/SKILL.md) | skill | Answer feedback on your own PR - collect unresolved review threads and new comments, fix or reply with a reason, push once, sign each post |
 | [running-the-daemon](.agents/skills/running-the-daemon/SKILL.md) | skill | Rules for packages/daemon/ - modules, config and secrets, logging and redaction, pollers, shutdown, the lock |
 | [skill-writer](.agents/skills/skill-writer/SKILL.md) | skill | Rules for writing and changing skills, role agents and AGENTS.md - format, frontmatter, triggers, size budgets, copies |
-| [testing-and-ci](.agents/skills/testing-and-ci/SKILL.md) | skill | Rules for tests, Vitest, testkit, checks and CI |
+| [testing-and-ci](.agents/skills/testing-and-ci/SKILL.md) | skill | Tests, fakes, clocks, flaky quarantine, checks and CI |
+| [working-in-the-monorepo](.agents/skills/working-in-the-monorepo/SKILL.md) | skill | Package map, allowed dependencies, PR order, new packages, catalog versions, boundary lint errors |
 | [working-with-contracts](.agents/skills/working-with-contracts/SKILL.md) | skill | Rules for changing packages/contracts - zod schemas, config fields, enums, journal event kinds, port contracts, breaking changes and PR order |
 | [working-with-storage](.agents/skills/working-with-storage/SKILL.md) | skill | Rules for the SQLite store (packages/core/src/store/) and outbox (packages/core/src/app/{outbox,sender}.ts) - transactions, outbox, migrations and tests, PRAGMAs |
 | [writing-adapters](.agents/skills/writing-adapters/SKILL.md) | skill | Rules for packages/adapters/ - port, untrusted responses, failure kinds, rate limits, budget, fakes and tests |

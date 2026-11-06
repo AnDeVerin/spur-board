@@ -103,6 +103,8 @@ export interface Operation<
     key: 'idempotencyKey' | null;
     whenToUse: string;
     whenNotToUse: string;
+    /** MCP `destructiveHint`: false for a query and for a mutation that writes only new rows. */
+    destructive: boolean;
   };
   slack: SlackBinding | null;
   examples: readonly [Example<I, O>, ...Example<I, O>[]];
@@ -137,7 +139,7 @@ export function defineOperation<
   preconditions?: { blockTypes: readonly BlockType[] };
   errors: readonly ServerErrorCode[];
   cli: { command: string; args: readonly string[]; modes?: readonly [CliMode, ...CliMode[]] };
-  mcp: { whenToUse: string; whenNotToUse: string };
+  mcp: { whenToUse: string; whenNotToUse: string; destructive?: boolean };
   slack: SlackBinding | null;
   examples: readonly [Example<I, O>, ...Example<I, O>[]];
 }): Operation<Id, K, I, O> {
@@ -160,6 +162,7 @@ export function defineOperation<
       name: spec.id.replace('.', '_'),
       key: mutation ? 'idempotencyKey' : null,
       ...spec.mcp,
+      destructive: mutation ? (spec.mcp.destructive ?? true) : false,
     },
   };
 }

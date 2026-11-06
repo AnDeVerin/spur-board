@@ -166,6 +166,19 @@ describe('catalog', () => {
     },
   );
 
+  it('marks only the mutations that write new rows as non-destructive', () => {
+    const additive = ['block.ask', 'comment.add', 'block.create'];
+    const mutations = OPERATIONS.filter((op) => op.kind === 'mutation');
+    expect(mutations.filter((op) => !op.mcp.destructive).map((op) => op.id)).toEqual(additive);
+    for (const op of mutations) {
+      if (additive.includes(op.id)) continue;
+      expect(op.mcp.destructive, op.id).toBe(true);
+    }
+    for (const op of OPERATIONS.filter((entry) => entry.kind === 'query')) {
+      expect(op.mcp.destructive, op.id).toBe(false);
+    }
+  });
+
   it('never puts the idempotency key into an input schema', () => {
     for (const { input } of schemas) {
       for (const branch of inputBranches(input)) {
@@ -376,7 +389,7 @@ describe('grants', () => {
     ]);
   });
 
-  it('pins the 19 operations with kinds, grants, preconditions and errors', () => {
+  it('pins the 21 operations with kinds, grants, preconditions and errors', () => {
     const order = Object.keys(ERRORS);
     expect(
       OPERATIONS.map((op) => [op.id, op.kind, op.grants, op.preconditions, op.errors]),
