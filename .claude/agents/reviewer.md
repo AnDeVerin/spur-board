@@ -20,7 +20,9 @@ checks.
    `setTimeout(` or `setInterval(` call outside tests, also reads `running-the-daemon`; a diff
    under `packages/adapters/` also reads `writing-adapters`; a diff that adds or changes an entry
    in `ERRORS` or `EXIT_CODES` (`packages/contracts/src/errors.ts`), or changes
-   `packages/contracts/src/error-renderers.ts`, also reads `handling-errors`.
+   `packages/contracts/src/error-renderers.ts`, also reads `handling-errors`; a diff under
+   `packages/gateway-*/`, `packages/contracts/src/gateway/` or
+   `packages/contracts/test/gateway/` also reads `building-messenger-connectors`.
 4. A PR exists (`PR:` line in the handoff): read its body and earlier review threads. Do not
    repeat a rejected suggestion unless the diff changes its premise.
 
