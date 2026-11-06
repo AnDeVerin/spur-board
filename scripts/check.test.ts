@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
   buildSteps,
@@ -82,7 +83,14 @@ describe('pre-push selection', () => {
     expect(plan).toMatchObject({ mode: 'changed', packageDirs: [] });
     if ('error' in plan) throw new Error(plan.error);
     const steps = buildSteps(plan, true);
-    expect(steps.map((step) => step.name)).toEqual(['format', 'lint', 'types', 'knip', 'test']);
+    expect(steps.map((step) => step.name)).toEqual([
+      'format',
+      'lint',
+      'types',
+      'knip',
+      'agents',
+      'test',
+    ]);
     expect(steps.filter((step) => 'commands' in step).map((step) => step.name)).toEqual(['format']);
   });
 
@@ -242,6 +250,64 @@ describe('ordinary and full process selection', () => {
       );
       expect(tests.commands[1]?.args).toContain('startup');
     }
+  });
+});
+
+describe('agents step', () => {
+  const lintStep = {
+    name: 'agents',
+    commands: [{ cmd: 'node', args: ['scripts/agents.ts', 'lint'] }],
+  };
+  const stepFor = (full: boolean, prePush: boolean, path: string) => {
+    const plan = selectPlan({
+      full,
+      prePush,
+      base,
+      changed: full ? [] : [{ path, deleted: false }],
+      packageDirs,
+    });
+    if ('error' in plan) throw new Error(plan.error);
+    return buildSteps(plan, prePush).find((step) => step.name === 'agents');
+  };
+
+  it('runs node scripts/agents.ts lint in changed, pre-push and full mode', () => {
+    expect(stepFor(false, false, '.agents/x.md')).toEqual(lintStep);
+    expect(stepFor(false, true, '.agents/x.md')).toEqual(lintStep);
+    expect(stepFor(true, false, '')).toEqual(lintStep);
+    expect(stepFor(false, false, 'README.md')).toEqual({
+      name: 'agents',
+      skip: 'no agent files changed',
+    });
+    expect(stepFor(false, true, 'README.md')).toEqual({
+      name: 'agents',
+      skip: 'no agent files changed',
+    });
+  });
+
+  it('runs every check step exactly once across the CI jobs', () => {
+    const workflow = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8');
+    const lists = [...workflow.matchAll(/pnpm check:full --only (\S+)/g)].map(
+      (match) => match[1] ?? '',
+    );
+    expect(lists.flatMap((list) => list.split(',')).sort()).toEqual([
+      'agents',
+      'format',
+      'knip',
+      'lint',
+      'test',
+      'types',
+    ]);
+    expect(workflow).not.toMatch(/check:full(?! --only)/);
+    expect(workflow).not.toContain('lint:agents');
+    const manifest = JSON.parse(
+      readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
+    ) as { scripts: Record<string, string> };
+    expect(manifest.scripts['lint:agents']).toBe('node scripts/agents.ts lint');
+    const step = stepFor(true, false, '');
+    const command = step && 'commands' in step ? step.commands[0] : undefined;
+    expect([command?.cmd, ...(command?.args ?? [])].join(' ')).toBe(
+      manifest.scripts['lint:agents'],
+    );
   });
 });
 
