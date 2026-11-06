@@ -532,4 +532,115 @@ describe('GitHub PR batch', () => {
       message: 'GitHub token needs read:org for team review requests',
     });
   });
+  it('passes extra wire fields at every level', async () => {
+    const pr = wire();
+    const extended = {
+      ...pr,
+      extraField: { nested: [1] },
+      statusCheckRollup: {
+        state: 'SUCCESS',
+        contexts: {
+          ...pr.statusCheckRollup.contexts,
+          totalCount: 3,
+          nodes: pr.statusCheckRollup.contexts.nodes.map((node) => ({
+            ...(node as object),
+            detailsUrl: 'https://example.test',
+          })),
+        },
+      },
+      reviews: { ...pr.reviews, totalCount: 1 },
+    };
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          data: {
+            rateLimit: { remaining: 4321, resetAt: '2026-01-03T00:00:00.000Z', cost: 1 },
+            repository: {
+              id: 'R_1',
+              pullRequests: { ...conn([]), totalCount: 0 },
+              mergedBaseline: { nodes: [], totalCount: 0 },
+            },
+            pr0: { pullRequest: extended, id: 'R_1' },
+          },
+          extensions: { cost: 1 },
+        }),
+      ),
+    );
+    const batch = await adapter(fetcher).poll(context());
+    expect(batch.items).toEqual([
+      { kind: 'pr', facts: normalizePr('demo/widgets', wire(), ['DEMO']) },
+    ]);
+  });
+  it('fails the poll naming the missing PR field without its value', async () => {
+    const missing: Partial<ReturnType<typeof wire>> = wire();
+    delete missing.title;
+    const mistyped = { ...wire(), title: { leak: 'raw-sentinel' } };
+    for (const pr of [missing, mistyped]) {
+      const fetcher = vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(
+          response({ repository: { pullRequests: conn([]) }, pr0: { pullRequest: pr } }),
+        );
+      const error = await adapter(fetcher)
+        .poll(context())
+        .then(
+          () => undefined,
+          (cause: unknown) => cause,
+        );
+      expect(error).toBeInstanceOf(AdapterError);
+      expect(error).toMatchObject({
+        kind: 'transient',
+        message: 'Malformed GitHub PR response at title',
+      });
+      expect((error as AdapterError).message).not.toContain('raw-sentinel');
+      expect((error as AdapterError).cause).toBeUndefined();
+    }
+  });
+  it("keeps today's mapping for unknown enum values", () => {
+    const pr = {
+      ...wire(),
+      state: 'FUTURE',
+      mergeable: 'FUTURE',
+      mergeStateStatus: 'FUTURE',
+      statusCheckRollup: {
+        contexts: conn([
+          {
+            __typename: 'CheckRun',
+            name: 'completed',
+            status: 'COMPLETED',
+            conclusion: 'FUTURE',
+            completedAt: time,
+          },
+          {
+            __typename: 'CheckRun',
+            name: 'running',
+            status: 'FUTURE',
+            conclusion: null,
+            completedAt: null,
+          },
+          { __typename: 'StatusContext', context: 'status', state: 'FUTURE', createdAt: time },
+        ]),
+      },
+      reviews: conn([
+        { author: { login: 'reviewer' }, state: 'FUTURE', commit: { oid: sha }, submittedAt: time },
+      ]),
+    };
+    const facts = normalizePr('demo/widgets', pr, ['DEMO']);
+    expect(facts).toMatchObject({ state: 'open', mergeable: 'unknown', mergeState: 'unknown' });
+    expect(facts.checks.map((check) => [check.name, check.state])).toEqual([
+      ['completed', 'error'],
+      ['running', 'pending'],
+      ['status', 'failure'],
+    ]);
+    expect(facts.reviews).toEqual([]);
+  });
+  it('reports an error-free null alias as not_found', async () => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(response({ repository: { pullRequests: conn([]) }, pr0: null }));
+    const batch = await adapter(fetcher).poll(context());
+    expect(batch.complete).toBe(true);
+    expect(batch.entities).toEqual([{ ref, status: 'not_found' }]);
+    expect(batch.items).toEqual([]);
+  });
 });

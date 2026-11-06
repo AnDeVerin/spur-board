@@ -214,4 +214,44 @@ describe('GitHub discovery', () => {
     expect(batch.cursor).toBe(old);
     expect(batch.budget?.remaining).toBe(90);
   });
+  it('passes extra fields and an unknown PR state', async () => {
+    const extended = { ...node(7, newer, 'operator', 'FUTURE'), title: 'extra', isDraft: true };
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        response({ repository: { pullRequests: { ...conn([extended]), totalCount: 1 } } }),
+      )
+      .mockResolvedValueOnce(response({ pr0: null }));
+    await adapter(fetcher).poll(context);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(fetcher.mock.calls[1]?.[1]?.body as string).toContain('pullRequest(number: 7)');
+  });
+  it('fails the poll naming a discovery node without updatedAt', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValueOnce(
+      response({
+        repository: { pullRequests: conn([{ number: 7, author: { login: 'operator' } }]) },
+      }),
+    );
+    await expect(adapter(fetcher).poll(context)).rejects.toMatchObject({
+      kind: 'transient',
+      message: 'Malformed GitHub response at data.repository.pullRequests.nodes.0.updatedAt',
+    });
+  });
+  it('skips a PR whose author GitHub returns as null', async () => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        response({
+          repository: {
+            pullRequests: conn([{ ...node(7, newer), author: null }, node(8, newer)]),
+          },
+        }),
+      )
+      .mockResolvedValueOnce(response({ pr0: null }));
+    await adapter(fetcher).poll(context);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    const detail = fetcher.mock.calls[1]?.[1]?.body as string;
+    expect(detail).toContain('pullRequest(number: 8)');
+    expect(detail).not.toContain('pullRequest(number: 7)');
+  });
 });

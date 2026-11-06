@@ -130,6 +130,17 @@ const importTypeBan = {
   selector: 'TSImportType',
   message: 'Use a static import so the boundary lint can check it.',
 };
+// Adapter folders parse responses with zod wire schemas, never with hand-written walkers.
+const wireWalkerMessage = 'Parse responses with a zod wire schema (writing-adapters).';
+const wireWalkerNames = '/^(record|list|string|array|object|number|connectionNodes)$/';
+const wireWalkerBans = [
+  "CallExpression[callee.object.name='Array'][callee.property.name='isArray']",
+  "BinaryExpression[left.operator='typeof'][right.value='object']",
+  "BinaryExpression[right.operator='typeof'][left.value='object']",
+  "TSAsExpression[typeAnnotation.typeName.name='Record']",
+  `FunctionDeclaration[id.name=${wireWalkerNames}]`,
+  `VariableDeclarator[id.name=${wireWalkerNames}][init.type=/^(ArrowFunctionExpression|FunctionExpression)$/]`,
+].map((selector) => ({ selector, message: wireWalkerMessage }));
 
 export default defineConfig(
   {
@@ -204,7 +215,10 @@ export default defineConfig(
   },
   ...adapterFolders.map((folder) => ({
     files: [`packages/adapters/src/${folder}/**/*.ts`],
-    rules: { 'no-restricted-imports': adapterImports([siblingPattern(folder)]) },
+    rules: {
+      'no-restricted-imports': adapterImports([siblingPattern(folder)]),
+      'no-restricted-syntax': ['error', dynamicImportBan, importTypeBan, ...wireWalkerBans],
+    },
   })),
   {
     files: ['packages/adapters/test/**/*.ts', 'packages/adapters/**/*.test.ts'],

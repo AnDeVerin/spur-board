@@ -6,7 +6,9 @@ import {
   type TicketEntityRef,
   type TicketFacts,
 } from '@spur-board/contracts';
+import { z } from 'zod';
 import { classifyHttpFailure } from '../runner/http.ts';
+import { parseWire } from '../runner/wire.ts';
 
 type Tracker = Extract<Config['projects'][number]['tracker'], { type: 'github-issues' }>;
 
@@ -26,66 +28,59 @@ class GithubIssuesHttpError extends AdapterError {
   }
 }
 
-function object(value: unknown): Record<string, unknown> {
-  if (value !== null && typeof value === 'object' && !Array.isArray(value))
-    return value as Record<string, unknown>;
-  throw new AdapterError('transient', 'Malformed GitHub issue response');
-}
-
-function string(value: unknown): string {
-  if (typeof value === 'string' && value.length > 0) return value;
-  throw new AdapterError('transient', 'Malformed GitHub issue response');
-}
-
-function number(value: unknown): number {
-  if (typeof value === 'number' && Number.isSafeInteger(value) && value > 0) return value;
-  throw new AdapterError('transient', 'Malformed GitHub issue response');
-}
+const MALFORMED = 'Malformed GitHub issue response';
+const text = z.string().min(1);
+const issueWire = z.object({
+  node_id: text,
+  number: z.int().positive(),
+  title: text,
+  state: text,
+  html_url: text,
+  updated_at: text.refine((value) => !Number.isNaN(Date.parse(value))),
+  labels: z.array(z.object({ name: text })),
+  assignee: z.object({ login: text }).nullish(),
+  milestone: z.object({ title: text }).nullish(),
+  pull_request: z.unknown().optional(),
+});
+type IssueWire = z.output<typeof issueWire>;
+const milestoneWire = z.object({ title: z.string(), number: z.int().positive() });
 
 function issueNumber(ref: TicketEntityRef, repo: string): number {
   const match = /^(.+)#([1-9]\d*)$/.exec(ref.key);
   if (match?.[1]?.toLowerCase() !== repo.toLowerCase())
     throw new AdapterError('config', 'Requested issue is outside its configured repository');
-  return number(Number(match[2]));
+  const value = Number(match[2]);
+  if (!Number.isSafeInteger(value) || value <= 0) throw new AdapterError('transient', MALFORMED);
+  return value;
 }
 
 function normalize(
-  value: unknown,
+  issue: IssueWire,
   trackerId: string,
   repo: string,
   inFilter: boolean,
 ): TicketFacts {
-  const issue = object(value);
-  if (issue['pull_request'] !== undefined)
+  if (issue.pull_request !== undefined)
     throw new AdapterError('transient', 'A pull request cannot be a tracker ticket');
-  const updatedAt = new Date(string(issue['updated_at']));
-  if (Number.isNaN(updatedAt.getTime()))
-    throw new AdapterError('transient', 'Malformed GitHub issue timestamp');
-  const labels = issue['labels'];
-  if (!Array.isArray(labels)) throw new AdapterError('transient', 'Malformed GitHub issue labels');
-  const assignee = issue['assignee'] == null ? null : string(object(issue['assignee'])['login']);
-  const milestone = issue['milestone'] == null ? null : string(object(issue['milestone'])['title']);
   return {
     trackerId,
-    id: string(issue['node_id']),
-    key: `${repo}#${String(number(issue['number']))}`,
-    title: string(issue['title']),
-    status: string(issue['state']),
-    assignee,
-    sprint: milestone,
-    labels: labels.map((label) => string(object(label)['name'])),
+    id: issue.node_id,
+    key: `${repo}#${String(issue.number)}`,
+    title: issue.title,
+    status: issue.state,
+    assignee: issue.assignee?.login ?? null,
+    sprint: issue.milestone?.title ?? null,
+    labels: issue.labels.map((label) => label.name),
     inFilter,
-    url: string(issue['html_url']),
-    updatedAt: updatedAt.toISOString(),
+    url: issue.html_url,
+    updatedAt: new Date(issue.updated_at).toISOString(),
   };
 }
 
-function matchesFilter(issue: Record<string, unknown>, tracker: Tracker): boolean {
-  if (tracker.label !== undefined) {
-    const labels = issue['labels'];
-    return Array.isArray(labels) && labels.some((label) => object(label)['name'] === tracker.label);
-  }
-  return issue['milestone'] != null && object(issue['milestone'])['title'] === tracker.milestone;
+function matchesFilter(issue: IssueWire, tracker: Tracker): boolean {
+  if (tracker.label !== undefined)
+    return issue.labels.some((label) => label.name === tracker.label);
+  return issue.milestone?.title === tracker.milestone;
 }
 
 /** Lists tracker issues and resolves manually included keys outside the filter. */
@@ -163,9 +158,9 @@ export function createGithubIssuesAdapter(options: GithubIssuesOptions): Adapter
           return { values: results, complete: false };
         throw error;
       }
-      if (!Array.isArray(page.value))
-        throw new AdapterError('transient', 'Malformed GitHub issue listing');
-      results.push(...(page.value as unknown[]));
+      results.push(
+        ...parseWire(z.array(z.unknown()), page.value, 'Malformed GitHub issue listing'),
+      );
       next = page.next;
     }
     return { values: results, complete: true };
@@ -181,12 +176,12 @@ export function createGithubIssuesAdapter(options: GithubIssuesOptions): Adapter
         throw new AdapterError('config', 'GitHub Issues repository is unavailable');
       throw error;
     }
-    const match = milestones
-      .map(object)
-      .find((entry) => entry['title'] === options.tracker.milestone);
+    const match = parseWire(z.array(milestoneWire), milestones, MALFORMED).find(
+      (entry) => entry.title === options.tracker.milestone,
+    );
     if (match === undefined)
       throw new AdapterError('config', 'Configured GitHub milestone is missing');
-    return number(match['number']);
+    return match.number;
   }
 
   return {
@@ -215,10 +210,9 @@ export function createGithubIssuesAdapter(options: GithubIssuesOptions): Adapter
       }
       const facts = new Map<number, TicketFacts>();
       for (const value of listed) {
-        const issue = object(value);
-        if (issue['pull_request'] !== undefined) continue;
-        const fact = normalize(issue, options.id, options.tracker.repo, true);
-        facts.set(number(issue['number']), fact);
+        const issue = parseWire(issueWire, value, MALFORMED);
+        if (issue.pull_request !== undefined) continue;
+        facts.set(issue.number, normalize(issue, options.id, options.tracker.repo, true));
       }
       const entities: Batch['entities'] = [];
       for (const ref of ctx.observe.tickets) {
@@ -228,10 +222,12 @@ export function createGithubIssuesAdapter(options: GithubIssuesOptions): Adapter
         let fact = facts.get(issueNo);
         if (fact === undefined) {
           try {
-            const detail = object(
+            const detail = parseWire(
+              issueWire,
               (await request(`${root}/issues/${String(issueNo)}`, ctx.signal)).value,
+              MALFORMED,
             );
-            if (detail['pull_request'] !== undefined) {
+            if (detail.pull_request !== undefined) {
               entities.push({ ref, status: 'not_found' });
               continue;
             }

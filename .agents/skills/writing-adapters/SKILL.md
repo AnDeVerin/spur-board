@@ -5,8 +5,8 @@ description: Rules for packages/adapters/ - port, untrusted responses, failure k
 
 # Writing adapters
 
-These rules apply to every adapter under `packages/adapters/src/`. Spur is the cited example for
-parsing responses, GitHub for the rest.
+These rules apply to every adapter under `packages/adapters/src/`. GitHub is the cited example
+unless a rule names another.
 A PR that changes a practice named here updates this skill.
 
 ## When to use
@@ -33,18 +33,19 @@ A PR that changes a practice named here updates this skill.
 ## Untrusted responses
 
 - Parse every external response with a zod wire schema that reads only the fields the adapter
-  needs. Reference: `sessionWire` in `packages/adapters/src/spur/spur.ts`, used as
-  `sessionWire.parse(body)` and `z.array(sessionWire).parse(listBody)`. It is a plain `z.object`:
-  zod 4 accepts unknown keys and strips them from the output.
-- A failed wire parse rejects the poll; core treats that rejection as `transient` (A6).
-- Open migration, tracked in #168: the GitHub adapter checks by hand with `record`, `list` and
-  `string` in `packages/adapters/src/github/client.ts`, the Jira adapter with `object`, `array`
-  and `string` in `packages/adapters/src/jira/jira.ts`. #168 removes this note once both comply.
+  needs, through `parseWire` (`packages/adapters/src/runner/wire.ts`): a failure rejects the poll
+  as `transient`, naming the path without the value. References: `prWire`
+  (`packages/adapters/src/github/prBatch.ts`), `issueWire` (`packages/adapters/src/jira/jira.ts`).
+- `z.object` strips unknown keys; use `z.looseObject` only for keys read later or chosen at
+  runtime (GraphQL `data`, Jira `fields`). Vendor enums are `z.string()`, mapped in code.
+- Parse a GraphQL root only after `GithubClient.query` classifies `errors` and its scoped errors
+  are handled; denied fields arrive null, so make them nullable.
+- Lint: `wireWalkerBans` in `eslint.config.js`.
 - Parse normalized output with the contracts schema: `prFactsSchema.safeParse` in `normalizePr`
   (`packages/adapters/src/github/prBatch.ts`). The runner re-validates each batch with
   `batchSchema` (`describe('batch validation')` in `packages/adapters/test/runner/runner.test.ts`).
-- Unknown shape: fail the whole poll as `transient` with the cause. Never default a field, guess
-  a fact, or mark a batch complete with a part missing.
+- Unknown shape: fail the whole poll as `transient`. Never default a field, guess a fact, or mark
+  a batch complete with a part missing.
 - A requested entity that is missing or denied gets the `not_found` or `no_access` status; any
   other partial error clears `complete` (`pollRepository` in
   `packages/adapters/src/github/index.ts`).

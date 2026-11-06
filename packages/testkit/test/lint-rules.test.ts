@@ -204,6 +204,20 @@ describe('adapters boundary', () => {
     ['packages/adapters/src/x.ts', "export type D = typeof import('node:sqlite');"],
     ['packages/adapters/test/x.test.ts', "export const m = import('../src/index.ts');"],
     ['packages/adapters/test/x.test.ts', "vi.mock('x');"],
+    ['packages/adapters/src/github/x.ts', 'export const a = (v: unknown) => Array.isArray(v);'],
+    ['packages/adapters/src/jira/x.ts', "export const o = (v: unknown) => typeof v === 'object';"],
+    [
+      'packages/adapters/src/spur/x.ts',
+      'export const r = (v: unknown) => v as Record<string, unknown>;',
+    ],
+    [
+      'packages/adapters/src/jira/x.ts',
+      'export function string(v: unknown): string { return String(v); }',
+    ],
+    [
+      'packages/adapters/src/github/x.ts',
+      'export const number = (v: unknown): number => Number(v);',
+    ],
   ])(
     '%s: %s reports no-restricted-syntax',
     async (path, code) => {
@@ -242,6 +256,8 @@ describe('adapters boundary', () => {
     ['packages/core/src/x.ts', imports('@spur-board/contracts')],
     ['packages/daemon/src/x.ts', imports('@spur-board/core')],
     ['packages/core/src/x.ts', "export const m = import('./y.ts');"],
+    ['packages/adapters/src/runner/x.ts', 'export const a = (v: unknown) => Array.isArray(v);'],
+    ['packages/adapters/src/github/x.ts', 'export const number = 1;'],
   ])(
     'leaves %s outside the adapters boundary: %s passes',
     async (path, code) => {

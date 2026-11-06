@@ -1,65 +1,68 @@
 import { sourceCursorSchema, type SourceCursor } from '@spur-board/contracts';
-import { record, string, type Json, type RecordValue } from './client.ts';
+import { z } from 'zod';
+
+const timestamp = z
+  .string()
+  .min(1)
+  .refine((value) => !Number.isNaN(Date.parse(value)));
+// GitHub returns a null author for a deleted account.
+export const discoveryNodeWire = z.object({
+  number: z.int().positive(),
+  updatedAt: timestamp,
+  author: z.object({ login: z.string() }).nullable(),
+});
+export const baselineNodeWire = z.object({ updatedAt: timestamp });
+type DiscoveryNode = z.output<typeof discoveryNodeWire>;
+type BaselineNode = z.output<typeof baselineNodeWire>;
 
 export interface Discovery {
   numbers: number[];
   cursor?: SourceCursor;
 }
 export function latestUpdatedAt(
-  nodes: readonly RecordValue[],
+  nodes: readonly BaselineNode[],
   previous: SourceCursor | undefined,
 ): SourceCursor | undefined {
   let high = previous;
   for (const node of nodes) {
-    const updated = sourceCursorSchema.parse(string(node.updatedAt));
-    const updatedMs = Date.parse(updated);
-    if (Number.isNaN(updatedMs)) throw new Error('Malformed GitHub updatedAt');
-    if (high === undefined || updatedMs > Date.parse(high)) high = updated;
+    const updated = sourceCursorSchema.parse(node.updatedAt);
+    if (high === undefined || Date.parse(updated) > Date.parse(high)) high = updated;
   }
   return high;
 }
 /** The high-water cursor is an ISO timestamp. Equal timestamps are revisited. */
 export function discover(
-  nodes: readonly RecordValue[],
+  nodes: readonly DiscoveryNode[],
   previous: SourceCursor | undefined,
   login: string,
 ): Discovery {
   let high = previous;
   const numbers = new Set<number>();
   for (const node of nodes) {
-    const updated = sourceCursorSchema.parse(string(node.updatedAt));
+    const updated = sourceCursorSchema.parse(node.updatedAt);
     const updatedMs = Date.parse(updated);
-    if (Number.isNaN(updatedMs)) throw new Error('Malformed GitHub updatedAt');
     if (high === undefined || updatedMs > Date.parse(high)) high = updated;
     if (previous !== undefined && updatedMs < Date.parse(previous)) continue;
-    const author = record(node.author);
-    if (typeof author.login !== 'string' || author.login.toLowerCase() !== login.toLowerCase())
-      continue;
-    const number = node.number;
-    if (typeof number === 'number' && Number.isInteger(number) && number > 0) numbers.add(number);
+    if (node.author?.login.toLowerCase() !== login.toLowerCase()) continue;
+    numbers.add(node.number);
   }
   return { numbers: [...numbers], ...(high === undefined ? {} : { cursor: high }) };
 }
 /** Pages are sorted newest first; older nodes end the scan, while ties must be revisited. */
 export function pastCursor(
-  nodes: readonly RecordValue[],
+  nodes: readonly Pick<DiscoveryNode, 'updatedAt'>[],
   previous: SourceCursor | undefined,
 ): boolean {
-  if (previous === undefined || nodes.length === 0) return false;
-  const oldest = nodes[nodes.length - 1];
-  const updatedMs = Date.parse(string(oldest?.updatedAt));
-  if (Number.isNaN(updatedMs)) throw new Error('Malformed GitHub updatedAt');
-  return updatedMs < Date.parse(previous);
+  const oldest = nodes.at(-1);
+  if (previous === undefined || oldest === undefined) return false;
+  return Date.parse(oldest.updatedAt) < Date.parse(previous);
 }
-export function nextPage(connection: Json | undefined): string | undefined {
-  const info = record(record(connection).pageInfo);
-  if (info.hasNextPage === false) return undefined;
-  if (
-    info.hasNextPage !== true ||
-    typeof info.endCursor !== 'string' ||
-    info.endCursor.length === 0
-  ) {
-    throw new Error('Malformed GitHub pagination');
-  }
-  return string(info.endCursor);
+export function nextPage(connection: {
+  nodes: readonly unknown[];
+  pageInfo: { hasNextPage: boolean; endCursor: string | null };
+}): string | undefined {
+  const { hasNextPage, endCursor } = connection.pageInfo;
+  if (!hasNextPage) return undefined;
+  if (!endCursor) throw new Error('Malformed GitHub pagination');
+  return endCursor;
 }
