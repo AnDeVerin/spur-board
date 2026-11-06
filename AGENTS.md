@@ -12,7 +12,11 @@ A map of the repo for agents and contributors. The rules live in the files and s
   only `@spur-board/contracts` among workspace packages; the boundary lint is in `eslint.config.js`.
   Skill: `designing-agent-surfaces`.
 - `packages/core` - the SQLite store in `src/store/`. Skill: `working-with-storage`.
-- `packages/gateway-slack` - Slack outbound delivery through the Web API.
+- `packages/gateway-slack` - the Slack gateway: Web API delivery, Socket Mode inbound,
+  thread-history recovery and the board slash commands. Skill: `building-messenger-connectors`.
+- `packages/gateway-testkit` - the gateway conformance suite, its case registry for fake and live
+  targets, and an in-memory fake gateway with `slack-like` and `telegram-like` profiles. Skill:
+  `building-messenger-connectors`.
 - `packages/adapters` - the adapter runner in `src/runner/`: per-source schedule, backoff,
   throttle and budget waits, batch validation and the source state reported to core. Adapters
   import only `@spur-board/contracts` and `runner/`; the boundary lint is in `eslint.config.js`.

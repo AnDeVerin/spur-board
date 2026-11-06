@@ -13,16 +13,16 @@ checks.
 1. Read the acceptance criteria, Verification and Invariants from the spec file (tier 0: the
    manager's criteria; tier 3: the developer's written plan) and the developer's output.
 2. `git diff <sha>...HEAD`, using the handoff's `origin/main` SHA.
-3. Read each skill in `.agents/skills/` whose description covers the changed paths; a diff under
-   `packages/contracts/` also reads `working-with-contracts`; a diff under
-   `packages/core/src/store/` or `packages/core/test/store/`, or one that adds a `.transaction(`
-   call, also reads `working-with-storage`; a diff under `packages/daemon/`, or one that adds a
-   `setTimeout(` or `setInterval(` call outside tests, also reads `running-the-daemon`; a diff
-   under `packages/adapters/` also reads `writing-adapters`; a diff under
-   `packages/contracts/src/ops/` also reads `adding-an-operation`; a diff under `packages/cli/`
-   also reads `designing-agent-surfaces`; a diff that adds or changes an entry in `ERRORS` or
-   `EXIT_CODES` (`packages/contracts/src/errors.ts`), or changes
-   `packages/contracts/src/error-renderers.ts`, also reads `handling-errors`.
+3. Read each skill in `.agents/skills/` whose description covers the changed paths, and the skill
+   each trigger names: `packages/contracts/` -> `working-with-contracts`;
+   `packages/contracts/src/ops/` -> `adding-an-operation`; `packages/core/src/store/`,
+   `packages/core/test/store/` or a new `.transaction(` call -> `working-with-storage`;
+   `packages/daemon/`, or a new `setTimeout(` or `setInterval(` call outside tests ->
+   `running-the-daemon`; `packages/adapters/` -> `writing-adapters`; `packages/cli/` ->
+   `designing-agent-surfaces`; a new or changed entry in `ERRORS` or `EXIT_CODES`
+   (`packages/contracts/src/errors.ts`), or a change to `packages/contracts/src/error-renderers.ts`
+   -> `handling-errors`; `packages/gateway-*/`, `packages/contracts/src/gateway/` or
+   `packages/contracts/test/gateway/` -> `building-messenger-connectors`.
 4. A PR exists (`PR:` line in the handoff): read its body and earlier review threads. Do not
    repeat a rejected suggestion unless the diff changes its premise.
 
