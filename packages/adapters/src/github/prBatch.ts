@@ -1,17 +1,77 @@
 import { AdapterError, prFactsSchema, type PrFacts } from '@spur-board/contracts';
-import { connectionNodes, record, string, type Json, type RecordValue } from './client.ts';
+import { z } from 'zod';
+import { parseWire } from '../runner/wire.ts';
 
-function lower(value: Json | undefined): string {
-  return string(value).toLowerCase();
-}
-function optionalLogin(value: Json | undefined): string | undefined {
-  if (value === null || value === undefined) return undefined;
-  const login = record(value).login;
-  return typeof login === 'string' ? login : undefined;
-}
-function checkState(node: RecordValue): PrFacts['checks'][number]['state'] {
+const KEPT_REVIEWS = ['approved', 'changes_requested', 'dismissed'];
+const actor = z.object({ login: z.string().optional() }).nullish();
+const checkRunWire = z
+  .object({
+    __typename: z.literal('CheckRun'),
+    name: z.string(),
+    status: z.string(),
+    conclusion: z.string().nullable(),
+    startedAt: z.string().nullish(),
+    completedAt: z.string().nullable(),
+    checkSuite: z.object({ createdAt: z.string() }).nullish(),
+    isRequired: z.boolean().nullish(),
+  })
+  .refine((run) => run.status !== 'COMPLETED' || run.conclusion !== null, {
+    path: ['conclusion'],
+  });
+const statusContextWire = z.object({
+  __typename: z.literal('StatusContext'),
+  context: z.string(),
+  state: z.string(),
+  createdAt: z.string(),
+  isRequired: z.boolean().nullish(),
+});
+const contextWire = z.discriminatedUnion('__typename', [checkRunWire, statusContextWire]);
+// A kept review must name its commit.
+const reviewWire = z
+  .object({
+    author: actor,
+    state: z.string(),
+    commit: z.object({ oid: z.string() }).nullable(),
+    submittedAt: z.string().nullish(),
+  })
+  .refine(
+    (review) =>
+      review.commit !== null ||
+      !review.author?.login ||
+      review.submittedAt == null ||
+      !KEPT_REVIEWS.includes(review.state.toLowerCase()),
+    { path: ['commit'] },
+  );
+const nodes = <T extends z.ZodType>(node: T) => z.object({ nodes: z.array(node) });
+// Vendor enums stay strings; normalizePr maps unknown values.
+const prWire = z.object({
+  number: z.number(),
+  url: z.string(),
+  title: z.string(),
+  updatedAt: z.string(),
+  state: z.string(),
+  isDraft: z.boolean(),
+  mergeable: z.string(),
+  mergeStateStatus: z.string(),
+  author: actor,
+  headRefName: z.string(),
+  headRefOid: z.string(),
+  statusCheckRollup: z.object({ contexts: nodes(contextWire) }).nullish(),
+  reviews: nodes(reviewWire),
+  reviewThreads: nodes(z.object({ isResolved: z.boolean() })),
+  reviewRequests: nodes(
+    z.object({
+      requestedReviewer: z.object({ login: z.string().nullish(), name: z.string().nullish() }),
+      asCodeOwner: z.boolean(),
+    }),
+  ),
+});
+type ContextWire = z.output<typeof contextWire>;
+type ReviewWire = z.output<typeof reviewWire>;
+
+function checkState(node: ContextWire): PrFacts['checks'][number]['state'] {
   if (node.__typename === 'StatusContext') {
-    const state = lower(node.state);
+    const state = node.state.toLowerCase();
     return state === 'success'
       ? 'success'
       : state === 'pending'
@@ -21,7 +81,7 @@ function checkState(node: RecordValue): PrFacts['checks'][number]['state'] {
           : 'failure';
   }
   if (node.status !== 'COMPLETED') return 'pending';
-  const value = lower(node.conclusion);
+  const value = node.conclusion?.toLowerCase();
   const allowed: PrFacts['checks'][number]['state'][] = [
     'success',
     'neutral',
@@ -34,7 +94,7 @@ function checkState(node: RecordValue): PrFacts['checks'][number]['state'] {
   ];
   return allowed.find((state) => state === value) ?? 'error';
 }
-function latestChecks(nodes: RecordValue[]): {
+function latestChecks(nodes: readonly ContextWire[]): {
   checks: PrFacts['checks'];
   requiredChecks: PrFacts['requiredChecks'];
 } {
@@ -43,23 +103,12 @@ function latestChecks(nodes: RecordValue[]): {
     { check: PrFacts['checks'][number]; required: boolean; at: string }
   >();
   for (const node of nodes) {
-    const name = string(node.__typename === 'StatusContext' ? node.context : node.name);
-    const completedAt =
-      node.__typename === 'StatusContext'
-        ? null
-        : node.completedAt === null
-          ? null
-          : string(node.completedAt);
-    const startedAt = node.startedAt;
-    const suite = node.checkSuite;
-    const at =
-      node.__typename === 'StatusContext'
-        ? string(node.createdAt)
-        : typeof startedAt === 'string'
-          ? startedAt
-          : suite === null || suite === undefined
-            ? (completedAt ?? '')
-            : string(record(suite).createdAt);
+    const status = node.__typename === 'StatusContext';
+    const name = status ? node.context : node.name;
+    const completedAt = status ? null : node.completedAt;
+    const at = status
+      ? node.createdAt
+      : (node.startedAt ?? node.checkSuite?.createdAt ?? completedAt ?? '');
     const old = latest.get(name);
     if (old !== undefined && old.at > at) continue;
     latest.set(name, {
@@ -74,18 +123,18 @@ function latestChecks(nodes: RecordValue[]): {
     requiredChecks: values.filter((v) => v.required).map((v) => v.check),
   };
 }
-function latestReviews(nodes: RecordValue[]): PrFacts['reviews'] {
+function latestReviews(nodes: readonly ReviewWire[]): PrFacts['reviews'] {
   const latest = new Map<string, PrFacts['reviews'][number]>();
   for (const node of nodes) {
-    const reviewer = optionalLogin(node.author);
-    if (!reviewer || node.submittedAt === null || node.submittedAt === undefined) continue;
-    const state = lower(node.state);
-    if (!['approved', 'changes_requested', 'dismissed'].includes(state)) continue;
+    const reviewer = node.author?.login;
+    if (!reviewer || node.submittedAt == null || node.commit === null) continue;
+    const state = node.state.toLowerCase();
+    if (!KEPT_REVIEWS.includes(state)) continue;
     const review = {
       reviewer,
       state,
-      commitSha: string(record(node.commit).oid),
-      submittedAt: string(node.submittedAt),
+      commitSha: node.commit.oid,
+      submittedAt: node.submittedAt,
     } as PrFacts['reviews'][number];
     const old = latest.get(reviewer);
     if (old === undefined || old.submittedAt <= review.submittedAt) latest.set(reviewer, review);
@@ -105,10 +154,9 @@ export function ticketKeys(title: string, branch: string, prefixes: readonly str
   }
   return [...keys];
 }
-export function normalizePr(repo: string, wire: RecordValue, prefixes: readonly string[]): PrFacts {
-  const rollupValue = wire.statusCheckRollup;
-  const rollup = rollupValue === null || rollupValue === undefined ? null : record(rollupValue);
-  const checks = latestChecks(rollup === null ? [] : connectionNodes(record(rollup).contexts));
+export function normalizePr(repo: string, value: unknown, prefixes: readonly string[]): PrFacts {
+  const wire = parseWire(prWire, value, 'Malformed GitHub PR response');
+  const checks = latestChecks(wire.statusCheckRollup?.contexts.nodes ?? []);
   const state = wire.state === 'MERGED' ? 'merged' : wire.state === 'CLOSED' ? 'closed' : 'open';
   const mergeable =
     wire.mergeable === 'MERGEABLE'
@@ -116,20 +164,20 @@ export function normalizePr(repo: string, wire: RecordValue, prefixes: readonly 
       : wire.mergeable === 'CONFLICTING'
         ? 'conflicting'
         : 'unknown';
-  const rawMerge = lower(wire.mergeStateStatus);
+  const rawMerge = wire.mergeStateStatus.toLowerCase();
   const mergeState = (
     ['behind', 'blocked', 'clean', 'dirty', 'draft', 'has_hooks', 'unstable'].includes(rawMerge)
       ? rawMerge
       : 'unknown'
   ) as PrFacts['mergeState'];
-  const title = string(wire.title);
-  const headBranch = string(wire.headRefName);
+  const title = wire.title;
+  const headBranch = wire.headRefName;
   const facts = {
     repo,
     number: wire.number,
     url: wire.url,
     title,
-    author: optionalLogin(wire.author),
+    author: wire.author?.login,
     headSha: wire.headRefOid,
     headBranch,
     state,
@@ -137,14 +185,12 @@ export function normalizePr(repo: string, wire: RecordValue, prefixes: readonly 
     mergeable,
     mergeState,
     ...checks,
-    reviews: latestReviews(connectionNodes(wire.reviews)),
-    reviewThreads: connectionNodes(wire.reviewThreads).map((node) => ({
-      resolved: node.isResolved,
+    reviews: latestReviews(wire.reviews.nodes),
+    reviewThreads: wire.reviewThreads.nodes.map((node) => ({ resolved: node.isResolved })),
+    reviewRequests: wire.reviewRequests.nodes.map((node) => ({
+      reviewer: node.requestedReviewer.login ?? node.requestedReviewer.name,
+      asCodeOwner: node.asCodeOwner,
     })),
-    reviewRequests: connectionNodes(wire.reviewRequests).map((node) => {
-      const reviewer = record(node.requestedReviewer);
-      return { reviewer: reviewer.login ?? reviewer.name, asCodeOwner: node.asCodeOwner };
-    }),
     ticketKeys: ticketKeys(title, headBranch, prefixes),
     updatedAt: wire.updatedAt,
   };

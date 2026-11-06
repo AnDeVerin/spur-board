@@ -7,20 +7,45 @@ import {
   type PrEntityRef,
   sourceCursorSchema,
 } from '@spur-board/contracts';
+import { z } from 'zod';
+import { parseWire } from '../runner/wire.ts';
 import {
   GithubClient,
-  initialQuery,
-  connectionNodes,
+  connectionWire,
   detailQuery,
+  initialQuery,
   pageQuery,
-  list,
-  record,
   type GraphError,
-  type Json,
-  type RecordValue,
 } from './client.ts';
-import { discover, latestUpdatedAt, nextPage, pastCursor } from './discovery.ts';
+import {
+  baselineNodeWire,
+  discover,
+  discoveryNodeWire,
+  latestUpdatedAt,
+  nextPage,
+  pastCursor,
+} from './discovery.ts';
 import { normalizePr } from './prBatch.ts';
+
+const MALFORMED = 'Malformed GitHub response';
+const discoveryRootWire = z.object({ pullRequests: connectionWire(discoveryNodeWire) });
+const baselineRootWire = z.object({
+  mergedBaseline: z.object({ nodes: z.array(baselineNodeWire) }),
+});
+// Pagination reads only the four connections; normalizePr parses the PR content once merged.
+const pagingWire = connectionWire(z.unknown());
+const prPagingWire = z.looseObject({
+  reviews: pagingWire,
+  reviewThreads: pagingWire,
+  reviewRequests: pagingWire,
+  statusCheckRollup: z.object({ contexts: pagingWire }).nullish(),
+});
+const aliasWire = z.object({ pullRequest: prPagingWire.nullish() }).nullish();
+const pageRootWire = z.object({ pullRequest: prPagingWire.partial() });
+type Paging = z.output<typeof pagingWire>;
+type PrPaging = z.output<typeof prPagingWire>;
+type PagePr = z.output<typeof pageRootWire>['pullRequest'];
+type PagedField = 'reviews' | 'reviewThreads' | 'reviewRequests' | 'contexts';
 
 export interface GithubSource {
   adapter: Adapter;
@@ -83,30 +108,26 @@ function rejectUnscoped(errors: readonly GraphError[], roots: readonly string[])
 function status(error: GraphError): 'not_found' | 'no_access' {
   return error.type === 'NOT_FOUND' ? 'not_found' : 'no_access';
 }
-function aliasPr(data: RecordValue, alias: string): Json | undefined {
-  const value = data[alias];
-  return value === null || value === undefined ? null : nested(data, alias, 'pullRequest');
+function connectionOf(pr: PagePr, field: PagedField): Paging | undefined {
+  return field === 'contexts' ? pr.statusCheckRollup?.contexts : pr[field];
 }
-function nested(value: RecordValue, ...path: string[]): Json | undefined {
-  let current: Json | undefined = value;
-  for (const field of path) current = record(current)[field];
-  return current;
-}
-function contexts(pr: RecordValue): RecordValue | undefined {
-  const value = pr.statusCheckRollup;
-  return value === null || value === undefined ? undefined : record(record(value).contexts);
+function withConnection(pr: PrPaging, field: PagedField, connection: Paging): PrPaging {
+  return field === 'contexts'
+    ? { ...pr, statusCheckRollup: { ...pr.statusCheckRollup, contexts: connection } }
+    : { ...pr, [field]: connection };
 }
 async function fullPr(
   client: GithubClient,
-  pr: RecordValue,
+  first: PrPaging,
   owner: string,
   name: string,
   number: number,
   signal: AbortSignal,
   budget: (value: NonNullable<Batch['budget']>) => void,
-): Promise<RecordValue | undefined> {
+): Promise<PrPaging | undefined> {
+  let pr = first;
   for (const field of ['reviews', 'reviewThreads', 'reviewRequests', 'contexts'] as const) {
-    const target = field === 'contexts' ? contexts(pr) : record(pr[field]);
+    let target = connectionOf(pr, field);
     if (target === undefined) continue;
     let cursor = nextPage(target);
     const seen = new Set<string>();
@@ -122,13 +143,15 @@ async function fullPr(
       rejectUnscoped(response.errors, ['repository']);
       requireCheckAccess(response.errors);
       if (response.errors.length > 0) return undefined;
-      const pagePr = record(nested(response.data, 'repository', 'pullRequest'));
-      const page = field === 'contexts' ? contexts(pagePr) : record(pagePr[field]);
+      const root = parseWire(pageRootWire, response.data.repository, MALFORMED, [
+        'data',
+        'repository',
+      ]);
+      const page = connectionOf(root.pullRequest, field);
       if (page === undefined) throw new AdapterError('transient', 'Malformed GitHub pagination');
-      const nodes = list(target.nodes);
-      nodes.push(...list(page.nodes));
+      target = { nodes: [...target.nodes, ...page.nodes], pageInfo: page.pageInfo };
+      pr = withConnection(pr, field, target);
       cursor = nextPage(page);
-      target.pageInfo = page.pageInfo ?? null;
     }
   }
   return pr;
@@ -168,8 +191,11 @@ async function pollRepository({
   const entities: Batch['entities'] = [];
   const items: Batch['items'] = [];
   let discoveryOk = scoped(response.errors, 'repository').length === 0;
-  const first = discoveryOk ? nested(response.data, 'repository', 'pullRequests') : undefined;
-  const nodes = first === undefined ? [] : connectionNodes(first);
+  const first = discoveryOk
+    ? parseWire(discoveryRootWire, response.data.repository, MALFORMED, ['data', 'repository'])
+        .pullRequests
+    : undefined;
+  const nodes = first === undefined ? [] : [...first.nodes];
   let cursor = first === undefined || pastCursor(nodes, ctx.cursor) ? undefined : nextPage(first);
   const seenPages = new Set<string>();
   while (cursor !== undefined && discoveryOk) {
@@ -186,23 +212,27 @@ async function pollRepository({
       discoveryOk = false;
       break;
     }
-    const connection = nested(page.data, 'repository', 'pullRequests');
-    const pageNodes = connectionNodes(connection);
-    nodes.push(...pageNodes);
-    cursor = pastCursor(pageNodes, ctx.cursor) ? undefined : nextPage(connection);
+    const connection = parseWire(discoveryRootWire, page.data.repository, MALFORMED, [
+      'data',
+      'repository',
+    ]).pullRequests;
+    nodes.push(...connection.nodes);
+    cursor = pastCursor(connection.nodes, ctx.cursor) ? undefined : nextPage(connection);
   }
   if (!discoveryOk) complete = false;
   const found = discover(nodes, ctx.cursor, login);
   const bootstrapCursor =
     bootstrap && discoveryOk
       ? (latestUpdatedAt(
-          connectionNodes(nested(response.data, 'repository', 'mergedBaseline')),
+          parseWire(baselineRootWire, response.data.repository, MALFORMED, ['data', 'repository'])
+            .mergedBaseline.nodes,
           found.cursor,
         ) ?? sourceCursorSchema.parse('1970-01-01T00:00:00.000Z'))
       : undefined;
   const process = async (
     number: number,
-    wire: Json | undefined,
+    alias: string,
+    data: Record<string, unknown>,
     errors: GraphError[],
     ref?: PrEntityRef,
   ): Promise<boolean> => {
@@ -215,12 +245,13 @@ async function pollRepository({
       if (ref) entities.push({ ref, status: direct ? status(error) : 'no_access' });
       return false;
     }
+    const wire = parseWire(aliasWire, data[alias], MALFORMED, ['data', alias])?.pullRequest;
     if (wire === null || wire === undefined) {
       if (ref) entities.push({ ref, status: 'not_found' });
       else complete = false;
       return false;
     }
-    const full = await fullPr(client, record(wire), owner, name, number, ctx.signal, (next) => {
+    const full = await fullPr(client, wire, owner, name, number, ctx.signal, (next) => {
       budget = next;
     });
     if (full === undefined) {
@@ -237,9 +268,8 @@ async function pollRepository({
   for (const [i, number] of numbers.entries()) {
     const alias = `pr${String(i)}`;
     const errors = scoped(response.errors, alias);
-    const wire = aliasPr(response.data, alias);
     if (
-      !(await process(number, wire, errors, byNumber.get(number))) &&
+      !(await process(number, alias, response.data, errors, byNumber.get(number))) &&
       found.numbers.includes(number)
     )
       discoveredOk = false;
@@ -255,8 +285,8 @@ async function pollRepository({
     );
     for (const [i, number] of chunk.entries()) {
       const alias = `pr${String(i)}`;
-      const wire = aliasPr(detail.data, alias);
-      if (!(await process(number, wire, scoped(detail.errors, alias)))) discoveredOk = false;
+      if (!(await process(number, alias, detail.data, scoped(detail.errors, alias))))
+        discoveredOk = false;
     }
   }
   if (ctx.signal.aborted) throw new AdapterError('transient', 'GitHub poll aborted');

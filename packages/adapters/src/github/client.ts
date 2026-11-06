@@ -1,12 +1,28 @@
 import { AdapterError, type Batch } from '@spur-board/contracts';
+import { z } from 'zod';
 import { classifyHttpFailure } from '../runner/http.ts';
+import { parseWire } from '../runner/wire.ts';
 
 export type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
-export type RecordValue = { [key: string]: Json };
-export interface GraphError {
-  message: string;
-  path?: readonly (string | number)[];
-  type?: string;
+const MALFORMED = 'Malformed GitHub response';
+const graphErrorWire = z.object({
+  message: z.string(),
+  path: z.array(z.union([z.string(), z.number()])).optional(),
+  type: z.string().optional(),
+});
+export type GraphError = z.output<typeof graphErrorWire>;
+// GraphQL errors are classified before `data` is read: a denied root arrives as null.
+const envelopeWire = z.object({ errors: z.array(graphErrorWire).optional(), data: z.unknown() });
+// Each root is parsed by its caller once its scoped errors are handled.
+const dataWire = z.looseObject({
+  rateLimit: z.object({ remaining: z.int().nonnegative(), resetAt: z.string() }),
+});
+const pageInfoWire = z.object({
+  hasNextPage: z.boolean(),
+  endCursor: z.string().nullable(),
+});
+export function connectionWire<T extends z.ZodType>(node: T) {
+  return z.object({ nodes: z.array(node), pageInfo: pageInfoWire });
 }
 
 function teamNameScopeDenied(error: GraphError, query: string): boolean {
@@ -18,24 +34,6 @@ function teamNameScopeDenied(error: GraphError, query: string): boolean {
       error.path.at(-1) === 'name'
     );
   return /\bname\b/i.test(error.message) && /\bread:(?:org|discussion)\b/i.test(error.message);
-}
-
-export function record(value: Json | undefined): RecordValue {
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
-    throw new AdapterError('transient', 'Malformed GitHub response');
-  }
-  return value;
-}
-export function list(value: Json | undefined): Json[] {
-  if (!Array.isArray(value)) throw new AdapterError('transient', 'Malformed GitHub connection');
-  return value;
-}
-export function connectionNodes(value: Json | undefined): RecordValue[] {
-  return list(record(value).nodes).map(record);
-}
-export function string(value: Json | undefined): string {
-  if (typeof value !== 'string') throw new AdapterError('transient', 'Malformed GitHub field');
-  return value;
 }
 
 const prFields = (
@@ -85,7 +83,7 @@ export function pageQuery(
 }
 
 export interface ResponseData {
-  data: RecordValue;
+  data: z.output<typeof dataWire>;
   errors: GraphError[];
   budget: NonNullable<Batch['budget']>;
 }
@@ -122,41 +120,21 @@ export class GithubClient {
         { status: response.status, headers: response.headers, body: await response.text() },
         Date.now(),
       );
-    let wire: RecordValue;
+    let body: unknown;
     try {
-      wire = record((await response.json()) as Json);
+      body = await response.json();
     } catch (cause) {
-      throw new AdapterError('transient', 'Malformed GitHub response', { cause });
+      throw new AdapterError('transient', MALFORMED, { cause });
     }
-    const errors =
-      wire.errors === undefined
-        ? []
-        : list(wire.errors).map((e) => {
-            const item = record(e);
-            return {
-              message: string(item.message),
-              ...(typeof item.type === 'string' ? { type: item.type } : {}),
-              ...(Array.isArray(item.path)
-                ? {
-                    path: item.path.filter(
-                      (p): p is string | number => typeof p === 'string' || typeof p === 'number',
-                    ),
-                  }
-                : {}),
-            };
-          });
+    const wire = parseWire(envelopeWire, body, MALFORMED);
+    const errors = wire.errors ?? [];
     if (errors.some((error) => error.type === 'RATE_LIMITED' || /rate limit/i.test(error.message)))
       throw classifyHttpFailure({ status: 429, headers: response.headers }, Date.now());
     if (errors.some((error) => teamNameScopeDenied(error, query)))
       throw new AdapterError('auth', 'GitHub token needs read:org for team review requests');
     if (errors.some((error) => error.type === 'INSUFFICIENT_SCOPES'))
       throw new AdapterError('auth', 'GitHub token lacks a required GraphQL read scope');
-    const data = record(wire.data);
-    const rate = record(data.rateLimit);
-    const remaining = rate.remaining;
-    if (typeof remaining !== 'number' || !Number.isInteger(remaining) || remaining < 0)
-      throw new AdapterError('transient', 'Malformed GitHub budget');
-    const budget = { remaining, resetAt: string(rate.resetAt) };
-    return { data, errors, budget };
+    const data = parseWire(dataWire, wire.data, MALFORMED, ['data']);
+    return { data, errors, budget: data.rateLimit };
   }
 }
