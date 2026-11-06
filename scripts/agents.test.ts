@@ -212,6 +212,55 @@ describe('agents.ts CLI', () => {
     expect(fx.read('.claude/skills/keep.md')).toBe('keep\n');
   });
 
+  it('refuses to overwrite an untracked file at a new role output', () => {
+    const fx = fixture();
+    fx.write('.claude/agents/tester.md', 'local\n');
+    fx.write('.agents/agents/tester.md', role('tester', 'Test it. Use after reviewer.', 'medium'));
+    fx.git('add', '.agents/agents/tester.md');
+    expect(fx.run('sync')).toEqual({
+      status: 1,
+      stdout:
+        'agents:sync: .claude/agents/tester.md: role tester: untracked file would be overwritten - git add or move it, then rerun pnpm agents:sync\n',
+    });
+    expect(fx.read('.claude/agents/tester.md')).toBe('local\n');
+    expect(existsSync(fx.path('.codex/agents/tester.toml'))).toBe(false);
+  });
+
+  it('refuses a symlinked output directory before writing', () => {
+    const fx = fixture();
+    const outside = join(fx.dir, 'outside');
+    mkdirSync(outside);
+    writeFileSync(join(outside, 'developer.toml'), 'outside\n');
+    rmSync(fx.path('.codex/agents'), { recursive: true });
+    symlinkSync(outside, fx.path('.codex/agents'));
+    const line =
+      '.codex/agents: not a directory - replace it with a real directory and rerun pnpm agents:sync\n';
+    expect(fx.run('sync')).toEqual({ status: 1, stdout: `agents:sync: ${line}` });
+    expect(readFileSync(join(outside, 'developer.toml'), 'utf8')).toBe('outside\n');
+    expect(fx.read('.claude/agents/developer.md')).toBe(BASE['.agents/agents/developer.md']);
+    const lint = fx.run('lint');
+    expect(lint.status).toBe(1);
+    expect(lint.stdout).toContain(`lint:agents: ${line}`);
+  });
+
+  it('reports a cited root file that was renamed, and skips code names and runtime files', () => {
+    const fx = fixture();
+    fx.write('knip.json', '{}\n');
+    fx.write(
+      '.agents/skills/a/SKILL.md',
+      skillA(undefined, '- See `knip.json`, `ctx.log`, `config.yaml` and `SKILL.md`.\n'),
+    );
+    fx.git('add', '-A');
+    expect(fx.run('lint').status).toBe(0);
+    fx.git('mv', 'knip.json', 'knip.jsonc');
+    const lint = fx.run('lint');
+    expect(lint.status).toBe(1);
+    expect(lint.stdout).toContain(
+      'lint:agents: .agents/skills/a/SKILL.md:9: skill a: missing file knip.json - no tracked file has this name\n',
+    );
+    expect(lint.stdout).toContain('FAIL - 1 finding(s)');
+  });
+
   it('names the skill and the path when a cited file is renamed', () => {
     const line = 'lint:agents: .agents/skills/a/SKILL.md:8: skill a: missing path scripts/foo.ts\n';
     const moved = fixture();

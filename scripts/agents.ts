@@ -32,6 +32,16 @@ const ROLE_SANDBOX: Record<string, 'read-only' | 'workspace-write'> = {
 /** Code spans in `.agents/skills/manager/**` that have the shape of a name but name no agent. */
 const NOT_AGENT_NAMES = new Set(['add', 'gh', 'main', 'pnpm', 'read-only', 'workspace-write']);
 
+/** Bare file names cited in agent files that are not repo files (runtime files of a user). */
+const NOT_REPO_FILES = new Set(['config.yaml']);
+
+/** A code span without `/` that names a file: a known extension, so `ctx.log` is not a file. */
+const BARE_FILE =
+  /^\.?[A-Za-z0-9_][A-Za-z0-9_.-]*\.(?:json|jsonc|ya?ml|toml|[cm]?[jt]sx?|md|sh|lock)$/;
+
+/** Output directories; each must be a real directory, so sync never writes through a link. */
+const OUTPUT_DIRS = ['.claude', '.claude/agents', '.codex', '.codex/agents'];
+
 const NAME = '[a-z0-9]+(?:-[a-z0-9]+)*';
 const NAME_ONLY = new RegExp(`^${NAME}$`);
 const LINK = '.claude/skills';
@@ -213,6 +223,10 @@ interface State {
   expected: Map<string, string> | null;
   /** Tracked outputs on disk that have no source role. */
   stale: string[];
+  /** Expected outputs on disk that git does not track and sync would change. */
+  untracked: string[];
+  /** Output directories that exist but are not real directories (a symlink or a file). */
+  unsafeDirs: string[];
   link: 'ok' | 'missing' | { target: string } | 'not-symlink';
   indexMode: string | null;
 }
@@ -221,9 +235,11 @@ function analyze(root: string): State {
   const tracked = new Set(nulList(git(root, ['ls-files', '-z'])));
   const dirs = new Set<string>();
   const top = new Set<string>();
+  const basenames = new Set<string>();
   for (const path of tracked) {
     const parts = path.split('/');
     top.add(parts[0] ?? '');
+    basenames.add(parts.at(-1) ?? '');
     for (let i = 1; i < parts.length; i++) dirs.add(parts.slice(0, i).join('/'));
   }
   const sources = [...tracked].filter((path) => path.startsWith('.agents/')).sort();
@@ -478,6 +494,10 @@ function analyze(root: string): State {
             if (!exists(resolved)) add(path, item.line, `missing path ${cite}`);
             else if (/\.test\.tsx?$/.test(resolved)) cited.push(resolved);
           }
+        } else if (!span.includes('/')) {
+          const cite = span.replace(/:\d+(?:-\d+)?$/, '');
+          if (BARE_FILE.test(cite) && !NOT_REPO_FILES.has(cite) && !basenames.has(cite))
+            add(path, item.line, `missing file ${cite} - no tracked file has this name`);
         }
         const command = new RegExp(`^[/$](${NAME})(?: <[^>]+>)?$`).exec(span);
         if (command && !skillSet.has(command[1] ?? ''))
@@ -580,6 +600,17 @@ function analyze(root: string): State {
   const stale = outputs.filter(
     (path) => !(expected?.has(path) ?? true) && lstat(join(root, path)) !== null,
   );
+  const untracked = [...(expected?.entries() ?? [])]
+    .filter(([path, text]) => {
+      if (path === 'AGENTS.md' || tracked.has(path)) return false;
+      const stats = lstat(join(root, path));
+      return stats !== null && !(stats.isFile() && readFileSync(join(root, path), 'utf8') === text);
+    })
+    .map(([path]) => path);
+  const unsafeDirs = OUTPUT_DIRS.filter((dir) => {
+    const stats = lstat(join(root, dir));
+    return stats !== null && !stats.isDirectory();
+  });
   const linkStats = lstat(join(root, LINK));
   const target = linkStats?.isSymbolicLink() ? readlinkSync(join(root, LINK)) : null;
   const link: State['link'] =
@@ -596,14 +627,19 @@ function analyze(root: string): State {
     if (match?.[2] === LINK && match[1] !== '120000') indexMode = match[1] ?? null;
     if (match?.[2]?.startsWith(`${LINK}/`)) indexMode = 'directory';
   }
-  return { root, skills, roles, findings, expected, stale, link, indexMode };
+  return { root, skills, roles, findings, expected, stale, untracked, unsafeDirs, link, indexMode };
 }
 
 const roleOf = (path: string): string | undefined =>
   /^\.(?:claude|codex)\/agents\//.test(path) ? basename(path).replace(/\.[^.]*$/, '') : undefined;
 
+const DIR_FIX = 'replace it with a real directory and rerun pnpm agents:sync';
+const UNTRACKED_FIX = 'git add or move it, then rerun pnpm agents:sync';
+
 function drift(state: State): Drift[] {
   const out: Drift[] = [];
+  for (const dir of state.unsafeDirs)
+    out.push({ file: dir, message: 'not a directory', fix: DIR_FIX });
   for (const [path, text] of state.expected ?? []) {
     const stats = lstat(join(state.root, path));
     const role = roleOf(path);
@@ -657,6 +693,23 @@ function sync(root: string, check: boolean, log: (line: string) => void): number
     if (shown.length > 0) return 1;
     log(`${prefix}: up to date`);
     return 0;
+  }
+  // Refuse before any write: never write through a linked directory or over an untracked file.
+  if (state.unsafeDirs.length > 0 || state.untracked.length > 0) {
+    for (const dir of state.unsafeDirs)
+      log(driftLine(prefix, { file: dir, message: 'not a directory', fix: DIR_FIX }));
+    for (const path of state.untracked) {
+      const role = roleOf(path);
+      log(
+        driftLine(prefix, {
+          file: path,
+          ...(role === undefined ? {} : { role }),
+          message: 'untracked file would be overwritten',
+          fix: UNTRACKED_FIX,
+        }),
+      );
+    }
+    return 1;
   }
   let written = 0;
   for (const [path, text] of state.expected) {
