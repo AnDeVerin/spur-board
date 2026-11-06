@@ -235,11 +235,13 @@ function analyze(root: string): State {
   const tracked = new Set(nulList(git(root, ['ls-files', '-z'])));
   const dirs = new Set<string>();
   const top = new Set<string>();
-  const basenames = new Set<string>();
+  /** File name -> tracked paths with that name. */
+  const basenames = new Map<string, string[]>();
   for (const path of tracked) {
     const parts = path.split('/');
     top.add(parts[0] ?? '');
-    basenames.add(parts.at(-1) ?? '');
+    const name = parts.at(-1) ?? '';
+    basenames.set(name, [...(basenames.get(name) ?? []), path]);
     for (let i = 1; i < parts.length; i++) dirs.add(parts.slice(0, i).join('/'));
   }
   const sources = [...tracked].filter((path) => path.startsWith('.agents/')).sort();
@@ -496,8 +498,13 @@ function analyze(root: string): State {
           }
         } else if (!span.includes('/')) {
           const cite = span.replace(/:\d+(?:-\d+)?$/, '');
-          if (BARE_FILE.test(cite) && !NOT_REPO_FILES.has(cite) && !basenames.has(cite))
-            add(path, item.line, `missing file ${cite} - no tracked file has this name`);
+          const onDisk = (basenames.get(cite) ?? []).some((file) => existsSync(join(root, file)));
+          if (BARE_FILE.test(cite) && !NOT_REPO_FILES.has(cite) && !onDisk)
+            add(
+              path,
+              item.line,
+              `missing file ${cite} - no tracked file with this name is on disk`,
+            );
         }
         const command = new RegExp(`^[/$](${NAME})(?: <[^>]+>)?$`).exec(span);
         if (command && !skillSet.has(command[1] ?? ''))
@@ -607,7 +614,13 @@ function analyze(root: string): State {
       return stats !== null && !(stats.isFile() && readFileSync(join(root, path), 'utf8') === text);
     })
     .map(([path]) => path);
-  const unsafeDirs = OUTPUT_DIRS.filter((dir) => {
+  // Every directory sync writes, deletes or links in must be a real one: never act through a link.
+  const parents = new Set(OUTPUT_DIRS);
+  for (const path of [...(expected?.keys() ?? []), ...stale, LINK]) {
+    const parts = path.split('/');
+    for (let i = 1; i < parts.length; i++) parents.add(parts.slice(0, i).join('/'));
+  }
+  const unsafeDirs = [...parents].sort().filter((dir) => {
     const stats = lstat(join(root, dir));
     return stats !== null && !stats.isDirectory();
   });
@@ -621,6 +634,8 @@ function analyze(root: string): State {
         : target === LINK_TARGET
           ? 'ok'
           : { target };
+  // An untracked link pointing elsewhere is the user's own: sync must not replace it.
+  if (typeof link === 'object' && !tracked.has(LINK)) untracked.push(LINK);
   let indexMode: string | null = null;
   for (const entry of nulList(git(root, ['ls-files', '-s', '-z', '--', LINK]))) {
     const match = /^(\d+) \S+ \d+\t(.*)$/s.exec(entry);
@@ -704,7 +719,10 @@ function sync(root: string, check: boolean, log: (line: string) => void): number
         driftLine(prefix, {
           file: path,
           ...(role === undefined ? {} : { role }),
-          message: 'untracked file would be overwritten',
+          message:
+            path === LINK
+              ? 'untracked link would be replaced'
+              : 'untracked file would be overwritten',
           fix: UNTRACKED_FIX,
         }),
       );
