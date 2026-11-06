@@ -1,9 +1,16 @@
 ---
 name: testing-and-ci
-description: Rules for tests, Vitest, testkit, checks and CI. Use when changing tests, adding a package, fixing lint or type failures, or editing packages/testkit/, scripts/check*, vitest.config.ts or .github/workflows/. Don't use for agent-file checks (use skill-writer) or PR bodies (use gitflow).
+description: Tests, fakes, clocks, flaky quarantine, checks and CI. Use when you write or change tests, fix a failing check, or edit packages/testkit/, scripts/check*, vitest.config.ts or .github/workflows/. Don't use for package dependencies (use working-in-the-monorepo) or agent files (use skill-writer).
 ---
 
 # Testing and CI
+
+## Writing tests
+
+- Read `references/test-layers.md` for the layer to use, the existing fakes, clock seams, the
+  waits rule, harness guarantees, what runs locally and in CI, and flaky-test quarantine.
+- Give the test a fake or a local server instead of `vi.mock` (`viMockBan`, `eslint.config.js`).
+- Code under test takes a `clock` or `now` seam; never assert on the real time.
 
 ## Local checks
 
