@@ -75,4 +75,5 @@ Follow `references/new-package.md`.
 - `working-with-storage` - the SQLite store in core.
 - `running-the-daemon` - daemon modules and lifecycle.
 - `writing-adapters` - adapters and the runner.
+- `handling-errors` - error codes, hints and exit codes.
 - `testing-and-ci` - tests, checks and CI.
