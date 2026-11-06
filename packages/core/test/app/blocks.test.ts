@@ -452,7 +452,7 @@ describe('block and comment mutations', () => {
     ]);
   });
 
-  it.each(['answer', 'done', 'reason', 'withdraw', 'archive'] as const)(
+  it.each(['answer', 'done', 'reason', 'withdraw'] as const)(
     'closes a registered conversation through %s',
     async (mode) => {
       const { store, apply } = await seeded();
@@ -491,15 +491,13 @@ describe('block and comment mutations', () => {
           'operator',
           `close-${mode}`,
         );
-      } else if (mode === 'withdraw') {
+      } else {
         await apply(
           ops.unblock,
           { mode: 'withdraw', block: id, answer: 'Elsewhere.' },
           author,
           `close-${mode}`,
         );
-      } else {
-        await apply(ops.archive, { task: KEY }, 'operator', `close-${mode}`);
       }
       const block = await store.db
         .selectFrom('block')

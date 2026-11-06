@@ -2,7 +2,7 @@ import type { Kysely } from 'kysely';
 import { fingerprint } from '../domain/fromYou.ts';
 import type { Row, Tables } from '../store/schema.ts';
 import { CommandError, type Mutation } from './commands.ts';
-import { restartNotification } from './doorbells.ts';
+import { restartNotification, ringTask } from './doorbells.ts';
 import { clearItem } from './feed.ts';
 import { requeuePostFailed, retryTransport } from './sender.ts';
 
@@ -33,6 +33,24 @@ async function loadItem(
           .where('id', '=', item.task_id)
           .executeTakeFirstOrThrow();
   return { item, task };
+}
+
+/** The task a `delivery:<outbox id>` item's row belongs to; the item itself has no task. */
+async function deliveryTask(trx: Trx, item: Item): Promise<Row<'task'> | undefined> {
+  if (!item.item_key.startsWith('delivery:')) return undefined;
+  const row = await trx
+    .selectFrom('outbox')
+    .select(['kind', 'dedupe_key', 'payload'])
+    .where('id', '=', Number(item.item_key.slice('delivery:'.length)))
+    .executeTakeFirst();
+  if (row === undefined) return undefined;
+  const payload = JSON.parse(row.payload) as { taskId?: unknown; notificationId?: unknown };
+  if (typeof payload.taskId === 'number')
+    return trx.selectFrom('task').selectAll().where('id', '=', payload.taskId).executeTakeFirst();
+  if (row.kind !== 'doorbell') return undefined;
+  const notificationId =
+    typeof payload.notificationId === 'number' ? payload.notificationId : undefined;
+  return ringTask(trx, notificationId, row.dedupe_key);
 }
 
 function view(item: Item, task: Row<'task'> | undefined) {
@@ -92,7 +110,8 @@ export function createItemMutations(deps: { reapplyInbound?: () => ReapplyInboun
       resolveTargets: () => Promise.resolve([]),
       async run(trx, input, ctx) {
         const { item, task } = await loadItem(trx, input.item);
-        if (task?.membership === 'archived') {
+        const owner = task ?? (await deliveryTask(trx, item));
+        if (owner?.membership === 'archived') {
           throw new CommandError('task_archived', 'Add the task again before retrying its item.');
         }
         if (item.cleared_at !== null) throw notApplicable('The item is already cleared.');

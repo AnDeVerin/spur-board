@@ -187,13 +187,16 @@ export async function restartNotification(trx: Trx, sourceKey: string, at: Date)
 
 /** Reconcile due semantic notifications in the sender's claim transaction. */
 export async function reconcileDoorbells(trx: Trx, at: Date, config?: Config): Promise<void> {
+  // Archive cancels unsent rings (`archiveTask`); ringing again before `task.add` would undo that.
   const due = await trx
     .selectFrom('notification')
-    .selectAll()
-    .where('acked_at', 'is', null)
-    .where('exhausted_at', 'is', null)
-    .where('next_at', '<=', at.toISOString())
-    .orderBy('id')
+    .innerJoin('task', 'task.id', 'notification.task_id')
+    .selectAll('notification')
+    .where('task.membership', '!=', 'archived')
+    .where('notification.acked_at', 'is', null)
+    .where('notification.exhausted_at', 'is', null)
+    .where('notification.next_at', '<=', at.toISOString())
+    .orderBy('notification.id')
     .execute();
   for (const n of due) {
     const session = await selectNotificationRecipient(trx, n);
@@ -277,6 +280,13 @@ export async function reconcileDoorbells(trx: Trx, at: Date, config?: Config): P
       .select((eb) => eb.fn.max('raise_no').as('series'))
       .where('item_key', '=', itemKey)
       .executeTakeFirst();
+    // Archive killed any unsent ring of this task; a resumed ring needs a key the dead row lacks.
+    const archived = await trx
+      .selectFrom('event')
+      .select((eb) => eb.fn.countAll<number>().as('count'))
+      .where('task_id', '=', n.task_id)
+      .where('kind', '=', 'task_archived')
+      .executeTakeFirst();
     const ring = rings + 1;
     const text = `${task.key} block B${String(n.block_id)}: check board inbox (N${String(n.id)}-${String(ring)})`;
     const outboxId = await enqueueDoorbell(trx, {
@@ -286,6 +296,7 @@ export async function reconcileDoorbells(trx: Trx, at: Date, config?: Config): P
       text,
       at,
       series: raised?.series ?? 0,
+      archives: archived?.count ?? 0,
     });
     await trx
       .updateTable('notification')
@@ -357,6 +368,25 @@ export async function ringStillCurrent(
   const session = await selectNotificationRecipient(trx, n);
   if (session?.id !== sessionId) return 'dead';
   return session.state === 'working' ? 'defer' : 'send';
+}
+
+/**
+ * The task of a ring: through its notification, or for an inbound author ring (no notification)
+ * through the comment in its `doorbell:comment:<id>:` key. Archive kills only unclaimed rings;
+ * the sender drops a claimed one of an archived task before its send starts.
+ */
+export async function ringTask(
+  trx: Trx,
+  notificationId: number | undefined,
+  dedupeKey: string,
+): Promise<Row<'task'> | undefined> {
+  const commentId = /^doorbell:comment:(\d+):/.exec(dedupeKey)?.[1];
+  if (notificationId === undefined && commentId === undefined) return undefined;
+  const owner =
+    notificationId !== undefined
+      ? trx.selectFrom('notification').select('task_id').where('id', '=', notificationId)
+      : trx.selectFrom('comment').select('task_id').where('id', '=', Number(commentId));
+  return trx.selectFrom('task').selectAll().where('id', 'in', owner).executeTakeFirst();
 }
 
 /** Stop notifications acknowledged by the addressed session. */

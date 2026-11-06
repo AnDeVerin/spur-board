@@ -1,7 +1,7 @@
 import { scanTransaction } from './secrets.ts';
 import type { Config } from '@spur-board/contracts';
 import type { Store } from '../store/store.ts';
-import { emit } from './board-utils.ts';
+import { archiveTask } from './archive.ts';
 import { reconcileItems } from './fromYou.ts';
 
 function lastArchiveSlot(now: number, config: Config): number {
@@ -87,15 +87,10 @@ export async function tickBoard(deps: {
         continue;
       await trx
         .updateTable('task')
-        .set({
-          membership: 'archived',
-          archive_reason: 'done',
-          archive_slot_at: slot,
-          last_change_at: at,
-        })
+        .set({ archive_slot_at: slot })
         .where('id', '=', task.id)
         .execute();
-      await emit(trx, 'task_archived', task.project, task.id, at, { reason: 'done' });
+      await archiveTask(trx, { task, reason: 'done', actor: 'system', at });
     }
     await reconcileItems(trx, config, now, completeSince.has('spur'));
   });

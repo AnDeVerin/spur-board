@@ -1,5 +1,6 @@
 import type { Config } from '@spur-board/contracts';
 import { sql } from 'kysely';
+import { archiveTask } from './archive.ts';
 import { emit, trackerSource, type Trx } from './board-utils.ts';
 
 /** Run-local completeness is the only evidence allowed to authorize filter absence. */
@@ -81,14 +82,9 @@ export async function reconcileMembership(
         })
       )
         continue;
-      await trx
-        .updateTable('task')
-        .set({ membership: 'archived', archive_reason: 'out_of_filter', last_change_at: at })
-        .where('id', '=', task.id)
-        .execute();
       if (task.membership === 'out_of_filter')
         await emit(trx, 'flag_cleared', task.project, task.id, at, { flag: 'out_of_filter' });
-      await emit(trx, 'task_archived', task.project, task.id, at, { reason: 'out_of_filter' });
+      await archiveTask(trx, { task, reason: 'out_of_filter', actor: 'system', at });
     }
   }
 }

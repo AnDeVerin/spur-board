@@ -135,6 +135,54 @@ async function sourceState(
     .execute();
 }
 
+/**
+ * A merged pending key's open blocks were raised for the same ticket: they move to the surviving
+ * task with what keeps them going (comments, threads, doorbells, items and undelivered rows).
+ * Closed blocks and the journal stay with the archived row as its history.
+ */
+async function moveOpenWork(trx: Trx, from: number, to: number): Promise<void> {
+  const blocks = await trx
+    .selectFrom('block')
+    .select('id')
+    .where('task_id', '=', from)
+    .where('state', '=', 'open')
+    .execute();
+  if (blocks.length === 0) return;
+  const ids = blocks.map((block) => block.id);
+  await trx.updateTable('block').set({ task_id: to }).where('id', 'in', ids).execute();
+  for (const table of ['comment', 'conversation', 'notification', 'operator_item'] as const)
+    await trx.updateTable(table).set({ task_id: to }).where('block_id', 'in', ids).execute();
+  // Board-derived items have no block id; their keys name the block.
+  const keys = ids.flatMap((id) => [`operator-block:${String(id)}`, `block:${String(id)}`]);
+  await trx
+    .updateTable('operator_item')
+    .set({ task_id: to })
+    .where('task_id', '=', from)
+    .where('item_key', 'in', keys)
+    .execute();
+  const moved = await trx
+    .selectFrom('operator_item')
+    .select('item_key')
+    .where('task_id', '=', to)
+    .where((eb) => eb.or([eb('block_id', 'in', ids), eb('item_key', 'in', keys)]))
+    .execute();
+  const itemKeys = moved.map((item) => item.item_key);
+  await trx
+    .updateTable('outbox')
+    .set({ payload: sql<string>`json_set(payload, '$.taskId', ${to})` })
+    .where('state', 'not in', ['done', 'dead'])
+    .where(sql<number>`json_extract(payload, '$.taskId')`, '=', from)
+    .where((eb) =>
+      eb.or([
+        eb(sql<number>`json_extract(payload, '$.blockId')`, 'in', ids),
+        ...(itemKeys.length === 0
+          ? []
+          : [eb(sql<string>`json_extract(payload, '$.itemKey')`, 'in', itemKeys)]),
+      ]),
+    )
+    .execute();
+}
+
 async function ticket(
   trx: Trx,
   config: Config,
@@ -182,6 +230,7 @@ async function ticket(
       .where('id', '=', pending.id)
       .execute();
     await emit(trx, 'task_archived', pending.project, pending.id, at, { reason: 'manual' });
+    await moveOpenWork(trx, pending.id, task.id);
     await trx
       .updateTable('task')
       .set({
