@@ -15,7 +15,7 @@ import {
 import { sql, type Kysely } from 'kysely';
 import type { Store } from '../store/store.ts';
 import type { Row, Tables } from '../store/schema.ts';
-import { reconcileDoorbells, recordRingDelivery, ringStillCurrent } from './doorbells.ts';
+import { reconcileDoorbells, recordRingDelivery, ringStillCurrent, ringTask } from './doorbells.ts';
 import { clearItem, raiseItem } from './feed.ts';
 import {
   deliveredRefSchema,
@@ -544,6 +544,15 @@ export function createSender(options: SenderOptions): Sender {
         return { at, firstDeliveryAt: null, skip: true };
       }
     }
+    // An uncertain ring may already be in Spur: it goes with maybeSent, like any uncertain row.
+    if (
+      c.body.kind === 'doorbell' &&
+      !c.maybeSent &&
+      (await ringTask(trx, c.body.payload.notificationId, c.key))?.membership === 'archived'
+    ) {
+      await kill(trx, [c.id], 'superseded');
+      return { at, firstDeliveryAt: null, skip: true };
+    }
     if (c.body.kind === 'doorbell' && c.body.payload.notificationId !== undefined) {
       const status = await ringStillCurrent(
         trx,
@@ -687,14 +696,15 @@ export function createSender(options: SenderOptions): Sender {
           .execute();
         if (body.kind === 'conversation.open' || body.kind === 'feed.line') {
           const isBlock = body.kind === 'conversation.open';
-          const taskId = isBlock ? body.payload.taskId : (body.payload.taskId ?? null);
           const closedBlock = isBlock
             ? await trx
                 .selectFrom('block')
-                .select(['state', 'unblocked_at', 'created_at'])
+                .select(['task_id', 'state', 'unblocked_at', 'created_at'])
                 .where('id', '=', body.payload.blockId)
                 .executeTakeFirstOrThrow()
             : undefined;
+          // The block's own task: a key merge may have moved it after this row was claimed.
+          const taskId = closedBlock?.task_id ?? body.payload.taskId ?? null;
           await trx
             .insertInto('conversation')
             .values({

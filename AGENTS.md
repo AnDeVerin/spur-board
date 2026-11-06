@@ -17,6 +17,8 @@ A map of the repo for agents and contributors. The rules live in the files and s
 - `packages/gateway-testkit` - the gateway conformance suite, its case registry for fake and live
   targets, and an in-memory fake gateway with `slack-like` and `telegram-like` profiles. Skill:
   `building-messenger-connectors`.
+- `packages/skills` - the product skills that `board skills install` ships; not a workspace
+  package.
 - `packages/adapters` - the adapter runner in `src/runner/`: per-source schedule, backoff,
   throttle and budget waits, batch validation and the source state reported to core. Adapters
   import only `@spur-board/contracts` and `runner/`; the boundary lint is in `eslint.config.js`.
@@ -31,7 +33,8 @@ A map of the repo for agents and contributors. The rules live in the files and s
   scripts and tests use `testing-and-ci`.
 - `.github/` - CI workflows, the PR template and the issue forms. CI workflows use
   `testing-and-ci`.
-- A PR that adds a package or a root script updates this map.
+- A PR that adds a package or a root script updates this map. Adding a package, a dependency
+  or a cross-package import: skill `working-in-the-monorepo`.
 
 ## Commands
 

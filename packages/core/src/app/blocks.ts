@@ -364,7 +364,8 @@ async function openBlock(
   return row;
 }
 
-async function close(
+/** Unblocks one block with its journal entry, thread close, doorbell close and item clears. */
+export async function closeOpenBlock(
   trx: Trx,
   task: Task,
   block: Block,
@@ -449,7 +450,7 @@ export async function recordInboundBlockMessage(
     input.config,
     { conversationRef: input.conversationRef, messageRef: input.messageRef },
   );
-  const updated = answered ? await close(trx, task, block, ctx, 'done', null) : block;
+  const updated = answered ? await closeOpenBlock(trx, task, block, ctx, 'done', null) : block;
   return {
     comment,
     block: updated,
@@ -599,7 +600,7 @@ export function createBlockMutations(config: Config) {
         authorRole(config, task, block.author),
         config,
       );
-      const updated = await close(trx, task, block, ctx, 'done', null);
+      const updated = await closeOpenBlock(trx, task, block, ctx, 'done', null);
       return { block: blockView(updated, task), comment: commentView(comment, task) };
     },
   };
@@ -623,7 +624,14 @@ export function createBlockMutations(config: Config) {
       if (input.mode === 'withdraw') {
         await addComment(trx, task, block, input.answer, ctx, block.addressee_role, config);
       }
-      const updated = await close(trx, task, block, ctx, decision.outcome, decision.outcomeReason);
+      const updated = await closeOpenBlock(
+        trx,
+        task,
+        block,
+        ctx,
+        decision.outcome,
+        decision.outcomeReason,
+      );
       return { block: blockView(updated, task) };
     },
   };
@@ -676,38 +684,6 @@ export function createBlockMutations(config: Config) {
       return { comment: commentView(updated, task) };
     },
   };
-  const archive: Mutation<'task.archive'> = {
-    id: 'task.archive',
-    resolveTargets: (trx, input) => taskTarget(trx, input.task),
-    async run(trx, input, ctx) {
-      const task = found(await taskByKey(trx, input.task));
-      active(task);
-      const blocks = await trx
-        .selectFrom('block')
-        .selectAll()
-        .where('task_id', '=', task.id)
-        .where('state', '=', 'open')
-        .execute();
-      for (const block of blocks) {
-        await close(trx, task, block, ctx, 'archived', null);
-      }
-      const updated = await trx
-        .updateTable('task')
-        .set({ membership: 'archived', archive_reason: 'manual' })
-        .where('id', '=', task.id)
-        .returningAll()
-        .executeTakeFirstOrThrow();
-      await journal(trx, task, ctx, 'task_archived', { reason: 'manual' });
-      return {
-        task: {
-          key: updated.key,
-          project: updated.project,
-          column: updated.column,
-          membership: updated.membership,
-        },
-      };
-    },
-  };
   const ack: Mutation<'inbox.ack'> = {
     id: 'inbox.ack',
     async resolveTargets(trx, input) {
@@ -751,5 +727,5 @@ export function createBlockMutations(config: Config) {
       return { acked: input.entries.map(({ id }) => id) };
     },
   };
-  return { ask, create, escalate, answer, unblock, add, edit, ack, archive };
+  return { ask, create, escalate, answer, unblock, add, edit, ack };
 }

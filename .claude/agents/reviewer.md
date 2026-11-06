@@ -22,7 +22,8 @@ checks.
    `designing-agent-surfaces`; a new or changed entry in `ERRORS` or `EXIT_CODES`
    (`packages/contracts/src/errors.ts`), or a change to `packages/contracts/src/error-renderers.ts`
    -> `handling-errors`; `packages/gateway-*/`, `packages/contracts/src/gateway/` or
-   `packages/contracts/test/gateway/` -> `building-messenger-connectors`.
+   `packages/contracts/test/gateway/` -> `building-messenger-connectors`; a diff to tests ->
+   `testing-and-ci`.
 4. A PR exists (`PR:` line in the handoff): read its body and earlier review threads. Do not
    repeat a rejected suggestion unless the diff changes its premise.
 
