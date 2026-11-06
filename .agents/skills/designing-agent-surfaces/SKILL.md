@@ -1,6 +1,6 @@
 ---
 name: designing-agent-surfaces
-description: Rules for what agents see from the board - MCP tool names, descriptions, schemas and annotations, and CLI output, errors, exit codes and help. Use when you change packages/cli/ or how an operation reads to an agent. Don't use for adding an operation end to end (use adding-an-operation).
+description: Rules for what agents see from the board - MCP tool names, descriptions, schemas and annotations, and CLI output, stdout and help. Use when you change packages/cli/ or how an operation reads to an agent. Don't use for adding an operation (use adding-an-operation) or errors (use handling-errors).
 ---
 
 # Designing agent surfaces
@@ -8,7 +8,8 @@ description: Rules for what agents see from the board - MCP tool names, descript
 The CLI (`packages/cli/src/cli.ts`) and the MCP server (`packages/cli/src/mcp.ts`) are generated
 from the catalog in `packages/contracts/src/ops/catalog.ts` and call `/v1/ops/:id` in
 `packages/core/src/api/server.ts`. Fix a surface in the catalog entry or the generator, never
-per operation. A PR that changes these rules updates this skill in the same PR.
+per operation. Errors, `usage`, hints and exit codes on every surface: `handling-errors`. A PR
+that changes these rules updates this skill in the same PR.
 
 ## MCP tools
 
@@ -20,8 +21,6 @@ per operation. A PR that changes these rules updates this skill in the same PR.
   should pick instead (the guidance test under `describe('catalog')` checks the form).
 - `outputSchema` is the operation's `output`; the handler returns the result as
   `structuredContent`. Change the catalog output, not the tool.
-- Input is checked against the catalog zod schema inside the tool callback; `handlerValidator`
-  admits everything first so a bad call gets the catalog `usage` error shape. Keep it so.
 - No operation has a limit, cursor, pagination or concise and detailed modes. A new list
   operation that can grow without bound states its bound or its paging shape in its issue
   before implementation.
@@ -30,10 +29,7 @@ per operation. A PR that changes these rules updates this skill in the same PR.
 ## CLI
 
 - `--json`, or stdout that is not a TTY, prints JSON; a TTY gets the human format.
-- Stdout carries only the result. The idempotency key, hints and errors go to stderr, errors
-  through `renderCliError` in `packages/cli/src/exit-codes.ts`.
-- The exit code is `ERRORS[code].exit` through `errorExitCode`; the classes are `EXIT_CODES` in
-  `packages/contracts/src/errors.ts`. Tests: `packages/cli/test/exit-codes.test.ts`.
+- Stdout carries only the result. The idempotency key, hints and errors go to stderr.
 - The CLI never prompts. A future prompt checks `isTTY` and has a flag that skips it.
 - Help shows every catalog example, checked under `describe('catalog commands')` in
   `packages/cli/test/commands.test.ts`. Write examples an agent can copy.
