@@ -7,6 +7,18 @@
   and `cancel-in-progress` expression enforce this (`.github/workflows/ci.yml`).
 - Run test and package-smoke jobs on Node 24 and 26; pin workflow actions to commit SHAs and give
   each job a timeout (`.github/workflows/ci.yml`).
+- Report a scheduled workflow through `scripts/nightly.ts` under its own issue title. Grant
+  `issues: write` only to its `report` job, list every other job in that job's `needs`, and gate
+  it to `main` (`scripts/nightly.test.ts`, `describe('scheduled workflows',`).
+- The nightly test run shuffles with the run id as seed; reproduce a failing order with
+  `--sequence.shuffle --sequence.seed=<run id>` (`.github/workflows/nightly-tests.yml`).
+- Keep knip in the `quality` job, not in scheduled workflows (`.github/workflows/ci.yml`).
+- Run Stryker weekly over `packages/core/src/domain` with no threshold: the score goes to the job
+  summary, the report to the `mutation-report` artifact. Call it as
+  `GITHUB_ACTIONS=false pnpm exec stryker run`, never through `env`, which hides it from knip.
+  Keep `vitest.pool: "forks"` so the testkit env scrub applies, and load the runner by its
+  `./node_modules` path, which pnpm's plugin glob misses (`.github/workflows/mutation.yml`,
+  `stryker.config.json`).
 - Keep local Vitest reporters at their defaults. In CI, configure default, github-actions and
   junit reporters with `reports/junit.xml`; upload `reports/` on test failure so annotations and
   JUnit evidence survive (`vitest.config.ts`, `.github/workflows/ci.yml`).

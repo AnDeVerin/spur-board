@@ -38,8 +38,12 @@ catalog:
   '@modelcontextprotocol/client': ^2.4.0
   tsdown: 0.22.3
 
-# eslint 10 and typescript-eslint 8 still ask for minimatch ^10, which is affected
-# by GHSA-g3hv-75wg-m249 (moderate, minimatch < 11.0.1). Drop this override once
-# both depend on minimatch >= 11.0.1 themselves.
+# eslint 10, typescript-eslint 8 and @stryker-mutator/core 10.1.1 still ask for
+# minimatch ^10 / ~10.2.4, which is affected by GHSA-g3hv-75wg-m249 (moderate,
+# minimatch < 11.0.1). Drop this override once they depend on minimatch >= 11.0.1
+# themselves.
 overrides:
   minimatch@<11.0.1: ^11.0.1
+  # typed-rest-client@2.3.1 (via @stryker-mutator/core) pins qs 6.15.1 exactly; drop
+  # the override when typed-rest-client no longer pins a vulnerable qs.
+  'typed-rest-client>qs': 6.16.2
