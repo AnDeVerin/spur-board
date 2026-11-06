@@ -13,6 +13,12 @@
 - The nightly test run shuffles with the run id as seed; reproduce a failing order with
   `--sequence.shuffle --sequence.seed=<run id>` (`.github/workflows/nightly-tests.yml`).
 - Keep knip in the `quality` job, not in scheduled workflows (`.github/workflows/ci.yml`).
+- Run Stryker weekly over `packages/core/src/domain` with no threshold: the score goes to the job
+  summary, the report to the `mutation-report` artifact. Call it as
+  `GITHUB_ACTIONS=false pnpm exec stryker run`, never through `env`, which hides it from knip.
+  Keep `vitest.pool: "forks"` so the testkit env scrub applies, and load the runner by its
+  `./node_modules` path, which pnpm's plugin glob misses (`.github/workflows/mutation.yml`,
+  `stryker.config.json`).
 - Keep local Vitest reporters at their defaults. In CI, configure default, github-actions and
   junit reporters with `reports/junit.xml`; upload `reports/` on test failure so annotations and
   JUnit evidence survive (`vitest.config.ts`, `.github/workflows/ci.yml`).
