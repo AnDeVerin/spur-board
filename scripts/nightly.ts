@@ -109,11 +109,7 @@ function parseNeeds(text: string | undefined): Record<string, { result: string }
     throw new Error('NEEDS is not an object');
   }
   for (const [id, job] of Object.entries(needs)) {
-    if (
-      typeof job !== 'object' ||
-      job === null ||
-      typeof (job as { result?: unknown }).result !== 'string'
-    ) {
+    if (typeof (job as { result?: unknown } | null)?.result !== 'string') {
       throw new Error(`NEEDS.${id} has no result`);
     }
   }
