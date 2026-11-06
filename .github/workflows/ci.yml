@@ -135,7 +135,7 @@ jobs:
       - run: git diff --exit-code -- packages/contracts/config.schema.json packages/contracts/ops.snapshot.json packages/skills/spur-board/SKILL.md packages/skills/spur-board/references docs/cli.md docs/configuration.md
       - name: Check generated command pages are tracked
         run: test -z "$(git ls-files --others --exclude-standard packages/skills/spur-board/references docs/cli.md docs/configuration.md)"
-      - run: pnpm check:full --only format,lint,types,knip
+      - run: pnpm check:full --only format,lint,types,knip,agents
 
   test:
     runs-on: ubuntu-24.04

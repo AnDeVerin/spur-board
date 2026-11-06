@@ -40,19 +40,24 @@ A map of the repo for agents and contributors. The rules live in the files and s
 - `pnpm install` - installs dependencies and turns on the git hooks. Run it in every new
   worktree; the hooks need `node_modules`. When `node_modules` already exists, pnpm skips
   `prepare`: run `pnpm run prepare` to turn the hooks on.
-- `pnpm check` - format, lint, types and tests for changed files and affected packages; knip runs
-  only when a global change triggers full mode.
+- `pnpm check` - format, lint, types and tests for changed files and affected packages, plus the
+  `agents` step (`pnpm lint:agents`) when `.agents/`, `.claude/`, `.codex/`, `AGENTS.md` or
+  `scripts/agents.ts` change; knip runs only when a global change triggers full mode.
 - `pnpm run check --pre-push` - checks the Git refs being pushed: changed-file format and lint,
-  plus types and unit tests for changed packages (all packages for shared root changes). It
-  checks only refs at the current HEAD and uses two Vitest workers by default; set a positive
-  integer `VITEST_MAX_WORKERS` to override that limit. A missing base for a new ref stops the
-  check with recovery guidance.
-- `pnpm check:full [--only format,lint,types,knip,test]` - the same over the whole repo.
+  plus types and unit tests for changed packages (all packages for shared root changes) and the
+  `agents` step for changed agent files. It checks only refs at the current HEAD and uses two
+  Vitest workers by default; set a positive integer `VITEST_MAX_WORKERS` to override that limit.
+  A missing base for a new ref stops the check with recovery guidance.
+- `pnpm check:full [--only format,lint,types,knip,agents,test]` - the same over the whole repo.
 - `pnpm guardrails [base]` - lists the changed tests and checks a PR must explain; base defaults
   to `origin/main`, agents pass the handoff's `origin/main` SHA.
 - `pnpm ci:status [PR]` - the latest CI state of a PR's head commit, by job and step.
 - `pnpm format` - prettier over the repo.
 - `pnpm gen` - regenerate the config schema, operation snapshot and product skill command section.
+- `pnpm agents:sync [--check]` - generate `.claude/agents/`, `.codex/agents/`, the `.claude/skills`
+  link and the skills and roles table from `.agents/`; `--check` reports drift without writing.
+- `pnpm lint:agents` - check agent files against `skill-writer` and run `agents:sync --check`; the
+  `agents` step of `pnpm check`, pre-push and `check:full` runs it.
 - `pnpm package:build` - bundle the CLI and daemon and copy the binary and migrations.
 - `pnpm package:pack [directory]` - build, pack, and validate the npm tarball.
 - `pnpm package:check <tarball>` - reject files outside the package allowlist or a missing binary.
@@ -71,12 +76,45 @@ A map of the repo for agents and contributors. The rules live in the files and s
 - Work an issue with `/manager <issue-number>` (Codex: `$manager <issue-number>`). The skill
   scores the task into a tier and routes it through role agents; its rules are in
   `.agents/skills/manager/SKILL.md`.
-- Role agents live in `.agents/agents/`. `.claude/agents/` and `.codex/agents/` are copies of
-  them and `.claude/skills` links to `.agents/skills`; change the source and its copies in the
-  same commit.
+- Role agents live in `.agents/agents/`. `pnpm agents:sync` generates `.claude/agents/`,
+  `.codex/agents/`, the `.claude/skills` link and the table below from the tracked sources; edit
+  the source, run it, and commit the outputs with the source.
 - The manager keeps its spec in `.scratch/spec-<issue-number>.md`. `.scratch/` is not committed.
 - Branches, commits and PRs follow `gitflow`; agent files follow `skill-writer`.
 - A review on your PR requests changes -> run `pr-comments-fix` (Codex: `$pr-comments-fix`).
+
+## Skills and roles
+
+Generated from frontmatter by `pnpm agents:sync`; edit the source file, not this table.
+
+<!-- BEGIN GENERATED SKILLS AND ROLES: pnpm agents:sync -->
+
+<!-- prettier-ignore-start -->
+
+| Name | Kind | Description |
+| --- | --- | --- |
+| [code-simplifier](.agents/skills/code-simplifier/SKILL.md) | skill | Simplify the branch diff without changing behaviour - remove duplication, dead code and needless layers |
+| [gitflow](.agents/skills/gitflow/SKILL.md) | skill | Branches, commits, pushes and pull requests for this repo - naming, history rules, the PR title and a body filled from the PR template and the spec |
+| [manager](.agents/skills/manager/SKILL.md) | skill | Run a GitHub issue through tiered gates of role agents - plan, spec check, one Clarify round, implement, review, PR, close-out |
+| [pr-comments-fix](.agents/skills/pr-comments-fix/SKILL.md) | skill | Answer feedback on your own PR - collect unresolved review threads and new comments, fix or reply with a reason, push once, sign each post |
+| [running-the-daemon](.agents/skills/running-the-daemon/SKILL.md) | skill | Rules for packages/daemon/ - modules, config and secrets, logging and redaction, pollers, shutdown, the lock |
+| [skill-writer](.agents/skills/skill-writer/SKILL.md) | skill | Rules for writing and changing skills, role agents and AGENTS.md - format, frontmatter, triggers, size budgets, copies |
+| [testing-and-ci](.agents/skills/testing-and-ci/SKILL.md) | skill | Rules for tests, Vitest, testkit, checks and CI |
+| [working-with-contracts](.agents/skills/working-with-contracts/SKILL.md) | skill | Rules for changing packages/contracts - zod schemas, config fields, enums, journal event kinds, port contracts, breaking changes and PR order |
+| [working-with-storage](.agents/skills/working-with-storage/SKILL.md) | skill | Rules for the SQLite store (packages/core/src/store/) and outbox (packages/core/src/app/{outbox,sender}.ts) - transactions, outbox, migrations and tests, PRAGMAs |
+| [writing-adapters](.agents/skills/writing-adapters/SKILL.md) | skill | Rules for packages/adapters/ - port, untrusted responses, failure kinds, rate limits, budget, fakes and tests |
+| [architect](.agents/agents/architect.md) | role | Turn the issue into an executable spec after repo recon - findings, change map, invariants, acceptance criteria bound to verification |
+| [critic](.agents/agents/critic.md) | role | Falsify the researcher's options, score each against doing nothing, and select one |
+| [designer](.agents/agents/designer.md) | role | UI design gate. Plan mode reviews the UI in a spec before code; code mode checks layout, tokens and states of the changed web UI |
+| [developer](.agents/agents/developer.md) | role | Implement the spec, checking it against the code; tier 0 works from the issue, tier 3 does recon, plan and code in one context. Writes code and tests, runs local checks, commits |
+| [researcher](.agents/agents/researcher.md) | role | Find 2-3 distinct ways to build the change, with code evidence, keeping verified facts apart from inferences |
+| [reviewer](.agents/agents/reviewer.md) | role | Code review gate - falsify the branch diff against the spec's criteria, invariants and tests, and catch checks weakened without notice |
+| [spec-critic](.agents/agents/spec-critic.md) | role | Try to falsify the architect's spec before any code - cited facts, change map, invariants, and a bound verification for every criterion |
+| [tester](.agents/agents/tester.md) | role | Validation gate - exercise the change as a user would (CLI, API, or web UI through a browser tool) and return PASS or FAIL with evidence |
+
+<!-- prettier-ignore-end -->
+
+<!-- END GENERATED SKILLS AND ROLES -->
 
 ## Issue to PR
 
