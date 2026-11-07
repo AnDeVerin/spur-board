@@ -53,7 +53,8 @@ description: Rules for packages/daemon/ - modules, config and secrets, logging a
   `requestId`, `method`, `path`, `status`, `port`. Name new entity IDs as contracts do, e.g.
   `taskId`.
 - Wrap external calls in `ctx.logCall`; it logs duration and outcome, then rethrows.
-- Log sender ticks and `spur send` child calls through the outbox module's `ctx.logCall`.
+- Log sender ticks and Spur doorbell sends (`spur.send`, HTTP to `adapters.spur.baseUrl`) through
+  the outbox module's `ctx.logCall`.
 - Wrap adapter HTTP calls through `board-adapters.logCall`. Journal unknown Spur
   state/status notices through core; log a Spur restart once through the module logger.
 
