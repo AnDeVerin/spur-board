@@ -172,7 +172,10 @@ export interface PollContext {
   observe: {
     /** Pull requests of board tasks. */
     prs: readonly PrEntityRef[];
-    /** Tickets outside the tracker filter; pending manual includes have a key but no id. */
+    /**
+     * Tickets outside the tracker filter, open tracked tickets of a tracker whose listing omits
+     * closed ones, and pending manual includes, which have a key but no id.
+     */
     tickets: readonly TicketEntityRef[];
     /** Sessions linked to board tasks. */
     sessions: readonly SessionEntityRef[];
