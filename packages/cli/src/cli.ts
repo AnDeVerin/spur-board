@@ -134,23 +134,35 @@ function shellValue(value: unknown): string {
   return /^[A-Za-z0-9_./#:@-]+$/.test(text) ? text : JSON.stringify(text);
 }
 
-/** The identity an operation needs, when only one kind of caller can run it. */
-function identityHint(op: CatalogOperation): string | undefined {
-  const command = `\`board ${op.cli.command}\``;
-  if (!roleCanUseOperation(op, 'worker') && !roleCanUseOperation(op, 'orchestrator')) {
+/** The identity an operation in the selected input mode needs, when only one kind of caller can run it. */
+function identityHint(op: CatalogOperation, mode: string | undefined): string | undefined {
+  const flag = op.cli.modes?.find((item) => item.mode === mode)?.flag;
+  const command = `\`board ${op.cli.command}${flag ? ` ${flag}` : ''}\``;
+  if (!roleCanUseOperation(op, 'worker', mode) && !roleCanUseOperation(op, 'orchestrator', mode)) {
     return `${command} needs operator identity: run it in a Spur session of a project whose spurProjects role is operator, or run \`board token create --name <name> --into <folder>\` and ask the operator to approve the request in Slack.`;
   }
-  if (!roleCanUseOperation(op, 'operator')) {
+  if (!roleCanUseOperation(op, 'operator', mode)) {
     return `${command} needs an agent identity: run it in a Spur session of a project listed in config.yaml.`;
   }
   return undefined;
 }
 
-function loadOperationConfig(op: CatalogOperation, env: NodeJS.ProcessEnv): ClientConfig {
+function loadOperationConfig(
+  op: CatalogOperation,
+  input: unknown,
+  env: NodeJS.ProcessEnv,
+): ClientConfig {
   try {
     return loadClientConfig(env);
   } catch (error) {
-    const hint = identityHint(op);
+    const mode =
+      typeof input === 'object' &&
+      input !== null &&
+      'mode' in input &&
+      typeof input.mode === 'string'
+        ? input.mode
+        : undefined;
+    const hint = identityHint(op, mode);
     if (error instanceof CliError && error.code === 'identity_missing' && hint) {
       throw new CliError(error.code, error.context, error.requestId, hint);
     }
@@ -420,7 +432,7 @@ export function createProgram(options: CliOptions = {}): CommandUnknownOpts {
           'The idempotency key must contain only printable characters.',
         );
       if (op.kind === 'mutation' && env['SPUR_SESSION'] && !keyOption) throw new CliError('usage');
-      const config = options.clientConfig ?? loadOperationConfig(op, env);
+      const config = options.clientConfig ?? loadOperationConfig(op, input, env);
       const key = op.kind === 'mutation' ? keyOption || randomUUID() : undefined;
       if (key) io.stderr(`key: ${escapeTerminalControls(key)}\n`);
       let instance: string | undefined;

@@ -378,6 +378,12 @@ describe('CLI exit classes and mutation keys', () => {
     expect(agent.hint).toContain('`board ask` needs an agent identity');
     expect(agent.hint).toContain('Spur session');
     expect(agent.hint).not.toContain('board token create');
+    const workerMode = await run(['unblock', 'B13', '--done', 'https://example.test/pr/1']);
+    expect(workerMode.hint).toContain('`board unblock --done` needs an agent identity');
+    expect(workerMode.hint).not.toContain('board token create');
+    expect((await run(['unblock', 'B13', '--reason', 'Fixed.'])).hint).toBe(
+      ERRORS.identity_missing.hint,
+    );
     expect((await run(['status'])).hint).toBe(ERRORS.identity_missing.hint);
   });
 
