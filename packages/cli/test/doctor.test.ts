@@ -27,6 +27,7 @@ const remoteIds = [
   'jira.credentials',
   'github.credentials',
   'spur.api',
+  'spur.send',
   'slack.auth',
   'slack.orchestrators_member',
   'slack.feed_member',
@@ -322,6 +323,11 @@ describe('board doctor', () => {
     ]);
     expect(slackChecks).toHaveLength(1);
     expect(slackChecks[0]?.fix).toContain('spur-board-setup');
+    expect(value.checks.find((check) => check.id === 'spur.send')).toMatchObject({
+      status: 'warning',
+      blocking: false,
+      fix: 'Start the daemon, then rerun board doctor to complete this check.',
+    });
   });
 
   it('checks the resolved secrets filename even when the daemon reports healthy', async () => {

@@ -1,10 +1,16 @@
 import { SLACK_BOT_SCOPES, requiredSecretKeys } from '@spur-board/contracts';
 import type { ApiOptions, Store } from '@spur-board/core';
 import type { ModuleContext } from './lifecycle.ts';
+import { spurErrorText, spurSendRequest } from './spur-port.ts';
 
 type DoctorReport = Awaited<ReturnType<NonNullable<ApiOptions['doctor']>>>;
 type Check = DoctorReport['checks'][number];
 const TIMEOUT_MS = 5_000;
+const SPUR_PROBE_SESSION = 'spur-board-doctor-probe';
+const SPUR_SEND_UNREACHABLE_FIX =
+  'Start Spur or correct adapters.spur.baseUrl in config.yaml, then restart the service; the daemon sends doorbells to that Spur API.';
+const SPUR_SEND_FIX =
+  'The Spur API at adapters.spur.baseUrl did not accept a doorbell send; update Spur or point adapters.spur.baseUrl at the Spur daemon.';
 const GITHUB_FIX = 'Check the GitHub token and repository access.';
 const GITHUB_CHECKS_FIX =
   'Use a classic GitHub personal access token with the repo scope, authorized for organization SSO where required, to read check runs.';
@@ -247,13 +253,30 @@ export async function runDaemonDoctor(
   const githubFailure = githubFailures.find((failure) => failure !== null) ?? null;
   checks.push(check('github.credentials', githubFailure === null, githubFailure ?? GITHUB_FIX));
 
-  const spur = await request(
-    ctx,
-    fetcher,
-    'spur',
-    new URL('sessions', `${config.adapters.spur.baseUrl.replace(/\/$/, '')}/`),
+  // Same request the doorbell port makes, to a session that never exists, so no agent gets it.
+  const probe = spurSendRequest(
+    config.adapters.spur.baseUrl,
+    SPUR_PROBE_SESSION,
+    'spur-board doctor probe',
   );
+  const [spur, spurSend] = await Promise.all([
+    request(
+      ctx,
+      fetcher,
+      'spur',
+      new URL('sessions', `${config.adapters.spur.baseUrl.replace(/\/$/, '')}/`),
+    ),
+    request(ctx, fetcher, 'spur.send', probe.url, probe.init),
+  ]);
   checks.push(check('spur.api', spur?.ok === true, 'Start or correct the configured Spur API.'));
+  const spurSendOk =
+    spurSend?.status === 404 &&
+    ((await spurErrorText(spurSend))?.startsWith('Session not found') ?? false);
+  if (spurSend !== null && spurSend.status !== 404)
+    await spurSend.body?.cancel().catch(() => undefined);
+  checks.push(
+    check('spur.send', spurSendOk, spurSend === null ? SPUR_SEND_UNREACHABLE_FIX : SPUR_SEND_FIX),
+  );
 
   if (!slackConfigured) {
     checks.push(

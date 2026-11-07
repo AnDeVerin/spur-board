@@ -29,7 +29,7 @@ import {
   type OutboxBody,
 } from './outbox.ts';
 
-/** Spur's side of a doorbell: `spur send <session> <text>`. */
+/** Spur's side of a doorbell: deliver `text` to the session's agent. */
 export interface SpurPort {
   send(session: string, text: string): Promise<void>;
 }

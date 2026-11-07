@@ -1,49 +1,67 @@
-import { spawn } from 'node:child_process';
 import type { SpurPort } from '@spur-board/core';
 
 const SEND_TIMEOUT_MS = 8_000;
-const KILL_GRACE_MS = 200;
+const ERROR_TEXT_LIMIT = 200;
 
-/** Send a doorbell through Spur without invoking a shell. */
-export function createSpurPort(
-  options: { env?: NodeJS.ProcessEnv; timeoutMs?: number; killGraceMs?: number } = {},
-): SpurPort {
+/** The request Spur's own `spur send` makes; the doctor probe sends the same one. */
+export function spurSendRequest(
+  baseUrl: string,
+  session: string,
+  text: string,
+): { url: URL; init: RequestInit } {
   return {
-    send(session, text) {
-      return new Promise<void>((resolve, reject) => {
-        const child = spawn('spur', ['send', session, text], {
-          stdio: ['ignore', 'ignore', 'pipe'],
-          ...(options.env === undefined ? {} : { env: options.env }),
+    url: new URL(
+      `sessions/${encodeURIComponent(session)}/send`,
+      new URL(`${baseUrl.replace(/\/$/, '')}/`),
+    ),
+    init: {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: text }),
+    },
+  };
+}
+
+/** The `error` string of a Spur error body, cut to a bounded length; null when unreadable. */
+export async function spurErrorText(response: Response): Promise<string | null> {
+  try {
+    const value: unknown = await response.json();
+    if (value === null || typeof value !== 'object' || !('error' in value)) return null;
+    return typeof value.error === 'string' ? value.error.slice(0, ERROR_TEXT_LIMIT) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Send a doorbell through the Spur HTTP API; runs no executable, so PATH does not matter. */
+export function createSpurPort(options: {
+  baseUrl: string;
+  fetcher?: typeof fetch;
+  timeoutMs?: number;
+}): SpurPort {
+  const fetcher = options.fetcher ?? fetch;
+  return {
+    async send(session, text) {
+      const { url, init } = spurSendRequest(options.baseUrl, session, text);
+      let response: Response;
+      try {
+        response = await fetcher(url, {
+          ...init,
+          signal: AbortSignal.timeout(options.timeoutMs ?? SEND_TIMEOUT_MS),
         });
-        let stderr = '';
-        let timedOut = false;
-        let killTimer: ReturnType<typeof setTimeout> | undefined;
-        const timeout = setTimeout(() => {
-          timedOut = true;
-          child.kill('SIGTERM');
-          killTimer = setTimeout(() => {
-            child.kill('SIGKILL');
-          }, options.killGraceMs ?? KILL_GRACE_MS);
-        }, options.timeoutMs ?? SEND_TIMEOUT_MS);
-        child.stderr.on('data', (chunk: Buffer) => {
-          stderr = (stderr + chunk.toString()).slice(-1024);
-        });
-        child.once('error', () => {
-          clearTimeout(timeout);
-          if (killTimer !== undefined) clearTimeout(killTimer);
-          reject(new Error('spur send failed to start'));
-        });
-        child.once('close', (code) => {
-          clearTimeout(timeout);
-          if (killTimer !== undefined) clearTimeout(killTimer);
-          if (timedOut) {
-            reject(new Error('spur send timed out'));
-            return;
-          }
-          if (code === 0) resolve();
-          else reject(new Error(`spur send failed (${String(code)}): ${stderr.trim()}`));
-        });
-      });
+      } catch (cause) {
+        if (cause instanceof Error && cause.name === 'TimeoutError')
+          throw new Error('Spur send timed out', { cause });
+        throw new Error('Spur API unreachable', { cause });
+      }
+      if (response.ok) {
+        await response.body?.cancel().catch(() => undefined);
+        return;
+      }
+      const error = await spurErrorText(response);
+      throw new Error(
+        `Spur send failed with HTTP ${String(response.status)}${error === null ? '' : `: ${error}`}`,
+      );
     },
   };
 }
