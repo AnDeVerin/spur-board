@@ -182,7 +182,7 @@ export async function requestOperation(
   config: ClientConfig,
   observe?: (instance: string) => void,
 ): Promise<unknown> {
-  if (!config.session && !config.token) throw new CliError('config');
+  if (!config.session && !config.token) throw new CliError('identity_missing');
   return send({
     method: 'POST',
     path: `/v1/ops/${encodeURIComponent(op.id)}`,

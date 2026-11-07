@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   DEFAULT_HTTP_PORT,
+  ERRORS,
   OPERATIONS,
   errorEnvelopeSchema,
   renderHttpProblem,
@@ -312,17 +313,34 @@ describe('CLI exit classes and mutation keys', () => {
     expect(errorEnvelopeSchema.parse(JSON.parse(json.stderr)).requestId).toBe(requestId);
   });
 
-  it('returns 4 for missing token or invalid explicit daemon address', async () => {
-    const token = capture();
+  it('returns 4 for missing identity, an empty token or invalid explicit daemon address', async () => {
+    const identity = capture();
     expect(
       await runCli(['status', '--json'], {
         env: { BOARD_DAEMON_URL: 'http://127.0.0.1:1' },
-        io: token.io,
+        io: identity.io,
       }),
     ).toBe(4);
+    const missing = errorEnvelopeSchema.parse(JSON.parse(identity.stderr)).error;
+    expect(missing.code).toBe('identity_missing');
+    expect(missing.message).toContain('caller identity');
+    expect(missing.hint).toContain('Spur session');
+    expect(missing.hint).toContain('`board token create --name <name> --into <folder>`');
+    const human = capture();
     expect(
-      errorEnvelopeSchema.parse(JSON.parse(token.stderr)).error.context.environmentVariable,
-    ).toBe('BOARD_TOKEN');
+      await runCli(['status'], { env: { BOARD_DAEMON_URL: 'http://127.0.0.1:1' }, io: human.io }),
+    ).toBe(4);
+    expect(human.stderr).toContain('\nfix: Run the command in a Spur session');
+    const empty = capture();
+    expect(
+      await runCli(['status', '--json'], {
+        env: { BOARD_DAEMON_URL: 'http://127.0.0.1:1', BOARD_TOKEN: '' },
+        io: empty.io,
+      }),
+    ).toBe(4);
+    const emptyError = errorEnvelopeSchema.parse(JSON.parse(empty.stderr)).error;
+    expect(emptyError.code).toBe('config');
+    expect(emptyError.context.environmentVariable).toBe('BOARD_TOKEN');
     for (const rawAddress of ['ftp://example.com', '']) {
       const address = capture();
       expect(
@@ -335,6 +353,32 @@ describe('CLI exit classes and mutation keys', () => {
         errorEnvelopeSchema.parse(JSON.parse(address.stderr)).error.context.environmentVariable,
       ).toBe('BOARD_DAEMON_URL');
     }
+  });
+
+  it('names the identity an operator-only or agent-only command needs', async () => {
+    const run = async (args: string[]) => {
+      const output = capture();
+      expect(
+        await runCli([...args, '--json'], {
+          env: { BOARD_DAEMON_URL: 'http://127.0.0.1:1' },
+          io: output.io,
+        }),
+      ).toBe(4);
+      const line = output.stderr.trim().split('\n').at(-1);
+      if (!line) throw new Error('Expected a JSON error line.');
+      return errorEnvelopeSchema.parse(JSON.parse(line)).error;
+    };
+    const operator = await run(['token', 'list']);
+    expect(operator.code).toBe('identity_missing');
+    expect(operator.hint).toContain('`board token list` needs operator identity');
+    expect(operator.hint).toContain('project whose spurProjects role is operator');
+    expect(operator.hint).toContain('`board token create --name <name> --into <folder>`');
+    const agent = await run(['ask', 'PROJ-123', 'Question?']);
+    expect(agent.code).toBe('identity_missing');
+    expect(agent.hint).toContain('`board ask` needs an agent identity');
+    expect(agent.hint).toContain('Spur session');
+    expect(agent.hint).not.toContain('board token create');
+    expect((await run(['status'])).hint).toBe(ERRORS.identity_missing.hint);
   });
 
   it('explains how to reach a daemon configured with a runtime-assigned port', async () => {
