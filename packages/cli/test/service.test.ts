@@ -1,8 +1,12 @@
+import { randomUUID } from 'node:crypto';
 import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { createServer, type OutgoingHttpHeaders } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { runCli, type CliIo } from '../src/cli.ts';
+import { bindLoopback } from '../src/port.ts';
 import {
   installService,
   renderUserUnit,
@@ -21,7 +25,10 @@ afterEach(async () => {
   await Promise.all(temporaryDirectories.splice(0).map((path) => rm(path, { recursive: true })));
 });
 
-function fakeRunner(active = false): {
+function fakeRunner(
+  active = false,
+  ss = '',
+): {
   calls: { command: string; args: string[] }[];
   run: CommandRunner;
 } {
@@ -36,12 +43,16 @@ function fakeRunner(active = false): {
     }
     if (args.includes('is-enabled')) result = { exitCode: 1, stdout: 'disabled\n', stderr: '' };
     if (command === 'loginctl') result = { exitCode: 0, stdout: 'no\n', stderr: '' };
+    if (command === 'ss') result = { exitCode: 0, stdout: ss, stderr: '' };
     return Promise.resolve(result);
   };
   return { calls, run };
 }
 
-async function fixture(active = false): Promise<{
+async function fixture(
+  active = false,
+  ss = '',
+): Promise<{
   root: string;
   options: ServiceOptions;
   paths: ReturnType<typeof servicePaths>;
@@ -62,7 +73,7 @@ async function fixture(active = false): Promise<{
   await writeFile(nodePath, 'node', { mode: 0o700 });
   await writeFile(daemonEntry, 'daemon');
   await writeFile(join(env.BOARD_HOME, 'secrets.env'), 'BOARD_TOKEN=secret\n', { mode: 0o600 });
-  const fake = fakeRunner(active);
+  const fake = fakeRunner(active, ss);
   const options: ServiceOptions = {
     home,
     env,
@@ -70,8 +81,52 @@ async function fixture(active = false): Promise<{
     daemonEntry,
     username: 'operator',
     runner: fake.run,
+    bind: () => Promise.resolve(null),
   };
   return { root, options, paths: servicePaths(options), calls: fake.calls };
+}
+
+/** A schema-valid config.yaml, so install reads this port instead of the default. */
+async function writeConfig(options: ServiceOptions, port: number): Promise<void> {
+  const boardHome = options.env?.['BOARD_HOME'];
+  if (boardHome === undefined) throw new Error('fixture has no BOARD_HOME');
+  await writeFile(
+    join(boardHome, 'config.yaml'),
+    `projects:
+  - id: board
+    tracker:
+      type: github-issues
+      repo: example/board
+      label: board
+    repos: [example/board]
+    operatorGithubLogin: operator
+    spurProjects:
+      - name: worker
+        role: worker
+operator:
+  slack: U0000000000
+digest:
+  tz: UTC
+http: { port: ${String(port)} }
+`,
+  );
+}
+
+async function holder(headers: OutgoingHttpHeaders) {
+  const server = createServer((_request, response) => {
+    response.writeHead(200, headers).end('{}');
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  return {
+    port: (server.address() as AddressInfo).port,
+    close: () =>
+      new Promise<void>((resolve) => {
+        server.closeAllConnections();
+        server.close(() => {
+          resolve();
+        });
+      }),
+  };
 }
 
 describe('service', () => {
@@ -280,5 +335,68 @@ describe('service', () => {
     calls.length = 0;
     expect(await uninstallService(options)).toEqual({ changed: false });
     expect(calls).toEqual([]);
+  });
+
+  it('stops before enabling the unit when http.port is held', async () => {
+    const server = await holder({});
+    try {
+      const ss = `LISTEN 0 511 127.0.0.1:${String(server.port)} 0.0.0.0:* users:(("spur-web",pid=4242,fd=21))\n`;
+      const { options, paths, calls } = await fixture(false, ss);
+      await writeConfig(options, server.port);
+      const output = { stdout: '', stderr: '' };
+      const io: CliIo = {
+        isTTY: false,
+        stdout: (text) => {
+          output.stdout += text;
+        },
+        stderr: (text) => {
+          output.stderr += text;
+        },
+      };
+      expect(
+        await runCli(['service', 'install'], {
+          env: options.env ?? {},
+          io,
+          setup: { ...options, bind: bindLoopback },
+        }),
+      ).toBe(4);
+      expect(output.stdout).toBe('');
+      expect(output.stderr).toContain(`Port ${String(server.port)} (http.port)`);
+      expect(output.stderr).toContain('spur-web (pid 4242)');
+      expect(calls).toEqual([
+        { command: 'ss', args: ['-ltnp', `sport = :${String(server.port)}`] },
+      ]);
+      await expect(stat(paths.unitFile)).rejects.toMatchObject({ code: 'ENOENT' });
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('proceeds when a board daemon holds http.port', async () => {
+    const server = await holder({ 'x-board-instance': randomUUID() });
+    try {
+      const { options, paths, calls } = await fixture();
+      await writeConfig(options, server.port);
+      expect(await installService({ ...options, bind: bindLoopback })).toEqual({
+        unitFile: paths.unitFile,
+        changed: true,
+      });
+      expect(calls).toEqual([
+        { command: 'systemctl', args: ['--user', 'daemon-reload'] },
+        { command: 'systemctl', args: ['--user', 'enable', '--now', 'spur-board.service'] },
+      ]);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('skips the probe for http.port 0', async () => {
+    const { options, paths } = await fixture();
+    await writeConfig(options, 0);
+    const bind = () => Promise.reject(new Error('port 0 is never probed'));
+    expect(await installService({ ...options, bind })).toEqual({
+      unitFile: paths.unitFile,
+      changed: true,
+    });
   });
 });

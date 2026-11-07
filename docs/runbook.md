@@ -49,17 +49,23 @@ board service status
 systemctl --user status spur-board.service
 journalctl --user -u spur-board.service -n 100
 board doctor --offline
+board doctor
 ```
 
-In the journal, look for `start failed` (with the `module` that failed), `invalid config in`,
-`fatal`, `Slack Socket Mode start failed` and `systemd notify failed`. The offline doctor
-validates `config.yaml` without the daemon.
+In the journal, look for `start failed` (with the `module` that failed), `EADDRINUSE`,
+`invalid config in`, `fatal`, `Slack Socket Mode start failed` and `systemd notify failed`. The
+offline doctor validates `config.yaml` without the daemon. The doctor without `--offline` also
+runs `http.port`, which names the process holding the daemon's port.
 
 **Fix.**
 
 - Bad config or secrets: correct `config.yaml` or `secrets.env`, then run
   `board service restart`.
 - The unit is missing: run `board service install`.
+- Port held (`start failed` with `module` `http` and `EADDRINUSE`): stop the process that
+  `board doctor` names under `http.port`, or set `http.port` in `config.yaml` to a free port,
+  then run `board service restart`. The EADDRINUSE section of
+  [TROUBLESHOOTING](../TROUBLESHOOTING.md) lists the ports to avoid.
 - The service stops when you log out: `board service status` reports lingering as off. With
   the operator's consent, run `loginctl enable-linger "$USER"`.
 
