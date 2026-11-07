@@ -1,5 +1,5 @@
 {
-  "version": "969567a296287e7824f27d115eb2fe45f959aef4e14ff4f773162a252bb3dff8",
+  "version": "d677f427b0b506c28f815b778a2d6ec639d09bcdee9c5f1451f370d9f46b2b14",
   "grants": [
     "operator",
     "project-agent",
@@ -502,6 +502,35 @@
         "retryTiming": "After fixing the cause."
       },
       "docs": "docs/errors.md#config",
+      "context": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "clientVersion": { "type": "string" },
+          "serverVersion": { "type": "string" },
+          "configPath": { "type": "string" },
+          "environmentVariable": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+          "idempotencyKey": { "type": "string", "minLength": 1 },
+          "causeLabel": {
+            "type": "string",
+            "enum": ["storage_unavailable", "transport_unavailable", "internal_failure"]
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "identity_missing": {
+      "status": null,
+      "exit": 4,
+      "message": "No caller identity was found: this is not a Spur session and no .spur-board/token was found walking up from the current folder.",
+      "hint": "Run the command in a Spur session of a project listed in config.yaml, or run `board token create --name <name> --into <folder>` and ask the operator to approve the request in Slack.",
+      "recovery": {
+        "action": "Get a caller identity as the fix says, then run the command again.",
+        "sideEffects": "none",
+        "maxRetries": 0,
+        "retryTiming": "After fixing the cause."
+      },
+      "docs": "docs/errors.md#identity_missing",
       "context": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",

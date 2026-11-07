@@ -224,6 +224,14 @@ export const ERRORS = {
     hint: 'Fix the configuration file named in the error, then run the command again.',
     recovery: noRetry('Fix the named configuration file and retry.'),
   }),
+  identity_missing: spec('identity_missing', {
+    status: null,
+    exit: EXIT_CODES.config,
+    message:
+      'No caller identity was found: this is not a Spur session and no .spur-board/token was found walking up from the current folder.',
+    hint: 'Run the command in a Spur session of a project listed in config.yaml, or run `board token create --name <name> --into <folder>` and ask the operator to approve the request in Slack.',
+    recovery: noRetry('Get a caller identity as the fix says, then run the command again.'),
+  }),
   outcome_unknown: spec('outcome_unknown', {
     status: null,
     exit: EXIT_CODES.outcomeUnknown,

@@ -582,6 +582,40 @@ Example:
 }
 ```
 
+## identity_missing
+
+No caller identity was found: this is not a Spur session and no .spur-board/token was found walking up from the current folder.
+
+HTTP: client-side  
+Exit code: 4  
+Hint: Run the command in a Spur session of a project listed in config.yaml, or run `board token create --name <name> --into <folder>` and ask the operator to approve the request in Slack.  
+Recovery: Get a caller identity as the fix says, then run the command again.  
+Side effects: none  
+Retry: maximum 0; After fixing the cause.
+
+Example:
+
+```json
+{
+  "ok": false,
+  "requestId": "req-example-123",
+  "error": {
+    "code": "identity_missing",
+    "requestId": "req-example-123",
+    "message": "No caller identity was found: this is not a Spur session and no .spur-board/token was found walking up from the current folder.",
+    "hint": "Run the command in a Spur session of a project listed in config.yaml, or run `board token create --name <name> --into <folder>` and ask the operator to approve the request in Slack.",
+    "docs": "docs/errors.md#identity_missing",
+    "recovery": {
+      "action": "Get a caller identity as the fix says, then run the command again.",
+      "sideEffects": "none",
+      "maxRetries": 0,
+      "retryTiming": "After fixing the cause."
+    },
+    "context": {}
+  }
+}
+```
+
 ## outcome_unknown
 
 The connection was lost after the request was sent; it may have been applied.
