@@ -104,8 +104,8 @@ const response = (data: unknown, errors?: unknown[]) => {
     { status: 200 },
   );
 };
-function adapter(fetcher: typeof fetch): Adapter {
-  const source = githubSources(config(), { token: 'synthetic', fetch: fetcher })[0];
+function adapter(fetcher: typeof fetch, configured = config(), index = 0): Adapter {
+  const source = githubSources(configured, { token: 'synthetic', fetch: fetcher })[index];
   if (source === undefined) throw new Error('Missing GitHub source');
   return source.adapter;
 }
@@ -127,11 +127,6 @@ function issuesConfig(repos = ['demo/widgets'], branchPattern?: string) {
     operator: { slack: 'U123' },
     digest: { tz: 'UTC' },
   });
-}
-function issuesAdapter(fetcher: typeof fetch, configured = issuesConfig(), index = 0): Adapter {
-  const source = githubSources(configured, { token: 'synthetic', fetch: fetcher })[index];
-  if (source === undefined) throw new Error('Missing GitHub source');
-  return source.adapter;
 }
 const closingRef = (number: number, repo = 'demo/widgets') => ({
   number,
@@ -705,14 +700,14 @@ describe('GitHub Issues PR keys', () => {
         conn([closingRef(13, 'Demo/Widgets'), closingRef(12, 'Demo/Widgets')]),
       ),
     );
-    const batch = await issuesAdapter(fetcher).poll(context());
+    const batch = await adapter(fetcher, issuesConfig()).poll(context());
     expect(batchSchema.parse(batch)).toEqual(batch);
     expect(keysOf(batch)).toEqual([['demo/widgets#12', 'demo/widgets#13']]);
     expect(bodyQuery(fetcher)).toContain('closingIssuesReferences(first: 100)');
   });
   it('falls back to the branch pattern', async () => {
     const poll = async (branch: string, configured = issuesConfig()) =>
-      keysOf(await issuesAdapter(single(issuesPr(branch, conn([]))), configured).poll(context()));
+      keysOf(await adapter(single(issuesPr(branch, conn([]))), configured).poll(context()));
     expect(await poll('claude-12-slug')).toEqual([['demo/widgets#12']]);
     const custom = issuesConfig(['demo/widgets'], '^task/([1-9][0-9]*)$');
     expect(await poll('task/12', custom)).toEqual([['demo/widgets#12']]);
@@ -720,10 +715,10 @@ describe('GitHub Issues PR keys', () => {
   });
   it('ignores cross-repo references and non-tracker repos', async () => {
     const cross = single(issuesPr('feature/x', conn([closingRef(12, 'other/repo')])));
-    expect(keysOf(await issuesAdapter(cross).poll(context()))).toEqual([[]]);
+    expect(keysOf(await adapter(cross, issuesConfig()).poll(context()))).toEqual([[]]);
     const sibling = single(issuesPr('claude-12-x', conn([closingRef(12)])));
     const apiRef = { ...ref, repo: 'demo/api' };
-    const batch = await issuesAdapter(sibling, issuesConfig(['demo/widgets', 'demo/api']), 1).poll(
+    const batch = await adapter(sibling, issuesConfig(['demo/widgets', 'demo/api']), 1).poll(
       context([apiRef]),
     );
     expect(batch.entities).toEqual([{ ref: apiRef, status: 'ok' }]);
@@ -776,7 +771,7 @@ describe('GitHub Issues PR keys', () => {
           ),
     ],
   ])('ignores a denied closing reference: %s', async (_name, fetcher) => {
-    const batch = await issuesAdapter(fetcher()).poll(context());
+    const batch = await adapter(fetcher(), issuesConfig()).poll(context());
     expect(batch.complete).toBe(true);
     expect(batch.entities).toEqual([{ ref, status: 'ok' }]);
     expect(keysOf(batch)).toEqual([['demo/widgets#12']]);
@@ -798,7 +793,9 @@ describe('GitHub Issues PR keys', () => {
           denied(['pr0', 'pullRequest', 'closingIssuesReferences']),
         ]),
       );
-    const batch = await issuesAdapter(fetcher).poll(context([], '2026-01-01T00:00:00.000Z'));
+    const batch = await adapter(fetcher, issuesConfig()).poll(
+      context([], '2026-01-01T00:00:00.000Z'),
+    );
     expect(fetcher).toHaveBeenCalledTimes(2);
     expect(bodyQuery(fetcher, 1)).toContain('closingIssuesReferences(first: 100)');
     expect(batch.complete).toBe(true);
@@ -819,7 +816,7 @@ describe('GitHub Issues PR keys', () => {
           repository: { pullRequest: { closingIssuesReferences: conn([closingRef(12)]) } },
         }),
       );
-    const batch = await issuesAdapter(fetcher).poll(context());
+    const batch = await adapter(fetcher, issuesConfig()).poll(context());
     expect(fetcher).toHaveBeenCalledTimes(2);
     expect(bodyQuery(fetcher, 1)).toBe(pageQuery('closingIssuesReferences'));
     expect(pageQuery('closingIssuesReferences')).toContain(
@@ -829,10 +826,9 @@ describe('GitHub Issues PR keys', () => {
   });
   it('drops an out-of-range branch number', async () => {
     const fetcher = single(issuesPr('claude-1234567890123456-x', conn([])));
-    const batch = await issuesAdapter(
-      fetcher,
-      issuesConfig(['demo/widgets'], '^claude-([0-9]+)'),
-    ).poll(context());
+    const batch = await adapter(fetcher, issuesConfig(['demo/widgets'], '^claude-([0-9]+)')).poll(
+      context(),
+    );
     expect(batch.entities).toEqual([{ ref, status: 'ok' }]);
     expect(keysOf(batch)).toEqual([[]]);
   });
