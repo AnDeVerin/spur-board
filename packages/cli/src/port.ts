@@ -7,7 +7,7 @@ const instanceHeader = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f
 interface PortProbe {
   bind(port: number): Promise<string | null>;
   fetcher: typeof fetch;
-  listeners(port: number): Promise<string>;
+  run(command: string, args: readonly string[]): Promise<{ exitCode: number; stdout: string }>;
 }
 
 /** Bind 127.0.0.1:port as the daemon would and close at once; returns the error code, or null when free. */
@@ -38,16 +38,24 @@ async function isBoardDaemon(port: number, fetcher: typeof fetch): Promise<boole
   }
 }
 
-function holderOf(ssOutput: string): string {
-  const match = /users:\(\("([^"]*)",pid=(\d+)/.exec(ssOutput);
+async function holderOf(port: number, probe: PortProbe): Promise<string> {
+  let listed = '';
+  try {
+    const result = await probe.run('ss', ['-ltnp', `sport = :${String(port)}`]);
+    if (result.exitCode === 0) listed = result.stdout;
+  } catch {
+    // Without ss the holder stays unnamed.
+  }
+  const match = /users:\(\("([^"]*)",pid=(\d+)/.exec(listed);
   if (match?.[1] === undefined || match[2] === undefined) {
     return 'a process not visible to this user';
   }
   return `${escapeTerminalControls(match[1])} (pid ${match[2]})`;
 }
 
-/** The fix when the daemon could not listen on http.port, or null when it is free or held by a board daemon. */
+/** The fix when the daemon could not listen on http.port, or null when it is 0, free or held by a board daemon. */
 export async function checkHttpPort(port: number, probe: PortProbe): Promise<string | null> {
+  if (port === 0) return null;
   const code = await probe.bind(port);
   if (code === null) return null;
   const label = `Port ${String(port)} (http.port)`;
@@ -55,6 +63,6 @@ export async function checkHttpPort(port: number, probe: PortProbe): Promise<str
     return `${label} cannot be bound on 127.0.0.1 (${escapeTerminalControls(code)}). Set http.port in config.yaml to a free unprivileged port.`;
   }
   if (await isBoardDaemon(port, probe.fetcher)) return null;
-  const holder = holderOf(await probe.listeners(port));
+  const holder = await holderOf(port, probe);
   return `${label} is held by ${holder}. Stop that process or set http.port in config.yaml to a free port, then start the service again.`;
 }

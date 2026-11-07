@@ -1,11 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { createServer, type OutgoingHttpHeaders } from 'node:http';
-import type { AddressInfo } from 'node:net';
 import { describe, expect, it, vi } from 'vitest';
 import { runCli, type CliIo } from '../src/cli.ts';
 import type { DoctorCheck, DoctorPorts } from '../src/doctor.ts';
 import { bindLoopback } from '../src/port.ts';
+import { holder } from './http-holder.ts';
 
 const yaml = `projects:
   - id: board
@@ -666,23 +665,6 @@ describe('board doctor', () => {
 describe('http.port check', () => {
   const ssLine = (port: number, users: boolean) =>
     `State Recv-Q Send-Q Local Address:Port Peer Address:Port Process\nLISTEN 0 511 127.0.0.1:${String(port)} 0.0.0.0:*${users ? ' users:(("spur-web",pid=4242,fd=21))' : ''}\n`;
-
-  async function holder(headers: OutgoingHttpHeaders) {
-    const server = createServer((_request, response) => {
-      response.writeHead(200, headers).end('{}');
-    });
-    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-    return {
-      port: (server.address() as AddressInfo).port,
-      close: () =>
-        new Promise<void>((resolve) => {
-          server.closeAllConnections();
-          server.close(() => {
-            resolve();
-          });
-        }),
-    };
-  }
 
   /** Real fetch only for the test port; the daemon.available request stays on the stub. */
   function probePorts(port: number, ss: string, overrides: Partial<DoctorPorts> = {}) {

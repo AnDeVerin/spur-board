@@ -1,12 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
-import { createServer, type OutgoingHttpHeaders } from 'node:http';
-import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { runCli, type CliIo } from '../src/cli.ts';
 import { bindLoopback } from '../src/port.ts';
+import { holder } from './http-holder.ts';
 import {
   installService,
   renderUserUnit,
@@ -110,23 +109,6 @@ digest:
 http: { port: ${String(port)} }
 `,
   );
-}
-
-async function holder(headers: OutgoingHttpHeaders) {
-  const server = createServer((_request, response) => {
-    response.writeHead(200, headers).end('{}');
-  });
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  return {
-    port: (server.address() as AddressInfo).port,
-    close: () =>
-      new Promise<void>((resolve) => {
-        server.closeAllConnections();
-        server.close(() => {
-          resolve();
-        });
-      }),
-  };
 }
 
 describe('service', () => {

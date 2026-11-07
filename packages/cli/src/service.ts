@@ -185,21 +185,12 @@ export async function installService(options: ServiceOptions = {}): Promise<{
   await preflight(paths);
   const runner = options.runner ?? runCommand;
   const port = readConfiguredPort(options.env ?? process.env, resolve(options.home ?? homedir()));
-  if (port !== 0) {
-    const fix = await checkHttpPort(port, {
-      bind: options.bind ?? bindLoopback,
-      fetcher: options.fetcher ?? fetch,
-      listeners: async (listened) => {
-        try {
-          const listed = await runner('ss', ['-ltnp', `sport = :${String(listened)}`]);
-          return listed.exitCode === 0 ? listed.stdout : '';
-        } catch {
-          return '';
-        }
-      },
-    });
-    if (fix !== null) throw new Error(fix);
-  }
+  const fix = await checkHttpPort(port, {
+    bind: options.bind ?? bindLoopback,
+    fetcher: options.fetcher ?? fetch,
+    run: runner,
+  });
+  if (fix !== null) throw new Error(fix);
   const unit = renderUserUnit(paths);
   const previousUnit = await existingUnit(paths.unitFile);
   const changed = previousUnit !== unit;
