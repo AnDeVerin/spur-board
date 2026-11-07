@@ -78,6 +78,7 @@ function fixture(
     githubChecksForbidden?: boolean;
     githubInsufficientScopes?: boolean;
     githubTeamScopeDenied?: boolean;
+    githubIssuesPr?: boolean;
     secretInFacts?: string;
     secretInSpurLink?: string;
     mixedSecretInSpurLink?: string;
@@ -169,7 +170,7 @@ function fixture(
               : {
                   repository: {
                     pullRequests: connection(
-                      isWidgets
+                      isWidgets || options.githubIssuesPr
                         ? [
                             {
                               number: 7,
@@ -358,7 +359,7 @@ describe('adapter smoke', () => {
   it('polls all four configured source kinds once through the runner and prints normalized facts', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(at);
-    const result = await run();
+    const result = await run(fixture({ githubIssuesPr: true }));
     expect(result.code).toBe(0);
     expect(result.err).toBe('');
     expect(result.records).toHaveLength(5);
@@ -393,7 +394,18 @@ describe('adapter smoke', () => {
         ({ url, method }) => method === 'GET' || (url.pathname === '/graphql' && method === 'POST'),
       ),
     ).toBe(true);
-    expect(result.calls.filter(({ url }) => url.pathname === '/graphql')).toHaveLength(3);
+    expect(
+      result.records.find((record) => record['source'] === 'github:issues:demo/issues'),
+    ).toMatchObject({ items: [{ kind: 'pr', facts: { ticketKeys: ['demo/issues#42'] } }] });
+    const queries = (repo: string) =>
+      result.graphQueries.filter((call) => call.repo === repo).map((call) => call.query);
+    expect(queries('widgets')).toHaveLength(2);
+    expect(queries('widgets').some((query) => query.includes('closingIssuesReferences'))).toBe(
+      false,
+    );
+    expect(queries('issues')).toHaveLength(2);
+    expect(queries('issues').at(-1)).toContain('closingIssuesReferences(first: 100)');
+    expect(result.calls.filter(({ url }) => url.pathname === '/graphql')).toHaveLength(4);
     expect(result.calls.filter(({ url }) => url.pathname.endsWith('/search/jql'))).toHaveLength(1);
     const search = result.calls.find(({ url }) => url.pathname.endsWith('/search/jql'));
     expect(search?.method).toBe('GET');

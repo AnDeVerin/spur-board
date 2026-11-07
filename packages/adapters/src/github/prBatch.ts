@@ -65,9 +65,28 @@ const prWire = z.object({
       asCodeOwner: z.boolean(),
     }),
   ),
+  // Selected only for a github-issues tracker repo; a denied issue arrives as a null node.
+  closingIssuesReferences: z
+    .object({
+      nodes: z.array(
+        z
+          .object({
+            number: z.int().positive(),
+            repository: z.object({ nameWithOwner: z.string() }).nullish(),
+          })
+          .nullable(),
+      ),
+    })
+    .nullish(),
 });
 type ContextWire = z.output<typeof contextWire>;
 type ReviewWire = z.output<typeof reviewWire>;
+type ClosingWire = z.output<typeof prWire>['closingIssuesReferences'];
+
+/** How a source turns a PR into task keys: Jira prefixes, or a github-issues tracker repo. */
+export type KeyRule =
+  | { type: 'prefixes'; prefixes: readonly string[] }
+  | { type: 'issues'; repo: string; branch: RegExp };
 
 function checkState(node: ContextWire): PrFacts['checks'][number]['state'] {
   if (node.__typename === 'StatusContext') {
@@ -154,7 +173,29 @@ export function ticketKeys(title: string, branch: string, prefixes: readonly str
   }
   return [...keys];
 }
-export function normalizePr(repo: string, value: unknown, prefixes: readonly string[]): PrFacts {
+const ISSUE_NUMBER = /^[1-9][0-9]{0,14}$/;
+// Same-repo closing references win; the branch number is the fallback when none remains.
+function issueKeys(
+  branch: string,
+  refs: ClosingWire,
+  rule: Extract<KeyRule, { type: 'issues' }>,
+): string[] {
+  const repo = rule.repo.toLowerCase();
+  const numbers = new Set<number>();
+  for (const node of refs?.nodes ?? []) {
+    if (
+      node?.repository?.nameWithOwner.toLowerCase() === repo &&
+      ISSUE_NUMBER.test(String(node.number))
+    )
+      numbers.add(node.number);
+  }
+  if (numbers.size === 0) {
+    const number = rule.branch.exec(branch)?.[1];
+    if (number !== undefined && ISSUE_NUMBER.test(number)) numbers.add(Number(number));
+  }
+  return [...numbers].sort((a, b) => a - b).map((number) => `${rule.repo}#${String(number)}`);
+}
+export function normalizePr(repo: string, value: unknown, rule: KeyRule): PrFacts {
   const wire = parseWire(prWire, value, 'Malformed GitHub PR response');
   const checks = latestChecks(wire.statusCheckRollup?.contexts.nodes ?? []);
   const state = wire.state === 'MERGED' ? 'merged' : wire.state === 'CLOSED' ? 'closed' : 'open';
@@ -191,7 +232,10 @@ export function normalizePr(repo: string, value: unknown, prefixes: readonly str
       reviewer: node.requestedReviewer.login ?? node.requestedReviewer.name,
       asCodeOwner: node.asCodeOwner,
     })),
-    ticketKeys: ticketKeys(title, headBranch, prefixes),
+    ticketKeys:
+      rule.type === 'prefixes'
+        ? ticketKeys(title, headBranch, rule.prefixes)
+        : issueKeys(headBranch, wire.closingIssuesReferences, rule),
     updatedAt: wire.updatedAt,
   };
   const parsed = prFactsSchema.safeParse(facts);

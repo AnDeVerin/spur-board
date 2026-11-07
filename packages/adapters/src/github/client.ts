@@ -36,8 +36,12 @@ function teamNameScopeDenied(error: GraphError, query: string): boolean {
   return /\bname\b/i.test(error.message) && /\bread:(?:org|discussion)\b/i.test(error.message);
 }
 
+const CLOSING_FIELDS =
+  'nodes { number repository { nameWithOwner } } pageInfo { hasNextPage endCursor }';
+// `closing` adds the issues a PR closes; only a github-issues tracker repo selects them.
 const prFields = (
   number: number,
+  closing = false,
 ): string => `id number url title updatedAt state isDraft mergeable mergeStateStatus
  author { login } headRefName headRefOid
  statusCheckRollup { contexts(first: 100) { nodes {
@@ -46,29 +50,39 @@ const prFields = (
  } pageInfo { hasNextPage endCursor } } }
  reviews(first: 100) { nodes { author { login } state commit { oid } submittedAt } pageInfo { hasNextPage endCursor } }
  reviewThreads(first: 100) { nodes { isResolved } pageInfo { hasNextPage endCursor } }
- reviewRequests(first: 100) { nodes { requestedReviewer { ... on User { login } ... on Team { name } } asCodeOwner } pageInfo { hasNextPage endCursor } }`;
+ reviewRequests(first: 100) { nodes { requestedReviewer { ... on User { login } ... on Team { name } } asCodeOwner } pageInfo { hasNextPage endCursor } }${closing ? `\n closingIssuesReferences(first: 100) { ${CLOSING_FIELDS} }` : ''}`;
 const DISCOVERY_FIELDS = `nodes { number updatedAt author { login } state } pageInfo { hasNextPage endCursor }`;
 // Alias numbers are literals, so a request can contain an arbitrary set of requested PRs.
-function aliases(numbers: readonly number[]): string {
+function aliases(numbers: readonly number[], closing = false): string {
   return numbers
     .map(
       (number, i) =>
-        `pr${String(i)}: repository(owner: $owner, name: $repo) { pullRequest(number: ${String(number)}) { ${prFields(number)} } }`,
+        `pr${String(i)}: repository(owner: $owner, name: $repo) { pullRequest(number: ${String(number)}) { ${prFields(number, closing)} } }`,
     )
     .join('\n');
 }
-export function initialQuery(numbers: readonly number[], bootstrap = false): string {
+export function initialQuery(
+  numbers: readonly number[],
+  bootstrap = false,
+  closing = false,
+): string {
   const states = bootstrap ? 'OPEN' : 'OPEN, MERGED';
   const baseline = bootstrap
     ? ' mergedBaseline: pullRequests(first: 1, states: [MERGED], orderBy: {field: UPDATED_AT, direction: DESC}) { nodes { updatedAt } }'
     : '';
-  return `query PrBatch($owner: String!, $repo: String!) { rateLimit { remaining resetAt } repository(owner: $owner, name: $repo) { pullRequests(first: 100, states: [${states}], orderBy: {field: UPDATED_AT, direction: DESC}) { ${DISCOVERY_FIELDS} }${baseline} } ${aliases(numbers)} }`;
+  return `query PrBatch($owner: String!, $repo: String!) { rateLimit { remaining resetAt } repository(owner: $owner, name: $repo) { pullRequests(first: 100, states: [${states}], orderBy: {field: UPDATED_AT, direction: DESC}) { ${DISCOVERY_FIELDS} }${baseline} } ${aliases(numbers, closing)} }`;
 }
-export function detailQuery(numbers: readonly number[]): string {
-  return `query PrDetails($owner: String!, $repo: String!) { rateLimit { remaining resetAt } ${aliases(numbers)} }`;
+export function detailQuery(numbers: readonly number[], closing = false): string {
+  return `query PrDetails($owner: String!, $repo: String!) { rateLimit { remaining resetAt } ${aliases(numbers, closing)} }`;
 }
 export function pageQuery(
-  connection: 'pullRequests' | 'reviews' | 'reviewThreads' | 'reviewRequests' | 'contexts',
+  connection:
+    | 'pullRequests'
+    | 'reviews'
+    | 'reviewThreads'
+    | 'reviewRequests'
+    | 'contexts'
+    | 'closingIssuesReferences',
   bootstrap = false,
 ): string {
   if (connection === 'pullRequests') {
@@ -76,9 +90,11 @@ export function pageQuery(
     return `query DiscoveryPage($owner: String!, $repo: String!, $after: String!) { rateLimit { remaining resetAt } repository(owner: $owner, name: $repo) { pullRequests(first: 100, after: $after, states: [${states}], orderBy: {field: UPDATED_AT, direction: DESC}) { ${DISCOVERY_FIELDS} } } }`;
   }
   const field =
-    connection === 'contexts'
-      ? `statusCheckRollup { contexts(first: 100, after: $after) { nodes { ... on CheckRun { __typename name status conclusion startedAt completedAt checkSuite { createdAt } isRequired(pullRequestNumber: $number) } ... on StatusContext { __typename context state createdAt isRequired(pullRequestNumber: $number) } } pageInfo { hasNextPage endCursor } } }`
-      : `${connection}(first: 100, after: $after) { nodes { ${connection === 'reviews' ? 'author { login } state commit { oid } submittedAt' : connection === 'reviewThreads' ? 'isResolved' : 'requestedReviewer { ... on User { login } ... on Team { name } } asCodeOwner'} } pageInfo { hasNextPage endCursor } }`;
+    connection === 'closingIssuesReferences'
+      ? `closingIssuesReferences(first: 100, after: $after) { ${CLOSING_FIELDS} }`
+      : connection === 'contexts'
+        ? `statusCheckRollup { contexts(first: 100, after: $after) { nodes { ... on CheckRun { __typename name status conclusion startedAt completedAt checkSuite { createdAt } isRequired(pullRequestNumber: $number) } ... on StatusContext { __typename context state createdAt isRequired(pullRequestNumber: $number) } } pageInfo { hasNextPage endCursor } } }`
+        : `${connection}(first: 100, after: $after) { nodes { ${connection === 'reviews' ? 'author { login } state commit { oid } submittedAt' : connection === 'reviewThreads' ? 'isResolved' : 'requestedReviewer { ... on User { login } ... on Team { name } } asCodeOwner'} } pageInfo { hasNextPage endCursor } }`;
   return `query PrPage($owner: String!, $repo: String!, $number: Int!, $after: String!) { rateLimit { remaining resetAt } repository(owner: $owner, name: $repo) { pullRequest(number: $number) { ${field} } } }`;
 }
 
