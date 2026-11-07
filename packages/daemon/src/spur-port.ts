@@ -34,18 +34,13 @@ export async function spurErrorText(response: Response): Promise<string | null> 
 }
 
 /** Send a doorbell through the Spur HTTP API; runs no executable, so PATH does not matter. */
-export function createSpurPort(options: {
-  baseUrl: string;
-  fetcher?: typeof fetch;
-  timeoutMs?: number;
-}): SpurPort {
-  const fetcher = options.fetcher ?? fetch;
+export function createSpurPort(options: { baseUrl: string; timeoutMs?: number }): SpurPort {
   return {
     async send(session, text) {
       const { url, init } = spurSendRequest(options.baseUrl, session, text);
       let response: Response;
       try {
-        response = await fetcher(url, {
+        response = await fetch(url, {
           ...init,
           signal: AbortSignal.timeout(options.timeoutMs ?? SEND_TIMEOUT_MS),
         });
