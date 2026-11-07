@@ -126,12 +126,16 @@ old Node or package path, run `board service install` again.
 
 - **3 — not applied:** a dependency prevented the action. Fix the dependency, then retry the
   same action with its existing idempotency key.
-- **4 — configuration:** correct the named config field, private secret key, or environment
-  variable and retry after validation. Outside a Spur session, `BOARD_TOKEN` must contain an
-  operator token or the CLI must find `.spur-board/token` while walking from the current folder
-  up to home; an empty override also fails. `BOARD_DAEMON_URL` must be a valid HTTP(S) address
-  when set; an empty value fails. Use `board doctor --offline` to check `config.yaml` while the
-  service is down.
+- **4 — configuration:** `config` means a config field, private secret key, or environment
+  variable is wrong: correct the named one and retry after validation. An empty `BOARD_TOKEN`
+  override fails with `config`. `BOARD_DAEMON_URL` must be a valid HTTP(S) address when set; an
+  empty value fails. Use `board doctor --offline` to check `config.yaml` while the service is
+  down. `identity_missing` means there is no Spur session, `BOARD_TOKEN` is unset, and the CLI
+  found no `.spur-board/token` walking up from the current folder. Run the command in a Spur
+  session of a project listed in `config.yaml`, or run
+  `board token create --name <name> --into <folder>` and approve the request in Slack. An
+  operator-only command such as `board token list` needs a Spur project marked `operator` or an
+  approved token.
 - **5 — outcome unknown:** the action may already have happened. Read the task or item first;
   if a mutation still needs to be retried, reuse its original idempotency key. A read-only
   request can be repeated after the dependency recovers.
