@@ -10,7 +10,11 @@ import { z } from 'zod';
 import { classifyHttpFailure } from '../runner/http.ts';
 import { parseWire } from '../runner/wire.ts';
 
-type Tracker = Extract<Config['projects'][number]['tracker'], { type: 'github-issues' }>;
+// The PR adapter alone reads `branchPattern`; the issues adapter takes trackers without it.
+type Tracker = Omit<
+  Extract<Config['projects'][number]['tracker'], { type: 'github-issues' }>,
+  'branchPattern'
+>;
 
 export interface GithubIssuesOptions {
   id: string;

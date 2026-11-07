@@ -37,6 +37,11 @@ describe('generated public references', () => {
       expect(configuration).toMatch(new RegExp('^\\| `' + name + '` +\\|', 'm'));
     expect(configuration).toContain('`slack.command`');
     expect(configuration).toContain('`"/board"`');
+    const branchRow = configuration
+      .split('\n')
+      .find((line) => line.startsWith('| `projects[].tracker.branchPattern (github-issues)` |'));
+    expect(branchRow).toContain('`"^[A-Za-z][A-Za-z0-9]*-([1-9][0-9]{0,14})(?:-\\|$)"`');
+    expect(branchRow).toContain('closing issue reference');
     expect(
       [...configuration.matchAll(/^\| `([A-Z][A-Z_]+)` +\|/gm)].map((match) => match[1]),
     ).toEqual(SECRET_ENV_KEYS.map(({ name }) => name));

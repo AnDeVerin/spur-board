@@ -136,6 +136,10 @@ describe('fixtures', () => {
     expect(adapterKeys(config)).toEqual(adapterDefaults);
     const project = config.projects[0];
     expect(project?.tracker).not.toHaveProperty('projectKeys');
+    expect(project?.tracker).toHaveProperty(
+      'branchPattern',
+      '^[A-Za-z][A-Za-z0-9]*-([1-9][0-9]{0,14})(?:-|$)',
+    );
     expect(project?.spurProjects).toEqual([]);
     expect(project?.columns.find((c) => c.id === 'qa')?.orchestrator).toBe('operator');
     expect(project?.columns.filter((c) => !c.enabled).map((c) => c.id)).toEqual(['ready-for-dev']);
@@ -299,6 +303,12 @@ describe('invalid configs', () => {
       'Set exactly one of label or milestone',
       'projects[0].tracker.label',
     ],
+    ...['(', '^claude-', '^(a)-(\\d+)'].map((branchPattern): [string, unknown, string, string] => [
+      `github-issues branch pattern ${branchPattern}`,
+      validConfig({ tracker: { ...githubTracker, label: 'board', branchPattern } }),
+      'Expected a regular expression with exactly one capture group',
+      'projects[0].tracker.branchPattern',
+    ]),
     [
       'duplicate spur project',
       validConfig({
@@ -390,6 +400,16 @@ describe('invalid configs', () => {
     ['Jira project keys', { tracker: { ...jiraTracker, projectKeys: ['PROJ'] } }, {}],
     ['github-issues with only a label', { tracker: { ...githubTracker, label: 'board' } }, {}],
     ['github-issues with only a milestone', { tracker: { ...githubTracker, milestone: 'v1' } }, {}],
+    [
+      'a custom github-issues branch pattern',
+      { tracker: { ...githubTracker, label: 'board', branchPattern: '^task/([1-9][0-9]*)$' } },
+      {},
+    ],
+    [
+      'a branch pattern with a named group',
+      { tracker: { ...githubTracker, label: 'board', branchPattern: '^(?<n>[0-9]+)-' } },
+      {},
+    ],
     ['a board without the optional columns', { columns: columns('todo', 'dev', 'done') }, {}],
     [
       'disabled optional columns',

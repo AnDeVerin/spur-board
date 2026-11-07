@@ -59,12 +59,38 @@ const jiraTracker = z.strictObject({
     .default([]),
 });
 
+/** Default `tracker.branchPattern`: the number in `<agent>-<number>-<slug>` branch names. */
+const DEFAULT_BRANCH_PATTERN = '^[A-Za-z][A-Za-z0-9]*-([1-9][0-9]{0,14})(?:-|$)';
+
+/** Capture groups of a pattern that compiles without flags, or `undefined` when it does not. */
+function captureGroups(pattern: string): number | undefined {
+  try {
+    return (new RegExp(`${pattern}|`).exec('')?.length ?? 1) - 1;
+  } catch {
+    return undefined;
+  }
+}
+
+const branchPattern = nonEmpty
+  .superRefine((pattern, ctx) => {
+    if (captureGroups(pattern) !== 1)
+      ctx.addIssue({
+        code: 'custom',
+        message: 'Expected a regular expression with exactly one capture group',
+      });
+  })
+  .default(DEFAULT_BRANCH_PATTERN)
+  .describe(
+    'Regular expression whose one capture group reads the issue number from a PR head branch, such as <agent>-<number>-<slug>. Used only when the PR has no closing issue reference in the tracker repository; PRs to a non-default base branch rely on it.',
+  );
+
 const githubIssuesTracker = z
   .strictObject({
     type: z.literal('github-issues'),
     repo: repoSlugSchema,
     label: nonEmpty.optional(),
     milestone: nonEmpty.optional(),
+    branchPattern,
   })
   .superRefine((tracker, ctx) => {
     if ((tracker.label === undefined) === (tracker.milestone === undefined)) {
