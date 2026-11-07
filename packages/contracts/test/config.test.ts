@@ -94,7 +94,7 @@ function adapterKeys(config: Config): Pick<Config, 'adapters' | 'sources' | 'git
 
 describe('fixtures', () => {
   it('pins the default HTTP port', () => {
-    expect(DEFAULT_HTTP_PORT).toBe(4311);
+    expect(DEFAULT_HTTP_PORT).toBe(4777);
   });
 
   it('parses the Jira project and fills the defaults', () => {
@@ -131,7 +131,7 @@ describe('fixtures', () => {
     expect(config.thresholds.blockOpenMs).toBe(86_400_000);
     expect(config.archive.doneWeekday).toBe('saturday');
     expect(config.commands.retentionDays).toBe(7);
-    expect(config.http.port).toBe(4311);
+    expect(config.http.port).toBe(DEFAULT_HTTP_PORT);
     expect(config.slack.channels).toEqual({});
     expect(adapterKeys(config)).toEqual(adapterDefaults);
     const project = config.projects[0];
