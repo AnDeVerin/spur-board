@@ -21,11 +21,10 @@ A PR that changes a practice named here updates this skill.
   `describe('no wire formats')` in `packages/contracts/test/adapters.test.ts` checks A1.
 - Imports: `adapterBoundaryPatterns` and `siblingPattern` in `eslint.config.js`.
 - Honour `PollContext.signal` (A7): rethrow the abort and return no batch.
-- Network calls go only through the injected fetch, never the global `fetch`. Take
-  `options.fetch` (`StartAdaptersOptions.fetch` in `packages/adapters/src/index.ts`) and pass it
-  to the client, as `githubSources` passes `GithubOptions.fetch` to `GithubClient` in
-  `packages/adapters/src/github/index.ts`.
-- A client's global default applies only when no fetch is passed; the daemon always passes one,
+- Network calls go only through the injected fetch, never the global `fetch`. Pass
+  `options.fetch` (`StartAdaptersOptions.fetch` in `packages/adapters/src/index.ts`) to the
+  client, as `githubSources` does in `packages/adapters/src/github/index.ts`.
+- A client's global default applies only when no fetch is passed; the daemon passes one,
   wrapped for logging (`running-the-daemon`).
 - A vendor SDK lives only inside its adapter folder, after a design decision and a lint rule that
   confines it.
@@ -49,6 +48,8 @@ A PR that changes a practice named here updates this skill.
 - A requested entity that is missing or denied gets the `not_found` or `no_access` status; any
   other partial error clears `complete` (`pollRepository` in
   `packages/adapters/src/github/index.ts`).
+- Except a denied `closingIssuesReferences` (`deniedReference`): drop it, keep `complete`; the
+  token reads the tracker too, so an issue it cannot see is no task.
 
 ## Failures, backoff and budget
 
@@ -72,9 +73,8 @@ A PR that changes a practice named here updates this skill.
 
 - Inject `vi.fn<typeof fetch>()` returning inline wire JSON, as `wire()` does in
   `packages/adapters/test/github/prBatch.test.ts` (`describe('GitHub PR batch')`).
-- Runner fakes: `createFakeCore` and `createFakeAdapter` from `@spur-board/adapters/testing`
-  (`packages/adapters/src/testing.ts`).
-- Module mocks are banned repo-wide (`viMockBan` in `eslint.config.js`).
+- Runner fakes: `createFakeCore` and `createFakeAdapter` from `@spur-board/adapters/testing`.
+- Module mocks are banned (`viMockBan` in `eslint.config.js`).
 - Per adapter, cover a happy batch, malformed wire, each failure kind, abort and budget.
 
 ## Gaps
@@ -82,8 +82,7 @@ A PR that changes a practice named here updates this skill.
 - No shared contract suite runs every adapter against the port; a PR that adds one updates this
   skill.
 - The fakes live in `packages/adapters/src/testing.ts`, not next to the port in contracts.
-- No recorded responses: tests feed inline wire into the injected fetch. A PR that adds
-  recordings updates this skill with their refresh command.
+- No recorded responses; a PR adding them updates this skill with their refresh command.
 
 ## Checks
 
