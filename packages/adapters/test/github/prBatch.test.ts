@@ -68,7 +68,9 @@ function wire(number = 7) {
       { author: { login: 'reviewer' }, state: 'APPROVED', commit: { oid: sha }, submittedAt: time },
     ]),
     reviewThreads: conn([{ isResolved: false }]),
-    reviewRequests: conn([{ requestedReviewer: { login: 'reviewer' }, asCodeOwner: true }]),
+    reviewRequests: conn([
+      { requestedReviewer: { __typename: 'User', login: 'reviewer' }, asCodeOwner: true },
+    ]),
   };
 }
 function config(repos = ['demo/widgets'], link?: Record<string, unknown>) {
@@ -160,14 +162,14 @@ describe('GitHub PR batch', () => {
   it('pins the initial query and asks for rateLimit, discovery and aliases together', () => {
     const query = initialQuery([7]);
     expect(createHash('sha256').update(query).digest('hex')).toBe(
-      '25df11570dc57ad0f8a29ec4ec2d33eb3c16ef806cd6293927af54fae8b4a1b7',
+      '0d0ec7219daba9a156e3fc2dabcb02d11ebb729e7f149a0bf5548fb7390c2662',
     );
     expect(query).toContain('rateLimit { remaining resetAt }');
     expect(query).toContain('pullRequests(first: 100');
     expect(query).toContain('pr0: repository');
     const bootstrapQuery = initialQuery([7], true);
     expect(createHash('sha256').update(bootstrapQuery).digest('hex')).toBe(
-      '646584d0b3ceaa43a09b6369cbca172ec7da659619a7e5e36c655aa3402edb18',
+      '506fbd6d599212b43b1bbc4bbe187ef0765b843e3f24a9e83422038ff6a600cf',
     );
     expect(bootstrapQuery).toContain('states: [OPEN]');
     expect(pageQuery('pullRequests', true)).toContain('states: [OPEN]');
@@ -175,9 +177,47 @@ describe('GitHub PR batch', () => {
     expect(bootstrapQuery).not.toContain('closingIssuesReferences');
     const issuesQuery = initialQuery([7], true, true);
     expect(createHash('sha256').update(issuesQuery).digest('hex')).toBe(
-      '404835daed309e393a0ae4d50766c469229aff6eec62ce10d4925e1b97fea19b',
+      '3cbd8116118cac6497f8c818c6803157b98d9f31807947a6e00b1b62115ae8b4',
     );
     expect(issuesQuery).toContain('closingIssuesReferences(first: 100)');
+    for (const selection of [query, pageQuery('reviewRequests')]) {
+      expect(selection).toContain('requestedReviewer { __typename');
+      for (const fragment of [
+        '... on Bot { login }',
+        '... on Mannequin { login }',
+        '... on User { login }',
+        '... on Team { slug }',
+        '... on EnterpriseTeam { slug }',
+      ])
+        expect(selection).toContain(fragment);
+    }
+  });
+  it('maps each requested reviewer type to its kind and id', () => {
+    const pr = {
+      ...wire(),
+      reviewRequests: conn([
+        { requestedReviewer: { __typename: 'User', login: 'octocat' }, asCodeOwner: false },
+        { requestedReviewer: { __typename: 'Mannequin', login: 'imported' }, asCodeOwner: false },
+        {
+          requestedReviewer: { __typename: 'Bot', login: 'copilot-pull-request-reviewer' },
+          asCodeOwner: false,
+        },
+        { requestedReviewer: { __typename: 'Team', slug: 'core' }, asCodeOwner: true },
+        {
+          requestedReviewer: { __typename: 'EnterpriseTeam', slug: 'platform' },
+          asCodeOwner: false,
+        },
+        // A requested team the token cannot see, as GitHub returns it with no error.
+        { requestedReviewer: null, asCodeOwner: true },
+      ]),
+    };
+    expect(normalizePr('demo/widgets', pr, demoKeys).reviewRequests).toEqual([
+      { kind: 'user', id: 'octocat', asCodeOwner: false },
+      { kind: 'user', id: 'imported', asCodeOwner: false },
+      { kind: 'bot', id: 'copilot-pull-request-reviewer', asCodeOwner: false },
+      { kind: 'team', id: 'core', asCodeOwner: true },
+      { kind: 'team', id: 'platform', asCodeOwner: false },
+    ]);
   });
   it('normalizes latest required checks, reviews and configured keys', () => {
     const facts = normalizePr('demo/widgets', wire(), demoKeys);
@@ -479,6 +519,178 @@ describe('GitHub PR batch', () => {
     ]);
     expect(batch.items).toHaveLength(1);
   });
+  it('delivers a bot review request beside the other PRs', async () => {
+    const other = { ...ref, number: 8 };
+    const bot = {
+      ...wire(),
+      reviewRequests: conn([
+        {
+          requestedReviewer: { __typename: 'Bot', login: 'copilot-pull-request-reviewer' },
+          asCodeOwner: false,
+        },
+      ]),
+    };
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      response({
+        repository: { pullRequests: conn([]) },
+        pr0: { pullRequest: bot },
+        pr1: { pullRequest: wire(8) },
+      }),
+    );
+    const batch = await adapter(fetcher).poll(context([ref, other]));
+    expect(batch.complete).toBe(true);
+    expect(batch.entities).toEqual([
+      { ref, status: 'ok' },
+      { ref: other, status: 'ok' },
+    ]);
+    expect(batch.items).toHaveLength(2);
+    expect(batch.items[0]?.kind === 'pr' && batch.items[0].facts.reviewRequests).toEqual([
+      { kind: 'bot', id: 'copilot-pull-request-reviewer', asCodeOwner: false },
+    ]);
+  });
+  it.each<[string, (pr: Record<string, unknown>) => Record<string, unknown>]>([
+    [
+      'a reviewer the query reads as empty',
+      (pr) => ({ ...pr, reviewRequests: conn([{ requestedReviewer: {}, asCodeOwner: false }]) }),
+    ],
+    [
+      'an unknown reviewer type',
+      (pr) => ({
+        ...pr,
+        reviewRequests: conn([
+          { requestedReviewer: { __typename: 'FutureReviewer' }, asCodeOwner: false },
+        ]),
+      }),
+    ],
+    [
+      'a missing reviews connection',
+      (pr) => {
+        const copy = { ...pr };
+        delete copy['reviews'];
+        return copy;
+      },
+    ],
+  ])('applies the other PRs when PR 7 fails to parse: %s', async (_name, broken) => {
+    const other = { ...ref, number: 8 };
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      response({
+        repository: { pullRequests: conn([]) },
+        pr0: { pullRequest: broken(wire()) as Json },
+        pr1: { pullRequest: wire(8) },
+      }),
+    );
+    const batch = await adapter(fetcher).poll(context([ref, other]));
+    expect(batch.complete).toBe(false);
+    expect(batch.entities).toEqual([
+      { ref, status: 'no_access' },
+      { ref: other, status: 'ok' },
+    ]);
+    expect(batch.items.map((item) => item.kind === 'pr' && item.facts.number)).toEqual([8]);
+  });
+  it.each<[string, Json]>([
+    ['an omitted connection', {}],
+    ['a missing pageInfo', { reviewRequests: { nodes: [] } }],
+    ['a repeated cursor', { reviewRequests: conn([], 'rr-next') }],
+    [
+      'more pages without a cursor',
+      { reviewRequests: { nodes: [], pageInfo: { hasNextPage: true, endCursor: null } } },
+    ],
+  ])('omits a PR whose follow-up review-request page is malformed: %s', async (_name, page) => {
+    const other = { ...ref, number: 8 };
+    const first = wire();
+    first.reviewRequests.pageInfo = { hasNextPage: true, endCursor: 'rr-next' };
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        response({
+          repository: { pullRequests: conn([]) },
+          pr0: { pullRequest: first },
+          pr1: { pullRequest: wire(8) },
+        }),
+      )
+      .mockResolvedValueOnce(response({ repository: { pullRequest: page } }));
+    const batch = await adapter(fetcher).poll(context([ref, other]));
+    expect(batch.complete).toBe(false);
+    expect(batch.entities).toEqual([
+      { ref, status: 'no_access' },
+      { ref: other, status: 'ok' },
+    ]);
+    expect(batch.items.map((item) => item.kind === 'pr' && item.facts.number)).toEqual([8]);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+  it('omits a PR whose first review-request page has more pages but no cursor', async () => {
+    const other = { ...ref, number: 8 };
+    const first = wire();
+    first.reviewRequests.pageInfo = { hasNextPage: true, endCursor: null };
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValueOnce(
+      response({
+        repository: { pullRequests: conn([]) },
+        pr0: { pullRequest: first },
+        pr1: { pullRequest: wire(8) },
+      }),
+    );
+    const batch = await adapter(fetcher).poll(context([ref, other]));
+    expect(batch.complete).toBe(false);
+    expect(batch.entities).toEqual([
+      { ref, status: 'no_access' },
+      { ref: other, status: 'ok' },
+    ]);
+    expect(batch.items.map((item) => item.kind === 'pr' && item.facts.number)).toEqual([8]);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+  it('holds the cursor when a discovered PR fails to parse', async () => {
+    const cursor = '2026-01-01T00:00:00.000Z';
+    const discovered = (number: number) => ({
+      number,
+      updatedAt: time,
+      author: { login: 'operator' },
+      state: 'OPEN',
+    });
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        response({ repository: { pullRequests: conn([discovered(9), discovered(10)]) } }),
+      )
+      .mockResolvedValueOnce(
+        response({
+          pr0: {
+            pullRequest: {
+              ...wire(9),
+              reviewRequests: conn([{ requestedReviewer: {}, asCodeOwner: false }]),
+            },
+          },
+          pr1: { pullRequest: wire(10) },
+        }),
+      );
+    const ctx = context([], cursor);
+    const batch = await adapter(fetcher).poll(ctx);
+    expect(batch.cursor).toBe(ctx.cursor);
+    expect(batch.items.map((item) => item.kind === 'pr' && item.facts.number)).toEqual([10]);
+    expect(batch.complete).toBe(false);
+    expect(batch.entities).toEqual([]);
+  });
+  it('keeps a not_found answer beside a PR that fails to parse', async () => {
+    const other = { ...ref, number: 8 };
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      response({
+        repository: { pullRequests: conn([]) },
+        pr0: null,
+        pr1: {
+          pullRequest: {
+            ...wire(8),
+            reviewRequests: conn([{ requestedReviewer: {}, asCodeOwner: false }]),
+          },
+        },
+      }),
+    );
+    const batch = await adapter(fetcher).poll(context([ref, other]));
+    expect(batch.complete).toBe(false);
+    expect(batch.entities).toEqual([
+      { ref, status: 'not_found' },
+      { ref: other, status: 'no_access' },
+    ]);
+    expect(batch.items).toEqual([]);
+  });
   it('does not return a batch after the poll signal aborts', async () => {
     const controller = new AbortController();
     controller.abort();
@@ -533,7 +745,10 @@ describe('GitHub PR batch', () => {
       message: 'GitHub token lacks a required GraphQL read scope',
     });
   });
-  it('names read:org for a pathless team-name scope denial on a detail query', async () => {
+  it.each([
+    "Field 'name' requires read:org or read:discussion scope",
+    "Field 'slug' requires read:org or read:discussion scope",
+  ])('names read:org for a pathless team scope denial on a detail query: %s', async (message) => {
     const fetcher = vi
       .fn<typeof fetch>()
       .mockResolvedValueOnce(
@@ -548,12 +763,7 @@ describe('GitHub PR batch', () => {
       .mockResolvedValueOnce(
         Response.json({
           data: null,
-          errors: [
-            {
-              type: 'INSUFFICIENT_SCOPES',
-              message: "Field 'name' requires read:org or read:discussion scope",
-            },
-          ],
+          errors: [{ type: 'INSUFFICIENT_SCOPES', message }],
         }),
       );
     await expect(adapter(fetcher).poll(context([]))).rejects.toMatchObject({
@@ -562,7 +772,7 @@ describe('GitHub PR batch', () => {
     });
     expect(fetcher).toHaveBeenCalledTimes(2);
   });
-  it('names read:org before normalizing a team reviewer with its name withheld', async () => {
+  it('names read:org before normalizing a team reviewer with its slug withheld', async () => {
     const partial = {
       ...wire(),
       reviewRequests: conn([{ requestedReviewer: {}, asCodeOwner: false }]),
@@ -571,7 +781,7 @@ describe('GitHub PR batch', () => {
       response({ repository: { pullRequests: conn([]) }, pr0: { pullRequest: partial } }, [
         {
           type: 'INSUFFICIENT_SCOPES',
-          path: ['pr0', 'pullRequest', 'reviewRequests', 'nodes', 0, 'requestedReviewer', 'name'],
+          path: ['pr0', 'pullRequest', 'reviewRequests', 'nodes', 0, 'requestedReviewer', 'slug'],
           message: 'Synthetic review data denied',
         },
       ]),

@@ -140,13 +140,13 @@ function doctorFetch(fail?: string, prs: readonly unknown[] = []): typeof fetch 
       const sent = JSON.parse(init.body) as { query: string; variables: unknown };
       expect(sent.query).toContain('pullRequests(first: 10');
       expect(sent.query).toContain('statusCheckRollup');
-      expect(sent.query).toContain('... on Team { name }');
+      expect(sent.query).toContain('... on Team { slug }');
       expect(sent.variables).toEqual({ owner: 'example', repo: 'board' });
       if (fail === 'github.stalled-body')
         return Promise.resolve(new Response(new ReadableStream({ start() {} })));
       const requestedTeam =
         fail === 'github.team-readable'
-          ? [{ requestedReviewer: { __typename: 'Team', name: 'reviewers' } }]
+          ? [{ requestedReviewer: { __typename: 'Team', slug: 'reviewers' } }]
           : [];
       const prs =
         fail === 'github.checked-older'
@@ -216,7 +216,7 @@ function doctorFetch(fail?: string, prs: readonly unknown[] = []): typeof fetch 
                         'nodes',
                         0,
                         'requestedReviewer',
-                        'name',
+                        'slug',
                       ],
                     },
                   ]
