@@ -185,12 +185,12 @@ describe('board mcp', () => {
     });
   });
 
-  it('reports missing configuration only on a call', async () => {
+  it('reports missing identity only on a call', async () => {
     await withClient({}, async (client) => {
       expect((await client.listTools()).tools.length).toBe(OPERATIONS.length);
       const result = await client.callTool({ name: 'status_get', arguments: {} });
       expect(result.isError).toBe(true);
-      expect(result.structuredContent).toMatchObject({ code: 'config' });
+      expect(result.structuredContent).toMatchObject({ code: 'identity_missing' });
     });
   });
 

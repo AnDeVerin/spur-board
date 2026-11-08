@@ -113,7 +113,9 @@ describe('operator token lookup', () => {
     expect(findTokenFile(nested, paths.home)).toBe('outside-token');
     expect(loadClientConfig(env, { cwd: nested, home: paths.home }).token).toBe('outside-token');
     expect(findTokenFile(join(paths.home, 'other'), paths.home)).toBeUndefined();
-    expect(() => loadClientConfig(env, { cwd: paths.cwd, home: paths.home })).toThrow();
+    expect(() => loadClientConfig(env, { cwd: paths.cwd, home: paths.home })).toThrow(
+      expect.objectContaining({ code: 'identity_missing', context: undefined }),
+    );
   });
 
   it('stops external lookup before a shared ancestor', () => {
@@ -173,6 +175,8 @@ describe('operator token lookup', () => {
     expect(
       loadClientConfig({ ...env, BOARD_TOKEN: 'explicit', SPUR_SESSION: 's1' }, paths),
     ).toMatchObject({ session: 's1', token: undefined });
-    expect(() => loadClientConfig({ ...env, BOARD_TOKEN: '' }, paths)).toThrow();
+    expect(() => loadClientConfig({ ...env, BOARD_TOKEN: '' }, paths)).toThrow(
+      expect.objectContaining({ code: 'config', context: { environmentVariable: 'BOARD_TOKEN' } }),
+    );
   });
 });
