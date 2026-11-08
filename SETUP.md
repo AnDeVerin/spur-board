@@ -97,6 +97,10 @@ naming; the repository does, through its CI title check and the skills its agent
 rules and the actual PR names differ, PRs stay unlinked. `board doctor` compares the link rules
 with your recent PRs in the tracker repository and names the PRs they miss.
 
+`tracker.label` and `tracker.milestone` are optional, and at most one may be set. With neither,
+every open issue of `tracker.repo` becomes a task, including after a filter is removed from a
+running config.
+
 A Jira project links a PR in any of its repos by a `tracker.projectKeys` key (such as PROJ-12) in
 its title or head branch, and sets `projects[].link` only when its repos name keys another way.
 

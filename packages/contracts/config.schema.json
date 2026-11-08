@@ -41,8 +41,16 @@
                 "properties": {
                   "type": { "type": "string", "const": "github-issues" },
                   "repo": { "type": "string", "pattern": "^[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+$" },
-                  "label": { "type": "string", "minLength": 1 },
-                  "milestone": { "type": "string", "minLength": 1 }
+                  "label": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Only open issues with this label become tasks. Set at most one of label and milestone; with neither, every open issue of tracker.repo becomes a task."
+                  },
+                  "milestone": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Only open issues in the milestone with this title become tasks. Set at most one of label and milestone; with neither, every open issue of tracker.repo becomes a task."
+                  }
                 },
                 "required": ["type", "repo"],
                 "additionalProperties": false

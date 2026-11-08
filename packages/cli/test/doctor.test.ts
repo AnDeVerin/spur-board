@@ -403,38 +403,45 @@ describe('board doctor', () => {
     expect(value.text).not.toContain('jira-test-value');
   });
 
-  it('uses only config validation offline and does not call any other port', async () => {
-    const fake = ports({
-      readText(path) {
-        if (path.endsWith('config.yaml')) return yaml;
-        throw new Error('offline touched another file');
-      },
-      exists: () => {
-        throw new Error('offline filesystem check');
-      },
-      realPath: () => {
-        throw new Error('offline link check');
-      },
-      run: () => {
-        throw new Error('offline process check');
-      },
-      sessions: () => {
-        throw new Error('offline session check');
-      },
-      fetcher: () => {
-        throw new Error('offline network check');
-      },
-      productVersion: () => {
-        throw new Error('offline version check');
-      },
-      bind: () => {
-        throw new Error('offline port check');
-      },
-    });
-    const value = await run(['doctor', '--offline', '--json'], fake);
-    expect(value.exitCode).toBe(0);
-    expect(value.checks).toEqual([{ id: 'config', status: 'pass', blocking: false, fix: null }]);
-  });
+  it.each([
+    ['a label filter', yaml],
+    ['no filter', yaml.replace('\n      label: board', '')],
+  ])(
+    'uses only config validation offline and does not call any other port (%s)',
+    async (filter, config) => {
+      expect(config.includes('label:')).toBe(filter === 'a label filter');
+      const fake = ports({
+        readText(path) {
+          if (path.endsWith('config.yaml')) return config;
+          throw new Error('offline touched another file');
+        },
+        exists: () => {
+          throw new Error('offline filesystem check');
+        },
+        realPath: () => {
+          throw new Error('offline link check');
+        },
+        run: () => {
+          throw new Error('offline process check');
+        },
+        sessions: () => {
+          throw new Error('offline session check');
+        },
+        fetcher: () => {
+          throw new Error('offline network check');
+        },
+        productVersion: () => {
+          throw new Error('offline version check');
+        },
+        bind: () => {
+          throw new Error('offline port check');
+        },
+      });
+      const value = await run(['doctor', '--offline', '--json'], fake);
+      expect(value.exitCode).toBe(0);
+      expect(value.checks).toEqual([{ id: 'config', status: 'pass', blocking: false, fix: null }]);
+    },
+  );
 
   it('returns a config fix and nonzero exit for invalid offline config', async () => {
     const fake = ports({ readText: () => 'projects: []\n' });

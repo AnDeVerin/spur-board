@@ -321,6 +321,48 @@ describe('GitHub Issues source', () => {
     expect(fetcher.mock.calls[1]?.[0]).toContain('milestone=3');
   });
 
+  it('lists every open issue without a filter and keeps a detail-fetched issue in the filter', async () => {
+    const { fetcher, urls } = routed({
+      '/repos/acme/board/issues': () =>
+        Response.json([
+          issue(1, 'x'),
+          { ...issue(2), pull_request: { url: 'https://example.test' } },
+          { ...issue(3), labels: [] },
+        ]),
+      '/repos/acme/board/issues/9': () =>
+        Response.json({ ...issue(9), state: 'closed', milestone: { title: 'M1' } }),
+    });
+    const adapter = createGithubIssuesAdapter({
+      id,
+      tracker: { type: 'github-issues', repo: 'acme/board' },
+      token: 'test',
+      intervalMs: 60_000,
+      fetch: fetcher,
+    });
+    const first = await adapter.poll(context());
+    expect(batchSchema.safeParse(first).success).toBe(true);
+    const listing = urls.find((url) => url.pathname === '/repos/acme/board/issues');
+    expect(listing?.searchParams.get('state')).toBe('open');
+    expect(listing?.searchParams.get('per_page')).toBe('100');
+    expect(listing?.searchParams.get('labels')).toBeNull();
+    expect(listing?.searchParams.get('milestone')).toBeNull();
+    expect(urls.some((url) => url.pathname.endsWith('/milestones'))).toBe(false);
+    expect(first.items.map((entry) => entry.kind === 'ticket' && entry.facts.id)).toEqual([
+      'issue-node-1',
+      'issue-node-3',
+    ]);
+
+    urls.length = 0;
+    const ref = { kind: 'ticket', trackerId: id, id: 'issue-node-9', key: 'acme/board#9' } as const;
+    const second = await adapter.poll(context([ref]));
+    expect(batchSchema.safeParse(second).success).toBe(true);
+    expect(second.entities).toEqual([{ ref, status: 'ok' }]);
+    expect(urls.map((url) => url.pathname)).toContain('/repos/acme/board/issues/9');
+    expect(
+      second.items.find((entry) => entry.kind === 'ticket' && entry.facts.id === 'issue-node-9'),
+    ).toMatchObject({ kind: 'ticket', facts: { status: 'closed', inFilter: true } });
+  });
+
   it('passes extra fields and an unknown issue state', async () => {
     const extended = {
       ...issue(1),
