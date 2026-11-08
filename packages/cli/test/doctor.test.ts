@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { runCli, type CliIo } from '../src/cli.ts';
 import type { DoctorCheck, DoctorPorts } from '../src/doctor.ts';
 import { bindLoopback } from '../src/port.ts';
-import { holder } from './http-holder.ts';
+import { holder, trickler } from './http-holder.ts';
 
 const yaml = `projects:
   - id: board
@@ -729,6 +729,23 @@ describe('http.port check', () => {
       await daemon.close();
     }
   });
+
+  it('stops waiting for a holder that trickles headers', async () => {
+    const server = await trickler();
+    try {
+      const value = await run(
+        ['doctor', '--json'],
+        probePorts(server.port, ssLine(server.port, true)),
+      );
+      expect(value.exitCode).toBe(1);
+      expect(value.checks.find((entry) => entry.id === 'http.port')).toMatchObject({
+        status: 'fail',
+        blocking: true,
+      });
+    } finally {
+      await server.close();
+    }
+  }, 10_000);
 
   it('passes when free', async () => {
     const server = await holder({});

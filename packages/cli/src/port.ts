@@ -28,19 +28,25 @@ export function bindLoopback(port: number): Promise<string | null> {
 /**
  * Ask the holder for its board instance header over node:http, the client's transport. fetch would
  * refuse ports on its bad-port list (6000, 6667, ...) that the config allows, and would follow a
- * redirect to a daemon on another port; node:http does neither.
+ * redirect to a daemon on another port; node:http does neither. The deadline is absolute: a socket
+ * timeout would reset on every byte a trickling holder sends.
  */
 function isBoardDaemon(port: number): Promise<boolean> {
   return new Promise((resolve) => {
     const request = get(
-      { host: '127.0.0.1', port, path: '/v1/schema', agent: false, timeout: 2_000 },
+      {
+        host: '127.0.0.1',
+        port,
+        path: '/v1/schema',
+        agent: false,
+        signal: AbortSignal.timeout(2_000),
+      },
       (response) => {
         const value = response.headers['x-board-instance'];
         response.destroy();
         resolve(typeof value === 'string' && instanceHeader.test(value));
       },
     );
-    request.once('timeout', () => request.destroy());
     request.once('error', () => {
       resolve(false);
     });
