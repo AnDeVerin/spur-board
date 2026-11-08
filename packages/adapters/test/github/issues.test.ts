@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { batchSchema, type PollContext } from '@spur-board/contracts';
+import { AdapterError, batchSchema, type PollContext } from '@spur-board/contracts';
 import { createGithubIssuesAdapter } from '../../src/github/issues.ts';
 
 const id = 'github-issues:board:acme/board';
@@ -25,6 +25,36 @@ function context(tickets: PollContext['observe']['tickets'] = []): PollContext {
     observe: { prs: [], tickets, sessions: [] },
     signal: new AbortController().signal,
   };
+}
+
+function labelAdapter(fetcher: typeof fetch) {
+  return createGithubIssuesAdapter({
+    id,
+    tracker: labelTracker,
+    token: 'test',
+    intervalMs: 60_000,
+    fetch: fetcher,
+  });
+}
+
+function linked(body: unknown, next: string): Response {
+  return Response.json(body, { headers: { link: `<${next}>; rel="next"` } });
+}
+
+/** Routes each request by exact pathname; an unrouted path answers 404. */
+function routed(routes: Record<string, () => Response>) {
+  const urls: URL[] = [];
+  const fetcher = vi.fn<typeof fetch>((input) => {
+    const url = new URL(input instanceof Request ? input.url : input);
+    urls.push(url);
+    const route = routes[url.pathname];
+    return Promise.resolve(route === undefined ? new Response('', { status: 404 }) : route());
+  });
+  return { fetcher, urls };
+}
+
+function lookups(urls: URL[]): number {
+  return urls.filter((url) => url.pathname === '/repos/acme/board').length;
 }
 
 describe('GitHub Issues source', () => {
@@ -150,7 +180,129 @@ describe('GitHub Issues source', () => {
     });
     const batch = await adapter.poll(context());
     expect(batch.complete).toBe(false);
+    expect(batch.items).toHaveLength(1);
     expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it('follows a same-repository /repositories/<id> next link', async () => {
+    const next = 'https://api.github.com/repositories/42/issues?state=open&per_page=100&page=2';
+    const { fetcher, urls } = routed({
+      '/repos/acme/board/issues': () => linked([issue(1)], next),
+      '/repos/acme/board': () => Response.json({ id: 42 }),
+      '/repositories/42/issues': () => Response.json([issue(2)]),
+    });
+    const adapter = labelAdapter(fetcher);
+    const batch = await adapter.poll(context());
+    expect(batchSchema.safeParse(batch).success).toBe(true);
+    expect(batch.complete).toBe(true);
+    expect(batch.items).toHaveLength(2);
+    expect(fetcher).toHaveBeenCalledTimes(3);
+    await adapter.poll(context());
+    expect(lookups(urls)).toBe(1);
+  });
+
+  it.each([
+    ['another host', 'https://example.test/repositories/42/issues?page=2', false],
+    ['another repository id', 'https://api.github.com/repositories/43/issues?page=2', true],
+    ['another path', 'https://api.github.com/repositories/42/pulls?page=2', false],
+    ['another repository', 'https://api.github.com/repos/other/repo/issues?page=2', false],
+    ['an invalid URL', 'not a url', false],
+  ])('rejects a next link to %s and keeps the fetched page', async (_name, next, lookup) => {
+    const { fetcher, urls } = routed({
+      '/repos/acme/board/issues': () => linked([issue(1)], next),
+      '/repos/acme/board': () => Response.json({ id: 42 }),
+    });
+    const batch = await labelAdapter(fetcher).poll(context());
+    expect(batch.complete).toBe(false);
+    expect(batch.items).toHaveLength(1);
+    expect(urls.map(String)).not.toContain(next);
+    expect(urls.every((url) => url.origin === 'https://api.github.com')).toBe(true);
+    expect(lookups(urls)).toBe(lookup ? 1 : 0);
+  });
+
+  it('re-reads the repository id after a mismatch', async () => {
+    const ids = [42, 43];
+    let linkId = 42;
+    const { fetcher, urls } = routed({
+      '/repos/acme/board/issues': () =>
+        linked([issue(1)], `https://api.github.com/repositories/${String(linkId)}/issues?page=2`),
+      '/repos/acme/board': () => Response.json({ id: ids.shift() }),
+      '/repositories/42/issues': () => Response.json([issue(2)]),
+      '/repositories/43/issues': () => Response.json([issue(3)]),
+    });
+    const adapter = labelAdapter(fetcher);
+    expect((await adapter.poll(context())).complete).toBe(true);
+    linkId = 43;
+    expect((await adapter.poll(context())).complete).toBe(false);
+    const third = await adapter.poll(context());
+    expect(third.complete).toBe(true);
+    expect(third.items).toHaveLength(2);
+    expect(lookups(urls)).toBe(2);
+  });
+
+  it('marks the batch incomplete when the repository lookup fails', async () => {
+    const { fetcher, urls } = routed({
+      '/repos/acme/board/issues': () =>
+        linked([issue(1)], 'https://api.github.com/repositories/42/issues?page=2'),
+      '/repos/acme/board': () => new Response('', { status: 500 }),
+      '/repositories/42/issues': () => Response.json([issue(2)]),
+    });
+    const batch = await labelAdapter(fetcher).poll(context());
+    expect(batch.complete).toBe(false);
+    expect(batch.items).toHaveLength(1);
+    expect(urls.map((url) => url.pathname)).not.toContain('/repositories/42/issues');
+  });
+
+  it.each([
+    ['follows', 42],
+    ['rejects', 43],
+  ])('%s /repositories/<id> milestone pages', async (verb, linkId) => {
+    const { fetcher, urls } = routed({
+      '/repos/acme/board/milestones': () =>
+        linked(
+          [{ title: 'M0', number: 1 }],
+          `https://api.github.com/repositories/${String(linkId)}/milestones?state=all&per_page=100&page=2`,
+        ),
+      '/repos/acme/board': () => Response.json({ id: 42 }),
+      '/repositories/42/milestones': () => Response.json([{ title: 'M1', number: 3 }]),
+      '/repos/acme/board/issues': () => Response.json([]),
+    });
+    const adapter = createGithubIssuesAdapter({
+      id,
+      tracker: { type: 'github-issues', repo: 'acme/board', milestone: 'M1' },
+      token: 'test',
+      intervalMs: 60_000,
+      fetch: fetcher,
+    });
+    if (verb === 'follows') {
+      await adapter.poll(context());
+      expect(
+        urls
+          .find((url) => url.pathname === '/repos/acme/board/issues')
+          ?.searchParams.get('milestone'),
+      ).toBe('3');
+    } else {
+      await expect(adapter.poll(context())).rejects.toMatchObject({ kind: 'transient' });
+      expect(urls.map((url) => url.pathname)).not.toContain('/repositories/43/milestones');
+    }
+  });
+
+  it.each(['lookup', 'later page'])('rejects a throttled %s with retryAt', async (failing) => {
+    const throttled = () => new Response('', { status: 429, headers: { 'retry-after': '60' } });
+    const { fetcher } = routed({
+      '/repos/acme/board/issues': () =>
+        linked([issue(1)], 'https://api.github.com/repositories/42/issues?page=2'),
+      '/repos/acme/board': failing === 'lookup' ? throttled : () => Response.json({ id: 42 }),
+      '/repositories/42/issues': throttled,
+    });
+    const error: unknown = await labelAdapter(fetcher)
+      .poll(context())
+      .then(
+        () => undefined,
+        (reason: unknown) => reason,
+      );
+    expect(error).toMatchObject({ kind: 'throttled' });
+    expect(error instanceof AdapterError && error.retryAt instanceof Date).toBe(true);
   });
 
   it('resolves a configured milestone title to its number', async () => {

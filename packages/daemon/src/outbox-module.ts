@@ -75,7 +75,7 @@ export function createOutboxModule(
   /** Records a gateway connection change; logs its own failure and ignores events after stop. */
   connection(state: ConnectionState): Promise<void>;
 } {
-  const spur = options.spur ?? createSpurPort();
+  const spur = options.spur ?? createSpurPort({ baseUrl: ctx.config.adapters.spur.baseUrl });
   const sender = createSender({
     store: ctx.store,
     ...(gateway === undefined ? {} : { gateway }),

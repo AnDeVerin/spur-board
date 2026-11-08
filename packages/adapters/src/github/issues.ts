@@ -48,6 +48,8 @@ const issueWire = z.object({
 });
 type IssueWire = z.output<typeof issueWire>;
 const milestoneWire = z.object({ title: z.string(), number: z.int().positive() });
+const repositoryWire = z.object({ id: z.int().positive() });
+const PAGINATION = 'Malformed GitHub issue pagination';
 
 function issueNumber(ref: TicketEntityRef, repo: string): number {
   const match = /^(.+)#([1-9]\d*)$/.exec(ref.key);
@@ -125,22 +127,30 @@ export function createGithubIssuesAdapter(options: GithubIssuesOptions): Adapter
       throw new AdapterError('transient', 'Malformed GitHub issue response');
     }
     const next = response.headers.get('link')?.match(/<([^>]+)>;\s*rel="next"/)?.[1];
-    if (next !== undefined) {
-      let pageUrl: URL;
-      try {
-        pageUrl = new URL(next);
-      } catch {
-        throw new AdapterError('transient', 'Malformed GitHub issue pagination');
-      }
-      const issuePath = new URL(root).pathname + '/issues';
-      const milestonePath = new URL(root).pathname + '/milestones';
-      if (
-        pageUrl.origin !== 'https://api.github.com' ||
-        (pageUrl.pathname !== issuePath && pageUrl.pathname !== milestonePath)
-      )
-        throw new AdapterError('transient', 'Malformed GitHub issue pagination');
-    }
     return { value, ...(next === undefined ? {} : { next }) };
+  }
+
+  let repositoryId: number | undefined;
+
+  /** Rejects a next link outside this repository before any request goes to it. */
+  async function checkNext(next: string, signal: AbortSignal): Promise<void> {
+    let pageUrl: URL;
+    try {
+      pageUrl = new URL(next);
+    } catch {
+      throw new AdapterError('transient', PAGINATION);
+    }
+    const base = new URL(root);
+    if (pageUrl.origin !== base.origin) throw new AdapterError('transient', PAGINATION);
+    if (pageUrl.pathname === base.pathname + '/issues') return;
+    if (pageUrl.pathname === base.pathname + '/milestones') return;
+    const match = /^\/repositories\/([1-9]\d*)\/(?:issues|milestones)$/.exec(pageUrl.pathname);
+    if (match === null) throw new AdapterError('transient', PAGINATION);
+    repositoryId ??= parseWire(repositoryWire, (await request(root, signal)).value, MALFORMED).id;
+    if (Number(match[1]) !== repositoryId) {
+      repositoryId = undefined;
+      throw new AdapterError('transient', PAGINATION);
+    }
   }
 
   async function pages(
@@ -165,6 +175,15 @@ export function createGithubIssuesAdapter(options: GithubIssuesOptions): Adapter
       results.push(
         ...parseWire(z.array(z.unknown()), page.value, 'Malformed GitHub issue listing'),
       );
+      if (page.next !== undefined) {
+        try {
+          await checkNext(page.next, signal);
+        } catch (error) {
+          if (allowPartial && error instanceof AdapterError && error.kind === 'transient')
+            return { values: results, complete: false };
+          throw error;
+        }
+      }
       next = page.next;
     }
     return { values: results, complete: true };
