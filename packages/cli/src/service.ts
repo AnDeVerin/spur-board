@@ -6,6 +6,8 @@ import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { SYSTEMD_SERVICE_SETTINGS } from '@spur-board/contracts';
 import { CliError } from './exit-codes.ts';
+import { readConfiguredPort } from './config.ts';
+import { bindLoopback, checkHttpPort } from './port.ts';
 
 export const serviceName = 'spur-board.service';
 
@@ -24,6 +26,7 @@ export interface ServiceOptions {
   daemonEntry?: string;
   username?: string;
   runner?: CommandRunner;
+  bind?: (port: number) => Promise<string | null>;
 }
 
 export interface ServicePaths {
@@ -219,6 +222,12 @@ export async function installService(options: ServiceOptions = {}): Promise<{
   const paths = servicePaths(options);
   await preflight(paths);
   const runner = options.runner ?? runCommand;
+  const port = readConfiguredPort(options.env ?? process.env, resolve(options.home ?? homedir()));
+  const fix = await checkHttpPort(port, {
+    bind: options.bind ?? bindLoopback,
+    run: runner,
+  });
+  if (fix !== null) throw new Error(fix);
   const unit = renderUserUnit(paths);
   const previousUnit = await existingUnit(paths.unitFile);
   const changed = previousUnit !== unit;

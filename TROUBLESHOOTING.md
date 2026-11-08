@@ -54,10 +54,22 @@ The [setup skill](packages/skills/setup/SKILL.md) gives the project-checkout ste
 Restart live sessions started before the latest `board skills install`; they do not reload
 new skill files automatically. Verify any session whose start time cannot be read.
 
+### http.port
+
+Runs only without `--offline`. It binds `127.0.0.1` on `http.port` from `config.yaml` and closes
+at once, the way the daemon would listen. It passes when the port is free, when `http.port` is
+`0`, or when the process holding the port answers with a spur-board daemon instance header. Otherwise
+it fails and names the port and the holder as `<name> (pid <pid>)`. When `ss` cannot see the
+owner, for example a process of another user, the fix says "a process not visible to this
+user"; run `ss -ltnp 'sport = :<port>'` as that user or with privileges to name it. Stop that
+process or set `http.port` to a free port, then start the service again. Any spur-board daemon passes
+this check, including one of another user or another `BOARD_HOME`. `board service install` runs
+the same check and stops with exit 4 before it writes the unit.
+
 ### daemon.available
 
 Start or restart the user service, then rerun `board doctor --json`. If it still fails, check
-the service journal. The CLI connects to `http.port` in `config.yaml` (default `4311`) unless
+the service journal. The CLI connects to `http.port` in `config.yaml` (default `4777`) unless
 `BOARD_DAEMON_URL` is set; that variable overrides the configured port. An empty or invalid
 `BOARD_DAEMON_URL`, or `http.port: 0` without the variable, fails before any request is sent.
 
@@ -168,6 +180,24 @@ delivered but the agent never acted on the answer, follow
 Read the service journal with `journalctl --user -u spur-board`. Logs are JSON lines; find the
 `requestId` from the CLI error in the journal to follow one request through the daemon. Share
 the request ID and a redacted error with an issue report, never tokens or private file contents.
+
+## EADDRINUSE: the daemon restarts every 5 seconds
+
+**Symptom:** the service journal repeats a `start failed` line with `module` `http` and the
+error `listen EADDRINUSE: address already in use 127.0.0.1:<port>`, and systemd restarts the
+daemon every 5 seconds.
+
+**Check:** run `board doctor`; the `http.port` check names the process holding the port. Run
+`ss -ltnp 'sport = :<port>'` to list the listener yourself.
+
+**Fix:** set `http.port` in `config.yaml` to a free port. Avoid Spur's server port 4310 and the
+ports from 4311 upward that its MCP port takes (spur-board keeps 4310-4399 as a margin for them),
+Spur's web UI port 5555, its Playwright sidecar ports 8730-8799, and the Linux ephemeral range
+32768-60999. Then run `board service restart`, and update `BOARD_DAEMON_URL` if it is set.
+
+**Upgrade:** the default `http.port` moved from 4311 to 4777. A `config.yaml` with
+`http.port: 4311` keeps the old port; clients that set `BOARD_DAEMON_URL` to the old port need
+the new one after the daemon restarts.
 
 ## GitHub check runs or review teams lack access
 

@@ -202,8 +202,8 @@
       "type": "object",
       "properties": {
         "port": {
-          "default": 4311,
-          "description": "Local HTTP API port (0 assigns a free port).",
+          "default": 4777,
+          "description": "Local HTTP API port (0 assigns a free port). The default 4777 is above 4310-4399, a margin kept for Spur's server port 4310 and the ports from 4311 upward that its MCP port takes, and avoids Spur's ports 5555 and 8730-8799 and the Linux ephemeral range 32768-60999.",
           "type": "integer",
           "minimum": 0,
           "maximum": 65535
