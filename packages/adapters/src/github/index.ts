@@ -135,6 +135,10 @@ type FullPr =
   | { status: 'ok'; pr: PrPaging }
   | { status: 'denied' }
   | { status: 'malformed'; error: AdapterError };
+const malformedPaging = (): FullPr => ({
+  status: 'malformed',
+  error: new AdapterError('transient', 'Malformed GitHub pagination'),
+});
 async function fullPr(
   client: GithubClient,
   first: PrPaging,
@@ -157,11 +161,7 @@ async function fullPr(
     let cursor = nextPage(target);
     const seen = new Set<string>();
     while (cursor !== undefined) {
-      if (seen.has(cursor))
-        return {
-          status: 'malformed',
-          error: new AdapterError('transient', 'Malformed GitHub pagination'),
-        };
+      if (seen.has(cursor)) return malformedPaging();
       seen.add(cursor);
       const response = await client.query(
         pageQuery(field),
@@ -180,11 +180,7 @@ async function fullPr(
       const page = connectionOf(root.pullRequest, field);
       // A denied later page keeps the references read so far.
       if (page === undefined && denied && field === 'closingIssuesReferences') break;
-      if (page === undefined)
-        return {
-          status: 'malformed',
-          error: new AdapterError('transient', 'Malformed GitHub pagination'),
-        };
+      if (page === undefined) return malformedPaging();
       target = { nodes: [...target.nodes, ...page.nodes], pageInfo: page.pageInfo };
       pr = withConnection(pr, field, target);
       cursor = nextPage(page);
