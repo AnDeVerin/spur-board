@@ -303,38 +303,40 @@ describe('evaluateSessionHealth', () => {
     expect(continued.episode).toEqual(began.episode);
   });
 
-  it('flags a vanished worker only after a complete observation without a PR or replacement', () => {
+  it('flags an ended worker by reason only after a complete observation without a PR or replacement', () => {
     const ended = session('a', 'stale', 0, {
       endedAt: new Date(start - 1_000).toISOString(),
       endReason: 'complete',
     });
-    const base = evaluate({ sessions: [ended] });
-    expect(base.flags.map((flag) => flag.kind)).toEqual(['worker_vanished']);
-    for (const reason of ['kill', 'vanished'] as const) {
+    const kinds = {
+      complete: 'worker_completed',
+      kill: 'worker_killed',
+      vanished: 'worker_vanished',
+    } as const;
+    for (const [reason, kind] of Object.entries(kinds) as [keyof typeof kinds, string][]) {
+      const worker = { ...ended, endReason: reason };
+      expect(evaluate({ sessions: [worker] }).flags.map((flag) => flag.kind)).toEqual([kind]);
       expect(
-        evaluate({ sessions: [{ ...ended, endReason: reason }] }).flags.map((flag) => flag.kind),
-      ).toEqual(['worker_vanished']);
+        evaluate({
+          sessions: [worker],
+          spur: { blind: false, observationComplete: false },
+        }).flags,
+      ).toEqual([]);
+      expect(
+        evaluate({
+          sessions: [worker],
+          tasks: { 'TASK-1': { hasOpenPr: true, hasMergedPr: false } },
+        }).flags,
+      ).toEqual([]);
+      expect(
+        evaluate({
+          sessions: [worker],
+          tasks: { 'TASK-1': { hasOpenPr: false, hasMergedPr: true } },
+        }).flags,
+      ).toEqual([]);
+      expect(evaluate({ sessions: [worker, session('new', 'working', 0)] }).flags).toEqual([]);
     }
     expect(evaluate({ sessions: [{ ...ended, endReason: 'unknown' }] }).flags).toEqual([]);
-    expect(
-      evaluate({
-        sessions: [ended],
-        spur: { blind: false, observationComplete: false },
-      }).flags,
-    ).toEqual([]);
-    expect(
-      evaluate({
-        sessions: [ended],
-        tasks: { 'TASK-1': { hasOpenPr: true, hasMergedPr: false } },
-      }).flags,
-    ).toEqual([]);
-    expect(
-      evaluate({
-        sessions: [ended],
-        tasks: { 'TASK-1': { hasOpenPr: false, hasMergedPr: true } },
-      }).flags,
-    ).toEqual([]);
-    expect(evaluate({ sessions: [ended, session('new', 'working', 0)] }).flags).toEqual([]);
   });
 
   it('suppresses every session output while Spur is blind', () => {

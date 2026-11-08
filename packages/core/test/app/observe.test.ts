@@ -637,7 +637,7 @@ describe('accepted observation', () => {
     expect(recurring?.id).not.toBe(`I${String(first.id)}`);
   });
 
-  it('keeps a confirmed vanished-worker item across ticks until new Spur evidence changes it', async () => {
+  it('keeps a confirmed ended-worker item across ticks until new Spur evidence changes it', async () => {
     const { store, core, apply, mutations } = setup();
     await apply(mutations.add, { task: 'o/r#9' }, 'operator');
     const link = { 'board-worker': 'https://github.com/o/r/issues/9' };
@@ -668,10 +668,14 @@ describe('accepted observation', () => {
       outcomes: [],
     });
     const status = () => getStatus({ store, config, clock, completeSince: core.completeSince });
-    expect((await status()).items.some((item) => item.key.includes('worker_vanished'))).toBe(true);
+    expect((await status()).items.some((item) => item.key.endsWith(':worker_completed'))).toBe(
+      true,
+    );
     now += 60_000;
     await tickBoard({ store, config, clock, completeSince: core.completeSince });
-    expect((await status()).items.some((item) => item.key.includes('worker_vanished'))).toBe(true);
+    expect((await status()).items.some((item) => item.key.endsWith(':worker_completed'))).toBe(
+      true,
+    );
     const newest = new Date(now).toISOString();
     await core.observe('spur', {
       batch: {
@@ -685,7 +689,158 @@ describe('accepted observation', () => {
       state: { lastCompleteAt: newest, gone: [] },
       outcomes: [],
     });
-    expect((await status()).items.some((item) => item.key.includes('worker_vanished'))).toBe(false);
+    expect((await status()).items.some((item) => item.key.endsWith(':worker_completed'))).toBe(
+      false,
+    );
+  });
+
+  const observeSpur = async (
+    core: ReturnType<typeof setup>['core'],
+    items: SessionFacts[],
+    entities: { ref: { kind: 'session'; id: string }; status: 'ok' | 'not_found' }[] = [],
+  ) => {
+    const observedAt = new Date(now).toISOString();
+    await core.observe('spur', {
+      batch: {
+        source: 'spur',
+        observedAt,
+        complete: true,
+        items: items.map((facts) => ({ kind: 'session' as const, facts })),
+        entities,
+      },
+      effectiveComplete: true,
+      state: { lastCompleteAt: observedAt, gone: [] },
+      outcomes: [],
+    });
+  };
+  const workerLink = { 'board-worker': 'https://github.com/o/r/issues/9' };
+  const healthLines = (store: Store) =>
+    store.db
+      .selectFrom('outbox')
+      .select('id')
+      .where('kind', '=', 'feed.line')
+      .where('dedupe_key', 'like', 'feed.line:health:%')
+      .execute();
+
+  it.each([
+    {
+      reason: 'complete',
+      kind: 'worker_completed',
+      text: 'o/r#9: worker ended (completed), no PR (worker-1)',
+      lines: 0,
+    },
+    {
+      reason: 'kill',
+      kind: 'worker_killed',
+      text: 'o/r#9: worker ended (killed), no PR (worker-1)',
+      lines: 0,
+    },
+    {
+      reason: 'vanished',
+      kind: 'worker_vanished',
+      text: 'o/r#9: worker vanished, no PR (worker-1)',
+      lines: 1,
+    },
+  ] as const)(
+    'names a $reason worker end in the item and posts $lines feed lines',
+    async ({ reason, kind, text, lines }) => {
+      const { store, core, apply, mutations } = setup();
+      await apply(mutations.add, { task: 'o/r#9' }, 'operator');
+      await observeSpur(core, [sessionFact('worker-1', workerLink)]);
+      now += 1_000;
+      if (reason === 'vanished')
+        await observeSpur(
+          core,
+          [],
+          [{ ref: { kind: 'session', id: 'worker-1' }, status: 'not_found' }],
+        );
+      else
+        await observeSpur(core, [
+          {
+            ...sessionFact('worker-1', workerLink, true),
+            endReason: reason,
+            lifecycle: reason === 'kill' ? 'killed' : 'completed',
+          },
+        ]);
+      const items = await store.db
+        .selectFrom('operator_item')
+        .selectAll()
+        .where('item_key', 'like', 'health:%')
+        .where('cleared_at', 'is', null)
+        .execute();
+      expect(items.map((item) => [item.item_key.split(':').at(-1), item.text])).toEqual([
+        [kind, text],
+      ]);
+      expect(items[0]?.line_outbox_id === null).toBe(lines === 0);
+      expect(await healthLines(store)).toHaveLength(lines);
+      expect(
+        await store.db
+          .selectFrom('event')
+          .select('id')
+          .where('kind', '=', 'from_you_raised')
+          .where('payload', 'like', `%"I${String(items[0]?.id)}"%`)
+          .execute(),
+      ).toHaveLength(1);
+    },
+  );
+
+  it('clears an open pre-upgrade vanished item for a killed worker and raises it without a line', async () => {
+    const { store, core, apply, mutations } = setup();
+    await apply(mutations.add, { task: 'o/r#9' }, 'operator');
+    await observeSpur(core, [sessionFact('worker-1', workerLink)]);
+    const task = await store.db.selectFrom('task').select('id').executeTakeFirstOrThrow();
+    const oldKey = `health:${String(task.id)}:worker-1:worker_vanished`;
+    const line = await store.db
+      .insertInto('outbox')
+      .values({
+        kind: 'feed.line',
+        dedupe_key: `feed.line:${oldKey}:1`,
+        payload: '{}',
+        state: 'done',
+        next_at: at,
+      })
+      .returning('id')
+      .executeTakeFirstOrThrow();
+    const old = await store.db
+      .insertInto('operator_item')
+      .values({
+        item_key: oldKey,
+        raise_no: 1,
+        kind: 'board_observation',
+        text: 'o/r#9: worker vanished (worker-1)',
+        url: 'https://github.com/o/r/issues/9',
+        task_id: task.id,
+        block_id: null,
+        raised_at: at,
+        cleared_at: null,
+        line_outbox_id: line.id,
+        inbound_event_json: null,
+      })
+      .returning('id')
+      .executeTakeFirstOrThrow();
+    now += 1_000;
+    await observeSpur(core, [
+      { ...sessionFact('worker-1', workerLink, true), endReason: 'kill', lifecycle: 'killed' },
+    ]);
+    const items = await store.db
+      .selectFrom('operator_item')
+      .selectAll()
+      .where('item_key', 'like', 'health:%')
+      .orderBy('id')
+      .execute();
+    expect(items.map((item) => [item.id, item.item_key, item.cleared_at !== null])).toEqual([
+      [old.id, oldKey, true],
+      [items[1]?.id, `health:${String(task.id)}:worker-1:worker_killed`, false],
+    ]);
+    expect(items[1]?.line_outbox_id).toBeNull();
+    expect((await healthLines(store)).map((row) => row.id)).toEqual([line.id]);
+    expect(
+      await store.db
+        .selectFrom('outbox')
+        .select('parent_outbox_id')
+        .where('kind', '=', 'feed.line.edit')
+        .execute(),
+    ).toEqual([{ parent_outbox_id: line.id }]);
   });
 
   it('rolls back source state when an accepted batch cannot be stored', async () => {
