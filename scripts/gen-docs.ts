@@ -213,7 +213,7 @@ const SESSION_LINKS = [
   '',
   "Scope: a `board-worker` or `board-other` label links a session from any Spur project. The pull request and branch rules need the session's Spur project listed in that project's `spurProjects` with `role: worker`. A worker still needs its Spur project in `spurProjects`, with any role, to call `board task`, `board ask` and `board comment`.",
   '',
-  'Roles: a session links to a task once, and that link keeps its first role. A session linked by the pull request or branch rule becomes worker when the task has no worker, otherwise other. A session removed with `board unlink` is not linked again.',
+  'Roles: a session links to a task once, and that link keeps its first role. A session linked by the pull request or branch rule becomes worker when the task has no worker, otherwise other. After `board unlink` removes a session, no automatic rule links it to that task again; `board link` restores it with its original role.',
   '',
   'For a GitHub Issues task, a PR in `tracker.repo` links to its issue through `link.sources`, and PR discovery keeps only PRs whose author is `operatorGithubLogin`. Until that PR is linked, a session with an ordinary branch name links only through an explicit label.',
   '',
@@ -221,7 +221,7 @@ const SESSION_LINKS = [
   '',
   'Operator fallback: `board link <task> --session <session> --reason <value> --key <key>` links the session as worker when the task has none, otherwise as other.',
   '',
-  "Reviewers: a session of a `role: worker` Spur project whose `pr` link is a PR it only reviews links to that PR's task by the pull request rule, as worker when the task has none. A review session that sets `board-other` to the task's URL before its `pr` link appears links as other instead. A later label changes nothing, because a link keeps its first role; the operator then removes the link with `board unlink <task> --session <session> --reason <value> --key <key>`, and the session is not linked to that task again.",
+  "Reviewers: a session of a `role: worker` Spur project whose `pr` link is a PR it only reviews links to that PR's task by the pull request rule, as worker when the task has none. A review session that sets `board-other` to the task's URL before its `pr` link appears links as other instead. A later label changes nothing, because a link keeps its first role; the operator then removes the link with `board unlink <task> --session <session> --reason <value> --key <key>`. No automatic rule links it to that task again; `board link` restores it with its original role.",
 ];
 
 export function renderConfigurationDocs(): string {

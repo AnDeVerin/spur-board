@@ -183,5 +183,5 @@ A session of a `role: worker` Spur project whose `pr` link is a PR it only revie
 PR's task by the pull request rule, as worker when the task has none. A review session that
 sets `board-other` to the task's URL before its `pr` link appears links as other instead. A later
 label changes nothing, because a link keeps its first role; the operator then removes the link
-with `board unlink <task> --session <session> --reason <value> --key <key>`, and the session is
-not linked to that task again.
+with `board unlink <task> --session <session> --reason <value> --key <key>`. No automatic rule
+links it to that task again; `board link` restores it with its original role.
