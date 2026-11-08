@@ -171,8 +171,8 @@ afterEach(async () => {
 });
 
 describe('startAdapters', () => {
-  it('exports only startAdapters and the test fakes', () => {
-    expect(Object.keys(entry)).toEqual(['startAdapters']);
+  it('exports only startAdapters, the doctor link sample and the test fakes', () => {
+    expect(Object.keys(entry).sort()).toEqual(['sampleLinkRules', 'startAdapters']);
     const manifest = JSON.parse(
       readFileSync(new URL('../../package.json', import.meta.url), 'utf8'),
     ) as { exports: Record<string, string> };
