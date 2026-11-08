@@ -42,5 +42,8 @@ that changes these rules updates this skill in the same PR.
 
 - `board mcp` stdout is JSON-RPC only; diagnostics go to stderr (`startMcp` in
   `packages/cli/src/mcp.ts`).
+- `packages/cli/src/bin.mjs` starts a bare `board mcp` without loading `cli.ts`. `cli.ts`
+  registers `mcp` only for help and `docs/cli.md`; its action refuses with `usage`. The stdout
+  test in `packages/cli/test/mcp.test.ts` checks that `cli.ts` is not loaded.
 - Checks: the `no-console` rule for `packages/cli/src/` in `eslint.config.js`, the stdout test at
   the end of `packages/cli/test/mcp.test.ts`, and `handshake` in `scripts/package-smoke-mcp.ts`.

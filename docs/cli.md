@@ -102,6 +102,28 @@ Example: `board service uninstall`
 
 Exit codes: see the table above; setup errors are reported by the CLI.
 
+### `board mcp`
+
+Start the MCP server for an agent on standard input and output. Stdout carries only JSON-RPC.
+
+Each tool call finds the caller: `SPUR_SESSION` inside a Spur session, otherwise `BOARD_TOKEN`, otherwise the first `.spur-board/token` found walking upward from the directory the agent starts it in, stopping at home.
+
+It reaches the daemon at `BOARD_DAEMON_URL`, otherwise at `http.port` from `config.yaml`.
+
+A `version_mismatch` answer means the server and the daemon have different catalogs: restart the agent session so `board mcp` loads the daemon's catalog; if it remains, run `board service restart`.
+
+Register it with Claude Code: `claude mcp add spur-board -- board mcp`. With Codex: `codex mcp add spur-board -- board mcp`.
+
+Arguments: none.
+
+Flags:
+
+None.
+
+Example: `board mcp`
+
+Exit codes: see the table above; setup errors are reported by the CLI.
+
 ### `board slack manifest`
 
 Print a Slack app manifest.
@@ -477,15 +499,5 @@ Print the installed package version.
 Flags: none.
 
 Example: `board -V`
-
-Exit codes: 0 on success; startup errors are reported by the process.
-
-### `board mcp`
-
-Start the MCP server on standard input and output.
-
-Flags: none.
-
-Example: `board mcp`
 
 Exit codes: 0 on success; startup errors are reported by the process.

@@ -366,6 +366,31 @@ function registerSetupCommands(
       print({ unit: serviceName, ...(await runSetup(() => uninstallService(serviceOptions))) });
     });
 
+  commandFor(program, 'mcp')
+    .summary('Start the MCP server for an agent on standard input and output.')
+    .description(
+      [
+        'Start the MCP server for an agent on standard input and output. Stdout carries only JSON-RPC.',
+        '',
+        'Each tool call finds the caller: `SPUR_SESSION` inside a Spur session, otherwise `BOARD_TOKEN`, otherwise the first `.spur-board/token` found walking upward from the directory the agent starts it in, stopping at home.',
+        '',
+        'It reaches the daemon at `BOARD_DAEMON_URL`, otherwise at `http.port` from `config.yaml`.',
+        '',
+        "A `version_mismatch` answer means the server and the daemon have different catalogs: restart the agent session so `board mcp` loads the daemon's catalog; if it remains, run `board service restart`.",
+        '',
+        'Register it with Claude Code: `claude mcp add spur-board -- board mcp`. With Codex: `codex mcp add spur-board -- board mcp`.',
+      ].join('\n'),
+    )
+    .action(() => {
+      // bin.mjs starts the server for a bare `board mcp` without loading this CLI.
+      throw new CliError(
+        'usage',
+        undefined,
+        undefined,
+        'Run `board mcp` with no other arguments or flags.',
+      );
+    });
+
   const manifest = commandFor(program, 'slack manifest');
   manifest.description('Print a Slack app manifest.');
   manifest.option('--app-name <name>', 'Slack app name.');

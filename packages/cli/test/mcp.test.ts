@@ -273,9 +273,17 @@ describe('board mcp', () => {
 
 it('keeps every board mcp stdout line a JSON-RPC message', async () => {
   const binary = fileURLToPath(new URL('../src/bin.mjs', import.meta.url));
-  const child = spawn(process.execPath, [binary, 'mcp'], {
+  // Logs every module the child loads, to prove bare `board mcp` never loads the CLI.
+  const loadHook = `data:text/javascript,${encodeURIComponent(
+    "import { registerHooks } from 'node:module'; registerHooks({ load(url, context, next) { process.stderr.write(`load ${url}\\n`); return next(url, context); } });",
+  )}`;
+  const child = spawn(process.execPath, ['--import', loadHook, binary, 'mcp'], {
     stdio: ['pipe', 'pipe', 'pipe'],
     env: { ...process.env, BOARD_DAEMON_URL: '', BOARD_TOKEN: '', SPUR_SESSION: '' },
+  });
+  let stderr = '';
+  child.stderr.setEncoding('utf8').on('data', (chunk: string) => {
+    stderr += chunk;
   });
   const lines: unknown[] = [];
   let pending = '';
@@ -335,6 +343,11 @@ it('keeps every board mcp stdout line a JSON-RPC message', async () => {
     expect(listed.id).toBe(2);
     expect(Array.isArray(listed.result.tools)).toBe(true);
     expect(pending).toBe('');
+    const closed = new Promise((resolve) => child.once('close', resolve));
+    child.kill();
+    await closed;
+    expect(stderr).toMatch(/\/src\/mcp\.ts\n/);
+    expect(stderr).not.toMatch(/\/src\/cli\.ts\n/);
   } finally {
     child.kill();
   }

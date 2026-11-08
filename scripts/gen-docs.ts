@@ -42,14 +42,15 @@ function markdown(value: unknown): string {
   return String(value).replaceAll('|', '\\|').replaceAll('\n', ' ');
 }
 
-/** Direct routes in bin.mjs run before Commander. */
+/** Direct routes in bin.mjs that run before Commander and have no Commander command for help. */
 export function binaryRoutes(source = binarySource): string[] {
+  const registered = new Set(program.commands.map((command) => command.name()));
   const routes: string[] = [];
   for (const match of source.matchAll(
     /(?:^|\n)(?:if|} else if) \(argv\.length === 1 && ([^\n]+)\) \{/g,
   )) {
     for (const route of match[1]?.matchAll(/argv\[0\] === '([^']+)'/g) ?? []) {
-      if (route[1] !== undefined) routes.push(route[1]);
+      if (route[1] !== undefined && !registered.has(route[1])) routes.push(route[1]);
     }
   }
   return routes;
@@ -134,14 +135,10 @@ export function renderCliDocs(): string {
     }
   }
   for (const route of binaryRoutes()) {
-    const detail =
-      route === 'mcp'
-        ? 'Start the MCP server on standard input and output.'
-        : 'Print the installed package version.';
     lines.push(
       `### \`board ${route}\``,
       '',
-      detail,
+      'Print the installed package version.',
       '',
       'Flags: none.',
       '',

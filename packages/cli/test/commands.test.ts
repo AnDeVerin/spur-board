@@ -303,6 +303,66 @@ describe('catalog commands', () => {
     }
   });
 
+  it('lists board mcp in help and prints its usage without starting the server', async () => {
+    const flat = (text: string): string => text.replace(/\s+/g, ' ');
+    const root = capture();
+    expect(await runCli(['--help'], { env: {}, io: root.io })).toBe(0);
+    expect(root.stdout).toMatch(/^\s+mcp\s+Start the MCP server/m);
+    expect(flat(root.stdout)).toContain(
+      ' mcp Start the MCP server for an agent on standard input and output.',
+    );
+
+    const helpMcp = capture();
+    expect(await runCli(['help', 'mcp'], { env: {}, io: helpMcp.io })).toBe(0);
+    expect(helpMcp.stdout.startsWith('Usage: board mcp')).toBe(true);
+
+    const child = spawn(process.execPath, [binary, 'mcp', '--help'], {
+      env: { ...process.env, SPUR_SESSION: '' },
+    });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.setEncoding('utf8').on('data', (text: string) => {
+      stdout += text;
+    });
+    child.stderr.setEncoding('utf8').on('data', (text: string) => {
+      stderr += text;
+    });
+    let timer: NodeJS.Timeout | undefined;
+    try {
+      const exit = await Promise.race([
+        new Promise<number | null>((resolve) => child.once('close', resolve)),
+        new Promise<'timeout'>((resolve) => {
+          timer = setTimeout(() => {
+            resolve('timeout');
+          }, 10_000);
+        }),
+      ]);
+      expect(exit).toBe(0);
+    } finally {
+      clearTimeout(timer);
+      child.kill();
+    }
+    expect(stdout.startsWith('Usage: board mcp')).toBe(true);
+    for (const text of [
+      'SPUR_SESSION',
+      'BOARD_TOKEN',
+      '.spur-board/token',
+      'claude mcp add spur-board -- board mcp',
+      'codex mcp add spur-board -- board mcp',
+    ])
+      expect(flat(stdout)).toContain(text);
+    expect(stdout.split('\n').filter((line) => line.startsWith('{"jsonrpc"'))).toEqual([]);
+    expect(stderr).toBe('');
+
+    const flag = capture();
+    expect(await runCli(['mcp', '--json'], { env: {}, io: flag.io })).toBe(2);
+    expect(flat(flag.stderr)).toContain('Run `board mcp` with no other arguments');
+
+    const extra = capture();
+    expect(await runCli(['mcp', 'extra'], { env: {}, io: extra.io })).toBe(2);
+    expect(extra.stderr).toContain("too many arguments for 'mcp'");
+  }, 15_000);
+
   it('prints only the schema-valid result and invokes schema.get through HTTP', async () => {
     const schema = OPERATIONS.find((op) => op.id === 'schema.get');
     if (!schema) throw new Error('Missing schema operation.');

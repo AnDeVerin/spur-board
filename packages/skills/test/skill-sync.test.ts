@@ -403,7 +403,7 @@ describe('setup skill sync', () => {
     );
     expect(
       validateSetupInvocations('`board mcp`', binarySource.replace("argv[0] === 'mcp'", 'false')),
-    ).toContain('unknown command: board mcp');
+    ).toEqual([]);
     expect(
       validateSetupInvocations(
         '`board --version`',
