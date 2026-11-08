@@ -26,7 +26,6 @@ export interface ServiceOptions {
   username?: string;
   runner?: CommandRunner;
   bind?: (port: number) => Promise<string | null>;
-  fetcher?: typeof fetch;
 }
 
 export interface ServicePaths {
@@ -187,7 +186,6 @@ export async function installService(options: ServiceOptions = {}): Promise<{
   const port = readConfiguredPort(options.env ?? process.env, resolve(options.home ?? homedir()));
   const fix = await checkHttpPort(port, {
     bind: options.bind ?? bindLoopback,
-    fetcher: options.fetcher ?? fetch,
     run: runner,
   });
   if (fix !== null) throw new Error(fix);

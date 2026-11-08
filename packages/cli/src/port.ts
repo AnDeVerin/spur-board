@@ -1,3 +1,4 @@
+import { get } from 'node:http';
 import { createServer } from 'node:net';
 import { escapeTerminalControls } from './terminal.ts';
 
@@ -6,7 +7,6 @@ const instanceHeader = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f
 
 interface PortProbe {
   bind(port: number): Promise<string | null>;
-  fetcher: typeof fetch;
   run(command: string, args: readonly string[]): Promise<{ exitCode: number; stdout: string }>;
 }
 
@@ -25,17 +25,26 @@ export function bindLoopback(port: number): Promise<string | null> {
   });
 }
 
-async function isBoardDaemon(port: number, fetcher: typeof fetch): Promise<boolean> {
-  try {
-    const response = await fetcher(new URL(`http://127.0.0.1:${String(port)}/v1/schema`), {
-      signal: AbortSignal.timeout(2_000),
+/**
+ * Ask the holder for its board instance header over node:http, the client's transport. fetch would
+ * refuse ports on its bad-port list (6000, 6667, ...) that the config allows, and would follow a
+ * redirect to a daemon on another port; node:http does neither.
+ */
+function isBoardDaemon(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const request = get(
+      { host: '127.0.0.1', port, path: '/v1/schema', agent: false, timeout: 2_000 },
+      (response) => {
+        const value = response.headers['x-board-instance'];
+        response.destroy();
+        resolve(typeof value === 'string' && instanceHeader.test(value));
+      },
+    );
+    request.once('timeout', () => request.destroy());
+    request.once('error', () => {
+      resolve(false);
     });
-    await response.body?.cancel();
-    const value = response.headers.get('x-board-instance');
-    return value !== null && instanceHeader.test(value);
-  } catch {
-    return false;
-  }
+  });
 }
 
 async function holderOf(port: number, probe: PortProbe): Promise<string> {
@@ -62,7 +71,7 @@ export async function checkHttpPort(port: number, probe: PortProbe): Promise<str
   if (code !== 'EADDRINUSE') {
     return `${label} cannot be bound on 127.0.0.1 (${escapeTerminalControls(code)}). Set http.port in config.yaml to a free unprivileged port.`;
   }
-  if (await isBoardDaemon(port, probe.fetcher)) return null;
+  if (await isBoardDaemon(port)) return null;
   const holder = await holderOf(port, probe);
   return `${label} is held by ${holder}. Stop that process or set http.port in config.yaml to a free port, then start the service again.`;
 }

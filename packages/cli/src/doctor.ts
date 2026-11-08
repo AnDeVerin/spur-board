@@ -441,7 +441,6 @@ export async function runDoctor(
   // The probe uses the port the daemon listens on, never the client's BOARD_DAEMON_URL.
   const portFix = await checkHttpPort(config.http.port, {
     bind: ports.bind,
-    fetcher: ports.fetcher,
     run: (command, args) => Promise.resolve(ports.run(command, args)),
   });
   checks.push(result('http.port', portFix === null, portFix ?? ''));

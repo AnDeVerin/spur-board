@@ -666,29 +666,17 @@ describe('http.port check', () => {
   const ssLine = (port: number, users: boolean) =>
     `State Recv-Q Send-Q Local Address:Port Peer Address:Port Process\nLISTEN 0 511 127.0.0.1:${String(port)} 0.0.0.0:*${users ? ' users:(("spur-web",pid=4242,fd=21))' : ''}\n`;
 
-  /** Real fetch only for the test port; the daemon.available request stays on the stub. */
   function probePorts(port: number, ss: string, overrides: Partial<DoctorPorts> = {}) {
-    const real: string[] = [];
-    const fetcher: typeof fetch = (input, init) => {
-      const url = input instanceof URL ? input.href : typeof input === 'string' ? input : input.url;
-      if (url.startsWith(`http://127.0.0.1:${String(port)}/`)) {
-        real.push(url);
-        return fetch(input, init);
-      }
-      return ports().fetcher(input, init);
-    };
-    const fake = ports({
+    return ports({
       readText(path) {
         if (path.endsWith('config.yaml')) return `${yaml}\nhttp: { port: ${String(port)} }\n`;
         return ports().readText(path);
       },
       run: (command, args, env) =>
         command === 'ss' ? { exitCode: 0, stdout: ss } : ports().run(command, args, env),
-      fetcher,
       bind: bindLoopback,
       ...overrides,
     });
-    return { fake, real };
   }
 
   it.each([
@@ -703,16 +691,42 @@ describe('http.port check', () => {
   ] as const)('%s', async (_name, headers, users, named) => {
     const server = await holder(headers);
     try {
-      const { fake, real } = probePorts(server.port, ssLine(server.port, users));
-      const value = await run(['doctor', '--json'], fake);
+      const value = await run(
+        ['doctor', '--json'],
+        probePorts(server.port, ssLine(server.port, users)),
+      );
       expect(value.exitCode).toBe(1);
       const check = value.checks.find((entry) => entry.id === 'http.port');
       expect(check).toMatchObject({ status: 'fail', blocking: true });
       expect(check?.fix).toContain(String(server.port));
       expect(check?.fix).toContain(named);
-      expect(real).toEqual([`http://127.0.0.1:${String(server.port)}/v1/schema`]);
+      expect(server.paths).toEqual(['/v1/schema']);
     } finally {
       await server.close();
+    }
+  });
+
+  it('does not follow a redirect to a board daemon on another port', async () => {
+    const daemon = await holder({ 'x-board-instance': randomUUID() });
+    const server = await holder(
+      { location: `http://127.0.0.1:${String(daemon.port)}/v1/schema` },
+      307,
+    );
+    try {
+      const value = await run(
+        ['doctor', '--json'],
+        probePorts(server.port, ssLine(server.port, true)),
+      );
+      expect(value.exitCode).toBe(1);
+      expect(value.checks.find((entry) => entry.id === 'http.port')).toMatchObject({
+        status: 'fail',
+        blocking: true,
+      });
+      expect(server.paths).toEqual(['/v1/schema']);
+      expect(daemon.paths).toEqual([]);
+    } finally {
+      await server.close();
+      await daemon.close();
     }
   });
 
@@ -720,8 +734,7 @@ describe('http.port check', () => {
     const server = await holder({});
     const port = server.port;
     await server.close();
-    const { fake, real } = probePorts(port, '');
-    const value = await run(['doctor', '--json'], fake);
+    const value = await run(['doctor', '--json'], probePorts(port, ''));
     expect(value.exitCode).toBe(0);
     expect(value.checks.find((entry) => entry.id === 'http.port')).toEqual({
       id: 'http.port',
@@ -729,13 +742,12 @@ describe('http.port check', () => {
       blocking: false,
       fix: null,
     });
-    expect(real).toEqual([]);
   });
 
   it('passes when a board daemon holds it', async () => {
     const server = await holder({ 'x-board-instance': randomUUID() });
     try {
-      const { fake, real } = probePorts(server.port, '', {
+      const fake = probePorts(server.port, '', {
         run: (command, args, env) => {
           if (command === 'ss') throw new Error('ss is not needed for a board daemon');
           return ports().run(command, args, env);
@@ -744,14 +756,14 @@ describe('http.port check', () => {
       const value = await run(['doctor', '--json'], fake);
       expect(value.exitCode).toBe(0);
       expect(value.checks.find((entry) => entry.id === 'http.port')?.status).toBe('pass');
-      expect(real).toEqual([`http://127.0.0.1:${String(server.port)}/v1/schema`]);
+      expect(server.paths).toEqual(['/v1/schema']);
     } finally {
       await server.close();
     }
   });
 
   it('passes on port 0', async () => {
-    const { fake } = probePorts(0, '', {
+    const fake = probePorts(0, '', {
       bind: () => {
         throw new Error('port 0 is never probed');
       },
