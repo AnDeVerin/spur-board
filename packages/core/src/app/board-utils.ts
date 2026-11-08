@@ -51,6 +51,20 @@ export function projectForKey(config: Config, key: string): Config['projects'][n
   return matched.length === 1 ? (matched[0] ?? null) : null;
 }
 
+/** The tracker page of a task: GitHub issue, Jira issue, or a GitHub fallback by key. */
+export function taskUrl(task: Task, config: Config): string {
+  if (task.tracker_kind === 'github-issues') {
+    const match = /^(.+)#(\d+)$/.exec(task.key);
+    if (match?.[1] !== undefined && match[2] !== undefined)
+      return `https://github.com/${match[1]}/issues/${match[2]}`;
+  }
+  const project = config.projects.find((p) => p.id === task.project);
+  if (project?.tracker.type === 'jira') {
+    return `${project.tracker.baseUrl.replace(/\/$/, '')}/browse/${task.key}`;
+  }
+  return `https://github.com/${task.key.replace('#', '/issues/')}`;
+}
+
 export async function emit<K extends EventKind>(
   trx: Trx,
   kind: K,

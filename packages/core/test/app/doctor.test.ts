@@ -165,7 +165,7 @@ describe('live feed announcement', () => {
   it('rolls back the marker and feed row with the observation transaction', async () => {
     const { store } = setup();
     await expect(
-      scanTransaction(store, async (trx) => {
+      scanTransaction(store, config, async (trx) => {
         await enqueueLiveAfterFirstPoll(trx, {
           config,
           productVersion: '1.2.3',

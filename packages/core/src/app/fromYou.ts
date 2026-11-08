@@ -4,8 +4,7 @@ import { sql } from 'kysely';
 import { evaluateSessionHealth } from '../domain/health.ts';
 import { fingerprint, orderItems, type ItemCandidate } from '../domain/fromYou.ts';
 import { parseJson, toJson } from '../store/json.ts';
-import type { Trx } from './board-utils.ts';
-import { taskUrl } from './doorbells.ts';
+import { taskUrl, type Trx } from './board-utils.ts';
 import { clearItem, raiseItem } from './feed.ts';
 
 const episodeSchema = z.object({ startedAt: z.number() }).nullable();

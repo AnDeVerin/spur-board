@@ -33,6 +33,7 @@ import {
   type ObservedGateway,
   type ObservedSpur,
 } from '../support/observe.ts';
+import { testConfig } from '../support/config.ts';
 
 const PERSONA: Persona = { name: 'worker', role: 'worker' };
 
@@ -63,6 +64,7 @@ function setup(profile: FakeProfile = 'slack-like', spaceIntervalMs?: number): C
   registered.push(observed, spur);
   const sender = createSender({
     store,
+    config: testConfig,
     gateway: observed.gateway,
     spur: spur.spur,
     now: () => fake.platform.now(),
@@ -87,7 +89,7 @@ async function seedBlock(
   taskCount += 1;
   const key = `o/r#${String(100 + taskCount)}`;
   const at = ctx.fake.platform.now().toISOString();
-  return scanTransaction(ctx.store, async (trx) => {
+  return scanTransaction(ctx.store, testConfig, async (trx) => {
     const task = await trx
       .insertInto('task')
       .values({
@@ -154,13 +156,13 @@ async function insertComment(
 
 async function addComment(ctx: Ctx, seed: Seed, text: string): Promise<number> {
   const at = ctx.fake.platform.now().toISOString();
-  return scanTransaction(ctx.store, (trx) =>
+  return scanTransaction(ctx.store, testConfig, (trx) =>
     insertComment(trx, seed.taskId, seed.blockId, text, at),
   );
 }
 
 async function enqueueOpen(ctx: Ctx, seed: Seed): Promise<number> {
-  const id = await scanTransaction(ctx.store, (trx) =>
+  const id = await scanTransaction(ctx.store, testConfig, (trx) =>
     enqueueConversationOpen(trx, {
       blockId: seed.blockId,
       commentId: seed.commentId,
@@ -173,7 +175,7 @@ async function enqueueOpen(ctx: Ctx, seed: Seed): Promise<number> {
 }
 
 async function enqueueReply(ctx: Ctx, commentId: number): Promise<number> {
-  const id = await scanTransaction(ctx.store, (trx) =>
+  const id = await scanTransaction(ctx.store, testConfig, (trx) =>
     enqueueConversationReply(trx, { commentId, persona: PERSONA, at: ctx.fake.platform.now() }),
   );
   if (id === null) throw new Error('no reply row');
@@ -188,7 +190,7 @@ async function insertRow(
   payload: unknown,
   parent: number | null = null,
 ): Promise<number> {
-  const row = await scanTransaction(ctx.store, (trx) =>
+  const row = await scanTransaction(ctx.store, testConfig, (trx) =>
     trx
       .insertInto('outbox')
       .values({
@@ -305,7 +307,7 @@ async function eventCount(ctx: Ctx, kind: 'from_you_raised' | 'from_you_cleared'
 }
 
 async function unblock(ctx: Ctx, seed: Seed): Promise<void> {
-  await scanTransaction(ctx.store, (trx) =>
+  await scanTransaction(ctx.store, testConfig, (trx) =>
     trx.updateTable('block').set({ state: 'unblocked' }).where('id', '=', seed.blockId).execute(),
   );
 }
@@ -339,7 +341,7 @@ async function replyRow(ctx: Ctx, seed: Seed, commentId: number, parent: number)
     },
     parent,
   );
-  await scanTransaction(ctx.store, (trx) =>
+  await scanTransaction(ctx.store, testConfig, (trx) =>
     trx
       .updateTable('comment')
       .set({ delivery_state: 'pending' })
@@ -353,7 +355,7 @@ describe('producers', () => {
   it('writes one open per block, idempotent by its dedupe key', async () => {
     const ctx = setup();
     const seed = await seedBlock(ctx);
-    const ids = await scanTransaction(ctx.store, async (trx) => {
+    const ids = await scanTransaction(ctx.store, testConfig, async (trx) => {
       const input = {
         blockId: seed.blockId,
         commentId: seed.commentId,
@@ -373,7 +375,7 @@ describe('producers', () => {
     const ctx = setup();
     const seed = await seedBlock(ctx);
     await expect(
-      scanTransaction(ctx.store, async (trx) => {
+      scanTransaction(ctx.store, testConfig, async (trx) => {
         await enqueueConversationOpen(trx, {
           blockId: seed.blockId,
           commentId: seed.commentId,
@@ -391,7 +393,7 @@ describe('producers', () => {
     const ctx = setup();
     for (const block of [{ author: 'operator' as const }, { addressee: 'worker' as const }]) {
       const seed = await seedBlock(ctx, block);
-      const id = await scanTransaction(ctx.store, (trx) =>
+      const id = await scanTransaction(ctx.store, testConfig, (trx) =>
         enqueueConversationOpen(trx, {
           blockId: seed.blockId,
           commentId: null,
@@ -421,7 +423,7 @@ describe('producers', () => {
   it('writes no reply for a block without an open row', async () => {
     const ctx = setup();
     const seed = await seedBlock(ctx);
-    const id = await scanTransaction(ctx.store, (trx) =>
+    const id = await scanTransaction(ctx.store, testConfig, (trx) =>
       enqueueConversationReply(trx, {
         commentId: seed.commentId,
         persona: PERSONA,
@@ -438,7 +440,7 @@ describe('producers', () => {
     await unblock(ctx, seed);
     await ctx.sender.tick();
     const c2 = await addComment(ctx, seed, 'too late');
-    const id = await scanTransaction(ctx.store, (trx) =>
+    const id = await scanTransaction(ctx.store, testConfig, (trx) =>
       enqueueConversationReply(trx, {
         commentId: c2,
         persona: PERSONA,
@@ -456,7 +458,7 @@ describe('producers', () => {
     await invalidOpen(ctx, seed);
     await ctx.sender.tick();
     const c2 = await addComment(ctx, seed, 'too late');
-    const id = await scanTransaction(ctx.store, (trx) =>
+    const id = await scanTransaction(ctx.store, testConfig, (trx) =>
       enqueueConversationReply(trx, {
         commentId: c2,
         persona: PERSONA,
@@ -600,6 +602,7 @@ async function restart(ctx: Ctx, spaceIntervalMs?: number): Promise<Ctx> {
   stores.push(store);
   const sender = createSender({
     store,
+    config: testConfig,
     gateway: ctx.observed.gateway,
     spur: ctx.spur.spur,
     now: () => ctx.fake.platform.now(),
@@ -619,10 +622,11 @@ describe('tick', () => {
         if (transactions === 2) {
           return ctx.store.close().then(() => Promise.reject(new Error('crash before send start')));
         }
-        return scanTransaction(ctx.store, fn);
+        return scanTransaction(ctx.store, testConfig, fn);
       },
     };
     const sender = createSender({
+      config: testConfig,
       store,
       gateway: ctx.observed.gateway,
       spur: ctx.spur.spur,
@@ -663,7 +667,7 @@ describe('tick', () => {
     const ctx = setup('slack-like', 0);
     const id = await feedLine(ctx, 'o/r#46', 'uncertain-crash');
     const at = ctx.fake.platform.now().toISOString();
-    await scanTransaction(ctx.store, (trx) =>
+    await scanTransaction(ctx.store, testConfig, (trx) =>
       trx
         .updateTable('outbox')
         .set({ uncertain: 1, attempts: 2, first_attempt_at: at, first_delivery_at: at })
@@ -700,6 +704,7 @@ describe('tick', () => {
       },
     };
     const sender = createSender({
+      config: testConfig,
       store: ctx.store,
       gateway,
       spur: ctx.spur.spur,
@@ -741,7 +746,7 @@ describe('tick', () => {
     const openId = await enqueueOpen(ctx, seed);
     const feedId = await feedLine(ctx, seed.key, 'stale-lane');
     const previousAt = ctx.fake.platform.now().toISOString();
-    await scanTransaction(ctx.store, (trx) =>
+    await scanTransaction(ctx.store, testConfig, (trx) =>
       trx
         .updateTable('outbox')
         .set({
@@ -760,7 +765,7 @@ describe('tick', () => {
       ...ctx.store,
       transaction(fn) {
         transactions += 1;
-        const run = scanTransaction(ctx.store, fn);
+        const run = scanTransaction(ctx.store, testConfig, fn);
         if (transactions !== 1) return run;
         return run.then(async (value) => {
           claimed.resolve(undefined);
@@ -770,6 +775,7 @@ describe('tick', () => {
       },
     };
     const sender = createSender({
+      config: testConfig,
       store,
       gateway: ctx.observed.gateway,
       spur: ctx.spur.spur,
@@ -815,7 +821,7 @@ describe('tick', () => {
       ...ctx.store,
       transaction(fn) {
         transactions += 1;
-        const run = scanTransaction(ctx.store, fn);
+        const run = scanTransaction(ctx.store, testConfig, fn);
         if (transactions !== 2) return run;
         return run.then(async (value) => {
           stamped.resolve(undefined);
@@ -825,6 +831,7 @@ describe('tick', () => {
       },
     };
     const sender = createSender({
+      config: testConfig,
       store,
       gateway: ctx.observed.gateway,
       spur: ctx.spur.spur,
@@ -848,12 +855,13 @@ describe('tick', () => {
     const store: Store = {
       ...ctx.store,
       transaction: (fn) => {
-        if (!fail) return scanTransaction(ctx.store, fn);
+        if (!fail) return scanTransaction(ctx.store, testConfig, fn);
         fail = false;
         return Promise.reject(new Error('disk full'));
       },
     };
     const sender = createSender({
+      config: testConfig,
       store,
       gateway: ctx.observed.gateway,
       spur: ctx.spur.spur,
@@ -885,6 +893,7 @@ function slowOrchestrators(ctx: Ctx, ms: number) {
     },
   };
   const sender = createSender({
+    config: testConfig,
     store: ctx.store,
     gateway,
     spur: ctx.spur.spur,
@@ -947,7 +956,7 @@ describe('maybeSent', () => {
   it('leaves a legacy uncertain row unbounded on retry', async () => {
     const ctx = setup('slack-like');
     const id = await enqueueOpen(ctx, await seedBlock(ctx));
-    await scanTransaction(ctx.store, (trx) =>
+    await scanTransaction(ctx.store, testConfig, (trx) =>
       trx.updateTable('outbox').set({ uncertain: 1 }).where('id', '=', id).execute(),
     );
 
@@ -1038,7 +1047,7 @@ describe('delivered records refs', () => {
       persona: PERSONA,
       body: [],
     };
-    await scanTransaction(ctx.store, () => probe.gateway.deliver(req));
+    await scanTransaction(ctx.store, testConfig, () => probe.gateway.deliver(req));
     expect(probe.violations).toHaveLength(1);
   });
 });
@@ -1074,6 +1083,7 @@ describe('failures', () => {
       },
     };
     const sender = createSender({
+      config: testConfig,
       store: ctx.store,
       gateway,
       spur: ctx.spur.spur,
@@ -1158,7 +1168,7 @@ describe('dependencies', () => {
     const c2 = await addComment(ctx, seed, 'more');
     const reply = await enqueueReply(ctx, c2);
     const close = await closeRow(ctx, seed, reply);
-    await scanTransaction(ctx.store, (trx) =>
+    await scanTransaction(ctx.store, testConfig, (trx) =>
       trx.updateTable('block').set({ state: 'unblocked' }).where('id', '=', seed.blockId).execute(),
     );
     await ctx.sender.tick();
@@ -1236,7 +1246,7 @@ describe('dependencies', () => {
   it('recovers a reply posted before an uncertain open was registered', async () => {
     const ctx = setup('slack-like');
     const seed = await seedBlock(ctx, { author: 'system', addressee: 'operator' });
-    await scanTransaction(ctx.store, (trx) =>
+    await scanTransaction(ctx.store, testConfig, (trx) =>
       trx
         .updateTable('block')
         .set({ type: 'needs_input' })
@@ -1306,7 +1316,7 @@ describe('dependencies', () => {
     const ctx = setup('slack-like');
     const seed = await seedBlock(ctx);
     const openId = await enqueueOpen(ctx, seed);
-    await scanTransaction(ctx.store, async (trx) => {
+    await scanTransaction(ctx.store, testConfig, async (trx) => {
       await trx
         .updateTable('block')
         .set({
@@ -1349,7 +1359,7 @@ describe('dependencies', () => {
     ctx.fake.platform.timeoutNext({ visible: true });
     await ctx.sender.tick();
     expect(await outboxRow(ctx, openId)).toMatchObject({ state: 'pending', uncertain: 1 });
-    await scanTransaction(ctx.store, async (trx) => {
+    await scanTransaction(ctx.store, testConfig, async (trx) => {
       await trx
         .updateTable('block')
         .set({
@@ -1400,7 +1410,7 @@ describe('dependencies', () => {
     const visible = ctx.fake.platform.conversations()[0];
     const root = ctx.fake.platform.messages()[0];
     if (visible === undefined || root === undefined) throw new Error('Expected uncertain root');
-    await scanTransaction(ctx.store, async (trx) => {
+    await scanTransaction(ctx.store, testConfig, async (trx) => {
       await trx
         .insertInto('conversation')
         .values({
@@ -1568,6 +1578,7 @@ describe('transport health', () => {
       },
     };
     const sender = createSender({
+      config: testConfig,
       store: ctx.store,
       gateway,
       spur: ctx.spur.spur,
@@ -1620,10 +1631,11 @@ describe('transport health', () => {
       ...ctx.store,
       transaction: (fn) => {
         ctx.fake.platform.advance(3000);
-        return scanTransaction(ctx.store, fn);
+        return scanTransaction(ctx.store, testConfig, fn);
       },
     };
     const sender = createSender({
+      config: testConfig,
       store,
       gateway,
       spur: ctx.spur.spur,
@@ -1798,7 +1810,7 @@ describe('transport health', () => {
     await step(ctx);
     expect(ctx.observed.requests).toHaveLength(1);
     const gateway = ctx.observed.gateway.kind;
-    const armed = await scanTransaction(ctx.store, (trx) =>
+    const armed = await scanTransaction(ctx.store, testConfig, (trx) =>
       retryTransport(trx, gateway, ctx.fake.platform.now().toISOString()),
     );
     expect(armed).toBe(1);
@@ -1808,7 +1820,7 @@ describe('transport health', () => {
     expect(await healthRows(ctx)).toEqual([]);
     expect(await activeTransportItems(ctx)).toEqual([]);
     expect(
-      await scanTransaction(ctx.store, (trx) =>
+      await scanTransaction(ctx.store, testConfig, (trx) =>
         retryTransport(trx, gateway, ctx.fake.platform.now().toISOString()),
       ),
     ).toBe(0);

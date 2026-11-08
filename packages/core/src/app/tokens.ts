@@ -4,6 +4,7 @@ import {
   EVENT_VERSION,
   RESERVED_PROJECT,
   eventPayloadSchemas,
+  type Config,
   type EventKind,
 } from '@spur-board/contracts';
 import type { Kysely } from 'kysely';
@@ -75,6 +76,7 @@ export interface TokenRequest {
 /** Register a hash and its approval item together. The raw file secret never reaches this app. */
 export async function requestToken(
   store: Store,
+  config: Config,
   input: TokenRequest,
   at: Date,
 ): Promise<{ name: string; status: 'pending'; expiresAt: string }> {
@@ -86,7 +88,7 @@ export async function requestToken(
     throw new CommandError('usage', 'Provide a name, folder and SHA-256 token hash.');
   }
   const expiresAt = new Date(at.getTime() + REQUEST_LIFETIME_MS).toISOString();
-  return scanTransaction(store, async (trx) => {
+  return scanTransaction(store, config, async (trx) => {
     const existing = await trx
       .selectFrom('operator_token')
       .selectAll()
@@ -174,7 +176,7 @@ export async function decideTokenInTransaction(
 }
 
 /** Clear unreviewed requests even when no approval button is pressed. */
-export async function expirePendingTokens(store: Store, at: Date): Promise<number> {
+export async function expirePendingTokens(store: Store, config: Config, at: Date): Promise<number> {
   const expiresAt = at.toISOString();
   const due = await store.db
     .selectFrom('operator_token')
@@ -183,7 +185,7 @@ export async function expirePendingTokens(store: Store, at: Date): Promise<numbe
     .where('expires_at', '<=', expiresAt)
     .executeTakeFirst();
   if (due === undefined) return 0;
-  return scanTransaction(store, async (trx) => {
+  return scanTransaction(store, config, async (trx) => {
     const rows = await trx
       .selectFrom('operator_token')
       .select(['id', 'name', 'item_id'])

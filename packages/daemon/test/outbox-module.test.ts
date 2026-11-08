@@ -18,12 +18,13 @@ describe('outbox scheduler', () => {
     const store = openStore(join(home, 'board.sqlite'));
     const requestedAt = new Date('2026-11-04T10:00:00.000Z');
     const late = requestedAt.getTime() + 15 * 60 * 1000;
+    const loaded = loadConfig(resolvePaths({ BOARD_HOME: home }, home));
     await requestToken(
       store,
+      loaded.config,
       { name: 'desk', folder: 'workspace/desk', host: 'local', hash: 'a'.repeat(64) },
       requestedAt,
     );
-    const loaded = loadConfig(resolvePaths({ BOARD_HOME: home }, home));
     const ctx: ModuleContext<Store> = {
       ...loaded,
       store,
@@ -226,6 +227,7 @@ describe('outbox scheduler', () => {
       expect(skipped).toMatchObject({ state: 'pending', uncertain: 0, attempts: 0 });
       const restarted = createSender({
         store: base,
+        config: loaded.config,
         gateway,
         spur: { send: () => Promise.resolve() },
       });

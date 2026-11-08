@@ -103,7 +103,7 @@ export function createOutboxModule(
     active = active
       .then(() =>
         ctx.logCall('outbox.tick', async () => {
-          await expirePendingTokens(ctx.store, new Date(ctx.clock.now()));
+          await expirePendingTokens(ctx.store, ctx.config, new Date(ctx.clock.now()));
           if (!signal?.aborted) await sender.tick(signal);
         }),
       )

@@ -181,7 +181,12 @@ export async function createApiServer(options: ApiOptions): Promise<FastifyInsta
     const parsed = tokenRequestSchema.safeParse(request.body);
     if (!parsed.success)
       throw new CommandError('usage', 'Provide a name, folder, host and token hash.');
-    const result = await requestToken(options.store, parsed.data, new Date(options.clock.now()));
+    const result = await requestToken(
+      options.store,
+      options.config,
+      parsed.data,
+      new Date(options.clock.now()),
+    );
     return reply.send(
       successEnvelopeSchema.parse({ ok: true, requestId: request.id, value: result }),
     );
