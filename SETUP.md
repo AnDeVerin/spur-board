@@ -39,6 +39,18 @@ an app manifest, then create or update the app in Slack:
 board slack manifest --app-name spur-board --command /board
 ```
 
+The slash command, the app name and the channel names must not already be used by another app
+or another Board in the same workspace. When two Boards share a workspace and use the same
+command or channel names, commands and delivery can reach the wrong Board. Before you generate
+the manifest, type the command in a Slack message box and check that autocomplete offers no
+existing command with that name, and check the workspace's installed apps and channels. If a name
+is taken, pick a prefix of your own and use it for every name, for example the `/acme-board`
+command, the `acme-board` app, and the `#acme-orchestrators` and `#acme-board-feed` channels:
+
+```sh
+board slack manifest --app-name acme-board --command /acme-board
+```
+
 The manifest does not create the app-level token. Create one with `connections:write` in the
 app settings. Install the app to the workspace to obtain its bot token (`xoxb-…`); put that
 value in `SLACK_BOT_TOKEN`. Put the app-level `connections:write` token (`xapp-…`) in

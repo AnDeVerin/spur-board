@@ -134,7 +134,9 @@ Invite the bot to the private feed channel whose ID is stored in `slack.channels
 
 Check that the installed Slack slash command matches `slack.command` in `config.yaml`.
 `/board` is the default, not a fixed name. To verify the installed manifest through the API,
-provide `SLACK_APP_CONFIG_TOKEN` and `slack.appId`; otherwise inspect the command manually.
+provide `SLACK_APP_CONFIG_TOKEN` and `slack.appId`; otherwise inspect the command manually. If
+the command answers from another app or Board, see
+[Slash command answers from another app](#slash-command-answers-from-another-app).
 
 ### slack.configured
 
@@ -174,6 +176,22 @@ old Node or package path, run `board service install` again.
 - **5 — outcome unknown:** the action may already have happened. Read the task or item first;
   if a mutation still needs to be retried, reuse its original idempotency key. A read-only
   request can be repeated after the dependency recovers.
+
+## Slash command answers from another app
+
+**Symptom:** the Board's slash command gets a reply from another app or another operator's
+Board, or Board commands and feed posts reach the wrong Board.
+
+**Cause:** another app or Board in the same workspace uses the same slash command or channel
+names.
+
+**Fix:** choose a command that no other app in the workspace uses, for example one with your own
+prefix such as `/acme-board`; type it in a Slack message box to check that autocomplete offers no
+existing command with that name. Regenerate the manifest with
+`board slack manifest --app-name <name> --command <slash-command>`, update the app in Slack from
+it, and reinstall the app to the workspace. Set `slack.command` in `config.yaml` to the new
+command, restart the service with `board service restart`, and rerun `board doctor`. Use
+channels of your own with distinct names, and check that `slack.channels` holds their IDs.
 
 ## Doorbells not arriving
 
