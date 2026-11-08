@@ -616,6 +616,40 @@ Example:
 }
 ```
 
+## service_start_failed
+
+The service unit is installed, but the service did not start.
+
+HTTP: client-side  
+Exit code: 4  
+Hint: Read why it failed with `journalctl --user -u spur-board.service -n 100` and run `board doctor`; systemd keeps restarting the service until the cause is fixed.  
+Recovery: Fix the cause shown by `journalctl --user -u spur-board.service -n 100` and `board doctor`, then run `board service restart`.  
+Side effects: applied  
+Retry: maximum 0; After fixing the cause.
+
+Example:
+
+```json
+{
+  "ok": false,
+  "requestId": "req-example-123",
+  "error": {
+    "code": "service_start_failed",
+    "requestId": "req-example-123",
+    "message": "The service unit is installed, but the service did not start.",
+    "hint": "Read why it failed with `journalctl --user -u spur-board.service -n 100` and run `board doctor`; systemd keeps restarting the service until the cause is fixed.",
+    "docs": "docs/errors.md#service_start_failed",
+    "recovery": {
+      "action": "Fix the cause shown by `journalctl --user -u spur-board.service -n 100` and `board doctor`, then run `board service restart`.",
+      "sideEffects": "applied",
+      "maxRetries": 0,
+      "retryTiming": "After fixing the cause."
+    },
+    "context": {}
+  }
+}
+```
+
 ## outcome_unknown
 
 The connection was lost after the request was sent; it may have been applied.

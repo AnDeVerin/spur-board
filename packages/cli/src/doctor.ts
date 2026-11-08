@@ -13,6 +13,7 @@ import { parseEnv } from 'node:util';
 import { configSchema, requiredSecretKeys, type Config } from '@spur-board/contracts';
 import YAML from 'yaml';
 import { configFile, resolveDaemonAddress } from './config.ts';
+import { bindLoopback, checkHttpPort } from './port.ts';
 
 export interface DoctorCheck {
   id: string;
@@ -47,6 +48,7 @@ export interface DoctorPorts {
   sessions(): SessionProcess[];
   fetcher: typeof fetch;
   productVersion(): string;
+  bind(port: number): Promise<string | null>;
 }
 
 function systemRun(command: string, args: readonly string[], env?: NodeJS.ProcessEnv) {
@@ -135,6 +137,7 @@ const defaultPorts: DoctorPorts = {
       return value.version;
     throw new Error('Invalid package version');
   },
+  bind: bindLoopback,
 };
 
 function result(id: string, ok: boolean, fix: string): DoctorCheck {
@@ -435,6 +438,13 @@ export async function runDoctor(
         )
       : result('sessions.stale', true, 'Restart older sessions.'),
   );
+
+  // The probe uses the port the daemon listens on, never the client's BOARD_DAEMON_URL.
+  const portFix = await checkHttpPort(config.http.port, {
+    bind: ports.bind,
+    run: (command, args) => Promise.resolve(ports.run(command, args)),
+  });
+  checks.push(result('http.port', portFix === null, portFix ?? ''));
 
   let remote: { version: string; checks: DoctorCheck[] } | null = null;
   try {

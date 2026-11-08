@@ -1,7 +1,10 @@
+import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
 import { runCli, type CliIo } from '../src/cli.ts';
 import type { DoctorCheck, DoctorPorts } from '../src/doctor.ts';
+import { bindLoopback } from '../src/port.ts';
+import { holder, trickler } from './http-holder.ts';
 
 const yaml = `projects:
   - id: board
@@ -88,6 +91,7 @@ function ports(overrides: Partial<DoctorPorts> = {}): DoctorPorts {
         }),
       ),
     productVersion: () => '1.2.3',
+    bind: () => Promise.resolve(null),
     ...overrides,
   };
 }
@@ -220,6 +224,7 @@ describe('board doctor', () => {
       'path.spur',
       'skills.codex_visibility',
       'sessions.stale',
+      'http.port',
       'daemon.available',
       ...remoteIds,
       'versions',
@@ -400,6 +405,9 @@ describe('board doctor', () => {
       },
       productVersion: () => {
         throw new Error('offline version check');
+      },
+      bind: () => {
+        throw new Error('offline port check');
       },
     });
     const value = await run(['doctor', '--offline', '--json'], fake);
@@ -657,5 +665,134 @@ describe('board doctor', () => {
     expect(value.checks.find((entry) => entry.id === 'sessions.stale')?.fix).toBe(
       'Restart sessions started before the last skill install: old; verify sessions whose start time is unavailable.',
     );
+  });
+});
+
+describe('http.port check', () => {
+  const ssLine = (port: number, users: boolean) =>
+    `State Recv-Q Send-Q Local Address:Port Peer Address:Port Process\nLISTEN 0 511 127.0.0.1:${String(port)} 0.0.0.0:*${users ? ' users:(("spur-web",pid=4242,fd=21))' : ''}\n`;
+
+  function probePorts(port: number, ss: string, overrides: Partial<DoctorPorts> = {}) {
+    return ports({
+      readText(path) {
+        if (path.endsWith('config.yaml')) return `${yaml}\nhttp: { port: ${String(port)} }\n`;
+        return ports().readText(path);
+      },
+      run: (command, args, env) =>
+        command === 'ss' ? { exitCode: 0, stdout: ss } : ports().run(command, args, env),
+      bind: bindLoopback,
+      ...overrides,
+    });
+  }
+
+  it.each([
+    ['names the holder', {}, true, 'spur-web (pid 4242)'],
+    ['falls back when the holder is hidden', {}, false, 'a process not visible to this user'],
+    [
+      'rejects a malformed instance header',
+      { 'x-board-instance': 'not-a-uuid' },
+      true,
+      'spur-web (pid 4242)',
+    ],
+  ] as const)('%s', async (_name, headers, users, named) => {
+    const server = await holder(headers);
+    try {
+      const value = await run(
+        ['doctor', '--json'],
+        probePorts(server.port, ssLine(server.port, users)),
+      );
+      expect(value.exitCode).toBe(1);
+      const check = value.checks.find((entry) => entry.id === 'http.port');
+      expect(check).toMatchObject({ status: 'fail', blocking: true });
+      expect(check?.fix).toContain(String(server.port));
+      expect(check?.fix).toContain(named);
+      expect(server.paths).toEqual(['/v1/schema']);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('does not follow a redirect to a board daemon on another port', async () => {
+    const daemon = await holder({ 'x-board-instance': randomUUID() });
+    const server = await holder(
+      { location: `http://127.0.0.1:${String(daemon.port)}/v1/schema` },
+      307,
+    );
+    try {
+      const value = await run(
+        ['doctor', '--json'],
+        probePorts(server.port, ssLine(server.port, true)),
+      );
+      expect(value.exitCode).toBe(1);
+      expect(value.checks.find((entry) => entry.id === 'http.port')).toMatchObject({
+        status: 'fail',
+        blocking: true,
+      });
+      expect(server.paths).toEqual(['/v1/schema']);
+      expect(daemon.paths).toEqual([]);
+    } finally {
+      await server.close();
+      await daemon.close();
+    }
+  });
+
+  it('stops waiting for a holder that trickles headers', async () => {
+    const server = await trickler();
+    try {
+      const value = await run(
+        ['doctor', '--json'],
+        probePorts(server.port, ssLine(server.port, true)),
+      );
+      expect(value.exitCode).toBe(1);
+      expect(value.checks.find((entry) => entry.id === 'http.port')).toMatchObject({
+        status: 'fail',
+        blocking: true,
+      });
+    } finally {
+      await server.close();
+    }
+  }, 10_000);
+
+  it('passes when free', async () => {
+    const server = await holder({});
+    const port = server.port;
+    await server.close();
+    const value = await run(['doctor', '--json'], probePorts(port, ''));
+    expect(value.exitCode).toBe(0);
+    expect(value.checks.find((entry) => entry.id === 'http.port')).toEqual({
+      id: 'http.port',
+      status: 'pass',
+      blocking: false,
+      fix: null,
+    });
+  });
+
+  it('passes when a board daemon holds it', async () => {
+    const server = await holder({ 'x-board-instance': randomUUID() });
+    try {
+      const fake = probePorts(server.port, '', {
+        run: (command, args, env) => {
+          if (command === 'ss') throw new Error('ss is not needed for a board daemon');
+          return ports().run(command, args, env);
+        },
+      });
+      const value = await run(['doctor', '--json'], fake);
+      expect(value.exitCode).toBe(0);
+      expect(value.checks.find((entry) => entry.id === 'http.port')?.status).toBe('pass');
+      expect(server.paths).toEqual(['/v1/schema']);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('passes on port 0', async () => {
+    const fake = probePorts(0, '', {
+      bind: () => {
+        throw new Error('port 0 is never probed');
+      },
+    });
+    const value = await run(['doctor', '--json'], fake);
+    expect(value.exitCode).toBe(0);
+    expect(value.checks.find((entry) => entry.id === 'http.port')?.status).toBe('pass');
   });
 });

@@ -1,8 +1,12 @@
+import { randomUUID } from 'node:crypto';
 import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { ERRORS } from '@spur-board/contracts';
 import { runCli, type CliIo } from '../src/cli.ts';
+import { bindLoopback } from '../src/port.ts';
+import { holder } from './http-holder.ts';
 import {
   installService,
   renderUserUnit,
@@ -21,7 +25,10 @@ afterEach(async () => {
   await Promise.all(temporaryDirectories.splice(0).map((path) => rm(path, { recursive: true })));
 });
 
-function fakeRunner(active = false): {
+function fakeRunner(
+  active = false,
+  ss = '',
+): {
   calls: { command: string; args: string[] }[];
   run: CommandRunner;
 } {
@@ -36,12 +43,16 @@ function fakeRunner(active = false): {
     }
     if (args.includes('is-enabled')) result = { exitCode: 1, stdout: 'disabled\n', stderr: '' };
     if (command === 'loginctl') result = { exitCode: 0, stdout: 'no\n', stderr: '' };
+    if (command === 'ss') result = { exitCode: 0, stdout: ss, stderr: '' };
     return Promise.resolve(result);
   };
   return { calls, run };
 }
 
-async function fixture(active = false): Promise<{
+async function fixture(
+  active = false,
+  ss = '',
+): Promise<{
   root: string;
   options: ServiceOptions;
   paths: ReturnType<typeof servicePaths>;
@@ -62,7 +73,7 @@ async function fixture(active = false): Promise<{
   await writeFile(nodePath, 'node', { mode: 0o700 });
   await writeFile(daemonEntry, 'daemon');
   await writeFile(join(env.BOARD_HOME, 'secrets.env'), 'BOARD_TOKEN=secret\n', { mode: 0o600 });
-  const fake = fakeRunner(active);
+  const fake = fakeRunner(active, ss);
   const options: ServiceOptions = {
     home,
     env,
@@ -70,8 +81,85 @@ async function fixture(active = false): Promise<{
     daemonEntry,
     username: 'operator',
     runner: fake.run,
+    bind: () => Promise.resolve(null),
   };
   return { root, options, paths: servicePaths(options), calls: fake.calls };
+}
+
+const startFailure =
+  'Job for spur-board.service failed because the control process exited with error code.';
+
+function failingStartRunner(
+  target: 'enable' | 'restart',
+  activeBeforeFailure = false,
+): { calls: { command: string; args: string[] }[]; run: CommandRunner } {
+  const calls: { command: string; args: string[] }[] = [];
+  let failed = false;
+  const run: CommandRunner = (command, args) => {
+    calls.push({ command, args: [...args] });
+    if (args.includes(target)) {
+      failed = true;
+      return Promise.resolve({ exitCode: 1, stdout: '', stderr: `${startFailure}\n` });
+    }
+    if (args.includes('is-active')) {
+      return Promise.resolve(
+        !failed && activeBeforeFailure
+          ? { exitCode: 0, stdout: 'active\n', stderr: '' }
+          : { exitCode: 3, stdout: 'activating\n', stderr: '' },
+      );
+    }
+    if (args.includes('is-enabled')) {
+      return Promise.resolve({ exitCode: 0, stdout: 'enabled\n', stderr: '' });
+    }
+    return Promise.resolve({ exitCode: 0, stdout: '', stderr: '' });
+  };
+  return { calls, run };
+}
+
+async function runService(
+  args: string[],
+  options: ServiceOptions,
+): Promise<{ exit: number; stdout: string; stderr: string }> {
+  const output = { stdout: '', stderr: '' };
+  const io: CliIo = {
+    isTTY: false,
+    stdout: (text) => {
+      output.stdout += text;
+    },
+    stderr: (text) => {
+      output.stderr += text;
+    },
+  };
+  const exit = await runCli(args, { env: options.env ?? {}, io, setup: options });
+  return { exit, ...output };
+}
+
+const systemctl = (...args: string[]) => ({ command: 'systemctl', args: ['--user', ...args] });
+
+/** A schema-valid config.yaml, so install reads this port instead of the default. */
+async function writeConfig(options: ServiceOptions, port: number): Promise<void> {
+  const boardHome = options.env?.['BOARD_HOME'];
+  if (boardHome === undefined) throw new Error('fixture has no BOARD_HOME');
+  await writeFile(
+    join(boardHome, 'config.yaml'),
+    `projects:
+  - id: board
+    tracker:
+      type: github-issues
+      repo: example/board
+      label: board
+    repos: [example/board]
+    operatorGithubLogin: operator
+    spurProjects:
+      - name: worker
+        role: worker
+operator:
+  slack: U0000000000
+digest:
+  tz: UTC
+http: { port: ${String(port)} }
+`,
+  );
 }
 
 describe('service', () => {
@@ -135,8 +223,144 @@ describe('service', () => {
     ).toBe(4);
     expect(output.stdout).toBe('');
     expect(output.stderr).toContain('daemon entry is missing or unreadable');
+    expect(output.stderr).toContain('error: config:');
+    expect(output.stderr).toContain('side effects: none');
+    expect(output.stderr).not.toContain('service_start_failed');
     expect(calls).toEqual([]);
     await expect(stat(paths.unitFile)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('reports a failed enable --now as a service start failure with the unit applied', async () => {
+    const { options, paths } = await fixture();
+    const fake = failingStartRunner('enable');
+    const result = await runService(['--json', 'service', 'install'], {
+      ...options,
+      runner: fake.run,
+    });
+
+    expect(result.exit).toBe(4);
+    expect(result.stdout).toBe('');
+    const { error } = JSON.parse(result.stderr) as {
+      error: {
+        code: string;
+        message: string;
+        hint: string;
+        recovery: { sideEffects: string; action: string };
+      };
+    };
+    expect(error.code).toBe('service_start_failed');
+    expect(error.message).toBe(ERRORS.service_start_failed.message);
+    expect(error.recovery.sideEffects).toBe('applied');
+    expect(error.recovery.action).toContain('journalctl --user -u spur-board.service');
+    expect(error.hint).toContain(paths.unitFile);
+    expect(error.hint).toContain('enabled');
+    expect(error.hint).toContain('activating');
+    expect(error.hint).toContain(startFailure);
+    expect(error.hint).toContain('journalctl --user -u spur-board.service -n 100');
+    expect(await readFile(paths.unitFile, 'utf8')).toBe(renderUserUnit(paths));
+    expect(fake.calls).toEqual([
+      systemctl('daemon-reload'),
+      systemctl('enable', '--now', 'spur-board.service'),
+      systemctl('is-active', 'spur-board.service'),
+      systemctl('is-enabled', 'spur-board.service'),
+    ]);
+  });
+
+  it('prints a failed enable --now as applied in the human form', async () => {
+    const { options } = await fixture();
+    const fake = failingStartRunner('enable');
+    const result = await runService(['service', 'install'], { ...options, runner: fake.run });
+
+    expect(result.exit).toBe(4);
+    expect(result.stderr).toContain('error: service_start_failed:');
+    expect(result.stderr).toContain('side effects: applied');
+    expect(result.stderr).not.toContain('error: config:');
+    expect(result.stderr).not.toContain('side effects: none');
+  });
+
+  it('reports a failed restart after a unit change as a service start failure', async () => {
+    const { options, paths } = await fixture();
+    await mkdir(dirname(paths.unitFile), { recursive: true });
+    await writeFile(paths.unitFile, 'old unit\n');
+    const fake = failingStartRunner('restart', true);
+    const result = await runService(['--json', 'service', 'install'], {
+      ...options,
+      runner: fake.run,
+    });
+
+    expect(result.exit).toBe(4);
+    const { error } = JSON.parse(result.stderr) as {
+      error: { code: string; hint: string; recovery: { sideEffects: string } };
+    };
+    expect(error.code).toBe('service_start_failed');
+    expect(error.recovery.sideEffects).toBe('applied');
+    expect(error.hint).toContain(paths.unitFile);
+    expect(error.hint).toContain('activating');
+    expect(error.hint).toContain('enabled');
+    expect(fake.calls).toEqual([
+      systemctl('daemon-reload'),
+      systemctl('is-active', 'spur-board.service'),
+      systemctl('enable', '--now', 'spur-board.service'),
+      systemctl('restart', 'spur-board.service'),
+      systemctl('is-active', 'spur-board.service'),
+      systemctl('is-enabled', 'spur-board.service'),
+    ]);
+  });
+
+  it('reports a failed board service restart as a service start failure', async () => {
+    const { options, paths } = await fixture();
+    await mkdir(dirname(paths.unitFile), { recursive: true });
+    await writeFile(paths.unitFile, renderUserUnit(paths));
+    const fake = failingStartRunner('restart');
+    const result = await runService(['--json', 'service', 'restart'], {
+      ...options,
+      runner: fake.run,
+    });
+
+    expect(result.exit).toBe(4);
+    const { error } = JSON.parse(result.stderr) as {
+      error: { code: string; hint: string; recovery: { sideEffects: string } };
+    };
+    expect(error.code).toBe('service_start_failed');
+    expect(error.recovery.sideEffects).toBe('applied');
+    expect(error.hint).toContain(startFailure);
+    expect(fake.calls).toEqual([
+      systemctl('restart', 'spur-board.service'),
+      systemctl('is-active', 'spur-board.service'),
+      systemctl('is-enabled', 'spur-board.service'),
+    ]);
+  });
+
+  it('keeps the start failure when the state read-back cannot run', async () => {
+    const { options } = await fixture();
+    const fake = failingStartRunner('enable');
+    const runner: CommandRunner = (command, args) =>
+      args.includes('is-active') || args.includes('is-enabled')
+        ? Promise.reject(new Error('spawn systemctl EAGAIN'))
+        : fake.run(command, args);
+    const result = await runService(['--json', 'service', 'install'], { ...options, runner });
+
+    expect(result.exit).toBe(4);
+    const { error } = JSON.parse(result.stderr) as {
+      error: { code: string; hint: string; recovery: { sideEffects: string } };
+    };
+    expect(error.code).toBe('service_start_failed');
+    expect(error.recovery.sideEffects).toBe('applied');
+    expect(error.hint).toContain('is unknown; the service is unknown');
+    expect(error.hint).toContain(startFailure);
+  });
+
+  it('reports a restart without an installed unit as missing, with no side effects', async () => {
+    const { options, paths, calls } = await fixture();
+    const result = await runService(['service', 'restart'], options);
+
+    expect(result.exit).toBe(4);
+    expect(result.stderr).toContain('error: config:');
+    expect(result.stderr).toContain(`Unit file ${paths.unitFile} is not installed`);
+    expect(result.stderr).toContain('`board service install`');
+    expect(result.stderr).toContain('side effects: none');
+    expect(result.stderr).not.toContain('service_start_failed');
+    expect(calls).toEqual([]);
   });
 
   it('renders an exact systemd user unit with absolute paths and stop timeout', () => {
@@ -280,5 +504,68 @@ describe('service', () => {
     calls.length = 0;
     expect(await uninstallService(options)).toEqual({ changed: false });
     expect(calls).toEqual([]);
+  });
+
+  it('stops before enabling the unit when http.port is held', async () => {
+    const server = await holder({});
+    try {
+      const ss = `LISTEN 0 511 127.0.0.1:${String(server.port)} 0.0.0.0:* users:(("spur-web",pid=4242,fd=21))\n`;
+      const { options, paths, calls } = await fixture(false, ss);
+      await writeConfig(options, server.port);
+      const output = { stdout: '', stderr: '' };
+      const io: CliIo = {
+        isTTY: false,
+        stdout: (text) => {
+          output.stdout += text;
+        },
+        stderr: (text) => {
+          output.stderr += text;
+        },
+      };
+      expect(
+        await runCli(['service', 'install'], {
+          env: options.env ?? {},
+          io,
+          setup: { ...options, bind: bindLoopback },
+        }),
+      ).toBe(4);
+      expect(output.stdout).toBe('');
+      expect(output.stderr).toContain(`Port ${String(server.port)} (http.port)`);
+      expect(output.stderr).toContain('spur-web (pid 4242)');
+      expect(calls).toEqual([
+        { command: 'ss', args: ['-ltnp', `sport = :${String(server.port)}`] },
+      ]);
+      await expect(stat(paths.unitFile)).rejects.toMatchObject({ code: 'ENOENT' });
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('proceeds when a board daemon holds http.port', async () => {
+    const server = await holder({ 'x-board-instance': randomUUID() });
+    try {
+      const { options, paths, calls } = await fixture();
+      await writeConfig(options, server.port);
+      expect(await installService({ ...options, bind: bindLoopback })).toEqual({
+        unitFile: paths.unitFile,
+        changed: true,
+      });
+      expect(calls).toEqual([
+        { command: 'systemctl', args: ['--user', 'daemon-reload'] },
+        { command: 'systemctl', args: ['--user', 'enable', '--now', 'spur-board.service'] },
+      ]);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('skips the probe for http.port 0', async () => {
+    const { options, paths } = await fixture();
+    await writeConfig(options, 0);
+    const bind = () => Promise.reject(new Error('port 0 is never probed'));
+    expect(await installService({ ...options, bind })).toEqual({
+      unitFile: paths.unitFile,
+      changed: true,
+    });
   });
 });
