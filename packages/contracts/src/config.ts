@@ -113,7 +113,11 @@ const githubIssuesTracker = z
 
 const spurProject = z.strictObject({
   name: nonEmpty,
-  role: z.enum(['worker', 'operator']),
+  role: z
+    .enum(['worker', 'operator'])
+    .describe(
+      "worker: sessions of this Spur project may link to this project's tasks through their PR or branch. operator: sessions act as the operator.",
+    ),
 });
 
 const columnConfig = z.strictObject({
@@ -205,7 +209,12 @@ const projectSchema = z
       .describe(
         'How a github-issues project links a PR in tracker.repo to its issue. A Jira project ignores it and links by tracker.projectKeys.',
       ),
-    operatorGithubLogin: z.string().regex(/^[A-Za-z0-9-]{1,39}$/, 'Expected a GitHub login'),
+    operatorGithubLogin: z
+      .string()
+      .regex(/^[A-Za-z0-9-]{1,39}$/, 'Expected a GitHub login')
+      .describe(
+        "The GitHub account agents open PRs under. PR discovery in repos keeps only PRs whose author is this login. It is not necessarily the maintainer's own account: when agents push as one account and a maintainer approves as another, set the agents' account, or no PR is discovered.",
+      ),
     spurProjects: z
       .array(spurProject)
       .superRefine((items, ctx) => {

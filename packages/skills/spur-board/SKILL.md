@@ -6,8 +6,7 @@ description: Use the Board to read task state and handle worker questions, inbox
 # Spur Board
 
 The Board records task state, questions, comments, and work that needs attention. Read task
-state before acting. The role sections link commands and their flags; task state may still
-restrict an action.
+state before acting.
 
 Use `board schema --role worker --json` or `board schema --role orchestrator --json` for
 current operation IDs, inputs, grants, and errors.
@@ -24,6 +23,9 @@ operation result or current state before retrying.
 
 ## Worker flow
 
+- If `board task <task>` lists no worker link for your session, run
+  `spur slots --session "$SPUR_SESSION" --link board-worker=<issue URL>`, or ask the operator
+  for `board link`. Spell the URL as the task key: `o/r#12` is `https://github.com/o/r/issues/12`.
 - Ask a blocking question with keyed `board ask <task> <text>`; keep its B<number> ID and
   wait for the doorbell.
   Use keyed `board comment <task> <text>` for nonblocking updates.
@@ -37,17 +39,15 @@ operation result or current state before retrying.
 - Exit 3 means not applied. Ask in your own session immediately. When the Board returns,
   retry `board ask` with identical text and key; retry failed `--done` identically too.
 - Exit 4 means this session lacks Board configuration. Ask in your own session immediately
-  and say the Board is not configured so the operator can fix it. Keep the original key for
-  retry after setup; never make a new key for that retry.
+  and say the Board is not configured so the operator can fix it. Keep the original key to
+  retry after setup.
 - Exit 5 (unknown): retry up to three times within about a minute, then ask in your
   own session. Repeat reads (`board inbox`, `board task`) without `--key`. For mutations,
-  check the outcome first; if unclear, repeat the same command, input, and key. Keep that
-  mutation key for recovery; give each new action a fresh key.
+  check the outcome first; if unclear, repeat the same command, input, and key.
 - For an answer received in your own session, add one keyed task-level comment recording
   provenance only, without the answer. Use keyed `board unblock <block> --withdraw <answer>`
   on the recovered B<number> question: it records the block answer and sends the conversation
-  reply. Check uncertain outcomes and retry only with identical answer and key. Add no other
-  answer comment or reply.
+  reply. Add no other answer comment or reply.
 - Only the session that asked may `--withdraw`. A replacement session with the answer posts
   its provenance in a keyed `board comment`, leaves the block open for the operator, and does
   not retry `--withdraw`.

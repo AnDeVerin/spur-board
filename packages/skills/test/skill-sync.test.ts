@@ -29,7 +29,7 @@ const setupSkill = readFileSync(setupSkillPath, 'utf8');
 const publicGuides = [readmePath, setupGuidePath, troubleshootingPath, runbookPath].map((path) =>
   readFileSync(path, 'utf8'),
 );
-const setupReferenceNames = ['secrets.md', 'slack.md', 'update.md'];
+const setupReferenceNames = ['secrets.md', 'slack.md', 'update.md', 'worker-links.md'];
 const setupReferenceTexts = setupReferenceNames.map((name) =>
   readFileSync(new URL(`../setup/references/${name}`, import.meta.url), 'utf8'),
 );
@@ -305,6 +305,11 @@ describe('product skill sync', () => {
     expect(invocations(fullText).length).toBeGreaterThan(40);
   });
 
+  it('tells workers how to link their session', () => {
+    expect(skill).toContain('--link board-worker=');
+    expect(skill).toContain('`board link`');
+  });
+
   it('gives workers operator-safe recovery for archived tasks', () => {
     expect(ERRORS.task_archived.hint).toContain('Ask an operator');
     expect(referenceText).toContain(`\`task_archived\`: ${ERRORS.task_archived.hint}`);
@@ -373,6 +378,13 @@ describe('setup skill sync', () => {
     }
   });
 
+  it('asks for the PR-author login and checks worker links', () => {
+    expect(setupSkill).toContain('open PRs under');
+    expect(setupSkill).toContain('references/worker-links.md');
+    expect(setupFullText).toContain('--link board-worker=');
+    expect(setupFullText).toContain('tracker.repo');
+  });
+
   it('uses only registered board commands and flags', () => {
     expect(validateSetupInvocations(setupFullText)).toEqual([]);
     expect(invocations(setupFullText).length).toBeGreaterThan(8);
@@ -411,6 +423,21 @@ describe('public guide command mentions', () => {
   it('uses only registered board commands and flags in each guide', () => {
     for (const guide of publicGuides) expect(validateSetupInvocations(guide)).toEqual([]);
     expect(publicGuides.flatMap(invocations).length).toBeGreaterThan(12);
+  });
+
+  it('documents worker session links and the PR-author login', () => {
+    const setup = publicGuides[1];
+    expect(setup).toContain('open PRs under');
+    const section = setup?.split('## 6. Link worker sessions to tasks')[1]?.split('\n## ')[0];
+    expect(section).toBeDefined();
+    for (const token of [
+      'docs/configuration.md#session-links',
+      '--link board-worker=',
+      '`board link`',
+      'any Spur project',
+      'role: worker',
+    ])
+      expect(section).toContain(token);
   });
 
   it('keeps the agent bootstrap line and GitHub permission recovery', () => {
