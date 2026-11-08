@@ -7,6 +7,9 @@ outbox row per call.
   map every failure through one function (G2, `apiFailure`).
 - `scope: 'transport'` only when the cause blocks the whole gateway or a space destination; a
   rejection of this message alone is `scope: 'message'`; an unknown outcome is `uncertain: true`.
+- A failure after a confirmed step, permanent ones included, returns `retry {uncertain: true}`,
+  keeping `afterMs`: part of the post is out, so the retry must carry `maybeSent` (G2, G4;
+  `deliver` in `packages/gateway-slack/src/deliver.ts`).
 - Never sleep, throttle or retry inside `deliver`: the sender owns the limiter, retries and
   health (`working-with-storage`).
 - Return `delivered` with `message` and `permalink` only after every step (G6); core stores them
