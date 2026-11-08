@@ -205,7 +205,11 @@ export function createDeliveryGateway(
       };
     } catch (error) {
       const result = apiFailure(error);
-      return result.status === 'retry' && confirmed ? { ...result, uncertain: true } : result;
+      if (!confirmed) return result;
+      // G2: after a confirmed step part of the body is out, so any failure retries as uncertain.
+      return result.status === 'retry'
+        ? { ...result, uncertain: true }
+        : { status: 'retry', uncertain: true };
     }
   }
 
