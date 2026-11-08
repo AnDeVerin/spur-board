@@ -21,9 +21,11 @@ that changes these rules updates this skill in the same PR.
   should pick instead (the guidance test under `describe('catalog')` checks the form).
 - `outputSchema` is the operation's `output`; the handler returns the result as
   `structuredContent`. Change the catalog output, not the tool.
-- No operation has a limit, cursor, pagination or concise and detailed modes. A new list
-  operation that can grow without bound states its bound or its paging shape in its issue
-  before implementation.
+- Only `status.get` has a detailed mode: compact rows by default, `detail` adds full facts and
+  links. Its default size budget is pinned in `packages/core/test/app/registry.test.ts`.
+- No operation has a limit, cursor or pagination; the unlinked rows of `status.get` have no
+  count cap. A new list operation that can grow without bound states its bound or its paging
+  shape in its issue before implementation.
 - Tests: `describe('board mcp')` in `packages/cli/test/mcp.test.ts` and its snapshot.
 
 ## CLI
