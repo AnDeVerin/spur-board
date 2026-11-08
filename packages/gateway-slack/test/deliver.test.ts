@@ -399,7 +399,8 @@ describe('rendering and surface', () => {
     expect(update?.params.text).toContain('✓ Resolved by <@U1> at 21:16');
     const blocks: unknown = JSON.parse(update?.params.blocks ?? 'null');
     expect(JSON.stringify(blocks)).not.toContain('"actions"');
-    expect(fake.platform.messages().find((m) => m.message === opened.message)?.actions).toEqual([]);
+    const messages = await fake.platform.messages();
+    expect(messages.find((m) => m.message === opened.message)?.actions).toEqual([]);
   });
 
   it('strikes each line apart, trims it and replaces a tilde inside', () => {
