@@ -1,13 +1,23 @@
 import { sessionFactsSchema, type Config } from '@spur-board/contracts';
 import { z } from 'zod';
 import { sql } from 'kysely';
-import { evaluateSessionHealth, type SessionHealthFlag } from '../domain/health.ts';
+import {
+  evaluateSessionHealth,
+  type SessionHealthFlag,
+  type SessionHealthFlagKind,
+} from '../domain/health.ts';
 import { fingerprint, orderItems, type ItemCandidate } from '../domain/fromYou.ts';
 import { parseJson, toJson } from '../store/json.ts';
 import { taskUrl, type Trx } from './board-utils.ts';
 import { clearItem, raiseItem } from './feed.ts';
 
 const episodeSchema = z.object({ startedAt: z.number() }).nullable();
+
+const ENDED_WORKER_LABELS: Partial<Record<SessionHealthFlagKind, string>> = {
+  worker_completed: 'worker ended (completed), no PR',
+  worker_killed: 'worker ended (killed), no PR',
+  worker_vanished: 'worker vanished, no PR',
+};
 
 /** Reconciles every item in the caller's observation or tick transaction. */
 export async function reconcileItems(
@@ -215,15 +225,16 @@ export async function reconcileItems(
     const fact = subjects.find(
       (subject) => subject.taskId === flag.taskId && subject.id === flag.sessionId,
     );
+    const endedLabel = ENDED_WORKER_LABELS[flag.kind];
     candidates.push({
       key: healthKey(task.id, flag),
       taskId: task.id,
-      summary: `${task.key}: ${flag.kind.replaceAll('_', ' ')} (${flag.sessionId})`,
+      summary: `${task.key}: ${endedLabel ?? flag.kind.replaceAll('_', ' ')} (${flag.sessionId})`,
       factAt: fact?.healthSince ?? null,
       source: 'spur',
       priority: 4,
-      revision:
-        flag.kind === 'worker_vanished' ? (fact?.endedAt ?? null) : (fact?.healthSince ?? null),
+      revision: endedLabel === undefined ? (fact?.healthSince ?? null) : (fact?.endedAt ?? null),
+      suppressFeed: flag.kind === 'worker_completed' || flag.kind === 'worker_killed',
     });
   }
   const ordered = orderItems(candidates);

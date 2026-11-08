@@ -19,7 +19,19 @@ export interface HostLoadEpisode {
 }
 
 export type SessionHealthFlagKind =
-  'stuck_worker' | 'stuck_orchestrator' | 'needs_input' | 'worker_idle' | 'worker_vanished';
+  | 'stuck_worker'
+  | 'stuck_orchestrator'
+  | 'needs_input'
+  | 'worker_idle'
+  | 'worker_completed'
+  | 'worker_killed'
+  | 'worker_vanished';
+
+const ENDED_WORKER_KINDS = {
+  complete: 'worker_completed',
+  kill: 'worker_killed',
+  vanished: 'worker_vanished',
+} as const satisfies Record<string, SessionHealthFlagKind>;
 
 export interface SessionHealthFlag {
   taskId: string;
@@ -125,10 +137,10 @@ export function evaluateSessionHealth(input: SessionHealthInput): SessionHealthR
         !task.hasMergedPr &&
         !liveWorkerTasks.has(session.taskId)
       ) {
-        const flag = {
+        const flag: SessionHealthFlag = {
           taskId: session.taskId,
           sessionId: session.id,
-          kind: 'worker_vanished' as const,
+          kind: ENDED_WORKER_KINDS[session.endReason],
         };
         (spur.observationComplete ? flags : held).push(flag);
       }
