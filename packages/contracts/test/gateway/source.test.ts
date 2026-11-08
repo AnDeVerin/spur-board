@@ -42,9 +42,9 @@ describe('no Slack fields', () => {
 });
 
 describe('obligation ids', () => {
-  it('lists G1-G15 in order, each once, in the Gateway TSDoc', () => {
+  it('lists G1-G16 in order, each once, in the Gateway TSDoc', () => {
     const source = readFileSync(join(root, 'packages/contracts/src/gateway/gateway.ts'), 'utf8');
     const ids = [...source.matchAll(/^\s*\*\s+- (G\d+):/gm)].map((match) => match[1]);
-    expect(ids).toEqual(Array.from({ length: 15 }, (_, i) => `G${String(i + 1)}`));
+    expect(ids).toEqual(Array.from({ length: 16 }, (_, i) => `G${String(i + 1)}`));
   });
 });

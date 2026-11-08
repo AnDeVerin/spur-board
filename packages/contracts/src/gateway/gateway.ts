@@ -28,6 +28,7 @@ export type RichTextInline =
   | { kind: 'text'; text: string }
   | { kind: 'emphasis'; text: string }
   | { kind: 'code'; text: string }
+  | { kind: 'strike'; text: string }
   | { kind: 'link'; url: string; text: string }
   /** Core fills `user`, e.g. with the operator's id. */
   | { kind: 'mention'; user: UserId };
@@ -45,8 +46,8 @@ export type DeliveryTargetKind = (typeof DELIVERY_TARGET_KINDS)[number];
 
 /**
  * Where a delivery goes. `open` starts a conversation in a space; `reply` posts into one;
- * `edit` replaces a message's text with the request body; `close` posts the body as the
- * closing line and marks the conversation done.
+ * `edit` replaces a message's text with the request body and removes its actions (G16);
+ * `close` posts the body as the closing line and marks the conversation done.
  */
 export type DeliveryTarget =
   | { kind: 'open'; space: SpaceId; title: string }
@@ -137,6 +138,8 @@ export type RespondResult = 'sent' | 'dropped';
  * - G15: With `private: true` and `capabilities.privateResponses: false`, `respond` posts
  *   nothing, publicly or otherwise, and returns `dropped`, so core can record the unanswered
  *   interaction.
+ * - G16: `edit` replaces the message's text with the request body and removes the message's
+ *   actions; a later edit never restores them.
  */
 export interface Gateway {
   /** Gateway identifier, e.g. the platform name. */
@@ -147,7 +150,7 @@ export interface Gateway {
   start(sink: InboundSink): Promise<void>;
   /** Disconnects; no events reach the sink after it resolves. */
   stop(): Promise<void>;
-  /** Makes one delivery attempt (G1-G7). */
+  /** Makes one delivery attempt (G1-G7, G16). */
   deliver(request: DeliverRequest): Promise<DeliveryResult>;
   /** Yields events missed while disconnected, normalized as live ones (G8, G10, G14). */
   recover(request: RecoverRequest): AsyncIterable<InboundEvent>;

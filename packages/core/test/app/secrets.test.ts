@@ -400,6 +400,9 @@ describe('gateway secret scan', () => {
         lineId: cleanItem.line_outbox_id ?? 0,
         key: token,
         taskId: 1,
+        summary: 'Review clean item',
+        url: '',
+        by: 'system',
         at: AT,
       }),
     );

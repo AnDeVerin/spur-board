@@ -43,6 +43,15 @@ function enroll(store: Store, name = 'desk', hash = HASH, at = AT) {
   );
 }
 
+async function editPayload(store: Store, dedupeKey: string): Promise<unknown> {
+  const row = await store.db
+    .selectFrom('outbox')
+    .select('payload')
+    .where('dedupe_key', '=', dedupeKey)
+    .executeTakeFirstOrThrow();
+  return JSON.parse(row.payload);
+}
+
 describe('operator token lifecycle', () => {
   it('stores only a hash, stays pending until approval, then revokes immediately', async () => {
     const store = setup();
@@ -66,6 +75,17 @@ describe('operator token lifecycle', () => {
       ),
     ).toEqual({ name: 'desk', status: 'approved' });
     expect(await verifyOperatorToken(store, SECRET)).toEqual({ name: 'desk' });
+    expect(await editPayload(store, 'feed.line.edit:token:desk:1')).toMatchObject({
+      resolved: { by: 'operator' },
+    });
+    expect(await editPayload(store, 'feed.line.edit:token:desk:1')).not.toHaveProperty('url');
+    expect(
+      await store.db
+        .selectFrom('event')
+        .select('actor')
+        .where('kind', '=', 'from_you_cleared')
+        .executeTakeFirstOrThrow(),
+    ).toEqual({ actor: 'operator' });
     expect(
       await scanTransaction(store, testConfig, (trx) =>
         tokenRevokeMutation.run(trx, { name: 'desk' }, { actor: 'operator', at: AT.toISOString() }),
@@ -125,6 +145,12 @@ describe('operator token lifecycle', () => {
       name: 'desk',
       status: 'pending',
       expiresAt: '2026-11-04T10:15:00.000Z',
+    });
+    await scanTransaction(store, testConfig, (trx) =>
+      tokenRevokeMutation.run(trx, { name: 'desk' }, { actor: 'operator', at: AT.toISOString() }),
+    );
+    expect(await editPayload(store, 'feed.line.edit:token:desk:2')).toMatchObject({
+      resolved: { by: 'operator' },
     });
   });
 

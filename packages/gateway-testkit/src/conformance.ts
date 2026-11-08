@@ -127,6 +127,8 @@ export interface VisibleMessage {
   repeat: boolean;
   /** The conversation's first message. */
   root: boolean;
+  /** Ids of the actions the message shows; empty when it shows none (G16). */
+  actions: readonly string[];
 }
 
 export interface VisibleConversation {
@@ -305,29 +307,36 @@ const deliverTargets: ConformanceCase = {
         key: 'dt-reply',
         target: { kind: 'reply', conversation },
         body: text('r'),
+        actions: [{ id: 'approve', label: 'Approve' }],
       }),
       'G6: reply returns delivered',
     );
     messages = await h.platform.messages();
-    expect(
-      messages.find((message) => message.message === reply.message)?.conversation,
-      'G6: the reply is in the conversation',
-    ).toBe(conversation);
+    const replied = messages.find((message) => message.message === reply.message);
+    expect(replied?.conversation, 'G6: the reply is in the conversation').toBe(conversation);
+    expect(replied?.actions, 'G16: a reply shows its actions').toEqual(['approve']);
 
     const edit = delivered(
       await h.deliver({
         key: 'dt-edit',
         target: { kind: 'edit', message: reply.message },
-        body: text('edited'),
+        body: [
+          { kind: 'paragraph', children: [{ kind: 'strike', text: 'opening summary' }] },
+          { kind: 'paragraph', children: [{ kind: 'text', text: '✓ resolved' }] },
+        ],
       }),
       'G6: edit returns delivered',
     );
     expect(edit.message, 'G6: edit returns the edited message').toBe(reply.message);
     messages = await h.platform.messages();
-    expect(
-      messages.find((message) => message.message === reply.message)?.text,
-      'G6: the edit replaces the text',
-    ).toBe('edited');
+    const edited = messages.find((message) => message.message === reply.message);
+    expect(edited?.text, 'G16: the edit replaces the text with the struck summary').toContain(
+      'opening summary',
+    );
+    expect(edited?.text, 'G16: the edit replaces the text and the resolved line').toContain(
+      '✓ resolved',
+    );
+    expect(edited?.actions, 'G16: the edit removes the actions').toEqual([]);
 
     const closed = delivered(
       await h.deliver({

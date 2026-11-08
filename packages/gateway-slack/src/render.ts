@@ -69,6 +69,17 @@ function escapeText(value: string): string {
   return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
 }
 
+/** Slack strikes only within one line and not across edge spaces or a `~` inside. */
+function strike(text: string): string {
+  return text
+    .split('\n')
+    .map((line) => {
+      const value = line.trim().replaceAll('~', '∼');
+      return value.length === 0 ? '' : `~${escapeText(value)}~`;
+    })
+    .join('\n');
+}
+
 function inline(value: RichTextInline): string {
   switch (value.kind) {
     case 'text':
@@ -77,6 +88,8 @@ function inline(value: RichTextInline): string {
       return `*${escapeText(value.text)}*`;
     case 'code':
       return `\`${value.text.replaceAll('`', '´')}\``;
+    case 'strike':
+      return strike(value.text);
     case 'link':
       return `<${value.url.replace(/[<>|]/g, '')}|${escapeText(value.text).replaceAll('|', '¦')}>`;
     case 'mention':
@@ -107,6 +120,7 @@ function literal(value: RichTextInline): string {
     case 'text':
     case 'emphasis':
     case 'code':
+    case 'strike':
       return value.text;
     case 'link':
       return `${value.text} (${value.url})`;

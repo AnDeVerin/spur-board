@@ -112,6 +112,8 @@ interface StoredMessage {
   marker?: string;
   repeat: boolean;
   root: boolean;
+  /** Action ids shown on the message; an edit removes them (G16). */
+  actions: readonly string[];
   deletedAt?: string;
   /** Set for messages a user posted through `inject`; only these produce inbound events. */
   user?: UserRecord;
@@ -248,7 +250,12 @@ export function createFakeGateway(options: FakeGatewayOptions): FakeGateway {
   function post(
     conversation: StoredConversation,
     text: string,
-    extra: { marker?: string; repeat?: boolean; user?: UserRecord } = {},
+    extra: {
+      marker?: string;
+      repeat?: boolean;
+      user?: UserRecord;
+      actions?: readonly string[];
+    } = {},
   ): StoredMessage {
     seq += 1;
     const message: StoredMessage = {
@@ -258,6 +265,7 @@ export function createFakeGateway(options: FakeGatewayOptions): FakeGateway {
       text,
       repeat: extra.repeat ?? false,
       root: conversation.root === undefined,
+      actions: extra.actions ?? [],
       ...(extra.marker === undefined ? {} : { marker: extra.marker }),
       ...(extra.user === undefined ? {} : { user: extra.user }),
     };
@@ -285,6 +293,7 @@ export function createFakeGateway(options: FakeGatewayOptions): FakeGateway {
     markers: readonly string[],
     mode: PartMode,
     done: StoredMessage[] = [],
+    actions: readonly string[] = [],
   ): StoredMessage[] {
     const posted = [...done];
     for (let i = posted.length; i < parts.length; i++) {
@@ -299,7 +308,14 @@ export function createFakeGateway(options: FakeGatewayOptions): FakeGateway {
             )
           : undefined;
       posted.push(
-        found ?? step(() => post(conversation, text, { marker, repeat: mode === 'repeat' })),
+        found ??
+          step(() =>
+            post(conversation, text, {
+              marker,
+              repeat: mode === 'repeat',
+              ...(i === 0 ? { actions } : {}),
+            }),
+          ),
       );
     }
     return posted;
@@ -312,6 +328,7 @@ export function createFakeGateway(options: FakeGatewayOptions): FakeGateway {
     const useSearch = request.maybeSent && capabilities.markerSearch;
     const mode: PartMode = !request.maybeSent ? 'plain' : useSearch ? 'search' : 'repeat';
     const { target } = request;
+    const actions = (request.actions ?? []).map((action) => action.id);
     switch (target.kind) {
       case 'open': {
         const existing = useSearch
@@ -320,7 +337,9 @@ export function createFakeGateway(options: FakeGatewayOptions): FakeGateway {
         const conversation = existing?.conversation ?? newConversation(target.space);
         const root =
           existing ??
-          step(() => post(conversation, parts[0] ?? '', { marker: markers[0] ?? request.key }));
+          step(() =>
+            post(conversation, parts[0] ?? '', { marker: markers[0] ?? request.key, actions }),
+          );
         // A new conversation holds no earlier copy, so its later parts are plain.
         postParts(conversation, parts, markers, existing ? 'search' : 'plain', [root]);
         return {
@@ -341,7 +360,7 @@ export function createFakeGateway(options: FakeGatewayOptions): FakeGateway {
             reason: 'unknown conversation',
           };
         }
-        const posted = postParts(conversation, parts, markers, mode);
+        const posted = postParts(conversation, parts, markers, mode, [], actions);
         if (target.kind === 'close' && !conversation.done) {
           step(() => {
             conversation.done = true;
@@ -362,6 +381,7 @@ export function createFakeGateway(options: FakeGatewayOptions): FakeGateway {
         }
         step(() => {
           message.text = render(request.body);
+          message.actions = [];
         });
         return {
           status: 'delivered',
@@ -609,6 +629,7 @@ export function createFakeGateway(options: FakeGatewayOptions): FakeGateway {
           ...(m.marker === undefined ? {} : { marker: m.marker }),
           repeat: m.repeat,
           root: m.root,
+          actions: m.actions,
         })),
     conversations: () =>
       conversations.map((c) => ({

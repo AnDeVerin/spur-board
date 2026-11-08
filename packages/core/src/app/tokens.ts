@@ -171,7 +171,8 @@ export async function decideTokenInTransaction(
     .where('id', '=', row.id)
     .execute();
   await journalToken(trx, decision === 'approve' ? 'token_approved' : 'token_denied', row.name, at);
-  await clearItem(trx, row.item_id, at);
+  // Only the operator can decide a token request.
+  await clearItem(trx, row.item_id, at, 'operator');
   return { name: row.name, status: next };
 }
 
@@ -247,7 +248,7 @@ export const tokenRevokeMutation: Mutation<'token.revoke'> = {
         .where('id', '=', row.id)
         .execute();
       await journalToken(trx, 'token_revoked', row.name, at);
-      await clearItem(trx, row.item_id, at);
+      await clearItem(trx, row.item_id, at, ctx.actor);
     }
     return { name: row.name, status: 'revoked' };
   },
