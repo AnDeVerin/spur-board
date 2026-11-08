@@ -857,6 +857,50 @@ describe('board doctor Codex skill install', () => {
     expect(value.exitCode).toBe(0);
   });
 
+  it.each([
+    ['with a live Codex session', undefined],
+    ['without sessions', () => []],
+  ] as const)(
+    'warns without a link when the project spur.yaml cannot be read, %s',
+    async (_name, sessions) => {
+      const value = await run(
+        ['doctor', '--json'],
+        ports({
+          ...(sessions ? { sessions } : {}),
+          realPath: linkTo(null),
+          readText: (path) => {
+            if (path.startsWith('/main/spur.')) throw new Error('unreadable');
+            return ports().readText(path);
+          },
+        }),
+      );
+      expect(find(value.checks, 'skills.codex_visibility')).toMatchObject({
+        status: 'warning',
+        blocking: false,
+      });
+      expect(value.exitCode).toBe(0);
+    },
+  );
+
+  it('fails when the project spur.yaml cannot be read and the link points elsewhere', async () => {
+    const value = await run(
+      ['doctor', '--json'],
+      ports({
+        sessions: () => [],
+        realPath: linkTo('/elsewhere'),
+        readText: (path) => {
+          if (path.startsWith('/main/spur.')) throw new Error('unreadable');
+          return ports().readText(path);
+        },
+      }),
+    );
+    expect(find(value.checks, 'skills.codex_visibility')).toMatchObject({
+      status: 'fail',
+      blocking: true,
+    });
+    expect(value.exitCode).toBe(1);
+  });
+
   it('warns when the project spur.yaml cannot be read', async () => {
     const value = await run(
       ['doctor', '--json'],

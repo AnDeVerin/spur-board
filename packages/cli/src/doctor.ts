@@ -500,12 +500,17 @@ export async function runDoctor(
         entry?.defaultAgent === 'codex' ||
         listed ||
         linkReal !== null;
+      // Without a readable entry only a link to a foreign target is a certain break; deciding a
+      // missing link by the live sessions would make the result depend on which ones run.
+      const foreignLink = linkReal !== null && !installed.has(linkReal);
       states.set(
         name,
-        used && (linkReal === null || !installed.has(linkReal) || (entry !== null && !listed))
-          ? 'broken'
-          : entry === null
-            ? 'unknown'
+        entry === null
+          ? foreignLink
+            ? 'broken'
+            : 'unknown'
+          : used && (linkReal === null || foreignLink || !listed)
+            ? 'broken'
             : 'ok',
       );
     }
