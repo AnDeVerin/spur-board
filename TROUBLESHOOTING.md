@@ -189,9 +189,11 @@ names.
 prefix such as `/acme-board`; type it in a Slack message box to check that autocomplete offers no
 existing command with that name. Regenerate the manifest with
 `board slack manifest --app-name <name> --command <slash-command>`, update the app in Slack from
-it, and reinstall the app to the workspace. Set `slack.command` in `config.yaml` to the new
-command, restart the service with `board service restart`, and rerun `board doctor`. Use
-channels of your own with distinct names, and check that `slack.channels` holds their IDs.
+it, and reinstall the app to the workspace. If channel names collide too, use channels of your
+own with distinct names and invite the app to them. Then update `config.yaml`: set
+`slack.command` to the new command, `slack.appName` if you renamed the app, and
+`slack.channels` to the new channel IDs. The daemon reads its configuration only at startup, so
+restart the service with `board service restart` after these changes, then rerun `board doctor`.
 
 ## Doorbells not arriving
 
