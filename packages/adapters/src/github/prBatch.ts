@@ -5,6 +5,7 @@ import {
   prFactsSchema,
   type Config,
   type PrFacts,
+  type ReviewerKind,
 } from '@spur-board/contracts';
 import { z } from 'zod';
 import { parseWire } from '../runner/wire.ts';
@@ -50,6 +51,20 @@ const reviewWire = z
     { path: ['commit'] },
   );
 const nodes = <T extends z.ZodType>(node: T) => z.object({ nodes: z.array(node) });
+const loginReviewer = <T extends string>(type: T) =>
+  z.object({ __typename: z.literal(type), login: z.string() });
+const slugReviewer = <T extends string>(type: T) =>
+  z.object({ __typename: z.literal(type), slug: z.string() });
+// A requested team the token cannot see arrives as null, with no error.
+const reviewerWire = z
+  .discriminatedUnion('__typename', [
+    loginReviewer('User'),
+    loginReviewer('Mannequin'),
+    loginReviewer('Bot'),
+    slugReviewer('Team'),
+    slugReviewer('EnterpriseTeam'),
+  ])
+  .nullable();
 // A denied issue arrives as a null node.
 export const closingWire = z
   .object({
@@ -81,7 +96,7 @@ const prWire = z.object({
   reviewThreads: nodes(z.object({ isResolved: z.boolean() })),
   reviewRequests: nodes(
     z.object({
-      requestedReviewer: z.object({ login: z.string().nullish(), name: z.string().nullish() }),
+      requestedReviewer: reviewerWire,
       asCodeOwner: z.boolean(),
     }),
   ),
@@ -91,6 +106,7 @@ const prWire = z.object({
 });
 type ContextWire = z.output<typeof contextWire>;
 type ReviewWire = z.output<typeof reviewWire>;
+type ReviewerWire = NonNullable<z.output<typeof reviewerWire>>;
 type ClosingWire = z.output<typeof closingWire>;
 type IssuesRule = Extract<KeyRule, { type: 'issues' }>;
 type JiraRule = Extract<KeyRule, { type: 'jira' }>;
@@ -336,6 +352,21 @@ export function prKeys(
       return assertNever(rule);
   }
 }
+// A Mannequin is GitHub's placeholder for an imported user.
+function reviewer(wire: ReviewerWire): { kind: ReviewerKind; id: string } {
+  switch (wire.__typename) {
+    case 'User':
+    case 'Mannequin':
+      return { kind: 'user', id: wire.login };
+    case 'Bot':
+      return { kind: 'bot', id: wire.login };
+    case 'Team':
+    case 'EnterpriseTeam':
+      return { kind: 'team', id: wire.slug };
+    default:
+      return assertNever(wire);
+  }
+}
 export function normalizePr(repo: string, value: unknown, rule: KeyRule): PrFacts {
   const wire = parseWire(prWire, value, 'Malformed GitHub PR response');
   const checks = latestChecks(wire.statusCheckRollup?.contexts.nodes ?? []);
@@ -369,10 +400,9 @@ export function normalizePr(repo: string, value: unknown, rule: KeyRule): PrFact
     ...checks,
     reviews: latestReviews(wire.reviews.nodes),
     reviewThreads: wire.reviewThreads.nodes.map((node) => ({ resolved: node.isResolved })),
-    reviewRequests: wire.reviewRequests.nodes.map((node) => ({
-      reviewer: node.requestedReviewer.login ?? node.requestedReviewer.name,
-      asCodeOwner: node.asCodeOwner,
-    })),
+    reviewRequests: wire.reviewRequests.nodes.flatMap(({ requestedReviewer, asCodeOwner }) =>
+      requestedReviewer === null ? [] : [{ ...reviewer(requestedReviewer), asCodeOwner }],
+    ),
     ticketKeys: prKeys(rule, title, headBranch, closingRefs(wire.closingIssuesReferences)),
     updatedAt: wire.updatedAt,
   };

@@ -122,6 +122,19 @@ function withConnection(pr: PrPaging, field: PagedField, connection: Paging): Pr
     ? { ...pr, statusCheckRollup: { ...pr.statusCheckRollup, contexts: connection } }
     : { ...pr, [field]: connection };
 }
+// One PR's content failure stays with that PR; every other failure still rejects the poll.
+function content<T>(read: () => T): T | AdapterError {
+  try {
+    return read();
+  } catch (error) {
+    if (error instanceof AdapterError) return error;
+    throw error;
+  }
+}
+type FullPr =
+  | { status: 'ok'; pr: PrPaging }
+  | { status: 'denied' }
+  | { status: 'malformed'; error: AdapterError };
 async function fullPr(
   client: GithubClient,
   first: PrPaging,
@@ -130,7 +143,7 @@ async function fullPr(
   number: number,
   signal: AbortSignal,
   budget: (value: NonNullable<Batch['budget']>) => void,
-): Promise<PrPaging | undefined> {
+): Promise<FullPr> {
   let pr = first;
   for (const field of [
     'reviews',
@@ -144,7 +157,11 @@ async function fullPr(
     let cursor = nextPage(target);
     const seen = new Set<string>();
     while (cursor !== undefined) {
-      if (seen.has(cursor)) throw new AdapterError('transient', 'Malformed GitHub pagination');
+      if (seen.has(cursor))
+        return {
+          status: 'malformed',
+          error: new AdapterError('transient', 'Malformed GitHub pagination'),
+        };
       seen.add(cursor);
       const response = await client.query(
         pageQuery(field),
@@ -155,21 +172,25 @@ async function fullPr(
       rejectUnscoped(response.errors, ['repository']);
       requireCheckAccess(response.errors);
       const denied = response.errors.some(deniedReference);
-      if (withoutDeniedReferences(response.errors).length > 0) return undefined;
-      const root = parseWire(pageRootWire, response.data.repository, MALFORMED, [
-        'data',
-        'repository',
-      ]);
+      if (withoutDeniedReferences(response.errors).length > 0) return { status: 'denied' };
+      const root = content(() =>
+        parseWire(pageRootWire, response.data.repository, MALFORMED, ['data', 'repository']),
+      );
+      if (root instanceof AdapterError) return { status: 'malformed', error: root };
       const page = connectionOf(root.pullRequest, field);
       // A denied later page keeps the references read so far.
       if (page === undefined && denied && field === 'closingIssuesReferences') break;
-      if (page === undefined) throw new AdapterError('transient', 'Malformed GitHub pagination');
+      if (page === undefined)
+        return {
+          status: 'malformed',
+          error: new AdapterError('transient', 'Malformed GitHub pagination'),
+        };
       target = { nodes: [...target.nodes, ...page.nodes], pageInfo: page.pageInfo };
       pr = withConnection(pr, field, target);
       cursor = nextPage(page);
     }
   }
-  return pr;
+  return { status: 'ok', pr };
 }
 interface PollArgs {
   id: string;
@@ -238,6 +259,18 @@ async function pollRepository({ id, repo, login, keys, client, ctx }: PollArgs):
           found.cursor,
         ) ?? sourceCursorSchema.parse('1970-01-01T00:00:00.000Z'))
       : undefined;
+  // The first PR content failure, and how many requested refs it and later ones answered.
+  let parseError: AdapterError | undefined;
+  let parseFailedRefs = 0;
+  const malformed = (error: AdapterError, ref?: PrEntityRef): false => {
+    parseError ??= error;
+    complete = false;
+    if (ref) {
+      entities.push({ ref, status: 'no_access' });
+      parseFailedRefs += 1;
+    }
+    return false;
+  };
   const process = async (
     number: number,
     alias: string,
@@ -255,7 +288,9 @@ async function pollRepository({ id, repo, login, keys, client, ctx }: PollArgs):
       if (ref) entities.push({ ref, status: direct ? status(error) : 'no_access' });
       return false;
     }
-    const wire = parseWire(aliasWire, data[alias], MALFORMED, ['data', alias])?.pullRequest;
+    const root = content(() => parseWire(aliasWire, data[alias], MALFORMED, ['data', alias]));
+    if (root instanceof AdapterError) return malformed(root, ref);
+    const wire = root?.pullRequest;
     if (wire === null || wire === undefined) {
       if (ref) entities.push({ ref, status: 'not_found' });
       else complete = false;
@@ -264,12 +299,14 @@ async function pollRepository({ id, repo, login, keys, client, ctx }: PollArgs):
     const full = await fullPr(client, wire, owner, name, number, ctx.signal, (next) => {
       budget = next;
     });
-    if (full === undefined) {
+    if (full.status === 'denied') {
       complete = false;
       if (ref) entities.push({ ref, status: 'no_access' });
       return false;
     }
-    const facts = normalizePr(ref?.repo ?? repo, full, keys);
+    if (full.status === 'malformed') return malformed(full.error, ref);
+    const facts = content(() => normalizePr(ref?.repo ?? repo, full.pr, keys));
+    if (facts instanceof AdapterError) return malformed(facts, ref);
     items.push({ kind: 'pr', facts });
     if (ref) entities.push({ ref, status: 'ok' });
     return true;
@@ -304,6 +341,9 @@ async function pollRepository({ id, repo, login, keys, client, ctx }: PollArgs):
     }
   }
   if (ctx.signal.aborted) throw new AdapterError('transient', 'GitHub poll aborted');
+  // Nothing parsed and no other answer: fail loudly with the path rather than go stale-blind.
+  if (parseError !== undefined && items.length === 0 && entities.length === parseFailedRefs)
+    throw parseError;
   const nextCursor = bootstrap ? bootstrapCursor : found.cursor;
   return {
     source: id,

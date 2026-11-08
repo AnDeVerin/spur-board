@@ -24,7 +24,7 @@ const GITHUB_PROBE = `query DoctorGithubPermissions($owner: String!, $repo: Stri
     pullRequests(first: 10, states: [OPEN], orderBy: {field: UPDATED_AT, direction: DESC}) {
       nodes {
         statusCheckRollup { contexts(first: 100) { nodes { ... on CheckRun { name } } } }
-        reviewRequests(first: 100) { nodes { requestedReviewer { ... on Team { name } } } }
+        reviewRequests(first: 100) { nodes { requestedReviewer { ... on Team { slug } } } }
       }
     }
     defaultBranchRef { target { ... on Commit {
@@ -54,7 +54,7 @@ function scopedGithubError(value: unknown): string | null {
     error?.['type'] === 'INSUFFICIENT_SCOPES' &&
     fields.includes('reviewRequests') &&
     fields.includes('requestedReviewer') &&
-    fields.includes('name')
+    fields.includes('slug')
   )
     return GITHUB_TEAMS_FIX;
   return null;

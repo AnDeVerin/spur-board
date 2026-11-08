@@ -32,17 +32,23 @@ export function connectionWire<T extends z.ZodType>(node: T) {
   return z.object({ nodes: z.array(node), pageInfo: pageInfoWire });
 }
 
-function teamNameScopeDenied(error: GraphError, query: string): boolean {
-  if (error.type !== 'INSUFFICIENT_SCOPES' || !query.includes('... on Team { name }')) return false;
+function teamScopeDenied(error: GraphError, query: string): boolean {
+  if (error.type !== 'INSUFFICIENT_SCOPES' || !query.includes('... on Team { slug }')) return false;
   if (error.path !== undefined)
     return (
       error.path.includes('reviewRequests') &&
       error.path.includes('requestedReviewer') &&
-      error.path.at(-1) === 'name'
+      error.path.at(-1) === 'slug'
     );
-  return /\bname\b/i.test(error.message) && /\bread:(?:org|discussion)\b/i.test(error.message);
+  // GitHub's message for a slug denial is unverified, so a pathless one may name either field.
+  return (
+    /\b(?:slug|name)\b/i.test(error.message) && /\bread:(?:org|discussion)\b/i.test(error.message)
+  );
 }
 
+// Every member of the RequestedReviewer union, so none arrives as an empty object.
+const REVIEWER_FIELDS =
+  'requestedReviewer { __typename ... on Bot { login } ... on Mannequin { login } ... on User { login } ... on Team { slug } ... on EnterpriseTeam { slug } } asCodeOwner';
 const CLOSING_FIELDS =
   'nodes { number repository { nameWithOwner } } pageInfo { hasNextPage endCursor }';
 // `closing` adds the issues a PR closes; only the tracker repo of a github-issues project
@@ -58,7 +64,7 @@ const prFields = (
  } pageInfo { hasNextPage endCursor } } }
  reviews(first: 100) { nodes { author { login } state commit { oid } submittedAt } pageInfo { hasNextPage endCursor } }
  reviewThreads(first: 100) { nodes { isResolved } pageInfo { hasNextPage endCursor } }
- reviewRequests(first: 100) { nodes { requestedReviewer { ... on User { login } ... on Team { name } } asCodeOwner } pageInfo { hasNextPage endCursor } }${closing ? `\n closingIssuesReferences(first: 100) { ${CLOSING_FIELDS} }` : ''}`;
+ reviewRequests(first: 100) { nodes { ${REVIEWER_FIELDS} } pageInfo { hasNextPage endCursor } }${closing ? `\n closingIssuesReferences(first: 100) { ${CLOSING_FIELDS} }` : ''}`;
 const DISCOVERY_FIELDS = `nodes { number updatedAt author { login } state } pageInfo { hasNextPage endCursor }`;
 // Alias numbers are literals, so a request can contain an arbitrary set of requested PRs.
 function aliases(numbers: readonly number[], closing = false): string {
@@ -102,7 +108,7 @@ export function pageQuery(
       ? `closingIssuesReferences(first: 100, after: $after) { ${CLOSING_FIELDS} }`
       : connection === 'contexts'
         ? `statusCheckRollup { contexts(first: 100, after: $after) { nodes { ... on CheckRun { __typename name status conclusion startedAt completedAt checkSuite { createdAt } isRequired(pullRequestNumber: $number) } ... on StatusContext { __typename context state createdAt isRequired(pullRequestNumber: $number) } } pageInfo { hasNextPage endCursor } } }`
-        : `${connection}(first: 100, after: $after) { nodes { ${connection === 'reviews' ? 'author { login } state commit { oid } submittedAt' : connection === 'reviewThreads' ? 'isResolved' : 'requestedReviewer { ... on User { login } ... on Team { name } } asCodeOwner'} } pageInfo { hasNextPage endCursor } }`;
+        : `${connection}(first: 100, after: $after) { nodes { ${connection === 'reviews' ? 'author { login } state commit { oid } submittedAt' : connection === 'reviewThreads' ? 'isResolved' : REVIEWER_FIELDS} } pageInfo { hasNextPage endCursor } }`;
   return `query PrPage($owner: String!, $repo: String!, $number: Int!, $after: String!) { rateLimit { remaining resetAt } repository(owner: $owner, name: $repo) { pullRequest(number: $number) { ${field} } } }`;
 }
 
@@ -154,7 +160,7 @@ export class GithubClient {
     const errors = wire.errors ?? [];
     if (errors.some((error) => error.type === 'RATE_LIMITED' || /rate limit/i.test(error.message)))
       throw classifyHttpFailure({ status: 429, headers: response.headers }, Date.now());
-    if (errors.some((error) => teamNameScopeDenied(error, query)))
+    if (errors.some((error) => teamScopeDenied(error, query)))
       throw new AdapterError('auth', 'GitHub token needs read:org for team review requests');
     if (errors.some((error) => error.type === 'INSUFFICIENT_SCOPES'))
       throw new AdapterError('auth', 'GitHub token lacks a required GraphQL read scope');
