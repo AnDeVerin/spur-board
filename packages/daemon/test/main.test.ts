@@ -1,19 +1,14 @@
 import { createHash } from 'node:crypto';
 import { once } from 'node:events';
 import { spawnSync } from 'node:child_process';
-import {
-  chmodSync,
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  writeFileSync,
-} from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { openStore, requestToken } from '@spur-board/core';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, onTestFinished } from 'vitest';
 import { startFakeSlackApi } from '../../gateway-slack/test/fake-api.ts';
 import { loadConfig, resolvePaths } from '../src/config.ts';
 import { publishedVersion } from '../src/main.ts';
@@ -472,13 +467,32 @@ describe('daemon process', () => {
   }, 30_000);
 
   it('delivers Spur doorbells without Slack and leaves gateway rows pending', async () => {
-    const home = makeHome();
-    const bin = join(home, 'bin');
-    mkdirSync(bin);
-    const spur = join(bin, 'spur');
-    writeFileSync(spur, '#!/bin/sh\nprintf "%s\\n" "$@" > "$SPUR_CAPTURE"\n');
-    chmodSync(spur, 0o755);
-    const capture = join(home, 'spur-send.txt');
+    const sends: { session: string; body: unknown }[] = [];
+    const spurApi = createServer((req, res) => {
+      const chunks: Buffer[] = [];
+      req.on('data', (chunk: Buffer) => chunks.push(chunk));
+      req.on('end', () => {
+        const match = /^\/sessions\/([^/]+)\/send$/.exec(req.url ?? '');
+        res.setHeader('Content-Type', 'application/json');
+        if (req.method === 'POST' && match?.[1] !== undefined) {
+          const session = decodeURIComponent(match[1]);
+          sends.push({ session, body: JSON.parse(Buffer.concat(chunks).toString('utf8')) });
+          res.end(JSON.stringify({ id: session }));
+          return;
+        }
+        res.statusCode = 404;
+        res.end(JSON.stringify({ error: `Route not found: ${req.method ?? ''} ${req.url ?? ''}` }));
+      });
+    });
+    onTestFinished(() => {
+      spurApi.close();
+    });
+    spurApi.listen(0, '127.0.0.1');
+    await once(spurApi, 'listening');
+    const { port } = spurApi.address() as AddressInfo;
+    const home = makeHome({
+      config: `${VALID_CONFIG_YAML}adapters:\n  spur:\n    baseUrl: http://127.0.0.1:${String(port)}\n`,
+    });
     const store = openStore(join(home, 'board.sqlite'));
     await store.transaction(async (trx) => {
       for (const [kind, key, payload] of [
@@ -517,16 +531,16 @@ describe('daemon process', () => {
       }
     });
     await store.close();
-    const child = spawnDaemon(home, {
-      PATH: `${bin}:${process.env.PATH ?? ''}`,
-      SPUR_CAPTURE: capture,
-    });
+    // The systemd user manager's PATH has no ~/.local/bin, where Spur installs its CLI.
+    const child = spawnDaemon(home, { PATH: '/usr/bin:/bin' });
     await waitForLine(child, 'daemon ready');
-    await expect.poll(() => existsSync(capture)).toBe(true);
+    await expect.poll(() => sends.length, { timeout: 10_000 }).toBeGreaterThan(0);
     const exited = once(child, 'exit');
     child.kill('SIGTERM');
     expect((await exited)[0]).toBe(0);
-    expect(readFileSync(capture, 'utf8')).toContain('check board inbox');
+    expect(sends).toEqual([
+      { session: 'worker-1', body: { message: 'o/r#101 block B1: check board inbox' } },
+    ]);
     const result = openStore(join(home, 'board.sqlite'));
     try {
       const rows = await result.db

@@ -203,7 +203,9 @@ describe('outbox scheduler', () => {
       channels: { orchestrators: 'C000000001', feed: 'C000000002' },
       apiUrl: api.url,
     });
-    const module = createOutboxModule(ctx, gateway);
+    const module = createOutboxModule(ctx, gateway, {
+      spur: { send: () => Promise.reject(new Error('unexpected doorbell')) },
+    });
     const controller = new AbortController();
     try {
       await module.start(controller.signal);

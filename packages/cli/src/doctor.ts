@@ -251,6 +251,7 @@ const remoteBaseIds = [
   'jira.credentials',
   'github.credentials',
   'spur.api',
+  'spur.send',
   'operator.path',
 ] as const;
 const remoteSlackIds = [

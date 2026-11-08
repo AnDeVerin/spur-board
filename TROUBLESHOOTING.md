@@ -95,6 +95,15 @@ check-data probe.
 
 Start the Spur API or correct `adapters.spur.baseUrl` in `config.yaml`.
 
+### spur.send
+
+The daemon delivers doorbells with `POST <adapters.spur.baseUrl>/sessions/<id>/send`. This
+check sends that request to the reserved session `spur-board-doctor-probe`, which never exists,
+so no agent receives it; it passes when Spur answers that the session is not found. No answer
+means Spur is down or `adapters.spur.baseUrl` is wrong: start Spur or correct the URL. Any other
+answer means that Spur API does not accept doorbell sends: update Spur, or point
+`adapters.spur.baseUrl` at the Spur daemon. Restart the service after changing `config.yaml`.
+
 ### slack.auth
 
 Check `SLACK_BOT_TOKEN`, its bot scopes, and app installation. Add missing scopes to the app
@@ -138,15 +147,30 @@ old Node or package path, run `board service install` again.
 
 - **3 — not applied:** a dependency prevented the action. Fix the dependency, then retry the
   same action with its existing idempotency key.
-- **4 — configuration:** correct the named config field, private secret key, or environment
-  variable and retry after validation. Outside a Spur session, `BOARD_TOKEN` must contain an
-  operator token or the CLI must find `.spur-board/token` while walking from the current folder
-  up to home; an empty override also fails. `BOARD_DAEMON_URL` must be a valid HTTP(S) address
-  when set; an empty value fails. Use `board doctor --offline` to check `config.yaml` while the
-  service is down.
+- **4 — configuration:** `config` means a config field, private secret key, or environment
+  variable is wrong: correct the named one and retry after validation. An empty `BOARD_TOKEN`
+  override fails with `config`. `BOARD_DAEMON_URL` must be a valid HTTP(S) address when set; an
+  empty value fails. Use `board doctor --offline` to check `config.yaml` while the service is
+  down. `identity_missing` means there is no Spur session, `BOARD_TOKEN` is unset, and the CLI
+  found no `.spur-board/token` walking up from the current folder. Run the command in a Spur
+  session of a project listed in `config.yaml`, or run
+  `board token create --name <name> --into <folder>` and approve the request in Slack. An
+  operator-only command such as `board token list` needs a Spur project marked `operator` or an
+  approved token.
 - **5 — outcome unknown:** the action may already have happened. Read the task or item first;
   if a mutation still needs to be retried, reuse its original idempotency key. A read-only
   request can be repeated after the dependency recovers.
+
+## Doorbells not arriving
+
+Workers never get the doorbell that asks them to check the Board inbox after a question is
+answered. Run `board doctor --json` and check `spur.api` and `spur.send`. Then search the
+service journal from `journalctl --user -u spur-board` for lines with `"call":"spur.send"` and
+`"outcome":"error"`; the error names the HTTP status Spur returned. Earlier versions ran the
+`spur` command and failed with `spur send failed to start` because the service `PATH` lacks the
+directory Spur installs into: upgrade the package and restart the service. If the doorbell was
+delivered but the agent never acted on the answer, follow
+[runbook section 4](docs/runbook.md#4-answer-never-reached-the-agent-answer_undelivered).
 
 ## Logs and request IDs
 

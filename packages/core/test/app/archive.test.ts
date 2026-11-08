@@ -738,6 +738,7 @@ describe('task archive', () => {
 
   it('Done archive clears open blocks', async () => {
     const ctx = setup();
+    await ctx.poll(tracker, true);
     await ctx.poll(tracker, true, 'closed');
     const external = await ctx.apply(
       ctx.ops.create,

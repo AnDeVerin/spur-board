@@ -153,7 +153,11 @@ export function loadClientConfig(
       ? findTokenFile(paths.cwd, paths.home)
       : env['BOARD_TOKEN'];
   if (!session && !token) {
-    throw new CliError('config', { environmentVariable: 'BOARD_TOKEN' });
+    // An explicit empty BOARD_TOKEN is a configuration mistake; no identity at all is not.
+    if (env['BOARD_TOKEN'] === '') {
+      throw new CliError('config', { environmentVariable: 'BOARD_TOKEN' });
+    }
+    throw new CliError('identity_missing');
   }
 
   return {

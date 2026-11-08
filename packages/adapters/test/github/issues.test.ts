@@ -221,4 +221,80 @@ describe('GitHub Issues source', () => {
     expect(batch.complete).toBe(false);
     expect(batch.items).toEqual([]);
   });
+
+  it('lists open issues as members and reads a tracked closed issue by detail', async () => {
+    const closed = (number: number) => ({ ...issue(number), state: 'closed' });
+    const urls: URL[] = [];
+    const fetcher = vi.fn<typeof fetch>((input) => {
+      const url = new URL(input instanceof Request ? input.url : input);
+      urls.push(url);
+      if (url.pathname === '/repos/acme/board/issues')
+        return Promise.resolve(
+          Response.json(
+            url.searchParams.get('state') === 'open' ? [issue(1)] : [issue(1), closed(2)],
+          ),
+        );
+      if (url.pathname === '/repos/acme/board/issues/3')
+        return Promise.resolve(Response.json(closed(3)));
+      return Promise.resolve(new Response('', { status: 404 }));
+    });
+    const adapter = createGithubIssuesAdapter({
+      id,
+      tracker: labelTracker,
+      token: 'test',
+      intervalMs: 60_000,
+      fetch: fetcher,
+    });
+    const first = await adapter.poll(context());
+    expect(first.items).toHaveLength(1);
+    expect(first.items[0]).toMatchObject({
+      kind: 'ticket',
+      facts: { id: 'issue-node-1', inFilter: true },
+    });
+    expect(urls[0]?.searchParams.get('state')).toBe('open');
+
+    urls.length = 0;
+    const open = {
+      kind: 'ticket',
+      trackerId: id,
+      id: 'issue-node-1',
+      key: 'acme/board#1',
+    } as const;
+    const gone = {
+      kind: 'ticket',
+      trackerId: id,
+      id: 'issue-node-3',
+      key: 'acme/board#3',
+    } as const;
+    const second = await adapter.poll(context([open, gone]));
+    expect(batchSchema.safeParse(second).success).toBe(true);
+    expect(second.entities).toEqual([
+      { ref: open, status: 'ok' },
+      { ref: gone, status: 'ok' },
+    ]);
+    expect(
+      second.items.find((entry) => entry.kind === 'ticket' && entry.facts.id === 'issue-node-3'),
+    ).toMatchObject({ kind: 'ticket', facts: { status: 'closed', inFilter: true } });
+    expect(urls.map((url) => url.pathname)).not.toContain('/repos/acme/board/issues/1');
+    expect(urls.map((url) => url.pathname)).toContain('/repos/acme/board/issues/3');
+  });
+
+  it('reports a deleted tracked issue as not_found on 410', async () => {
+    const ref = { kind: 'ticket', trackerId: id, id: 'issue-node-4', key: 'acme/board#4' } as const;
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(Response.json([]))
+      .mockResolvedValueOnce(new Response('', { status: 410 }));
+    const adapter = createGithubIssuesAdapter({
+      id,
+      tracker: labelTracker,
+      token: 'test',
+      intervalMs: 60_000,
+      fetch: fetcher,
+    });
+    const batch = await adapter.poll(context([ref]));
+    expect(batchSchema.safeParse(batch).success).toBe(true);
+    expect(batch.entities).toEqual([{ ref, status: 'not_found' }]);
+    expect(batch.items).toEqual([]);
+  });
 });

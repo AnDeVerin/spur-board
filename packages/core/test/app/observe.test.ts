@@ -671,7 +671,7 @@ describe('accepted observation', () => {
       outcomes: [],
     });
     await apply(mutations.add, { task: 'o/r#9' }, 'operator');
-    const ref = (await core.context(source)).observe.tickets[0];
+    const ref = (await core.context(source)).observe.tickets.find((entry) => entry.key === 'o/r#9');
     if (ref === undefined) throw new Error('Missing pending ticket request');
     now += 1_000;
     const later = new Date(now).toISOString();
