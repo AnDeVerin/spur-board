@@ -18,6 +18,7 @@ import {
   type ObservedGateway,
   type ObservedSpur,
 } from '../support/observe.ts';
+import { testConfig } from '../support/config.ts';
 
 const PERSONA: Persona = { name: 'worker', role: 'worker' };
 const PROFILES: FakeProfile[] = ['slack-like', 'telegram-like'];
@@ -42,6 +43,7 @@ interface Ctx {
 
 function senderFor(ctx: Omit<Ctx, 'sender'>): Sender {
   return createSender({
+    config: testConfig,
     store: ctx.store,
     gateway: ctx.observed.gateway,
     spur: ctx.spur.spur,
@@ -75,7 +77,7 @@ async function restart(ctx: Ctx): Promise<void> {
 /** A task, an open block addressed to the operator and its `conversation.open` row. */
 async function enqueueOpen(ctx: Ctx): Promise<{ id: number; key: string }> {
   const at = ctx.fake.platform.now().toISOString();
-  const id = await scanTransaction(ctx.store, async (trx) => {
+  const id = await scanTransaction(ctx.store, testConfig, async (trx) => {
     const task = await trx
       .insertInto('task')
       .values({
@@ -123,7 +125,7 @@ async function enqueueOpen(ctx: Ctx): Promise<{ id: number; key: string }> {
 }
 
 async function enqueueDoorbell(ctx: Ctx): Promise<number> {
-  const row = await scanTransaction(ctx.store, (trx) =>
+  const row = await scanTransaction(ctx.store, testConfig, (trx) =>
     trx
       .insertInto('outbox')
       .values({

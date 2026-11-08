@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { lintSource } from '@secretlint/core';
-import type { RichText, RichTextInline } from '@spur-board/contracts';
+import type { Config, RichText, RichTextInline } from '@spur-board/contracts';
 import {
   creator as recommend,
   rules as recommendedRules,
@@ -12,6 +12,7 @@ import type { Store } from '../store/store.ts';
 const MAX_STRINGS = 4096;
 const MAX_PASSES = 32;
 type ScanContext = {
+  config: Config;
   known: ReadonlyMap<string, string | null>;
   unseen: Set<string>;
 };
@@ -120,12 +121,21 @@ export async function redactPrivateReply(body: RichText): Promise<RichText> {
   );
 }
 
+const NO_SCAN = 'Gateway outbox requires a secret scan transaction';
+
+/** The config of the running scan transaction; gateway producers read task links from it. */
+export function scanConfig(): Config {
+  const context = receipts.getStore();
+  if (context === undefined) throw new Error(NO_SCAN);
+  return context.config;
+}
+
 /** Used by the common outbox insertion point before it issues SQL. */
 export function checkGatewayStrings(
   strings: readonly string[],
 ): string | null | typeof SCAN_PENDING {
   const context = receipts.getStore();
-  if (context === undefined) throw new Error('Gateway outbox requires a secret scan transaction');
+  if (context === undefined) throw new Error(NO_SCAN);
   const { known, unseen } = context;
   for (const value of strings) {
     if (!known.has(value)) unseen.add(value);
@@ -141,11 +151,12 @@ export function checkGatewayStrings(
 /** Replays database-only work after scanning exact strings outside the write transaction. */
 export async function scanTransaction<T>(
   store: Store,
+  config: Config,
   fn: (trx: Kysely<Tables>) => Promise<T>,
 ): Promise<T> {
   const known = new Map<string, string | null>();
   for (let pass = 0; pass < MAX_PASSES; pass += 1) {
-    const context: ScanContext = { known, unseen: new Set() };
+    const context: ScanContext = { config, known, unseen: new Set() };
     try {
       return await receipts.run(context, () =>
         store.transaction(async (trx) => {

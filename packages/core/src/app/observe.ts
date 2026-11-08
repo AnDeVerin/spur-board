@@ -87,7 +87,8 @@ async function updateTerminal(
       complete > (task.last_change_at ?? task.created_at)
     );
   });
-  const terminal = merged || (doneTicket && !hasOpen && githubComplete);
+  // Conflict links count too: `linked` has no pr_state filter, so an open conflict PR is in hasOpen.
+  const terminal = !hasOpen && (merged || (doneTicket && githubComplete));
   await trx
     .updateTable('task')
     .set({
@@ -857,7 +858,7 @@ export function createObservationCore(deps: {
     },
     async observe(source, observation: AcceptedObservation) {
       const { batch } = observation;
-      await scanTransaction(store, async (trx) => {
+      await scanTransaction(store, config, async (trx) => {
         await sourceState(trx, source, observation.state, batch.observedAt, batch.cursor);
         for (const outcome of observation.outcomes) {
           const answer = batch.entities.find(
@@ -1054,13 +1055,13 @@ export function createObservationCore(deps: {
       if (observation.effectiveComplete) completeSince.set(source, batch.observedAt);
     },
     reportSourceState(source, state) {
-      return scanTransaction(store, async (trx) => {
+      return scanTransaction(store, config, async (trx) => {
         await sourceState(trx, source, state);
         await reconcileItems(trx, config, clock.now(), completeSince.has('spur'));
       });
     },
     notice(kind, value) {
-      return scanTransaction(store, async (trx) => {
+      return scanTransaction(store, config, async (trx) => {
         const key = `spur-notice:${kind}:${value}`;
         const old = await trx
           .selectFrom('meta')

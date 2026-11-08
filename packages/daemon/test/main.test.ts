@@ -235,6 +235,7 @@ describe('daemon process', () => {
       const token = 'test-query-token';
       await requestToken(
         store,
+        loadConfig(resolvePaths({ BOARD_HOME: home }, home)).config,
         {
           name: 'daemon-cli',
           folder: 'workspace/daemon',
@@ -347,6 +348,7 @@ describe('daemon process', () => {
     try {
       await requestToken(
         seeded,
+        loadConfig(resolvePaths({ BOARD_HOME: home }, home)).config,
         {
           name: 'desk',
           folder: 'workspace/desk',

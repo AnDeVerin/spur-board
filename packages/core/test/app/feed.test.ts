@@ -9,6 +9,7 @@ import { createSender, enqueueConversationOpen, openStore, type Store } from '..
 import { clearItem, raiseItem } from '../../src/app/feed.ts';
 import { observeGateway } from '../support/observe.ts';
 import { sampleRows } from '../store/sample-rows.ts';
+import { testConfig } from '../support/config.ts';
 
 const AT = new Date('2026-11-03T10:00:00.000Z');
 const KEY = 'o/r#101';
@@ -23,7 +24,7 @@ async function setup() {
   const file = join(mkdtempSync(join(tmpdir(), 'core-feed-')), 'board.db');
   const store = openStore(file);
   stores.push(store);
-  await scanTransaction(store, (trx) =>
+  await scanTransaction(store, testConfig, (trx) =>
     trx
       .insertInto('task')
       .values({
@@ -38,6 +39,7 @@ async function setup() {
   const fake = createFakeGateway({ profile: 'slack-like' });
   const observed = observeGateway(fake, file);
   const sender = createSender({
+    config: testConfig,
     store,
     gateway: observed.gateway,
     spur: { send: () => Promise.resolve() },
@@ -48,7 +50,7 @@ async function setup() {
 }
 
 async function raise(store: Store, kind = 'worker_not_reading', itemKey = 'worker:B1') {
-  return scanTransaction(store, (trx) =>
+  return scanTransaction(store, testConfig, (trx) =>
     raiseItem(trx, {
       itemKey,
       kind,
@@ -80,7 +82,7 @@ describe('operator item feed', () => {
       children: [{ kind: 'link', url: URL, text: KEY }],
     });
     expect(JSON.stringify(ctx.observed.requests[0]?.body)).not.toContain('mention');
-    await scanTransaction(ctx.store, (trx) => clearItem(trx, item.id, AT));
+    await scanTransaction(ctx.store, testConfig, (trx) => clearItem(trx, item.id, AT));
     await ctx.sender.tick();
     expect(ctx.observed.requests[1]).toMatchObject({ target: { kind: 'edit' } });
     expect(JSON.stringify(ctx.observed.requests[1]?.body)).toContain('✓ cleared');
@@ -90,7 +92,7 @@ describe('operator item feed', () => {
   it('cancels a line cleared before delivery and does not duplicate after restart', async () => {
     const ctx = await setup();
     const item = await raise(ctx.store);
-    await scanTransaction(ctx.store, (trx) => clearItem(trx, item.id, AT));
+    await scanTransaction(ctx.store, testConfig, (trx) => clearItem(trx, item.id, AT));
     await ctx.sender.tick();
     expect(ctx.observed.requests).toEqual([]);
     const rows = await ctx.store.db.selectFrom('outbox').select(['kind', 'state']).execute();
@@ -109,6 +111,7 @@ describe('operator item feed', () => {
       raise_no: 1,
     });
     const resumed = createSender({
+      config: testConfig,
       store: reopened,
       gateway: ctx.observed.gateway,
       spur: { send: () => Promise.resolve() },
@@ -157,7 +160,7 @@ describe('operator item feed', () => {
 
   it('cancels a claimed line when its item clears before send start', async () => {
     const ctx = await setup();
-    await scanTransaction(ctx.store, async (trx) => {
+    await scanTransaction(ctx.store, testConfig, async (trx) => {
       const block = await trx
         .insertInto('block')
         .values({
@@ -204,6 +207,7 @@ describe('operator item feed', () => {
       },
     };
     const sender = createSender({
+      config: testConfig,
       store: ctx.store,
       gateway,
       spur: { send: () => Promise.resolve() },
@@ -212,7 +216,7 @@ describe('operator item feed', () => {
     });
     const tick = sender.tick();
     await arrived;
-    await scanTransaction(ctx.store, (trx) => clearItem(trx, item.id, AT));
+    await scanTransaction(ctx.store, testConfig, (trx) => clearItem(trx, item.id, AT));
     release();
     await tick;
     expect(ctx.observed.requests).toHaveLength(1);
@@ -236,7 +240,7 @@ describe('operator item feed', () => {
   it('recovers an uncertain line and then edits it after the item clears', async () => {
     const ctx = await setup();
     const item = await raise(ctx.store);
-    await scanTransaction(ctx.store, async (trx) => {
+    await scanTransaction(ctx.store, testConfig, async (trx) => {
       await trx
         .updateTable('outbox')
         .set({ uncertain: 1 })

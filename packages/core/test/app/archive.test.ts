@@ -569,7 +569,7 @@ describe('task archive', () => {
       { task: KEY, type: 'external', reason: 'Waits for the vendor.' },
       'operator',
     );
-    const failure = await scanTransaction(ctx.store, (trx) =>
+    const failure = await scanTransaction(ctx.store, config, (trx) =>
       raiseItem(trx, {
         itemKey: 'inbound:failure:archive',
         kind: 'inbound_failure',

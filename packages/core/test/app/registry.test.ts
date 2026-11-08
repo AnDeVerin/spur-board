@@ -42,7 +42,7 @@ afterEach(async () => {
 it('registers status and limits an agent to its configured project', async () => {
   const store = openStore(join(mkdtempSync(join(tmpdir(), 'board-registry-')), 'board.db'));
   stores.push(store);
-  await scanTransaction(store, async (trx) => {
+  await scanTransaction(store, config, async (trx) => {
     for (const [project, key] of [
       ['first', 'o/first#1'],
       ['second', 'o/second#2'],
@@ -113,7 +113,7 @@ it('keeps board-wide items from a project agent on a one-project board', async (
   const oneProject = configSchema.parse({ ...config, projects: [config.projects[0]] });
   const store = openStore(join(mkdtempSync(join(tmpdir(), 'board-registry-')), 'board.db'));
   stores.push(store);
-  await scanTransaction(store, async (trx) => {
+  await scanTransaction(store, config, async (trx) => {
     await raiseItem(trx, {
       itemKey: 'delivery:1',
       kind: 'post_failed',
@@ -138,7 +138,7 @@ it('reports transport state per gateway and keeps the health item board-wide', a
   const store = openStore(join(mkdtempSync(join(tmpdir(), 'board-registry-')), 'board.db'));
   stores.push(store);
   const since = '2026-11-04T07:50:00.000Z';
-  await scanTransaction(store, async (trx) => {
+  await scanTransaction(store, config, async (trx) => {
     await trx
       .insertInto('transport_health')
       .values(
@@ -186,7 +186,7 @@ it('reports transport state per gateway and keeps the health item board-wide', a
   expect(agent.transport).toEqual([down]);
   expect(agent.items).toEqual([]);
 
-  await scanTransaction(store, (trx) => trx.deleteFrom('transport_health').execute());
+  await scanTransaction(store, config, (trx) => trx.deleteFrom('transport_health').execute());
   expect((await query(status, {}, 'operator')).transport).toEqual([
     { gateway: 'slack', state: 'up', since: null, reason: null, spaces: [] },
   ]);
@@ -255,7 +255,7 @@ it('keeps the default status for 100 tasks under the budget and lists every item
   });
   const ids: number[] = [];
   const items: { key: string; priority: number }[] = [];
-  await scanTransaction(store, async (trx) => {
+  await scanTransaction(store, config, async (trx) => {
     for (let n = 1; n <= 100; n += 1) {
       const key = `o/first#${String(n)}`;
       const task = await trx
@@ -613,7 +613,7 @@ async function seedUnlinkedAges(store: Store, confirmedAbsent: boolean) {
     // Another project.
     sessionRow('second-old', 'second-worker', 'stopped', 0, 8 * DAY),
   ];
-  await scanTransaction(store, async (trx) => {
+  await scanTransaction(store, config, async (trx) => {
     const task = await trx
       .insertInto('task')
       .values({

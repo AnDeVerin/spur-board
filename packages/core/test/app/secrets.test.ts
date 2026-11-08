@@ -1,9 +1,9 @@
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { actorIdSchema, configSchema } from '@spur-board/contracts';
+import { actorIdSchema, configSchema, type Config } from '@spur-board/contracts';
 import { sql } from 'kysely';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, expectTypeOf, it, vi } from 'vitest';
 import {
   createApply,
   createBlockMutations,
@@ -12,9 +12,13 @@ import {
   tickBoard,
   type Store,
 } from '../../src/index.ts';
+import { taskUrl } from '../../src/app/board-utils.ts';
+import { reconcileDoorbells, recordRingDelivery } from '../../src/app/doorbells.ts';
 import { raiseItem } from '../../src/app/feed.ts';
 import { enqueueFeedEdit } from '../../src/app/outbox.ts';
 import { scanSecret, scanTransaction } from '../../src/app/secrets.ts';
+import type { SenderOptions } from '../../src/app/sender.ts';
+import type { Row } from '../../src/store/schema.ts';
 import { sampleRows } from '../store/sample-rows.ts';
 
 const KEY = 'o/r#101';
@@ -62,7 +66,7 @@ function samples() {
   ];
 }
 
-async function setup() {
+async function setup(options: { config?: Config; task?: Partial<Row<'task'>> } = {}) {
   const file = join(mkdtempSync(join(tmpdir(), 'core-secrets-')), 'board.db');
   const store = openStore(file);
   stores.push(store);
@@ -76,6 +80,7 @@ async function setup() {
         membership: 'active',
         archive_reason: null,
         column: 'qa',
+        ...options.task,
       })
       .execute();
     await trx
@@ -91,7 +96,15 @@ async function setup() {
       })
       .execute();
   });
-  return { store, file, apply: createApply({ store, clock: { now: () => AT.getTime() }, config }) };
+  return {
+    store,
+    file,
+    apply: createApply({
+      store,
+      clock: { now: () => AT.getTime() },
+      config: options.config ?? config,
+    }),
+  };
 }
 
 afterEach(async () => {
@@ -99,6 +112,72 @@ afterEach(async () => {
 });
 
 describe('gateway secret scan', () => {
+  it('links the blocked notice of a Jira task to its Jira issue', async () => {
+    const jiraConfig = configSchema.parse({
+      projects: [
+        {
+          id: 'proj',
+          tracker: {
+            type: 'jira',
+            baseUrl: 'https://jira.example.test',
+            jql: 'project = PROJ',
+            doneStatuses: ['Done'],
+            readyStatuses: ['Ready'],
+            projectKeys: ['PROJ'],
+          },
+          repos: ['o/r'],
+          operatorGithubLogin: 'operator',
+          spurProjects: [{ name: 'web', role: 'worker' }],
+          columns: [
+            { id: 'todo', orchestrator: 'none' },
+            { id: 'ready-for-dev', orchestrator: 'none' },
+            { id: 'dev', orchestrator: 'none' },
+            { id: 'review', orchestrator: 'none' },
+            { id: 'qa', orchestrator: 'none' },
+            { id: 'ready-to-merge', orchestrator: 'none' },
+            { id: 'done', orchestrator: 'none' },
+          ],
+        },
+      ],
+      operator: { slack: 'operator' },
+      digest: { tz: 'UTC' },
+    });
+    const jiraOps = createBlockMutations(jiraConfig);
+    const { store, apply } = await setup({
+      config: jiraConfig,
+      task: { key: 'PROJ-7', tracker_kind: 'jira', tracker_id: '7' },
+    });
+    const token = ['xoxb', '123', 'abc'].join('-');
+    await apply(
+      jiraOps.ask,
+      { task: 'PROJ-7', text: `Please inspect ${token}` },
+      AUTHOR,
+      'ask-jira',
+    );
+    const url = 'https://jira.example.test/browse/PROJ-7';
+    const items = await store.db.selectFrom('operator_item').selectAll().execute();
+    expect(items).toHaveLength(1);
+    expect(items[0]?.kind).toBe('post_blocked');
+    expect(items[0]?.url).toBe(url);
+    expect(JSON.stringify(items)).not.toContain('github.com');
+    const lines = await store.db
+      .selectFrom('outbox')
+      .select('payload')
+      .where('kind', '=', 'feed.line')
+      .execute();
+    expect(lines).toHaveLength(1);
+    expect(JSON.parse(lines[0]?.payload ?? '{}')).toMatchObject({ url });
+    expect(lines[0]?.payload).not.toContain('github.com');
+  });
+
+  it('requires config at the URL, doorbell, scan and sender boundaries', () => {
+    expectTypeOf<Parameters<typeof taskUrl>[1]>().toEqualTypeOf<Config>();
+    expectTypeOf<Parameters<typeof reconcileDoorbells>[2]>().toEqualTypeOf<Config>();
+    expectTypeOf<Parameters<typeof recordRingDelivery>[5]>().toEqualTypeOf<Config>();
+    expectTypeOf<Parameters<typeof scanTransaction>[1]>().toEqualTypeOf<Config>();
+    expectTypeOf<SenderOptions['config']>().toEqualTypeOf<Config>();
+  });
+
   it('does not let pasted lint directives suppress a secret match', async () => {
     const { store, apply } = await setup();
     const token = ['xoxb', '123', 'abc'].join('-');
@@ -207,7 +286,7 @@ describe('gateway secret scan', () => {
   it('accepts 128 distinct clean feed lines in one operation', async () => {
     const { store } = await setup();
     const transaction = vi.spyOn(store, 'transaction');
-    await scanTransaction(store, async (trx) => {
+    await scanTransaction(store, config, async (trx) => {
       for (let i = 0; i < 128; i += 1) {
         await raiseItem(trx, {
           itemKey: `review:${String(i)}`,
@@ -274,7 +353,7 @@ describe('gateway secret scan', () => {
     const { store, apply } = await setup();
     const token = ['xoxb', '123', 'abc'].join('-');
     const root = await apply(ops.ask, { task: KEY, text: 'Which version?' }, AUTHOR, 'ask-1');
-    await scanTransaction(store, (trx) =>
+    await scanTransaction(store, config, (trx) =>
       enqueueConversationClose(trx, {
         blockId: Number(root.block.id.slice(1)),
         outcome: 'done',
@@ -286,7 +365,7 @@ describe('gateway secret scan', () => {
       (await store.db.selectFrom('outbox').select('kind').execute()).map((row) => row.kind),
     ).toEqual(['conversation.open', 'feed.line']);
 
-    const blockedItem = await scanTransaction(store, (trx) =>
+    const blockedItem = await scanTransaction(store, config, (trx) =>
       raiseItem(trx, {
         itemKey: 'secret-feed',
         kind: 'review_required',
@@ -302,7 +381,7 @@ describe('gateway secret scan', () => {
       (await store.db.selectFrom('outbox').select('kind').execute()).map((row) => row.kind),
     ).toEqual(['conversation.open', 'feed.line', 'feed.line']);
 
-    const cleanItem = await scanTransaction(store, (trx) =>
+    const cleanItem = await scanTransaction(store, config, (trx) =>
       raiseItem(trx, {
         itemKey: 'clean-feed',
         kind: 'review_required',
@@ -314,7 +393,7 @@ describe('gateway secret scan', () => {
       }),
     );
     if (cleanItem.line_outbox_id === null) throw new Error('Expected clean feed line');
-    await scanTransaction(store, (trx) =>
+    await scanTransaction(store, config, (trx) =>
       enqueueFeedEdit(trx, {
         itemKey: cleanItem.item_key,
         raise: cleanItem.raise_no,

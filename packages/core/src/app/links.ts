@@ -1,5 +1,5 @@
-import type { PrFacts } from '@spur-board/contracts';
-import { prFactsSchema } from '@spur-board/contracts';
+import type { PrFacts, SessionFacts } from '@spur-board/contracts';
+import { prFactsSchema, sessionFactsSchema } from '@spur-board/contracts';
 import { sql, type Selectable } from 'kysely';
 import { parseJson } from '../store/json.ts';
 import type { LinkTable } from '../store/schema.ts';
@@ -51,6 +51,15 @@ async function snapshot(trx: Trx, repo: string, number: number): Promise<PrFacts
     .where('number', '=', number)
     .executeTakeFirst();
   return row === undefined ? null : parseJson(prFactsSchema, row.detail);
+}
+
+async function sessionSnapshot(trx: Trx, id: string): Promise<SessionFacts | null> {
+  const row = await trx
+    .selectFrom('session_snapshot')
+    .select('detail')
+    .where('id', '=', id)
+    .executeTakeFirst();
+  return row === undefined ? null : parseJson(sessionFactsSchema, row.detail);
 }
 
 async function existingLink(
@@ -178,6 +187,7 @@ async function run(
     return { task: key, target };
   const role =
     input.mode === 'session' ? (current?.role ?? (await sessionRole(trx, task.id))) : null;
+  const session = input.mode === 'session' ? await sessionSnapshot(trx, input.session) : null;
   if (current === undefined) {
     await trx
       .insertInto('link')
@@ -222,6 +232,7 @@ async function run(
           pr: pr?.number ?? 0,
           state: 'active',
           source: 'manual',
+          ...(facts === null ? {} : { facts }),
           reason: input.reason,
         }
       : input.mode === 'session'
@@ -230,6 +241,7 @@ async function run(
             session: input.session,
             role: role ?? 'other',
             source: 'manual',
+            ...(session === null ? {} : { facts: session }),
             reason: input.reason,
           }
         : {

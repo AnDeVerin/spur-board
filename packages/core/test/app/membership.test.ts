@@ -84,6 +84,70 @@ async function emptyPoll(core: ReturnType<typeof createObservationCore>, id: str
   });
 }
 
+async function prPoll(
+  core: ReturnType<typeof createObservationCore>,
+  number: number,
+  state: 'open' | 'merged' | 'closed',
+) {
+  const at = new Date(now).toISOString();
+  await core.observe(github, {
+    batch: {
+      source: github,
+      observedAt: at,
+      complete: true,
+      items: [
+        {
+          kind: 'pr',
+          facts: {
+            repo: 'o/r',
+            number,
+            url: `https://github.com/o/r/pull/${String(number)}`,
+            title: `o/r#9 work ${String(number)}`,
+            author: 'worker',
+            headSha: 'a'.repeat(40),
+            headBranch: `o/r#9-work-${String(number)}`,
+            state,
+            draft: false,
+            mergeable: 'unknown',
+            mergeState: 'unknown',
+            requiredChecks: [],
+            checks: [],
+            reviews: [],
+            reviewThreads: [],
+            reviewRequests: [],
+            ticketKeys: ['o/r#9'],
+            updatedAt: at,
+          },
+        },
+      ],
+      entities: [],
+    },
+    effectiveComplete: true,
+    state: { lastCompleteAt: at, gone: [] },
+    outcomes: [],
+  });
+}
+async function terminalAt(store: Store) {
+  return (await store.db.selectFrom('task').select('terminal_at').executeTakeFirstOrThrow())
+    .terminal_at;
+}
+async function prState(store: Store, number: number) {
+  return (
+    await store.db
+      .selectFrom('link')
+      .select('pr_state')
+      .where('entity', '=', 'pr')
+      .where('number', '=', number)
+      .executeTakeFirstOrThrow()
+  ).pr_state;
+}
+async function membership(store: Store) {
+  return await store.db
+    .selectFrom('task')
+    .select(['membership', 'archive_reason'])
+    .executeTakeFirstOrThrow();
+}
+
 it('archives filter loss only after a later complete poll from every required source', async () => {
   const { store, core } = setup();
   await ticketPoll(core, true);
@@ -604,4 +668,62 @@ it('clears terminal when a closed task reopens before its slot', async () => {
   expect(
     (await store.db.selectFrom('task').select('membership').executeTakeFirst())?.membership,
   ).toBe('active');
+});
+
+it('keeps a task off Done while a second active PR is open after the first merged', async () => {
+  const { store, core } = setup();
+  now = base - 1_000;
+  await ticketPoll(core, true);
+  now = base;
+  await prPoll(core, 7, 'open');
+  now += 1_000;
+  await prPoll(core, 7, 'merged');
+  expect(await terminalAt(store)).not.toBeNull();
+  now += 1_000;
+  await prPoll(core, 8, 'open');
+  expect(await prState(store, 8)).toBe('active');
+  expect(await terminalAt(store)).toBeNull();
+  now += 1_000;
+  await emptyPoll(core, github);
+  expect(await terminalAt(store)).toBeNull();
+  now = Date.parse('2026-11-07T00:00:00.000Z');
+  await tickBoard({ store, config, clock, completeSince: core.completeSince });
+  expect((await membership(store)).membership).toBe('active');
+  now += 60_000;
+  await prPoll(core, 8, 'merged');
+  expect(await terminalAt(store)).not.toBeNull();
+  now += 1_000;
+  await emptyPoll(core, github);
+  now = Date.parse('2026-11-14T00:00:00.000Z');
+  await tickBoard({ store, config, clock, completeSince: core.completeSince });
+  expect(await membership(store)).toMatchObject({ membership: 'archived', archive_reason: 'done' });
+});
+
+it('keeps a task off Done while a conflict PR is open after the active PR merged', async () => {
+  const { store, core } = setup();
+  now = base - 1_000;
+  await ticketPoll(core, true);
+  now = base;
+  await prPoll(core, 7, 'open');
+  now += 1_000;
+  await prPoll(core, 8, 'open');
+  expect(await prState(store, 8)).toBe('conflict');
+  now += 1_000;
+  await prPoll(core, 7, 'merged');
+  expect(await terminalAt(store)).toBeNull();
+  now += 1_000;
+  await emptyPoll(core, github);
+  expect(await terminalAt(store)).toBeNull();
+  now = Date.parse('2026-11-07T00:00:00.000Z');
+  await tickBoard({ store, config, clock, completeSince: core.completeSince });
+  expect((await membership(store)).membership).toBe('active');
+  now += 60_000;
+  await prPoll(core, 8, 'closed');
+  expect(await prState(store, 8)).toBe('conflict');
+  expect(await terminalAt(store)).not.toBeNull();
+  now += 1_000;
+  await emptyPoll(core, github);
+  now = Date.parse('2026-11-14T00:00:00.000Z');
+  await tickBoard({ store, config, clock, completeSince: core.completeSince });
+  expect(await membership(store)).toMatchObject({ membership: 'archived', archive_reason: 'done' });
 });

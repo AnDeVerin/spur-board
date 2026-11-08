@@ -51,7 +51,7 @@ export class SpurRejectedError extends Error {
 export interface SenderOptions {
   store: Store;
   gateway?: Gateway;
-  config?: Config;
+  config: Config;
   spur: SpurPort;
   now?: () => Date;
   /** Minimum time between two deliveries into one space. */
@@ -918,13 +918,15 @@ export function createSender(options: SenderOptions): Sender {
   async function runTick(signal?: AbortSignal): Promise<void> {
     if (signal?.aborted) return;
     const claimedAt = now().getTime();
-    const { claims, ranThreshold } = await scanTransaction(store, (trx) => claim(trx, claimedAt));
+    const { claims, ranThreshold } = await scanTransaction(store, options.config, (trx) =>
+      claim(trx, claimedAt),
+    );
     // Only after commit: a scan replay reruns claim() and a rolled-back pass wrote nothing.
     if (ranThreshold) downRecorded = true;
     for (const [i, c] of claims.entries()) {
       if (signal?.aborted) {
         const ids = claims.slice(i).map((c) => c.id);
-        await scanTransaction(store, (trx) =>
+        await scanTransaction(store, options.config, (trx) =>
           trx
             .updateTable('outbox')
             .set((eb) => ({ state: 'pending', attempts: eb('attempts', '-', 1) }))
@@ -934,19 +936,21 @@ export function createSender(options: SenderOptions): Sender {
         );
         return;
       }
-      const started = await scanTransaction(store, (trx) => start(trx, c));
+      const started = await scanTransaction(store, options.config, (trx) => start(trx, c));
       if (started.skip) continue;
       // After start() commits, finish and record this attempt even if shutdown begins.
       const { outcome, error } = await attempt(c, started.firstDeliveryAt);
       const at = now().getTime();
-      await scanTransaction(store, (trx) => record(trx, c, outcome, error, at, started.at));
+      await scanTransaction(store, options.config, (trx) =>
+        record(trx, c, outcome, error, at, started.at),
+      );
     }
   }
 
   return {
     async recover() {
       const nowIso = now().toISOString();
-      const failed = await scanTransaction(store, async (trx) => {
+      const failed = await scanTransaction(store, options.config, async (trx) => {
         await releaseOrphans(trx, nowIso);
         const rows = await trx
           .selectFrom('outbox')
@@ -959,7 +963,9 @@ export function createSender(options: SenderOptions): Sender {
       // under the per-transaction scan limit and cannot stop the daemon from starting.
       for (let i = 0; i < failed.length; i += RECOVER_BATCH) {
         const batch = failed.slice(i, i + RECOVER_BATCH);
-        await scanTransaction(store, (trx) => requeuePostFailed(trx, batch, nowIso));
+        await scanTransaction(store, options.config, (trx) =>
+          requeuePostFailed(trx, batch, nowIso),
+        );
       }
     },
 
@@ -980,7 +986,7 @@ export function createSender(options: SenderOptions): Sender {
         downRecorded = false;
         if (gateway === undefined) return;
         // A permanent-failure row stays: only a probe that delivers clears it.
-        await scanTransaction(store, async (trx) => {
+        await scanTransaction(store, options.config, async (trx) => {
           const cleared = await trx
             .deleteFrom('transport_health')
             .where('gateway', '=', gatewayKind)

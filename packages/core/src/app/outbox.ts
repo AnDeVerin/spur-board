@@ -14,9 +14,9 @@ import {
 import { sql, type Kysely } from 'kysely';
 import { z } from 'zod';
 import type { Tables } from '../store/schema.ts';
-import { taskUrl } from './doorbells.ts';
-import { raiseItem } from './feed.ts';
-import { SCAN_PENDING, checkGatewayStrings } from './secrets.ts';
+import { taskUrl } from './board-utils.ts';
+import { raiseItemWith } from './item-raise.ts';
+import { SCAN_PENDING, checkGatewayStrings, scanConfig } from './secrets.ts';
 
 export const OUTBOX_KINDS = [
   'conversation.open',
@@ -277,17 +277,21 @@ async function blockPost(
     taskId === null
       ? null
       : await trx.selectFrom('task').selectAll().where('id', '=', taskId).executeTakeFirstOrThrow();
-  await raiseItem(trx, {
-    itemKey: `secret-post:${createHash('sha256').update(row.dedupeKey).digest('hex')}`,
-    kind: 'post_blocked',
-    text: `text on ${safeKey} not sent: looks like a secret (${rule}), read \`board task ${safeKey}\``,
-    url: task === null ? '' : taskUrl(task),
-    taskId,
-    blockId,
-    at: row.at,
-    rule,
-    source: row.kind,
-  });
+  await raiseItemWith(
+    trx,
+    {
+      itemKey: `secret-post:${createHash('sha256').update(row.dedupeKey).digest('hex')}`,
+      kind: 'post_blocked',
+      text: `text on ${safeKey} not sent: looks like a secret (${rule}), read \`board task ${safeKey}\``,
+      url: task === null ? '' : taskUrl(task, scanConfig()),
+      taskId,
+      blockId,
+      at: row.at,
+      rule,
+      source: row.kind,
+    },
+    enqueueFeedLine,
+  );
 }
 
 /**

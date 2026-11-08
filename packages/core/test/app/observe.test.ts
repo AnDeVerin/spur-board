@@ -19,6 +19,7 @@ import {
   tickBoard,
   type Store,
 } from '../../src/index.ts';
+import { createLinkMutations } from '../../src/app/links.ts';
 
 const at = '2026-11-04T12:00:00.000Z';
 let now = Date.parse(at);
@@ -750,6 +751,75 @@ describe('accepted observation', () => {
     expect(latest.get('ticket_facts_changed')?.facts).toMatchObject({ key: 'o/r#9' });
     expect(latest.get('pr_facts_changed')?.facts).toMatchObject({ number: 7 });
     expect(latest.get('session_facts_changed')?.facts).toMatchObject({ id: 'worker-1' });
+  });
+
+  it('replays the PR and session facts of a manually linked task from its own events', async () => {
+    const { store, core, apply, mutations } = setup();
+    const links = createLinkMutations(config);
+    await apply(mutations.add, { task: 'o/r#9' }, 'operator');
+    const merged: PrFacts = {
+      ...prFact(),
+      title: 'Unrelated work',
+      headBranch: 'unrelated',
+      ticketKeys: [],
+      state: 'merged',
+    };
+    const loose: SessionFacts = { ...sessionFact('worker-2'), branch: 'unrelated' };
+    for (const [sourceId, item] of [
+      ['github:board:o/r', { kind: 'pr', facts: merged }],
+      ['spur', { kind: 'session', facts: loose }],
+    ] as const) {
+      await core.observe(sourceId, {
+        batch: { source: sourceId, observedAt: at, complete: true, items: [item], entities: [] },
+        effectiveComplete: true,
+        state: { lastCompleteAt: at, gone: [] },
+        outcomes: [],
+      });
+    }
+    await apply(
+      links.add,
+      { mode: 'pr', task: 'o/r#9', pr: merged.url, reason: 'Earlier work.' },
+      'operator',
+    );
+    await apply(
+      links.add,
+      { mode: 'session', task: 'o/r#9', session: 'worker-2', reason: 'Started early.' },
+      'operator',
+    );
+    const task = await store.db
+      .selectFrom('task')
+      .select('id')
+      .where('key', '=', 'o/r#9')
+      .executeTakeFirstOrThrow();
+    const events = await store.db
+      .selectFrom('event')
+      .select(['kind', 'payload'])
+      .where('task_id', '=', task.id)
+      .orderBy('id')
+      .execute();
+    let pr: unknown;
+    let session: unknown;
+    for (const event of events) {
+      const payload = JSON.parse(event.payload) as { entity?: string; facts?: unknown };
+      if (event.kind === 'pr_facts_changed') pr = payload.facts;
+      if (event.kind === 'session_facts_changed') session = payload.facts;
+      if (event.kind === 'link_added' && payload.facts !== undefined) {
+        if (payload.entity === 'pr') pr = payload.facts;
+        if (payload.entity === 'session') session = payload.facts;
+      }
+    }
+    const prRow = await store.db
+      .selectFrom('pr_snapshot')
+      .select('detail')
+      .executeTakeFirstOrThrow();
+    const sessionRow = await store.db
+      .selectFrom('session_snapshot')
+      .select('detail')
+      .executeTakeFirstOrThrow();
+    expect(pr).toEqual(JSON.parse(prRow.detail));
+    expect(pr).toEqual(merged);
+    expect(session).toEqual(JSON.parse(sessionRow.detail));
+    expect(session).toEqual(loose);
   });
 
   it('keeps old ticket facts and marks access unconfirmed on an incomplete batch', async () => {
