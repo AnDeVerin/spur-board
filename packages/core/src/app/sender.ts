@@ -685,7 +685,7 @@ export function createSender(options: SenderOptions): Sender {
       return { outcome: await gateway.deliver(request), error: null };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      if (c.body.kind === 'doorbell' && error instanceof SpurRejectedError) {
+      if (error instanceof SpurRejectedError) {
         return { outcome: { status: 'rejected' }, error: message };
       }
       return { outcome: { status: 'retry', uncertain: true }, error: message };
