@@ -865,6 +865,63 @@ describe('tick', () => {
     await second;
     expect(ctx.observed.requests).toHaveLength(1);
   });
+
+  /** A sender whose `failAt`-th store transaction rejects once without running. */
+  function failingTransaction(ctx: Ctx, failAt: number): Sender {
+    let transactions = 0;
+    const store: Store = {
+      ...ctx.store,
+      transaction(fn) {
+        transactions += 1;
+        if (transactions === failAt) return Promise.reject(new Error('disk I/O error'));
+        return scanTransaction(ctx.store, fn);
+      },
+    };
+    return createSender({
+      store,
+      gateway: ctx.observed.gateway,
+      spur: ctx.spur.spur,
+      now: () => ctx.fake.platform.now(),
+      spaceIntervalMs: 0,
+    });
+  }
+
+  async function threeLanes(ctx: Ctx): Promise<number[]> {
+    const seed = await seedBlock(ctx);
+    return [
+      await enqueueOpen(ctx, seed),
+      await feedLine(ctx, seed.key, 'lane-feed'),
+      await insertRow(ctx, 'doorbell', 'doorbell:lanes', { session: 'sess-1', text: 'ping' }),
+    ];
+  }
+
+  it('returns the claims of a tick whose send start failed to later ticks', async () => {
+    const ctx = setup('slack-like', 0);
+    const ids = await threeLanes(ctx);
+    // Transaction 1 claims all three lanes; transaction 2 is the first send start.
+    const sender = failingTransaction(ctx, 2);
+    await expect(sender.tick()).rejects.toThrow('disk I/O error');
+    ctx.fake.platform.advance(1000);
+    await sender.tick();
+    for (const id of ids) expect(await outboxRow(ctx, id)).toMatchObject({ state: 'done' });
+    expect(ctx.observed.requests).toHaveLength(2);
+    expect(ctx.spur.sends).toHaveLength(1);
+  });
+
+  it('returns a claim whose result failed to record as uncertain', async () => {
+    const ctx = setup('slack-like', 0);
+    const [openId = 0, ...rest] = await threeLanes(ctx);
+    // Transaction 3 records the open, which the gateway already posted.
+    const sender = failingTransaction(ctx, 3);
+    await expect(sender.tick()).rejects.toThrow('disk I/O error');
+    ctx.fake.platform.advance(1000);
+    await sender.tick();
+    expect(await outboxRow(ctx, openId)).toMatchObject({ state: 'done', uncertain: 1 });
+    expect(request(ctx, 1)).toMatchObject({ key: request(ctx, 0).key, maybeSent: true });
+    expect(marked(ctx.fake, request(ctx, 0).key)).toBe(1);
+    for (const id of rest) expect(await outboxRow(ctx, id)).toMatchObject({ state: 'done' });
+    expect(ctx.spur.sends).toHaveLength(1);
+  });
 });
 
 /**

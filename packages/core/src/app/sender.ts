@@ -1,7 +1,7 @@
 import { SCAN_PENDING, scanTransaction } from './secrets.ts';
 // Delivers outbox rows: claim in one transaction, stamp the send's start, IO outside any
-// transaction, record the result in another. The daemon calls `recover()` once on start, then
-// `tick()` on its schedule.
+// transaction, record the result in another. Each claim first returns the rows a failed tick left
+// in flight. The daemon calls `recover()` once on start, then `tick()` on its schedule.
 import {
   SPACE_IDS,
   type ConnectionState,
@@ -245,6 +245,36 @@ export async function requeuePostFailed(
   return failed.length;
 }
 
+/**
+ * Returns every `in_flight` row to `pending`: one whose send never started gives its attempt
+ * back; one whose send started may be out, so it goes again at once as uncertain. Its comment
+ * goes back to `pending`. Only a crash or a failed earlier tick leaves a row `in_flight`.
+ */
+async function releaseOrphans(trx: Trx, nowIso: string): Promise<void> {
+  const rows = await trx
+    .selectFrom('outbox')
+    .select(['kind', 'payload'])
+    .where('state', '=', 'in_flight')
+    .execute();
+  if (rows.length === 0) return;
+  await trx
+    .updateTable('outbox')
+    .set((eb) => ({ state: 'pending', attempts: eb('attempts', '-', 1) }))
+    .where('state', '=', 'in_flight')
+    .where('attempt_started', '=', 0)
+    .execute();
+  await trx
+    .updateTable('outbox')
+    .set({ state: 'pending', uncertain: 1, next_at: nowIso })
+    .where('state', '=', 'in_flight')
+    .where('attempt_started', '=', 1)
+    .execute();
+  for (const row of rows) {
+    const body = parseBody(row);
+    if (typeof body !== 'string') await setComment(trx, body, { delivery_state: 'pending' });
+  }
+}
+
 function backoff(attempts: number): number {
   return Math.min(1000 * 2 ** Math.max(attempts - 1, 0), MAX_BACKOFF_MS);
 }
@@ -337,11 +367,14 @@ export function createSender(options: SenderOptions): Sender {
   }
 
   /**
-   * tx 1: cancels stale rows, raises down-health and claims at most one due row per lane.
+   * tx 1: returns rows a failed tick left in flight, cancels stale rows, raises down-health and
+   * claims at most one due row per lane.
    * `ranThreshold` says the outage's down rows were written; the caller records that after commit.
    */
   async function claim(trx: Trx, at: number): Promise<{ claims: Claim[]; ranThreshold: boolean }> {
     const nowIso = new Date(at).toISOString();
+    // Ticks never overlap, so a row still in flight was left by a tick that threw.
+    await releaseOrphans(trx, nowIso);
     await reconcileDoorbells(trx, new Date(at), options.config);
     const rows = await trx
       .selectFrom('outbox')
@@ -878,28 +911,13 @@ export function createSender(options: SenderOptions): Sender {
     async recover() {
       const nowIso = now().toISOString();
       const failed = await scanTransaction(store, async (trx) => {
+        await releaseOrphans(trx, nowIso);
         const rows = await trx
           .selectFrom('outbox')
-          .select(['id', 'kind', 'payload', 'state'])
-          .where('state', 'in', ['in_flight', 'post_failed'])
+          .select('id')
+          .where('state', '=', 'post_failed')
           .execute();
-        await trx
-          .updateTable('outbox')
-          .set((eb) => ({ state: 'pending', attempts: eb('attempts', '-', 1) }))
-          .where('state', '=', 'in_flight')
-          .where('attempt_started', '=', 0)
-          .execute();
-        await trx
-          .updateTable('outbox')
-          .set({ state: 'pending', uncertain: 1, next_at: nowIso })
-          .where('state', '=', 'in_flight')
-          .where('attempt_started', '=', 1)
-          .execute();
-        for (const row of rows.filter((candidate) => candidate.state === 'in_flight')) {
-          const body = parseBody(row);
-          if (typeof body !== 'string') await setComment(trx, body, { delivery_state: 'pending' });
-        }
-        return rows.filter((row) => row.state === 'post_failed').map((row) => row.id);
+        return rows.map((row) => row.id);
       });
       // Each batch rescans its payloads in its own transaction, so a large failed backlog stays
       // under the per-transaction scan limit and cannot stop the daemon from starting.
