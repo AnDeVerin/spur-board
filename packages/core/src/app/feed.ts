@@ -14,8 +14,10 @@ import { enqueueFeedEdit, enqueueFeedLine, type FeedEditPayload } from './outbox
 /** The struck summary is capped so the edit stays one message part. */
 const MAX_SUMMARY = 500;
 
+/** Counts code points, so the cut never splits a surrogate pair. */
 function capSummary(text: string): string {
-  return text.length <= MAX_SUMMARY ? text : `${text.slice(0, MAX_SUMMARY - 1)}…`;
+  const points = Array.from(text);
+  return points.length <= MAX_SUMMARY ? text : `${points.slice(0, MAX_SUMMARY - 1).join('')}…`;
 }
 
 type Trx = Kysely<Tables>;

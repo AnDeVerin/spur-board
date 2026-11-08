@@ -152,6 +152,38 @@ describe('operator item feed', () => {
     expect(text.endsWith('…')).toBe(true);
   });
 
+  it('names the agent session and the time when an agent closes it', async () => {
+    const ctx = await setup();
+    const item = await raise(ctx.store);
+    await ctx.sender.tick();
+    await scanTransaction(ctx.store, testConfig, (trx) =>
+      clearItem(trx, item.id, AT, 'agent:proj/worker-1'),
+    );
+    await ctx.sender.tick();
+    expect(ctx.observed.requests[1]?.body.at(-1)).toEqual({
+      kind: 'paragraph',
+      children: [
+        { kind: 'text', text: '✓ Resolved by ' },
+        { kind: 'text', text: 'proj/worker-1' },
+        { kind: 'text', text: ' at 10:00' },
+      ],
+    });
+  });
+
+  it('caps a long summary by code points so an emoji at the cut stays whole', async () => {
+    const ctx = await setup();
+    const long = `${'x'.repeat(498)}😀${'y'.repeat(100)}`;
+    const item = await raise(ctx.store, 'worker_not_reading', 'worker:emoji', long);
+    await scanTransaction(ctx.store, testConfig, (trx) => clearItem(trx, item.id, AT));
+    const edit = await ctx.store.db
+      .selectFrom('outbox')
+      .select('payload')
+      .where('kind', '=', 'feed.line.edit')
+      .executeTakeFirstOrThrow();
+    const { text } = JSON.parse(edit.payload) as { text: string };
+    expect(text).toBe(`${'x'.repeat(498)}😀…`);
+  });
+
   it('cancels a line cleared before delivery and does not duplicate after restart', async () => {
     const ctx = await setup();
     const item = await raise(ctx.store);
