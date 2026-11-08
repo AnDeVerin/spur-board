@@ -1,7 +1,13 @@
 import { z } from 'zod';
 import { COLUMN_IDS, REQUIRED_COLUMN_IDS } from './enums.ts';
 
-export const DEFAULT_HTTP_PORT = 4311;
+/**
+ * The daemon's default loopback port. It sits above 4310-4399, a margin the board keeps for
+ * Spur's server port 4310 and the ports from 4311 upward that Spur's MCP port takes. It also
+ * avoids Spur's web UI port 5555, its Playwright sidecars 8730-8799 and the Linux ephemeral
+ * range 32768-60999.
+ */
+export const DEFAULT_HTTP_PORT = 4777;
 export const DEFAULT_SLACK_APP_NAME = 'spur-board';
 export const DEFAULT_SLACK_COMMAND = '/board';
 /**
@@ -265,7 +271,9 @@ export const configSchema = z.strictObject({
         .min(0)
         .max(65_535)
         .default(DEFAULT_HTTP_PORT)
-        .describe('Local HTTP API port (0 assigns a free port).'),
+        .describe(
+          "Local HTTP API port (0 assigns a free port). The default 4777 is above 4310-4399, a margin kept for Spur's server port 4310 and the ports from 4311 upward that its MCP port takes, and avoids Spur's ports 5555 and 8730-8799 and the Linux ephemeral range 32768-60999.",
+        ),
     })
     .prefault({}),
   adapters: z

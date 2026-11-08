@@ -32,6 +32,20 @@ export function configFile(env: NodeJS.ProcessEnv, home: string): string {
   return join(xdg && isAbsolute(xdg) ? xdg : join(home, '.config'), 'spur-board', 'config.yaml');
 }
 
+/** The http.port in config.yaml, or the default when the file is missing or invalid. */
+export function readConfiguredPort(env: NodeJS.ProcessEnv, home: string): number {
+  try {
+    const parsed = YAML.parseDocument(readFileSync(configFile(env, home), 'utf8'));
+    if (parsed.errors.length === 0) {
+      const config = configSchema.safeParse(parsed.toJS());
+      if (config.success) return config.data.http.port;
+    }
+  } catch {
+    // The daemon can report the config error; clients still try its default port.
+  }
+  return DEFAULT_HTTP_PORT;
+}
+
 export function resolveDaemonAddress(
   env: NodeJS.ProcessEnv = process.env,
   home = homedir(),
@@ -39,18 +53,7 @@ export function resolveDaemonAddress(
 ): URL {
   const rawAddress = env['BOARD_DAEMON_URL'];
   if (rawAddress === undefined) {
-    let port = configuredPort ?? DEFAULT_HTTP_PORT;
-    if (configuredPort === undefined) {
-      try {
-        const parsed = YAML.parseDocument(readFileSync(configFile(env, home), 'utf8'));
-        if (parsed.errors.length === 0) {
-          const config = configSchema.safeParse(parsed.toJS());
-          if (config.success) port = config.data.http.port;
-        }
-      } catch {
-        // The daemon can report the config error; clients still try its default port.
-      }
-    }
+    const port = configuredPort ?? readConfiguredPort(env, home);
     if (port === 0) {
       throw new CliError(
         'config',
