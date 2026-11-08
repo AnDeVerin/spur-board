@@ -690,7 +690,24 @@ describe('board doctor', () => {
       blocking: false,
     });
     expect(value.checks.find((entry) => entry.id === 'sessions.stale')?.fix).toBe(
-      'Restart sessions started before the last skill install: old; verify sessions whose start time is unavailable.',
+      'Restart 1 session started before the last skill install: old; verify sessions whose start time is unavailable.',
+    );
+  });
+
+  it('lists each stale session once and counts distinct sessions', async () => {
+    const entry = (id: string) => ({
+      id,
+      project: 'worker',
+      path: '/usr/bin',
+      codexHome: '/codex',
+      startAt: Date.parse('2026-11-03T10:00:00.000Z'),
+    });
+    const fake = ports({
+      sessions: () => [...Array.from({ length: 12 }, () => entry('busy')), entry('quiet')],
+    });
+    const value = await run(['doctor', '--json'], fake);
+    expect(value.checks.find((check) => check.id === 'sessions.stale')?.fix).toBe(
+      'Restart 2 sessions started before the last skill install: busy, quiet; verify sessions whose start time is unavailable.',
     );
   });
 });
