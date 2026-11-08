@@ -69,7 +69,7 @@ function wire(number = 7) {
     reviewRequests: conn([{ requestedReviewer: { login: 'reviewer' }, asCodeOwner: true }]),
   };
 }
-function config(repos = ['demo/widgets']) {
+function config(repos = ['demo/widgets'], link?: Record<string, unknown>) {
   return configSchema.parse({
     projects: [
       {
@@ -83,6 +83,7 @@ function config(repos = ['demo/widgets']) {
           projectKeys: ['DEMO'],
         },
         repos,
+        ...(link === undefined ? {} : { link }),
         operatorGithubLogin: 'operator',
       },
     ],
@@ -109,7 +110,7 @@ function adapter(fetcher: typeof fetch, configured = config(), index = 0): Adapt
   if (source === undefined) throw new Error('Missing GitHub source');
   return source.adapter;
 }
-function issuesConfig(repos = ['demo/widgets'], branchPattern?: string) {
+function issuesConfig(repos = ['demo/widgets'], link?: Record<string, unknown>) {
   return configSchema.parse({
     projects: [
       {
@@ -118,9 +119,9 @@ function issuesConfig(repos = ['demo/widgets'], branchPattern?: string) {
           type: 'github-issues',
           repo: 'demo/widgets',
           label: 'board',
-          ...(branchPattern === undefined ? {} : { branchPattern }),
         },
         repos,
+        ...(link === undefined ? {} : { link }),
         operatorGithubLogin: 'operator',
       },
     ],
@@ -132,8 +133,13 @@ const closingRef = (number: number, repo = 'demo/widgets') => ({
   number,
   repository: { nameWithOwner: repo },
 });
-function issuesPr(branch: string, closing: unknown, number = 7) {
-  return { ...wire(number), headRefName: branch, closingIssuesReferences: closing };
+function issuesPr(branch: string, closing: unknown, number = 7, title?: string) {
+  return {
+    ...wire(number),
+    headRefName: branch,
+    closingIssuesReferences: closing,
+    ...(title === undefined ? {} : { title }),
+  };
 }
 const keysOf = (batch: { items: { kind: string; facts?: unknown }[] }) =>
   batch.items.map((item) => (item.facts as { ticketKeys: string[] }).ticketKeys);
@@ -709,14 +715,50 @@ describe('GitHub Issues PR keys', () => {
     const poll = async (branch: string, configured = issuesConfig()) =>
       keysOf(await adapter(single(issuesPr(branch, conn([]))), configured).poll(context()));
     expect(await poll('claude-12-slug')).toEqual([['demo/widgets#12']]);
-    const custom = issuesConfig(['demo/widgets'], '^task/([1-9][0-9]*)$');
+    const custom = issuesConfig(['demo/widgets'], { branchPattern: '^task/([1-9][0-9]*)$' });
     expect(await poll('task/12', custom)).toEqual([['demo/widgets#12']]);
     expect(await poll('claude-12-slug', custom)).toEqual([[]]);
   });
-  it('skips the branch pattern for a branch longer than a GitHub ref', async () => {
-    const branch = `claude-12-${'x'.repeat(290)}`;
-    const fetcher = single(issuesPr(branch, conn([])));
-    expect(keysOf(await adapter(fetcher, issuesConfig()).poll(context()))).toEqual([[]]);
+  it('reads the issue number from a conventional title', async () => {
+    const poll = async (title: string) =>
+      keysOf(
+        await adapter(single(issuesPr('feature/x', conn([]), 7, title)), issuesConfig()).poll(
+          context(),
+        ),
+      );
+    expect(await poll('fix(core): #12 x')).toEqual([['demo/widgets#12']]);
+    expect(await poll('feat!: #12 x')).toEqual([['demo/widgets#12']]);
+    expect(await poll('Fix: #12 x')).toEqual([[]]);
+    expect(await poll('fix(core): 12 x')).toEqual([[]]);
+  });
+  it('takes the first source that yields a number', async () => {
+    const poll = async (fetcher: typeof fetch, configured = issuesConfig()) =>
+      keysOf(await adapter(fetcher, configured).poll(context()));
+    const title = 'fix: #13 x';
+    expect(await poll(single(issuesPr('claude-12-x', conn([closingRef(14)]), 7, title)))).toEqual([
+      ['demo/widgets#14'],
+    ]);
+    expect(await poll(single(issuesPr('claude-12-x', conn([]), 7, title)))).toEqual([
+      ['demo/widgets#12'],
+    ]);
+    expect(await poll(single(issuesPr('feature/x', conn([]), 7, title)))).toEqual([
+      ['demo/widgets#13'],
+    ]);
+    const titleFirst = single(issuesPr('claude-12-x', undefined, 7, title));
+    expect(
+      await poll(titleFirst, issuesConfig(['demo/widgets'], { sources: ['title', 'branch'] })),
+    ).toEqual([['demo/widgets#13']]);
+    expect(bodyQuery(titleFirst)).not.toContain('closingIssuesReferences');
+    const branchOnly = single(issuesPr('claude-12-x', conn([closingRef(13)])));
+    expect(await poll(branchOnly, issuesConfig(['demo/widgets'], { sources: ['branch'] }))).toEqual(
+      [['demo/widgets#12']],
+    );
+  });
+  it.each([
+    ['branch', issuesPr(`claude-12-${'x'.repeat(290)}`, conn([]))],
+    ['title', issuesPr('feature/x', conn([]), 7, `fix: #12 ${'x'.repeat(260)}`)],
+  ])('skips a %s longer than 255 characters', async (_name, pr) => {
+    expect(keysOf(await adapter(single(pr), issuesConfig()).poll(context()))).toEqual([[]]);
   });
   it('ignores cross-repo references and non-tracker repos', async () => {
     const cross = single(issuesPr('feature/x', conn([closingRef(12, 'other/repo')])));
@@ -731,8 +773,11 @@ describe('GitHub Issues PR keys', () => {
     expect(bodyQuery(sibling)).not.toContain('closingIssuesReferences');
   });
   it('keeps Jira keys only for a Jira project', async () => {
-    const fetcher = single(issuesPr('DEMO-42-widget', conn([closingRef(12)])));
-    const batch = await adapter(fetcher).poll(context());
+    const fetcher = single(issuesPr('DEMO-42-widget', conn([closingRef(12)]), 7, 'fix: #13 x'));
+    const batch = await adapter(
+      fetcher,
+      config(['demo/widgets'], { sources: ['closing', 'title'] }),
+    ).poll(context());
     expect(batch.complete).toBe(true);
     expect(batch.entities).toEqual([{ ref, status: 'ok' }]);
     expect(keysOf(batch)).toEqual([['DEMO-42']]);
@@ -829,12 +874,13 @@ describe('GitHub Issues PR keys', () => {
     );
     expect(keysOf(batch)).toEqual([['demo/widgets#12', 'demo/widgets#13']]);
   });
-  it('drops an out-of-range branch number', async () => {
+  it('drops an out-of-range issue number', async () => {
     const fetcher = single(issuesPr('claude-1234567890123456-x', conn([])));
-    const batch = await adapter(fetcher, issuesConfig(['demo/widgets'], '^claude-([0-9]+)')).poll(
-      context(),
-    );
+    const custom = issuesConfig(['demo/widgets'], { branchPattern: '^claude-([0-9]+)' });
+    const batch = await adapter(fetcher, custom).poll(context());
     expect(batch.entities).toEqual([{ ref, status: 'ok' }]);
     expect(keysOf(batch)).toEqual([[]]);
+    const title = single(issuesPr('feature/x', conn([]), 7, 'fix: #1234567890123456 x'));
+    expect(keysOf(await adapter(title, issuesConfig()).poll(context()))).toEqual([[]]);
   });
 });

@@ -68,7 +68,13 @@ export function githubSources(config: Config, options: GithubOptions): GithubSou
     // Only the tracker repo of a github-issues project reads closing references.
     const issues: KeyRule | undefined =
       tracker.type === 'github-issues'
-        ? { type: 'issues', repo: tracker.repo, branch: new RegExp(tracker.branchPattern) }
+        ? {
+            type: 'issues',
+            repo: tracker.repo,
+            sources: project.link.sources,
+            branch: new RegExp(project.link.branchPattern),
+            title: new RegExp(project.link.titlePattern),
+          }
         : undefined;
     const prefixes: KeyRule = {
       type: 'prefixes',
@@ -203,7 +209,7 @@ async function pollRepository({ id, repo, login, keys, client, ctx }: PollArgs):
   const requested = ctx.observe.prs.filter((ref) => ref.repo.toLowerCase() === repo.toLowerCase());
   const byNumber = new Map<number, PrEntityRef>(requested.map((ref) => [ref.number, ref]));
   const numbers = [...byNumber.keys()];
-  const closing = keys.type === 'issues';
+  const closing = keys.type === 'issues' && keys.sources.includes('closing');
   const response = await client.query(
     initialQuery(numbers, bootstrap, closing),
     { owner, repo: name },
