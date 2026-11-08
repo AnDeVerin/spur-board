@@ -37,11 +37,16 @@ describe('generated public references', () => {
       expect(configuration).toMatch(new RegExp('^\\| `' + name + '` +\\|', 'm'));
     expect(configuration).toContain('`slack.command`');
     expect(configuration).toContain('`"/board"`');
-    const branchRow = configuration
-      .split('\n')
-      .find((line) => line.startsWith('| `projects[].tracker.branchPattern (github-issues)` |'));
-    expect(branchRow).toContain('`"^[A-Za-z][A-Za-z0-9]*-([1-9][0-9]{0,14})(?:-\\|$)"`');
-    expect(branchRow).toContain('closing issue reference');
+    const row = (name: string) =>
+      configuration.split('\n').find((line) => line.startsWith(`| \`projects[].link.${name}\` `));
+    expect(row('sources')).toContain('`["closing","branch","title"]`');
+    expect(row('sources')).toContain('first source that yields an issue number wins');
+    expect(row('sources[]')).toContain('one of closing, branch, title');
+    expect(row('branchPattern')).toContain('`"^[A-Za-z]+-([1-9][0-9]*)"`');
+    expect(row('branchPattern')).toContain('PR head branch');
+    expect(row('titlePattern')).toContain('`"^[a-z]+(?:\\\\([^)]*\\\\))?!?: #([1-9][0-9]*)"`');
+    expect(row('titlePattern')).toContain('PR title');
+    expect(configuration).not.toContain('branchPattern (github-issues)');
     expect(
       [...configuration.matchAll(/^\| `([A-Z][A-Z_]+)` +\|/gm)].map((match) => match[1]),
     ).toEqual(SECRET_ENV_KEYS.map(({ name }) => name));

@@ -42,13 +42,7 @@
                   "type": { "type": "string", "const": "github-issues" },
                   "repo": { "type": "string", "pattern": "^[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+$" },
                   "label": { "type": "string", "minLength": 1 },
-                  "milestone": { "type": "string", "minLength": 1 },
-                  "branchPattern": {
-                    "default": "^[A-Za-z][A-Za-z0-9]*-([1-9][0-9]{0,14})(?:-|$)",
-                    "description": "Regular expression whose one capture group reads the issue number from a PR head branch, such as <agent>-<number>-<slug>. Used only when the PR has no closing issue reference in the tracker repository; PRs to a non-default base branch rely on it. At most two repeated parts (such as *, + or {2,}); no nested or alternated repeats, back-references or lookarounds. Branches longer than 255 characters are skipped.",
-                    "type": "string",
-                    "minLength": 1
-                  }
+                  "milestone": { "type": "string", "minLength": 1 }
                 },
                 "required": ["type", "repo"],
                 "additionalProperties": false
@@ -59,6 +53,33 @@
             "minItems": 1,
             "type": "array",
             "items": { "type": "string", "pattern": "^[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+$" }
+          },
+          "link": {
+            "description": "How a github-issues project links a PR in tracker.repo to its issue. A Jira project ignores it and links by tracker.projectKeys.",
+            "default": {},
+            "type": "object",
+            "properties": {
+              "sources": {
+                "default": ["closing", "branch", "title"],
+                "description": "Where a PR in tracker.repo names its issue, in priority order; the first source that yields an issue number wins. closing: issues in tracker.repo the PR closes (Closes #12 in the body, or linked in the sidebar), for PRs to the default branch only. branch: branchPattern on the head branch. title: titlePattern on the PR title.",
+                "minItems": 1,
+                "type": "array",
+                "items": { "type": "string", "enum": ["closing", "branch", "title"] }
+              },
+              "branchPattern": {
+                "default": "^[A-Za-z]+-([1-9][0-9]*)",
+                "description": "Regular expression that starts with ^ and whose one capture group reads the issue number from a PR head branch, such as <agent>-<number>-<slug>. Branches longer than 255 characters are not matched.",
+                "type": "string",
+                "minLength": 1
+              },
+              "titlePattern": {
+                "default": "^[a-z]+(?:\\([^)]*\\))?!?: #([1-9][0-9]*)",
+                "description": "Regular expression that starts with ^ and whose one capture group reads the issue number from a PR title, such as fix(core): #12 summary. Titles longer than 255 characters are not matched.",
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "additionalProperties": false
           },
           "operatorGithubLogin": { "type": "string", "pattern": "^[A-Za-z0-9-]{1,39}$" },
           "spurProjects": {

@@ -65,9 +65,6 @@ const jiraTracker = z.strictObject({
     .default([]),
 });
 
-/** Default `tracker.branchPattern`: the number in `<agent>-<number>-<slug>` branch names. */
-const DEFAULT_BRANCH_PATTERN = '^[A-Za-z][A-Za-z0-9]*-([1-9][0-9]{0,14})(?:-|$)';
-
 /** Capture groups of a pattern that compiles without flags, or `undefined` when it does not. */
 function captureGroups(pattern: string): number | undefined {
   try {
@@ -79,90 +76,23 @@ function captureGroups(pattern: string): number | undefined {
   }
 }
 
-const QUANTIFIER = /\*|\+|\?|\{(\d+)(?:(,)(\d*))?\}/y;
+/** Where a PR in the tracker repository can name its issue, in the default priority order. */
+const LINK_SOURCES = ['closing', 'branch', 'title'] as const;
 
-/**
- * Whether a pattern that already compiles can backtrack super-linearly or reads outside plain
- * matching: a back-reference (`\1`, `\k<name>`), a lookaround, a group repeated more than
- * once whose body holds a quantifier or an alternation (`(a+)+`, `(a|aa)+`, `(a*){3}`), or more
- * than two quantifiers that repeat more than once (`.*.*.*`), counted over the whole pattern.
- * With at most two such repeats a match on a branch of at most 255 characters costs about n^2
- * steps. The check is conservative: it also refuses harmless forms such as `(a|b)+`.
- */
-function backtracks(pattern: string): boolean {
-  // One entry per open group, the root first: whether its body holds a quantifier or `|`.
-  const open = [false];
-  const mark = () => {
-    open[open.length - 1] = true;
-  };
-  let i = 0;
-  let repeated = 0;
-  // Reads a quantifier at `i`; returns whether it repeats more than once, `undefined` if none.
-  const quantifier = (): boolean | undefined => {
-    QUANTIFIER.lastIndex = i;
-    const match = QUANTIFIER.exec(pattern);
-    if (match === null) return undefined;
-    i = QUANTIFIER.lastIndex;
-    if (pattern[i] === '?') i += 1;
-    const [token, min, comma, max] = match;
-    let repeats: boolean;
-    if (token === '?') repeats = false;
-    else if (min === undefined) repeats = true;
-    else if (comma === undefined) repeats = Number(min) > 1;
-    else repeats = max === '' || Number(max) > 1;
-    if (repeats) repeated += 1;
-    return repeats;
-  };
-  while (i < pattern.length) {
-    const char = pattern[i];
-    if (char === '\\') {
-      if (/[1-9k]/.test(pattern[i + 1] ?? '')) return true;
-      i += 2;
-    } else if (char === '[') {
-      i += 1;
-      while (i < pattern.length && pattern[i] !== ']') i += pattern[i] === '\\' ? 2 : 1;
-      i += 1;
-    } else if (char === '(') {
-      if (/^\(\?<?[=!]/.test(pattern.slice(i))) return true;
-      open.push(false);
-      i =
-        pattern[i + 1] === '?' ? pattern.indexOf(pattern[i + 2] === '<' ? '>' : ':', i) + 1 : i + 1;
-      continue;
-    } else if (char === ')') {
-      const risky = open.pop() ?? false;
-      i += 1;
-      const repeats = quantifier();
-      if (repeats === true && risky) return true;
-      if (risky || repeats !== undefined) mark();
-      continue;
-    } else {
-      if (char === '|') mark();
-      i += 1;
-      if (char === '|' || char === '^' || char === '$') continue;
-    }
-    if (quantifier() !== undefined) mark();
-  }
-  return repeated > 2;
+/** A `link` pattern: compiles, starts with `^` and has exactly one capture group. */
+function linkPattern(fallback: string, description: string) {
+  return nonEmpty
+    .superRefine((pattern, ctx) => {
+      if (!pattern.startsWith('^') || captureGroups(pattern) !== 1)
+        ctx.addIssue({
+          code: 'custom',
+          message:
+            'Expected a regular expression that starts with ^ and has exactly one capture group',
+        });
+    })
+    .default(fallback)
+    .describe(description);
 }
-
-const branchPattern = nonEmpty
-  .superRefine((pattern, ctx) => {
-    if (captureGroups(pattern) !== 1)
-      ctx.addIssue({
-        code: 'custom',
-        message: 'Expected a regular expression with exactly one capture group',
-      });
-    else if (backtracks(pattern))
-      ctx.addIssue({
-        code: 'custom',
-        message:
-          'Expected a regular expression with at most two repeated parts and no nested quantifiers, back-references or lookarounds',
-      });
-  })
-  .default(DEFAULT_BRANCH_PATTERN)
-  .describe(
-    'Regular expression whose one capture group reads the issue number from a PR head branch, such as <agent>-<number>-<slug>. Used only when the PR has no closing issue reference in the tracker repository; PRs to a non-default base branch rely on it. At most two repeated parts (such as *, + or {2,}); no nested or alternated repeats, back-references or lookarounds. Branches longer than 255 characters are skipped.',
-  );
 
 const githubIssuesTracker = z
   .strictObject({
@@ -170,7 +100,6 @@ const githubIssuesTracker = z
     repo: repoSlugSchema,
     label: nonEmpty.optional(),
     milestone: nonEmpty.optional(),
-    branchPattern,
   })
   .superRefine((tracker, ctx) => {
     if ((tracker.label === undefined) === (tracker.milestone === undefined)) {
@@ -244,6 +173,38 @@ const projectSchema = z
       .regex(/^[a-z][a-z0-9-]*$/, 'Expected lowercase letters, digits and dashes'),
     tracker: z.discriminatedUnion('type', [jiraTracker, githubIssuesTracker]),
     repos: z.array(repoSlugSchema).min(1),
+    link: z
+      .strictObject({
+        sources: z
+          .array(z.enum(LINK_SOURCES))
+          .min(1)
+          .superRefine((sources, ctx) => {
+            sources.forEach((source, i) => {
+              if (sources.indexOf(source) !== i)
+                ctx.addIssue({
+                  code: 'custom',
+                  path: [i],
+                  message: `Duplicate link source: ${JSON.stringify(source)}`,
+                });
+            });
+          })
+          .default([...LINK_SOURCES])
+          .describe(
+            'Where a PR in tracker.repo names its issue, in priority order; the first source that yields an issue number wins. closing: issues in tracker.repo the PR closes (Closes #12 in the body, or linked in the sidebar), for PRs to the default branch only. branch: branchPattern on the head branch. title: titlePattern on the PR title.',
+          ),
+        branchPattern: linkPattern(
+          '^[A-Za-z]+-([1-9][0-9]*)',
+          'Regular expression that starts with ^ and whose one capture group reads the issue number from a PR head branch, such as <agent>-<number>-<slug>. Branches longer than 255 characters are not matched.',
+        ),
+        titlePattern: linkPattern(
+          '^[a-z]+(?:\\([^)]*\\))?!?: #([1-9][0-9]*)',
+          'Regular expression that starts with ^ and whose one capture group reads the issue number from a PR title, such as fix(core): #12 summary. Titles longer than 255 characters are not matched.',
+        ),
+      })
+      .prefault({})
+      .describe(
+        'How a github-issues project links a PR in tracker.repo to its issue. A Jira project ignores it and links by tracker.projectKeys.',
+      ),
     operatorGithubLogin: z.string().regex(/^[A-Za-z0-9-]{1,39}$/, 'Expected a GitHub login'),
     spurProjects: z
       .array(spurProject)

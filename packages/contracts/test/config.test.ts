@@ -136,10 +136,11 @@ describe('fixtures', () => {
     expect(adapterKeys(config)).toEqual(adapterDefaults);
     const project = config.projects[0];
     expect(project?.tracker).not.toHaveProperty('projectKeys');
-    expect(project?.tracker).toHaveProperty(
-      'branchPattern',
-      '^[A-Za-z][A-Za-z0-9]*-([1-9][0-9]{0,14})(?:-|$)',
-    );
+    expect(project?.link).toEqual({
+      sources: ['closing', 'branch', 'title'],
+      branchPattern: '^[A-Za-z]+-([1-9][0-9]*)',
+      titlePattern: '^[a-z]+(?:\\([^)]*\\))?!?: #([1-9][0-9]*)',
+    });
     expect(project?.spurProjects).toEqual([]);
     expect(project?.columns.find((c) => c.id === 'qa')?.orchestrator).toBe('operator');
     expect(project?.columns.filter((c) => !c.enabled).map((c) => c.id)).toEqual(['ready-for-dev']);
@@ -303,31 +304,49 @@ describe('invalid configs', () => {
       'Set exactly one of label or milestone',
       'projects[0].tracker.label',
     ],
-    ...['(', '^claude-', '^(a)-(\\d+)', '([0-9]*)|\\'].map(
-      (branchPattern): [string, unknown, string, string] => [
-        `github-issues branch pattern ${branchPattern}`,
-        validConfig({ tracker: { ...githubTracker, label: 'board', branchPattern } }),
-        'Expected a regular expression with exactly one capture group',
-        'projects[0].tracker.branchPattern',
-      ],
-    ),
     ...[
-      '^(?:a+)+([0-9]+)$',
-      '^(?:a|aa)+-([0-9]+)',
-      '^(?<n>[0-9]+)(?:-[a-z]*){2,}$',
-      '^([0-9]+)-\\1',
-      '^(?<n>[0-9]+)-\\k<n>',
-      '^(?=claude)[a-z]+-([0-9]+)',
-      '^[a-z]+-(?<!x)([0-9]+)',
-      '^.*.*.*-([0-9]+)x$',
-      '^.*.*.*.*.*-([0-9]+)x$',
-      '^.{0,255}.{0,255}.{0,255}-([0-9]+)$',
-    ].map((branchPattern): [string, unknown, string, string] => [
-      `github-issues branch pattern ${branchPattern}`,
-      validConfig({ tracker: { ...githubTracker, label: 'board', branchPattern } }),
-      'Expected a regular expression with at most two repeated parts and no nested quantifiers, back-references or lookarounds',
-      'projects[0].tracker.branchPattern',
+      ['branchPattern', '('],
+      ['branchPattern', 'claude-([0-9]+)'],
+      ['branchPattern', '^claude-'],
+      ['branchPattern', '^(a)-(\\d+)'],
+      ['branchPattern', '^([0-9]*)|\\'],
+      ['titlePattern', '^[a-z]+(\\([^)]*\\))?!?: #([1-9][0-9]*)'],
+      ['titlePattern', 'fix: #([0-9]+)'],
+    ].map(([key, pattern]: string[]): [string, unknown, string, string] => [
+      `link ${String(key)} ${String(pattern)}`,
+      validConfig({
+        tracker: { ...githubTracker, label: 'board' },
+        link: { [String(key)]: pattern },
+      }),
+      'Expected a regular expression that starts with ^ and has exactly one capture group',
+      `projects[0].link.${String(key)}`,
     ]),
+    [
+      'empty link sources',
+      validConfig({ link: { sources: [] } }),
+      'Too small: expected array to have >=1 items',
+      'projects[0].link.sources',
+    ],
+    [
+      'a duplicate link source',
+      validConfig({ link: { sources: ['branch', 'branch'] } }),
+      'Duplicate link source: "branch"',
+      'projects[0].link.sources[1]',
+    ],
+    [
+      'an unknown link source',
+      validConfig({ link: { sources: ['body'] } }),
+      'Invalid option: expected one of "closing"|"branch"|"title"',
+      'projects[0].link.sources[0]',
+    ],
+    [
+      'tracker.branchPattern',
+      validConfig({
+        tracker: { ...githubTracker, label: 'board', branchPattern: '^[A-Za-z]+-([1-9][0-9]*)' },
+      }),
+      'Unrecognized key: "branchPattern"',
+      'projects[0].tracker',
+    ],
     [
       'duplicate spur project',
       validConfig({
@@ -420,37 +439,43 @@ describe('invalid configs', () => {
     ['github-issues with only a label', { tracker: { ...githubTracker, label: 'board' } }, {}],
     ['github-issues with only a milestone', { tracker: { ...githubTracker, milestone: 'v1' } }, {}],
     [
-      'a custom github-issues branch pattern',
-      { tracker: { ...githubTracker, label: 'board', branchPattern: '^task/([1-9][0-9]*)$' } },
-      {},
-    ],
-    [
-      'the default branch pattern set explicitly',
+      'a custom github-issues link',
       {
-        tracker: {
-          ...githubTracker,
-          label: 'board',
-          branchPattern: '^[A-Za-z][A-Za-z0-9]*-([1-9][0-9]{0,14})(?:-|$)',
+        tracker: { ...githubTracker, label: 'board' },
+        link: {
+          sources: ['title', 'branch'],
+          branchPattern: '^task/([1-9][0-9]*)$',
+          titlePattern: '^#([0-9]+) ',
         },
       },
       {},
     ],
     [
-      'a branch pattern with a named group',
-      { tracker: { ...githubTracker, label: 'board', branchPattern: '^(?<n>[0-9]+)-' } },
-      {},
-    ],
-    [
-      'a branch pattern with a class, an escape and two repeats',
+      'the default link set explicitly',
       {
-        tracker: {
-          ...githubTracker,
-          label: 'board',
-          branchPattern: '^(?:[(+*\\]]x)+\\(\\*?(?:ab){1}([0-9]+)(?:-[a-z]{0,1})?$',
+        tracker: { ...githubTracker, label: 'board' },
+        link: {
+          sources: ['closing', 'branch', 'title'],
+          branchPattern: '^[A-Za-z]+-([1-9][0-9]*)',
+          titlePattern: '^[a-z]+(?:\\([^)]*\\))?!?: #([1-9][0-9]*)',
         },
       },
       {},
     ],
+    [
+      'a link pattern with a named group',
+      { tracker: { ...githubTracker, label: 'board' }, link: { branchPattern: '^(?<n>[0-9]+)-' } },
+      {},
+    ],
+    [
+      'a link pattern with a nested repeat',
+      {
+        tracker: { ...githubTracker, label: 'board' },
+        link: { branchPattern: '^(?:a+)+-([0-9]+)' },
+      },
+      {},
+    ],
+    ['a link section on a Jira project', { link: { sources: ['closing', 'title'] } }, {}],
     ['a board without the optional columns', { columns: columns('todo', 'dev', 'done') }, {}],
     [
       'disabled optional columns',
