@@ -39,6 +39,27 @@ const remoteIds = [
   'operator.path',
 ];
 const stamp = JSON.stringify({ version: '1.2.3', installedAt: '2026-11-04T09:00:00.000Z' });
+const spurYaml =
+  'projects:\n  worker:\n    path: /main\n    symlinks: [.agents/skills/spur-board]\n';
+const mainLink = '/main/.agents/skills/spur-board';
+const codexFix =
+  "Add .agents/skills/spur-board to the Spur project's symlinks in its config and start a new session.";
+const spurFix =
+  'Start Spur or correct adapters.spur.baseUrl in config.yaml, then rerun board doctor to check the Codex skill install.';
+const daemonResponse = () =>
+  Response.json({
+    version: '1.2.3',
+    checks: remoteIds.map((id): DoctorCheck => ({
+      id,
+      status: 'pass',
+      blocking: false,
+      fix: null,
+    })),
+  });
+
+function isSpurProjects(input: Parameters<typeof fetch>[0]): boolean {
+  return input instanceof URL && input.pathname.endsWith('/projects');
+}
 
 function capture() {
   let stdout = '';
@@ -64,11 +85,13 @@ function ports(overrides: Partial<DoctorPorts> = {}): DoctorPorts {
       if (path.endsWith('spur-board.service'))
         return 'ExecStart="/usr/bin/node" "/app/daemon.mjs"\n';
       if (path.endsWith('.spur-board-install.json')) return stamp;
+      if (path === '/main/spur.yaml') return spurYaml;
       throw new Error('missing');
     },
     secretFile: (path) => ({ path, isFile: true, mode: 0o600 }),
     listDir: () => [],
     exists: () => true,
+    realPath: (path) => (path === mainLink ? '/home/.codex/skills/spur-board' : path),
     run: () => ({ exitCode: 0, stdout: '1.2.3\n' }),
     sessions: () => [
       {
@@ -79,17 +102,9 @@ function ports(overrides: Partial<DoctorPorts> = {}): DoctorPorts {
         startAt: Date.parse('2026-11-04T10:00:00.000Z'),
       },
     ],
-    fetcher: () =>
+    fetcher: (input) =>
       Promise.resolve(
-        Response.json({
-          version: '1.2.3',
-          checks: remoteIds.map((id): DoctorCheck => ({
-            id,
-            status: 'pass',
-            blocking: false,
-            fix: null,
-          })),
-        }),
+        isSpurProjects(input) ? Response.json([{ id: 'worker', path: '/main' }]) : daemonResponse(),
       ),
     productVersion: () => '1.2.3',
     bind: () => Promise.resolve(null),
@@ -97,11 +112,15 @@ function ports(overrides: Partial<DoctorPorts> = {}): DoctorPorts {
   };
 }
 
-async function run(args: string[], fake: DoctorPorts) {
+async function run(
+  args: string[],
+  fake: DoctorPorts,
+  env: NodeJS.ProcessEnv = { BOARD_HOME: '/board', BOARD_DAEMON_URL: 'http://127.0.0.1:4311' },
+) {
   const output = capture();
   const exitCode = await runCli(args, {
     io: output.io,
-    env: { BOARD_HOME: '/board', BOARD_DAEMON_URL: 'http://127.0.0.1:4311' },
+    env,
     home: '/home',
     doctor: fake,
   });
@@ -192,20 +211,11 @@ describe('board doctor', () => {
           if (path.endsWith('config.yaml')) return `${yaml}\nhttp: { port: 4567 }\n`;
           return ports().readText(path);
         },
-        fetcher(input) {
+        fetcher(input, init) {
           if (!(input instanceof URL)) throw new Error('Expected a URL.');
+          if (isSpurProjects(input)) return ports().fetcher(input, init);
           urls.push(input.href);
-          return Promise.resolve(
-            Response.json({
-              version: '1.2.3',
-              checks: remoteIds.map((id): DoctorCheck => ({
-                id,
-                status: 'pass',
-                blocking: false,
-                fix: null,
-              })),
-            }),
-          );
+          return Promise.resolve(daemonResponse());
         },
       }),
     });
@@ -224,6 +234,7 @@ describe('board doctor', () => {
       'path.current',
       'path.spur',
       'skills.codex_visibility',
+      'sessions.codex_skill',
       'sessions.stale',
       'http.port',
       'daemon.available',
@@ -401,6 +412,9 @@ describe('board doctor', () => {
       exists: () => {
         throw new Error('offline filesystem check');
       },
+      realPath: () => {
+        throw new Error('offline link check');
+      },
       run: () => {
         throw new Error('offline process check');
       },
@@ -488,18 +502,12 @@ describe('board doctor', () => {
     ],
     [
       'skills.codex_visibility',
-      "Add .agents/skills/spur-board to the Spur project's symlinks in its config and start a new session.",
+      codexFix,
       {
-        sessions: () => [
-          {
-            id: 'worker-1',
-            project: 'worker',
-            path: '/usr/bin',
-            codexHome: '/codex',
-            cwd: '/repo',
-          },
-        ],
-        exists: (path: string) => !path.endsWith('/skills/spur-board/SKILL.md'),
+        realPath: (path: string) => {
+          if (path === mainLink) throw new Error('missing link');
+          return path;
+        },
       },
     ],
     [
@@ -539,6 +547,11 @@ describe('board doctor', () => {
       blocking: false,
       fix: null,
     });
+    expect(value.checks.find((check) => check.id === 'sessions.codex_skill')).toMatchObject({
+      status: 'pass',
+      blocking: false,
+      fix: null,
+    });
   });
 
   it('warns about an absent Spur session without inventing a version mismatch', async () => {
@@ -554,6 +567,13 @@ describe('board doctor', () => {
       blocking: false,
       fix: 'Start a Spur session, then rerun board doctor.',
     });
+    expect(value.checks.find((check) => check.id === 'skills.codex_visibility')).toEqual({
+      id: 'skills.codex_visibility',
+      status: 'warning',
+      blocking: false,
+      fix: spurFix,
+    });
+    expect(value.checks.find((check) => check.id === 'sessions.codex_skill')?.status).toBe('pass');
     expect(value.checks.find((check) => check.id === 'daemon.available')?.status).toBe('fail');
     expect(value.checks.find((check) => check.id === 'versions')).toMatchObject({
       status: 'pass',
@@ -672,6 +692,189 @@ describe('board doctor', () => {
     expect(value.checks.find((entry) => entry.id === 'sessions.stale')?.fix).toBe(
       'Restart sessions started before the last skill install: old; verify sessions whose start time is unavailable.',
     );
+  });
+});
+
+describe('board doctor Codex skill install', () => {
+  const find = (checks: DoctorCheck[], id: string) => checks.find((check) => check.id === id);
+  const spurConfig = (text: string): Partial<DoctorPorts> => ({
+    readText: (path) => (path === '/main/spur.yaml' ? text : ports().readText(path)),
+  });
+  const linkTo =
+    (target: string | null) =>
+    (path: string): string => {
+      if (path !== mainLink) return path;
+      if (target === null) throw new Error('missing link');
+      return target;
+    };
+
+  it('passes the install check without sessions', async () => {
+    const value = await run(['doctor', '--json'], ports({ sessions: () => [] }));
+    expect(find(value.checks, 'skills.codex_visibility')).toEqual({
+      id: 'skills.codex_visibility',
+      status: 'pass',
+      blocking: false,
+      fix: null,
+    });
+    expect(value.checks.map((check) => check.fix)).not.toContain(
+      'Start a Codex session in a configured Spur project to verify skill visibility.',
+    );
+  });
+
+  it.each([
+    ['the link resolves outside the installed skill', linkTo('/elsewhere')],
+    ['only the symlinks entry marks the project as Codex', linkTo(null)],
+  ] as const)('fails the install check without sessions when %s', async (_case, realPath) => {
+    const value = await run(['doctor', '--json'], ports({ sessions: () => [], realPath }));
+    expect(find(value.checks, 'skills.codex_visibility')).toEqual({
+      id: 'skills.codex_visibility',
+      status: 'fail',
+      blocking: true,
+      fix: codexFix,
+    });
+    expect(value.exitCode).toBe(1);
+  });
+
+  it('fails the install check without sessions when the symlinks entry is missing', async () => {
+    const value = await run(
+      ['doctor', '--json'],
+      ports({ sessions: () => [], ...spurConfig('projects:\n  worker:\n    symlinks: []\n') }),
+    );
+    expect(find(value.checks, 'skills.codex_visibility')).toEqual({
+      id: 'skills.codex_visibility',
+      status: 'fail',
+      blocking: true,
+      fix: codexFix,
+    });
+    expect(value.exitCode).toBe(1);
+  });
+
+  it('accepts a symlinks entry written with ./ and a trailing slash', async () => {
+    const value = await run(
+      ['doctor', '--json'],
+      ports({
+        sessions: () => [],
+        ...spurConfig('projects:\n  worker:\n    symlinks: [./.agents/skills/spur-board/]\n'),
+      }),
+    );
+    expect(find(value.checks, 'skills.codex_visibility')?.status).toBe('pass');
+  });
+
+  it('skips a project with no Codex signal', async () => {
+    const value = await run(
+      ['doctor', '--json'],
+      ports({
+        sessions: () => [],
+        realPath: linkTo(null),
+        ...spurConfig('projects:\n  worker:\n    symlinks: []\n'),
+      }),
+    );
+    expect(find(value.checks, 'skills.codex_visibility')?.status).toBe('pass');
+  });
+
+  it('counts defaultAgent codex as a Codex signal', async () => {
+    const value = await run(
+      ['doctor', '--json'],
+      ports({
+        sessions: () => [],
+        realPath: linkTo(null),
+        ...spurConfig('projects:\n  worker:\n    defaultAgent: codex\n    symlinks: []\n'),
+      }),
+    );
+    expect(find(value.checks, 'skills.codex_visibility')?.status).toBe('fail');
+  });
+
+  it.each([
+    ['when set', { CODEX_HOME: '/custom-codex' }, 'pass', false],
+    ['only when set', {}, 'fail', true],
+  ] as const)(
+    'checks the Codex copy under CODEX_HOME %s',
+    async (_case, extra, status, blocking) => {
+      const value = await run(
+        ['doctor', '--json'],
+        ports({ sessions: () => [], realPath: linkTo('/custom-codex/skills/spur-board') }),
+        { BOARD_HOME: '/board', BOARD_DAEMON_URL: 'http://127.0.0.1:4311', ...extra },
+      );
+      expect(find(value.checks, 'skills.codex_visibility')).toMatchObject({ status, blocking });
+    },
+  );
+
+  it('passes the install and warns about Codex sessions created before the link', async () => {
+    const value = await run(
+      ['doctor', '--json'],
+      ports({
+        sessions: () => [
+          { id: 'worker-1', project: 'worker', path: '/usr/bin', codexHome: '/codex', cwd: '/old' },
+          { id: 'worker-1', project: 'worker', path: '/usr/bin', codexHome: '/codex', cwd: '/old' },
+        ],
+        exists: (path) => !path.endsWith('/skills/spur-board/SKILL.md'),
+      }),
+    );
+    expect(find(value.checks, 'skills.codex_visibility')?.status).toBe('pass');
+    expect(find(value.checks, 'sessions.codex_skill')).toEqual({
+      id: 'sessions.codex_skill',
+      status: 'warning',
+      blocking: false,
+      fix: 'Start new Spur sessions to replace Codex sessions created before the skill link: worker-1; Spur links .agents/skills/spur-board only into new worktrees.',
+    });
+    expect(value.exitCode).toBe(0);
+  });
+
+  it('warns about an unreachable Spur with a live Codex session', async () => {
+    const value = await run(
+      ['doctor', '--json'],
+      ports({
+        exists: (path) => !path.endsWith('/skills/spur-board/SKILL.md'),
+        fetcher: () => Promise.reject(new Error('spur down')),
+      }),
+    );
+    expect(find(value.checks, 'skills.codex_visibility')).toEqual({
+      id: 'skills.codex_visibility',
+      status: 'warning',
+      blocking: false,
+      fix: spurFix,
+    });
+    expect(find(value.checks, 'sessions.codex_skill')?.status).toBe('pass');
+  });
+
+  it('warns about a configured Spur project that Spur does not know', async () => {
+    const value = await run(
+      ['doctor', '--json'],
+      ports({
+        fetcher: (input) =>
+          Promise.resolve(
+            isSpurProjects(input)
+              ? Response.json([{ id: 'other', path: '/other' }])
+              : daemonResponse(),
+          ),
+      }),
+    );
+    const check = find(value.checks, 'skills.codex_visibility');
+    expect(check).toMatchObject({ status: 'warning', blocking: false });
+    expect(check?.fix).toBe(
+      'Correct spurProjects in config.yaml or register these projects in Spur: worker.',
+    );
+    expect(value.exitCode).toBe(0);
+  });
+
+  it('warns when the project spur.yaml cannot be read', async () => {
+    const value = await run(
+      ['doctor', '--json'],
+      ports({
+        exists: (path) => !path.endsWith('/skills/spur-board/SKILL.md'),
+        readText: (path) => {
+          if (path.startsWith('/main/spur.')) throw new Error('unreadable');
+          return ports().readText(path);
+        },
+      }),
+    );
+    const check = find(value.checks, 'skills.codex_visibility');
+    expect(check).toMatchObject({ status: 'warning', blocking: false });
+    expect(check?.fix).toContain(
+      "Check that projects.<id>.symlinks in each project's spur.yaml lists .agents/skills/spur-board: worker.",
+    );
+    expect(find(value.checks, 'sessions.codex_skill')?.status).toBe('pass');
+    expect(value.exitCode).toBe(0);
   });
 });
 

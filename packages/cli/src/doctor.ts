@@ -8,10 +8,11 @@ import {
   statSync,
 } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, isAbsolute, join } from 'node:path';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { parseEnv } from 'node:util';
 import { configSchema, requiredSecretKeys, type Config } from '@spur-board/contracts';
 import YAML from 'yaml';
+import { z } from 'zod';
 import { configFile, resolveDaemonAddress } from './config.ts';
 import { bindLoopback, checkHttpPort } from './port.ts';
 
@@ -37,6 +38,7 @@ export interface DoctorPorts {
   secretFile(path: string): { path: string; isFile: boolean; mode: number };
   listDir(path: string): string[];
   exists(path: string): boolean;
+  realPath(path: string): string;
   run(
     command: string,
     args: readonly string[],
@@ -121,6 +123,7 @@ const defaultPorts: DoctorPorts = {
   },
   listDir: readdirSync,
   exists: existsSync,
+  realPath: (path) => realpathSync(path),
   run: systemRun,
   sessions: liveSessions,
   fetcher: fetch,
@@ -306,6 +309,69 @@ function remoteChecks(value: unknown): { version: string; checks: DoctorCheck[] 
   return { version: value.version, checks };
 }
 
+function safeIds(values: readonly string[]): string[] {
+  return values.filter((id) => /^[a-zA-Z0-9_-]+$/.test(id)).slice(0, 10);
+}
+
+function listing(ids: readonly string[]): string {
+  return ids.length ? `: ${ids.join(', ')}` : '';
+}
+
+const skillLink = '.agents/skills/spur-board';
+const codexVisibilityFix =
+  "Add .agents/skills/spur-board to the Spur project's symlinks in its config and start a new session.";
+const spurProjectList = z.array(z.object({ id: z.string(), path: z.string() }));
+const spurProjectConfig = z.object({
+  symlinks: z.array(z.string()).optional(),
+  defaultAgent: z.string().optional(),
+});
+
+/** Spur's own project list is the only source of each project's main checkout path. */
+async function spurProjectPaths(
+  baseUrl: string,
+  ports: DoctorPorts,
+): Promise<Map<string, string> | null> {
+  try {
+    const response = await ports.fetcher(new URL('projects', `${baseUrl.replace(/\/$/, '')}/`), {
+      signal: AbortSignal.timeout(5_000),
+    });
+    if (!response.ok) return null;
+    const parsed = spurProjectList.safeParse(await response.json());
+    return parsed.success
+      ? new Map(parsed.data.map((project) => [project.id, project.path]))
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function spurProjectEntry(
+  ports: DoctorPorts,
+  path: string,
+  id: string,
+): { symlinks: string[]; defaultAgent?: string } | null {
+  for (const file of ['spur.yaml', 'spur.yml']) {
+    let value: unknown;
+    try {
+      value = YAML.parse(ports.readText(join(path, file)));
+    } catch {
+      continue;
+    }
+    if (!value || typeof value !== 'object' || !('projects' in value)) continue;
+    const projects = value.projects;
+    if (!projects || typeof projects !== 'object' || !Object.hasOwn(projects, id)) continue;
+    const parsed = spurProjectConfig.safeParse((projects as Record<string, unknown>)[id]);
+    if (!parsed.success) continue;
+    return {
+      symlinks: (parsed.data.symlinks ?? []).map((entry) =>
+        entry.replace(/^\.\//, '').replace(/\/+$/, ''),
+      ),
+      ...(parsed.data.defaultAgent === undefined ? {} : { defaultAgent: parsed.data.defaultAgent }),
+    };
+  }
+  return null;
+}
+
 /** Local preflight remains useful even when the daemon is stopped. */
 export async function runDoctor(
   options: {
@@ -395,23 +461,102 @@ export async function runDoctor(
   const codexSessions = sessions.filter(
     (session) => session.codexHome && session.project && configured.has(session.project),
   );
+  const projectPaths =
+    configured.size === 0 ? null : await spurProjectPaths(config.adapters.spur.baseUrl, ports);
+  const states = new Map<string, 'ok' | 'broken' | 'unknown'>();
+  const missing: string[] = [];
+  if (projectPaths !== null) {
+    // Mirrors the copies installIntoHome writes in skills.ts.
+    const codexHome = env['CODEX_HOME'];
+    const installed = new Set<string>();
+    for (const copy of [
+      join(home, '.claude', 'skills', 'spur-board'),
+      codexHome
+        ? join(resolve(codexHome), 'skills', 'spur-board')
+        : join(home, '.codex', 'skills', 'spur-board'),
+    ]) {
+      try {
+        installed.add(ports.realPath(copy));
+      } catch {
+        // A missing copy cannot be a link target.
+      }
+    }
+    for (const name of configured) {
+      const path = projectPaths.get(name);
+      if (path === undefined) {
+        missing.push(name);
+        continue;
+      }
+      const entry = spurProjectEntry(ports, path, name);
+      let linkReal: string | null = null;
+      try {
+        linkReal = ports.realPath(join(path, skillLink));
+      } catch {
+        // A missing link is a broken install when the project is used by Codex.
+      }
+      const listed = entry?.symlinks.includes(skillLink) ?? false;
+      const used =
+        codexSessions.some((session) => session.project === name) ||
+        entry?.defaultAgent === 'codex' ||
+        listed ||
+        linkReal !== null;
+      states.set(
+        name,
+        used && (linkReal === null || !installed.has(linkReal) || (entry !== null && !listed))
+          ? 'broken'
+          : entry === null
+            ? 'unknown'
+            : 'ok',
+      );
+    }
+  }
+  const unknown = [...states].filter(([, state]) => state === 'unknown').map(([name]) => name);
   checks.push(
-    codexSessions.length === 0
+    configured.size === 0
+      ? result('skills.codex_visibility', true, codexVisibilityFix)
+      : projectPaths === null
+        ? warning(
+            'skills.codex_visibility',
+            'Start Spur or correct adapters.spur.baseUrl in config.yaml, then rerun board doctor to check the Codex skill install.',
+          )
+        : [...states.values()].includes('broken')
+          ? result('skills.codex_visibility', false, codexVisibilityFix)
+          : missing.length > 0 || unknown.length > 0
+            ? warning(
+                'skills.codex_visibility',
+                [
+                  ...(missing.length > 0
+                    ? [
+                        `Correct spurProjects in config.yaml or register these projects in Spur${listing(safeIds(missing))}.`,
+                      ]
+                    : []),
+                  ...(unknown.length > 0
+                    ? [
+                        `Check that projects.<id>.symlinks in each project's spur.yaml lists .agents/skills/spur-board${listing(safeIds(unknown))}.`,
+                      ]
+                    : []),
+                ].join(' '),
+              )
+            : result('skills.codex_visibility', true, codexVisibilityFix),
+  );
+  const oldSessions = codexSessions.filter(
+    (session) =>
+      session.project !== undefined &&
+      states.get(session.project) === 'ok' &&
+      !(
+        (session.cwd !== undefined &&
+          ports.exists(join(session.cwd, '.agents', 'skills', 'spur-board', 'SKILL.md'))) ||
+        (session.codexHome !== undefined &&
+          ports.exists(join(session.codexHome, 'skills', 'spur-board', 'SKILL.md')))
+      ),
+  );
+  checks.push(
+    oldSessions.length > 0
       ? warning(
-          'skills.codex_visibility',
-          'Start a Codex session in a configured Spur project to verify skill visibility.',
+          'sessions.codex_skill',
+          `Start new Spur sessions to replace Codex sessions created before the skill link${listing(safeIds([...new Set(oldSessions.map((session) => session.id))]))}; Spur links .agents/skills/spur-board only into new worktrees.`,
         )
-      : result(
-          'skills.codex_visibility',
-          codexSessions.some(
-            (session) =>
-              (session.cwd !== undefined &&
-                ports.exists(join(session.cwd, '.agents', 'skills', 'spur-board', 'SKILL.md'))) ||
-              (session.codexHome !== undefined &&
-                ports.exists(join(session.codexHome, 'skills', 'spur-board', 'SKILL.md'))),
-          ),
-          "Add .agents/skills/spur-board to the Spur project's symlinks in its config and start a new session.",
-        ),
+      : result('sessions.codex_skill', true, 'Start new Spur sessions.'),
   );
 
   const version = ports.productVersion();
@@ -427,15 +572,12 @@ export async function runDoctor(
     (session) => session.startAt !== undefined && session.startAt < latestInstall,
   );
   const unknownStarts = sessions.some((session) => session.startAt === undefined);
-  const staleIds = stale
-    .map((session) => session.id)
-    .filter((id) => /^[a-zA-Z0-9_-]+$/.test(id))
-    .slice(0, 10);
+  const staleIds = safeIds(stale.map((session) => session.id));
   checks.push(
     stale.length > 0 || unknownStarts
       ? warning(
           'sessions.stale',
-          `Restart sessions started before the last skill install${staleIds.length ? `: ${staleIds.join(', ')}` : ''}; verify sessions whose start time is unavailable.`,
+          `Restart sessions started before the last skill install${listing(staleIds)}; verify sessions whose start time is unavailable.`,
         )
       : result('sessions.stale', true, 'Restart older sessions.'),
   );
