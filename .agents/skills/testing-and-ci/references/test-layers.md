@@ -72,7 +72,9 @@ Every test runs through the root config, so all of these hold:
   threads, the OS environment would still hold the parent's secrets.
 - `packages/testkit/src/global-setup.ts` runs once before workers fork: it scrubs credential
   variables and points `HOME`, `TMPDIR` and the XDG directories at a fresh temporary root, so no
-  test reads or writes the real home.
+  test reads or writes the real home. It also removes `DBUS_SESSION_BUS_ADDRESS` and
+  `NOTIFY_SOCKET`, so `systemctl --user` in a test or its children cannot reach the real user
+  manager; a test that needs a user bus sets one explicitly.
 - `packages/testkit/src/setup.ts` installs the network guard in each worker: a connection to a
   non-local host throws, so a test cannot reach a real service by accident.
 - Pinned by `packages/testkit/test/env.test.ts` and

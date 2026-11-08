@@ -38,5 +38,7 @@ FINDING: <non-obvious fact> - <file:line or command>
 - Evidence files (screenshots, logs) go outside the repo, or in the session's artifacts directory
   when it has one.
 - Test only: never edit tracked files, commit, `git fetch` or move refs.
+- Never act on the machine's real systemd user manager (`AGENTS.md`, Workflow); leave such a
+  scenario out and name it under `Errors` as an operator step.
 - `FINDING:` lines are for facts worth keeping beyond this task; none -> no line.
 '''

@@ -83,6 +83,12 @@ A map of the repo for agents and contributors. The rules live in the files and s
 - The manager keeps its spec in `.scratch/spec-<issue-number>.md`. `.scratch/` is not committed.
 - Branches, commits and PRs follow `gitflow`; agent files follow `skill-writer`.
 - A review on your PR requests changes -> run `pr-comments-fix` (Codex: `$pr-comments-fix`).
+- Never run `board service install`, `restart` or `uninstall`, or a `systemctl --user` command
+  that changes a unit, outside a disposable VM or container: they act on the machine's real user
+  manager. `BOARD_HOME` moves config and secrets, not the unit (`servicePaths`,
+  `packages/cli/src/service.ts`). Check the unit with a temporary `HOME` and `XDG_CONFIG_HOME`
+  and a fake `systemctl` on `PATH` (`scripts/package-smoke.ts`); a check that needs real
+  systemd is a manual operator step.
 
 ## Skills and roles
 
