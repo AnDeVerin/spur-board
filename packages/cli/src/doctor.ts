@@ -427,15 +427,18 @@ export async function runDoctor(
     (session) => session.startAt !== undefined && session.startAt < latestInstall,
   );
   const unknownStarts = sessions.some((session) => session.startAt === undefined);
-  const staleIds = stale
-    .map((session) => session.id)
-    .filter((id) => /^[a-zA-Z0-9_-]+$/.test(id))
-    .slice(0, 10);
+  // Spur lists one entry per pane or process, so one session can appear several times.
+  const staleSessions = [...new Set(stale.map((session) => session.id))];
+  const staleIds = staleSessions.filter((id) => /^[a-zA-Z0-9_-]+$/.test(id)).slice(0, 10);
+  const staleCount =
+    staleSessions.length === 0
+      ? 'sessions'
+      : `${String(staleSessions.length)} session${staleSessions.length === 1 ? '' : 's'}`;
   checks.push(
     stale.length > 0 || unknownStarts
       ? warning(
           'sessions.stale',
-          `Restart sessions started before the last skill install${staleIds.length ? `: ${staleIds.join(', ')}` : ''}; verify sessions whose start time is unavailable.`,
+          `Restart ${staleCount} started before the last skill install${staleIds.length ? `: ${staleIds.join(', ')}` : ''}; verify sessions whose start time is unavailable.`,
         )
       : result('sessions.stale', true, 'Restart older sessions.'),
   );
