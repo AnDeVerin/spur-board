@@ -306,6 +306,55 @@ describe('accepted observation', () => {
     expect(listed.hiddenUnlinkedSessions).toBe(0);
   });
 
+  it('ages an unlinked session from the first complete Spur poll that omits it, not from its last listing', async () => {
+    const { store, core } = setup();
+    const poll = async (sessions: readonly string[]) => {
+      const observedAt = new Date(now).toISOString();
+      await core.observe('spur', {
+        batch: {
+          source: 'spur',
+          observedAt,
+          complete: true,
+          items: sessions.map((id) => ({ kind: 'session' as const, facts: sessionFact(id) })),
+          entities: [],
+        },
+        effectiveComplete: true,
+        state: { lastCompleteAt: observedAt, gone: [] },
+        outcomes: [],
+      });
+    };
+    const status = () => getStatus({ store, config, clock, completeSince: core.completeSince });
+    const absentSince = async () =>
+      (
+        await store.db
+          .selectFrom('session_snapshot')
+          .select('absent_since')
+          .where('id', '=', 'idle-1')
+          .executeTakeFirstOrThrow()
+      ).absent_since;
+    await poll(['idle-1', 'live-1']);
+    // An 8-day polling outage, then the first recovered complete poll omits idle-1.
+    now += 8 * 24 * 60 * 60 * 1000;
+    const recovered = new Date(now).toISOString();
+    await poll(['live-1']);
+    expect(await absentSince()).toBe(recovered);
+    const fresh = await status();
+    expect(fresh.unlinkedSessions.map((session) => session.id).sort()).toEqual([
+      'idle-1',
+      'live-1',
+    ]);
+    expect(fresh.hiddenUnlinkedSessions).toBe(0);
+    now += 7 * 24 * 60 * 60 * 1000 + 60_000;
+    await poll(['live-1']);
+    expect(await absentSince()).toBe(recovered);
+    const hidden = await status();
+    expect(hidden.unlinkedSessions.map((session) => session.id)).toEqual(['live-1']);
+    expect(hidden.hiddenUnlinkedSessions).toBe(1);
+    await poll(['idle-1', 'live-1']);
+    expect(await absentSince()).toBeNull();
+    expect((await status()).hiddenUnlinkedSessions).toBe(0);
+  });
+
   it('leaves simultaneous unmarked branch candidates unlinked', async () => {
     const { store, core, apply, mutations } = setup();
     await apply(mutations.add, { task: 'o/r#9' }, 'operator');

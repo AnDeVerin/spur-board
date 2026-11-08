@@ -184,9 +184,6 @@ export async function getStatus(
         : {}),
     });
   }
-  const sourceRows = await store.db.selectFrom('source_state').selectAll().execute();
-  const sourceById = new Map(sourceRows.map((row) => [row.source, row]));
-  const spurLastCompleteAt = sourceById.get('spur')?.last_complete_at ?? null;
   const pastWindow = (at: string) => clock.now() - Date.parse(at) > UNLINKED_WINDOW_MS;
   const allPrs = await store.db.selectFrom('pr_snapshot').selectAll().execute();
   const allSessions = await store.db.selectFrom('session_snapshot').selectAll().execute();
@@ -244,15 +241,14 @@ export async function getStatus(
         project.spurProjects.some((spur) => spur.name === session.spur_project),
       ) && !allLinks.some((link) => link.entity === 'session' && link.session_id === session.id),
   );
-  /** Ended, or missing from the latest complete Spur list, for longer than the window. */
+  /** Ended, or omitted by complete Spur polls, for longer than the window. */
   const hiddenSession = (session: (typeof sessionRows)[number]) => {
     const ended =
       session.ended_at !== null ||
       session.state === 'completed' ||
       session.state === 'killed' ||
-      (spurLastCompleteAt !== null &&
-        Date.parse(session.last_seen) < Date.parse(spurLastCompleteAt));
-    return ended && pastWindow(session.ended_at ?? session.last_seen);
+      session.absent_since !== null;
+    return ended && pastWindow(session.ended_at ?? session.absent_since ?? session.last_seen);
   };
   const unlinkedSessions = sessionRows
     .filter((session) => !hiddenSession(session))
@@ -262,6 +258,7 @@ export async function getStatus(
       const { id, spurProject, branch, lifecycle, health } = facts;
       return { id, spurProject, branch, lifecycle, health };
     });
+  const sourceRows = await store.db.selectFrom('source_state').selectAll().execute();
   const required = new Set([
     'spur',
     ...projects.flatMap((project) => [
@@ -269,6 +266,7 @@ export async function getStatus(
       ...project.repos.map((repo) => `github:${project.id}:${repo.toLowerCase()}`),
     ]),
   ]);
+  const sourceById = new Map(sourceRows.map((row) => [row.source, row]));
   const sources = [...required].map((source) => {
     const row = sourceById.get(source);
     const last = row?.last_complete_at ?? null;

@@ -486,8 +486,11 @@ it('keeps the default status for 100 tasks under the budget and lists every item
 const DAY = 24 * 60 * 60 * 1000;
 const WINDOW = 7 * DAY;
 
-/** Writes unlinked and linked PR and session rows aged around the 7-day window, and tasks. */
-async function seedUnlinkedAges(store: Store, spurLastCompleteAt: string | null | undefined) {
+/**
+ * Writes unlinked and linked PR and session rows aged around the 7-day window, and tasks.
+ * Without `confirmedAbsent` no complete Spur poll has omitted a session yet.
+ */
+async function seedUnlinkedAges(store: Store, confirmedAbsent: boolean) {
   const iso = (ms: number) => new Date(ms).toISOString();
   const now = clock.now();
   const prRow = (
@@ -536,6 +539,7 @@ async function seedUnlinkedAges(store: Store, spurLastCompleteAt: string | null 
     lifecycle: 'running' | 'stopped' | 'completed',
     seenAge: number,
     endedAge: number | null,
+    absentAge: number | null = null,
     firstSeenAge = seenAge,
   ) => {
     const endedAt = endedAge === null ? null : iso(now - endedAge);
@@ -567,6 +571,7 @@ async function seedUnlinkedAges(store: Store, spurLastCompleteAt: string | null 
       detail: JSON.stringify(facts),
       source: 'spur',
       observed_at: iso(now),
+      absent_since: absentAge === null || !confirmedAbsent ? null : iso(now - absentAge),
     };
   };
   const prs = [
@@ -591,16 +596,18 @@ async function seedUnlinkedAges(store: Store, spurLastCompleteAt: string | null 
     ...Array.from({ length: 50 }, (_, n) =>
       sessionRow(`completed-${String(n)}`, 'first-worker', 'completed', 8 * DAY, null),
     ),
-    // Hidden only by a complete Spur list: last listed running 8 days ago.
+    // Hidden only by complete Spur polls: last listed running, then omitted, 8 days ago.
     ...Array.from({ length: 50 }, (_, n) =>
-      sessionRow(`gone-${String(n)}`, 'first-worker', 'running', 8 * DAY, null),
+      sessionRow(`gone-${String(n)}`, 'first-worker', 'running', 8 * DAY, null, 8 * DAY),
     ),
     // Listed: in the latest list, ended or gone within the window or exactly at its edge.
-    sessionRow('live-old', 'first-worker', 'running', 0, null, 30 * DAY),
+    sessionRow('live-old', 'first-worker', 'running', 0, null, null, 30 * DAY),
     sessionRow('ended-6d', 'first-worker', 'stopped', 0, 6 * DAY),
-    sessionRow('gone-6d', 'first-worker', 'running', 6 * DAY, null),
+    sessionRow('gone-6d', 'first-worker', 'running', 6 * DAY, null, 6 * DAY),
     sessionRow('ended-7d', 'first-worker', 'stopped', 0, WINDOW),
-    sessionRow('gone-7d', 'first-worker', 'running', WINDOW, null),
+    sessionRow('gone-7d', 'first-worker', 'running', WINDOW, null, WINDOW),
+    // Listed: last listed 30 days ago, but no complete poll omitted it until 6 days ago.
+    sessionRow('gone-late', 'first-worker', 'running', 30 * DAY, null, 6 * DAY),
     // Linked: under its task, never counted.
     sessionRow('linked-old', 'first-worker', 'stopped', 0, 8 * DAY),
     // Another project.
@@ -659,19 +666,6 @@ async function seedUnlinkedAges(store: Store, spurLastCompleteAt: string | null 
         session_id: 'linked-old',
       })
       .execute();
-    if (spurLastCompleteAt !== undefined) {
-      await trx
-        .insertInto('source_state')
-        .values({
-          source: 'spur',
-          last_complete_at: spurLastCompleteAt,
-          blind_reason: null,
-          cursor: null,
-          observed_at: spurLastCompleteAt,
-          blind_message: null,
-        })
-        .execute();
-    }
   });
   const registry = createOperationRegistry({ config, clock, completeSince: new Map() });
   const status = registry['status.get'];
@@ -683,8 +677,8 @@ async function seedUnlinkedAges(store: Store, spurLastCompleteAt: string | null 
 it('hides unlinked PRs and sessions finished over 7 days ago and counts them', async () => {
   const store = openStore(join(mkdtempSync(join(tmpdir(), 'board-registry-')), 'board.db'));
   stores.push(store);
-  const status = await seedUnlinkedAges(store, new Date(clock.now()).toISOString());
-  const listedSessions = ['ended-6d', 'ended-7d', 'gone-6d', 'gone-7d', 'live-old'];
+  const status = await seedUnlinkedAges(store, true);
+  const listedSessions = ['ended-6d', 'ended-7d', 'gone-6d', 'gone-7d', 'gone-late', 'live-old'];
   for (const detail of [false, true]) {
     const result = await status({ project: 'first', detail });
     expect(result.unlinkedPrs.map((pr) => pr.number).sort((a, b) => a - b)).toEqual([40, 41, 42]);
@@ -699,16 +693,14 @@ it('hides unlinked PRs and sessions finished over 7 days ago and counts them', a
   expect([all.hiddenUnlinkedPrs, all.hiddenUnlinkedSessions]).toEqual([36, 201]);
 });
 
-it('hides no session as gone from the list without a complete Spur poll', async () => {
-  for (const spurLastCompleteAt of [undefined, null]) {
-    const store = openStore(join(mkdtempSync(join(tmpdir(), 'board-registry-')), 'board.db'));
-    stores.push(store);
-    const status = await seedUnlinkedAges(store, spurLastCompleteAt);
-    const result = await status({ project: 'first' });
-    const ids = result.unlinkedSessions.map((session) => session.id);
-    for (let n = 0; n < 50; n += 1) expect(ids).toContain(`gone-${String(n)}`);
-    expect(ids).not.toContain('completed-0');
-    expect(ids).not.toContain('ended-0');
-    expect(result.hiddenUnlinkedSessions).toBe(150);
-  }
+it('hides no session as gone from the list until a complete Spur poll omits it', async () => {
+  const store = openStore(join(mkdtempSync(join(tmpdir(), 'board-registry-')), 'board.db'));
+  stores.push(store);
+  const status = await seedUnlinkedAges(store, false);
+  const result = await status({ project: 'first' });
+  const ids = result.unlinkedSessions.map((session) => session.id);
+  for (let n = 0; n < 50; n += 1) expect(ids).toContain(`gone-${String(n)}`);
+  expect(ids).not.toContain('completed-0');
+  expect(ids).not.toContain('ended-0');
+  expect(result.hiddenUnlinkedSessions).toBe(150);
 });
