@@ -45,9 +45,34 @@ there, install it with that session's Node and a user prefix on that `PATH`.
 
 ### skills.codex_visibility
 
-Start a fresh Codex session in a configured Spur project. If it cannot see the product skill,
-install the bundled skills and add `.agents/skills/spur-board` to that project's Spur symlinks.
-The [setup skill](packages/skills/setup/SKILL.md) gives the project-checkout steps.
+Checks the skill install of each configured Spur project, without depending on live sessions.
+The doctor asks Spur's `GET /projects` at `adapters.spur.baseUrl` for the project's main
+checkout, then checks two things there:
+
+- `.agents/skills/spur-board` in the main checkout is a link to an installed product skill:
+  `$CODEX_HOME/skills/spur-board` when `CODEX_HOME` is set, otherwise
+  `~/.codex/skills/spur-board`, or `~/.claude/skills/spur-board`. Create it with
+  `ln -s ~/.codex/skills/spur-board .agents/skills/spur-board` from the main checkout after
+  `board skills install`. Run the doctor with the same `CODEX_HOME` as `board skills install`.
+- `projects.<id>.symlinks` in the project's `spur.yaml` (or `spur.yml`) lists
+  `.agents/skills/spur-board`, so Spur links the skill into each new worktree.
+
+A failure means a project used by Codex misses one of the two. A project counts as used by
+Codex when a live Codex session runs in it, its `spur.yaml` entry sets `defaultAgent: codex`,
+its `symlinks` list the path, or the main-checkout link resolves. A Codex-only project with
+none of these signals is not checked.
+
+A warning means the doctor could not decide: Spur is not reachable at `adapters.spur.baseUrl`,
+a `spurProjects` name in `config.yaml` is not a Spur project ID, or the project's `spur.yaml`
+does not define the project. Start Spur, correct the name or the `spur.yaml` entry, then rerun
+the doctor. The [setup skill](packages/skills/setup/SKILL.md) gives the project-checkout steps.
+
+### sessions.codex_skill
+
+Warns about live Codex sessions that cannot see the product skill while their project's install
+passes `skills.codex_visibility`. Spur links `.agents/skills/spur-board` only when it creates a
+worktree, so these sessions started before the link. Start new sessions to replace them. It
+passes while `skills.codex_visibility` fails or warns: fix that check first, then rerun.
 
 ### sessions.stale
 
