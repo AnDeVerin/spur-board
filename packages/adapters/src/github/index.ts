@@ -139,6 +139,11 @@ const malformedPaging = (): FullPr => ({
   status: 'malformed',
   error: new AdapterError('transient', 'Malformed GitHub pagination'),
 });
+// `nextPage` throws on a page that has more but no cursor; here that is this PR's content.
+function pageCursor(connection: Paging): string | undefined | null {
+  const { hasNextPage, endCursor } = connection.pageInfo;
+  return hasNextPage && !endCursor ? null : nextPage(connection);
+}
 async function fullPr(
   client: GithubClient,
   first: PrPaging,
@@ -158,7 +163,8 @@ async function fullPr(
   ] as const) {
     let target = connectionOf(pr, field);
     if (target === undefined) continue;
-    let cursor = nextPage(target);
+    let cursor = pageCursor(target);
+    if (cursor === null) return malformedPaging();
     const seen = new Set<string>();
     while (cursor !== undefined) {
       if (seen.has(cursor)) return malformedPaging();
@@ -183,7 +189,8 @@ async function fullPr(
       if (page === undefined) return malformedPaging();
       target = { nodes: [...target.nodes, ...page.nodes], pageInfo: page.pageInfo };
       pr = withConnection(pr, field, target);
-      cursor = nextPage(page);
+      cursor = pageCursor(page);
+      if (cursor === null) return malformedPaging();
     }
   }
   return { status: 'ok', pr };

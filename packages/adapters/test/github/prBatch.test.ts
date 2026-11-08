@@ -591,6 +591,10 @@ describe('GitHub PR batch', () => {
     ['an omitted connection', {}],
     ['a missing pageInfo', { reviewRequests: { nodes: [] } }],
     ['a repeated cursor', { reviewRequests: conn([], 'rr-next') }],
+    [
+      'more pages without a cursor',
+      { reviewRequests: { nodes: [], pageInfo: { hasNextPage: true, endCursor: null } } },
+    ],
   ])('omits a PR whose follow-up review-request page is malformed: %s', async (_name, page) => {
     const other = { ...ref, number: 8 };
     const first = wire();
@@ -613,6 +617,26 @@ describe('GitHub PR batch', () => {
     ]);
     expect(batch.items.map((item) => item.kind === 'pr' && item.facts.number)).toEqual([8]);
     expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+  it('omits a PR whose first review-request page has more pages but no cursor', async () => {
+    const other = { ...ref, number: 8 };
+    const first = wire();
+    first.reviewRequests.pageInfo = { hasNextPage: true, endCursor: null };
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValueOnce(
+      response({
+        repository: { pullRequests: conn([]) },
+        pr0: { pullRequest: first },
+        pr1: { pullRequest: wire(8) },
+      }),
+    );
+    const batch = await adapter(fetcher).poll(context([ref, other]));
+    expect(batch.complete).toBe(false);
+    expect(batch.entities).toEqual([
+      { ref, status: 'no_access' },
+      { ref: other, status: 'ok' },
+    ]);
+    expect(batch.items.map((item) => item.kind === 'pr' && item.facts.number)).toEqual([8]);
+    expect(fetcher).toHaveBeenCalledTimes(1);
   });
   it('holds the cursor when a discovered PR fails to parse', async () => {
     const cursor = '2026-01-01T00:00:00.000Z';
