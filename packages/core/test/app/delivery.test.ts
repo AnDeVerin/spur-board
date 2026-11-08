@@ -26,7 +26,7 @@ import {
   type Sender,
   type Store,
 } from '../../src/index.ts';
-import { HEALTH_PROBE_MS, retryTransport } from '../../src/app/sender.ts';
+import { HEALTH_PROBE_MS, retryTransport, SpurRejectedError } from '../../src/app/sender.ts';
 import {
   observeGateway,
   observeSpur,
@@ -873,6 +873,64 @@ describe('tick', () => {
     await second;
     expect(ctx.observed.requests).toHaveLength(1);
   });
+
+  /** A sender whose `failAt`-th store transaction rejects once without running. */
+  function failingTransaction(ctx: Ctx, failAt: number): Sender {
+    let transactions = 0;
+    const store: Store = {
+      ...ctx.store,
+      transaction(fn) {
+        transactions += 1;
+        if (transactions === failAt) return Promise.reject(new Error('disk I/O error'));
+        return scanTransaction(ctx.store, testConfig, fn);
+      },
+    };
+    return createSender({
+      config: testConfig,
+      store,
+      gateway: ctx.observed.gateway,
+      spur: ctx.spur.spur,
+      now: () => ctx.fake.platform.now(),
+      spaceIntervalMs: 0,
+    });
+  }
+
+  async function threeLanes(ctx: Ctx): Promise<number[]> {
+    const seed = await seedBlock(ctx);
+    return [
+      await enqueueOpen(ctx, seed),
+      await feedLine(ctx, seed.key, 'lane-feed'),
+      await insertRow(ctx, 'doorbell', 'doorbell:lanes', { session: 'sess-1', text: 'ping' }),
+    ];
+  }
+
+  it('returns the claims of a tick whose send start failed to later ticks', async () => {
+    const ctx = setup('slack-like', 0);
+    const ids = await threeLanes(ctx);
+    // Transaction 1 claims all three lanes; transaction 2 is the first send start.
+    const sender = failingTransaction(ctx, 2);
+    await expect(sender.tick()).rejects.toThrow('disk I/O error');
+    ctx.fake.platform.advance(1000);
+    await sender.tick();
+    for (const id of ids) expect(await outboxRow(ctx, id)).toMatchObject({ state: 'done' });
+    expect(ctx.observed.requests).toHaveLength(2);
+    expect(ctx.spur.sends).toHaveLength(1);
+  });
+
+  it('returns a claim whose result failed to record as uncertain', async () => {
+    const ctx = setup('slack-like', 0);
+    const [openId = 0, ...rest] = await threeLanes(ctx);
+    // Transaction 3 records the open, which the gateway already posted.
+    const sender = failingTransaction(ctx, 3);
+    await expect(sender.tick()).rejects.toThrow('disk I/O error');
+    ctx.fake.platform.advance(1000);
+    await sender.tick();
+    expect(await outboxRow(ctx, openId)).toMatchObject({ state: 'done', uncertain: 1 });
+    expect(request(ctx, 1)).toMatchObject({ key: request(ctx, 0).key, maybeSent: true });
+    expect(marked(ctx.fake, request(ctx, 0).key)).toBe(1);
+    for (const id of rest) expect(await outboxRow(ctx, id)).toMatchObject({ state: 'done' });
+    expect(ctx.spur.sends).toHaveLength(1);
+  });
 });
 
 /**
@@ -1137,6 +1195,45 @@ describe('doorbell via SpurPort', () => {
     await step(ctx);
     expect(ctx.spur.sends).toEqual([['sess-1', 'ping']]);
     expect((await outboxRow(ctx, id)).state).toBe('done');
+  });
+
+  it('ends an author ring Spur rejects', async () => {
+    const ctx = setup();
+    const seed = await seedBlock(ctx);
+    const key = `doorbell:comment:${String(seed.commentId)}:revision:1`;
+    const id = await insertRow(ctx, 'doorbell', key, { session: 'sess-1', text: 'ping' });
+    ctx.spur.throwNext(new SpurRejectedError('Spur send failed with HTTP 404: x'));
+    await ctx.sender.tick();
+    expect(await outboxRow(ctx, id)).toMatchObject({
+      state: 'dead',
+      last_error: 'Spur send failed with HTTP 404: x',
+    });
+    const events = await ctx.store.db
+      .selectFrom('event')
+      .select(['task_id', 'payload'])
+      .where('kind', '=', 'doorbell_undelivered')
+      .execute();
+    expect(events.map((e) => ({ ...e, payload: JSON.parse(e.payload) as unknown }))).toEqual([
+      {
+        task_id: seed.taskId,
+        payload: { doorbell: key, reason: 'Spur send failed with HTTP 404: x' },
+      },
+    ]);
+    expect(
+      await ctx.store.db
+        .selectFrom('operator_item')
+        .select(['kind', 'item_key', 'task_id'])
+        .where('kind', '=', 'answer_author_unavailable')
+        .execute(),
+    ).toEqual([
+      {
+        kind: 'answer_author_unavailable',
+        item_key: `doorbell:unavailable:${key}`,
+        task_id: seed.taskId,
+      },
+    ]);
+    await step(ctx, 60_000);
+    expect(ctx.spur.sends).toEqual([]);
   });
 });
 

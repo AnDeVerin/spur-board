@@ -11,7 +11,8 @@ import {
   openStore,
   type Store,
 } from '../../src/index.ts';
-import { registerBlockNotification } from '../../src/app/doorbells.ts';
+import { registerBlockNotification, restartNotification } from '../../src/app/doorbells.ts';
+import { SpurRejectedError } from '../../src/app/sender.ts';
 import { sampleRows } from '../store/sample-rows.ts';
 
 const KEY = 'o/r#101';
@@ -48,7 +49,8 @@ async function setup(
   const store = openStore(join(mkdtempSync(join(tmpdir(), 'core-doorbell-')), 'board.db'));
   stores.push(store);
   let now = START;
-  let failNext = false;
+  let failNext: Error | undefined;
+  let failAlways = false;
   const sent: { session: string; text: string }[] = [];
   await store.transaction(async (trx) => {
     await trx
@@ -115,10 +117,12 @@ async function setup(
     config: usedConfig,
     spur: {
       send(session, text) {
-        if (failNext) {
-          failNext = false;
-          return Promise.reject(new Error('spur send failed'));
+        if (failNext !== undefined) {
+          const error = failNext;
+          failNext = undefined;
+          return Promise.reject(error);
         }
+        if (failAlways) return Promise.reject(new Error('spur send failed'));
         sent.push({ session, text });
         return Promise.resolve();
       },
@@ -135,8 +139,11 @@ async function setup(
     advance(ms: number) {
       now += ms;
     },
-    failNext() {
-      failNext = true;
+    failNext(error = new Error('spur send failed')) {
+      failNext = error;
+    },
+    failAlways(on: boolean) {
+      failAlways = on;
     },
   };
 }
@@ -432,6 +439,124 @@ describe('role addressed doorbells', () => {
       await ctx.store.db.selectFrom('outbox').select(['attempts', 'state']).executeTakeFirst(),
     ).toEqual({ attempts: 2, state: 'done' });
     expect(ctx.sent).toHaveLength(1);
+  });
+
+  type Ctx = Awaited<ReturnType<typeof setup>>;
+
+  /** Opens a worker block or an answer to worker-1's question; returns the block number. */
+  async function ringFor(ctx: Ctx, kind: 'block' | 'answer'): Promise<string> {
+    if (kind === 'block') return workerBlock(ctx.store);
+    const asked = await ctx.apply(
+      ops.ask,
+      { task: KEY, text: 'Which version?' },
+      'agent:web/worker-1',
+      'ask-rejected',
+    );
+    await ctx.apply(ops.answer, { block: asked.block.id, text: 'Use v2.' }, 'operator');
+    return asked.block.id;
+  }
+
+  function doorbells(ctx: Ctx) {
+    return ctx.store.db
+      .selectFrom('outbox')
+      .selectAll()
+      .where('kind', '=', 'doorbell')
+      .orderBy('id')
+      .execute();
+  }
+
+  async function undelivered(ctx: Ctx) {
+    const rows = await ctx.store.db
+      .selectFrom('event')
+      .select('payload')
+      .where('kind', '=', 'doorbell_undelivered')
+      .execute();
+    return rows.map((row) => JSON.parse(row.payload) as { doorbell: string; reason: string });
+  }
+
+  const ITEM_KIND = { block: 'worker_not_reading', answer: 'answer_undelivered' } as const;
+
+  it.each(['block', 'answer'] as const)('ends a %s ring Spur rejects', async (kind) => {
+    const ctx = await setup();
+    const blockId = await ringFor(ctx, kind);
+    ctx.failNext(
+      new SpurRejectedError('Spur send failed with HTTP 404: Session not found: worker-1'),
+    );
+    await ctx.sender.tick();
+    const [ring] = await doorbells(ctx);
+    expect(ring).toMatchObject({
+      state: 'dead',
+      last_error: expect.stringContaining('HTTP 404') as unknown,
+    });
+    const notification = await ctx.store.db
+      .selectFrom('notification')
+      .selectAll()
+      .executeTakeFirstOrThrow();
+    expect(notification.exhausted_at).not.toBeNull();
+    const items = await ctx.store.db
+      .selectFrom('operator_item')
+      .selectAll()
+      .where('kind', '=', ITEM_KIND[kind])
+      .execute();
+    expect(items).toEqual([
+      expect.objectContaining({ task_id: 1, text: expect.stringContaining('HTTP 404') as unknown }),
+    ]);
+    expect(items[0]?.text).toContain(`block ${blockId} on ${KEY}`);
+    expect(await undelivered(ctx)).toEqual([
+      {
+        doorbell: `N${String(notification.id)}`,
+        reason: expect.stringContaining('HTTP 404') as unknown,
+      },
+    ]);
+
+    ctx.advance(24 * 60 * 60_000);
+    for (let i = 0; i < 3; i++) await ctx.sender.tick();
+    expect(ctx.sent).toEqual([]);
+    expect(await doorbells(ctx)).toHaveLength(1);
+
+    await ctx.store.transaction((trx) =>
+      restartNotification(trx, notification.source_key, ctx.now()),
+    );
+    await ctx.sender.tick();
+    const rings = await doorbells(ctx);
+    expect(rings).toHaveLength(2);
+    expect(rings[1]?.dedupe_key).toMatch(/:1:s1$/);
+    expect(ctx.sent).toHaveLength(1);
+  });
+
+  it('ends a ring after 30 min of retryable Spur failures', async () => {
+    const ctx = await setup();
+    await workerBlock(ctx.store);
+    ctx.failAlways(true);
+    for (let minute = 0; minute < 30; minute++) {
+      await ctx.sender.tick();
+      ctx.advance(60_000);
+    }
+    // The last tick ran 29 min after the first attempt.
+    expect(await doorbells(ctx)).toEqual([
+      expect.objectContaining({ state: 'pending', uncertain: 1 }),
+    ]);
+    await ctx.sender.tick();
+    expect(await doorbells(ctx)).toEqual([
+      expect.objectContaining({
+        state: 'dead',
+        last_error: 'no answer from Spur for 30 min: spur send failed',
+      }),
+    ]);
+    expect(
+      (await ctx.store.db.selectFrom('notification').select('exhausted_at').executeTakeFirst())
+        ?.exhausted_at,
+    ).not.toBeNull();
+    expect(
+      await ctx.store.db
+        .selectFrom('operator_item')
+        .select('kind')
+        .where('kind', '=', 'worker_not_reading')
+        .execute(),
+    ).toHaveLength(1);
+    const [event] = await undelivered(ctx);
+    expect(event?.reason).toMatch(/^no answer from Spur for 30 min/);
+    expect(ctx.sent).toEqual([]);
   });
 
   it('acknowledges block and comment entries atomically, and rejects another role', async () => {

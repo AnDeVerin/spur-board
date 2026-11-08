@@ -1,7 +1,7 @@
 import { SCAN_PENDING, scanTransaction } from './secrets.ts';
 // Delivers outbox rows: claim in one transaction, stamp the send's start, IO outside any
-// transaction, record the result in another. The daemon calls `recover()` once on start, then
-// `tick()` on its schedule.
+// transaction, record the result in another. Each claim first returns the rows a failed tick left
+// in flight. The daemon calls `recover()` once on start, then `tick()` on its schedule.
 import {
   SPACE_IDS,
   type ConnectionState,
@@ -15,7 +15,13 @@ import {
 import { sql, type Kysely } from 'kysely';
 import type { Store } from '../store/store.ts';
 import type { Row, Tables } from '../store/schema.ts';
-import { reconcileDoorbells, recordRingDelivery, ringStillCurrent, ringTask } from './doorbells.ts';
+import {
+  reconcileDoorbells,
+  recordRingDelivery,
+  ringStillCurrent,
+  ringTask,
+  ringUndelivered,
+} from './doorbells.ts';
 import { clearItem, raiseItem } from './feed.ts';
 import {
   deliveredRefSchema,
@@ -32,6 +38,14 @@ import {
 /** Spur's side of a doorbell: deliver `text` to the session's agent. */
 export interface SpurPort {
   send(session: string, text: string): Promise<void>;
+}
+
+/**
+ * Spur refused a doorbell for good (a permanent 4xx): the sender stops ringing and ends the ring
+ * instead of retrying it. Any other error from `send` is retried.
+ */
+export class SpurRejectedError extends Error {
+  override name = 'SpurRejectedError';
 }
 
 export interface SenderOptions {
@@ -83,7 +97,8 @@ interface Claim {
   parent: DeliveredRef | null;
 }
 
-type Outcome = DeliveryResult | { status: 'sent' };
+/** `sent` and `rejected` are a doorbell's: Spur took the ring, or refused it for good. */
+type Outcome = DeliveryResult | { status: 'sent' } | { status: 'rejected' };
 
 function parseBody(row: Pick<OutboxRow, 'kind' | 'payload'>): OutboxBody | string {
   try {
@@ -245,6 +260,36 @@ export async function requeuePostFailed(
   return failed.length;
 }
 
+/**
+ * Returns every `in_flight` row to `pending`: one whose send never started gives its attempt
+ * back; one whose send started may be out, so it goes again at once as uncertain. Its comment
+ * goes back to `pending`. Only a crash or a failed earlier tick leaves a row `in_flight`.
+ */
+async function releaseOrphans(trx: Trx, nowIso: string): Promise<void> {
+  const rows = await trx
+    .selectFrom('outbox')
+    .select(['kind', 'payload'])
+    .where('state', '=', 'in_flight')
+    .execute();
+  if (rows.length === 0) return;
+  await trx
+    .updateTable('outbox')
+    .set((eb) => ({ state: 'pending', attempts: eb('attempts', '-', 1) }))
+    .where('state', '=', 'in_flight')
+    .where('attempt_started', '=', 0)
+    .execute();
+  await trx
+    .updateTable('outbox')
+    .set({ state: 'pending', uncertain: 1, next_at: nowIso })
+    .where('state', '=', 'in_flight')
+    .where('attempt_started', '=', 1)
+    .execute();
+  for (const row of rows) {
+    const body = parseBody(row);
+    if (typeof body !== 'string') await setComment(trx, body, { delivery_state: 'pending' });
+  }
+}
+
 function backoff(attempts: number): number {
   return Math.min(1000 * 2 ** Math.max(attempts - 1, 0), MAX_BACKOFF_MS);
 }
@@ -337,11 +382,14 @@ export function createSender(options: SenderOptions): Sender {
   }
 
   /**
-   * tx 1: cancels stale rows, raises down-health and claims at most one due row per lane.
+   * tx 1: returns rows a failed tick left in flight, cancels stale rows, raises down-health and
+   * claims at most one due row per lane.
    * `ranThreshold` says the outage's down rows were written; the caller records that after commit.
    */
   async function claim(trx: Trx, at: number): Promise<{ claims: Claim[]; ranThreshold: boolean }> {
     const nowIso = new Date(at).toISOString();
+    // Ticks never overlap, so a row still in flight was left by a tick that threw.
+    await releaseOrphans(trx, nowIso);
     await reconcileDoorbells(trx, new Date(at), options.config);
     const rows = await trx
       .selectFrom('outbox')
@@ -544,10 +592,9 @@ export function createSender(options: SenderOptions): Sender {
         return { at, firstDeliveryAt: null, skip: true };
       }
     }
-    // An uncertain ring may already be in Spur: it goes with maybeSent, like any uncertain row.
+    // A ring of an archived task is dropped, uncertain or not: Spur gets no maybeSent hint.
     if (
       c.body.kind === 'doorbell' &&
-      !c.maybeSent &&
       (await ringTask(trx, c.body.payload.notificationId, c.key))?.membership === 'archived'
     ) {
       await kill(trx, [c.id], 'superseded');
@@ -638,6 +685,9 @@ export function createSender(options: SenderOptions): Sender {
       return { outcome: await gateway.deliver(request), error: null };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      if (error instanceof SpurRejectedError) {
+        return { outcome: { status: 'rejected' }, error: message };
+      }
       return { outcome: { status: 'retry', uncertain: true }, error: message };
     }
   }
@@ -657,6 +707,19 @@ export function createSender(options: SenderOptions): Sender {
     const postFailed = async (patch: { last_error: string; uncertain?: 0 | 1 }) => {
       await row.set({ state: 'post_failed', ...patch }).execute();
       await setComment(trx, body, { delivery_state: 'post_failed' });
+    };
+    /** Kills a ring Spur will not take and ends its notification. */
+    const endRing = async (reason: string) => {
+      await kill(trx, [c.id], reason);
+      if (body.kind !== 'doorbell') return;
+      await ringUndelivered(trx, {
+        notificationId: body.payload.notificationId,
+        dedupeKey: c.key,
+        session: body.payload.session,
+        reason,
+        at: new Date(at),
+        config: options.config,
+      });
     };
     switch (outcome.status) {
       case 'sent':
@@ -795,6 +858,10 @@ export function createSender(options: SenderOptions): Sender {
         if (space !== null && health === undefined && at - firstAt >= RETRY_WINDOW_MS) {
           return postFailed({ uncertain, last_error: lastError });
         }
+        // A doorbell has no space and no health row: Spur silent for the window ends the ring.
+        if (space === null && at - firstAt >= RETRY_WINDOW_MS) {
+          return endRing(`no answer from Spur for 30 min: ${lastError}`);
+        }
         await row
           .set({
             state: 'pending',
@@ -808,6 +875,8 @@ export function createSender(options: SenderOptions): Sender {
         await setComment(trx, body, { delivery_state: 'pending' });
         return;
       }
+      case 'rejected':
+        return endRing(error ?? 'rejected by Spur');
       case 'failed': {
         if (outcome.scope === 'message' || space === null) {
           return postFailed({ last_error: outcome.reason });
@@ -882,28 +951,13 @@ export function createSender(options: SenderOptions): Sender {
     async recover() {
       const nowIso = now().toISOString();
       const failed = await scanTransaction(store, options.config, async (trx) => {
+        await releaseOrphans(trx, nowIso);
         const rows = await trx
           .selectFrom('outbox')
-          .select(['id', 'kind', 'payload', 'state'])
-          .where('state', 'in', ['in_flight', 'post_failed'])
+          .select('id')
+          .where('state', '=', 'post_failed')
           .execute();
-        await trx
-          .updateTable('outbox')
-          .set((eb) => ({ state: 'pending', attempts: eb('attempts', '-', 1) }))
-          .where('state', '=', 'in_flight')
-          .where('attempt_started', '=', 0)
-          .execute();
-        await trx
-          .updateTable('outbox')
-          .set({ state: 'pending', uncertain: 1, next_at: nowIso })
-          .where('state', '=', 'in_flight')
-          .where('attempt_started', '=', 1)
-          .execute();
-        for (const row of rows.filter((candidate) => candidate.state === 'in_flight')) {
-          const body = parseBody(row);
-          if (typeof body !== 'string') await setComment(trx, body, { delivery_state: 'pending' });
-        }
-        return rows.filter((row) => row.state === 'post_failed').map((row) => row.id);
+        return rows.map((row) => row.id);
       });
       // Each batch rescans its payloads in its own transaction, so a large failed backlog stays
       // under the per-transaction scan limit and cannot stop the daemon from starting.

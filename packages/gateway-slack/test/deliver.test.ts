@@ -253,6 +253,36 @@ describe('marker search and steps', () => {
     expect(new Set(parts.map((part) => part.marker)).size).toBe(parts.length);
   });
 
+  it.each([
+    { scope: 'message', reason: 'invalid_blocks' },
+    { scope: 'transport', reason: 'invalid_auth' },
+  ] as const)(
+    'retries a multi-part post that fails after part 1 with a $scope failure as uncertain',
+    async ({ scope, reason }) => {
+      const { fake, gateway } = await setup();
+      const opened = await gateway.deliver(request('parts-root'));
+      if (opened.status !== 'delivered' || opened.conversation === undefined)
+        throw new Error('root failed');
+      const long = request(
+        'parts-failed',
+        `first ${'a'.repeat(MAX_PART_TEXT)} second ${'b'.repeat(MAX_PART_TEXT)}`,
+      );
+      long.target = { kind: 'reply', conversation: opened.conversation };
+      const hold = fake.holdNextWrite();
+      const first = gateway.deliver(long);
+      await hold.entered;
+      await fake.platform.failNextPermanently({ scope, reason });
+      hold.release();
+      expect(await first).toEqual({ status: 'retry', uncertain: true });
+      expect(await gateway.deliver({ ...long, maybeSent: true })).toMatchObject({
+        status: 'delivered',
+      });
+      expect(
+        (await fake.platform.messages()).filter((message) => message.marker === 'parts-failed#1'),
+      ).toHaveLength(1);
+    },
+  );
+
   it('recovers a break between close line and reaction', async () => {
     const { fake, gateway } = await setup();
     const opened = await gateway.deliver(request('close-root'));

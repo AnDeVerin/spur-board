@@ -1,7 +1,9 @@
-import type { SpurPort } from '@spur-board/core';
+import { SpurRejectedError, type SpurPort } from '@spur-board/core';
 
 const SEND_TIMEOUT_MS = 8_000;
 const ERROR_TEXT_LIMIT = 200;
+/** 4xx statuses Spur may answer for a passing state; every other 4xx ends the ring. */
+const RETRYABLE_4XX = new Set([408, 409, 425, 429]);
 
 /** The request Spur's own `spur send` makes; the doctor probe sends the same one. */
 export function spurSendRequest(
@@ -54,9 +56,12 @@ export function createSpurPort(options: { baseUrl: string; timeoutMs?: number })
         return;
       }
       const error = await spurErrorText(response);
-      throw new Error(
-        `Spur send failed with HTTP ${String(response.status)}${error === null ? '' : `: ${error}`}`,
-      );
+      const { status } = response;
+      const message = `Spur send failed with HTTP ${String(status)}${error === null ? '' : `: ${error}`}`;
+      if (status >= 400 && status < 500 && !RETRYABLE_4XX.has(status)) {
+        throw new SpurRejectedError(message);
+      }
+      throw new Error(message);
     },
   };
 }

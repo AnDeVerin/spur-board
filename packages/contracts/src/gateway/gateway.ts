@@ -104,7 +104,9 @@ export type RespondResult = 'sent' | 'dropped';
  *   removed app, missing scope, or unavailable space destination returns
  *   `failed {permanent: true, scope: 'transport'}`: core raises one health item per gateway,
  *   and that space's rows wait. A rejection of this message only returns
- *   `scope: 'message'`, and only that row fails.
+ *   `scope: 'message'`, and only that row fails. A failure after a step was confirmed,
+ *   permanent ones included, returns `retry {uncertain: true}` (keeping `afterMs` for a rate
+ *   limit): part of the body is out, so the retry must carry `maybeSent` (G4).
  * - G3: `deliver` is idempotent by `key`. With `maybeSent` the gateway prevents a duplicate its
  *   own way: a marker search, a marked repeat, or a second conversation carrying the same key.
  * - G4: Idempotent by step: a long body is split into parts `key#1..key#n`. With `maybeSent`,

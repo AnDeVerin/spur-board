@@ -54,7 +54,7 @@ export {
   OUTBOX_KINDS,
   type OutboxKind,
 } from './app/outbox.ts';
-export { createSender, type Sender, type SpurPort } from './app/sender.ts';
+export { createSender, SpurRejectedError, type Sender, type SpurPort } from './app/sender.ts';
 export {
   evaluateSessionHealth,
   type HostLoadEpisode,
