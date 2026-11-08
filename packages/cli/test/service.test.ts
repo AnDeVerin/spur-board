@@ -429,12 +429,15 @@ describe('service', () => {
     // The harness points TMPDIR at <root>/tmp (packages/testkit/src/global-setup.ts).
     const root = `${dirname(tmpdir())}/`;
     expect(root).toMatch(/\/spur-board-test-[^/]+\/$/);
-    const realHome = `${userInfo().homedir}/`;
+    // The real paths servicePaths gives for the passwd home with no XDG or BOARD_HOME override.
+    // A home-prefix check would fail when the outer TMPDIR sits under the home.
+    const realConfig = join(userInfo().homedir, '.config');
     const paths = servicePaths();
     for (const path of [paths.unitFile, paths.secretsFile]) {
       expect(path.startsWith(root), path).toBe(true);
-      expect(path.startsWith(realHome), path).toBe(false);
     }
+    expect(paths.unitFile).not.toBe(join(realConfig, 'systemd', 'user', 'spur-board.service'));
+    expect(paths.secretsFile).not.toBe(join(realConfig, 'spur-board', 'secrets.env'));
   });
 
   it('restarts an already active service after changing its unit', async () => {
