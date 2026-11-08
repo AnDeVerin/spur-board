@@ -74,6 +74,13 @@ The `spurProjects` name must match a live Spur project, and `digest.tz` is requi
 [configuration reference](docs/configuration.md) and [JSON Schema](packages/contracts/config.schema.json)
 for fields and defaults.
 
+For a `github-issues` project, the Board finds a PR's issue through `projects[].link`: the issues
+the PR closes, a pattern on its head branch, and a pattern on its title. Set those patterns to the
+branch and PR title rules your tracker repository already follows. The Board does not enforce
+naming; the repository does, through its CI title check and the skills its agents use. When the
+rules and the actual PR names differ, PRs stay unlinked. `board doctor` compares the link rules
+with your recent PRs in the tracker repository and names the PRs they miss.
+
 Put tokens in a private regular `secrets.env` file with mode `0600`; never put them in
 `config.yaml`. `GITHUB_TOKEN` is required, `JIRA_EMAIL` and `JIRA_API_TOKEN` are needed for Jira,
 and `SLACK_BOT_TOKEN` and `SLACK_APP_TOKEN` are needed when Slack is configured. The

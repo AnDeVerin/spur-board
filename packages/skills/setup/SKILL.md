@@ -22,6 +22,7 @@ Ask one question at a time, only when current state cannot answer it. Check befo
 ## 3. Complete missing configuration
 
 - Discover repositories, Spur projects, and GitHub logins where possible. For each unset value, ask one question and write only that answer: Jira filter and statuses if used, repositories, project names and roles, operator GitHub login per project, and the operator's Slack user ID. Preserve settled and unrelated fields; validate against the shipped config schema.
+- For a `github-issues` project, set `projects[].link` to the tracker repo's branch and PR title rules, from its CI title check and agent skills.
 - If Slack roles are unset, follow [Slack setup](references/slack.md). List channels visible to the bot and ask which serve orchestrators and feed; store their IDs. The bot sees only private channels it joined.
 - Check required secret names and permissions. Follow [secret files](references/secrets.md) for private entry and any existing `slack.env` migration. Write `config.yaml` and a regular mode `0600` `secrets.env` only when needed.
 - After config edits, run `board doctor --offline` and apply its config fixes. An offline pass does not prove service or integration readiness.

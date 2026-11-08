@@ -203,7 +203,7 @@ const projectSchema = z
       })
       .prefault({})
       .describe(
-        'How a github-issues project links a PR in tracker.repo to its issue. A Jira project ignores it and links by tracker.projectKeys.',
+        "How a github-issues project links a PR in tracker.repo to its issue. A Jira project ignores it and links by tracker.projectKeys. Set the sources and patterns to the branch and PR title naming rules of tracker.repo. The board does not enforce those rules; the repo enforces them through its CI title check and its agents' skills. board doctor compares these rules with recent PRs by operatorGithubLogin.",
       ),
     operatorGithubLogin: z.string().regex(/^[A-Za-z0-9-]{1,39}$/, 'Expected a GitHub login'),
     spurProjects: z
