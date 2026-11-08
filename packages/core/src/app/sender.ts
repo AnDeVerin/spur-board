@@ -34,6 +34,14 @@ export interface SpurPort {
   send(session: string, text: string): Promise<void>;
 }
 
+/**
+ * Spur refused a doorbell for good (a permanent 4xx): the sender stops ringing and ends the ring
+ * instead of retrying it. Any other error from `send` is retried.
+ */
+export class SpurRejectedError extends Error {
+  override name = 'SpurRejectedError';
+}
+
 export interface SenderOptions {
   store: Store;
   gateway?: Gateway;

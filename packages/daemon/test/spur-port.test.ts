@@ -1,6 +1,7 @@
 import { once } from 'node:events';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { SpurRejectedError } from '@spur-board/core';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createSpurPort } from '../src/spur-port.ts';
 
@@ -79,6 +80,26 @@ describe('spur send port', () => {
     const sent = createSpurPort({ baseUrl: spur.baseUrl }).send('x', 'ping');
     await expect(sent).rejects.toThrow('Spur send failed with HTTP 404: Session not found: x');
   });
+
+  it.each([400, 403, 404, 410, 422])(
+    'rejects a permanent HTTP %i as SpurRejectedError',
+    async (status) => {
+      const spur = await fakeSpur(json(status, { error: 'x' }));
+      const sent = createSpurPort({ baseUrl: spur.baseUrl }).send('x', 'ping');
+      await expect(sent).rejects.toBeInstanceOf(SpurRejectedError);
+      await expect(sent).rejects.toThrow(`Spur send failed with HTTP ${String(status)}: x`);
+    },
+  );
+
+  it.each([408, 409, 425, 429, 500, 503])(
+    'keeps a retryable HTTP %i as a plain error',
+    async (status) => {
+      const spur = await fakeSpur(json(status, { error: 'x' }));
+      const sent = createSpurPort({ baseUrl: spur.baseUrl }).send('x', 'ping');
+      await expect(sent).rejects.not.toBeInstanceOf(SpurRejectedError);
+      await expect(sent).rejects.toThrow(`Spur send failed with HTTP ${String(status)}: x`);
+    },
+  );
 
   it('rejects a non-JSON error with the status only', async () => {
     const spur = await fakeSpur((res) => {
