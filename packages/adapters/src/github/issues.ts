@@ -83,7 +83,7 @@ function matchesFilter(issue: IssueWire, tracker: Tracker): boolean {
   return issue.milestone?.title === tracker.milestone;
 }
 
-/** Lists tracker issues and resolves manually included keys outside the filter. */
+/** Lists open filter issues and resolves requested tickets missing from that listing. */
 export function createGithubIssuesAdapter(options: GithubIssuesOptions): Adapter {
   const transport = options.fetch ?? fetch;
   const [owner, name] = options.tracker.repo.split('/');
@@ -191,7 +191,7 @@ export function createGithubIssuesAdapter(options: GithubIssuesOptions): Adapter
       const observedAt = new Date().toISOString();
       const milestone = await milestoneNumber(ctx.signal);
       const filter = new URL(`${root}/issues`);
-      filter.searchParams.set('state', 'all');
+      filter.searchParams.set('state', 'open');
       filter.searchParams.set('per_page', '100');
       if (options.tracker.label !== undefined)
         filter.searchParams.set('labels', options.tracker.label);
@@ -239,7 +239,10 @@ export function createGithubIssuesAdapter(options: GithubIssuesOptions): Adapter
             );
             facts.set(issueNo, fact);
           } catch (error) {
-            if (error instanceof GithubIssuesHttpError && error.status === 404) {
+            if (
+              error instanceof GithubIssuesHttpError &&
+              (error.status === 404 || error.status === 410)
+            ) {
               entities.push({ ref, status: 'not_found' });
               continue;
             }

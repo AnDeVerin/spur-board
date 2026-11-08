@@ -138,6 +138,9 @@ it('reactivates an out-of-filter archive when its ticket returns to the filter',
 
 it('archives terminal tasks on the next UTC Saturday and does not revive them', async () => {
   const { store, core } = setup();
+  now = base - 1_000;
+  await ticketPoll(core, true);
+  now = base;
   await ticketPoll(core, true, 'closed');
   expect(
     (await store.db.selectFrom('task').select('terminal_at').executeTakeFirst())?.terminal_at,
@@ -161,6 +164,9 @@ it('archives terminal tasks on the next UTC Saturday and does not revive them', 
 
 it('catches a Saturday archive slot after downtime', async () => {
   const { store, core } = setup();
+  now = base - 1_000;
+  await ticketPoll(core, true);
+  now = base;
   await ticketPoll(core, true, 'closed');
   now += 1_000;
   await emptyPoll(core, github);
@@ -188,6 +194,9 @@ it('uses the configured weekday at the configured timezone boundary', async () =
     digest: { tz: 'America/Los_Angeles' },
   });
   const { store, core } = setup(boardConfig);
+  now = base - 1_000;
+  await ticketPoll(core, true);
+  now = base;
   await ticketPoll(core, true, 'closed');
   now += 1_000;
   await emptyPoll(core, github);
@@ -208,6 +217,9 @@ it('uses the configured weekday at the configured timezone boundary', async () =
 
 it('archives on Sunday catch-up after a post-change GitHub poll', async () => {
   const { store, core } = setup();
+  now = base - 1_000;
+  await ticketPoll(core, true);
+  now = base;
   await ticketPoll(core, true, 'closed');
   now = Date.parse('2026-11-08T09:00:00.000Z');
   await tickBoard({ store, config, clock, completeSince: core.completeSince });
@@ -226,6 +238,9 @@ it('archives on Sunday catch-up after a post-change GitHub poll', async () => {
 
 it('does not mark a done ticket terminal while its linked PR is open', async () => {
   const { store, core } = setup();
+  now = base - 1_000;
+  await ticketPoll(core, true);
+  now = base;
   await ticketPoll(core, true, 'closed');
   const at = new Date(now).toISOString();
   await core.observe(github, {
@@ -458,4 +473,135 @@ it('retains filter loss with a live linked session, flag, and item', async () =>
       .where('cleared_at', 'is', null)
       .execute(),
   ).toEqual([{ item_key: `filter:${String(task.id)}` }]);
+});
+
+async function listingPoll(core: ReturnType<typeof createObservationCore>, facts: TicketFacts[]) {
+  const at = new Date(now).toISOString();
+  await core.observe(source, {
+    batch: {
+      source,
+      observedAt: at,
+      complete: true,
+      items: facts.map((facts) => ({ kind: 'ticket' as const, facts })),
+      entities: [],
+    },
+    effectiveComplete: true,
+    state: { lastCompleteAt: at, gone: [] },
+    outcomes: [],
+  });
+}
+function other(status = 'open'): TicketFacts {
+  return { ...fact(true, status), id: 'node-10', key: 'o/r#10' };
+}
+async function snapshot(store: Store) {
+  const row = await store.db
+    .selectFrom('ticket_snapshot')
+    .innerJoin('task', 'task.id', 'ticket_snapshot.task_id')
+    .select(['ticket_snapshot.detail', 'task.membership', 'task.last_change_at'])
+    .where('task.key', '=', 'o/r#9')
+    .executeTakeFirstOrThrow();
+  return { ...row, fact: JSON.parse(row.detail) as TicketFacts };
+}
+
+it('admits only the open issues of a first observe', async () => {
+  const { store, core } = setup();
+  await listingPoll(core, [fact(true), other('closed')]);
+  expect((await store.db.selectFrom('task').select('key').execute()).map((t) => t.key)).toEqual([
+    'o/r#9',
+  ]);
+  expect(
+    await store.db.selectFrom('event').select('kind').where('kind', '=', 'task_added').execute(),
+  ).toHaveLength(1);
+});
+
+it('archives a task closed on the board at the next slot, not as out of filter', async () => {
+  const { store, core } = setup();
+  await ticketPoll(core, true);
+  now += 1_000;
+  await ticketPoll(core, true, 'closed');
+  now += 1_000;
+  await emptyPoll(core, github);
+  expect(
+    (await store.db.selectFrom('task').select('terminal_at').executeTakeFirst())?.terminal_at,
+  ).not.toBeNull();
+  now += 1_000;
+  await emptyPoll(core, source);
+  now += 1_000;
+  await emptyPoll(core, 'spur');
+  now += 1_000;
+  await emptyPoll(core, github);
+  now += 1_000;
+  await emptyPoll(core, source);
+  const after = await snapshot(store);
+  expect(after.fact.inFilter).toBe(true);
+  expect(after.membership).toBe('active');
+  now = Date.parse('2026-11-07T00:00:00.000Z');
+  await tickBoard({ store, config, clock, completeSince: core.completeSince });
+  expect(
+    await store.db.selectFrom('task').select(['membership', 'archive_reason']).executeTakeFirst(),
+  ).toMatchObject({ membership: 'archived', archive_reason: 'done' });
+});
+
+it('requests open tracked GitHub issues and not closed ones', async () => {
+  const { store, core } = setup();
+  await listingPoll(core, [fact(true), other()]);
+  now += 1_000;
+  await listingPoll(core, [fact(true), other('closed')]);
+  expect((await core.context(source)).observe.tickets).toEqual([
+    { kind: 'ticket', trackerId: source, id: 'node-9', key: 'o/r#9' },
+  ]);
+  expect((await snapshot(store)).fact.inFilter).toBe(true);
+});
+
+it('leaves an archived GitHub task untouched when a complete batch omits it', async () => {
+  const { store, core } = setup();
+  await ticketPoll(core, true);
+  now += 1_000;
+  await ticketPoll(core, true, 'closed');
+  now += 1_000;
+  await emptyPoll(core, github);
+  now = Date.parse('2026-11-07T00:00:00.000Z');
+  await tickBoard({ store, config, clock, completeSince: core.completeSince });
+  expect((await snapshot(store)).membership).toBe('archived');
+  now += 60_000;
+  await ticketPoll(core, true, 'open');
+  const before = await snapshot(store);
+  const changes = async () =>
+    (
+      await store.db
+        .selectFrom('event')
+        .select('id')
+        .where('kind', '=', 'ticket_facts_changed')
+        .execute()
+    ).length;
+  const changed = await changes();
+  now += 1_000;
+  await emptyPoll(core, source);
+  const after = await snapshot(store);
+  expect(after.fact.inFilter).toBe(true);
+  expect(after.last_change_at).toBe(before.last_change_at);
+  expect(after.membership).toBe('archived');
+  expect(await changes()).toBe(changed);
+});
+
+it('clears terminal when a closed task reopens before its slot', async () => {
+  const { store, core } = setup();
+  await ticketPoll(core, true);
+  now += 1_000;
+  await ticketPoll(core, true, 'closed');
+  now += 1_000;
+  await emptyPoll(core, github);
+  expect(
+    (await store.db.selectFrom('task').select('terminal_at').executeTakeFirst())?.terminal_at,
+  ).not.toBeNull();
+  now += 1_000;
+  await ticketPoll(core, true);
+  expect(
+    (await store.db.selectFrom('task').select('terminal_at').executeTakeFirst())?.terminal_at,
+  ).toBeNull();
+  now = Date.parse('2026-11-07T00:00:00.000Z');
+  await tickBoard({ store, config, clock, completeSince: core.completeSince });
+  expect(
+    (await store.db.selectFrom('task').select('membership').executeTakeFirst())?.membership,
+  ).toBe('active');
 });
