@@ -60,6 +60,8 @@ projects:
     spurProjects:
       - name: operator
         role: operator
+      - name: example-workers
+        role: worker
 operator:
   slack: U0123456789
 slack:
@@ -70,7 +72,9 @@ digest:
   tz: UTC
 ```
 
-The `spurProjects` name must match a live Spur project, and `digest.tz` is required. Use the
+The `spurProjects` name must match a live Spur project, and `digest.tz` is required. Set
+`operatorGithubLogin` to the GitHub account agents open PRs under: PR discovery keeps only PRs by
+that author, and it need not be the maintainer's own account. Use the
 [configuration reference](docs/configuration.md) and [JSON Schema](packages/contracts/config.schema.json)
 for fields and defaults.
 
@@ -141,3 +145,40 @@ rewrites the unit's absolute paths and settings when they differ, starts a stopp
 restarts an active service when the unit changed. Run `board service restart` only when the
 service was active before, install reported `changed` as `false`, and the daemon version
 changed.
+
+## 6. Link worker sessions to tasks
+
+The Board links a Spur session to a task by three rules, in this order:
+
+1. Explicit label: the session's Spur link `board-worker` (as worker) or `board-other` (as other)
+   points at the task, as `<Jira base>/browse/KEY-12` or
+   `https://github.com/<owner>/<repo>/issues/12`.
+2. Pull request: the session's `pr` link is a PR linked to the task.
+3. Branch: the session's branch contains the task key or equals the head branch of a PR linked
+   to the task.
+
+A `board-worker` or `board-other` label links a session from any Spur project. The pull request
+and branch rules need the session's Spur project listed in that project's `spurProjects` with
+`role: worker`. A worker still needs its Spur project in `spurProjects`, with any role, to read
+its task, ask questions or comment through the Board. The
+[configuration reference](docs/configuration.md#session-links) gives each rule in full.
+
+For a GitHub Issues task, a branch name such as `<agent>-12-slug` does not contain the task key,
+and the worker's PR links to the issue only after it exists. Set the label when the worker
+starts. `spur spawn` cannot set links, so make this the worker's first step, with the owner and
+repo spelled as in `tracker.repo`:
+
+```sh
+spur slots --session "$SPUR_SESSION" --link board-worker=https://github.com/<owner>/<repo>/issues/<N>
+```
+
+A script that spawns the session passes the new session's ID instead of `$SPUR_SESSION`.
+
+Check the link with `board status --detail`, which lists tasks with their links and the unlinked
+sessions. If a session is not linked, the operator can run `board link` as
+`board link <task> --session <session> --reason <value> --key <key>`; the session becomes worker
+when the task has none, otherwise other.
+
+A session of a `role: worker` Spur project whose `pr` link is a PR it only reviews links to that
+PR's task by the pull request rule, as worker when the task has none. A review session that
+sets `board-other` to the task's URL links as other instead.
