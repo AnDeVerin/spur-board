@@ -28,7 +28,8 @@
   publishing and do not pass an npm token; `release.config.cjs` disables the npm plugin's direct
   publish (`.github/workflows/ci.yml`, `release.config.cjs`).
 - Keep Renovate on its weekly schedule with a seven-day minimum release age, no automerge and
-  `chore(deps)` commits (`renovate.json`). Match catalog-specific dependency types when grouping.
+  `chore(deps)` commits (`renovate.json`). Group catalog dependencies by `pnpm.catalog.default` or
+  `pnpm.catalog.runtime`, not plain package dependency types (`pnpm-workspace.yaml`).
 - Keep `@types/node` on the major of the oldest Node in `engines.node`. Change its
   `allowedVersions` rule and catalog range with `engines.node` (`renovate.json`,
   `pnpm-workspace.yaml`, `package.json`, `packages/cli/package.json`).
