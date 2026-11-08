@@ -52,8 +52,9 @@ interface LinkSample {
 
 /**
  * Matches up to 10 of the operator's most recently updated open or merged PRs in `repo` (among
- * the last 50) against the key rule `tracker` and `link` give that repo. A denied closing reference is dropped, as the poller does; any
- * other GraphQL error rejects with a transient `AdapterError`.
+ * the last 50) against the key rule `tracker` and `link` give that repo. A denied closing
+ * reference is dropped, as the poller does; any other GraphQL error rejects with a transient
+ * `AdapterError`.
  */
 export async function sampleLinkRules(
   { repo, login, tracker, link }: LinkSampleTarget,

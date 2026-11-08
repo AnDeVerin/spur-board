@@ -301,8 +301,9 @@ const JIRA_KEY = /^([A-Z][A-Z0-9_]*)-[1-9][0-9]*$/;
 function matchedKey(text: string, pattern: RegExp, prefixes: readonly string[]): string[] {
   if (text.length > MAX_MATCHED_LENGTH) return [];
   const key = pattern.exec(text)?.[1]?.toUpperCase();
-  const prefix = key === undefined ? undefined : JIRA_KEY.exec(key)?.[1];
-  return key !== undefined && prefix !== undefined && prefixes.includes(prefix) ? [key] : [];
+  if (key === undefined) return [];
+  const prefix = JIRA_KEY.exec(key)?.[1];
+  return prefix !== undefined && prefixes.includes(prefix) ? [key] : [];
 }
 // The first source in `rule.sources` that yields a key gives the keys.
 function jiraKeys(title: string, branch: string, rule: JiraRule): string[] {

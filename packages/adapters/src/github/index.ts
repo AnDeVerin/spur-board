@@ -73,8 +73,6 @@ export function githubSources(config: Config, options: GithubOptions): GithubSou
       seen.add(normalized);
       const id = sourceId(project.id, repo);
       const client = new GithubClient(options.token, options.fetch);
-      // Only the tracker repo of a github-issues project whose `link.sources` lists `closing`
-      // reads closing references.
       const keys = projectKeyRule(project.tracker, project.link, repo);
       sources.push({
         repo,
