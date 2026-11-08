@@ -221,7 +221,7 @@ const SESSION_LINKS = [
   '',
   'Operator fallback: `board link <task> --session <session> --reason <value> --key <key>` links the session as worker when the task has none, otherwise as other.',
   '',
-  "Reviewers: a session of a `role: worker` Spur project whose `pr` link is a PR it only reviews links to that PR's task by the pull request rule, as worker when the task has none.",
+  "Reviewers: a session of a `role: worker` Spur project whose `pr` link is a PR it only reviews links to that PR's task by the pull request rule, as worker when the task has none. A review session that sets `board-other` to the task's URL links as other instead.",
 ];
 
 export function renderConfigurationDocs(): string {
