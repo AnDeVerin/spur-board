@@ -1,6 +1,6 @@
 import { WebClient, type WebClientOptions } from '@slack/web-api';
 import { afterEach, describe, expect, it } from 'vitest';
-import type { DeliverRequest, RichText } from '@spur-board/contracts';
+import { userIdSchema, type DeliverRequest, type RichText } from '@spur-board/contracts';
 import { createApi } from '../src/api.ts';
 import { createSlackGateway } from '../src/index.ts';
 import {
@@ -365,6 +365,47 @@ describe('rendering and surface', () => {
     expect(posted?.params.text).toContain('*choose*');
     expect(posted?.params.text).not.toContain('button-key');
     expect(JSON.stringify(blocks)).toContain('approve');
+  });
+
+  it('renders a resolved edit as struck summary and resolved line without buttons', async () => {
+    const { fake, gateway } = await setup();
+    const opened = await gateway.deliver({
+      ...request('resolved-key'),
+      actions: [{ id: 'item.close', label: 'Close' }],
+    });
+    if (opened.status !== 'delivered') throw new Error('open failed');
+    const edited = await gateway.deliver({
+      ...request('resolved-key-edit'),
+      target: { kind: 'edit', message: opened.message },
+      body: [
+        {
+          kind: 'paragraph',
+          children: [{ kind: 'link', url: 'https://example.com/7', text: 'o/r#7' }],
+        },
+        { kind: 'quote', children: [{ kind: 'strike', text: 'Review <PR> 7' }] },
+        {
+          kind: 'paragraph',
+          children: [
+            { kind: 'text', text: '✓ Resolved by ' },
+            { kind: 'mention', user: userIdSchema.parse('U1') },
+            { kind: 'text', text: ' at 21:16' },
+          ],
+        },
+      ],
+    });
+    expect(edited.status).toBe('delivered');
+    const update = fake.requests().find((entry) => entry.method === 'chat.update');
+    expect(update?.params.text).toContain('> ~Review &lt;PR&gt; 7~');
+    expect(update?.params.text).toContain('✓ Resolved by <@U1> at 21:16');
+    const blocks: unknown = JSON.parse(update?.params.blocks ?? 'null');
+    expect(JSON.stringify(blocks)).not.toContain('"actions"');
+    expect(fake.platform.messages().find((m) => m.message === opened.message)?.actions).toEqual([]);
+  });
+
+  it('strikes each line apart, trims it and replaces a tilde inside', () => {
+    expect(
+      renderText([{ kind: 'quote', children: [{ kind: 'strike', text: ' a~b \n\n  c ' }] }]),
+    ).toBe('> ~a∼b~\n> \n> ~c~');
   });
 
   it('fails a marker longer than Block Kit allows without an HTTP request', async () => {
