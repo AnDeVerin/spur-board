@@ -25,27 +25,29 @@ import {
   nextPage,
   pastCursor,
 } from './discovery.ts';
-import { normalizePr } from './prBatch.ts';
+import { normalizePr, type KeyRule } from './prBatch.ts';
 
 const MALFORMED = 'Malformed GitHub response';
 const discoveryRootWire = z.object({ pullRequests: connectionWire(discoveryNodeWire) });
 const baselineRootWire = z.object({
   mergedBaseline: z.object({ nodes: z.array(baselineNodeWire) }),
 });
-// Pagination reads only the four connections; normalizePr parses the PR content once merged.
+// Pagination reads only the paged connections; normalizePr parses the PR content once merged.
 const pagingWire = connectionWire(z.unknown());
 const prPagingWire = z.looseObject({
   reviews: pagingWire,
   reviewThreads: pagingWire,
   reviewRequests: pagingWire,
   statusCheckRollup: z.object({ contexts: pagingWire }).nullish(),
+  closingIssuesReferences: pagingWire.nullish(),
 });
 const aliasWire = z.object({ pullRequest: prPagingWire.nullish() }).nullish();
 const pageRootWire = z.object({ pullRequest: prPagingWire.partial() });
 type Paging = z.output<typeof pagingWire>;
 type PrPaging = z.output<typeof prPagingWire>;
 type PagePr = z.output<typeof pageRootWire>['pullRequest'];
-type PagedField = 'reviews' | 'reviewThreads' | 'reviewRequests' | 'contexts';
+type PagedField =
+  'reviews' | 'reviewThreads' | 'reviewRequests' | 'contexts' | 'closingIssuesReferences';
 
 export interface GithubSource {
   adapter: Adapter;
@@ -62,6 +64,23 @@ function sourceId(project: string, repo: string): string {
 export function githubSources(config: Config, options: GithubOptions): GithubSource[] {
   const sources: GithubSource[] = [];
   for (const project of config.projects) {
+    const tracker = project.tracker;
+    // Only the tracker repo of a github-issues project whose `link.sources` lists `closing`
+    // reads closing references.
+    const issues: KeyRule | undefined =
+      tracker.type === 'github-issues'
+        ? {
+            type: 'issues',
+            repo: tracker.repo,
+            sources: project.link.sources,
+            branch: new RegExp(project.link.branchPattern),
+            title: new RegExp(project.link.titlePattern),
+          }
+        : undefined;
+    const prefixes: KeyRule = {
+      type: 'prefixes',
+      prefixes: tracker.type === 'jira' ? tracker.projectKeys : [],
+    };
     const seen = new Set<string>();
     for (const repo of project.repos) {
       const normalized = repo.toLowerCase();
@@ -70,7 +89,7 @@ export function githubSources(config: Config, options: GithubOptions): GithubSou
       seen.add(normalized);
       const id = sourceId(project.id, repo);
       const client = new GithubClient(options.token, options.fetch);
-      const prefixes = project.tracker.type === 'jira' ? project.tracker.projectKeys : [];
+      const keys = issues?.repo.toLowerCase() === normalized ? issues : prefixes;
       sources.push({
         repo,
         reserveRemaining: config.github.reserveRemaining,
@@ -78,7 +97,7 @@ export function githubSources(config: Config, options: GithubOptions): GithubSou
           id,
           intervalMs: config.adapters.github.intervalMs,
           poll: (ctx) =>
-            pollRepository({ id, repo, login: project.operatorGithubLogin, prefixes, client, ctx }),
+            pollRepository({ id, repo, login: project.operatorGithubLogin, keys, client, ctx }),
         },
       });
     }
@@ -109,7 +128,17 @@ function status(error: GraphError): 'not_found' | 'no_access' {
   return error.type === 'NOT_FOUND' ? 'not_found' : 'no_access';
 }
 function connectionOf(pr: PagePr, field: PagedField): Paging | undefined {
-  return field === 'contexts' ? pr.statusCheckRollup?.contexts : pr[field];
+  return (field === 'contexts' ? pr.statusCheckRollup?.contexts : pr[field]) ?? undefined;
+}
+// A closing reference the token cannot read never links, so it costs the PR nothing.
+function deniedReference(error: GraphError): boolean {
+  return (
+    (error.type === 'FORBIDDEN' || error.type === 'NOT_FOUND') &&
+    error.path?.includes('closingIssuesReferences') === true
+  );
+}
+function withoutDeniedReferences(errors: readonly GraphError[]): GraphError[] {
+  return errors.filter((error) => !deniedReference(error));
 }
 function withConnection(pr: PrPaging, field: PagedField, connection: Paging): PrPaging {
   return field === 'contexts'
@@ -126,7 +155,13 @@ async function fullPr(
   budget: (value: NonNullable<Batch['budget']>) => void,
 ): Promise<PrPaging | undefined> {
   let pr = first;
-  for (const field of ['reviews', 'reviewThreads', 'reviewRequests', 'contexts'] as const) {
+  for (const field of [
+    'reviews',
+    'reviewThreads',
+    'reviewRequests',
+    'contexts',
+    'closingIssuesReferences',
+  ] as const) {
     let target = connectionOf(pr, field);
     if (target === undefined) continue;
     let cursor = nextPage(target);
@@ -142,12 +177,15 @@ async function fullPr(
       budget(response.budget);
       rejectUnscoped(response.errors, ['repository']);
       requireCheckAccess(response.errors);
-      if (response.errors.length > 0) return undefined;
+      const denied = response.errors.some(deniedReference);
+      if (withoutDeniedReferences(response.errors).length > 0) return undefined;
       const root = parseWire(pageRootWire, response.data.repository, MALFORMED, [
         'data',
         'repository',
       ]);
       const page = connectionOf(root.pullRequest, field);
+      // A denied later page keeps the references read so far.
+      if (page === undefined && denied && field === 'closingIssuesReferences') break;
       if (page === undefined) throw new AdapterError('transient', 'Malformed GitHub pagination');
       target = { nodes: [...target.nodes, ...page.nodes], pageInfo: page.pageInfo };
       pr = withConnection(pr, field, target);
@@ -160,18 +198,11 @@ interface PollArgs {
   id: string;
   repo: string;
   login: string;
-  prefixes: readonly string[];
+  keys: KeyRule;
   client: GithubClient;
   ctx: PollContext;
 }
-async function pollRepository({
-  id,
-  repo,
-  login,
-  prefixes,
-  client,
-  ctx,
-}: PollArgs): Promise<Batch> {
+async function pollRepository({ id, repo, login, keys, client, ctx }: PollArgs): Promise<Batch> {
   const observedAt = sourceCursorSchema.parse(new Date().toISOString());
   const bootstrap = ctx.cursor === undefined;
   const [owner, name] = repo.split('/');
@@ -179,8 +210,9 @@ async function pollRepository({
   const requested = ctx.observe.prs.filter((ref) => ref.repo.toLowerCase() === repo.toLowerCase());
   const byNumber = new Map<number, PrEntityRef>(requested.map((ref) => [ref.number, ref]));
   const numbers = [...byNumber.keys()];
+  const closing = keys.type === 'issues' && keys.sources.includes('closing');
   const response = await client.query(
-    initialQuery(numbers, bootstrap),
+    initialQuery(numbers, bootstrap, closing),
     { owner, repo: name },
     ctx.signal,
   );
@@ -233,9 +265,10 @@ async function pollRepository({
     number: number,
     alias: string,
     data: Record<string, unknown>,
-    errors: GraphError[],
+    scopedErrors: GraphError[],
     ref?: PrEntityRef,
   ): Promise<boolean> => {
+    const errors = withoutDeniedReferences(scopedErrors);
     requireCheckAccess(errors);
     const error = errors[0];
     if (error !== undefined) {
@@ -259,7 +292,7 @@ async function pollRepository({
       if (ref) entities.push({ ref, status: 'no_access' });
       return false;
     }
-    const facts = normalizePr(ref?.repo ?? repo, full, prefixes);
+    const facts = normalizePr(ref?.repo ?? repo, full, keys);
     items.push({ kind: 'pr', facts });
     if (ref) entities.push({ ref, status: 'ok' });
     return true;
@@ -277,7 +310,11 @@ async function pollRepository({
   const discovered = found.numbers.filter((number) => !byNumber.has(number));
   for (let offset = 0; offset < discovered.length; offset += 50) {
     const chunk = discovered.slice(offset, offset + 50);
-    const detail = await client.query(detailQuery(chunk), { owner, repo: name }, ctx.signal);
+    const detail = await client.query(
+      detailQuery(chunk, closing),
+      { owner, repo: name },
+      ctx.signal,
+    );
     budget = detail.budget;
     rejectUnscoped(
       detail.errors,

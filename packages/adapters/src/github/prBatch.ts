@@ -1,4 +1,4 @@
-import { AdapterError, prFactsSchema, type PrFacts } from '@spur-board/contracts';
+import { AdapterError, prFactsSchema, type Config, type PrFacts } from '@spur-board/contracts';
 import { z } from 'zod';
 import { parseWire } from '../runner/wire.ts';
 
@@ -65,9 +65,35 @@ const prWire = z.object({
       asCodeOwner: z.boolean(),
     }),
   ),
+  // Selected only for the tracker repo of a github-issues project whose `link.sources` lists
+  // `closing`; a denied issue arrives as a null node.
+  closingIssuesReferences: z
+    .object({
+      nodes: z.array(
+        z
+          .object({
+            number: z.int().positive(),
+            repository: z.object({ nameWithOwner: z.string() }).nullish(),
+          })
+          .nullable(),
+      ),
+    })
+    .nullish(),
 });
 type ContextWire = z.output<typeof contextWire>;
 type ReviewWire = z.output<typeof reviewWire>;
+type ClosingWire = z.output<typeof prWire>['closingIssuesReferences'];
+
+/** How a source turns a PR into task keys: Jira prefixes, or a github-issues tracker repo. */
+export type KeyRule =
+  | { type: 'prefixes'; prefixes: readonly string[] }
+  | {
+      type: 'issues';
+      repo: string;
+      sources: Config['projects'][number]['link']['sources'];
+      branch: RegExp;
+      title: RegExp;
+    };
 
 function checkState(node: ContextWire): PrFacts['checks'][number]['state'] {
   if (node.__typename === 'StatusContext') {
@@ -154,7 +180,43 @@ export function ticketKeys(title: string, branch: string, prefixes: readonly str
   }
   return [...keys];
 }
-export function normalizePr(repo: string, value: unknown, prefixes: readonly string[]): PrFacts {
+const ISSUE_NUMBER = /^[1-9][0-9]{0,14}$/;
+// The longest ref name GitHub accepts; a longer branch or title never reaches a pattern.
+const MAX_MATCHED_LENGTH = 255;
+function matchedNumber(text: string, pattern: RegExp): number | undefined {
+  if (text.length > MAX_MATCHED_LENGTH) return undefined;
+  const number = pattern.exec(text)?.[1];
+  return number !== undefined && ISSUE_NUMBER.test(number) ? Number(number) : undefined;
+}
+// The first source in `rule.sources` that yields a number gives the keys.
+function issueKeys(
+  title: string,
+  branch: string,
+  refs: ClosingWire,
+  rule: Extract<KeyRule, { type: 'issues' }>,
+): string[] {
+  const repo = rule.repo.toLowerCase();
+  for (const source of rule.sources) {
+    const numbers = new Set<number>();
+    if (source === 'closing') {
+      for (const node of refs?.nodes ?? []) {
+        if (
+          node?.repository?.nameWithOwner.toLowerCase() === repo &&
+          ISSUE_NUMBER.test(String(node.number))
+        )
+          numbers.add(node.number);
+      }
+    } else {
+      const number =
+        source === 'branch' ? matchedNumber(branch, rule.branch) : matchedNumber(title, rule.title);
+      if (number !== undefined) numbers.add(number);
+    }
+    if (numbers.size > 0)
+      return [...numbers].sort((a, b) => a - b).map((number) => `${rule.repo}#${String(number)}`);
+  }
+  return [];
+}
+export function normalizePr(repo: string, value: unknown, rule: KeyRule): PrFacts {
   const wire = parseWire(prWire, value, 'Malformed GitHub PR response');
   const checks = latestChecks(wire.statusCheckRollup?.contexts.nodes ?? []);
   const state = wire.state === 'MERGED' ? 'merged' : wire.state === 'CLOSED' ? 'closed' : 'open';
@@ -191,7 +253,10 @@ export function normalizePr(repo: string, value: unknown, prefixes: readonly str
       reviewer: node.requestedReviewer.login ?? node.requestedReviewer.name,
       asCodeOwner: node.asCodeOwner,
     })),
-    ticketKeys: ticketKeys(title, headBranch, prefixes),
+    ticketKeys:
+      rule.type === 'prefixes'
+        ? ticketKeys(title, headBranch, rule.prefixes)
+        : issueKeys(title, headBranch, wire.closingIssuesReferences, rule),
     updatedAt: wire.updatedAt,
   };
   const parsed = prFactsSchema.safeParse(facts);

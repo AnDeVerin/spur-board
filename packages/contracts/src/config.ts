@@ -65,6 +65,35 @@ const jiraTracker = z.strictObject({
     .default([]),
 });
 
+/** Capture groups of a pattern that compiles without flags, or `undefined` when it does not. */
+function captureGroups(pattern: string): number | undefined {
+  try {
+    new RegExp(pattern);
+    // Compiled alone first, so the pattern's tail cannot escape or close the wrapper.
+    return (new RegExp(`(?:${pattern})|`).exec('')?.length ?? 1) - 1;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Where a PR in the tracker repository can name its issue, in the default priority order. */
+const LINK_SOURCES = ['closing', 'branch', 'title'] as const;
+
+/** A `link` pattern: compiles, starts with `^` and has exactly one capture group. */
+function linkPattern(fallback: string, description: string) {
+  return nonEmpty
+    .superRefine((pattern, ctx) => {
+      if (!pattern.startsWith('^') || captureGroups(pattern) !== 1)
+        ctx.addIssue({
+          code: 'custom',
+          message:
+            'Expected a regular expression that starts with ^ and has exactly one capture group',
+        });
+    })
+    .default(fallback)
+    .describe(description);
+}
+
 const githubIssuesTracker = z
   .strictObject({
     type: z.literal('github-issues'),
@@ -144,6 +173,38 @@ const projectSchema = z
       .regex(/^[a-z][a-z0-9-]*$/, 'Expected lowercase letters, digits and dashes'),
     tracker: z.discriminatedUnion('type', [jiraTracker, githubIssuesTracker]),
     repos: z.array(repoSlugSchema).min(1),
+    link: z
+      .strictObject({
+        sources: z
+          .array(z.enum(LINK_SOURCES))
+          .min(1)
+          .superRefine((sources, ctx) => {
+            sources.forEach((source, i) => {
+              if (sources.indexOf(source) !== i)
+                ctx.addIssue({
+                  code: 'custom',
+                  path: [i],
+                  message: `Duplicate link source: ${JSON.stringify(source)}`,
+                });
+            });
+          })
+          .default([...LINK_SOURCES])
+          .describe(
+            'Where a PR in tracker.repo names its issue, in priority order; the first source that yields an issue number wins. closing: issues in tracker.repo the PR closes (Closes #12 in the body, or linked in the sidebar), for PRs to the default branch only. branch: branchPattern on the head branch. title: titlePattern on the PR title.',
+          ),
+        branchPattern: linkPattern(
+          '^[A-Za-z]+-([1-9][0-9]*)',
+          'Regular expression that starts with ^ and whose one capture group reads the issue number from a PR head branch, such as <agent>-<number>-<slug>. Branches longer than 255 characters are not matched.',
+        ),
+        titlePattern: linkPattern(
+          '^[a-z]+(?:\\([^)]*\\))?!?: #([1-9][0-9]*)',
+          'Regular expression that starts with ^ and whose one capture group reads the issue number from a PR title, such as fix(core): #12 summary. Titles longer than 255 characters are not matched.',
+        ),
+      })
+      .prefault({})
+      .describe(
+        'How a github-issues project links a PR in tracker.repo to its issue. A Jira project ignores it and links by tracker.projectKeys.',
+      ),
     operatorGithubLogin: z.string().regex(/^[A-Za-z0-9-]{1,39}$/, 'Expected a GitHub login'),
     spurProjects: z
       .array(spurProject)

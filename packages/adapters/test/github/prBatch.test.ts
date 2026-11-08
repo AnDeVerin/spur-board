@@ -10,9 +10,10 @@ import {
 import { describe, expect, it, vi } from 'vitest';
 import { initialQuery, pageQuery, type Json } from '../../src/github/client.ts';
 import { githubSources } from '../../src/github/index.ts';
-import { normalizePr, ticketKeys } from '../../src/github/prBatch.ts';
+import { normalizePr, ticketKeys, type KeyRule } from '../../src/github/prBatch.ts';
 
 const sha = 'a'.repeat(40);
+const demoKeys: KeyRule = { type: 'prefixes', prefixes: ['DEMO'] };
 const time = '2026-01-02T00:00:00.000Z';
 const ref = { kind: 'pr' as const, repo: 'demo/widgets', number: 7 };
 const conn = (nodes: Json[], endCursor: string | null = null) => ({
@@ -68,7 +69,7 @@ function wire(number = 7) {
     reviewRequests: conn([{ requestedReviewer: { login: 'reviewer' }, asCodeOwner: true }]),
   };
 }
-function config(repos = ['demo/widgets']) {
+function config(repos = ['demo/widgets'], link?: Record<string, unknown>) {
   return configSchema.parse({
     projects: [
       {
@@ -82,6 +83,7 @@ function config(repos = ['demo/widgets']) {
           projectKeys: ['DEMO'],
         },
         repos,
+        ...(link === undefined ? {} : { link }),
         operatorGithubLogin: 'operator',
       },
     ],
@@ -103,10 +105,48 @@ const response = (data: unknown, errors?: unknown[]) => {
     { status: 200 },
   );
 };
-function adapter(fetcher: typeof fetch): Adapter {
-  const source = githubSources(config(), { token: 'synthetic', fetch: fetcher })[0];
+function adapter(fetcher: typeof fetch, configured = config(), index = 0): Adapter {
+  const source = githubSources(configured, { token: 'synthetic', fetch: fetcher })[index];
   if (source === undefined) throw new Error('Missing GitHub source');
   return source.adapter;
+}
+function issuesConfig(repos = ['demo/widgets'], link?: Record<string, unknown>) {
+  return configSchema.parse({
+    projects: [
+      {
+        id: 'demo',
+        tracker: {
+          type: 'github-issues',
+          repo: 'demo/widgets',
+          label: 'board',
+        },
+        repos,
+        ...(link === undefined ? {} : { link }),
+        operatorGithubLogin: 'operator',
+      },
+    ],
+    operator: { slack: 'U123' },
+    digest: { tz: 'UTC' },
+  });
+}
+const closingRef = (number: number, repo = 'demo/widgets') => ({
+  number,
+  repository: { nameWithOwner: repo },
+});
+function issuesPr(branch: string, closing: unknown, number = 7, title?: string) {
+  return {
+    ...wire(number),
+    headRefName: branch,
+    closingIssuesReferences: closing,
+    ...(title === undefined ? {} : { title }),
+  };
+}
+const keysOf = (batch: { items: { kind: string; facts?: unknown }[] }) =>
+  batch.items.map((item) => (item.facts as { ticketKeys: string[] }).ticketKeys);
+function bodyQuery(fetcher: ReturnType<typeof vi.fn<typeof fetch>>, call = 0): string {
+  const body = fetcher.mock.calls[call]?.[1]?.body;
+  if (typeof body !== 'string') throw new Error('Missing GraphQL body');
+  return (JSON.parse(body) as { query: string }).query;
 }
 const context = (prs = [ref], cursor?: string) => ({
   observe: { prs, tickets: [], sessions: [] },
@@ -129,9 +169,16 @@ describe('GitHub PR batch', () => {
     );
     expect(bootstrapQuery).toContain('states: [OPEN]');
     expect(pageQuery('pullRequests', true)).toContain('states: [OPEN]');
+    expect(query).not.toContain('closingIssuesReferences');
+    expect(bootstrapQuery).not.toContain('closingIssuesReferences');
+    const issuesQuery = initialQuery([7], true, true);
+    expect(createHash('sha256').update(issuesQuery).digest('hex')).toBe(
+      '404835daed309e393a0ae4d50766c469229aff6eec62ce10d4925e1b97fea19b',
+    );
+    expect(issuesQuery).toContain('closingIssuesReferences(first: 100)');
   });
   it('normalizes latest required checks, reviews and configured keys', () => {
-    const facts = normalizePr('demo/widgets', wire(), ['DEMO']);
+    const facts = normalizePr('demo/widgets', wire(), demoKeys);
     expect(prFactsSchema.parse(facts)).toEqual(facts);
     expect(facts.mergeable).toBe('unknown');
     expect(facts.mergeState).toBe('blocked');
@@ -154,7 +201,7 @@ describe('GitHub PR batch', () => {
       commit: { oid: sha },
       submittedAt: '2026-01-03T00:00:00.000Z',
     });
-    expect(normalizePr('demo/widgets', pr, ['DEMO']).reviews).toEqual([
+    expect(normalizePr('demo/widgets', pr, demoKeys).reviews).toEqual([
       { reviewer: 'reviewer', state: 'approved', commitSha: sha, submittedAt: time },
     ]);
   });
@@ -177,7 +224,7 @@ describe('GitHub PR batch', () => {
       checkSuite: { createdAt: '2026-01-03T00:00:00.000Z' },
       isRequired: true,
     });
-    expect(normalizePr('demo/widgets', pr, ['DEMO']).requiredChecks).toEqual([
+    expect(normalizePr('demo/widgets', pr, demoKeys).requiredChecks).toEqual([
       { name: 'build', state: 'pending', completedAt: null },
     ]);
     expect(pageQuery('contexts')).toContain('startedAt completedAt checkSuite { createdAt }');
@@ -194,7 +241,7 @@ describe('GitHub PR batch', () => {
       checkSuite: { createdAt: '2026-01-04T00:00:00.000Z' },
       isRequired: true,
     });
-    expect(normalizePr('demo/widgets', pr, ['DEMO']).requiredChecks).toEqual([
+    expect(normalizePr('demo/widgets', pr, demoKeys).requiredChecks).toEqual([
       { name: 'build', state: 'pending', completedAt: null },
     ]);
   });
@@ -231,7 +278,7 @@ describe('GitHub PR batch', () => {
         ]),
       },
     };
-    expect(normalizePr('demo/widgets', head, ['DEMO']).requiredChecks).toEqual([
+    expect(normalizePr('demo/widgets', head, demoKeys).requiredChecks).toEqual([
       { name: 'build', state: 'failure', completedAt: time },
     ]);
     expect(initialQuery([7])).not.toContain('commits(first: 1)');
@@ -568,7 +615,7 @@ describe('GitHub PR batch', () => {
     );
     const batch = await adapter(fetcher).poll(context());
     expect(batch.items).toEqual([
-      { kind: 'pr', facts: normalizePr('demo/widgets', wire(), ['DEMO']) },
+      { kind: 'pr', facts: normalizePr('demo/widgets', wire(), demoKeys) },
     ]);
   });
   it('fails the poll naming the missing PR field without its value', async () => {
@@ -625,7 +672,7 @@ describe('GitHub PR batch', () => {
         { author: { login: 'reviewer' }, state: 'FUTURE', commit: { oid: sha }, submittedAt: time },
       ]),
     };
-    const facts = normalizePr('demo/widgets', pr, ['DEMO']);
+    const facts = normalizePr('demo/widgets', pr, demoKeys);
     expect(facts).toMatchObject({ state: 'open', mergeable: 'unknown', mergeState: 'unknown' });
     expect(facts.checks.map((check) => [check.name, check.state])).toEqual([
       ['completed', 'error'],
@@ -642,5 +689,198 @@ describe('GitHub PR batch', () => {
     expect(batch.complete).toBe(true);
     expect(batch.entities).toEqual([{ ref, status: 'not_found' }]);
     expect(batch.items).toEqual([]);
+  });
+});
+
+describe('GitHub Issues PR keys', () => {
+  const single = (pr: unknown, errors?: unknown[]) =>
+    vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(
+        response({ repository: { pullRequests: conn([]) }, pr0: { pullRequest: pr } }, errors),
+      );
+  it('links every same-repo closing reference in config casing', async () => {
+    const fetcher = single(
+      issuesPr(
+        'claude-99-other',
+        conn([closingRef(13, 'Demo/Widgets'), closingRef(12, 'Demo/Widgets')]),
+      ),
+    );
+    const batch = await adapter(fetcher, issuesConfig()).poll(context());
+    expect(batchSchema.parse(batch)).toEqual(batch);
+    expect(keysOf(batch)).toEqual([['demo/widgets#12', 'demo/widgets#13']]);
+    expect(bodyQuery(fetcher)).toContain('closingIssuesReferences(first: 100)');
+  });
+  it('falls back to the branch pattern', async () => {
+    const poll = async (branch: string, configured = issuesConfig()) =>
+      keysOf(await adapter(single(issuesPr(branch, conn([]))), configured).poll(context()));
+    expect(await poll('claude-12-slug')).toEqual([['demo/widgets#12']]);
+    const custom = issuesConfig(['demo/widgets'], { branchPattern: '^task/([1-9][0-9]*)$' });
+    expect(await poll('task/12', custom)).toEqual([['demo/widgets#12']]);
+    expect(await poll('claude-12-slug', custom)).toEqual([[]]);
+  });
+  it('reads the issue number from a conventional title', async () => {
+    const poll = async (title: string) =>
+      keysOf(
+        await adapter(single(issuesPr('feature/x', conn([]), 7, title)), issuesConfig()).poll(
+          context(),
+        ),
+      );
+    expect(await poll('fix(core): #12 x')).toEqual([['demo/widgets#12']]);
+    expect(await poll('feat!: #12 x')).toEqual([['demo/widgets#12']]);
+    expect(await poll('Fix: #12 x')).toEqual([[]]);
+    expect(await poll('fix(core): 12 x')).toEqual([[]]);
+  });
+  it('takes the first source that yields a number', async () => {
+    const poll = async (fetcher: typeof fetch, configured = issuesConfig()) =>
+      keysOf(await adapter(fetcher, configured).poll(context()));
+    const title = 'fix: #13 x';
+    expect(await poll(single(issuesPr('claude-12-x', conn([closingRef(14)]), 7, title)))).toEqual([
+      ['demo/widgets#14'],
+    ]);
+    expect(await poll(single(issuesPr('claude-12-x', conn([]), 7, title)))).toEqual([
+      ['demo/widgets#12'],
+    ]);
+    expect(await poll(single(issuesPr('feature/x', conn([]), 7, title)))).toEqual([
+      ['demo/widgets#13'],
+    ]);
+    const titleFirst = single(issuesPr('claude-12-x', undefined, 7, title));
+    expect(
+      await poll(titleFirst, issuesConfig(['demo/widgets'], { sources: ['title', 'branch'] })),
+    ).toEqual([['demo/widgets#13']]);
+    expect(bodyQuery(titleFirst)).not.toContain('closingIssuesReferences');
+    const branchOnly = single(issuesPr('claude-12-x', conn([closingRef(13)])));
+    expect(await poll(branchOnly, issuesConfig(['demo/widgets'], { sources: ['branch'] }))).toEqual(
+      [['demo/widgets#12']],
+    );
+  });
+  it.each([
+    ['branch', issuesPr(`claude-12-${'x'.repeat(290)}`, conn([]))],
+    ['title', issuesPr('feature/x', conn([]), 7, `fix: #12 ${'x'.repeat(260)}`)],
+  ])('skips a %s longer than 255 characters', async (_name, pr) => {
+    expect(keysOf(await adapter(single(pr), issuesConfig()).poll(context()))).toEqual([[]]);
+  });
+  it('ignores cross-repo references and non-tracker repos', async () => {
+    const cross = single(issuesPr('feature/x', conn([closingRef(12, 'other/repo')])));
+    expect(keysOf(await adapter(cross, issuesConfig()).poll(context()))).toEqual([[]]);
+    const sibling = single(issuesPr('claude-12-x', conn([closingRef(12)])));
+    const apiRef = { ...ref, repo: 'demo/api' };
+    const batch = await adapter(sibling, issuesConfig(['demo/widgets', 'demo/api']), 1).poll(
+      context([apiRef]),
+    );
+    expect(batch.entities).toEqual([{ ref: apiRef, status: 'ok' }]);
+    expect(keysOf(batch)).toEqual([[]]);
+    expect(bodyQuery(sibling)).not.toContain('closingIssuesReferences');
+  });
+  it('keeps Jira keys only for a Jira project', async () => {
+    const fetcher = single(issuesPr('DEMO-42-widget', conn([closingRef(12)]), 7, 'fix: #13 x'));
+    const batch = await adapter(
+      fetcher,
+      config(['demo/widgets'], { sources: ['closing', 'title'] }),
+    ).poll(context());
+    expect(batch.complete).toBe(true);
+    expect(batch.entities).toEqual([{ ref, status: 'ok' }]);
+    expect(keysOf(batch)).toEqual([['DEMO-42']]);
+    expect(bodyQuery(fetcher)).not.toContain('closingIssuesReferences');
+  });
+  const denied = (path: (string | number)[]) => ({
+    message: 'Resource not accessible by personal access token',
+    type: 'FORBIDDEN',
+    path,
+  });
+  it.each([
+    [
+      'node',
+      () =>
+        single(issuesPr('feature/x', conn([null, closingRef(12)])), [
+          denied(['pr0', 'pullRequest', 'closingIssuesReferences', 'nodes', 0]),
+        ]),
+    ],
+    [
+      'connection',
+      () =>
+        single(issuesPr('claude-12-x', null), [
+          denied(['pr0', 'pullRequest', 'closingIssuesReferences']),
+        ]),
+    ],
+    [
+      'page',
+      () =>
+        vi
+          .fn<typeof fetch>()
+          .mockResolvedValueOnce(
+            response({
+              repository: { pullRequests: conn([]) },
+              pr0: { pullRequest: issuesPr('feature/x', conn([closingRef(12)], 'refs-next')) },
+            }),
+          )
+          .mockResolvedValueOnce(
+            response({ repository: { pullRequest: { closingIssuesReferences: null } } }, [
+              denied(['repository', 'pullRequest', 'closingIssuesReferences']),
+            ]),
+          ),
+    ],
+  ])('ignores a denied closing reference: %s', async (_name, fetcher) => {
+    const batch = await adapter(fetcher(), issuesConfig()).poll(context());
+    expect(batch.complete).toBe(true);
+    expect(batch.entities).toEqual([{ ref, status: 'ok' }]);
+    expect(keysOf(batch)).toEqual([['demo/widgets#12']]);
+  });
+  it('advances the cursor past a denied closing reference', async () => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        response({
+          repository: {
+            pullRequests: conn([
+              { number: 7, updatedAt: time, author: { login: 'operator' }, state: 'OPEN' },
+            ]),
+          },
+        }),
+      )
+      .mockResolvedValueOnce(
+        response({ pr0: { pullRequest: issuesPr('claude-12-x', null) } }, [
+          denied(['pr0', 'pullRequest', 'closingIssuesReferences']),
+        ]),
+      );
+    const batch = await adapter(fetcher, issuesConfig()).poll(
+      context([], '2026-01-01T00:00:00.000Z'),
+    );
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(bodyQuery(fetcher, 1)).toContain('closingIssuesReferences(first: 100)');
+    expect(batch.complete).toBe(true);
+    expect(keysOf(batch)).toEqual([['demo/widgets#12']]);
+    expect(batch.cursor).toBe('2026-01-02T00:00:00.000Z');
+  });
+  it('continues closing references', async () => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        response({
+          repository: { pullRequests: conn([]) },
+          pr0: { pullRequest: issuesPr('feature/x', conn([closingRef(13)], 'refs-next')) },
+        }),
+      )
+      .mockResolvedValueOnce(
+        response({
+          repository: { pullRequest: { closingIssuesReferences: conn([closingRef(12)]) } },
+        }),
+      );
+    const batch = await adapter(fetcher, issuesConfig()).poll(context());
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(bodyQuery(fetcher, 1)).toBe(pageQuery('closingIssuesReferences'));
+    expect(pageQuery('closingIssuesReferences')).toContain(
+      'closingIssuesReferences(first: 100, after: $after)',
+    );
+    expect(keysOf(batch)).toEqual([['demo/widgets#12', 'demo/widgets#13']]);
+  });
+  it('drops an out-of-range issue number', async () => {
+    const fetcher = single(issuesPr('claude-1234567890123456-x', conn([])));
+    const custom = issuesConfig(['demo/widgets'], { branchPattern: '^claude-([0-9]+)' });
+    const batch = await adapter(fetcher, custom).poll(context());
+    expect(batch.entities).toEqual([{ ref, status: 'ok' }]);
+    expect(keysOf(batch)).toEqual([[]]);
+    const title = single(issuesPr('feature/x', conn([]), 7, 'fix: #1234567890123456 x'));
+    expect(keysOf(await adapter(title, issuesConfig()).poll(context()))).toEqual([[]]);
   });
 });
