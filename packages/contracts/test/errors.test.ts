@@ -30,7 +30,7 @@ describe('error catalog', () => {
     });
   });
 
-  it('pins the 19 codes in order, with HTTP status and exit code', () => {
+  it('pins the 20 codes in order, with HTTP status and exit code', () => {
     const table = Object.entries(ERRORS).map(([code, { status, exit }]) => [code, status, exit]);
     expect(table).toEqual([
       ['usage', 400, 2],
@@ -50,6 +50,7 @@ describe('error catalog', () => {
       ['version_mismatch', 409, 3],
       ['daemon_unavailable', null, 3],
       ['config', null, 4],
+      ['identity_missing', null, 4],
       ['outcome_unknown', null, 5],
       ['unexpected', 500, 5],
     ]);
@@ -102,6 +103,18 @@ describe('error catalog', () => {
     expect(daemon.hint).not.toContain('board service start');
     expect(daemon.recovery.action).toContain('existing idempotency key if it has one');
     expect(daemon.recovery.retryTiming).toContain('daemon is available');
+  });
+
+  it('names both ways to get a missing caller identity', () => {
+    const entry = ERRORS.identity_missing;
+    expect(entry.status).toBeNull();
+    expect(entry.exit).toBe(EXIT_CODES.config);
+    expect(entry.message).toContain('caller identity');
+    expect(entry.message).not.toContain('up to home');
+    expect(entry.hint).toContain('Spur session');
+    expect(entry.hint).toContain('`board token create --name <name> --into <folder>`');
+    expect(entry.recovery).toMatchObject({ sideEffects: 'none', maxRetries: 0 });
+    expect(entry.recovery.action).not.toContain('board token create');
   });
 
   it('marks startup as not applied and recoverable after readiness', () => {

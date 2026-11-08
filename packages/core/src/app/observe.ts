@@ -42,6 +42,11 @@ function projectForSource(config: Config, source: string) {
   );
 }
 
+/** A closed issue of a GitHub Issues tracker, which lists only open issues. */
+function closedIssue(project: Config['projects'][number], status: string): boolean {
+  return project.tracker.type === 'github-issues' && status === 'closed';
+}
+
 async function updateTerminal(
   trx: Trx,
   config: Config,
@@ -251,7 +256,7 @@ async function ticket(
   if (task === undefined) task = pending;
   if (task?.manual_exclude === 1) return;
   if (task === undefined) {
-    if (!fact.inFilter) return;
+    if (!fact.inFilter || closedIssue(project, fact.status)) return;
     task = await trx
       .insertInto('task')
       .values({
@@ -782,9 +787,14 @@ export function createObservationCore(deps: {
                 .where('membership', '!=', 'archived')
                 .execute()
             ).flatMap((task) => {
-              const outside =
-                task.detail === null ? false : !parseJson(ticketFactsSchema, task.detail).inFilter;
-              return task.manual_include === 1 || outside
+              const detail =
+                task.detail === null ? null : parseJson(ticketFactsSchema, task.detail);
+              const outside = detail !== null && !detail.inFilter;
+              const openIssue =
+                project.tracker.type === 'github-issues' &&
+                detail !== null &&
+                !closedIssue(project, detail.status);
+              return task.manual_include === 1 || outside || openIssue
                 ? [
                     {
                       kind: 'ticket' as const,
@@ -977,12 +987,15 @@ export function createObservationCore(deps: {
                 'ticket_snapshot.detail',
                 'task.tracker_id',
                 'task.key',
+                'task.membership',
               ])
               .where('task.project', '=', project.id)
               .where('task.manual_include', '=', 0)
               .where('task.manual_exclude', '=', 0)
               .execute();
             for (const row of rows) {
+              if (project.tracker.type === 'github-issues' && row.membership === 'archived')
+                continue;
               if (
                 unresolved.has(row.key) ||
                 (row.tracker_id !== null &&
@@ -990,7 +1003,7 @@ export function createObservationCore(deps: {
               )
                 continue;
               const fact = parseJson(ticketFactsSchema, row.detail);
-              if (!fact.inFilter) continue;
+              if (!fact.inFilter || closedIssue(project, fact.status)) continue;
               const outside = { ...fact, inFilter: false };
               await trx
                 .updateTable('ticket_snapshot')
