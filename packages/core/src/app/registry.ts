@@ -83,7 +83,7 @@ export function createOperationRegistry(deps: {
           includeBoardItems:
             authorize([{ grant: 'operator' }], actor, { config, target: { kind: 'missing' } })
               .status === 'allowed',
-          detail: input.detail === true,
+          detail: input.detail,
         },
       );
     },
