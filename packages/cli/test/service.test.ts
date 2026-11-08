@@ -1,5 +1,6 @@
+import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir, userInfo } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -20,6 +21,22 @@ import {
 } from '../src/service.ts';
 
 const temporaryDirectories: string[] = [];
+
+const systemdAnalyzeMissing =
+  (spawnSync('systemd-analyze', ['--version']).error as NodeJS.ErrnoException | undefined)?.code ===
+  'ENOENT';
+
+async function systemdVerifyFindings(unitFile: string, contents: string): Promise<string[]> {
+  await writeFile(unitFile, contents);
+  const result = spawnSync('systemd-analyze', ['verify', '--man=no', unitFile], {
+    encoding: 'utf8',
+    timeout: 10_000,
+  });
+  expect(result.error).toBeUndefined();
+  return `${result.stdout}\n${result.stderr}`
+    .split('\n')
+    .filter((line) => line.startsWith(`${unitFile}:`) || line.startsWith('spur-board.service:'));
+}
 
 afterEach(async () => {
   await Promise.all(temporaryDirectories.splice(0).map((path) => rm(path, { recursive: true })));
@@ -372,6 +389,7 @@ describe('service', () => {
       environment: ['BOARD_HOME=/home/user name/.config/spur board'],
     });
     expect(unit).not.toContain('network-online.target');
+    expect(unit).not.toMatch(/^EnvironmentFile=/m);
     expect(unit).toMatchInlineSnapshot(`
       "[Unit]
       Description=spur-board daemon
@@ -379,7 +397,6 @@ describe('service', () => {
       [Service]
       ExecStart="/home/user name/bin/node" "/opt/spur board/daemon.ts"
       Environment="BOARD_HOME=/home/user name/.config/spur board"
-      EnvironmentFile="/home/user name/.config/spur board/secrets.env"
       Type=notify
       NotifyAccess=all
       WatchdogSec=180000ms
@@ -392,6 +409,36 @@ describe('service', () => {
       "
     `);
   });
+
+  it.skipIf(systemdAnalyzeMissing)(
+    'passes systemd-analyze verify for paths with spaces',
+    async () => {
+      const root = await mkdtemp(join(tmpdir(), 'board-service-verify-'));
+      temporaryDirectories.push(root);
+      await mkdir(join(root, 'node bin'));
+      await mkdir(join(root, 'unit dir'));
+      const nodePath = join(root, 'node bin', 'node');
+      await symlink(process.execPath, nodePath);
+      const boardHome = join(root, 'board config');
+      const unitFile = join(root, 'unit dir', 'spur-board.service');
+      const unit = renderUserUnit({
+        nodePath,
+        daemonEntry: join(root, 'package with spaces', 'daemon.ts'),
+        secretsFile: join(boardHome, 'secrets.env'),
+        unitFile,
+        environment: [`BOARD_HOME=${boardHome}`],
+      });
+      expect(await systemdVerifyFindings(unitFile, unit)).toEqual([]);
+
+      const environmentLine = `Environment="BOARD_HOME=${boardHome}"\n`;
+      expect(unit).toContain(environmentLine);
+      const control = unit.replace(
+        environmentLine,
+        `${environmentLine}EnvironmentFile="${join(boardHome, 'secrets.env')}"\n`,
+      );
+      expect((await systemdVerifyFindings(unitFile, control)).length).toBeGreaterThan(0);
+    },
+  );
 
   it('installs once, reloads only when the unit changes, and starts through the fake runner', async () => {
     const { options, paths, calls } = await fixture();
