@@ -3,7 +3,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createFakeGateway } from '@spur-board/gateway-testkit';
-import type { Gateway } from '@spur-board/contracts';
+import type { Config, Gateway } from '@spur-board/contracts';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createSender, enqueueConversationOpen, openStore, type Store } from '../../src/index.ts';
 import { clearItem, raiseItem } from '../../src/app/feed.ts';
@@ -20,7 +20,7 @@ afterEach(async () => {
   for (const store of stores.splice(0)) await store.close();
 });
 
-async function setup() {
+async function setup(config: Config = testConfig) {
   const file = join(mkdtempSync(join(tmpdir(), 'core-feed-')), 'board.db');
   const store = openStore(file);
   stores.push(store);
@@ -39,7 +39,7 @@ async function setup() {
   const fake = createFakeGateway({ profile: 'slack-like' });
   const observed = observeGateway(fake, file);
   const sender = createSender({
-    config: testConfig,
+    config,
     store,
     gateway: observed.gateway,
     spur: { send: () => Promise.resolve() },
@@ -49,12 +49,19 @@ async function setup() {
   return { store, file, fake, observed, sender };
 }
 
-async function raise(store: Store, kind = 'worker_not_reading', itemKey = 'worker:B1') {
+const TEXT = 'worker worker-1 is not reading block B1 on o/r#101';
+
+async function raise(
+  store: Store,
+  kind = 'worker_not_reading',
+  itemKey = 'worker:B1',
+  text = TEXT,
+) {
   return scanTransaction(store, testConfig, (trx) =>
     raiseItem(trx, {
       itemKey,
       kind,
-      text: 'worker worker-1 is not reading block B1 on o/r#101',
+      text,
       url: URL,
       taskId: 1,
       blockId: null,
@@ -85,8 +92,64 @@ describe('operator item feed', () => {
     await scanTransaction(ctx.store, testConfig, (trx) => clearItem(trx, item.id, AT));
     await ctx.sender.tick();
     expect(ctx.observed.requests[1]).toMatchObject({ target: { kind: 'edit' } });
-    expect(JSON.stringify(ctx.observed.requests[1]?.body)).toContain('✓ cleared');
+    expect(ctx.observed.requests[1]?.body).toEqual([
+      { kind: 'paragraph', children: [{ kind: 'link', url: URL, text: KEY }] },
+      { kind: 'quote', children: [{ kind: 'strike', text: TEXT }] },
+      { kind: 'paragraph', children: [{ kind: 'text', text: '✓ Resolved: condition ended' }] },
+    ]);
+    expect(ctx.observed.requests[1]?.actions).toBeUndefined();
     expect(ctx.observed.violations).toEqual([]);
+  });
+
+  it.each([
+    ['UTC', '10:00'],
+    ['Europe/Berlin', '11:00'],
+  ])('names the operator and the time in %s when the operator closes it', async (tz, time) => {
+    const ctx = await setup({ ...testConfig, digest: { ...testConfig.digest, tz } });
+    const item = await raise(ctx.store);
+    await ctx.sender.tick();
+    await scanTransaction(ctx.store, testConfig, (trx) => clearItem(trx, item.id, AT, 'operator'));
+    await ctx.sender.tick();
+    expect(ctx.observed.requests[1]?.body.at(-1)).toEqual({
+      kind: 'paragraph',
+      children: [
+        { kind: 'text', text: '✓ Resolved by ' },
+        { kind: 'mention', user: 'operator' },
+        { kind: 'text', text: ` at ${time}` },
+      ],
+    });
+  });
+
+  it.each(['worker_not_reading', 'review_required'])(
+    'edits a cleared %s line to the same resolved shape',
+    async (kind) => {
+      const ctx = await setup();
+      const item = await raise(ctx.store, kind, `${kind}:1`);
+      await ctx.sender.tick();
+      await scanTransaction(ctx.store, testConfig, (trx) => clearItem(trx, item.id, AT));
+      await ctx.sender.tick();
+      expect(ctx.observed.requests[1]).toMatchObject({ target: { kind: 'edit' } });
+      expect(ctx.observed.requests[1]?.body).toEqual([
+        { kind: 'paragraph', children: [{ kind: 'link', url: URL, text: KEY }] },
+        { kind: 'quote', children: [{ kind: 'strike', text: TEXT }] },
+        { kind: 'paragraph', children: [{ kind: 'text', text: '✓ Resolved: condition ended' }] },
+      ]);
+      expect(ctx.observed.requests[1]?.actions).toBeUndefined();
+    },
+  );
+
+  it('caps a long summary in the edit so it stays one part', async () => {
+    const ctx = await setup();
+    const item = await raise(ctx.store, 'worker_not_reading', 'worker:long', 'x'.repeat(3000));
+    await scanTransaction(ctx.store, testConfig, (trx) => clearItem(trx, item.id, AT));
+    const edit = await ctx.store.db
+      .selectFrom('outbox')
+      .select('payload')
+      .where('kind', '=', 'feed.line.edit')
+      .executeTakeFirstOrThrow();
+    const { text } = JSON.parse(edit.payload) as { text: string };
+    expect(text.length).toBeLessThanOrEqual(500);
+    expect(text.endsWith('…')).toBe(true);
   });
 
   it('cancels a line cleared before delivery and does not duplicate after restart', async () => {

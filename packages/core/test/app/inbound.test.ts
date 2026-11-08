@@ -725,6 +725,12 @@ describe('inbound apply', () => {
         run: (_trx, input) =>
           Promise.resolve({ item: { id: input.item, task: null, at, summary: 'Closed' } }),
       },
+      'item.retry': {
+        id: 'item.retry',
+        resolveTargets: () => Promise.resolve([boardTarget]),
+        run: (_trx, input) =>
+          Promise.resolve({ item: { id: input.item, task: null, at, summary: 'Retry' } }),
+      },
     };
     const inbound = createInbound({
       store,
@@ -767,13 +773,22 @@ describe('inbound apply', () => {
     };
     await inbound.sink(button);
     await inbound.sink(button);
+    await inbound.sink({
+      ...button,
+      dedupeKey: 'catalog-retry',
+      interaction: interactionRefSchema.parse('catalog-retry'),
+      actionId: 'item:1:retry',
+    });
     expect(responses).toEqual([
       'Board status: 0 tasks, 0 items needing attention.',
-      JSON.stringify({ item: { id: 'I1', task: null, at, summary: 'Closed' } }),
-      JSON.stringify({ item: { id: 'I1', task: null, at, summary: 'Closed' } }),
+      'Closed I1.',
+      'Closed I1.',
+      'Retry started for I1.',
     ]);
+    expect(responses.slice(1).some((text) => text.includes('{'))).toBe(false);
     expect(await store.db.selectFrom('command').select(['operation', 'key']).execute()).toEqual([
       { operation: 'item.close', key: 'catalog-close' },
+      { operation: 'item.retry', key: 'catalog-retry' },
     ]);
   });
 

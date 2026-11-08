@@ -26,6 +26,7 @@ import {
   type Sender,
   type Store,
 } from '../../src/index.ts';
+import { renderBody } from '../../src/app/outbox.ts';
 import { HEALTH_PROBE_MS, retryTransport, SpurRejectedError } from '../../src/app/sender.ts';
 import {
   observeGateway,
@@ -1090,6 +1091,7 @@ describe('delivered records refs', () => {
     const lineRow = await outboxRow(ctx, line);
     const lineRef = JSON.parse(lineRow.external_ref ?? 'null') as { message: string };
     expect(request(ctx, 1).target).toEqual({ kind: 'edit', message: lineRef.message });
+    expect(request(ctx, 1).body).toEqual(renderBody('o/r#7', 'cleared'));
     const editRow = await outboxRow(ctx, edit);
     expect(editRow.state).toBe('done');
     expect(externalConversation(editRow)).toBe(conversation.ref);

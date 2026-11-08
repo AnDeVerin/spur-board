@@ -579,9 +579,12 @@ export function createInbound(input: {
   function interactionOperation(event: Extract<UserEvent, { kind: 'command' | 'action' }>): {
     id: OperationId | undefined;
     operationInput: unknown;
+    /** The pressed item, `I<n>`, for an action. */
+    item?: string;
   } {
     let id: OperationId | undefined;
     let operationInput: unknown;
+    let item: string | undefined;
     if (event.kind === 'command') {
       const command = event.command;
       if (command?.kind === 'query') {
@@ -598,13 +601,15 @@ export function createInbound(input: {
       const parts = event.actionId.split(':');
       if (parts.length === 2 && /^I[1-9]\d*$/.test(parts[1] ?? '')) {
         id = parts[0] === 'item.close' || parts[0] === 'item.retry' ? parts[0] : undefined;
-        operationInput = { item: parts[1] };
+        item = parts[1];
+        operationInput = { item };
       } else if (parts.length === 3 && parts[0] === 'item' && /^[1-9]\d*$/.test(parts[1] ?? '')) {
         id = parts[2] === 'close' ? 'item.close' : parts[2] === 'retry' ? 'item.retry' : undefined;
-        operationInput = { item: `I${parts[1] ?? ''}` };
+        item = `I${parts[1] ?? ''}`;
+        operationInput = { item };
       }
     }
-    return { id, operationInput };
+    return { id, operationInput, ...(item === undefined ? {} : { item }) };
   }
 
   function tokenAction(event: Extract<UserEvent, { kind: 'action' }>): {
@@ -702,7 +707,7 @@ export function createInbound(input: {
       }
       return;
     }
-    const { id, operationInput } = interactionOperation(event);
+    const { id, operationInput, item } = interactionOperation(event);
     let response: RichText;
     let cliHint: string | undefined;
     if (event.kind === 'command' && event.command?.kind === 'usage')
@@ -725,7 +730,11 @@ export function createInbound(input: {
           );
           response = reply.body;
           cliHint = reply.cliHint;
-        } else response = plain(JSON.stringify(value));
+        } else {
+          response = plain(
+            id === 'item.close' ? `Closed ${item ?? ''}.` : `Retry started for ${item ?? ''}.`,
+          );
+        }
       } catch (error) {
         if (!(error instanceof CommandError)) {
           await recordFailure(event, error, new Date(clock.now()).toISOString());

@@ -22,7 +22,7 @@ import {
   ringTask,
   ringUndelivered,
 } from './doorbells.ts';
-import { clearItem, raiseItem } from './feed.ts';
+import { clearItem, raiseItem, resolvedFeedBody } from './feed.ts';
 import {
   deliveredRefSchema,
   KIND_PRIORITY,
@@ -662,6 +662,7 @@ export function createSender(options: SenderOptions): Sender {
       if (gateway === undefined) throw new Error('gateway is not configured');
       const to = target(c);
       if (to === null) throw new Error('a dependent row without its parent ref');
+      const { body } = c;
       const request: DeliverRequest = {
         key: c.key,
         maybeSent: c.maybeSent,
@@ -669,15 +670,17 @@ export function createSender(options: SenderOptions): Sender {
         target: to,
         persona: c.body.payload.persona,
         body:
-          c.body.kind === 'feed.line' && c.body.payload.url !== undefined
-            ? [
-                {
-                  kind: 'paragraph',
-                  children: [{ kind: 'link', url: c.body.payload.url, text: c.body.payload.key }],
-                },
-                { kind: 'quote', children: [{ kind: 'text', text: c.body.payload.text }] },
-              ]
-            : renderBody(c.body.payload.key, c.body.payload.text),
+          body.kind === 'feed.line.edit' && body.payload.resolved !== undefined
+            ? resolvedFeedBody({ ...body.payload, resolved: body.payload.resolved }, options.config)
+            : c.body.kind === 'feed.line' && c.body.payload.url !== undefined
+              ? [
+                  {
+                    kind: 'paragraph',
+                    children: [{ kind: 'link', url: c.body.payload.url, text: c.body.payload.key }],
+                  },
+                  { kind: 'quote', children: [{ kind: 'text', text: c.body.payload.text }] },
+                ]
+              : renderBody(c.body.payload.key, c.body.payload.text),
         ...(c.body.kind === 'feed.line' && c.body.payload.actions !== undefined
           ? { actions: c.body.payload.actions }
           : {}),

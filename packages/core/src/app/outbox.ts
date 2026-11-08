@@ -1,6 +1,7 @@
 // Outbox kinds, their payloads and the producers that write them inside the caller's transaction.
 import { createHash } from 'node:crypto';
 import {
+  actorIdSchema,
   conversationRefSchema,
   messageRefSchema,
   PERSONA_ROLES,
@@ -70,6 +71,12 @@ const feedLineEditPayload = z.strictObject({
   taskId: id.optional(),
 });
 const feedLinePayload = feedLineEditPayload.extend({ title: z.string().min(1) });
+/** `text` is the line's summary; a row without `resolved` predates the resolved rendering. */
+const feedEditPayload = feedLineEditPayload.extend({
+  url: z.url().optional(),
+  resolved: z.strictObject({ by: actorIdSchema, at: z.iso.datetime() }).optional(),
+});
+export type FeedEditPayload = z.output<typeof feedEditPayload>;
 const feedLineWithLinkPayload = feedLinePayload.extend({
   itemId: id.optional(),
   url: z.url().optional(),
@@ -88,7 +95,7 @@ export const outboxBodySchema = z.discriminatedUnion('kind', [
   z.strictObject({ kind: z.literal('conversation.reply'), payload: replyPayload }),
   z.strictObject({ kind: z.literal('conversation.close'), payload: closePayload }),
   z.strictObject({ kind: z.literal('feed.line'), payload: feedLineWithLinkPayload }),
-  z.strictObject({ kind: z.literal('feed.line.edit'), payload: feedLineEditPayload }),
+  z.strictObject({ kind: z.literal('feed.line.edit'), payload: feedEditPayload }),
   z.strictObject({ kind: z.literal('doorbell'), payload: doorbellPayload }),
 ]);
 export type OutboxBody = z.output<typeof outboxBodySchema>;
@@ -213,6 +220,11 @@ export async function enqueueFeedEdit(
     lineId: number;
     key: string;
     taskId: number | null;
+    /** The line's summary, struck through in the edit. */
+    summary: string;
+    /** The line's link; empty for a line without one. */
+    url: string;
+    by: ActorId;
     at: Date;
   },
 ): Promise<number | null> {
@@ -221,10 +233,12 @@ export async function enqueueFeedEdit(
     dedupeKey: `feed.line.edit:${input.itemKey}:${String(input.raise)}`,
     payload: {
       key: input.key,
-      text: '✓ cleared',
+      text: input.summary,
       persona: { name: 'board', role: 'board' },
       itemKey: input.itemKey,
       taskId: input.taskId ?? undefined,
+      ...(input.url === '' ? {} : { url: input.url }),
+      resolved: { by: input.by, at: input.at.toISOString() },
     },
     parent: input.lineId,
     at: input.at,
