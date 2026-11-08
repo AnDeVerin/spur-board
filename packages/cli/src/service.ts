@@ -152,7 +152,8 @@ async function requireStart(
   const detail = failureDetail(result)
     .replace(/\s*\n\s*/g, ' ')
     .replace(/\.$/, '');
-  const state = await unitState(runner);
+  // A probe that cannot run must not replace the start failure with a generic error.
+  const state = await unitState(runner).catch(() => ({ active: 'unknown', enabled: 'unknown' }));
   const origin =
     unit.written === undefined
       ? ''
@@ -238,8 +239,17 @@ export async function installService(options: ServiceOptions = {}): Promise<{
 }
 
 export async function restartService(options: ServiceOptions = {}): Promise<void> {
+  const unitFile = servicePaths(options).unitFile;
+  if ((await existingUnit(unitFile)) === undefined) {
+    throw new CliError(
+      'config',
+      undefined,
+      undefined,
+      `Unit file ${unitFile} is not installed; run \`board service install\` first.`,
+    );
+  }
   await requireStart(options.runner ?? runCommand, ['--user', 'restart', serviceName], {
-    file: servicePaths(options).unitFile,
+    file: unitFile,
   });
 }
 

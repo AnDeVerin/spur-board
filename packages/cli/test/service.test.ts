@@ -271,7 +271,9 @@ describe('service', () => {
   });
 
   it('reports a failed board service restart as a service start failure', async () => {
-    const { options } = await fixture();
+    const { options, paths } = await fixture();
+    await mkdir(dirname(paths.unitFile), { recursive: true });
+    await writeFile(paths.unitFile, renderUserUnit(paths));
     const fake = failingStartRunner('restart');
     const result = await runService(['--json', 'service', 'restart'], {
       ...options,
@@ -290,6 +292,38 @@ describe('service', () => {
       systemctl('is-active', 'spur-board.service'),
       systemctl('is-enabled', 'spur-board.service'),
     ]);
+  });
+
+  it('keeps the start failure when the state read-back cannot run', async () => {
+    const { options } = await fixture();
+    const fake = failingStartRunner('enable');
+    const runner: CommandRunner = (command, args) =>
+      args.includes('is-active') || args.includes('is-enabled')
+        ? Promise.reject(new Error('spawn systemctl EAGAIN'))
+        : fake.run(command, args);
+    const result = await runService(['--json', 'service', 'install'], { ...options, runner });
+
+    expect(result.exit).toBe(4);
+    const { error } = JSON.parse(result.stderr) as {
+      error: { code: string; hint: string; recovery: { sideEffects: string } };
+    };
+    expect(error.code).toBe('service_start_failed');
+    expect(error.recovery.sideEffects).toBe('applied');
+    expect(error.hint).toContain('is unknown; the service is unknown');
+    expect(error.hint).toContain(startFailure);
+  });
+
+  it('reports a restart without an installed unit as missing, with no side effects', async () => {
+    const { options, paths, calls } = await fixture();
+    const result = await runService(['service', 'restart'], options);
+
+    expect(result.exit).toBe(4);
+    expect(result.stderr).toContain('error: config:');
+    expect(result.stderr).toContain(`Unit file ${paths.unitFile} is not installed`);
+    expect(result.stderr).toContain('`board service install`');
+    expect(result.stderr).toContain('side effects: none');
+    expect(result.stderr).not.toContain('service_start_failed');
+    expect(calls).toEqual([]);
   });
 
   it('renders an exact systemd user unit with absolute paths and stop timeout', () => {
