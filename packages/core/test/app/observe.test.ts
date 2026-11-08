@@ -39,14 +39,14 @@ const config = configSchema.parse({
 });
 const source = 'github-issues:board:o/r';
 const stores: Store[] = [];
-function setup() {
+function setup(testConfig = config) {
   const store = openStore(join(mkdtempSync(join(tmpdir(), 'board-observe-')), 'board.db'));
   stores.push(store);
   return {
     store,
-    core: createObservationCore({ store, config, clock }),
-    apply: createApply({ store, config, clock }),
-    mutations: createMembershipMutations(config),
+    core: createObservationCore({ store, config: testConfig, clock }),
+    apply: createApply({ store, config: testConfig, clock }),
+    mutations: createMembershipMutations(testConfig),
   };
 }
 afterEach(async () => {
@@ -291,6 +291,56 @@ describe('accepted observation', () => {
       outcomes: [],
     });
     expect(await store.db.selectFrom('link').select('id').execute()).toEqual([]);
+  });
+
+  it('links a worker session through its pr link to the issue task, and not an operator-role session', async () => {
+    const withOps = {
+      ...config,
+      projects: config.projects.map((project) => ({
+        ...project,
+        spurProjects: [...project.spurProjects, { name: 'ops', role: 'operator' as const }],
+      })),
+    };
+    const { store, core, apply, mutations } = setup(withOps);
+    await apply(mutations.add, { task: 'o/r#9' }, 'operator');
+    await core.observe('github:board:o/r', {
+      batch: {
+        source: 'github:board:o/r',
+        observedAt: at,
+        complete: true,
+        items: [{ kind: 'pr', facts: prFact() }],
+        entities: [],
+      },
+      effectiveComplete: true,
+      state: { lastCompleteAt: at, gone: [] },
+      outcomes: [],
+    });
+    const pr = { repo: 'o/r', number: 7 };
+    await core.observe('spur', {
+      batch: {
+        source: 'spur',
+        observedAt: at,
+        complete: true,
+        items: [
+          {
+            kind: 'session',
+            facts: { ...sessionFact('ops-1'), spurProject: 'ops', branch: 'unrelated', pr },
+          },
+          { kind: 'session', facts: { ...sessionFact('worker-1'), branch: 'unrelated', pr } },
+        ],
+        entities: [],
+      },
+      effectiveComplete: true,
+      state: { lastCompleteAt: at, gone: [] },
+      outcomes: [],
+    });
+    expect(
+      await store.db
+        .selectFrom('link')
+        .select(['session_id', 'role'])
+        .where('entity', '=', 'session')
+        .execute(),
+    ).toEqual([{ session_id: 'worker-1', role: 'worker' }]);
   });
 
   it('links a worker branch that equals the linked PR head even without a key in the branch', async () => {

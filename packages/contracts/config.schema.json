@@ -81,7 +81,11 @@
             },
             "additionalProperties": false
           },
-          "operatorGithubLogin": { "type": "string", "pattern": "^[A-Za-z0-9-]{1,39}$" },
+          "operatorGithubLogin": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9-]{1,39}$",
+            "description": "The GitHub account agents open PRs under. PR discovery in repos keeps only PRs whose author is this login. It is not necessarily the maintainer's own account: when agents push as one account and a maintainer approves as another, set the agents' account, or no PR is discovered."
+          },
           "spurProjects": {
             "default": [],
             "type": "array",
@@ -89,7 +93,11 @@
               "type": "object",
               "properties": {
                 "name": { "type": "string", "minLength": 1 },
-                "role": { "type": "string", "enum": ["worker", "operator"] }
+                "role": {
+                  "type": "string",
+                  "enum": ["worker", "operator"],
+                  "description": "worker: sessions of this Spur project may link to this project's tasks through their PR or branch. operator: sessions act as the operator."
+                }
               },
               "required": ["name", "role"],
               "additionalProperties": false
