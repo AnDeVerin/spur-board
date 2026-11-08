@@ -548,6 +548,18 @@ async function pr(
   }
 }
 
+// The key matches in any letter case, not after a letter or digit and not before a digit,
+// so WEBDEV-56 is not found in XWEBDEV-56 or WEBDEV-5698.
+function branchHasKey(branch: string, key: string): boolean {
+  const text = branch.toLowerCase();
+  const needle = key.toLowerCase();
+  for (let index = text.indexOf(needle); index !== -1; index = text.indexOf(needle, index + 1)) {
+    if (!/[a-z0-9]/.test(text[index - 1] ?? '') && !/[0-9]/.test(text[index + needle.length] ?? ''))
+      return true;
+  }
+  return false;
+}
+
 async function session(
   trx: Trx,
   config: Config,
@@ -655,7 +667,8 @@ async function session(
         project?.spurProjects.some(
           (spur) => spur.name === fact.spurProject && spur.role === 'worker',
         ) === true &&
-        (fact.branch?.includes(task.key) === true || branchPrs.some((pr) => pr.task_id === task.id))
+        ((fact.branch !== null && branchHasKey(fact.branch, task.key)) ||
+          branchPrs.some((pr) => pr.task_id === task.id))
       );
     });
     if (matches.length === 1) {

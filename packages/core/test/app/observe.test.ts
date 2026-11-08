@@ -508,6 +508,71 @@ describe('accepted observation', () => {
     ).toEqual([{ session_id: 'worker-1', role: 'worker' }]);
   });
 
+  describe('task key in a worker branch', () => {
+    const jiraConfig = configSchema.parse({
+      projects: [
+        {
+          id: 'web',
+          tracker: {
+            type: 'jira',
+            baseUrl: 'https://jira.example.test',
+            jql: 'project = WEBDEV',
+            doneStatuses: ['Done'],
+            readyStatuses: ['Ready'],
+            projectKeys: ['WEBDEV'],
+          },
+          repos: ['o/r'],
+          operatorGithubLogin: 'operator',
+          spurProjects: [{ name: 'worker', role: 'worker' }],
+        },
+      ],
+      operator: { slack: 'operator' },
+      digest: { tz: 'UTC' },
+    });
+    async function linkedKeys(keys: string[], branch: string) {
+      const { store, core, apply, mutations } = setup(jiraConfig);
+      for (const key of keys) await apply(mutations.add, { task: key }, 'operator');
+      await core.observe('spur', {
+        batch: {
+          source: 'spur',
+          observedAt: at,
+          complete: true,
+          items: [{ kind: 'session', facts: { ...sessionFact('worker-1'), branch } }],
+          entities: [],
+        },
+        effectiveComplete: true,
+        state: { lastCompleteAt: at, gone: [] },
+        outcomes: [],
+      });
+      return (
+        await store.db
+          .selectFrom('link')
+          .innerJoin('task', 'task.id', 'link.task_id')
+          .select('task.key')
+          .where('link.entity', '=', 'session')
+          .execute()
+      ).map((row) => row.key);
+    }
+
+    it('matches the key in any letter case', async () => {
+      expect(await linkedKeys(['WEBDEV-5698'], 'claude-webdev-5698')).toEqual(['WEBDEV-5698']);
+    });
+
+    it('does not match a key that is a prefix of a longer number', async () => {
+      expect(await linkedKeys(['WEBDEV-56'], 'claude-WEBDEV-5698')).toEqual([]);
+    });
+
+    it('does not match a key preceded by a letter or digit', async () => {
+      expect(await linkedKeys(['WEBDEV-56'], 'claude-XWEBDEV-56')).toEqual([]);
+    });
+
+    it('links only the task whose whole key is in the branch', async () => {
+      expect(await linkedKeys(['WEBDEV-56', 'WEBDEV-5698'], 'claude-WEBDEV-5698-fix')).toEqual([
+        'WEBDEV-5698',
+      ]);
+    });
+  });
+
   it('persists a host-load episode across a new core instance and a tick', async () => {
     const { store, core, apply, mutations } = setup();
     await apply(mutations.add, { task: 'o/r#9' }, 'operator');
