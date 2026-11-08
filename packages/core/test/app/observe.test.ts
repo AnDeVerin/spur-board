@@ -272,6 +272,40 @@ describe('accepted observation', () => {
     expect(status.spurUnavailable).toBe('Spur unavailable: Access rejected');
   });
 
+  it('hides an unlinked session gone from complete Spur lists for over 7 days until it is listed again', async () => {
+    const { store, core } = setup();
+    const poll = async (sessions: readonly string[]) => {
+      const observedAt = new Date(now).toISOString();
+      await core.observe('spur', {
+        batch: {
+          source: 'spur',
+          observedAt,
+          complete: true,
+          items: sessions.map((id) => ({ kind: 'session' as const, facts: sessionFact(id) })),
+          entities: [],
+        },
+        effectiveComplete: true,
+        state: { lastCompleteAt: observedAt, gone: [] },
+        outcomes: [],
+      });
+    };
+    const status = () => getStatus({ store, config, clock, completeSince: core.completeSince });
+    await poll(['idle-1', 'live-1']);
+    now += 60_000;
+    await poll(['live-1']);
+    now += 8 * 24 * 60 * 60 * 1000;
+    const hidden = await status();
+    expect(hidden.unlinkedSessions.map((session) => session.id)).toEqual(['live-1']);
+    expect(hidden.hiddenUnlinkedSessions).toBe(1);
+    await poll(['idle-1', 'live-1']);
+    const listed = await status();
+    expect(listed.unlinkedSessions.map((session) => session.id).sort()).toEqual([
+      'idle-1',
+      'live-1',
+    ]);
+    expect(listed.hiddenUnlinkedSessions).toBe(0);
+  });
+
   it('leaves simultaneous unmarked branch candidates unlinked', async () => {
     const { store, core, apply, mutations } = setup();
     await apply(mutations.add, { task: 'o/r#9' }, 'operator');
