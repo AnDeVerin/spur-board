@@ -156,7 +156,10 @@ old Node or package path, run `board service install` again.
   session of a project listed in `config.yaml`, or run
   `board token create --name <name> --into <folder>` and approve the request in Slack. An
   operator-only command such as `board token list` needs a Spur project marked `operator` or an
-  approved token.
+  approved token. `service_start_failed` means `board service install` or
+  `board service restart` left the unit installed but the daemon did not start: read
+  `journalctl --user -u spur-board.service -n 100` and run `board doctor`, fix the cause, then
+  run `board service restart`.
 - **5 — outcome unknown:** the action may already have happened. Read the task or item first;
   if a mutation still needs to be retried, reuse its original idempotency key. A read-only
   request can be repeated after the dependency recovers.

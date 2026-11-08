@@ -30,7 +30,7 @@ describe('error catalog', () => {
     });
   });
 
-  it('pins the 20 codes in order, with HTTP status and exit code', () => {
+  it('pins the 21 codes in order, with HTTP status and exit code', () => {
     const table = Object.entries(ERRORS).map(([code, { status, exit }]) => [code, status, exit]);
     expect(table).toEqual([
       ['usage', 400, 2],
@@ -51,6 +51,7 @@ describe('error catalog', () => {
       ['daemon_unavailable', null, 3],
       ['config', null, 4],
       ['identity_missing', null, 4],
+      ['service_start_failed', null, 4],
       ['outcome_unknown', null, 5],
       ['unexpected', 500, 5],
     ]);
@@ -115,6 +116,16 @@ describe('error catalog', () => {
     expect(entry.hint).toContain('`board token create --name <name> --into <folder>`');
     expect(entry.recovery).toMatchObject({ sideEffects: 'none', maxRetries: 0 });
     expect(entry.recovery.action).not.toContain('board token create');
+  });
+
+  it('reports a failed service start as applied, with the journal and doctor', () => {
+    const entry = ERRORS.service_start_failed;
+    expect(entry.status).toBeNull();
+    expect(entry.exit).toBe(EXIT_CODES.config);
+    expect(entry.message).toContain('did not start');
+    expect(entry.recovery).toMatchObject({ sideEffects: 'applied', maxRetries: 0 });
+    expect(entry.recovery.action).toContain('journalctl --user -u spur-board.service');
+    expect(entry.recovery.action).toContain('board doctor');
   });
 
   it('marks startup as not applied and recoverable after readiness', () => {
