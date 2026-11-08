@@ -226,6 +226,15 @@ Example: {}",
                 "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
                 "type": "string",
               },
+              "linkHints": {
+                "description": "Why a pull request a linked session reports has no link to this task: the PR is in the GitHub Issues tracker repo and the project link rules found no key for the task in it. Present only when there is a hint.",
+                "items": {
+                  "minLength": 1,
+                  "type": "string",
+                },
+                "minItems": 1,
+                "type": "array",
+              },
               "links": {
                 "description": "Effective pull request, session, and ticket links. Present only with detail.",
                 "items": {
@@ -1078,6 +1087,11 @@ Example: {}",
                 "maximum": 9007199254740991,
                 "minimum": 1,
                 "type": "integer",
+              },
+              "reason": {
+                "description": "Why the link rules gave this pull request no task link. Present only on an open pull request in the tracker repo of a GitHub Issues project, when the rules found no key or no board task for its keys.",
+                "minLength": 1,
+                "type": "string",
               },
               "repo": {
                 "description": "Repository as owner/name.",

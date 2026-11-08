@@ -10,7 +10,7 @@ import {
 import { sql } from 'kysely';
 import { parseJson } from '../store/json.ts';
 import type { Store } from '../store/store.ts';
-import { linkView, trackerSource } from './board-utils.ts';
+import { linkView, projectForSource, trackerSource } from './board-utils.ts';
 import { CommandError } from './commands.ts';
 
 function sessionView(fact: SessionFacts) {
@@ -42,6 +42,11 @@ function taskState(
     parts.push(`sessions ${counts(health, [...new Set(health)].sort())}`);
   }
   return parts.join('; ');
+}
+
+/** The tracker repo of a GitHub Issues project, lowercased; null for Jira or no project. */
+function issuesRepo(project: Config['projects'][number] | undefined): string | null {
+  return project?.tracker.type === 'github-issues' ? project.tracker.repo.toLowerCase() : null;
 }
 
 function interval(config: Config, source: string): number {
@@ -103,12 +108,12 @@ export async function getStatus(
       .selectAll()
       .where('task_id', '=', task.id)
       .executeTakeFirst();
-    const links = await store.db
+    const taskLinks = await store.db
       .selectFrom('link')
       .selectAll()
       .where('task_id', '=', task.id)
-      .where('banned', '=', 0)
       .execute();
+    const links = taskLinks.filter((link) => link.banned === 0);
     const prs: PrFacts[] = [];
     const sessions: SessionFacts[] = [];
     for (const link of links) {
@@ -130,6 +135,32 @@ export async function getStatus(
       }
     }
     const ticketFacts = ticket === undefined ? null : parseJson(ticketFactsSchema, ticket.detail);
+    const trackerRepo = issuesRepo(config.projects.find((entry) => entry.id === task.project));
+    const linkHints: string[] = [];
+    for (const session of sessions) {
+      const pr = session.pr;
+      if (trackerRepo === null || pr === null || pr.repo.toLowerCase() !== trackerRepo) continue;
+      // Any link row, a removed one included, means the rules are not the reason.
+      const known = taskLinks.some(
+        (link) =>
+          link.entity === 'pr' &&
+          link.repo?.toLowerCase() === trackerRepo &&
+          link.number === pr.number,
+      );
+      if (known) continue;
+      const snapshot = await store.db
+        .selectFrom('pr_snapshot')
+        .select('detail')
+        .where(sql<boolean>`lower(repo) = ${trackerRepo}`)
+        .where('number', '=', pr.number)
+        .executeTakeFirst();
+      if (snapshot === undefined) continue;
+      const keys = parseJson(prFactsSchema, snapshot.detail).ticketKeys;
+      if (keys.some((key) => key.toLowerCase() === task.key.toLowerCase())) continue;
+      linkHints.push(
+        `Session ${session.id} has PR ${pr.repo}#${String(pr.number)}, but the link rules give it no link to this task; check projects[].link in config.yaml.`,
+      );
+    }
     tasks.push({
       key: task.key,
       project: task.project,
@@ -139,6 +170,7 @@ export async function getStatus(
       prCount: links.filter((link) => link.entity === 'pr').length,
       sessionCount: links.filter((link) => link.entity === 'session').length,
       openBlocks: openBlocks.get(task.id) ?? 0,
+      ...(linkHints.length > 0 ? { linkHints } : {}),
       ...(detail
         ? {
             ticket: ticketFacts,
@@ -152,6 +184,29 @@ export async function getStatus(
   const allPrs = await store.db.selectFrom('pr_snapshot').selectAll().execute();
   const allSessions = await store.db.selectFrom('session_snapshot').selectAll().execute();
   const allLinks = await store.db.selectFrom('link').selectAll().where('banned', '=', 0).execute();
+  const bannedPrLinks = await store.db
+    .selectFrom('link')
+    .select(['repo', 'number'])
+    .where('entity', '=', 'pr')
+    .where('banned', '=', 1)
+    .execute();
+  /** Why the link rules left an open tracker-repo PR unlinked, or undefined. */
+  const unlinkedReason = (source: string, facts: PrFacts): string | undefined => {
+    if (facts.state !== 'open') return undefined;
+    const project = projectForSource(config, source);
+    if (project === undefined || issuesRepo(project) !== facts.repo.toLowerCase()) return undefined;
+    // The operator removed a link to this PR: the rules are not the reason.
+    const removed = bannedPrLinks.some(
+      (link) =>
+        link.repo?.toLowerCase() === facts.repo.toLowerCase() && link.number === facts.number,
+    );
+    if (removed) return undefined;
+    if (facts.ticketKeys.length === 0) return 'no key in branch or title by the link rules';
+    const onBoard = facts.ticketKeys.some((key) =>
+      rows.some((task) => task.project === project.id && task.key === key),
+    );
+    return onBoard ? undefined : `no task on the board for ${facts.ticketKeys.join(', ')}`;
+  };
   const unlinkedPrs = allPrs
     .filter(
       (pr) =>
@@ -167,9 +222,11 @@ export async function getStatus(
     )
     .map((pr) => {
       const facts = parseJson(prFactsSchema, pr.detail);
-      if (detail) return facts;
+      const reason = unlinkedReason(pr.source, facts);
+      const why = reason === undefined ? {} : { reason };
+      if (detail) return { ...facts, ...why };
       const { repo, number, url, title, state, draft } = facts;
-      return { repo, number, url, title, state, draft };
+      return { repo, number, url, title, state, draft, ...why };
     });
   const unlinkedSessions = allSessions
     .filter(

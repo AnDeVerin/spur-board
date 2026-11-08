@@ -23,7 +23,7 @@ const at = '2026-11-05T00:00:00.000Z';
 const clock = { now: () => Date.parse(at) };
 const task = 'o/r#9';
 const prUrl = (n: number) => `https://github.com/o/r/pull/${String(n)}`;
-const config = configSchema.parse({
+const defaultConfig = configSchema.parse({
   projects: [
     {
       id: 'board',
@@ -39,6 +39,7 @@ const config = configSchema.parse({
   operator: { slack: 'operator' },
   digest: { tz: 'UTC' },
 });
+const config = defaultConfig;
 const stores: Store[] = [];
 
 async function expectConflict(action: Promise<unknown>, blocking: string): Promise<void> {
@@ -110,7 +111,7 @@ function ticketFact(): TicketFacts {
   };
 }
 
-async function setup() {
+async function setup(config = defaultConfig) {
   const store = openStore(join(mkdtempSync(join(tmpdir(), 'board-links-')), 'board.db'));
   stores.push(store);
   const registry = createOperationRegistry({ config, clock, completeSince: new Map() });
@@ -476,5 +477,126 @@ describe('manual task links', () => {
       ),
     ).rejects.toMatchObject({ code: 'forbidden', hint: 'Allowed role: operator.' });
     expect(await store.db.selectFrom('link').selectAll().execute()).toEqual([]);
+  });
+});
+
+describe('link rule hints in status', () => {
+  const noKey = 'no key in branch or title by the link rules';
+  const keyless = (number: number, state: PrFacts['state'] = 'open'): PrFacts => ({
+    ...prFact(number, state),
+    title: 'Unrelated work',
+    headBranch: 'feature-work',
+    ticketKeys: [],
+  });
+  const status = (store: Store, detail = false) =>
+    getStatus({ store, config, clock, completeSince: new Map() }, { detail });
+
+  it('gives an unlinked open tracker-repo PR without a key the link-rules reason', async () => {
+    const { store, observe } = await setup();
+    await observe('github:board:o/r', { kind: 'pr', facts: keyless(7) });
+    const compact = await status(store);
+    expect(compact.unlinkedPrs).toEqual([
+      {
+        repo: 'o/r',
+        number: 7,
+        url: prUrl(7),
+        title: 'Unrelated work',
+        state: 'open',
+        draft: false,
+        reason: noKey,
+      },
+    ]);
+    const detailed = await status(store, true);
+    expect(detailed.unlinkedPrs).toEqual([{ ...keyless(7), reason: noKey }]);
+  });
+
+  it('names the key of an unlinked PR whose task is not on the board', async () => {
+    const { store, observe } = await setup();
+    await observe('github:board:o/r', {
+      kind: 'pr',
+      facts: { ...keyless(7), ticketKeys: ['o/r#42'] },
+    });
+    const result = await status(store);
+    expect(result.unlinkedPrs).toHaveLength(1);
+    expect(result.unlinkedPrs[0]?.reason).toBe('no task on the board for o/r#42');
+  });
+
+  it('gives no reason for a merged PR or a sibling-repo PR', async () => {
+    const sibling = configSchema.parse({
+      ...structuredClone(defaultConfig),
+      projects: [{ ...structuredClone(defaultConfig.projects[0]), repos: ['o/r', 'o/sib'] }],
+    });
+    const { store, observe } = await setup(sibling);
+    await observe('github:board:o/r', { kind: 'pr', facts: keyless(7, 'merged') });
+    await observe('github:board:o/sib', {
+      kind: 'pr',
+      facts: { ...keyless(8), repo: 'o/sib', url: 'https://github.com/o/sib/pull/8' },
+    });
+    const result = await getStatus(
+      { store, config: sibling, clock, completeSince: new Map() },
+      { detail: true },
+    );
+    expect(result.unlinkedPrs.map((pr) => `${pr.repo}#${String(pr.number)}`).sort()).toEqual([
+      'o/r#7',
+      'o/sib#8',
+    ]);
+    for (const pr of result.unlinkedPrs) expect('reason' in pr).toBe(false);
+  });
+
+  it('gives no reason for an open keyless PR whose link the operator removed', async () => {
+    const { store, call, observe } = await setup();
+    await observe('github:board:o/r', { kind: 'pr', facts: keyless(7) });
+    await call('link.remove', { mode: 'pr', task, pr: prUrl(7), reason: 'Not this task.' });
+    expect(
+      await store.db.selectFrom('link').select(['entity', 'number', 'banned']).execute(),
+    ).toEqual([{ entity: 'pr', number: 7, banned: 1 }]);
+    for (const detail of [false, true]) {
+      const result = await status(store, detail);
+      expect(result.unlinkedPrs).toHaveLength(1);
+      expect(result.unlinkedPrs[0]?.number).toBe(7);
+      expect('reason' in (result.unlinkedPrs[0] ?? {})).toBe(false);
+    }
+  });
+
+  it('hints a task whose session reports an observed PR the link rules did not link', async () => {
+    const { store, observe } = await setup();
+    await observe('github:board:o/r', { kind: 'pr', facts: keyless(7) });
+    await observe('spur', {
+      kind: 'session',
+      facts: { ...sessionFact('worker-1'), pr: { repo: 'o/r', number: 7 } },
+    });
+    const hint =
+      'Session worker-1 has PR o/r#7, but the link rules give it no link to this task; check projects[].link in config.yaml.';
+    for (const detail of [false, true]) {
+      const result = await status(store, detail);
+      expect(result.tasks).toHaveLength(1);
+      expect(result.tasks[0]?.sessionCount).toBe(1);
+      expect(result.tasks[0]?.linkHints).toEqual([hint]);
+    }
+  });
+
+  it('gives no link hint when the session PR is linked or its link was removed by the operator', async () => {
+    const linked = await setup();
+    await linked.observe('github:board:o/r', { kind: 'pr', facts: prFact(7) });
+    await linked.observe('spur', {
+      kind: 'session',
+      facts: { ...sessionFact('worker-1'), pr: { repo: 'o/r', number: 7 } },
+    });
+    const linkedRow = (await status(linked.store)).tasks[0];
+    expect(linkedRow?.prCount).toBe(1);
+    expect('linkHints' in (linkedRow ?? {})).toBe(false);
+
+    const removed = await setup();
+    await removed.observe('github:board:o/r', { kind: 'pr', facts: keyless(7) });
+    await removed.call('link.remove', { mode: 'pr', task, pr: prUrl(7), reason: 'Wrong PR.' });
+    await removed.observe('spur', {
+      kind: 'session',
+      facts: { ...sessionFact('worker-1'), pr: { repo: 'o/r', number: 7 } },
+    });
+    for (const detail of [false, true]) {
+      const row = (await status(removed.store, detail)).tasks[0];
+      expect(row?.sessionCount).toBe(1);
+      expect('linkHints' in (row ?? {})).toBe(false);
+    }
   });
 });
