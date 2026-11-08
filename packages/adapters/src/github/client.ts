@@ -11,6 +11,13 @@ const graphErrorWire = z.object({
   type: z.string().optional(),
 });
 export type GraphError = z.output<typeof graphErrorWire>;
+// A closing reference the token cannot read never links, so it costs the PR nothing.
+export function deniedReference(error: GraphError): boolean {
+  return (
+    (error.type === 'FORBIDDEN' || error.type === 'NOT_FOUND') &&
+    error.path?.includes('closingIssuesReferences') === true
+  );
+}
 // GraphQL errors are classified before `data` is read: a denied root arrives as null.
 const envelopeWire = z.object({ errors: z.array(graphErrorWire).optional(), data: z.unknown() });
 // Each root is parsed by its caller once its scoped errors are handled.

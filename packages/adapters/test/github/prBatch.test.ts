@@ -10,6 +10,7 @@ import {
 import { describe, expect, it, vi } from 'vitest';
 import { initialQuery, pageQuery, type Json } from '../../src/github/client.ts';
 import { githubSources } from '../../src/github/index.ts';
+import { sampleLinkRules } from '../../src/github/linkSample.ts';
 import { normalizePr, ticketKeys, type KeyRule } from '../../src/github/prBatch.ts';
 
 const sha = 'a'.repeat(40);
@@ -882,5 +883,105 @@ describe('GitHub Issues PR keys', () => {
     expect(keysOf(batch)).toEqual([[]]);
     const title = single(issuesPr('feature/x', conn([]), 7, 'fix: #1234567890123456 x'));
     expect(keysOf(await adapter(title, issuesConfig()).poll(context()))).toEqual([[]]);
+  });
+});
+
+describe('link rule sample', () => {
+  const samplePr = (
+    number: number,
+    branch: string,
+    options: { title?: string; login?: string | null; closing?: unknown } = {},
+  ) => ({
+    number,
+    title: options.title ?? 'Add widget',
+    headRefName: branch,
+    author: options.login === null ? null : { login: options.login ?? 'operator' },
+    ...(options.closing === undefined ? {} : { closingIssuesReferences: options.closing }),
+  });
+  const sampleFetch = (nodes: unknown[], errors?: unknown[]) =>
+    vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(response({ repository: { pullRequests: { nodes } } }, errors));
+  const sample = (fetcher: typeof fetch, configured = issuesConfig()) => {
+    const project = configured.projects[0];
+    if (project === undefined) throw new Error('Missing project');
+    return sampleLinkRules(
+      { repo: 'demo/widgets', login: 'Operator', link: project.link },
+      { token: 'synthetic', fetch: fetcher, signal: new AbortController().signal },
+    );
+  };
+
+  it('counts operator PRs whose branch, title or closing reference yields an issue', async () => {
+    const fetcher = sampleFetch([
+      samplePr(1, 'claude-12-x', { closing: conn([]) }),
+      samplePr(2, 'feature/title', { title: 'fix: #13 widget', closing: conn([]) }),
+      samplePr(3, 'feature/closing', { closing: conn([closingRef(14)]) }),
+      samplePr(4, 'feature/none', { closing: conn([closingRef(15, 'other/repo')]) }),
+      samplePr(5, 'feature/ghost', { closing: null }),
+    ]);
+    await expect(sample(fetcher)).resolves.toEqual({
+      sampled: 5,
+      unmatched: [
+        { number: 4, branch: 'feature/none' },
+        { number: 5, branch: 'feature/ghost' },
+      ],
+    });
+  });
+
+  it('samples at most 10 operator PRs and skips other authors', async () => {
+    const nodes = [
+      samplePr(100, 'feature/other', { login: 'someone' }),
+      samplePr(101, 'feature/ghost', { login: null }),
+      ...Array.from({ length: 12 }, (_, i) => samplePr(i + 1, `feature/${String(i + 1)}`)),
+    ];
+    const result = await sample(
+      sampleFetch(nodes),
+      issuesConfig(['demo/widgets'], { sources: ['branch', 'title'] }),
+    );
+    expect(result.sampled).toBe(10);
+    expect(result.unmatched.map((pr) => pr.number)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+    await expect(
+      sample(sampleFetch([]), issuesConfig(['demo/widgets'], { sources: ['branch'] })),
+    ).resolves.toEqual({ sampled: 0, unmatched: [] });
+  });
+
+  it('drops a denied closing reference and rejects other GraphQL errors', async () => {
+    const denied = sampleFetch(
+      [samplePr(7, 'feature/x', { closing: conn([null, closingRef(12)]) })],
+      [
+        {
+          message: 'Resource not accessible by personal access token',
+          type: 'FORBIDDEN',
+          path: ['repository', 'pullRequests', 'nodes', 0, 'closingIssuesReferences', 'nodes', 0],
+        },
+      ],
+    );
+    await expect(sample(denied)).resolves.toEqual({ sampled: 1, unmatched: [] });
+    const missing = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(
+        response({ repository: null }, [
+          { message: 'Could not resolve to a Repository', type: 'NOT_FOUND', path: ['repository'] },
+        ]),
+      );
+    await expect(sample(missing)).rejects.toMatchObject({ kind: 'transient' });
+    const malformed = sampleFetch([{ number: 7 }]);
+    await expect(sample(malformed)).rejects.toBeInstanceOf(AdapterError);
+  });
+
+  it('selects closing references only when link.sources lists closing', async () => {
+    const closing = sampleFetch([]);
+    await sample(closing);
+    const query = bodyQuery(closing);
+    expect(query).toContain('query LinkSample');
+    expect(query).toContain('rateLimit { remaining resetAt }');
+    expect(query).toContain('first: 50');
+    expect(query).toContain('states: [OPEN, MERGED]');
+    expect(query).toContain('orderBy: {field: UPDATED_AT, direction: DESC}');
+    expect(query).toContain('closingIssuesReferences(first: 100)');
+    const plain = sampleFetch([]);
+    await sample(plain, issuesConfig(['demo/widgets'], { sources: ['branch', 'title'] }));
+    expect(bodyQuery(plain)).not.toContain('closingIssuesReferences');
+    expect(bodyQuery(plain)).toContain('states: [OPEN, MERGED]');
   });
 });

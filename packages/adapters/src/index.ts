@@ -8,6 +8,7 @@ import { createSpurAdapter, type SpurNotice } from './spur/spur.ts';
 
 export type { AdapterCore, SourceState } from '@spur-board/contracts';
 export type { AdapterRunner } from './runner/runner.ts';
+export { sampleLinkRules } from './github/linkSample.ts';
 
 export interface StartAdaptersOptions {
   secrets?: Readonly<Record<string, string>>;
