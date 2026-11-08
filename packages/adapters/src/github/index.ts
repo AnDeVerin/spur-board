@@ -26,7 +26,7 @@ import {
   nextPage,
   pastCursor,
 } from './discovery.ts';
-import { issuesRule, normalizePr, type KeyRule } from './prBatch.ts';
+import { normalizePr, projectKeyRule, type KeyRule } from './prBatch.ts';
 
 const MALFORMED = 'Malformed GitHub response';
 const discoveryRootWire = z.object({ pullRequests: connectionWire(discoveryNodeWire) });
@@ -65,15 +65,6 @@ function sourceId(project: string, repo: string): string {
 export function githubSources(config: Config, options: GithubOptions): GithubSource[] {
   const sources: GithubSource[] = [];
   for (const project of config.projects) {
-    const tracker = project.tracker;
-    // Only the tracker repo of a github-issues project whose `link.sources` lists `closing`
-    // reads closing references.
-    const issues: KeyRule | undefined =
-      tracker.type === 'github-issues' ? issuesRule(tracker.repo, project.link) : undefined;
-    const prefixes: KeyRule = {
-      type: 'prefixes',
-      prefixes: tracker.type === 'jira' ? tracker.projectKeys : [],
-    };
     const seen = new Set<string>();
     for (const repo of project.repos) {
       const normalized = repo.toLowerCase();
@@ -82,7 +73,9 @@ export function githubSources(config: Config, options: GithubOptions): GithubSou
       seen.add(normalized);
       const id = sourceId(project.id, repo);
       const client = new GithubClient(options.token, options.fetch);
-      const keys = issues?.repo.toLowerCase() === normalized ? issues : prefixes;
+      // Only the tracker repo of a github-issues project whose `link.sources` lists `closing`
+      // reads closing references.
+      const keys = projectKeyRule(project.tracker, project.link, repo);
       sources.push({
         repo,
         reserveRemaining: config.github.reserveRemaining,

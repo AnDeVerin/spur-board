@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import {
   AdapterError,
+  DEFAULT_LINK,
   batchSchema,
   configSchema,
   prFactsSchema,
@@ -693,13 +694,14 @@ describe('GitHub PR batch', () => {
   });
 });
 
+const single = (pr: unknown, errors?: unknown[]) =>
+  vi
+    .fn<typeof fetch>()
+    .mockResolvedValue(
+      response({ repository: { pullRequests: conn([]) }, pr0: { pullRequest: pr } }, errors),
+    );
+
 describe('GitHub Issues PR keys', () => {
-  const single = (pr: unknown, errors?: unknown[]) =>
-    vi
-      .fn<typeof fetch>()
-      .mockResolvedValue(
-        response({ repository: { pullRequests: conn([]) }, pr0: { pullRequest: pr } }, errors),
-      );
   it('links every same-repo closing reference in config casing', async () => {
     const fetcher = single(
       issuesPr(
@@ -773,16 +775,20 @@ describe('GitHub Issues PR keys', () => {
     expect(keysOf(batch)).toEqual([[]]);
     expect(bodyQuery(sibling)).not.toContain('closingIssuesReferences');
   });
-  it('keeps Jira keys only for a Jira project', async () => {
+  it('links a Jira PR by projectKeys when link is unset', async () => {
     const fetcher = single(issuesPr('DEMO-42-widget', conn([closingRef(12)]), 7, 'fix: #13 x'));
-    const batch = await adapter(
-      fetcher,
-      config(['demo/widgets'], { sources: ['closing', 'title'] }),
-    ).poll(context());
+    const batch = await adapter(fetcher, config()).poll(context());
     expect(batch.complete).toBe(true);
     expect(batch.entities).toEqual([{ ref, status: 'ok' }]);
     expect(keysOf(batch)).toEqual([['DEMO-42']]);
-    expect(bodyQuery(fetcher)).not.toContain('closingIssuesReferences');
+    expect(bodyQuery(fetcher)).toBe(initialQuery([7], true));
+    const defaults = config(['demo/widgets'], {
+      sources: [...DEFAULT_LINK.sources],
+      branchPattern: DEFAULT_LINK.branchPattern,
+      titlePattern: DEFAULT_LINK.titlePattern,
+    });
+    const both = single(issuesPr('DEMO-1-x', conn([]), 7, 'DEMO-2 y'));
+    expect(keysOf(await adapter(both, defaults).poll(context()))).toEqual([['DEMO-2', 'DEMO-1']]);
   });
   const denied = (path: (string | number)[]) => ({
     message: 'Resource not accessible by personal access token',
@@ -886,6 +892,43 @@ describe('GitHub Issues PR keys', () => {
   });
 });
 
+describe('Jira PR keys', () => {
+  const poll = async (link: Record<string, unknown>, branch: string, title = 'Add widget') =>
+    keysOf(
+      await adapter(
+        single(issuesPr(branch, conn([]), 7, title)),
+        config(['demo/widgets'], link),
+      ).poll(context()),
+    );
+  it('reads an uppercased key with a projectKeys prefix from a custom branch pattern', async () => {
+    const link = { branchPattern: '^task/([A-Za-z]+-[0-9]+)' };
+    expect(await poll(link, 'task/demo-12')).toEqual([['DEMO-12']]);
+    expect(await poll(link, 'task/other-12', 'DEMO-42 Add widget')).toEqual([['DEMO-42']]);
+  });
+  it('links nothing when the capture is not a key', async () => {
+    expect(await poll({ branchPattern: '^claude-([0-9]+)' }, 'claude-12-x')).toEqual([[]]);
+  });
+  it('takes the first source that yields a key', async () => {
+    expect(await poll({ sources: ['title', 'branch'] }, 'DEMO-1-x', 'DEMO-2 y')).toEqual([
+      ['DEMO-2'],
+    ]);
+  });
+  it('skips a title longer than 255 characters for a custom pattern', async () => {
+    const link = { titlePattern: '^\\[([A-Z]+-[0-9]+)\\]' };
+    expect(await poll(link, 'feature/x', '[DEMO-7] fix')).toEqual([['DEMO-7']]);
+    expect(await poll(link, 'feature/x', `[DEMO-7] ${'x'.repeat(260)}`)).toEqual([[]]);
+  });
+  it('skips closing and never selects closing references', async () => {
+    const fetcher = single(issuesPr('feature/x', conn([closingRef(12)]), 7, 'DEMO-7 fix'));
+    const batch = await adapter(
+      fetcher,
+      config(['demo/widgets'], { sources: ['closing', 'title'] }),
+    ).poll(context());
+    expect(keysOf(batch)).toEqual([['DEMO-7']]);
+    expect(bodyQuery(fetcher)).not.toContain('closingIssuesReferences');
+  });
+});
+
 describe('link rule sample', () => {
   const samplePr = (
     number: number,
@@ -906,7 +949,7 @@ describe('link rule sample', () => {
     const project = configured.projects[0];
     if (project === undefined) throw new Error('Missing project');
     return sampleLinkRules(
-      { repo: 'demo/widgets', login: 'Operator', link: project.link },
+      { repo: 'demo/widgets', login: 'Operator', tracker: project.tracker, link: project.link },
       { token: 'synthetic', fetch: fetcher, signal: new AbortController().signal },
     );
   };
@@ -967,6 +1010,15 @@ describe('link rule sample', () => {
     await expect(sample(missing)).rejects.toMatchObject({ kind: 'transient' });
     const malformed = sampleFetch([{ number: 7 }]);
     await expect(sample(malformed)).rejects.toBeInstanceOf(AdapterError);
+  });
+
+  it('samples a Jira project by projectKeys without closing references', async () => {
+    const fetcher = sampleFetch([samplePr(1, 'DEMO-12-x'), samplePr(2, 'feature/x')]);
+    await expect(sample(fetcher, config())).resolves.toEqual({
+      sampled: 2,
+      unmatched: [{ number: 2, branch: 'feature/x' }],
+    });
+    expect(bodyQuery(fetcher)).not.toContain('closingIssuesReferences');
   });
 
   it('selects closing references only when link.sources lists closing', async () => {
