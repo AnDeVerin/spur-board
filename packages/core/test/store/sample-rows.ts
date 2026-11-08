@@ -80,6 +80,7 @@ export const sampleRows: SampleRows = {
     detail: '{}',
     source: 'spur',
     observed_at: at,
+    absent_since: at,
   },
   link: {
     id: 1,
