@@ -25,8 +25,6 @@ One issue, one branch, one PR. Explain why in the PR body.
   tests for changed packages (all packages for shared root changes). Push only the checked-out
   HEAD. `VITEST_MAX_WORKERS` defaults to two and accepts a positive integer override. CI runs
   `check:full`, including startup and process tests.
-- If pre-push is unexpectedly slow, rerun the reported changed-file or direct-package command
-  to identify the delay, then push again.
 
 ## History
 
@@ -85,6 +83,9 @@ changed and why:
 - type escapes: `@ts-ignore`, `@ts-expect-error`, `as any`;
 - `continue-on-error` or any other way to let a CI step fail silently;
 - loosened thresholds: coverage, timeouts, retries.
+
+`pnpm guardrails` has no rule for a changed expected value (`RULE_IDS` in
+`scripts/guardrails.ts`); add that line by hand.
 
 Any other change to a test or a check also gets a line. No entries -> delete the section.
 

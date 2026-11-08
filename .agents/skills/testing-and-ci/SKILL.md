@@ -54,6 +54,15 @@ description: Tests, fakes, clocks, flaky quarantine, checks and CI. Use when you
   acting; its default poll can otherwise mask the race (`packages/daemon/test/lifecycle.test.ts`,
   `describe('runDaemon',`).
 
+## Doc checks
+
+- Guides fail `packages/skills/test/skill-sync.test.ts` on a command with subcommands, even with
+  a key (`board task <key>`, `board comment`), and on a lowercase `board <word>` in prose: README,
+  SETUP, TROUBLESHOOTING, the runbook, the setup skill. Describe the action, cite a leaf command,
+  or write "Board".
+- No skill or guide check reads `docs/configuration.md`; check commands in its prose in
+  `scripts/gen-docs.test.ts`, where `registeredCommands()` gives each command path and options.
+
 ## CI and dependencies
 
 - For CI triggers, reporters, release permissions and dependency update policy, read
@@ -66,7 +75,5 @@ description: Tests, fakes, clocks, flaky quarantine, checks and CI. Use when you
 - Keep PR secret scans on the net merge-ref diff and the scheduled scan on full history;
   `scripts/ci.ts` chooses the range and `scripts/gitleaks.sh` rejects scan errors
   (`.github/workflows/ci.yml`, `.github/workflows/security.yml`).
-- Renovate groups catalog dependencies by `pnpm.catalog.default` or `pnpm.catalog.runtime`, not
-  plain package dependency types (`renovate.json`, `pnpm-workspace.yaml`).
 - When a package calls a system binary, list it in `knip.json` `ignoreBinaries` if knip cannot
   infer it as a dependency; explain that check change in the PR (`knip.json`, `gitflow`).
