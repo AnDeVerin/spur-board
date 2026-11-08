@@ -9,7 +9,7 @@ A gateway adapts one chat platform to the `Gateway` port.
 
 ## Checklist and conformance
 
-- G1-G15 on `interface Gateway` in `packages/contracts/src/gateway/gateway.ts` are the
+- G1-G16 on `interface Gateway` in `packages/contracts/src/gateway/gateway.ts` are the
   checklist; a member's TSDoc cites the ids it implements.
 - Register `runGatewayConformance` with `caseIds: fakeCaseIds` against a fake of the platform
   API, as `packages/gateway-slack/test/conformance.test.ts` does with

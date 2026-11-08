@@ -12,6 +12,8 @@ outbox row per call.
   `deliver` in `packages/gateway-slack/src/deliver.ts`).
 - Never sleep, throttle or retry inside `deliver`: the sender owns the limiter, retries and
   health (`working-with-storage`).
+- An `edit` replaces the message's text and removes its actions (G16); conformance case
+  `deliver-targets` checks both.
 - Return `delivered` with `message` and `permalink` only after every step (G6); core stores them
   (`deliveredRefSchema` in `packages/core/src/app/outbox.ts`) and hands them back as targets.
 - A `transport` failure, or a connection down for over 5 min, raises one health item per gateway

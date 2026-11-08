@@ -98,7 +98,7 @@ describe('CLI against the real HTTP API', () => {
       ]);
       const blockedItem = await store.db
         .selectFrom('operator_item')
-        .select(['id', 'line_outbox_id', 'cleared_at'])
+        .select(['id', 'line_outbox_id', 'cleared_at', 'text'])
         .where('kind', '=', 'post_blocked')
         .executeTakeFirstOrThrow();
       expect(blockedItem.cleared_at).toBeNull();
@@ -148,7 +148,10 @@ describe('CLI against the real HTTP API', () => {
         .execute();
       expect(edits).toHaveLength(1);
       expect(edits[0]?.parent_outbox_id).toBe(blockedItem.line_outbox_id);
-      expect(JSON.parse(edits[0]?.payload ?? '{}')).toMatchObject({ text: '✓ cleared' });
+      expect(JSON.parse(edits[0]?.payload ?? '{}')).toMatchObject({
+        text: blockedItem.text,
+        resolved: { by: 'system', at: new Date(clock.now()).toISOString() },
+      });
     } finally {
       try {
         await app?.close();

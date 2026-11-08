@@ -441,6 +441,26 @@ export async function startFakeSlackApi(
     return { conversation: conversation(current), message: ref(current) };
   }
 
+  function actionIds(blocks: unknown): string[] {
+    if (!Array.isArray(blocks)) return [];
+    const values: readonly unknown[] = blocks;
+    return values.flatMap((block) => {
+      if (typeof block !== 'object' || block === null) return [];
+      if (!('type' in block) || block.type !== 'actions' || !('elements' in block)) return [];
+      const elements: unknown = block.elements;
+      if (!Array.isArray(elements)) return [];
+      const items: readonly unknown[] = elements;
+      return items.flatMap((element) =>
+        typeof element === 'object' &&
+        element !== null &&
+        'action_id' in element &&
+        typeof element.action_id === 'string'
+          ? [element.action_id]
+          : [],
+      );
+    });
+  }
+
   const platform: ConformancePlatform = {
     inject,
     async settle() {
@@ -457,6 +477,7 @@ export async function startFakeSlackApi(
           ...(marker === undefined ? {} : { marker }),
           repeat: false,
           root: message.ts === message.threadTs,
+          actions: actionIds(message.blocks),
         };
       });
     },
