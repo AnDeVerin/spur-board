@@ -122,6 +122,9 @@ describe('board mcp', () => {
         expect(tool.annotations?.destructiveHint, op.id).toBe(op.mcp.destructive);
         expect(tool.outputSchema).toBeDefined();
       }
+      const status = tools.find((tool) => tool.name === 'status_get');
+      expect(status?.inputSchema.properties?.['detail']).toMatchObject({ type: 'boolean' });
+      expect(status?.inputSchema.required ?? []).not.toContain('detail');
       const commentAdd = tools.find((tool) => tool.name === 'comment_add');
       expect(commentAdd?.annotations?.destructiveHint).toBe(false);
       const unblock = tools.find((tool) => tool.name === 'block_unblock');

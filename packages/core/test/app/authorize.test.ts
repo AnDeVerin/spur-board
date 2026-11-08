@@ -234,6 +234,7 @@ describe('authorize catalog grants', () => {
       'block',
       'ref',
       'answer',
+      'detail',
     ];
     const keys = new Set<string>();
     for (const entry of OPERATIONS) {

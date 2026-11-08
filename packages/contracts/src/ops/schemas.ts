@@ -91,7 +91,7 @@ export const itemViewSchema = z
   })
   .describe('A "from you" item: something waiting for the operator.');
 
-export const statusSessionFactsSchema = z
+const statusSessionFactsSchema = z
   .strictObject({
     ...sessionFactsSchema.shape,
     links: z
@@ -116,16 +116,66 @@ export const linkViewSchema = z
   })
   .describe('An effective link to a task.');
 
+const detailOnly = 'Present only with detail.';
+const count = (what: string) => z.int().min(0).describe(what);
+
 export const statusTaskSchema = taskViewSchema
   .extend({
+    state: z
+      .string()
+      .min(1)
+      .describe(
+        'One line: ticket status, pull request states and session health counts, joined by "; ".',
+      ),
+    prCount: count('Number of effective pull request links.'),
+    sessionCount: count('Number of effective session links.'),
+    openBlocks: count('Number of open blocks on the task.'),
     ticket: ticketFactsSchema
       .nullable()
-      .describe('Latest ticket facts, or null before observation.'),
-    prs: z.array(prFactsSchema).describe('Latest facts for linked pull requests.'),
-    sessions: z.array(statusSessionFactsSchema).describe('Latest facts for linked sessions.'),
-    links: z.array(linkViewSchema).describe('Effective pull request, session, and ticket links.'),
+      .optional()
+      .describe(`Latest ticket facts, or null before observation. ${detailOnly}`),
+    prs: z
+      .array(prFactsSchema)
+      .optional()
+      .describe(`Latest facts for linked pull requests. ${detailOnly}`),
+    sessions: z
+      .array(statusSessionFactsSchema)
+      .optional()
+      .describe(`Latest facts for linked sessions. ${detailOnly}`),
+    links: z
+      .array(linkViewSchema)
+      .optional()
+      .describe(`Effective pull request, session, and ticket links. ${detailOnly}`),
   })
-  .describe('A board task with its latest observed facts and links.');
+  .describe('A board task with a one-line state and counts; detail adds its facts and links.');
+
+export const statusUnlinkedPrSchema = prFactsSchema
+  .partial({
+    author: true,
+    headSha: true,
+    headBranch: true,
+    mergeable: true,
+    mergeState: true,
+    requiredChecks: true,
+    checks: true,
+    reviews: true,
+    reviewThreads: true,
+    reviewRequests: true,
+    ticketKeys: true,
+    updatedAt: true,
+  })
+  .describe('A pull request without a task link; fields beyond its identity need detail.');
+
+export const statusUnlinkedSessionSchema = statusSessionFactsSchema
+  .partial({
+    pr: true,
+    links: true,
+    healthSince: true,
+    lastActivityAt: true,
+    endedAt: true,
+    endReason: true,
+  })
+  .describe('A session without a task link; fields beyond its identity need detail.');
 
 export const statusItemSchema = itemViewSchema
   .extend({

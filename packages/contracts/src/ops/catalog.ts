@@ -18,11 +18,11 @@ import {
   schemaGetOutputSchema,
   sourceViewSchema,
   statusItemSchema,
-  statusSessionFactsSchema,
   statusTaskSchema,
+  statusUnlinkedPrSchema,
+  statusUnlinkedSessionSchema,
   taskViewSchema,
 } from './schemas.ts';
-import { prFactsSchema } from '../facts.ts';
 import { SPACE_IDS } from '../gateway/schemas.ts';
 
 const project = z
@@ -117,17 +117,24 @@ export const OPERATIONS = [
   defineOperation({
     id: 'status.get',
     kind: 'query',
-    description: 'List tasks, observations, source freshness and actionable items.',
-    mcp: { whenToUse: 'Get a board overview.', whenNotToUse: 'Use task_get for one task.' },
-    input: z.strictObject({ project }),
+    description:
+      'List actionable items, source freshness and compact tasks; detail adds full facts and links.',
+    mcp: {
+      whenToUse:
+        'Get a board overview; pass detail for full ticket, pull request and session facts.',
+      whenNotToUse: 'Use task_get for one task.',
+    },
+    input: z.strictObject({
+      project,
+      detail: z
+        .boolean()
+        .optional()
+        .describe(
+          'Include full ticket, pull request and session facts and links; absent means compact rows.',
+        ),
+    }),
     output: z.strictObject({
-      tasks: z.array(statusTaskSchema).describe('Tasks on the board with facts and links.'),
       items: z.array(statusItemSchema).describe('Actionable items in priority order.'),
-      unlinkedPrs: z.array(prFactsSchema).describe('Observed pull requests without a task link.'),
-      unlinkedSessions: z
-        .array(statusSessionFactsSchema)
-        .describe('Observed sessions without a task link.'),
-      sources: z.array(sourceViewSchema).describe('Freshness and availability of each source.'),
       warmingUp: z.boolean().describe('Whether required sources still need a complete poll.'),
       spurUnavailable: z
         .string()
@@ -155,6 +162,16 @@ export const OPERATIONS = [
             .describe('Transport health of one gateway.'),
         )
         .describe('Transport health of each chat gateway.'),
+      sources: z.array(sourceViewSchema).describe('Freshness and availability of each source.'),
+      tasks: z
+        .array(statusTaskSchema)
+        .describe('Tasks on the board with state and counts; facts and links with detail.'),
+      unlinkedPrs: z
+        .array(statusUnlinkedPrSchema)
+        .describe('Observed pull requests without a task link.'),
+      unlinkedSessions: z
+        .array(statusUnlinkedSessionSchema)
+        .describe('Observed sessions without a task link.'),
     }),
     grants: operatorOrProjectAgent,
     errors: ['not_found'],
@@ -165,15 +182,50 @@ export const OPERATIONS = [
         summary: 'Show the board',
         input: {},
         output: {
-          tasks: [{ ...task, ticket: null, prs: [], sessions: [], links: [] }],
           items: [],
-          unlinkedPrs: [],
-          unlinkedSessions: [],
-          sources: [],
           warmingUp: true,
           spurUnavailable: null,
           hostLoad: null,
           transport: [],
+          sources: [],
+          tasks: [
+            {
+              ...task,
+              state: 'ticket not observed',
+              prCount: 0,
+              sessionCount: 0,
+              openBlocks: 0,
+            },
+          ],
+          unlinkedPrs: [],
+          unlinkedSessions: [],
+        },
+      },
+      {
+        summary: 'Show the board with full facts and links',
+        input: { detail: true },
+        output: {
+          items: [],
+          warmingUp: false,
+          spurUnavailable: null,
+          hostLoad: null,
+          transport: [],
+          sources: [],
+          tasks: [
+            {
+              ...task,
+              state: 'ticket not observed',
+              prCount: 0,
+              sessionCount: 0,
+              openBlocks: 0,
+              ticket: null,
+              prs: [],
+              sessions: [],
+              links: [],
+            },
+          ],
+          unlinkedPrs: [],
+          unlinkedSessions: [],
         },
       },
     ],

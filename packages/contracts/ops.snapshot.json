@@ -1,5 +1,5 @@
 {
-  "version": "0f4a721c58024188b510b5b4857faa834380c2fd29df5cb4c730716515526c0e",
+  "version": "ab8856411d8fdda541c80f119b35675410656ecfd70885c171f382ffd9afd99c",
   "grants": [
     "operator",
     "project-agent",
@@ -642,7 +642,7 @@
     {
       "id": "status.get",
       "kind": "query",
-      "description": "List tasks, observations, source freshness and actionable items.",
+      "description": "List actionable items, source freshness and compact tasks; detail adds full facts and links.",
       "grants": [{ "grant": "operator" }, { "grant": "project-agent" }],
       "preconditions": null,
       "errors": [
@@ -657,7 +657,7 @@
       "mcp": {
         "name": "status_get",
         "key": null,
-        "whenToUse": "Get a board overview.",
+        "whenToUse": "Get a board overview; pass detail for full ticket, pull request and session facts.",
         "whenNotToUse": "Use task_get for one task.",
         "destructive": false
       },
@@ -667,26 +667,56 @@
           "summary": "Show the board",
           "input": {},
           "output": {
+            "items": [],
+            "warmingUp": true,
+            "spurUnavailable": null,
+            "hostLoad": null,
+            "transport": [],
+            "sources": [],
             "tasks": [
               {
                 "key": "PROJ-123",
                 "project": "web",
                 "column": "dev",
                 "membership": "active",
+                "state": "ticket not observed",
+                "prCount": 0,
+                "sessionCount": 0,
+                "openBlocks": 0
+              }
+            ],
+            "unlinkedPrs": [],
+            "unlinkedSessions": []
+          }
+        },
+        {
+          "summary": "Show the board with full facts and links",
+          "input": { "detail": true },
+          "output": {
+            "items": [],
+            "warmingUp": false,
+            "spurUnavailable": null,
+            "hostLoad": null,
+            "transport": [],
+            "sources": [],
+            "tasks": [
+              {
+                "key": "PROJ-123",
+                "project": "web",
+                "column": "dev",
+                "membership": "active",
+                "state": "ticket not observed",
+                "prCount": 0,
+                "sessionCount": 0,
+                "openBlocks": 0,
                 "ticket": null,
                 "prs": [],
                 "sessions": [],
                 "links": []
               }
             ],
-            "items": [],
             "unlinkedPrs": [],
-            "unlinkedSessions": [],
-            "sources": [],
-            "warmingUp": true,
-            "spurUnavailable": null,
-            "hostLoad": null,
-            "transport": []
+            "unlinkedSessions": []
           }
         }
       ],
@@ -698,6 +728,10 @@
             "description": "Project to limit the answer to; absent means every project the caller may see.",
             "type": "string",
             "minLength": 1
+          },
+          "detail": {
+            "description": "Include full ticket, pull request and session facts and links; absent means compact rows.",
+            "type": "boolean"
           }
         },
         "additionalProperties": false
@@ -706,6 +740,184 @@
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
         "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "pattern": "^I[1-9]\\d{0,14}$",
+                  "description": "Item ID: I followed by a number, e.g. I7."
+                },
+                "task": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
+                      "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
+                    },
+                    { "type": "null" }
+                  ],
+                  "description": "Task the item is about; null for a board-wide item."
+                },
+                "at": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                  "description": "When the item was raised, ISO 8601 UTC."
+                },
+                "summary": {
+                  "type": "string",
+                  "description": "What needs the operator, in one line."
+                },
+                "key": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Stable key of this actionable item."
+                },
+                "unconfirmed": {
+                  "type": "boolean",
+                  "description": "Whether a supporting fact is stale or its source is blind."
+                },
+                "factAt": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                    },
+                    { "type": "null" }
+                  ],
+                  "description": "Time of the supporting fact, when known."
+                }
+              },
+              "required": ["id", "task", "at", "summary", "key", "unconfirmed", "factAt"],
+              "additionalProperties": false,
+              "description": "An actionable item with its freshness mark."
+            },
+            "description": "Actionable items in priority order."
+          },
+          "warmingUp": {
+            "type": "boolean",
+            "description": "Whether required sources still need a complete poll."
+          },
+          "spurUnavailable": {
+            "description": "One combined Spur availability line, or null when available.",
+            "type": ["string", "null"]
+          },
+          "hostLoad": {
+            "description": "Host-load episode line, or null when absent.",
+            "type": ["string", "null"]
+          },
+          "transport": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "gateway": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Chat gateway kind."
+                },
+                "state": {
+                  "type": "string",
+                  "enum": ["up", "down"],
+                  "description": "down while delivery to any space of the gateway is suspended."
+                },
+                "since": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                    },
+                    { "type": "null" }
+                  ],
+                  "description": "When the earliest outage started, ISO 8601 UTC, or null when up."
+                },
+                "reason": {
+                  "description": "Reason of the earliest outage, or null when up.",
+                  "type": ["string", "null"]
+                },
+                "spaces": {
+                  "type": "array",
+                  "items": { "type": "string", "enum": ["orchestrators", "feed"] },
+                  "description": "Spaces whose delivery is suspended."
+                }
+              },
+              "required": ["gateway", "state", "since", "reason", "spaces"],
+              "additionalProperties": false,
+              "description": "Transport health of one gateway."
+            },
+            "description": "Transport health of each chat gateway."
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "source": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Adapter source identifier."
+                },
+                "observedAt": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                    },
+                    { "type": "null" }
+                  ],
+                  "description": "Time of the latest observation, if any."
+                },
+                "lastCompleteAt": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                    },
+                    { "type": "null" }
+                  ],
+                  "description": "Time of the latest complete observation."
+                },
+                "blindReason": {
+                  "anyOf": [
+                    { "type": "string", "enum": ["auth", "config", "stale"] },
+                    { "type": "null" }
+                  ],
+                  "description": "Why this source is blind, or null when it is usable."
+                },
+                "message": {
+                  "description": "Short explanation of the source state.",
+                  "type": ["string", "null"]
+                },
+                "stale": {
+                  "type": "boolean",
+                  "description": "Whether facts from this source exceed their freshness threshold."
+                },
+                "warmingUp": {
+                  "type": "boolean",
+                  "description": "Whether this source needs a complete poll in this daemon run."
+                }
+              },
+              "required": [
+                "source",
+                "observedAt",
+                "lastCompleteAt",
+                "blindReason",
+                "message",
+                "stale",
+                "warmingUp"
+              ],
+              "additionalProperties": false,
+              "description": "Freshness and availability of one source."
+            },
+            "description": "Freshness and availability of each source."
+          },
           "tasks": {
             "type": "array",
             "items": {
@@ -739,7 +951,31 @@
                   "enum": ["active", "out_of_filter", "archived"],
                   "description": "Whether the task is on the board, outside the tracker filter, or archived."
                 },
+                "state": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "One line: ticket status, pull request states and session health counts, joined by \"; \"."
+                },
+                "prCount": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991,
+                  "description": "Number of effective pull request links."
+                },
+                "sessionCount": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991,
+                  "description": "Number of effective session links."
+                },
+                "openBlocks": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991,
+                  "description": "Number of open blocks on the task."
+                },
                 "ticket": {
+                  "description": "Latest ticket facts, or null before observation. Present only with detail.",
                   "anyOf": [
                     {
                       "type": "object",
@@ -811,10 +1047,10 @@
                       "description": "Facts about one tracker ticket."
                     },
                     { "type": "null" }
-                  ],
-                  "description": "Latest ticket facts, or null before observation."
+                  ]
                 },
                 "prs": {
+                  "description": "Latest facts for linked pull requests. Present only with detail.",
                   "type": "array",
                   "items": {
                     "type": "object",
@@ -1072,10 +1308,10 @@
                     ],
                     "additionalProperties": false,
                     "description": "Facts about one pull request."
-                  },
-                  "description": "Latest facts for linked pull requests."
+                  }
                 },
                 "sessions": {
+                  "description": "Latest facts for linked sessions. Present only with detail.",
                   "type": "array",
                   "items": {
                     "type": "object",
@@ -1227,10 +1463,10 @@
                     ],
                     "additionalProperties": false,
                     "description": "Session facts with links as display entries."
-                  },
-                  "description": "Latest facts for linked sessions."
+                  }
                 },
                 "links": {
+                  "description": "Effective pull request, session, and ticket links. Present only with detail.",
                   "type": "array",
                   "items": {
                     "type": "object",
@@ -1256,8 +1492,7 @@
                     "required": ["kind", "ref", "role"],
                     "additionalProperties": false,
                     "description": "An effective link to a task."
-                  },
-                  "description": "Effective pull request, session, and ticket links."
+                  }
                 }
               },
               "required": [
@@ -1265,73 +1500,15 @@
                 "project",
                 "column",
                 "membership",
-                "ticket",
-                "prs",
-                "sessions",
-                "links"
+                "state",
+                "prCount",
+                "sessionCount",
+                "openBlocks"
               ],
               "additionalProperties": false,
-              "description": "A board task with its latest observed facts and links."
+              "description": "A board task with a one-line state and counts; detail adds its facts and links."
             },
-            "description": "Tasks on the board with facts and links."
-          },
-          "items": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "id": {
-                  "type": "string",
-                  "pattern": "^I[1-9]\\d{0,14}$",
-                  "description": "Item ID: I followed by a number, e.g. I7."
-                },
-                "task": {
-                  "anyOf": [
-                    {
-                      "type": "string",
-                      "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
-                      "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
-                    },
-                    { "type": "null" }
-                  ],
-                  "description": "Task the item is about; null for a board-wide item."
-                },
-                "at": {
-                  "type": "string",
-                  "format": "date-time",
-                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
-                  "description": "When the item was raised, ISO 8601 UTC."
-                },
-                "summary": {
-                  "type": "string",
-                  "description": "What needs the operator, in one line."
-                },
-                "key": {
-                  "type": "string",
-                  "minLength": 1,
-                  "description": "Stable key of this actionable item."
-                },
-                "unconfirmed": {
-                  "type": "boolean",
-                  "description": "Whether a supporting fact is stale or its source is blind."
-                },
-                "factAt": {
-                  "anyOf": [
-                    {
-                      "type": "string",
-                      "format": "date-time",
-                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
-                    },
-                    { "type": "null" }
-                  ],
-                  "description": "Time of the supporting fact, when known."
-                }
-              },
-              "required": ["id", "task", "at", "summary", "key", "unconfirmed", "factAt"],
-              "additionalProperties": false,
-              "description": "An actionable item with its freshness mark."
-            },
-            "description": "Actionable items in priority order."
+            "description": "Tasks on the board with state and counts; facts and links with detail."
           },
           "unlinkedPrs": {
             "type": "array",
@@ -1569,28 +1746,9 @@
                   "description": "When the pull request last changed."
                 }
               },
-              "required": [
-                "repo",
-                "number",
-                "url",
-                "title",
-                "author",
-                "headSha",
-                "headBranch",
-                "state",
-                "draft",
-                "mergeable",
-                "mergeState",
-                "requiredChecks",
-                "checks",
-                "reviews",
-                "reviewThreads",
-                "reviewRequests",
-                "ticketKeys",
-                "updatedAt"
-              ],
+              "required": ["repo", "number", "url", "title", "state", "draft"],
               "additionalProperties": false,
-              "description": "Facts about one pull request."
+              "description": "A pull request without a task link; fields beyond its identity need detail."
             },
             "description": "Observed pull requests without a task link."
           },
@@ -1731,155 +1889,23 @@
                   "description": "Why the session ended, or null while it is live. Set together with endedAt."
                 }
               },
-              "required": [
-                "id",
-                "spurProject",
-                "branch",
-                "pr",
-                "links",
-                "lifecycle",
-                "health",
-                "healthSince",
-                "lastActivityAt",
-                "endedAt",
-                "endReason"
-              ],
+              "required": ["id", "spurProject", "branch", "lifecycle", "health"],
               "additionalProperties": false,
-              "description": "Session facts with links as display entries."
+              "description": "A session without a task link; fields beyond its identity need detail."
             },
             "description": "Observed sessions without a task link."
-          },
-          "sources": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "source": {
-                  "type": "string",
-                  "minLength": 1,
-                  "description": "Adapter source identifier."
-                },
-                "observedAt": {
-                  "anyOf": [
-                    {
-                      "type": "string",
-                      "format": "date-time",
-                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
-                    },
-                    { "type": "null" }
-                  ],
-                  "description": "Time of the latest observation, if any."
-                },
-                "lastCompleteAt": {
-                  "anyOf": [
-                    {
-                      "type": "string",
-                      "format": "date-time",
-                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
-                    },
-                    { "type": "null" }
-                  ],
-                  "description": "Time of the latest complete observation."
-                },
-                "blindReason": {
-                  "anyOf": [
-                    { "type": "string", "enum": ["auth", "config", "stale"] },
-                    { "type": "null" }
-                  ],
-                  "description": "Why this source is blind, or null when it is usable."
-                },
-                "message": {
-                  "description": "Short explanation of the source state.",
-                  "type": ["string", "null"]
-                },
-                "stale": {
-                  "type": "boolean",
-                  "description": "Whether facts from this source exceed their freshness threshold."
-                },
-                "warmingUp": {
-                  "type": "boolean",
-                  "description": "Whether this source needs a complete poll in this daemon run."
-                }
-              },
-              "required": [
-                "source",
-                "observedAt",
-                "lastCompleteAt",
-                "blindReason",
-                "message",
-                "stale",
-                "warmingUp"
-              ],
-              "additionalProperties": false,
-              "description": "Freshness and availability of one source."
-            },
-            "description": "Freshness and availability of each source."
-          },
-          "warmingUp": {
-            "type": "boolean",
-            "description": "Whether required sources still need a complete poll."
-          },
-          "spurUnavailable": {
-            "description": "One combined Spur availability line, or null when available.",
-            "type": ["string", "null"]
-          },
-          "hostLoad": {
-            "description": "Host-load episode line, or null when absent.",
-            "type": ["string", "null"]
-          },
-          "transport": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "gateway": {
-                  "type": "string",
-                  "minLength": 1,
-                  "description": "Chat gateway kind."
-                },
-                "state": {
-                  "type": "string",
-                  "enum": ["up", "down"],
-                  "description": "down while delivery to any space of the gateway is suspended."
-                },
-                "since": {
-                  "anyOf": [
-                    {
-                      "type": "string",
-                      "format": "date-time",
-                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
-                    },
-                    { "type": "null" }
-                  ],
-                  "description": "When the earliest outage started, ISO 8601 UTC, or null when up."
-                },
-                "reason": {
-                  "description": "Reason of the earliest outage, or null when up.",
-                  "type": ["string", "null"]
-                },
-                "spaces": {
-                  "type": "array",
-                  "items": { "type": "string", "enum": ["orchestrators", "feed"] },
-                  "description": "Spaces whose delivery is suspended."
-                }
-              },
-              "required": ["gateway", "state", "since", "reason", "spaces"],
-              "additionalProperties": false,
-              "description": "Transport health of one gateway."
-            },
-            "description": "Transport health of each chat gateway."
           }
         },
         "required": [
-          "tasks",
           "items",
-          "unlinkedPrs",
-          "unlinkedSessions",
-          "sources",
           "warmingUp",
           "spurUnavailable",
           "hostLoad",
-          "transport"
+          "transport",
+          "sources",
+          "tasks",
+          "unlinkedPrs",
+          "unlinkedSessions"
         ],
         "additionalProperties": false
       }

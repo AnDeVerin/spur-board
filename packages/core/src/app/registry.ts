@@ -77,10 +77,14 @@ export function createOperationRegistry(deps: {
     run(trx, input, actor) {
       return getStatus(
         { store: { db: trx }, config, clock, completeSince, gateways },
-        input.project,
-        visibleProjects(config, actor),
-        authorize([{ grant: 'operator' }], actor, { config, target: { kind: 'missing' } })
-          .status === 'allowed',
+        {
+          project: input.project,
+          visibleProjects: visibleProjects(config, actor),
+          includeBoardItems:
+            authorize([{ grant: 'operator' }], actor, { config, target: { kind: 'missing' } })
+              .status === 'allowed',
+          detail: input.detail,
+        },
       );
     },
   };
