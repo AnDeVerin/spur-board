@@ -155,7 +155,7 @@ const branchPattern = nonEmpty
   })
   .default(DEFAULT_BRANCH_PATTERN)
   .describe(
-    'Regular expression whose one capture group reads the issue number from a PR head branch, such as <agent>-<number>-<slug>. Used only when the PR has no closing issue reference in the tracker repository; PRs to a non-default base branch rely on it. Back-references, lookarounds, a repeated group holding a quantifier or an alternation, and more than two parts that repeat more than once (such as *, + or {2,}) are refused.',
+    'Regular expression whose one capture group reads the issue number from a PR head branch, such as <agent>-<number>-<slug>. Used only when the PR has no closing issue reference in the tracker repository; PRs to a non-default base branch rely on it. At most two repeated parts (such as *, + or {2,}); no nested or alternated repeats, back-references or lookarounds. Branches longer than 255 characters are skipped.',
   );
 
 const githubIssuesTracker = z
