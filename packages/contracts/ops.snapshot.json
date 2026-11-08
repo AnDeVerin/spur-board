@@ -1,5 +1,5 @@
 {
-  "version": "2d56ed186d0cd736467012aec7e17f6eb72f234c788f1f10190724e6c64af4ce",
+  "version": "71f761d3c4e6a2f93953ea64b7953cda7b31c855d1b53ad0497b5357b51d32ad",
   "grants": [
     "operator",
     "project-agent",
@@ -1259,17 +1259,27 @@
                         "items": {
                           "type": "object",
                           "properties": {
-                            "reviewer": {
+                            "kind": {
+                              "description": "Kind of reviewer asked to review.",
                               "type": "string",
-                              "minLength": 1,
-                              "description": "Login or team name asked to review."
+                              "enum": ["user", "team", "bot"]
+                            },
+                            "id": {
+                              "description": "Login of the user or bot, or the slug of the team.",
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "reviewer": {
+                              "description": "Login or team name as stored by an earlier version; new facts use kind and id.",
+                              "type": "string",
+                              "minLength": 1
                             },
                             "asCodeOwner": {
                               "type": "boolean",
                               "description": "Whether the review was requested because the reviewer owns changed code."
                             }
                           },
-                          "required": ["reviewer", "asCodeOwner"],
+                          "required": ["asCodeOwner"],
                           "additionalProperties": false
                         },
                         "description": "Pending review requests."
@@ -1725,17 +1735,27 @@
                   "items": {
                     "type": "object",
                     "properties": {
-                      "reviewer": {
+                      "kind": {
+                        "description": "Kind of reviewer asked to review.",
                         "type": "string",
-                        "minLength": 1,
-                        "description": "Login or team name asked to review."
+                        "enum": ["user", "team", "bot"]
+                      },
+                      "id": {
+                        "description": "Login of the user or bot, or the slug of the team.",
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      "reviewer": {
+                        "description": "Login or team name as stored by an earlier version; new facts use kind and id.",
+                        "type": "string",
+                        "minLength": 1
                       },
                       "asCodeOwner": {
                         "type": "boolean",
                         "description": "Whether the review was requested because the reviewer owns changed code."
                       }
                     },
-                    "required": ["reviewer", "asCodeOwner"],
+                    "required": ["asCodeOwner"],
                     "additionalProperties": false
                   },
                   "description": "Pending review requests."

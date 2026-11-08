@@ -40,6 +40,8 @@ export type CheckState = (typeof CHECK_STATES)[number];
 
 export const REVIEW_STATES = ['approved', 'changes_requested', 'commented', 'dismissed'] as const;
 export type ReviewState = (typeof REVIEW_STATES)[number];
+export const REVIEWER_KINDS = ['user', 'team', 'bot'] as const;
+export type ReviewerKind = (typeof REVIEWER_KINDS)[number];
 
 /** Spur session lifecycle values known today. */
 export const SESSION_STATUSES = [
@@ -129,12 +131,33 @@ export const prFactsSchema = z
       .describe('Review threads on the pull request.'),
     reviewRequests: z
       .array(
-        z.strictObject({
-          reviewer: z.string().min(1).describe('Login or team name asked to review.'),
-          asCodeOwner: z
-            .boolean()
-            .describe('Whether the review was requested because the reviewer owns changed code.'),
-        }),
+        z
+          .strictObject({
+            kind: z.enum(REVIEWER_KINDS).optional().describe('Kind of reviewer asked to review.'),
+            id: z
+              .string()
+              .min(1)
+              .optional()
+              .describe('Login of the user or bot, or the slug of the team.'),
+            reviewer: z
+              .string()
+              .min(1)
+              .optional()
+              .describe(
+                'Login or team name as stored by an earlier version; new facts use kind and id.',
+              ),
+            asCodeOwner: z
+              .boolean()
+              .describe('Whether the review was requested because the reviewer owns changed code.'),
+          })
+          .superRefine((request, ctx) => {
+            const named =
+              request.reviewer === undefined
+                ? request.kind !== undefined && request.id !== undefined
+                : request.kind === undefined && request.id === undefined;
+            if (!named)
+              ctx.addIssue({ code: 'custom', message: 'Set kind and id, or reviewer alone' });
+          }),
       )
       .describe('Pending review requests.'),
     ticketKeys: z

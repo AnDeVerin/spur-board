@@ -41,7 +41,7 @@ function prFacts(): Record<string, unknown> {
       },
     ],
     reviewThreads: [{ resolved: true }, { resolved: false }],
-    reviewRequests: [{ reviewer: 'octocat', asCodeOwner: true }],
+    reviewRequests: [{ kind: 'user', id: 'octocat', asCodeOwner: true }],
     ticketKeys: ['PROJ-123'],
     updatedAt: '2026-11-01T11:00:00Z',
   };
@@ -100,6 +100,11 @@ describe('fixtures', () => {
       'a draft PR',
       prFactsSchema,
       { ...prFacts(), draft: true, mergeState: 'draft', requiredChecks: [], reviews: [] },
+    ],
+    [
+      'a PR with a review request stored by an earlier version',
+      prFactsSchema,
+      { ...prFacts(), reviewRequests: [{ reviewer: 'octocat', asCodeOwner: true }] },
     ],
     ['a Jira ticket', ticketFactsSchema, ticketFacts()],
     [
@@ -176,6 +181,15 @@ describe('invalid facts', () => {
   it('rejects a required check without state at its path', () => {
     const input = { ...prFacts(), requiredChecks: [{ name: 'build', completedAt: null }] };
     expect(pathLines(errorFor(prFactsSchema, input))).toContain('→ at requiredChecks[0].state');
+  });
+
+  it.each([
+    ['names nobody', { asCodeOwner: true }],
+    ['has a kind without an id', { kind: 'team', asCodeOwner: false }],
+  ])('rejects a review request that %s at its path', (_name, request) => {
+    const error = errorFor(prFactsSchema, { ...prFacts(), reviewRequests: [request] });
+    expect(error).toContain('Set kind and id, or reviewer alone');
+    expect(pathLines(error)).toContain('→ at reviewRequests[0]');
   });
 
   it('rejects an end time without an end reason', () => {
