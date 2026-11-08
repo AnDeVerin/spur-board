@@ -90,7 +90,6 @@ export function renderUserUnit(paths: ServicePaths): string {
     '[Service]',
     `ExecStart=${unitArgument(paths.nodePath)} ${unitArgument(paths.daemonEntry)}`,
     ...(paths.environment ?? []).map((entry) => `Environment=${unitArgument(entry)}`),
-    `EnvironmentFile=${unitArgument(paths.secretsFile)}`,
     ...SYSTEMD_SERVICE_SETTINGS,
     '',
     '[Install]',
