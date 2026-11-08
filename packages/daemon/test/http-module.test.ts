@@ -206,6 +206,29 @@ function doctorFetch(fail?: string): typeof fetch {
                 },
         }),
       );
+    if (path === '/sessions/spur-board-doctor-probe/send') {
+      expect(init?.method).toBe('POST');
+      expect(init?.signal).toBeInstanceOf(AbortSignal);
+      if (typeof init?.body !== 'string') throw new Error('Expected Spur send body');
+      expect(JSON.parse(init.body)).toEqual({ message: 'spur-board doctor probe' });
+      if (fail === 'spur.send') return Promise.reject(new TypeError('fetch failed'));
+      if (fail === 'spur.send.route')
+        return Promise.resolve(
+          Response.json(
+            { error: 'Route not found: POST /sessions/spur-board-doctor-probe/send' },
+            { status: 404 },
+          ),
+        );
+      if (fail === 'spur.send.other404')
+        return Promise.resolve(Response.json({ error: 'Task not found' }, { status: 404 }));
+      if (fail === 'spur.send.503')
+        return Promise.resolve(Response.json({ error: 'Daemon is starting' }, { status: 503 }));
+      if (fail === 'spur.send.ok')
+        return Promise.resolve(Response.json({ id: 'spur-board-doctor-probe' }));
+      return Promise.resolve(
+        Response.json({ error: 'Session not found: spur-board-doctor-probe' }, { status: 404 }),
+      );
+    }
     if (path.endsWith('/sessions'))
       return Promise.resolve(new Response(null, { status: fail === 'spur.api' ? 503 : 200 }));
     if (path.endsWith('/auth.test'))
@@ -315,7 +338,7 @@ describe('daemon doctor checks', () => {
       blocking: false,
       fix: null,
     });
-    expect(fetcher).toHaveBeenCalledTimes(4);
+    expect(fetcher).toHaveBeenCalledTimes(5);
   });
 
   it.each([
@@ -397,6 +420,7 @@ describe('daemon doctor checks', () => {
       'jira.credentials',
       'github.credentials',
       'spur.api',
+      'spur.send',
       'slack.configured',
       'operator.path',
     ]);
@@ -407,7 +431,7 @@ describe('daemon doctor checks', () => {
       fix: 'Slack is not configured: questions addressed to you are only visible through board inbox. Run the spur-board-setup skill to configure slack.channels.',
     });
     expect(report.checks.every((check) => !check.blocking)).toBe(true);
-    expect(fetcher).toHaveBeenCalledTimes(4);
+    expect(fetcher).toHaveBeenCalledTimes(5);
   });
 
   it('fails with the missing bot scope when the token is valid', async () => {
@@ -443,7 +467,7 @@ describe('daemon doctor checks', () => {
     expect(report.checks.filter((check) => check.id.startsWith('slack.'))).toEqual([
       expect.objectContaining({ id: 'slack.configured', status: 'warning', blocking: false }),
     ]);
-    expect(fetcher).toHaveBeenCalledTimes(4);
+    expect(fetcher).toHaveBeenCalledTimes(5);
   });
 
   it('reports every daemon-owned check as passing without returning credential values', async () => {
@@ -455,6 +479,7 @@ describe('daemon doctor checks', () => {
       'jira.credentials',
       'github.credentials',
       'spur.api',
+      'spur.send',
       'slack.auth',
       'slack.orchestrators_member',
       'slack.feed_member',
@@ -471,6 +496,10 @@ describe('daemon doctor checks', () => {
     ['jira.credentials', 'Check the Jira account, API token, and project access.'],
     ['github.credentials', 'Check the GitHub token and repository access.'],
     ['spur.api', 'Start or correct the configured Spur API.'],
+    [
+      'spur.send',
+      'Start Spur or correct adapters.spur.baseUrl in config.yaml, then restart the service; the daemon sends doorbells to that Spur API.',
+    ],
     ['slack.auth', 'Check the Slack bot token.'],
     ['slack.orchestrators_member', 'Invite the bot to the configured channel ID.'],
     ['slack.feed_member', 'Invite the bot to the configured channel ID.'],
@@ -492,6 +521,26 @@ describe('daemon doctor checks', () => {
     expect(entry?.fix).toBe(fix);
     expect(JSON.stringify(report)).not.toMatch(/secret-canary/);
   });
+
+  it.each(['spur.send.route', 'spur.send.other404', 'spur.send.503', 'spur.send.ok'])(
+    'fails spur.send when Spur does not answer the probe as a missing session (%s)',
+    async (mode) => {
+      const report = await runDaemonDoctor(
+        doctorContext({ operator: true }),
+        '1.2.3',
+        doctorFetch(mode),
+      );
+      expect(report.checks.find((check) => check.id === 'spur.send')).toEqual({
+        id: 'spur.send',
+        status: 'fail',
+        blocking: true,
+        fix: 'The Spur API at adapters.spur.baseUrl did not accept a doorbell send; update Spur or point adapters.spur.baseUrl at the Spur daemon.',
+      });
+      expect(JSON.stringify(report)).not.toMatch(
+        /Route not found|Task not found|Daemon is starting/,
+      );
+    },
+  );
 
   it('names missing secret variables and fails operator access without a project or token', async () => {
     const report = await runDaemonDoctor(doctorContext({ secrets: {} }), '1.2.3', doctorFetch());
