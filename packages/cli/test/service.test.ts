@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { chmod, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { tmpdir, userInfo } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ERRORS } from '@spur-board/contracts';
@@ -470,6 +470,21 @@ describe('service', () => {
     expect(unit).toContain(`Environment="XDG_CONFIG_HOME=${configHome}"`);
     expect(unit).toContain(`Environment="XDG_DATA_HOME=${dataHome}"`);
     expect(unit).not.toContain('Environment="BOARD_HOME=');
+  });
+
+  it('resolves default unit and secrets paths under the harness root, not the real home', () => {
+    // The harness points TMPDIR at <root>/tmp (packages/testkit/src/global-setup.ts).
+    const root = `${dirname(tmpdir())}/`;
+    expect(root).toMatch(/\/spur-board-test-[^/]+\/$/);
+    // The real paths servicePaths gives for the passwd home with no XDG or BOARD_HOME override.
+    // A home-prefix check would fail when the outer TMPDIR sits under the home.
+    const realConfig = join(userInfo().homedir, '.config');
+    const paths = servicePaths();
+    for (const path of [paths.unitFile, paths.secretsFile]) {
+      expect(path.startsWith(root), path).toBe(true);
+    }
+    expect(paths.unitFile).not.toBe(join(realConfig, 'systemd', 'user', 'spur-board.service'));
+    expect(paths.secretsFile).not.toBe(join(realConfig, 'spur-board', 'secrets.env'));
   });
 
   it('restarts an already active service after changing its unit', async () => {
