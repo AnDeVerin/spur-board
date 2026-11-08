@@ -39,6 +39,10 @@ describe('generated public references', () => {
     expect(configuration).toContain('`"/board"`');
     const row = (name: string) =>
       configuration.split('\n').find((line) => line.startsWith(`| \`projects[].link.${name}\` `));
+    const link = configuration.split('\n').find((line) => line.startsWith('| `projects[].link` '));
+    expect(link).toContain('tracker.projectKeys');
+    expect(link).toContain('Jira');
+    expect(link).not.toContain('ignores');
     expect(row('sources')).toContain('`["closing","branch","title"]`');
     expect(row('sources')).toContain('first source that yields an issue number wins');
     expect(row('sources[]')).toContain('one of closing, branch, title');
