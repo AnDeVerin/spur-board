@@ -77,9 +77,11 @@ const QUANTIFIER = /\*|\+|\?|\{(\d+)(?:(,)(\d*))?\}/y;
 
 /**
  * Whether a pattern that already compiles can backtrack super-linearly or reads outside plain
- * matching: a back-reference (`\1`, `\k<name>`), a lookaround, or a group repeated more than
- * once whose body holds a quantifier or an alternation (`(a+)+`, `(a|aa)+`, `(a*){3}`). The
- * check is conservative: it also refuses harmless forms such as `(a|b)+`.
+ * matching: a back-reference (`\1`, `\k<name>`), a lookaround, a group repeated more than
+ * once whose body holds a quantifier or an alternation (`(a+)+`, `(a|aa)+`, `(a*){3}`), or more
+ * than two quantifiers that repeat more than once (`.*.*.*`), counted over the whole pattern.
+ * With at most two such repeats a match on a branch of at most 255 characters costs about n^2
+ * steps. The check is conservative: it also refuses harmless forms such as `(a|b)+`.
  */
 function backtracks(pattern: string): boolean {
   // One entry per open group, the root first: whether its body holds a quantifier or `|`.
@@ -88,6 +90,7 @@ function backtracks(pattern: string): boolean {
     open[open.length - 1] = true;
   };
   let i = 0;
+  let repeated = 0;
   // Reads a quantifier at `i`; returns whether it repeats more than once, `undefined` if none.
   const quantifier = (): boolean | undefined => {
     QUANTIFIER.lastIndex = i;
@@ -96,10 +99,13 @@ function backtracks(pattern: string): boolean {
     i = QUANTIFIER.lastIndex;
     if (pattern[i] === '?') i += 1;
     const [token, min, comma, max] = match;
-    if (token === '?') return false;
-    if (min === undefined) return true;
-    if (comma === undefined) return Number(min) > 1;
-    return max === '' || Number(max) > 1;
+    let repeats: boolean;
+    if (token === '?') repeats = false;
+    else if (min === undefined) repeats = true;
+    else if (comma === undefined) repeats = Number(min) > 1;
+    else repeats = max === '' || Number(max) > 1;
+    if (repeats) repeated += 1;
+    return repeats;
   };
   while (i < pattern.length) {
     const char = pattern[i];
@@ -130,7 +136,7 @@ function backtracks(pattern: string): boolean {
     }
     if (quantifier() !== undefined) mark();
   }
-  return false;
+  return repeated > 2;
 }
 
 const branchPattern = nonEmpty
@@ -144,12 +150,12 @@ const branchPattern = nonEmpty
       ctx.addIssue({
         code: 'custom',
         message:
-          'Expected a regular expression without nested quantifiers, back-references or lookarounds',
+          'Expected a regular expression with at most two repeated parts and no nested quantifiers, back-references or lookarounds',
       });
   })
   .default(DEFAULT_BRANCH_PATTERN)
   .describe(
-    'Regular expression whose one capture group reads the issue number from a PR head branch, such as <agent>-<number>-<slug>. Used only when the PR has no closing issue reference in the tracker repository; PRs to a non-default base branch rely on it. Back-references, lookarounds and a repeated group holding a quantifier or an alternation are refused.',
+    'Regular expression whose one capture group reads the issue number from a PR head branch, such as <agent>-<number>-<slug>. Used only when the PR has no closing issue reference in the tracker repository; PRs to a non-default base branch rely on it. Back-references, lookarounds, a repeated group holding a quantifier or an alternation, and more than two parts that repeat more than once (such as *, + or {2,}) are refused.',
   );
 
 const githubIssuesTracker = z

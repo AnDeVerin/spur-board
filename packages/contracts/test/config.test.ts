@@ -319,10 +319,13 @@ describe('invalid configs', () => {
       '^(?<n>[0-9]+)-\\k<n>',
       '^(?=claude)[a-z]+-([0-9]+)',
       '^[a-z]+-(?<!x)([0-9]+)',
+      '^.*.*.*-([0-9]+)x$',
+      '^.*.*.*.*.*-([0-9]+)x$',
+      '^.{0,255}.{0,255}.{0,255}-([0-9]+)$',
     ].map((branchPattern): [string, unknown, string, string] => [
       `github-issues branch pattern ${branchPattern}`,
       validConfig({ tracker: { ...githubTracker, label: 'board', branchPattern } }),
-      'Expected a regular expression without nested quantifiers, back-references or lookarounds',
+      'Expected a regular expression with at most two repeated parts and no nested quantifiers, back-references or lookarounds',
       'projects[0].tracker.branchPattern',
     ]),
     [
@@ -422,17 +425,28 @@ describe('invalid configs', () => {
       {},
     ],
     [
+      'the default branch pattern set explicitly',
+      {
+        tracker: {
+          ...githubTracker,
+          label: 'board',
+          branchPattern: '^[A-Za-z][A-Za-z0-9]*-([1-9][0-9]{0,14})(?:-|$)',
+        },
+      },
+      {},
+    ],
+    [
       'a branch pattern with a named group',
       { tracker: { ...githubTracker, label: 'board', branchPattern: '^(?<n>[0-9]+)-' } },
       {},
     ],
     [
-      'a branch pattern with a class, an escape and a single repeat',
+      'a branch pattern with a class, an escape and two repeats',
       {
         tracker: {
           ...githubTracker,
           label: 'board',
-          branchPattern: '^(?:[(+\\]]x)+\\((?:ab){2}([0-9]+)(?:-[a-z]+)?$',
+          branchPattern: '^(?:[(+*\\]]x)+\\(\\*?(?:ab){1}([0-9]+)(?:-[a-z]{0,1})?$',
         },
       },
       {},
