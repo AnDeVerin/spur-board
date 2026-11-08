@@ -80,12 +80,16 @@ function normalize(
 }
 
 function matchesFilter(issue: IssueWire, tracker: Tracker): boolean {
+  if (tracker.label === undefined && tracker.milestone === undefined) return true;
   if (tracker.label !== undefined)
     return issue.labels.some((label) => label.name === tracker.label);
   return issue.milestone?.title === tracker.milestone;
 }
 
-/** Lists open filter issues and resolves requested tickets missing from that listing. */
+/**
+ * Lists open filter issues, or every open issue when neither label nor milestone is set, and
+ * resolves requested tickets missing from that listing.
+ */
 export function createGithubIssuesAdapter(options: GithubIssuesOptions): Adapter {
   const transport = options.fetch ?? fetch;
   const [owner, name] = options.tracker.repo.split('/');

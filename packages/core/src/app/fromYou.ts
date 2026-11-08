@@ -1,7 +1,11 @@
 import { sessionFactsSchema, type Config } from '@spur-board/contracts';
 import { z } from 'zod';
 import { sql } from 'kysely';
-import { evaluateSessionHealth, type SessionHealthFlagKind } from '../domain/health.ts';
+import {
+  evaluateSessionHealth,
+  type SessionHealthFlag,
+  type SessionHealthFlagKind,
+} from '../domain/health.ts';
 import { fingerprint, orderItems, type ItemCandidate } from '../domain/fromYou.ts';
 import { parseJson, toJson } from '../store/json.ts';
 import { taskUrl, type Trx } from './board-utils.ts';
@@ -223,7 +227,7 @@ export async function reconcileItems(
     );
     const endedLabel = ENDED_WORKER_LABELS[flag.kind];
     candidates.push({
-      key: `health:${String(task.id)}:${flag.sessionId}:${flag.kind}`,
+      key: healthKey(task.id, flag),
       taskId: task.id,
       summary: `${task.key}: ${endedLabel ?? flag.kind.replaceAll('_', ' ')} (${flag.sessionId})`,
       factAt: fact?.healthSince ?? null,
@@ -235,6 +239,10 @@ export async function reconcileItems(
   }
   const ordered = orderItems(candidates);
   const seen = new Set(ordered.map((item) => item.key));
+  for (const flag of health.held) {
+    const task = taskById.get(Number(flag.taskId));
+    if (task !== undefined) seen.add(healthKey(task.id, flag));
+  }
   const existing = await trx
     .selectFrom('operator_item')
     .selectAll()
@@ -280,4 +288,8 @@ export async function reconcileItems(
       suppressFeed: candidate.suppressFeed ?? false,
     });
   }
+}
+
+function healthKey(taskId: number, flag: SessionHealthFlag): string {
+  return `health:${String(taskId)}:${flag.sessionId}:${flag.kind}`;
 }
