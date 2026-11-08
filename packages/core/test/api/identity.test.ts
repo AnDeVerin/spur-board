@@ -40,7 +40,7 @@ async function storeWithSession(status?: 'active' | 'ended' | 'completed' | 'kil
   const store = openStore(join(mkdtempSync(join(tmpdir(), 'board-api-identity-')), 'board.db'));
   stores.push(store);
   if (status !== undefined) {
-    await scanTransaction(store, async (trx) => {
+    await scanTransaction(store, config, async (trx) => {
       await trx
         .insertInto('session_snapshot')
         .values({
@@ -112,6 +112,7 @@ describe('API identity', () => {
     const secret = 'private';
     await requestToken(
       store,
+      config,
       {
         name: 'desk',
         folder: 'workspace/desk',
@@ -124,7 +125,7 @@ describe('API identity', () => {
       .selectFrom('operator_token')
       .select('item_id')
       .executeTakeFirstOrThrow();
-    await scanTransaction(store, (trx) =>
+    await scanTransaction(store, config, (trx) =>
       decideTokenInTransaction(trx, row.item_id, 'approve', at),
     );
     const logRequest = vi.fn();

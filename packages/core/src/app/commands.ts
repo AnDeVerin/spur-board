@@ -154,7 +154,7 @@ export function createApply(deps: { store: Store; clock: Clock; config: Config }
     const commandKey = key ?? randomUUID();
     let deniedHint: string | undefined;
     const at = new Date(clock.now()).toISOString();
-    const result = await scanTransaction(store, (trx) =>
+    const result = await scanTransaction(store, config, (trx) =>
       replayOperation(trx, {
         actor,
         key: commandKey,
@@ -230,7 +230,7 @@ export function commandRetention(deps: {
   // Deletes rows older than the cutoff; a row exactly at the cutoff stays.
   const run = async () => {
     const cutoff = new Date(clock.now() - retentionDays * DAY_MS).toISOString();
-    await scanTransaction(store, async (trx) => {
+    await store.transaction(async (trx) => {
       await trx.deleteFrom('command').where('at', '<', cutoff).execute();
     });
   };

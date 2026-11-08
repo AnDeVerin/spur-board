@@ -651,7 +651,7 @@ export function createInbound(input: {
   }
 
   async function recordFailure(event: UserEvent, error: unknown, at: string): Promise<void> {
-    await scanTransaction(store, async (trx) => {
+    await scanTransaction(store, config, async (trx) => {
       const context = await taskContext(trx, event, gateway.kind);
       await journal(trx, {
         kind: 'inbound_failed',
@@ -684,7 +684,7 @@ export function createInbound(input: {
       if (event.sourceSpace === 'feed') {
         try {
           const at = new Date(clock.now()).toISOString();
-          const result = await scanTransaction(store, (trx) =>
+          const result = await scanTransaction(store, config, (trx) =>
             decideToken(trx, event.dedupeKey, token, at),
           );
           response = result?.response ?? 'not available yet';
@@ -772,7 +772,7 @@ export function createInbound(input: {
         ? 'operator'
         : 'system';
     try {
-      const result = await scanTransaction(store, (trx) =>
+      const result = await scanTransaction(store, config, (trx) =>
         replayOperation(trx, {
           actor,
           key: event.dedupeKey,
@@ -797,7 +797,7 @@ export function createInbound(input: {
 
   async function applyGap(event: Extract<InboundEvent, { kind: 'gap' }>): Promise<void> {
     const at = new Date(clock.now()).toISOString();
-    await scanTransaction(store, async (trx) => {
+    await scanTransaction(store, config, async (trx) => {
       const context = await taskContext(trx, event, gateway.kind);
       const conversation =
         event.conversation === undefined
@@ -885,7 +885,7 @@ export function createInbound(input: {
     retryStored(itemId) {
       return serial(async () => {
         const at = new Date(clock.now()).toISOString();
-        await scanTransaction(store, async (trx) => {
+        await scanTransaction(store, config, async (trx) => {
           await reapply(trx, itemId, at);
           await clearOperatorItem(trx, itemId, new Date(at));
         });

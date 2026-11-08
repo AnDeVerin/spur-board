@@ -55,7 +55,7 @@ export async function tickBoard(deps: {
   const now = clock.now();
   const at = new Date(now).toISOString();
   const slot = new Date(lastArchiveSlot(now, config)).toISOString();
-  await scanTransaction(store, async (trx) => {
+  await scanTransaction(store, config, async (trx) => {
     const sourceStates = await trx
       .selectFrom('source_state')
       .select(['source', 'blind_reason'])

@@ -14,6 +14,7 @@ import {
   tokenRevokeMutation,
   verifyOperatorToken,
 } from '../../src/app/tokens.ts';
+import { testConfig } from '../support/config.ts';
 
 const AT = new Date('2026-11-04T10:00:00.000Z');
 const SECRET = 'example-private-token-value';
@@ -34,7 +35,12 @@ function setup(): Store {
 }
 
 function enroll(store: Store, name = 'desk', hash = HASH, at = AT) {
-  return requestToken(store, { name, folder: 'workspace/desk', host: 'local', hash }, at);
+  return requestToken(
+    store,
+    testConfig,
+    { name, folder: 'workspace/desk', host: 'local', hash },
+    at,
+  );
 }
 
 describe('operator token lifecycle', () => {
@@ -55,13 +61,13 @@ describe('operator token lifecycle', () => {
     ]);
     expect(persisted).not.toContain(SECRET);
     expect(
-      await scanTransaction(store, (trx) =>
+      await scanTransaction(store, testConfig, (trx) =>
         decideTokenInTransaction(trx, row.item_id, 'approve', AT),
       ),
     ).toEqual({ name: 'desk', status: 'approved' });
     expect(await verifyOperatorToken(store, SECRET)).toEqual({ name: 'desk' });
     expect(
-      await scanTransaction(store, (trx) =>
+      await scanTransaction(store, testConfig, (trx) =>
         tokenRevokeMutation.run(trx, { name: 'desk' }, { actor: 'operator', at: AT.toISOString() }),
       ),
     ).toEqual({ name: 'desk', status: 'revoked' });
@@ -71,7 +77,7 @@ describe('operator token lifecycle', () => {
       hint: TAKEN,
     });
     expect(
-      await scanTransaction(store, (trx) =>
+      await scanTransaction(store, testConfig, (trx) =>
         tokenListQuery({ now: () => AT.getTime() }).run(trx, {}, 'operator'),
       ),
     ).toEqual({ tokens: [{ name: 'desk', folder: 'workspace/desk', status: 'revoked' }] });
@@ -98,11 +104,15 @@ describe('operator token lifecycle', () => {
       .select('item_id')
       .executeTakeFirstOrThrow();
     expect(
-      await scanTransaction(store, (trx) => decideTokenInTransaction(trx, row.item_id, 'deny', AT)),
+      await scanTransaction(store, testConfig, (trx) =>
+        decideTokenInTransaction(trx, row.item_id, 'deny', AT),
+      ),
     ).toEqual({ name: 'desk', status: 'denied' });
     expect(await verifyOperatorToken(store, SECRET)).toBeNull();
     expect(
-      await scanTransaction(store, (trx) => decideTokenInTransaction(trx, row.item_id, 'deny', AT)),
+      await scanTransaction(store, testConfig, (trx) =>
+        decideTokenInTransaction(trx, row.item_id, 'deny', AT),
+      ),
     ).toEqual({ name: 'desk', status: 'denied' });
     expect(
       await store.db
@@ -129,18 +139,20 @@ describe('operator token lifecycle', () => {
       .select(['id', 'item_id'])
       .executeTakeFirstOrThrow();
     const late = new Date(AT.getTime() + 15 * 60 * 1000);
-    if (swept) expect(await expirePendingTokens(store, late)).toBe(1);
+    if (swept) expect(await expirePendingTokens(store, testConfig, late)).toBe(1);
     expect(await enroll(store, 'desk', HASH2, late)).toEqual({
       name: 'desk',
       status: 'pending',
       expiresAt: '2026-11-04T10:30:00.000Z',
     });
-    expect(await expirePendingTokens(store, late)).toBe(0);
+    expect(await expirePendingTokens(store, testConfig, late)).toBe(0);
     const row = await store.db.selectFrom('operator_token').selectAll().executeTakeFirstOrThrow();
     expect(row).toMatchObject({ id: old.id, hash: HASH2, status: 'pending', decided_at: null });
     expect(row.item_id).not.toBe(old.item_id);
     await expect(
-      scanTransaction(store, (trx) => decideTokenInTransaction(trx, old.item_id, 'approve', late)),
+      scanTransaction(store, testConfig, (trx) =>
+        decideTokenInTransaction(trx, old.item_id, 'approve', late),
+      ),
     ).rejects.toMatchObject({ code: 'not_found' });
     expect(
       await store.db.selectFrom('operator_token').select('status').executeTakeFirstOrThrow(),
@@ -157,7 +169,7 @@ describe('operator token lifecycle', () => {
       { raise_no: 2, cleared_at: null },
     ]);
     expect(
-      await scanTransaction(store, (trx) =>
+      await scanTransaction(store, testConfig, (trx) =>
         decideTokenInTransaction(trx, row.item_id, 'approve', late),
       ),
     ).toEqual({ name: 'desk', status: 'approved' });
@@ -177,7 +189,7 @@ describe('operator token lifecycle', () => {
     await enroll(store);
     const late = new Date(AT.getTime() + 15 * 60 * 1000);
     expect(
-      await scanTransaction(store, (trx) =>
+      await scanTransaction(store, testConfig, (trx) =>
         tokenListQuery({ now: () => late.getTime() }).run(trx, {}, 'operator'),
       ),
     ).toEqual({ tokens: [{ name: 'desk', folder: 'workspace/desk', status: 'expired' }] });
@@ -186,7 +198,7 @@ describe('operator token lifecycle', () => {
       .select('item_id')
       .executeTakeFirstOrThrow();
     expect(
-      await scanTransaction(store, (trx) =>
+      await scanTransaction(store, testConfig, (trx) =>
         decideTokenInTransaction(trx, row.item_id, 'approve', late),
       ),
     ).toEqual({ name: 'desk', status: 'expired' });
@@ -204,8 +216,8 @@ describe('operator token lifecycle', () => {
     const store = setup();
     await enroll(store);
     const late = new Date(AT.getTime() + 15 * 60 * 1000);
-    expect(await expirePendingTokens(store, late)).toBe(1);
-    expect(await expirePendingTokens(store, late)).toBe(0);
+    expect(await expirePendingTokens(store, testConfig, late)).toBe(1);
+    expect(await expirePendingTokens(store, testConfig, late)).toBe(0);
     expect(
       await store.db
         .selectFrom('operator_token')
@@ -236,6 +248,7 @@ describe('operator token lifecycle', () => {
     for (let index = 0; index < 10; index += 1) {
       await requestToken(
         store,
+        testConfig,
         {
           name: `desk-${String(index)}`,
           folder: 'workspace/desk',
@@ -253,12 +266,14 @@ describe('operator token lifecycle', () => {
       host: 'local',
       hash: createHash('sha256').update('blocked').digest('hex'),
     };
-    await expect(requestToken(store, blocked, AT)).rejects.toMatchObject({ code: 'usage' });
+    await expect(requestToken(store, testConfig, blocked, AT)).rejects.toMatchObject({
+      code: 'usage',
+    });
     expect(await store.db.selectFrom('operator_token').select('id').execute()).toHaveLength(10);
     expect(await store.db.selectFrom('outbox').select('id').execute()).toHaveLength(10);
 
     const afterExpiry = new Date(AT.getTime() + 15 * 60 * 1000);
-    await expect(requestToken(store, blocked, afterExpiry)).resolves.toMatchObject({
+    await expect(requestToken(store, testConfig, blocked, afterExpiry)).resolves.toMatchObject({
       name: 'desk-blocked',
       status: 'pending',
     });

@@ -9,6 +9,7 @@ import {
 import type { Kysely } from 'kysely';
 import { toJson } from '../store/json.ts';
 import type { Row, Tables } from '../store/schema.ts';
+import { taskUrl } from './board-utils.ts';
 import { CommandError } from './commands.ts';
 import { clearItem, raiseItem } from './feed.ts';
 import { enqueueDoorbell } from './outbox.ts';
@@ -16,8 +17,6 @@ import { enqueueDoorbell } from './outbox.ts';
 type Trx = Kysely<Tables>;
 type Notification = Row<'notification'>;
 type Block = Row<'block'>;
-
-const DEFAULT_PAUSES = [120_000, 300_000, 900_000] as const;
 
 async function journal<K extends 'doorbell_rung' | 'doorbell_read' | 'doorbell_undelivered'>(
   trx: Trx,
@@ -139,19 +138,6 @@ export async function selectNotificationRecipient(
   return undefined;
 }
 
-export function taskUrl(task: Row<'task'>, config?: Config): string {
-  if (task.tracker_kind === 'github-issues') {
-    const match = /^(.+)#(\d+)$/.exec(task.key);
-    if (match?.[1] !== undefined && match[2] !== undefined)
-      return `https://github.com/${match[1]}/issues/${match[2]}`;
-  }
-  const project = config?.projects.find((p) => p.id === task.project);
-  if (project?.tracker.type === 'jira') {
-    return `${project.tracker.baseUrl.replace(/\/$/, '')}/browse/${task.key}`;
-  }
-  return `https://github.com/${task.key.replace('#', '/issues/')}`;
-}
-
 /** The operator item kind raised when a notification's rings are exhausted. */
 function exhaustedItemKind(
   n: Pick<Notification, 'kind'>,
@@ -186,7 +172,7 @@ export async function restartNotification(trx: Trx, sourceKey: string, at: Date)
 }
 
 /** Reconcile due semantic notifications in the sender's claim transaction. */
-export async function reconcileDoorbells(trx: Trx, at: Date, config?: Config): Promise<void> {
+export async function reconcileDoorbells(trx: Trx, at: Date, config: Config): Promise<void> {
   // Archive cancels unsent rings (`archiveTask`); ringing again before `task.add` would undo that.
   const due = await trx
     .selectFrom('notification')
@@ -313,7 +299,7 @@ export async function recordRingDelivery(
   ring: number,
   session: string,
   at: Date,
-  config?: Config,
+  config: Config,
 ): Promise<void> {
   const n = await trx
     .selectFrom('notification')
@@ -322,13 +308,11 @@ export async function recordRingDelivery(
     .executeTakeFirst();
   if (n === undefined || n.acked_at !== null || n.recipient_session !== session || n.rings >= ring)
     return;
-  const pauses = config
-    ? [
-        config.doorbells.firstRetryMs,
-        config.doorbells.secondRetryMs,
-        config.doorbells.unansweredAfterMs,
-      ]
-    : DEFAULT_PAUSES;
+  const pauses = [
+    config.doorbells.firstRetryMs,
+    config.doorbells.secondRetryMs,
+    config.doorbells.unansweredAfterMs,
+  ];
   await trx
     .updateTable('notification')
     .set({ rings: ring, next_at: new Date(at.getTime() + (pauses[ring - 1] ?? 0)).toISOString() })

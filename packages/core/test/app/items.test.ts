@@ -156,7 +156,7 @@ async function raise(
   ctx: Ctx,
   input: { key: string; kind: string; taskId?: number | null; text?: string },
 ): Promise<number> {
-  const item = await scanTransaction(ctx.store, (trx) =>
+  const item = await scanTransaction(ctx.store, config, (trx) =>
     raiseItem(trx, {
       itemKey: input.key,
       kind: input.kind,
@@ -681,6 +681,7 @@ describe('item.retry and item.close', () => {
     const ctx = await setup();
     await requestToken(
       ctx.store,
+      config,
       { name: 'laptop', folder: '/w', host: 'h', hash: 'a'.repeat(64) },
       new Date(START),
     );
