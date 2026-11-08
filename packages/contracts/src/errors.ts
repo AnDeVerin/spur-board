@@ -232,6 +232,19 @@ export const ERRORS = {
     hint: 'Run the command in a Spur session of a project listed in config.yaml, or run `board token create --name <name> --into <folder>` and ask the operator to approve the request in Slack.',
     recovery: noRetry('Get a caller identity as the fix says, then run the command again.'),
   }),
+  service_start_failed: spec('service_start_failed', {
+    status: null,
+    exit: EXIT_CODES.config,
+    message: 'The service unit is installed, but the service did not start.',
+    hint: 'Read why it failed with `journalctl --user -u spur-board.service -n 100` and run `board doctor`; systemd keeps restarting the service until the cause is fixed.',
+    recovery: {
+      action:
+        'Fix the cause shown by `journalctl --user -u spur-board.service -n 100` and `board doctor`, then run `board service restart`.',
+      sideEffects: 'applied',
+      maxRetries: 0,
+      retryTiming: 'After fixing the cause.',
+    },
+  }),
   outcome_unknown: spec('outcome_unknown', {
     status: null,
     exit: EXIT_CODES.outcomeUnknown,
