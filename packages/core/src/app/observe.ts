@@ -18,7 +18,7 @@ import { z } from 'zod';
 import { sql } from 'kysely';
 import { parseJson, toJson } from '../store/json.ts';
 import type { Store } from '../store/store.ts';
-import { emit, projectForKey, trackerSource, type Trx } from './board-utils.ts';
+import { emit, projectForKey, projectForSource, trackerSource, type Trx } from './board-utils.ts';
 import { enqueueLiveAfterFirstPoll } from './doctor.ts';
 import { reconcileMembership } from './membership-rules.ts';
 import { reconcileItems } from './fromYou.ts';
@@ -32,14 +32,6 @@ function refKey(ref: EntityRef): string {
     case 'session':
       return `session:${ref.id}`;
   }
-}
-
-function projectForSource(config: Config, source: string) {
-  return config.projects.find(
-    (project) =>
-      source === trackerSource(project) ||
-      project.repos.some((repo) => source === `github:${project.id}:${repo.toLowerCase()}`),
-  );
 }
 
 /** A closed issue of a GitHub Issues tracker, which lists only open issues. */
