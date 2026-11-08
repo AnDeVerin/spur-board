@@ -1,4 +1,11 @@
-import { AdapterError, prFactsSchema, type Config, type PrFacts } from '@spur-board/contracts';
+import {
+  AdapterError,
+  DEFAULT_LINK,
+  assertNever,
+  prFactsSchema,
+  type Config,
+  type PrFacts,
+} from '@spur-board/contracts';
 import { z } from 'zod';
 import { parseWire } from '../runner/wire.ts';
 
@@ -79,32 +86,46 @@ const prWire = z.object({
     }),
   ),
   // Selected only for the tracker repo of a github-issues project whose `link.sources` lists
-  // `closing`.
+  // `closing`; a Jira project never selects it.
   closingIssuesReferences: closingWire,
 });
 type ContextWire = z.output<typeof contextWire>;
 type ReviewWire = z.output<typeof reviewWire>;
 type ClosingWire = z.output<typeof closingWire>;
 type IssuesRule = Extract<KeyRule, { type: 'issues' }>;
+type JiraRule = Extract<KeyRule, { type: 'jira' }>;
+type Link = Config['projects'][number]['link'];
+type Tracker = Config['projects'][number]['tracker'];
 /** An issue a PR closes, as GitHub names it. */
 interface ClosingRef {
   repo: string;
   number: number;
 }
 
-/** How a source turns a PR into task keys: Jira prefixes, or a github-issues tracker repo. */
+/**
+ * How a source turns a PR into task keys: every key with one of `prefixes` in the title and
+ * branch, the issue numbers of a github-issues tracker repo, or Jira keys by a project's custom
+ * `link` rules. A `jira` pattern left `undefined` scans that text for `prefixes` keys.
+ */
 export type KeyRule =
   | { type: 'prefixes'; prefixes: readonly string[] }
   | {
       type: 'issues';
       repo: string;
-      sources: Config['projects'][number]['link']['sources'];
+      sources: Link['sources'];
       branch: RegExp;
       title: RegExp;
+    }
+  | {
+      type: 'jira';
+      prefixes: readonly string[];
+      sources: readonly ('branch' | 'title')[];
+      branch: RegExp | undefined;
+      title: RegExp | undefined;
     };
 
 /** The key rule of a github-issues project's tracker repo, built from `projects[].link`. */
-export function issuesRule(repo: string, link: Config['projects'][number]['link']): IssuesRule {
+function issuesRule(repo: string, link: Link): IssuesRule {
   return {
     type: 'issues',
     repo,
@@ -112,6 +133,39 @@ export function issuesRule(repo: string, link: Config['projects'][number]['link'
     branch: new RegExp(link.branchPattern),
     title: new RegExp(link.titlePattern),
   };
+}
+// A Jira project's `link` field equal to its default counts as unset; all three unset keep the
+// legacy scan of title and branch for every `projectKeys` key.
+function jiraRule(prefixes: readonly string[], link: Link): KeyRule {
+  const sources =
+    link.sources.length === DEFAULT_LINK.sources.length &&
+    link.sources.every((source, i) => source === DEFAULT_LINK.sources[i]);
+  const branch = link.branchPattern === DEFAULT_LINK.branchPattern;
+  const title = link.titlePattern === DEFAULT_LINK.titlePattern;
+  if (sources && branch && title) return { type: 'prefixes', prefixes };
+  return {
+    type: 'jira',
+    prefixes,
+    sources: link.sources.filter((source) => source !== 'closing'),
+    branch: branch ? undefined : new RegExp(link.branchPattern),
+    title: title ? undefined : new RegExp(link.titlePattern),
+  };
+}
+/**
+ * The key rule of `repo` in a project: the github-issues tracker repo reads issue numbers by
+ * `link`, its other repos link nothing, and a Jira project's repos read `projectKeys` keys.
+ */
+export function projectKeyRule(tracker: Tracker, link: Link, repo: string): KeyRule {
+  switch (tracker.type) {
+    case 'github-issues':
+      return tracker.repo.toLowerCase() === repo.toLowerCase()
+        ? issuesRule(tracker.repo, link)
+        : { type: 'prefixes', prefixes: [] };
+    case 'jira':
+      return jiraRule(tracker.projectKeys, link);
+    default:
+      return assertNever(tracker);
+  }
 }
 /** Drops denied (null) nodes and nodes without a repository. */
 export function closingRefs(wire: ClosingWire): ClosingRef[] {
@@ -193,9 +247,13 @@ function latestReviews(nodes: readonly ReviewWire[]): PrFacts['reviews'] {
   return [...latest.values()].sort((a, b) => a.reviewer.localeCompare(b.reviewer));
 }
 export function ticketKeys(title: string, branch: string, prefixes: readonly string[]): string[] {
+  return scanKeys(`${title} ${branch}`, prefixes);
+}
+// Every key with one of `prefixes` in `text`, in any letter case, uppercased, in order.
+function scanKeys(text: string, prefixes: readonly string[]): string[] {
   const keys = new Set<string>();
   const allowed = new Set(prefixes);
-  for (const match of `${title} ${branch}`.matchAll(
+  for (const match of text.matchAll(
     /(?<![A-Za-z0-9_])([A-Z][A-Z0-9_]*)-([1-9][0-9]*)(?![A-Za-z0-9_])/gi,
   )) {
     const prefix = match[1]?.toUpperCase();
@@ -214,7 +272,7 @@ function matchedNumber(text: string, pattern: RegExp): number | undefined {
   return number !== undefined && ISSUE_NUMBER.test(number) ? Number(number) : undefined;
 }
 // The first source in `rule.sources` that yields a number gives the keys.
-export function issueKeys(
+function issueKeys(
   title: string,
   branch: string,
   refs: readonly ClosingRef[],
@@ -237,6 +295,46 @@ export function issueKeys(
       return [...numbers].sort((a, b) => a - b).map((number) => `${rule.repo}#${String(number)}`);
   }
   return [];
+}
+const JIRA_KEY = /^([A-Z][A-Z0-9_]*)-[1-9][0-9]*$/;
+// The key a custom pattern captures, uppercased, when it is a key with one of `prefixes`.
+function matchedKey(text: string, pattern: RegExp, prefixes: readonly string[]): string[] {
+  if (text.length > MAX_MATCHED_LENGTH) return [];
+  const key = pattern.exec(text)?.[1]?.toUpperCase();
+  if (key === undefined) return [];
+  const prefix = JIRA_KEY.exec(key)?.[1];
+  return prefix !== undefined && prefixes.includes(prefix) ? [key] : [];
+}
+// The first source in `rule.sources` that yields a key gives the keys.
+function jiraKeys(title: string, branch: string, rule: JiraRule): string[] {
+  for (const source of rule.sources) {
+    const text = source === 'branch' ? branch : title;
+    const pattern = rule[source];
+    const keys =
+      pattern === undefined
+        ? scanKeys(text, rule.prefixes)
+        : matchedKey(text, pattern, rule.prefixes);
+    if (keys.length > 0) return keys;
+  }
+  return [];
+}
+/** The task keys `rule` reads from a PR's title, head branch and closing references. */
+export function prKeys(
+  rule: KeyRule,
+  title: string,
+  branch: string,
+  refs: readonly ClosingRef[],
+): string[] {
+  switch (rule.type) {
+    case 'prefixes':
+      return ticketKeys(title, branch, rule.prefixes);
+    case 'issues':
+      return issueKeys(title, branch, refs, rule);
+    case 'jira':
+      return jiraKeys(title, branch, rule);
+    default:
+      return assertNever(rule);
+  }
 }
 export function normalizePr(repo: string, value: unknown, rule: KeyRule): PrFacts {
   const wire = parseWire(prWire, value, 'Malformed GitHub PR response');
@@ -275,10 +373,7 @@ export function normalizePr(repo: string, value: unknown, rule: KeyRule): PrFact
       reviewer: node.requestedReviewer.login ?? node.requestedReviewer.name,
       asCodeOwner: node.asCodeOwner,
     })),
-    ticketKeys:
-      rule.type === 'prefixes'
-        ? ticketKeys(title, headBranch, rule.prefixes)
-        : issueKeys(title, headBranch, closingRefs(wire.closingIssuesReferences), rule),
+    ticketKeys: prKeys(rule, title, headBranch, closingRefs(wire.closingIssuesReferences)),
     updatedAt: wire.updatedAt,
   };
   const parsed = prFactsSchema.safeParse(facts);

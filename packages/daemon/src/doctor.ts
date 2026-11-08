@@ -142,7 +142,7 @@ function sampleProject(
 ): Promise<LinkSample | null> {
   return deadlineCall(ctx, 'doctor.link_rules', 'GitHub link sample failed', (signal) =>
     sampleLinkRules(
-      { repo, login: project.operatorGithubLogin, link: project.link },
+      { repo, login: project.operatorGithubLogin, tracker: project.tracker, link: project.link },
       { token, fetch: fetcher, signal },
     ),
   );
@@ -153,10 +153,13 @@ function sampleLinks(
   fetcher: typeof fetch,
   token: string | undefined,
 ): Promise<LinkOutcome[]> | null {
+  // A github-issues project links PRs in tracker.repo; a Jira project in every repos entry.
   const projects = ctx.config.projects.flatMap((project) =>
-    project.tracker.type === 'github-issues' ? [{ project, repo: project.tracker.repo }] : [],
+    project.tracker.type === 'github-issues'
+      ? [{ project, repo: project.tracker.repo }]
+      : project.repos.map((repo) => ({ project, repo })),
   );
-  if (projects.length === 0 || token === undefined) return null;
+  if (token === undefined) return null;
   return Promise.all(
     projects.map(async ({ project, repo }): Promise<LinkOutcome> => {
       const polled = project.repos.some((entry) => entry.toLowerCase() === repo.toLowerCase());
@@ -221,9 +224,8 @@ function fitFix(segments: readonly LinkSegment[], tail: string, fallback: string
   return fallback;
 }
 
-function linkRulesCheck(outcomes: readonly LinkOutcome[] | null, configured: boolean): Check {
+function linkRulesCheck(outcomes: readonly LinkOutcome[] | null): Check {
   const id = 'link.rules';
-  if (!configured) return { id, status: 'pass', blocking: false, fix: null };
   if (outcomes === null) return warning(id, LINK_RULES_TOKEN_FIX);
   const segments = outcomes.map(linkSegment);
   const problems = segments.filter((segment) => segment.problem);
@@ -392,12 +394,7 @@ export async function runDaemonDoctor(
         );
   const githubFailure = githubFailures.find((failure) => failure !== null) ?? null;
   checks.push(check('github.credentials', githubFailure === null, githubFailure ?? GITHUB_FIX));
-  checks.push(
-    linkRulesCheck(
-      await linkSamples,
-      config.projects.some((project) => project.tracker.type === 'github-issues'),
-    ),
-  );
+  checks.push(linkRulesCheck(await linkSamples));
 
   // Same request the doorbell port makes, to a session that never exists, so no agent gets it.
   const probe = spurSendRequest(

@@ -32,6 +32,7 @@ function doctorContext(
     secrets?: Readonly<Record<string, string>>;
     // A github-issues project tracking example/board instead of the Jira project.
     issues?: boolean;
+    repos?: readonly string[];
   } = {},
 ) {
   const store = openStore(join(makeHome(), 'board.sqlite'));
@@ -48,8 +49,9 @@ function doctorContext(
               jql: 'project = BOARD',
               doneStatuses: ['Done'],
               readyStatuses: ['Ready'],
+              projectKeys: ['BOARD'],
             },
-        repos: ['example/board'],
+        repos: options.repos ?? ['example/board'],
         operatorGithubLogin: 'operator',
         spurProjects: options.operator ? [{ name: 'operator', role: 'operator' }] : [],
       },
@@ -353,7 +355,8 @@ describe('daemon doctor checks', () => {
       blocking: true,
     });
     expect(github?.fix).toContain('read:org');
-    expect(JSON.stringify(report)).not.toMatch(/secret-canary|reviewers|example\/board/);
+    expect(JSON.stringify(report)).not.toMatch(/secret-canary|reviewers/);
+    expect(JSON.stringify(github)).not.toMatch(/example\/board/);
   });
 
   it.each([
@@ -375,7 +378,7 @@ describe('daemon doctor checks', () => {
       blocking: false,
       fix: null,
     });
-    expect(fetcher).toHaveBeenCalledTimes(5);
+    expect(fetcher).toHaveBeenCalledTimes(6);
   });
 
   it.each([
@@ -469,7 +472,7 @@ describe('daemon doctor checks', () => {
       fix: 'Slack is not configured: questions addressed to you are only visible through board inbox. Run the spur-board-setup skill to configure slack.channels.',
     });
     expect(report.checks.every((check) => !check.blocking)).toBe(true);
-    expect(fetcher).toHaveBeenCalledTimes(5);
+    expect(fetcher).toHaveBeenCalledTimes(6);
   });
 
   it('fails with the missing bot scope when the token is valid', async () => {
@@ -505,12 +508,16 @@ describe('daemon doctor checks', () => {
     expect(report.checks.filter((check) => check.id.startsWith('slack.'))).toEqual([
       expect.objectContaining({ id: 'slack.configured', status: 'warning', blocking: false }),
     ]);
-    expect(fetcher).toHaveBeenCalledTimes(5);
+    expect(fetcher).toHaveBeenCalledTimes(6);
   });
 
   it('reports every daemon-owned check as passing without returning credential values', async () => {
     const ctx = doctorContext({ operator: true });
-    const report = await runDaemonDoctor(ctx, '1.2.3', doctorFetch());
+    const report = await runDaemonDoctor(
+      ctx,
+      '1.2.3',
+      doctorFetch(undefined, [samplePr(1, 'BOARD-1-x')]),
+    );
     expect(report.version).toBe('1.2.3');
     expect(report.checks.map((check) => check.id)).toEqual([
       'secrets',
@@ -525,9 +532,17 @@ describe('daemon doctor checks', () => {
       'slack.command',
       'operator.path',
     ]);
-    expect(report.checks.every((check) => check.status === 'pass' && check.fix === null)).toBe(
-      true,
-    );
+    expect(report.checks.find((check) => check.id === 'link.rules')).toEqual({
+      id: 'link.rules',
+      status: 'pass',
+      blocking: false,
+      fix: 'board: link rules match 1 of the last 1 PRs in example/board.',
+    });
+    expect(
+      report.checks
+        .filter((check) => check.id !== 'link.rules')
+        .every((check) => check.status === 'pass' && check.fix === null),
+    ).toBe(true);
     expect(JSON.stringify(report)).not.toMatch(/secret-canary/);
   });
 
@@ -695,6 +710,45 @@ describe('daemon doctor link rules', () => {
     );
     expect(linkRules(tokenless)).toMatchObject({ status: 'warning', blocking: false });
     expect(linkRules(tokenless)?.fix).toContain('GITHUB_TOKEN');
+  });
+
+  it("samples a Jira project's repos against projectKeys", async () => {
+    const fetcher = doctorFetch(undefined, [
+      samplePr(3, 'BOARD-3-x'),
+      samplePr(2, 'feature/no-key'),
+    ]);
+    const report = await runDaemonDoctor(
+      doctorContext({ operator: true, slack: false }),
+      '1.2.3',
+      fetcher,
+    );
+    const check = linkRules(report);
+    expect(check).toMatchObject({ status: 'warning', blocking: false });
+    expect(check?.fix).toContain('board: link rules match 1 of the last 2 PRs in example/board');
+    expect(check?.fix).toContain('not matched: #2 `feature/no-key`');
+    // Jira, repository, permission probe, link sample and two Spur requests.
+    expect(fetcher).toHaveBeenCalledTimes(6);
+  });
+
+  it('samples every repo of a Jira project', async () => {
+    const report = await runDaemonDoctor(
+      doctorContext({ operator: true, slack: false, repos: ['example/board', 'example/api'] }),
+      '1.2.3',
+      doctorFetch(undefined, [samplePr(3, 'feature/no-key')]),
+    );
+    const check = linkRules(report);
+    expect(check?.fix).toContain('in example/board');
+    expect(check?.fix).toContain('in example/api');
+  });
+
+  it('warns on link.rules without GITHUB_TOKEN when only Jira projects exist', async () => {
+    const report = await runDaemonDoctor(
+      doctorContext({ operator: true, slack: false, secrets: {} }),
+      '1.2.3',
+      doctorFetch(),
+    );
+    expect(linkRules(report)).toMatchObject({ status: 'warning', blocking: false });
+    expect(linkRules(report)?.fix).toContain('GITHUB_TOKEN');
   });
 
   it('keeps the link.rules fix within the report limit for many projects', async () => {

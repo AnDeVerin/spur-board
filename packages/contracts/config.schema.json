@@ -55,26 +55,26 @@
             "items": { "type": "string", "pattern": "^[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+$" }
           },
           "link": {
-            "description": "How a github-issues project links a PR in tracker.repo to its issue. A Jira project ignores it and links by tracker.projectKeys. Set the sources and patterns to the branch and PR title naming rules of tracker.repo. The board does not enforce those rules; the repo enforces them through its CI title check and its agents' skills. board doctor compares these rules with recent PRs by operatorGithubLogin.",
+            "description": "How a project links a PR to its task. A github-issues project reads an issue number from PRs in tracker.repo; a Jira project reads an issue key with one of tracker.projectKeys from PRs in repos. Left at the defaults, a Jira project links every tracker.projectKeys key (such as PROJ-12, any letter case) in the PR title or head branch. Set the sources and patterns to the branch and PR title naming rules of the repos. The board does not enforce those rules; the repo enforces them through its CI title check and its agents' skills. board doctor compares these rules with recent PRs by operatorGithubLogin.",
             "default": {},
             "type": "object",
             "properties": {
               "sources": {
                 "default": ["closing", "branch", "title"],
-                "description": "Where a PR in tracker.repo names its issue, in priority order; the first source that yields an issue number wins. closing: issues in tracker.repo the PR closes (Closes #12 in the body, or linked in the sidebar), for PRs to the default branch only. branch: branchPattern on the head branch. title: titlePattern on the PR title.",
+                "description": "Where a PR names its task, in priority order; the first source that yields an issue number wins (for a Jira project, an issue key). closing: issues in tracker.repo the PR closes (Closes #12 in the body, or linked in the sidebar), for PRs to the default branch only; a Jira project skips it. branch: branchPattern on the head branch. title: titlePattern on the PR title.",
                 "minItems": 1,
                 "type": "array",
                 "items": { "type": "string", "enum": ["closing", "branch", "title"] }
               },
               "branchPattern": {
                 "default": "^[A-Za-z]+-([1-9][0-9]*)",
-                "description": "Regular expression that starts with ^ and whose one capture group reads the issue number from a PR head branch, such as <agent>-<number>-<slug>. Branches longer than 255 characters are not matched.",
+                "description": "Regular expression that starts with ^ and whose one capture group reads the issue number from a PR head branch, such as <agent>-<number>-<slug>. Branches longer than 255 characters are not matched. For a Jira project the capture group reads the issue key, such as PROJ-12, which must use one of tracker.projectKeys in any letter case; left at the default, a Jira project finds every such key in the PR head branch.",
                 "type": "string",
                 "minLength": 1
               },
               "titlePattern": {
                 "default": "^[a-z]+(?:\\([^)]*\\))?!?: #([1-9][0-9]*)",
-                "description": "Regular expression that starts with ^ and whose one capture group reads the issue number from a PR title, such as fix(core): #12 summary. Titles longer than 255 characters are not matched.",
+                "description": "Regular expression that starts with ^ and whose one capture group reads the issue number from a PR title, such as fix(core): #12 summary. Titles longer than 255 characters are not matched. For a Jira project the capture group reads the issue key, such as PROJ-12, which must use one of tracker.projectKeys in any letter case; left at the default, a Jira project finds every such key in the PR title.",
                 "type": "string",
                 "minLength": 1
               }

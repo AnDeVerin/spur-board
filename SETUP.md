@@ -97,6 +97,9 @@ naming; the repository does, through its CI title check and the skills its agent
 rules and the actual PR names differ, PRs stay unlinked. `board doctor` compares the link rules
 with your recent PRs in the tracker repository and names the PRs they miss.
 
+A Jira project links a PR in any of its repos by a `tracker.projectKeys` key (such as PROJ-12) in
+its title or head branch, and sets `projects[].link` only when its repos name keys another way.
+
 Put tokens in a private regular `secrets.env` file with mode `0600`; never put them in
 `config.yaml`. `GITHUB_TOKEN` is required, `JIRA_EMAIL` and `JIRA_API_TOKEN` are needed for Jira,
 and `SLACK_BOT_TOKEN` and `SLACK_APP_TOKEN` are needed when Slack is configured. The

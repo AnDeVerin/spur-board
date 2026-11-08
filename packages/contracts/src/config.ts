@@ -79,6 +79,16 @@ function captureGroups(pattern: string): number | undefined {
 /** Where a PR in the tracker repository can name its issue, in the default priority order. */
 const LINK_SOURCES = ['closing', 'branch', 'title'] as const;
 
+/**
+ * The `projects[].link` defaults. A Jira project whose `link` field equals its default here
+ * treats it as unset and finds every `tracker.projectKeys` key in that text instead.
+ */
+export const DEFAULT_LINK = {
+  sources: LINK_SOURCES,
+  branchPattern: '^[A-Za-z]+-([1-9][0-9]*)',
+  titlePattern: '^[a-z]+(?:\\([^)]*\\))?!?: #([1-9][0-9]*)',
+} as const;
+
 /** A `link` pattern: compiles, starts with `^` and has exactly one capture group. */
 function linkPattern(fallback: string, description: string) {
   return nonEmpty
@@ -192,22 +202,22 @@ const projectSchema = z
                 });
             });
           })
-          .default([...LINK_SOURCES])
+          .default([...DEFAULT_LINK.sources])
           .describe(
-            'Where a PR in tracker.repo names its issue, in priority order; the first source that yields an issue number wins. closing: issues in tracker.repo the PR closes (Closes #12 in the body, or linked in the sidebar), for PRs to the default branch only. branch: branchPattern on the head branch. title: titlePattern on the PR title.',
+            'Where a PR names its task, in priority order; the first source that yields an issue number wins (for a Jira project, an issue key). closing: issues in tracker.repo the PR closes (Closes #12 in the body, or linked in the sidebar), for PRs to the default branch only; a Jira project skips it. branch: branchPattern on the head branch. title: titlePattern on the PR title.',
           ),
         branchPattern: linkPattern(
-          '^[A-Za-z]+-([1-9][0-9]*)',
-          'Regular expression that starts with ^ and whose one capture group reads the issue number from a PR head branch, such as <agent>-<number>-<slug>. Branches longer than 255 characters are not matched.',
+          DEFAULT_LINK.branchPattern,
+          'Regular expression that starts with ^ and whose one capture group reads the issue number from a PR head branch, such as <agent>-<number>-<slug>. Branches longer than 255 characters are not matched. For a Jira project the capture group reads the issue key, such as PROJ-12, which must use one of tracker.projectKeys in any letter case; left at the default, a Jira project finds every such key in the PR head branch.',
         ),
         titlePattern: linkPattern(
-          '^[a-z]+(?:\\([^)]*\\))?!?: #([1-9][0-9]*)',
-          'Regular expression that starts with ^ and whose one capture group reads the issue number from a PR title, such as fix(core): #12 summary. Titles longer than 255 characters are not matched.',
+          DEFAULT_LINK.titlePattern,
+          'Regular expression that starts with ^ and whose one capture group reads the issue number from a PR title, such as fix(core): #12 summary. Titles longer than 255 characters are not matched. For a Jira project the capture group reads the issue key, such as PROJ-12, which must use one of tracker.projectKeys in any letter case; left at the default, a Jira project finds every such key in the PR title.',
         ),
       })
       .prefault({})
       .describe(
-        "How a github-issues project links a PR in tracker.repo to its issue. A Jira project ignores it and links by tracker.projectKeys. Set the sources and patterns to the branch and PR title naming rules of tracker.repo. The board does not enforce those rules; the repo enforces them through its CI title check and its agents' skills. board doctor compares these rules with recent PRs by operatorGithubLogin.",
+        "How a project links a PR to its task. A github-issues project reads an issue number from PRs in tracker.repo; a Jira project reads an issue key with one of tracker.projectKeys from PRs in repos. Left at the defaults, a Jira project links every tracker.projectKeys key (such as PROJ-12, any letter case) in the PR title or head branch. Set the sources and patterns to the branch and PR title naming rules of the repos. The board does not enforce those rules; the repo enforces them through its CI title check and its agents' skills. board doctor compares these rules with recent PRs by operatorGithubLogin.",
       ),
     operatorGithubLogin: z
       .string()
