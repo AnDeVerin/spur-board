@@ -15,7 +15,13 @@ import {
 import { sql, type Kysely } from 'kysely';
 import type { Store } from '../store/store.ts';
 import type { Row, Tables } from '../store/schema.ts';
-import { reconcileDoorbells, recordRingDelivery, ringStillCurrent, ringTask } from './doorbells.ts';
+import {
+  reconcileDoorbells,
+  recordRingDelivery,
+  ringStillCurrent,
+  ringTask,
+  ringUndelivered,
+} from './doorbells.ts';
 import { clearItem, raiseItem } from './feed.ts';
 import {
   deliveredRefSchema,
@@ -91,7 +97,8 @@ interface Claim {
   parent: DeliveredRef | null;
 }
 
-type Outcome = DeliveryResult | { status: 'sent' };
+/** `sent` and `rejected` are a doorbell's: Spur took the ring, or refused it for good. */
+type Outcome = DeliveryResult | { status: 'sent' } | { status: 'rejected' };
 
 function parseBody(row: Pick<OutboxRow, 'kind' | 'payload'>): OutboxBody | string {
   try {
@@ -679,6 +686,9 @@ export function createSender(options: SenderOptions): Sender {
       return { outcome: await gateway.deliver(request), error: null };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      if (c.body.kind === 'doorbell' && error instanceof SpurRejectedError) {
+        return { outcome: { status: 'rejected' }, error: message };
+      }
       return { outcome: { status: 'retry', uncertain: true }, error: message };
     }
   }
@@ -698,6 +708,19 @@ export function createSender(options: SenderOptions): Sender {
     const postFailed = async (patch: { last_error: string; uncertain?: 0 | 1 }) => {
       await row.set({ state: 'post_failed', ...patch }).execute();
       await setComment(trx, body, { delivery_state: 'post_failed' });
+    };
+    /** Kills a ring Spur will not take and ends its notification. */
+    const endRing = async (reason: string) => {
+      await kill(trx, [c.id], reason);
+      if (body.kind !== 'doorbell') return;
+      await ringUndelivered(trx, {
+        notificationId: body.payload.notificationId,
+        dedupeKey: c.key,
+        session: body.payload.session,
+        reason,
+        at: new Date(at),
+        config: options.config,
+      });
     };
     switch (outcome.status) {
       case 'sent':
@@ -836,6 +859,10 @@ export function createSender(options: SenderOptions): Sender {
         if (space !== null && health === undefined && at - firstAt >= RETRY_WINDOW_MS) {
           return postFailed({ uncertain, last_error: lastError });
         }
+        // A doorbell has no space and no health row: Spur silent for the window ends the ring.
+        if (space === null && at - firstAt >= RETRY_WINDOW_MS) {
+          return endRing(`no answer from Spur for 30 min: ${lastError}`);
+        }
         await row
           .set({
             state: 'pending',
@@ -849,6 +876,8 @@ export function createSender(options: SenderOptions): Sender {
         await setComment(trx, body, { delivery_state: 'pending' });
         return;
       }
+      case 'rejected':
+        return endRing(error ?? 'rejected by Spur');
       case 'failed': {
         if (outcome.scope === 'message' || space === null) {
           return postFailed({ last_error: outcome.reason });

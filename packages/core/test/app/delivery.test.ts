@@ -26,7 +26,7 @@ import {
   type Sender,
   type Store,
 } from '../../src/index.ts';
-import { HEALTH_PROBE_MS, retryTransport } from '../../src/app/sender.ts';
+import { HEALTH_PROBE_MS, retryTransport, SpurRejectedError } from '../../src/app/sender.ts';
 import {
   observeGateway,
   observeSpur,
@@ -1184,6 +1184,45 @@ describe('doorbell via SpurPort', () => {
     await step(ctx);
     expect(ctx.spur.sends).toEqual([['sess-1', 'ping']]);
     expect((await outboxRow(ctx, id)).state).toBe('done');
+  });
+
+  it('ends an author ring Spur rejects', async () => {
+    const ctx = setup();
+    const seed = await seedBlock(ctx);
+    const key = `doorbell:comment:${String(seed.commentId)}:revision:1`;
+    const id = await insertRow(ctx, 'doorbell', key, { session: 'sess-1', text: 'ping' });
+    ctx.spur.throwNext(new SpurRejectedError('Spur send failed with HTTP 404: x'));
+    await ctx.sender.tick();
+    expect(await outboxRow(ctx, id)).toMatchObject({
+      state: 'dead',
+      last_error: 'Spur send failed with HTTP 404: x',
+    });
+    const events = await ctx.store.db
+      .selectFrom('event')
+      .select(['task_id', 'payload'])
+      .where('kind', '=', 'doorbell_undelivered')
+      .execute();
+    expect(events.map((e) => ({ ...e, payload: JSON.parse(e.payload) as unknown }))).toEqual([
+      {
+        task_id: seed.taskId,
+        payload: { doorbell: key, reason: 'Spur send failed with HTTP 404: x' },
+      },
+    ]);
+    expect(
+      await ctx.store.db
+        .selectFrom('operator_item')
+        .select(['kind', 'item_key', 'task_id'])
+        .where('kind', '=', 'answer_author_unavailable')
+        .execute(),
+    ).toEqual([
+      {
+        kind: 'answer_author_unavailable',
+        item_key: `doorbell:unavailable:${key}`,
+        task_id: seed.taskId,
+      },
+    ]);
+    await step(ctx, 60_000);
+    expect(ctx.spur.sends).toEqual([]);
   });
 });
 

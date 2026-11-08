@@ -9,6 +9,7 @@ import {
 import type { Kysely } from 'kysely';
 import { toJson } from '../store/json.ts';
 import type { Row, Tables } from '../store/schema.ts';
+import { emit } from './board-utils.ts';
 import { CommandError } from './commands.ts';
 import { clearItem, raiseItem } from './feed.ts';
 import { enqueueDoorbell } from './outbox.ts';
@@ -183,6 +184,80 @@ export async function restartNotification(trx: Trx, sourceKey: string, at: Date)
       'The doorbell was read or is still ringing; close the item instead.',
     );
   }
+}
+
+/**
+ * Ends a ring Spur will not take (a permanent rejection, or no answer for the retry window): its
+ * notification stops ringing, the operator gets an item and `doorbell_undelivered` is journalled.
+ * The operator's Retry on the item restarts the series (`restartNotification`). An inbound author
+ * ring has no notification: it ends like an author found unavailable at enqueue.
+ */
+export async function ringUndelivered(
+  trx: Trx,
+  input: {
+    notificationId?: number | undefined;
+    dedupeKey: string;
+    session: string;
+    reason: string;
+    at: Date;
+    config?: Config | undefined;
+  },
+): Promise<void> {
+  const { at, reason } = input;
+  if (input.notificationId === undefined) {
+    const task = await ringTask(trx, undefined, input.dedupeKey);
+    if (task === undefined) return;
+    await emit(trx, 'doorbell_undelivered', task.project, task.id, at.toISOString(), {
+      doorbell: input.dedupeKey,
+      reason,
+    });
+    await raiseItem(trx, {
+      itemKey: `doorbell:unavailable:${input.dedupeKey}`,
+      kind: 'answer_author_unavailable',
+      text: `Answer author unavailable: ${reason}`,
+      url: taskUrl(task, input.config),
+      taskId: task.id,
+      blockId: null,
+      at,
+    });
+    return;
+  }
+  const n = await trx
+    .selectFrom('notification')
+    .selectAll()
+    .where('id', '=', input.notificationId)
+    .executeTakeFirst();
+  // A ring for a former recipient does not end the series: reconcile rings the current one.
+  if (
+    n === undefined ||
+    n.acked_at !== null ||
+    n.exhausted_at !== null ||
+    n.recipient_session !== input.session
+  )
+    return;
+  const task = await trx
+    .selectFrom('task')
+    .selectAll()
+    .where('id', '=', n.task_id)
+    .executeTakeFirstOrThrow();
+  await trx
+    .updateTable('notification')
+    .set({ exhausted_at: at.toISOString() })
+    .where('id', '=', n.id)
+    .execute();
+  await raiseItem(trx, {
+    itemKey: exhaustedItemKey(n),
+    kind: exhaustedItemKind(n),
+    text:
+      n.kind === 'answer'
+        ? `Answer to block B${String(n.block_id)} on ${task.key} was not delivered: ${reason}`
+        : `worker ${input.session} did not get block B${String(n.block_id)} on ${task.key}: ${reason}`,
+    url: taskUrl(task, input.config),
+    taskId: task.id,
+    blockId: n.block_id,
+    at,
+  });
+  await journal(trx, n, 'doorbell_undelivered', { doorbell: `N${String(n.id)}`, reason }, at);
 }
 
 /** Reconcile due semantic notifications in the sender's claim transaction. */

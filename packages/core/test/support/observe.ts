@@ -77,7 +77,8 @@ export interface ObservedSpur {
   spur: SpurPort;
   sends: [session: string, text: string][];
   violations: string[];
-  throwNext(message?: string): void;
+  /** The next `send` throws `error` as given, or a plain `Error` with this message. */
+  throwNext(error?: string | Error): void;
   /** The next `send` is recorded as sent, then closes `store` and rejects. */
   crashNext(store: Store): void;
 }
@@ -85,16 +86,16 @@ export interface ObservedSpur {
 export function observeSpur(file: string): ObservedSpur {
   const sends: [string, string][] = [];
   const violations: string[] = [];
-  let throwing: string | undefined;
+  let throwing: string | Error | undefined;
   let crash: Store | undefined;
   return {
     spur: {
       async send(session, text) {
         probe(file, violations, 'send');
         if (throwing !== undefined) {
-          const message = throwing;
+          const error = throwing;
           throwing = undefined;
-          throw new Error(message);
+          throw typeof error === 'string' ? new Error(error) : error;
         }
         sends.push([session, text]);
         const armed = crash;
@@ -107,8 +108,8 @@ export function observeSpur(file: string): ObservedSpur {
     },
     sends,
     violations,
-    throwNext(message = 'send threw') {
-      throwing = message;
+    throwNext(error = 'send threw') {
+      throwing = error;
     },
     crashNext(store) {
       crash = store;
