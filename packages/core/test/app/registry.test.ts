@@ -522,7 +522,7 @@ async function seedUnlinkedAges(store: Store, spurLastCompleteAt: string | null 
       head_sha: facts.headSha,
       head_branch: facts.headBranch,
       state,
-      draft: 0,
+      draft: 0 as const,
       mergeable: 'mergeable',
       merge_state: 'clean',
       detail: JSON.stringify(facts),
