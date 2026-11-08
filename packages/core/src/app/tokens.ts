@@ -50,6 +50,21 @@ async function journalToken(
     .execute();
 }
 
+/** Lapse one pending request: journal it once and clear its approval item. */
+async function expireToken(
+  trx: Trx,
+  row: { id: number; name: string; item_id: number },
+  at: Date,
+): Promise<void> {
+  await trx
+    .updateTable('operator_token')
+    .set({ status: 'expired', decided_at: at.toISOString() })
+    .where('id', '=', row.id)
+    .execute();
+  await journalToken(trx, 'token_expired', row.name, at);
+  await clearItem(trx, row.item_id, at);
+}
+
 export interface TokenRequest {
   name: string;
   folder: string;
@@ -74,10 +89,17 @@ export async function requestToken(
   return scanTransaction(store, async (trx) => {
     const existing = await trx
       .selectFrom('operator_token')
-      .select('id')
+      .selectAll()
       .where('name', '=', input.name)
       .executeTakeFirst();
-    if (existing !== undefined) throw new CommandError('usage', 'Choose a new token name.');
+    // A request that ended without approval never held a credential, so its name is free again.
+    const status = existing === undefined ? undefined : effectiveStatus(existing, at);
+    if (status === 'pending' || status === 'approved' || status === 'revoked') {
+      throw new CommandError(
+        'usage',
+        `Token name ${input.name} is taken; choose another name (see \`board token list\`).`,
+      );
+    }
     const pending = await trx
       .selectFrom('operator_token')
       .select('id')
@@ -88,6 +110,8 @@ export async function requestToken(
     if (pending.length >= MAX_PENDING_REQUESTS) {
       throw new CommandError('usage', 'Too many token requests are awaiting approval.');
     }
+    // Lapse an unswept request first so its old approval button cannot approve the new hash.
+    if (existing?.status === 'pending') await expireToken(trx, existing, at);
     const item = await raiseItem(trx, {
       itemKey: `token:${input.name}`,
       kind: 'token_request',
@@ -97,20 +121,24 @@ export async function requestToken(
       blockId: null,
       at,
     });
-    await trx
-      .insertInto('operator_token')
-      .values({
-        name: input.name,
-        hash: input.hash,
-        folder: input.folder,
-        host: input.host,
-        status: 'pending',
-        requested_at: at.toISOString(),
-        expires_at: expiresAt,
-        decided_at: null,
-        item_id: item.id,
-      })
-      .execute();
+    const values = {
+      hash: input.hash,
+      folder: input.folder,
+      host: input.host,
+      status: 'pending',
+      requested_at: at.toISOString(),
+      expires_at: expiresAt,
+      decided_at: null,
+      item_id: item.id,
+    } as const;
+    if (existing === undefined) {
+      await trx
+        .insertInto('operator_token')
+        .values({ name: input.name, ...values })
+        .execute();
+    } else {
+      await trx.updateTable('operator_token').set(values).where('id', '=', existing.id).execute();
+    }
     await journalToken(trx, 'token_requested', input.name, at);
     return { name: input.name, status: 'pending', expiresAt };
   });
@@ -131,15 +159,7 @@ export async function decideTokenInTransaction(
   if (row === undefined) throw new CommandError('not_found', 'Token request was not found.');
   const status = effectiveStatus(row, at);
   if (status !== 'pending') {
-    if (status === 'expired' && row.status === 'pending') {
-      await trx
-        .updateTable('operator_token')
-        .set({ status: 'expired', decided_at: at.toISOString() })
-        .where('id', '=', row.id)
-        .execute();
-      await journalToken(trx, 'token_expired', row.name, at);
-      await clearItem(trx, row.item_id, at);
-    }
+    if (status === 'expired' && row.status === 'pending') await expireToken(trx, row, at);
     return { name: row.name, status };
   }
   const next = decision === 'approve' ? 'approved' : 'denied';
@@ -170,15 +190,7 @@ export async function expirePendingTokens(store: Store, at: Date): Promise<numbe
       .where('status', '=', 'pending')
       .where('expires_at', '<=', expiresAt)
       .execute();
-    for (const row of rows) {
-      await trx
-        .updateTable('operator_token')
-        .set({ status: 'expired', decided_at: expiresAt })
-        .where('id', '=', row.id)
-        .execute();
-      await journalToken(trx, 'token_expired', row.name, at);
-      await clearItem(trx, row.item_id, at);
-    }
+    for (const row of rows) await expireToken(trx, row, at);
     return rows.length;
   });
 }

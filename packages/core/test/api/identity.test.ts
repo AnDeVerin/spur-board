@@ -62,21 +62,22 @@ afterEach(async () => {
 });
 
 describe('API identity', () => {
-  it('enrolls without a credential and keeps approval pending', async () => {
+  it('enrolls without a credential, keeps approval pending and reuses an expired name', async () => {
     const store = await storeWithSession();
+    let now = Date.parse('2026-11-04T10:00:00.000Z');
     const app = await createApiServer({
       store,
       config,
       port: 4311,
       ready: () => true,
-      clock: { now: () => Date.parse('2026-11-04T10:00:00.000Z') },
+      clock: { now: () => now },
       lookupSession: vi.fn(),
       verifyToken: (token) => verifyOperatorToken(store, token),
       registry: {},
       logRequest: vi.fn(),
     });
-    try {
-      const response = await app.inject({
+    const enroll = (secret: string) =>
+      app.inject({
         method: 'POST',
         url: '/v1/tokens/requests',
         headers: { host: '127.0.0.1:4311', 'content-type': 'application/json' },
@@ -84,12 +85,22 @@ describe('API identity', () => {
           name: 'desk',
           folder: 'workspace/desk',
           host: 'local',
-          hash: createHash('sha256').update('private').digest('hex'),
+          hash: createHash('sha256').update(secret).digest('hex'),
         }),
       });
+    try {
+      const response = await enroll('private');
       expect(response.statusCode).toBe(200);
       expect(response.json()).toMatchObject({ value: { name: 'desk', status: 'pending' } });
       expect(await verifyOperatorToken(store, 'private')).toBeNull();
+
+      now += 15 * 60 * 1000;
+      const again = await enroll('private-again');
+      expect(again.body).not.toContain('does not match the operation schema');
+      expect(again.statusCode).toBe(200);
+      expect(again.json()).toMatchObject({
+        value: { name: 'desk', status: 'pending', expiresAt: '2026-11-04T10:30:00.000Z' },
+      });
     } finally {
       await app.close();
     }

@@ -18,6 +18,9 @@ import {
 const AT = new Date('2026-11-04T10:00:00.000Z');
 const SECRET = 'example-private-token-value';
 const HASH = createHash('sha256').update(SECRET).digest('hex');
+const SECRET2 = 'example-second-token-value';
+const HASH2 = createHash('sha256').update(SECRET2).digest('hex');
+const TAKEN = 'Token name desk is taken; choose another name (see `board token list`).';
 const stores: Store[] = [];
 
 afterEach(async () => {
@@ -30,8 +33,8 @@ function setup(): Store {
   return store;
 }
 
-function enroll(store: Store, name = 'desk') {
-  return requestToken(store, { name, folder: 'workspace/desk', host: 'local', hash: HASH }, AT);
+function enroll(store: Store, name = 'desk', hash = HASH, at = AT) {
+  return requestToken(store, { name, folder: 'workspace/desk', host: 'local', hash }, at);
 }
 
 describe('operator token lifecycle', () => {
@@ -63,6 +66,10 @@ describe('operator token lifecycle', () => {
       ),
     ).toEqual({ name: 'desk', status: 'revoked' });
     expect(await verifyOperatorToken(store, SECRET)).toBeNull();
+    await expect(enroll(store, 'desk', HASH2)).rejects.toMatchObject({
+      code: 'usage',
+      hint: TAKEN,
+    });
     expect(
       await scanTransaction(store, (trx) =>
         tokenListQuery({ now: () => AT.getTime() }).run(trx, {}, 'operator'),
@@ -79,10 +86,13 @@ describe('operator token lifecycle', () => {
     ]);
   });
 
-  it('denies a request and never accepts a duplicate name', async () => {
+  it('refuses a live duplicate name, denies the request, then reuses the denied name', async () => {
     const store = setup();
     await enroll(store);
-    await expect(enroll(store)).rejects.toMatchObject({ code: 'usage' });
+    await expect(enroll(store, 'desk', HASH2)).rejects.toMatchObject({
+      code: 'usage',
+      hint: TAKEN,
+    });
     const row = await store.db
       .selectFrom('operator_token')
       .select('item_id')
@@ -99,6 +109,65 @@ describe('operator token lifecycle', () => {
         .selectFrom('event')
         .select('kind')
         .where('kind', '=', 'token_denied')
+        .execute(),
+    ).toHaveLength(1);
+    expect(await enroll(store, 'desk', HASH2)).toEqual({
+      name: 'desk',
+      status: 'pending',
+      expiresAt: '2026-11-04T10:15:00.000Z',
+    });
+  });
+
+  it.each([
+    { swept: true, title: 'swept' },
+    { swept: false, title: 'not swept' },
+  ])('reuses the name of a request that expired, $title', async ({ swept }) => {
+    const store = setup();
+    await enroll(store);
+    const old = await store.db
+      .selectFrom('operator_token')
+      .select(['id', 'item_id'])
+      .executeTakeFirstOrThrow();
+    const late = new Date(AT.getTime() + 15 * 60 * 1000);
+    if (swept) expect(await expirePendingTokens(store, late)).toBe(1);
+    expect(await enroll(store, 'desk', HASH2, late)).toEqual({
+      name: 'desk',
+      status: 'pending',
+      expiresAt: '2026-11-04T10:30:00.000Z',
+    });
+    expect(await expirePendingTokens(store, late)).toBe(0);
+    const row = await store.db.selectFrom('operator_token').selectAll().executeTakeFirstOrThrow();
+    expect(row).toMatchObject({ id: old.id, hash: HASH2, status: 'pending', decided_at: null });
+    expect(row.item_id).not.toBe(old.item_id);
+    await expect(
+      scanTransaction(store, (trx) => decideTokenInTransaction(trx, old.item_id, 'approve', late)),
+    ).rejects.toMatchObject({ code: 'not_found' });
+    expect(
+      await store.db.selectFrom('operator_token').select('status').executeTakeFirstOrThrow(),
+    ).toEqual({ status: 'pending' });
+    expect(
+      await store.db
+        .selectFrom('operator_item')
+        .select(['raise_no', 'cleared_at'])
+        .where('item_key', '=', 'token:desk')
+        .orderBy('raise_no')
+        .execute(),
+    ).toEqual([
+      { raise_no: 1, cleared_at: late.toISOString() },
+      { raise_no: 2, cleared_at: null },
+    ]);
+    expect(
+      await scanTransaction(store, (trx) =>
+        decideTokenInTransaction(trx, row.item_id, 'approve', late),
+      ),
+    ).toEqual({ name: 'desk', status: 'approved' });
+    expect(await verifyOperatorToken(store, SECRET2)).toEqual({ name: 'desk' });
+    expect(await verifyOperatorToken(store, SECRET)).toBeNull();
+    expect(
+      await store.db
+        .selectFrom('event')
+        .select('kind')
+        .where('kind', '=', 'token_expired')
         .execute(),
     ).toHaveLength(1);
   });
