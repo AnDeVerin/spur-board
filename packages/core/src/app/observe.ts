@@ -87,7 +87,8 @@ async function updateTerminal(
       complete > (task.last_change_at ?? task.created_at)
     );
   });
-  const terminal = merged || (doneTicket && !hasOpen && githubComplete);
+  // Conflict links count too: `linked` has no pr_state filter, so an open conflict PR is in hasOpen.
+  const terminal = !hasOpen && (merged || (doneTicket && githubComplete));
   await trx
     .updateTable('task')
     .set({
