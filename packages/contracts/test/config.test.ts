@@ -295,13 +295,7 @@ describe('invalid configs', () => {
     [
       'github-issues with label and milestone',
       validConfig({ tracker: { ...githubTracker, label: 'board', milestone: 'v1' } }),
-      'Set exactly one of label or milestone',
-      'projects[0].tracker.label',
-    ],
-    [
-      'github-issues with neither label nor milestone',
-      validConfig({ tracker: githubTracker }),
-      'Set exactly one of label or milestone',
+      'Set at most one of label or milestone',
       'projects[0].tracker.label',
     ],
     ...[
@@ -438,6 +432,7 @@ describe('invalid configs', () => {
     ['Jira project keys', { tracker: { ...jiraTracker, projectKeys: ['PROJ'] } }, {}],
     ['github-issues with only a label', { tracker: { ...githubTracker, label: 'board' } }, {}],
     ['github-issues with only a milestone', { tracker: { ...githubTracker, milestone: 'v1' } }, {}],
+    ['github-issues with neither label nor milestone', { tracker: githubTracker }, {}],
     [
       'a custom github-issues link',
       {

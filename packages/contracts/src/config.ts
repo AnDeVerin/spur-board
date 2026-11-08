@@ -108,15 +108,23 @@ const githubIssuesTracker = z
   .strictObject({
     type: z.literal('github-issues'),
     repo: repoSlugSchema,
-    label: nonEmpty.optional(),
-    milestone: nonEmpty.optional(),
+    label: nonEmpty
+      .describe(
+        'Only open issues with this label become tasks. Set at most one of label and milestone; with neither, every open issue of tracker.repo becomes a task.',
+      )
+      .optional(),
+    milestone: nonEmpty
+      .describe(
+        'Only open issues in the milestone with this title become tasks. Set at most one of label and milestone; with neither, every open issue of tracker.repo becomes a task.',
+      )
+      .optional(),
   })
   .superRefine((tracker, ctx) => {
-    if ((tracker.label === undefined) === (tracker.milestone === undefined)) {
+    if (tracker.label !== undefined && tracker.milestone !== undefined) {
       ctx.addIssue({
         code: 'custom',
         path: ['label'],
-        message: 'Set exactly one of label or milestone',
+        message: 'Set at most one of label or milestone',
       });
     }
   });
