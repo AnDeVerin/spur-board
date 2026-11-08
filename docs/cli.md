@@ -119,13 +119,14 @@ Exit codes: see the table above; setup errors are reported by the CLI.
 
 ### `board status`
 
-List tasks, observations, source freshness and actionable items.
+List actionable items, source freshness and compact tasks; detail adds full facts and links.
 
 Arguments: none.
 
 Flags:
 
 `--project <value>` — Project to limit the answer to; absent means every project the caller may see.
+`--detail` — Include full ticket, pull request and session facts and links; absent means compact rows.
 `--json` — Print JSON output or a JSON error.
 
 Example: `board status`

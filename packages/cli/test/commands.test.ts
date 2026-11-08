@@ -329,6 +329,8 @@ describe('catalog commands', () => {
     });
     const commands = [
       ['status', '--project', 'demo'],
+      ['status'],
+      ['status', '--detail'],
       ['task', 'history', 'PROJ-123'],
       ['inbox', 'ack', 'C3@2', 'C4@1', '--key', 'ack-1'],
       ['inbox', 'ack', 'B13', '--key', 'ack-block'],
@@ -341,6 +343,8 @@ describe('catalog commands', () => {
     }
     expect(calls).toEqual([
       { id: 'status.get', input: { project: 'demo' } },
+      { id: 'status.get', input: {} },
+      { id: 'status.get', input: { detail: true } },
       { id: 'task.history', input: { task: 'PROJ-123' } },
       {
         id: 'inbox.ack',

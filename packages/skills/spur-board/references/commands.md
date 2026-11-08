@@ -22,10 +22,10 @@ Every command can return the common errors below. Each entry lists its other cod
 
 ### `board status`
 
-Purpose: List tasks, observations, source freshness and actionable items.
+Purpose: List actionable items, source freshness and compact tasks; detail adds full facts and links.
 Arguments: none.
-Flags: `--project <value>`, `--json`.
-Use when: Get a board overview.
+Flags: `--project <value>`, `--detail`, `--json`.
+Use when: Get a board overview; pass detail for full ticket, pull request and session facts.
 Avoid when: Use `board task <task>` for one task.
 Example: `board status` — Show the board.
 Other errors: `not_found`.

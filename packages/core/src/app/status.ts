@@ -3,7 +3,9 @@ import {
   sessionFactsSchema,
   ticketFactsSchema,
   type Config,
+  type PrFacts,
   type SessionFacts,
+  type TicketFacts,
 } from '@spur-board/contracts';
 import { sql } from 'kysely';
 import { parseJson } from '../store/json.ts';
@@ -13,6 +15,33 @@ import { CommandError } from './commands.ts';
 
 function sessionView(fact: SessionFacts) {
   return { ...fact, links: Object.entries(fact.links).map(([label, url]) => ({ label, url })) };
+}
+
+/** Counts of each value, rendered as `<n> <value>` in the given order. */
+function counts(values: readonly string[], order: readonly string[]): string {
+  return order
+    .map((value) => [value, values.filter((entry) => entry === value).length] as const)
+    .filter(([, n]) => n > 0)
+    .map(([value, n]) => `${String(n)} ${value}`)
+    .join(', ');
+}
+
+/** The one-line task state: ticket status, pull request states, session health counts. */
+function taskState(
+  ticket: TicketFacts | null,
+  prs: readonly PrFacts[],
+  sessions: readonly SessionFacts[],
+): string {
+  const parts = [ticket === null ? 'ticket not observed' : `ticket ${ticket.status}`];
+  if (prs.length > 0) {
+    const labels = prs.map((pr) => (pr.state === 'open' && pr.draft ? 'draft' : pr.state));
+    parts.push(`PRs ${counts(labels, ['draft', 'open', 'merged', 'closed'])}`);
+  }
+  if (sessions.length > 0) {
+    const health: string[] = sessions.map((session) => session.health);
+    parts.push(`sessions ${counts(health, [...new Set(health)].sort())}`);
+  }
+  return parts.join('; ');
 }
 
 function interval(config: Config, source: string): number {
@@ -31,11 +60,17 @@ export async function getStatus(
     /** Configured chat gateway kinds; each is reported even with no health rows. */
     gateways?: readonly string[] | undefined;
   },
-  projectId?: string,
-  visibleProjects?: ReadonlySet<string>,
-  includeBoardItems = visibleProjects === undefined,
+  options: {
+    project?: string | undefined;
+    visibleProjects?: ReadonlySet<string> | undefined;
+    includeBoardItems?: boolean | undefined;
+    /** Adds full ticket, pull request and session facts and links to every row. */
+    detail?: boolean | undefined;
+  } = {},
 ) {
   const { store, config, clock, completeSince, gateways = [] } = deps;
+  const { project: projectId, visibleProjects, detail = false } = options;
+  const includeBoardItems = options.includeBoardItems ?? visibleProjects === undefined;
   const projects =
     projectId === undefined
       ? config.projects.filter(
@@ -53,6 +88,13 @@ export async function getStatus(
     .selectAll()
     .where('membership', '!=', 'archived')
     .execute();
+  const blockRows = await store.db
+    .selectFrom('block')
+    .select(['task_id', (eb) => eb.fn.countAll<number>().as('open')])
+    .where('state', '=', 'open')
+    .groupBy('task_id')
+    .execute();
+  const openBlocks = new Map(blockRows.map((row) => [row.task_id, row.open]));
   const tasks = [];
   for (const task of rows) {
     if (!projectIds.has(task.project)) continue;
@@ -67,8 +109,8 @@ export async function getStatus(
       .where('task_id', '=', task.id)
       .where('banned', '=', 0)
       .execute();
-    const prs = [];
-    const sessions = [];
+    const prs: PrFacts[] = [];
+    const sessions: SessionFacts[] = [];
     for (const link of links) {
       if (link.entity === 'pr' && link.repo !== null && link.number !== null) {
         const snapshot = await store.db
@@ -84,19 +126,27 @@ export async function getStatus(
           .select('detail')
           .where('id', '=', link.session_id)
           .executeTakeFirst();
-        if (snapshot !== undefined)
-          sessions.push(sessionView(parseJson(sessionFactsSchema, snapshot.detail)));
+        if (snapshot !== undefined) sessions.push(parseJson(sessionFactsSchema, snapshot.detail));
       }
     }
+    const ticketFacts = ticket === undefined ? null : parseJson(ticketFactsSchema, ticket.detail);
     tasks.push({
       key: task.key,
       project: task.project,
       column: task.column,
       membership: task.membership,
-      ticket: ticket === undefined ? null : parseJson(ticketFactsSchema, ticket.detail),
-      prs,
-      sessions,
-      links: links.map(linkView),
+      state: taskState(ticketFacts, prs, sessions),
+      prCount: links.filter((link) => link.entity === 'pr').length,
+      sessionCount: links.filter((link) => link.entity === 'session').length,
+      openBlocks: openBlocks.get(task.id) ?? 0,
+      ...(detail
+        ? {
+            ticket: ticketFacts,
+            prs,
+            sessions: sessions.map(sessionView),
+            links: links.map(linkView),
+          }
+        : {}),
     });
   }
   const allPrs = await store.db.selectFrom('pr_snapshot').selectAll().execute();
@@ -115,7 +165,12 @@ export async function getStatus(
             link.number === pr.number,
         ),
     )
-    .map((pr) => parseJson(prFactsSchema, pr.detail));
+    .map((pr) => {
+      const facts = parseJson(prFactsSchema, pr.detail);
+      if (detail) return facts;
+      const { repo, number, url, title, state, draft } = facts;
+      return { repo, number, url, title, state, draft };
+    });
   const unlinkedSessions = allSessions
     .filter(
       (session) =>
@@ -123,7 +178,12 @@ export async function getStatus(
           project.spurProjects.some((spur) => spur.name === session.spur_project),
         ) && !allLinks.some((link) => link.entity === 'session' && link.session_id === session.id),
     )
-    .map((session) => sessionView(parseJson(sessionFactsSchema, session.detail)));
+    .map((session) => {
+      const facts = parseJson(sessionFactsSchema, session.detail);
+      if (detail) return sessionView(facts);
+      const { id, spurProject, branch, lifecycle, health } = facts;
+      return { id, spurProject, branch, lifecycle, health };
+    });
   const sourceRows = await store.db.selectFrom('source_state').selectAll().execute();
   const required = new Set([
     'spur',
@@ -226,11 +286,7 @@ export async function getStatus(
       };
     });
   return {
-    tasks,
     items,
-    unlinkedPrs,
-    unlinkedSessions,
-    sources,
     warmingUp: sources.some((source) => source.warmingUp),
     spurUnavailable:
       spur?.blind_reason === null || spur === undefined
@@ -238,5 +294,9 @@ export async function getStatus(
         : `Spur unavailable: ${spur.blind_message ?? spur.blind_reason}`,
     hostLoad: host?.value !== undefined && host.value !== 'null' ? 'Host under load' : null,
     transport,
+    sources,
+    tasks,
+    unlinkedPrs,
+    unlinkedSessions,
   };
 }

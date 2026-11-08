@@ -212,7 +212,10 @@ describe('manual task links', () => {
     await observe('github:board:o/r', { kind: 'pr', facts });
     await call('link.add', { mode: 'pr', task, pr: prUrl(7), reason: 'Confirm PR.' });
     expect(await store.db.selectFrom('link').select('id').execute()).toHaveLength(1);
-    const status = await getStatus({ store, config, clock, completeSince: new Map() });
+    const status = await getStatus(
+      { store, config, clock, completeSince: new Map() },
+      { detail: true },
+    );
     expect(status.tasks[0]?.prs).toHaveLength(1);
     expect(status.unlinkedPrs).toHaveLength(0);
     await call('link.remove', { mode: 'pr', task, pr: prUrl(7), reason: 'Wrong PR.' });
@@ -364,7 +367,10 @@ describe('manual task links', () => {
     )) as { task: { key: string }; links: unknown[] };
     expect(detail.task.key).toBe(task);
     expect(detail.links).toEqual([{ kind: 'ticket', ref: 'o/r#10', role: null }]);
-    const status = await getStatus({ store, config, clock, completeSince: core.completeSince });
+    const status = await getStatus(
+      { store, config, clock, completeSince: core.completeSince },
+      { detail: true },
+    );
     expect(status.tasks[0]?.ticket?.key).toBe(task);
     expect(status.tasks[0]?.ticket?.status).toBe('open');
     expect(status.tasks[0]?.links).toContainEqual({ kind: 'ticket', ref: 'o/r#10', role: null });

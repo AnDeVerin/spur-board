@@ -135,7 +135,10 @@ describe('accepted observation', () => {
     const tasks = await store.db.selectFrom('task').selectAll().execute();
     expect(tasks).toHaveLength(1);
     expect(tasks[0]?.tracker_id).toBe('node-9');
-    const status = await getStatus({ store, config, clock, completeSince: core.completeSince });
+    const status = await getStatus(
+      { store, config, clock, completeSince: core.completeSince },
+      { detail: true },
+    );
     expect(status.tasks[0]?.ticket?.title).toBe('A ticket');
     const operation = OPERATIONS.find((entry) => entry.id === 'status.get');
     if (operation === undefined) throw new Error('Missing status operation');
@@ -648,7 +651,10 @@ describe('accepted observation', () => {
       state: { lastCompleteAt: at, gone: [] },
       outcomes: [{ ref: known, misses: 0, gone: false }],
     });
-    const status = await getStatus({ store, config, clock, completeSince: core.completeSince });
+    const status = await getStatus(
+      { store, config, clock, completeSince: core.completeSince },
+      { detail: true },
+    );
     expect(status.tasks[0]?.ticket?.title).toBe('A ticket');
     expect(status.items.find((item) => item.key.startsWith('lookup:'))?.summary).toContain(
       'no_access',
