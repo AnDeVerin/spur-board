@@ -111,7 +111,7 @@ For GitHub check runs and requested review teams on private repositories, use a
 SSO where applicable. A fine-grained personal access token can resolve the repository and pull
 requests yet return `FORBIDDEN` for every `CheckRun` in `statusCheckRollup.contexts`, because it
 lacks Checks permission. A classic token without `read:org` can return `INSUFFICIENT_SCOPES` for
-a requested team's name. A GitHub App with the needed permissions may be an alternative in a
+a requested review team. A GitHub App with the needed permissions may be an alternative in a
 future release.
 
 Validate the file before starting the service:

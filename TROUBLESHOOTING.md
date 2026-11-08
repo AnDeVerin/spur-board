@@ -112,9 +112,9 @@ passes without Jira trackers. It cannot be repaired by an offline doctor pass.
 ### github.credentials
 
 Check `GITHUB_TOKEN` and repository access. This check also probes check-run contexts and
-requested review team names. A `FORBIDDEN` result for a `CheckRun` or `INSUFFICIENT_SCOPES` for
-a team name needs the GitHub recovery below. A repository without check contexts can pass the
-check-data probe.
+requested review teams. A `FORBIDDEN` result for a `CheckRun` or `INSUFFICIENT_SCOPES` for
+a requested review team needs the GitHub recovery below. A repository without check contexts can
+pass the check-data probe.
 
 ### link.rules
 
@@ -262,7 +262,7 @@ A fine-grained personal access token can read a private repository and its pull 
 every `CheckRun` under `statusCheckRollup.contexts` returns `FORBIDDEN` with a resource-access
 error: "Resource not accessible by personal access token". It lacks Checks permission. A classic
 token with `repo` but without `read:org` can return `INSUFFICIENT_SCOPES` for a requested
-review team's `Team.name`. Use a **classic personal access token with the `repo` and `read:org`
-scopes**, and authorize it for organization SSO where applicable. Put it in `GITHUB_TOKEN`
-through private local input, restart the service, and rerun `board doctor`. A GitHub App with
-the needed permissions may be an alternative in a future release.
+review team. Use a **classic personal access token with the `repo` and `read:org` scopes**, and
+authorize it for organization SSO where applicable. Put it in `GITHUB_TOKEN` through private
+local input, restart the service, and rerun `board doctor`. A GitHub App with the needed
+permissions may be an alternative in a future release.
