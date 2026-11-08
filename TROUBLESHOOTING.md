@@ -91,6 +91,17 @@ requested review team names. A `FORBIDDEN` result for a `CheckRun` or `INSUFFICI
 a team name needs the GitHub recovery below. A repository without check contexts can pass the
 check-data probe.
 
+### link.rules
+
+For each github-issues project, the daemon reads the last 50 open or merged PRs updated in
+`tracker.repo` and matches up to 10 of them authored by `operatorGithubLogin` against
+`projects[].link`. The check never blocks. It passes when every sampled PR yields an issue
+number, or when no project uses GitHub Issues. A warning names, per project, how many sampled PRs
+match and the unmatched PRs as `#<number>` with their branch. Change `projects[].link` to follow
+the repository's branch and PR title rules, which the repository's CI title check and its agents'
+skills enforce. Other warnings say the operator has no PRs there, the PRs could not be read,
+`tracker.repo` is missing from `projects[].repos`, or `GITHUB_TOKEN` is missing.
+
 ### spur.api
 
 Start the Spur API or correct `adapters.spur.baseUrl` in `config.yaml`.

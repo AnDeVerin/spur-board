@@ -29,6 +29,7 @@ const remoteIds = [
   'secrets',
   'jira.credentials',
   'github.credentials',
+  'link.rules',
   'spur.api',
   'spur.send',
   'slack.auth',
@@ -329,6 +330,12 @@ describe('board doctor', () => {
     expect(slackChecks).toHaveLength(1);
     expect(slackChecks[0]?.fix).toContain('spur-board-setup');
     expect(value.checks.find((check) => check.id === 'spur.send')).toMatchObject({
+      status: 'warning',
+      blocking: false,
+      fix: 'Start the daemon, then rerun board doctor to complete this check.',
+    });
+    expect(value.checks.find((check) => check.id === 'link.rules')).toEqual({
+      id: 'link.rules',
       status: 'warning',
       blocking: false,
       fix: 'Start the daemon, then rerun board doctor to complete this check.',
