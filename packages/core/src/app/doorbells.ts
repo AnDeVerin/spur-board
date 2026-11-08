@@ -227,14 +227,7 @@ export async function ringUndelivered(
     .selectAll()
     .where('id', '=', input.notificationId)
     .executeTakeFirst();
-  // A ring for a former recipient does not end the series: reconcile rings the current one.
-  if (
-    n === undefined ||
-    n.acked_at !== null ||
-    n.exhausted_at !== null ||
-    n.recipient_session !== input.session
-  )
-    return;
+  if (n === undefined || n.acked_at !== null || n.exhausted_at !== null) return;
   const task = await trx
     .selectFrom('task')
     .selectAll()
