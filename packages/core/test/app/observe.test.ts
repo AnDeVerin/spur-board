@@ -753,6 +753,130 @@ describe('accepted observation', () => {
     expect((await status()).items.some((item) => item.key.includes('worker_vanished'))).toBe(false);
   });
 
+  async function restartWithVanishedItem() {
+    const { store, core, apply, mutations } = setup();
+    await apply(mutations.add, { task: 'o/r#9' }, 'operator');
+    const link = { 'board-worker': 'https://github.com/o/r/issues/9' };
+    await core.observe('spur', {
+      batch: {
+        source: 'spur',
+        observedAt: at,
+        complete: true,
+        items: [{ kind: 'session', facts: sessionFact('worker-1', link) }],
+        entities: [],
+      },
+      effectiveComplete: true,
+      state: { lastCompleteAt: at, gone: [] },
+      outcomes: [],
+    });
+    now += 1_000;
+    const later = new Date(now).toISOString();
+    await core.observe('spur', {
+      batch: {
+        source: 'spur',
+        observedAt: later,
+        complete: true,
+        items: [{ kind: 'session', facts: sessionFact('worker-1', link, true) }],
+        entities: [],
+      },
+      effectiveComplete: true,
+      state: { lastCompleteAt: later, gone: [] },
+      outcomes: [],
+    });
+    const items = () =>
+      store.db
+        .selectFrom('operator_item')
+        .selectAll()
+        .where('item_key', 'like', 'health:%:worker-1:worker_vanished')
+        .execute();
+    const counts = async () => ({
+      raised: (
+        await store.db
+          .selectFrom('event')
+          .select('id')
+          .where('kind', '=', 'from_you_raised')
+          .execute()
+      ).length,
+      cleared: (
+        await store.db
+          .selectFrom('event')
+          .select('payload')
+          .where('kind', '=', 'from_you_cleared')
+          .execute()
+      ).map((event) => event.payload),
+      feed: (
+        await store.db
+          .selectFrom('outbox')
+          .select('id')
+          .where('kind', 'in', ['feed.line', 'feed.line.edit'])
+          .execute()
+      ).length,
+    });
+    const [item] = await items();
+    if (item === undefined) throw new Error('Missing vanished-worker item');
+    expect(item.cleared_at).toBeNull();
+    const before = await counts();
+
+    const restarted = createObservationCore({ store, config, clock });
+    now += 60_000;
+    await tickBoard({ store, config, clock, completeSince: restarted.completeSince });
+    await restarted.reportSourceState('spur', { lastCompleteAt: later, gone: [] });
+    expect(await items()).toEqual([item]);
+    expect(await counts()).toEqual(before);
+    return { store, restarted, link, item, items, counts, before };
+  }
+
+  it("keeps a vanished-worker item across a restart when Spur's first complete poll omits the ended worker", async () => {
+    const { store, restarted, item, items, counts, before } = await restartWithVanishedItem();
+    const ended = await store.db
+      .selectFrom('session_snapshot')
+      .select('ended_at')
+      .where('id', '=', 'worker-1')
+      .executeTakeFirstOrThrow();
+    now += 60_000;
+    const observedAt = new Date(now).toISOString();
+    await restarted.observe('spur', {
+      batch: { source: 'spur', observedAt, complete: true, items: [], entities: [] },
+      effectiveComplete: true,
+      state: { lastCompleteAt: observedAt, gone: [] },
+      outcomes: [],
+    });
+    expect(restarted.completeSince.has('spur')).toBe(true);
+    expect(
+      await store.db
+        .selectFrom('session_snapshot')
+        .select(['absent_since', 'ended_at'])
+        .where('id', '=', 'worker-1')
+        .executeTakeFirstOrThrow(),
+    ).toEqual({ absent_since: observedAt, ended_at: ended.ended_at });
+    expect(await items()).toEqual([item]);
+    expect(await counts()).toEqual(before);
+  });
+
+  it('clears a vanished-worker item once when a replacement worker appeared while the daemon was down', async () => {
+    const { restarted, link, item, items, counts, before } = await restartWithVanishedItem();
+    now += 60_000;
+    const observedAt = new Date(now).toISOString();
+    await restarted.observe('spur', {
+      batch: {
+        source: 'spur',
+        observedAt,
+        complete: true,
+        items: [{ kind: 'session', facts: sessionFact('worker-2', link) }],
+        entities: [],
+      },
+      effectiveComplete: true,
+      state: { lastCompleteAt: observedAt, gone: [] },
+      outcomes: [],
+    });
+    expect((await items()).filter((row) => row.cleared_at === null)).toEqual([]);
+    const after = await counts();
+    expect(
+      after.cleared.filter((payload) => payload.includes(`"I${String(item.id)}"`)),
+    ).toHaveLength(1);
+    expect(after.raised).toBe(before.raised);
+  });
+
   it('rolls back source state when an accepted batch cannot be stored', async () => {
     const { store, core } = setup();
     await expect(

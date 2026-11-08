@@ -49,6 +49,11 @@ export interface SessionHealthInput {
 
 export interface SessionHealthResult {
   flags: readonly SessionHealthFlag[];
+  /**
+   * Vanished-worker flags that wait only on a complete Spur observation: an open item for one
+   * stays and none is raised.
+   */
+  held: readonly SessionHealthFlag[];
   statuses: readonly SessionHealthStatus[];
   hostLoad: { kind: 'host_under_load' } | null;
   episode: HostLoadEpisode | null;
@@ -59,7 +64,7 @@ export function evaluateSessionHealth(input: SessionHealthInput): SessionHealthR
   const { sessions, tasks, spur, config, now } = input;
   const previousEpisode = input.episode ?? null;
   if (spur.blind) {
-    return { flags: [], statuses: [], hostLoad: null, episode: previousEpisode };
+    return { flags: [], held: [], statuses: [], hostLoad: null, episode: previousEpisode };
   }
 
   const errorEntries = new Map<string, number>();
@@ -100,6 +105,7 @@ export function evaluateSessionHealth(input: SessionHealthInput): SessionHealthR
   }
 
   const flags: SessionHealthFlag[] = [];
+  const held: SessionHealthFlag[] = [];
   const statuses: SessionHealthStatus[] = [];
   const seen = new Set<string>();
   for (const session of sessions) {
@@ -111,7 +117,6 @@ export function evaluateSessionHealth(input: SessionHealthInput): SessionHealthR
     if (session.endedAt !== null) {
       if (
         session.role === 'worker' &&
-        spur.observationComplete &&
         (session.endReason === 'complete' ||
           session.endReason === 'kill' ||
           session.endReason === 'vanished') &&
@@ -120,7 +125,12 @@ export function evaluateSessionHealth(input: SessionHealthInput): SessionHealthR
         !task.hasMergedPr &&
         !liveWorkerTasks.has(session.taskId)
       ) {
-        flags.push({ taskId: session.taskId, sessionId: session.id, kind: 'worker_vanished' });
+        const flag = {
+          taskId: session.taskId,
+          sessionId: session.id,
+          kind: 'worker_vanished' as const,
+        };
+        (spur.observationComplete ? flags : held).push(flag);
       }
       continue;
     }
@@ -151,6 +161,7 @@ export function evaluateSessionHealth(input: SessionHealthInput): SessionHealthR
 
   return {
     flags,
+    held,
     statuses,
     hostLoad: episode === null ? null : { kind: 'host_under_load' },
     episode,

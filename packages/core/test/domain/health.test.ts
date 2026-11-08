@@ -316,11 +316,27 @@ describe('evaluateSessionHealth', () => {
       ).toEqual(['worker_vanished']);
     }
     expect(evaluate({ sessions: [{ ...ended, endReason: 'unknown' }] }).flags).toEqual([]);
+    const incomplete = { blind: false, observationComplete: false };
+    const waiting = evaluate({ sessions: [ended], spur: incomplete });
+    expect(waiting.flags).toEqual([]);
+    expect(waiting.held.map((flag) => flag.kind)).toEqual(['worker_vanished']);
+    expect(base.held).toEqual([]);
     expect(
       evaluate({
         sessions: [ended],
-        spur: { blind: false, observationComplete: false },
-      }).flags,
+        spur: incomplete,
+        tasks: { 'TASK-1': { hasOpenPr: true, hasMergedPr: false } },
+      }).held,
+    ).toEqual([]);
+    expect(
+      evaluate({
+        sessions: [ended],
+        spur: incomplete,
+        tasks: { 'TASK-1': { hasOpenPr: false, hasMergedPr: true } },
+      }).held,
+    ).toEqual([]);
+    expect(
+      evaluate({ sessions: [ended, session('new', 'working', 0)], spur: incomplete }).held,
     ).toEqual([]);
     expect(
       evaluate({
@@ -351,7 +367,20 @@ describe('evaluateSessionHealth', () => {
       spur: { blind: true, observationComplete: true },
     });
     expect(result.flags).toEqual([]);
+    expect(result.held).toEqual([]);
     expect(result.statuses).toEqual([]);
     expect(result.hostLoad).toBeNull();
+
+    const waiting = evaluate({
+      sessions: [
+        session('d', 'stale', 0, {
+          endedAt: new Date(start).toISOString(),
+          endReason: 'vanished',
+        }),
+      ],
+      spur: { blind: true, observationComplete: false },
+    });
+    expect(waiting.flags).toEqual([]);
+    expect(waiting.held).toEqual([]);
   });
 });
