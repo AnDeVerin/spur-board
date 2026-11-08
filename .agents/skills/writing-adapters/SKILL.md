@@ -32,24 +32,24 @@ A PR that changes a practice named here updates this skill.
 ## Untrusted responses
 
 - Parse every external response with a zod wire schema that reads only the fields the adapter
-  needs, through `parseWire` (`packages/adapters/src/runner/wire.ts`): a failure rejects the poll
-  as `transient`, naming the path without the value. References: `prWire`
+  needs, through `parseWire` (`packages/adapters/src/runner/wire.ts`): a failure is `transient`
+  and names the path without the value. References: `prWire`
   (`packages/adapters/src/github/prBatch.ts`), `issueWire` (`packages/adapters/src/jira/jira.ts`).
 - `z.object` strips unknown keys; use `z.looseObject` only for keys read later or chosen at
   runtime (GraphQL `data`, Jira `fields`). Vendor enums are `z.string()`, mapped in code.
 - Parse a GraphQL root only after `GithubClient.query` classifies `errors` and its scoped errors
   are handled; denied fields arrive null, so make them nullable.
 - Lint: `wireWalkerBans` in `eslint.config.js`.
-- Parse normalized output with the contracts schema: `prFactsSchema.safeParse` in `normalizePr`
-  (`packages/adapters/src/github/prBatch.ts`). The runner re-validates each batch with
-  `batchSchema` (`describe('batch validation')` in `packages/adapters/test/runner/runner.test.ts`).
-- Unknown shape: fail the whole poll as `transient`. Never default a field, guess a fact, or mark
-  a batch complete with a part missing.
-- A requested entity that is missing or denied gets the `not_found` or `no_access` status; any
-  other partial error clears `complete` (`pollRepository` in
-  `packages/adapters/src/github/index.ts`).
-- Except a denied `closingIssuesReferences` (`deniedReference`): drop it, keep `complete`; the
-  token reads the tracker too, so an issue it cannot see is no task.
+- Parse normalized output with the contracts schema: `prFactsSchema.safeParse` in `normalizePr`.
+  The runner re-validates each batch with `batchSchema` (`describe('batch validation')` in
+  `packages/adapters/test/runner/runner.test.ts`).
+- A missing or denied requested entity gets `not_found` or `no_access`; any other partial error
+  clears `complete` (`pollRepository` in `packages/adapters/src/github/index.ts`).
+- Unknown shape in one PR: leave it out, clear `complete`, report it `no_access` if requested;
+  rethrow its error if nothing else answered. Other unknown shapes fail the poll. Never
+  default a field, guess a fact, or mark a batch complete with a part missing.
+- Except a denied `closingIssuesReferences` (`deniedReference`) or a `null` `requestedReviewer`:
+  drop it, keep `complete`.
 
 ## Failures, backoff and budget
 
