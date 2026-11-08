@@ -45,7 +45,7 @@
                   "milestone": { "type": "string", "minLength": 1 },
                   "branchPattern": {
                     "default": "^[A-Za-z][A-Za-z0-9]*-([1-9][0-9]{0,14})(?:-|$)",
-                    "description": "Regular expression whose one capture group reads the issue number from a PR head branch, such as <agent>-<number>-<slug>. Used only when the PR has no closing issue reference in the tracker repository; PRs to a non-default base branch rely on it.",
+                    "description": "Regular expression whose one capture group reads the issue number from a PR head branch, such as <agent>-<number>-<slug>. Used only when the PR has no closing issue reference in the tracker repository; PRs to a non-default base branch rely on it. Back-references, lookarounds and a repeated group holding a quantifier or an alternation are refused.",
                     "type": "string",
                     "minLength": 1
                   }

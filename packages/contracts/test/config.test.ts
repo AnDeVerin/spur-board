@@ -303,10 +303,26 @@ describe('invalid configs', () => {
       'Set exactly one of label or milestone',
       'projects[0].tracker.label',
     ],
-    ...['(', '^claude-', '^(a)-(\\d+)'].map((branchPattern): [string, unknown, string, string] => [
+    ...['(', '^claude-', '^(a)-(\\d+)', '([0-9]*)|\\'].map(
+      (branchPattern): [string, unknown, string, string] => [
+        `github-issues branch pattern ${branchPattern}`,
+        validConfig({ tracker: { ...githubTracker, label: 'board', branchPattern } }),
+        'Expected a regular expression with exactly one capture group',
+        'projects[0].tracker.branchPattern',
+      ],
+    ),
+    ...[
+      '^(?:a+)+([0-9]+)$',
+      '^(?:a|aa)+-([0-9]+)',
+      '^(?<n>[0-9]+)(?:-[a-z]*){2,}$',
+      '^([0-9]+)-\\1',
+      '^(?<n>[0-9]+)-\\k<n>',
+      '^(?=claude)[a-z]+-([0-9]+)',
+      '^[a-z]+-(?<!x)([0-9]+)',
+    ].map((branchPattern): [string, unknown, string, string] => [
       `github-issues branch pattern ${branchPattern}`,
       validConfig({ tracker: { ...githubTracker, label: 'board', branchPattern } }),
-      'Expected a regular expression with exactly one capture group',
+      'Expected a regular expression without nested quantifiers, back-references or lookarounds',
       'projects[0].tracker.branchPattern',
     ]),
     [
@@ -408,6 +424,17 @@ describe('invalid configs', () => {
     [
       'a branch pattern with a named group',
       { tracker: { ...githubTracker, label: 'board', branchPattern: '^(?<n>[0-9]+)-' } },
+      {},
+    ],
+    [
+      'a branch pattern with a class, an escape and a single repeat',
+      {
+        tracker: {
+          ...githubTracker,
+          label: 'board',
+          branchPattern: '^(?:[(+\\]]x)+\\((?:ab){2}([0-9]+)(?:-[a-z]+)?$',
+        },
+      },
       {},
     ],
     ['a board without the optional columns', { columns: columns('todo', 'dev', 'done') }, {}],

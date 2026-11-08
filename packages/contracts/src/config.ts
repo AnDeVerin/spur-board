@@ -65,10 +65,72 @@ const DEFAULT_BRANCH_PATTERN = '^[A-Za-z][A-Za-z0-9]*-([1-9][0-9]{0,14})(?:-|$)'
 /** Capture groups of a pattern that compiles without flags, or `undefined` when it does not. */
 function captureGroups(pattern: string): number | undefined {
   try {
-    return (new RegExp(`${pattern}|`).exec('')?.length ?? 1) - 1;
+    new RegExp(pattern);
+    // Compiled alone first, so the pattern's tail cannot escape or close the wrapper.
+    return (new RegExp(`(?:${pattern})|`).exec('')?.length ?? 1) - 1;
   } catch {
     return undefined;
   }
+}
+
+const QUANTIFIER = /\*|\+|\?|\{(\d+)(?:(,)(\d*))?\}/y;
+
+/**
+ * Whether a pattern that already compiles can backtrack super-linearly or reads outside plain
+ * matching: a back-reference (`\1`, `\k<name>`), a lookaround, or a group repeated more than
+ * once whose body holds a quantifier or an alternation (`(a+)+`, `(a|aa)+`, `(a*){3}`). The
+ * check is conservative: it also refuses harmless forms such as `(a|b)+`.
+ */
+function backtracks(pattern: string): boolean {
+  // One entry per open group, the root first: whether its body holds a quantifier or `|`.
+  const open = [false];
+  const mark = () => {
+    open[open.length - 1] = true;
+  };
+  let i = 0;
+  // Reads a quantifier at `i`; returns whether it repeats more than once, `undefined` if none.
+  const quantifier = (): boolean | undefined => {
+    QUANTIFIER.lastIndex = i;
+    const match = QUANTIFIER.exec(pattern);
+    if (match === null) return undefined;
+    i = QUANTIFIER.lastIndex;
+    if (pattern[i] === '?') i += 1;
+    const [token, min, comma, max] = match;
+    if (token === '?') return false;
+    if (min === undefined) return true;
+    if (comma === undefined) return Number(min) > 1;
+    return max === '' || Number(max) > 1;
+  };
+  while (i < pattern.length) {
+    const char = pattern[i];
+    if (char === '\\') {
+      if (/[1-9k]/.test(pattern[i + 1] ?? '')) return true;
+      i += 2;
+    } else if (char === '[') {
+      i += 1;
+      while (i < pattern.length && pattern[i] !== ']') i += pattern[i] === '\\' ? 2 : 1;
+      i += 1;
+    } else if (char === '(') {
+      if (/^\(\?<?[=!]/.test(pattern.slice(i))) return true;
+      open.push(false);
+      i =
+        pattern[i + 1] === '?' ? pattern.indexOf(pattern[i + 2] === '<' ? '>' : ':', i) + 1 : i + 1;
+      continue;
+    } else if (char === ')') {
+      const risky = open.pop() ?? false;
+      i += 1;
+      const repeats = quantifier();
+      if (repeats === true && risky) return true;
+      if (risky || repeats !== undefined) mark();
+      continue;
+    } else {
+      if (char === '|') mark();
+      i += 1;
+      if (char === '|' || char === '^' || char === '$') continue;
+    }
+    if (quantifier() !== undefined) mark();
+  }
+  return false;
 }
 
 const branchPattern = nonEmpty
@@ -78,10 +140,16 @@ const branchPattern = nonEmpty
         code: 'custom',
         message: 'Expected a regular expression with exactly one capture group',
       });
+    else if (backtracks(pattern))
+      ctx.addIssue({
+        code: 'custom',
+        message:
+          'Expected a regular expression without nested quantifiers, back-references or lookarounds',
+      });
   })
   .default(DEFAULT_BRANCH_PATTERN)
   .describe(
-    'Regular expression whose one capture group reads the issue number from a PR head branch, such as <agent>-<number>-<slug>. Used only when the PR has no closing issue reference in the tracker repository; PRs to a non-default base branch rely on it.',
+    'Regular expression whose one capture group reads the issue number from a PR head branch, such as <agent>-<number>-<slug>. Used only when the PR has no closing issue reference in the tracker repository; PRs to a non-default base branch rely on it. Back-references, lookarounds and a repeated group holding a quantifier or an alternation are refused.',
   );
 
 const githubIssuesTracker = z
