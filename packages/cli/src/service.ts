@@ -5,6 +5,7 @@ import { homedir, userInfo } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { SYSTEMD_SERVICE_SETTINGS } from '@spur-board/contracts';
+import { CliError } from './exit-codes.ts';
 
 export const serviceName = 'spur-board.service';
 
@@ -115,6 +116,10 @@ async function runCommand(command: string, args: readonly string[]): Promise<Com
   });
 }
 
+function failureDetail(result: CommandResult): string {
+  return result.stderr.trim() || result.stdout.trim() || `exit ${String(result.exitCode)}`;
+}
+
 async function requireSuccess(
   runner: CommandRunner,
   command: string,
@@ -122,11 +127,44 @@ async function requireSuccess(
 ): Promise<CommandResult> {
   const result = await runner(command, args);
   if (result.exitCode !== 0) {
-    const detail =
-      result.stderr.trim() || result.stdout.trim() || `exit ${String(result.exitCode)}`;
-    throw new Error(`${command} ${args.join(' ')} failed: ${detail}`);
+    throw new Error(`${command} ${args.join(' ')} failed: ${failureDetail(result)}`);
   }
   return result;
+}
+
+async function unitState(runner: CommandRunner): Promise<{ active: string; enabled: string }> {
+  const active = await runner('systemctl', ['--user', 'is-active', serviceName]);
+  const enabled = await runner('systemctl', ['--user', 'is-enabled', serviceName]);
+  return {
+    active: active.stdout.trim() || 'unknown',
+    enabled: enabled.stdout.trim() || 'unknown',
+  };
+}
+
+/** Runs a systemctl command that starts the service; a failure leaves the unit in place. */
+async function requireStart(
+  runner: CommandRunner,
+  args: readonly string[],
+  unit: { file: string; written?: boolean },
+): Promise<void> {
+  const result = await runner('systemctl', args);
+  if (result.exitCode === 0) return;
+  const detail = failureDetail(result)
+    .replace(/\s*\n\s*/g, ' ')
+    .replace(/\.$/, '');
+  const state = await unitState(runner);
+  const origin =
+    unit.written === undefined
+      ? ''
+      : unit.written
+        ? ' (written by this run)'
+        : ' (already in place)';
+  const hint = [
+    `Unit file ${unit.file}${origin} is ${state.enabled}; the service is ${state.active}.`,
+    `systemctl ${args.join(' ')} failed: ${detail}.`,
+    'Read why with `journalctl --user -u spur-board.service -n 100` and run `board doctor`.',
+  ].join(' ');
+  throw new CliError('service_start_failed', undefined, undefined, hint);
 }
 
 async function preflight(paths: ServicePaths): Promise<void> {
@@ -193,23 +231,21 @@ export async function installService(options: ServiceOptions = {}): Promise<{
       wasActive = state.exitCode === 0 && state.stdout.trim() === 'active';
     }
   }
-  await requireSuccess(runner, 'systemctl', ['--user', 'enable', '--now', serviceName]);
-  if (wasActive) await requireSuccess(runner, 'systemctl', ['--user', 'restart', serviceName]);
+  const unitInfo = { file: paths.unitFile, written: changed };
+  await requireStart(runner, ['--user', 'enable', '--now', serviceName], unitInfo);
+  if (wasActive) await requireStart(runner, ['--user', 'restart', serviceName], unitInfo);
   return { unitFile: paths.unitFile, changed };
 }
 
 export async function restartService(options: ServiceOptions = {}): Promise<void> {
-  await requireSuccess(options.runner ?? runCommand, 'systemctl', [
-    '--user',
-    'restart',
-    serviceName,
-  ]);
+  await requireStart(options.runner ?? runCommand, ['--user', 'restart', serviceName], {
+    file: servicePaths(options).unitFile,
+  });
 }
 
 export async function statusService(options: ServiceOptions = {}): Promise<ServiceStatus> {
   const runner = options.runner ?? runCommand;
-  const active = await runner('systemctl', ['--user', 'is-active', serviceName]);
-  const enabled = await runner('systemctl', ['--user', 'is-enabled', serviceName]);
+  const { active, enabled } = await unitState(runner);
   const linger = await requireSuccess(runner, 'loginctl', [
     'show-user',
     options.username ?? userInfo().username,
@@ -217,8 +253,8 @@ export async function statusService(options: ServiceOptions = {}): Promise<Servi
     '--value',
   ]);
   return {
-    active: active.stdout.trim() || 'unknown',
-    enabled: enabled.stdout.trim() || 'unknown',
+    active,
+    enabled,
     lingering: linger.stdout.trim() === 'yes',
   };
 }
