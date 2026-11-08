@@ -127,6 +127,15 @@ stood is marked `post_failed` after 30 minutes and is retried at the next start.
 doorbell rang three times, with pauses of 2, 5 and 15 minutes, and the worker never
 acknowledged the answer. This item does not appear in the feed.
 
+**Symptom: Spur refused the doorbell.** The item reads "Answer to block B<n> on <KEY> was not
+delivered: <reason>" (for a worker block, "worker <session> did not get block B<n> on <KEY>:
+<reason>"). The reason names the HTTP status and Spur's error, for example
+`Spur send failed with HTTP 404: Session not found`, or reads
+"no answer from Spur for 30 min" when every send failed for 30 minutes. The Board stops ringing
+at once instead of retrying. A doorbell for an answer posted in a Slack thread raises
+"Answer author unavailable: <reason>" instead; that item has no retry, so pass the answer to the
+session that has the task, then close the item.
+
 **Check.**
 
 ```sh
@@ -144,8 +153,10 @@ listing (see [cli.md](cli.md)) show the open block and whether the answer is sti
 - The session has ended: nothing can acknowledge the doorbell. Give the answer to the session
   that takes over the task, then close the item.
 - The answer is no longer needed: run `board item close <item> --key <key>`.
-
-`board item retry` does not apply to this item.
+- Spur refused the doorbell: run `board doctor` and fix what `spur.send` reports, for example
+  a Spur too old for the send route. Spur was down for over 30 minutes: wait until it answers
+  again. Then run `board item retry <item> --key <key>`: the Board rings the current session
+  again, with three new rings.
 
 ## 5. Stopping the Board for a while
 
