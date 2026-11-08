@@ -65,15 +65,14 @@ describe('generated public references', () => {
       '`board link',
     ])
       expect(sessionLinks).toContain(token);
-    const linkSpans = [...(sessionLinks ?? '').matchAll(/`(board link [^`]*)`/g)].map(
-      (match) => match[1] ?? '',
-    );
-    expect(linkSpans.length).toBeGreaterThan(0);
-    const linkFlags = (
-      registeredCommands().find(({ path }) => path === 'link')?.command.options ?? []
-    ).map((option) => option.long);
-    for (const span of linkSpans)
-      for (const flag of span.match(/--[a-z-]+/g) ?? []) expect(linkFlags).toContain(flag);
+    const linkSpans = [...(sessionLinks ?? '').matchAll(/`board (link|unlink) ([^`]*)`/g)];
+    expect(linkSpans.map((match) => match[1])).toEqual(['link', 'unlink']);
+    for (const [, path, args] of linkSpans) {
+      const flags = (
+        registeredCommands().find((command) => command.path === path)?.command.options ?? []
+      ).map((option) => option.long);
+      for (const flag of args?.match(/--[a-z-]+/g) ?? []) expect(flags).toContain(flag);
+    }
     expect(
       [...configuration.matchAll(/^\| `([A-Z][A-Z_]+)` +\|/gm)].map((match) => match[1]),
     ).toEqual(SECRET_ENV_KEYS.map(({ name }) => name));

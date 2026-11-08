@@ -110,7 +110,7 @@ Setting the label: `spur spawn` cannot set links. Set it on the new session with
 
 Operator fallback: `board link <task> --session <session> --reason <value> --key <key>` links the session as worker when the task has none, otherwise as other.
 
-Reviewers: a session of a `role: worker` Spur project whose `pr` link is a PR it only reviews links to that PR's task by the pull request rule, as worker when the task has none. A review session that sets `board-other` to the task's URL links as other instead.
+Reviewers: a session of a `role: worker` Spur project whose `pr` link is a PR it only reviews links to that PR's task by the pull request rule, as worker when the task has none. A review session that sets `board-other` to the task's URL before its `pr` link appears links as other instead. A later label changes nothing, because a link keeps its first role; the operator then removes the link with `board unlink <task> --session <session> --reason <value> --key <key>`, and the session is not linked to that task again.
 
 ## secrets.env keys
 
