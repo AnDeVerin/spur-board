@@ -188,3 +188,10 @@ Gaps kept on purpose. Do not raise them in reviews or open issues for them.
   a process of the same user replacing a parent directory with a symlink mid-install: that
   process can already write those files itself, and Node has no directory-relative file
   operations to pin the parent (#151).
+- `projects[].tracker.branchPattern` (`packages/contracts/src/config.ts`) can still be written to
+  run slowly, for example with many optional alternations, and stall one GitHub poll: Node
+  regexes have no work bound. The operator writes the pattern in their own config, and branch
+  names come from PRs the board finds for `operatorGithubLogin` or that were linked by hand, so
+  no third party controls either input. Validation already refuses nested or alternated
+  repeats, back-references, lookarounds and more than two repeated parts, and branches over 255
+  characters are not matched. Do not add more validation rules (#188).
