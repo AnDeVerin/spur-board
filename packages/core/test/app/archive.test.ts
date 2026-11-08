@@ -371,47 +371,71 @@ describe('task archive', () => {
     },
   );
 
+  /** An answer or inbound ring of the task, written as a send that may have reached Spur. */
+  async function uncertainRing(
+    ctx: Ctx,
+    kind: 'answer' | 'inbound',
+    state: 'pending' | 'in_flight',
+  ): Promise<void> {
+    await ctx.poll(tracker, true);
+    await liveWorker(ctx.store);
+    const asked = await ctx.apply(ctx.ops.ask, { task: KEY, text: 'Which version?' }, worker);
+    if (kind === 'answer') {
+      await ctx.apply(ctx.ops.answer, { block: asked.block.id, text: 'Use v2.' }, 'operator');
+      await ctx.store.transaction((trx) => reconcileDoorbells(trx, new Date(now), config));
+    } else {
+      const comment = await ctx.apply(ctx.ops.comment, { task: KEY, text: 'Note.' }, worker);
+      await ctx.store.transaction((trx) =>
+        enqueueInboundDoorbell(trx, {
+          key: `doorbell:comment:${comment.comment.id.slice(1)}:revision:1`,
+          session: 'worker-1',
+          text: 'New reply',
+          at: new Date(now),
+        }),
+      );
+    }
+    await ctx.store.transaction((trx) =>
+      trx
+        .updateTable('outbox')
+        .set(
+          state === 'pending'
+            ? { state, attempts: 1, uncertain: 1 }
+            : { state, attempts: 1, attempt_started: 1 },
+        )
+        .where('kind', '=', 'doorbell')
+        .execute(),
+    );
+  }
+
+  function ringRow(ctx: Ctx) {
+    return ctx.store.db
+      .selectFrom('outbox')
+      .select(['state', 'last_error'])
+      .where('kind', '=', 'doorbell')
+      .executeTakeFirstOrThrow();
+  }
+
+  it.each(['answer', 'inbound'] as const)('cancels a pending uncertain %s ring', async (kind) => {
+    const ctx = setup();
+    await uncertainRing(ctx, kind, 'pending');
+    await ctx.apply(ctx.ops.archive, { task: KEY }, 'operator');
+    expect(await ringRow(ctx)).toEqual({ state: 'dead', last_error: 'superseded' });
+    await ctx.sender.tick();
+    expect(ctx.spur.sends).toEqual([]);
+  });
+
   it.each(['answer', 'inbound'] as const)(
-    'still delivers an uncertain %s ring of an archived task',
+    'cancels an uncertain %s ring of an archived task',
     async (kind) => {
       const ctx = setup();
-      await ctx.poll(tracker, true);
-      await liveWorker(ctx.store);
-      const asked = await ctx.apply(ctx.ops.ask, { task: KEY, text: 'Which version?' }, worker);
-      if (kind === 'answer') {
-        await ctx.apply(ctx.ops.answer, { block: asked.block.id, text: 'Use v2.' }, 'operator');
-        await ctx.store.transaction((trx) => reconcileDoorbells(trx, new Date(now), config));
-      } else {
-        const comment = await ctx.apply(ctx.ops.comment, { task: KEY, text: 'Note.' }, worker);
-        await ctx.store.transaction((trx) =>
-          enqueueInboundDoorbell(trx, {
-            key: `doorbell:comment:${comment.comment.id.slice(1)}:revision:1`,
-            session: 'worker-1',
-            text: 'New reply',
-            at: new Date(now),
-          }),
-        );
-      }
       // A send that started before a crash: it may have reached Spur.
-      await ctx.store.transaction((trx) =>
-        trx
-          .updateTable('outbox')
-          .set({ state: 'in_flight', attempts: 1, attempt_started: 1 })
-          .where('kind', '=', 'doorbell')
-          .execute(),
-      );
+      await uncertainRing(ctx, kind, 'in_flight');
       await ctx.apply(ctx.ops.archive, { task: KEY }, 'operator');
       await ctx.sender.recover();
       await ctx.sender.tick();
 
-      expect(ctx.spur.sends).toHaveLength(1);
-      expect(
-        await ctx.store.db
-          .selectFrom('outbox')
-          .select(['state', 'uncertain'])
-          .where('kind', '=', 'doorbell')
-          .executeTakeFirstOrThrow(),
-      ).toEqual({ state: 'done', uncertain: 1 });
+      expect(ctx.spur.sends).toEqual([]);
+      expect(await ringRow(ctx)).toEqual({ state: 'dead', last_error: 'superseded' });
     },
   );
 

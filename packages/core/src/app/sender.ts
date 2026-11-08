@@ -592,10 +592,9 @@ export function createSender(options: SenderOptions): Sender {
         return { at, firstDeliveryAt: null, skip: true };
       }
     }
-    // An uncertain ring may already be in Spur: it goes with maybeSent, like any uncertain row.
+    // A ring of an archived task is dropped, uncertain or not: Spur gets no maybeSent hint.
     if (
       c.body.kind === 'doorbell' &&
-      !c.maybeSent &&
       (await ringTask(trx, c.body.payload.notificationId, c.key))?.membership === 'archived'
     ) {
       await kill(trx, [c.id], 'superseded');
