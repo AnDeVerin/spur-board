@@ -87,7 +87,7 @@ type ReviewWire = z.output<typeof reviewWire>;
 type ClosingWire = z.output<typeof closingWire>;
 type IssuesRule = Extract<KeyRule, { type: 'issues' }>;
 /** An issue a PR closes, as GitHub names it. */
-export interface ClosingRef {
+interface ClosingRef {
   repo: string;
   number: number;
 }
