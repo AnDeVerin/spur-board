@@ -18,6 +18,18 @@ describe('commandReply', () => {
       kind: 'paragraph',
       children: [{ kind: 'text', text: 'Board status: 1 tasks, 0 items needing attention.' }],
     });
+    const unlinked = (text: string) => ({ kind: 'paragraph', children: [{ kind: 'text', text }] });
+    expect(status.body).toContainEqual(unlinked('Unlinked: 0 pull requests, 0 sessions.'));
+    const hidden = commandReply(
+      'status.get',
+      { ...statusOperation.examples[0].output, hiddenUnlinkedPrs: 3, hiddenUnlinkedSessions: 200 },
+      {},
+    );
+    expect(hidden.body).toContainEqual(
+      unlinked(
+        'Unlinked: 0 pull requests, 0 sessions; 3 pull requests and 200 sessions finished over 7 days ago are hidden.',
+      ),
+    );
 
     const task = commandReply(
       'task.get',

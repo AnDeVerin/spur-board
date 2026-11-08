@@ -578,6 +578,7 @@ async function session(
       detail: toJson(sessionFactsSchema, fact),
       source,
       observed_at: at,
+      absent_since: null,
     })
     .onConflict((oc) =>
       oc.column('id').doUpdateSet({
@@ -591,6 +592,7 @@ async function session(
         detail: toJson(sessionFactsSchema, fact),
         source,
         observed_at: at,
+        absent_since: null,
       }),
     )
     .execute();
@@ -952,6 +954,15 @@ export function createObservationCore(deps: {
             });
           }
         }
+        // A complete poll that omits a session starts its absence; a later listing clears it.
+        if (observation.effectiveComplete)
+          await trx
+            .updateTable('session_snapshot')
+            .set({ absent_since: batch.observedAt })
+            .where('source', '=', source)
+            .where('absent_since', 'is', null)
+            .where('last_seen', '<', batch.observedAt)
+            .execute();
         if (observation.effectiveComplete) {
           const project = config.projects.find((entry) => trackerSource(entry) === source);
           if (project !== undefined) {

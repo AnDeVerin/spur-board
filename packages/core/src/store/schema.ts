@@ -104,6 +104,8 @@ export interface SessionSnapshotTable {
   detail: string;
   source: string;
   observed_at: string;
+  /** When a complete poll of `source` first omitted the session; null while it is observed. */
+  absent_since: string | null;
 }
 
 /** Only the identity columns for `entity` are set on a link. */

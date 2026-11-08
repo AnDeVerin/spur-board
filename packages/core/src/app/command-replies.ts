@@ -27,7 +27,11 @@ export function commandReply(
         ...status.tasks.map((task) => line(`${task.key}: ${task.column} (${task.membership})`)),
         ...status.items.map((item) => line(`${item.key}: ${item.summary}`)),
         line(
-          `Unlinked: ${String(status.unlinkedPrs.length)} pull requests, ${String(status.unlinkedSessions.length)} sessions.`,
+          `Unlinked: ${String(status.unlinkedPrs.length)} pull requests, ${String(status.unlinkedSessions.length)} sessions${
+            status.hiddenUnlinkedPrs + status.hiddenUnlinkedSessions === 0
+              ? ''
+              : `; ${String(status.hiddenUnlinkedPrs)} pull requests and ${String(status.hiddenUnlinkedSessions)} sessions finished over 7 days ago are hidden`
+          }.`,
         ),
         ...status.sources.map((source) =>
           line(

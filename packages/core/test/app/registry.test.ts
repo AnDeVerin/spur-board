@@ -482,3 +482,225 @@ it('keeps the default status for 100 tasks under the budget and lists every item
   expect(detail.unlinkedSessions[0]?.healthSince).toBe(at);
   expect(detail.items).toEqual(result.items);
 });
+
+const DAY = 24 * 60 * 60 * 1000;
+const WINDOW = 7 * DAY;
+
+/**
+ * Writes unlinked and linked PR and session rows aged around the 7-day window, and tasks.
+ * Without `confirmedAbsent` no complete Spur poll has omitted a session yet.
+ */
+async function seedUnlinkedAges(store: Store, confirmedAbsent: boolean) {
+  const iso = (ms: number) => new Date(ms).toISOString();
+  const now = clock.now();
+  const prRow = (
+    repo: string,
+    number: number,
+    state: 'open' | 'merged' | 'closed',
+    age: number,
+  ) => {
+    const facts = {
+      repo,
+      number,
+      url: `https://github.com/${repo}/pull/${String(number)}`,
+      title: `Pull request ${String(number)}`,
+      author: 'worker-bot',
+      headSha: number.toString(16).padStart(40, 'a'),
+      headBranch: `worker/pr-${String(number)}`,
+      state,
+      draft: false,
+      mergeable: 'mergeable' as const,
+      mergeState: 'clean' as const,
+      requiredChecks: [],
+      checks: [],
+      reviews: [],
+      reviewThreads: [],
+      reviewRequests: [],
+      ticketKeys: [],
+      updatedAt: iso(now - age),
+    };
+    return {
+      repo,
+      number,
+      head_sha: facts.headSha,
+      head_branch: facts.headBranch,
+      state,
+      draft: 0 as const,
+      mergeable: 'mergeable',
+      merge_state: 'clean',
+      detail: JSON.stringify(facts),
+      source: `github:${repo === 'o/first' ? 'first' : 'second'}:${repo}`,
+      observed_at: iso(now),
+    };
+  };
+  const sessionRow = (
+    id: string,
+    spurProject: string,
+    lifecycle: 'running' | 'stopped' | 'completed',
+    seenAge: number,
+    endedAge: number | null,
+    absentAge: number | null = null,
+    firstSeenAge = seenAge,
+  ) => {
+    const endedAt = endedAge === null ? null : iso(now - endedAge);
+    const endReason = endedAge === null ? null : ('complete' as const);
+    const facts = {
+      id,
+      spurProject,
+      branch: `worker/${id}`,
+      pr: null,
+      links: {},
+      lifecycle,
+      health: 'working' as const,
+      healthSince: iso(now - firstSeenAge),
+      lastActivityAt: null,
+      endedAt,
+      endReason,
+    };
+    return {
+      id,
+      spur_project: spurProject,
+      branch: facts.branch,
+      pr: null,
+      raw_state: lifecycle,
+      state: lifecycle,
+      first_seen: iso(now - firstSeenAge),
+      last_seen: iso(now - seenAge),
+      ended_at: endedAt,
+      end_reason: endReason,
+      detail: JSON.stringify(facts),
+      source: 'spur',
+      observed_at: iso(now),
+      absent_since: absentAge === null || !confirmedAbsent ? null : iso(now - absentAge),
+    };
+  };
+  const prs = [
+    // Hidden: 30 merged and 5 closed, unchanged for 8 days.
+    ...Array.from({ length: 30 }, (_, n) => prRow('o/first', n + 1, 'merged', 8 * DAY)),
+    ...Array.from({ length: 5 }, (_, n) => prRow('o/first', n + 31, 'closed', 8 * DAY)),
+    // Listed: open whatever its age, finished within the window, finished exactly at its edge.
+    prRow('o/first', 40, 'open', 30 * DAY),
+    prRow('o/first', 41, 'merged', 6 * DAY),
+    prRow('o/first', 42, 'merged', WINDOW),
+    // Linked: under its task, never counted.
+    prRow('o/first', 50, 'merged', 8 * DAY),
+    // Another project.
+    prRow('o/second', 1, 'merged', 8 * DAY),
+  ];
+  const sessions = [
+    // Hidden: ended 8 days ago while still in the list.
+    ...Array.from({ length: 100 }, (_, n) =>
+      sessionRow(`ended-${String(n)}`, 'first-worker', 'stopped', 0, 8 * DAY),
+    ),
+    // Hidden: last listed as completed 8 days ago, no end time.
+    ...Array.from({ length: 50 }, (_, n) =>
+      sessionRow(`completed-${String(n)}`, 'first-worker', 'completed', 8 * DAY, null),
+    ),
+    // Hidden only by complete Spur polls: last listed running, then omitted, 8 days ago.
+    ...Array.from({ length: 50 }, (_, n) =>
+      sessionRow(`gone-${String(n)}`, 'first-worker', 'running', 8 * DAY, null, 8 * DAY),
+    ),
+    // Listed: in the latest list, ended or gone within the window or exactly at its edge.
+    sessionRow('live-old', 'first-worker', 'running', 0, null, null, 30 * DAY),
+    sessionRow('ended-6d', 'first-worker', 'stopped', 0, 6 * DAY),
+    sessionRow('gone-6d', 'first-worker', 'running', 6 * DAY, null, 6 * DAY),
+    sessionRow('ended-7d', 'first-worker', 'stopped', 0, WINDOW),
+    sessionRow('gone-7d', 'first-worker', 'running', WINDOW, null, WINDOW),
+    // Listed: last listed 30 days ago, but no complete poll omitted it until 6 days ago.
+    sessionRow('gone-late', 'first-worker', 'running', 30 * DAY, null, 6 * DAY),
+    // Linked: under its task, never counted.
+    sessionRow('linked-old', 'first-worker', 'stopped', 0, 8 * DAY),
+    // Another project.
+    sessionRow('second-old', 'second-worker', 'stopped', 0, 8 * DAY),
+  ];
+  await scanTransaction(store, async (trx) => {
+    const task = await trx
+      .insertInto('task')
+      .values({
+        project: 'first',
+        tracker_kind: 'github-issues',
+        tracker_id: 'o/first#1',
+        key: 'o/first#1',
+        membership: 'active',
+        archive_reason: null,
+        column: 'dev',
+        shadow_column: null,
+        created_at: iso(now),
+        last_change_at: null,
+        terminal_at: null,
+        archive_slot_at: null,
+      })
+      .returning('id')
+      .executeTakeFirstOrThrow();
+    for (const row of prs) await trx.insertInto('pr_snapshot').values(row).execute();
+    for (const row of sessions) await trx.insertInto('session_snapshot').values(row).execute();
+    const link = {
+      task_id: task.id,
+      role: null,
+      source: 'branch',
+      banned: 0,
+      created_at: iso(now),
+      ticket_key: null,
+    } as const;
+    await trx
+      .insertInto('link')
+      .values({
+        ...link,
+        entity: 'pr',
+        repo: 'o/first',
+        number: 50,
+        pr_state: 'active',
+        pr_open: 0,
+        session_id: null,
+      })
+      .execute();
+    await trx
+      .insertInto('link')
+      .values({
+        ...link,
+        entity: 'session',
+        repo: null,
+        number: null,
+        pr_state: null,
+        pr_open: null,
+        session_id: 'linked-old',
+      })
+      .execute();
+  });
+  const registry = createOperationRegistry({ config, clock, completeSince: new Map() });
+  const status = registry['status.get'];
+  if (status === undefined) throw new Error('Status handler was not registered');
+  const query = createQuery({ store, config, clock });
+  return (input: { project?: string; detail?: boolean }) => query(status, input, 'operator');
+}
+
+it('hides unlinked PRs and sessions finished over 7 days ago and counts them', async () => {
+  const store = openStore(join(mkdtempSync(join(tmpdir(), 'board-registry-')), 'board.db'));
+  stores.push(store);
+  const status = await seedUnlinkedAges(store, true);
+  const listedSessions = ['ended-6d', 'ended-7d', 'gone-6d', 'gone-7d', 'gone-late', 'live-old'];
+  for (const detail of [false, true]) {
+    const result = await status({ project: 'first', detail });
+    expect(result.unlinkedPrs.map((pr) => pr.number).sort((a, b) => a - b)).toEqual([40, 41, 42]);
+    expect(result.unlinkedSessions.map((session) => session.id).sort()).toEqual(listedSessions);
+    expect(result.hiddenUnlinkedPrs).toBe(35);
+    expect(result.hiddenUnlinkedSessions).toBe(200);
+    const task = result.tasks.find((row) => row.key === 'o/first#1');
+    expect([task?.prCount, task?.sessionCount]).toEqual([1, 1]);
+  }
+  const all = await status({});
+  expect(all.unlinkedSessions.map((session) => session.id).sort()).toEqual(listedSessions);
+  expect([all.hiddenUnlinkedPrs, all.hiddenUnlinkedSessions]).toEqual([36, 201]);
+});
+
+it('hides no session as gone from the list until a complete Spur poll omits it', async () => {
+  const store = openStore(join(mkdtempSync(join(tmpdir(), 'board-registry-')), 'board.db'));
+  stores.push(store);
+  const status = await seedUnlinkedAges(store, false);
+  const result = await status({ project: 'first' });
+  const ids = result.unlinkedSessions.map((session) => session.id);
+  for (let n = 0; n < 50; n += 1) expect(ids).toContain(`gone-${String(n)}`);
+  expect(ids).not.toContain('completed-0');
+  expect(ids).not.toContain('ended-0');
+  expect(result.hiddenUnlinkedSessions).toBe(150);
+});

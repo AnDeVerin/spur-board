@@ -24,8 +24,10 @@ that changes these rules updates this skill in the same PR.
 - Only `status.get` has a detailed mode: compact rows by default, `detail` adds full facts and
   links. Its default size budget is pinned in `packages/core/test/app/registry.test.ts`.
 - No operation has a limit, cursor or pagination; the unlinked rows of `status.get` have no
-  count cap. A new list operation that can grow without bound states its bound or its paging
-  shape in its issue before implementation.
+  count cap, but finished rows older than 7 days are left out and counted in its
+  `hiddenUnlinkedPrs` and `hiddenUnlinkedSessions` (`packages/core/src/app/status.ts`). A new
+  list operation that can grow without bound states its bound or its paging shape in its issue
+  before implementation.
 - Tests: `describe('board mcp')` in `packages/cli/test/mcp.test.ts` and its snapshot.
 
 ## CLI

@@ -51,6 +51,8 @@ function emptyStatus() {
     items: [],
     unlinkedPrs: [],
     unlinkedSessions: [],
+    hiddenUnlinkedPrs: 0,
+    hiddenUnlinkedSessions: 0,
     sources: [],
     warmingUp: true,
     spurUnavailable: null,

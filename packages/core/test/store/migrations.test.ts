@@ -378,6 +378,23 @@ describe('migrate', () => {
     expect(raw.pragma('foreign_key_check')).toEqual([]);
   });
 
+  it('keeps session snapshots and leaves them not confirmed absent', () => {
+    const dir = tempDir();
+    const { raw } = rawDb(join(dir, 'board.db'));
+    migrate(raw, real.slice(0, 10));
+    insertRaw(raw, 'session_snapshot', without(sampleRows.session_snapshot, ['absent_since']));
+
+    migrate(raw, real);
+
+    expect(raw.prepare('SELECT id, last_seen, absent_since FROM session_snapshot').all()).toEqual([
+      {
+        id: sampleRows.session_snapshot.id,
+        last_seen: sampleRows.session_snapshot.last_seen,
+        absent_since: null,
+      },
+    ]);
+  });
+
   it('preserves shared operator item IDs when upgrading a version 7 store', () => {
     const dir = tempDir();
     const { raw } = rawDb(join(dir, 'board.db'));
@@ -405,7 +422,7 @@ describe('migrate', () => {
         ['fingerprint', 'fact_at', 'source', 'priority'],
       ),
     );
-    const result = migrate(raw, real);
+    const result = migrate(raw, real.slice(0, 10));
     expect(result).toMatchObject({
       from: 7,
       to: 10,
@@ -494,6 +511,8 @@ describe('migration pins', () => {
       '712f01c6d65901a62e2a199b770ee62a',
     ].join(''),
     '0010_manual_links.sql': '40142af689b91dd9ffbf835baa831534a91498bce4685299b3c66ff45513bbee',
+    '0011_session_absent_since.sql':
+      '6522f14d6984e4c0af5b1330b5bc7acacee97906e59d20a08f0437fe551d7c46',
   };
 
   interface MigrationFile {
