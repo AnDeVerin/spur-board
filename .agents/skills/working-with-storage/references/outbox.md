@@ -14,12 +14,17 @@
 - A row that must follow another (reply, close, edit) sets `parent_outbox_id` to the thread's
   latest row; none is written under a dead one. A row under a dead parent dies `superseded`.
   A `feed.line.edit` written before its line is sent means the item was cleared: the sender
-  cancels both. A row with `uncertain=1` is never cancelled as stale (it may be posted): it goes
-  with `maybeSent`, then its dependents.
+  cancels both. A gateway row with `uncertain=1` is never cancelled as stale (it may be posted):
+  it goes with `maybeSent`, then its dependents.
 - A doorbell's delivered ring count lives in `notification`, not `outbox.attempts`: transport
   retries reuse the same outbox row. Reconcile due rings and recheck their recipient before send.
+- A doorbell retries for 30 min from its first attempt. A Spur rejection or the end of the window
+  kills it and ends its notification (`ringUndelivered` in `packages/core/src/app/doorbells.ts`).
+  Archive cancels any ring that is not in flight, uncertain or not.
 - A claimed feed line is rechecked against its operator item before send. If the item cleared and
   delivery has not started, cancel the line and its edit; uncertain lines recover before editing.
+- Each claim first returns rows a failed tick left `in_flight`, as `recover()` does at start
+  (`releaseOrphans` in `packages/core/src/app/sender.ts`).
 - Retries, the per-space limit and transport health belong to the sender
   (`packages/core/src/app/sender.ts`); it calls the gateway between its two transactions,
   never inside one (`packages/core/test/app/delivery.test.ts`, `describe('tick')`;
