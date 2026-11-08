@@ -65,7 +65,8 @@ const prWire = z.object({
       asCodeOwner: z.boolean(),
     }),
   ),
-  // Selected only for a github-issues tracker repo; a denied issue arrives as a null node.
+  // Selected only for the tracker repo of a github-issues project whose `link.sources` lists
+  // `closing`; a denied issue arrives as a null node.
   closingIssuesReferences: z
     .object({
       nodes: z.array(

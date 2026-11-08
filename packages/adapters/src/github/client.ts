@@ -38,7 +38,8 @@ function teamNameScopeDenied(error: GraphError, query: string): boolean {
 
 const CLOSING_FIELDS =
   'nodes { number repository { nameWithOwner } } pageInfo { hasNextPage endCursor }';
-// `closing` adds the issues a PR closes; only a github-issues tracker repo selects them.
+// `closing` adds the issues a PR closes; only the tracker repo of a github-issues project
+// whose `link.sources` lists `closing` selects them.
 const prFields = (
   number: number,
   closing = false,

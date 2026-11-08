@@ -65,7 +65,8 @@ export function githubSources(config: Config, options: GithubOptions): GithubSou
   const sources: GithubSource[] = [];
   for (const project of config.projects) {
     const tracker = project.tracker;
-    // Only the tracker repo of a github-issues project reads closing references.
+    // Only the tracker repo of a github-issues project whose `link.sources` lists `closing`
+    // reads closing references.
     const issues: KeyRule | undefined =
       tracker.type === 'github-issues'
         ? {
