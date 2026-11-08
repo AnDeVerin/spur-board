@@ -36,6 +36,18 @@ Example: {}",
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
       "properties": {
+        "hiddenUnlinkedPrs": {
+          "description": "Unlinked pull requests not listed: merged or closed, with no change for over 7 days. Counted within the requested projects; detail does not list them.",
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer",
+        },
+        "hiddenUnlinkedSessions": {
+          "description": "Unlinked sessions not listed: ended, or gone from Spur's session list, for over 7 days. Counted within the requested projects; detail does not list them.",
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer",
+        },
         "hostLoad": {
           "description": "Host-load episode line, or null when absent.",
           "type": [
@@ -985,7 +997,7 @@ Example: {}",
           "type": "array",
         },
         "unlinkedPrs": {
-          "description": "Observed pull requests without a task link.",
+          "description": "Observed pull requests without a task link; merged or closed ones with no change for over 7 days are left out.",
           "items": {
             "additionalProperties": false,
             "description": "A pull request without a task link; fields beyond its identity need detail.",
@@ -1277,7 +1289,7 @@ Example: {}",
           "type": "array",
         },
         "unlinkedSessions": {
-          "description": "Observed sessions without a task link.",
+          "description": "Observed sessions without a task link; ones ended, or gone from Spur's session list, for over 7 days are left out.",
           "items": {
             "additionalProperties": false,
             "description": "A session without a task link; fields beyond its identity need detail.",
@@ -1476,6 +1488,8 @@ Example: {}",
         "tasks",
         "unlinkedPrs",
         "unlinkedSessions",
+        "hiddenUnlinkedPrs",
+        "hiddenUnlinkedSessions",
       ],
       "type": "object",
     },

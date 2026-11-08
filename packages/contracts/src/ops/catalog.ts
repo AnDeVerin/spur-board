@@ -168,10 +168,26 @@ export const OPERATIONS = [
         .describe('Tasks on the board with state and counts; facts and links with detail.'),
       unlinkedPrs: z
         .array(statusUnlinkedPrSchema)
-        .describe('Observed pull requests without a task link.'),
+        .describe(
+          'Observed pull requests without a task link; merged or closed ones with no change for over 7 days are left out.',
+        ),
       unlinkedSessions: z
         .array(statusUnlinkedSessionSchema)
-        .describe('Observed sessions without a task link.'),
+        .describe(
+          "Observed sessions without a task link; ones ended, or gone from Spur's session list, for over 7 days are left out.",
+        ),
+      hiddenUnlinkedPrs: z
+        .int()
+        .min(0)
+        .describe(
+          'Unlinked pull requests not listed: merged or closed, with no change for over 7 days. Counted within the requested projects; detail does not list them.',
+        ),
+      hiddenUnlinkedSessions: z
+        .int()
+        .min(0)
+        .describe(
+          "Unlinked sessions not listed: ended, or gone from Spur's session list, for over 7 days. Counted within the requested projects; detail does not list them.",
+        ),
     }),
     grants: operatorOrProjectAgent,
     errors: ['not_found'],
@@ -199,6 +215,8 @@ export const OPERATIONS = [
           ],
           unlinkedPrs: [],
           unlinkedSessions: [],
+          hiddenUnlinkedPrs: 0,
+          hiddenUnlinkedSessions: 0,
         },
       },
       {
@@ -226,6 +244,8 @@ export const OPERATIONS = [
           ],
           unlinkedPrs: [],
           unlinkedSessions: [],
+          hiddenUnlinkedPrs: 0,
+          hiddenUnlinkedSessions: 0,
         },
       },
     ],

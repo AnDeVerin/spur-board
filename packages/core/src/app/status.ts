@@ -49,6 +49,9 @@ function issuesRepo(project: Config['projects'][number] | undefined): string | n
   return project?.tracker.type === 'github-issues' ? project.tracker.repo.toLowerCase() : null;
 }
 
+/** Unlinked PRs and sessions finished longer ago than this are counted, not listed. */
+const UNLINKED_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+
 function interval(config: Config, source: string): number {
   if (source === 'spur') return config.adapters.spur.intervalMs;
   if (source.startsWith('jira:')) return config.adapters.jira.intervalMs;
@@ -181,6 +184,10 @@ export async function getStatus(
         : {}),
     });
   }
+  const sourceRows = await store.db.selectFrom('source_state').selectAll().execute();
+  const sourceById = new Map(sourceRows.map((row) => [row.source, row]));
+  const spurLastCompleteAt = sourceById.get('spur')?.last_complete_at ?? null;
+  const pastWindow = (at: string) => clock.now() - Date.parse(at) > UNLINKED_WINDOW_MS;
   const allPrs = await store.db.selectFrom('pr_snapshot').selectAll().execute();
   const allSessions = await store.db.selectFrom('session_snapshot').selectAll().execute();
   const allLinks = await store.db.selectFrom('link').selectAll().where('banned', '=', 0).execute();
@@ -207,7 +214,7 @@ export async function getStatus(
     );
     return onBoard ? undefined : `no task on the board for ${facts.ticketKeys.join(', ')}`;
   };
-  const unlinkedPrs = allPrs
+  const prRows = allPrs
     .filter(
       (pr) =>
         projects.some((project) =>
@@ -220,28 +227,41 @@ export async function getStatus(
             link.number === pr.number,
         ),
     )
-    .map((pr) => {
-      const facts = parseJson(prFactsSchema, pr.detail);
+    .map((pr) => ({ pr, facts: parseJson(prFactsSchema, pr.detail) }));
+  const hiddenPr = (facts: PrFacts) => facts.state !== 'open' && pastWindow(facts.updatedAt);
+  const unlinkedPrs = prRows
+    .filter(({ facts }) => !hiddenPr(facts))
+    .map(({ pr, facts }) => {
       const reason = unlinkedReason(pr.source, facts);
       const why = reason === undefined ? {} : { reason };
       if (detail) return { ...facts, ...why };
       const { repo, number, url, title, state, draft } = facts;
       return { repo, number, url, title, state, draft, ...why };
     });
-  const unlinkedSessions = allSessions
-    .filter(
-      (session) =>
-        projects.some((project) =>
-          project.spurProjects.some((spur) => spur.name === session.spur_project),
-        ) && !allLinks.some((link) => link.entity === 'session' && link.session_id === session.id),
-    )
+  const sessionRows = allSessions.filter(
+    (session) =>
+      projects.some((project) =>
+        project.spurProjects.some((spur) => spur.name === session.spur_project),
+      ) && !allLinks.some((link) => link.entity === 'session' && link.session_id === session.id),
+  );
+  /** Ended, or missing from the latest complete Spur list, for longer than the window. */
+  const hiddenSession = (session: (typeof sessionRows)[number]) => {
+    const ended =
+      session.ended_at !== null ||
+      session.state === 'completed' ||
+      session.state === 'killed' ||
+      (spurLastCompleteAt !== null &&
+        Date.parse(session.last_seen) < Date.parse(spurLastCompleteAt));
+    return ended && pastWindow(session.ended_at ?? session.last_seen);
+  };
+  const unlinkedSessions = sessionRows
+    .filter((session) => !hiddenSession(session))
     .map((session) => {
       const facts = parseJson(sessionFactsSchema, session.detail);
       if (detail) return sessionView(facts);
       const { id, spurProject, branch, lifecycle, health } = facts;
       return { id, spurProject, branch, lifecycle, health };
     });
-  const sourceRows = await store.db.selectFrom('source_state').selectAll().execute();
   const required = new Set([
     'spur',
     ...projects.flatMap((project) => [
@@ -249,7 +269,6 @@ export async function getStatus(
       ...project.repos.map((repo) => `github:${project.id}:${repo.toLowerCase()}`),
     ]),
   ]);
-  const sourceById = new Map(sourceRows.map((row) => [row.source, row]));
   const sources = [...required].map((source) => {
     const row = sourceById.get(source);
     const last = row?.last_complete_at ?? null;
@@ -355,5 +374,7 @@ export async function getStatus(
     tasks,
     unlinkedPrs,
     unlinkedSessions,
+    hiddenUnlinkedPrs: prRows.length - unlinkedPrs.length,
+    hiddenUnlinkedSessions: sessionRows.length - unlinkedSessions.length,
   };
 }

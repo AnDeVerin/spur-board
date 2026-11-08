@@ -1,5 +1,5 @@
 {
-  "version": "632e818ffee234d8d1785ceb7d3a0f9e2d5320bf24d8a907b8476f957023aa47",
+  "version": "2d56ed186d0cd736467012aec7e17f6eb72f234c788f1f10190724e6c64af4ce",
   "grants": [
     "operator",
     "project-agent",
@@ -686,7 +686,9 @@
               }
             ],
             "unlinkedPrs": [],
-            "unlinkedSessions": []
+            "unlinkedSessions": [],
+            "hiddenUnlinkedPrs": 0,
+            "hiddenUnlinkedSessions": 0
           }
         },
         {
@@ -716,7 +718,9 @@
               }
             ],
             "unlinkedPrs": [],
-            "unlinkedSessions": []
+            "unlinkedSessions": [],
+            "hiddenUnlinkedPrs": 0,
+            "hiddenUnlinkedSessions": 0
           }
         }
       ],
@@ -1761,7 +1765,7 @@
               "additionalProperties": false,
               "description": "A pull request without a task link; fields beyond its identity need detail."
             },
-            "description": "Observed pull requests without a task link."
+            "description": "Observed pull requests without a task link; merged or closed ones with no change for over 7 days are left out."
           },
           "unlinkedSessions": {
             "type": "array",
@@ -1904,7 +1908,19 @@
               "additionalProperties": false,
               "description": "A session without a task link; fields beyond its identity need detail."
             },
-            "description": "Observed sessions without a task link."
+            "description": "Observed sessions without a task link; ones ended, or gone from Spur's session list, for over 7 days are left out."
+          },
+          "hiddenUnlinkedPrs": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991,
+            "description": "Unlinked pull requests not listed: merged or closed, with no change for over 7 days. Counted within the requested projects; detail does not list them."
+          },
+          "hiddenUnlinkedSessions": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991,
+            "description": "Unlinked sessions not listed: ended, or gone from Spur's session list, for over 7 days. Counted within the requested projects; detail does not list them."
           }
         },
         "required": [
@@ -1916,7 +1932,9 @@
           "sources",
           "tasks",
           "unlinkedPrs",
-          "unlinkedSessions"
+          "unlinkedSessions",
+          "hiddenUnlinkedPrs",
+          "hiddenUnlinkedSessions"
         ],
         "additionalProperties": false
       }
