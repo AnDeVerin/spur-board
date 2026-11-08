@@ -60,14 +60,14 @@ function scopedGithubError(value: unknown): string | null {
   return null;
 }
 
-async function githubGraphql(
+// Runs `call` under logCall with a TIMEOUT_MS deadline that also aborts its signal; any failure
+// is logged as `failure`, so no vendor text reaches the log, and returns null.
+async function deadlineCall<T>(
   ctx: ModuleContext<Store>,
-  fetcher: typeof fetch,
-  token: string,
-  repo: string,
-): Promise<{ response: Response; body: unknown } | null> {
-  const [owner, name] = repo.split('/');
-  if (!owner || !name) return null;
+  name: string,
+  failure: string,
+  call: (signal: AbortSignal) => Promise<T>,
+): Promise<T | null> {
   const controller = new AbortController();
   const deadline = setTimeout(() => {
     controller.abort();
@@ -76,32 +76,17 @@ async function githubGraphql(
     controller.signal.addEventListener(
       'abort',
       () => {
-        reject(new Error('GitHub doctor probe timed out'));
+        reject(new Error(`${failure}: timed out`));
       },
       { once: true },
     );
   });
   try {
-    return await ctx.logCall('doctor.github', async () => {
+    return await ctx.logCall(name, async () => {
       try {
-        return await Promise.race([
-          (async () => {
-            const response = await fetcher('https://api.github.com/graphql', {
-              method: 'POST',
-              headers: {
-                Authorization: `Bearer ${token}`,
-                Accept: 'application/vnd.github+json',
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({ query: GITHUB_PROBE, variables: { owner, repo: name } }),
-              signal: controller.signal,
-            });
-            return { response, body: response.ok ? ((await response.json()) as unknown) : null };
-          })(),
-          aborted,
-        ]);
+        return await Promise.race([call(controller.signal), aborted]);
       } catch {
-        throw new Error('GitHub doctor probe failed');
+        throw new Error(failure);
       }
     });
   } catch {
@@ -109,6 +94,29 @@ async function githubGraphql(
   } finally {
     clearTimeout(deadline);
   }
+}
+
+async function githubGraphql(
+  ctx: ModuleContext<Store>,
+  fetcher: typeof fetch,
+  token: string,
+  repo: string,
+): Promise<{ response: Response; body: unknown } | null> {
+  const [owner, name] = repo.split('/');
+  if (!owner || !name) return null;
+  return deadlineCall(ctx, 'doctor.github', 'GitHub doctor probe failed', async (signal) => {
+    const response = await fetcher('https://api.github.com/graphql', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/vnd.github+json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ query: GITHUB_PROBE, variables: { owner, repo: name } }),
+      signal,
+    });
+    return { response, body: response.ok ? ((await response.json()) as unknown) : null };
+  });
 }
 
 type Project = Config['projects'][number];
@@ -125,45 +133,19 @@ const LINK_RULES_TAIL = "Change projects[].link to the repo's branch and PR titl
 const LINK_RULES_TOKEN_FIX =
   'Add GITHUB_TOKEN to secrets.env, then rerun board doctor to compare projects[].link with recent PRs.';
 
-async function sampleProject(
+function sampleProject(
   ctx: ModuleContext<Store>,
   fetcher: typeof fetch,
   token: string,
   project: Project,
   repo: string,
 ): Promise<LinkSample | null> {
-  const controller = new AbortController();
-  const deadline = setTimeout(() => {
-    controller.abort();
-  }, TIMEOUT_MS);
-  const aborted = new Promise<never>((_resolve, reject) => {
-    controller.signal.addEventListener(
-      'abort',
-      () => {
-        reject(new Error('GitHub link sample timed out'));
-      },
-      { once: true },
-    );
-  });
-  try {
-    return await ctx.logCall('doctor.link_rules', async () => {
-      try {
-        return await Promise.race([
-          sampleLinkRules(
-            { repo, login: project.operatorGithubLogin, link: project.link },
-            { token, fetch: fetcher, signal: controller.signal },
-          ),
-          aborted,
-        ]);
-      } catch {
-        throw new Error('GitHub link sample failed');
-      }
-    });
-  } catch {
-    return null;
-  } finally {
-    clearTimeout(deadline);
-  }
+  return deadlineCall(ctx, 'doctor.link_rules', 'GitHub link sample failed', (signal) =>
+    sampleLinkRules(
+      { repo, login: project.operatorGithubLogin, link: project.link },
+      { token, fetch: fetcher, signal },
+    ),
+  );
 }
 
 function sampleLinks(
