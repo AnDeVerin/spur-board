@@ -47,6 +47,33 @@ describe('generated public references', () => {
     expect(row('titlePattern')).toContain('`"^[a-z]+(?:\\\\([^)]*\\\\))?!?: #([1-9][0-9]*)"`');
     expect(row('titlePattern')).toContain('PR title');
     expect(configuration).not.toContain('branchPattern (github-issues)');
+    const login = configuration
+      .split('\n')
+      .find((line) => line.startsWith('| `projects[].operatorGithubLogin` '));
+    expect(login).toContain('author');
+    expect(login).toContain('open PRs under');
+    const sessionLinks = configuration.split('## Session links')[1]?.split('\n## ')[0];
+    expect(sessionLinks).toBeDefined();
+    for (const token of [
+      'board-worker',
+      'board-other',
+      '/browse/',
+      '/issues/',
+      'role: worker',
+      'any Spur project',
+      'spur slots',
+      '`board link',
+    ])
+      expect(sessionLinks).toContain(token);
+    const linkSpans = [...(sessionLinks ?? '').matchAll(/`(board link [^`]*)`/g)].map(
+      (match) => match[1] ?? '',
+    );
+    expect(linkSpans.length).toBeGreaterThan(0);
+    const linkFlags = (
+      registeredCommands().find(({ path }) => path === 'link')?.command.options ?? []
+    ).map((option) => option.long);
+    for (const span of linkSpans)
+      for (const flag of span.match(/--[a-z-]+/g) ?? []) expect(linkFlags).toContain(flag);
     expect(
       [...configuration.matchAll(/^\| `([A-Z][A-Z_]+)` +\|/gm)].map((match) => match[1]),
     ).toEqual(SECRET_ENV_KEYS.map(({ name }) => name));
