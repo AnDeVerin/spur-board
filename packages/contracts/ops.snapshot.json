@@ -1,5 +1,5 @@
 {
-  "version": "ab8856411d8fdda541c80f119b35675410656ecfd70885c171f382ffd9afd99c",
+  "version": "632e818ffee234d8d1785ceb7d3a0f9e2d5320bf24d8a907b8476f957023aa47",
   "grants": [
     "operator",
     "project-agent",
@@ -1493,6 +1493,12 @@
                     "additionalProperties": false,
                     "description": "An effective link to a task."
                   }
+                },
+                "linkHints": {
+                  "description": "Why a pull request a linked session reports has no link to this task: the PR is in the GitHub Issues tracker repo and the project link rules found no key for the task in it. Present only when there is a hint.",
+                  "minItems": 1,
+                  "type": "array",
+                  "items": { "type": "string", "minLength": 1 }
                 }
               },
               "required": [
@@ -1744,6 +1750,11 @@
                   "format": "date-time",
                   "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
                   "description": "When the pull request last changed."
+                },
+                "reason": {
+                  "description": "Why the link rules gave this pull request no task link. Present only on an open pull request in the tracker repo of a GitHub Issues project, when the rules found no key or no board task for its keys.",
+                  "type": "string",
+                  "minLength": 1
                 }
               },
               "required": ["repo", "number", "url", "title", "state", "draft"],

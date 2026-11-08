@@ -55,7 +55,7 @@
             "items": { "type": "string", "pattern": "^[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+$" }
           },
           "link": {
-            "description": "How a github-issues project links a PR in tracker.repo to its issue. A Jira project ignores it and links by tracker.projectKeys.",
+            "description": "How a github-issues project links a PR in tracker.repo to its issue. A Jira project ignores it and links by tracker.projectKeys. Set the sources and patterns to the branch and PR title naming rules of tracker.repo. The board does not enforce those rules; the repo enforces them through its CI title check and its agents' skills. board doctor compares these rules with recent PRs by operatorGithubLogin.",
             "default": {},
             "type": "object",
             "properties": {

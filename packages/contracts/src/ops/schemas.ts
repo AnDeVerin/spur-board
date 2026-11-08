@@ -146,6 +146,13 @@ export const statusTaskSchema = taskViewSchema
       .array(linkViewSchema)
       .optional()
       .describe(`Effective pull request, session, and ticket links. ${detailOnly}`),
+    linkHints: z
+      .array(z.string().min(1))
+      .min(1)
+      .optional()
+      .describe(
+        'Why a pull request a linked session reports has no link to this task: the PR is in the GitHub Issues tracker repo and the project link rules found no key for the task in it. Present only when there is a hint.',
+      ),
   })
   .describe('A board task with a one-line state and counts; detail adds its facts and links.');
 
@@ -163,6 +170,15 @@ export const statusUnlinkedPrSchema = prFactsSchema
     reviewRequests: true,
     ticketKeys: true,
     updatedAt: true,
+  })
+  .extend({
+    reason: z
+      .string()
+      .min(1)
+      .optional()
+      .describe(
+        'Why the link rules gave this pull request no task link. Present only on an open pull request in the tracker repo of a GitHub Issues project, when the rules found no key or no board task for its keys.',
+      ),
   })
   .describe('A pull request without a task link; fields beyond its identity need detail.');
 

@@ -21,6 +21,15 @@ export function trackerSource(project: Config['projects'][number]): string {
     : `github-issues:${project.id}:${project.tracker.repo.toLowerCase()}`;
 }
 
+/** The project whose tracker or repo source wrote an observation. */
+export function projectForSource(config: Config, source: string) {
+  return config.projects.find(
+    (project) =>
+      source === trackerSource(project) ||
+      project.repos.some((repo) => source === `github:${project.id}:${repo.toLowerCase()}`),
+  );
+}
+
 export function projectForKey(config: Config, key: string): Config['projects'][number] | null {
   const lowerKey = key.toLowerCase();
   const matched = config.projects.filter((project) => {

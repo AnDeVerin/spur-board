@@ -30,6 +30,8 @@ function doctorContext(
     channels?: boolean;
     slack?: boolean;
     secrets?: Readonly<Record<string, string>>;
+    // A github-issues project tracking example/board instead of the Jira project.
+    issues?: boolean;
   } = {},
 ) {
   const store = openStore(join(makeHome(), 'board.sqlite'));
@@ -38,13 +40,15 @@ function doctorContext(
     projects: [
       {
         id: 'board',
-        tracker: {
-          type: 'jira',
-          baseUrl: 'https://jira.example.test',
-          jql: 'project = BOARD',
-          doneStatuses: ['Done'],
-          readyStatuses: ['Ready'],
-        },
+        tracker: options.issues
+          ? { type: 'github-issues', repo: 'example/board', label: 'board' }
+          : {
+              type: 'jira',
+              baseUrl: 'https://jira.example.test',
+              jql: 'project = BOARD',
+              doneStatuses: ['Done'],
+              readyStatuses: ['Ready'],
+            },
         repos: ['example/board'],
         operatorGithubLogin: 'operator',
         spurProjects: options.operator ? [{ name: 'operator', role: 'operator' }] : [],
@@ -84,7 +88,32 @@ function doctorContext(
   return ctx;
 }
 
-function doctorFetch(fail?: string): typeof fetch {
+// A LinkSample response listing the given PRs of example/board, newest updated first.
+function linkSampleResponse(prs: readonly unknown[]): Response {
+  return Response.json({
+    data: {
+      rateLimit: { remaining: 4000, resetAt: '2026-11-04T09:00:00.000Z' },
+      repository: { pullRequests: { nodes: prs } },
+    },
+  });
+}
+
+function samplePr(number: number, branch: string, login = 'operator') {
+  return {
+    number,
+    title: 'Secret title words',
+    headRefName: branch,
+    author: { login },
+    closingIssuesReferences: { nodes: [] },
+  };
+}
+
+function isLinkSample(init?: RequestInit): boolean {
+  return typeof init?.body === 'string' && init.body.includes('query LinkSample');
+}
+
+// `prs` answers the link sample of a github-issues project; probe requests behave as before.
+function doctorFetch(fail?: string, prs: readonly unknown[] = []): typeof fetch {
   return vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(
       input instanceof URL ? input.href : input instanceof Request ? input.url : input,
@@ -94,6 +123,14 @@ function doctorFetch(fail?: string): typeof fetch {
       return Promise.resolve(
         new Response(null, { status: fail === 'jira.credentials' ? 401 : 200 }),
       );
+    if (path === '/graphql' && isLinkSample(init)) {
+      expect(init?.signal).toBeInstanceOf(AbortSignal);
+      if (fail === 'link.stalled-body')
+        return Promise.resolve(new Response(new ReadableStream({ start() {} })));
+      if (fail === 'link.failed')
+        return Promise.resolve(new Response('secret-canary upstream body', { status: 502 }));
+      return Promise.resolve(linkSampleResponse(prs));
+    }
     if (path === '/graphql') {
       expect(init?.method).toBe('POST');
       expect(init?.signal).toBeInstanceOf(AbortSignal);
@@ -419,6 +456,7 @@ describe('daemon doctor checks', () => {
       'secrets',
       'jira.credentials',
       'github.credentials',
+      'link.rules',
       'spur.api',
       'spur.send',
       'slack.configured',
@@ -478,6 +516,7 @@ describe('daemon doctor checks', () => {
       'secrets',
       'jira.credentials',
       'github.credentials',
+      'link.rules',
       'spur.api',
       'spur.send',
       'slack.auth',
@@ -575,6 +614,161 @@ describe('daemon doctor checks', () => {
     });
     expect(command?.fix).toContain('Verify the installed Slack slash command');
   });
+});
+
+describe('daemon doctor link rules', () => {
+  const linkRules = (report: Awaited<ReturnType<typeof runDaemonDoctor>>) =>
+    report.checks.find((entry) => entry.id === 'link.rules');
+  const issuesDoctor = (fetcher: typeof fetch) =>
+    runDaemonDoctor(
+      doctorContext({ operator: true, slack: false, issues: true }),
+      '1.2.3',
+      fetcher,
+    );
+
+  it('warns on link.rules naming the PRs the link rules do not match', async () => {
+    const fetcher = doctorFetch(undefined, [
+      samplePr(5, 'claude-5-widget'),
+      samplePr(4, 'someone-4-x', 'someone'),
+      samplePr(3, 'feature/no-key'),
+      samplePr(2, 'claude-2-widget'),
+    ]);
+    const report = await issuesDoctor(fetcher);
+    const check = linkRules(report);
+    expect(check).toMatchObject({ status: 'warning', blocking: false });
+    expect(check?.fix).toContain('board: link rules match 2 of the last 3 PRs in example/board');
+    expect(check?.fix).toContain('not matched: #3 `feature/no-key`');
+    expect(check?.fix).toContain('projects[].link');
+    expect(check?.fix).not.toContain('Secret title words');
+    expect(report.checks.map((entry) => entry.id).slice(2, 4)).toEqual([
+      'github.credentials',
+      'link.rules',
+    ]);
+    // No Jira project: repository, permission probe, link sample and two Spur requests.
+    expect(fetcher).toHaveBeenCalledTimes(5);
+  });
+
+  it('passes link.rules with the match count when every sampled PR matches', async () => {
+    const report = await issuesDoctor(
+      doctorFetch(undefined, [
+        samplePr(3, 'claude-3-widget'),
+        samplePr(2, 'claude-2-widget'),
+        samplePr(1, 'claude-1-widget'),
+      ]),
+    );
+    expect(linkRules(report)).toEqual({
+      id: 'link.rules',
+      status: 'pass',
+      blocking: false,
+      fix: 'board: link rules match 3 of the last 3 PRs in example/board.',
+    });
+  });
+
+  it('skips link.rules with a note when the operator has no PRs in the tracker repo', async () => {
+    const report = await issuesDoctor(
+      doctorFetch(undefined, [samplePr(4, 'feature/other', 'someone')]),
+    );
+    expect(linkRules(report)).toEqual({
+      id: 'link.rules',
+      status: 'warning',
+      blocking: false,
+      fix: 'board: skipped: no PRs by operator in example/board.',
+    });
+  });
+
+  it('warns, never fails, when the link sample request fails', async () => {
+    const report = await issuesDoctor(doctorFetch('link.failed'));
+    expect(linkRules(report)).toEqual({
+      id: 'link.rules',
+      status: 'warning',
+      blocking: false,
+      fix: 'board: could not read PRs in example/board.',
+    });
+    expect(report.checks.find((entry) => entry.id === 'github.credentials')).toMatchObject({
+      status: 'pass',
+    });
+    expect(JSON.stringify(report)).not.toMatch(/secret-canary/);
+    const tokenless = await runDaemonDoctor(
+      doctorContext({ operator: true, slack: false, issues: true, secrets: {} }),
+      '1.2.3',
+      doctorFetch(),
+    );
+    expect(linkRules(tokenless)).toMatchObject({ status: 'warning', blocking: false });
+    expect(linkRules(tokenless)?.fix).toContain('GITHUB_TOKEN');
+  });
+
+  it('keeps the link.rules fix within the report limit for many projects', async () => {
+    const branch = `${'b'.repeat(240)}\`\u0007tail`;
+    const longRepo = (i: number) => `owner${String(i)}/${'r'.repeat(90)}`;
+    const projects = (count: number, repoOf: (i: number) => string) =>
+      Array.from({ length: count }, (_, i) => ({
+        id: `project-${String(i)}`,
+        tracker: { type: 'github-issues', repo: repoOf(i), label: 'board' },
+        repos: [repoOf(i)],
+        operatorGithubLogin: 'operator',
+        spurProjects: [{ name: `operator-${String(i)}`, role: 'operator' }],
+      }));
+    const run = async (count: number, repoOf = longRepo, unmatched = [5, 4, 3, 2]) => {
+      // Probes fail; only the sample of each tracker repo answers.
+      const fetcher = vi.fn((_input: RequestInfo | URL, init?: RequestInit) =>
+        Promise.resolve(
+          isLinkSample(init)
+            ? linkSampleResponse([
+                ...unmatched.map((number) => samplePr(number, branch)),
+                samplePr(1, 'claude-1-widget'),
+              ])
+            : new Response(null, { status: 500 }),
+        ),
+      );
+      const ctx = doctorContext({ slack: false });
+      const report = await runDaemonDoctor(
+        {
+          ...ctx,
+          config: configSchema.parse({
+            projects: projects(count, repoOf),
+            operator: { slack: 'U0000000000' },
+            digest: { tz: 'UTC' },
+          }),
+        },
+        '1.2.3',
+        fetcher,
+      );
+      // Limits of doctorReportSchema in packages/core/src/api/server.ts.
+      expect(report.checks.length).toBeLessThanOrEqual(30);
+      for (const entry of report.checks) {
+        expect(entry.id).toMatch(/^[a-z][a-z._]+$/);
+        expect(entry.id.length).toBeLessThanOrEqual(60);
+        if (entry.fix !== null) expect(entry.fix.length).toBeLessThanOrEqual(300);
+      }
+      const check = linkRules(report);
+      expect(check).toMatchObject({ status: 'warning', blocking: false });
+      return check?.fix ?? '';
+    };
+    const many = await run(8);
+    expect(many.length).toBeLessThanOrEqual(300);
+    expect(many).toContain('projects[].link');
+    const one = await run(1, () => 'example/board', [2]);
+    expect(one).toBe(
+      `project-0: link rules match 1 of the last 2 PRs in example/board; not matched: #2 \`${'b'.repeat(40)}...\`. Change projects[].link to the repo's branch and PR title rules.`,
+    );
+    expect(one).not.toContain('\u0007');
+  });
+
+  it('bounds the link sample with the doctor deadline when the body never ends', async () => {
+    const started = Date.now();
+    const report = await issuesDoctor(doctorFetch('link.stalled-body'));
+    expect(Date.now() - started).toBeLessThan(7_000);
+    expect(linkRules(report)).toEqual({
+      id: 'link.rules',
+      status: 'warning',
+      blocking: false,
+      fix: 'board: could not read PRs in example/board.',
+    });
+    expect(report.checks.find((entry) => entry.id === 'github.credentials')).toMatchObject({
+      status: 'pass',
+      blocking: false,
+    });
+  }, 8_000);
 });
 
 describe('live session lookup', () => {

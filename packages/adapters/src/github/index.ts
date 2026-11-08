@@ -12,6 +12,7 @@ import { parseWire } from '../runner/wire.ts';
 import {
   GithubClient,
   connectionWire,
+  deniedReference,
   detailQuery,
   initialQuery,
   pageQuery,
@@ -25,7 +26,7 @@ import {
   nextPage,
   pastCursor,
 } from './discovery.ts';
-import { normalizePr, type KeyRule } from './prBatch.ts';
+import { issuesRule, normalizePr, type KeyRule } from './prBatch.ts';
 
 const MALFORMED = 'Malformed GitHub response';
 const discoveryRootWire = z.object({ pullRequests: connectionWire(discoveryNodeWire) });
@@ -68,15 +69,7 @@ export function githubSources(config: Config, options: GithubOptions): GithubSou
     // Only the tracker repo of a github-issues project whose `link.sources` lists `closing`
     // reads closing references.
     const issues: KeyRule | undefined =
-      tracker.type === 'github-issues'
-        ? {
-            type: 'issues',
-            repo: tracker.repo,
-            sources: project.link.sources,
-            branch: new RegExp(project.link.branchPattern),
-            title: new RegExp(project.link.titlePattern),
-          }
-        : undefined;
+      tracker.type === 'github-issues' ? issuesRule(tracker.repo, project.link) : undefined;
     const prefixes: KeyRule = {
       type: 'prefixes',
       prefixes: tracker.type === 'jira' ? tracker.projectKeys : [],
@@ -129,13 +122,6 @@ function status(error: GraphError): 'not_found' | 'no_access' {
 }
 function connectionOf(pr: PagePr, field: PagedField): Paging | undefined {
   return (field === 'contexts' ? pr.statusCheckRollup?.contexts : pr[field]) ?? undefined;
-}
-// A closing reference the token cannot read never links, so it costs the PR nothing.
-function deniedReference(error: GraphError): boolean {
-  return (
-    (error.type === 'FORBIDDEN' || error.type === 'NOT_FOUND') &&
-    error.path?.includes('closingIssuesReferences') === true
-  );
 }
 function withoutDeniedReferences(errors: readonly GraphError[]): GraphError[] {
   return errors.filter((error) => !deniedReference(error));

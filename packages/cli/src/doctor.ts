@@ -250,6 +250,7 @@ const remoteBaseIds = [
   'secrets',
   'jira.credentials',
   'github.credentials',
+  'link.rules',
   'spur.api',
   'spur.send',
   'operator.path',

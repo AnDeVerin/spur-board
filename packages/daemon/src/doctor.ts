@@ -1,4 +1,5 @@
-import { SLACK_BOT_SCOPES, requiredSecretKeys } from '@spur-board/contracts';
+import { sampleLinkRules } from '@spur-board/adapters';
+import { SLACK_BOT_SCOPES, requiredSecretKeys, type Config } from '@spur-board/contracts';
 import type { ApiOptions, Store } from '@spur-board/core';
 import type { ModuleContext } from './lifecycle.ts';
 import { spurErrorText, spurSendRequest } from './spur-port.ts';
@@ -59,14 +60,14 @@ function scopedGithubError(value: unknown): string | null {
   return null;
 }
 
-async function githubGraphql(
+// Runs `call` under logCall with a TIMEOUT_MS deadline that also aborts its signal; any failure
+// is logged as `failure`, so no vendor text reaches the log, and returns null.
+async function deadlineCall<T>(
   ctx: ModuleContext<Store>,
-  fetcher: typeof fetch,
-  token: string,
-  repo: string,
-): Promise<{ response: Response; body: unknown } | null> {
-  const [owner, name] = repo.split('/');
-  if (!owner || !name) return null;
+  name: string,
+  failure: string,
+  call: (signal: AbortSignal) => Promise<T>,
+): Promise<T | null> {
   const controller = new AbortController();
   const deadline = setTimeout(() => {
     controller.abort();
@@ -75,32 +76,17 @@ async function githubGraphql(
     controller.signal.addEventListener(
       'abort',
       () => {
-        reject(new Error('GitHub doctor probe timed out'));
+        reject(new Error(`${failure}: timed out`));
       },
       { once: true },
     );
   });
   try {
-    return await ctx.logCall('doctor.github', async () => {
+    return await ctx.logCall(name, async () => {
       try {
-        return await Promise.race([
-          (async () => {
-            const response = await fetcher('https://api.github.com/graphql', {
-              method: 'POST',
-              headers: {
-                Authorization: `Bearer ${token}`,
-                Accept: 'application/vnd.github+json',
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({ query: GITHUB_PROBE, variables: { owner, repo: name } }),
-              signal: controller.signal,
-            });
-            return { response, body: response.ok ? ((await response.json()) as unknown) : null };
-          })(),
-          aborted,
-        ]);
+        return await Promise.race([call(controller.signal), aborted]);
       } catch {
-        throw new Error('GitHub doctor probe failed');
+        throw new Error(failure);
       }
     });
   } catch {
@@ -108,6 +94,158 @@ async function githubGraphql(
   } finally {
     clearTimeout(deadline);
   }
+}
+
+async function githubGraphql(
+  ctx: ModuleContext<Store>,
+  fetcher: typeof fetch,
+  token: string,
+  repo: string,
+): Promise<{ response: Response; body: unknown } | null> {
+  const [owner, name] = repo.split('/');
+  if (!owner || !name) return null;
+  return deadlineCall(ctx, 'doctor.github', 'GitHub doctor probe failed', async (signal) => {
+    const response = await fetcher('https://api.github.com/graphql', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/vnd.github+json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ query: GITHUB_PROBE, variables: { owner, repo: name } }),
+      signal,
+    });
+    return { response, body: response.ok ? ((await response.json()) as unknown) : null };
+  });
+}
+
+type Project = Config['projects'][number];
+type LinkSample = Awaited<ReturnType<typeof sampleLinkRules>>;
+// One project's link-rule finding; `null` sample means the PRs could not be read.
+type LinkOutcome =
+  | { project: Project; repo: string; polled: false }
+  | { project: Project; repo: string; polled: true; sample: LinkSample | null };
+// Limit of a check fix in the /v1/doctor report (doctorReportSchema in core's API server).
+const FIX_MAX = 300;
+const BRANCH_MAX = 40;
+const NAMED_PRS = 3;
+const LINK_RULES_TAIL = "Change projects[].link to the repo's branch and PR title rules.";
+const LINK_RULES_TOKEN_FIX =
+  'Add GITHUB_TOKEN to secrets.env, then rerun board doctor to compare projects[].link with recent PRs.';
+
+function sampleProject(
+  ctx: ModuleContext<Store>,
+  fetcher: typeof fetch,
+  token: string,
+  project: Project,
+  repo: string,
+): Promise<LinkSample | null> {
+  return deadlineCall(ctx, 'doctor.link_rules', 'GitHub link sample failed', (signal) =>
+    sampleLinkRules(
+      { repo, login: project.operatorGithubLogin, link: project.link },
+      { token, fetch: fetcher, signal },
+    ),
+  );
+}
+
+function sampleLinks(
+  ctx: ModuleContext<Store>,
+  fetcher: typeof fetch,
+  token: string | undefined,
+): Promise<LinkOutcome[]> | null {
+  const projects = ctx.config.projects.flatMap((project) =>
+    project.tracker.type === 'github-issues' ? [{ project, repo: project.tracker.repo }] : [],
+  );
+  if (projects.length === 0 || token === undefined) return null;
+  return Promise.all(
+    projects.map(async ({ project, repo }): Promise<LinkOutcome> => {
+      const polled = project.repos.some((entry) => entry.toLowerCase() === repo.toLowerCase());
+      return polled
+        ? { project, repo, polled, sample: await sampleProject(ctx, fetcher, token, project, repo) }
+        : { project, repo, polled };
+    }),
+  );
+}
+
+// Branch names are the operator's own; strip what could break the backticks or the terminal.
+function branchText(branch: string): string {
+  const clean = branch.replace(/[\u0000-\u001f\u007f-\u009f`]/g, '');
+  return clean.length > BRANCH_MAX ? `${clean.slice(0, BRANCH_MAX)}...` : clean;
+}
+
+interface LinkSegment {
+  problem: boolean;
+  unmatched: boolean;
+  text: (branches: boolean) => string;
+}
+
+function linkSegment(outcome: LinkOutcome): LinkSegment {
+  const { project, repo } = outcome;
+  const fixed = (text: string): LinkSegment => ({
+    problem: true,
+    unmatched: false,
+    text: () => `${project.id}: ${text}`,
+  });
+  if (!outcome.polled)
+    return fixed(`${repo} is not in projects[].repos, so its PRs are not polled`);
+  const { sample } = outcome;
+  if (sample === null) return fixed(`could not read PRs in ${repo}`);
+  if (sample.sampled === 0)
+    return fixed(`skipped: no PRs by ${project.operatorGithubLogin} in ${repo}`);
+  const count = `${project.id}: link rules match ${String(sample.sampled - sample.unmatched.length)} of the last ${String(sample.sampled)} PRs in ${repo}`;
+  if (sample.unmatched.length === 0) return { problem: false, unmatched: false, text: () => count };
+  const more = sample.unmatched.length - NAMED_PRS;
+  return {
+    problem: true,
+    unmatched: true,
+    text: (branches) =>
+      `${count}; not matched: ${sample.unmatched
+        .slice(0, NAMED_PRS)
+        .map((pr) => `#${String(pr.number)}${branches ? ` \`${branchText(pr.branch)}\`` : ''}`)
+        .join(', ')}${more > 0 ? ` and ${String(more)} more` : ''}`,
+  };
+}
+
+// The fix fits FIX_MAX: full text, then without branch names, then the leading projects that
+// fit and a count of the rest, then the fallback.
+function fitFix(segments: readonly LinkSegment[], tail: string, fallback: string): string {
+  for (const branches of [true, false]) {
+    const full = `${segments.map((segment) => segment.text(branches)).join('. ')}.${tail}`;
+    if (full.length <= FIX_MAX) return full;
+  }
+  const texts = segments.map((segment) => segment.text(false));
+  for (let kept = texts.length - 1; kept > 0; kept -= 1) {
+    const text = `${texts.slice(0, kept).join('. ')}; and ${String(texts.length - kept)} more projects.${tail}`;
+    if (text.length <= FIX_MAX) return text;
+  }
+  return fallback;
+}
+
+function linkRulesCheck(outcomes: readonly LinkOutcome[] | null, configured: boolean): Check {
+  const id = 'link.rules';
+  if (!configured) return { id, status: 'pass', blocking: false, fix: null };
+  if (outcomes === null) return warning(id, LINK_RULES_TOKEN_FIX);
+  const segments = outcomes.map(linkSegment);
+  const problems = segments.filter((segment) => segment.problem);
+  if (problems.length === 0)
+    return {
+      id,
+      status: 'pass',
+      blocking: false,
+      fix: fitFix(
+        segments,
+        '',
+        `link rules match every sampled PR in ${String(segments.length)} projects.`,
+      ),
+    };
+  return warning(
+    id,
+    fitFix(
+      problems,
+      problems.some((segment) => segment.unmatched) ? ` ${LINK_RULES_TAIL}` : '',
+      `link rules miss recent PRs in ${String(problems.length)} projects; change projects[].link to the repo's branch and PR title rules.`,
+    ),
+  );
 }
 
 function check(id: string, ok: boolean, fix: string): Check {
@@ -176,6 +314,8 @@ export async function runDaemonDoctor(
   const slackConfigured = Boolean(
     config.slack.channels.feed || config.slack.channels.orchestrators,
   );
+  // Started first so the link samples run alongside the credential probes.
+  const linkSamples = sampleLinks(ctx, fetcher, secrets['GITHUB_TOKEN']);
   const required = requiredSecretKeys(config);
   const missing = required.filter((name) => !secrets[name]);
   checks.push(
@@ -252,6 +392,12 @@ export async function runDaemonDoctor(
         );
   const githubFailure = githubFailures.find((failure) => failure !== null) ?? null;
   checks.push(check('github.credentials', githubFailure === null, githubFailure ?? GITHUB_FIX));
+  checks.push(
+    linkRulesCheck(
+      await linkSamples,
+      config.projects.some((project) => project.tracker.type === 'github-issues'),
+    ),
+  );
 
   // Same request the doorbell port makes, to a session that never exists, so no agent gets it.
   const probe = spurSendRequest(

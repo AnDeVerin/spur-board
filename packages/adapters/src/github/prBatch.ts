@@ -43,6 +43,19 @@ const reviewWire = z
     { path: ['commit'] },
   );
 const nodes = <T extends z.ZodType>(node: T) => z.object({ nodes: z.array(node) });
+// A denied issue arrives as a null node.
+export const closingWire = z
+  .object({
+    nodes: z.array(
+      z
+        .object({
+          number: z.int().positive(),
+          repository: z.object({ nameWithOwner: z.string() }).nullish(),
+        })
+        .nullable(),
+    ),
+  })
+  .nullish();
 // Vendor enums stay strings; normalizePr maps unknown values.
 const prWire = z.object({
   number: z.number(),
@@ -66,23 +79,18 @@ const prWire = z.object({
     }),
   ),
   // Selected only for the tracker repo of a github-issues project whose `link.sources` lists
-  // `closing`; a denied issue arrives as a null node.
-  closingIssuesReferences: z
-    .object({
-      nodes: z.array(
-        z
-          .object({
-            number: z.int().positive(),
-            repository: z.object({ nameWithOwner: z.string() }).nullish(),
-          })
-          .nullable(),
-      ),
-    })
-    .nullish(),
+  // `closing`.
+  closingIssuesReferences: closingWire,
 });
 type ContextWire = z.output<typeof contextWire>;
 type ReviewWire = z.output<typeof reviewWire>;
-type ClosingWire = z.output<typeof prWire>['closingIssuesReferences'];
+type ClosingWire = z.output<typeof closingWire>;
+type IssuesRule = Extract<KeyRule, { type: 'issues' }>;
+/** An issue a PR closes, as GitHub names it. */
+interface ClosingRef {
+  repo: string;
+  number: number;
+}
 
 /** How a source turns a PR into task keys: Jira prefixes, or a github-issues tracker repo. */
 export type KeyRule =
@@ -94,6 +102,23 @@ export type KeyRule =
       branch: RegExp;
       title: RegExp;
     };
+
+/** The key rule of a github-issues project's tracker repo, built from `projects[].link`. */
+export function issuesRule(repo: string, link: Config['projects'][number]['link']): IssuesRule {
+  return {
+    type: 'issues',
+    repo,
+    sources: link.sources,
+    branch: new RegExp(link.branchPattern),
+    title: new RegExp(link.titlePattern),
+  };
+}
+/** Drops denied (null) nodes and nodes without a repository. */
+export function closingRefs(wire: ClosingWire): ClosingRef[] {
+  return (wire?.nodes ?? []).flatMap((node) =>
+    node?.repository ? [{ repo: node.repository.nameWithOwner, number: node.number }] : [],
+  );
+}
 
 function checkState(node: ContextWire): PrFacts['checks'][number]['state'] {
   if (node.__typename === 'StatusContext') {
@@ -189,22 +214,19 @@ function matchedNumber(text: string, pattern: RegExp): number | undefined {
   return number !== undefined && ISSUE_NUMBER.test(number) ? Number(number) : undefined;
 }
 // The first source in `rule.sources` that yields a number gives the keys.
-function issueKeys(
+export function issueKeys(
   title: string,
   branch: string,
-  refs: ClosingWire,
-  rule: Extract<KeyRule, { type: 'issues' }>,
+  refs: readonly ClosingRef[],
+  rule: IssuesRule,
 ): string[] {
   const repo = rule.repo.toLowerCase();
   for (const source of rule.sources) {
     const numbers = new Set<number>();
     if (source === 'closing') {
-      for (const node of refs?.nodes ?? []) {
-        if (
-          node?.repository?.nameWithOwner.toLowerCase() === repo &&
-          ISSUE_NUMBER.test(String(node.number))
-        )
-          numbers.add(node.number);
+      for (const ref of refs) {
+        if (ref.repo.toLowerCase() === repo && ISSUE_NUMBER.test(String(ref.number)))
+          numbers.add(ref.number);
       }
     } else {
       const number =
@@ -256,7 +278,7 @@ export function normalizePr(repo: string, value: unknown, rule: KeyRule): PrFact
     ticketKeys:
       rule.type === 'prefixes'
         ? ticketKeys(title, headBranch, rule.prefixes)
-        : issueKeys(title, headBranch, wire.closingIssuesReferences, rule),
+        : issueKeys(title, headBranch, closingRefs(wire.closingIssuesReferences), rule),
     updatedAt: wire.updatedAt,
   };
   const parsed = prFactsSchema.safeParse(facts);
