@@ -713,6 +713,11 @@ describe('GitHub Issues PR keys', () => {
     expect(await poll('task/12', custom)).toEqual([['demo/widgets#12']]);
     expect(await poll('claude-12-slug', custom)).toEqual([[]]);
   });
+  it('skips the branch pattern for a branch longer than a GitHub ref', async () => {
+    const branch = `claude-12-${'x'.repeat(290)}`;
+    const fetcher = single(issuesPr(branch, conn([])));
+    expect(keysOf(await adapter(fetcher, issuesConfig()).poll(context()))).toEqual([[]]);
+  });
   it('ignores cross-repo references and non-tracker repos', async () => {
     const cross = single(issuesPr('feature/x', conn([closingRef(12, 'other/repo')])));
     expect(keysOf(await adapter(cross, issuesConfig()).poll(context()))).toEqual([[]]);

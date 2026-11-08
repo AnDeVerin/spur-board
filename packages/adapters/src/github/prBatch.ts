@@ -174,6 +174,8 @@ export function ticketKeys(title: string, branch: string, prefixes: readonly str
   return [...keys];
 }
 const ISSUE_NUMBER = /^[1-9][0-9]{0,14}$/;
+// GitHub refuses ref names longer than this; a longer branch is never matched.
+const MAX_BRANCH_LENGTH = 255;
 // Same-repo closing references win; the branch number is the fallback when none remains.
 function issueKeys(
   branch: string,
@@ -189,7 +191,7 @@ function issueKeys(
     )
       numbers.add(node.number);
   }
-  if (numbers.size === 0) {
+  if (numbers.size === 0 && branch.length <= MAX_BRANCH_LENGTH) {
     const number = rule.branch.exec(branch)?.[1];
     if (number !== undefined && ISSUE_NUMBER.test(number)) numbers.add(Number(number));
   }
