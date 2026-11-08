@@ -50,6 +50,8 @@ it('a run started with secrets, proxies and foreign dirs in env passes env.test.
         NO_PROXY: '',
         XDG_CONFIG_HOME: '/nonexistent',
         XDG_DATA_DIRS: '/nonexistent',
+        DBUS_SESSION_BUS_ADDRESS: 'unix:path=/nonexistent/bus',
+        NOTIFY_SOCKET: '/nonexistent/notify',
         TMPDIR: nestedTmp,
       },
     },

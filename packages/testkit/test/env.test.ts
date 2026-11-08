@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import http from 'node:http';
 import { homedir, tmpdir, userInfo } from 'node:os';
@@ -22,6 +23,8 @@ const PLANTED = [
   'ALL_PROXY',
   'NO_PROXY',
   'NODE_USE_ENV_PROXY',
+  'DBUS_SESSION_BUS_ADDRESS',
+  'NOTIFY_SOCKET',
 ];
 
 const atImport = { ...process.env };
@@ -59,6 +62,26 @@ describe('temp dirs', () => {
     }
     expect(process.env['XDG_DATA_DIRS']).toBeUndefined();
   });
+});
+
+describe('service manager', () => {
+  it.skipIf(process.platform !== 'linux')(
+    'keeps systemctl --user away from the real user manager',
+    (context) => {
+      // Read-only probe: is-active never changes a unit.
+      const result = spawnSync('systemctl', ['--user', 'is-active', 'spur-board.service'], {
+        encoding: 'utf8',
+      });
+      if ((result.error as NodeJS.ErrnoException | undefined)?.code === 'ENOENT') {
+        context.skip('systemctl is not installed');
+      }
+      expect(result.status, result.stdout + result.stderr).not.toBe(0);
+      expect(result.stderr).toMatch(/^Failed to connect to /m);
+      expect(result.stdout).not.toMatch(
+        /^(active|inactive|activating|deactivating|failed|reloading)$/m,
+      );
+    },
+  );
 });
 
 describe('network', () => {

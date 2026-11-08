@@ -1,4 +1,5 @@
-// Session identity, credentials and proxy settings that must never reach test code.
+// Session identity, credentials, proxy settings and handles to the real service
+// manager that must never reach test code.
 const PREFIXES = ['SPUR_', 'BOARD_', 'SLACK_', 'JIRA_', 'GBRAIN_', 'ANTHROPIC_', 'OPENAI_'];
 const EXACT = new Set([
   'GH_TOKEN',
@@ -10,6 +11,11 @@ const EXACT = new Set([
   'ALL_PROXY',
   'NO_PROXY',
   'NODE_USE_ENV_PROXY',
+  // Without the user bus address and with XDG_RUNTIME_DIR under the per-run
+  // root, `systemctl --user` in a test or its children cannot reach the real
+  // user manager. NOTIFY_SOCKET would let a spawned daemon notify it.
+  'DBUS_SESSION_BUS_ADDRESS',
+  'NOTIFY_SOCKET',
 ]);
 const SUFFIXES = ['_API_KEY', '_TOKEN', '_SECRET', '_PASSWORD'];
 

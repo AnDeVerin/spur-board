@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { tmpdir, userInfo } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ERRORS } from '@spur-board/contracts';
@@ -423,6 +423,18 @@ describe('service', () => {
     expect(unit).toContain(`Environment="XDG_CONFIG_HOME=${configHome}"`);
     expect(unit).toContain(`Environment="XDG_DATA_HOME=${dataHome}"`);
     expect(unit).not.toContain('Environment="BOARD_HOME=');
+  });
+
+  it('resolves default unit and secrets paths under the harness root, not the real home', () => {
+    // The harness points TMPDIR at <root>/tmp (packages/testkit/src/global-setup.ts).
+    const root = `${dirname(tmpdir())}/`;
+    expect(root).toMatch(/\/spur-board-test-[^/]+\/$/);
+    const realHome = `${userInfo().homedir}/`;
+    const paths = servicePaths();
+    for (const path of [paths.unitFile, paths.secretsFile]) {
+      expect(path.startsWith(root), path).toBe(true);
+      expect(path.startsWith(realHome), path).toBe(false);
+    }
   });
 
   it('restarts an already active service after changing its unit', async () => {
