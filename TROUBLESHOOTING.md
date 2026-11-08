@@ -53,7 +53,7 @@ checkout, then checks two things there:
   `$CODEX_HOME/skills/spur-board` when `CODEX_HOME` is set, otherwise
   `~/.codex/skills/spur-board`, or `~/.claude/skills/spur-board`. Create it with
   `ln -s ~/.codex/skills/spur-board .agents/skills/spur-board` from the main checkout after
-  `board skills install`. Run the doctor with the same `CODEX_HOME` as `board setup`.
+  `board skills install`. Run the doctor with the same `CODEX_HOME` as `board skills install`.
 - `projects.<id>.symlinks` in the project's `spur.yaml` (or `spur.yml`) lists
   `.agents/skills/spur-board`, so Spur links the skill into each new worktree.
 
