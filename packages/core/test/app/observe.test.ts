@@ -215,6 +215,41 @@ describe('accepted observation', () => {
     expect(facts.at(-1)?.facts.headSha).toBe('b'.repeat(40));
   });
 
+  it('rewrites stored legacy review requests with kind and id', async () => {
+    const { store, core, apply, mutations } = setup();
+    await apply(mutations.add, { task: 'o/r#9' }, 'operator');
+    const source = 'github:board:o/r';
+    const observe = async (facts: PrFacts) =>
+      core.observe(source, {
+        batch: {
+          source,
+          observedAt: new Date(now).toISOString(),
+          complete: true,
+          items: [{ kind: 'pr', facts }],
+          entities: [],
+        },
+        effectiveComplete: true,
+        state: { lastCompleteAt: new Date(now).toISOString(), gone: [] },
+        outcomes: [],
+      });
+    await observe({ ...prFact(), reviewRequests: [{ reviewer: 'carol', asCodeOwner: true }] });
+    now += 1_000;
+    const current = [{ kind: 'user' as const, id: 'carol', asCodeOwner: true }];
+    await observe({ ...prFact(), reviewRequests: current });
+    const snapshot = await store.db
+      .selectFrom('pr_snapshot')
+      .select('detail')
+      .executeTakeFirstOrThrow();
+    expect((JSON.parse(snapshot.detail) as PrFacts).reviewRequests).toEqual(current);
+    expect(
+      await store.db
+        .selectFrom('event')
+        .selectAll()
+        .where('kind', '=', 'pr_facts_changed')
+        .execute(),
+    ).toHaveLength(2);
+  });
+
   it('links an explicit worker first, keeps reviewer as other, and omits ended sessions from context', async () => {
     const { store, core, apply, mutations } = setup();
     await apply(mutations.add, { task: 'o/r#9' }, 'operator');
