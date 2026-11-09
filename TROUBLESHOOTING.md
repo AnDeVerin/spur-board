@@ -215,9 +215,11 @@ service stopped. Each update replaces them.
 
 - `update_rolled_back`: the update failed and the previous version runs again. The hint names
   the failed step. If it stopped at `stop`, `lock wait` or `database backup`, the package and
-  database were not changed; for `lock wait` stop the process whose PID the hint gives. After a
-  later step, the hint says whether the database was kept or restored from the backup. Fix the
-  cause, then run `board update` again.
+  database were not changed; for `lock wait` stop the process whose PID the hint gives. At
+  `first poll`, a source of the new version did not finish its first complete poll within five
+  minutes; check the source's credentials and network with `board doctor`. After a later step,
+  the hint says whether the database was kept or restored from the backup. Fix the cause, then
+  run `board update` again.
 - `rollback_failed`: a rollback stopped part way and the service may be down. `board update`
   refuses until a rollback finishes. Fix the step the hint names, then run
   `board rollback --yes` again; it repeats the whole rollback from the saved copy.
