@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import {
   chmodSync,
@@ -216,15 +217,20 @@ async function stand() {
     },
     flock: () => ok(),
     copy: (args) => {
-      if (args[3] === backup) {
-        const exists = existsSync(dirname(backup));
+      const target = args[3] ?? '';
+      if (dirname(target) === dirname(backup)) {
+        const exists = existsSync(dirname(target));
         backupDirs.push({
           exists,
-          directory: exists && statSync(dirname(backup)).isDirectory(),
-          mode: exists ? statSync(dirname(backup)).mode & 0o777 : 0,
-          state: (JSON.parse(readFileSync(stateFile, 'utf8')) as { status: string }).status,
+          directory: exists && statSync(dirname(target)).isDirectory(),
+          mode: exists ? statSync(dirname(target)).mode & 0o777 : 0,
+          state: existsSync(stateFile)
+            ? (JSON.parse(readFileSync(stateFile, 'utf8')) as { status: string }).status
+            : 'none',
         });
       }
+      if (!existsSync(dirname(target))) return fail(1, `no directory for ${target}\n`);
+      writeFileSync(target, `copy of ${args[2] ?? ''}\n`);
       return ok();
     },
     serviceInstall: () => {
@@ -261,11 +267,14 @@ async function stand() {
         return fail(127, `unexpected ${name}`);
     }
   };
-  const runner: UpdateRunner = (command, args, childEnv) => {
+  /** Awaited before each runner call answers, so a test can act while a run is in flight. */
+  const hooks: { beforeCall?: (name: string) => Promise<void> } = {};
+  const runner: UpdateRunner = async (command, args, childEnv) => {
     const name = label(command, args);
     calls.push({ label: name, args: [...args], env: childEnv });
     events.push(name);
-    return Promise.resolve(respond(name, args));
+    await hooks.beforeCall?.(name);
+    return respond(name, args);
   };
 
   const ports: Partial<UpdatePorts> = {
@@ -330,6 +339,7 @@ async function stand() {
     events,
     counts,
     backupDirs,
+    hooks,
     ports,
     run,
     state,
@@ -590,7 +600,7 @@ describe('board update', () => {
     expect(result.exit).toBe(exit);
     expect(errorOf(result.stderr).hint).toContain(hint);
     expect(existsSync(s.stateFile)).toBe(false);
-    expect(existsSync(s.updateDir)).toBe(false);
+    expect(existsSync(s.updateDir) ? readdirSync(s.updateDir) : []).toEqual([]);
     expect(s.labels()).not.toContain('stop');
     expect(s.labels()).not.toContain('npm install');
   });
@@ -618,15 +628,13 @@ describe('board update', () => {
     expect(result.exit).toBe(4);
     expect(errorOf(result.stderr).hint).toContain('`board rollback --yes`');
     expect(JSON.parse(readFileSync(s.stateFile, 'utf8'))).toEqual(earlier);
+    expect(readdirSync(s.updateDir)).toEqual(['state.json']);
     expect(s.labels()).toEqual([]);
   });
 
   it('U3b: a failed snapshot writes no state and stops nothing', async () => {
     const s = await stand();
-    mkdirSync(s.updateDir, { mode: 0o500 });
-    cleanups.push(() => {
-      chmodSync(s.updateDir, 0o700);
-    });
+    writeFileSync(join(s.packageRoot, 'dist', 'unreadable.mjs'), '', { mode: 0o000 });
     const result = await s.run(['--json', 'update']);
 
     expect(result.exit).toBe(4);
@@ -941,6 +949,63 @@ describe('board update', () => {
     expect(s.state()).toMatchObject({ status: 'rolled-back', dbBackup: null });
     expect(tree(s.packageRoot)).toEqual(original);
     expect(s.labels()).not.toContain('npm install');
+  });
+  it('U8: a second update or rollback during an update refuses and changes nothing', async () => {
+    const s = await stand();
+    const lock = join(s.updateDir, 'update.lock');
+    type Run = Awaited<ReturnType<Stand['run']>>;
+    const seen: { runs: Run[]; calls: number; lock: string } = { runs: [], calls: -1, lock: '' };
+    let started = false;
+    s.hooks.beforeCall = async (name) => {
+      if (name !== 'doctor' || started) return;
+      started = true;
+      const calls = s.calls.length;
+      seen.lock = readFileSync(lock, 'utf8');
+      seen.runs.push(await s.run(['--json', 'update']));
+      seen.runs.push(await s.run(['--json', 'rollback', '--yes']));
+      seen.calls = s.calls.length - calls;
+    };
+    const first = await s.run(['--json', 'update']);
+
+    expect(first.exit, first.stderr).toBe(0);
+    expect(seen.lock).toBe(`${String(process.pid)}\n`);
+    expect(seen.runs).toHaveLength(2);
+    for (const second of seen.runs) {
+      expect(second.exit).toBe(4);
+      const error = errorOf(second.stderr);
+      expect(error.code).toBe('config');
+      expect(error.hint).toContain(`is running as PID ${String(process.pid)}`);
+    }
+    expect(seen.calls).toBe(0);
+    expect(s.labels().filter((name) => name === 'stop')).toHaveLength(1);
+    expect(s.state().status).toBe('succeeded');
+    expect(existsSync(lock)).toBe(false);
+  });
+
+  it('U8: refuses while another process holds the update lock', async () => {
+    const s = await stand();
+    const lock = join(s.updateDir, 'update.lock');
+    mkdirSync(s.updateDir, { recursive: true });
+    writeFileSync(lock, '1\n');
+    const result = await s.run(['--json', 'update']);
+
+    expect(result.exit).toBe(4);
+    expect(errorOf(result.stderr).hint).toContain('is running as PID 1');
+    expect(errorOf(result.stderr).hint).toContain(lock);
+    expect(readFileSync(lock, 'utf8')).toBe('1\n');
+    expect(s.labels()).toEqual([]);
+  });
+
+  it('U8: takes over an update lock whose process no longer runs', async () => {
+    const s = await stand();
+    const lock = join(s.updateDir, 'update.lock');
+    const gone = spawnSync(process.execPath, ['-e', '']).pid;
+    mkdirSync(s.updateDir, { recursive: true });
+    writeFileSync(lock, `${String(gone)}\n`);
+    const result = await s.run(['--json', 'update']);
+
+    expect(result.exit, result.stderr).toBe(0);
+    expect(existsSync(lock)).toBe(false);
   });
 });
 

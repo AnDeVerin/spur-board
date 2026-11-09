@@ -4,6 +4,7 @@ import {
   chmodSync,
   constants,
   cpSync,
+  linkSync,
   mkdirSync,
   readFileSync,
   readdirSync,
@@ -173,6 +174,53 @@ function lockHolder(lockFile: string): string | undefined {
   }
 }
 
+/** True while a process with this PID exists; EPERM means it runs under another user. */
+function processAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === 'EPERM';
+  }
+}
+
+/**
+ * Takes the update lock, a file holding this PID that `link` creates whole, so update and
+ * rollback never run at the same time. A lock whose PID no longer runs is taken over. Returns
+ * the release function.
+ */
+function takeUpdateLock(file: string): () => void {
+  const own = `${String(process.pid)}\n`;
+  const temporary = `${file}.${randomUUID()}.tmp`;
+  try {
+    mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
+    writeFileSync(temporary, own, { mode: 0o600 });
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        linkSync(temporary, file);
+        return () => {
+          if (lockHolder(file) === String(process.pid)) rmSync(file, { force: true });
+        };
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+      }
+      const holder = lockHolder(file);
+      if (holder !== undefined && processAlive(Number(holder))) {
+        throw config(
+          `Another \`board update\` or \`board rollback\` is running as PID ${holder}; wait for it to finish. If PID ${holder} is not a Board update or rollback, remove ${file}.`,
+        );
+      }
+      rmSync(file, { force: true });
+    }
+  } catch (error) {
+    if (error instanceof CliError) throw error;
+    throw config(`Cannot take the update lock ${file}: ${detailOf(error)}`);
+  } finally {
+    rmSync(temporary, { force: true });
+  }
+  throw config(`Another update took the lock ${file} at the same moment; run the command again.`);
+}
+
 function readState(file: string): UpdateState | undefined {
   let text: string;
   try {
@@ -316,6 +364,7 @@ class Updater {
   readonly dataDir: string;
   readonly updateDir: string;
   readonly stateFile: string;
+  readonly updateLock: string;
   readonly dbFile: string;
   readonly lockFile: string;
 
@@ -330,8 +379,19 @@ class Updater {
     this.dataDir = dataDirectory(options.env, options.home);
     this.updateDir = join(this.dataDir, 'update');
     this.stateFile = join(this.updateDir, 'state.json');
+    this.updateLock = join(this.updateDir, 'update.lock');
     this.dbFile = join(this.dataDir, 'board.sqlite');
     this.lockFile = join(this.dataDir, 'board.lock');
+  }
+
+  /** Runs `body` under the update lock, taken before any state is read. */
+  async locked<T>(body: () => Promise<T>): Promise<T> {
+    const release = takeUpdateLock(this.updateLock);
+    try {
+      return await body();
+    } finally {
+      release();
+    }
   }
 
   bin(packageRoot: string): string {
@@ -652,6 +712,14 @@ export async function updatePackage(
   requested: string | undefined,
 ): Promise<Record<string, unknown>> {
   const updater = new Updater(options, 'update');
+  return updater.locked(() => update(updater, options, requested));
+}
+
+async function update(
+  updater: Updater,
+  options: UpdateOptions,
+  requested: string | undefined,
+): Promise<Record<string, unknown>> {
   const { ports } = updater;
   const { root, prefix } = packageLayout(ports.packageRoot);
   const from = packageVersion(root);
@@ -911,6 +979,14 @@ export async function rollbackPackage(
   yes: boolean,
 ): Promise<Record<string, unknown>> {
   const updater = new Updater(options, 'rollback');
+  return updater.locked(() => rollback(updater, options, yes));
+}
+
+async function rollback(
+  updater: Updater,
+  options: UpdateOptions,
+  yes: boolean,
+): Promise<Record<string, unknown>> {
   const { ports } = updater;
   const state = readState(updater.stateFile);
   if (
