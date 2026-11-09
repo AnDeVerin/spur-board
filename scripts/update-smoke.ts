@@ -619,7 +619,7 @@ async function scenarioA(stand: Stand, registry: Registry, files: Map<string, st
     execStartLine(readFileSync(stand.unitFile, 'utf8')) === unitBefore,
     'the unit ExecStart changed',
   );
-  check(existsSync(join(stand.boardHome, 'update/db/board.sqlite')), 'no database backup');
+  check(existsSync(join(stand.boardHome, 'update/db/board-1.0.0.sqlite')), 'no database backup');
   check(partials(stand.boardHome).length === 0, 'a .partial file was left');
   check((await ready(stand)) !== instanceBefore, 'the daemon instance did not change');
   const health = await httpGet(stand.port, '/v1/health');

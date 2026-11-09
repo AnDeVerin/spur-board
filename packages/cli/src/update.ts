@@ -221,6 +221,15 @@ function takeUpdateLock(file: string): () => void {
   throw config(`Another update took the lock ${file} at the same moment; run the command again.`);
 }
 
+/** Removes a leftover file or dir; a failure leaves it, which costs only disk space. */
+function removeQuietly(path: string): void {
+  try {
+    rmSync(path, { recursive: true, force: true });
+  } catch {
+    // Left in place.
+  }
+}
+
 function readState(file: string): UpdateState | undefined {
   let text: string;
   try {
@@ -839,8 +848,10 @@ async function update(
   }
   const blockedBefore = blockingIds(baseline);
 
-  // Abort phase: nothing in the package or database has changed yet.
+  // Abort phase: nothing in the package or database has changed yet, and the state file still
+  // describes the previous update, whose snapshot and backup stay until this one has its own.
   updater.progress('snapshot');
+  const startedAt = new Date(ports.now()).toISOString();
   const snapshot = join(updater.updateDir, `package-${from}`);
   const partial = `${snapshot}.partial`;
   try {
@@ -853,36 +864,26 @@ async function update(
     rmSync(partial, { recursive: true, force: true });
     throw config(`Could not snapshot the package to ${snapshot}: ${detailOf(error)}`);
   }
-  let state: UpdateState = {
+  const backupDir = join(updater.updateDir, 'db');
+  const backup = join(backupDir, `board-${from}.sqlite`);
+  const state: UpdateState = {
     schema: 1,
     status: 'in-progress',
     from,
     to,
-    startedAt: new Date(ports.now()).toISOString(),
+    startedAt,
     finishedAt: null,
     prefix,
     packageRoot: root,
     snapshot,
     dbFile: updater.dbFile,
-    dbBackup: null,
+    dbBackup: backup,
     reason: null,
   };
-  writeState(updater.stateFile, state);
-  for (const name of readdirSync(updater.updateDir)) {
-    if (
-      (name.startsWith('package-') && join(updater.updateDir, name) !== snapshot) ||
-      name === 'db'
-    ) {
-      rmSync(join(updater.updateDir, name), { recursive: true, force: true });
-    }
-  }
-
   try {
     await updater.stop();
     await updater.waitLock();
     updater.progress('database backup');
-    const backupDir = join(updater.updateDir, 'db');
-    const backup = join(backupDir, 'board.sqlite');
     try {
       mkdirSync(backupDir, { recursive: true, mode: 0o700 });
       chmodSync(backupDir, 0o700);
@@ -890,20 +891,29 @@ async function update(
       throw new StepError('database backup', detailOf(error));
     }
     await updater.child(root, 'database backup', ['copy-database', updater.dbFile, backup]);
-    state = { ...state, dbBackup: backup };
     writeState(updater.stateFile, state);
   } catch (error) {
     const failure =
       error instanceof StepError ? error : new StepError('database backup', detailOf(error));
+    // Drop only what this attempt added: the previous state may point at the same paths.
+    if (snapshot !== previous?.snapshot) removeQuietly(snapshot);
+    if (backup !== previous?.dbBackup) removeQuietly(backup);
     const restart = await updater.restart(root);
-    const reason = `${failure.step}: ${failure.message}`;
-    updater.finish(state, 'rolled-back', reason);
     throw new CliError(
       'update_rolled_back',
       undefined,
       undefined,
       `Update to ${to} stopped at ${failure.step}: ${failure.message}. The package and database were not changed.${restart}`,
     );
+  }
+  // The state now points at this update's snapshot and backup: drop the previous ones.
+  for (const name of readdirSync(updater.updateDir)) {
+    if (name.startsWith('package-') && join(updater.updateDir, name) !== snapshot) {
+      removeQuietly(join(updater.updateDir, name));
+    }
+  }
+  for (const name of readdirSync(backupDir)) {
+    if (join(backupDir, name) !== backup) removeQuietly(join(backupDir, name));
   }
 
   // Rollback phase: from the install on, a failure puts the snapshot back.

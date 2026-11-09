@@ -194,7 +194,7 @@ async function stand() {
   const updateDir = join(boardHome, 'update');
   const stateFile = join(updateDir, 'state.json');
   const dbFile = join(boardHome, 'board.sqlite');
-  const backup = join(updateDir, 'db', 'board.sqlite');
+  const backup = join(updateDir, 'db', 'board-1.0.0.sqlite');
   const bin = join(packageRoot, 'dist', 'bin.mjs');
   const events: string[] = [];
   const calls: { label: string; args: string[]; env: NodeJS.ProcessEnv | undefined }[] = [];
@@ -393,9 +393,7 @@ describe('board update', () => {
       s.dbFile,
       s.backup,
     ]);
-    expect(s.backupDirs).toEqual([
-      { exists: true, directory: true, mode: 0o700, state: 'in-progress' },
-    ]);
+    expect(s.backupDirs).toEqual([{ exists: true, directory: true, mode: 0o700, state: 'none' }]);
     const install = s.calls.find((call) => call.label === 'npm install');
     expect(install?.args).toEqual([
       'install',
@@ -909,7 +907,9 @@ describe('board update', () => {
     expect(error.hint).toContain(`stopped at ${step}`);
     expect(error.hint).toContain('were not changed');
     if (step === 'lock wait') expect(error.hint).toContain('4242');
-    expect(s.state()).toMatchObject({ status: 'rolled-back', dbBackup: null });
+    expect(existsSync(s.stateFile)).toBe(false);
+    expect(readdirSync(s.updateDir).filter((name) => name !== 'db')).toEqual([]);
+    expect(existsSync(s.backup)).toBe(false);
     expect(tree(s.packageRoot)).toEqual(original);
     const labels = s.labels();
     expect(labels).not.toContain('npm install');
@@ -946,7 +946,9 @@ describe('board update', () => {
     expect(error.hint).not.toContain('4242');
     expect(s.labels().filter((name) => name === 'flock')).toHaveLength(1);
     expect(s.events).not.toContain('sleep 500');
-    expect(s.state()).toMatchObject({ status: 'rolled-back', dbBackup: null });
+    expect(existsSync(s.stateFile)).toBe(false);
+    expect(readdirSync(s.updateDir).filter((name) => name !== 'db')).toEqual([]);
+    expect(existsSync(s.backup)).toBe(false);
     expect(tree(s.packageRoot)).toEqual(original);
     expect(s.labels()).not.toContain('npm install');
   });
@@ -1006,6 +1008,61 @@ describe('board update', () => {
 
     expect(result.exit, result.stderr).toBe(0);
     expect(existsSync(lock)).toBe(false);
+  });
+
+  it('U9: an abort keeps the last successful update, so rollback still returns to it', async () => {
+    const s = await stand();
+    const original = tree(s.packageRoot);
+    const install = s.behaviour.install;
+    s.behaviour.install = () => {
+      addMigration(s);
+      return install();
+    };
+    const first = await s.run(['--json', 'update']);
+    expect(first.exit, first.stderr).toBe(0);
+    const stateBytes = readFileSync(s.stateFile);
+    const installed = tree(s.packageRoot);
+
+    s.behaviour.view = () => ok('"1.2.0"');
+    const stop = s.behaviour.stop;
+    s.behaviour.stop = () => fail(1, 'Failed to stop\n');
+    const aborted = await s.run(['--json', 'update']);
+
+    expect(aborted.exit).toBe(4);
+    expect(errorOf(aborted.stderr).code).toBe('update_rolled_back');
+    expect(readFileSync(s.stateFile)).toEqual(stateBytes);
+    expect(readdirSync(s.updateDir).sort()).toEqual(['db', 'package-1.0.0', 'state.json']);
+    expect(readdirSync(join(s.updateDir, 'db'))).toEqual(['board-1.0.0.sqlite']);
+    expect(tree(join(s.updateDir, 'package-1.0.0'))).toEqual(original);
+    expect(tree(s.packageRoot)).toEqual(installed);
+
+    s.behaviour.stop = stop;
+    const before = s.calls.length;
+    const back = await s.run(['--json', 'rollback', '--yes']);
+    expect(back.exit, back.stderr).toBe(0);
+    expect(JSON.parse(back.stdout)).toMatchObject({
+      from: '1.1.0',
+      to: '1.0.0',
+      database: 'restored',
+    });
+    const restores = s.calls.slice(before).filter((call) => call.label === 'copy-database');
+    expect(restores.map((call) => call.args)).toEqual([
+      [s.bin, 'copy-database', s.backup, s.dbFile],
+    ]);
+    expect(tree(s.packageRoot)).toEqual(original);
+  });
+
+  it('U9: a later successful update replaces the previous snapshot and backup', async () => {
+    const s = await stand();
+    expect((await s.run(['--json', 'update'])).exit).toBe(0);
+    s.behaviour.view = () => ok('"1.2.0"');
+    const second = await s.run(['--json', 'update']);
+
+    expect(second.exit, second.stderr).toBe(0);
+    const backup = join(s.updateDir, 'db', 'board-1.1.0.sqlite');
+    expect(s.state()).toMatchObject({ status: 'succeeded', from: '1.1.0', dbBackup: backup });
+    expect(readdirSync(s.updateDir).sort()).toEqual(['db', 'package-1.1.0', 'state.json']);
+    expect(readdirSync(join(s.updateDir, 'db'))).toEqual(['board-1.1.0.sqlite']);
   });
 });
 
