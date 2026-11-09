@@ -69,6 +69,9 @@ export function buildPackage(): void {
 } else if (argv.length === 1 && argv[0] === 'daemon') {
   const { main } = await import('./daemon.mjs');
   await main();
+} else if (argv.length === 3 && argv[0] === 'copy-database') {
+  const { copyDatabaseMain } = await import('./daemon.mjs');
+  process.exitCode = copyDatabaseMain(argv.slice(1));
 } else {
   const { runCli } = await import('./cli.mjs');
   process.exitCode = await runCli(argv);

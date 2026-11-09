@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { once } from 'node:events';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, readdirSync } from 'node:fs';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -11,7 +11,8 @@ import { openStore, requestToken } from '@spur-board/core';
 import { afterEach, describe, expect, it, onTestFinished } from 'vitest';
 import { startFakeSlackApi } from '../../gateway-slack/test/fake-api.ts';
 import { loadConfig, resolvePaths } from '../src/config.ts';
-import { publishedVersion } from '../src/main.ts';
+import { acquireLock } from '../src/lock.ts';
+import { copyDatabaseMain, publishedVersion } from '../src/main.ts';
 import { killDaemons, runDaemonToExit, spawnDaemon, waitForLine } from './daemon-process.ts';
 import { makeHome, VALID_CONFIG_YAML } from './home.ts';
 
@@ -105,6 +106,11 @@ describe('daemon process', () => {
     const ready = await waitForLine(child, 'daemon ready');
     expect(ready['level']).toBe(30);
     expect(existsSync(join(home, 'board.sqlite'))).toBe(true);
+    const health = await fetch(`http://127.0.0.1:${String(httpPort(home))}/v1/health`);
+    expect(health.status).toBe(200);
+    expect(typeof ((await health.json()) as { firstPollDone: unknown }).firstPollDone).toBe(
+      'boolean',
+    );
 
     const exited = once(child, 'exit');
     child.kill('SIGTERM');
@@ -651,4 +657,80 @@ describe('daemon process', () => {
     await reopened.close();
     expect(rows).toEqual([{ key: 'recent' }]);
   }, 30_000);
+});
+
+describe('copyDatabaseMain', () => {
+  async function boardHome(): Promise<{ home: string; dbFile: string; backup: string }> {
+    const home = mkdtempSync(join(tmpdir(), 'daemon-copy-'));
+    const dbFile = join(home, 'board.sqlite');
+    const store = openStore(dbFile);
+    await store.db.insertInto('meta').values({ key: 'copy_probe', value: '"kept"' }).execute();
+    await store.close();
+    return {
+      home,
+      dbFile,
+      backup: join(mkdtempSync(join(tmpdir(), 'daemon-backup-')), 'b.sqlite'),
+    };
+  }
+
+  async function probe(file: string): Promise<string | undefined> {
+    const store = openStore(file);
+    try {
+      const row = await store.db
+        .selectFrom('meta')
+        .select('value')
+        .where('key', '=', 'copy_probe')
+        .executeTakeFirst();
+      return row?.value;
+    } finally {
+      await store.close();
+    }
+  }
+
+  it('D1: refuses relative paths and copies that do not touch the board database', async () => {
+    const { home, dbFile, backup } = await boardHome();
+    const errors: string[] = [];
+    const run = (args: string[]) =>
+      copyDatabaseMain(args, { BOARD_HOME: home }, home, (text) => errors.push(text));
+    const other = join(home, 'other.sqlite');
+
+    expect(run([other, backup])).toBe(2);
+    expect(run(['board.sqlite', backup])).toBe(2);
+    expect(run([dbFile, 'b.sqlite'])).toBe(2);
+    expect(run([dbFile])).toBe(2);
+    expect(errors.join('')).toContain(dbFile);
+    expect(existsSync(backup)).toBe(false);
+    expect(existsSync(join(home, 'board.lock'))).toBe(false);
+  });
+
+  it('D2: exits 75 with the holder PID while another holder has the board lock', async () => {
+    const { home, dbFile, backup } = await boardHome();
+    const lock = acquireLock(join(home, 'board.lock'));
+    onTestFinished(() => {
+      lock.release();
+    });
+    const errors: string[] = [];
+
+    const code = copyDatabaseMain([dbFile, backup], { BOARD_HOME: home }, home, (text) =>
+      errors.push(text),
+    );
+
+    expect(code).toBe(75);
+    expect(errors.join('')).toContain(`PID ${String(process.pid)}`);
+    expect(existsSync(backup)).toBe(false);
+  });
+
+  it('D3: copies the board database under the lock and releases it', async () => {
+    const { home, dbFile, backup } = await boardHome();
+    const errors: string[] = [];
+
+    const code = copyDatabaseMain([dbFile, backup], { BOARD_HOME: home }, home, (text) =>
+      errors.push(text),
+    );
+
+    expect({ code, errors }).toEqual({ code: 0, errors: [] });
+    expect(await probe(backup)).toBe('"kept"');
+    expect(readdirSync(join(backup, '..')).filter((name) => name.endsWith('.partial'))).toEqual([]);
+    acquireLock(join(home, 'board.lock')).release();
+  });
 });

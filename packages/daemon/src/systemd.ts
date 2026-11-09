@@ -92,7 +92,7 @@ export function createSystemdNotifier(options: {
 
 /**
  * READY is sent from the `ready` hook, after every module started and the daemon state became
- * `ready`, so HTTP `/ready` already answers 200 when systemd releases the unit. A failed or
+ * `ready`, so HTTP `/v1/schema` already answers 200 when systemd releases the unit. A failed or
  * aborted start runs no hook and sends nothing.
  */
 export function createSystemdModule(notifier: SystemdNotifier): Module {

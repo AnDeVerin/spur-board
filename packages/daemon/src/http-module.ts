@@ -52,6 +52,7 @@ export function createHttpModule(
     onListening?: (address: string) => void;
     productVersion?: string;
     doctor?: ApiOptions['doctor'];
+    firstPollDone?: ApiOptions['firstPollDone'];
   } = {},
 ): Module {
   let app: Awaited<ReturnType<typeof createApiServer>> | undefined;
@@ -75,6 +76,7 @@ export function createHttpModule(
         doctor:
           options.doctor ??
           (() => runDaemonDoctor(ctx, options.productVersion ?? 'unknown', options.fetcher)),
+        ...(options.firstPollDone === undefined ? {} : { firstPollDone: options.firstPollDone }),
         logRequest: ({ requestId, method, url, status, tokenName }) => {
           const path = new URL(url, 'http://127.0.0.1').pathname;
           ctx.log.info(
