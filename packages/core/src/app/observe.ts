@@ -887,6 +887,8 @@ export function createObservationCore(deps: {
     },
     async observe(source, observation: AcceptedObservation) {
       const { batch } = observation;
+      // Read once: every scan pass must build the same gateway strings (`scanTransaction`).
+      const now = clock.now();
       await scanTransaction(store, config, async (trx) => {
         await sourceState(trx, source, observation.state, batch.observedAt, batch.cursor);
         for (const outcome of observation.outcomes) {
@@ -1071,7 +1073,7 @@ export function createObservationCore(deps: {
         for (const task of activeTasks)
           await updateTerminal(trx, config, task.id, batch.observedAt, currentComplete, blind);
         await reconcileMembership(trx, config, currentComplete, batch.observedAt);
-        await reconcileItems(trx, config, clock.now(), currentComplete.has('spur'));
+        await reconcileItems(trx, config, now, currentComplete.has('spur'));
         if (deps.productVersion !== undefined)
           await enqueueLiveAfterFirstPoll(trx, {
             config,
@@ -1084,12 +1086,14 @@ export function createObservationCore(deps: {
       if (observation.effectiveComplete) completeSince.set(source, batch.observedAt);
     },
     reportSourceState(source, state) {
+      const now = clock.now();
       return scanTransaction(store, config, async (trx) => {
         await sourceState(trx, source, state);
-        await reconcileItems(trx, config, clock.now(), completeSince.has('spur'));
+        await reconcileItems(trx, config, now, completeSince.has('spur'));
       });
     },
     notice(kind, value) {
+      const at = new Date(clock.now()).toISOString();
       return scanTransaction(store, config, async (trx) => {
         const key = `spur-notice:${kind}:${value}`;
         const old = await trx
@@ -1099,14 +1103,7 @@ export function createObservationCore(deps: {
           .executeTakeFirst();
         if (old !== undefined) return;
         await trx.insertInto('meta').values({ key, value: 'true' }).execute();
-        await emit(
-          trx,
-          'spur_unknown_state',
-          RESERVED_PROJECT,
-          null,
-          new Date(clock.now()).toISOString(),
-          { kind, value },
-        );
+        await emit(trx, 'spur_unknown_state', RESERVED_PROJECT, null, at, { kind, value });
       });
     },
   };

@@ -1,6 +1,6 @@
 import { AdapterError, batchSchema, type PollContext } from '@spur-board/contracts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { startRunner, type AdapterRunner } from '../../src/runner/runner.ts';
+import { startRunner, type AdapterRunner, type PollFailure } from '../../src/runner/runner.ts';
 import { createSpurAdapter, type SpurNotice } from '../../src/spur/spur.ts';
 import { createFakeCore } from '../../src/testing.ts';
 
@@ -501,4 +501,85 @@ describe('Spur adapter', () => {
       expect(core.states.at(-1)?.state.blind).toBeUndefined();
     },
   );
+});
+
+describe('Spur data from a live board', () => {
+  // The shapes the board saw when the spur source stopped advancing (#275).
+  const listed = [
+    wire,
+    {
+      id: 'other-1',
+      project: 'other-project',
+      branch: 'fix/issue-1',
+      status: 'stopped',
+      state: 'stale',
+      stopReason: 'stale_timeout',
+      lastActivityAt: '2025-12-31T17:00:00.000Z',
+      slots: { title: 'Elsewhere', links: [{ label: 'tracker', url: 'https://example.com/1' }] },
+    },
+    {
+      id: 'retained-1',
+      project: 'retained-project',
+      branch: 'retained-1',
+      status: 'completed',
+      state: 'stopped',
+      retainInList: true,
+      lastActivityAt: '2025-12-01T20:00:00.000Z',
+      slots: { title: 'Retained', titleSource: 'manual', links: [] },
+    },
+  ];
+  const ended = (id: string, status: 'completed' | 'killed') => ({
+    id,
+    project: 'demo',
+    branch: `work-${id}`,
+    status,
+    state: status === 'completed' ? 'stopped' : 'killed',
+    lastActivityAt: '2025-12-31T23:00:00.000Z',
+    slots: { links: [{ label: 'pr', url: `https://github.com/demo/app/pull/${id.slice(-1)}` }] },
+  });
+  const linked = ['done-1', 'done-2', 'done-3', 'killed-4'];
+
+  it('advances the source through ended linked sessions and a Spur restart', async () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0);
+    let lists = 0;
+    const fetcher = (input: RequestInfo | URL) => {
+      const url = requestUrl(input);
+      if (url.pathname === '/sessions') {
+        lists += 1;
+        return Promise.resolve(response(listed, 200, lists === 1 ? 'instance-a' : 'instance-b'));
+      }
+      const id = url.pathname.split('/').at(-1) ?? '';
+      return Promise.resolve(response(ended(id, id.startsWith('killed') ? 'killed' : 'completed')));
+    };
+    const core = createFakeCore({ context: () => context([wire.id, ...linked]) });
+    const failures: PollFailure[] = [];
+    const runner = startRunner({
+      entries: [{ adapter: createSpurAdapter({ ...adapterOptions, fetch: fetcher }) }],
+      core,
+      config: defaults,
+      onFailure: (failure) => failures.push(failure),
+    });
+    runners.push(runner);
+    await vi.advanceTimersByTimeAsync(15_000);
+
+    expect(failures).toEqual([]);
+    expect(core.observed.map((call) => call.observation.state.lastCompleteAt)).toEqual([
+      at(0),
+      at(15_000),
+    ]);
+    const sessions = core.observed[1]?.batch.items.flatMap((item) =>
+      item.kind === 'session' ? [item.facts] : [],
+    );
+    expect(
+      sessions?.map(({ id, lifecycle, health, endReason }) => [id, lifecycle, health, endReason]),
+    ).toEqual([
+      [wire.id, 'running', 'waiting', null],
+      ['other-1', 'stopped', 'stale', null],
+      ['retained-1', 'completed', 'stopped', null],
+      ['done-1', 'completed', 'stopped', 'complete'],
+      ['done-2', 'completed', 'stopped', 'complete'],
+      ['done-3', 'completed', 'stopped', 'complete'],
+      ['killed-4', 'killed', 'killed', 'kill'],
+    ]);
+  });
 });
