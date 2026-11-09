@@ -308,11 +308,8 @@ function entries(text: string, separator: string): Map<string, string> {
  * config file and data directory that process resolves from its own environment, home and
  * working directory, compared with this shell's.
  */
-async function checkRunningService(
-  ports: UpdatePorts,
-  options: UpdateOptions,
-  argv: string,
-): Promise<void> {
+async function checkRunningService(updater: Updater, argv: string): Promise<void> {
+  const { ports } = updater;
   const show = await ports.runner('systemctl', [
     '--user',
     'show',
@@ -369,10 +366,9 @@ async function checkRunningService(
     cwd,
     daemonEnv['HOME'] ?? read('passwd home directory', () => userInfo().homedir),
   );
-  const home = resolve(options.home);
   const pairs = [
-    ['data directory', dataDirectory(daemonEnv, daemonHome, cwd), dataDirectory(options.env, home)],
-    ['config file', configFile(daemonEnv, daemonHome, cwd), configFile(options.env, home)],
+    ['data directory', dataDirectory(daemonEnv, daemonHome, cwd), updater.dataDir],
+    ['config file', configFile(daemonEnv, daemonHome, cwd), updater.configFile],
   ] as const;
   for (const [what, daemon, shell] of pairs) {
     if (daemon !== shell) {
@@ -424,7 +420,9 @@ class Updater {
   readonly home: string;
   readonly progress: (step: string) => void;
   readonly address: URL;
+  /** This shell's data directory and config file, absolute even for a relative HOME. */
   readonly dataDir: string;
+  readonly configFile: string;
   readonly updateDir: string;
   readonly stateFile: string;
   readonly updateLock: string;
@@ -441,7 +439,8 @@ class Updater {
       options.progress(`${label}: ${step}\n`);
     };
     this.address = resolveDaemonAddress(options.env, options.home);
-    this.dataDir = dataDirectory(options.env, options.home);
+    this.dataDir = resolve(dataDirectory(options.env, options.home));
+    this.configFile = resolve(configFile(options.env, options.home));
     this.updateDir = join(this.dataDir, 'update');
     this.stateFile = join(this.updateDir, 'state.json');
     this.updateLock = join(this.updateDir, 'update.lock');
@@ -846,7 +845,7 @@ async function update(
       `The service unit has ${mismatch[0] ?? ''} but this shell gives ${mismatch[1] ?? ''}; run \`board update\` from the environment the service was installed from, or run \`board service install\` first.`,
     );
   }
-  await checkRunningService(ports, options, `${unitPaths.nodePath} ${unitPaths.daemonEntry}`);
+  await checkRunningService(updater, `${unitPaths.nodePath} ${unitPaths.daemonEntry}`);
 
   const before = await probe(updater.address, '/v1/schema');
   if (before?.status !== 200) {

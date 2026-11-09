@@ -333,11 +333,13 @@ async function stand() {
     },
   };
 
+  /** The HOME this shell passes to the CLI; a test may make it relative. */
+  const shell = { home };
   const run = async (args: string[], isTTY = false) => {
     const output = { stdout: '', stderr: '' };
     const exit = await runCli(args, {
       env,
-      home,
+      home: shell.home,
       update: ports,
       io: {
         isTTY,
@@ -382,6 +384,7 @@ async function stand() {
     cwdPids,
     hooks,
     ports,
+    shell,
     run,
     state,
     labels: () => calls.map((call) => call.label),
@@ -565,6 +568,36 @@ describe('board update', () => {
     const result = await s.run(['--json', 'update']);
 
     expect(result.exit, result.stderr).toBe(0);
+  });
+
+  it('U1f: a relative shell HOME gives absolute data paths to every step', async () => {
+    const s = await stand();
+    delete s.env['BOARD_HOME'];
+    const paths = servicePaths({ ...s.unitPaths, env: s.env, home: s.home });
+    writeFileSync(s.unitPaths.unitFile, renderUserUnit({ ...s.unitPaths, ...paths }));
+    s.behaviour.environ = () => environText({ HOME: s.home });
+    const dataDir = join(s.home, '.local', 'share', 'spur-board');
+    s.shell.home = relative(process.cwd(), s.home);
+    const result = await s.run(['--json', 'update']);
+
+    expect(result.exit, result.stderr).toBe(0);
+    const backup = join(dataDir, 'update', 'db', 'board-1.0.0.sqlite');
+    expect(s.calls.find((call) => call.label === 'copy-database')?.args.slice(1)).toEqual([
+      'copy-database',
+      join(dataDir, 'board.sqlite'),
+      backup,
+    ]);
+    expect(s.calls.find((call) => call.label === 'flock')?.args).toContain(
+      join(dataDir, 'board.lock'),
+    );
+    const state = JSON.parse(readFileSync(join(dataDir, 'update', 'state.json'), 'utf8')) as {
+      dbFile: string;
+      dbBackup: string;
+      snapshot: string;
+    };
+    expect(state.dbFile).toBe(join(dataDir, 'board.sqlite'));
+    expect(state.dbBackup).toBe(backup);
+    expect(state.snapshot).toBe(join(dataDir, 'update', 'package-1.0.0'));
   });
 
   it('U2: prints changed false and runs only npm view when the target is installed', async () => {
