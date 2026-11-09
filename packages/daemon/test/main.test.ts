@@ -1,11 +1,11 @@
 import { createHash } from 'node:crypto';
 import { once } from 'node:events';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync } from 'node:fs';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { openStore, requestToken } from '@spur-board/core';
 import { afterEach, describe, expect, it, onTestFinished } from 'vitest';
@@ -732,5 +732,33 @@ describe('copyDatabaseMain', () => {
     expect(await probe(backup)).toBe('"kept"');
     expect(readdirSync(join(backup, '..')).filter((name) => name.endsWith('.partial'))).toEqual([]);
     acquireLock(join(home, 'board.lock')).release();
+  });
+
+  it('D4: accepts the absolute database path when HOME or BOARD_HOME is relative', async () => {
+    // Relative to the worker's cwd: vitest workers cannot chdir.
+    const { home, dbFile, backup } = await boardHome();
+    const errors: string[] = [];
+    const fromBoardHome = copyDatabaseMain(
+      [dbFile, backup],
+      { BOARD_HOME: relative(process.cwd(), home) },
+      home,
+      (text) => errors.push(text),
+    );
+    const userHome = mkdtempSync(join(tmpdir(), 'daemon-home-'));
+    const dataDir = join(userHome, '.local', 'share', 'spur-board');
+    mkdirSync(dataDir, { recursive: true });
+    const fromHome = copyDatabaseMain(
+      [backup, join(dataDir, 'board.sqlite')],
+      {},
+      relative(process.cwd(), userHome),
+      (text) => errors.push(text),
+    );
+
+    expect({ fromBoardHome, fromHome, errors }).toEqual({
+      fromBoardHome: 0,
+      fromHome: 0,
+      errors: [],
+    });
+    expect(await probe(join(dataDir, 'board.sqlite'))).toBe('"kept"');
   });
 });

@@ -104,6 +104,8 @@ export function copyDatabaseMain(
   },
 ): number {
   const paths = resolvePaths(env, home);
+  // A relative HOME leaves the database path relative; compare it as the absolute path it names.
+  const dbFile = resolve(paths.dbFile);
   const [source, target] = args;
   if (
     args.length !== 2 ||
@@ -111,11 +113,9 @@ export function copyDatabaseMain(
     target === undefined ||
     !isAbsolute(source) ||
     !isAbsolute(target) ||
-    (resolve(source) !== paths.dbFile && resolve(target) !== paths.dbFile)
+    (resolve(source) !== dbFile && resolve(target) !== dbFile)
   ) {
-    writeErr(
-      `copy-database: give two absolute paths, one of them the board database ${paths.dbFile}\n`,
-    );
+    writeErr(`copy-database: give two absolute paths, one of them the board database ${dbFile}\n`);
     return 2;
   }
   let lock: { release(): void };
