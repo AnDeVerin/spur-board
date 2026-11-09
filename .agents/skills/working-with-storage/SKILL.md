@@ -47,10 +47,10 @@ retry and actor rules.
   `user_version` is zero; only an empty `sqlite_schema` needs no backup
   (`packages/core/src/store/migrate.ts`).
 - Copy a database only through `copyDatabase` (`packages/core/src/store/copy.ts`): `VACUUM INTO`
-  a `.partial` sibling, move the target with its `-wal` and `-shm` aside as one set, rename, then
-  delete the set, since that WAL can hold committed rows; the caller creates the directory and
-  holds the board lock
-  (`packages/core/test/store/copy.test.ts`, `describe('copyDatabase')`).
+  a `.partial` sibling, checkpoint the target (its WAL can hold committed rows) and hard-link it
+  aside, remove its empty `-wal` and `-shm`, rename, then remove the link. A kill at any step
+  leaves a complete database at the target path; the caller creates the directory and holds the
+  board lock (`packages/core/test/store/copy.test.ts`, `describe('copyDatabase')`).
 - A change `ALTER TABLE` cannot make is a table rebuild in the same file. The runner turns
   foreign keys off and runs `foreign_key_check` before `COMMIT`.
 - New tables are `STRICT` and follow the header of

@@ -12,7 +12,8 @@
   newer database stays byte for byte as it was (`packages/core/test/store/migrations.test.ts`,
   `describe('migrate')`). The busy timeout is a connection setting and writes nothing.
 - Production code opens the store only through `openStore`, except `copyDatabase`, which opens
-  a raw read-write connection with no PRAGMA, migration or version check, for a byte copy only.
+  raw read-write connections with no PRAGMA, migration or version check: the source for the
+  copy, and an existing target only for `wal_checkpoint(TRUNCATE)` before the swap.
 - `openDatabase` skips version and migration checks and is test-only; it is not exported from
   `packages/core/src/index.ts`.
 - An up-to-date `openStore` takes no migration write lock (`packages/core/src/store/migrate.ts`),
