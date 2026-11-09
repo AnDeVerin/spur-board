@@ -210,12 +210,24 @@ old Node or package path, run `board service install` again.
 `board update` keeps its state in the data directory: `$BOARD_HOME` when set, else
 `$XDG_DATA_HOME/spur-board/`, default `$HOME/.local/share/spur-board/`. Under it,
 `update/state.json` records the last update, `update/package-<version>/` is a copy of the
-package before the update, and `update/db/board.sqlite` is the database backup taken with the
-service stopped. Each update replaces them.
+package before the update, and `update/db/board-<version>.sqlite` is the database backup taken
+with the service stopped. A new update replaces them only once its own copy and backup are
+complete, so `board rollback` keeps returning to the version before the last successful update
+when a later update stops early. `update/update.lock` holds the PID of the update or rollback
+that is running.
+
+- `config` before any change: the hint names the reason. Another update or rollback that is
+  still running gives its PID; wait for it. If that PID is not a Board update or rollback,
+  remove `update/update.lock`. A running service whose command or `BOARD_HOME`, `XDG_*` or
+  `HOME` setting differs from this shell, or that reads an `EnvironmentFile`, is refused:
+  `systemctl --user cat spur-board.service` shows the unit and its drop-ins. Remove the override
+  and run `board service install`, or run the update from the environment the service runs with.
 
 - `update_rolled_back`: the update failed and the previous version runs again. The hint names
-  the failed step. If it stopped at `stop`, `lock wait` or `database backup`, the package and
-  database were not changed; for `lock wait` stop the process whose PID the hint gives. At
+  the failed step. If it stopped at `stop`, `lock wait` or `database backup`, the package,
+  database and the record of the last update were not changed; for `lock wait` stop the process
+  whose PID the hint gives. If an update is interrupted at those steps, the service may stay
+  stopped: run `board service restart`. At
   `first poll`, a source of the new version did not finish its first complete poll within five
   minutes; check the source's credentials and network with `board doctor`. After a later step,
   the hint says whether the database was kept or restored from the backup. Fix the cause, then
@@ -236,7 +248,7 @@ If `board` no longer runs, recover by hand, with `<data>` for the data directory
    for example `cp -a` into the emptied directory.
 3. If the update changed the schema, or the restored daemon logs that the database is newer than
    its code, remove `board.sqlite-wal` and `board.sqlite-shm` next to `board.sqlite`, then copy
-   `<data>/update/db/board.sqlite` over `board.sqlite`. The service must stay stopped.
+   `<data>/update/db/board-<version>.sqlite` over `board.sqlite`. The service must stay stopped.
 4. Run `board service install` and `board skills install`, then `board doctor`.
 5. Delete `<data>/update/state.json`; while it records an unfinished update, `board update`
    refuses to start.
