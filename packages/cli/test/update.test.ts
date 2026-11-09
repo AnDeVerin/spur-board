@@ -672,17 +672,22 @@ describe('board update', () => {
     expect(s.state().status).toBe('succeeded');
   });
 
-  it('U5: a first-poll timeout is a warning, not a rollback', async () => {
+  it('U5: a first poll that never completes rolls back', async () => {
     const s = await stand();
+    const original = tree(s.packageRoot);
     s.daemon.health = 'pending';
     s.ports.firstPollTimeoutMs = 2_000;
     const result = await s.run(['--json', 'update']);
 
-    expect(result.exit, result.stderr).toBe(0);
-    const output = JSON.parse(result.stdout) as { firstPoll: string; operator: string[] };
-    expect(output.firstPoll).toBe('timeout');
-    expect(output.operator.at(-1)).toContain('`board status`');
-    expect(s.state().status).toBe('succeeded');
+    expect(result.exit, result.stderr).toBe(4);
+    const error = errorOf(result.stderr);
+    expect(error.code).toBe('update_rolled_back');
+    expect(error.hint).toContain('failed at first poll');
+    expect(error.hint).toContain('within 2 s');
+    expect(s.state()).toMatchObject({ status: 'rolled-back' });
+    expect(s.state().reason).toMatch(/^first poll: /);
+    expect(tree(s.packageRoot)).toEqual(original);
+    expect(s.counts.doctor).toBe(1);
   });
 
   it('U5: a daemon without /v1/health reports the first poll as unsupported', async () => {

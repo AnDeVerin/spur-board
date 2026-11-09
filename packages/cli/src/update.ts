@@ -339,7 +339,8 @@ class Updater {
     );
   }
 
-  async waitFirstPoll(): Promise<'done' | 'timeout' | 'unsupported'> {
+  /** Polls /v1/health until every required source finished a poll; a daemon without it skips. */
+  async waitFirstPoll(): Promise<'done' | 'unsupported'> {
     const deadline = this.ports.now() + this.ports.firstPollTimeoutMs;
     for (;;) {
       const answer = await probe(this.address, '/v1/health');
@@ -353,9 +354,13 @@ class Updater {
           // Keep polling.
         }
       }
-      if (this.ports.now() >= deadline) return 'timeout';
+      if (this.ports.now() >= deadline) break;
       await this.ports.sleep(2_000);
     }
+    throw new StepError(
+      'first poll',
+      `the sources did not finish their first complete poll within ${String(this.ports.firstPollTimeoutMs / 1000)} s`,
+    );
   }
 
   async stop(): Promise<void> {
@@ -771,11 +776,6 @@ export async function updatePackage(
       MCP_LINE,
       ...(stale?.status === 'warning' && stale.fix !== null
         ? [`Stop and wake these Spur sessions so they load the new skill: ${stale.fix}`]
-        : []),
-      ...(firstPoll === 'timeout'
-        ? [
-            'Sources have not finished their first poll yet; watch `board status` until warming up ends.',
-          ]
         : []),
     ];
     return {
