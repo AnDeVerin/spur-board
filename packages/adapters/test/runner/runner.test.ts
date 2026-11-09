@@ -136,6 +136,7 @@ function start(
     reserveRemaining?: number;
     config?: typeof defaults;
     now?: () => number;
+    onFailure?: (failure: PollFailure) => void;
   } = {},
 ): Started {
   const core = createFakeCore(options.core);
@@ -154,7 +155,10 @@ function start(
     core,
     config: options.config ?? defaults,
     ...(options.now === undefined ? {} : { now: options.now }),
-    onFailure: (failure) => failures.push(failure),
+    onFailure: (failure) => {
+      failures.push(failure);
+      options.onFailure?.(failure);
+    },
   });
   runners.push(runner);
   return { core, adapter, runner, starts, last: () => core.states.at(-1)?.state, failures };
@@ -1106,6 +1110,29 @@ describe('failure log', () => {
       { blind: stale, gone: [] },
     ]);
     expect(failures.filter((failure) => failure.step === 'report')).toHaveLength(2);
+  });
+
+  it('keeps polling and reports the stale blind source when the failure callback throws', async () => {
+    random(0);
+    const { core, runner, starts, failures } = start(() => Promise.reject(new Error('down')), {
+      core: {
+        reportSourceState: (() => {
+          let calls = 0;
+          return () => {
+            calls += 1;
+            if (calls === 1) throw new Error('report rejected');
+          };
+        })(),
+      },
+      onFailure: () => {
+        throw new Error('sink down');
+      },
+    });
+    await advanceTo(3 * I + 1);
+    expect(starts.length).toBeGreaterThan(1);
+    expect(failures.map((failure) => failure.step)).toContain('report');
+    expect(core.reports.at(-1)?.state).toEqual({ blind: stale, gone: [] });
+    await expect(runner.stop()).resolves.toBeUndefined();
   });
 
   it('reports nothing for a poll stopped by an abort', async () => {

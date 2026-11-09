@@ -58,7 +58,7 @@ export interface RunnerOptions {
   config: Pick<Config, 'sources' | 'thresholds'>;
   now?: () => number;
   oneShot?: boolean;
-  /** Called for every failed poll step and rejected report; an abort is not one. Must not throw. */
+  /** Called for every failed poll step and rejected report; an abort is not one. A throw is ignored. */
   onFailure?: ((failure: PollFailure) => void) | undefined;
 }
 
@@ -95,7 +95,18 @@ function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: nu
 
   function fail(step: PollFailure['step'], error: unknown, issues?: PollFailure['issues']) {
     const kind = error instanceof AdapterError ? error.kind : 'unexpected';
-    options.onFailure?.({ source, step, kind, error, ...(issues === undefined ? {} : { issues }) });
+    try {
+      options.onFailure?.({
+        source,
+        step,
+        kind,
+        error,
+        ...(issues === undefined ? {} : { issues }),
+      });
+    } catch {
+      // The callback is the log sink, so nothing is left to report to: a throw must not end the
+      // poll loop, poison the report chain or reject stop().
+    }
   }
 
   let stopping = false;
