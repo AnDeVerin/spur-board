@@ -12,7 +12,7 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import { get as httpGet, type IncomingMessage } from 'node:http';
+import { get as httpGet } from 'node:http';
 import { get as httpsGet } from 'node:https';
 import { basename, dirname, join } from 'node:path';
 import { createInterface } from 'node:readline/promises';
@@ -116,12 +116,10 @@ function defaultPorts(): UpdatePorts {
 /** A step failure: the step name goes into the hint of the error the caller raises. */
 class StepError extends Error {
   readonly step: string;
-  readonly pid: string | undefined;
 
-  constructor(step: string, detail: string, pid?: string) {
+  constructor(step: string, detail: string) {
     super(detail);
     this.step = step;
-    this.pid = pid;
   }
 }
 
@@ -155,6 +153,14 @@ function migrationCount(packageRoot: string): number | undefined {
   } catch {
     return undefined;
   }
+}
+
+/**
+ * Whether the database is restored: the version being left has another migration count than
+ * the snapshot, or either count cannot be read.
+ */
+function schemaChanged(leaving: number | undefined, snapshot: string): boolean {
+  return leaving === undefined || leaving !== migrationCount(snapshot);
 }
 
 function lockHolder(lockFile: string): string | undefined {
@@ -229,7 +235,12 @@ function probe(address: URL, path: string): Promise<Probe | undefined> {
         body += chunk;
       });
       response.on('end', () => {
-        resolve({ status: response.statusCode ?? 0, instance: instanceOf(response), body });
+        const instance = response.headers['x-board-instance'];
+        resolve({
+          status: response.statusCode ?? 0,
+          instance: typeof instance === 'string' ? instance : undefined,
+          body,
+        });
       });
       response.on('error', () => {
         resolve(undefined);
@@ -239,11 +250,6 @@ function probe(address: URL, path: string): Promise<Probe | undefined> {
       resolve(undefined);
     });
   });
-}
-
-function instanceOf(response: IncomingMessage): string | undefined {
-  const value = response.headers['x-board-instance'];
-  return typeof value === 'string' ? value : undefined;
 }
 
 /** Runs one update or rollback; the ports and paths are fixed for its whole run. */
@@ -361,6 +367,16 @@ class Updater {
     }
   }
 
+  /** Stops the service and waits for the lock; a failed stop is fine when no process holds it. */
+  async stopAndWaitLock(): Promise<void> {
+    try {
+      await this.stop();
+    } catch (error) {
+      this.progress(`stop failed (${detailOf(error)}); checking the lock`);
+    }
+    await this.waitLock();
+  }
+
   /** Waits until no process holds the board lock, so no daemon has the database open. */
   async waitLock(): Promise<void> {
     this.progress('lock wait');
@@ -375,7 +391,6 @@ class Updater {
     throw new StepError(
       'lock wait',
       `the database lock ${this.lockFile} is still held${pid === undefined ? '' : ` by PID ${pid}`}; stop that process`,
-      pid,
     );
   }
 
@@ -417,14 +432,8 @@ class Updater {
       let previous = stopped?.previous;
       if (stopped === undefined) {
         previous = await this.instance();
-        try {
-          await this.stop();
-        } catch (error) {
-          // A failed stop is fine when no process holds the lock.
-          this.progress(`stop failed (${detailOf(error)}); checking the lock`);
-        }
         step = 'lock wait';
-        await this.waitLock();
+        await this.stopAndWaitLock();
       }
       return await this.restore(current, restoreDatabase, reason, previous, (next) => {
         step = next;
@@ -768,17 +777,15 @@ export async function updatePackage(
       unitChanged,
       database: {
         backup: state.dbBackup,
-        schemaChanged: leaving === undefined || leaving !== migrationCount(snapshot),
+        schemaChanged: schemaChanged(leaving, snapshot),
       },
       firstPoll,
       operator,
     };
   } catch (error) {
-    if (error instanceof CliError) throw error;
     const failure = error instanceof StepError ? error : new StepError('update', detailOf(error));
     if (!installed) leaving = migrationCount(root);
-    const kept = migrationCount(snapshot);
-    const restoreDatabase = leaving === undefined || kept === undefined || leaving !== kept;
+    const restoreDatabase = schemaChanged(leaving, snapshot);
     const reason = `${failure.step}: ${failure.message}`;
     const database = await updater.rollback(state, restoreDatabase, reason);
     throw new CliError(
@@ -806,14 +813,10 @@ export async function rollbackPackage(
       `No update to roll back${state === undefined ? '' : ` (the last one ended ${state.status})`}.`,
     );
   }
-  const leaving = migrationCount(state.packageRoot);
-  const kept = migrationCount(state.snapshot);
   const restoreDatabase =
     state.dbBackup !== null &&
     (state.restoreDatabase === true ||
-      leaving === undefined ||
-      kept === undefined ||
-      leaving !== kept);
+      schemaChanged(migrationCount(state.packageRoot), state.snapshot));
   const lost = restoreDatabase
     ? `Board changes and journal events recorded after ${state.startedAt}.`
     : state.dbBackup === null
@@ -838,12 +841,7 @@ export async function rollbackPackage(
 
   const previous = await updater.instance();
   try {
-    try {
-      await updater.stop();
-    } catch (error) {
-      updater.progress(`stop failed (${detailOf(error)}); checking the lock`);
-    }
-    await updater.waitLock();
+    await updater.stopAndWaitLock();
   } catch (error) {
     const failure = error instanceof StepError ? error : new StepError('stop', detailOf(error));
     const restart = await updater.restart(state.packageRoot);

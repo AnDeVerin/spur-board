@@ -169,10 +169,9 @@ async function stand() {
   mkdirSync(dirname(unitPaths.unitFile), { recursive: true });
   writeFileSync(unitPaths.unitFile, renderUserUnit(unitPaths));
 
-  const dataDir = boardHome;
-  const updateDir = join(dataDir, 'update');
+  const updateDir = join(boardHome, 'update');
   const stateFile = join(updateDir, 'state.json');
-  const dbFile = join(dataDir, 'board.sqlite');
+  const dbFile = join(boardHome, 'board.sqlite');
   const backup = join(updateDir, 'db', 'board.sqlite');
   const bin = join(packageRoot, 'dist', 'bin.mjs');
   const events: string[] = [];
@@ -214,35 +213,35 @@ async function stand() {
     skills: () => ok('[]\n'),
   };
 
+  const respond = (name: string, args: readonly string[]): CommandResult => {
+    switch (name) {
+      case 'npm view':
+        return behaviour.view();
+      case 'npm dry-run':
+        return behaviour.dryRun();
+      case 'npm install':
+        return behaviour.install();
+      case 'stop':
+        return behaviour.stop();
+      case 'flock':
+        return behaviour.flock();
+      case 'copy-database':
+        return behaviour.copy([...args]);
+      case 'doctor':
+        return behaviour.doctor((counts.doctor += 1));
+      case 'service install':
+        return behaviour.serviceInstall((counts.service += 1));
+      case 'skills install':
+        return behaviour.skills((counts.skills += 1));
+      default:
+        return fail(127, `unexpected ${name}`);
+    }
+  };
   const runner: UpdateRunner = (command, args, childEnv) => {
     const name = label(command, args);
     calls.push({ label: name, args: [...args], env: childEnv });
     events.push(name);
-    switch (name) {
-      case 'npm view':
-        return Promise.resolve(behaviour.view());
-      case 'npm dry-run':
-        return Promise.resolve(behaviour.dryRun());
-      case 'npm install':
-        return Promise.resolve(behaviour.install());
-      case 'stop':
-        return Promise.resolve(behaviour.stop());
-      case 'flock':
-        return Promise.resolve(behaviour.flock());
-      case 'copy-database':
-        return Promise.resolve(behaviour.copy([...args]));
-      case 'doctor':
-        counts.doctor += 1;
-        return Promise.resolve(behaviour.doctor(counts.doctor));
-      case 'service install':
-        counts.service += 1;
-        return Promise.resolve(behaviour.serviceInstall(counts.service));
-      case 'skills install':
-        counts.skills += 1;
-        return Promise.resolve(behaviour.skills(counts.skills));
-      default:
-        return Promise.resolve(fail(127, `unexpected ${name}`));
-    }
+    return Promise.resolve(respond(name, args));
   };
 
   const ports: Partial<UpdatePorts> = {
