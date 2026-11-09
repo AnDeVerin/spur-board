@@ -228,7 +228,8 @@ it starts; the lock ends when all of them have exited, and the file stays.
   account's home from the passwd entry is used. Remove the override and run
   `board service install`, or run the update from the environment the service runs with. A
   service whose process runs as another user, as a unit with `User=` under root's user manager
-  can, is refused: run the update as that user. A service with no running process is refused
+  can, is refused, and so is one whose real or effective uid differs from this shell's: run the
+  update as that user. A service with no running process is refused
   too: run `board service restart`.
 
 - `update_rolled_back`: the update failed and the previous version runs again. The hint names
