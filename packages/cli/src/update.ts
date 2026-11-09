@@ -498,18 +498,45 @@ class Updater {
   }
 }
 
-/** Swaps the package dir for the snapshot; a failed copy puts the original dir back. */
+/**
+ * Swaps the package dir for the snapshot. The snapshot is copied next to the package dir first,
+ * so a failed copy leaves the package dir as it was; a package dir that npm already removed is
+ * simply replaced.
+ */
 function restorePackage(snapshot: string, packageRoot: string): void {
-  const aside = `${packageRoot}.rollback-${randomUUID()}`;
-  renameSync(packageRoot, aside);
+  const id = randomUUID();
+  const staged = `${packageRoot}.restore-${id}`;
+  const aside = `${packageRoot}.rollback-${id}`;
   try {
-    cpSync(snapshot, packageRoot, { recursive: true, verbatimSymlinks: true });
+    cpSync(snapshot, staged, { recursive: true, verbatimSymlinks: true });
   } catch (error) {
-    rmSync(packageRoot, { recursive: true, force: true });
-    renameSync(aside, packageRoot);
+    rmSync(staged, { recursive: true, force: true });
     throw new StepError('package restore', `copying ${snapshot} failed: ${detailOf(error)}`);
   }
-  rmSync(aside, { recursive: true, force: true });
+  let present = true;
+  try {
+    renameSync(packageRoot, aside);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+      rmSync(staged, { recursive: true, force: true });
+      throw new StepError(
+        'package restore',
+        `moving ${packageRoot} aside failed: ${detailOf(error)}`,
+      );
+    }
+    present = false;
+  }
+  try {
+    renameSync(staged, packageRoot);
+  } catch (error) {
+    if (present) renameSync(aside, packageRoot);
+    rmSync(staged, { recursive: true, force: true });
+    throw new StepError(
+      'package restore',
+      `moving ${staged} into place failed: ${detailOf(error)}`,
+    );
+  }
+  if (present) rmSync(aside, { recursive: true, force: true });
 }
 
 function packageLayout(packageRoot: string): { root: string; prefix: string } {

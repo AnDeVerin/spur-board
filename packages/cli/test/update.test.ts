@@ -559,6 +559,17 @@ describe('board update', () => {
       },
     ],
     [
+      "(a') npm install removes the package dir, then fails",
+      'npm install',
+      true,
+      (s) => {
+        s.behaviour.install = () => {
+          rmSync(s.packageRoot, { recursive: true });
+          return fail(1, 'npm error EACCES\n');
+        };
+      },
+    ],
+    [
       '(b) the new schema fails to start',
       'service install',
       true,
