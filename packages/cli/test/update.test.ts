@@ -1,11 +1,13 @@
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import {
   chmodSync,
+  closeSync,
   existsSync,
   lstatSync,
   mkdirSync,
   mkdtempSync,
+  openSync,
   readFileSync,
   readdirSync,
   readlinkSync,
@@ -19,10 +21,13 @@ import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, join, relative } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { fileURLToPath } from 'node:url';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { runCli } from '../src/cli.ts';
+import { dataDirectory } from '../src/config.ts';
 import {
   renderUserUnit,
+  runCommand,
   servicePaths,
   type CommandResult,
   type ServicePaths,
@@ -201,7 +206,12 @@ async function stand() {
   const backup = join(updateDir, 'db', 'board-1.0.0.sqlite');
   const bin = join(packageRoot, 'dist', 'bin.mjs');
   const events: string[] = [];
-  const calls: { label: string; args: string[]; env: NodeJS.ProcessEnv | undefined }[] = [];
+  const calls: {
+    label: string;
+    args: string[];
+    env: NodeJS.ProcessEnv | undefined;
+    lockFd: number | undefined;
+  }[] = [];
   const counts = { doctor: 0, service: 0, skills: 0 };
   const backupDirs: { exists: boolean; directory: boolean; mode: number; state: string }[] = [];
   const clock = { t: Date.parse('2026-11-09T10:00:00.000Z') };
@@ -275,9 +285,11 @@ async function stand() {
   };
   /** Awaited before each runner call answers, so a test can act while a run is in flight. */
   const hooks: { beforeCall?: (name: string) => Promise<void> } = {};
-  const runner: UpdateRunner = async (command, args, childEnv) => {
+  const runner: UpdateRunner = async (command, args, options) => {
+    // The update lock is real, so runs in one process exclude each other as in two.
+    if (command === 'flock' && args.at(-1) === '3') return runCommand(command, args, options);
     const name = label(command, args);
-    calls.push({ label: name, args: [...args], env: childEnv });
+    calls.push({ label: name, args: [...args], env: options?.env, lockFd: options?.lockFd });
     events.push(name);
     await hooks.beforeCall?.(name);
     return respond(name, args);
@@ -359,6 +371,48 @@ async function stand() {
 }
 
 type Stand = Awaited<ReturnType<typeof stand>>;
+
+/**
+ * Runs `board update` with the real update lock and canned answers, given the paths of cli.ts
+ * and service.ts and a JSON setup. Its npm install is a real child that records its PID in the
+ * marker file and then waits to be killed.
+ */
+const KILLED_UPDATE = `
+import { writeFileSync } from 'node:fs';
+import { createServer } from 'node:http';
+const [cliPath, servicePath, raw] = process.argv.slice(1);
+const { runCli } = await import(cliPath);
+const { runCommand } = await import(servicePath);
+const setup = JSON.parse(raw);
+const server = createServer((request, response) => {
+  response.writeHead(200, { 'x-board-instance': 'killed-update' }).end('{}');
+});
+await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+const env = { ...setup.env, BOARD_DAEMON_URL: 'http://127.0.0.1:' + server.address().port };
+const ok = (stdout = '') => ({ exitCode: 0, stdout, stderr: '' });
+const hold = 'require("node:fs").writeFileSync(' + JSON.stringify(setup.marker) +
+  ', String(process.pid)); setInterval(() => {}, 1000);';
+const runner = async (command, args, options) => {
+  if (command === 'flock') return runCommand(command, args, options);
+  if (command === 'systemctl') return ok(args.includes('show') ? setup.show : '');
+  if (command === 'npm') {
+    if (args[0] === 'view') return ok('"1.1.0"');
+    if (args.includes('--dry-run')) return ok();
+    return runCommand(process.execPath, ['-e', hold], options);
+  }
+  if (args[1] === 'copy-database') {
+    writeFileSync(args[3], 'copy');
+    return ok();
+  }
+  return ok(args.includes('doctor') ? '[]' : '{}');
+};
+await runCli(['--json', 'update'], {
+  env,
+  home: setup.home,
+  update: { runner, packageRoot: setup.packageRoot, readEnviron: () => setup.environ },
+  io: { isTTY: false, stdout: () => {}, stderr: (text) => process.stderr.write(text) },
+});
+`;
 
 function errorOf(stderr: string): { code: string; hint: string } {
   const line = stderr
@@ -627,8 +681,10 @@ describe('board update', () => {
 
     expect(result.exit).toBe(exit);
     expect(errorOf(result.stderr).hint).toContain(hint);
-    expect(existsSync(s.stateFile)).toBe(false);
-    expect(existsSync(s.updateDir) ? readdirSync(s.updateDir) : []).toEqual([]);
+    // The update dir of the env the arrangement left, which may have no BOARD_HOME.
+    const updateDir = join(dataDirectory(s.env, s.home), 'update');
+    expect(existsSync(join(updateDir, 'state.json'))).toBe(false);
+    expect(readdirSync(updateDir)).toEqual(['update.lock']);
     expect(s.labels()).not.toContain('stop');
     expect(s.labels()).not.toContain('npm install');
   });
@@ -656,7 +712,7 @@ describe('board update', () => {
     expect(result.exit).toBe(4);
     expect(errorOf(result.stderr).hint).toContain('`board rollback --yes`');
     expect(JSON.parse(readFileSync(s.stateFile, 'utf8'))).toEqual(earlier);
-    expect(readdirSync(s.updateDir)).toEqual(['state.json']);
+    expect(readdirSync(s.updateDir).sort()).toEqual(['state.json', 'update.lock']);
     expect(s.labels()).toEqual([]);
   });
 
@@ -669,7 +725,7 @@ describe('board update', () => {
     expect(errorOf(result.stderr)).toMatchObject({ code: 'config' });
     expect(errorOf(result.stderr).hint).toContain('Could not snapshot the package');
     expect(existsSync(s.stateFile)).toBe(false);
-    expect(readdirSync(s.updateDir)).toEqual([]);
+    expect(readdirSync(s.updateDir)).toEqual(['update.lock']);
     expect(s.labels()).not.toContain('stop');
   });
 
@@ -938,7 +994,7 @@ describe('board update', () => {
     expect(error.hint).toContain('were not changed');
     if (step === 'lock wait') expect(error.hint).toContain('4242');
     expect(existsSync(s.stateFile)).toBe(false);
-    expect(readdirSync(s.updateDir).filter((name) => name !== 'db')).toEqual([]);
+    expect(readdirSync(s.updateDir).filter((name) => name !== 'db')).toEqual(['update.lock']);
     expect(existsSync(s.backup)).toBe(false);
     expect(tree(s.packageRoot)).toEqual(original);
     const labels = s.labels();
@@ -977,7 +1033,7 @@ describe('board update', () => {
     expect(s.labels().filter((name) => name === 'flock')).toHaveLength(1);
     expect(s.events).not.toContain('sleep 500');
     expect(existsSync(s.stateFile)).toBe(false);
-    expect(readdirSync(s.updateDir).filter((name) => name !== 'db')).toEqual([]);
+    expect(readdirSync(s.updateDir).filter((name) => name !== 'db')).toEqual(['update.lock']);
     expect(existsSync(s.backup)).toBe(false);
     expect(tree(s.packageRoot)).toEqual(original);
     expect(s.labels()).not.toContain('npm install');
@@ -1006,29 +1062,38 @@ describe('board update', () => {
       expect(second.exit).toBe(4);
       const error = errorOf(second.stderr);
       expect(error.code).toBe('config');
-      expect(error.hint).toContain(`is running as PID ${String(process.pid)}`);
+      expect(error.hint).toContain(
+        `holds the update lock ${lock} (taken by PID ${String(process.pid)})`,
+      );
     }
     expect(seen.calls).toBe(0);
     expect(s.labels().filter((name) => name === 'stop')).toHaveLength(1);
     expect(s.state().status).toBe('succeeded');
-    expect(existsSync(lock)).toBe(false);
+    // The file stays; only the flock on it is released.
+    expect(existsSync(lock)).toBe(true);
+    expect(spawnSync('flock', ['-n', '-E', '75', lock, 'true']).status).toBe(0);
   });
 
-  it('U8: refuses while another process holds the update lock', async () => {
+  it('U8: refuses while another holder has the update lock', async () => {
     const s = await stand();
     const lock = join(s.updateDir, 'update.lock');
     mkdirSync(s.updateDir, { recursive: true });
     writeFileSync(lock, '1\n');
+    // A second open of the file, locked as the update locks its own: another holder.
+    const fd = openSync(lock, 'a');
+    cleanups.push(() => {
+      closeSync(fd);
+    });
+    expect((await runCommand('flock', ['-n', '-E', '75', '3'], { lockFd: fd })).exitCode).toBe(0);
     const result = await s.run(['--json', 'update']);
 
     expect(result.exit).toBe(4);
-    expect(errorOf(result.stderr).hint).toContain('is running as PID 1');
-    expect(errorOf(result.stderr).hint).toContain(lock);
+    expect(errorOf(result.stderr).hint).toContain(`holds the update lock ${lock} (taken by PID 1)`);
     expect(readFileSync(lock, 'utf8')).toBe('1\n');
     expect(s.labels()).toEqual([]);
   });
 
-  it('U8: takes over an update lock whose process no longer runs', async () => {
+  it('U8: a lock file whose process no longer runs does not block', async () => {
     const s = await stand();
     const lock = join(s.updateDir, 'update.lock');
     const gone = spawnSync(process.execPath, ['-e', '']).pid;
@@ -1037,7 +1102,93 @@ describe('board update', () => {
     const result = await s.run(['--json', 'update']);
 
     expect(result.exit, result.stderr).toBe(0);
-    expect(existsSync(lock)).toBe(false);
+    expect(readFileSync(lock, 'utf8')).toBe(`${String(process.pid)}\n`);
+  });
+
+  it('U8: passes the update lock only to the children that change the install', async () => {
+    const s = await stand();
+    expect((await s.run(['--json', 'update'])).exit).toBe(0);
+    const before = s.calls.length;
+    expect((await s.run(['--json', 'rollback', '--yes'])).exit).toBe(0);
+
+    const holders = (calls: typeof s.calls) =>
+      calls.filter((call) => call.lockFd !== undefined).map((call) => call.label);
+    expect(holders(s.calls.slice(0, before))).toEqual([
+      'copy-database',
+      'npm install',
+      'service install',
+      'skills install',
+    ]);
+    expect(holders(s.calls.slice(before))).toEqual(['service install', 'skills install']);
+  });
+
+  it('U8: a killed update keeps rollback out while its npm install still runs', async () => {
+    const s = await stand();
+    const marker = join(s.root, 'npm-install.pid');
+    // A real update in its own process: its npm install is a child that outlives a SIGKILL of
+    // the update, as npm would when only the CLI dies.
+    const parent = spawn(
+      process.execPath,
+      [
+        '--input-type=module',
+        '-e',
+        KILLED_UPDATE,
+        fileURLToPath(new URL('../src/cli.ts', import.meta.url)),
+        fileURLToPath(new URL('../src/service.ts', import.meta.url)),
+        JSON.stringify({
+          env: { BOARD_HOME: s.env['BOARD_HOME'], PATH: s.env['PATH'] },
+          home: s.home,
+          packageRoot: s.packageRoot,
+          show: showOutput(s.unitPaths),
+          environ: s.behaviour.environ(4242),
+          marker,
+        }),
+      ],
+      { env: { PATH: process.env['PATH'] ?? '/usr/bin' }, stdio: ['ignore', 'ignore', 'pipe'] },
+    );
+    let parentErr = '';
+    parent.stderr.setEncoding('utf8').on('data', (text: string) => {
+      parentErr += text;
+    });
+    const parentExit = new Promise((resolve) => parent.once('exit', resolve));
+    cleanups.push(async () => {
+      parent.kill('SIGKILL');
+      await parentExit;
+    });
+    const installPid = await vi.waitFor(
+      () => {
+        expect(parent.exitCode, parentErr).toBeNull();
+        return Number(readFileSync(marker, 'utf8'));
+      },
+      { timeout: 20_000, interval: 50 },
+    );
+    cleanups.push(() => {
+      try {
+        process.kill(installPid, 'SIGKILL');
+      } catch {
+        // Already gone.
+      }
+    });
+    parent.kill('SIGKILL');
+    await parentExit;
+    expect(s.state().status).toBe('in-progress');
+
+    const refused = await s.run(['--json', 'rollback', '--yes']);
+    expect(refused.exit).toBe(4);
+    expect(errorOf(refused.stderr).hint).toContain(join(s.updateDir, 'update.lock'));
+    expect(s.labels()).toEqual([]);
+    expect(s.state().status).toBe('in-progress');
+
+    process.kill(installPid, 'SIGTERM');
+    await vi.waitFor(
+      () => {
+        expect(existsSync(`/proc/${String(installPid)}`)).toBe(false);
+      },
+      { timeout: 10_000, interval: 50 },
+    );
+    const back = await s.run(['--json', 'rollback', '--yes']);
+    expect(back.exit, back.stderr).toBe(0);
+    expect(s.state().status).toBe('rolled-back');
   });
 
   it('U9: an abort keeps the last successful update, so rollback still returns to it', async () => {
@@ -1061,7 +1212,12 @@ describe('board update', () => {
     expect(aborted.exit).toBe(4);
     expect(errorOf(aborted.stderr).code).toBe('update_rolled_back');
     expect(readFileSync(s.stateFile)).toEqual(stateBytes);
-    expect(readdirSync(s.updateDir).sort()).toEqual(['db', 'package-1.0.0', 'state.json']);
+    expect(readdirSync(s.updateDir).sort()).toEqual([
+      'db',
+      'package-1.0.0',
+      'state.json',
+      'update.lock',
+    ]);
     expect(readdirSync(join(s.updateDir, 'db'))).toEqual(['board-1.0.0.sqlite']);
     expect(tree(join(s.updateDir, 'package-1.0.0'))).toEqual(original);
     expect(tree(s.packageRoot)).toEqual(installed);
@@ -1091,7 +1247,12 @@ describe('board update', () => {
     expect(second.exit, second.stderr).toBe(0);
     const backup = join(s.updateDir, 'db', 'board-1.1.0.sqlite');
     expect(s.state()).toMatchObject({ status: 'succeeded', from: '1.1.0', dbBackup: backup });
-    expect(readdirSync(s.updateDir).sort()).toEqual(['db', 'package-1.1.0', 'state.json']);
+    expect(readdirSync(s.updateDir).sort()).toEqual([
+      'db',
+      'package-1.1.0',
+      'state.json',
+      'update.lock',
+    ]);
     expect(readdirSync(join(s.updateDir, 'db'))).toEqual(['board-1.1.0.sqlite']);
   });
 

@@ -2,16 +2,19 @@ import { randomUUID } from 'node:crypto';
 import {
   accessSync,
   chmodSync,
+  closeSync,
   constants,
   cpSync,
-  linkSync,
+  ftruncateSync,
   mkdirSync,
+  openSync,
   readFileSync,
   readdirSync,
   realpathSync,
   renameSync,
   rmSync,
   writeFileSync,
+  writeSync,
 } from 'node:fs';
 import { get as httpGet } from 'node:http';
 import { get as httpsGet } from 'node:https';
@@ -28,13 +31,17 @@ import {
   servicePaths,
   stopService,
   type CommandResult,
+  type RunOptions,
 } from './service.ts';
 
-/** Runs a command; only the npm calls pass `env`. */
+/**
+ * Runs a command; only the npm calls pass `env`. `lockFd` goes to the update lock's `flock` and
+ * to every child that changes the install, which then holds the update lock until it exits.
+ */
 export type UpdateRunner = (
   command: string,
   args: readonly string[],
-  env?: NodeJS.ProcessEnv,
+  options?: RunOptions,
 ) => Promise<CommandResult>;
 
 export interface UpdatePorts {
@@ -177,51 +184,48 @@ function lockHolder(lockFile: string): string | undefined {
   }
 }
 
-/** True while a process with this PID exists; EPERM means it runs under another user. */
-function processAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return (error as NodeJS.ErrnoException).code === 'EPERM';
-  }
-}
-
 /**
- * Takes the update lock, a file holding this PID that `link` creates whole, so update and
- * rollback never run at the same time. A lock whose PID no longer runs is taken over. Returns
- * the release function.
+ * Takes the update lock, so update and rollback never run at the same time: a `flock` on the open
+ * file description of `file`, which is never removed. `flock -n 3` locks the description passed
+ * to it as fd 3, and the lock lasts while any process still has that description open: this one,
+ * or a child given it through `lockFd`. So an update killed during its npm install keeps a
+ * rollback out until npm exits. Returns the fd; closing it releases this process's share.
  */
-function takeUpdateLock(file: string): () => void {
-  const own = `${String(process.pid)}\n`;
-  const temporary = `${file}.${randomUUID()}.tmp`;
+async function takeUpdateLock(file: string, runner: UpdateRunner): Promise<number> {
+  let fd: number;
   try {
     mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
-    writeFileSync(temporary, own, { mode: 0o600 });
-    for (let attempt = 0; attempt < 2; attempt += 1) {
-      try {
-        linkSync(temporary, file);
-        return () => {
-          if (lockHolder(file) === String(process.pid)) rmSync(file, { force: true });
-        };
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
-      }
-      const holder = lockHolder(file);
-      if (holder !== undefined && processAlive(Number(holder))) {
-        throw config(
-          `Another \`board update\` or \`board rollback\` is running as PID ${holder}; wait for it to finish. If PID ${holder} is not a Board update or rollback, remove ${file}.`,
-        );
-      }
-      rmSync(file, { force: true });
-    }
+    fd = openSync(file, 'a', 0o600);
   } catch (error) {
-    if (error instanceof CliError) throw error;
-    throw config(`Cannot take the update lock ${file}: ${detailOf(error)}`);
-  } finally {
-    rmSync(temporary, { force: true });
+    throw config(`Cannot open the update lock ${file}: ${detailOf(error)}`);
   }
-  throw config(`Another update took the lock ${file} at the same moment; run the command again.`);
+  let result: CommandResult;
+  try {
+    result = await runner('flock', ['-n', '-E', '75', '3'], { lockFd: fd });
+  } catch (error) {
+    closeSync(fd);
+    throw config(`Cannot take the update lock ${file}: ${detailOf(error)}`);
+  }
+  if (result.exitCode === 0) {
+    try {
+      // Only for the hint of a refused run; the lock itself is the flock.
+      ftruncateSync(fd, 0);
+      writeSync(fd, `${String(process.pid)}\n`);
+    } catch {
+      // The hint then names no PID.
+    }
+    return fd;
+  }
+  closeSync(fd);
+  if (result.exitCode === 75) {
+    const holder = lockHolder(file);
+    throw config(
+      `Another \`board update\` or \`board rollback\` holds the update lock ${file}${holder === undefined ? '' : ` (taken by PID ${holder})`}; wait for it, and for the install steps it started, to finish.`,
+    );
+  }
+  throw config(
+    `Cannot take the update lock ${file}: flock failed (exit ${String(result.exitCode)})${result.stderr.trim() ? `: ${result.stderr.trim()}` : ''}`,
+  );
 }
 
 /** Removes a leftover file or dir; a failure leaves it, which costs only disk space. */
@@ -399,6 +403,8 @@ class Updater {
   readonly updateLock: string;
   readonly dbFile: string;
   readonly lockFile: string;
+  /** The update lock's fd while `locked` runs. */
+  lockFd: number | undefined;
 
   constructor(options: UpdateOptions, label: string) {
     this.ports = { ...defaultPorts(), ...options.ports };
@@ -418,12 +424,22 @@ class Updater {
 
   /** Runs `body` under the update lock, taken before any state is read. */
   async locked<T>(body: () => Promise<T>): Promise<T> {
-    const release = takeUpdateLock(this.updateLock);
+    const fd = await takeUpdateLock(this.updateLock, this.ports.runner);
+    this.lockFd = fd;
     try {
       return await body();
     } finally {
-      release();
+      this.lockFd = undefined;
+      closeSync(fd);
     }
+  }
+
+  /** Run options for a child that changes the install: it shares the update lock. */
+  holding(env?: NodeJS.ProcessEnv): RunOptions {
+    return {
+      ...(env === undefined ? {} : { env }),
+      ...(this.lockFd === undefined ? {} : { lockFd: this.lockFd }),
+    };
   }
 
   bin(packageRoot: string): string {
@@ -437,7 +453,11 @@ class Updater {
   }
 
   async child(packageRoot: string, step: string, args: readonly string[]): Promise<string> {
-    const result = await this.ports.runner(process.execPath, [this.bin(packageRoot), ...args]);
+    const result = await this.ports.runner(
+      process.execPath,
+      [this.bin(packageRoot), ...args],
+      this.holding(),
+    );
     if (result.exitCode !== 0) throw new StepError(step, childDetail(result));
     return result.stdout;
   }
@@ -812,7 +832,7 @@ async function update(
   }
   const npmEnv = updater.npmEnv();
   const spec = `spur-board@${requested ?? 'latest'}`;
-  const view = await ports.runner('npm', ['view', spec, 'version', '--json'], npmEnv);
+  const view = await ports.runner('npm', ['view', spec, 'version', '--json'], { env: npmEnv });
   if (view.exitCode !== 0 && !/E404/.test(view.stderr)) {
     throw config(`npm view ${spec} failed: ${childDetail(view)}`);
   }
@@ -839,7 +859,9 @@ async function update(
 
   const target = `spur-board@${to}`;
   const npmArgs = ['--engine-strict', '--prefix', prefix, '--no-audit', '--no-fund', target];
-  const dryRun = await ports.runner('npm', ['install', '-g', '--dry-run', ...npmArgs], npmEnv);
+  const dryRun = await ports.runner('npm', ['install', '-g', '--dry-run', ...npmArgs], {
+    env: npmEnv,
+  });
   if (dryRun.exitCode !== 0) {
     throw config(`${target} cannot be installed with this Node: ${childDetail(dryRun)}`);
   }
@@ -931,7 +953,11 @@ async function update(
   let installed = false;
   try {
     updater.progress('npm install');
-    const install = await ports.runner('npm', ['install', '-g', ...npmArgs], npmEnv);
+    const install = await ports.runner(
+      'npm',
+      ['install', '-g', ...npmArgs],
+      updater.holding(npmEnv),
+    );
     // The one read of the installed tree: its schema decides the database restore.
     leaving = migrationCount(root);
     installed = true;

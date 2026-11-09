@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import { closeSync, fstatSync, openSync } from 'node:fs';
 import { chmod, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir, userInfo } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -385,9 +386,7 @@ describe('service', () => {
     const result = await runCommand(
       process.execPath,
       ['-p', 'process.env.BOARD_PROBE ?? "unset"'],
-      {
-        BOARD_PROBE: 'given',
-      },
+      { env: { BOARD_PROBE: 'given' } },
     );
     expect(result).toEqual({ exitCode: 0, stdout: 'given\n', stderr: '' });
     const inherited = await runCommand(process.execPath, [
@@ -395,6 +394,22 @@ describe('service', () => {
       'process.env.BOARD_PROBE ?? "unset"',
     ]);
     expect(inherited.stdout).toBe('unset\n');
+  });
+
+  it('gives the child the lock fd as fd 3, the same open file', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'board-run-'));
+    const fd = openSync(join(dir, 'update.lock'), 'a');
+    try {
+      const result = await runCommand(
+        process.execPath,
+        ['-p', 'require("node:fs").fstatSync(3).ino'],
+        { lockFd: fd },
+      );
+      expect(result.stdout.trim()).toBe(String(fstatSync(fd).ino));
+    } finally {
+      closeSync(fd);
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 
   it('reports a restart without an installed unit as missing, with no side effects', async () => {
