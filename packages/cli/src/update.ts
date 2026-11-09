@@ -23,6 +23,7 @@ import { CliError } from './exit-codes.ts';
 import {
   renderUserUnit,
   runCommand,
+  serviceName,
   servicePaths,
   stopService,
   type CommandResult,
@@ -216,6 +217,59 @@ function unitLines(text: string): { execStart: string; environment: string[] } {
     execStart: lines.find((line) => line.startsWith('ExecStart=')) ?? '(no ExecStart line)',
     environment: lines.filter((line) => line.startsWith('Environment=')).sort(),
   };
+}
+
+/** Unit settings that decide which Node, package and data dir the daemon uses. */
+const PATH_KEYS = ['BOARD_HOME', 'XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'HOME'] as const;
+
+/** Splits a `systemctl show` list value into entries, undoing systemd's double quotes. */
+function showEntries(value: string): string[] {
+  return (value.match(/(?:"(?:[^"\\]|\\.)*"|[^\s"])+/g) ?? []).map((entry) =>
+    entry.replace(/"((?:[^"\\]|\\.)*)"/g, (_quoted, inner: string) =>
+      inner.replace(/\\(.)/g, '$1'),
+    ),
+  );
+}
+
+/**
+ * Compares the loaded service, drop-ins included, with this shell: the `argv[]` of `ExecStart`,
+ * the path settings in `Environment`, and no `EnvironmentFiles`, whose values `show` does not
+ * list. Returns the running and expected text of the first difference.
+ */
+function serviceMismatch(
+  show: string,
+  argv: string,
+  environment: readonly string[],
+): [string, string] | undefined {
+  const properties = new Map<string, string>();
+  for (const line of show.split('\n')) {
+    const equals = line.indexOf('=');
+    if (equals > 0) properties.set(line.slice(0, equals), line.slice(equals + 1));
+  }
+  const execStart = properties.get('ExecStart') ?? '';
+  const running = /argv\[\]=(.*?) ; /.exec(execStart)?.[1];
+  if (running !== argv) {
+    return [`ExecStart ${running ?? `(${execStart || 'not loaded'})`}`, `ExecStart ${argv}`];
+  }
+  const files = properties.get('EnvironmentFiles') ?? '';
+  if (files !== '') return [`EnvironmentFiles=${files}`, 'no EnvironmentFiles'];
+  const pairs = (entries: readonly string[]) =>
+    new Map(
+      entries.map((entry) => {
+        const equals = entry.indexOf('=');
+        return [entry.slice(0, Math.max(equals, 0)), entry.slice(equals + 1)] as const;
+      }),
+    );
+  const actual = pairs(showEntries(properties.get('Environment') ?? ''));
+  const expected = pairs(environment);
+  for (const key of PATH_KEYS) {
+    if (actual.get(key) !== expected.get(key)) {
+      const text = (value: string | undefined) =>
+        value === undefined ? `no ${key}` : `${key}=${value}`;
+      return [text(actual.get(key)), text(expected.get(key))];
+    }
+  }
+  return undefined;
 }
 
 interface Probe {
@@ -637,6 +691,25 @@ export async function updatePackage(
   if (mismatch) {
     throw config(
       `The service unit has ${mismatch[0] ?? ''} but this shell gives ${mismatch[1] ?? ''}; run \`board update\` from the environment the service was installed from, or run \`board service install\` first.`,
+    );
+  }
+  const show = await ports.runner('systemctl', [
+    '--user',
+    'show',
+    serviceName,
+    '--property=ExecStart,Environment,EnvironmentFiles',
+  ]);
+  if (show.exitCode !== 0) {
+    throw config(`systemctl --user show ${serviceName} failed: ${childDetail(show)}`);
+  }
+  const running = serviceMismatch(
+    show.stdout,
+    `${unitPaths.nodePath} ${unitPaths.daemonEntry}`,
+    unitPaths.environment ?? [],
+  );
+  if (running) {
+    throw config(
+      `The running service has ${running[0]} but this shell gives ${running[1]}; a drop-in overrides the unit file (\`systemctl --user cat ${serviceName}\` lists them). Remove the override and run \`board service install\`, or run \`board update\` from the environment the service runs with.`,
     );
   }
 

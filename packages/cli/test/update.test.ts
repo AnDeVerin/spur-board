@@ -20,7 +20,12 @@ import { tmpdir } from 'node:os';
 import { dirname, join, relative } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { runCli } from '../src/cli.ts';
-import { renderUserUnit, servicePaths, type CommandResult } from '../src/service.ts';
+import {
+  renderUserUnit,
+  servicePaths,
+  type CommandResult,
+  type ServicePaths,
+} from '../src/service.ts';
 import type { UpdatePorts, UpdateRunner } from '../src/update.ts';
 
 const cleanups: (() => Promise<void> | void)[] = [];
@@ -55,6 +60,7 @@ const doctorResult = (checks: Check[]): CommandResult => ({
 });
 
 interface Behaviour {
+  show: () => CommandResult;
   view: () => CommandResult;
   dryRun: () => CommandResult;
   install: () => CommandResult;
@@ -98,14 +104,29 @@ function label(command: string, args: readonly string[]): string {
     if (args[0] === 'view') return 'npm view';
     return args.includes('--dry-run') ? 'npm dry-run' : 'npm install';
   }
-  if (command === 'systemctl')
-    return args.includes('stop') ? 'stop' : `systemctl ${args.join(' ')}`;
+  if (command === 'systemctl') {
+    if (args.includes('stop')) return 'stop';
+    return args.includes('show') ? 'show' : `systemctl ${args.join(' ')}`;
+  }
   if (command === 'flock') return 'flock';
   if (args[1] === 'copy-database') return 'copy-database';
   if (args.includes('doctor')) return 'doctor';
   if (args.includes('service')) return 'service install';
   if (args.includes('skills')) return 'skills install';
   return `${command} ${args.join(' ')}`;
+}
+
+/** `systemctl --user show` output for a loaded unit, in the format of systemd 249. */
+function showOutput(
+  paths: ServicePaths,
+  environment = (paths.environment ?? []).join(' '),
+): string {
+  return [
+    `ExecStart={ path=${paths.nodePath} ; argv[]=${paths.nodePath} ${paths.daemonEntry} ; ignore_errors=no ; start_time=[n/a] ; stop_time=[n/a] ; pid=0 ; code=(null) ; status=0/0 }`,
+    `Environment=${environment}`,
+    'EnvironmentFiles=',
+    '',
+  ].join('\n');
 }
 
 async function stand() {
@@ -181,6 +202,7 @@ async function stand() {
   const clock = { t: Date.parse('2026-11-09T10:00:00.000Z') };
 
   const behaviour: Behaviour = {
+    show: () => ok(showOutput(unitPaths)),
     view: () => ok('"1.1.0"\n'),
     dryRun: () => ok(),
     install: () => {
@@ -215,6 +237,8 @@ async function stand() {
 
   const respond = (name: string, args: readonly string[]): CommandResult => {
     switch (name) {
+      case 'show':
+        return behaviour.show();
       case 'npm view':
         return behaviour.view();
       case 'npm dry-run':
@@ -335,6 +359,7 @@ describe('board update', () => {
 
     expect(result.exit, result.stderr).toBe(0);
     expect(s.labels()).toEqual([
+      'show',
       'npm view',
       'npm dry-run',
       'doctor',
@@ -345,6 +370,12 @@ describe('board update', () => {
       'service install',
       'skills install',
       'doctor',
+    ]);
+    expect(s.calls[0]?.args).toEqual([
+      '--user',
+      'show',
+      'spur-board.service',
+      '--property=ExecStart,Environment,EnvironmentFiles',
     ]);
     expect(s.calls.find((call) => call.label === 'copy-database')?.args).toEqual([
       s.bin,
@@ -400,6 +431,15 @@ describe('board update', () => {
     expect(s.labels().filter((name) => name === 'stop')).toHaveLength(1);
   });
 
+  it('U1c: reads a quoted Environment entry of the running service', async () => {
+    const s = await stand();
+    s.behaviour.show = () =>
+      ok(showOutput(s.unitPaths, `"${s.unitPaths.environment?.[0] ?? ''}" "OTHER=a \\"b\\""`));
+    const result = await s.run(['--json', 'update']);
+
+    expect(result.exit, result.stderr).toBe(0);
+  });
+
   it('U2: prints changed false and runs only npm view when the target is installed', async () => {
     const s = await stand();
     s.behaviour.view = () => ok('"1.0.0"\n');
@@ -407,7 +447,7 @@ describe('board update', () => {
 
     expect(result.exit).toBe(0);
     expect(JSON.parse(result.stdout)).toEqual({ from: '1.0.0', to: '1.0.0', changed: false });
-    expect(s.labels()).toEqual(['npm view']);
+    expect(s.labels()).toEqual(['show', 'npm view']);
   });
 
   const refusals: [string, number, (s: Stand) => void, string?][] = [
@@ -451,6 +491,54 @@ describe('board update', () => {
         delete s.env['BOARD_HOME'];
       },
       'Environment="BOARD_HOME=/other"',
+    ],
+    [
+      'a running service whose drop-in sets another BOARD_HOME',
+      4,
+      (s) => {
+        s.behaviour.show = () =>
+          ok(showOutput(s.unitPaths, `BOARD_HOME=${s.env['BOARD_HOME'] ?? ''} BOARD_HOME=/other`));
+      },
+      'running service has BOARD_HOME=/other but this shell gives BOARD_HOME=',
+    ],
+    [
+      'a running service whose drop-in sets HOME',
+      4,
+      (s) => {
+        s.behaviour.show = () =>
+          ok(showOutput(s.unitPaths, `BOARD_HOME=${s.env['BOARD_HOME'] ?? ''} HOME=/elsewhere`));
+      },
+      'HOME=/elsewhere but this shell gives no HOME',
+    ],
+    [
+      'a running service whose drop-in starts another Node',
+      4,
+      (s) => {
+        s.behaviour.show = () => ok(showOutput({ ...s.unitPaths, nodePath: '/opt/other/node' }));
+      },
+      'ExecStart /opt/other/node',
+    ],
+    [
+      'a running service with an EnvironmentFile',
+      4,
+      (s) => {
+        s.behaviour.show = () =>
+          ok(
+            showOutput(s.unitPaths).replace(
+              'EnvironmentFiles=',
+              'EnvironmentFiles=/srv/board.env (ignore_errors=no)',
+            ),
+          );
+      },
+      'EnvironmentFiles=/srv/board.env',
+    ],
+    [
+      'a failed systemctl show',
+      4,
+      (s) => {
+        s.behaviour.show = () => fail(1, 'Failed to connect to bus\n');
+      },
+      'Failed to connect to bus',
     ],
     [
       'a daemon that is not ready',
