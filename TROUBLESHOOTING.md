@@ -213,15 +213,19 @@ old Node or package path, run `board service install` again.
 package before the update, and `update/db/board-<version>.sqlite` is the database backup taken
 with the service stopped. A new update replaces them only once its own copy and backup are
 complete, so `board rollback` keeps returning to the version before the last successful update
-when a later update stops early. `update/update.lock` holds the PID of the update or rollback
-that is running.
+when a later update stops early. A running update or rollback holds a lock on
+`update/update.lock`, shared with the npm install and the other install steps it starts; the
+lock ends when all of them have exited, and the file stays.
 
-- `config` before any change: the hint names the reason. Another update or rollback that is
-  still running gives its PID; wait for it. If that PID is not a Board update or rollback,
-  remove `update/update.lock`. A running service whose command or `BOARD_HOME`, `XDG_*` or
-  `HOME` setting differs from this shell, or that reads an `EnvironmentFile`, is refused:
-  `systemctl --user cat spur-board.service` shows the unit and its drop-ins. Remove the override
-  and run `board service install`, or run the update from the environment the service runs with.
+- `config` before any change: the hint names the reason. When another update or rollback holds
+  the lock, the hint gives the PID that took it; wait for it. If that process is gone, an npm
+  install it started may still run; wait for that too. Never remove `update/update.lock`: that
+  does not stop the holder and lets a second update start beside it. A running service whose
+  command differs from this shell's, or whose process uses another data directory or config
+  file, is refused. Its `BOARD_HOME`, `XDG_*` and `HOME` come from the unit, its drop-ins and
+  any `EnvironmentFile`: `systemctl --user cat spur-board.service` shows them. Remove the
+  override and run `board service install`, or run the update from the environment the service
+  runs with. A service with no running process is refused too: run `board service restart`.
 
 - `update_rolled_back`: the update failed and the previous version runs again. The hint names
   the failed step. If it stopped at `stop`, `lock wait` or `database backup`, the package,
