@@ -46,4 +46,4 @@ overrides:
   minimatch@<11.0.1: ^11.0.1
   # typed-rest-client@2.3.1 (via @stryker-mutator/core) pins qs 6.15.1 exactly; drop
   # the override when typed-rest-client no longer pins a vulnerable qs.
-  'typed-rest-client>qs': 6.16.2
+  'typed-rest-client>qs': 6.17.1
