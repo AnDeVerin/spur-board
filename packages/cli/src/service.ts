@@ -98,9 +98,17 @@ export function renderUserUnit(paths: ServicePaths): string {
   ].join('\n');
 }
 
-async function runCommand(command: string, args: readonly string[]): Promise<CommandResult> {
+/** Runs a command to completion; `env` replaces the inherited environment when given. */
+export async function runCommand(
+  command: string,
+  args: readonly string[],
+  env?: NodeJS.ProcessEnv,
+): Promise<CommandResult> {
   return new Promise((resolveResult, reject) => {
-    const child = spawn(command, [...args], { stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(command, [...args], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      ...(env === undefined ? {} : { env }),
+    });
     let stdout = '';
     let stderr = '';
     child.stdout.setEncoding('utf8');
@@ -259,6 +267,11 @@ export async function restartService(options: ServiceOptions = {}): Promise<void
   await requireStart(options.runner ?? runCommand, ['--user', 'restart', serviceName], {
     file: unitFile,
   });
+}
+
+/** Stops the service; a failed stop throws with systemctl's output. */
+export async function stopService(options: ServiceOptions = {}): Promise<void> {
+  await requireSuccess(options.runner ?? runCommand, 'systemctl', ['--user', 'stop', serviceName]);
 }
 
 export async function statusService(options: ServiceOptions = {}): Promise<ServiceStatus> {

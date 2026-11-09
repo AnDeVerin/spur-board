@@ -3,7 +3,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { DEFAULT_HTTP_PORT } from '@spur-board/contracts';
-import { findTokenFile, loadClientConfig, resolveDaemonAddress } from '../src/config.ts';
+import {
+  dataDirectory,
+  findTokenFile,
+  loadClientConfig,
+  resolveDaemonAddress,
+} from '../src/config.ts';
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -91,6 +96,18 @@ describe('daemon address', () => {
         paths.home,
       ),
     ).not.toThrow();
+  });
+});
+
+describe('data directory', () => {
+  it.each([
+    ['BOARD_HOME', { BOARD_HOME: '/board/home', XDG_DATA_HOME: '/xdg/data' }, '/board/home'],
+    ['absolute XDG_DATA_HOME', { XDG_DATA_HOME: '/xdg/data' }, '/xdg/data/spur-board'],
+    ['relative XDG_DATA_HOME', { XDG_DATA_HOME: 'xdg/data' }, '/home/op/.local/share/spur-board'],
+    ['empty BOARD_HOME', { BOARD_HOME: '' }, '/home/op/.local/share/spur-board'],
+    ['no variables', {}, '/home/op/.local/share/spur-board'],
+  ] as const)('uses the daemon database directory for %s', (_name, env, expected) => {
+    expect(dataDirectory(env, '/home/op')).toBe(expected);
   });
 });
 

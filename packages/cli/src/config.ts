@@ -32,6 +32,17 @@ export function configFile(env: NodeJS.ProcessEnv, home: string): string {
   return join(xdg && isAbsolute(xdg) ? xdg : join(home, '.config'), 'spur-board', 'config.yaml');
 }
 
+/**
+ * The directory of the daemon database and its lock. It mirrors `resolvePaths` in
+ * packages/daemon/src/config.ts; the CLI cannot import the daemon package.
+ */
+export function dataDirectory(env: NodeJS.ProcessEnv, home: string): string {
+  const boardHome = env['BOARD_HOME'];
+  if (boardHome) return resolve(boardHome);
+  const xdg = env['XDG_DATA_HOME'];
+  return join(xdg && isAbsolute(xdg) ? xdg : join(home, '.local', 'share'), 'spur-board');
+}
+
 /** The http.port in config.yaml, or the default when the file is missing or invalid. */
 export function readConfiguredPort(env: NodeJS.ProcessEnv, home: string): number {
   try {

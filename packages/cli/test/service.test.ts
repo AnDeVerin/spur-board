@@ -12,8 +12,10 @@ import {
   installService,
   renderUserUnit,
   restartService,
+  runCommand,
   servicePaths,
   statusService,
+  stopService,
   uninstallService,
   type CommandResult,
   type CommandRunner,
@@ -365,6 +367,34 @@ describe('service', () => {
     expect(error.recovery.sideEffects).toBe('applied');
     expect(error.hint).toContain('is unknown; the service is unknown');
     expect(error.hint).toContain(startFailure);
+  });
+
+  it('stops the service through systemctl and throws when the stop fails', async () => {
+    const { options, calls } = await fixture();
+    await stopService(options);
+    expect(calls).toEqual([systemctl('stop', 'spur-board.service')]);
+
+    const failing: CommandRunner = () =>
+      Promise.resolve({ exitCode: 1, stdout: '', stderr: 'Failed to stop spur-board.service\n' });
+    await expect(stopService({ ...options, runner: failing })).rejects.toThrow(
+      'systemctl --user stop spur-board.service failed: Failed to stop spur-board.service',
+    );
+  });
+
+  it('runs a command with the given environment instead of the inherited one', async () => {
+    const result = await runCommand(
+      process.execPath,
+      ['-p', 'process.env.BOARD_PROBE ?? "unset"'],
+      {
+        BOARD_PROBE: 'given',
+      },
+    );
+    expect(result).toEqual({ exitCode: 0, stdout: 'given\n', stderr: '' });
+    const inherited = await runCommand(process.execPath, [
+      '-p',
+      'process.env.BOARD_PROBE ?? "unset"',
+    ]);
+    expect(inherited.stdout).toBe('unset\n');
   });
 
   it('reports a restart without an installed unit as missing, with no side effects', async () => {
