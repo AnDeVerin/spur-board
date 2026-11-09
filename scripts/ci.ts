@@ -24,7 +24,7 @@ export function classifyChanges(paths: string[]): Changes {
     github: paths.some((path) => path.startsWith('.github/')),
     package: paths.some(
       (path) =>
-        /^(packages\/|scripts\/(package|upgrade-smoke)|package\.json$|pnpm-lock\.yaml$|pnpm-workspace\.yaml$|release\.config\.cjs$)/.test(
+        /^(packages\/|scripts\/(package|upgrade-smoke|update-smoke)|package\.json$|pnpm-lock\.yaml$|pnpm-workspace\.yaml$|release\.config\.cjs$)/.test(
           path,
         ) || path === '.github/workflows/ci.yml',
     ),
