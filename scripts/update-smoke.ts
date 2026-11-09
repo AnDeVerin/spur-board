@@ -212,9 +212,10 @@ const NPM_ORIGIN = 'https://registry.npmjs.org';
 /**
  * The npmjs URL for a request path, or undefined unless the path starts with exactly one `/` and
  * the resolved URL keeps the npm origin: any other request-target (`@host/x`, `//host/x`,
- * `/\\host/x`, an absolute URL) could move the host.
+ * `/\\host/x`, an absolute URL) could move the host. The result starts with the literal npm host
+ * so a request-forgery scan sees the host fixed.
  */
-export function upstreamUrl(path: string): URL | undefined {
+export function upstreamUrl(path: string): string | undefined {
   if (!path.startsWith('/') || path.startsWith('//')) return undefined;
   let target: URL;
   try {
@@ -222,10 +223,11 @@ export function upstreamUrl(path: string): URL | undefined {
   } catch {
     return undefined;
   }
-  return target.origin === NPM_ORIGIN ? target : undefined;
+  if (target.origin !== NPM_ORIGIN) return undefined;
+  return `https://registry.npmjs.org/${target.pathname.slice(1)}${target.search}`;
 }
 
-async function upstream(url: URL, accept: string | undefined): Promise<Response> {
+async function upstream(url: string, accept: string | undefined): Promise<Response> {
   const attempt = () => fetch(url, { headers: accept === undefined ? {} : { accept } });
   try {
     const response = await attempt();

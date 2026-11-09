@@ -13,8 +13,11 @@ import {
 
 describe('update smoke registry', () => {
   it('forwards a path that starts with one slash to the npm host', () => {
-    expect(upstreamUrl('/pkg')?.href).toBe('https://registry.npmjs.org/pkg');
-    expect(upstreamUrl('/@scope%2fname')?.href).toBe('https://registry.npmjs.org/@scope%2fname');
+    expect(upstreamUrl('/pkg')).toBe('https://registry.npmjs.org/pkg');
+    expect(upstreamUrl('/@scope%2fname')).toBe('https://registry.npmjs.org/@scope%2fname');
+    expect(upstreamUrl('/pkg/-/pkg-1.0.0.tgz?write=true')).toBe(
+      'https://registry.npmjs.org/pkg/-/pkg-1.0.0.tgz?write=true',
+    );
   });
 
   it.each([
