@@ -30,7 +30,7 @@ describe('error catalog', () => {
     });
   });
 
-  it('pins the 21 codes in order, with HTTP status and exit code', () => {
+  it('pins the 23 codes in order, with HTTP status and exit code', () => {
     const table = Object.entries(ERRORS).map(([code, { status, exit }]) => [code, status, exit]);
     expect(table).toEqual([
       ['usage', 400, 2],
@@ -52,6 +52,8 @@ describe('error catalog', () => {
       ['config', null, 4],
       ['identity_missing', null, 4],
       ['service_start_failed', null, 4],
+      ['update_rolled_back', null, 4],
+      ['rollback_failed', null, 4],
       ['outcome_unknown', null, 5],
       ['unexpected', 500, 5],
     ]);
@@ -126,6 +128,24 @@ describe('error catalog', () => {
     expect(entry.recovery).toMatchObject({ sideEffects: 'applied', maxRetries: 0 });
     expect(entry.recovery.action).toContain('journalctl --user -u spur-board.service');
     expect(entry.recovery.action).toContain('board doctor');
+  });
+
+  it('reports a rolled-back update as unchanged and a failed rollback as applied', () => {
+    const rolledBack = ERRORS.update_rolled_back;
+    expect(rolledBack.status).toBeNull();
+    expect(rolledBack.exit).toBe(EXIT_CODES.config);
+    expect(rolledBack.recovery).toMatchObject({ sideEffects: 'none', maxRetries: 0 });
+    expect(rolledBack.hint).toContain('`board update`');
+
+    const failed = ERRORS.rollback_failed;
+    expect(failed.status).toBeNull();
+    expect(failed.exit).toBe(EXIT_CODES.config);
+    expect(failed.recovery).toMatchObject({
+      sideEffects: 'applied',
+      maxRetries: 0,
+      retryTiming: 'After fixing the reported step.',
+    });
+    expect(failed.hint).toContain('`board rollback --yes`');
   });
 
   it('marks startup as not applied and recoverable after readiness', () => {

@@ -650,6 +650,74 @@ Example:
 }
 ```
 
+## update_rolled_back
+
+The update failed, so the board is back on the version it ran before.
+
+HTTP: client-side  
+Exit code: 4  
+Hint: Fix the cause named in this error, then run `board update` again.  
+Recovery: Fix the reported cause, then run `board update` again.  
+Side effects: none  
+Retry: maximum 0; After fixing the cause.
+
+Example:
+
+```json
+{
+  "ok": false,
+  "requestId": "req-example-123",
+  "error": {
+    "code": "update_rolled_back",
+    "requestId": "req-example-123",
+    "message": "The update failed, so the board is back on the version it ran before.",
+    "hint": "Fix the cause named in this error, then run `board update` again.",
+    "docs": "docs/errors.md#update_rolled_back",
+    "recovery": {
+      "action": "Fix the reported cause, then run `board update` again.",
+      "sideEffects": "none",
+      "maxRetries": 0,
+      "retryTiming": "After fixing the cause."
+    },
+    "context": {}
+  }
+}
+```
+
+## rollback_failed
+
+A rollback step failed; the package, database or service may be only partly restored.
+
+HTTP: client-side  
+Exit code: 4  
+Hint: Fix the step named in this error, then run `board rollback --yes` again.  
+Recovery: Fix the reported step, then run `board rollback --yes`.  
+Side effects: applied  
+Retry: maximum 0; After fixing the reported step.
+
+Example:
+
+```json
+{
+  "ok": false,
+  "requestId": "req-example-123",
+  "error": {
+    "code": "rollback_failed",
+    "requestId": "req-example-123",
+    "message": "A rollback step failed; the package, database or service may be only partly restored.",
+    "hint": "Fix the step named in this error, then run `board rollback --yes` again.",
+    "docs": "docs/errors.md#rollback_failed",
+    "recovery": {
+      "action": "Fix the reported step, then run `board rollback --yes`.",
+      "sideEffects": "applied",
+      "maxRetries": 0,
+      "retryTiming": "After fixing the reported step."
+    },
+    "context": {}
+  }
+}
+```
+
 ## outcome_unknown
 
 The connection was lost after the request was sent; it may have been applied.

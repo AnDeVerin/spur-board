@@ -102,6 +102,34 @@ Example: `board service uninstall`
 
 Exit codes: see the table above; setup errors are reported by the CLI.
 
+### `board update`
+
+Update the package, service and skills, and roll back if the new version is unhealthy.
+
+Arguments: `[version]`.
+
+Flags:
+
+None.
+
+Example: `board update`
+
+Exit codes: see the table above; setup errors are reported by the CLI.
+
+### `board rollback`
+
+Return to the version before the last update.
+
+Arguments: none.
+
+Flags:
+
+`--yes` — Roll back without asking; required when not at a terminal.
+
+Example: `board rollback`
+
+Exit codes: see the table above; setup errors are reported by the CLI.
+
 ### `board mcp`
 
 Start the MCP server for an agent on standard input and output. Stdout carries only JSON-RPC.

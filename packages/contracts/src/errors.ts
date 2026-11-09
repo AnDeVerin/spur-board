@@ -245,6 +245,26 @@ export const ERRORS = {
       retryTiming: 'After fixing the cause.',
     },
   }),
+  update_rolled_back: spec('update_rolled_back', {
+    status: null,
+    exit: EXIT_CODES.config,
+    message: 'The update failed, so the board is back on the version it ran before.',
+    hint: 'Fix the cause named in this error, then run `board update` again.',
+    recovery: noRetry('Fix the reported cause, then run `board update` again.'),
+  }),
+  rollback_failed: spec('rollback_failed', {
+    status: null,
+    exit: EXIT_CODES.config,
+    message:
+      'A rollback step failed; the package, database or service may be only partly restored.',
+    hint: 'Fix the step named in this error, then run `board rollback --yes` again.',
+    recovery: {
+      action: 'Fix the reported step, then run `board rollback --yes`.',
+      sideEffects: 'applied',
+      maxRetries: 0,
+      retryTiming: 'After fixing the reported step.',
+    },
+  }),
   outcome_unknown: spec('outcome_unknown', {
     status: null,
     exit: EXIT_CODES.outcomeUnknown,
