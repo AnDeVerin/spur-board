@@ -1,5 +1,14 @@
 import { randomUUID } from 'node:crypto';
-import { closeSync, existsSync, fsyncSync, linkSync, openSync, renameSync, rmSync } from 'node:fs';
+import {
+  closeSync,
+  existsSync,
+  fsyncSync,
+  linkSync,
+  openSync,
+  renameSync,
+  rmSync,
+  statSync,
+} from 'node:fs';
 import { resolve } from 'node:path';
 import Database from 'better-sqlite3';
 
@@ -43,16 +52,17 @@ function checkpoint(file: string): void {
 /**
  * Copies a database into one self-contained file at `target`, with the source's rows, schema
  * and `user_version`. `source` is a path or an open connection. The copy is written with
- * `VACUUM INTO` to `<target>.partial` and synced. An existing target with a `-wal` is then
- * checkpointed, so its main file holds every committed row. The target is hard-linked to
+ * `VACUUM INTO` to `<target>.partial` and synced. An existing target with a non-empty `-wal` is
+ * then checkpointed, so its main file holds every committed row. The target is hard-linked to
  * `<target>.replaced-<uuid>`, its empty `-wal` and `-shm` are removed, the partial is renamed
  * over `target`, and only then is the link removed. A kill at any point leaves a complete
  * database at `target`, the old one or the new one. A failure before the rename leaves the
  * target as it is, with no `.partial` and no link. `step` is called after each step; tests use
  * it to stand in for a kill.
  *
- * Opens `target` only to checkpoint its `-wal`. Creates no directory, takes no lock and checks
- * no version: the caller creates the directory and holds the board lock or owns the connection.
+ * Opens `target` only to checkpoint a non-empty `-wal`. Creates no directory, takes no lock and
+ * checks no version: the caller creates the directory and holds the board lock or owns the
+ * connection.
  */
 export function copyDatabase(
   source: string | Database.Database,
@@ -73,9 +83,9 @@ export function copyDatabase(
     fsyncFile(partial);
     step('partial');
     if (existsSync(target)) {
-      // Only a WAL can hold committed rows outside the main file. Without one there is nothing
-      // to preserve, and a damaged target must not block the copy that replaces it.
-      if (existsSync(`${target}-wal`)) {
+      // Only a non-empty WAL can hold committed rows outside the main file. Without one there
+      // is nothing to preserve, and a damaged target must not block the copy that replaces it.
+      if ((statSync(`${target}-wal`, { throwIfNoEntry: false })?.size ?? 0) > 0) {
         checkpoint(target);
         step('checkpoint');
       }

@@ -143,6 +143,24 @@ describe('copyDatabase', () => {
     expect(partials(dir)).toEqual([]);
   });
 
+  it('C3: replaces a damaged target that has an empty -wal, with no checkpoint', () => {
+    const dir = tempDir();
+    const source = join(dir, 'board.sqlite');
+    walDatabase(source, ['source']);
+    const target = join(dir, 'copy.sqlite');
+    writeFileSync(target, 'not a database, and an empty WAL to preserve nothing');
+    writeFileSync(`${target}-wal`, '');
+    const steps: string[] = [];
+
+    copyDatabase(source, target, (step) => steps.push(step));
+
+    expect(read(target).rows).toEqual(['source']);
+    expect(steps).toEqual(['partial', 'link', 'journal', 'rename']);
+    expect(existsSync(`${target}-wal`)).toBe(false);
+    expect(readdirSync(dir).filter((name) => name.includes('.replaced-'))).toEqual([]);
+    expect(partials(dir)).toEqual([]);
+  });
+
   it('C3: a failed link leaves the target with its committed rows and no leftovers', () => {
     const dir = tempDir();
     const source = join(dir, 'board.sqlite');
