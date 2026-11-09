@@ -1285,3 +1285,65 @@ describe('accepted observation', () => {
     });
   });
 });
+
+describe('a clock that moves during the transaction', () => {
+  // The real clock moves between scan passes; an item cleared with a fresh time on each pass
+  // would never pass the gateway scan and the whole transaction would fail.
+  function movingSetup() {
+    const store = openStore(join(mkdtempSync(join(tmpdir(), 'board-observe-')), 'board.db'));
+    stores.push(store);
+    let ms = Date.parse(at);
+    const moving = { now: () => (ms += 7) };
+    return { store, core: createObservationCore({ store, config, clock: moving }) };
+  }
+  const blind = { reason: 'stale', message: 'No complete observation' } as const;
+  async function blindItem(store: Store) {
+    return store.db
+      .selectFrom('operator_item')
+      .select(['cleared_at', 'line_outbox_id'])
+      .where('item_key', '=', 'source:spur')
+      .executeTakeFirstOrThrow();
+  }
+  async function edits(store: Store) {
+    return store.db
+      .selectFrom('outbox')
+      .select('id')
+      .where('kind', '=', 'feed.line.edit')
+      .execute();
+  }
+
+  it('clears a blind item with a feed line from a source report', async () => {
+    const { store, core } = movingSetup();
+    await core.reportSourceState('spur', { blind, gone: [] });
+    expect((await blindItem(store)).line_outbox_id).not.toBeNull();
+    await core.reportSourceState('spur', { lastCompleteAt: at, gone: [] });
+    expect((await blindItem(store)).cleared_at).not.toBeNull();
+    expect(await edits(store)).toHaveLength(1);
+  });
+
+  it('clears a blind item with a feed line from an accepted observation', async () => {
+    const { store, core } = movingSetup();
+    await core.reportSourceState('spur', { blind, gone: [] });
+    await core.observe('spur', {
+      batch: { source: 'spur', observedAt: at, complete: true, items: [], entities: [] },
+      effectiveComplete: true,
+      state: { lastCompleteAt: at, gone: [] },
+      outcomes: [],
+    });
+    expect((await blindItem(store)).cleared_at).not.toBeNull();
+    expect(await edits(store)).toHaveLength(1);
+    expect(
+      await store.db.selectFrom('source_state').select('last_complete_at').executeTakeFirst(),
+    ).toEqual({ last_complete_at: at });
+  });
+
+  it('records a stale blind source again after a report cleared its item', async () => {
+    const { store, core } = movingSetup();
+    await core.reportSourceState('spur', { blind, gone: [] });
+    await core.reportSourceState('spur', { lastCompleteAt: at, gone: [] });
+    await core.reportSourceState('spur', { blind, gone: [] });
+    expect(
+      await store.db.selectFrom('source_state').select('blind_reason').executeTakeFirst(),
+    ).toEqual({ blind_reason: 'stale' });
+  });
+});

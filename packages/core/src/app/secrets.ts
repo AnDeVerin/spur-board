@@ -149,7 +149,11 @@ export function checkGatewayStrings(
   return null;
 }
 
-/** Replays database-only work after scanning exact strings outside the write transaction. */
+/**
+ * Replays database-only work after scanning exact strings outside the write transaction.
+ * `fn` must build the same gateway strings on every pass: read the clock before the call, as a
+ * time read inside `fn` makes a new string each pass and the replay never ends.
+ */
 export async function scanTransaction<T>(
   store: Store,
   config: Config,
