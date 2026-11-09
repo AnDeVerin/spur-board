@@ -43,8 +43,12 @@ retry and actor rules.
 - The runner owns the transaction, `foreign_keys`, `user_version` and the backup (`migrate` in
   `packages/core/src/store/migrate.ts`). A migration file has no `BEGIN`, `COMMIT`, `PRAGMA` or
   `VACUUM`.
-- Back up every file with a schema before migration, even when `user_version` is zero; only an
-  empty `sqlite_schema` needs no backup (`packages/core/src/store/migrate.ts`).
+- Back up every file with a schema before migration with `copyDatabase`, even when
+  `user_version` is zero; only an empty `sqlite_schema` needs no backup
+  (`packages/core/src/store/migrate.ts`).
+- Copy a database only through `copyDatabase` (`packages/core/src/store/copy.ts`): `VACUUM INTO`
+  a `.partial` sibling, then rename; the caller creates the directory and holds the board lock
+  (`packages/core/test/store/copy.test.ts`, `describe('copyDatabase')`).
 - A change `ALTER TABLE` cannot make is a table rebuild in the same file. The runner turns
   foreign keys off and runs `foreign_key_check` before `COMMIT`.
 - New tables are `STRICT` and follow the header of
