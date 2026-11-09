@@ -9,8 +9,9 @@
   Only codes with a status are in `ServerErrorCode`, so only they can be thrown as
   `CommandError` or listed on an operation.
 - `exit`: `outcomeUnknown` (5) exactly when `recovery.sideEffects` is `unknown`. Codes 1 to 4
-  have no side effects, except `service_start_failed` (4, `applied`: the unit stays installed),
-  so pick among them by what the daemon did with the call:
+  have no side effects, except `service_start_failed` (4, `applied`: the unit stays installed)
+  and `rollback_failed` (4, `applied`: the rollback may have changed files), so pick among them
+  by what the daemon did with the call:
   - `notApplied` (3): the daemon could not evaluate the call - identity, startup, catalog
     version or reachability (`identity_unavailable`, `starting`, `version_mismatch`,
     `daemon_unavailable`);
