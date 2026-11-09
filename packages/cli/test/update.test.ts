@@ -62,6 +62,7 @@ const doctorResult = (checks: Check[]): CommandResult => ({
 
 interface Behaviour {
   show: () => CommandResult;
+  environ: (pid: number) => string;
   view: () => CommandResult;
   dryRun: () => CommandResult;
   install: () => CommandResult;
@@ -117,17 +118,20 @@ function label(command: string, args: readonly string[]): string {
   return `${command} ${args.join(' ')}`;
 }
 
-/** `systemctl --user show` output for a loaded unit, in the format of systemd 249. */
-function showOutput(
-  paths: ServicePaths,
-  environment = (paths.environment ?? []).join(' '),
-): string {
+/** `systemctl --user show` output for a running unit, in the format of systemd 249. */
+function showOutput(paths: ServicePaths, mainPid = '4242'): string {
   return [
-    `ExecStart={ path=${paths.nodePath} ; argv[]=${paths.nodePath} ${paths.daemonEntry} ; ignore_errors=no ; start_time=[n/a] ; stop_time=[n/a] ; pid=0 ; code=(null) ; status=0/0 }`,
-    `Environment=${environment}`,
-    'EnvironmentFiles=',
+    `MainPID=${mainPid}`,
+    `ExecStart={ path=${paths.nodePath} ; argv[]=${paths.nodePath} ${paths.daemonEntry} ; ignore_errors=no ; start_time=[n/a] ; stop_time=[n/a] ; pid=${mainPid} ; code=(null) ; status=0/0 }`,
     '',
   ].join('\n');
+}
+
+/** A `/proc/<pid>/environ` text: NUL-separated entries. */
+function environText(env: Record<string, string>): string {
+  return Object.entries(env)
+    .map(([name, value]) => `${name}=${value}\0`)
+    .join('');
 }
 
 async function stand() {
@@ -201,9 +205,11 @@ async function stand() {
   const counts = { doctor: 0, service: 0, skills: 0 };
   const backupDirs: { exists: boolean; directory: boolean; mode: number; state: string }[] = [];
   const clock = { t: Date.parse('2026-11-09T10:00:00.000Z') };
+  const environPids: number[] = [];
 
   const behaviour: Behaviour = {
     show: () => ok(showOutput(unitPaths)),
+    environ: () => environText({ BOARD_HOME: boardHome, HOME: home, PATH: '/usr/bin' }),
     view: () => ok('"1.1.0"\n'),
     dryRun: () => ok(),
     install: () => {
@@ -286,6 +292,10 @@ async function stand() {
     firstPollTimeoutMs: 4_000,
     lockWaitMs: 2_000,
     doctorRecheckMs: 6_000,
+    readEnviron: (pid) => {
+      environPids.push(pid);
+      return behaviour.environ(pid);
+    },
     now: () => clock.t,
     sleep: async (ms) => {
       events.push(`sleep ${String(ms)}`);
@@ -339,6 +349,7 @@ async function stand() {
     events,
     counts,
     backupDirs,
+    environPids,
     hooks,
     ports,
     run,
@@ -385,8 +396,9 @@ describe('board update', () => {
       '--user',
       'show',
       'spur-board.service',
-      '--property=ExecStart,Environment,EnvironmentFiles',
+      '--property=MainPID,ExecStart',
     ]);
+    expect(s.environPids).toEqual([4242]);
     expect(s.calls.find((call) => call.label === 'copy-database')?.args).toEqual([
       s.bin,
       'copy-database',
@@ -439,10 +451,15 @@ describe('board update', () => {
     expect(s.labels().filter((name) => name === 'stop')).toHaveLength(1);
   });
 
-  it('U1c: reads a quoted Environment entry of the running service', async () => {
+  it('U1c: accepts a daemon environment with other entries and values holding =', async () => {
     const s = await stand();
-    s.behaviour.show = () =>
-      ok(showOutput(s.unitPaths, `"${s.unitPaths.environment?.[0] ?? ''}" "OTHER=a \\"b\\""`));
+    s.behaviour.environ = () =>
+      environText({
+        OTHER: 'a=b',
+        HOME: '/elsewhere',
+        BOARD_HOME: s.env['BOARD_HOME'] ?? '',
+        XDG_DATA_HOME: '/data',
+      });
     const result = await s.run(['--json', 'update']);
 
     expect(result.exit, result.stderr).toBe(0);
@@ -504,19 +521,28 @@ describe('board update', () => {
       'a running service whose drop-in sets another BOARD_HOME',
       4,
       (s) => {
-        s.behaviour.show = () =>
-          ok(showOutput(s.unitPaths, `BOARD_HOME=${s.env['BOARD_HOME'] ?? ''} BOARD_HOME=/other`));
+        s.behaviour.environ = () => environText({ BOARD_HOME: '/other', HOME: s.home });
       },
-      'running service has BOARD_HOME=/other but this shell gives BOARD_HOME=',
+      'service (PID 4242) uses the data directory /other but this shell gives',
     ],
     [
-      'a running service whose drop-in sets HOME',
+      'a running service whose UnsetEnvironment removes BOARD_HOME',
       4,
       (s) => {
-        s.behaviour.show = () =>
-          ok(showOutput(s.unitPaths, `BOARD_HOME=${s.env['BOARD_HOME'] ?? ''} HOME=/elsewhere`));
+        s.behaviour.environ = () => environText({ HOME: s.home });
       },
-      'HOME=/elsewhere but this shell gives no HOME',
+      '/home/.local/share/spur-board but this shell gives',
+    ],
+    [
+      'a running service whose HOME differs without BOARD_HOME',
+      4,
+      (s) => {
+        delete s.env['BOARD_HOME'];
+        const paths = servicePaths({ ...s.unitPaths, env: s.env, home: s.home });
+        writeFileSync(s.unitPaths.unitFile, renderUserUnit({ ...s.unitPaths, ...paths }));
+        s.behaviour.environ = () => environText({ HOME: '/elsewhere' });
+      },
+      'uses the data directory /elsewhere/.local/share/spur-board but this shell gives',
     ],
     [
       'a running service whose drop-in starts another Node',
@@ -527,18 +553,22 @@ describe('board update', () => {
       'ExecStart /opt/other/node',
     ],
     [
-      'a running service with an EnvironmentFile',
+      'a service with no main process',
       4,
       (s) => {
-        s.behaviour.show = () =>
-          ok(
-            showOutput(s.unitPaths).replace(
-              'EnvironmentFiles=',
-              'EnvironmentFiles=/srv/board.env (ignore_errors=no)',
-            ),
-          );
+        s.behaviour.show = () => ok(showOutput(s.unitPaths, '0'));
       },
-      'EnvironmentFiles=/srv/board.env',
+      'no main process (MainPID=0)',
+    ],
+    [
+      'a main process whose environment cannot be read',
+      4,
+      (s) => {
+        s.behaviour.environ = () => {
+          throw new Error('EACCES: permission denied');
+        };
+      },
+      'Cannot read the environment of the service',
     ],
     [
       'a failed systemctl show',

@@ -19,7 +19,7 @@ import { basename, dirname, join } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
-import { dataDirectory, resolveDaemonAddress } from './config.ts';
+import { configFile, dataDirectory, resolveDaemonAddress } from './config.ts';
 import { CliError } from './exit-codes.ts';
 import {
   renderUserUnit,
@@ -46,6 +46,8 @@ export interface UpdatePorts {
   firstPollTimeoutMs: number;
   lockWaitMs: number;
   doctorRecheckMs: number;
+  /** The NUL-separated environment of a running process, from `/proc/<pid>/environ`. */
+  readEnviron: (pid: number) => string;
   sleep: (ms: number) => Promise<void>;
   now: () => number;
 }
@@ -107,6 +109,7 @@ function defaultPorts(): UpdatePorts {
     firstPollTimeoutMs: 300_000,
     lockWaitMs: 20_000,
     doctorRecheckMs: 6_000,
+    readEnviron: (pid) => readFileSync(`/proc/${String(pid)}/environ`, 'utf8'),
     sleep: (ms) =>
       new Promise((resolve) => {
         setTimeout(resolve, ms);
@@ -276,57 +279,77 @@ function unitLines(text: string): { execStart: string; environment: string[] } {
   };
 }
 
-/** Unit settings that decide which Node, package and data dir the daemon uses. */
-const PATH_KEYS = ['BOARD_HOME', 'XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'HOME'] as const;
-
-/** Splits a `systemctl show` list value into entries, undoing systemd's double quotes. */
-function showEntries(value: string): string[] {
-  return (value.match(/(?:"(?:[^"\\]|\\.)*"|[^\s"])+/g) ?? []).map((entry) =>
-    entry.replace(/"((?:[^"\\]|\\.)*)"/g, (_quoted, inner: string) =>
-      inner.replace(/\\(.)/g, '$1'),
-    ),
-  );
+/** `NAME=value` entries split at the first `=`, from `systemctl show` lines or an environ. */
+function entries(text: string, separator: string): Map<string, string> {
+  const result = new Map<string, string>();
+  for (const entry of text.split(separator)) {
+    const equals = entry.indexOf('=');
+    if (equals > 0) result.set(entry.slice(0, equals), entry.slice(equals + 1));
+  }
+  return result;
 }
 
 /**
- * Compares the loaded service, drop-ins included, with this shell: the `argv[]` of `ExecStart`,
- * the path settings in `Environment`, and no `EnvironmentFiles`, whose values `show` does not
- * list. Returns the running and expected text of the first difference.
+ * Checks the daemon the service runs, drop-ins, `EnvironmentFile` and `UnsetEnvironment`
+ * included: the `argv[]` of the loaded `ExecStart`, then the config file and data directory its
+ * main process resolves from its own environment, compared with this shell's.
  */
-function serviceMismatch(
-  show: string,
+async function checkRunningService(
+  ports: UpdatePorts,
+  options: UpdateOptions,
   argv: string,
-  environment: readonly string[],
-): [string, string] | undefined {
-  const properties = new Map<string, string>();
-  for (const line of show.split('\n')) {
-    const equals = line.indexOf('=');
-    if (equals > 0) properties.set(line.slice(0, equals), line.slice(equals + 1));
+): Promise<void> {
+  const show = await ports.runner('systemctl', [
+    '--user',
+    'show',
+    serviceName,
+    '--property=MainPID,ExecStart',
+  ]);
+  if (show.exitCode !== 0) {
+    throw config(`systemctl --user show ${serviceName} failed: ${childDetail(show)}`);
   }
+  const properties = entries(show.stdout, '\n');
   const execStart = properties.get('ExecStart') ?? '';
   const running = /argv\[\]=(.*?) ; /.exec(execStart)?.[1];
+  const override = `a drop-in or environment setting overrides the unit file (\`systemctl --user cat ${serviceName}\` lists them). Remove the override and run \`board service install\`, or run \`board update\` from the environment the service runs with.`;
   if (running !== argv) {
-    return [`ExecStart ${running ?? `(${execStart || 'not loaded'})`}`, `ExecStart ${argv}`];
-  }
-  const files = properties.get('EnvironmentFiles') ?? '';
-  if (files !== '') return [`EnvironmentFiles=${files}`, 'no EnvironmentFiles'];
-  const pairs = (entries: readonly string[]) =>
-    new Map(
-      entries.map((entry) => {
-        const equals = entry.indexOf('=');
-        return [entry.slice(0, Math.max(equals, 0)), entry.slice(equals + 1)] as const;
-      }),
+    throw config(
+      `The running service has ExecStart ${running ?? `(${execStart || 'not loaded'})`} but this shell gives ExecStart ${argv}; ${override}`,
     );
-  const actual = pairs(showEntries(properties.get('Environment') ?? ''));
-  const expected = pairs(environment);
-  for (const key of PATH_KEYS) {
-    if (actual.get(key) !== expected.get(key)) {
-      const text = (value: string | undefined) =>
-        value === undefined ? `no ${key}` : `${key}=${value}`;
-      return [text(actual.get(key)), text(expected.get(key))];
+  }
+  const mainPid = properties.get('MainPID') ?? '';
+  const pid = /^\d+$/.test(mainPid) ? Number(mainPid) : 0;
+  if (pid === 0) {
+    throw config(
+      `The service has no main process (MainPID=${mainPid || 'not shown'}); Board update needs a running service. Check \`board service status\`.`,
+    );
+  }
+  let environment: Map<string, string>;
+  try {
+    environment = entries(ports.readEnviron(pid), '\0');
+  } catch (error) {
+    throw config(
+      `Cannot read the environment of the service's main process ${String(pid)}: ${detailOf(error)}. Board update reads it to check which database the daemon uses.`,
+    );
+  }
+  const daemonEnv = Object.fromEntries(environment);
+  // Without HOME the daemon's os.homedir() reads the passwd entry; this shell's home stands in.
+  const daemonHome = daemonEnv['HOME'] || options.home;
+  const pairs = [
+    [
+      'data directory',
+      dataDirectory(daemonEnv, daemonHome),
+      dataDirectory(options.env, options.home),
+    ],
+    ['config file', configFile(daemonEnv, daemonHome), configFile(options.env, options.home)],
+  ] as const;
+  for (const [what, daemon, shell] of pairs) {
+    if (daemon !== shell) {
+      throw config(
+        `The running service (PID ${String(pid)}) uses the ${what} ${daemon} but this shell gives ${shell}; ${override}`,
+      );
     }
   }
-  return undefined;
 }
 
 interface Probe {
@@ -770,25 +793,7 @@ async function update(
       `The service unit has ${mismatch[0] ?? ''} but this shell gives ${mismatch[1] ?? ''}; run \`board update\` from the environment the service was installed from, or run \`board service install\` first.`,
     );
   }
-  const show = await ports.runner('systemctl', [
-    '--user',
-    'show',
-    serviceName,
-    '--property=ExecStart,Environment,EnvironmentFiles',
-  ]);
-  if (show.exitCode !== 0) {
-    throw config(`systemctl --user show ${serviceName} failed: ${childDetail(show)}`);
-  }
-  const running = serviceMismatch(
-    show.stdout,
-    `${unitPaths.nodePath} ${unitPaths.daemonEntry}`,
-    unitPaths.environment ?? [],
-  );
-  if (running) {
-    throw config(
-      `The running service has ${running[0]} but this shell gives ${running[1]}; a drop-in overrides the unit file (\`systemctl --user cat ${serviceName}\` lists them). Remove the override and run \`board service install\`, or run \`board update\` from the environment the service runs with.`,
-    );
-  }
+  await checkRunningService(ports, options, `${unitPaths.nodePath} ${unitPaths.daemonEntry}`);
 
   const before = await probe(updater.address, '/v1/schema');
   if (before?.status !== 200) {
