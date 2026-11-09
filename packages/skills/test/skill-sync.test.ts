@@ -445,6 +445,11 @@ describe('public guide command mentions', () => {
     const updateRun = setupReferenceTexts[setupReferenceNames.indexOf('update.md')];
     expect(setup).toContain('`board update`');
     expect(updateRun).toContain('`board update`');
+    for (const guide of [setup, updateRun]) {
+      expect(guide).toContain('without `board update`');
+      expect(guide).toContain('`board service install`');
+      expect(guide).toContain('`board service restart` only when the service was active before');
+    }
     for (const token of ['update_rolled_back', 'rollback_failed', '`board rollback --yes`'])
       expect(troubleshooting).toContain(token);
   });

@@ -178,6 +178,17 @@ sessions doctor lists as stale. To go back to the version before the last update
 outside a terminal. See
 [Failed update or rollback](TROUBLESHOOTING.md#failed-update-or-rollback).
 
+### Upgrading from a version without `board update`
+
+The installed package may predate `board update`. Upgrade it once by hand; every later upgrade
+uses `board update`. Install the newer package with the Node and user prefix of a live Spur
+session and verify `board --version` there. Note whether `board service status` reports
+`active` as `active`. Run the new package's `board service install`: it rewrites the unit when
+it differs, starts a stopped service, and restarts an active service when the unit changed. Run
+`board service restart` only when the service was active before, install reported `changed` as
+`false`, and the daemon version changed. Run `board skills install`, then `board doctor --json`
+until no blocking check remains.
+
 ## 6. Link worker sessions to tasks
 
 The Board links a Spur session to a task by three rules, in this order:
