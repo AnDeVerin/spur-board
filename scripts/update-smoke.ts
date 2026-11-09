@@ -18,7 +18,11 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { createServer, get, type IncomingMessage, type Server } from 'node:http';
-import { createServer as createNetServer, type AddressInfo } from 'node:net';
+import {
+  createServer as createNetServer,
+  type AddressInfo,
+  type Server as NetServer,
+} from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { Readable } from 'node:stream';
@@ -176,7 +180,7 @@ function run(binary: string, args: string[], cwd?: string): void {
   }
 }
 
-async function listen(server: Server): Promise<number> {
+async function listen(server: NetServer): Promise<number> {
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject);
     server.listen(0, '127.0.0.1', resolve);
@@ -195,11 +199,7 @@ function close(server: Server): Promise<void> {
 
 async function freePort(): Promise<number> {
   const server = createNetServer();
-  await new Promise<void>((resolve, reject) => {
-    server.once('error', reject);
-    server.listen(0, '127.0.0.1', resolve);
-  });
-  const { port } = server.address() as AddressInfo;
+  const port = await listen(server);
   await new Promise<void>((resolve) => {
     server.close(() => {
       resolve();
