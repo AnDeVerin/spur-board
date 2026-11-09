@@ -39,8 +39,12 @@ export interface AdapterRunner {
 /** One failed step of a poll or a source report, for the warn log. Never carries a value. */
 export interface PollFailure {
   source: string;
-  /** `context`, `poll` and `observe` reject; `batch` is an invalid batch; `report` a state report. */
-  step: 'context' | 'poll' | 'batch' | 'observe' | 'report';
+  /**
+   * `context`, `poll` and `observe` reject; `batch` is an invalid batch or one that throws while
+   * read; `outcomes` throws while a valid batch becomes entity outcomes and a proposed state;
+   * `report` a state report.
+   */
+  step: 'context' | 'poll' | 'batch' | 'outcomes' | 'observe' | 'report';
   /** The `AdapterError` kind, or `unexpected` for any other error. */
   kind: AdapterErrorKind | 'unexpected';
   error: unknown;
@@ -180,7 +184,7 @@ function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: nu
     controller = abort;
     const startMs = now();
     let outcome: PollOutcome;
-    let step: 'context' | 'poll' | 'observe' = 'context';
+    let step: PollFailure['step'] = 'context';
     try {
       const received = await core.context(source);
       const context =
@@ -209,6 +213,7 @@ function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: nu
       );
       // Only an abort ends the poll here; a missing or malformed batch fails validation below.
       if (aborted()) return;
+      step = 'batch';
       const parsed = batchSchema.safeParse({ ...batch, observedAt: iso(startMs) });
       const invalid = !parsed.success
         ? undefined
@@ -231,6 +236,7 @@ function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: nu
         );
         outcome = { kind: 'failed', error };
       } else {
+        step = 'outcomes';
         const outcomes = applyEntityOutcomes({
           counts,
           requested,

@@ -135,6 +135,7 @@ function start(
     core?: FakeCoreOptions;
     reserveRemaining?: number;
     config?: typeof defaults;
+    now?: () => number;
   } = {},
 ): Started {
   const core = createFakeCore(options.core);
@@ -152,6 +153,7 @@ function start(
     entries: [{ adapter, reserveRemaining: options.reserveRemaining }],
     core,
     config: options.config ?? defaults,
+    ...(options.now === undefined ? {} : { now: options.now }),
     onFailure: (failure) => failures.push(failure),
   });
   runners.push(runner);
@@ -1011,6 +1013,48 @@ describe('failure log', () => {
       { source: 'github', step: 'batch', kind: 'transient', message: `Invalid batch: ${reason}` },
     ]);
     expect(failures[0]?.issues).toEqual(issues);
+  });
+
+  it('reports a batch that throws while read as a batch failure', async () => {
+    const throwing = Object.defineProperty(prNotFound(), 'items', {
+      enumerable: true,
+      get: () => {
+        throw new Error('getter failed');
+      },
+    });
+    const { failures } = start(() => Promise.resolve(throwing), {
+      core: { context: () => context({ prs: [pr] }) },
+    });
+    await flush();
+    expect(brief(failures)).toEqual([
+      { source: 'github', step: 'batch', kind: 'unexpected', message: 'getter failed' },
+    ]);
+  });
+
+  it('reports a throw after a valid batch as an outcomes failure', async () => {
+    let broken = false;
+    const { core, failures } = start(
+      () =>
+        Promise.resolve(prNotFound()).then((value) => {
+          broken = true;
+          return value;
+        }),
+      {
+        core: { context: () => context({ prs: [pr] }) },
+        now: () => {
+          if (broken) {
+            broken = false;
+            throw new Error('clock failed');
+          }
+          return Date.now();
+        },
+      },
+    );
+    await flush();
+    expect(brief(failures)).toEqual([
+      { source: 'github', step: 'outcomes', kind: 'unexpected', message: 'clock failed' },
+    ]);
+    expect(core.observed).toHaveLength(0);
   });
 
   it('reports a rejected observation and turns the source blind stale after the deadline', async () => {
