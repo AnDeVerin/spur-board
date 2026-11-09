@@ -5,6 +5,7 @@ import {
   batchSchema,
   type Adapter,
   type AdapterCore,
+  type AdapterErrorKind,
   type Config,
   type SourceState,
 } from '@spur-board/contracts';
@@ -35,12 +36,26 @@ export interface AdapterRunner {
   stop(): Promise<void>;
 }
 
+/** One failed step of a poll or a source report, for the warn log. Never carries a value. */
+export interface PollFailure {
+  source: string;
+  /** `context`, `poll` and `observe` reject; `batch` is an invalid batch; `report` a state report. */
+  step: 'context' | 'poll' | 'batch' | 'observe' | 'report';
+  /** The `AdapterError` kind, or `unexpected` for any other error. */
+  kind: AdapterErrorKind | 'unexpected';
+  error: unknown;
+  /** The zod issues of a batch that failed `batchSchema`: path, code and message. */
+  issues?: { path: string; code: string; message: string }[] | undefined;
+}
+
 export interface RunnerOptions {
   entries: readonly RunnerEntry[];
   core: AdapterCore;
   config: Pick<Config, 'sources' | 'thresholds'>;
   now?: () => number;
   oneShot?: boolean;
+  /** Called for every failed poll step and rejected report; an abort is not one. Must not throw. */
+  onFailure?: ((failure: PollFailure) => void) | undefined;
 }
 
 export function startRunner(options: RunnerOptions): AdapterRunner {
@@ -73,6 +88,11 @@ function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: nu
     reason: 'stale',
     message: `No complete observation in ${String(staleMultiplier)} poll intervals`,
   };
+
+  function fail(step: PollFailure['step'], error: unknown, issues?: PollFailure['issues']) {
+    const kind = error instanceof AdapterError ? error.kind : 'unexpected';
+    options.onFailure?.({ source, step, kind, error, ...(issues === undefined ? {} : { issues }) });
+  }
 
   let stopping = false;
   let failures = 0;
@@ -110,8 +130,9 @@ function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: nu
       try {
         await core.reportSourceState(source, next);
         lastReported = json;
-      } catch {
+      } catch (error) {
         // Not accepted: the next outcome reports again.
+        fail('report', error);
       }
     });
     return reports;
@@ -159,6 +180,7 @@ function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: nu
     controller = abort;
     const startMs = now();
     let outcome: PollOutcome;
+    let step: 'context' | 'poll' | 'observe' = 'context';
     try {
       const received = await core.context(source);
       const context =
@@ -180,6 +202,7 @@ function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: nu
         hydrated = true;
       }
       const requested: GoneRef[] = [...context.observe.prs, ...context.observe.tickets];
+      step = 'poll';
       const batch = await untilAborted(
         adapter.poll({ ...context, signal: abort.signal }),
         abort.signal,
@@ -187,12 +210,26 @@ function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: nu
       // Only an abort ends the poll here; a missing or malformed batch fails validation below.
       if (aborted()) return;
       const parsed = batchSchema.safeParse({ ...batch, observedAt: iso(startMs) });
-      if (
-        !parsed.success ||
-        parsed.data.source !== source ||
-        !answersRequest(context.observe, parsed.data.entities)
-      ) {
-        outcome = { kind: 'failed', error: new AdapterError('transient', 'Invalid batch') };
+      const invalid = !parsed.success
+        ? undefined
+        : parsed.data.source !== source
+          ? 'names another source'
+          : !answersRequest(context.observe, parsed.data.entities)
+            ? 'does not answer the request'
+            : undefined;
+      if (!parsed.success || invalid !== undefined) {
+        const reason = invalid ?? 'fails the batch schema';
+        const error = new AdapterError('transient', `Invalid batch: ${reason}`);
+        fail(
+          'batch',
+          error,
+          parsed.error?.issues.map((issue) => ({
+            path: issue.path.map(String).join('.'),
+            code: issue.code,
+            message: issue.message,
+          })),
+        );
+        outcome = { kind: 'failed', error };
       } else {
         const outcomes = applyEntityOutcomes({
           counts,
@@ -229,12 +266,14 @@ function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: nu
           () => undefined,
           () => undefined,
         );
+        step = 'observe';
         await accepted;
         if (aborted()) return;
         outcome = { kind: 'delivered', budget: parsed.data.budget };
       }
     } catch (error) {
       if (aborted()) return;
+      fail(step, error);
       if (error instanceof AdapterError && (error.kind === 'auth' || error.kind === 'config')) {
         errorBlind = { reason: error.kind, message: error.message };
       }

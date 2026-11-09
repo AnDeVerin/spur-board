@@ -50,13 +50,16 @@ it('observes a batch, ticks every 60 seconds, and stops pollers before an active
       throw new Error(text);
     },
   };
+  const lines: string[] = [];
   const out = new Writable({
-    write(_chunk, _encoding, callback) {
+    write(chunk: Buffer, _encoding, callback) {
+      lines.push(chunk.toString());
       callback();
     },
   });
   let observed: Promise<void> = Promise.resolve();
   let onNotice: StartAdaptersOptions['onSpurNotice'];
+  let onPollFailure: StartAdaptersOptions['onPollFailure'];
   let releaseTick: () => void = () => undefined;
   let ticks = 0;
   await runDaemon<Store>({
@@ -72,6 +75,7 @@ it('observes a batch, ticks every 60 seconds, and stops pollers before an active
       createBoardModules(ctxFor, {
         startAdapters: (_config, core, options) => {
           onNotice = options?.onSpurNotice;
+          onPollFailure = options?.onPollFailure;
           observed = core.observe(source, {
             batch: {
               source,
@@ -133,6 +137,28 @@ it('observes a batch, ticks every 60 seconds, and stops pollers before an active
       .where('kind', '=', 'spur_unknown_state')
       .execute(),
   ).toHaveLength(1);
+  onPollFailure?.({
+    source: 'spur',
+    step: 'batch',
+    kind: 'transient',
+    error: new Error('Invalid batch: fails the batch schema'),
+    issues: [{ path: 'items.0.facts.branch', code: 'too_small', message: 'Too small' }],
+  });
+  const failures = lines
+    .flatMap((line) => line.split('\n'))
+    .filter((line) => line.includes('adapter poll failed'))
+    .map((line) => JSON.parse(line) as Record<string, unknown>);
+  expect(failures).toMatchObject([
+    {
+      level: 40,
+      module: 'board-adapters',
+      source: 'spur',
+      step: 'batch',
+      kind: 'transient',
+      err: { message: 'Invalid batch: fails the batch schema' },
+      issues: [{ path: 'items.0.facts.branch', code: 'too_small', message: 'Too small' }],
+    },
+  ]);
   await vi.advanceTimersByTimeAsync(0);
   expect(await store.db.selectFrom('task').select('key').execute()).toEqual([{ key: 'o/r#9' }]);
   expect(ticks).toBe(1);

@@ -85,6 +85,12 @@ export function createBoardModules(
             warn: (message) => {
               adapterCtx.log.warn({ message }, 'adapter warning');
             },
+            onPollFailure: ({ source, step, kind, error, issues }) => {
+              adapterCtx.log.warn(
+                { source, step, kind, err: error, ...(issues === undefined ? {} : { issues }) },
+                'adapter poll failed',
+              );
+            },
             onSpurNotice: async (notice) => {
               if (notice.kind === 'restart') adapterCtx.log.info('spur restarted');
               else await core.notice(notice.kind, notice.value);

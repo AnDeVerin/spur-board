@@ -13,7 +13,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as entry from '../../src/index.ts';
 import { classifyHttpFailure } from '../../src/runner/http.ts';
-import { type AdapterRunner, startRunner } from '../../src/runner/runner.ts';
+import { type AdapterRunner, type PollFailure, startRunner } from '../../src/runner/runner.ts';
 import {
   createFakeAdapter,
   createFakeCore,
@@ -125,6 +125,8 @@ interface Started {
   starts: number[];
   /** The last reported state. */
   last: () => SourceState | undefined;
+  /** Every failure the runner reported, in order. */
+  failures: PollFailure[];
 }
 
 function start(
@@ -137,6 +139,7 @@ function start(
 ): Started {
   const core = createFakeCore(options.core);
   const starts: number[] = [];
+  const failures: PollFailure[] = [];
   const adapter = createFakeAdapter({
     id: 'github',
     intervalMs: I,
@@ -149,9 +152,10 @@ function start(
     entries: [{ adapter, reserveRemaining: options.reserveRemaining }],
     core,
     config: options.config ?? defaults,
+    onFailure: (failure) => failures.push(failure),
   });
   runners.push(runner);
-  return { core, adapter, runner, starts, last: () => core.states.at(-1)?.state };
+  return { core, adapter, runner, starts, last: () => core.states.at(-1)?.state, failures };
 }
 
 function gaps(starts: readonly number[]): number[] {
@@ -958,5 +962,112 @@ describe('stop', () => {
     const reported = core.states.length;
     await vi.advanceTimersByTimeAsync(10 * I);
     expect(core.states).toHaveLength(reported);
+  });
+});
+
+describe('failure log', () => {
+  const stale = { reason: 'stale', message: 'No complete observation in 3 poll intervals' };
+  const brief = (failures: PollFailure[]) =>
+    failures.map(({ source, step, kind, error }) => ({
+      source,
+      step,
+      kind,
+      message: error instanceof Error ? error.message : String(error),
+    }));
+
+  it('reports a rejected context and a rejected poll with their kind', async () => {
+    random(0);
+    let contexts = 0;
+    const { failures } = start(() => Promise.reject(new AdapterError('throttled', 'slow down')), {
+      core: {
+        context: () => {
+          contexts += 1;
+          if (contexts === 1) throw new Error('store busy');
+          return context();
+        },
+      },
+    });
+    await advanceTo(2 * I);
+    expect(brief(failures)).toEqual([
+      { source: 'github', step: 'context', kind: 'unexpected', message: 'store busy' },
+      { source: 'github', step: 'poll', kind: 'throttled', message: 'slow down' },
+    ]);
+  });
+
+  it.each([
+    [
+      'fails the batch schema',
+      () => batch({ entities: [{ ref: pr, status: 'ok' }] }),
+      [{ path: 'entities.0.status', code: 'custom', message: 'An ok entity needs its item' }],
+    ],
+    ['names another source', () => prNotFound({ source: 'jira' }), undefined],
+    ['does not answer the request', () => batch(), undefined],
+  ])('reports an invalid batch that %s', async (reason, invalid, issues) => {
+    const { failures } = start(() => Promise.resolve(invalid()), {
+      core: { context: () => context({ prs: [pr] }) },
+    });
+    await flush();
+    expect(brief(failures)).toEqual([
+      { source: 'github', step: 'batch', kind: 'transient', message: `Invalid batch: ${reason}` },
+    ]);
+    expect(failures[0]?.issues).toEqual(issues);
+  });
+
+  it('reports a rejected observation and turns the source blind stale after the deadline', async () => {
+    random(0);
+    const { core, failures, last } = start(() => Promise.resolve(batch()), {
+      core: {
+        observe: () => {
+          throw new Error('Gateway secret scan replay limit exceeded');
+        },
+      },
+    });
+    await advanceTo(3 * I);
+    expect(core.observed.length).toBeGreaterThan(1);
+    expect(new Set(brief(failures).map((failure) => JSON.stringify(failure)))).toEqual(
+      new Set([
+        JSON.stringify({
+          source: 'github',
+          step: 'observe',
+          kind: 'unexpected',
+          message: 'Gateway secret scan replay limit exceeded',
+        }),
+      ]),
+    );
+    expect(last()).toEqual({ gone: [] });
+    await advanceTo(3 * I + 1);
+    expect(last()).toEqual({ blind: stale, gone: [] });
+  });
+
+  it('reports a rejected source report and reports the stale blind source after the deadline', async () => {
+    random(0);
+    let calls = 0;
+    const { core, failures } = start(() => Promise.reject(new Error('down')), {
+      core: {
+        reportSourceState: () => {
+          calls += 1;
+          if (calls <= 2) throw new Error('report rejected');
+        },
+      },
+    });
+    await advanceTo(3 * I);
+    expect(brief(failures).filter((failure) => failure.step === 'report')).toEqual([
+      { source: 'github', step: 'report', kind: 'unexpected', message: 'report rejected' },
+      { source: 'github', step: 'report', kind: 'unexpected', message: 'report rejected' },
+    ]);
+    await advanceTo(3 * I + 1);
+    expect(core.reports.map((call) => call.state)).toEqual([
+      { gone: [] },
+      { gone: [] },
+      { blind: stale, gone: [] },
+    ]);
+    expect(failures.filter((failure) => failure.step === 'report')).toHaveLength(2);
+  });
+
+  it('reports nothing for a poll stopped by an abort', async () => {
+    const { runner, failures } = start((ctx) => hang(ctx));
+    await flush();
+    await runner.stop();
+    expect(failures).toEqual([]);
   });
 });

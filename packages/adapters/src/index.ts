@@ -3,11 +3,11 @@ import { AdapterError, type Adapter, type AdapterCore, type Config } from '@spur
 import { githubSources } from './github/index.ts';
 import { createGithubIssuesAdapter } from './github/issues.ts';
 import { createJiraAdapter } from './jira/jira.ts';
-import { startRunner, type AdapterRunner } from './runner/runner.ts';
+import { startRunner, type AdapterRunner, type PollFailure } from './runner/runner.ts';
 import { createSpurAdapter, type SpurNotice } from './spur/spur.ts';
 
 export type { AdapterCore, SourceState } from '@spur-board/contracts';
-export type { AdapterRunner } from './runner/runner.ts';
+export type { AdapterRunner, PollFailure } from './runner/runner.ts';
 export { sampleLinkRules } from './github/linkSample.ts';
 
 export interface StartAdaptersOptions {
@@ -15,6 +15,8 @@ export interface StartAdaptersOptions {
   fetch?: typeof fetch;
   now?: () => number;
   warn?: (message: string) => void;
+  /** Every failed poll step and rejected source report. */
+  onPollFailure?: (failure: PollFailure) => void;
   onSpurNotice?: (notice: SpurNotice) => void | Promise<void>;
   oneShot?: boolean;
   jiraSearchMethod?: 'GET';
@@ -120,6 +122,7 @@ export function startAdapters(
     config,
     ...(options.now === undefined ? {} : { now: options.now }),
     ...(options.oneShot === undefined ? {} : { oneShot: options.oneShot }),
+    onFailure: options.onPollFailure,
   });
   return {
     firstAttempts: runner.firstAttempts,
