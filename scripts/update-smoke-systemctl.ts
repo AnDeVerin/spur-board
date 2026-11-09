@@ -66,6 +66,25 @@ export function parseUnit(text: string): ParsedUnit {
   return { command, environment };
 }
 
+/**
+ * The `ExecStart`, `Environment` and `EnvironmentFiles` lines `systemctl show` prints for the
+ * unit, in the format of systemd 249; an entry with a space, quote or backslash is quoted.
+ */
+export function showProperties(text: string): string {
+  const unit = parseUnit(text);
+  const quote = (entry: string) =>
+    /[\s"\\]/.test(entry) ? `"${entry.replace(/["\\]/g, '\\$&')}"` : entry;
+  const environment = Object.entries(unit.environment).map(([name, value]) =>
+    quote(`${name}=${value}`),
+  );
+  return [
+    `ExecStart={ path=${unit.command[0] ?? ''} ; argv[]=${unit.command.join(' ')} ; ignore_errors=no ; start_time=[n/a] ; stop_time=[n/a] ; pid=0 ; code=(null) ; status=0/0 }`,
+    `Environment=${environment.join(' ')}`,
+    'EnvironmentFiles=',
+    '',
+  ].join('\n');
+}
+
 interface Recorded {
   pid: number;
   entry: string;
@@ -198,6 +217,9 @@ async function main(args: readonly string[]): Promise<number> {
   const now = args.includes('--now');
   switch (verb) {
     case 'daemon-reload':
+      return 0;
+    case 'show':
+      process.stdout.write(showProperties(readFileSync(setting('UPDATE_SMOKE_UNIT'), 'utf8')));
       return 0;
     case 'is-enabled':
       process.stdout.write('enabled\n');

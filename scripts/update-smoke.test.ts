@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { parseUnit } from './update-smoke-systemctl.ts';
+import { parseUnit, showProperties } from './update-smoke-systemctl.ts';
 import {
   buildPackument,
   execStartLine,
@@ -105,6 +105,15 @@ describe('update smoke unit parsing', () => {
     expect(execStartLine(unit)).toBe(
       'ExecStart="/opt/node 24/bin/node" "/p/lib/node_modules/spur-board/dist/daemon.mjs"',
     );
+  });
+
+  it('answers show with the unit settings as systemd prints them', () => {
+    expect(showProperties(unit).split('\n')).toEqual([
+      'ExecStart={ path=/opt/node 24/bin/node ; argv[]=/opt/node 24/bin/node /p/lib/node_modules/spur-board/dist/daemon.mjs ; ignore_errors=no ; start_time=[n/a] ; stop_time=[n/a] ; pid=0 ; code=(null) ; status=0/0 }',
+      'Environment="BOARD_HOME=/tmp/a \\"b\\" 100%" XDG_DATA_HOME=/tmp/data',
+      'EnvironmentFiles=',
+      '',
+    ]);
   });
 
   it('rejects a unit without ExecStart or with unquoted arguments', () => {
