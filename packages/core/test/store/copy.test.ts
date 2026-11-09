@@ -111,6 +111,46 @@ describe('copyDatabase', () => {
     expect(read(target).rows).toEqual(['source']);
   });
 
+  it('C3: leaves no aside copy of the replaced target after a copy', () => {
+    const dir = tempDir();
+    const source = join(dir, 'board.sqlite');
+    walDatabase(source, ['source']);
+    const other = join(dir, 'other.sqlite');
+    walDatabase(other, ['old']);
+    const target = join(dir, 'copy.sqlite');
+    cpSync(other, target);
+    cpSync(`${other}-wal`, `${target}-wal`);
+
+    copyDatabase(source, target);
+
+    expect(readdirSync(dir).filter((name) => name.includes('.replaced-'))).toEqual([]);
+    expect(read(target).rows).toEqual(['source']);
+  });
+
+  it('C3: a failed swap puts the target and its -wal back as a pair, rows included', () => {
+    const dir = tempDir();
+    const source = join(dir, 'board.sqlite');
+    walDatabase(source, ['source']);
+    const other = join(dir, 'other.sqlite');
+    walDatabase(other, ['committed-in-wal']);
+    // 207 bytes: `<name>.replaced-<uuid>` (253) still fits NAME_MAX 255, its `-wal` (257) does
+    // not, so the target moves aside and the move of its `-wal` fails.
+    const target = join(dir, 't'.repeat(207));
+    cpSync(other, target);
+    cpSync(`${other}-wal`, `${target}-wal`);
+    const before = { main: readFileSync(target), wal: readFileSync(`${target}-wal`) };
+
+    expect(() => {
+      copyDatabase(source, target);
+    }).toThrow(/ENAMETOOLONG/);
+
+    expect(readFileSync(target)).toEqual(before.main);
+    expect(readFileSync(`${target}-wal`)).toEqual(before.wal);
+    expect(readdirSync(dir).filter((name) => name.includes('.replaced-'))).toEqual([]);
+    expect(partials(dir)).toEqual([]);
+    expect(read(target).rows).toEqual(['committed-in-wal']);
+  });
+
   it('C4: refuses a missing source and leaves the target as it was', () => {
     const dir = tempDir();
     const target = join(dir, 'copy.sqlite');
