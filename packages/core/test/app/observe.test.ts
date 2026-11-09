@@ -1337,13 +1337,22 @@ describe('a clock that moves during the transaction', () => {
     ).toEqual({ last_complete_at: at });
   });
 
-  it('records a stale blind source again after a report cleared its item', async () => {
+  it('records a stale blind source again and opens its item with a new line after a report cleared it', async () => {
     const { store, core } = movingSetup();
     await core.reportSourceState('spur', { blind, gone: [] });
+    const first = (await blindItem(store)).line_outbox_id;
     await core.reportSourceState('spur', { lastCompleteAt: at, gone: [] });
     await core.reportSourceState('spur', { blind, gone: [] });
     expect(
       await store.db.selectFrom('source_state').select('blind_reason').executeTakeFirst(),
     ).toEqual({ blind_reason: 'stale' });
+    const open = await store.db
+      .selectFrom('operator_item')
+      .select('line_outbox_id')
+      .where('item_key', '=', 'source:spur')
+      .where('cleared_at', 'is', null)
+      .executeTakeFirstOrThrow();
+    expect(open.line_outbox_id).not.toBeNull();
+    expect(open.line_outbox_id).not.toBe(first);
   });
 });
