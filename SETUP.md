@@ -179,7 +179,8 @@ The Board links a Spur session to a task by three rules, in this order:
 1. Explicit label: the session's Spur link `board-worker` (as worker) or `board-other` (as other)
    points at the task, as `<Jira base>/browse/KEY-12` or
    `https://github.com/<owner>/<repo>/issues/12`.
-2. Pull request: the session's `pr` link is a PR linked to the task.
+2. Pull request: the session's `pr` link is a PR linked to the task. A session off that PR's head
+   branch goes to the branch rule first and otherwise links only as other.
 3. Branch: the session's branch contains the task key or equals the head branch of a PR linked
    to the task.
 
@@ -205,9 +206,10 @@ sessions. If a session is not linked, the operator can run `board link` as
 `board link <task> --session <session> --reason <value> --key <key>`; the session becomes worker
 when the task has none, otherwise other.
 
-A session of a `role: worker` Spur project whose `pr` link is a PR it only reviews links to that
-PR's task by the pull request rule, as worker when the task has none. A review session that
-sets `board-other` to the task's URL before its `pr` link appears links as other instead. A later
+A session of a `role: worker` Spur project whose `pr` link is a PR it only reviews, on a branch
+other than the PR's head, links to that PR's task by the pull request rule as other, even when the
+task has no worker. A review session checked out on the PR's head branch links as worker when the
+task has none, unless it sets `board-other` to the task's URL before its `pr` link appears. A later
 label changes nothing, because a link keeps its first role; the operator then removes the link
 with `board unlink <task> --session <session> --reason <value> --key <key>`. No automatic rule
 links it to that task again; `board link` restores it with its original role.

@@ -627,11 +627,19 @@ async function session(
     role = label === 'board-worker' ? 'worker' : 'other';
     if (key !== undefined) break;
   }
+  // A pr field names the worker only from the PR's head branch; otherwise the branch rules run
+  // first and the PR's task is the fallback, linked as other.
+  let prOnlyKey: string | undefined;
   if (key === undefined && fact.pr !== null) {
     const linked = await trx
       .selectFrom('link')
       .innerJoin('task', 'task.id', 'link.task_id')
-      .select(['task.key', 'task.project'])
+      .leftJoin('pr_snapshot', (join) =>
+        join
+          .on(sql<boolean>`lower(pr_snapshot.repo) = lower(link.repo)`)
+          .onRef('pr_snapshot.number', '=', 'link.number'),
+      )
+      .select(['task.key', 'task.project', 'pr_snapshot.head_branch'])
       .where('link.entity', '=', 'pr')
       .where(sql<boolean>`lower(link.repo) = ${fact.pr.repo.toLowerCase()}`)
       .where('link.number', '=', fact.pr.number)
@@ -639,9 +647,12 @@ async function session(
       .executeTakeFirst();
     const project = config.projects.find((entry) => entry.id === linked?.project);
     if (
+      linked !== undefined &&
       project?.spurProjects.some((spur) => spur.name === fact.spurProject && spur.role === 'worker')
-    )
-      key = linked?.key;
+    ) {
+      if (fact.branch !== null && linked.head_branch === fact.branch) key = linked.key;
+      else prOnlyKey = linked.key;
+    }
   }
   if (key === undefined && fact.branch !== null) {
     const tasks = await trx
@@ -687,6 +698,11 @@ async function session(
       if (!ambiguousBranches.has(fact.branch) || worker !== undefined) key = candidate?.key;
     }
   }
+  const fromLabel = role !== undefined;
+  if (key === undefined && prOnlyKey !== undefined) {
+    key = prOnlyKey;
+    role = 'other';
+  }
   if (key !== undefined && projectForKey(config, key) !== null) {
     const task = await trx.selectFrom('task').selectAll().where('key', '=', key).executeTakeFirst();
     if (task !== undefined) {
@@ -717,7 +733,7 @@ async function session(
             pr_state: null,
             session_id: fact.id,
             role: chosenRole,
-            source: role === undefined ? 'branch' : 'spawn_link',
+            source: fromLabel ? 'spawn_link' : 'branch',
             banned: 0,
             created_at: at,
             ticket_key: null,
@@ -728,7 +744,7 @@ async function session(
           entity: 'session',
           session: fact.id,
           role: chosenRole,
-          source: role === undefined ? 'branch' : 'spawn_link',
+          source: fromLabel ? 'spawn_link' : 'branch',
           facts: fact,
         });
       }

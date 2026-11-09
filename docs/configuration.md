@@ -94,15 +94,15 @@ The JSON Schema cannot express every cross-field rule. Run `board doctor --offli
 
 ## Session links
 
-The Board links a Spur session to a task by three rules, tried in this order on every Spur poll. The first rule that names a task wins.
+The Board links a Spur session to a task by three rules, tried in this order on every Spur poll. The first rule that names a task wins, except that a pull request match off the PR's head branch waits for the branch rule.
 
 1. Explicit label. The session's Spur link `board-worker` is read first, then `board-other`; the first whose URL parses names the task. `board-worker` links the session as worker, `board-other` as other. The URL is `<Jira base>/browse/KEY-12` for a Jira task or `https://github.com/<owner>/<repo>/issues/12` for a GitHub Issues task, with owner and repo spelled letter for letter as in `tracker.repo`, and with no trailing slash, query or fragment. A label that parses but names a task the Board does not track links nothing and turns off the next two rules for that session.
-2. Pull request. The session's `pr` link is a PR linked to the task, and the session's Spur project is listed in that project's `spurProjects` with `role: worker`.
+2. Pull request. The session's `pr` link is a PR linked to the task, and the session's Spur project is listed in that project's `spurProjects` with `role: worker`. When the session's branch equals that PR's head branch, this rule names the task. When it differs, or the Board has no head branch for the PR yet, the branch rule runs first; only if it names no task does the session link to the PR's task, always as other.
 3. Branch. The session's Spur project is listed with `role: worker`, and its branch contains the task key in any letter case, not after a letter or digit and not before a digit (`WEBDEV-56` is not found in `XWEBDEV-56` or `WEBDEV-5698`), or equals the head branch of a PR linked to the task. Exactly one task must match. Sessions that share a branch in one poll stay unlinked unless the task already has a worker.
 
 Scope: a `board-worker` or `board-other` label links a session from any Spur project. The pull request and branch rules need the session's Spur project listed in that project's `spurProjects` with `role: worker`. A worker still needs its Spur project in `spurProjects`, with any role, to call `board task`, `board ask` and `board comment`.
 
-Roles: a session links to a task once, and that link keeps its first role. A session linked by the pull request or branch rule becomes worker when the task has no worker, otherwise other. After `board unlink` removes a session, no automatic rule links it to that task again; `board link` restores it with its original role.
+Roles: a session links to a task once, and that link keeps its first role. A session linked by the branch rule, or by the pull request rule on the PR's head branch, becomes worker when the task has no worker, otherwise other. A session linked by the pull request rule off the PR's head branch is always other. After `board unlink` removes a session, no automatic rule links it to that task again; `board link` restores it with its original role.
 
 For a GitHub Issues task, a PR in `tracker.repo` links to its issue through `link.sources`, and PR discovery keeps only PRs whose author is `operatorGithubLogin`. Until that PR is linked, a session with an ordinary branch name links only through an explicit label.
 
@@ -110,7 +110,7 @@ Setting the label: `spur spawn` cannot set links. Set it on the new session with
 
 Operator fallback: `board link <task> --session <session> --reason <value> --key <key>` links the session as worker when the task has none, otherwise as other.
 
-Reviewers: a session of a `role: worker` Spur project whose `pr` link is a PR it only reviews links to that PR's task by the pull request rule, as worker when the task has none. A review session that sets `board-other` to the task's URL before its `pr` link appears links as other instead. A later label changes nothing, because a link keeps its first role; the operator then removes the link with `board unlink <task> --session <session> --reason <value> --key <key>`. No automatic rule links it to that task again; `board link` restores it with its original role.
+Reviewers: a session of a `role: worker` Spur project whose `pr` link is a PR it only reviews, on a branch other than the PR's head, links to that PR's task by the pull request rule as other, even when the task has no worker. A review session checked out on the PR's head branch links as worker when the task has none, unless it sets `board-other` to the task's URL before its `pr` link appears. A later label changes nothing, because a link keeps its first role; the operator then removes the link with `board unlink <task> --session <session> --reason <value> --key <key>`. No automatic rule links it to that task again; `board link` restores it with its original role.
 
 ## secrets.env keys
 
