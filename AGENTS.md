@@ -67,6 +67,8 @@ A map of the repo for agents and contributors. The rules live in the files and s
   - run Slack gateway conformance from an interactive terminal after checking private channel
     metadata; use before M1 acceptance, after Slack SDK updates and before releases.
 - `pnpm upgrade:smoke [tarball]` - test migration from the previous published version when present.
+- `pnpm update:smoke [tarball]` - run `board update` and `board rollback` on a global install
+  through a loopback registry and a fake `systemctl`; needs npm, `flock` and the npm registry.
 - `pnpm gen:config-schema`, `pnpm gen:ops-snapshot` - regenerate the config JSON schema and the
   operation catalog snapshot.
 - A check passes only when its exit code, read directly, is 0. Never read it through a pipe:
