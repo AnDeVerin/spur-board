@@ -127,29 +127,84 @@ describe('copyDatabase', () => {
     expect(read(target).rows).toEqual(['source']);
   });
 
-  it('C3: a failed swap puts the target and its -wal back as a pair, rows included', () => {
+  it('C3: a failed link leaves the target with its committed rows and no leftovers', () => {
     const dir = tempDir();
     const source = join(dir, 'board.sqlite');
     walDatabase(source, ['source']);
     const other = join(dir, 'other.sqlite');
     walDatabase(other, ['committed-in-wal']);
-    // 207 bytes: `<name>.replaced-<uuid>` (253) still fits NAME_MAX 255, its `-wal` (257) does
-    // not, so the target moves aside and the move of its `-wal` fails.
-    const target = join(dir, 't'.repeat(207));
+    // 220 bytes: `.partial` (228) and `-wal` still fit NAME_MAX 255, `<name>.replaced-<uuid>`
+    // (266) does not, so the hard link of the checkpointed target fails.
+    const target = join(dir, 't'.repeat(220));
     cpSync(other, target);
     cpSync(`${other}-wal`, `${target}-wal`);
-    const before = { main: readFileSync(target), wal: readFileSync(`${target}-wal`) };
 
     expect(() => {
       copyDatabase(source, target);
     }).toThrow(/ENAMETOOLONG/);
 
-    expect(readFileSync(target)).toEqual(before.main);
-    expect(readFileSync(`${target}-wal`)).toEqual(before.wal);
+    expect(existsSync(`${target}-wal`)).toBe(false);
     expect(readdirSync(dir).filter((name) => name.includes('.replaced-'))).toEqual([]);
     expect(partials(dir)).toEqual([]);
     expect(read(target).rows).toEqual(['committed-in-wal']);
   });
+
+  it('C7: a kill after any step leaves a complete database at the target path', () => {
+    const dir = tempDir();
+    const source = join(dir, 'board.sqlite');
+    walDatabase(source, ['new']);
+    const other = join(dir, 'other.sqlite');
+    walDatabase(other, ['committed-in-wal']);
+    const target = join(dir, 'copy.sqlite');
+    cpSync(other, target);
+    cpSync(`${other}-wal`, `${target}-wal`);
+    const seen: { step: string; rows: string[] | 'missing' }[] = [];
+
+    copyDatabase(source, target, (step) => {
+      // What a kill now leaves: the files at the target path, opened as SQLite would.
+      const crashed = join(tempDir(), 'copy.sqlite');
+      for (const suffix of ['', '-wal', '-shm']) {
+        if (existsSync(`${target}${suffix}`)) cpSync(`${target}${suffix}`, `${crashed}${suffix}`);
+      }
+      seen.push({ step, rows: existsSync(crashed) ? read(crashed).rows : 'missing' });
+    });
+
+    for (const { step, rows } of seen) {
+      expect(rows, step).toEqual(step === 'rename' ? ['new'] : ['committed-in-wal']);
+    }
+    expect(seen.map(({ step }) => step)).toEqual([
+      'partial',
+      'checkpoint',
+      'link',
+      'journal',
+      'rename',
+    ]);
+    expect(readdirSync(dir).filter((name) => name.includes('.replaced-'))).toEqual([]);
+  });
+
+  it.each(['partial', 'checkpoint', 'link', 'journal'])(
+    'C7: a failure after step %s leaves the target, rows included, and no leftovers',
+    (failAt) => {
+      const dir = tempDir();
+      const source = join(dir, 'board.sqlite');
+      walDatabase(source, ['new']);
+      const other = join(dir, 'other.sqlite');
+      walDatabase(other, ['committed-in-wal']);
+      const target = join(dir, 'copy.sqlite');
+      cpSync(other, target);
+      cpSync(`${other}-wal`, `${target}-wal`);
+
+      expect(() => {
+        copyDatabase(source, target, (step) => {
+          if (step === failAt) throw new Error(`injected at ${step}`);
+        });
+      }).toThrow(`injected at ${failAt}`);
+
+      expect(read(target).rows).toEqual(['committed-in-wal']);
+      expect(readdirSync(dir).filter((name) => name.includes('.replaced-'))).toEqual([]);
+      expect(partials(dir)).toEqual([]);
+    },
+  );
 
   it('C4: refuses a missing source and leaves the target as it was', () => {
     const dir = tempDir();
