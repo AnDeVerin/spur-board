@@ -906,14 +906,19 @@ async function update(
       `Update to ${to} stopped at ${failure.step}: ${failure.message}. The package and database were not changed.${restart}`,
     );
   }
-  // The state now points at this update's snapshot and backup: drop the previous ones.
-  for (const name of readdirSync(updater.updateDir)) {
-    if (name.startsWith('package-') && join(updater.updateDir, name) !== snapshot) {
-      removeQuietly(join(updater.updateDir, name));
+  // The state now points at this update's snapshot and backup: drop the previous ones. Best
+  // effort, since the daemon is stopped and nothing here may escape the recovery below.
+  try {
+    for (const name of readdirSync(updater.updateDir)) {
+      if (name.startsWith('package-') && join(updater.updateDir, name) !== snapshot) {
+        removeQuietly(join(updater.updateDir, name));
+      }
     }
-  }
-  for (const name of readdirSync(backupDir)) {
-    if (join(backupDir, name) !== backup) removeQuietly(join(backupDir, name));
+    for (const name of readdirSync(backupDir)) {
+      if (join(backupDir, name) !== backup) removeQuietly(join(backupDir, name));
+    }
+  } catch (error) {
+    updater.progress(`cleanup skipped (${detailOf(error)})`);
   }
 
   // Rollback phase: from the install on, a failure puts the snapshot back.

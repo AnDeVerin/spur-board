@@ -1064,6 +1064,22 @@ describe('board update', () => {
     expect(readdirSync(s.updateDir).sort()).toEqual(['db', 'package-1.1.0', 'state.json']);
     expect(readdirSync(join(s.updateDir, 'db'))).toEqual(['board-1.1.0.sqlite']);
   });
+
+  it('U9: an update dir that cannot be listed skips the cleanup and still updates', async () => {
+    const s = await stand();
+    mkdirSync(s.updateDir, { recursive: true });
+    // Write and search only: known names open, but readdir fails with EACCES.
+    chmodSync(s.updateDir, 0o300);
+    cleanups.push(() => {
+      chmodSync(s.updateDir, 0o700);
+    });
+    const result = await s.run(['--json', 'update']);
+
+    expect(result.exit, result.stderr).toBe(0);
+    expect(result.stderr).toContain('update: cleanup skipped');
+    expect(s.state()).toMatchObject({ status: 'succeeded', from: '1.0.0', to: '1.1.0' });
+    expect(s.labels()).toContain('skills install');
+  });
 });
 
 describe('board rollback', () => {
