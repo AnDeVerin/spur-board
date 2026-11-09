@@ -136,9 +136,9 @@ function showOutput(paths: ServicePaths, mainPid = '4242'): string {
   ].join('\n');
 }
 
-/** A `/proc/<pid>/status` text for a process whose real uid is `uid`. */
-function statusText(uid: number): string {
-  return `Name:\tnode\nUmask:\t0077\nState:\tS (sleeping)\nPid:\t4242\nUid:\t${String(uid)}\t${String(uid)}\t${String(uid)}\t${String(uid)}\nGid:\t100\t100\t100\t100\n`;
+/** A `/proc/<pid>/status` text for a process with real uid `uid` and effective uid `euid`. */
+function statusText(uid: number, euid = uid): string {
+  return `Name:\tnode\nUmask:\t0077\nState:\tS (sleeping)\nPid:\t4242\nUid:\t${String(uid)}\t${String(euid)}\t${String(euid)}\t${String(euid)}\nGid:\t100\t100\t100\t100\n`;
 }
 
 /** A `/proc/<pid>/environ` text: NUL-separated entries. */
@@ -752,7 +752,16 @@ describe('board update', () => {
       (s) => {
         s.behaviour.status = () => statusText((process.getuid?.() ?? 0) + 1);
       },
-      `runs as uid ${String((process.getuid?.() ?? 0) + 1)} but this shell runs as uid ${String(process.getuid?.() ?? 0)}`,
+      `runs as uid ${String((process.getuid?.() ?? 0) + 1)} with effective uid ${String((process.getuid?.() ?? 0) + 1)} but this shell runs as uid ${String(process.getuid?.() ?? 0)}`,
+    ],
+    [
+      'a main process of this real uid that runs as another effective uid',
+      4,
+      (s) => {
+        s.behaviour.status = () =>
+          statusText(process.getuid?.() ?? 0, (process.geteuid?.() ?? 0) + 1);
+      },
+      `effective uid ${String((process.geteuid?.() ?? 0) + 1)} but this shell runs as uid ${String(process.getuid?.() ?? 0)} with effective uid ${String(process.geteuid?.() ?? 0)}`,
     ],
     [
       'a main process whose status cannot be read',

@@ -304,7 +304,7 @@ function entries(text: string, separator: string): Map<string, string> {
 
 /**
  * Checks the daemon the service runs, drop-ins, `EnvironmentFile` and `UnsetEnvironment`
- * included: the `argv[]` of the loaded `ExecStart`, the real uid of its main process, then the
+ * included: the `argv[]` of the loaded `ExecStart`, the real and effective uids of its main process, then the
  * config file and data directory that process resolves from its own environment, home and
  * working directory, compared with this shell's.
  */
@@ -345,16 +345,18 @@ async function checkRunningService(updater: Updater, argv: string): Promise<void
     }
   };
   // Root's user manager can run the unit as another user; this shell's passwd home and paths
-  // say nothing about that user's database.
-  const uid = read('status', () => {
-    const field = /^Uid:\s+(\d+)/m.exec(ports.readStatus(pid))?.[1];
-    if (field === undefined) throw new Error('it has no Uid line');
-    return Number(field);
+  // say nothing about that user's database. Without HOME, Node looks up the passwd home of the
+  // effective uid, so the effective uids must match as well as the real ones.
+  const [uid, euid] = read('status', () => {
+    const fields = /^Uid:\s+(\d+)\s+(\d+)/m.exec(ports.readStatus(pid));
+    if (fields === null) throw new Error('it has no Uid line with a real and an effective uid');
+    return [Number(fields[1]), Number(fields[2])];
   });
   const shellUid = process.getuid?.();
-  if (uid !== shellUid) {
+  const shellEuid = process.geteuid?.();
+  if (uid !== shellUid || euid !== shellEuid) {
     throw config(
-      `The service's main process ${String(pid)} runs as uid ${String(uid)} but this shell runs as uid ${String(shellUid)}; run \`board update\` as the user the daemon runs as.`,
+      `The service's main process ${String(pid)} runs as uid ${String(uid)} with effective uid ${String(euid)} but this shell runs as uid ${String(shellUid)} with effective uid ${String(shellEuid)}; run \`board update\` as the user the daemon runs as.`,
     );
   }
   const environ = read('environment', () => ports.readEnviron(pid));
