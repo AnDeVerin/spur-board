@@ -22,7 +22,8 @@ Pick the lowest layer that can fail for the bug you guard against. Projects are 
   (`packages/gateway-slack/test/conformance.test.ts`).
 - End to end - `scripts/package-smoke.ts` installs and exercises the packed tarball;
   `scripts/upgrade-smoke.ts` migrates from the previous published version;
-  `scripts/smoke-live.ts` talks to real Slack and runs by hand only.
+  `scripts/update-smoke.ts` updates and rolls back a global install through a loopback registry
+  and a fake `systemctl`; `scripts/smoke-live.ts` talks to real Slack and runs by hand only.
 
 ## Fakes, not module mocks
 
@@ -92,8 +93,8 @@ Every test runs through the root config, so all of these hold:
   only.
 - `pnpm check:full --only test`: all four projects plus `scripts/package-smoke.ts`.
 - CI `test` job: `check:full --only test` on Node 24 and 26 (`.github/workflows/ci.yml`).
-- CI `package-smoke` job: `pnpm package:smoke`, then `pnpm upgrade:smoke`. On a PR it runs only
-  when `classifyChanges` in `scripts/ci.ts` marks a package change.
+- CI `package-smoke` job: `pnpm package:smoke`, `pnpm upgrade:smoke`, then `pnpm update:smoke`.
+  On a PR it runs only when `classifyChanges` in `scripts/ci.ts` marks a package change.
 - `.github/workflows/nightly.yml`: runs the published package's `--version`; on failure
   `scripts/nightly.ts` opens or updates one `ci-nightly` issue.
 
