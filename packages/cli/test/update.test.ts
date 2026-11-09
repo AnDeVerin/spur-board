@@ -393,6 +393,20 @@ async function stand() {
 
 type Stand = Awaited<ReturnType<typeof stand>>;
 
+/** The children that run the package's own `bin.mjs`, in the order of an update. */
+const PACKAGE_CHILDREN = ['doctor', 'copy-database', 'service install', 'skills install', 'doctor'];
+
+/** HOME and BOARD_HOME each package child got in its env. */
+function packageChildEnvs(s: Stand) {
+  return s.calls
+    .filter((call) => PACKAGE_CHILDREN.includes(call.label))
+    .map((call) => ({
+      label: call.label,
+      HOME: call.env?.['HOME'],
+      BOARD_HOME: call.env?.['BOARD_HOME'],
+    }));
+}
+
 /**
  * Runs `board update` with the real update lock and canned answers, given the paths of cli.ts
  * and service.ts and a JSON setup. Its npm install is a real child that records its PID in the
@@ -598,6 +612,29 @@ describe('board update', () => {
     expect(state.dbFile).toBe(join(dataDir, 'board.sqlite'));
     expect(state.dbBackup).toBe(backup);
     expect(state.snapshot).toBe(join(dataDir, 'update', 'package-1.0.0'));
+    expect(packageChildEnvs(s)).toEqual(
+      PACKAGE_CHILDREN.map((label) => ({ label, HOME: s.home, BOARD_HOME: undefined })),
+    );
+  });
+
+  it('U1g: a relative shell BOARD_HOME gives package children an absolute one', async () => {
+    const s = await stand();
+    const boardHome = s.env['BOARD_HOME'] ?? '';
+    s.env['BOARD_HOME'] = relative(process.cwd(), boardHome);
+    s.shell.home = relative(process.cwd(), s.home);
+    expect((await s.run(['--json', 'update'])).exit).toBe(0);
+    addMigration(s);
+    const result = await s.run(['--json', 'rollback', '--yes']);
+
+    expect(result.exit, result.stderr).toBe(0);
+    expect(
+      s.calls.filter((call) => call.label === 'copy-database').map((call) => call.args[3]),
+    ).toEqual([s.backup, s.dbFile]);
+    const envs = packageChildEnvs(s);
+    expect(new Set(envs.map((entry) => entry.label))).toEqual(new Set(PACKAGE_CHILDREN));
+    expect(envs.filter((entry) => entry.HOME !== s.home || entry.BOARD_HOME !== boardHome)).toEqual(
+      [],
+    );
   });
 
   it('U2: prints changed false and runs only npm view when the target is installed', async () => {

@@ -37,7 +37,7 @@ import {
 } from './service.ts';
 
 /**
- * Runs a command; only the npm calls pass `env`. `lockFd` goes to the update lock's `flock` and
+ * Runs a command; the npm calls and the package's own children pass `env`. `lockFd` goes to the update lock's `flock` and
  * to every child that changes the install or stops the service, which then holds the update lock
  * until it exits.
  */
@@ -423,6 +423,8 @@ class Updater {
   /** This shell's data directory and config file, absolute even for a relative HOME. */
   readonly dataDir: string;
   readonly configFile: string;
+  /** The env of the package's own children: HOME and BOARD_HOME absolute, as this shell's. */
+  readonly childEnv: NodeJS.ProcessEnv;
   readonly updateDir: string;
   readonly stateFile: string;
   readonly updateLock: string;
@@ -441,6 +443,12 @@ class Updater {
     this.address = resolveDaemonAddress(options.env, options.home);
     this.dataDir = resolve(dataDirectory(options.env, options.home));
     this.configFile = resolve(configFile(options.env, options.home));
+    const boardHome = options.env['BOARD_HOME'];
+    this.childEnv = {
+      ...options.env,
+      HOME: resolve(options.home),
+      ...(boardHome ? { BOARD_HOME: resolve(boardHome) } : {}),
+    };
     this.updateDir = join(this.dataDir, 'update');
     this.stateFile = join(this.updateDir, 'state.json');
     this.updateLock = join(this.updateDir, 'update.lock');
@@ -482,7 +490,7 @@ class Updater {
     const result = await this.ports.runner(
       process.execPath,
       [this.bin(packageRoot), ...args],
-      this.holding(),
+      this.holding(this.childEnv),
     );
     if (result.exitCode !== 0) throw new StepError(step, childDetail(result));
     return result.stdout;
@@ -490,11 +498,11 @@ class Updater {
 
   /** A doctor run: exit 0 or 1 with a parsable check list is a result; else a StepError. */
   async doctor(packageRoot: string): Promise<DoctorReport> {
-    const result = await this.ports.runner(process.execPath, [
-      this.bin(packageRoot),
-      '--json',
-      'doctor',
-    ]);
+    const result = await this.ports.runner(
+      process.execPath,
+      [this.bin(packageRoot), '--json', 'doctor'],
+      { env: this.childEnv },
+    );
     if (result.exitCode === 0 || result.exitCode === 1) {
       try {
         const parsed = doctorSchema.safeParse(JSON.parse(result.stdout));
