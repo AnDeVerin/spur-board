@@ -30,7 +30,9 @@
 - Check whether a caller awaits a write through a failure path; a following query can queue
   behind an unawaited transaction and hide the missing await
   (`packages/core/src/app/commands.ts`, `packages/core/test/app/restart.test.ts`).
-- Read the clock before `scanTransaction` (`packages/core/src/app/secrets.ts`), never inside its
-  `fn`: it replays `fn` until every gateway string is scanned, and a new time on each pass keeps
-  the replay going to its limit (`packages/core/test/app/observe.test.ts`,
-  `describe('a clock that moves during the transaction')`).
+- A time that lands in a gateway string, such as an outbox payload, is read before
+  `scanTransaction` (`packages/core/src/app/secrets.ts`), not inside its `fn`: it replays `fn`
+  until every gateway string is scanned, and a new time on each pass keeps the replay going to its
+  limit (`packages/core/test/app/observe.test.ts`,
+  `describe('a clock that moves during the transaction')`). A time that stays in the database may
+  be read inside, after the write lock, as `start` in `packages/core/src/app/sender.ts` does.
