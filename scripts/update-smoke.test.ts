@@ -8,9 +8,22 @@ import {
   migrationName,
   patchManifest,
   standEnv,
+  upstreamUrl,
 } from './update-smoke.ts';
 
 describe('update smoke registry', () => {
+  it('forwards a path that starts with one slash to the npm host', () => {
+    expect(upstreamUrl('/pkg')).toBe('https://registry.npmjs.org/pkg');
+    expect(upstreamUrl('/@scope%2fname')).toBe('https://registry.npmjs.org/@scope%2fname');
+  });
+
+  it.each(['@evil.example/x', '//evil.example/x', 'http://evil.example/x'])(
+    'refuses the request-target %s',
+    (path) => {
+      expect(upstreamUrl(path)).toBeUndefined();
+    },
+  );
+
   const manifest = (version: string) => ({
     name: 'spur-board',
     version,

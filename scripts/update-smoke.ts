@@ -30,7 +30,6 @@ import { fileURLToPath } from 'node:url';
 import { packPackage } from './package.ts';
 import { command } from './package-smoke.ts';
 
-const UPSTREAM = 'https://registry.npmjs.org';
 const NAME = 'spur-board';
 const SERVICE = 'spur-board.service';
 const fakeSystemctl = fileURLToPath(new URL('./update-smoke-systemctl.ts', import.meta.url));
@@ -208,9 +207,17 @@ async function freePort(): Promise<number> {
   return port;
 }
 
+/**
+ * The npmjs URL for a request path, or undefined unless the path starts with exactly one `/`:
+ * any other request-target (`@host/x`, `//host/x`, an absolute URL) could move the host.
+ */
+export function upstreamUrl(path: string): string | undefined {
+  if (!path.startsWith('/') || path.startsWith('//')) return undefined;
+  return `https://registry.npmjs.org/${path.slice(1)}`;
+}
+
 async function upstream(url: string, accept: string | undefined): Promise<Response> {
-  const attempt = () =>
-    fetch(`${UPSTREAM}${url}`, { headers: accept === undefined ? {} : { accept } });
+  const attempt = () => fetch(url, { headers: accept === undefined ? {} : { accept } });
   try {
     const response = await attempt();
     if (response.status < 500) return response;
@@ -252,7 +259,13 @@ async function startRegistry(): Promise<Registry> {
       response.end('{"error":"Not found"}');
       return;
     }
-    upstream(path, request.headers.accept).then(
+    const target = upstreamUrl(path);
+    if (target === undefined) {
+      response.writeHead(400, { 'content-type': 'application/json' });
+      response.end('{"error":"Bad request path"}');
+      return;
+    }
+    upstream(target, request.headers.accept).then(
       (answer) => {
         response.writeHead(answer.status, {
           'content-type': answer.headers.get('content-type') ?? 'application/octet-stream',
