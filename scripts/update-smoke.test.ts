@@ -107,13 +107,13 @@ describe('update smoke unit parsing', () => {
     );
   });
 
-  it('answers show with the unit settings as systemd prints them', () => {
-    expect(showProperties(unit).split('\n')).toEqual([
-      'ExecStart={ path=/opt/node 24/bin/node ; argv[]=/opt/node 24/bin/node /p/lib/node_modules/spur-board/dist/daemon.mjs ; ignore_errors=no ; start_time=[n/a] ; stop_time=[n/a] ; pid=0 ; code=(null) ; status=0/0 }',
-      'Environment="BOARD_HOME=/tmp/a \\"b\\" 100%" XDG_DATA_HOME=/tmp/data',
-      'EnvironmentFiles=',
+  it('answers show with the main PID and ExecStart as systemd prints them', () => {
+    expect(showProperties(unit, 4242).split('\n')).toEqual([
+      'MainPID=4242',
+      'ExecStart={ path=/opt/node 24/bin/node ; argv[]=/opt/node 24/bin/node /p/lib/node_modules/spur-board/dist/daemon.mjs ; ignore_errors=no ; start_time=[n/a] ; stop_time=[n/a] ; pid=4242 ; code=(null) ; status=0/0 }',
       '',
     ]);
+    expect(showProperties(unit, 0).split('\n')[0]).toBe('MainPID=0');
   });
 
   it('rejects a unit without ExecStart or with unquoted arguments', () => {

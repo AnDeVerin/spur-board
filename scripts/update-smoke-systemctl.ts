@@ -1,7 +1,7 @@
 // A stateful fake `systemctl` for scripts/update-smoke.ts. The stand writes a `#!/bin/sh` wrapper
 // into `<root>/fake-bin/systemctl` that sets the three UPDATE_SMOKE_* variables and execs this
 // file, so the CLI under test finds it first on PATH and never reaches the real user manager.
-//   UPDATE_SMOKE_SYSTEMD - state dir: calls.log, daemon.pid, daemon.log
+//   UPDATE_SMOKE_SYSTEMD - state dir: calls.log, daemon.pid (the MainPID of show), daemon.log
 //   UPDATE_SMOKE_UNIT    - the unit file `board service install` writes
 //   UPDATE_SMOKE_PORT    - the daemon's fixed http.port, polled after a start
 import { spawn } from 'node:child_process';
@@ -67,20 +67,14 @@ export function parseUnit(text: string): ParsedUnit {
 }
 
 /**
- * The `ExecStart`, `Environment` and `EnvironmentFiles` lines `systemctl show` prints for the
- * unit, in the format of systemd 249; an entry with a space, quote or backslash is quoted.
+ * The `MainPID` and `ExecStart` lines `systemctl show` prints for the unit, in the format of
+ * systemd 249; `mainPid` is 0 while the service does not run.
  */
-export function showProperties(text: string): string {
+export function showProperties(text: string, mainPid: number): string {
   const unit = parseUnit(text);
-  const quote = (entry: string) =>
-    /[\s"\\]/.test(entry) ? `"${entry.replace(/["\\]/g, '\\$&')}"` : entry;
-  const environment = Object.entries(unit.environment).map(([name, value]) =>
-    quote(`${name}=${value}`),
-  );
   return [
-    `ExecStart={ path=${unit.command[0] ?? ''} ; argv[]=${unit.command.join(' ')} ; ignore_errors=no ; start_time=[n/a] ; stop_time=[n/a] ; pid=0 ; code=(null) ; status=0/0 }`,
-    `Environment=${environment.join(' ')}`,
-    'EnvironmentFiles=',
+    `MainPID=${String(mainPid)}`,
+    `ExecStart={ path=${unit.command[0] ?? ''} ; argv[]=${unit.command.join(' ')} ; ignore_errors=no ; start_time=[n/a] ; stop_time=[n/a] ; pid=${String(mainPid)} ; code=(null) ; status=0/0 }`,
     '',
   ].join('\n');
 }
@@ -219,7 +213,9 @@ async function main(args: readonly string[]): Promise<number> {
     case 'daemon-reload':
       return 0;
     case 'show':
-      process.stdout.write(showProperties(readFileSync(setting('UPDATE_SMOKE_UNIT'), 'utf8')));
+      process.stdout.write(
+        showProperties(readFileSync(setting('UPDATE_SMOKE_UNIT'), 'utf8'), running()?.pid ?? 0),
+      );
       return 0;
     case 'is-enabled':
       process.stdout.write('enabled\n');
