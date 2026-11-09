@@ -721,6 +721,44 @@ describe('board update', () => {
     expect(tree(s.packageRoot)).toEqual(original);
   });
 
+  it('U6: a failed database restore after the package restore still restores it on retry', async () => {
+    const s = await stand();
+    const original = tree(s.packageRoot);
+    const install = s.behaviour.install;
+    s.behaviour.install = () => {
+      addMigration(s);
+      return install();
+    };
+    const service = s.behaviour.serviceInstall;
+    s.behaviour.serviceInstall = (run) => (run === 1 ? fail(4, 'start failed') : service(run));
+    const copy = s.behaviour.copy;
+    let restores = 0;
+    s.behaviour.copy = (args) => {
+      if (args[3] !== s.dbFile) return copy(args);
+      restores += 1;
+      return restores === 1 ? fail(1, 'disk full\n') : ok();
+    };
+    const result = await s.run(['--json', 'update']);
+
+    expect(result.exit).toBe(4);
+    const error = errorOf(result.stderr);
+    expect(error.code).toBe('rollback_failed');
+    expect(error.hint).toContain('database restore');
+    expect(s.state()).toMatchObject({ status: 'rollback-failed', restoreDatabase: true });
+    expect(tree(s.packageRoot)).toEqual(original);
+
+    const before = s.calls.length;
+    const again = await s.run(['--json', 'rollback', '--yes']);
+    expect(again.exit, again.stderr).toBe(0);
+    expect(JSON.parse(again.stdout)).toMatchObject({ database: 'restored' });
+    const restoreCalls = s.calls.slice(before).filter((call) => call.label === 'copy-database');
+    expect(restoreCalls.map((call) => call.args)).toEqual([
+      [s.bin, 'copy-database', s.backup, s.dbFile],
+    ]);
+    expect(s.state().status).toBe('rolled-back');
+    expect(tree(s.packageRoot)).toEqual(original);
+  });
+
   const aborts: [string, string, (s: Stand) => void][] = [
     [
       '(a) the stop fails',
