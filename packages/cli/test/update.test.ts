@@ -777,6 +777,29 @@ describe('board update', () => {
     expect(next.exit, next.stderr).toBe(0);
     expect(JSON.parse(next.stdout)).toMatchObject({ changed: false });
   });
+
+  it('U7: a flock error other than a held lock aborts at once without blaming a holder', async () => {
+    const s = await stand();
+    const original = tree(s.packageRoot);
+    s.ports.lockWaitMs = 20_000;
+    writeFileSync(join(dirname(s.dbFile), 'board.lock'), '4242\n');
+    s.behaviour.flock = () => fail(1, 'flock: cannot open lock file: Permission denied\n');
+    const result = await s.run(['--json', 'update']);
+
+    expect(result.exit).toBe(4);
+    const error = errorOf(result.stderr);
+    expect(error.code).toBe('update_rolled_back');
+    expect(error.hint).toContain('stopped at lock wait');
+    expect(error.hint).toContain('exit 1');
+    expect(error.hint).toContain('cannot open lock file: Permission denied');
+    expect(error.hint).not.toContain('held');
+    expect(error.hint).not.toContain('4242');
+    expect(s.labels().filter((name) => name === 'flock')).toHaveLength(1);
+    expect(s.events).not.toContain('sleep 500');
+    expect(s.state()).toMatchObject({ status: 'rolled-back', dbBackup: null });
+    expect(tree(s.packageRoot)).toEqual(original);
+    expect(s.labels()).not.toContain('npm install');
+  });
 });
 
 describe('board rollback', () => {

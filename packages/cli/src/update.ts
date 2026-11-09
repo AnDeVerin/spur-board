@@ -384,6 +384,14 @@ class Updater {
     for (;;) {
       const result = await this.ports.runner('flock', ['-n', '-E', '75', this.lockFile, 'true']);
       if (result.exitCode === 0) return;
+      // `-E 75` marks a held lock; any other exit is an error that waiting does not fix.
+      if (result.exitCode !== 75) {
+        const stderr = result.stderr.trim();
+        throw new StepError(
+          'lock wait',
+          `checking the database lock ${this.lockFile} with flock failed (exit ${String(result.exitCode)})${stderr ? `: ${stderr}` : ''}`,
+        );
+      }
       if (this.ports.now() >= deadline) break;
       await this.ports.sleep(500);
     }
