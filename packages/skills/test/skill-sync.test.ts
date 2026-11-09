@@ -440,6 +440,15 @@ describe('public guide command mentions', () => {
       expect(section).toContain(token);
   });
 
+  it('documents board update and the rollback recovery', () => {
+    const [, setup, troubleshooting] = publicGuides;
+    const updateRun = setupReferenceTexts[setupReferenceNames.indexOf('update.md')];
+    expect(setup).toContain('`board update`');
+    expect(updateRun).toContain('`board update`');
+    for (const token of ['update_rolled_back', 'rollback_failed', '`board rollback --yes`'])
+      expect(troubleshooting).toContain(token);
+  });
+
   it('keeps the agent bootstrap line and GitHub permission recovery', () => {
     const [readme, setup, troubleshooting] = publicGuides;
     expect(readme).toMatch(/^npx -y spur-board@latest skills install$/m);
