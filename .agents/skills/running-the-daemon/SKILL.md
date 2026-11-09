@@ -55,7 +55,9 @@ description: Rules for packages/daemon/ - modules, config and secrets, logging a
 - Wrap external calls in `ctx.logCall`; it logs duration and outcome, then rethrows.
 - Log sender ticks and Spur doorbell sends (`spur.send`, HTTP to `adapters.spur.baseUrl`) through
   the outbox module's `ctx.logCall`.
-- Wrap adapter HTTP calls through `board-adapters.logCall`. Journal unknown Spur
+- Wrap adapter HTTP calls through `board-adapters.logCall`. Log each runner failure
+  (`onPollFailure`) at warn as `adapter poll failed` with `source`, `step`, `kind`, `err` and an
+  invalid batch's `issues` (`packages/daemon/test/board-modules.test.ts`). Journal unknown Spur
   state/status notices through core; log a Spur restart once through the module logger.
 
 ## HTTP

@@ -5,9 +5,8 @@ description: Rules for packages/adapters/ - port, untrusted responses, failure k
 
 # Writing adapters
 
-These rules apply to every adapter under `packages/adapters/src/`. GitHub is the cited example
-unless a rule names another.
-A PR that changes a practice named here updates this skill.
+Rules for every adapter under `packages/adapters/src/`; GitHub is the cited example unless a
+rule names another. A PR that changes a practice named here updates this skill.
 
 ## When to use
 
@@ -24,8 +23,8 @@ A PR that changes a practice named here updates this skill.
 - Network calls go only through the injected fetch, never the global `fetch`. Pass
   `options.fetch` (`StartAdaptersOptions.fetch` in `packages/adapters/src/index.ts`) to the
   client, as `githubSources` does in `packages/adapters/src/github/index.ts`.
-- A client's global default applies only when no fetch is passed; the daemon passes one,
-  wrapped for logging (`running-the-daemon`).
+- A client's global default applies only when no fetch is passed; the daemon passes a logging
+  one (`running-the-daemon`).
 - A vendor SDK lives only inside its adapter folder, after a design decision and a lint rule that
   confines it.
 
@@ -64,9 +63,10 @@ A PR that changes a practice named here updates this skill.
   and `INSUFFICIENT_SCOPES` to `auth`.
 - Report the source budget in `Batch.budget`. Every GitHub query selects
   `rateLimit { remaining resetAt }`; a missing budget fails the poll. `budgetPause` pauses below
-  the reserve that `githubSources` takes from the config key `github.reserveRemaining`.
+  the config key `github.reserveRemaining`.
+- The runner hands each failed step and rejected report to `onFailure`; no bare `catch`.
 - Runner coverage: `describe('failures')`, `describe('http failure classification')`,
-  `describe('budget')` and `describe('auth and config errors')` in
+  `describe('budget')`, `describe('auth and config errors')` and `describe('failure log')` in
   `packages/adapters/test/runner/runner.test.ts`.
 
 ## Tests
@@ -79,10 +79,9 @@ A PR that changes a practice named here updates this skill.
 
 ## Gaps
 
-- No shared contract suite runs every adapter against the port; a PR that adds one updates this
-  skill.
+- No shared contract suite runs every adapter against the port.
 - The fakes live in `packages/adapters/src/testing.ts`, not next to the port in contracts.
-- No recorded responses; a PR adding them updates this skill with their refresh command.
+- No recorded responses; a PR adding them names their refresh command here.
 
 ## Checks
 
