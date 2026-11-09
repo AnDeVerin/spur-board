@@ -207,16 +207,25 @@ async function freePort(): Promise<number> {
   return port;
 }
 
+const NPM_ORIGIN = 'https://registry.npmjs.org';
+
 /**
- * The npmjs URL for a request path, or undefined unless the path starts with exactly one `/`:
- * any other request-target (`@host/x`, `//host/x`, an absolute URL) could move the host.
+ * The npmjs URL for a request path, or undefined unless the path starts with exactly one `/` and
+ * the resolved URL keeps the npm origin: any other request-target (`@host/x`, `//host/x`,
+ * `/\\host/x`, an absolute URL) could move the host.
  */
-export function upstreamUrl(path: string): string | undefined {
+export function upstreamUrl(path: string): URL | undefined {
   if (!path.startsWith('/') || path.startsWith('//')) return undefined;
-  return `https://registry.npmjs.org/${path.slice(1)}`;
+  let target: URL;
+  try {
+    target = new URL(path.slice(1), `${NPM_ORIGIN}/`);
+  } catch {
+    return undefined;
+  }
+  return target.origin === NPM_ORIGIN ? target : undefined;
 }
 
-async function upstream(url: string, accept: string | undefined): Promise<Response> {
+async function upstream(url: URL, accept: string | undefined): Promise<Response> {
   const attempt = () => fetch(url, { headers: accept === undefined ? {} : { accept } });
   try {
     const response = await attempt();
