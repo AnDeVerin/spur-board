@@ -164,13 +164,18 @@ that started before the latest skill install mean those sessions need a restart.
 complete poll, look for the `spur-board is live` line in the configured feed channel. See
 [TROUBLESHOOTING.md](TROUBLESHOOTING.md) for check-specific fixes and logs.
 
-For upgrades, repeat the checks with the new package and skill versions. Preserve settled
-configuration and operator access. Before upgrading, note whether `board service status`
-reports `active` as `active`. After upgrading the package, run `board service install`: it
-rewrites the unit's absolute paths and settings when they differ, starts a stopped service, and
-restarts an active service when the unit changed. Run `board service restart` only when the
-service was active before, install reported `changed` as `false`, and the daemon version
-changed.
+To upgrade, run `board update` for the latest release, or `board update <version>` for a given
+one, from a shell with the same Node and `BOARD_HOME` or `XDG_*` settings as the service (a live
+Spur session). The service must be running. The command checks the target and the daemon
+first, then saves a copy of the installed package and a backup of the database, installs the
+new package, restarts the service, reinstalls the skills and runs doctor. It keeps
+configuration, secrets and operator access. If the new version fails a step, it puts the
+previous package and, when the schema changed, the database back and exits 4 with
+`update_rolled_back`. On success it prints `operator` lines: restart agent sessions that run
+`board mcp`, and stop and wake the Spur sessions doctor lists as stale. To go back to the
+version before the last update later, run `board rollback`; it first prints what data is lost,
+then asks to continue, or needs `--yes` outside a terminal. See
+[Failed update or rollback](TROUBLESHOOTING.md#failed-update-or-rollback).
 
 ## 6. Link worker sessions to tasks
 
