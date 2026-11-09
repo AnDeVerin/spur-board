@@ -412,7 +412,7 @@ describe('accepted observation', () => {
     expect(await store.db.selectFrom('link').select('id').execute()).toEqual([]);
   });
 
-  it('links a worker session through its pr link to the issue task, and not an operator-role session', async () => {
+  it('links a worker session through its pr link to the issue task as other off the PR head, and not an operator-role session', async () => {
     const withOps = {
       ...config,
       projects: config.projects.map((project) => ({
@@ -459,7 +459,7 @@ describe('accepted observation', () => {
         .select(['session_id', 'role'])
         .where('entity', '=', 'session')
         .execute(),
-    ).toEqual([{ session_id: 'worker-1', role: 'worker' }]);
+    ).toEqual([{ session_id: 'worker-1', role: 'other' }]);
   });
 
   it('links a worker branch that equals the linked PR head even without a key in the branch', async () => {
@@ -506,6 +506,84 @@ describe('accepted observation', () => {
         .where('entity', '=', 'session')
         .execute(),
     ).toEqual([{ session_id: 'worker-1', role: 'worker' }]);
+  });
+
+  describe('pr field of a worker session', () => {
+    const pr = { repo: 'o/r', number: 7 };
+    async function sessionLinks(headBranch: string, sessions: SessionFacts[]) {
+      const { store, core, apply, mutations } = setup();
+      await apply(mutations.add, { task: 'o/r#9' }, 'operator');
+      await core.observe('github:board:o/r', {
+        batch: {
+          source: 'github:board:o/r',
+          observedAt: at,
+          complete: true,
+          items: [{ kind: 'pr', facts: { ...prFact(), headBranch } }],
+          entities: [],
+        },
+        effectiveComplete: true,
+        state: { lastCompleteAt: at, gone: [] },
+        outcomes: [],
+      });
+      await core.observe('spur', {
+        batch: {
+          source: 'spur',
+          observedAt: at,
+          complete: true,
+          items: sessions.map((facts) => ({ kind: 'session' as const, facts })),
+          entities: [],
+        },
+        effectiveComplete: true,
+        state: { lastCompleteAt: at, gone: [] },
+        outcomes: [],
+      });
+      return store.db
+        .selectFrom('link')
+        .select(['session_id', 'role', 'source'])
+        .where('entity', '=', 'session')
+        .orderBy('session_id')
+        .execute();
+    }
+
+    it('links a session whose branch differs from the PR head as other when the task has no worker', async () => {
+      expect(
+        await sessionLinks('feature-no-key', [
+          { ...sessionFact('reviewer-1'), branch: 'review-7', pr },
+        ]),
+      ).toEqual([{ session_id: 'reviewer-1', role: 'other', source: 'branch' }]);
+    });
+
+    it('links a session whose branch equals the PR head as worker even when the branch is shared', async () => {
+      expect(
+        await sessionLinks('feature-no-key', [
+          { ...sessionFact('worker-1'), branch: 'feature-no-key', pr },
+          { ...sessionFact('worker-2'), branch: 'feature-no-key', pr },
+        ]),
+      ).toEqual([
+        { session_id: 'worker-1', role: 'worker', source: 'branch' },
+        { session_id: 'worker-2', role: 'other', source: 'branch' },
+      ]);
+    });
+
+    it('keeps the branch key rule ahead of a pr field off the PR head', async () => {
+      expect(
+        await sessionLinks('feature-no-key', [
+          { ...sessionFact('worker-1'), branch: 'o/r#9-retry', pr },
+        ]),
+      ).toEqual([{ session_id: 'worker-1', role: 'worker', source: 'branch' }]);
+    });
+
+    it('keeps the label rule ahead of a pr field on the PR head', async () => {
+      expect(
+        await sessionLinks('feature-no-key', [
+          {
+            ...sessionFact('label-1', { 'board-other': 'https://github.com/o/r/issues/9' }),
+            branch: 'feature-no-key',
+            pr,
+          },
+        ]),
+      ).toEqual([{ session_id: 'label-1', role: 'other', source: 'spawn_link' }]);
+    });
   });
 
   describe('task key in a worker branch', () => {
