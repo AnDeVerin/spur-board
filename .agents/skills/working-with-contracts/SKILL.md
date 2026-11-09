@@ -57,8 +57,9 @@ Read `.agents/skills/working-with-contracts/references/config-field.md`.
   field to it as optional; a required one makes stored lines `invalid`, a user-visible break.
 - An older version drops a new envelope field, skips a new kind, and returns `invalid` for a new
   `ACTORS` or payload enum value. None of this is breaking: reader and writer ship in the same
-  package, so only a downgrade hits it, and downgrades are unsupported because migrations are
-  forward-only (#21).
+  package, so only `board rollback` hits it. It keeps the live database when the migration count
+  is unchanged, so the older reader meets these values, and across a migration it restores the
+  pre-update backup (#220).
 - Do not bump `EVENT_VERSION` for a new kind, a new optional field or a new enum value. Bump it
   only for an envelope change the current reader cannot read; that bump is a user-visible break,
   and the reader keeps parsing every earlier `v`.
