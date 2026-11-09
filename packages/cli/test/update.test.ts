@@ -1105,7 +1105,7 @@ describe('board update', () => {
     expect(readFileSync(lock, 'utf8')).toBe(`${String(process.pid)}\n`);
   });
 
-  it('U8: passes the update lock only to the children that change the install', async () => {
+  it('U8: passes the update lock only to the children that change the install or service', async () => {
     const s = await stand();
     expect((await s.run(['--json', 'update'])).exit).toBe(0);
     const before = s.calls.length;
@@ -1113,13 +1113,15 @@ describe('board update', () => {
 
     const holders = (calls: typeof s.calls) =>
       calls.filter((call) => call.lockFd !== undefined).map((call) => call.label);
+    // The stop too: an orphaned stop must not take down the daemon a retry has started.
     expect(holders(s.calls.slice(0, before))).toEqual([
+      'stop',
       'copy-database',
       'npm install',
       'service install',
       'skills install',
     ]);
-    expect(holders(s.calls.slice(before))).toEqual(['service install', 'skills install']);
+    expect(holders(s.calls.slice(before))).toEqual(['stop', 'service install', 'skills install']);
   });
 
   it('U8: a killed update keeps rollback out while its npm install still runs', async () => {

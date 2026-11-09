@@ -36,7 +36,8 @@ import {
 
 /**
  * Runs a command; only the npm calls pass `env`. `lockFd` goes to the update lock's `flock` and
- * to every child that changes the install, which then holds the update lock until it exits.
+ * to every child that changes the install or stops the service, which then holds the update lock
+ * until it exits.
  */
 export type UpdateRunner = (
   command: string,
@@ -532,7 +533,13 @@ class Updater {
   async stop(): Promise<void> {
     this.progress('stop');
     try {
-      await stopService({ env: this.env, home: this.home, runner: this.ports.runner });
+      // The stop shares the update lock: a stop orphaned by a killed run keeps a retry out until
+      // it exits, so it cannot take down the daemon the retry started.
+      await stopService({
+        env: this.env,
+        home: this.home,
+        runner: (command, args) => this.ports.runner(command, args, this.holding()),
+      });
     } catch (error) {
       throw new StepError('stop', detailOf(error));
     }
