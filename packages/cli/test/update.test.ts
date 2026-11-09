@@ -70,6 +70,8 @@ interface Behaviour {
   environ: (pid: number) => string;
   /** The working directory of a process, as `/proc/<pid>/cwd` links to it. */
   cwd: (pid: number) => string;
+  /** The `/proc/<pid>/status` text of a process. */
+  status: (pid: number) => string;
   view: () => CommandResult;
   dryRun: () => CommandResult;
   install: () => CommandResult;
@@ -132,6 +134,11 @@ function showOutput(paths: ServicePaths, mainPid = '4242'): string {
     `ExecStart={ path=${paths.nodePath} ; argv[]=${paths.nodePath} ${paths.daemonEntry} ; ignore_errors=no ; start_time=[n/a] ; stop_time=[n/a] ; pid=${mainPid} ; code=(null) ; status=0/0 }`,
     '',
   ].join('\n');
+}
+
+/** A `/proc/<pid>/status` text for a process whose real uid is `uid`. */
+function statusText(uid: number): string {
+  return `Name:\tnode\nUmask:\t0077\nState:\tS (sleeping)\nPid:\t4242\nUid:\t${String(uid)}\t${String(uid)}\t${String(uid)}\t${String(uid)}\nGid:\t100\t100\t100\t100\n`;
 }
 
 /** A `/proc/<pid>/environ` text: NUL-separated entries. */
@@ -224,6 +231,7 @@ async function stand() {
     show: () => ok(showOutput(unitPaths)),
     environ: () => environText({ BOARD_HOME: boardHome, HOME: home, PATH: '/usr/bin' }),
     cwd: () => home,
+    status: () => statusText(process.getuid?.() ?? 0),
     view: () => ok('"1.1.0"\n'),
     dryRun: () => ok(),
     install: () => {
@@ -316,6 +324,7 @@ async function stand() {
       cwdPids.push(pid);
       return behaviour.cwd(pid);
     },
+    readStatus: (pid) => behaviour.status(pid),
     now: () => clock.t,
     sleep: async (ms) => {
       events.push(`sleep ${String(ms)}`);
@@ -423,6 +432,7 @@ await runCli(['--json', 'update'], {
     packageRoot: setup.packageRoot,
     readEnviron: () => setup.environ,
     readCwd: () => setup.home,
+    readStatus: () => setup.status,
   },
   io: { isTTY: false, stdout: () => {}, stderr: (text) => process.stderr.write(text) },
 });
@@ -665,6 +675,32 @@ describe('board update', () => {
         };
       },
       'Cannot read the working directory of the service',
+    ],
+    [
+      "a main process of another user, as from root's user manager with User=",
+      4,
+      (s) => {
+        s.behaviour.status = () => statusText((process.getuid?.() ?? 0) + 1);
+      },
+      `runs as uid ${String((process.getuid?.() ?? 0) + 1)} but this shell runs as uid ${String(process.getuid?.() ?? 0)}`,
+    ],
+    [
+      'a main process whose status cannot be read',
+      4,
+      (s) => {
+        s.behaviour.status = () => {
+          throw new Error('EACCES: permission denied');
+        };
+      },
+      'Cannot read the status of the service',
+    ],
+    [
+      'a main process status with no Uid line',
+      4,
+      (s) => {
+        s.behaviour.status = () => 'Name:\tnode\n';
+      },
+      'Cannot read the status of the service',
     ],
     [
       'a running service whose drop-in starts another Node',
@@ -1211,6 +1247,7 @@ describe('board update', () => {
           packageRoot: s.packageRoot,
           show: showOutput(s.unitPaths),
           environ: s.behaviour.environ(4242),
+          status: s.behaviour.status(4242),
           marker,
         }),
       ],

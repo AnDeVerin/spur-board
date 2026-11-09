@@ -60,6 +60,8 @@ export interface UpdatePorts {
   readEnviron: (pid: number) => string;
   /** The working directory of a running process, the target of `/proc/<pid>/cwd`. */
   readCwd: (pid: number) => string;
+  /** The status of a running process, from `/proc/<pid>/status`. */
+  readStatus: (pid: number) => string;
   sleep: (ms: number) => Promise<void>;
   now: () => number;
 }
@@ -123,6 +125,7 @@ function defaultPorts(): UpdatePorts {
     doctorRecheckMs: 6_000,
     readEnviron: (pid) => readFileSync(`/proc/${String(pid)}/environ`, 'utf8'),
     readCwd: (pid) => readlinkSync(`/proc/${String(pid)}/cwd`),
+    readStatus: (pid) => readFileSync(`/proc/${String(pid)}/status`, 'utf8'),
     sleep: (ms) =>
       new Promise((resolve) => {
         setTimeout(resolve, ms);
@@ -301,9 +304,9 @@ function entries(text: string, separator: string): Map<string, string> {
 
 /**
  * Checks the daemon the service runs, drop-ins, `EnvironmentFile` and `UnsetEnvironment`
- * included: the `argv[]` of the loaded `ExecStart`, then the config file and data directory its
- * main process resolves from its own environment, home and working directory, compared with
- * this shell's.
+ * included: the `argv[]` of the loaded `ExecStart`, the real uid of its main process, then the
+ * config file and data directory that process resolves from its own environment, home and
+ * working directory, compared with this shell's.
  */
 async function checkRunningService(
   ports: UpdatePorts,
@@ -335,7 +338,7 @@ async function checkRunningService(
       `The service has no main process (MainPID=${mainPid || 'not shown'}); Board update needs a running service. Check \`board service status\`.`,
     );
   }
-  const read = (what: string, value: () => string): string => {
+  const read = <T>(what: string, value: () => T): T => {
     try {
       return value();
     } catch (error) {
@@ -344,6 +347,19 @@ async function checkRunningService(
       );
     }
   };
+  // Root's user manager can run the unit as another user; this shell's passwd home and paths
+  // say nothing about that user's database.
+  const uid = read('status', () => {
+    const field = /^Uid:\s+(\d+)/m.exec(ports.readStatus(pid))?.[1];
+    if (field === undefined) throw new Error('it has no Uid line');
+    return Number(field);
+  });
+  const shellUid = process.getuid?.();
+  if (uid !== shellUid) {
+    throw config(
+      `The service's main process ${String(pid)} runs as uid ${String(uid)} but this shell runs as uid ${String(shellUid)}; run \`board update\` as the user the daemon runs as.`,
+    );
+  }
   const environ = read('environment', () => ports.readEnviron(pid));
   const daemonEnv = Object.fromEntries(entries(environ, '\0'));
   // The paths the daemon resolved: a relative BOARD_HOME or HOME counts from its working
