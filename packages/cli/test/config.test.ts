@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { DEFAULT_HTTP_PORT } from '@spur-board/contracts';
 import {
+  configFile,
   dataDirectory,
   findTokenFile,
   loadClientConfig,
@@ -108,6 +109,12 @@ describe('data directory', () => {
     ['no variables', {}, '/home/op/.local/share/spur-board'],
   ] as const)('uses the daemon database directory for %s', (_name, env, expected) => {
     expect(dataDirectory(env, '/home/op')).toBe(expected);
+  });
+
+  it('resolves a relative BOARD_HOME from the given working directory', () => {
+    expect(dataDirectory({ BOARD_HOME: 'board' }, '/home/op', '/srv')).toBe('/srv/board');
+    expect(configFile({ BOARD_HOME: 'board' }, '/home/op', '/srv')).toBe('/srv/board/config.yaml');
+    expect(dataDirectory({ BOARD_HOME: '/abs' }, '/home/op', '/srv')).toBe('/abs');
   });
 });
 

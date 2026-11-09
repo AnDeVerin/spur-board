@@ -19,8 +19,8 @@ import {
 } from 'node:fs';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { tmpdir } from 'node:os';
-import { dirname, join, relative } from 'node:path';
+import { tmpdir, userInfo } from 'node:os';
+import { basename, dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { runCli } from '../src/cli.ts';
@@ -68,6 +68,8 @@ const doctorResult = (checks: Check[]): CommandResult => ({
 interface Behaviour {
   show: () => CommandResult;
   environ: (pid: number) => string;
+  /** The working directory of a process, as `/proc/<pid>/cwd` links to it. */
+  cwd: (pid: number) => string;
   view: () => CommandResult;
   dryRun: () => CommandResult;
   install: () => CommandResult;
@@ -216,10 +218,12 @@ async function stand() {
   const backupDirs: { exists: boolean; directory: boolean; mode: number; state: string }[] = [];
   const clock = { t: Date.parse('2026-11-09T10:00:00.000Z') };
   const environPids: number[] = [];
+  const cwdPids: number[] = [];
 
   const behaviour: Behaviour = {
     show: () => ok(showOutput(unitPaths)),
     environ: () => environText({ BOARD_HOME: boardHome, HOME: home, PATH: '/usr/bin' }),
+    cwd: () => home,
     view: () => ok('"1.1.0"\n'),
     dryRun: () => ok(),
     install: () => {
@@ -308,6 +312,10 @@ async function stand() {
       environPids.push(pid);
       return behaviour.environ(pid);
     },
+    readCwd: (pid) => {
+      cwdPids.push(pid);
+      return behaviour.cwd(pid);
+    },
     now: () => clock.t,
     sleep: async (ms) => {
       events.push(`sleep ${String(ms)}`);
@@ -362,6 +370,7 @@ async function stand() {
     counts,
     backupDirs,
     environPids,
+    cwdPids,
     hooks,
     ports,
     run,
@@ -409,7 +418,12 @@ const runner = async (command, args, options) => {
 await runCli(['--json', 'update'], {
   env,
   home: setup.home,
-  update: { runner, packageRoot: setup.packageRoot, readEnviron: () => setup.environ },
+  update: {
+    runner,
+    packageRoot: setup.packageRoot,
+    readEnviron: () => setup.environ,
+    readCwd: () => setup.home,
+  },
   io: { isTTY: false, stdout: () => {}, stderr: (text) => process.stderr.write(text) },
 });
 `;
@@ -453,6 +467,7 @@ describe('board update', () => {
       '--property=MainPID,ExecStart',
     ]);
     expect(s.environPids).toEqual([4242]);
+    expect(s.cwdPids).toEqual([4242]);
     expect(s.calls.find((call) => call.label === 'copy-database')?.args).toEqual([
       s.bin,
       'copy-database',
@@ -514,6 +529,29 @@ describe('board update', () => {
         BOARD_HOME: s.env['BOARD_HOME'] ?? '',
         XDG_DATA_HOME: '/data',
       });
+    const result = await s.run(['--json', 'update']);
+
+    expect(result.exit, result.stderr).toBe(0);
+  });
+
+  it("U1d: resolves a relative daemon BOARD_HOME against the daemon's working directory", async () => {
+    const s = await stand();
+    const boardHome = s.env['BOARD_HOME'] ?? '';
+    s.behaviour.environ = () => environText({ BOARD_HOME: basename(boardHome), HOME: s.home });
+    s.behaviour.cwd = () => dirname(boardHome);
+    const result = await s.run(['--json', 'update']);
+
+    expect(result.exit, result.stderr).toBe(0);
+  });
+
+  it('U1e: ignores relative XDG directories in the daemon environment, as the daemon does', async () => {
+    const s = await stand();
+    delete s.env['BOARD_HOME'];
+    const paths = servicePaths({ ...s.unitPaths, env: s.env, home: s.home });
+    writeFileSync(s.unitPaths.unitFile, renderUserUnit({ ...s.unitPaths, ...paths }));
+    s.behaviour.environ = () =>
+      environText({ HOME: s.home, XDG_CONFIG_HOME: 'config', XDG_DATA_HOME: 'data' });
+    s.behaviour.cwd = () => '/srv';
     const result = await s.run(['--json', 'update']);
 
     expect(result.exit, result.stderr).toBe(0);
@@ -597,6 +635,36 @@ describe('board update', () => {
         s.behaviour.environ = () => environText({ HOME: '/elsewhere' });
       },
       'uses the data directory /elsewhere/.local/share/spur-board but this shell gives',
+    ],
+    [
+      'a running service without HOME, whose passwd home differs from this shell',
+      4,
+      (s) => {
+        delete s.env['BOARD_HOME'];
+        const paths = servicePaths({ ...s.unitPaths, env: s.env, home: s.home });
+        writeFileSync(s.unitPaths.unitFile, renderUserUnit({ ...s.unitPaths, ...paths }));
+        s.behaviour.environ = () => environText({ PATH: '/usr/bin' });
+      },
+      `uses the data directory ${join(userInfo().homedir, '.local', 'share', 'spur-board')} but this shell gives`,
+    ],
+    [
+      'a running service with a relative BOARD_HOME in another working directory',
+      4,
+      (s) => {
+        s.behaviour.environ = () => environText({ BOARD_HOME: 'board', HOME: s.home });
+        s.behaviour.cwd = () => '/srv';
+      },
+      'uses the data directory /srv/board but this shell gives',
+    ],
+    [
+      'a main process whose working directory cannot be read',
+      4,
+      (s) => {
+        s.behaviour.cwd = () => {
+          throw new Error('EACCES: permission denied');
+        };
+      },
+      'Cannot read the working directory of the service',
     ],
     [
       'a running service whose drop-in starts another Node',

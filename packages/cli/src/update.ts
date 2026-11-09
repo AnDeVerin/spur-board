@@ -10,6 +10,7 @@ import {
   openSync,
   readFileSync,
   readdirSync,
+  readlinkSync,
   realpathSync,
   renameSync,
   rmSync,
@@ -18,7 +19,8 @@ import {
 } from 'node:fs';
 import { get as httpGet } from 'node:http';
 import { get as httpsGet } from 'node:https';
-import { basename, dirname, join } from 'node:path';
+import { userInfo } from 'node:os';
+import { basename, dirname, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
@@ -56,6 +58,8 @@ export interface UpdatePorts {
   doctorRecheckMs: number;
   /** The NUL-separated environment of a running process, from `/proc/<pid>/environ`. */
   readEnviron: (pid: number) => string;
+  /** The working directory of a running process, the target of `/proc/<pid>/cwd`. */
+  readCwd: (pid: number) => string;
   sleep: (ms: number) => Promise<void>;
   now: () => number;
 }
@@ -118,6 +122,7 @@ function defaultPorts(): UpdatePorts {
     lockWaitMs: 20_000,
     doctorRecheckMs: 6_000,
     readEnviron: (pid) => readFileSync(`/proc/${String(pid)}/environ`, 'utf8'),
+    readCwd: (pid) => readlinkSync(`/proc/${String(pid)}/cwd`),
     sleep: (ms) =>
       new Promise((resolve) => {
         setTimeout(resolve, ms);
@@ -297,7 +302,8 @@ function entries(text: string, separator: string): Map<string, string> {
 /**
  * Checks the daemon the service runs, drop-ins, `EnvironmentFile` and `UnsetEnvironment`
  * included: the `argv[]` of the loaded `ExecStart`, then the config file and data directory its
- * main process resolves from its own environment, compared with this shell's.
+ * main process resolves from its own environment, home and working directory, compared with
+ * this shell's.
  */
 async function checkRunningService(
   ports: UpdatePorts,
@@ -329,24 +335,28 @@ async function checkRunningService(
       `The service has no main process (MainPID=${mainPid || 'not shown'}); Board update needs a running service. Check \`board service status\`.`,
     );
   }
-  let environment: Map<string, string>;
-  try {
-    environment = entries(ports.readEnviron(pid), '\0');
-  } catch (error) {
-    throw config(
-      `Cannot read the environment of the service's main process ${String(pid)}: ${detailOf(error)}. Board update reads it to check which database the daemon uses.`,
-    );
-  }
-  const daemonEnv = Object.fromEntries(environment);
-  // Without HOME the daemon's os.homedir() reads the passwd entry; this shell's home stands in.
-  const daemonHome = daemonEnv['HOME'] || options.home;
+  const read = (what: string, value: () => string): string => {
+    try {
+      return value();
+    } catch (error) {
+      throw config(
+        `Cannot read the ${what} of the service's main process ${String(pid)}: ${detailOf(error)}. Board update reads it to check which database the daemon uses.`,
+      );
+    }
+  };
+  const environ = read('environment', () => ports.readEnviron(pid));
+  const daemonEnv = Object.fromEntries(entries(environ, '\0'));
+  // The paths the daemon resolved: a relative BOARD_HOME or HOME counts from its working
+  // directory, and without HOME its os.homedir() reads the passwd entry of this same user.
+  const cwd = read('working directory', () => ports.readCwd(pid));
+  const daemonHome = resolve(
+    cwd,
+    daemonEnv['HOME'] ?? read('passwd home directory', () => userInfo().homedir),
+  );
+  const home = resolve(options.home);
   const pairs = [
-    [
-      'data directory',
-      dataDirectory(daemonEnv, daemonHome),
-      dataDirectory(options.env, options.home),
-    ],
-    ['config file', configFile(daemonEnv, daemonHome), configFile(options.env, options.home)],
+    ['data directory', dataDirectory(daemonEnv, daemonHome, cwd), dataDirectory(options.env, home)],
+    ['config file', configFile(daemonEnv, daemonHome, cwd), configFile(options.env, home)],
   ] as const;
   for (const [what, daemon, shell] of pairs) {
     if (daemon !== shell) {
