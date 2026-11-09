@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { configSchema } from '@spur-board/contracts';
 import { afterEach, describe, expect, it } from 'vitest';
-import { enqueueLiveAfterFirstPoll } from '../../src/app/doctor.ts';
+import { enqueueLiveAfterFirstPoll, firstPollDone } from '../../src/app/doctor.ts';
 import { scanTransaction } from '../../src/app/secrets.ts';
 import { createObservationCore, openStore, type Store } from '../../src/index.ts';
 
@@ -160,6 +160,21 @@ describe('live feed announcement', () => {
       'doctor:live:1.2.3',
       'doctor:live:1.2.4',
     ]);
+  });
+
+  it('reports the first poll done once every source that is not blind has completed', async () => {
+    const { store, core } = setup();
+    const observation = core('1.2.3');
+    const done = () => firstPollDone(store.db, config, observation.completeSince);
+    expect(await done()).toBe(false);
+    await poll(observation, sources[0]);
+    await poll(observation, sources[1], { blind: true });
+    expect(await done()).toBe(false);
+    await poll(observation, sources[2], { complete: false });
+    expect(await done()).toBe(false);
+    await poll(observation, sources[2]);
+    expect(observation.completeSince.has(sources[1])).toBe(false);
+    expect(await done()).toBe(true);
   });
 
   it('rolls back the marker and feed row with the observation transaction', async () => {

@@ -1,5 +1,6 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import type BetterSqlite3 from 'better-sqlite3';
+import { copyDatabase } from './copy.ts';
 
 /** One numbered SQL file. `name` is the file name without `.sql`, e.g. `0001_init`. */
 export interface Migration {
@@ -75,7 +76,7 @@ export function assertNotNewer(db: BetterSqlite3.Database, target: number): numb
  * Brings `db` to the last version in `migrations`. The version lives only in
  * `PRAGMA user_version`. A database newer than the code is refused before any write. Unless
  * the file is new and empty, a database with pending migrations is first copied with
- * `VACUUM INTO`. All pending migrations then run in one `BEGIN IMMEDIATE` transaction with
+ * `copyDatabase`. All pending migrations then run in one `BEGIN IMMEDIATE` transaction with
  * foreign keys off, and `foreign_key_check` must come back empty before `COMMIT`; any error
  * rolls everything back.
  */
@@ -95,7 +96,7 @@ export function migrate(
   const empty = db.prepare('SELECT count(*) FROM sqlite_schema').pluck().get() === 0;
   if (!empty) {
     backup = backupPath(db.name, from);
-    db.prepare('VACUUM INTO ?').run(backup);
+    copyDatabase(db, backup);
   }
   const kept = `database kept at v${String(from)}${backup === null ? '' : `, backup at ${backup}`}`;
 

@@ -1,5 +1,6 @@
 export { openStore, type Store } from './store/store.ts';
 export type { MigrationResult } from './store/migrate.ts';
+export { copyDatabase } from './store/copy.ts';
 export { parseJson, toJson } from './store/json.ts';
 export type * from './store/schema.ts';
 export {
@@ -44,6 +45,7 @@ export { createMembershipMutations } from './app/membership.ts';
 export { createOperationRegistry } from './app/registry.ts';
 export { createObservationCore } from './app/observe.ts';
 export { getStatus } from './app/status.ts';
+export { firstPollDone } from './app/doctor.ts';
 export { tickBoard } from './app/tick.ts';
 export { createInbound, getOperatorItem, type Inbound } from './app/inbound.ts';
 export {

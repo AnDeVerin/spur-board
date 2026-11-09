@@ -189,6 +189,7 @@ describe('migrate', () => {
     cleanup.push(() => backup.close());
     expect(userVersion(backup)).toBe(latest);
     expectSampleRows(backup);
+    expect(readdirSync(dir).some((name) => name.endsWith('.partial'))).toBe(false);
   });
 
   it('rolls back every pending migration when one throws and keeps the backup', async () => {

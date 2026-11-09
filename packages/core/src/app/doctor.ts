@@ -17,6 +17,26 @@ function doctorSources(config: Config): ReadonlySet<string> {
 }
 
 /**
+ * True once every configured source that is not blind has had a complete poll in this process.
+ * A blind source never completes, so it is left out rather than holding the answer false.
+ */
+export async function firstPollDone(
+  db: Trx,
+  config: Config,
+  completeSince: ReadonlyMap<string, string>,
+): Promise<boolean> {
+  const states = await db
+    .selectFrom('source_state')
+    .select('source')
+    .where('blind_reason', 'is not', null)
+    .execute();
+  const blind = new Set(states.map((state) => state.source));
+  return [...doctorSources(config)].every(
+    (source) => blind.has(source) || completeSince.has(source),
+  );
+}
+
+/**
  * Called from an accepted observation's transaction after board and item reconciliation.
  * The version marker and feed row share that transaction with the source-state update.
  */

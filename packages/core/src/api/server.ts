@@ -24,6 +24,8 @@ export interface ApiOptions extends IdentityPorts {
   readonly registry: OperationRegistry;
   readonly afterOperation?: (response: ServerResponse) => void | Promise<void>;
   readonly doctor?: () => Promise<DoctorReport>;
+  /** Whether every non-blind source has completed a poll; read per request, with no probes. */
+  readonly firstPollDone?: () => Promise<boolean>;
   readonly logRequest: (entry: {
     requestId: string;
     method: string;
@@ -174,6 +176,13 @@ export async function createApiServer(options: ApiOptions): Promise<FastifyInsta
     } finally {
       doctorInFlight = null;
     }
+  });
+
+  app.get('/v1/health', async (_request, reply) => {
+    if (!options.ready()) throw new CommandError('starting', 'Wait until the daemon is ready.');
+    if (options.firstPollDone === undefined)
+      throw new CommandError('not_found', 'Health is unavailable.');
+    return reply.send({ firstPollDone: await options.firstPollDone() });
   });
 
   app.post('/v1/tokens/requests', async (request, reply) => {
