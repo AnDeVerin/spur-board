@@ -17,6 +17,7 @@ import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { configSchema } from '@spur-board/contracts';
 import { openStore } from '@spur-board/core';
+import { acquireLock } from '@spur-board/daemon/in-process';
 import { sql } from 'kysely';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import YAML from 'yaml';
@@ -387,25 +388,42 @@ describe('stand', () => {
     }
   }, 60_000);
 
-  it('aborts reset and keeps every file when the daemon does not stop cleanly', async () => {
-    // A board tick that never settles keeps the daemon from stopping within its timeout.
+  it('aborts reset, keeps every file and waits for the old daemon to let go', async () => {
+    // A board tick that stalls until released keeps the daemon from stopping within its timeout.
+    let release: () => void = () => undefined;
+    const stalled = new Promise<void>((resolve) => {
+      release = resolve;
+    });
     stand = await startStand({
       root,
       port: 0,
       env: {},
       osHome,
       shutdownTimeoutMs: 300,
-      tick: () => new Promise<void>(() => undefined),
+      tick: () => stalled,
     });
-    const manifest = stand.manifest();
+    const current = stand;
+    const manifest = current.manifest();
     await waitFor(manifest, 'api-ready');
     const files = ['config.yaml', 'secrets.env', 'token', 'board.sqlite'];
     const before = files.map((name) => statSync(join(manifest.home, name)).ino);
     const result = await control(manifest, '/reset');
     expect(result.status).toBe(500);
     expect(JSON.stringify(result.body)).toContain('did not stop cleanly');
-    expect(await stand.exited).toBe(1);
     expect(files.map((name) => statSync(join(manifest.home, name)).ino)).toEqual(before);
+
+    // The old daemon still tears down: the stand has not exited and the lock is still held.
+    let exited: number | undefined;
+    void current.exited.then((code) => {
+      exited = code;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(exited).toBeUndefined();
+    expect(() => acquireLock(join(manifest.home, 'board.lock'))).toThrow();
+
+    release();
+    expect(await current.exited).toBe(1);
+    acquireLock(join(manifest.home, 'board.lock')).release();
   }, 60_000);
 
   it('poll reports every source', async () => {

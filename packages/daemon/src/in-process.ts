@@ -39,6 +39,13 @@ export interface InProcessDaemon {
   stop(): Promise<number>;
   /** Resolves with the exit code whenever the daemon exits, on its own or through `stop`. */
   readonly exited: Promise<number>;
+  /**
+   * Resolves once the daemon holds nothing: after a `stop`, when module teardown, store close
+   * and lock release have finished, even if the shutdown timeout made `stop` resolve earlier.
+   * An exit nobody asked for (a fatal error, a failed start) leaves no shutdown running, so it
+   * resolves at that exit.
+   */
+  readonly teardown: Promise<void>;
 }
 
 /**
@@ -56,6 +63,12 @@ export async function startInProcessDaemon(options: InProcessOptions): Promise<I
   const exited = new Promise<number>((resolve) => {
     resolveExit = resolve;
   });
+  let lockHeld = false;
+  let stopRequested = false;
+  let resolveTeardown: () => void = () => undefined;
+  const teardown = new Promise<void>((resolve) => {
+    resolveTeardown = resolve;
+  });
   const port: ProcessPort = {
     onSignal(handler) {
       signal = handler;
@@ -66,6 +79,7 @@ export async function startInProcessDaemon(options: InProcessOptions): Promise<I
     exit(code) {
       exitCode ??= code;
       resolveExit(code);
+      if (!lockHeld || !stopRequested) resolveTeardown();
     },
     writeErr: (text) => {
       options.writeErr(text);
@@ -73,14 +87,31 @@ export async function startInProcessDaemon(options: InProcessOptions): Promise<I
   };
   const stop = (): Promise<number> => {
     if (stopping !== undefined) return stopping;
-    if (exitCode === undefined) signal?.('SIGTERM');
+    if (exitCode === undefined && signal !== undefined) {
+      stopRequested = true;
+      signal('SIGTERM');
+    }
     stopping = exited;
     return stopping;
   };
   const onListening = options.ports?.onListening;
   await runDaemon<Store>({
     paths: options.paths,
-    acquireLock: (file) => options.acquireLock(file),
+    acquireLock: (file) => {
+      const lock = options.acquireLock(file);
+      lockHeld = true;
+      return {
+        // The shutdown releases the lock last, after module teardown and store close.
+        release() {
+          try {
+            lock.release();
+          } finally {
+            lockHeld = false;
+            resolveTeardown();
+          }
+        },
+      };
+    },
     loadConfig: (paths) => options.loadConfig(paths),
     openStore: (file) => {
       store = openStore(file);
@@ -118,5 +149,6 @@ export async function startInProcessDaemon(options: InProcessOptions): Promise<I
     tick: modules.tick,
     stop,
     exited,
+    teardown,
   };
 }

@@ -496,7 +496,7 @@ export async function startStand(options: StandOptions): Promise<Stand> {
         const code = await running.daemon.stop();
         if (code !== 0) {
           // The old daemon may still hold the store and its lock: leave every file as it is.
-          void stop(1);
+          void stop(1, running.daemon);
           return {
             status: 500,
             body: {
@@ -517,12 +517,17 @@ export async function startStand(options: StandOptions): Promise<Stand> {
     },
   };
 
-  function stop(code?: number): Promise<number> {
+  /**
+   * Stops the stand once. `stalled` is a daemon reset already stopped whose teardown may still run;
+   * the log stays open and `exited` waits until every daemon has released its store and lock.
+   */
+  function stop(code?: number, stalled?: InProcessDaemon): Promise<number> {
     stopping ??= (async () => {
       await control?.close();
       const running = current;
       current = undefined;
       const daemonCode = running === undefined ? 0 : await running.daemon.stop();
+      await Promise.all([running?.daemon.teardown, stalled?.teardown]);
       closeSync(logFd);
       const result = code ?? daemonCode;
       resolveExited(result);
