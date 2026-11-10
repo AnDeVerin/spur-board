@@ -61,8 +61,20 @@ describe('journal insert lint rule', () => {
     30_000,
   );
 
+  // A no-substitution template literal keeps its text in `quasis`, not `value`.
+  it.each(['packages/core/src/app/x.ts', 'packages/daemon/src/x.ts'])(
+    'a template-literal event insert in %s reports no-restricted-syntax',
+    async (path) => {
+      const code = 'export const q = trx.insertInto(`event`);';
+      expect(await textRuleIds(code, path)).toEqual(['no-restricted-syntax']);
+    },
+    30_000,
+  );
+
   it.each([
     ['packages/core/src/app/board-utils.ts', insert],
+    ['packages/core/src/app/board-utils.ts', 'export const q = trx.insertInto(`event`);'],
+    ['packages/core/src/app/x.ts', 'export const q = trx.insertInto(`task`);'],
     ['packages/core/src/app/x.ts', "export const q = trx.insertInto('task');"],
   ])(
     '%s passes %s',

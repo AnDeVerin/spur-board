@@ -71,9 +71,10 @@ const sqliteImportOptions = {
 };
 
 // One journal writer: `emit` fills `request_id` from the command scope, so no other module
-// inserts into the `event` table.
+// inserts into the `event` table. A template literal keeps its text in `quasis`, not `value`.
 const journalInsertBan = {
-  selector: "CallExpression[callee.property.name='insertInto'][arguments.0.value='event']",
+  selector:
+    "CallExpression[callee.property.name='insertInto']:matches([arguments.0.value='event'], [arguments.0.type='TemplateLiteral'][arguments.0.expressions.length=0][arguments.0.quasis.0.value.cooked='event'])",
   message: 'Write journal events only through emit in packages/core/src/app/board-utils.ts.',
 };
 
