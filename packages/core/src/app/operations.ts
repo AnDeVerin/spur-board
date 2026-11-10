@@ -10,13 +10,20 @@ type QueryId = Extract<CatalogEntry, { kind: 'query' }>['id'];
 type MutationEntry = Extract<CatalogEntry, { kind: 'mutation' }>;
 type QueryEntry = Extract<CatalogEntry, { kind: 'query' }>;
 
-export type OperationRegistry = Partial<{
+/** One handler per catalog operation; `createOperationRegistry` returns this total map. */
+export type OperationHandlers = {
   [Id in OperationId]: Id extends QueryId
     ? Query<Id>
     : Id extends MutationId
       ? Mutation<Id>
       : never;
-}>;
+};
+
+/**
+ * What transports accept: a partial map. `dispatchOperation` answers `not_implemented` when the
+ * requested handler is missing or has a mismatched `id`.
+ */
+export type OperationRegistry = Partial<OperationHandlers>;
 
 /** One app-layer dispatch for local HTTP and gateway interactions. */
 export async function dispatchOperation(

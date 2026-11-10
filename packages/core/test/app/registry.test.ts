@@ -3,7 +3,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { OPERATIONS, configSchema, roleCanUseOperation } from '@spur-board/contracts';
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, expectTypeOf, it } from 'vitest';
 import {
   createObservationCore,
   createOperationRegistry,
@@ -12,6 +12,7 @@ import {
   type Store,
 } from '../../src/index.ts';
 import { raiseItem } from '../../src/app/feed.ts';
+import type { OperationHandlers } from '../../src/app/operations.ts';
 
 const config = configSchema.parse({
   projects: [
@@ -37,6 +38,14 @@ const clock = { now: () => Date.parse('2026-11-04T08:00:00.000Z') };
 const stores: Store[] = [];
 afterEach(async () => {
   for (const store of stores.splice(0)) await store.close();
+});
+
+it('registers one handler with a matching id for every catalog operation', () => {
+  const registry = createOperationRegistry({ config, clock, completeSince: new Map() });
+  expectTypeOf(registry).toEqualTypeOf<OperationHandlers>();
+  expectTypeOf<Omit<OperationHandlers, 'item.close'>>().not.toExtend<OperationHandlers>();
+  expect(Object.keys(registry).sort()).toEqual(OPERATIONS.map(({ id }) => id).sort());
+  for (const { id } of OPERATIONS) expect(registry[id].id).toBe(id);
 });
 
 it('registers status and limits an agent to its configured project', async () => {
@@ -78,7 +87,6 @@ it('registers status and limits an agent to its configured project', async () =>
   }
   const registry = createOperationRegistry({ config, clock, completeSince: new Map() });
   const status = registry['status.get'];
-  if (status === undefined) throw new Error('Status handler was not registered');
   const query = createQuery({ store, config, clock });
   const agent = 'agent:first-worker/session-1' as const;
   const visible = await query(status, {}, agent);
@@ -94,7 +102,6 @@ it('registers status and limits an agent to its configured project', async () =>
   expect(operator.tasks.map((task) => task.key).sort()).toEqual(['o/first#1', 'o/second#2']);
   expect(operator.items).toHaveLength(2);
   const schema = registry['schema.get'];
-  if (schema === undefined) throw new Error('Schema handler was not registered');
   const catalog = await query(schema, { role: 'worker' }, agent);
   expect(catalog.version).toMatch(/^[0-9a-f]{64}$/);
   expect(catalog.operations.map(({ id, cli }) => [id, cli.command])).toEqual(
@@ -126,7 +133,6 @@ it('keeps board-wide items from a project agent on a one-project board', async (
   });
   const registry = createOperationRegistry({ config: oneProject, clock, completeSince: new Map() });
   const status = registry['status.get'];
-  if (status === undefined) throw new Error('Status handler was not registered');
   const query = createQuery({ store, config: oneProject, clock });
   const agent = await query(status, {}, 'agent:first-worker/session-1');
   expect(agent.items).toEqual([]);
@@ -170,7 +176,6 @@ it('reports transport state per gateway and keeps the health item board-wide', a
     gateways: ['slack'],
   });
   const status = registry['status.get'];
-  if (status === undefined) throw new Error('Status handler was not registered');
   const query = createQuery({ store, config, clock });
   const down = {
     gateway: 'slack',
@@ -408,7 +413,6 @@ it('keeps the default status for 100 tasks under the budget and lists every item
   });
   const registry = createOperationRegistry({ config, clock, completeSince: new Map() });
   const status = registry['status.get'];
-  if (status === undefined) throw new Error('Status handler was not registered');
   const query = createQuery({ store, config, clock });
 
   const result = await query(status, {}, 'operator');
@@ -669,7 +673,6 @@ async function seedUnlinkedAges(store: Store, confirmedAbsent: boolean) {
   });
   const registry = createOperationRegistry({ config, clock, completeSince: new Map() });
   const status = registry['status.get'];
-  if (status === undefined) throw new Error('Status handler was not registered');
   const query = createQuery({ store, config, clock });
   return (input: { project?: string; detail?: boolean }) => query(status, input, 'operator');
 }
