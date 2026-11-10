@@ -23,7 +23,6 @@ import {
   MANIFEST_FILE,
   prune,
   procStat,
-  readManifest,
   removeStand,
   STAND_PREFIX,
   standAt,
@@ -174,23 +173,45 @@ async function up(port: number): Promise<number> {
     [SELF, 'up', '--foreground', '--detached', '--home', home, '--port', String(port)],
     { detached: true, env: standEnv(process.env), stdio: ['ignore', log, log] },
   );
-  let exitCode: number | null | undefined;
-  child.on('exit', (code) => {
-    exitCode = code;
+  let exitSeen = false;
+  // A function, so each check after an await reads the flag anew.
+  const exited = (): boolean => exitSeen;
+  const exit = new Promise<void>((resolve) => {
+    child.once('exit', () => {
+      exitSeen = true;
+      resolve();
+    });
   });
   child.unref();
   const deadline = Date.now() + UP_TIMEOUT_MS;
-  while (Date.now() < deadline && exitCode === undefined) {
-    const manifest = readManifest(home);
+  while (Date.now() < deadline && !exited()) {
+    const manifest = standAt(home, dir);
     if (manifest !== undefined) {
       out(`${JSON.stringify(publicView(manifest))}\n`);
       return 0;
     }
     await sleep(100);
   }
-  err(`The stand did not start${exitCode === undefined ? ' in time' : ''}. Log:\n`);
+  err(`The stand did not start${exited() ? '' : ' in time'}. Log:\n`);
   err(`${readFileSync(logFile, 'utf8').split('\n').slice(-30).join('\n')}\n`);
-  if (exitCode === undefined && child.pid !== undefined) process.kill(-child.pid, 'SIGTERM');
+  // The child may be writing to its home right now: it must be gone before the home is removed.
+  const killGroup = (signal: NodeJS.Signals): void => {
+    if (exited() || child.pid === undefined) return;
+    try {
+      process.kill(-child.pid, signal);
+    } catch {
+      // The group is already gone.
+    }
+  };
+  const exitWithin = (ms: number): Promise<void> => Promise.race([exit, sleep(ms)]);
+  killGroup('SIGTERM');
+  await exitWithin(DOWN_TIMEOUT_MS);
+  killGroup('SIGKILL');
+  await exitWithin(5_000);
+  if (!exited()) {
+    err(`Kept ${home}: the stand process ${String(child.pid)} did not exit.\n`);
+    return 1;
+  }
   // This invocation created the home, so it removes it; it has no manifest for removeStand.
   if (isStandDir(home, dir)) rmSync(home, { recursive: true, force: true });
   return 1;
