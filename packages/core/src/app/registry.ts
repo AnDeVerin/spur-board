@@ -9,7 +9,7 @@ import { createBlockMutations } from './blocks.ts';
 import { createItemMutations, type ReapplyInbound } from './items.ts';
 import { createLinkMutations } from './links.ts';
 import { createMembershipMutations } from './membership.ts';
-import type { OperationRegistry } from './operations.ts';
+import type { OperationHandlers } from './operations.ts';
 import type { Query } from './queries.ts';
 import { getStatus } from './status.ts';
 import { createTaskQueries, projectTargets, visibleProjects } from './task-queries.ts';
@@ -26,7 +26,7 @@ export function createOperationRegistry(deps: {
   gateways?: readonly string[];
   /** Read at operation time: inbound is built after the registry and may be absent. */
   reapplyInbound?: () => ReapplyInbound | undefined;
-}): OperationRegistry {
+}): OperationHandlers {
   const { config, clock, completeSince, gateways } = deps;
   const items = createItemMutations(deps);
   const membership = createMembershipMutations(config);

@@ -130,7 +130,6 @@ async function setup(options: { inbound?: boolean; worker?: boolean } = {}) {
   });
   const retry = registry['item.retry'];
   const close = registry['item.close'];
-  if (retry === undefined || close === undefined) throw new Error('Item handlers missing');
   return {
     store,
     gateway,
