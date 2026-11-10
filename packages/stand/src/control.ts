@@ -5,6 +5,8 @@ import type { AddressInfo } from 'node:net';
 const MAX_BODY = 64 * 1024;
 /** A body still arriving after this is dropped, so a slow client cannot hold a route or close. */
 const BODY_TIMEOUT_MS = 10_000;
+/** How long close waits for answers to flush before it drops their connections. */
+const FLUSH_TIMEOUT_MS = 2_000;
 /** The longest `wait` the server runs, whatever the request asks. */
 export const MAX_WAIT_MS = 600_000;
 
@@ -85,6 +87,8 @@ const ROUTES = new Set(['/wait', '/poll', '/reset']);
 export async function startControl(options: {
   token: string;
   routes: ControlRoutes;
+  /** Called when the server starts reading a request body; a test seam. */
+  onBodyRead?: (path: string) => void;
 }): Promise<Control> {
   const expected = digest(`Bearer ${options.token}`);
   let tail: Promise<unknown> = Promise.resolve();
@@ -113,6 +117,7 @@ export async function startControl(options: {
     const path = request.url ?? '';
     if (request.method !== 'POST' || !ROUTES.has(path)) throw new HttpError(404, 'Unknown route.');
     reading.add(request);
+    options.onBodyRead?.(path);
     let body: Record<string, unknown>;
     try {
       body = await readJson(request);
@@ -189,7 +194,15 @@ export async function startControl(options: {
           request.destroy(new HttpError(503, 'The stand is stopping.'));
         await tail;
         waits.abort();
-        await Promise.all([...open]);
+        // A client that stops reading its answer cannot hold shutdown past the flush bound.
+        let bound: ReturnType<typeof setTimeout> | undefined;
+        await Promise.race([
+          Promise.all([...open]),
+          new Promise<void>((resolve) => {
+            bound = setTimeout(resolve, FLUSH_TIMEOUT_MS);
+          }),
+        ]);
+        clearTimeout(bound);
         await new Promise<void>((resolve) => {
           server.close(() => {
             resolve();

@@ -1,4 +1,5 @@
 import { request } from 'node:http';
+import { connect } from 'node:net';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   callLocal,
@@ -186,12 +187,18 @@ describe('control endpoint', () => {
 
   it('drops a request whose body is still arriving when close begins', async () => {
     const reset = vi.fn(() => Promise.resolve({ status: 200, body: {} }));
-    control = await startControl({ token: TOKEN, routes: { wait: vi.fn(), poll: vi.fn(), reset } });
-    const url = new URL(`${control.url}/reset`);
-    let arrived: () => void = () => undefined;
-    const reached = new Promise<void>((resolve) => {
-      arrived = resolve;
+    let reading: () => void = () => undefined;
+    const bodyRead = new Promise<void>((resolve) => {
+      reading = resolve;
     });
+    control = await startControl({
+      token: TOKEN,
+      routes: { wait: vi.fn(), poll: vi.fn(), reset },
+      onBodyRead: () => {
+        reading();
+      },
+    });
+    const url = new URL(`${control.url}/reset`);
     const req = request({
       host: url.hostname,
       port: url.port,
@@ -211,16 +218,56 @@ describe('control endpoint', () => {
         resolve(response.statusCode);
       });
     });
-    req.write('{', () => {
-      arrived();
-    });
-    await reached;
-    // Give the server time to parse the headers and start reading the body.
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    req.write('{');
+    // The server is inside the body read when close begins.
+    await bodyRead;
     await control.close();
     expect(await failed).not.toBe(200);
     expect(reset).not.toHaveBeenCalled();
   });
+
+  it('drops a connection whose client stops reading the answer once the flush bound passes', async () => {
+    let answered: () => void = () => undefined;
+    const answering = new Promise<void>((resolve) => {
+      answered = resolve;
+    });
+    control = await startControl({
+      token: TOKEN,
+      routes: {
+        wait: () => {
+          answered();
+          // Far larger than the socket buffers, so it cannot flush to a client that reads nothing.
+          return Promise.resolve({
+            status: 504,
+            body: { diagnostics: 'x'.repeat(32 * 1024 * 1024) },
+          });
+        },
+        poll: vi.fn(),
+        reset: vi.fn(),
+      },
+    });
+    const url = new URL(control.url);
+    const body = JSON.stringify({ condition: 'x', timeoutMs: 1 });
+    const socket = connect(Number(url.port), '127.0.0.1');
+    socket.on('error', () => undefined);
+    socket.pause();
+    socket.write(
+      [
+        'POST /wait HTTP/1.1',
+        `host: ${url.host}`,
+        `authorization: Bearer ${TOKEN}`,
+        'content-type: application/json',
+        `content-length: ${String(body.length)}`,
+        '',
+        body,
+      ].join('\r\n'),
+    );
+    await answering;
+    const started = Date.now();
+    await control.close();
+    expect(Date.now() - started).toBeLessThan(4_000);
+    socket.destroy();
+  }, 10_000);
 
   it('calls the control endpoint directly and refuses a host other than 127.0.0.1', async () => {
     control = await startControl({
