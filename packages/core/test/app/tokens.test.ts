@@ -4,8 +4,10 @@ import { createHash } from 'node:crypto';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { createFakeGateway } from '@spur-board/gateway-testkit';
 import { afterEach, describe, expect, it } from 'vitest';
-import { openStore, type Store } from '../../src/index.ts';
+import { createSender, openStore, type Store } from '../../src/index.ts';
+import { raiseItem } from '../../src/app/feed.ts';
 import {
   decideTokenInTransaction,
   expirePendingTokens,
@@ -14,6 +16,7 @@ import {
   tokenRevokeMutation,
   verifyOperatorToken,
 } from '../../src/app/tokens.ts';
+import { observeGateway } from '../support/observe.ts';
 import { testConfig } from '../support/config.ts';
 
 const AT = new Date('2026-11-04T10:00:00.000Z');
@@ -229,6 +232,60 @@ describe('operator token lifecycle', () => {
       ),
     ).toEqual({ name: 'desk', status: 'expired' });
     expect(await verifyOperatorToken(store, SECRET)).toBeNull();
+    expect(
+      await store.db
+        .selectFrom('event')
+        .select('kind')
+        .where('kind', '=', 'token_expired')
+        .execute(),
+    ).toHaveLength(1);
+  });
+
+  it('expires a request at send time instead of posting its approval after expiry', async () => {
+    const file = join(mkdtempSync(join(tmpdir(), 'core-token-')), 'board.db');
+    const store = openStore(file);
+    stores.push(store);
+    await enroll(store);
+    await scanTransaction(store, testConfig, (trx) =>
+      raiseItem(trx, {
+        itemKey: 'other',
+        kind: 'worker_not_reading',
+        text: 'Unrelated item',
+        url: '',
+        taskId: null,
+        blockId: null,
+        at: AT,
+      }),
+    );
+    // No expiry sweep runs: the sender alone must keep the stale approval off the feed.
+    const late = new Date(AT.getTime() + 15 * 60 * 1000);
+    const observed = observeGateway(createFakeGateway({ profile: 'slack-like' }), file);
+    const sender = createSender({
+      config: testConfig,
+      store,
+      gateway: observed.gateway,
+      spur: { send: () => Promise.resolve() },
+      now: () => late,
+      spaceIntervalMs: 0,
+    });
+    for (let i = 0; i < 3; i++) await sender.tick();
+    expect(observed.requests).toHaveLength(1);
+    expect(JSON.stringify(observed.requests[0]?.body)).toContain('Unrelated item');
+    expect(
+      await store.db.selectFrom('operator_token').select(['status', 'decided_at']).execute(),
+    ).toEqual([{ status: 'expired', decided_at: late.toISOString() }]);
+    expect(
+      await store.db
+        .selectFrom('outbox')
+        .select(['dedupe_key', 'state'])
+        .where('dedupe_key', 'like', '%token:desk%')
+        .orderBy('id')
+        .execute(),
+    ).toEqual([
+      { dedupe_key: expect.stringContaining('token:desk') as unknown, state: 'dead' },
+      { dedupe_key: 'feed.line.edit:token:desk:1', state: 'dead' },
+    ]);
+    expect(await expirePendingTokens(store, testConfig, late)).toBe(0);
     expect(
       await store.db
         .selectFrom('event')

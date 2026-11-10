@@ -16,6 +16,7 @@ import { sql, type Kysely } from 'kysely';
 import type { Store } from '../store/store.ts';
 import type { Row, Tables } from '../store/schema.ts';
 import { recordRingDelivery, ringStillCurrent, ringTask, ringUndelivered } from './doorbells.ts';
+import { expireTokenOfItem } from './tokens.ts';
 import { clearItem, raiseItem, resolvedFeedBody } from './feed.ts';
 import {
   deliveredRefSchema,
@@ -568,6 +569,10 @@ export function createSender(options: SenderOptions): Sender {
   ): Promise<{ at: number; firstDeliveryAt: string | null; skip: boolean }> {
     const at = now().getTime();
     const sentAtIso = new Date(at).toISOString();
+    // An expired token request clears its item here, so its approval line is not posted.
+    if (c.body.kind === 'feed.line' && c.body.payload.itemId !== undefined) {
+      await expireTokenOfItem(trx, c.body.payload.itemId, new Date(at));
+    }
     if (c.body.kind === 'feed.line' && c.body.payload.itemId !== undefined && !c.maybeSent) {
       const item = await trx
         .selectFrom('operator_item')
