@@ -168,7 +168,10 @@ describe('standAt', () => {
 });
 
 describe('untrusted stand directories', () => {
-  it.each([0o770, 0o707])('keeps a dead stand whose directory has mode %o', (mode) => {
+  it.each([
+    ['770', 0o770],
+    ['707', 0o707],
+  ])('keeps a dead stand whose directory has mode %s', (_name, mode) => {
     const dir = join(root, 'spur-board-stand.wrtabl');
     stand(dir, { pid: deadPid(), pidStartTime: 1 });
     chmodSync(dir, mode);

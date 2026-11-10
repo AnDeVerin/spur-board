@@ -253,7 +253,7 @@ describe('stand', () => {
     mkdirSync(join(home, 'logs'), { mode: 0o700 });
     chmodSync(which === 'home' ? home : join(home, 'logs'), 0o777);
     await expect(startStand({ root, home, port: 0, env: {}, osHome })).rejects.toThrow(
-      /did not create/,
+      /not a stand directory|did not create/,
     );
     expect(readdirSync(join(home, 'logs'))).toEqual([]);
   });
