@@ -49,16 +49,26 @@ function within(parent: string, child: string): boolean {
   return path === '' || (path !== '..' && !path.startsWith(`..${sep}`) && !isAbsolute(path));
 }
 
-/** Names of external-service credentials set to a non-empty value, sorted. */
+/** Credential suffixes; a Spur variable with one of them holds a secret, not an identifier. */
+const SPUR_SECRET_SUFFIXES = ['_TOKEN', '_SECRET', '_PASSWORD', '_KEY'];
+
+function isExternalSecret(name: string): boolean {
+  const upper = name.toUpperCase();
+  return (
+    SECRET_NAMES.has(upper) ||
+    upper === 'BOARD_TOKEN' ||
+    SECRET_PREFIXES.some((prefix) => upper.startsWith(prefix)) ||
+    (upper.startsWith('SPUR_') && SPUR_SECRET_SUFFIXES.some((suffix) => upper.endsWith(suffix)))
+  );
+}
+
+/**
+ * Names of credentials set to a non-empty value, sorted: external services, the live board's
+ * operator token and Spur secrets. A Spur session id such as `SPUR_SESSION` is not a credential.
+ */
 function externalSecretNames(env: Env): string[] {
   return Object.keys(env)
-    .filter((name) => {
-      const upper = name.toUpperCase();
-      return (
-        (SECRET_NAMES.has(upper) || SECRET_PREFIXES.some((prefix) => upper.startsWith(prefix))) &&
-        (env[name] ?? '') !== ''
-      );
-    })
+    .filter((name) => isExternalSecret(name) && (env[name] ?? '') !== '')
     .sort();
 }
 
@@ -112,11 +122,13 @@ export function proxyRefusal(input: {
   env: Env;
   execArgv: readonly string[];
 }): StandRefusal | undefined {
-  const options = (input.env['NODE_OPTIONS'] ?? '').split(/\s+/);
+  // Node unquotes NODE_OPTIONS words, so the flag counts wherever it appears once quotes are gone.
+  const mentions = (text: string): boolean =>
+    text.replace(/["'\\]/g, '').includes('--use-env-proxy');
   if (
     (input.env['NODE_USE_ENV_PROXY'] ?? '') !== '' ||
-    input.execArgv.includes('--use-env-proxy') ||
-    options.includes('--use-env-proxy')
+    input.execArgv.some(mentions) ||
+    mentions(input.env['NODE_OPTIONS'] ?? '')
   )
     return {
       reason: 'env_proxy',

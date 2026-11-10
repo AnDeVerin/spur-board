@@ -68,6 +68,9 @@ describe('refusal', () => {
     'GH_TOKEN',
     'GH_ENTERPRISE_TOKEN',
     'GITHUB_ENTERPRISE_TOKEN',
+    'BOARD_TOKEN',
+    'SPUR_API_TOKEN',
+    'SPUR_WEBHOOK_SECRET',
   ])('refuses external_secrets for %s and names it without its value', (name) => {
     const result = refusal({ root, port: 0, env: { [name]: 'real-value-123' }, osHome });
     expect(result?.reason).toBe('external_secrets');
@@ -75,12 +78,19 @@ describe('refusal', () => {
     expect(result?.message).not.toContain('real-value-123');
   });
 
-  it('allows empty external secrets and board or session names', () => {
+  it('allows empty credentials and Spur or board names that hold no secret', () => {
     expect(
       refusal({
         root,
         port: 0,
-        env: { GITHUB_TOKEN: '', SPUR_SESSION: 's', BOARD_TOKEN: 't' },
+        env: {
+          GITHUB_TOKEN: '',
+          BOARD_TOKEN: '',
+          SPUR_SESSION: 's',
+          SPUR_PROJECT: 'p',
+          SPUR_CONFIG: '/c',
+          BOARD_DAEMON_URL: 'http://127.0.0.1:1',
+        },
         osHome,
       }),
     ).toBeUndefined();
@@ -92,6 +102,9 @@ describe('proxyRefusal', () => {
     [{ NODE_USE_ENV_PROXY: '1' }, []],
     [{ NODE_OPTIONS: '--max-old-space-size=64 --use-env-proxy' }, []],
     [{}, ['--use-env-proxy']],
+    [{ NODE_OPTIONS: '"--use-env-proxy"' }, []],
+    [{ NODE_OPTIONS: "--max-old-space-size=64 '--use-env-proxy'" }, []],
+    [{ NODE_OPTIONS: '--use-env-\\proxy' }, []],
   ])('refuses env_proxy for %j %j', (env, execArgv) => {
     expect(proxyRefusal({ env, execArgv })?.reason).toBe('env_proxy');
   });
