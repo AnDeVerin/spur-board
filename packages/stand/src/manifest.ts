@@ -14,6 +14,7 @@ import {
 } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { z } from 'zod';
+import { overlaps } from './guards.ts';
 
 export const MANIFEST_FILE = 'stand.json';
 export const STAND_PREFIX = 'spur-board-stand.';
@@ -142,23 +143,34 @@ export type RemoveResult = 'removed' | { kept: string };
  * Deletes a dead stand's directory. It must pass `isStandDir`, hold a valid manifest naming this
  * directory as its home, and the manifest's process must be gone or have another start time.
  */
-export function removeStand(dir: string, root: string): RemoveResult {
+export function removeStand(
+  dir: string,
+  root: string,
+  liveDirs: readonly string[] = [],
+): RemoveResult {
   if (!isStandDir(dir, root)) return { kept: 'not a stand directory' };
+  const real = realpathSync(dir);
+  // A live board may run from a former stand home: its directories are never removed.
+  if (liveDirs.some((live) => overlaps(live, real)))
+    return { kept: 'the live board uses this directory' };
   const manifest = readManifest(dir);
   if (manifest === undefined) return { kept: 'no valid manifest' };
-  if (manifest.home !== realpathSync(dir)) return { kept: 'the manifest names another home' };
+  if (manifest.home !== real) return { kept: 'the manifest names another home' };
   if (isLive(manifest)) return { kept: 'the stand may still run' };
   rmSync(dir, { recursive: true, force: true });
   return 'removed';
 }
 
 /** Applies `removeStand` to every `spur-board-stand.*` entry of `root`. */
-export function prune(root: string): { dir: string; result: RemoveResult }[] {
+export function prune(
+  root: string,
+  liveDirs: readonly string[] = [],
+): { dir: string; result: RemoveResult }[] {
   return readdirSync(root)
     .filter((name) => name.startsWith(STAND_PREFIX))
     .map((name) => {
       const dir = join(root, name);
-      return { dir, result: removeStand(dir, root) };
+      return { dir, result: removeStand(dir, root, liveDirs) };
     });
 }
 

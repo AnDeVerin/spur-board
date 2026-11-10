@@ -43,7 +43,9 @@ beforeEach(() => {
   base = mkdtempSync(join(tmpdir(), 'stand-it-'));
   root = join(base, 'tmp');
   osHome = join(base, 'home');
-  mkdirSync(root);
+  // Private, so the umask cannot make the root group-writable.
+  mkdirSync(root, { mode: 0o700 });
+  chmodSync(root, 0o700);
   mkdirSync(osHome);
   root = realpathSync(root);
 });

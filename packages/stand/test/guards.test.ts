@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -12,7 +12,9 @@ beforeEach(() => {
   base = mkdtempSync(join(tmpdir(), 'stand-guards-'));
   root = join(base, 'tmp');
   osHome = join(base, 'home');
-  mkdirSync(root);
+  // Private, so the umask cannot make the root group-writable.
+  mkdirSync(root, { mode: 0o700 });
+  chmodSync(root, 0o700);
   mkdirSync(osHome);
 });
 
@@ -46,6 +48,30 @@ describe('refusal', () => {
     const inside = join(osHome, '.config', 'spur-board', 'tmp');
     mkdirSync(inside, { recursive: true });
     expect(refusal({ root: inside, port: 0, env: {}, osHome })?.reason).toBe('live_home');
+  });
+
+  it.each([
+    ['777', 0o777],
+    ['775', 0o775],
+    ['757', 0o757],
+  ])('refuses unsafe_root for a root with mode %s and no sticky bit', (_name, mode) => {
+    chmodSync(root, mode);
+    expect(refusal({ root, port: 0, env: {}, osHome })?.reason).toBe('unsafe_root');
+  });
+
+  it.each([
+    ['1777', 0o1777],
+    ['755', 0o755],
+    ['700', 0o700],
+  ])('allows a root with mode %s', (_name, mode) => {
+    chmodSync(root, mode);
+    expect(refusal({ root, port: 0, env: {}, osHome })).toBeUndefined();
+  });
+
+  it('refuses unsafe_root for a root that does not exist', () => {
+    expect(refusal({ root: join(base, 'missing'), port: 0, env: {}, osHome })?.reason).toBe(
+      'unsafe_root',
+    );
   });
 
   it('refuses live_port for 4777', () => {

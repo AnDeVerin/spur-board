@@ -32,7 +32,9 @@ beforeEach(() => {
   base = mkdtempSync(join(tmpdir(), 'stand-prune-'));
   root = join(base, 'root');
   otherRoot = join(base, 'other-root');
-  mkdirSync(root);
+  // Private, so the umask cannot make the root group-writable.
+  mkdirSync(root, { mode: 0o700 });
+  chmodSync(root, 0o700);
   mkdirSync(otherRoot);
   root = realpathSync(root);
   otherRoot = realpathSync(otherRoot);
@@ -190,5 +192,36 @@ describe('untrusted stand directories', () => {
     expect(readManifest(dir)).toBeUndefined();
     expect(removeStand(dir, root)).toHaveProperty('kept');
     expect(existsSync(dir)).toBe(true);
+  });
+});
+
+describe('live board directories', () => {
+  const kept = { kept: 'the live board uses this directory' };
+
+  it('keeps a dead stand that is a live board directory and removes an unrelated one', () => {
+    const asHome = join(root, 'spur-board-stand.livehm');
+    const dead = join(root, 'spur-board-stand.deadxx');
+    stand(asHome, { pid: deadPid(), pidStartTime: 1 });
+    stand(dead, { pid: deadPid(), pidStartTime: 1 });
+    const results = new Map(prune(root, [realpathSync(asHome)]).map((r) => [r.dir, r.result]));
+    expect(results.get(asHome)).toEqual(kept);
+    expect(results.get(dead)).toBe('removed');
+    expect(existsSync(asHome)).toBe(true);
+  });
+
+  it('keeps a dead stand that holds a live board directory', () => {
+    const holder = join(root, 'spur-board-stand.holder');
+    stand(holder, { pid: deadPid(), pidStartTime: 1 });
+    const liveData = join(holder, 'data', 'spur-board');
+    mkdirSync(liveData, { recursive: true });
+    expect(prune(root, [realpathSync(liveData)]).map((r) => r.result)).toEqual([kept]);
+    expect(existsSync(liveData)).toBe(true);
+  });
+
+  it('keeps a dead stand that sits inside a live board directory', () => {
+    const inside = join(root, 'spur-board-stand.inside');
+    stand(inside, { pid: deadPid(), pidStartTime: 1 });
+    expect(prune(root, [root]).map((r) => r.result)).toEqual([kept]);
+    expect(existsSync(inside)).toBe(true);
   });
 });

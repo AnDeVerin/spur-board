@@ -1,4 +1,4 @@
-import { realpathSync } from 'node:fs';
+import { realpathSync, statSync } from 'node:fs';
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { DEFAULT_HTTP_PORT } from '@spur-board/contracts';
 import { resolvePaths } from '@spur-board/daemon/in-process';
@@ -6,7 +6,7 @@ import { resolvePaths } from '@spur-board/daemon/in-process';
 type Env = Readonly<Record<string, string | undefined>>;
 
 export type RefusalReason =
-  'live_home' | 'live_port' | 'port_range' | 'external_secrets' | 'env_proxy';
+  'live_home' | 'live_port' | 'port_range' | 'external_secrets' | 'env_proxy' | 'unsafe_root';
 
 export interface StandRefusal {
   reason: RefusalReason;
@@ -72,6 +72,41 @@ function externalSecretNames(env: Env): string[] {
     .sort();
 }
 
+/** The live board's directories: `BOARD_HOME`, and its config and data directories, real paths. */
+export function liveBoardDirs(env: Env, osHome: string): string[] {
+  const live = resolvePaths(env, osHome);
+  return [
+    ...(env['BOARD_HOME'] ? [env['BOARD_HOME']] : []),
+    dirname(live.configFile),
+    dirname(live.dbFile),
+  ].map(realOrResolved);
+}
+
+/** Whether two paths are the same or one holds the other. */
+export function overlaps(a: string, b: string): boolean {
+  return within(a, b) || within(b, a);
+}
+
+/**
+ * Why other users could replace entries of `root`, or undefined when they cannot: it must be
+ * owned by root or this user, and either be writable by no group or other user or be sticky
+ * (as /tmp is), so nobody else can rename or replace a stand home in it.
+ */
+function unsafeRoot(root: string): string | undefined {
+  let info: ReturnType<typeof statSync>;
+  try {
+    info = statSync(root);
+  } catch {
+    return `The stand root ${root} cannot be read.`;
+  }
+  if (!info.isDirectory()) return `The stand root ${root} is not a directory.`;
+  if (info.uid !== 0 && info.uid !== process.getuid?.())
+    return `The stand root ${root} belongs to another user. Set TMPDIR to a directory of yours.`;
+  if ((info.mode & 0o022) !== 0 && (info.mode & 0o1000) === 0)
+    return `Other users can replace entries of the stand root ${root}: it is group- or world-writable without the sticky bit. Set TMPDIR to a private directory.`;
+  return undefined;
+}
+
 /**
  * Why a stand must not start: a root inside the live board's home, the live port, a port outside
  * the stand range, or real external credentials in the environment.
@@ -83,18 +118,14 @@ export function refusal(input: {
   osHome: string;
 }): StandRefusal | undefined {
   const root = realOrResolved(input.root);
-  const live = resolvePaths(input.env, input.osHome);
-  const liveDirs = [
-    ...(input.env['BOARD_HOME'] ? [input.env['BOARD_HOME']] : []),
-    dirname(live.configFile),
-    dirname(live.dbFile),
-  ].map(realOrResolved);
-  const hit = liveDirs.find((dir) => within(dir, root));
+  const hit = liveBoardDirs(input.env, input.osHome).find((dir) => within(dir, root));
   if (hit !== undefined)
     return {
       reason: 'live_home',
       message: `The stand root ${root} is inside the live board directory ${hit}.`,
     };
+  const unsafe = unsafeRoot(root);
+  if (unsafe !== undefined) return { reason: 'unsafe_root', message: unsafe };
   if (input.port === DEFAULT_HTTP_PORT)
     return {
       reason: 'live_port',

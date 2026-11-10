@@ -15,7 +15,7 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { scrubEnv } from '@spur-board/testkit';
 import { callLocal } from './control.ts';
-import { proxyRefusal, refusal, StandRefusedError } from './guards.ts';
+import { liveBoardDirs, proxyRefusal, refusal, StandRefusedError } from './guards.ts';
 import {
   isLive,
   isStandDir,
@@ -131,7 +131,7 @@ const sleep = (ms: number): Promise<void> =>
 
 /** Removes verified-dead stands under the root and says which. */
 function pruneDead(): void {
-  for (const { dir, result } of prune(root()))
+  for (const { dir, result } of prune(root(), liveBoardDirs(process.env, homedir())))
     if (result === 'removed') err(`removed dead stand ${dir}\n`);
 }
 
@@ -259,7 +259,7 @@ async function down(manifest: StandManifest): Promise<number> {
     signalStand(manifest, 'SIGKILL');
     await waitGone(manifest, 5_000);
   }
-  const result = removeStand(manifest.home, root());
+  const result = removeStand(manifest.home, root(), liveBoardDirs(process.env, homedir()));
   if (result !== 'removed') {
     err(`Kept ${manifest.home}: ${result.kept}\n`);
     return 1;
