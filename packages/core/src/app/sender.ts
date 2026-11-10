@@ -15,13 +15,8 @@ import {
 import { sql, type Kysely } from 'kysely';
 import type { Store } from '../store/store.ts';
 import type { Row, Tables } from '../store/schema.ts';
-import {
-  reconcileDoorbells,
-  recordRingDelivery,
-  ringStillCurrent,
-  ringTask,
-  ringUndelivered,
-} from './doorbells.ts';
+import { recordRingDelivery, ringStillCurrent, ringTask, ringUndelivered } from './doorbells.ts';
+import { expireTokenOfItem } from './tokens.ts';
 import { clearItem, raiseItem, resolvedFeedBody } from './feed.ts';
 import {
   deliveredRefSchema,
@@ -390,7 +385,6 @@ export function createSender(options: SenderOptions): Sender {
     const nowIso = new Date(at).toISOString();
     // Ticks never overlap, so a row still in flight was left by a tick that threw.
     await releaseOrphans(trx, nowIso);
-    await reconcileDoorbells(trx, new Date(at), options.config);
     const rows = await trx
       .selectFrom('outbox')
       .selectAll()
@@ -567,14 +561,22 @@ export function createSender(options: SenderOptions): Sender {
    * Stamps the start of a send, just before its IO: the row's retry window if none is open and,
    * for a space, the slot of the next send and, under a health row, the probe clock. A slow
    * earlier send in the tick does not age them. The clock is read here, once the write lock is
-   * held, so waiting for the lock does not age them either. Returns the stamp.
+   * held, so waiting for the lock does not age them either. Returns the stamp. `expiredAt` is
+   * read once, on the first pass after the lock is held, and reused on replays: token expiry
+   * writes it into a feed edit, a gateway string, so a fresh read per pass would change it on
+   * every scan replay, and a read before the lock would miss a request that lapses meanwhile.
    */
   async function start(
     trx: Trx,
     c: Claim,
+    expiredAt: Date,
   ): Promise<{ at: number; firstDeliveryAt: string | null; skip: boolean }> {
     const at = now().getTime();
     const sentAtIso = new Date(at).toISOString();
+    // An expired token request clears its item here, so its approval line is not posted.
+    if (c.body.kind === 'feed.line' && c.body.payload.itemId !== undefined) {
+      await expireTokenOfItem(trx, c.body.payload.itemId, expiredAt);
+    }
     if (c.body.kind === 'feed.line' && c.body.payload.itemId !== undefined && !c.maybeSent) {
       const item = await trx
         .selectFrom('operator_item')
@@ -717,6 +719,7 @@ export function createSender(options: SenderOptions): Sender {
       if (body.kind !== 'doorbell') return;
       await ringUndelivered(trx, {
         notificationId: body.payload.notificationId,
+        outboxId: c.id,
         dedupeKey: c.key,
         session: body.payload.session,
         reason,
@@ -939,7 +942,10 @@ export function createSender(options: SenderOptions): Sender {
         );
         return;
       }
-      const started = await scanTransaction(store, options.config, (trx) => start(trx, c));
+      let expiredAt: Date | undefined;
+      const started = await scanTransaction(store, options.config, (trx) =>
+        start(trx, c, (expiredAt ??= now())),
+      );
       if (started.skip) continue;
       // After start() commits, finish and record this attempt even if shutdown begins.
       const { outcome, error } = await attempt(c, started.firstDeliveryAt);

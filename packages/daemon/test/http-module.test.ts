@@ -404,14 +404,15 @@ describe('daemon doctor checks', () => {
       doctorContext({ operator: true, slack: false }),
       '1.2.3',
       doctorFetch('github.stalled-body'),
+      { deadlineMs: 250 },
     );
-    expect(Date.now() - started).toBeLessThan(7_000);
+    expect(Date.now() - started).toBeLessThan(1_000);
     expect(report.checks.find((entry) => entry.id === 'github.credentials')).toMatchObject({
       status: 'fail',
       blocking: true,
       fix: 'Check the GitHub token and repository access.',
     });
-  }, 8_000);
+  });
 
   it('documents every check ID emitted by the daemon with and without Slack', async () => {
     const configured = await runDaemonDoctor(
@@ -634,11 +635,12 @@ describe('daemon doctor checks', () => {
 describe('daemon doctor link rules', () => {
   const linkRules = (report: Awaited<ReturnType<typeof runDaemonDoctor>>) =>
     report.checks.find((entry) => entry.id === 'link.rules');
-  const issuesDoctor = (fetcher: typeof fetch) =>
+  const issuesDoctor = (fetcher: typeof fetch, options?: { deadlineMs?: number }) =>
     runDaemonDoctor(
       doctorContext({ operator: true, slack: false, issues: true }),
       '1.2.3',
       fetcher,
+      options,
     );
 
   it('warns on link.rules naming the PRs the link rules do not match', async () => {
@@ -810,8 +812,8 @@ describe('daemon doctor link rules', () => {
 
   it('bounds the link sample with the doctor deadline when the body never ends', async () => {
     const started = Date.now();
-    const report = await issuesDoctor(doctorFetch('link.stalled-body'));
-    expect(Date.now() - started).toBeLessThan(7_000);
+    const report = await issuesDoctor(doctorFetch('link.stalled-body'), { deadlineMs: 250 });
+    expect(Date.now() - started).toBeLessThan(1_000);
     expect(linkRules(report)).toEqual({
       id: 'link.rules',
       status: 'warning',
@@ -822,7 +824,7 @@ describe('daemon doctor link rules', () => {
       status: 'pass',
       blocking: false,
     });
-  }, 8_000);
+  });
 });
 
 describe('live session lookup', () => {

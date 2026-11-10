@@ -25,6 +25,7 @@ import {
   openStore,
   type OperationRegistry,
   type Store,
+  reconcileDueDoorbells,
 } from '../../src/index.ts';
 import { sampleRows } from '../store/sample-rows.ts';
 import { requestToken } from '../../src/app/tokens.ts';
@@ -1295,6 +1296,7 @@ describe('inbound apply', () => {
         },
       },
     });
+    await reconcileDueDoorbells(store, config, new Date(now));
     await sender.tick();
     expect(sends).toHaveLength(1);
     expect(sends[0]?.session).toBe('sess-1');
@@ -1408,6 +1410,7 @@ describe('inbound apply', () => {
         },
       },
     });
+    await reconcileDueDoorbells(store, config, new Date(now));
     await sender.tick();
     expect(sends).toEqual([]);
     await store.transaction(async (trx) => {
@@ -1433,6 +1436,7 @@ describe('inbound apply', () => {
         })
         .execute();
     });
+    await reconcileDueDoorbells(store, config, new Date(now));
     await sender.tick();
     expect(sends).toEqual(['sess-2']);
   });
@@ -1477,6 +1481,7 @@ describe('inbound apply', () => {
         },
       },
     });
+    await reconcileDueDoorbells(store, config, new Date(now));
     await sender.tick();
     expect(sends).toEqual(['sess-2']);
     expect(await store.db.selectFrom('operator_item').select('id').execute()).toEqual([]);

@@ -4,7 +4,7 @@ import { createSender, openStore, requestToken, type Store } from '@spur-board/c
 import { createSlackGateway } from '@spur-board/gateway-slack';
 import { createFakeGateway } from '@spur-board/gateway-testkit';
 import pino from 'pino';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { startFakeSlackApi } from '../../gateway-slack/test/fake-api.ts';
 import { loadConfig, resolvePaths } from '../src/config.ts';
 import type { ModuleContext } from '../src/lifecycle.ts';
@@ -114,11 +114,16 @@ describe('outbox scheduler', () => {
       token: 'xoxb-test',
       channels: { orchestrators: 'C000000001', feed: 'C000000002' },
     });
-    const module = createOutboxModule(ctx, gateway);
+    const module = createOutboxModule(ctx, gateway, { tickMs: 10, jitterMs: 0 });
     const controller = new AbortController();
     try {
       await module.start(controller.signal);
-      await expect.poll(() => transactions, { timeout: 5_000 }).toBeGreaterThanOrEqual(3);
+      await vi.waitFor(
+        () => {
+          expect(transactions).toBeGreaterThanOrEqual(3);
+        },
+        { interval: 5 },
+      );
       controller.abort();
       await module.stop();
       expect(records.filter((record) => record['err'] !== undefined)).toHaveLength(1);
@@ -133,7 +138,7 @@ describe('outbox scheduler', () => {
       await module.stop();
       await base.close();
     }
-  }, 10_000);
+  });
 
   it('skips timer ticks while a delivery is active and waits for that delivery on stop', async () => {
     const api = await startFakeSlackApi();
@@ -206,12 +211,15 @@ describe('outbox scheduler', () => {
     });
     const module = createOutboxModule(ctx, gateway, {
       spur: { send: () => Promise.reject(new Error('unexpected doorbell')) },
+      tickMs: 20,
+      jitterMs: 0,
     });
     const controller = new AbortController();
     try {
       await module.start(controller.signal);
       await hold.entered;
-      await sleep(2200);
+      // Ten tick intervals with the delivery held: no timer tick may start.
+      await sleep(200);
       expect(loggedCalls).toEqual(['outbox.tick']);
       controller.abort();
       const stopping = module.stop();
@@ -246,7 +254,100 @@ describe('outbox scheduler', () => {
       await base.close();
       await api.close();
     }
-  }, 30_000);
+  });
+
+  it('keeps delivering while every token expiry fails', async () => {
+    const home = makeHome();
+    const base = openStore(join(home, 'board.sqlite'));
+    const loaded = loadConfig(resolvePaths({ BOARD_HOME: home }, home));
+    const requestedAt = new Date('2026-11-04T10:00:00.000Z');
+    const late = requestedAt.getTime() + 15 * 60 * 1000;
+    await requestToken(
+      base,
+      loaded.config,
+      { name: 'desk', folder: 'workspace/desk', host: 'local', hash: 'a'.repeat(64) },
+      requestedAt,
+    );
+    // Every token-expiry run fails: its first read of operator_token throws.
+    const db = new Proxy(base.db, {
+      get(target, prop) {
+        if (prop === 'selectFrom')
+          return (table: string) => {
+            if (table === 'operator_token') throw new Error('injected token failure');
+            return target.selectFrom(table as 'outbox');
+          };
+        const value: unknown = Reflect.get(target, prop, target);
+        return typeof value === 'function' ? (value as () => unknown).bind(target) : value;
+      },
+    });
+    const store: Store = { ...base, db };
+    await store.transaction(async (trx) => {
+      await trx
+        .insertInto('outbox')
+        .values({
+          kind: 'doorbell',
+          dedupe_key: 'doorbell:despite-tokens',
+          payload: JSON.stringify({ session: 'test', text: 'still delivered' }),
+          state: 'pending',
+          next_at: new Date(late).toISOString(),
+          last_error: null,
+          external_ref: null,
+          parent_outbox_id: null,
+          first_attempt_at: null,
+          first_delivery_at: null,
+        })
+        .execute();
+    });
+    const records: Record<string, unknown>[] = [];
+    const log = createLogger(
+      {
+        write(line) {
+          records.push(JSON.parse(line) as Record<string, unknown>);
+        },
+      },
+      {},
+    );
+    const clock = { now: () => late };
+    const ctx: ModuleContext<Store> = {
+      ...loaded,
+      store,
+      log,
+      clock,
+      logCall: (call, fn) => logCall(log, clock, call, fn),
+      state: () => 'ready',
+    };
+    const sends: { session: string; text: string }[] = [];
+    const module = createOutboxModule(ctx, undefined, {
+      spur: {
+        send(session, text) {
+          sends.push({ session, text });
+          return Promise.resolve();
+        },
+      },
+      tickMs: 10,
+      jitterMs: 0,
+    });
+    const controller = new AbortController();
+    const expiryFailures = () =>
+      records.filter((record) => record['msg'] === 'token expiry failed');
+    try {
+      await module.start(controller.signal);
+      await vi.waitFor(
+        () => {
+          expect(sends).toEqual([{ session: 'test', text: 'still delivered' }]);
+          expect(expiryFailures().length).toBeGreaterThanOrEqual(2);
+        },
+        { interval: 5 },
+      );
+      expect(
+        (await base.db.selectFrom('operator_token').select('status').executeTakeFirst())?.status,
+      ).toBe('pending');
+    } finally {
+      controller.abort();
+      await module.stop();
+      await base.close();
+    }
+  });
 
   it('ignores connection updates after stop and waits for one in flight', async () => {
     const home = makeHome();

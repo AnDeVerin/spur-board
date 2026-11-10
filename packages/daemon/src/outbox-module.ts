@@ -1,7 +1,14 @@
 import type { Config, ConnectionState, Gateway } from '@spur-board/contracts';
-import { createSender, expirePendingTokens, type SpurPort, type Store } from '@spur-board/core';
+import {
+  createSender,
+  expirePendingTokens,
+  reconcileDueDoorbells,
+  type SpurPort,
+  type Store,
+} from '@spur-board/core';
 import { ConfigError } from './config.ts';
 import type { Module, ModuleContext } from './lifecycle.ts';
+import { createJob } from './scheduler.ts';
 import { createSpurPort } from './spur-port.ts';
 
 const TICK_MS = 1000;
@@ -63,14 +70,15 @@ export function slackSettings(
 }
 
 /**
- * Own the timer and wait for the last queued sender tick and connection update before the store
- * closes.
+ * Own the outbox, token-expiry and doorbell jobs, each logging its own failure, and wait for
+ * their active runs and every queued connection update before the store closes.
  */
 export function createOutboxModule(
   ctx: ModuleContext<Store>,
   gateway?: Gateway,
-  options: { spur?: SpurPort } = {},
+  options: { spur?: SpurPort; tickMs?: number; jitterMs?: number } = {},
 ): Module & {
+  /** Reconciles due doorbells, then runs one sender tick behind any active one. */
   pulse(): Promise<void>;
   /** Records a gateway connection change; logs its own failure and ignores events after stop. */
   connection(state: ConnectionState): Promise<void>;
@@ -83,47 +91,48 @@ export function createOutboxModule(
     spur: { send: (session, text) => ctx.logCall('spur.send', () => spur.send(session, text)) },
     now: () => new Date(ctx.clock.now()),
   });
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  let active: Promise<void> = Promise.resolve();
+  const every = {
+    intervalMs: options.tickMs ?? TICK_MS,
+    jitterMs: options.jitterMs ?? TICK_JITTER_MS,
+  };
+  const outbox = createJob({
+    ...every,
+    run: (signal) => ctx.logCall('outbox.tick', () => sender.tick(signal)),
+    // logCall has already logged the failure.
+    onError: () => undefined,
+  });
+  const tokens = createJob({
+    ...every,
+    run: () => expirePendingTokens(ctx.store, ctx.config, new Date(ctx.clock.now())),
+    onError: (err) => {
+      ctx.log.error({ err }, 'token expiry failed');
+    },
+  });
+  const doorbells = createJob({
+    ...every,
+    run: () => reconcileDueDoorbells(ctx.store, ctx.config, new Date(ctx.clock.now())),
+    onError: (err) => {
+      ctx.log.error({ err }, 'doorbell reconcile failed');
+    },
+  });
+  const jobs = [tokens, doorbells, outbox];
   let updating: Promise<void> = Promise.resolve();
   let stopped = false;
-  let signal: AbortSignal | undefined;
-  const schedule = (): void => {
-    if (stopped || signal?.aborted) return;
-    timer = setTimeout(
-      () => {
-        timer = undefined;
-        void tick().then(schedule);
-      },
-      TICK_MS + Math.floor(Math.random() * TICK_JITTER_MS),
-    );
-  };
-  const tick = (): Promise<void> => {
-    if (stopped || signal?.aborted) return active;
-    active = active
-      .then(() =>
-        ctx.logCall('outbox.tick', async () => {
-          await expirePendingTokens(ctx.store, ctx.config, new Date(ctx.clock.now()));
-          if (!signal?.aborted) await sender.tick(signal);
-        }),
-      )
-      .catch(() => undefined);
-    return active;
-  };
   return {
-    async start(startSignal) {
-      signal = startSignal;
+    async start(signal) {
       await sender.recover();
       if (signal.aborted) return;
-      void tick().then(schedule);
+      await Promise.all(jobs.map((job) => job.start(signal)));
     },
     async stop() {
       stopped = true;
-      if (timer !== undefined) clearTimeout(timer);
-      await active;
+      await Promise.all(jobs.map((job) => job.stop()));
       await updating;
     },
-    pulse: tick,
+    async pulse() {
+      await doorbells.trigger();
+      await outbox.trigger();
+    },
     connection(state) {
       if (stopped) return Promise.resolve();
       const update = sender

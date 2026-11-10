@@ -9,6 +9,7 @@ import {
   createBlockMutations,
   createSender,
   openStore,
+  reconcileDueDoorbells,
   type Store,
 } from '../../src/index.ts';
 import { registerBlockNotification, restartNotification } from '../../src/app/doorbells.ts';
@@ -51,6 +52,7 @@ async function setup(
   let now = START;
   let failNext: Error | undefined;
   let failAlways = false;
+  let beforeSend: (() => Promise<void>) | undefined;
   const sent: { session: string; text: string }[] = [];
   await store.transaction(async (trx) => {
     await trx
@@ -116,15 +118,17 @@ async function setup(
     ...(fake === undefined ? {} : { gateway: fake }),
     config: usedConfig,
     spur: {
-      send(session, text) {
+      async send(session, text) {
+        const hook = beforeSend;
+        beforeSend = undefined;
+        await hook?.();
         if (failNext !== undefined) {
           const error = failNext;
           failNext = undefined;
-          return Promise.reject(error);
+          throw error;
         }
-        if (failAlways) return Promise.reject(new Error('spur send failed'));
+        if (failAlways) throw new Error('spur send failed');
         sent.push({ session, text });
-        return Promise.resolve();
       },
     },
     now: () => new Date(now),
@@ -136,6 +140,8 @@ async function setup(
     sent,
     fake,
     now: () => new Date(now),
+    /** Runs the daemon's doorbell job once, as it runs before a tick. */
+    ring: () => reconcileDueDoorbells(store, usedConfig, new Date(now)),
     advance(ms: number) {
       now += ms;
     },
@@ -144,6 +150,10 @@ async function setup(
     },
     failAlways(on: boolean) {
       failAlways = on;
+    },
+    /** Runs `hook` once inside the next Spur send, while its ring is in flight. */
+    beforeSend(hook: () => Promise<void>) {
+      beforeSend = hook;
     },
   };
 }
@@ -184,6 +194,7 @@ describe('role addressed doorbells', () => {
       'ask-live',
     );
     await live.apply(ops.answer, { block: asked.block.id, text: 'Use v2.' }, 'operator');
+    await live.ring();
     await live.sender.tick();
     expect(live.sent.map((entry) => entry.session)).toEqual(['worker-1']);
     expect(live.sent[0]?.text).toContain(`${KEY} block ${asked.block.id}: check board inbox`);
@@ -196,6 +207,7 @@ describe('role addressed doorbells', () => {
       'ask-ended',
     );
     await ended.apply(ops.answer, { block: question.block.id, text: 'Use v2.' }, 'operator');
+    await ended.ring();
     await ended.sender.tick();
     expect(ended.sent.map((entry) => entry.session)).toEqual(['worker-2']);
     expect(ended.sent.some((entry) => entry.session === 'tester-1')).toBe(false);
@@ -210,6 +222,7 @@ describe('role addressed doorbells', () => {
       'ask-wait',
     );
     await ctx.apply(ops.answer, { block: asked.block.id, text: 'Use v2.' }, 'operator');
+    await ctx.ring();
     await ctx.sender.tick();
     expect(ctx.sent).toEqual([]);
     await ctx.store.transaction(async (trx) => {
@@ -239,6 +252,7 @@ describe('role addressed doorbells', () => {
         })
         .execute();
     });
+    await ctx.ring();
     await ctx.sender.tick();
     expect(ctx.sent.map((entry) => entry.session)).toEqual(['worker-2']);
   });
@@ -246,6 +260,7 @@ describe('role addressed doorbells', () => {
   it('pauses while working, then raises one worker refusal after three distinct unanswered rings', async () => {
     const ctx = await setup();
     const blockId = await workerBlock(ctx.store);
+    await ctx.ring();
     await ctx.sender.tick();
     expect(ctx.sent).toHaveLength(1);
     await ctx.store.transaction((trx) =>
@@ -256,6 +271,7 @@ describe('role addressed doorbells', () => {
         .execute(),
     );
     ctx.advance(120_000);
+    await ctx.ring();
     await ctx.sender.tick();
     expect(ctx.sent).toHaveLength(1);
     await ctx.store.transaction((trx) =>
@@ -265,13 +281,16 @@ describe('role addressed doorbells', () => {
         .where('id', '=', 'worker-1')
         .execute(),
     );
+    await ctx.ring();
     await ctx.sender.tick();
     expect(ctx.sent).toHaveLength(2);
     ctx.advance(300_000);
+    await ctx.ring();
     await ctx.sender.tick();
     expect(ctx.sent).toHaveLength(3);
     expect(new Set(ctx.sent.map((entry) => entry.text)).size).toBe(3);
     ctx.advance(900_000);
+    await ctx.ring();
     await ctx.sender.tick();
     const item = await ctx.store.db
       .selectFrom('operator_item')
@@ -290,6 +309,7 @@ describe('role addressed doorbells', () => {
     const fake = ctx.fake;
     if (fake === undefined) throw new Error('no gateway');
     await workerBlock(ctx.store);
+    await ctx.ring();
     await ctx.sender.tick();
     expect(ctx.sent).toHaveLength(1);
     await ctx.store.transaction((trx) =>
@@ -300,6 +320,7 @@ describe('role addressed doorbells', () => {
         .execute(),
     );
     ctx.advance(120_000);
+    await ctx.ring();
     await ctx.sender.tick();
     expect(ctx.sent).toHaveLength(1);
     await ctx.store.transaction((trx) =>
@@ -309,15 +330,18 @@ describe('role addressed doorbells', () => {
         .where('id', '=', 'worker-1')
         .execute(),
     );
+    await ctx.ring();
     await ctx.sender.tick();
     expect(ctx.sent).toHaveLength(2);
     ctx.advance(300_000);
+    await ctx.ring();
     await ctx.sender.tick();
     expect(ctx.sent).toHaveLength(3);
     await ctx.sender.recordConnection('down', ctx.now());
     // The feed line claimed in the threshold tick must not deliver and delete the feed row.
     fake.platform.timeoutNext({ visible: false });
     ctx.advance(900_000);
+    await ctx.ring();
     await ctx.sender.tick();
     const refusal = await ctx.store.db
       .selectFrom('operator_item')
@@ -348,24 +372,31 @@ describe('role addressed doorbells', () => {
       retry: { firstRetryMs: 2000, secondRetryMs: 6000, unansweredAfterMs: 10_000 },
     });
     await workerBlock(ctx.store);
+    await ctx.ring();
     await ctx.sender.tick();
     expect(ctx.sent).toHaveLength(1);
     ctx.advance(1999);
+    await ctx.ring();
     await ctx.sender.tick();
     expect(ctx.sent).toHaveLength(1);
     ctx.advance(1);
+    await ctx.ring();
     await ctx.sender.tick();
     expect(ctx.sent).toHaveLength(2);
     ctx.advance(5999);
+    await ctx.ring();
     await ctx.sender.tick();
     expect(ctx.sent).toHaveLength(2);
     ctx.advance(1);
+    await ctx.ring();
     await ctx.sender.tick();
     expect(ctx.sent).toHaveLength(3);
     ctx.advance(9999);
+    await ctx.ring();
     await ctx.sender.tick();
     expect(await ctx.store.db.selectFrom('operator_item').select('kind').execute()).toEqual([]);
     ctx.advance(1);
+    await ctx.ring();
     await ctx.sender.tick();
     expect(await ctx.store.db.selectFrom('operator_item').select('kind').execute()).toEqual([
       { kind: 'worker_not_reading' },
@@ -375,6 +406,7 @@ describe('role addressed doorbells', () => {
   it('closes a worker notification when its block escalates to the operator', async () => {
     const ctx = await setup();
     const blockId = await workerBlock(ctx.store);
+    await ctx.ring();
     await ctx.sender.tick();
     expect(ctx.sent).toHaveLength(1);
     const escalated = await ctx.apply(
@@ -390,6 +422,7 @@ describe('role addressed doorbells', () => {
       .executeTakeFirstOrThrow();
     expect(closed.acked_at).not.toBeNull();
     ctx.advance(2_000_000);
+    await ctx.ring();
     await ctx.sender.tick();
     expect(ctx.sent).toHaveLength(1);
   });
@@ -405,10 +438,12 @@ describe('role addressed doorbells', () => {
     await ctx.apply(ops.answer, { block: asked.block.id, text: 'Use v2.' }, 'operator');
     for (const pause of [0, 120_000, 300_000]) {
       ctx.advance(pause);
+      await ctx.ring();
       await ctx.sender.tick();
     }
     expect(ctx.sent).toHaveLength(3);
     ctx.advance(900_000);
+    await ctx.ring();
     await ctx.sender.tick();
     expect(await ctx.store.db.selectFrom('operator_item').select('kind').execute()).toEqual([
       { kind: 'answer_undelivered' },
@@ -426,11 +461,13 @@ describe('role addressed doorbells', () => {
     const ctx = await setup();
     await workerBlock(ctx.store);
     ctx.failNext();
+    await ctx.ring();
     await ctx.sender.tick();
     expect(
       await ctx.store.db.selectFrom('notification').select('rings').executeTakeFirst(),
     ).toEqual({ rings: 0 });
     ctx.advance(1000);
+    await ctx.ring();
     await ctx.sender.tick();
     expect(
       await ctx.store.db.selectFrom('notification').select('rings').executeTakeFirst(),
@@ -482,6 +519,7 @@ describe('role addressed doorbells', () => {
     ctx.failNext(
       new SpurRejectedError('Spur send failed with HTTP 404: Session not found: worker-1'),
     );
+    await ctx.ring();
     await ctx.sender.tick();
     const [ring] = await doorbells(ctx);
     expect(ring).toMatchObject({
@@ -510,13 +548,17 @@ describe('role addressed doorbells', () => {
     ]);
 
     ctx.advance(24 * 60 * 60_000);
-    for (let i = 0; i < 3; i++) await ctx.sender.tick();
+    for (let i = 0; i < 3; i++) {
+      await ctx.ring();
+      await ctx.sender.tick();
+    }
     expect(ctx.sent).toEqual([]);
     expect(await doorbells(ctx)).toHaveLength(1);
 
     await ctx.store.transaction((trx) =>
       restartNotification(trx, notification.source_key, ctx.now()),
     );
+    await ctx.ring();
     await ctx.sender.tick();
     const rings = await doorbells(ctx);
     expect(rings).toHaveLength(2);
@@ -529,6 +571,7 @@ describe('role addressed doorbells', () => {
     await workerBlock(ctx.store);
     ctx.failAlways(true);
     for (let minute = 0; minute < 30; minute++) {
+      await ctx.ring();
       await ctx.sender.tick();
       ctx.advance(60_000);
     }
@@ -536,6 +579,7 @@ describe('role addressed doorbells', () => {
     expect(await doorbells(ctx)).toEqual([
       expect.objectContaining({ state: 'pending', uncertain: 1 }),
     ]);
+    await ctx.ring();
     await ctx.sender.tick();
     expect(await doorbells(ctx)).toEqual([
       expect.objectContaining({
@@ -557,6 +601,61 @@ describe('role addressed doorbells', () => {
     const [event] = await undelivered(ctx);
     expect(event?.reason).toMatch(/^no answer from Spur for 30 min/);
     expect(ctx.sent).toEqual([]);
+  });
+
+  it('keeps the notification ringing when a ring it no longer points at fails', async () => {
+    const ctx = await setup();
+    await workerBlock(ctx.store);
+    await ctx.ring();
+    // While ring A to worker-1 is in flight, worker-1 stops and worker-2 takes over: the
+    // doorbell job queues ring B to worker-2, then A's send fails for good.
+    ctx.beforeSend(async () => {
+      await ctx.store.transaction(async (trx) => {
+        await trx
+          .updateTable('session_snapshot')
+          .set({ state: 'stopped', ended_at: ctx.now().toISOString(), end_reason: 'complete' })
+          .where('id', '=', 'worker-1')
+          .execute();
+        await trx
+          .insertInto('session_snapshot')
+          .values({
+            ...sampleRows.session_snapshot,
+            id: 'worker-2',
+            spur_project: 'web',
+            state: 'waiting',
+            ended_at: null,
+            end_reason: null,
+          })
+          .execute();
+        await trx
+          .insertInto('link')
+          .values({
+            ...sampleRows.link,
+            id: 2,
+            task_id: 1,
+            entity: 'session',
+            repo: null,
+            number: null,
+            pr_state: null,
+            session_id: 'worker-2',
+            role: 'worker',
+          })
+          .execute();
+      });
+      await ctx.ring();
+    });
+    ctx.failNext(
+      new SpurRejectedError('Spur send failed with HTTP 404: Session not found: worker-1'),
+    );
+    await ctx.sender.tick();
+    expect(
+      await ctx.store.db.selectFrom('notification').select('exhausted_at').executeTakeFirst(),
+    ).toEqual({ exhausted_at: null });
+    expect(await undelivered(ctx)).toEqual([]);
+
+    await ctx.sender.tick();
+    expect((await doorbells(ctx)).map((row) => row.state)).toEqual(['dead', 'done']);
+    expect(ctx.sent.map((entry) => entry.session)).toEqual(['worker-2']);
   });
 
   it('acknowledges block and comment entries atomically, and rejects another role', async () => {
@@ -585,6 +684,7 @@ describe('role addressed doorbells', () => {
   it('accepts an ack only from the worker selected for a delivered notification', async () => {
     const ctx = await setup({ replacement: true });
     const blockId = await workerBlock(ctx.store);
+    await ctx.ring();
     await ctx.sender.tick();
     expect(ctx.sent.map((entry) => entry.session)).toEqual(['worker-1']);
     await expect(
@@ -611,6 +711,7 @@ describe('role addressed doorbells', () => {
     async (replacementState) => {
       const ctx = await setup({ replacement: true });
       const blockId = await workerBlock(ctx.store);
+      await ctx.ring();
       await ctx.sender.tick();
       expect(ctx.sent.map((entry) => entry.session)).toEqual(['worker-1']);
       await ctx.store.transaction(async (trx) => {
@@ -644,6 +745,7 @@ describe('role addressed doorbells', () => {
   it('rejects another live linked worker after the selected recipient ends', async () => {
     const ctx = await setup({ replacement: true });
     const blockId = await workerBlock(ctx.store);
+    await ctx.ring();
     await ctx.sender.tick();
     await ctx.store.transaction(async (trx) => {
       await trx
@@ -690,5 +792,60 @@ describe('role addressed doorbells', () => {
       await ctx.store.db.selectFrom('notification').select('acked_at').executeTakeFirst(),
     ).toEqual({ acked_at: null });
     await ctx.apply(ops.ack, { entries: [{ id: blockId }] }, 'agent:web/worker-2', 'ack-handoff');
+  });
+  it('rings only through the doorbell job, not in the sender tick', async () => {
+    const ctx = await setup();
+    await workerBlock(ctx.store);
+    await ctx.sender.tick();
+    expect(ctx.sent).toEqual([]);
+    expect(await doorbells(ctx)).toEqual([]);
+
+    await ctx.ring();
+    await ctx.sender.tick();
+    expect(ctx.sent.map((entry) => entry.session)).toEqual(['worker-1']);
+  });
+
+  it('opens no transaction when no notification is due', async () => {
+    const ctx = await setup();
+    let transactions = 0;
+    const store: Store = {
+      ...ctx.store,
+      transaction(fn) {
+        transactions += 1;
+        return ctx.store.transaction(fn);
+      },
+    };
+    const reconcile = async () => {
+      const before = transactions;
+      await reconcileDueDoorbells(store, config, ctx.now());
+      return transactions - before;
+    };
+    const setNotification = (values: {
+      acked_at?: string | null;
+      exhausted_at?: string | null;
+      next_at?: string;
+    }) => ctx.store.transaction((trx) => trx.updateTable('notification').set(values).execute());
+    const at = new Date(START).toISOString();
+
+    expect(await reconcile()).toBe(0);
+    await workerBlock(ctx.store);
+    await setNotification({ acked_at: at });
+    expect(await reconcile()).toBe(0);
+    await setNotification({ acked_at: null, exhausted_at: at });
+    expect(await reconcile()).toBe(0);
+    await setNotification({ exhausted_at: null, next_at: new Date(START + 1).toISOString() });
+    expect(await reconcile()).toBe(0);
+    await setNotification({ next_at: at });
+    await ctx.store.transaction((trx) =>
+      trx.updateTable('task').set({ membership: 'archived' }).execute(),
+    );
+    expect(await reconcile()).toBe(0);
+    expect(await doorbells(ctx)).toEqual([]);
+
+    await ctx.store.transaction((trx) =>
+      trx.updateTable('task').set({ membership: 'active' }).execute(),
+    );
+    expect(await reconcile()).toBe(1);
+    expect(await doorbells(ctx)).toHaveLength(1);
   });
 });

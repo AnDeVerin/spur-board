@@ -12,8 +12,8 @@ export {
 } from './app/authorize.ts';
 export {
   CommandError,
-  commandRetention,
   createApply,
+  purgeExpiredCommands,
   type Apply,
   type CommandContext,
   type Mutation,
@@ -56,6 +56,7 @@ export {
   OUTBOX_KINDS,
   type OutboxKind,
 } from './app/outbox.ts';
+export { reconcileDueDoorbells } from './app/doorbells.ts';
 export { createSender, SpurRejectedError, type Sender, type SpurPort } from './app/sender.ts';
 export {
   evaluateSessionHealth,

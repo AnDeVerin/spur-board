@@ -13,6 +13,8 @@ import { emit, taskUrl } from './board-utils.ts';
 import { CommandError } from './commands.ts';
 import { clearItem, raiseItem } from './feed.ts';
 import { enqueueDoorbell } from './outbox.ts';
+import { scanTransaction } from './secrets.ts';
+import type { Store } from '../store/store.ts';
 
 type Trx = Kysely<Tables>;
 type Notification = Row<'notification'>;
@@ -174,13 +176,15 @@ export async function restartNotification(trx: Trx, sourceKey: string, at: Date)
 /**
  * Ends a ring Spur will not take (a permanent rejection, or no answer for the retry window): its
  * notification stops ringing, the operator gets an item and `doorbell_undelivered` is journalled.
- * The operator's Retry on the item restarts the series (`restartNotification`). An inbound author
- * ring has no notification: it ends like an author found unavailable at enqueue.
+ * The operator's Retry on the item restarts the series (`restartNotification`). A ring that is no
+ * longer its notification's last row (the recipient changed while it was in flight) ends alone. An
+ * inbound author ring has no notification: it ends like an author found unavailable at enqueue.
  */
 export async function ringUndelivered(
   trx: Trx,
   input: {
     notificationId?: number | undefined;
+    outboxId: number;
     dedupeKey: string;
     session: string;
     reason: string;
@@ -212,7 +216,13 @@ export async function ringUndelivered(
     .selectAll()
     .where('id', '=', input.notificationId)
     .executeTakeFirst();
-  if (n === undefined || n.acked_at !== null || n.exhausted_at !== null) return;
+  if (
+    n === undefined ||
+    n.acked_at !== null ||
+    n.exhausted_at !== null ||
+    n.last_outbox_id !== input.outboxId
+  )
+    return;
   const task = await trx
     .selectFrom('task')
     .selectAll()
@@ -238,17 +248,32 @@ export async function ringUndelivered(
   await journal(trx, n, 'doorbell_undelivered', { doorbell: `N${String(n.id)}`, reason }, at);
 }
 
-/** Reconcile due semantic notifications in the sender's claim transaction. */
-export async function reconcileDoorbells(trx: Trx, at: Date, config: Config): Promise<void> {
+/** Notifications reconcile looks at: unacked, not exhausted, due, on a task not archived. */
+function dueNotifications(db: Trx, at: Date) {
   // Archive cancels unsent rings (`archiveTask`); ringing again before `task.add` would undo that.
-  const due = await trx
+  return db
     .selectFrom('notification')
     .innerJoin('task', 'task.id', 'notification.task_id')
-    .selectAll('notification')
     .where('task.membership', '!=', 'archived')
     .where('notification.acked_at', 'is', null)
     .where('notification.exhausted_at', 'is', null)
-    .where('notification.next_at', '<=', at.toISOString())
+    .where('notification.next_at', '<=', at.toISOString());
+}
+
+/**
+ * Reconciles due notifications in their own transaction. With none due it opens no transaction;
+ * a due notification waiting on a working recipient or an unsent ring still opens one.
+ */
+export async function reconcileDueDoorbells(store: Store, config: Config, at: Date): Promise<void> {
+  const due = await dueNotifications(store.db, at).select('notification.id').executeTakeFirst();
+  if (due === undefined) return;
+  await scanTransaction(store, config, (trx) => reconcileDoorbells(trx, at, config));
+}
+
+/** Reconcile due semantic notifications in the caller's transaction. */
+export async function reconcileDoorbells(trx: Trx, at: Date, config: Config): Promise<void> {
+  const due = await dueNotifications(trx, at)
+    .selectAll('notification')
     .orderBy('notification.id')
     .execute();
   for (const n of due) {

@@ -1,6 +1,7 @@
 import type { Gateway, InboundEvent } from '@spur-board/contracts';
 import { createInbound, type Inbound, type OperationRegistry, type Store } from '@spur-board/core';
 import type { Module, ModuleContext } from './lifecycle.ts';
+import { createJob } from './scheduler.ts';
 
 const RECOVERY_MS = 5 * 60_000;
 
@@ -21,41 +22,21 @@ export function createInboundModule(
     clock: ctx.clock,
     registry,
   });
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  let active: Promise<void> = Promise.resolve();
-  let stopped = false;
-  let signal: AbortSignal | undefined;
-
-  const schedule = (): void => {
-    if (stopped || signal?.aborted) return;
-    timer = setTimeout(() => {
-      timer = undefined;
-      tick();
-    }, RECOVERY_MS);
-  };
-  const tick = (): void => {
-    if (stopped || signal?.aborted) return;
-    active = ctx
-      .logCall('inbound.recover', () => inbound.recover())
-      .catch((err: unknown) => {
-        ctx.log.error({ err }, 'inbound recovery failed');
-      })
-      .finally(schedule);
-  };
+  const recovery = createJob({
+    run: () => ctx.logCall('inbound.recover', () => inbound.recover()),
+    intervalMs: RECOVERY_MS,
+    onError: (err) => {
+      ctx.log.error({ err }, 'inbound recovery failed');
+    },
+  });
 
   return {
     sink: (event) => inbound.sink(event),
     reapply: inbound.reapply,
-    awaitRecovery: () => active,
-    start(startSignal) {
-      signal = startSignal;
-      tick();
-      return Promise.resolve();
-    },
+    awaitRecovery: () => recovery.settled(),
+    start: (signal) => recovery.start(signal),
     async stop() {
-      stopped = true;
-      if (timer !== undefined) clearTimeout(timer);
-      await active;
+      await recovery.stop();
       await inbound.stop();
     },
   };

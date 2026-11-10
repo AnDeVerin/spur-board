@@ -2,17 +2,26 @@
 
 ## Scheduling
 
-- Start the outbox tick immediately, then arm a `setTimeout` for one second plus under 100 ms of
-  jitter after the tick settles. Never queue a second tick while one runs.
-- Expire pending operator token requests on that tick, clearing their approval items and queuing
-  the feed edit in the same transaction as the token state and journal event.
+- Every daemon loop is a `createJob` (`packages/daemon/src/scheduler.ts`): it runs at once (or,
+  with `first: 'await'`, before `start` resolves), then arms a `setTimeout` for `intervalMs` plus
+  under `jitterMs` (default 0) after the run settles. Runs never overlap; `trigger` queues behind
+  the active run; a failed run goes to `onError`; `stop` clears the timer and awaits the active
+  run (`packages/daemon/test/scheduler.test.ts`, `describe('createJob')`).
+- The outbox module runs three jobs every `tickMs` (1 s) plus under `jitterMs` (100 ms): the
+  sender tick, token expiry and doorbell reconcile. Each logs its own failure, so a failing token
+  or doorbell job never blocks delivery. `pulse` reconciles, then ticks. Token expiry clears the
+  approval items and queues the feed edit in the same transaction as the token state and journal
+  event. The sender also expires a lapsed request before posting its approval line
+  (`expireTokenOfItem`, `packages/core/test/app/tokens.test.ts`); keep both.
 - Register the outbox without a gateway so Spur doorbells run; leave gateway rows pending.
-- Pass the start signal to each sender tick. On stop, clear the timer and await the active tick
+- Pass the start signal to each sender tick. On stop, stop the jobs and await their active runs
   before the store closes. Register the outbox with `stopStage: 'outbox'` and its gateway with
   `stopStage: 'final'` (`packages/daemon/test/outbox-module.test.ts`,
   `describe('outbox scheduler')`).
-- `board-core` starts a tick immediately, then arms a 60-second `setTimeout` after it settles.
-  On stop, clear the timer and await the active tick before the store closes.
+- `board-core` ticks at once, then every 60 seconds after a tick settles.
+- Command retention awaits its first purge in `start`, then purges daily; a failed first purge
+  rejects `start` (`packages/daemon/test/scheduler.test.ts`,
+  `describe('composed command retention')`).
 - Register `systemd` last with `stopStage: 'pollers'`: its `ready` hook sends READY, its stop
   STOPPING. `board-core` calls `onTick` only after a successful tick; the notifier drops WATCHDOG
   before READY and after STOPPING (`packages/daemon/test/systemd.test.ts`).
@@ -23,8 +32,7 @@
 - `board-adapters` uses `startAdapters`; the runner owns per-source timers, backoff and aborts
   (`PollContext.signal`, A7 in `packages/contracts/src/adapters.ts`). Adapters never retry on
   their own (A6). Register it with `stopStage: 'pollers'`; await `runner.stop()` on stop.
-- A poller uses a `setTimeout` chain, handles each tick rejection, and never overlaps ticks.
-  Register it with `stopStage: 'pollers'`; `stop()` clears its timer and awaits its active tick.
+- A poller is a `createJob`. Register it with `stopStage: 'pollers'`.
 - Inbound recovers, then scans every five minutes; serialize scans and live events through core.
   Start the gateway with its sink only with `SLACK_APP_TOKEN`; otherwise log. Stop inbound
   before outbox, then stop the gateway and await the sink before store close.

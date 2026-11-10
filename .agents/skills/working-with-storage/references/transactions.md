@@ -30,9 +30,14 @@
 - Check whether a caller awaits a write through a failure path; a following query can queue
   behind an unawaited transaction and hide the missing await
   (`packages/core/src/app/commands.ts`, `packages/core/test/app/restart.test.ts`).
-- A time that lands in a gateway string, such as an outbox payload, is read before
-  `scanTransaction` (`packages/core/src/app/secrets.ts`), not inside its `fn`: it replays `fn`
-  until every gateway string is scanned, and a new time on each pass keeps the replay going to its
-  limit (`packages/core/test/app/observe.test.ts`,
-  `describe('a clock that moves during the transaction')`). A time that stays in the database may
-  be read inside, after the write lock, as `start` in `packages/core/src/app/sender.ts` does.
+- `scanTransaction` (`packages/core/src/app/secrets.ts`) replays its `fn` until every gateway
+  string is scanned, so `fn` must build the same gateway strings on every pass. A time that lands
+  in one, such as an outbox payload, is read before the call, or captured once on the first pass
+  after the write lock and reused on every replay, as `runTick` in
+  `packages/core/src/app/sender.ts` does with the send-time token expiry
+  (`packages/core/test/app/tokens.test.ts`, `expires a request at send time under a clock that
+  moves on every read` and `expires a request that lapses while its send waits for the write
+  lock`). A fresh time read on each pass keeps the replay going to its limit
+  (`packages/core/test/app/observe.test.ts`, `describe('a clock that moves during the
+  transaction')`). A time that stays in the database may be read inside, after the write lock, as
+  `start` in `packages/core/src/app/sender.ts` does.

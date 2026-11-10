@@ -66,6 +66,21 @@ async function expireToken(
   await clearItem(trx, row.item_id, at);
 }
 
+/**
+ * Lapses the pending request whose approval item is `itemId` once it has expired at `at`. The
+ * sender calls it before posting the approval line, so a late or failing sweep cannot post it.
+ */
+export async function expireTokenOfItem(trx: Trx, itemId: number, at: Date): Promise<void> {
+  const row = await trx
+    .selectFrom('operator_token')
+    .select(['id', 'name', 'item_id'])
+    .where('item_id', '=', itemId)
+    .where('status', '=', 'pending')
+    .where('expires_at', '<=', at.toISOString())
+    .executeTakeFirst();
+  if (row !== undefined) await expireToken(trx, row, at);
+}
+
 export interface TokenRequest {
   name: string;
   folder: string;
