@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { lintSource } from '@secretlint/core';
+import { secretLintProfiler } from '@secretlint/profiler';
 import type { Config, RichText, RichTextInline } from '@spur-board/contracts';
 import {
   creator as recommend,
@@ -17,6 +18,9 @@ type ScanContext = {
   unseen: Set<string>;
 };
 const receipts = new AsyncLocalStorage<ScanContext>();
+// The profiler is on by default and keeps every performance mark of every scan for the life of
+// the process; the board never reads it.
+secretLintProfiler.setEnabled(false);
 export const SCAN_PENDING = Symbol('gateway scan pending');
 // Gateway text is untrusted input: an author must not disable scanning with an inline directive.
 const scannerRules = recommendedRules.filter(
