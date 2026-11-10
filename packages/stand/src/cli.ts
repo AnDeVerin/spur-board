@@ -1,0 +1,395 @@
+// `pnpm stand <command>`: a disposable board for agents and tests, one process per stand.
+import { spawn } from 'node:child_process';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  openSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+} from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { parseArgs } from 'node:util';
+import { scrubEnv } from '@spur-board/testkit';
+import { proxyRefusal, refusal, StandRefusedError } from './guards.ts';
+import {
+  isLive,
+  isStandDir,
+  liveStands,
+  MANIFEST_FILE,
+  prune,
+  procStat,
+  readManifest,
+  removeStand,
+  STAND_PREFIX,
+  type StandManifest,
+} from './manifest.ts';
+import {
+  BOARD_CLI,
+  blockedBoardCommand,
+  roleEnv,
+  ROLES,
+  standEnv,
+  type StandRole,
+} from './roles.ts';
+import { startStand, WAIT_CONDITIONS } from './stand.ts';
+
+const SELF = fileURLToPath(import.meta.url);
+const UP_TIMEOUT_MS = 30_000;
+const DOWN_TIMEOUT_MS = 15_000;
+const PARENT_CHECK_MS = 1_000;
+const WAIT_DEFAULT_S = 30;
+const WAIT_MAX_S = 600;
+
+const USAGE = `Usage: pnpm stand <command>
+
+  up [--port N] [--foreground]    start a stand (port 0 or 4780-4799; default 0)
+  down                            stop the stand and remove its home
+  status [--json]                 show the stand and whether its API answers
+  logs [--stand]                  print the daemon log (--stand: the stand process log)
+  board [--as role] <args...>     run the board CLI against the stand (operator, worker, orchestrator)
+  mcp [--as role]                 run the board MCP server against the stand
+  wait <condition> [--timeout s]  wait for ${WAIT_CONDITIONS.join(', ')} (default ${String(WAIT_DEFAULT_S)} s)
+                                  outbox-drained needs a messenger gateway, which the stand lacks yet
+  poll [source]                   restart the adapter runner, then tick and pulse the outbox
+  reset                           stop the daemon, restore the home and start it again
+
+Every command but up takes --home <dir> to pick one of several stands.
+Exit codes: 0 ok, 1 failure, 2 usage, 3 refused.
+`;
+
+class UsageError extends Error {}
+
+const out = (text: string): void => {
+  process.stdout.write(text);
+};
+const err = (text: string): void => {
+  process.stderr.write(text);
+};
+
+function root(): string {
+  return realpathSync(tmpdir());
+}
+
+function parsePort(value: string | undefined): number {
+  if (value === undefined) return 0;
+  if (!/^\d+$/.test(value)) throw new UsageError(`--port must be a number, got ${value}`);
+  return Number(value);
+}
+
+/** The stand a command acts on: `--home`, else the single live stand of this user. */
+function target(home: string | undefined): StandManifest {
+  const dir = root();
+  if (home !== undefined) {
+    if (!isStandDir(home, dir))
+      throw new UsageError(`${home} is not a stand directory under ${dir}`);
+    const manifest = readManifest(home);
+    if (manifest === undefined) throw new UsageError(`${home} has no valid ${MANIFEST_FILE}`);
+    return manifest;
+  }
+  const live = liveStands(dir);
+  const [only] = live;
+  if (only === undefined || live.length > 1)
+    throw new UsageError(
+      live.length === 0
+        ? `No live stand under ${dir}; run pnpm stand up`
+        : `Several live stands; pick one with --home:\n${live.map((m) => `  ${m.home}`).join('\n')}`,
+    );
+  return only;
+}
+
+function publicView(manifest: StandManifest): Record<string, unknown> {
+  const { id, home, pid, daemonUrl, controlUrl } = manifest;
+  return { id, home, pid, daemonUrl, controlUrl };
+}
+
+async function control(manifest: StandManifest, route: string, body: unknown, timeoutMs: number) {
+  const response = await fetch(`${manifest.controlUrl}${route}`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${manifest.controlToken}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  const text = await response.text();
+  out(text.endsWith('\n') ? text : `${text}\n`);
+  return response.ok ? 0 : 1;
+}
+
+const sleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+
+async function upForeground(options: { port: number; home?: string; detached: boolean }) {
+  const env = { ...process.env };
+  const execArgv = [...process.execArgv];
+  const refused =
+    proxyRefusal({ env, execArgv }) ??
+    refusal({ root: root(), port: options.port, env, osHome: homedir() });
+  if (refused !== undefined) throw new StandRefusedError(refused);
+  scrubEnv(process.env);
+  const stand = await startStand({
+    root: root(),
+    home: options.home,
+    port: options.port,
+    env,
+    execArgv,
+    osHome: homedir(),
+    registerFatal: (handler) => {
+      process.on('uncaughtException', handler);
+      process.on('unhandledRejection', handler);
+    },
+  });
+  for (const signal of ['SIGTERM', 'SIGINT', 'SIGHUP'] as const)
+    process.on(signal, () => {
+      void stand.stop();
+    });
+  if (!options.detached) {
+    const parent = process.ppid;
+    setInterval(() => {
+      if (process.ppid !== parent) void stand.stop();
+    }, PARENT_CHECK_MS).unref();
+  }
+  out(`${JSON.stringify(publicView(stand.manifest()))}\n`);
+  return stand.exited;
+}
+
+async function up(port: number): Promise<number> {
+  const dir = root();
+  const refused = refusal({ root: dir, port, env: process.env, osHome: homedir() });
+  if (refused !== undefined) throw new StandRefusedError(refused);
+  for (const { dir: pruned, result } of prune(dir))
+    if (result === 'removed') err(`removed dead stand ${pruned}\n`);
+  const home = mkdtempSync(join(dir, STAND_PREFIX));
+  mkdirSync(join(home, 'logs'), { mode: 0o700 });
+  const logFile = join(home, 'logs', 'stand.log');
+  const log = openSync(logFile, 'a', 0o600);
+  const child = spawn(
+    process.execPath,
+    [SELF, 'up', '--foreground', '--detached', '--home', home, '--port', String(port)],
+    { detached: true, env: standEnv(process.env), stdio: ['ignore', log, log] },
+  );
+  let exitCode: number | null | undefined;
+  child.on('exit', (code) => {
+    exitCode = code;
+  });
+  child.unref();
+  const deadline = Date.now() + UP_TIMEOUT_MS;
+  while (Date.now() < deadline && exitCode === undefined) {
+    const manifest = readManifest(home);
+    if (manifest !== undefined) {
+      out(`${JSON.stringify(publicView(manifest))}\n`);
+      return 0;
+    }
+    await sleep(100);
+  }
+  err(`The stand did not start${exitCode === undefined ? ' in time' : ''}. Log:\n`);
+  err(`${readFileSync(logFile, 'utf8').split('\n').slice(-30).join('\n')}\n`);
+  if (exitCode === undefined && child.pid !== undefined) process.kill(-child.pid, 'SIGTERM');
+  // This invocation created the home, so it removes it; it has no manifest for removeStand.
+  if (isStandDir(home, dir)) rmSync(home, { recursive: true, force: true });
+  return 1;
+}
+
+async function waitGone(manifest: StandManifest, ms: number): Promise<boolean> {
+  const deadline = Date.now() + ms;
+  while (Date.now() < deadline) {
+    if (!isLive(manifest)) return true;
+    await sleep(100);
+  }
+  return !isLive(manifest);
+}
+
+/** Signals the stand's group (or pid) only while the pid still has the manifest's start time. */
+function signalStand(manifest: StandManifest, signal: NodeJS.Signals): void {
+  const stat = procStat(manifest.pid);
+  if (stat?.startTime !== manifest.pidStartTime) return;
+  try {
+    process.kill(stat.pgrp === manifest.pid ? -manifest.pid : manifest.pid, signal);
+  } catch {
+    // Gone between the check and the signal.
+  }
+}
+
+async function down(manifest: StandManifest): Promise<number> {
+  signalStand(manifest, 'SIGTERM');
+  if (!(await waitGone(manifest, DOWN_TIMEOUT_MS))) {
+    signalStand(manifest, 'SIGKILL');
+    await waitGone(manifest, 5_000);
+  }
+  const result = removeStand(manifest.home, root());
+  if (result !== 'removed') {
+    err(`Kept ${manifest.home}: ${result.kept}\n`);
+    return 1;
+  }
+  out(`stopped and removed ${manifest.home}\n`);
+  return 0;
+}
+
+async function status(manifest: StandManifest, json: boolean): Promise<number> {
+  let apiReady = false;
+  try {
+    const response = await fetch(`${manifest.daemonUrl}/v1/schema`, {
+      signal: AbortSignal.timeout(2_000),
+    });
+    await response.body?.cancel();
+    apiReady = response.status === 200;
+  } catch {
+    apiReady = false;
+  }
+  const view = { ...publicView(manifest), alive: isLive(manifest), apiReady };
+  out(
+    json
+      ? `${JSON.stringify(view)}\n`
+      : `${Object.entries(view)
+          .map(([key, value]) => `${key}: ${String(value)}`)
+          .join('\n')}\n`,
+  );
+  return 0;
+}
+
+function role(value: string | undefined): StandRole {
+  if (value === undefined) return 'operator';
+  if (!(ROLES as readonly string[]).includes(value))
+    throw new UsageError(`--as must be one of ${ROLES.join(', ')}`);
+  return value as StandRole;
+}
+
+/** Splits the stand's own leading `--home` and `--as` from the arguments passed through. */
+function leading(args: readonly string[]): { home?: string; as?: string; rest: string[] } {
+  const result: { home?: string; as?: string; rest: string[] } = { rest: [] };
+  let i = 0;
+  for (; i < args.length; i += 2) {
+    const name = args[i];
+    if (name !== '--home' && name !== '--as') break;
+    const value = args[i + 1];
+    if (value === undefined) throw new UsageError(`${name} needs a value`);
+    if (name === '--home') result.home = value;
+    else result.as = value;
+  }
+  result.rest = args.slice(i);
+  return result;
+}
+
+function runBoard(manifest: StandManifest, as: StandRole, args: string[]): Promise<number> {
+  const child = spawn(process.execPath, [BOARD_CLI, ...args], {
+    env: roleEnv(manifest, as, process.env),
+    stdio: 'inherit',
+  });
+  return new Promise((resolve) => {
+    child.on('exit', (code, signal) => {
+      resolve(code ?? (signal === null ? 1 : 128));
+    });
+  });
+}
+
+async function main(argv: string[]): Promise<number> {
+  const [command, ...args] = argv;
+  if (command === undefined || command === 'help' || command === '--help' || command === '-h') {
+    (command === undefined ? err : out)(USAGE);
+    return command === undefined ? 2 : 0;
+  }
+  if (command === 'board' || command === 'mcp') {
+    const parsed = leading(args);
+    const manifest = target(parsed.home);
+    const as = role(parsed.as);
+    if (command === 'mcp') {
+      if (parsed.rest.length > 0) throw new UsageError('mcp takes no arguments');
+      return runBoard(manifest, as, ['mcp']);
+    }
+    if (parsed.rest.length === 0) throw new UsageError('board needs a command');
+    const blocked = blockedBoardCommand(parsed.rest);
+    if (blocked !== undefined) throw new UsageError(blocked);
+    return runBoard(manifest, as, parsed.rest);
+  }
+  const { values, positionals } = parseArgs({
+    args,
+    allowPositionals: true,
+    options: {
+      home: { type: 'string' },
+      port: { type: 'string' },
+      foreground: { type: 'boolean' },
+      detached: { type: 'boolean' },
+      json: { type: 'boolean' },
+      stand: { type: 'boolean' },
+      timeout: { type: 'string' },
+    },
+  });
+  switch (command) {
+    case 'up': {
+      const port = parsePort(values.port);
+      if (!values.foreground) {
+        if (values.home !== undefined || values.detached)
+          throw new UsageError('up takes no --home');
+        return up(port);
+      }
+      return upForeground({
+        port,
+        ...(values.home === undefined ? {} : { home: values.home }),
+        detached: values.detached ?? false,
+      });
+    }
+    case 'down':
+      return down(target(values.home));
+    case 'status':
+      return status(target(values.home), values.json ?? false);
+    case 'logs': {
+      const manifest = target(values.home);
+      const file = join(manifest.home, 'logs', values.stand ? 'stand.log' : 'daemon.log');
+      if (existsSync(file)) out(readFileSync(file, 'utf8'));
+      return 0;
+    }
+    case 'wait': {
+      const [condition, ...extra] = positionals;
+      if (condition === undefined || extra.length > 0)
+        throw new UsageError('wait needs one condition');
+      const seconds = values.timeout === undefined ? WAIT_DEFAULT_S : Number(values.timeout);
+      if (!Number.isFinite(seconds) || seconds < 0 || seconds > WAIT_MAX_S)
+        throw new UsageError(`--timeout is seconds from 0 to ${String(WAIT_MAX_S)}`);
+      return control(
+        target(values.home),
+        '/wait',
+        { condition, timeoutMs: seconds * 1_000 },
+        seconds * 1_000 + 5_000,
+      );
+    }
+    case 'poll': {
+      if (positionals.length > 1) throw new UsageError('poll takes at most one source');
+      const [source] = positionals;
+      return control(target(values.home), '/poll', source === undefined ? {} : { source }, 120_000);
+    }
+    case 'reset':
+      return control(target(values.home), '/reset', {}, 120_000);
+    default:
+      throw new UsageError(`Unknown command ${command}`);
+  }
+}
+
+if (import.meta.main) {
+  main(process.argv.slice(2)).then(
+    (code) => process.exit(code),
+    (error: unknown) => {
+      if (error instanceof StandRefusedError) {
+        err(`stand refused (${error.reason}): ${error.message}\n`);
+        process.exit(3);
+      }
+      if (
+        error instanceof UsageError ||
+        (error instanceof TypeError &&
+          'code' in error &&
+          String(error.code).startsWith('ERR_PARSE_ARGS'))
+      ) {
+        err(`${error.message}\n\n${USAGE}`);
+        process.exit(2);
+      }
+      err(`stand: ${error instanceof Error ? error.message : String(error)}\n`);
+      process.exit(1);
+    },
+  );
+}
