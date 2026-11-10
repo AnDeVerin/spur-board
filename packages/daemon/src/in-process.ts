@@ -132,10 +132,15 @@ export async function startInProcessDaemon(options: InProcessOptions): Promise<I
     clock: options.clock,
     shutdownTimeoutMs: options.shutdownTimeoutMs ?? 5_000,
   });
-  if (exitCode !== undefined)
+  // A failed start rejects only once the daemon has let go of its store and lock, so a caller
+  // may then remove its files.
+  if (exitCode !== undefined) {
+    await teardown;
     throw new Error(`Daemon exited during start with code ${String(exitCode)}`);
+  }
   if (address === undefined || store === undefined || composed === undefined) {
     await stop();
+    await teardown;
     throw new Error('Daemon did not bind HTTP');
   }
   const bound = address;

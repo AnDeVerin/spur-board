@@ -1,23 +1,62 @@
 import { mkdtempSync, rmSync } from 'node:fs';
+import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { configSchema } from '@spur-board/contracts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { acquireLock, startInProcessDaemon, type InProcessDaemon } from '../src/in-process.ts';
 
-const config = configSchema.parse({
-  projects: [
-    {
-      id: 'proj',
-      tracker: { type: 'github-issues', repo: 'example/repo' },
-      repos: ['example/repo'],
-      operatorGithubLogin: 'operator',
+const configFor = (port: number) =>
+  configSchema.parse({
+    projects: [
+      {
+        id: 'proj',
+        tracker: { type: 'github-issues', repo: 'example/repo' },
+        repos: ['example/repo'],
+        operatorGithubLogin: 'operator',
+      },
+    ],
+    operator: { slack: 'operator' },
+    digest: { tz: 'UTC' },
+    http: { port },
+  });
+
+/** The daemon options of these tests: a temp home, a real lock, a tick the test controls. */
+function optionsFor(input: {
+  tick: () => Promise<void>;
+  port?: number;
+  lines?: string[];
+  shutdownTimeoutMs?: number;
+  registerFatal?: (handler: (err: unknown) => void) => void;
+}): Parameters<typeof startInProcessDaemon>[0] {
+  return {
+    paths: {
+      configFile: join(home, 'config.yaml'),
+      secretsFile: join(home, 'secrets.env'),
+      dbFile: join(home, 'board.sqlite'),
+      lockFile: join(home, 'board.lock'),
     },
-  ],
-  operator: { slack: 'operator' },
-  digest: { tz: 'UTC' },
-  http: { port: 0 },
-});
+    loadConfig: () => ({ config: configFor(input.port ?? 0), secrets: {} }),
+    acquireLock,
+    clock: { now: () => Date.now() },
+    stdout: {
+      write(line: string) {
+        input.lines?.push(line);
+      },
+    },
+    writeErr(text) {
+      throw new Error(text);
+    },
+    ports: {
+      tick: input.tick,
+      startAdapters: () => ({ stop: () => Promise.resolve() }),
+    },
+    ...(input.registerFatal === undefined ? {} : { registerFatal: input.registerFatal }),
+    ...(input.shutdownTimeoutMs === undefined
+      ? {}
+      : { shutdownTimeoutMs: input.shutdownTimeoutMs }),
+  };
+}
 
 let home: string;
 let daemon: InProcessDaemon | undefined;
@@ -42,28 +81,14 @@ describe('startInProcessDaemon', () => {
       release = resolve;
     });
     const lockFile = join(home, 'board.lock');
-    daemon = await startInProcessDaemon({
-      paths: {
-        configFile: join(home, 'config.yaml'),
-        secretsFile: join(home, 'secrets.env'),
-        dbFile: join(home, 'board.sqlite'),
-        lockFile,
-      },
-      loadConfig: () => ({ config, secrets: {} }),
-      acquireLock,
-      clock: { now: () => Date.now() },
-      stdout: { write() {} },
-      writeErr(text) {
-        throw new Error(text);
-      },
-      ports: {
+    daemon = await startInProcessDaemon(
+      optionsFor({
         tick: () => stalled,
-        startAdapters: () => ({ stop: () => Promise.resolve() }),
-      },
-      registerFatal: (handler) => {
-        fatal = handler;
-      },
-    });
+        registerFatal: (handler) => {
+          fatal = handler;
+        },
+      }),
+    );
     const { address } = daemon;
     let tornDown = false;
     void daemon.teardown.then(() => {
@@ -82,5 +107,62 @@ describe('startInProcessDaemon', () => {
     await daemon.teardown;
     acquireLock(lockFile).release();
     await expect(fetch(`${address}/v1/schema`)).rejects.toThrow();
+  });
+
+  it('logs no shutdown timeout after a fatal exit whose teardown finished in time', async () => {
+    let fatal: ((err: unknown) => void) | undefined;
+    const lines: string[] = [];
+    daemon = await startInProcessDaemon(
+      optionsFor({
+        tick: () => Promise.resolve(),
+        lines,
+        shutdownTimeoutMs: 100,
+        registerFatal: (handler) => {
+          fatal = handler;
+        },
+      }),
+    );
+    fatal?.(new Error('boom'));
+    expect(await daemon.exited).toBe(1);
+    await daemon.teardown;
+    // Past the shutdown timeout window: the cleared timer must log nothing.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(lines.filter((line) => line.includes('shutdown timed out'))).toEqual([]);
+  });
+
+  it('rejects a failed start only after teardown has freed the lock', async () => {
+    const taken = createServer();
+    await new Promise<void>((resolve) => taken.listen(0, '127.0.0.1', resolve));
+    const address = taken.address();
+    const port = typeof address === 'object' && address !== null ? address.port : 0;
+    const stalled = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let outcome: string | undefined;
+    // The API port is taken, so the HTTP module fails to start; the stalled tick holds shutdown.
+    const starting = startInProcessDaemon(
+      optionsFor({ tick: () => stalled, port, shutdownTimeoutMs: 200 }),
+    ).then(
+      () => 'resolved',
+      (err: unknown) => (err instanceof Error ? err.message : String(err)),
+    );
+    void starting.then((result) => {
+      outcome = result;
+    });
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 600));
+      expect(outcome).toBeUndefined();
+      expect(() => acquireLock(join(home, 'board.lock'))).toThrow();
+      release();
+      expect(await starting).toBe('Daemon did not bind HTTP');
+      acquireLock(join(home, 'board.lock')).release();
+    } finally {
+      release();
+      await new Promise<void>((resolve) =>
+        taken.close(() => {
+          resolve();
+        }),
+      );
+    }
   });
 });
