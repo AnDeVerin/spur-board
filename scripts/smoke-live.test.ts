@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { makeHome, VALID_CONFIG_YAML } from '../packages/daemon/test/home.ts';
@@ -11,6 +11,9 @@ import {
 } from './smoke-live.ts';
 
 const script = join(import.meta.dirname, 'smoke-live.ts');
+const gatewaySlackManifest = JSON.parse(
+  readFileSync(join(import.meta.dirname, '../packages/gateway-slack/package.json'), 'utf8'),
+) as { dependencies: Record<string, string | undefined> };
 const homes: string[] = [];
 
 function home(options: Parameters<typeof makeHome>[0]): string {
@@ -227,9 +230,13 @@ describe('live conformance process preflight', () => {
       results: [{ id: 'delivery', status: 'pass', observation: 'delivery confirmed' }],
       rateLimit: { status: 'not-run', observation: 'No incidental 429 observed.' },
     });
+    const web = gatewaySlackManifest.dependencies['@slack/web-api'];
+    const socket = gatewaySlackManifest.dependencies['@slack/socket-mode'];
+    expect(web).toMatch(/^\d+\.\d+\.\d+$/);
+    expect(socket).toMatch(/^\d+\.\d+\.\d+$/);
     expect(output).toContain('2026-11-05');
-    expect(output).toContain('@slack/web-api 8.2.0');
-    expect(output).toContain('@slack/socket-mode 3.1.0');
+    expect(output).toContain(`@slack/web-api ${String(web)};`);
+    expect(output).toContain(`@slack/socket-mode ${String(socket)}\n`);
     expect(output).toContain('PASS delivery');
     expect(output).toContain('NOT RUN rate-limit');
   });
