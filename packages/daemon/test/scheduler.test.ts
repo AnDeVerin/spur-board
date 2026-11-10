@@ -142,6 +142,46 @@ describe('createJob', () => {
     await job.stop();
   });
 
+  it.each([
+    {
+      title: 'throws',
+      onError: (): void => {
+        throw new Error('onError failed');
+      },
+    },
+    {
+      title: 'rejects',
+      // An async handler passed where a void one is expected: its rejection must not escape.
+      onError: ((): Promise<void> => Promise.reject(new Error('onError failed'))) as () => void,
+    },
+  ])('keeps running when onError $title', async ({ onError }) => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const unhandled: unknown[] = [];
+    const record = (reason: unknown): void => {
+      unhandled.push(reason);
+    };
+    process.on('unhandledRejection', record);
+    try {
+      const jobRuns = counter();
+      jobRuns.fail = 2;
+      const handler = vi.fn(onError);
+      const job = createJob({ run: jobRuns.run, intervalMs: INTERVAL, onError: handler });
+      await job.start(new AbortController().signal);
+      await vi.advanceTimersByTimeAsync(INTERVAL);
+      expect(jobRuns.runs).toBe(2);
+      expect(handler).toHaveBeenCalledTimes(1);
+      await expect(job.settled()).resolves.toBeUndefined();
+      await vi.advanceTimersByTimeAsync(INTERVAL);
+      expect(jobRuns.runs).toBe(3);
+      await job.stop();
+      // Let a rejection the chain dropped reach the process before checking.
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off('unhandledRejection', record);
+    }
+  });
+
   it('resolves an awaited start after the first run, then runs on the interval', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     const jobRuns = counter();

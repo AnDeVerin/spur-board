@@ -3,7 +3,8 @@ import type { Module } from './lifecycle.ts';
 /**
  * One recurring job: a `setTimeout` chain armed `intervalMs` plus under `jitterMs` after each
  * timer run settles. Runs never overlap; `trigger` queues behind the active run. A failed run goes
- * to `onError`, except a failed `first: 'await'` run, which rejects `start` and arms no timer.
+ * to `onError`, except a failed `first: 'await'` run, which rejects `start` and arms no timer. A
+ * failing `onError` is dropped, so the chain keeps running.
  * `stop` clears the timer and awaits the active run; after it, and once the start signal aborts,
  * nothing new runs. Uses the global timers so `vi.useFakeTimers` controls it.
  */
@@ -31,7 +32,9 @@ export function createJob(options: {
       .then(async () => {
         if (signal !== undefined && !idle()) await run(signal);
       })
-      .catch(onError);
+      // A throwing or rejecting onError must not reject `active` and stop the timer chain.
+      .catch((err: unknown) => Promise.resolve().then(() => onError(err)))
+      .catch(() => undefined);
     return active;
   };
   const schedule = (): void => {
