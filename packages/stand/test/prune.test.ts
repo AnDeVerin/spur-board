@@ -12,6 +12,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
+  isLive,
   procStat,
   prune,
   readManifest,
@@ -121,5 +122,31 @@ describe('removeStand', () => {
     stand(dir, { pid: deadPid(), pidStartTime: 1 });
     expect(removeStand(dir, root)).toHaveProperty('kept');
     expect(existsSync(dir)).toBe(true);
+  });
+});
+
+describe('isLive', () => {
+  const failing = (code: string) => (): string => {
+    throw Object.assign(new Error(code), { code });
+  };
+  const owner = { pid: 4242, pidStartTime: 7 };
+
+  it.each(['ENOENT', 'ESRCH'])('counts %s as a dead process', (code) => {
+    expect(isLive(owner, failing(code))).toBe(false);
+  });
+
+  it.each(['EACCES', 'EIO'])('keeps a process whose /proc entry fails with %s', (code) => {
+    expect(isLive(owner, failing(code))).toBe(true);
+  });
+
+  it('keeps a process whose stat line cannot be parsed', () => {
+    expect(isLive(owner, () => 'garbage')).toBe(true);
+  });
+
+  it('compares the start time', () => {
+    const stat = (start: number) => () =>
+      `4242 (node (x)) S 1 4242 4242 0 -1 0 0 0 0 0 0 0 0 0 20 0 1 0 ${String(start)} 0`;
+    expect(isLive(owner, stat(7))).toBe(true);
+    expect(isLive(owner, stat(8))).toBe(false);
   });
 });

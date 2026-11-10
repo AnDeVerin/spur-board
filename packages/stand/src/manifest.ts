@@ -52,25 +52,49 @@ export function readManifest(home: string): StandManifest | undefined {
   }
 }
 
-/** Process group and start time from `/proc/<pid>/stat`, or undefined when no such process. */
-export function procStat(pid: number): { pgrp: number; startTime: number } | undefined {
+type ReadProc = (path: string) => string;
+const readProc: ReadProc = (path) => readFileSync(path, 'utf8');
+
+/**
+ * Process group and start time from `/proc/<pid>/stat`, or undefined when no such process
+ * (`ENOENT`, or `ESRCH` while it exits). Any other read error or an unparsable line throws: the
+ * process may still run.
+ */
+export function procStat(
+  pid: number,
+  read: ReadProc = readProc,
+): { pgrp: number; startTime: number } | undefined {
   let text: string;
   try {
-    text = readFileSync(`/proc/${String(pid)}/stat`, 'utf8');
-  } catch {
-    return undefined;
+    text = read(`/proc/${String(pid)}/stat`);
+  } catch (err) {
+    const code = err instanceof Error && 'code' in err ? err.code : undefined;
+    if (code === 'ENOENT' || code === 'ESRCH') return undefined;
+    throw err;
   }
   // The command name (field 2) may hold spaces and parentheses; fields after it follow the last ')'.
   const fields = text.slice(text.lastIndexOf(')') + 2).split(' ');
   const pgrp = Number(fields[2]);
   const startTime = Number(fields[19]);
-  if (!Number.isInteger(pgrp) || !Number.isInteger(startTime)) return undefined;
+  if (!Number.isInteger(pgrp) || !Number.isInteger(startTime))
+    throw new Error(`Cannot parse /proc/${String(pid)}/stat`);
   return { pgrp, startTime };
 }
 
-/** The manifest's process still runs: same pid and same start time. */
-export function isLive(manifest: Pick<StandManifest, 'pid' | 'pidStartTime'>): boolean {
-  return procStat(manifest.pid)?.startTime === manifest.pidStartTime;
+/**
+ * The manifest's process may still run: same pid and start time, or `/proc` cannot tell. Only a
+ * missing pid or a different start time counts as dead.
+ */
+export function isLive(
+  manifest: Pick<StandManifest, 'pid' | 'pidStartTime'>,
+  read: ReadProc = readProc,
+): boolean {
+  try {
+    const stat = procStat(manifest.pid, read);
+    return stat !== undefined && stat.startTime === manifest.pidStartTime;
+  } catch {
+    return true;
+  }
 }
 
 /**
@@ -100,7 +124,7 @@ export function removeStand(dir: string, root: string): RemoveResult {
   const manifest = readManifest(dir);
   if (manifest === undefined) return { kept: 'no valid manifest' };
   if (manifest.home !== realpathSync(dir)) return { kept: 'the manifest names another home' };
-  if (isLive(manifest)) return { kept: 'the stand is running' };
+  if (isLive(manifest)) return { kept: 'the stand may still run' };
   rmSync(dir, { recursive: true, force: true });
   return 'removed';
 }
