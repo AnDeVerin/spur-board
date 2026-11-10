@@ -12,7 +12,7 @@ import {
 } from 'node:fs';
 import { basename, join } from 'node:path';
 import { startAdapters, type AdapterRunner } from '@spur-board/adapters';
-import { COLUMN_IDS, type Config } from '@spur-board/contracts';
+import { COLUMN_IDS, configSchema, type Config } from '@spur-board/contracts';
 import { openStore } from '@spur-board/core';
 import {
   acquireLock,
@@ -224,7 +224,7 @@ export async function startStand(options: StandOptions): Promise<Stand> {
   const operatorToken = randomBytes(32).toString('hex');
   const controlToken = randomBytes(32).toString('hex');
   const config = standConfig(options.port);
-  const required = requiredSources(config as Pick<Config, 'projects'>);
+  const required = requiredSources(configSchema.parse(config));
   mkdirSync(join(home, 'logs'), { recursive: true, mode: 0o700 });
   const logFd = openSync(join(home, 'logs', 'daemon.log'), 'a', 0o600);
   const log = (text: string): void => {
