@@ -423,36 +423,41 @@ describe('stand', () => {
     const stalled = new Promise<void>((resolve) => {
       release = resolve;
     });
-    stand = await startStand({
-      root,
-      port: 0,
-      env: {},
-      osHome,
-      shutdownTimeoutMs: 300,
-      tick: () => stalled,
-    });
-    const current = stand;
-    const manifest = current.manifest();
-    await waitFor(manifest, 'api-ready');
-    const files = ['config.yaml', 'secrets.env', 'token', 'board.sqlite'];
-    const before = files.map((name) => statSync(join(manifest.home, name)).ino);
-    const result = await control(manifest, '/reset');
-    expect(result.status).toBe(500);
-    expect(JSON.stringify(result.body)).toContain('did not stop cleanly');
-    expect(files.map((name) => statSync(join(manifest.home, name)).ino)).toEqual(before);
+    // Released in finally too, so a failed assertion cannot leave afterEach waiting on it.
+    try {
+      stand = await startStand({
+        root,
+        port: 0,
+        env: {},
+        osHome,
+        shutdownTimeoutMs: 300,
+        tick: () => stalled,
+      });
+      const current = stand;
+      const manifest = current.manifest();
+      await waitFor(manifest, 'api-ready');
+      const files = ['config.yaml', 'secrets.env', 'token', 'board.sqlite'];
+      const before = files.map((name) => statSync(join(manifest.home, name)).ino);
+      const result = await control(manifest, '/reset');
+      expect(result.status).toBe(500);
+      expect(JSON.stringify(result.body)).toContain('did not stop cleanly');
+      expect(files.map((name) => statSync(join(manifest.home, name)).ino)).toEqual(before);
 
-    // The old daemon still tears down: the stand has not exited and the lock is still held.
-    let exited: number | undefined;
-    void current.exited.then((code) => {
-      exited = code;
-    });
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    expect(exited).toBeUndefined();
-    expect(() => acquireLock(join(manifest.home, 'board.lock'))).toThrow();
+      // The old daemon still tears down: the stand has not exited and the lock is still held.
+      let exited: number | undefined;
+      void current.exited.then((code) => {
+        exited = code;
+      });
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      expect(exited).toBeUndefined();
+      expect(() => acquireLock(join(manifest.home, 'board.lock'))).toThrow();
 
-    release();
-    expect(await current.exited).toBe(1);
-    acquireLock(join(manifest.home, 'board.lock')).release();
+      release();
+      expect(await current.exited).toBe(1);
+      acquireLock(join(manifest.home, 'board.lock')).release();
+    } finally {
+      release();
+    }
   }, 60_000);
 
   it('a stop during a stalled reset waits for the retiring daemon and exits 1', async () => {
@@ -460,38 +465,43 @@ describe('stand', () => {
     const stalled = new Promise<void>((resolve) => {
       release = resolve;
     });
-    stand = await startStand({
-      root,
-      port: 0,
-      env: {},
-      osHome,
-      shutdownTimeoutMs: 300,
-      tick: () => stalled,
-    });
-    const current = stand;
-    const manifest = current.manifest();
-    await waitFor(manifest, 'api-ready');
-    const log = join(manifest.home, 'logs', 'daemon.log');
-    const reset = control(manifest, '/reset');
-    // The reset has signalled the old daemon, which now waits for the stalled tick.
-    await vi.waitFor(() => {
-      expect(readFileSync(log, 'utf8')).toContain('"msg":"shutting down"');
-    });
-    let stopped: number | undefined;
-    const stopping = current.stop().then((code) => {
-      stopped = code;
-      return code;
-    });
-    expect((await reset).status).toBe(500);
-    // Past the shutdown timeout the old daemon still holds its lock, and stop has not resolved.
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    expect(stopped).toBeUndefined();
-    expect(() => acquireLock(join(manifest.home, 'board.lock'))).toThrow();
+    // Released in finally too, so a failed assertion cannot leave afterEach waiting on it.
+    try {
+      stand = await startStand({
+        root,
+        port: 0,
+        env: {},
+        osHome,
+        shutdownTimeoutMs: 300,
+        tick: () => stalled,
+      });
+      const current = stand;
+      const manifest = current.manifest();
+      await waitFor(manifest, 'api-ready');
+      const log = join(manifest.home, 'logs', 'daemon.log');
+      const reset = control(manifest, '/reset');
+      // The reset has signalled the old daemon, which now waits for the stalled tick.
+      await vi.waitFor(() => {
+        expect(readFileSync(log, 'utf8')).toContain('"msg":"shutting down"');
+      });
+      let stopped: number | undefined;
+      const stopping = current.stop().then((code) => {
+        stopped = code;
+        return code;
+      });
+      expect((await reset).status).toBe(500);
+      // Past the shutdown timeout the old daemon still holds its lock, and stop has not resolved.
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      expect(stopped).toBeUndefined();
+      expect(() => acquireLock(join(manifest.home, 'board.lock'))).toThrow();
 
-    release();
-    expect(await stopping).toBe(1);
-    expect(await current.exited).toBe(1);
-    acquireLock(join(manifest.home, 'board.lock')).release();
+      release();
+      expect(await stopping).toBe(1);
+      expect(await current.exited).toBe(1);
+      acquireLock(join(manifest.home, 'board.lock')).release();
+    } finally {
+      release();
+    }
   }, 60_000);
 
   it('poll reports every source', async () => {
