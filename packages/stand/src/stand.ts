@@ -425,7 +425,7 @@ export async function startStand(options: StandOptions): Promise<Stand> {
             outcome: outcome?.kind ?? 'aborted',
             ...(outcome?.kind === 'failed' ? { error: errorMessage(outcome.error) } : {}),
           })),
-          note: 'poll restarts the adapter runner: every source polls now, and backoff, gone entities and the stale window start over.',
+          note: 'poll restarts the whole adapter runner, whatever source was named: every source polls now, and backoff, gone entities and the stale window start over.',
         },
       };
     },

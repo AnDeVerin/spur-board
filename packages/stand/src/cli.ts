@@ -55,7 +55,8 @@ const USAGE = `Usage: pnpm stand <command>
   mcp [--as role]                 run the board MCP server against the stand
   wait <condition> [--timeout s]  wait for ${WAIT_CONDITIONS.join(', ')} (default ${String(WAIT_DEFAULT_S)} s)
                                   outbox-drained needs a messenger gateway, which the stand lacks yet
-  poll [source]                   restart the adapter runner, then tick and pulse the outbox
+  poll [source]                   restart every source's poll now (source is only checked to
+                                  exist), then tick and pulse the outbox
   reset                           stop the daemon, restore the home and start it again
 
 Every command but up takes --home <dir> to pick one of several stands.
