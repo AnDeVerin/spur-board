@@ -151,9 +151,11 @@ export function checkGatewayStrings(
 
 /**
  * Replays database-only work after scanning exact strings outside the write transaction.
- * `fn` must build the same gateway strings on every pass: read a time that lands in one, such as
- * an outbox payload, before the call, as a time read inside `fn` makes a new string each pass and
- * the replay never ends. A time kept only in the database may be read inside.
+ * `fn` must build the same gateway strings on every pass. Read a time that lands in one, such as
+ * an outbox payload, before the call, or capture it once on the first pass, after the write lock,
+ * and reuse it on every replay, as `runTick` in `sender.ts` does with the send-time token expiry.
+ * A fresh time read on each pass makes a new string each pass and the replay never ends. A time
+ * kept only in the database may be read inside.
  */
 export async function scanTransaction<T>(
   store: Store,
