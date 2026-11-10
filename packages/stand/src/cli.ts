@@ -34,6 +34,7 @@ import {
   roleEnv,
   ROLES,
   standEnv,
+  TRUSTED_PATH,
   type StandRole,
 } from './roles.ts';
 import { startStand, WAIT_CONDITIONS } from './stand.ts';
@@ -133,6 +134,8 @@ async function upForeground(options: { port: number; home?: string; detached: bo
     refusal({ root: root(), port: options.port, env, osHome: homedir() });
   if (refused !== undefined) throw new StandRefusedError(refused);
   scrubEnv(process.env);
+  // The daemon lock spawns flock by name; only trusted directories may provide it.
+  process.env['PATH'] = TRUSTED_PATH;
   const stand = await startStand({
     root: root(),
     home: options.home,

@@ -4,10 +4,17 @@ import { join } from 'node:path';
 import { isScrubbed } from '@spur-board/testkit';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { StandManifest } from '../src/manifest.ts';
-import { BOARD_CLI, blockedBoardCommand, roleEnv, ROLES, standEnv } from '../src/roles.ts';
+import {
+  BOARD_CLI,
+  blockedBoardCommand,
+  roleEnv,
+  ROLES,
+  standEnv,
+  TRUSTED_PATH,
+} from '../src/roles.ts';
 
 const BASE = {
-  PATH: '/usr/bin',
+  PATH: '/tmp/evil-bin:/usr/bin',
   SPUR_SESSION: 'inherited-session',
   BOARD_TOKEN: 'inherited-token',
   GH_TOKEN: 'gh',
@@ -56,7 +63,7 @@ function proxyFree(env: Record<string, string>): void {
 describe('standEnv', () => {
   it('keeps only allowlisted names: no secret, proxy, preload or agent socket', () => {
     const env = standEnv(BASE);
-    expect(env).toEqual({ PATH: '/usr/bin', HOME: '/home/u', LC_ALL: 'C.UTF-8' });
+    expect(env).toEqual({ PATH: TRUSTED_PATH, HOME: '/home/u', LC_ALL: 'C.UTF-8' });
     expect(Object.keys(env).filter(isScrubbed)).toEqual([]);
     proxyFree(env);
   });
@@ -80,6 +87,7 @@ describe('roleEnv', () => {
 
   it.each(ROLES)('points %s at the stand and passes no other scrubbed name', (role) => {
     const env = roleEnv(manifest, role, BASE);
+    expect(env['PATH']).toBe(TRUSTED_PATH);
     expect(env['BOARD_DAEMON_URL']).toBe(manifest.daemonUrl);
     expect(env['BOARD_HOME']).toBe(home);
     const own = ['BOARD_DAEMON_URL', 'BOARD_HOME', 'BOARD_TOKEN', 'SPUR_SESSION'];

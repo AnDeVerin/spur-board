@@ -13,9 +13,14 @@ export const BOARD_CLI = fileURLToPath(new URL('../../cli/src/bin.mjs', import.m
 /** Commands that act on the real machine: the user's service manager, the global install. */
 const BLOCKED = new Set(['service', 'update', 'rollback', 'skills']);
 
+/**
+ * The only PATH a stand process or its children use. Node runs from `process.execPath`; the one
+ * helper found by name is `flock` (util-linux), which the daemon lock spawns from /usr/bin.
+ */
+export const TRUSTED_PATH = '/usr/bin:/bin';
+
 /** Names a stand child inherits; everything else, `NODE_OPTIONS` included, stays behind. */
 const INHERITED = new Set([
-  'PATH',
   'HOME',
   'TMPDIR',
   'LANG',
@@ -29,9 +34,12 @@ const INHERITED = new Set([
   'XDG_DATA_HOME',
 ]);
 
-/** The part of `base` a stand child may inherit: an allowlist plus the `LC_*` locale names. */
+/**
+ * The part of `base` a stand child may inherit: an allowlist plus the `LC_*` locale names, and
+ * `TRUSTED_PATH` in place of the caller's PATH.
+ */
 export function standEnv(base: Env): Record<string, string> {
-  const env: Record<string, string> = {};
+  const env: Record<string, string> = { PATH: TRUSTED_PATH };
   for (const [name, value] of Object.entries(base)) {
     if (value !== undefined && (INHERITED.has(name) || name.startsWith('LC_'))) env[name] = value;
   }
