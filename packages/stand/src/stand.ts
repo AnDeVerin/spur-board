@@ -24,6 +24,7 @@ import {
   resolvePaths,
   startInProcessDaemon,
   type InProcessDaemon,
+  type InProcessOptions,
   type Paths,
 } from '@spur-board/daemon/in-process';
 import { installNetworkGuard } from '@spur-board/testkit';
@@ -258,6 +259,10 @@ export interface StandOptions {
   osHome: string;
   /** Binds the daemon's fatal handler to the process; called once. */
   registerFatal?: (handler: (err: unknown) => void) => void;
+  /** How long the daemon may take to stop before it exits 1; the in-process default otherwise. */
+  shutdownTimeoutMs?: number;
+  /** Replaces the board tick; a test seam for a daemon that cannot stop cleanly. */
+  tick?: NonNullable<InProcessOptions['ports']>['tick'];
 }
 
 export interface Stand {
@@ -350,13 +355,19 @@ export async function startStand(options: StandOptions): Promise<Stand> {
   async function startDaemon(): Promise<NonNullable<typeof current>> {
     const runner = runnerController();
     const daemon = await startInProcessDaemon({
+      ...(options.shutdownTimeoutMs === undefined
+        ? {}
+        : { shutdownTimeoutMs: options.shutdownTimeoutMs }),
       paths,
       acquireLock,
       loadConfig,
       clock: { now: () => Date.now() },
       stdout: { write: log },
       writeErr: log,
-      ports: { startAdapters: runner.start },
+      ports: {
+        startAdapters: runner.start,
+        ...(options.tick === undefined ? {} : { tick: options.tick }),
+      },
       registerFatal: (handler) => {
         fatal = handler;
       },
@@ -482,7 +493,17 @@ export async function startStand(options: StandOptions): Promise<Stand> {
         return { status: 503, body: { error: 'The daemon is not running.' } };
       current = undefined;
       try {
-        await running.daemon.stop();
+        const code = await running.daemon.stop();
+        if (code !== 0) {
+          // The old daemon may still hold the store and its lock: leave every file as it is.
+          void stop(1);
+          return {
+            status: 500,
+            body: {
+              error: `The daemon did not stop cleanly (exit code ${String(code)}); reset changed no file and the stand is stopping.`,
+            },
+          };
+        }
         for (const suffix of ['', '-wal', '-shm'])
           rmSync(`${paths.dbFile}${suffix}`, { force: true });
         await writeHome();

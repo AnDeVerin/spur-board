@@ -387,6 +387,27 @@ describe('stand', () => {
     }
   }, 60_000);
 
+  it('aborts reset and keeps every file when the daemon does not stop cleanly', async () => {
+    // A board tick that never settles keeps the daemon from stopping within its timeout.
+    stand = await startStand({
+      root,
+      port: 0,
+      env: {},
+      osHome,
+      shutdownTimeoutMs: 300,
+      tick: () => new Promise<void>(() => undefined),
+    });
+    const manifest = stand.manifest();
+    await waitFor(manifest, 'api-ready');
+    const files = ['config.yaml', 'secrets.env', 'token', 'board.sqlite'];
+    const before = files.map((name) => statSync(join(manifest.home, name)).ino);
+    const result = await control(manifest, '/reset');
+    expect(result.status).toBe(500);
+    expect(JSON.stringify(result.body)).toContain('did not stop cleanly');
+    expect(await stand.exited).toBe(1);
+    expect(files.map((name) => statSync(join(manifest.home, name)).ino)).toEqual(before);
+  }, 60_000);
+
   it('poll reports every source', async () => {
     const manifest = await up();
     const polled = await control(manifest, '/poll');
