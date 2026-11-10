@@ -248,6 +248,17 @@ describe('watchProcess', () => {
     expect(gone?.()).toBe(true);
   });
 
+  it.each(['Z', 'X', 'x'])('treats state %s as gone, at attach and while watching', (state) => {
+    const line = (st: string) => `4242 (sh) ${st} 1 4242 4242 0 -1 0 0 0 0 0 0 0 0 0 20 0 1 0 7 0`;
+    expect(watchProcess(4242, () => line(state))).toBeUndefined();
+    let answer = line('S');
+    const gone = watchProcess(4242, () => answer);
+    expect(gone?.()).toBe(false);
+    answer = line(state);
+    expect(gone?.()).toBe(true);
+    expect(isLive({ pid: 4242, pidStartTime: 7 }, () => line(state))).toBe(false);
+  });
+
   it('keeps watching when /proc cannot be read', () => {
     let answer: () => string = () => statLine(7);
     const gone = watchProcess(4242, () => answer());

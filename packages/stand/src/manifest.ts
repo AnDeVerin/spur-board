@@ -73,8 +73,8 @@ type ReadProc = (path: string) => string;
 const readProc: ReadProc = (path) => readFileSync(path, 'utf8');
 
 /**
- * Process group and start time from `/proc/<pid>/stat`, or undefined when no such process
- * (`ENOENT`, or `ESRCH` while it exits). Any other read error or an unparsable line throws: the
+ * Process group and start time from `/proc/<pid>/stat`, or undefined when no such process runs
+ * (`ENOENT`, `ESRCH` while it exits, or a zombie or dead state). Any other read error or an unparsable line throws: the
  * process may still run.
  */
 export function procStat(
@@ -91,6 +91,8 @@ export function procStat(
   }
   // The command name (field 2) may hold spaces and parentheses; fields after it follow the last ')'.
   const fields = text.slice(text.lastIndexOf(')') + 2).split(' ');
+  // Field 3: a zombie (Z) or dead (X, x) process has exited; only its parent has not reaped it.
+  if (fields[0] === 'Z' || fields[0] === 'X' || fields[0] === 'x') return undefined;
   const pgrp = Number(fields[2]);
   const startTime = Number(fields[19]);
   if (!Number.isInteger(pgrp) || !Number.isInteger(startTime))
