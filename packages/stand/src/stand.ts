@@ -46,7 +46,6 @@ type Env = Readonly<Record<string, string | undefined>>;
 
 export const WAIT_CONDITIONS = ['api-ready', 'sources-polled', 'outbox-drained'] as const;
 const WAIT_STEP_MS = 100;
-const ROLES = { worker: 'stand-worker-1', orchestrator: 'stand-qa-1' };
 /** The Spur project of each role session; both are `spurProjects` of the stand project. */
 const ROLE_PROJECTS = { worker: 'stand-worker', orchestrator: 'stand-qa' };
 const SECRETS = {
@@ -317,6 +316,12 @@ export async function startStand(options: StandOptions): Promise<Stand> {
   const tokenPath = join(home, 'token');
   const operatorToken = randomBytes(32).toString('hex');
   const controlToken = randomBytes(32).toString('hex');
+  // A session header is accepted without a token, so the role sessions must be unguessable:
+  // random per stand, kept in the private manifest and reused across reset.
+  const roles = {
+    worker: `stand-worker-${randomBytes(12).toString('hex')}`,
+    orchestrator: `stand-qa-${randomBytes(12).toString('hex')}`,
+  };
   let logFd: number;
   try {
     logFd = claimLog(home);
@@ -337,7 +342,7 @@ export async function startStand(options: StandOptions): Promise<Stand> {
         .join(''),
     );
     replaceFile(tokenPath, `${operatorToken}\n`);
-    await seedIdentities(paths.dbFile, operatorToken);
+    await seedIdentities(paths.dbFile, operatorToken, roles);
   }
 
   let fatal: ((err: unknown) => void) | undefined;
@@ -399,7 +404,7 @@ export async function startStand(options: StandOptions): Promise<Stand> {
       controlUrl,
       controlToken,
       tokenPath,
-      roles: ROLES,
+      roles,
     };
     writeManifest(home, manifest);
   };
@@ -562,13 +567,17 @@ export async function startStand(options: StandOptions): Promise<Stand> {
  * snapshot for each role session, so worker and orchestrator calls resolve without Spur. Only a
  * Spur batch changes a snapshot, and every Spur poll fails against the network guard.
  */
-async function seedIdentities(dbFile: string, token: string): Promise<void> {
+async function seedIdentities(
+  dbFile: string,
+  token: string,
+  roles: StandManifest['roles'],
+): Promise<void> {
   const store = openStore(dbFile);
   try {
     await store.transaction(async (trx) => {
       const at = new Date().toISOString();
       for (const role of ['worker', 'orchestrator'] as const) {
-        const id = ROLES[role];
+        const id = roles[role];
         const spurProject = ROLE_PROJECTS[role];
         await trx
           .insertInto('session_snapshot')

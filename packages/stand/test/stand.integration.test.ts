@@ -370,6 +370,21 @@ describe('stand', () => {
     expect((await operatorStatus(after)).code).toBe(0);
   }, 60_000);
 
+  it('gives each stand its own random role sessions and keeps them across reset', async () => {
+    const first = await up();
+    const other = await startStand({ root, port: 0, env: {}, osHome });
+    try {
+      for (const role of ['worker', 'orchestrator'] as const) {
+        expect(first.roles[role]).toMatch(/^stand-(worker|qa)-[0-9a-f]{24}$/);
+        expect(other.manifest().roles[role]).not.toBe(first.roles[role]);
+      }
+    } finally {
+      await other.stop();
+    }
+    expect((await control(first, '/reset')).status).toBe(200);
+    expect(stand?.manifest().roles).toEqual(first.roles);
+  }, 60_000);
+
   it('answers worker and orchestrator calls after up and after reset', async () => {
     const manifest = await up();
     // A Spur poll has failed against the guard by now; the seeded sessions must survive it.
