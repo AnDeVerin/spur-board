@@ -13,7 +13,7 @@ export function createJob(options: {
   intervalMs: number;
   jitterMs?: number;
   first?: 'await' | 'background';
-  onError: (err: unknown) => void;
+  onError: (err: unknown) => void | Promise<void>;
 }): Module & {
   /** Runs once more behind the active run; resolves when that run settles. */
   trigger(): Promise<void>;
@@ -33,7 +33,9 @@ export function createJob(options: {
         if (signal !== undefined && !idle()) await run(signal);
       })
       // A throwing or rejecting onError must not reject `active` and stop the timer chain.
-      .catch((err: unknown) => Promise.resolve().then(() => onError(err)))
+      .catch(async (err: unknown) => {
+        await onError(err);
+      })
       .catch(() => undefined);
     return active;
   };

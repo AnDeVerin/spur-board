@@ -142,7 +142,7 @@ describe('createJob', () => {
     await job.stop();
   });
 
-  it.each([
+  it.each<{ title: string; onError: Parameters<typeof createJob>[0]['onError'] }>([
     {
       title: 'throws',
       onError: (): void => {
@@ -151,8 +151,7 @@ describe('createJob', () => {
     },
     {
       title: 'rejects',
-      // An async handler passed where a void one is expected: its rejection must not escape.
-      onError: ((): Promise<void> => Promise.reject(new Error('onError failed'))) as () => void,
+      onError: (): Promise<void> => Promise.reject(new Error('onError failed')),
     },
   ])('keeps running when onError $title', async ({ onError }) => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
