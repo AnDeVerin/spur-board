@@ -119,6 +119,7 @@ describe('sqlite driver boundary', () => {
     [contractsSrc, typeofImport],
     [contractsSrc, "export type S = import('node:sqlite').DatabaseSync;"],
     [testkitTest, typeofImport],
+    ['packages/gateway-slack/src/x.ts', "export const m = import('better-sqlite3');"],
   ])(
     '%s: %s reports no-restricted-syntax',
     async (path, code) => {
@@ -260,6 +261,37 @@ describe('adapters boundary', () => {
     ['packages/adapters/src/github/x.ts', 'export const number = 1;'],
   ])(
     'leaves %s outside the adapters boundary: %s passes',
+    async (path, code) => {
+      expect(await textRuleIds(code, path)).toEqual([]);
+    },
+    30_000,
+  );
+});
+
+describe('wall time ban', () => {
+  it.each([
+    ['packages/adapters/src/x.ts', 'export const t = Date.now();'],
+    ['packages/adapters/src/runner/x.ts', 'export const f = Date.now;'],
+    ['packages/adapters/src/github/x.ts', 'export const d = new Date();'],
+    ['packages/adapters/src/spur/x.ts', 'export const s = Date();'],
+    ['packages/gateway-slack/src/x.ts', 'export const t = Date.now();'],
+    ['packages/gateway-slack/src/x.ts', 'export const d = new Date();'],
+  ])(
+    '%s: %s reports no-restricted-syntax',
+    async (path, code) => {
+      expect(await textRuleIds(code, path)).toEqual(['no-restricted-syntax']);
+    },
+    30_000,
+  );
+
+  it.each([
+    ['packages/adapters/src/x.ts', 'export const d = new Date(0);'],
+    ['packages/adapters/src/x.ts', "export const p = Date.parse('2026-01-01');"],
+    ['packages/adapters/test/x.test.ts', 'export const t = Date.now();'],
+    ['packages/gateway-slack/test/x.ts', 'export const t = Date.now();'],
+    ['packages/daemon/src/x.ts', 'export const t = Date.now();'],
+  ])(
+    '%s: %s passes',
     async (path, code) => {
       expect(await textRuleIds(code, path)).toEqual([]);
     },
