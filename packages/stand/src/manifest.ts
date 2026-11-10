@@ -115,6 +115,17 @@ export function isLive(
 }
 
 /**
+ * Watches the process `pid`: undefined when it is already gone, else a check that turns true once
+ * the pid is gone or now names a process with another start time.
+ */
+export function watchProcess(pid: number, read: ReadProc = readProc): (() => boolean) | undefined {
+  const stat = procStat(pid, read);
+  if (stat === undefined) return undefined;
+  const watched = { pid, pidStartTime: stat.startTime };
+  return () => !isLive(watched, read);
+}
+
+/**
  * A directory a stand may own: a direct child of `root` named `spur-board-stand.` plus six
  * letters or digits, a real directory (not a symlink) owned by this user that no group or other
  * user can write.

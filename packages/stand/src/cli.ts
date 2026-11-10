@@ -19,6 +19,7 @@ import { liveBoardDirs, proxyRefusal, refusal, StandRefusedError } from './guard
 import {
   isLive,
   isStandDir,
+  watchProcess,
   liveStands,
   MANIFEST_FILE,
   prune,
@@ -51,7 +52,10 @@ const WAIT_MAX_S = 600;
 
 const USAGE = `Usage: pnpm stand <command>
 
-  up [--port N] [--foreground]    start a stand (port 0 or 4780-4799; default 0)
+  up [--port N] [--foreground [--watch-pid PID]]
+                                  start a stand (port 0 or 4780-4799; default 0). In the
+                                  foreground it stops with its parent; a launcher that may exit
+                                  first passes itself: pnpm stand up --foreground --watch-pid $$
   down                            stop the stand and remove its home
   status [--json]                 show the stand and whether its API answers
   logs [--stand]                  print the daemon log (--stand: the stand process log)
@@ -135,8 +139,20 @@ function pruneDead(): void {
     if (result === 'removed') err(`removed dead stand ${dir}\n`);
 }
 
-async function upForeground(options: { port: number; home?: string; detached: boolean }) {
-  const parent = STARTUP_PARENT;
+async function upForeground(options: {
+  port: number;
+  home?: string;
+  detached: boolean;
+  watchPid?: number;
+}) {
+  // With --watch-pid the launcher names the process to outlive; else the parent seen at load.
+  let parentGone: () => boolean = () => process.ppid !== STARTUP_PARENT;
+  if (options.watchPid !== undefined) {
+    const watch = watchProcess(options.watchPid);
+    if (watch === undefined)
+      throw new Error(`The watched process ${String(options.watchPid)} is already gone.`);
+    parentGone = watch;
+  }
   const env = { ...process.env };
   const execArgv = [...process.execArgv];
   const refused =
@@ -165,10 +181,9 @@ async function upForeground(options: { port: number; home?: string; detached: bo
       void stand.stop();
     });
   if (!options.detached) {
-    const orphaned = (): boolean => process.ppid !== parent;
-    if (orphaned()) void stand.stop();
+    if (parentGone()) void stand.stop();
     setInterval(() => {
-      if (orphaned()) void stand.stop();
+      if (parentGone()) void stand.stop();
     }, PARENT_CHECK_MS).unref();
   }
   out(`${JSON.stringify(publicView(stand.manifest()))}\n`);
@@ -355,17 +370,24 @@ async function main(argv: string[]): Promise<number> {
       json: { type: 'boolean' },
       stand: { type: 'boolean' },
       timeout: { type: 'string' },
+      'watch-pid': { type: 'string' },
     },
   });
   switch (command) {
     case 'up': {
       const port = parsePort(values.port);
       if (!values.foreground) {
-        if (values.home !== undefined || values.detached)
-          throw new UsageError('up takes no --home');
+        if (values.home !== undefined || values.detached || values['watch-pid'] !== undefined)
+          throw new UsageError(
+            'up takes --home, --detached and --watch-pid only with --foreground',
+          );
         return up(port);
       }
+      const watch = values['watch-pid'];
+      if (watch !== undefined && (!/^[1-9]\d*$/.test(watch) || values.detached))
+        throw new UsageError('--watch-pid takes a process id and only goes with --foreground');
       return upForeground({
+        ...(watch === undefined ? {} : { watchPid: Number(watch) }),
         port,
         ...(values.home === undefined ? {} : { home: values.home }),
         detached: values.detached ?? false,

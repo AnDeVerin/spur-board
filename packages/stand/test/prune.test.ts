@@ -20,6 +20,7 @@ import {
   removeStand,
   standAt,
   standManifest,
+  watchProcess,
   writeManifest,
   type StandManifest,
 } from '../src/manifest.ts';
@@ -223,5 +224,40 @@ describe('live board directories', () => {
     stand(inside, { pid: deadPid(), pidStartTime: 1 });
     expect(prune(root, [root]).map((r) => r.result)).toEqual([kept]);
     expect(existsSync(inside)).toBe(true);
+  });
+});
+
+describe('watchProcess', () => {
+  const statLine = (start: number) =>
+    `4242 (sh) S 1 4242 4242 0 -1 0 0 0 0 0 0 0 0 0 20 0 1 0 ${String(start)} 0`;
+  const fail = (code: string): never => {
+    throw Object.assign(new Error(code), { code });
+  };
+
+  it('reports a process already gone at start', () => {
+    expect(watchProcess(4242, () => fail('ENOENT'))).toBeUndefined();
+  });
+
+  it('turns true once the pid is gone or names another process', () => {
+    let answer: () => string = () => statLine(7);
+    const gone = watchProcess(4242, () => answer());
+    expect(gone?.()).toBe(false);
+    answer = () => statLine(8);
+    expect(gone?.()).toBe(true);
+    answer = () => fail('ENOENT');
+    expect(gone?.()).toBe(true);
+  });
+
+  it('keeps watching when /proc cannot be read', () => {
+    let answer: () => string = () => statLine(7);
+    const gone = watchProcess(4242, () => answer());
+    answer = () => fail('EACCES');
+    expect(gone?.()).toBe(false);
+  });
+
+  it('watches a real process until it exits', () => {
+    const gone = watchProcess(process.pid);
+    expect(gone?.()).toBe(false);
+    expect(watchProcess(deadPid())).toBeUndefined();
   });
 });
