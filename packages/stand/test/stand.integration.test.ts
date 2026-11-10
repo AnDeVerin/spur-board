@@ -9,6 +9,7 @@ import {
   realpathSync,
   rmSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -217,6 +218,37 @@ describe('stand', () => {
     } finally {
       await taken.close();
     }
+  }, 60_000);
+
+  it('refuses a passed home holding files it did not create, without writing through links', async () => {
+    const outside = join(base, 'live-config.yaml');
+    writeFileSync(outside, 'live: true\n');
+    const home = mkdtempSync(join(root, 'spur-board-stand.'));
+    symlinkSync(outside, join(home, 'config.yaml'));
+    await expect(startStand({ root, home, port: 0, env: {}, osHome })).rejects.toThrow(
+      /did not create/,
+    );
+    expect(readFileSync(outside, 'utf8')).toBe('live: true\n');
+    expect(readdirSync(home)).toEqual(['config.yaml']);
+  });
+
+  it('refuses a passed home whose spawn log is a symlink', async () => {
+    const outside = join(base, 'outside.log');
+    writeFileSync(outside, '');
+    const home = mkdtempSync(join(root, 'spur-board-stand.'));
+    mkdirSync(join(home, 'logs'));
+    symlinkSync(outside, join(home, 'logs', 'stand.log'));
+    await expect(startStand({ root, home, port: 0, env: {}, osHome })).rejects.toThrow(
+      /did not create/,
+    );
+  });
+
+  it('starts on a passed home that holds only its spawn log', async () => {
+    const home = mkdtempSync(join(root, 'spur-board-stand.'));
+    mkdirSync(join(home, 'logs'), { mode: 0o700 });
+    writeFileSync(join(home, 'logs', 'stand.log'), '', { mode: 0o600 });
+    stand = await startStand({ root, home, port: 0, env: {}, osHome });
+    expect(stand.manifest().home).toBe(realpathSync(home));
   }, 60_000);
 
   it('starts a stand', async () => {

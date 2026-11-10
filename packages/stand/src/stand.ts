@@ -2,9 +2,11 @@ import { createHash, randomBytes } from 'node:crypto';
 import {
   closeSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
   openSync,
+  readdirSync,
   realpathSync,
   rmSync,
   writeFileSync,
@@ -29,7 +31,6 @@ import { startControl, type Control } from './control.ts';
 import { proxyRefusal, refusal, StandRefusedError } from './guards.ts';
 import {
   isStandDir,
-  MANIFEST_FILE,
   procStat,
   STAND_PREFIX,
   writeManifest,
@@ -172,9 +173,40 @@ function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-function writeSecretFile(file: string, text: string): void {
+/**
+ * Replaces `file` with a new mode-600 file. `rm` removes a symlink itself and `wx` creates the
+ * file exclusively, so no write follows a link.
+ */
+function replaceFile(file: string, text: string): void {
   rmSync(file, { force: true });
   writeFileSync(file, text, { mode: 0o600, flag: 'wx' });
+}
+
+/** A real directory or regular file owned by this user, never a symlink. */
+function ownEntry(path: string, kind: 'dir' | 'file'): boolean {
+  const info = lstatSync(path);
+  return (
+    !info.isSymbolicLink() &&
+    (kind === 'dir' ? info.isDirectory() : info.isFile()) &&
+    info.uid === process.getuid?.()
+  );
+}
+
+/**
+ * A home `up` created holds nothing but its spawn log, `logs/stand.log`. Anything else means
+ * another process prepared it, so the stand refuses it before writing.
+ */
+function checkFreshHome(home: string): void {
+  const entries = readdirSync(home);
+  const logs = join(home, 'logs');
+  const fresh =
+    entries.every((name) => name === 'logs') &&
+    (entries.length === 0 ||
+      (ownEntry(logs, 'dir') &&
+        readdirSync(logs).every(
+          (name) => name === 'stand.log' && ownEntry(join(logs, name), 'file'),
+        )));
+  if (!fresh) throw new Error(`${home} holds files the stand did not create; refusing it.`);
 }
 
 export interface StandOptions {
@@ -216,9 +248,10 @@ export async function startStand(options: StandOptions): Promise<Stand> {
   if (options.home === undefined) {
     home = mkdtempSync(join(root, STAND_PREFIX));
   } else {
-    if (!isStandDir(options.home, root) || existsSync(join(options.home, MANIFEST_FILE)))
-      throw new Error(`${options.home} is not a fresh stand directory under ${root}.`);
+    if (!isStandDir(options.home, root))
+      throw new Error(`${options.home} is not a stand directory under ${root}.`);
     home = realpathSync(options.home);
+    checkFreshHome(home);
   }
   // A start that fails removes the home it created; a home the caller passed is the caller's.
   const created = options.home === undefined;
@@ -232,8 +265,9 @@ export async function startStand(options: StandOptions): Promise<Stand> {
   const controlToken = randomBytes(32).toString('hex');
   let logFd: number;
   try {
-    mkdirSync(join(home, 'logs'), { recursive: true, mode: 0o700 });
-    logFd = openSync(join(home, 'logs', 'daemon.log'), 'a', 0o600);
+    if (!existsSync(join(home, 'logs'))) mkdirSync(join(home, 'logs'), { mode: 0o700 });
+    // `ax` creates the log exclusively: it claims the home, and a second stand on it fails here.
+    logFd = openSync(join(home, 'logs', 'daemon.log'), 'ax', 0o600);
   } catch (err) {
     discardHome();
     throw err;
@@ -243,16 +277,14 @@ export async function startStand(options: StandOptions): Promise<Stand> {
   };
 
   async function writeHome(): Promise<void> {
-    writeFileSync(paths.configFile, `${CONFIG_HEADER}${YAML.stringify(config)}`, {
-      mode: 0o600,
-    });
-    writeSecretFile(
+    replaceFile(paths.configFile, `${CONFIG_HEADER}${YAML.stringify(config)}`);
+    replaceFile(
       paths.secretsFile,
       Object.entries(SECRETS)
         .map(([name, value]) => `${name}=${value}\n`)
         .join(''),
     );
-    writeSecretFile(tokenPath, `${operatorToken}\n`);
+    replaceFile(tokenPath, `${operatorToken}\n`);
     await seedOperator(paths.dbFile, operatorToken);
   }
 
