@@ -399,9 +399,9 @@ function registerSetupCommands(
       [
         'Start the MCP server for an agent on standard input and output. Stdout carries only JSON-RPC.',
         '',
-        'Each tool call finds the caller: `SPUR_SESSION` inside a Spur session, otherwise `BOARD_TOKEN`, otherwise the first `.spur-board/token` found walking upward from the directory the agent starts it in, stopping at home.',
+        'Each tool call finds the caller: `SPUR_SESSION` inside a Spur session, otherwise `BOARD_TOKEN`, otherwise the first `.spur-board/token` found walking upward from the directory the agent starts it in, stopping at the root of its git worktree, or at home outside git.',
         '',
-        'It reaches the daemon at `BOARD_DAEMON_URL`, otherwise at `http.port` from `config.yaml`.',
+        'It reaches the daemon at `BOARD_DAEMON_URL`, otherwise at `http.port` from `config.yaml`; with neither set nor a valid config, each call fails with `config` before any request.',
         '',
         "A `version_mismatch` answer means the server and the daemon have different catalogs: restart the agent session so `board mcp` loads the daemon's catalog; if it remains, run `board service restart`.",
         '',
