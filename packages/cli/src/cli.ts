@@ -399,7 +399,7 @@ function registerSetupCommands(
       [
         'Start the MCP server for an agent on standard input and output. Stdout carries only JSON-RPC.',
         '',
-        'Each tool call finds the caller: `SPUR_SESSION` inside a Spur session, otherwise `BOARD_TOKEN`, otherwise the first `.spur-board/token` found walking upward from the directory the agent starts it in, stopping at the root of its git worktree, or at home outside git.',
+        'Each tool call finds the caller: `SPUR_SESSION` inside a Spur session, otherwise `BOARD_TOKEN`, otherwise the first `.spur-board/token` found walking upward from the directory the agent starts it in, stopping at the root of its git worktree, or at home outside git; home itself is never searched.',
         '',
         'It reaches the daemon at `BOARD_DAEMON_URL`, otherwise at `http.port` from `config.yaml`; with neither set nor a valid config, each call fails with `config` before any request.',
         '',

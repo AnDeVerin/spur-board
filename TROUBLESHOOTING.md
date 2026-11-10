@@ -197,8 +197,9 @@ old Node or package path, run `board service install` again.
   Use `board doctor --offline` to check `config.yaml` while the service is
   down. `identity_missing` means there is no Spur session, `BOARD_TOKEN` is unset, and the CLI
   found no `.spur-board/token` walking up from the current folder to the root of its git
-  worktree, or to home outside git. A token above the worktree root is not used: create one
-  inside the worktree or set `BOARD_TOKEN`. Run the command in a Spur
+  worktree, or to home outside git; home itself is never searched, even as a worktree root. A
+  token above the worktree root or in home is not used: create one in a folder inside the
+  worktree or set `BOARD_TOKEN`. Run the command in a Spur
   session of a project listed in `config.yaml`, or run
   `board token create --name <name> --into <folder>` and approve the request in Slack. An
   operator-only command such as `board token list` needs a Spur project marked `operator` or an

@@ -19,7 +19,7 @@ Use `board <command> --help` for interactive help. `--json` is available globall
 
 Catalog commands, `board token create` and MCP tool calls reach the daemon at `BOARD_DAEMON_URL`, otherwise at `http://127.0.0.1:<http.port>` from `config.yaml`. With `BOARD_DAEMON_URL` unset and `config.yaml` missing, malformed or invalid, they stop with `config` (exit 4) before sending anything; the error names both. Set `BOARD_DAEMON_URL`, or fix `config.yaml` and set `http.port`; `board doctor --offline` names what is wrong.
 
-The caller is `SPUR_SESSION` inside a Spur session, otherwise `BOARD_TOKEN`, otherwise the first `.spur-board/token` found walking upward from the working directory. The walk stops at the root of the git worktree (the first folder with a `.git` file or directory, which is still searched); outside git it stops before home. A token above the worktree root is not used: move it into the worktree or set `BOARD_TOKEN`.
+The caller is `SPUR_SESSION` inside a Spur session, otherwise `BOARD_TOKEN`, otherwise the first `.spur-board/token` found walking upward from the working directory. The walk stops at the root of the git worktree (the first folder with a `.git` file or directory, which is still searched); outside git it stops before home. Home itself is never searched, even when it is the worktree root. A token above the worktree root, or in home, is not used: move it into a folder inside the worktree or set `BOARD_TOKEN`.
 
 ## Commands
 
@@ -140,7 +140,7 @@ Exit codes: see the table above; setup errors are reported by the CLI.
 
 Start the MCP server for an agent on standard input and output. Stdout carries only JSON-RPC.
 
-Each tool call finds the caller: `SPUR_SESSION` inside a Spur session, otherwise `BOARD_TOKEN`, otherwise the first `.spur-board/token` found walking upward from the directory the agent starts it in, stopping at the root of its git worktree, or at home outside git.
+Each tool call finds the caller: `SPUR_SESSION` inside a Spur session, otherwise `BOARD_TOKEN`, otherwise the first `.spur-board/token` found walking upward from the directory the agent starts it in, stopping at the root of its git worktree, or at home outside git; home itself is never searched.
 
 It reaches the daemon at `BOARD_DAEMON_URL`, otherwise at `http.port` from `config.yaml`; with neither set nor a valid config, each call fails with `config` before any request.
 
