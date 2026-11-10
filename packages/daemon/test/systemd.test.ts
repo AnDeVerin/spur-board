@@ -251,7 +251,7 @@ describe('WATCHDOG per board tick', () => {
           onTick: () => {
             notifier.watchdog();
           },
-        }),
+        }).entries,
         { name: 'systemd', stopStage: 'pollers', module: createSystemdModule(notifier) },
       ];
     });

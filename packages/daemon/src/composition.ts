@@ -42,6 +42,8 @@ export function createDaemonModules(
   entries: ModuleEntry[];
   inbound: ReturnType<typeof createInboundModule> | undefined;
   outbox: ReturnType<typeof createOutboxModule>;
+  /** Runs the board-core tick once more behind its active run; resolves when it settles. */
+  tick: () => Promise<void>;
 } {
   const board = ctxFor('board-core');
   const core = createObservationCore({
@@ -85,16 +87,15 @@ export function createDaemonModules(
       }),
     },
   ];
-  entries.push(
-    ...createBoardModules(ctxFor, {
-      core,
-      ...(ports.startAdapters === undefined ? {} : { startAdapters: ports.startAdapters }),
-      ...(ports.tick === undefined ? {} : { tick: ports.tick }),
-      onTick: () => {
-        notifier.watchdog();
-      },
-    }),
-  );
+  const boardModules = createBoardModules(ctxFor, {
+    core,
+    ...(ports.startAdapters === undefined ? {} : { startAdapters: ports.startAdapters }),
+    ...(ports.tick === undefined ? {} : { tick: ports.tick }),
+    onTick: () => {
+      notifier.watchdog();
+    },
+  });
+  entries.push(...boardModules.entries);
   const inbound =
     gateway === undefined || (ports.gateway === undefined && settings?.appToken === undefined)
       ? undefined
@@ -144,5 +145,5 @@ export function createDaemonModules(
     }),
   });
   entries.push({ name: 'systemd', stopStage: 'pollers', module: createSystemdModule(notifier) });
-  return { entries, inbound, outbox };
+  return { entries, inbound, outbox, tick: boardModules.tick };
 }

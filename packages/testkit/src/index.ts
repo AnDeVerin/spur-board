@@ -1,2 +1,2 @@
 export { isScrubbed, scrubEnv } from './env.ts';
-export { isLocalHost, NetworkBlockedError } from './network.ts';
+export { installNetworkGuard, isLocalHost, NetworkBlockedError } from './network.ts';

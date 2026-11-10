@@ -13,11 +13,14 @@ interface BoardModuleOptions {
   onTick?: () => void;
 }
 
-/** Compose the board's timer and adapter runner without adding lifecycle state to main. */
+/**
+ * Compose the board's timer and adapter runner without adding lifecycle state to main. `tick`
+ * runs the board-core job once more behind its active run and resolves when that run settles.
+ */
 export function createBoardModules(
   ctxFor: (name: string) => ModuleContext<Store>,
   options: BoardModuleOptions = {},
-): ModuleEntry[] {
+): { entries: ModuleEntry[]; tick: () => Promise<void> } {
   const coreCtx = ctxFor('board-core');
   const adapterCtx = ctxFor('board-adapters');
   const core =
@@ -44,7 +47,7 @@ export function createBoardModules(
     },
   });
   let runner: AdapterRunner | undefined;
-  return [
+  const entries: ModuleEntry[] = [
     {
       name: 'board-core',
       stopStage: 'final',
@@ -86,4 +89,5 @@ export function createBoardModules(
       },
     },
   ];
+  return { entries, tick: () => boardCore.trigger() };
 }

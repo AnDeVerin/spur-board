@@ -121,7 +121,7 @@ it('observes a batch, ticks every 60 seconds, and stops pollers before an active
             });
           await tickBoard(deps);
         },
-      }),
+      }).entries,
     port,
     stdout: out,
     clock: { now: () => Date.now() },
