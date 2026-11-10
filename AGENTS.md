@@ -70,7 +70,7 @@ A map of the repo for agents and contributors. The rules live in the files and s
 - `BOARD_LIVE_CHANNEL=<test-channel-id> BOARD_LIVE_CHANNEL_NAME=<test-channel-name> pnpm smoke:live`
   - run Slack gateway conformance from an interactive terminal after checking private channel
     metadata; use before M1 acceptance, after Slack SDK updates and before releases.
-- `pnpm stand up|down|status|logs|board|mcp|wait|poll|reset` - run a stand under `$TMPDIR`;
+- `pnpm stand up|down|status|logs|board|mcp|wait|poll|reset|fake|violations` - run a stand under `$TMPDIR`;
   `pnpm stand` prints the commands. `up` refuses real external credentials in the environment,
   the live board's home and port 4777.
 - `pnpm upgrade:smoke [tarball]` - test migration from the previous published version when present.
