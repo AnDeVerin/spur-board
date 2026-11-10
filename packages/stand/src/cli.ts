@@ -38,7 +38,7 @@ import {
   TRUSTED_PATH,
   type StandRole,
 } from './roles.ts';
-import { boundedStop, startStand, WAIT_CONDITIONS } from './stand.ts';
+import { startStand, stopDeadline, WAIT_CONDITIONS, type Stand } from './stand.ts';
 
 const SELF = fileURLToPath(import.meta.url);
 // Read as soon as this module runs: a parent that exits while the stand starts must still stop
@@ -166,34 +166,51 @@ async function upForeground(options: {
   scrubEnv(process.env);
   // The daemon lock spawns flock by name; only trusted directories may provide it.
   process.env['PATH'] = TRUSTED_PATH;
-  const stand = await startStand({
-    root: root(),
-    home: options.home,
-    port: options.port,
-    env,
-    execArgv,
-    osHome: homedir(),
-    registerFatal: (handler) => {
-      process.on('uncaughtException', handler);
-      process.on('unhandledRejection', handler);
-    },
-  });
-  // This process must end: a module stop that hangs past the bound makes it exit 1.
-  const stopping = boundedStop(stand, STOP_TIMEOUT_MS, () => {
+  // This process must end. Any stop - a signal, the launcher going away, or one the stand starts
+  // itself - arms a deadline; past it the CLI exits 1 even if startup or a module stop hangs.
+  const deadline = stopDeadline(STOP_TIMEOUT_MS, () => {
     err(`The stand did not stop within ${String(STOP_TIMEOUT_MS / 1_000)} s; exiting.\n`);
   });
-  for (const signal of ['SIGTERM', 'SIGINT', 'SIGHUP'] as const)
-    process.on(signal, () => {
-      stopping.request();
-    });
+  // Set once startup returns; a stop asked for before that is delivered then.
+  const started: { stand?: Stand; stopWanted: boolean } = { stopWanted: false };
+  const request = (): void => {
+    started.stopWanted = true;
+    deadline.arm();
+    void started.stand?.stop();
+  };
+  // Watching starts before startup, so a launcher that leaves while the stand starts still counts.
+  for (const signal of ['SIGTERM', 'SIGINT', 'SIGHUP'] as const) process.on(signal, request);
   if (!options.detached) {
-    if (parentGone()) stopping.request();
+    if (parentGone()) request();
     setInterval(() => {
-      if (parentGone()) stopping.request();
+      if (parentGone()) request();
     }, PARENT_CHECK_MS).unref();
   }
+  const result = await Promise.race([
+    startStand({
+      root: root(),
+      home: options.home,
+      port: options.port,
+      env,
+      execArgv,
+      osHome: homedir(),
+      registerFatal: (handler) => {
+        process.on('uncaughtException', handler);
+        process.on('unhandledRejection', handler);
+      },
+    }),
+    deadline.expired,
+  ]);
+  if (typeof result === 'number') return result;
+  const stand = result;
+  started.stand = stand;
+  void stand.stopping.then(() => {
+    deadline.arm();
+  });
+  // A stop asked for while the stand was starting.
+  if (started.stopWanted || parentGone()) request();
   out(`${JSON.stringify(publicView(stand.manifest()))}\n`);
-  return stopping.exited;
+  return Promise.race([stand.exited, deadline.expired]);
 }
 
 async function up(port: number): Promise<number> {

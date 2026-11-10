@@ -270,35 +270,36 @@ export interface Stand {
   stop(): Promise<number>;
   /** Resolves when the stand stopped, through `stop` or because its daemon exited on its own. */
   readonly exited: Promise<number>;
+  /**
+   * Resolves as soon as shutdown begins, whatever started it: a `stop` call, a failed reset or a
+   * daemon that exited on its own. `exited` settles later, once teardown has finished.
+   */
+  readonly stopping: Promise<void>;
 }
 
 /**
- * Stops `stand` on request, but gives up waiting `ms` after the first request: a process that
- * must end (the foreground CLI) then exits 1 even if a module stop hangs. In-process callers keep
- * waiting on `stand.exited` itself.
+ * A deadline for a process that must end (the foreground CLI). `arm` starts it once; when it
+ * passes, `onTimeout` runs and `expired` resolves 1. It needs no stand, so it also bounds a start
+ * still pending when a stop is asked for. In-process callers do not use it and wait for the
+ * full teardown on `Stand.exited`.
  */
-export function boundedStop(
-  stand: Pick<Stand, 'stop' | 'exited'>,
+export function stopDeadline(
   ms: number,
   onTimeout: () => void,
-): { request(): void; exited: Promise<number> } {
+): { arm(): void; expired: Promise<number> } {
   let timer: ReturnType<typeof setTimeout> | undefined;
-  let giveUp: (code: number) => void = () => undefined;
-  const timedOut = new Promise<number>((resolve) => {
-    giveUp = resolve;
-  });
-  const exited = Promise.race([stand.exited, timedOut]).finally(() => {
-    clearTimeout(timer);
+  let expire: (code: number) => void = () => undefined;
+  const expired = new Promise<number>((resolve) => {
+    expire = resolve;
   });
   return {
-    request() {
-      void stand.stop();
+    arm() {
       timer ??= setTimeout(() => {
         onTimeout();
-        giveUp(1);
+        expire(1);
       }, ms);
     },
-    exited,
+    expired,
   };
 }
 
@@ -389,6 +390,10 @@ export async function startStand(options: StandOptions): Promise<Stand> {
   let retiring: InProcessDaemon | undefined;
   /** Set when a reset failed; the stand then exits 1. */
   let failure: number | undefined;
+  let resolveShutdownBegun: () => void = () => undefined;
+  const shutdownBegun = new Promise<void>((resolve) => {
+    resolveShutdownBegun = resolve;
+  });
   let resolveExited: (code: number) => void = () => undefined;
   const exited = new Promise<number>((resolve) => {
     resolveExited = resolve;
@@ -570,6 +575,7 @@ export async function startStand(options: StandOptions): Promise<Stand> {
    * a reset retired have released their store and lock. A failed reset makes the result 1.
    */
   function stop(code?: number): Promise<number> {
+    resolveShutdownBegun();
     stopping ??= (async () => {
       await control?.close();
       const running = current;
@@ -602,6 +608,7 @@ export async function startStand(options: StandOptions): Promise<Stand> {
     },
     stop: () => stop(),
     exited,
+    stopping: shutdownBegun,
   };
 }
 

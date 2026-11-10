@@ -448,6 +448,8 @@ describe('stand', () => {
       expect(JSON.stringify(result.body)).toContain('did not stop cleanly');
       expect(files.map((name) => statSync(join(manifest.home, name)).ino)).toEqual(before);
 
+      // A failed reset starts the stand's own shutdown: `stopping` reports it before `exited`.
+      await current.stopping;
       // The old daemon still tears down: the stand has not exited and the lock is still held.
       let exited: number | undefined;
       void current.exited.then((code) => {
