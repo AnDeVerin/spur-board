@@ -88,9 +88,10 @@ export function overlaps(a: string, b: string): boolean {
 }
 
 /**
- * Why other users could replace entries of `root`, or undefined when they cannot: it must be
- * owned by root or this user, and either be writable by no group or other user or be sticky
- * (as /tmp is), so nobody else can rename or replace a stand home in it.
+ * Why other users could replace `root` or one of its entries, or undefined when they cannot.
+ * `root` and every ancestor up to `/` must be owned by root or this user, and either be writable
+ * by no group or other user or be sticky (as /tmp is): otherwise someone could rename a directory
+ * on the path and put a link in its place.
  */
 function unsafeRoot(root: string): string | undefined {
   let info: ReturnType<typeof statSync>;
@@ -100,11 +101,14 @@ function unsafeRoot(root: string): string | undefined {
     return `The stand root ${root} cannot be read.`;
   }
   if (!info.isDirectory()) return `The stand root ${root} is not a directory.`;
-  if (info.uid !== 0 && info.uid !== process.getuid?.())
-    return `The stand root ${root} belongs to another user. Set TMPDIR to a directory of yours.`;
-  if ((info.mode & 0o022) !== 0 && (info.mode & 0o1000) === 0)
-    return `Other users can replace entries of the stand root ${root}: it is group- or world-writable without the sticky bit. Set TMPDIR to a private directory.`;
-  return undefined;
+  for (let dir = root; ; dir = dirname(dir)) {
+    const entry = dir === root ? info : statSync(dir);
+    if (entry.uid !== 0 && entry.uid !== process.getuid?.())
+      return `${dir} on the stand root path belongs to another user. Set TMPDIR to a directory of yours.`;
+    if ((entry.mode & 0o022) !== 0 && (entry.mode & 0o1000) === 0)
+      return `Other users can replace entries of ${dir} on the stand root path: it is group- or world-writable without the sticky bit. Set TMPDIR to a private directory.`;
+    if (dirname(dir) === dir) return undefined;
+  }
 }
 
 /**

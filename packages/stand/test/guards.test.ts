@@ -68,6 +68,20 @@ describe('refusal', () => {
     expect(refusal({ root, port: 0, env: {}, osHome })).toBeUndefined();
   });
 
+  it.each([
+    ['777', 0o777, 'unsafe_root'],
+    ['775', 0o775, 'unsafe_root'],
+    ['1777', 0o1777, undefined],
+    ['755', 0o755, undefined],
+  ])('checks an ancestor of the root: mode %s gives %s', (_name, mode, reason) => {
+    const shared = join(base, 'shared');
+    const own = join(shared, 'own-tmp');
+    mkdirSync(own, { recursive: true });
+    chmodSync(own, 0o700);
+    chmodSync(shared, mode);
+    expect(refusal({ root: own, port: 0, env: {}, osHome })?.reason).toBe(reason);
+  });
+
   it('refuses unsafe_root for a root that does not exist', () => {
     expect(refusal({ root: join(base, 'missing'), port: 0, env: {}, osHome })?.reason).toBe(
       'unsafe_root',
