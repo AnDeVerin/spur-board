@@ -1,13 +1,5 @@
-import {
-  EVENT_VERSION,
-  eventPayloadSchemas,
-  parseActorId,
-  type ActorId,
-  type Config,
-  type EventPayload,
-} from '@spur-board/contracts';
+import { parseActorId, type ActorId, type Config, type EventPayload } from '@spur-board/contracts';
 import type { Kysely } from 'kysely';
-import { toJson } from '../store/json.ts';
 import type { Row, Tables } from '../store/schema.ts';
 import { emit, taskUrl } from './board-utils.ts';
 import { CommandError } from './commands.ts';
@@ -32,20 +24,7 @@ async function journal<K extends 'doorbell_rung' | 'doorbell_read' | 'doorbell_u
     .select('project')
     .where('id', '=', notification.task_id)
     .executeTakeFirstOrThrow();
-  await trx
-    .insertInto('event')
-    .values({
-      at: at.toISOString(),
-      project: task.project,
-      task_id: notification.task_id,
-      kind,
-      actor: 'system',
-      actor_ref: null,
-      payload: toJson(eventPayloadSchemas[kind], payload),
-      v: EVENT_VERSION,
-      request_id: null,
-    })
-    .execute();
+  await emit(trx, kind, task.project, notification.task_id, at.toISOString(), payload);
 }
 
 /** Register a worker-addressed block without manufacturing a comment. */

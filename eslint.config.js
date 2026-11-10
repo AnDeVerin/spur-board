@@ -70,6 +70,14 @@ const sqliteImportOptions = {
   patterns: [{ group: ['better-sqlite3/*'], message: sqliteMessage }],
 };
 
+// One journal writer: `emit` fills `request_id` from the command scope, so no other module
+// inserts into the `event` table. A template literal keeps its text in `quasis`, not `value`.
+const journalInsertBan = {
+  selector:
+    "CallExpression[callee.property.name='insertInto']:matches([arguments.0.value='event'], [arguments.0.type='TemplateLiteral'][arguments.0.expressions.length=0][arguments.0.quasis.0.value.cooked='event'])",
+  message: 'Write journal events only through emit in packages/core/src/app/board-utils.ts.',
+};
+
 // The stand drives the board from outside; production code never learns about it. The global,
 // adapters and CLI import options restate these patterns, and core and daemon get their own block.
 const standBoundaryPatterns = [
@@ -242,6 +250,12 @@ export default defineConfig(
     rules: {
       'no-restricted-syntax': ['error', sqliteImportBan, sqliteTypeImportBan, ...wallTimeBans],
     },
+  },
+  {
+    // No earlier no-restricted-syntax options apply to these sources, so nothing to restate.
+    files: ['packages/core/src/**/*.ts', 'packages/daemon/src/**/*.ts'],
+    ignores: ['packages/core/src/app/board-utils.ts'],
+    rules: { 'no-restricted-syntax': ['error', journalInsertBan] },
   },
   {
     // Same-rule options replace earlier ones, so test files restate the vi.mock ban.

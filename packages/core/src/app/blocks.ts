@@ -1,6 +1,4 @@
 import {
-  EVENT_VERSION,
-  eventPayloadSchemas,
   parseActorId,
   type ActorId,
   type AddresseeRole,
@@ -10,8 +8,6 @@ import {
   type Persona,
 } from '@spur-board/contracts';
 import type { Kysely, Selectable } from 'kysely';
-import { z } from 'zod';
-import { toJson } from '../store/json.ts';
 import type { BlockTable, CommentTable, Tables, TaskTable } from '../store/schema.ts';
 import {
   acknowledgeComment,
@@ -24,6 +20,7 @@ import {
   type CurrentBlock,
 } from '../domain/blocks/blocks.ts';
 import { authorize, type ResolvedTarget } from './authorize.ts';
+import { emit } from './board-utils.ts';
 import { CommandError, type CommandContext, type Mutation } from './commands.ts';
 import {
   acknowledgeNotification,
@@ -40,7 +37,6 @@ type Block = Selectable<BlockTable>;
 type Comment = Selectable<CommentTable>;
 type Trx = Kysely<Tables>;
 
-const actorRefSchema = z.strictObject({ project: z.string().min(1), session: z.string().min(1) });
 const idNumber = (id: string) => Number(id.slice(1));
 const blockId = (id: number) => `B${String(id)}`;
 const commentId = (id: number) => `C${String(id)}`;
@@ -180,22 +176,7 @@ async function journal<K extends EventKind>(
   kind: K,
   payload: EventPayload<K>,
 ): Promise<void> {
-  const actor = parseActorId(ctx.actor);
-  if (actor === null) throw new Error('Invalid actor');
-  await trx
-    .insertInto('event')
-    .values({
-      at: ctx.at,
-      project: task.project,
-      task_id: task.id,
-      kind,
-      actor: actor.actor,
-      actor_ref: actor.actor === 'agent' ? toJson(actorRefSchema, actor.actorRef) : null,
-      payload: toJson(eventPayloadSchemas[kind], payload),
-      v: EVENT_VERSION,
-      request_id: null,
-    })
-    .execute();
+  await emit(trx, kind, task.project, task.id, ctx.at, payload, ctx.actor);
 }
 
 function orchestrator(config: Config, task: Task): string | null {

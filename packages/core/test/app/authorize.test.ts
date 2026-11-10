@@ -440,6 +440,7 @@ describe('authorization at the command boundary', () => {
         actor: 'agent',
         actor_ref: '{"project":"foreign","session":"foreign-1"}',
         payload: '{"operation":"inbox.ack","reason":"Caller does not match the operation grants."}',
+        request_id: 'K',
       },
     ]);
   });

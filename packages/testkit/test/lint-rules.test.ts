@@ -50,6 +50,54 @@ describe('test-file lint rules', () => {
   );
 });
 
+describe('journal insert lint rule', () => {
+  const insert = "export const q = trx.insertInto('event');";
+
+  it.each(['packages/core/src/app/x.ts', 'packages/daemon/src/x.ts'])(
+    'an event insert in %s reports no-restricted-syntax',
+    async (path) => {
+      expect(await textRuleIds(insert, path)).toEqual(['no-restricted-syntax']);
+    },
+    30_000,
+  );
+
+  // A no-substitution template literal keeps its text in `quasis`, not `value`.
+  it.each(['packages/core/src/app/x.ts', 'packages/daemon/src/x.ts'])(
+    'a template-literal event insert in %s reports no-restricted-syntax',
+    async (path) => {
+      const code = 'export const q = trx.insertInto(`event`);';
+      expect(await textRuleIds(code, path)).toEqual(['no-restricted-syntax']);
+    },
+    30_000,
+  );
+
+  it.each([
+    ['packages/core/src/app/board-utils.ts', insert],
+    ['packages/core/src/app/board-utils.ts', 'export const q = trx.insertInto(`event`);'],
+    ['packages/core/src/app/x.ts', 'export const q = trx.insertInto(`task`);'],
+    ['packages/core/src/app/x.ts', "export const q = trx.insertInto('task');"],
+  ])(
+    '%s passes %s',
+    async (path, code) => {
+      expect(await textRuleIds(code, path)).toEqual([]);
+    },
+    30_000,
+  );
+
+  // The stand ban is a no-restricted-imports block on the same files; both still apply.
+  it.each(['packages/core/src/app/x.ts', 'packages/daemon/src/x.ts'])(
+    '%s reports both the stand import ban and the event insert ban',
+    async (path) => {
+      const code = `import { trx } from '@spur-board/stand';\n${insert}`;
+      expect(await textRuleIds(code, path)).toEqual([
+        'no-restricted-imports',
+        'no-restricted-syntax',
+      ]);
+    },
+    30_000,
+  );
+});
+
 describe('project id lint rule', () => {
   it.each([
     "export const r = task.project === 'web';",

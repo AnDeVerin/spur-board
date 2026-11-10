@@ -455,6 +455,31 @@ describe('role addressed doorbells', () => {
         .where('kind', '=', 'feed.line')
         .execute(),
     ).toEqual([]);
+    const answer = await ctx.store.db
+      .selectFrom('command')
+      .select('key')
+      .where('operation', '=', 'block.answer')
+      .executeTakeFirstOrThrow();
+    const events = await ctx.store.db
+      .selectFrom('event')
+      .select(['id', 'kind', 'request_id'])
+      .orderBy('id')
+      .execute();
+    expect(events.filter((event) => event.kind === 'block_opened')).toMatchObject([
+      { request_id: 'ask-unread' },
+    ]);
+    const answered = events.filter((event) => event.request_id === answer.key);
+    expect(answered.length).toBeGreaterThan(0);
+    const lastCommandEvent = Math.max(...answered.map((event) => event.id));
+    expect(
+      events
+        .filter((event) => event.id <= lastCommandEvent)
+        .every((event) => event.request_id === 'ask-unread' || event.request_id === answer.key),
+    ).toBe(true);
+    const unkeyed = events.filter((event) => event.id > lastCommandEvent);
+    expect(unkeyed.map((event) => event.kind)).toContain('doorbell_rung');
+    expect(unkeyed.map((event) => event.kind)).toContain('from_you_raised');
+    expect(unkeyed.map((event) => event.request_id)).toEqual(unkeyed.map(() => null));
   });
 
   it('does not count a transport retry as another semantic ring', async () => {

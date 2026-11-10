@@ -214,6 +214,19 @@ describe('accepted observation', () => {
       .filter((event) => event.kind === 'pr_facts_changed')
       .map((event) => JSON.parse(event.payload) as { facts: PrFacts });
     expect(facts.at(-1)?.facts.headSha).toBe('b'.repeat(40));
+    const add = await store.db
+      .selectFrom('command')
+      .select('key')
+      .where('operation', '=', 'task.add')
+      .executeTakeFirstOrThrow();
+    expect(events.filter((event) => event.kind === 'task_added')).toMatchObject([
+      { request_id: add.key },
+    ]);
+    const observed = events.filter(
+      (event) => event.kind === 'pr_facts_changed' || event.kind === 'head_moved',
+    );
+    expect(observed.length).toBeGreaterThan(0);
+    expect(observed.map((event) => event.request_id)).toEqual(observed.map(() => null));
   });
 
   it('rewrites stored legacy review requests with kind and id', async () => {
