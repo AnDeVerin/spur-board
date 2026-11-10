@@ -19,7 +19,10 @@ export type OperationHandlers = {
       : never;
 };
 
-/** What transports accept: a partial map, so `dispatchOperation` answers `not_implemented`. */
+/**
+ * What transports accept: a partial map. `dispatchOperation` answers `not_implemented` when the
+ * requested handler is missing or has a mismatched `id`.
+ */
 export type OperationRegistry = Partial<OperationHandlers>;
 
 /** One app-layer dispatch for local HTTP and gateway interactions. */
