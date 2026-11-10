@@ -3,7 +3,7 @@ import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { configSchema } from '@spur-board/contracts';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { acquireLock, startInProcessDaemon, type InProcessDaemon } from '../src/in-process.ts';
 
 const configFor = (port: number) =>
@@ -140,9 +140,10 @@ describe('startInProcessDaemon', () => {
       release = resolve;
     });
     let outcome: string | undefined;
+    const lines: string[] = [];
     // The API port is taken, so the HTTP module fails to start; the stalled tick holds shutdown.
     const starting = startInProcessDaemon(
-      optionsFor({ tick: () => stalled, port, shutdownTimeoutMs: 200 }),
+      optionsFor({ tick: () => stalled, port, lines, shutdownTimeoutMs: 200 }),
     ).then(
       () => 'resolved',
       (err: unknown) => (err instanceof Error ? err.message : String(err)),
@@ -151,7 +152,13 @@ describe('startInProcessDaemon', () => {
       outcome = result;
     });
     try {
-      await new Promise((resolve) => setTimeout(resolve, 600));
+      // The shutdown timer has fired, so stop() has resolved; the start still waits on teardown.
+      await vi.waitFor(
+        () => {
+          expect(lines.some((line) => line.includes('shutdown timed out'))).toBe(true);
+        },
+        { timeout: 20_000 },
+      );
       expect(outcome).toBeUndefined();
       expect(() => acquireLock(join(home, 'board.lock'))).toThrow();
       release();
@@ -165,5 +172,5 @@ describe('startInProcessDaemon', () => {
         }),
       );
     }
-  });
+  }, 30_000);
 });
