@@ -20,6 +20,7 @@ export interface JiraAdapterOptions {
   tracker: () => JiraTracker;
   credentials: { email: string; token: string };
   intervalMs?: number;
+  now: () => number;
   fetch?: typeof fetch;
   warn: (message: string) => void;
   searchMethod?: 'GET';
@@ -184,7 +185,7 @@ export function createJiraAdapter(options: JiraAdapterOptions): Adapter {
     if (!response.ok)
       throw new JiraHttpError(
         response.status,
-        classifyHttpFailure({ status: response.status, headers: response.headers }, Date.now()),
+        classifyHttpFailure({ status: response.status, headers: response.headers }, options.now()),
       );
     try {
       return await response.json();
@@ -412,7 +413,7 @@ export function createJiraAdapter(options: JiraAdapterOptions): Adapter {
           throw new AdapterError('transient', 'Jira key lookup fallback request limit reached');
         fallbackRequests += 1;
       };
-      const observedAt = new Date().toISOString();
+      const observedAt = new Date(options.now()).toISOString();
       const tracker = options.tracker();
       await validate(tracker, ctx.signal);
       const sprintField = await findSprintField(tracker, ctx.signal);

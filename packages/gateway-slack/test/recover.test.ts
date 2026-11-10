@@ -24,6 +24,7 @@ async function setup(pageSize = 100) {
   const fake = await startFakeSlackApi({ pageSize });
   const gateway = createSlackGateway({
     token: 'xoxb-test',
+    now: () => Date.now(),
     appToken: 'xapp-test',
     channels: { orchestrators: 'C_ORCH', feed: 'C_FEED' },
     apiUrl: fake.url,
@@ -251,6 +252,81 @@ describe('Slack thread recovery', () => {
       );
     } finally {
       await gateway.stop();
+      await fake.close();
+    }
+  });
+
+  it('stamps fake messages and bounds recovery with the injected clock', async () => {
+    // Frozen on a whole second, and every scan starts at that same instant: a reply posted
+    // while the clock stands still must stay recoverable.
+    let t = Date.parse('2031-01-01T00:00:00.000Z');
+    const clock = () => t;
+    const fake = await startFakeSlackApi({ now: clock });
+    try {
+      const gateway = createSlackGateway({
+        token: 'xoxb-test',
+        channels: { orchestrators: 'C_ORCH', feed: 'C_FEED' },
+        apiUrl: fake.url,
+        requestTimeoutMs: 500,
+        now: clock,
+      });
+      const opened = await gateway.deliver({
+        key: 'clock-root',
+        maybeSent: false,
+        target: { kind: 'open', space: 'orchestrators', title: 'question' },
+        persona: { name: 'test', role: 'board' },
+        body,
+      });
+      if (opened.status !== 'delivered' || opened.conversation === undefined) {
+        throw new Error('fake conversation failed to open');
+      }
+      const conversation = opened.conversation;
+      const recoverSince = async (since: Date) =>
+        (await collect(gateway.recover({ conversations: [{ ref: conversation }], since }))).filter(
+          (event): event is Extract<InboundEvent, { kind: 'message' }> => event.kind === 'message',
+        );
+
+      const first = await fake.platform.inject({
+        kind: 'message',
+        conversation,
+        author,
+        text: 'first',
+      });
+      const firstRound = await recoverSince(new Date(t));
+      expect(firstRound.find((event) => event.message === first.message)?.at).toBe(
+        '2031-01-01T00:00:00.000Z',
+      );
+
+      // A reply stamped one second ahead of the recovery clock stays out until the clock reaches it.
+      t += 1_000;
+      const later = await fake.platform.inject({
+        kind: 'message',
+        conversation,
+        author,
+        text: 'later',
+      });
+      t -= 1_000;
+      const beforeLater = await recoverSince(new Date(t));
+      expect(beforeLater.some((event) => event.message === later.message)).toBe(false);
+      t += 1_000;
+      const atLater = await recoverSince(new Date(t));
+      expect(atLater.find((event) => event.message === later.message)?.at).toBe(
+        '2031-01-01T00:00:01.000Z',
+      );
+
+      t += 3_600_000;
+      const second = await fake.platform.inject({
+        kind: 'message',
+        conversation,
+        author,
+        text: 'second',
+      });
+      const secondRound = await recoverSince(new Date(t));
+      expect(secondRound.find((event) => event.message === second.message)?.at).toBe(
+        '2031-01-01T01:00:01.000Z',
+      );
+      expect(secondRound.some((event) => event.message === first.message)).toBe(false);
+    } finally {
       await fake.close();
     }
   });

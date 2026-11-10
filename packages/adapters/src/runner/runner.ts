@@ -56,14 +56,14 @@ export interface RunnerOptions {
   entries: readonly RunnerEntry[];
   core: AdapterCore;
   config: Pick<Config, 'sources' | 'thresholds'>;
-  now?: () => number;
+  now: () => number;
   oneShot?: boolean;
   /** Called for every failed poll step and rejected report; an abort is not one. A throw is ignored. */
   onFailure?: ((failure: PollFailure) => void) | undefined;
 }
 
 export function startRunner(options: RunnerOptions): AdapterRunner {
-  const startedAt = (options.now ?? Date.now)();
+  const startedAt = options.now();
   const sources = options.entries.map((entry) => runSource(entry, options, startedAt));
   return {
     firstAttempts: Promise.all(
@@ -84,7 +84,7 @@ type Timer = ReturnType<typeof setTimeout>;
 function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: number) {
   const { adapter, reserveRemaining } = entry;
   const { core, config } = options;
-  const now = options.now ?? Date.now;
+  const { now } = options;
   const source = adapter.id;
   const { intervalMs } = adapter;
   const { staleMultiplier } = config.thresholds;

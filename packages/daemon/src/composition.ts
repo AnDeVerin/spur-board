@@ -54,7 +54,11 @@ export function createDaemonModules(
   });
   const ctx = ctxFor('gateway-slack');
   const settings = slackSettings(ctx.config, ctx.secrets);
-  const gateway = ports.gateway ?? (settings === null ? undefined : createSlackGateway(settings));
+  const gateway =
+    ports.gateway ??
+    (settings === null
+      ? undefined
+      : createSlackGateway({ ...settings, now: () => ctx.clock.now() }));
   const registry = createOperationRegistry({
     config: board.config,
     clock: board.clock,

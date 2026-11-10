@@ -467,6 +467,7 @@ export async function runLiveConformance(options: LiveRunOptions): Promise<LiveR
   const command = options.command ?? DEFAULT_SLACK_COMMAND;
   const gateway = createSlackGateway({
     token: options.token,
+    now: () => Date.now(),
     appToken: options.appToken,
     channels: { orchestrators: options.channel, feed: options.channel },
     command,

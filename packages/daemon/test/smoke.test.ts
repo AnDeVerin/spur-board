@@ -38,6 +38,7 @@ async function command(home: string, failGithub = false, args: string[] = []) {
     home,
     writeOut: (line) => out.push(line),
     writeErr: (line) => err.push(line),
+    now: () => Date.now(),
     fetch: fakeFetch(failGithub),
   });
   return { code, out: out.join(''), err: err.join('') };

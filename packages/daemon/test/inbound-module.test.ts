@@ -36,6 +36,7 @@ function context(): ModuleContext<Store> {
 function fakeGateway(): Gateway {
   return createSlackGateway({
     token: 'xoxb-test',
+    now: () => Date.now(),
     channels: { orchestrators: 'C000000001', feed: 'C000000002' },
   });
 }

@@ -24,6 +24,7 @@ async function setup(options: { pageSize?: number; requestTimeoutMs?: number } =
   fakes.push(fake);
   const gateway = createSlackGateway({
     token: 'xoxb-test',
+    now: () => Date.now(),
     channels: { orchestrators: 'C_ORCH', feed: 'C_FEED' },
     apiUrl: fake.url,
     requestTimeoutMs: options.requestTimeoutMs ?? 500,

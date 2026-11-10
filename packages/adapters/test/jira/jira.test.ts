@@ -8,6 +8,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createJiraAdapter } from '../../src/jira/jira.ts';
 
 const NOW = new Date('2026-01-01T00:00:00.000Z');
+/** An injected clock seven seconds ahead of the fake system time. */
+const LATER = new Date(NOW.getTime() + 7_000);
 const BASE = 'https://jira.example.test';
 const FIELD = 'customfield_10020';
 const CREDENTIALS = { email: 'operator@example.test', token: 'synthetic-secret' };
@@ -90,12 +92,18 @@ function fake(
   return { fetcher, calls };
 }
 
-function adapter(fetcher: typeof fetch, current = tracker(), warn = vi.fn()) {
+function adapter(
+  fetcher: typeof fetch,
+  current = tracker(),
+  warn = vi.fn(),
+  now: () => number = () => Date.now(),
+) {
   return {
     source: createJiraAdapter({
       id: 'jira-proj',
       tracker: () => current,
       credentials: CREDENTIALS,
+      now,
       fetch: fetcher,
       warn,
     }),
@@ -170,7 +178,7 @@ describe('Jira adapter', () => {
         };
       return { issues: [issue('102', 'PROJ-3', [])], isLast: true };
     });
-    const { source } = adapter(fetcher);
+    const { source } = adapter(fetcher, tracker(), vi.fn(), () => LATER.getTime());
     const ctx = context();
     const result = await source.poll(ctx);
 
@@ -178,7 +186,7 @@ describe('Jira adapter', () => {
     expect(batchSchema.safeParse(result).success).toBe(true);
     expect(result).toMatchObject({
       source: 'jira-proj',
-      observedAt: NOW.toISOString(),
+      observedAt: LATER.toISOString(),
       complete: true,
       entities: [],
     });
@@ -485,7 +493,7 @@ describe('Jira adapter', () => {
       429,
       { 'retry-after': '30', 'x-ratelimit-reset': '1767225720' },
       'throttled',
-      NOW.getTime() + 30_000,
+      LATER.getTime() + 30_000,
     ],
     [429, { 'x-ratelimit-reset': '1767225720' }, 'throttled', 1_767_225_720_000],
   ] as const)(
@@ -495,7 +503,7 @@ describe('Jira adapter', () => {
         () => ({ issues: [] }),
         () => new Response('private response', { status, headers }),
       );
-      const { source, warn } = adapter(fetcher);
+      const { source, warn } = adapter(fetcher, tracker(), vi.fn(), () => LATER.getTime());
       const error = await rejection(source.poll(context()));
       expect(error.kind).toBe(kind);
       expect(error.retryAt?.getTime()).toBe(retryAt);
@@ -561,6 +569,7 @@ describe('Jira adapter', () => {
       id: 'jira-proj',
       tracker: () => current,
       credentials: CREDENTIALS,
+      now: () => Date.now(),
       fetch: fetcher,
       warn: vi.fn(),
       searchMethod: 'GET',

@@ -15,6 +15,7 @@ export interface SmokeProbes {
 
 export interface SmokeOptions {
   fetch?: typeof fetch;
+  now: () => number;
   probes?: SmokeProbes;
   writeOut: (line: string) => void;
   writeErr: (line: string) => void;
@@ -165,6 +166,7 @@ export async function runSmoke(
     {
       secrets,
       fetch: safeFetch(options.fetch ?? fetch),
+      now: options.now,
       oneShot: true,
       jiraSearchMethod: 'GET',
     },

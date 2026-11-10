@@ -13,7 +13,7 @@ export { sampleLinkRules } from './github/linkSample.ts';
 export interface StartAdaptersOptions {
   secrets?: Readonly<Record<string, string>>;
   fetch?: typeof fetch;
-  now?: () => number;
+  now: () => number;
   warn?: (message: string) => void;
   /** Every failed poll step and rejected source report. */
   onPollFailure?: (failure: PollFailure) => void;
@@ -34,7 +34,7 @@ function blindSource(id: string, intervalMs: number, message: string): Adapter {
 export function startAdapters(
   config: Config,
   core: AdapterCore,
-  options: StartAdaptersOptions = {},
+  options: StartAdaptersOptions,
 ): AdapterRunner {
   const secrets = options.secrets ?? {};
   const githubToken = secrets['GITHUB_TOKEN'];
@@ -52,6 +52,7 @@ export function startAdapters(
                 id,
                 tracker: () => tracker,
                 credentials: { email, token },
+                now: options.now,
                 intervalMs: config.adapters.jira.intervalMs,
                 ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
                 warn: options.warn ?? (() => undefined),
@@ -69,6 +70,7 @@ export function startAdapters(
               id,
               tracker: project.tracker,
               token: githubToken,
+              now: options.now,
               intervalMs: config.adapters.github.intervalMs,
               ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
             })
@@ -80,6 +82,7 @@ export function startAdapters(
     entries.push(
       ...githubSources(config, {
         token: githubToken,
+        now: options.now,
         ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
       }).map(({ adapter, reserveRemaining, repo }) => ({ adapter, reserveRemaining, repo })),
     );
@@ -105,6 +108,7 @@ export function startAdapters(
           baseUrl: config.adapters.spur.baseUrl,
           intervalMs: config.adapters.spur.intervalMs,
           flipSmoothingMs: config.health.flipSmoothingMs,
+          now: options.now,
           ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
           onNotice: (notice) => {
             const pending = Promise.resolve().then(() => options.onSpurNotice?.(notice));
@@ -120,7 +124,7 @@ export function startAdapters(
     ],
     core,
     config,
-    ...(options.now === undefined ? {} : { now: options.now }),
+    now: options.now,
     ...(options.oneShot === undefined ? {} : { oneShot: options.oneShot }),
     onFailure: options.onPollFailure,
   });

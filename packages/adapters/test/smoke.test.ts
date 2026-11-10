@@ -336,6 +336,7 @@ async function run(
   const err: string[] = [];
   const code = await runSmoke(config(), options.secrets ?? secrets, {
     fetch: fake.fetcher,
+    now: () => Date.now(),
     writeOut: (line) => out.push(line),
     writeErr: (line) => err.push(line),
     ...(options.probes === undefined ? {} : { probes: options.probes }),
