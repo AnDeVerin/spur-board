@@ -1,7 +1,7 @@
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { configSchema } from '@spur-board/contracts';
+import { configSchema, type ActorId, type ColumnId, type Config } from '@spur-board/contracts';
 import { sql } from 'kysely';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
@@ -11,6 +11,8 @@ import {
   openStore,
   type Store,
 } from '../../src/index.ts';
+import { reconcileItems } from '../../src/app/fromYou.ts';
+import { scanTransaction } from '../../src/app/secrets.ts';
 import { sampleRows } from '../store/sample-rows.ts';
 
 const KEY = 'o/r#101';
@@ -670,6 +672,371 @@ describe('block and comment mutations', () => {
       journal: 2,
       commands: 1,
       outbox: 1,
+    });
+  });
+});
+
+const curator = 'agent:cur/cur-1';
+
+function withCurator(orchestrators: Partial<Record<ColumnId, string>> = {}): Config {
+  return configSchema.parse({
+    ...config,
+    projects: config.projects.map((project) =>
+      project.id === 'proj'
+        ? {
+            ...project,
+            spurProjects: [...project.spurProjects, { name: 'cur', role: 'curator' }],
+            columns: project.columns.map((column) => ({
+              ...column,
+              orchestrator: orchestrators[column.id] ?? column.orchestrator,
+            })),
+          }
+        : project,
+    ),
+  });
+}
+
+/** A board on the shared seed whose task sits in `column`; `dev` is orchestrated by `qa`. */
+async function curatorBoard(column: ColumnId = 'dev', used: Config = withCurator()) {
+  const { store } = await seeded();
+  await store.transaction((trx) =>
+    trx.updateTable('task').set({ column }).where('id', '=', 1).execute(),
+  );
+  return {
+    store,
+    apply: createApply({ store, clock, config: used }),
+    ops: createBlockMutations(used),
+  };
+}
+
+async function seedBlock(
+  store: Store,
+  values: {
+    type: 'code' | 'needs_input';
+    author: ActorId;
+    addressee: 'worker' | `orchestrator:dev` | 'operator';
+  },
+) {
+  return store.transaction(async (trx) => {
+    const row = await trx
+      .insertInto('block')
+      .values({
+        task_id: 1,
+        type: values.type,
+        reason: 'Seeded block',
+        author: values.author,
+        addressee_role: values.addressee,
+        target_column: null,
+        state: 'open',
+        outcome: null,
+        outcome_reason: null,
+        repeat_of: null,
+        unblocked_by: null,
+        unblocked_at: null,
+        created_at: new Date(NOW).toISOString(),
+      })
+      .returning('id')
+      .executeTakeFirstOrThrow();
+    return `B${String(row.id)}`;
+  });
+}
+
+async function escalations(store: Store) {
+  return (await events(store))
+    .filter((event) => event.kind === 'block_escalated')
+    .map((event) => event.payload);
+}
+
+describe('curator routing', () => {
+  it('leaves a question with the column orchestrator when one is set', async () => {
+    const { apply, ops: curated } = await curatorBoard();
+    const asked = await apply(curated.ask, { task: KEY, text: 'Q?' }, author, 'ask');
+    expect(asked.block.addressee).toBe('orchestrator:dev');
+  });
+
+  it('sends an orchestrator question to the curator, or the operator without one', async () => {
+    const { apply, ops: curated } = await curatorBoard();
+    const asked = await apply(curated.ask, { task: KEY, text: 'Q?' }, orchestrator, 'ask');
+    expect(asked.block.addressee).toBe('curator');
+    const plain = await seeded();
+    const without = await plain.apply(ops.ask, { task: KEY, text: 'Q?' }, orchestrator, 'ask');
+    expect(without.block.addressee).toBe('operator');
+  });
+
+  it('sends a question in an unorchestrated column to the curator, or the operator', async () => {
+    const { apply, ops: curated } = await curatorBoard('qa');
+    const asked = await apply(curated.ask, { task: KEY, text: 'Q?' }, author, 'ask');
+    expect(asked.block.addressee).toBe('curator');
+    const plain = await curatorBoard('qa', config);
+    const without = await plain.apply(plain.ops.ask, { task: KEY, text: 'Q?' }, author, 'ask');
+    expect(without.block.addressee).toBe('operator');
+  });
+
+  it('keeps a column assigned to the operator at the operator', async () => {
+    const { apply, ops: curated } = await curatorBoard(
+      'review',
+      withCurator({ review: 'operator' }),
+    );
+    const asked = await apply(curated.ask, { task: KEY, text: 'Q?' }, author, 'ask');
+    expect(asked.block.addressee).toBe('operator');
+  });
+
+  it.each(['dev', 'qa'] as const)(
+    'sends the curator own question to the operator in %s',
+    async (column) => {
+      const { apply, ops: curated } = await curatorBoard(column);
+      const asked = await apply(curated.ask, { task: KEY, text: 'Q?' }, curator, 'ask');
+      expect(asked.block.addressee).toBe('operator');
+    },
+  );
+
+  it('routes an operator-role agent to the curator when the column has no orchestrator', async () => {
+    const { apply, ops: curated } = await curatorBoard('qa');
+    const asked = await apply(curated.ask, { task: KEY, text: 'Q?' }, operatorAgent, 'ask');
+    expect(asked.block.addressee).toBe('curator');
+  });
+
+  it('treats a dual-role project as the orchestrator for its dependency blocks', async () => {
+    const used = withCurator({ dev: 'cur' });
+    const { apply, ops: curated } = await curatorBoard('dev', used);
+    const created = await apply(
+      curated.create,
+      { task: KEY, type: 'dependency', reason: 'Waiting.' },
+      curator,
+      'create',
+    );
+    expect(created.block.addressee).toBe('orchestrator:dev');
+    const own = await apply(curated.ask, { task: KEY, text: 'Q?' }, curator, 'own');
+    expect(own.block.addressee).toBe('operator');
+    const asked = await apply(curated.ask, { task: KEY, text: 'Q?' }, author, 'ask');
+    expect(asked.block.addressee).toBe('orchestrator:dev');
+    const hop = await apply(curated.escalate, { block: asked.block.id }, curator, 'hop-1');
+    expect(hop.block.addressee).toBe('curator');
+    const top = await apply(curated.escalate, { block: asked.block.id }, curator, 'hop-2');
+    expect(top.block.addressee).toBe('operator');
+  });
+});
+
+describe('curator escalation', () => {
+  it('walks a question up the chain and treats each retry as a no-op', async () => {
+    const { store, apply, ops: curated } = await curatorBoard();
+    const { block } = await apply(curated.ask, { task: KEY, text: 'Q?' }, author, 'ask');
+    const id = block.id;
+
+    const toCurator = await apply(curated.escalate, { block: id }, orchestrator, 'esc-1');
+    expect(toCurator.block.addressee).toBe('curator');
+    expect(await escalations(store)).toEqual([
+      { block: id, from: 'orchestrator:dev', to: 'curator' },
+    ]);
+
+    const before = await events(store);
+    const retry = await apply(curated.escalate, { block: id }, orchestrator, 'retry-curator');
+    expect(retry.block.addressee).toBe('curator');
+    expect(await events(store)).toEqual(before);
+    await expect(
+      apply(curated.escalate, { block: id }, secondWorker, 'worker-at-curator'),
+    ).rejects.toMatchObject({ code: 'forbidden' });
+
+    const toOperator = await apply(curated.escalate, { block: id }, curator, 'esc-2');
+    expect(toOperator.block.addressee).toBe('operator');
+    expect(await escalations(store)).toEqual([
+      { block: id, from: 'orchestrator:dev', to: 'curator' },
+      { block: id, from: 'curator', to: 'operator' },
+    ]);
+
+    const settled = await events(store);
+    for (const [actor, key] of [
+      [orchestrator, 'retry-orchestrator'],
+      [curator, 'retry-curator-top'],
+      ['operator', 'retry-operator'],
+    ] as const) {
+      const again = await apply(curated.escalate, { block: id }, actor, key);
+      expect(again.block.addressee).toBe('operator');
+    }
+    expect(await events(store)).toEqual(settled);
+    await expect(
+      apply(curated.escalate, { block: id }, secondWorker, 'worker-at-operator'),
+    ).rejects.toMatchObject({ code: 'forbidden' });
+    expect(await escalations(store)).toHaveLength(2);
+  });
+
+  it('walks a curator-addressed question straight to the operator', async () => {
+    const { store, apply, ops: curated } = await curatorBoard('qa');
+    const { block } = await apply(curated.ask, { task: KEY, text: 'Q?' }, author, 'ask');
+    await apply(curated.escalate, { block: block.id }, curator, 'esc');
+    expect(await escalations(store)).toEqual([
+      { block: block.id, from: 'curator', to: 'operator' },
+    ]);
+    const retry = await apply(curated.escalate, { block: block.id }, curator, 'retry');
+    expect(retry.block.addressee).toBe('operator');
+    expect(await escalations(store)).toHaveLength(1);
+  });
+
+  it('still reports a closed block to an earlier addressee', async () => {
+    const { apply, ops: curated } = await curatorBoard();
+    const { block } = await apply(curated.ask, { task: KEY, text: 'Q?' }, author, 'ask');
+    await apply(curated.escalate, { block: block.id }, orchestrator, 'esc');
+    await apply(curated.answer, { block: block.id, text: 'A.' }, curator, 'answer');
+    await expect(
+      apply(curated.escalate, { block: block.id }, orchestrator, 'late'),
+    ).rejects.toMatchObject({ code: 'block_not_open' });
+  });
+
+  it('escalates a system code block past the curator and refuses the curator a retry', async () => {
+    const { store, apply, ops: curated } = await curatorBoard();
+    const id = await seedBlock(store, {
+      type: 'code',
+      author: 'system',
+      addressee: 'orchestrator:dev',
+    });
+    const moved = await apply(curated.escalate, { block: id }, orchestrator, 'esc');
+    expect(moved.block.addressee).toBe('operator');
+    expect(await escalations(store)).toEqual([
+      { block: id, from: 'orchestrator:dev', to: 'operator' },
+    ]);
+    await expect(apply(curated.escalate, { block: id }, curator, 'retry')).rejects.toMatchObject({
+      code: 'forbidden',
+    });
+    expect(await escalations(store)).toHaveLength(1);
+  });
+
+  it.each(['dependency', 'external'] as const)(
+    'escalates a %s block past the curator and refuses the curator a retry',
+    async (type) => {
+      const { store, apply, ops: curated } = await curatorBoard();
+      const { block } = await apply(
+        curated.create,
+        { task: KEY, type, reason: 'Waiting.' },
+        orchestrator,
+        'create',
+      );
+      expect(block.addressee).toBe('orchestrator:dev');
+      await apply(curated.escalate, { block: block.id }, orchestrator, 'esc');
+      expect(await escalations(store)).toEqual([
+        { block: block.id, from: 'orchestrator:dev', to: 'operator' },
+      ]);
+      await expect(
+        apply(curated.escalate, { block: block.id }, curator, 'retry'),
+      ).rejects.toMatchObject({ code: 'forbidden' });
+      expect(await escalations(store)).toHaveLength(1);
+    },
+  );
+});
+
+describe('curator limits', () => {
+  it('refuses a curator on an operator-addressed question', async () => {
+    const { store, apply, ops: curated } = await curatorBoard();
+    const id = await seedBlock(store, {
+      type: 'needs_input',
+      author,
+      addressee: 'operator',
+    });
+    await expect(
+      apply(curated.answer, { block: id, text: 'A.' }, curator, 'answer'),
+    ).rejects.toMatchObject({ code: 'forbidden' });
+    await expect(
+      apply(curated.unblock, { mode: 'reason', block: id, reason: 'R.' }, curator, 'reason'),
+    ).rejects.toMatchObject({ code: 'forbidden' });
+  });
+
+  it.each(['worker', 'orchestrator:dev'] as const)(
+    'refuses a curator on a code block at %s',
+    async (addressee) => {
+      const { store, apply, ops: curated } = await curatorBoard();
+      const id = await seedBlock(store, { type: 'code', author: orchestrator, addressee });
+      for (const [key, action] of [
+        ['answer', () => apply(curated.answer, { block: id, text: 'A.' }, curator, 'answer')],
+        [
+          'reason',
+          () =>
+            apply(curated.unblock, { mode: 'reason', block: id, reason: 'R.' }, curator, 'reason'),
+        ],
+        ['done', () => apply(curated.unblock, { mode: 'done', block: id }, curator, 'done')],
+      ] as const) {
+        await expect(action(), key).rejects.toMatchObject({ code: 'forbidden' });
+      }
+    },
+  );
+
+  it('lets the curator unblock its question with a reason', async () => {
+    const { apply, ops: curated } = await curatorBoard('qa');
+    const { block } = await apply(curated.ask, { task: KEY, text: 'Q?' }, author, 'ask');
+    const closed = await apply(
+      curated.unblock,
+      { mode: 'reason', block: block.id, reason: 'Not needed.' },
+      curator,
+      'reason',
+    );
+    expect(closed.block).toMatchObject({ state: 'unblocked', outcome: 'reason' });
+  });
+
+  it('keeps the operator answer on a curator-addressed question', async () => {
+    const { apply, ops: curated } = await curatorBoard('qa');
+    const { block } = await apply(curated.ask, { task: KEY, text: 'Q?' }, author, 'ask');
+    expect(block.addressee).toBe('curator');
+    const answered = await apply(
+      curated.answer,
+      { block: block.id, text: 'A.' },
+      'operator',
+      'answer',
+    );
+    expect(answered.block).toMatchObject({ state: 'unblocked', outcome: 'done' });
+  });
+
+  it('keeps the operator reason on a curator-addressed question', async () => {
+    const { apply, ops: curated } = await curatorBoard('qa');
+    const { block } = await apply(curated.ask, { task: KEY, text: 'Q?' }, author, 'ask');
+    const closed = await apply(
+      curated.unblock,
+      { mode: 'reason', block: block.id, reason: 'Moot.' },
+      'operator',
+      'reason',
+    );
+    expect(closed.block).toMatchObject({ state: 'unblocked', outcome: 'reason' });
+  });
+});
+
+describe('curator delivery', () => {
+  const used = withCurator();
+  const reconcile = (store: Store) =>
+    scanTransaction(store, used, (trx) => reconcileItems(trx, used, NOW, true));
+  const operatorItems = async (store: Store) =>
+    (await store.db.selectFrom('operator_item').select('item_key').execute())
+      .map((row) => row.item_key)
+      .filter((key) => key.startsWith('operator-block:'));
+
+  it('rings nobody at the curator and opens the thread once at the operator', async () => {
+    const { store, apply, ops: curated } = await curatorBoard('qa', used);
+    const { block } = await apply(curated.ask, { task: KEY, text: 'Q?' }, author, 'ask');
+    expect(block.addressee).toBe('curator');
+    expect(await store.db.selectFrom('notification').select('id').execute()).toEqual([]);
+    expect(await store.db.selectFrom('outbox').select('id').execute()).toEqual([]);
+    await reconcile(store);
+    expect(await operatorItems(store)).toEqual([]);
+
+    await apply(curated.escalate, { block: block.id }, curator, 'esc');
+    expect(await store.db.selectFrom('notification').select('id').execute()).toEqual([]);
+    expect(await store.db.selectFrom('outbox').select('kind').execute()).toEqual([
+      { kind: 'conversation.open' },
+    ]);
+    await reconcile(store);
+    expect(await operatorItems(store)).toEqual([`operator-block:${block.id.slice(1)}`]);
+  });
+
+  it('answers at the curator without writing a thread reply or close', async () => {
+    const { store, apply, ops: curated } = await curatorBoard('qa', used);
+    const { block } = await apply(curated.ask, { task: KEY, text: 'Q?' }, author, 'ask');
+    await apply(curated.answer, { block: block.id, text: 'A.' }, curator, 'answer');
+    expect(await store.db.selectFrom('outbox').select('kind').execute()).toEqual([]);
+  });
+
+  it('opens the thread of a curator question under the orchestrator persona', async () => {
+    const { store, apply, ops: curated } = await curatorBoard('qa', used);
+    await apply(curated.ask, { task: KEY, text: 'Q?' }, curator, 'ask');
+    const rows = await store.db.selectFrom('outbox').select(['kind', 'payload']).execute();
+    expect(rows.map((row) => row.kind)).toEqual(['conversation.open']);
+    expect(JSON.parse(rows[0]?.payload ?? '{}')).toMatchObject({
+      persona: { name: 'cur', role: 'orchestrator' },
     });
   });
 });

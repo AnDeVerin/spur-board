@@ -12,7 +12,11 @@ import {
   reconcileDueDoorbells,
   type Store,
 } from '../../src/index.ts';
-import { registerBlockNotification, restartNotification } from '../../src/app/doorbells.ts';
+import {
+  registerBlockNotification,
+  restartNotification,
+  selectNotificationRecipient,
+} from '../../src/app/doorbells.ts';
 import { SpurRejectedError } from '../../src/app/sender.ts';
 import { sampleRows } from '../store/sample-rows.ts';
 
@@ -185,6 +189,43 @@ async function workerBlock(store: Store): Promise<string> {
 }
 
 describe('role addressed doorbells', () => {
+  it('selects no recipient for a curator notification despite a live orchestrator link', async () => {
+    const ctx = await setup();
+    await ctx.store.transaction(async (trx) => {
+      await trx
+        .insertInto('session_snapshot')
+        .values({
+          ...sampleRows.session_snapshot,
+          id: 'orchestrator-1',
+          spur_project: 'web',
+          state: 'waiting',
+          ended_at: null,
+          end_reason: null,
+        })
+        .execute();
+      await trx
+        .insertInto('link')
+        .values({
+          ...sampleRows.link,
+          id: 9,
+          task_id: 1,
+          entity: 'session',
+          repo: null,
+          number: null,
+          pr_state: null,
+          session_id: 'orchestrator-1',
+          role: 'orchestrator',
+        })
+        .execute();
+    });
+    const select = (role: 'curator' | 'orchestrator:dev') =>
+      ctx.store.transaction((trx) =>
+        selectNotificationRecipient(trx, { task_id: 1, role, author_session: null }),
+      );
+    expect(await select('curator')).toBeUndefined();
+    expect((await select('orchestrator:dev'))?.id).toBe('orchestrator-1');
+  });
+
   it('rings the live author for an answer, then a replacement worker if the author ended', async () => {
     const live = await setup({ replacement: true, tester: true });
     const asked = await live.apply(
