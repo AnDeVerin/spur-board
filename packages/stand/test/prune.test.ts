@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -56,6 +57,8 @@ function stand(
   home = dir,
 ): StandManifest {
   mkdirSync(dir, { recursive: true });
+  // Stand homes are private; the umask must not decide whether a fixture counts as one.
+  chmodSync(dir, 0o700);
   const manifest = standManifest.parse({
     version: 1,
     id: 'abcdef',
@@ -161,5 +164,28 @@ describe('standAt', () => {
     expect(standAt(a, root)).toBeUndefined();
     expect(standAt(b, root)?.home).toBe(realpathSync(b));
     expect(standAt(join(root, 'other-name'), root)).toBeUndefined();
+  });
+});
+
+describe('untrusted stand directories', () => {
+  it.each([0o770, 0o707])('keeps a dead stand whose directory has mode %o', (mode) => {
+    const dir = join(root, 'spur-board-stand.wrtabl');
+    stand(dir, { pid: deadPid(), pidStartTime: 1 });
+    chmodSync(dir, mode);
+    expect(removeStand(dir, root)).toHaveProperty('kept');
+    expect(existsSync(dir)).toBe(true);
+    expect(standAt(dir, root)).toBeUndefined();
+  });
+
+  it('ignores a manifest that is a symlink, even to a valid manifest', () => {
+    const source = join(otherRoot, 'spur-board-stand.source');
+    const dir = join(root, 'spur-board-stand.linked');
+    mkdirSync(dir, { mode: 0o700 });
+    chmodSync(dir, 0o700);
+    stand(source, { pid: deadPid(), pidStartTime: 1 }, dir);
+    symlinkSync(join(source, 'stand.json'), join(dir, 'stand.json'));
+    expect(readManifest(dir)).toBeUndefined();
+    expect(removeStand(dir, root)).toHaveProperty('kept');
+    expect(existsSync(dir)).toBe(true);
   });
 });

@@ -1,6 +1,10 @@
 import { randomBytes } from 'node:crypto';
 import {
+  closeSync,
+  constants,
+  fstatSync,
   lstatSync,
+  openSync,
   readdirSync,
   readFileSync,
   realpathSync,
@@ -42,13 +46,25 @@ export function writeManifest(home: string, manifest: StandManifest): void {
 
 /** The manifest in `home`, or undefined when it is missing, unreadable or invalid. */
 export function readManifest(home: string): StandManifest | undefined {
+  let fd: number;
   try {
-    const parsed = standManifest.safeParse(
-      JSON.parse(readFileSync(join(home, MANIFEST_FILE), 'utf8')),
+    fd = openSync(
+      join(home, MANIFEST_FILE),
+      constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
     );
+  } catch {
+    return undefined;
+  }
+  try {
+    // Only a regular file of this user counts; anything another user could plant is ignored.
+    const info = fstatSync(fd);
+    if (!info.isFile() || info.uid !== process.getuid?.()) return undefined;
+    const parsed = standManifest.safeParse(JSON.parse(readFileSync(fd, 'utf8')));
     return parsed.success ? parsed.data : undefined;
   } catch {
     return undefined;
+  } finally {
+    closeSync(fd);
   }
 }
 
@@ -99,12 +115,19 @@ export function isLive(
 
 /**
  * A directory a stand may own: a direct child of `root` named `spur-board-stand.` plus six
- * letters or digits, a real directory (not a symlink) owned by this user.
+ * letters or digits, a real directory (not a symlink) owned by this user that no group or other
+ * user can write.
  */
 export function isStandDir(dir: string, root: string): boolean {
   try {
     const info = lstatSync(dir);
-    if (info.isSymbolicLink() || !info.isDirectory() || info.uid !== process.getuid?.())
+    if (
+      info.isSymbolicLink() ||
+      !info.isDirectory() ||
+      info.uid !== process.getuid?.() ||
+      // Another user who can write here could plant a manifest naming one of our processes.
+      (info.mode & 0o022) !== 0
+    )
       return false;
     if (!STAND_NAME.test(basename(dir))) return false;
     return dirname(realpathSync(dir)) === realpathSync(root);
