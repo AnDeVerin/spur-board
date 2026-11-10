@@ -179,6 +179,9 @@ catalogs:
     '@secretlint/core':
       specifier: 13.1.0
       version: 13.1.0
+    '@secretlint/profiler':
+      specifier: 13.1.0
+      version: 13.1.0
     '@secretlint/secretlint-rule-preset-recommend':
       specifier: 13.1.0
       version: 13.1.0
@@ -385,6 +388,9 @@ importers:
       '@secretlint/core':
         specifier: 'catalog:'
         version: 13.1.0(supports-color@7.2.0)
+      '@secretlint/profiler':
+        specifier: 'catalog:'
+        version: 13.1.0
       '@secretlint/secretlint-rule-preset-recommend':
         specifier: 'catalog:'
         version: 13.1.0

@@ -112,6 +112,15 @@ afterEach(async () => {
 });
 
 describe('gateway secret scan', () => {
+  // Each mark stayed in the process timeline and the profiler's arrays; a long run of scans
+  // slowed every later scan and stalled the event loop when the observer flushed (#177).
+  it('adds no performance marks', async () => {
+    const before = performance.getEntriesByType('mark').length;
+    expect(await scanSecret(`Please inspect ${['xoxb', '123', 'abc'].join('-')}`)).not.toBeNull();
+    expect(await scanSecret('Nothing secret here')).toBeNull();
+    expect(performance.getEntriesByType('mark')).toHaveLength(before);
+  });
+
   it('links the blocked notice of a Jira task to its Jira issue', async () => {
     const jiraConfig = configSchema.parse({
       projects: [

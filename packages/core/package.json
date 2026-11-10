@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@secretlint/core": "catalog:",
+    "@secretlint/profiler": "catalog:",
     "@secretlint/secretlint-rule-preset-recommend": "catalog:",
     "@spur-board/contracts": "workspace:*",
     "better-sqlite3": "catalog:",

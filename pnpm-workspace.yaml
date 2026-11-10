@@ -33,6 +33,7 @@ catalog:
   '@slack/socket-mode': 3.1.0
   '@slack/web-api': 8.2.0
   '@secretlint/core': 13.1.0
+  '@secretlint/profiler': 13.1.0
   '@secretlint/secretlint-rule-preset-recommend': 13.1.0
   '@modelcontextprotocol/server': ^2.4.0
   '@modelcontextprotocol/client': ^2.4.0
