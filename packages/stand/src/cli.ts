@@ -40,6 +40,9 @@ import {
 import { startStand, WAIT_CONDITIONS } from './stand.ts';
 
 const SELF = fileURLToPath(import.meta.url);
+// Read as soon as this module runs: a parent that exits while the stand starts must still stop
+// it. A parent gone before Node has loaded this module is not seen.
+const STARTUP_PARENT = process.ppid;
 const UP_TIMEOUT_MS = 30_000;
 const DOWN_TIMEOUT_MS = 15_000;
 const PARENT_CHECK_MS = 1_000;
@@ -133,6 +136,7 @@ function pruneDead(): void {
 }
 
 async function upForeground(options: { port: number; home?: string; detached: boolean }) {
+  const parent = STARTUP_PARENT;
   const env = { ...process.env };
   const execArgv = [...process.execArgv];
   const refused =
@@ -161,9 +165,10 @@ async function upForeground(options: { port: number; home?: string; detached: bo
       void stand.stop();
     });
   if (!options.detached) {
-    const parent = process.ppid;
+    const orphaned = (): boolean => process.ppid !== parent;
+    if (orphaned()) void stand.stop();
     setInterval(() => {
-      if (process.ppid !== parent) void stand.stop();
+      if (orphaned()) void stand.stop();
     }, PARENT_CHECK_MS).unref();
   }
   out(`${JSON.stringify(publicView(stand.manifest()))}\n`);
@@ -402,25 +407,35 @@ async function main(argv: string[]): Promise<number> {
   }
 }
 
+/** Exits once stdout and stderr have flushed, so a pipe gets every byte written before. */
+function exitAfterFlush(code: number): void {
+  let pending = 2;
+  const done = (): void => {
+    pending -= 1;
+    if (pending === 0) process.exit(code);
+  };
+  process.stdout.write('', done);
+  process.stderr.write('', done);
+}
+
 if (import.meta.main) {
-  main(process.argv.slice(2)).then(
-    (code) => process.exit(code),
-    (error: unknown) => {
-      if (error instanceof StandRefusedError) {
-        err(`stand refused (${error.reason}): ${error.message}\n`);
-        process.exit(3);
-      }
-      if (
-        error instanceof UsageError ||
-        (error instanceof TypeError &&
-          'code' in error &&
-          String(error.code).startsWith('ERR_PARSE_ARGS'))
-      ) {
-        err(`${error.message}\n\n${USAGE}`);
-        process.exit(2);
-      }
-      err(`stand: ${error instanceof Error ? error.message : String(error)}\n`);
-      process.exit(1);
-    },
-  );
+  main(process.argv.slice(2)).then(exitAfterFlush, (error: unknown) => {
+    if (error instanceof StandRefusedError) {
+      err(`stand refused (${error.reason}): ${error.message}\n`);
+      exitAfterFlush(3);
+      return;
+    }
+    if (
+      error instanceof UsageError ||
+      (error instanceof TypeError &&
+        'code' in error &&
+        String(error.code).startsWith('ERR_PARSE_ARGS'))
+    ) {
+      err(`${error.message}\n\n${USAGE}`);
+      exitAfterFlush(2);
+      return;
+    }
+    err(`stand: ${error instanceof Error ? error.message : String(error)}\n`);
+    exitAfterFlush(1);
+  });
 }
