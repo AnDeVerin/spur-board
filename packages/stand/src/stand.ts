@@ -278,32 +278,6 @@ export interface Stand {
 }
 
 /**
- * A deadline for a process that must end (the foreground CLI). `arm` starts it once; when it
- * passes, `onTimeout` runs and `expired` resolves 1. It needs no stand, so it also bounds a start
- * still pending when a stop is asked for. In-process callers do not use it and wait for the
- * full teardown on `Stand.exited`.
- */
-export function stopDeadline(
-  ms: number,
-  onTimeout: () => void,
-): { arm(): void; expired: Promise<number> } {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  let expire: (code: number) => void = () => undefined;
-  const expired = new Promise<number>((resolve) => {
-    expire = resolve;
-  });
-  return {
-    arm() {
-      timer ??= setTimeout(() => {
-        onTimeout();
-        expire(1);
-      }, ms);
-    },
-    expired,
-  };
-}
-
-/**
  * Starts a stand: an in-process daemon on a generated home with dummy secrets, the loopback-only
  * network guard and a control endpoint. Every refusal happens before anything is created.
  */

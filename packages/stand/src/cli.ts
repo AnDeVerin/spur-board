@@ -38,7 +38,8 @@ import {
   TRUSTED_PATH,
   type StandRole,
 } from './roles.ts';
-import { startStand, stopDeadline, WAIT_CONDITIONS, type Stand } from './stand.ts';
+import { foregroundStop } from './foreground.ts';
+import { startStand, WAIT_CONDITIONS } from './stand.ts';
 
 const SELF = fileURLToPath(import.meta.url);
 // Read as soon as this module runs: a parent that exits while the stand starts must still stop
@@ -166,26 +167,21 @@ async function upForeground(options: {
   scrubEnv(process.env);
   // The daemon lock spawns flock by name; only trusted directories may provide it.
   process.env['PATH'] = TRUSTED_PATH;
-  // This process must end. Any stop - a signal, the launcher going away, or one the stand starts
-  // itself - arms a deadline; past it the CLI exits 1 even if startup or a module stop hangs.
-  const deadline = stopDeadline(STOP_TIMEOUT_MS, () => {
-    err(`The stand did not stop within ${String(STOP_TIMEOUT_MS / 1_000)} s; exiting.\n`);
+  // This process must end: any stop arms a deadline, past which the CLI exits 1 even if startup
+  // or a module stop hangs. Watching starts before startup, so a launcher that leaves while the
+  // stand starts still counts. A detached child does not watch: its parent exits by design.
+  const stopper = foregroundStop({
+    watchParent: !options.detached,
+    parentGone,
+    timeoutMs: STOP_TIMEOUT_MS,
+    onTimeout: () => {
+      err(`The stand did not stop within ${String(STOP_TIMEOUT_MS / 1_000)} s; exiting.\n`);
+    },
   });
-  // Set once startup returns; a stop asked for before that is delivered then.
-  const started: { stand?: Stand; stopWanted: boolean } = { stopWanted: false };
-  const request = (): void => {
-    started.stopWanted = true;
-    deadline.arm();
-    void started.stand?.stop();
-  };
-  // Watching starts before startup, so a launcher that leaves while the stand starts still counts.
-  for (const signal of ['SIGTERM', 'SIGINT', 'SIGHUP'] as const) process.on(signal, request);
-  if (!options.detached) {
-    if (parentGone()) request();
-    setInterval(() => {
-      if (parentGone()) request();
-    }, PARENT_CHECK_MS).unref();
-  }
+  for (const signal of ['SIGTERM', 'SIGINT', 'SIGHUP'] as const)
+    process.on(signal, stopper.request);
+  stopper.checkParent();
+  if (!options.detached) setInterval(stopper.checkParent, PARENT_CHECK_MS).unref();
   const result = await Promise.race([
     startStand({
       root: root(),
@@ -195,22 +191,16 @@ async function upForeground(options: {
       execArgv,
       osHome: homedir(),
       registerFatal: (handler) => {
-        process.on('uncaughtException', handler);
-        process.on('unhandledRejection', handler);
+        const fatal = stopper.fatal(handler);
+        process.on('uncaughtException', fatal);
+        process.on('unhandledRejection', fatal);
       },
     }),
-    deadline.expired,
+    stopper.expired,
   ]);
   if (typeof result === 'number') return result;
-  const stand = result;
-  started.stand = stand;
-  void stand.stopping.then(() => {
-    deadline.arm();
-  });
-  // A stop asked for while the stand was starting.
-  if (started.stopWanted || parentGone()) request();
-  out(`${JSON.stringify(publicView(stand.manifest()))}\n`);
-  return Promise.race([stand.exited, deadline.expired]);
+  out(`${JSON.stringify(publicView(result.manifest()))}\n`);
+  return stopper.attach(result);
 }
 
 async function up(port: number): Promise<number> {
