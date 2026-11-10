@@ -1,6 +1,12 @@
 import { request } from 'node:http';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { MAX_WAIT_MS, startControl, type Control, type RouteResult } from '../src/control.ts';
+import {
+  callLocal,
+  MAX_WAIT_MS,
+  startControl,
+  type Control,
+  type RouteResult,
+} from '../src/control.ts';
 
 const TOKEN = 'control-token';
 
@@ -214,5 +220,27 @@ describe('control endpoint', () => {
     await control.close();
     expect(await failed).not.toBe(200);
     expect(reset).not.toHaveBeenCalled();
+  });
+
+  it('calls the control endpoint directly and refuses a host other than 127.0.0.1', async () => {
+    control = await startControl({
+      token: TOKEN,
+      routes: {
+        wait: vi.fn(),
+        poll: vi.fn(),
+        reset: () => Promise.resolve({ status: 200, body: { ok: 1 } }),
+      },
+    });
+    const answer = await callLocal(`${control.url}/reset`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}` },
+      body: '{}',
+      timeoutMs: 5_000,
+    });
+    expect(answer).toEqual({ status: 200, body: '{"ok":1}\n' });
+    const port = new URL(control.url).port;
+    await expect(
+      callLocal(`http://localhost:${port}/reset`, { method: 'POST', body: '{}', timeoutMs: 5_000 }),
+    ).rejects.toThrow(/127\.0\.0\.1/);
   });
 });

@@ -139,16 +139,22 @@ export function prune(root: string): { dir: string; result: RemoveResult }[] {
     });
 }
 
+/**
+ * The manifest of the stand directory `dir`, or undefined unless `dir` passes `isStandDir` and
+ * its manifest names `dir` itself as the home. Callers use its pid and paths only after this.
+ */
+export function standAt(dir: string, root: string): StandManifest | undefined {
+  if (!isStandDir(dir, root)) return undefined;
+  const manifest = readManifest(dir);
+  return manifest !== undefined && manifest.home === realpathSync(dir) ? manifest : undefined;
+}
+
 /** Live stands under `root` with a valid manifest. */
 export function liveStands(root: string): StandManifest[] {
   return readdirSync(root)
     .filter((name) => name.startsWith(STAND_PREFIX))
-    .map((name) => join(root, name))
-    .filter((dir) => isStandDir(dir, root))
-    .flatMap((dir) => {
-      const manifest = readManifest(dir);
-      return manifest !== undefined && manifest.home === realpathSync(dir) && isLive(manifest)
-        ? [manifest]
-        : [];
+    .flatMap((name) => {
+      const manifest = standAt(join(root, name), root);
+      return manifest !== undefined && isLive(manifest) ? [manifest] : [];
     });
 }

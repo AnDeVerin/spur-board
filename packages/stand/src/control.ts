@@ -1,5 +1,5 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
-import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import { Agent, createServer, request, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 
 const MAX_BODY = 64 * 1024;
@@ -200,4 +200,57 @@ export async function startControl(options: {
       return closed;
     },
   };
+}
+
+/**
+ * One HTTP call to a stand on 127.0.0.1, straight to the socket: a fresh agent never takes an env
+ * proxy, so a bearer token cannot reach one. Any other host is refused before connecting.
+ */
+export function callLocal(
+  url: string,
+  options: {
+    method: 'GET' | 'POST';
+    headers?: Record<string, string>;
+    body?: string;
+    timeoutMs: number;
+  },
+): Promise<{ status: number; body: string }> {
+  const target = new URL(url);
+  if (target.protocol !== 'http:' || target.hostname !== '127.0.0.1')
+    return Promise.reject(
+      new Error(`Refusing a stand call to ${target.host}; it must be 127.0.0.1.`),
+    );
+  return new Promise((resolve, reject) => {
+    const req = request(
+      {
+        agent: new Agent({ keepAlive: false }),
+        host: '127.0.0.1',
+        port: target.port,
+        path: `${target.pathname}${target.search}`,
+        method: options.method,
+        headers: {
+          host: target.host,
+          ...(options.body === undefined ? {} : { 'content-type': 'application/json' }),
+          ...options.headers,
+        },
+        timeout: options.timeoutMs,
+      },
+      (response) => {
+        const chunks: Buffer[] = [];
+        response.on('data', (chunk: Buffer) => chunks.push(chunk));
+        response.on('end', () => {
+          resolve({
+            status: response.statusCode ?? 0,
+            body: Buffer.concat(chunks).toString('utf8'),
+          });
+        });
+        response.on('error', reject);
+      },
+    );
+    req.on('timeout', () => {
+      req.destroy(new Error(`No answer from ${target.host} in ${String(options.timeoutMs)} ms.`));
+    });
+    req.on('error', reject);
+    req.end(options.body);
+  });
 }

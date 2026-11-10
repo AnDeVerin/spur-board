@@ -14,6 +14,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { scrubEnv } from '@spur-board/testkit';
+import { callLocal } from './control.ts';
 import { proxyRefusal, refusal, StandRefusedError } from './guards.ts';
 import {
   isLive,
@@ -25,6 +26,7 @@ import {
   readManifest,
   removeStand,
   STAND_PREFIX,
+  standAt,
   type StandManifest,
 } from './manifest.ts';
 import {
@@ -84,10 +86,11 @@ function parsePort(value: string | undefined): number {
 function target(home: string | undefined): StandManifest {
   const dir = root();
   if (home !== undefined) {
-    if (!isStandDir(home, dir))
-      throw new UsageError(`${home} is not a stand directory under ${dir}`);
-    const manifest = readManifest(home);
-    if (manifest === undefined) throw new UsageError(`${home} has no valid ${MANIFEST_FILE}`);
+    const manifest = standAt(home, dir);
+    if (manifest === undefined)
+      throw new UsageError(
+        `${home} is not a stand directory under ${dir} with a ${MANIFEST_FILE} naming it`,
+      );
     return manifest;
   }
   const live = liveStands(dir);
@@ -107,18 +110,14 @@ function publicView(manifest: StandManifest): Record<string, unknown> {
 }
 
 async function control(manifest: StandManifest, route: string, body: unknown, timeoutMs: number) {
-  const response = await fetch(`${manifest.controlUrl}${route}`, {
+  const response = await callLocal(`${manifest.controlUrl}${route}`, {
     method: 'POST',
-    headers: {
-      authorization: `Bearer ${manifest.controlToken}`,
-      'content-type': 'application/json',
-    },
+    headers: { authorization: `Bearer ${manifest.controlToken}` },
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(timeoutMs),
+    timeoutMs,
   });
-  const text = await response.text();
-  out(text.endsWith('\n') ? text : `${text}\n`);
-  return response.ok ? 0 : 1;
+  out(response.body.endsWith('\n') ? response.body : `${response.body}\n`);
+  return response.status >= 200 && response.status < 300 ? 0 : 1;
 }
 
 const sleep = (ms: number): Promise<void> =>
@@ -235,10 +234,10 @@ async function down(manifest: StandManifest): Promise<number> {
 async function status(manifest: StandManifest, json: boolean): Promise<number> {
   let apiReady = false;
   try {
-    const response = await fetch(`${manifest.daemonUrl}/v1/schema`, {
-      signal: AbortSignal.timeout(2_000),
+    const response = await callLocal(`${manifest.daemonUrl}/v1/schema`, {
+      method: 'GET',
+      timeoutMs: 2_000,
     });
-    await response.body?.cancel();
     apiReady = response.status === 200;
   } catch {
     apiReady = false;

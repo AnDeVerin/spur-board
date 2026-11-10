@@ -17,6 +17,7 @@ import {
   prune,
   readManifest,
   removeStand,
+  standAt,
   standManifest,
   writeManifest,
   type StandManifest,
@@ -148,5 +149,17 @@ describe('isLive', () => {
       `4242 (node (x)) S 1 4242 4242 0 -1 0 0 0 0 0 0 0 0 0 20 0 1 0 ${String(start)} 0`;
     expect(isLive(owner, stat(7))).toBe(true);
     expect(isLive(owner, stat(8))).toBe(false);
+  });
+});
+
+describe('standAt', () => {
+  it('gives the manifest only when it names the selected directory', () => {
+    const a = join(root, 'spur-board-stand.aaaaaa');
+    const b = join(root, 'spur-board-stand.bbbbbb');
+    stand(b, { pid: process.pid, pidStartTime: selfStart() });
+    stand(a, { pid: process.pid, pidStartTime: selfStart() }, b);
+    expect(standAt(a, root)).toBeUndefined();
+    expect(standAt(b, root)?.home).toBe(realpathSync(b));
+    expect(standAt(join(root, 'other-name'), root)).toBeUndefined();
   });
 });
