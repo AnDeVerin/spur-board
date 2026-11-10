@@ -75,7 +75,10 @@ describe('spur send port', () => {
       // The host is refused by the network guard, so only the injected fetch can answer.
       baseUrl: 'http://spur.test.invalid',
       fetch: (input, init) => {
-        calls.push({ url: String(input), body: init?.body });
+        calls.push({
+          url: input instanceof Request ? input.url : input.toString(),
+          body: init?.body,
+        });
         return Promise.resolve(Response.json({}));
       },
     });
