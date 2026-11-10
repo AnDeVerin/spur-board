@@ -108,6 +108,10 @@ describe('daemon address', () => {
     expect(() => resolveDaemonAddress({ BOARD_HOME: location }, paths.home)).toThrow(
       expect.objectContaining({
         code: 'config',
+        context: {
+          environmentVariable: 'BOARD_DAEMON_URL',
+          configPath: join(location, 'config.yaml'),
+        },
         hint: expect.stringMatching(/^http\.port: 0 assigns a runtime port/) as unknown,
       }),
     );

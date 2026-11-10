@@ -223,6 +223,12 @@ export const ERRORS = {
     message: 'The configuration is missing or invalid.',
     hint: 'Fix the configuration file named in the error, then run the command again.',
     recovery: noRetry('Fix the named configuration file and retry.'),
+    mcp: {
+      hint: 'Set the variable in `context.environmentVariable` where `board mcp` starts, or fix `http.port` in the config.yaml at `context.configPath`.',
+      recovery: noRetry(
+        'Fix the named variable or config.yaml, restarting your agent session after a variable change, then retry the tool call.',
+      ),
+    },
   }),
   identity_missing: spec('identity_missing', {
     status: null,

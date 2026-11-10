@@ -211,6 +211,9 @@ describe('board mcp', () => {
           configPath: join(home, 'config.yaml'),
         },
       });
+      const { hint } = result.structuredContent as { hint: string };
+      expect(hint).toContain('context.environmentVariable');
+      expect(hint).toContain('http.port');
     });
   });
 

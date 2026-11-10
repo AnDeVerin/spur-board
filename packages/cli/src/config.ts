@@ -79,7 +79,7 @@ export function resolveDaemonAddress(
     if (port === 0) {
       throw new CliError(
         'config',
-        undefined,
+        { environmentVariable: 'BOARD_DAEMON_URL', configPath: configFile(env, home) },
         undefined,
         'http.port: 0 assigns a runtime port that clients cannot discover. Set BOARD_DAEMON_URL to the daemon listening address.',
       );

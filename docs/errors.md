@@ -556,6 +556,8 @@ HTTP: client-side
 Exit code: 4  
 Hint: Fix the configuration file named in the error, then run the command again.  
 Recovery: Fix the named configuration file and retry.  
+MCP hint: Set the variable in `context.environmentVariable` where `board mcp` starts, or fix `http.port` in the config.yaml at `context.configPath`.  
+MCP recovery: Fix the named variable or config.yaml, restarting your agent session after a variable change, then retry the tool call.  
 Side effects: none  
 Retry: maximum 0; After fixing the cause.
 
