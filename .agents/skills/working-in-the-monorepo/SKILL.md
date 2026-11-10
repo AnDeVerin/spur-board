@@ -9,8 +9,9 @@ description: Package map, allowed dependencies, PR order, new packages, catalog 
 
 - What each package holds: `AGENTS.md` `## Packages`. The boundary rules: `eslint.config.js`.
 - Runtime edges: core, adapters, gateway-slack and gateway-testkit depend on contracts; daemon
-  depends on adapters, contracts, core and gateway-slack. Runtime dependencies point toward
-  contracts; contracts depends on no workspace package at runtime.
+  depends on adapters, contracts, core and gateway-slack. The private stand depends on adapters,
+  contracts, core, daemon and testkit. Runtime dependencies point toward contracts; contracts
+  depends on no workspace package at runtime.
 - Dev edges: core, daemon and gateway-slack use gateway-testkit; contracts uses testkit; the CLI
   takes contracts as a dev dependency because its bundle inlines it. A dev dependency on
   `packages/testkit` or `packages/gateway-testkit` is allowed from any package except adapters
@@ -19,10 +20,10 @@ description: Package map, allowed dependencies, PR order, new packages, catalog 
   adapters. Their tests import local fakes by relative path, e.g. `createFakeCore` from
   `packages/adapters/src/testing.ts`.
 - Declare every workspace import in the importing package's `package.json` as `workspace:*`.
-- Lint enforces only three edges: adapters import only contracts and
+- Lint enforces only four edges: adapters import only contracts and
   `packages/adapters/src/runner/`, and adapter folders do not import each other; the CLI imports
-  only contracts; only core and daemon import SQLite. Every other edge is held by `package.json`
-  alone, so check the direction yourself.
+  only contracts; only core and daemon import SQLite; no other package imports the stand. Every
+  other edge is held by `package.json` alone, so check the direction yourself.
 
 ## PR order
 
@@ -59,6 +60,7 @@ Follow `references/new-package.md`.
 | Adapter folders do not import each other | `siblingPattern` | Move shared code to `packages/adapters/src/runner/` or the GitHub client. |
 | The CLI imports only @spur-board/contracts | `cliBoundaryPatterns` | Call the daemon through the HTTP client. |
 | The CLI may import only its own files | `cli-import-boundary` (local) | Same as above, for relative paths. |
+| Production packages do not import the stand | `standBoundaryPatterns` | Drive the board from the stand, never the reverse. |
 | Only packages/core and packages/daemon may import the SQLite driver | `sqliteMessage` | Go through `@spur-board/core`. |
 | Use a static import so the boundary lint can check it | `dynamicImportBan`, `importTypeBan` | Replace `import()` and `import('x').T` with a static import. |
 | Do not compare a project id with a string literal | `no-project-literal-compare` (local) | Read the behaviour from the config. |

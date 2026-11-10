@@ -9,6 +9,9 @@ Pick the lowest layer that can fail for the bug you guard against. Projects are 
 - `integration` - `*.integration.test.ts`. In-process wiring of several packages:
   `packages/daemon/test/restart-mid-ask.integration.test.ts` builds the daemon with
   `createE2eHarness` (`packages/daemon/test/e2e-harness.ts`) on a fake gateway, no child process.
+  The harness and the stand (`packages/stand/test/stand.integration.test.ts`) share one build,
+  `startInProcessDaemon` from `@spur-board/daemon/in-process`. Await its `teardown`, not
+  `exited`, before removing a home: `exited` can settle while the store and lock are still held.
 - `process` - tests that spawn a real process (`scripts/hooks.test.ts`,
   `packages/daemon/test/main.test.ts`, `packages/daemon/test/single-instance.test.ts`); a 30 s
   timeout. Add a file here only when the behaviour lives in the OS process: signals, locks, exit.

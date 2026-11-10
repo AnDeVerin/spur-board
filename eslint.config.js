@@ -77,6 +77,25 @@ const journalInsertBan = {
   message: 'Write journal events only through emit in packages/core/src/app/board-utils.ts.',
 };
 
+// The stand drives the board from outside; production code never learns about it. The global,
+// adapters and CLI import options restate these patterns, and core and daemon get their own block.
+const standBoundaryPatterns = [
+  {
+    regex: '^@spur-board/stand(/|$)',
+    caseSensitive: true,
+    message: 'Production packages do not import the stand.',
+  },
+  {
+    regex: '^([.][.]/)+(packages/)?stand(/|$)',
+    caseSensitive: true,
+    message: 'Production packages do not import the stand.',
+  },
+];
+const globalImportOptions = {
+  paths: sqliteImportOptions.paths,
+  patterns: [...sqliteImportOptions.patterns, ...standBoundaryPatterns],
+};
+
 // Adapters reach core through the runner's port, and each adapter folder stays on its own;
 // only `github/client` is shared. Same-rule options replace earlier ones, so every adapters
 // block restates the SQLite ban.
@@ -97,7 +116,12 @@ function adapterImports(extraPatterns = []) {
     'error',
     {
       paths: sqliteImportOptions.paths,
-      patterns: [...sqliteImportOptions.patterns, ...adapterBoundaryPatterns, ...extraPatterns],
+      patterns: [
+        ...sqliteImportOptions.patterns,
+        ...standBoundaryPatterns,
+        ...adapterBoundaryPatterns,
+        ...extraPatterns,
+      ],
     },
   ];
 }
@@ -112,7 +136,7 @@ const cliImports = [
   'error',
   {
     paths: sqliteImportOptions.paths,
-    patterns: [...sqliteImportOptions.patterns, ...cliBoundaryPatterns],
+    patterns: [...sqliteImportOptions.patterns, ...standBoundaryPatterns, ...cliBoundaryPatterns],
   },
 ];
 const adapterFolders = ['github', 'jira', 'spur'];
@@ -210,9 +234,14 @@ export default defineConfig(
     files: ['**/*.ts', '**/*.js'],
     ignores: sqliteBoundaryIgnores,
     rules: {
-      'no-restricted-imports': ['error', sqliteImportOptions],
+      'no-restricted-imports': ['error', globalImportOptions],
       'no-restricted-syntax': ['error', sqliteImportBan, sqliteTypeImportBan],
     },
+  },
+  {
+    // Core and daemon may import SQLite, so the global import options skip them.
+    files: ['packages/core/**/*.ts', 'packages/daemon/**/*.ts'],
+    rules: { 'no-restricted-imports': ['error', { patterns: standBoundaryPatterns }] },
   },
   {
     // Same-rule options replace earlier ones, so the gateway restates both sqlite bans.

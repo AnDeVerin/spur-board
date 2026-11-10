@@ -134,7 +134,7 @@ it('observes a batch, ticks every 60 seconds, and stops pollers before an active
             });
           await tickBoard(deps);
         },
-      }),
+      }).entries,
     port,
     stdout: out,
     clock: { now: () => Date.now() },
@@ -226,7 +226,7 @@ it('moves Spur observation times and the Slack recovery window with one shifted 
       Response.json([{ id: 's1', project: 'p', status: 'running', state: 'working' }]),
     );
   };
-  const entries = createBoardModules(ctxFor, {
+  const { entries } = createBoardModules(ctxFor, {
     startAdapters: (adapterConfig, _core, options) => {
       const runner = startAdapters(adapterConfig, captureCore, {
         ...options,

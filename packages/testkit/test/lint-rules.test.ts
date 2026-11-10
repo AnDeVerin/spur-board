@@ -71,6 +71,19 @@ describe('journal insert lint rule', () => {
     },
     30_000,
   );
+
+  // The stand ban is a no-restricted-imports block on the same files; both still apply.
+  it.each(['packages/core/src/app/x.ts', 'packages/daemon/src/x.ts'])(
+    '%s reports both the stand import ban and the event insert ban',
+    async (path) => {
+      const code = `import { trx } from '@spur-board/stand';\n${insert}`;
+      expect(await textRuleIds(code, path)).toEqual([
+        'no-restricted-imports',
+        'no-restricted-syntax',
+      ]);
+    },
+    30_000,
+  );
 });
 
 describe('project id lint rule', () => {
@@ -448,4 +461,48 @@ describe('CLI boundary', () => {
       'no-console',
     ]);
   }, 30_000);
+});
+
+describe('stand boundary', () => {
+  const imports = (from: string): string => `import { x } from '${from}';\nexport const y = x;`;
+
+  it.each([
+    ['packages/core/src/x.ts', '@spur-board/stand'],
+    ['packages/daemon/src/x.ts', '@spur-board/stand'],
+    ['packages/contracts/src/x.ts', '@spur-board/stand'],
+    ['packages/gateway-slack/src/x.ts', '@spur-board/stand'],
+    ['packages/adapters/src/x.ts', '../../stand/src/stand.ts'],
+    ['packages/daemon/src/x.ts', '../../stand/src/stand.ts'],
+    ['packages/core/test/x.test.ts', '../../../packages/stand/src/stand.ts'],
+  ])(
+    '%s: import of %s reports no-restricted-imports',
+    async (path, from) => {
+      expect(await textRuleIds(imports(from), path)).toEqual(['no-restricted-imports']);
+    },
+    30_000,
+  );
+
+  // Their own boundary already rejects every workspace package but contracts; the stand pattern
+  // reports a second time, which shows it is in their import options too.
+  it.each(['packages/adapters/src/x.ts', 'packages/cli/src/x.ts'])(
+    '%s: import of @spur-board/stand reports both bans',
+    async (path) => {
+      expect(await textRuleIds(imports('@spur-board/stand'), path)).toEqual([
+        'no-restricted-imports',
+        'no-restricted-imports',
+      ]);
+    },
+    30_000,
+  );
+
+  it.each([
+    ['packages/stand/src/x.ts', '@spur-board/daemon/in-process'],
+    ['packages/stand/test/x.test.ts', '../src/stand.ts'],
+  ])(
+    '%s: import of %s passes',
+    async (path, from) => {
+      expect(await textRuleIds(imports(from), path)).toEqual([]);
+    },
+    30_000,
+  );
 });
