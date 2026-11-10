@@ -74,8 +74,8 @@ it('observes a batch, ticks every 60 seconds, and stops pollers before an active
     modules: (ctxFor) =>
       createBoardModules(ctxFor, {
         startAdapters: (_config, core, options) => {
-          onNotice = options?.onSpurNotice;
-          onPollFailure = options?.onPollFailure;
+          onNotice = options.onSpurNotice;
+          onPollFailure = options.onPollFailure;
           observed = core.observe(source, {
             batch: {
               source,

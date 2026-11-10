@@ -109,8 +109,13 @@ const response = (data: unknown, errors?: unknown[]) => {
     { status: 200 },
   );
 };
-function adapter(fetcher: typeof fetch, configured = config(), index = 0): Adapter {
-  const source = githubSources(configured, { token: 'synthetic', fetch: fetcher })[index];
+function adapter(
+  fetcher: typeof fetch,
+  configured = config(),
+  index = 0,
+  now: () => number = () => Date.now(),
+): Adapter {
+  const source = githubSources(configured, { token: 'synthetic', now, fetch: fetcher })[index];
   if (source === undefined) throw new Error('Missing GitHub source');
   return source.adapter;
 }
@@ -336,14 +341,17 @@ describe('GitHub PR batch', () => {
     const firstProject = configured.projects[0];
     if (firstProject === undefined) throw new Error('Missing project');
     configured.projects.push({ ...firstProject, id: 'other', repos: ['demo/widgets'] });
-    const sources = githubSources(configured, { token: 'synthetic' });
+    const sources = githubSources(configured, { token: 'synthetic', now: () => Date.now() });
     expect(sources.map((s) => [s.adapter.id, s.adapter.intervalMs, s.reserveRemaining])).toEqual([
       ['github:demo:demo/widgets', 1234, 22],
       ['github:demo:demo/api', 1234, 22],
       ['github:other:demo/widgets', 1234, 22],
     ]);
     expect(() =>
-      githubSources(config(['demo/widgets', 'DEMO/WIDGETS']), { token: 'synthetic' }),
+      githubSources(config(['demo/widgets', 'DEMO/WIDGETS']), {
+        token: 'synthetic',
+        now: () => Date.now(),
+      }),
     ).toThrow(AdapterError);
   });
   it('delivers normalized facts and the last GraphQL budget', async () => {
@@ -359,21 +367,16 @@ describe('GitHub PR batch', () => {
     expect(batch.budget?.remaining).toBe(4321);
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
-  it('records observedAt before the first request', async () => {
-    vi.useFakeTimers({ toFake: ['Date'] });
-    try {
-      vi.setSystemTime(new Date('2026-01-01T00:00:00.000Z'));
-      const fetcher = vi.fn<typeof fetch>().mockImplementation(() => {
-        vi.setSystemTime(new Date('2026-01-02T00:00:00.000Z'));
-        return Promise.resolve(
-          response({ repository: { pullRequests: conn([]) }, pr0: { pullRequest: wire() } }),
-        );
-      });
-      const batch = await adapter(fetcher).poll(context());
-      expect(batch.observedAt).toBe('2026-01-01T00:00:00.000Z');
-    } finally {
-      vi.useRealTimers();
-    }
+  it('records observedAt from the injected now before the first request', async () => {
+    let t = Date.parse('2031-01-01T00:00:00.000Z');
+    const fetcher = vi.fn<typeof fetch>().mockImplementation(() => {
+      t = Date.parse('2031-01-02T00:00:00.000Z');
+      return Promise.resolve(
+        response({ repository: { pullRequests: conn([]) }, pr0: { pullRequest: wire() } }),
+      );
+    });
+    const batch = await adapter(fetcher, config(), 0, () => t).poll(context());
+    expect(batch.observedAt).toBe('2031-01-01T00:00:00.000Z');
   });
   it('continues a PR review connection and reports the last budget', async () => {
     const first = wire();
@@ -1160,7 +1163,12 @@ describe('link rule sample', () => {
     if (project === undefined) throw new Error('Missing project');
     return sampleLinkRules(
       { repo: 'demo/widgets', login: 'Operator', tracker: project.tracker, link: project.link },
-      { token: 'synthetic', fetch: fetcher, signal: new AbortController().signal },
+      {
+        token: 'synthetic',
+        now: () => Date.now(),
+        fetch: fetcher,
+        signal: new AbortController().signal,
+      },
     );
   };
 

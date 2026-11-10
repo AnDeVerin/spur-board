@@ -17,6 +17,7 @@ export interface GithubIssuesOptions {
   tracker: Tracker;
   token: string;
   intervalMs: number;
+  now: () => number;
   fetch?: typeof fetch;
 }
 
@@ -116,7 +117,7 @@ export function createGithubIssuesAdapter(options: GithubIssuesOptions): Adapter
     if (!response.ok) {
       const failure = classifyHttpFailure(
         { status: response.status, headers: response.headers, body: await response.text() },
-        Date.now(),
+        options.now(),
       );
       throw new GithubIssuesHttpError(response.status, failure);
     }
@@ -211,7 +212,7 @@ export function createGithubIssuesAdapter(options: GithubIssuesOptions): Adapter
     id: options.id,
     intervalMs: options.intervalMs,
     async poll(ctx): Promise<Batch> {
-      const observedAt = new Date().toISOString();
+      const observedAt = new Date(options.now()).toISOString();
       const milestone = await milestoneNumber(ctx.signal);
       const filter = new URL(`${root}/issues`);
       filter.searchParams.set('state', 'open');

@@ -5,6 +5,8 @@ import { createGithubIssuesAdapter } from '../../src/github/issues.ts';
 const id = 'github-issues:board:acme/board';
 const labelTracker = { type: 'github-issues', repo: 'acme/board', label: 'on-board' } as const;
 const at = '2026-11-01T12:00:00Z';
+const NOW = Date.parse('2031-05-01T10:00:00.000Z');
+const now = () => NOW;
 
 function issue(number: number, label = 'on-board') {
   return {
@@ -33,6 +35,7 @@ function labelAdapter(fetcher: typeof fetch) {
     tracker: labelTracker,
     token: 'test',
     intervalMs: 60_000,
+    now,
     fetch: fetcher,
   });
 }
@@ -73,10 +76,12 @@ describe('GitHub Issues source', () => {
       tracker: labelTracker,
       token: 'test',
       intervalMs: 60_000,
+      now,
       fetch: fetcher,
     });
     const batch = await adapter.poll(context());
     expect(batchSchema.safeParse(batch).success).toBe(true);
+    expect(batch.observedAt).toBe(new Date(NOW).toISOString());
     expect(batch.complete).toBe(true);
     expect(batch.items.map((entry) => entry.kind === 'ticket' && entry.facts.id)).toEqual([
       'issue-node-1',
@@ -96,6 +101,7 @@ describe('GitHub Issues source', () => {
       tracker: labelTracker,
       token: 'test',
       intervalMs: 60_000,
+      now,
       fetch: fetcher,
     });
     const batch = await adapter.poll(context([pending]));
@@ -118,6 +124,7 @@ describe('GitHub Issues source', () => {
       tracker: labelTracker,
       token: 'test',
       intervalMs: 60_000,
+      now,
       fetch: fetcher,
     });
     const batch = await adapter.poll(context([pending]));
@@ -136,6 +143,7 @@ describe('GitHub Issues source', () => {
       tracker: labelTracker,
       token: 'test',
       intervalMs: 60_000,
+      now,
       fetch: fetcher,
     });
     const batch = await adapter.poll(context([pending]));
@@ -158,6 +166,7 @@ describe('GitHub Issues source', () => {
       tracker: labelTracker,
       token: 'test',
       intervalMs: 60_000,
+      now,
       fetch: fetcher,
     });
     const batch = await adapter.poll(context());
@@ -176,6 +185,7 @@ describe('GitHub Issues source', () => {
       tracker: labelTracker,
       token: 'test',
       intervalMs: 60_000,
+      now,
       fetch: fetcher,
     });
     const batch = await adapter.poll(context());
@@ -272,6 +282,7 @@ describe('GitHub Issues source', () => {
       tracker: { type: 'github-issues', repo: 'acme/board', milestone: 'M1' },
       token: 'test',
       intervalMs: 60_000,
+      now,
       fetch: fetcher,
     });
     if (verb === 'follows') {
@@ -303,6 +314,7 @@ describe('GitHub Issues source', () => {
       );
     expect(error).toMatchObject({ kind: 'throttled' });
     expect(error instanceof AdapterError && error.retryAt instanceof Date).toBe(true);
+    expect(error instanceof AdapterError ? error.retryAt?.getTime() : undefined).toBe(NOW + 60_000);
   });
 
   it('resolves a configured milestone title to its number', async () => {
@@ -315,6 +327,7 @@ describe('GitHub Issues source', () => {
       tracker: { type: 'github-issues', repo: 'acme/board', milestone: 'M1' },
       token: 'test',
       intervalMs: 60_000,
+      now,
       fetch: fetcher,
     });
     await adapter.poll(context());
@@ -337,6 +350,7 @@ describe('GitHub Issues source', () => {
       tracker: { type: 'github-issues', repo: 'acme/board' },
       token: 'test',
       intervalMs: 60_000,
+      now,
       fetch: fetcher,
     });
     const first = await adapter.poll(context());
@@ -377,6 +391,7 @@ describe('GitHub Issues source', () => {
       tracker: labelTracker,
       token: 'test',
       intervalMs: 60_000,
+      now,
       fetch: vi.fn<typeof fetch>().mockResolvedValueOnce(Response.json([extended])),
     });
     const batch = await adapter.poll(context());
@@ -395,6 +410,7 @@ describe('GitHub Issues source', () => {
       tracker: labelTracker,
       token: 'test',
       intervalMs: 60_000,
+      now,
       fetch: vi.fn<typeof fetch>().mockResolvedValueOnce(Response.json([malformed])),
     });
     await expect(adapter.poll(context())).rejects.toMatchObject({
@@ -409,6 +425,7 @@ describe('GitHub Issues source', () => {
       tracker: labelTracker,
       token: 'test',
       intervalMs: 60_000,
+      now,
       fetch: vi.fn<typeof fetch>().mockResolvedValueOnce(Response.json({ message: 'odd' })),
     });
     const batch = await adapter.poll(context());
@@ -437,6 +454,7 @@ describe('GitHub Issues source', () => {
       tracker: labelTracker,
       token: 'test',
       intervalMs: 60_000,
+      now,
       fetch: fetcher,
     });
     const first = await adapter.poll(context());
@@ -484,6 +502,7 @@ describe('GitHub Issues source', () => {
       tracker: labelTracker,
       token: 'test',
       intervalMs: 60_000,
+      now,
       fetch: fetcher,
     });
     const batch = await adapter.poll(context([ref]));

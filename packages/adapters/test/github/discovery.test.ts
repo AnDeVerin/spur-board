@@ -48,8 +48,8 @@ function config() {
     digest: { tz: 'UTC' },
   });
 }
-function adapter(fetcher: typeof fetch): Adapter {
-  const source = githubSources(config(), { token: 'synthetic', fetch: fetcher })[0];
+function adapter(fetcher: typeof fetch, now: () => number = () => Date.now()): Adapter {
+  const source = githubSources(config(), { token: 'synthetic', now, fetch: fetcher })[0];
   if (source === undefined) throw new Error('Missing GitHub source');
   return source.adapter;
 }
@@ -139,33 +139,28 @@ describe('GitHub discovery', () => {
     );
   });
   it('uses GitHub timestamps when the poll host clock is ahead of a later merge', async () => {
-    vi.useFakeTimers({ toFake: ['Date'] });
-    try {
-      vi.setSystemTime(new Date('2030-01-01T00:00:00.000Z'));
-      const fetcher = vi
-        .fn<typeof fetch>()
-        .mockResolvedValueOnce(
-          response({
-            repository: {
-              pullRequests: conn([]),
-              mergedBaseline: { nodes: [{ updatedAt: old }] },
-            },
-          }),
-        )
-        .mockResolvedValueOnce(
-          response({ repository: { pullRequests: conn([node(7, newer, 'operator', 'MERGED')]) } }),
-        )
-        .mockResolvedValueOnce(response({ pr0: null }));
-      const source = adapter(fetcher);
-      const first = await source.poll({ ...context, cursor: undefined });
-      expect(first.observedAt).toBe('2030-01-01T00:00:00.000Z');
-      expect(first.cursor).toBe(old);
-      await source.poll({ ...context, cursor: first.cursor });
-      expect(fetcher).toHaveBeenCalledTimes(3);
-      expect(fetcher.mock.calls[2]?.[1]?.body as string).toContain('pullRequest(number: 7)');
-    } finally {
-      vi.useRealTimers();
-    }
+    const now = () => Date.parse('2030-01-01T00:00:00.000Z');
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        response({
+          repository: {
+            pullRequests: conn([]),
+            mergedBaseline: { nodes: [{ updatedAt: old }] },
+          },
+        }),
+      )
+      .mockResolvedValueOnce(
+        response({ repository: { pullRequests: conn([node(7, newer, 'operator', 'MERGED')]) } }),
+      )
+      .mockResolvedValueOnce(response({ pr0: null }));
+    const source = adapter(fetcher, now);
+    const first = await source.poll({ ...context, cursor: undefined });
+    expect(first.observedAt).toBe('2030-01-01T00:00:00.000Z');
+    expect(first.cursor).toBe(old);
+    await source.poll({ ...context, cursor: first.cursor });
+    expect(fetcher).toHaveBeenCalledTimes(3);
+    expect(fetcher.mock.calls[2]?.[1]?.body as string).toContain('pullRequest(number: 7)');
   });
   it('chunks newly discovered PR details into bounded queries', async () => {
     const nodes = Array.from({ length: 51 }, (_, index) => node(index + 1, newer));

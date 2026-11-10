@@ -154,7 +154,7 @@ function start(
     entries: [{ adapter, reserveRemaining: options.reserveRemaining }],
     core,
     config: options.config ?? defaults,
-    ...(options.now === undefined ? {} : { now: options.now }),
+    now: options.now ?? (() => Date.now()),
     onFailure: (failure) => {
       failures.push(failure);
       options.onFailure?.(failure);
@@ -217,7 +217,7 @@ describe('startAdapters', () => {
     });
     const fetchSpur = vi.fn().mockResolvedValue(Response.json([]));
     vi.stubGlobal('fetch', fetchSpur);
-    const runner = entry.startAdapters(config, core);
+    const runner = entry.startAdapters(config, core, { now: () => Date.now() });
     await vi.advanceTimersByTimeAsync(0);
     await expect(runner.stop()).resolves.toBeUndefined();
     expect(fetchSpur).toHaveBeenCalledTimes(1);
@@ -271,6 +271,7 @@ describe('startAdapters', () => {
     let release: () => void = () => undefined;
     const notices: string[] = [];
     const runner = entry.startAdapters(config, core, {
+      now: () => Date.now(),
       onSpurNotice: (notice) =>
         new Promise<void>((resolve) => {
           notices.push(notice.kind);
@@ -297,7 +298,12 @@ describe('repository context', () => {
     const core = createFakeCore({ context: () => context({ prs: [pr, foreign] }) });
     const poll = vi.fn(() => Promise.resolve(prNotFound()));
     const adapter = createFakeAdapter({ id: 'github', intervalMs: I, poll });
-    const runner = startRunner({ entries: [{ adapter, repo: pr.repo }], core, config: defaults });
+    const runner = startRunner({
+      entries: [{ adapter, repo: pr.repo }],
+      core,
+      config: defaults,
+      now: () => Date.now(),
+    });
     runners.push(runner);
     await flush();
     expect(adapter.contexts[0]?.observe.prs).toEqual([pr]);
@@ -316,7 +322,12 @@ describe('mixed source context', () => {
       intervalMs: I,
       poll: () => Promise.resolve(prNotFound()),
     });
-    const runner = startRunner({ entries: [{ adapter, repo: pr.repo }], core, config: defaults });
+    const runner = startRunner({
+      entries: [{ adapter, repo: pr.repo }],
+      core,
+      config: defaults,
+      now: () => Date.now(),
+    });
     runners.push(runner);
     await flush();
     expect(adapter.contexts[0]?.observe).toEqual({ prs: [pr], tickets: [], sessions: [] });

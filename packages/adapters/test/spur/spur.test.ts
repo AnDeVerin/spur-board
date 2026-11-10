@@ -45,6 +45,7 @@ const adapterOptions = {
   baseUrl: 'http://127.0.0.1:4310',
   intervalMs: 15_000,
   flipSmoothingMs: 30_000,
+  now: () => Date.now(),
 };
 const runners: AdapterRunner[] = [];
 
@@ -101,6 +102,18 @@ describe('Spur adapter', () => {
     });
     expect(requested[0]?.href).toBe('http://127.0.0.1:4310/sessions');
     expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it('stamps observation and health times from the injected now', async () => {
+    const adapter = createSpurAdapter({
+      ...adapterOptions,
+      now: () => T0 + 5_000,
+      fetch: () => Promise.resolve(response([wire])),
+    });
+    const batch = await adapter.poll(context());
+
+    expect(batch.observedAt).toBe(at(5_000));
+    expect(batch.items[0]?.facts).toMatchObject({ healthSince: at(5_000) });
   });
 
   it('retains an unknown health value and reports each new value once', async () => {
@@ -491,6 +504,7 @@ describe('Spur adapter', () => {
         entries: [{ adapter: createSpurAdapter({ ...adapterOptions, fetch: fetcher }) }],
         core,
         config: defaults,
+        now: () => Date.now(),
       });
       runners.push(runner);
       await vi.advanceTimersByTimeAsync(45_001);
@@ -557,6 +571,7 @@ describe('Spur data from a live board', () => {
       entries: [{ adapter: createSpurAdapter({ ...adapterOptions, fetch: fetcher }) }],
       core,
       config: defaults,
+      now: () => Date.now(),
       onFailure: (failure) => failures.push(failure),
     });
     runners.push(runner);

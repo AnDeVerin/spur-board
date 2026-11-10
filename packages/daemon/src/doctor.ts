@@ -152,7 +152,7 @@ function sampleProject(
   return deadlineCall(ctx, deadlineMs, 'doctor.link_rules', 'GitHub link sample failed', (signal) =>
     sampleLinkRules(
       { repo, login: project.operatorGithubLogin, tracker: project.tracker, link: project.link },
-      { token, fetch: fetcher, signal },
+      { token, now: () => ctx.clock.now(), fetch: fetcher, signal },
     ),
   );
 }
