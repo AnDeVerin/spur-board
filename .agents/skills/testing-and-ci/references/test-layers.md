@@ -44,6 +44,9 @@ Pick the lowest layer that can fail for the bug you guard against. Projects are 
   `now` number. Tests pass a fixed clock and move it by hand.
 - Adapters, the sender and skills install take a `now` option: `StartAdaptersOptions` and
   `RunnerOptions` (`() => number`), `SenderOptions` and `InstallSkillsOptions` (`() => Date`).
+- The Slack gateway takes `createSlackGateway({ now })` (`() => number`, required) as the end of
+  the recovery window; the fake Slack API takes `startFakeSlackApi({ now })` (`() => number`,
+  optional) and stamps each message ts in that millisecond.
 - Daemon modules read `ctx.clock`; see `running-the-daemon`.
 - Test controls: `vi.useFakeTimers` for timers, `FakeGateway.advance()` for the fake gateway's
   clock.
