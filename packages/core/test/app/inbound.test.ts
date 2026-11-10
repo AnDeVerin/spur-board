@@ -275,6 +275,18 @@ describe('inbound apply', () => {
         .where('kind', '=', 'token_approved')
         .execute(),
     ).toHaveLength(1);
+    expect(
+      await store.db
+        .selectFrom('event')
+        .select(['kind', 'request_id'])
+        .where('kind', 'in', ['token_requested', 'token_approved', 'operation_denied'])
+        .orderBy('id')
+        .execute(),
+    ).toEqual([
+      { kind: 'token_requested', request_id: null },
+      { kind: 'operation_denied', request_id: 'foreign' },
+      { kind: 'token_approved', request_id: 'approved' },
+    ]);
     expect(responses).toEqual(['not allowed', 'not allowed', 'desk: approved', 'desk: approved']);
   });
 
@@ -325,13 +337,31 @@ describe('inbound apply', () => {
     expect(
       await store.db
         .selectFrom('event')
-        .select(['kind', 'project', 'task_id', 'actor'])
+        .select(['kind', 'project', 'task_id', 'actor', 'request_id'])
         .orderBy('id')
         .execute(),
     ).toEqual([
-      { kind: 'inbound_skipped', project: RESERVED_PROJECT, task_id: null, actor: 'operator' },
-      { kind: 'operation_denied', project: RESERVED_PROJECT, task_id: null, actor: 'system' },
-      { kind: 'operation_denied', project: 'proj', task_id: 1, actor: 'system' },
+      {
+        kind: 'inbound_skipped',
+        project: RESERVED_PROJECT,
+        task_id: null,
+        actor: 'operator',
+        request_id: 'message-1',
+      },
+      {
+        kind: 'operation_denied',
+        project: RESERVED_PROJECT,
+        task_id: null,
+        actor: 'system',
+        request_id: 'foreign-command',
+      },
+      {
+        kind: 'operation_denied',
+        project: 'proj',
+        task_id: 1,
+        actor: 'system',
+        request_id: 'foreign-action',
+      },
     ]);
     const skipped = await store.db
       .selectFrom('event')
@@ -1148,6 +1178,12 @@ describe('inbound apply', () => {
     });
     expect(responses).toEqual(['not available yet']);
     expect(eventsAtResponse).toEqual([['inbound_failed', 'from_you_raised']]);
+    expect(
+      await store.db.selectFrom('event').select(['kind', 'request_id']).orderBy('id').execute(),
+    ).toEqual([
+      { kind: 'inbound_failed', request_id: 'failed-status' },
+      { kind: 'from_you_raised', request_id: 'failed-status' },
+    ]);
     const item = await getOperatorItem(store, 1);
     expect(item).toMatchObject({
       kind: 'inbound_failure',

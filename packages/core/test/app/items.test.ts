@@ -984,9 +984,14 @@ describe('item.retry and item.close', () => {
       [{ item: `I${String(pressedId)}` }, 'operator', null],
       [{ item: `I${String(cliId)}` }, 'operator', null],
     ]);
-    expect((await rows(ctx, 'command')).map((row) => [row.operation, row.actor])).toEqual([
+    const commands = await rows(ctx, 'command');
+    expect(commands.map((row) => [row.operation, row.actor])).toEqual([
       ['item.close', 'operator'],
       ['item.close', 'operator'],
     ]);
+    const pressKey = commands[0]?.key;
+    expect(pressKey).toEqual(expect.any(String));
+    expect(pressKey).not.toBe('k');
+    expect(cleared.map((event) => event.request_id)).toEqual([pressKey, 'k']);
   });
 });
