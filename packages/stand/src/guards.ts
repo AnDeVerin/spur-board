@@ -25,8 +25,8 @@ export class StandRefusedError extends Error {
 }
 
 /** Stand ports; 0 lets the kernel pick a free one. */
-export const STAND_PORT_MIN = 4780;
-export const STAND_PORT_MAX = 4799;
+const STAND_PORT_MIN = 4780;
+const STAND_PORT_MAX = 4799;
 
 const SECRET_PREFIXES = ['SLACK_', 'JIRA_'];
 const SECRET_NAMES = new Set([
@@ -50,7 +50,7 @@ function within(parent: string, child: string): boolean {
 }
 
 /** Names of external-service credentials set to a non-empty value, sorted. */
-export function externalSecretNames(env: Env): string[] {
+function externalSecretNames(env: Env): string[] {
   return Object.keys(env)
     .filter((name) => {
       const upper = name.toUpperCase();
