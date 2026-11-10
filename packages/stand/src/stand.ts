@@ -46,6 +46,8 @@ type Env = Readonly<Record<string, string | undefined>>;
 export const WAIT_CONDITIONS = ['api-ready', 'sources-polled', 'outbox-drained'] as const;
 const WAIT_STEP_MS = 100;
 const ROLES = { worker: 'stand-worker-1', orchestrator: 'stand-qa-1' };
+/** The Spur project of each role session; both are `spurProjects` of the stand project. */
+const ROLE_PROJECTS = { worker: 'stand-worker', orchestrator: 'stand-qa' };
 const SECRETS = {
   GITHUB_TOKEN: 'stand-dummy-github',
   JIRA_EMAIL: 'stand@stand.invalid',
@@ -330,7 +332,7 @@ export async function startStand(options: StandOptions): Promise<Stand> {
         .join(''),
     );
     replaceFile(tokenPath, `${operatorToken}\n`);
-    await seedOperator(paths.dbFile, operatorToken);
+    await seedIdentities(paths.dbFile, operatorToken);
   }
 
   let fatal: ((err: unknown) => void) | undefined;
@@ -529,12 +531,51 @@ export async function startStand(options: StandOptions): Promise<Stand> {
   };
 }
 
-/** One approved operator token, as an operator approval would leave it. */
-async function seedOperator(dbFile: string, token: string): Promise<void> {
+/**
+ * One approved operator token, as an operator approval would leave it, and a running session
+ * snapshot for each role session, so worker and orchestrator calls resolve without Spur. Only a
+ * Spur batch changes a snapshot, and every Spur poll fails against the network guard.
+ */
+async function seedIdentities(dbFile: string, token: string): Promise<void> {
   const store = openStore(dbFile);
   try {
     await store.transaction(async (trx) => {
       const at = new Date().toISOString();
+      for (const role of ['worker', 'orchestrator'] as const) {
+        const id = ROLES[role];
+        const spurProject = ROLE_PROJECTS[role];
+        await trx
+          .insertInto('session_snapshot')
+          .values({
+            id,
+            spur_project: spurProject,
+            branch: `stand-${role}`,
+            pr: null,
+            raw_state: 'running',
+            state: 'running',
+            first_seen: at,
+            last_seen: at,
+            ended_at: null,
+            end_reason: null,
+            // Valid facts: status.get parses the detail of every session it lists.
+            detail: JSON.stringify({
+              id,
+              spurProject,
+              branch: `stand-${role}`,
+              pr: null,
+              links: {},
+              lifecycle: 'running',
+              health: 'working',
+              healthSince: at,
+              lastActivityAt: null,
+              endedAt: null,
+              endReason: null,
+            }),
+            source: 'spur',
+            observed_at: at,
+          })
+          .execute();
+      }
       const item = await trx
         .insertInto('operator_item')
         .values({

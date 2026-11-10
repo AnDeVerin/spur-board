@@ -22,7 +22,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import YAML from 'yaml';
 import { runCli, type CliIo } from '../../cli/src/cli.ts';
 import { readManifest, standManifest, type StandManifest } from '../src/manifest.ts';
-import { roleEnv } from '../src/roles.ts';
+import { roleEnv, type StandRole } from '../src/roles.ts';
 import { startStand, StandRefusedError, type Stand } from '../src/stand.ts';
 
 const SOURCES = [
@@ -113,6 +113,7 @@ async function instance(manifest: StandManifest): Promise<string | null> {
 
 async function operatorStatus(
   manifest: StandManifest,
+  role: StandRole = 'operator',
 ): Promise<{ code: number; stdout: string; stderr: string }> {
   let stdout = '';
   let stderr = '';
@@ -126,7 +127,7 @@ async function operatorStatus(
     },
   };
   const code = await runCli(['status', '--json'], {
-    env: roleEnv(manifest, 'operator', {}),
+    env: roleEnv(manifest, role, {}),
     io,
   });
   return { code, stdout, stderr };
@@ -366,6 +367,24 @@ describe('stand', () => {
     expect(await fingerprint(after)).toEqual(fresh);
     expect(await instance(after)).not.toBe(before);
     expect((await operatorStatus(after)).code).toBe(0);
+  }, 60_000);
+
+  it('answers worker and orchestrator calls after up and after reset', async () => {
+    const manifest = await up();
+    // A Spur poll has failed against the guard by now; the seeded sessions must survive it.
+    await waitFor(manifest, 'sources-polled');
+    for (const role of ['worker', 'orchestrator'] as const) {
+      const result = await operatorStatus(manifest, role);
+      expect(result.code, `${role}: ${result.stderr}`).toBe(0);
+    }
+    expect((await control(manifest, '/reset')).status).toBe(200);
+    const after = stand?.manifest();
+    if (after === undefined) throw new Error('stand stopped');
+    await waitFor(after, 'sources-polled');
+    for (const role of ['worker', 'orchestrator'] as const) {
+      const result = await operatorStatus(after, role);
+      expect(result.code, `${role}: ${result.stderr}`).toBe(0);
+    }
   }, 60_000);
 
   it('poll reports every source', async () => {
