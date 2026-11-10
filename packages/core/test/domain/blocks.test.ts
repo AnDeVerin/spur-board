@@ -17,6 +17,7 @@ import {
   closeBlock,
   editComment,
   escalateBlock,
+  priorAddressees,
   type CurrentBlock,
 } from '../../src/domain/blocks/blocks.ts';
 
@@ -71,6 +72,119 @@ describe('block routing', () => {
         hasWorker: false,
       }),
     ).toBe('operator');
+  });
+});
+
+describe('block routing with a curator', () => {
+  const base = {
+    type: 'needs_input' as const,
+    author: question.author,
+    authorRole: 'worker' as const,
+    column: 'dev' as const,
+    orchestrator: 'qa',
+    curator: 'cur',
+    hasWorker: true,
+  };
+  const curatorAsks = { author: 'agent:cur/cur-1' as const, authorRole: 'curator' as const };
+
+  it('keeps a question at a column orchestrator other than its asker', () => {
+    expect(blockAddressee(base)).toBe('orchestrator:dev');
+  });
+
+  it('routes an orchestrator question to the curator, or the operator without one', () => {
+    const asker = { ...base, author: 'agent:qa/qa-1' as const };
+    expect(blockAddressee(asker)).toBe('curator');
+    expect(blockAddressee({ ...asker, curator: null })).toBe('operator');
+  });
+
+  it('routes a question in a column with no orchestrator to the curator, or the operator', () => {
+    expect(blockAddressee({ ...base, orchestrator: null })).toBe('curator');
+    expect(blockAddressee({ ...base, orchestrator: null, curator: null })).toBe('operator');
+  });
+
+  it('keeps a column assigned to the operator at the operator', () => {
+    expect(blockAddressee({ ...base, orchestrator: 'operator' })).toBe('operator');
+  });
+
+  it('never routes the curator its own question', () => {
+    expect(blockAddressee({ ...base, ...curatorAsks })).toBe('operator');
+    expect(blockAddressee({ ...base, ...curatorAsks, orchestrator: null })).toBe('operator');
+    expect(blockAddressee({ ...base, ...curatorAsks, orchestrator: 'cur' })).toBe('operator');
+  });
+
+  it('leaves code, dependency, external and system blocks off the curator', () => {
+    expect(blockAddressee({ ...base, type: 'code' })).toBe('worker');
+    expect(blockAddressee({ ...base, type: 'dependency', orchestrator: null })).toBe('worker');
+    expect(blockAddressee({ ...base, type: 'external', authorRole: 'orchestrator:dev' })).toBe(
+      'orchestrator:dev',
+    );
+    expect(blockAddressee({ ...base, author: 'system', orchestrator: null })).toBe('worker');
+    expect(
+      blockAddressee({ ...base, author: 'system', orchestrator: null, hasWorker: false }),
+    ).toBe('operator');
+  });
+});
+
+describe('block escalation chain', () => {
+  it('walks a question from the orchestrator to the curator to the operator', () => {
+    expect(escalateBlock(question, true)).toEqual({ addressee: 'curator', changed: true });
+    expect(escalateBlock({ ...question, addressee: 'curator' }, true)).toEqual({
+      addressee: 'operator',
+      changed: true,
+    });
+    expect(escalateBlock({ ...question, addressee: 'operator' }, true)).toEqual({
+      addressee: 'operator',
+      changed: false,
+    });
+  });
+
+  it('moves a block already at the curator to the operator after the curator left config', () => {
+    expect(escalateBlock({ ...question, addressee: 'curator' }, false)).toEqual({
+      addressee: 'operator',
+      changed: true,
+    });
+  });
+
+  it.each(['code', 'dependency', 'external'] as const)(
+    'skips the curator for a %s block',
+    (type) => {
+      expect(escalateBlock({ ...question, type }, true)).toEqual({
+        addressee: 'operator',
+        changed: true,
+      });
+      expect(priorAddressees('orchestrator:dev', 'operator', type, true)).toEqual([
+        'orchestrator:dev',
+      ]);
+      expect(priorAddressees('orchestrator:dev', 'curator', type, true)).toEqual([]);
+    },
+  );
+
+  it('moves a worker-addressed block straight to the operator', () => {
+    const code = { ...question, type: 'code' as const, addressee: 'worker' as const };
+    expect(escalateBlock(code, true)).toEqual({ addressee: 'operator', changed: true });
+    expect(priorAddressees('worker', 'operator', 'code', true)).toEqual(['worker']);
+  });
+
+  it('lists the steps before the current addressee of a question', () => {
+    expect(priorAddressees('orchestrator:dev', 'orchestrator:dev', 'needs_input', true)).toEqual(
+      [],
+    );
+    expect(priorAddressees('orchestrator:dev', 'curator', 'needs_input', true)).toEqual([
+      'orchestrator:dev',
+    ]);
+    expect(priorAddressees('orchestrator:dev', 'operator', 'needs_input', true)).toEqual([
+      'orchestrator:dev',
+      'curator',
+    ]);
+    expect(priorAddressees('curator', 'operator', 'needs_input', true)).toEqual(['curator']);
+    expect(priorAddressees('orchestrator:dev', 'operator', 'needs_input', false)).toEqual([
+      'orchestrator:dev',
+    ]);
+  });
+
+  it('finds no steps when the current addressee is off the path', () => {
+    expect(priorAddressees('operator', 'curator', 'needs_input', true)).toEqual([]);
+    expect(priorAddressees('orchestrator:qa', 'orchestrator:dev', 'needs_input', true)).toEqual([]);
   });
 });
 
