@@ -297,6 +297,23 @@ describe('Slack thread recovery', () => {
         '2031-01-01T00:00:00.000Z',
       );
 
+      // A reply stamped one second ahead of the recovery clock stays out until the clock reaches it.
+      t += 1_000;
+      const later = await fake.platform.inject({
+        kind: 'message',
+        conversation,
+        author,
+        text: 'later',
+      });
+      t -= 1_000;
+      const beforeLater = await recoverSince(new Date(t));
+      expect(beforeLater.some((event) => event.message === later.message)).toBe(false);
+      t += 1_000;
+      const atLater = await recoverSince(new Date(t));
+      expect(atLater.find((event) => event.message === later.message)?.at).toBe(
+        '2031-01-01T00:00:01.000Z',
+      );
+
       t += 3_600_000;
       const second = await fake.platform.inject({
         kind: 'message',
@@ -306,7 +323,7 @@ describe('Slack thread recovery', () => {
       });
       const secondRound = await recoverSince(new Date(t));
       expect(secondRound.find((event) => event.message === second.message)?.at).toBe(
-        '2031-01-01T01:00:00.000Z',
+        '2031-01-01T01:00:01.000Z',
       );
       expect(secondRound.some((event) => event.message === first.message)).toBe(false);
     } finally {
