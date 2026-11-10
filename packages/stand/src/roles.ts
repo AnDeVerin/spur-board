@@ -66,8 +66,12 @@ export function roleEnv(
 
 /** Why a board command must not run against the stand, or undefined when it may. */
 export function blockedBoardCommand(args: readonly string[]): string | undefined {
-  const command = args.find((arg) => !arg.startsWith('-'));
-  return command !== undefined && BLOCKED.has(command)
-    ? `board ${command} acts on the real machine, not the stand.`
-    : undefined;
+  const [command, sub] = args.filter((arg) => !arg.startsWith('-'));
+  if (command !== undefined && BLOCKED.has(command))
+    return `board ${command} acts on the real machine, not the stand.`;
+  // `token create --into <dir>` leaves a token file in that folder, outside the stand, where it
+  // outlives the stand and can shadow a real token for that folder.
+  if (command === 'token' && sub === 'create')
+    return 'board token create writes a token file outside the stand; the stand operator already has a token.';
+  return undefined;
 }

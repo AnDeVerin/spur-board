@@ -102,14 +102,19 @@ describe('board CLI', () => {
     expect(existsSync(BOARD_CLI)).toBe(true);
   });
 
-  it.each([['service', 'install'], ['update'], ['rollback'], ['skills', 'install']])(
-    'refuses %s',
-    (...args) => {
-      expect(blockedBoardCommand(args)).toBeDefined();
-    },
-  );
+  it.each([
+    ['service', 'install'],
+    ['update'],
+    ['rollback'],
+    ['skills', 'install'],
+    ['token', 'create', '--name', 'demo', '--into', '/work/project'],
+    ['--json', 'token', 'create', '--name', 'demo', '--into', '.'],
+  ])('refuses %s', (...args) => {
+    expect(blockedBoardCommand(args)).toBeDefined();
+  });
 
   it('allows a board operation', () => {
     expect(blockedBoardCommand(['status', '--json'])).toBeUndefined();
+    expect(blockedBoardCommand(['token', 'list'])).toBeUndefined();
   });
 });
