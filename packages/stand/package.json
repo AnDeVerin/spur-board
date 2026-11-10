@@ -15,6 +15,7 @@
     "@spur-board/core": "workspace:*",
     "@spur-board/daemon": "workspace:*",
     "@spur-board/testkit": "workspace:*",
+    "graphql": "catalog:",
     "yaml": "catalog:",
     "zod": "catalog:"
   },
