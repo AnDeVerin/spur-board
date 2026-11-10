@@ -20,9 +20,11 @@ path order. A PR that changes this path or these rules updates this skill in the
 - Write a `Mutation<'<id>'>` (`packages/core/src/app/commands.ts`) or `Query<'<id>'>`
   (`packages/core/src/app/queries.ts`) in the matching module under `packages/core/src/app/`, and
   register it in `createOperationRegistry` (`packages/core/src/app/registry.ts`).
-- `OperationRegistry` in `packages/core/src/app/operations.ts` is `Partial`: a missing
-  registration type-checks and `dispatchOperation` answers `not_implemented`. No test checks
-  that every catalog entry has a handler, so add a core test that calls yours.
+- `createOperationRegistry` returns the total `OperationHandlers`
+  (`packages/core/src/app/operations.ts`), so a catalog entry without a registration fails
+  `tsc`. `OperationRegistry` stays `Partial` for transports, and `dispatchOperation` answers
+  `not_implemented` to a partial one. The coverage test is in
+  `packages/core/test/app/registry.test.ts`.
 
 ## 3. Store
 
