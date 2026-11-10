@@ -57,5 +57,9 @@
   still lets the others stop.
 - Every exit goes through `ProcessPort.exit` exactly once. A fatal error exits 1 at once,
   without module stop (`packages/daemon/test/lifecycle.test.ts`, `describe('runDaemon')`).
+- `startInProcessDaemon` (`packages/daemon/src/in-process.ts`) lives on after a fatal exit, so
+  it then runs module stop. Its `teardown` settles once module stop, store close and lock
+  release finish, even after a fatal exit or the shutdown timeout
+  (`packages/daemon/test/in-process.test.ts`, `describe('startInProcessDaemon')`).
 - `start(signal)` must return promptly once `signal` aborts; a module that ignores it holds up
   the whole shutdown.
