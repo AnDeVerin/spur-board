@@ -11,7 +11,8 @@
   sender tick, token expiry and doorbell reconcile. Each logs its own failure, so a failing token
   or doorbell job never blocks delivery. `pulse` reconciles, then ticks. Token expiry clears the
   approval items and queues the feed edit in the same transaction as the token state and journal
-  event.
+  event. The sender also expires a lapsed request before posting its approval line
+  (`expireTokenOfItem`, `packages/core/test/app/tokens.test.ts`); keep both.
 - Register the outbox without a gateway so Spur doorbells run; leave gateway rows pending.
 - Pass the start signal to each sender tick. On stop, stop the jobs and await their active runs
   before the store closes. Register the outbox with `stopStage: 'outbox'` and its gateway with

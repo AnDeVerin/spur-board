@@ -21,10 +21,14 @@
   (`reconcileDueDoorbells` in `packages/core/src/app/doorbells.ts`), not in the claim transaction,
   and the sender rechecks their recipient before send.
 - A doorbell retries for 30 min from its first attempt. A Spur rejection or the end of the window
-  kills it and ends its notification (`ringUndelivered` in `packages/core/src/app/doorbells.ts`).
+  kills that ring; it ends the notification only while the ring is still its `last_outbox_id`
+  (`ringUndelivered` in `packages/core/src/app/doorbells.ts`,
+  `packages/core/test/app/doorbell.test.ts`).
   Archive cancels any ring that is not in flight, uncertain or not.
 - A claimed feed line is rechecked against its operator item before send. If the item cleared and
   delivery has not started, cancel the line and its edit; uncertain lines recover before editing.
+  Before that recheck the sender expires a lapsed token request of the item (`expireTokenOfItem`
+  in `packages/core/src/app/tokens.ts`), so a late expiry sweep never posts its approval line.
 - Each claim first returns rows a failed tick left `in_flight`, as `recover()` does at start
   (`releaseOrphans` in `packages/core/src/app/sender.ts`).
 - Retries, the per-space limit and transport health belong to the sender
