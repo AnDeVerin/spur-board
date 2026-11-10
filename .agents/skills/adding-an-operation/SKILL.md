@@ -23,7 +23,8 @@ path order. A PR that changes this path or these rules updates this skill in the
 - `createOperationRegistry` returns the total `OperationHandlers`
   (`packages/core/src/app/operations.ts`), so a catalog entry without a registration fails
   `tsc`. `OperationRegistry` stays `Partial` for transports, and `dispatchOperation` answers
-  `not_implemented` to a partial one. The coverage test is in
+  `not_implemented` when the requested handler is missing or has a mismatched `id`. The coverage
+  test is in
   `packages/core/test/app/registry.test.ts`.
 
 ## 3. Store
