@@ -210,6 +210,8 @@ export async function startStand(options: StandOptions): Promise<Stand> {
   installNetworkGuard();
 
   const root = realpathSync(options.root);
+  const config = standConfig(options.port);
+  const required = requiredSources(configSchema.parse(config));
   let home: string;
   if (options.home === undefined) {
     home = mkdtempSync(join(root, STAND_PREFIX));
@@ -218,15 +220,24 @@ export async function startStand(options: StandOptions): Promise<Stand> {
       throw new Error(`${options.home} is not a fresh stand directory under ${root}.`);
     home = realpathSync(options.home);
   }
+  // A start that fails removes the home it created; a home the caller passed is the caller's.
+  const created = options.home === undefined;
+  const discardHome = (): void => {
+    if (created) rmSync(home, { recursive: true, force: true });
+  };
   const id = basename(home).slice(STAND_PREFIX.length);
   const paths: Paths = resolvePaths({ BOARD_HOME: home }, options.osHome);
   const tokenPath = join(home, 'token');
   const operatorToken = randomBytes(32).toString('hex');
   const controlToken = randomBytes(32).toString('hex');
-  const config = standConfig(options.port);
-  const required = requiredSources(configSchema.parse(config));
-  mkdirSync(join(home, 'logs'), { recursive: true, mode: 0o700 });
-  const logFd = openSync(join(home, 'logs', 'daemon.log'), 'a', 0o600);
+  let logFd: number;
+  try {
+    mkdirSync(join(home, 'logs'), { recursive: true, mode: 0o700 });
+    logFd = openSync(join(home, 'logs', 'daemon.log'), 'a', 0o600);
+  } catch (err) {
+    discardHome();
+    throw err;
+  }
   const log = (text: string): void => {
     writeSync(logFd, text);
   };
@@ -420,15 +431,17 @@ export async function startStand(options: StandOptions): Promise<Stand> {
     return stopping;
   }
 
-  await writeHome();
-  current = await startDaemon();
   try {
+    await writeHome();
+    current = await startDaemon();
     control = await startControl({ token: controlToken, routes });
+    writeCurrentManifest(current.daemon.address, control.url);
   } catch (err) {
+    // Closes control, stops the daemon if it started and closes the log.
     await stop();
+    discardHome();
     throw err;
   }
-  writeCurrentManifest(current.daemon.address, control.url);
   return {
     manifest: () => {
       if (manifest === undefined) throw new Error('The stand has no manifest yet.');

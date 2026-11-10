@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { createServer } from 'node:net';
 import { request } from 'node:http';
 import {
   mkdirSync,
@@ -11,7 +12,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { configSchema } from '@spur-board/contracts';
 import { openStore } from '@spur-board/core';
 import { sql } from 'kysely';
@@ -49,6 +50,32 @@ afterEach(async () => {
   stand = undefined;
   rmSync(base, { recursive: true, force: true });
 });
+
+/** Listens on the first free stand port, so a stand asked to bind it fails to start. */
+async function occupyStandPort(): Promise<{ port: number; close(): Promise<void> }> {
+  for (let port = 4780; port <= 4799; port += 1) {
+    const server = createServer();
+    const bound = await new Promise<boolean>((resolve) => {
+      server.once('error', () => {
+        resolve(false);
+      });
+      server.listen(port, '127.0.0.1', () => {
+        resolve(true);
+      });
+    });
+    if (bound)
+      return {
+        port,
+        close: () =>
+          new Promise<void>((resolve) => {
+            server.close(() => {
+              resolve();
+            });
+          }),
+      };
+  }
+  throw new Error('every stand port is taken');
+}
 
 async function up(): Promise<StandManifest> {
   stand = await startStand({ root, port: 0, env: {}, osHome });
@@ -171,6 +198,27 @@ describe('stand', () => {
     expect(readdirSync(root).filter((name) => name.startsWith('spur-board-stand.'))).toEqual([]);
   });
 
+  it('removes the home it created when the daemon cannot start', async () => {
+    const taken = await occupyStandPort();
+    try {
+      await expect(startStand({ root, port: taken.port, env: {}, osHome })).rejects.toThrow();
+      expect(readdirSync(root).filter((name) => name.startsWith('spur-board-stand.'))).toEqual([]);
+    } finally {
+      await taken.close();
+    }
+  }, 60_000);
+
+  it('keeps a home the caller passed when the daemon cannot start', async () => {
+    const home = mkdtempSync(join(root, 'spur-board-stand.'));
+    const taken = await occupyStandPort();
+    try {
+      await expect(startStand({ root, home, port: taken.port, env: {}, osHome })).rejects.toThrow();
+      expect(readdirSync(root)).toEqual([basename(home)]);
+    } finally {
+      await taken.close();
+    }
+  }, 60_000);
+
   it('starts a stand', async () => {
     const manifest = await up();
     const { home } = manifest;
@@ -265,12 +313,16 @@ describe('stand', () => {
     const polled = await control(manifest, '/poll');
     expect(polled.status).toBe(200);
     const { outcomes } = polled.body as { outcomes: { source: string; outcome: string }[] };
-    expect(outcomes.map((outcome) => outcome.source).sort()).toEqual(SOURCES);
     // Every request fails against the network guard. The GitHub Issues adapter turns that failure
     // into an incomplete batch, so its poll counts as delivered; the others fail.
-    for (const outcome of outcomes)
-      expect(['failed', 'delivered'], outcome.source).toContain(outcome.outcome);
-    expect(outcomes.filter((outcome) => outcome.outcome === 'failed').length).toBeGreaterThan(0);
+    expect(Object.fromEntries(outcomes.map(({ source, outcome }) => [source, outcome]))).toEqual({
+      spur: 'failed',
+      'github-issues:stand:stand-org/board': 'delivered',
+      'github:stand:stand-org/board': 'failed',
+      'jira:stand-jira': 'failed',
+      'github:stand-jira:stand-org/service': 'failed',
+    });
+    expect(outcomes).toHaveLength(SOURCES.length);
     const unknown = await control(manifest, '/poll', { source: 'nope' });
     expect(unknown.status).toBe(400);
     expect((unknown.body as { sources: string[] }).sources.sort()).toEqual(SOURCES);
