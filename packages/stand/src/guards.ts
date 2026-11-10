@@ -122,9 +122,13 @@ export function proxyRefusal(input: {
   env: Env;
   execArgv: readonly string[];
 }): StandRefusal | undefined {
-  // Node unquotes NODE_OPTIONS words, so the flag counts wherever it appears once quotes are gone.
+  // Node unquotes NODE_OPTIONS words and reads `_` in a flag name as `-`, so the flag counts
+  // wherever it appears once quotes are gone and underscores are dashes.
   const mentions = (text: string): boolean =>
-    text.replace(/["'\\]/g, '').includes('--use-env-proxy');
+    text
+      .replace(/["'\\]/g, '')
+      .replace(/_/g, '-')
+      .includes('--use-env-proxy');
   if (
     (input.env['NODE_USE_ENV_PROXY'] ?? '') !== '' ||
     input.execArgv.some(mentions) ||

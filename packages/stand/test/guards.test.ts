@@ -105,6 +105,10 @@ describe('proxyRefusal', () => {
     [{ NODE_OPTIONS: '"--use-env-proxy"' }, []],
     [{ NODE_OPTIONS: "--max-old-space-size=64 '--use-env-proxy'" }, []],
     [{ NODE_OPTIONS: '--use-env-\\proxy' }, []],
+    [{ NODE_OPTIONS: '--use_env_proxy' }, []],
+    [{ NODE_OPTIONS: '--max-old-space-size=64 --use-env_proxy' }, []],
+    [{}, ['--use_env_proxy']],
+    [{}, ['--use-env_proxy']],
   ])('refuses env_proxy for %j %j', (env, execArgv) => {
     expect(proxyRefusal({ env, execArgv })?.reason).toBe('env_proxy');
   });
