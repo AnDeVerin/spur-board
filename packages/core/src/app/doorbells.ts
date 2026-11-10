@@ -176,13 +176,15 @@ export async function restartNotification(trx: Trx, sourceKey: string, at: Date)
 /**
  * Ends a ring Spur will not take (a permanent rejection, or no answer for the retry window): its
  * notification stops ringing, the operator gets an item and `doorbell_undelivered` is journalled.
- * The operator's Retry on the item restarts the series (`restartNotification`). An inbound author
- * ring has no notification: it ends like an author found unavailable at enqueue.
+ * The operator's Retry on the item restarts the series (`restartNotification`). A ring that is no
+ * longer its notification's last row (the recipient changed while it was in flight) ends alone. An
+ * inbound author ring has no notification: it ends like an author found unavailable at enqueue.
  */
 export async function ringUndelivered(
   trx: Trx,
   input: {
     notificationId?: number | undefined;
+    outboxId: number;
     dedupeKey: string;
     session: string;
     reason: string;
@@ -214,7 +216,13 @@ export async function ringUndelivered(
     .selectAll()
     .where('id', '=', input.notificationId)
     .executeTakeFirst();
-  if (n === undefined || n.acked_at !== null || n.exhausted_at !== null) return;
+  if (
+    n === undefined ||
+    n.acked_at !== null ||
+    n.exhausted_at !== null ||
+    n.last_outbox_id !== input.outboxId
+  )
+    return;
   const task = await trx
     .selectFrom('task')
     .selectAll()

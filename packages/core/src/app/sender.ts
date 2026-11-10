@@ -710,6 +710,7 @@ export function createSender(options: SenderOptions): Sender {
       if (body.kind !== 'doorbell') return;
       await ringUndelivered(trx, {
         notificationId: body.payload.notificationId,
+        outboxId: c.id,
         dedupeKey: c.key,
         session: body.payload.session,
         reason,

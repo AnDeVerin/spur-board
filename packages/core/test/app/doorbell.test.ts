@@ -52,6 +52,7 @@ async function setup(
   let now = START;
   let failNext: Error | undefined;
   let failAlways = false;
+  let beforeSend: (() => Promise<void>) | undefined;
   const sent: { session: string; text: string }[] = [];
   await store.transaction(async (trx) => {
     await trx
@@ -117,15 +118,17 @@ async function setup(
     ...(fake === undefined ? {} : { gateway: fake }),
     config: usedConfig,
     spur: {
-      send(session, text) {
+      async send(session, text) {
+        const hook = beforeSend;
+        beforeSend = undefined;
+        await hook?.();
         if (failNext !== undefined) {
           const error = failNext;
           failNext = undefined;
-          return Promise.reject(error);
+          throw error;
         }
-        if (failAlways) return Promise.reject(new Error('spur send failed'));
+        if (failAlways) throw new Error('spur send failed');
         sent.push({ session, text });
-        return Promise.resolve();
       },
     },
     now: () => new Date(now),
@@ -147,6 +150,10 @@ async function setup(
     },
     failAlways(on: boolean) {
       failAlways = on;
+    },
+    /** Runs `hook` once inside the next Spur send, while its ring is in flight. */
+    beforeSend(hook: () => Promise<void>) {
+      beforeSend = hook;
     },
   };
 }
@@ -594,6 +601,61 @@ describe('role addressed doorbells', () => {
     const [event] = await undelivered(ctx);
     expect(event?.reason).toMatch(/^no answer from Spur for 30 min/);
     expect(ctx.sent).toEqual([]);
+  });
+
+  it('keeps the notification ringing when a ring it no longer points at fails', async () => {
+    const ctx = await setup();
+    await workerBlock(ctx.store);
+    await ctx.ring();
+    // While ring A to worker-1 is in flight, worker-1 stops and worker-2 takes over: the
+    // doorbell job queues ring B to worker-2, then A's send fails for good.
+    ctx.beforeSend(async () => {
+      await ctx.store.transaction(async (trx) => {
+        await trx
+          .updateTable('session_snapshot')
+          .set({ state: 'stopped', ended_at: ctx.now().toISOString(), end_reason: 'complete' })
+          .where('id', '=', 'worker-1')
+          .execute();
+        await trx
+          .insertInto('session_snapshot')
+          .values({
+            ...sampleRows.session_snapshot,
+            id: 'worker-2',
+            spur_project: 'web',
+            state: 'waiting',
+            ended_at: null,
+            end_reason: null,
+          })
+          .execute();
+        await trx
+          .insertInto('link')
+          .values({
+            ...sampleRows.link,
+            id: 2,
+            task_id: 1,
+            entity: 'session',
+            repo: null,
+            number: null,
+            pr_state: null,
+            session_id: 'worker-2',
+            role: 'worker',
+          })
+          .execute();
+      });
+      await ctx.ring();
+    });
+    ctx.failNext(
+      new SpurRejectedError('Spur send failed with HTTP 404: Session not found: worker-1'),
+    );
+    await ctx.sender.tick();
+    expect(
+      await ctx.store.db.selectFrom('notification').select('exhausted_at').executeTakeFirst(),
+    ).toEqual({ exhausted_at: null });
+    expect(await undelivered(ctx)).toEqual([]);
+
+    await ctx.sender.tick();
+    expect((await doorbells(ctx)).map((row) => row.state)).toEqual(['dead', 'done']);
+    expect(ctx.sent.map((entry) => entry.session)).toEqual(['worker-2']);
   });
 
   it('acknowledges block and comment entries atomically, and rejects another role', async () => {
