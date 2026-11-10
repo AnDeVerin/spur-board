@@ -36,7 +36,7 @@ export function createJob(options: {
   };
   const schedule = (): void => {
     if (idle()) return;
-    const delay = intervalMs + (jitterMs > 0 ? Math.floor(Math.random() * jitterMs) : 0);
+    const delay = intervalMs + Math.floor(Math.random() * jitterMs);
     timer = setTimeout(() => {
       timer = undefined;
       void enqueue().then(schedule);
@@ -60,8 +60,7 @@ export function createJob(options: {
     },
     async stop() {
       stopped = true;
-      if (timer !== undefined) clearTimeout(timer);
-      timer = undefined;
+      clearTimeout(timer);
       await active;
     },
     trigger: enqueue,
