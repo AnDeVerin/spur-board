@@ -235,7 +235,8 @@ export async function installService(options: ServiceOptions = {}): Promise<{
   const paths = servicePaths(options);
   await preflight(paths);
   const runner = options.runner ?? runCommand;
-  // The daemon falls back to its default port, so the bind check does too.
+  // Install can run before config.yaml exists; once a config without http.port is written, the
+  // daemon binds DEFAULT_HTTP_PORT, so that is the port to check.
   const port =
     readConfiguredPort(options.env ?? process.env, resolve(options.home ?? homedir())) ??
     DEFAULT_HTTP_PORT;
