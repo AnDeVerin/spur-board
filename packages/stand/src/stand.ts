@@ -192,8 +192,8 @@ function replaceFile(file: string, text: string): void {
 }
 
 /**
- * A real directory owned by this user that no group or other user can write, so no other user
- * can put an entry into it or swap one of its entries for a link.
+ * A real directory owned by this user with no group or other permission at all (0700): nobody
+ * else can add or swap an entry, or even look inside at the database and its session ids.
  */
 function privateDir(path: string): boolean {
   const info = lstatSync(path);
@@ -201,7 +201,7 @@ function privateDir(path: string): boolean {
     !info.isSymbolicLink() &&
     info.isDirectory() &&
     info.uid === process.getuid?.() &&
-    (info.mode & 0o022) === 0
+    (info.mode & 0o077) === 0
   );
 }
 
@@ -342,6 +342,9 @@ export async function startStand(options: StandOptions): Promise<Stand> {
         .join(''),
     );
     replaceFile(tokenPath, `${operatorToken}\n`);
+    // SQLite creates its WAL and SHM files with the database file's mode, so an owner-only empty
+    // file here keeps all three owner-only. Start and reset both find no database file.
+    closeSync(openSync(paths.dbFile, EXCLUSIVE, 0o600));
     await seedIdentities(paths.dbFile, operatorToken, roles);
   }
 

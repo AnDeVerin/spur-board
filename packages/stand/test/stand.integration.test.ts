@@ -82,6 +82,14 @@ async function occupyStandPort(): Promise<{ port: number; close(): Promise<void>
   throw new Error('every stand port is taken');
 }
 
+/** The database and the WAL and SHM files SQLite keeps beside it are owner-only. */
+function expectPrivateDatabase(home: string): void {
+  const files = readdirSync(home).filter((name) => name.startsWith('board.sqlite'));
+  expect(files).toContain('board.sqlite');
+  expect(files).toContain('board.sqlite-wal');
+  for (const name of files) expect(statSync(join(home, name)).mode & 0o777, name).toBe(0o600);
+}
+
 async function up(): Promise<StandManifest> {
   stand = await startStand({ root, port: 0, env: {}, osHome });
   return stand.manifest();
@@ -249,12 +257,14 @@ describe('stand', () => {
   });
 
   it.each([
-    ['the home', 'home'],
-    ['its logs directory', 'logs'],
-  ])('refuses a passed home when %s is writable by others', async (_name, which) => {
+    ['the home is writable by others', 'home', 0o777],
+    ['the home is readable by others', 'home', 0o755],
+    ['its logs directory is writable by others', 'logs', 0o777],
+    ['its logs directory is readable by others', 'logs', 0o750],
+  ])('refuses a passed home when %s', async (_name, which, mode) => {
     const home = mkdtempSync(join(root, 'spur-board-stand.'));
     mkdirSync(join(home, 'logs'), { mode: 0o700 });
-    chmodSync(which === 'home' ? home : join(home, 'logs'), 0o777);
+    chmodSync(which === 'home' ? home : join(home, 'logs'), mode);
     await expect(startStand({ root, home, port: 0, env: {}, osHome })).rejects.toThrow(
       /not a stand directory|did not create/,
     );
@@ -289,6 +299,7 @@ describe('stand', () => {
     expect(statSync(home).mode & 0o777).toBe(0o700);
     for (const name of ['stand.json', 'secrets.env', 'token'])
       expect(statSync(join(home, name)).mode & 0o777, name).toBe(0o600);
+    expectPrivateDatabase(home);
     expect(standManifest.parse(JSON.parse(readFileSync(join(home, 'stand.json'), 'utf8')))).toEqual(
       manifest,
     );
@@ -368,6 +379,7 @@ describe('stand', () => {
     expect(readManifest(after.home)).toEqual(after);
     await waitFor(after, 'sources-polled');
     expect(await fingerprint(after)).toEqual(fresh);
+    expectPrivateDatabase(after.home);
     expect(await instance(after)).not.toBe(before);
     expect((await operatorStatus(after)).code).toBe(0);
   }, 60_000);
