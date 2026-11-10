@@ -40,10 +40,9 @@ export interface InProcessDaemon {
   /** Resolves with the exit code whenever the daemon exits, on its own or through `stop`. */
   readonly exited: Promise<number>;
   /**
-   * Resolves once the daemon holds nothing: after a `stop`, when module teardown, store close
-   * and lock release have finished, even if the shutdown timeout made `stop` resolve earlier.
-   * An exit nobody asked for (a fatal error, a failed start) leaves no shutdown running, so it
-   * resolves at that exit.
+   * Resolves once the daemon holds nothing: module teardown, store close and lock release have
+   * finished, even when the shutdown timeout or a fatal error made it exit earlier. A fatal error
+   * exits 1 at once and then runs the ordered shutdown, since this process does not end.
    */
   readonly teardown: Promise<void>;
 }
@@ -64,7 +63,6 @@ export async function startInProcessDaemon(options: InProcessOptions): Promise<I
     resolveExit = resolve;
   });
   let lockHeld = false;
-  let stopRequested = false;
   let resolveTeardown: () => void = () => undefined;
   const teardown = new Promise<void>((resolve) => {
     resolveTeardown = resolve;
@@ -74,12 +72,17 @@ export async function startInProcessDaemon(options: InProcessOptions): Promise<I
       signal = handler;
     },
     onFatal(handler) {
-      options.registerFatal?.(handler);
+      options.registerFatal?.((err) => {
+        // The daemon reports the fatal error and exits 1. A real process would then end and
+        // drop everything; here the process lives on, so the ordered shutdown frees it instead.
+        handler(err);
+        signal?.('SIGTERM');
+      });
     },
     exit(code) {
       exitCode ??= code;
       resolveExit(code);
-      if (!lockHeld || !stopRequested) resolveTeardown();
+      if (!lockHeld) resolveTeardown();
     },
     writeErr: (text) => {
       options.writeErr(text);
@@ -87,10 +90,7 @@ export async function startInProcessDaemon(options: InProcessOptions): Promise<I
   };
   const stop = (): Promise<number> => {
     if (stopping !== undefined) return stopping;
-    if (exitCode === undefined && signal !== undefined) {
-      stopRequested = true;
-      signal('SIGTERM');
-    }
+    if (exitCode === undefined) signal?.('SIGTERM');
     stopping = exited;
     return stopping;
   };
