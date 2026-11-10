@@ -57,6 +57,7 @@ export interface GithubSource {
 }
 export interface GithubOptions {
   token: string;
+  now: () => number;
   fetch?: typeof fetch;
 }
 function sourceId(project: string, repo: string): string {
@@ -72,7 +73,7 @@ export function githubSources(config: Config, options: GithubOptions): GithubSou
         throw new AdapterError('config', 'Duplicate GitHub repository in project');
       seen.add(normalized);
       const id = sourceId(project.id, repo);
-      const client = new GithubClient(options.token, options.fetch);
+      const client = new GithubClient(options.token, options.now, options.fetch);
       const keys = projectKeyRule(project.tracker, project.link, repo);
       sources.push({
         repo,
@@ -81,7 +82,15 @@ export function githubSources(config: Config, options: GithubOptions): GithubSou
           id,
           intervalMs: config.adapters.github.intervalMs,
           poll: (ctx) =>
-            pollRepository({ id, repo, login: project.operatorGithubLogin, keys, client, ctx }),
+            pollRepository({
+              id,
+              repo,
+              login: project.operatorGithubLogin,
+              keys,
+              client,
+              now: options.now,
+              ctx,
+            }),
         },
       });
     }
@@ -201,10 +210,19 @@ interface PollArgs {
   login: string;
   keys: KeyRule;
   client: GithubClient;
+  now: () => number;
   ctx: PollContext;
 }
-async function pollRepository({ id, repo, login, keys, client, ctx }: PollArgs): Promise<Batch> {
-  const observedAt = sourceCursorSchema.parse(new Date().toISOString());
+async function pollRepository({
+  id,
+  repo,
+  login,
+  keys,
+  client,
+  now,
+  ctx,
+}: PollArgs): Promise<Batch> {
+  const observedAt = sourceCursorSchema.parse(new Date(now()).toISOString());
   const bootstrap = ctx.cursor === undefined;
   const [owner, name] = repo.split('/');
   if (!owner || !name) throw new AdapterError('config', 'Invalid repository');

@@ -45,6 +45,7 @@ export interface SpurAdapterOptions {
   baseUrl: string;
   intervalMs: number;
   flipSmoothingMs: number;
+  now: () => number;
   fetch?: typeof fetch;
   onNotice?: ((notice: SpurNotice) => void | Promise<void>) | undefined;
 }
@@ -167,12 +168,12 @@ export function createSpurAdapter(options: SpurAdapterOptions): Adapter {
     id: 'spur',
     intervalMs: options.intervalMs,
     async poll(ctx: PollContext): Promise<Batch> {
-      const observedAt = new Date().toISOString();
+      const observedAt = new Date(options.now()).toISOString();
       const { response: listResponse, body: listBody } = await request('sessions', ctx.signal);
       if (!listResponse.ok) {
         throw classifyHttpFailure(
           { status: listResponse.status, headers: listResponse.headers },
-          Date.now(),
+          options.now(),
         );
       }
       const listed = parseWire(z.array(sessionWire), listBody, 'Invalid Spur response');
@@ -191,7 +192,7 @@ export function createSpurAdapter(options: SpurAdapterOptions): Adapter {
         if (!response.ok) {
           throw classifyHttpFailure(
             { status: response.status, headers: response.headers },
-            Date.now(),
+            options.now(),
           );
         }
         const wire = parseWire(sessionWire, body, 'Invalid Spur response');

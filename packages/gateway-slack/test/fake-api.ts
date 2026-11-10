@@ -88,9 +88,10 @@ async function readForm(req: IncomingMessage): Promise<URLSearchParams> {
 }
 
 export async function startFakeSlackApi(
-  options: { pageSize?: number } = {},
+  options: { pageSize?: number; now?: () => number } = {},
 ): Promise<FakeSlackApi> {
   const pageSize = options.pageSize ?? 100;
+  const now = options.now ?? (() => Date.now());
   const requests: FakeRequest[] = [];
   const stored: StoredMessage[] = [];
   const done = new Set<string>();
@@ -99,7 +100,7 @@ export async function startFakeSlackApi(
   let nextSearchUnknown = false;
   let timeout: { remaining: number; visible: boolean } | undefined;
   let hold: { entered: () => void; waiting: Promise<void> } | undefined;
-  let sequence = 0;
+  let lastMicros = 0;
   let nextEnvelope = 0;
   let connected: WebSocket | undefined;
   let waitingSocket: WebSocket | undefined;
@@ -108,10 +109,14 @@ export async function startFakeSlackApi(
   const inFlight = new Set<Promise<void>>();
   const connectedWaiters = new Set<() => void>();
 
+  // Slack ts is seconds.microseconds. Stamp the injected millisecond itself and keep ts unique
+  // by stepping microseconds, so a message posted at a frozen instant stays inside that
+  // millisecond instead of moving to a later one or back to the whole second.
   function ts(): string {
-    sequence += 1;
-    const seconds = Math.floor(Date.now() / 1000);
-    return `${String(seconds)}.${String(sequence).padStart(6, '0')}`;
+    const micros = Math.max(Math.floor(now()) * 1000, lastMicros + 1);
+    lastMicros = micros;
+    const seconds = Math.floor(micros / 1_000_000);
+    return `${String(seconds)}.${String(micros % 1_000_000).padStart(6, '0')}`;
   }
 
   function reply(

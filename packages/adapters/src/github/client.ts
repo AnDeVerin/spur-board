@@ -119,9 +119,11 @@ export interface ResponseData {
 }
 export class GithubClient {
   private readonly token: string;
+  private readonly now: () => number;
   private readonly fetcher: typeof fetch;
-  constructor(token: string, fetcher: typeof fetch = fetch) {
+  constructor(token: string, now: () => number, fetcher: typeof fetch = fetch) {
     this.token = token;
+    this.now = now;
     this.fetcher = fetcher;
   }
   async query(
@@ -148,7 +150,7 @@ export class GithubClient {
     if (!response.ok)
       throw classifyHttpFailure(
         { status: response.status, headers: response.headers, body: await response.text() },
-        Date.now(),
+        this.now(),
       );
     let body: unknown;
     try {
@@ -159,7 +161,7 @@ export class GithubClient {
     const wire = parseWire(envelopeWire, body, MALFORMED);
     const errors = wire.errors ?? [];
     if (errors.some((error) => error.type === 'RATE_LIMITED' || /rate limit/i.test(error.message)))
-      throw classifyHttpFailure({ status: 429, headers: response.headers }, Date.now());
+      throw classifyHttpFailure({ status: 429, headers: response.headers }, this.now());
     if (errors.some((error) => teamScopeDenied(error, query)))
       throw new AdapterError('auth', 'GitHub token needs read:org for team review requests');
     if (errors.some((error) => error.type === 'INSUFFICIENT_SCOPES'))

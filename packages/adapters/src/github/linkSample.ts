@@ -40,6 +40,7 @@ interface LinkSampleTarget {
 }
 interface LinkSampleOptions {
   token: string;
+  now: () => number;
   fetch?: typeof fetch;
   signal: AbortSignal;
 }
@@ -58,13 +59,13 @@ interface LinkSample {
  */
 export async function sampleLinkRules(
   { repo, login, tracker, link }: LinkSampleTarget,
-  { token, fetch: fetcher, signal }: LinkSampleOptions,
+  { token, now, fetch: fetcher, signal }: LinkSampleOptions,
 ): Promise<LinkSample> {
   const [owner, name] = repo.split('/');
   if (!owner || !name) throw new AdapterError('config', 'Invalid repository');
   const rule = projectKeyRule(tracker, link, repo);
   const closing = rule.type === 'issues' && rule.sources.includes('closing');
-  const response = await new GithubClient(token, fetcher).query(
+  const response = await new GithubClient(token, now, fetcher).query(
     sampleQuery(closing),
     { owner, repo: name },
     signal,

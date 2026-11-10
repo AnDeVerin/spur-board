@@ -9,6 +9,8 @@ export interface SmokeCliOptions {
   home: string;
   writeOut: (line: string) => void;
   writeErr: (line: string) => void;
+  /** The wall clock; only the process entry below binds `Date.now`. */
+  now: () => number;
   fetch?: typeof fetch;
 }
 
@@ -58,6 +60,7 @@ export async function main(options: SmokeCliOptions): Promise<number> {
     const { config, secrets } = loadConfig(resolvePaths(options.env, options.home));
     return await runSmoke(config, secrets, {
       probes,
+      now: options.now,
       writeOut: options.writeOut,
       writeErr: options.writeErr,
       ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
@@ -79,5 +82,6 @@ if (import.meta.main) {
     home: homedir(),
     writeOut: (line) => process.stdout.write(line),
     writeErr: (line) => process.stderr.write(line),
+    now: () => Date.now(),
   });
 }

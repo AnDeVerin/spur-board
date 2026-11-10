@@ -10,6 +10,8 @@ interface SlackGatewayConfig extends ApiConfig {
   channels: SlackChannels;
   appToken?: string;
   command?: string;
+  /** The current time in epoch milliseconds; recovery reads it as the end of its window. */
+  now: () => number;
 }
 
 /** Create a Slack gateway. Socket Mode is opt-in until the daemon has a real inbound sink. */
@@ -40,7 +42,7 @@ export function createSlackGateway(config: SlackGatewayConfig): Gateway {
   return {
     ...delivery,
     ...socket,
-    recover: (request) => recoverThreads(api, request, botIdentity),
+    recover: (request) => recoverThreads(api, request, botIdentity, config.now),
     async respond(interaction, text, options) {
       const addressed = parseInteractionRef(interaction);
       const rendered = renderResponse(text, options.cliHint);

@@ -141,6 +141,14 @@ const wireWalkerBans = [
   `FunctionDeclaration[id.name=${wireWalkerNames}]`,
   `VariableDeclarator[id.name=${wireWalkerNames}][init.type=/^(ArrowFunctionExpression|FunctionExpression)$/]`,
 ].map((selector) => ({ selector, message: wireWalkerMessage }));
+// Adapters and the Slack gateway read the time only from the `now` the daemon passes in.
+const wallTimeMessage =
+  'Read the time from the injected `now`; only the daemon binds the wall clock.';
+const wallTimeBans = [
+  "MemberExpression[object.name='Date'][property.name='now']",
+  "NewExpression[callee.name='Date'][arguments.length=0]",
+  "CallExpression[callee.name='Date']",
+].map((selector) => ({ selector, message: wallTimeMessage }));
 
 export default defineConfig(
   {
@@ -200,6 +208,13 @@ export default defineConfig(
     },
   },
   {
+    // Same-rule options replace earlier ones, so the gateway restates both sqlite bans.
+    files: ['packages/gateway-slack/src/**/*.ts'],
+    rules: {
+      'no-restricted-syntax': ['error', sqliteImportBan, sqliteTypeImportBan, ...wallTimeBans],
+    },
+  },
+  {
     // Same-rule options replace earlier ones, so test files restate the vi.mock ban.
     files: ['packages/*/test/**/*.ts', '**/*.test.ts'],
     ignores: sqliteBoundaryIgnores,
@@ -211,14 +226,20 @@ export default defineConfig(
     files: ['packages/adapters/**/*.ts'],
     rules: {
       'no-restricted-imports': adapterImports(),
-      'no-restricted-syntax': ['error', dynamicImportBan, importTypeBan],
+      'no-restricted-syntax': ['error', dynamicImportBan, importTypeBan, ...wallTimeBans],
     },
   },
   ...adapterFolders.map((folder) => ({
     files: [`packages/adapters/src/${folder}/**/*.ts`],
     rules: {
       'no-restricted-imports': adapterImports([siblingPattern(folder)]),
-      'no-restricted-syntax': ['error', dynamicImportBan, importTypeBan, ...wireWalkerBans],
+      'no-restricted-syntax': [
+        'error',
+        dynamicImportBan,
+        importTypeBan,
+        ...wireWalkerBans,
+        ...wallTimeBans,
+      ],
     },
   })),
   {

@@ -16,6 +16,7 @@ describe('Slack board commands', () => {
     fakes.push(fake);
     const gateway = createSlackGateway({
       token: 'xoxb-test',
+      now: () => Date.now(),
       appToken: 'xapp-test',
       command: '/ops',
       channels: { orchestrators: 'C_ORCH', feed: 'C_FEED' },
@@ -108,6 +109,7 @@ describe('Slack board commands', () => {
     fakes.push(fake);
     const gateway = createSlackGateway({
       token: 'xoxb-test',
+      now: () => Date.now(),
       channels: { orchestrators: 'C_ORCH', feed: 'C_FEED' },
       apiUrl: fake.url,
     });
@@ -152,6 +154,7 @@ describe('Slack board commands', () => {
     fakes.push(fake);
     const gateway = createSlackGateway({
       token: 'xoxb-test',
+      now: () => Date.now(),
       channels: { orchestrators: 'C_ORCH', feed: 'C_FEED' },
       apiUrl: fake.url,
       requestTimeoutMs: 500,

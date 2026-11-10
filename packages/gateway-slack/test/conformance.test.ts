@@ -17,6 +17,7 @@ runGatewayConformance({
     return {
       gateway: createSlackGateway({
         token: 'xoxb-test',
+        now: () => Date.now(),
         appToken: 'xapp-test',
         channels: { orchestrators: 'C_ORCH', feed: 'C_FEED' },
         command: '/ops',

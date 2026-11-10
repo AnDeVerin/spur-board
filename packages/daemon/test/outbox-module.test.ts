@@ -112,6 +112,7 @@ describe('outbox scheduler', () => {
     };
     const gateway = createSlackGateway({
       token: 'xoxb-test',
+      now: () => Date.now(),
       channels: { orchestrators: 'C000000001', feed: 'C000000002' },
     });
     const module = createOutboxModule(ctx, gateway, { tickMs: 10, jitterMs: 0 });
@@ -206,6 +207,7 @@ describe('outbox scheduler', () => {
     };
     const gateway = createSlackGateway({
       token: 'xoxb-test',
+      now: () => Date.now(),
       channels: { orchestrators: 'C000000001', feed: 'C000000002' },
       apiUrl: api.url,
     });
