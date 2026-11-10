@@ -1,15 +1,9 @@
 import { createServer, type RequestListener, type Server } from 'node:http';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import {
-  DEFAULT_HTTP_PORT,
-  ERRORS,
-  OPERATIONS,
-  errorEnvelopeSchema,
-  renderHttpProblem,
-} from '@spur-board/contracts';
+import { ERRORS, OPERATIONS, errorEnvelopeSchema, renderHttpProblem } from '@spur-board/contracts';
 import { runCli, type CliIo } from '../src/cli.ts';
 import type { ClientConfig } from '../src/config.ts';
 
@@ -127,26 +121,45 @@ describe('CLI exit classes and mutation keys', () => {
     expect(JSON.parse(output.stdout)).toEqual(OPERATIONS[0].examples[0].output);
   });
 
-  it('dispatches status to the default daemon address when config is missing', async () => {
-    const home = boardHome();
-    const addresses: string[] = [];
-    const output = capture();
-    expect(
-      await runCli(['status', '--json'], {
-        env: { BOARD_HOME: home, BOARD_TOKEN: 'token' },
-        io: output.io,
-        sendOperation(op, input, key, config) {
-          expect(op.id).toBe('status.get');
-          expect(input).toEqual({});
-          expect(key).toBeUndefined();
-          addresses.push(config.address.href);
-          return Promise.resolve(OPERATIONS[0].examples[0].output);
-        },
-      }),
-    ).toBe(0);
-    expect(addresses).toEqual([`http://127.0.0.1:${String(DEFAULT_HTTP_PORT)}/`]);
-    expect(JSON.parse(output.stdout)).toEqual(OPERATIONS[0].examples[0].output);
-  });
+  it.each([undefined, 'http: [', 'http: { port: -1 }'])(
+    'refuses to send without BOARD_DAEMON_URL or a valid config (%s)',
+    async (text) => {
+      const home = boardHome(text);
+      const sent: string[] = [];
+      const output = capture();
+      expect(
+        await runCli(['status', '--json'], {
+          env: { BOARD_HOME: home, BOARD_TOKEN: 'token' },
+          io: output.io,
+          sendOperation(op) {
+            sent.push(op.id);
+            return Promise.resolve(OPERATIONS[0].examples[0].output);
+          },
+        }),
+      ).toBe(4);
+      expect(sent).toEqual([]);
+      const { error } = errorEnvelopeSchema.parse(JSON.parse(output.stderr));
+      expect(error.code).toBe('config');
+      expect(error.context).toEqual({
+        environmentVariable: 'BOARD_DAEMON_URL',
+        configPath: join(home, 'config.yaml'),
+      });
+      expect(error.hint).toContain('BOARD_DAEMON_URL');
+      expect(error.hint).toContain('http.port');
+
+      const into = boardHome();
+      const enrollment = capture();
+      expect(
+        await runCli(['token', 'create', '--name', 'n', '--into', into, '--json'], {
+          env: { BOARD_HOME: home },
+          io: enrollment.io,
+        }),
+      ).toBe(4);
+      expect(errorEnvelopeSchema.parse(JSON.parse(enrollment.stderr)).error.code).toBe('config');
+      expect(existsSync(join(into, '.spur-board'))).toBe(false);
+    },
+  );
+
   it('returns 3 when a connection is refused before dispatch', async () => {
     const { url, server } = await fakeServer(() => {});
     await new Promise<void>((resolve) =>
@@ -398,9 +411,10 @@ describe('CLI exit classes and mutation keys', () => {
         io: output.io,
       }),
     ).toBe(4);
-    expect(errorEnvelopeSchema.parse(JSON.parse(output.stderr)).error.hint).toContain(
-      'Set BOARD_DAEMON_URL',
-    );
+    const { hint } = errorEnvelopeSchema.parse(JSON.parse(output.stderr)).error;
+    expect(hint).toContain('Set BOARD_DAEMON_URL');
+    expect(hint).toContain('http.port: 0 assigns a runtime port');
+    expect(hint).not.toContain('make config.yaml valid');
   });
 
   it('rejects a missing agent key without sending and announces supplied and generated keys first', async () => {

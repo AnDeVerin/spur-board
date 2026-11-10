@@ -189,11 +189,28 @@ describe('board mcp', () => {
   });
 
   it('reports missing identity only on a call', async () => {
-    await withClient({}, async (client) => {
+    await withClient({ BOARD_DAEMON_URL: 'http://127.0.0.1:1' }, async (client) => {
       expect((await client.listTools()).tools.length).toBe(OPERATIONS.length);
       const result = await client.callTool({ name: 'status_get', arguments: {} });
       expect(result.isError).toBe(true);
       expect(result.structuredContent).toMatchObject({ code: 'identity_missing' });
+    });
+  });
+
+  it('refuses a tool call without BOARD_DAEMON_URL or a valid config', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'mcp-address-'));
+    homes.push(home);
+    await withClient({ BOARD_HOME: home, BOARD_TOKEN: 'token' }, async (client) => {
+      expect((await client.listTools()).tools.length).toBe(OPERATIONS.length);
+      const result = await client.callTool({ name: 'status_get', arguments: {} });
+      expect(result.isError).toBe(true);
+      expect(result.structuredContent).toMatchObject({
+        code: 'config',
+        context: {
+          environmentVariable: 'BOARD_DAEMON_URL',
+          configPath: join(home, 'config.yaml'),
+        },
+      });
     });
   });
 

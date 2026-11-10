@@ -5,7 +5,7 @@ import { chmod, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from 'n
 import { tmpdir, userInfo } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { ERRORS } from '@spur-board/contracts';
+import { DEFAULT_HTTP_PORT, ERRORS } from '@spur-board/contracts';
 import { runCli, type CliIo } from '../src/cli.ts';
 import { bindLoopback } from '../src/port.ts';
 import { holder } from './http-holder.ts';
@@ -675,4 +675,24 @@ describe('service', () => {
       changed: true,
     });
   });
+
+  it.each([undefined, 'http: ['])(
+    'probes the default port when config.yaml is missing or invalid (%s)',
+    async (text) => {
+      const { options, paths } = await fixture();
+      const boardHome = options.env?.['BOARD_HOME'];
+      if (boardHome === undefined) throw new Error('fixture has no BOARD_HOME');
+      if (text !== undefined) await writeFile(join(boardHome, 'config.yaml'), text);
+      const ports: number[] = [];
+      const bind = (port: number) => {
+        ports.push(port);
+        return Promise.resolve(null);
+      };
+      expect(await installService({ ...options, bind })).toEqual({
+        unitFile: paths.unitFile,
+        changed: true,
+      });
+      expect(ports).toEqual([DEFAULT_HTTP_PORT]);
+    },
+  );
 });

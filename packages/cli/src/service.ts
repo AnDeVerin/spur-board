@@ -4,7 +4,7 @@ import { access, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { homedir, userInfo } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { SYSTEMD_SERVICE_SETTINGS } from '@spur-board/contracts';
+import { DEFAULT_HTTP_PORT, SYSTEMD_SERVICE_SETTINGS } from '@spur-board/contracts';
 import { CliError } from './exit-codes.ts';
 import { readConfiguredPort } from './config.ts';
 import { bindLoopback, checkHttpPort } from './port.ts';
@@ -235,7 +235,10 @@ export async function installService(options: ServiceOptions = {}): Promise<{
   const paths = servicePaths(options);
   await preflight(paths);
   const runner = options.runner ?? runCommand;
-  const port = readConfiguredPort(options.env ?? process.env, resolve(options.home ?? homedir()));
+  // The daemon falls back to its default port, so the bind check does too.
+  const port =
+    readConfiguredPort(options.env ?? process.env, resolve(options.home ?? homedir())) ??
+    DEFAULT_HTTP_PORT;
   const fix = await checkHttpPort(port, {
     bind: options.bind ?? bindLoopback,
     run: runner,

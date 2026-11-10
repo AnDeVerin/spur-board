@@ -2,7 +2,6 @@ import { chmodSync, mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync }
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { DEFAULT_HTTP_PORT } from '@spur-board/contracts';
 import {
   configFile,
   dataDirectory,
@@ -49,22 +48,17 @@ digest: { tz: UTC }
 
 describe('daemon address', () => {
   it.each([
-    ['explicit URL', validYaml, 'http://127.0.0.1:9999', false, 9999],
-    ['configured port', validYaml, undefined, false, 4567],
-    ['missing config', undefined, undefined, false, DEFAULT_HTTP_PORT],
-    ['malformed YAML', 'http: [', undefined, false, DEFAULT_HTTP_PORT],
-    ['schema-invalid config', 'http: { port: -1 }', undefined, false, DEFAULT_HTTP_PORT],
-    ['XDG config path', validYaml, undefined, true, 4567],
-  ] as const)('%s', (_name, yaml, explicit, xdg, expectedPort) => {
+    ['explicit URL', 'http://127.0.0.1:9999', false, 9999],
+    ['configured port', undefined, false, 4567],
+    ['XDG config path', undefined, true, 4567],
+  ] as const)('%s', (_name, explicit, xdg, expectedPort) => {
     const paths = setup();
     const location = xdg ? join(paths.home, 'xdg', 'spur-board') : join(paths.home, 'board');
-    if (yaml !== undefined) {
-      mkdirSync(location, { recursive: true });
-      writeFileSync(
-        join(location, 'config.yaml'),
-        yaml.replace('digest:', 'http: { port: 4567 }\ndigest:'),
-      );
-    }
+    mkdirSync(location, { recursive: true });
+    writeFileSync(
+      join(location, 'config.yaml'),
+      validYaml.replace('digest:', 'http: { port: 4567 }\ndigest:'),
+    );
     const address = resolveDaemonAddress(
       {
         ...(xdg ? { XDG_CONFIG_HOME: join(paths.home, 'xdg') } : { BOARD_HOME: location }),
@@ -73,6 +67,27 @@ describe('daemon address', () => {
       paths.home,
     );
     expect(address.href).toBe(`http://127.0.0.1:${String(expectedPort)}/`);
+  });
+
+  it.each([
+    ['missing config', undefined],
+    ['malformed YAML', 'http: ['],
+    ['schema-invalid config', 'http: { port: -1 }'],
+  ] as const)('refuses a %s without BOARD_DAEMON_URL', (_name, yaml) => {
+    const paths = setup();
+    const location = join(paths.home, 'board');
+    mkdirSync(location);
+    if (yaml !== undefined) writeFileSync(join(location, 'config.yaml'), yaml);
+    expect(() => resolveDaemonAddress({ BOARD_HOME: location }, paths.home)).toThrow(
+      expect.objectContaining({
+        code: 'config',
+        context: {
+          environmentVariable: 'BOARD_DAEMON_URL',
+          configPath: join(location, 'config.yaml'),
+        },
+        hint: expect.stringMatching(/BOARD_DAEMON_URL.*http\.port/) as unknown,
+      }),
+    );
   });
 
   it('rejects invalid explicit URLs', () => {
@@ -90,7 +105,12 @@ describe('daemon address', () => {
       join(location, 'config.yaml'),
       validYaml.replace('digest:', 'http: { port: 0 }\ndigest:'),
     );
-    expect(() => resolveDaemonAddress({ BOARD_HOME: location }, paths.home)).toThrow();
+    expect(() => resolveDaemonAddress({ BOARD_HOME: location }, paths.home)).toThrow(
+      expect.objectContaining({
+        code: 'config',
+        hint: expect.stringMatching(/^http\.port: 0 assigns a runtime port/) as unknown,
+      }),
+    );
     expect(() =>
       resolveDaemonAddress(
         { BOARD_HOME: location, BOARD_DAEMON_URL: 'http://127.0.0.1:4567' },
@@ -190,6 +210,27 @@ describe('operator token lookup', () => {
     symlinkSync(join(target, '.spur-board', 'token'), join(other, '.spur-board', 'token'));
     expect(findTokenFile(other, paths.home, (message) => warnings.push(message))).toBeUndefined();
     expect(warnings).toHaveLength(2);
+  });
+
+  it('stops the token search at the git worktree root', () => {
+    const paths = setup();
+    const root = join(paths.project, 'one');
+    writeFileSync(join(root, '.git'), 'gitdir: /x\n');
+    token(paths.project, 'above');
+    expect(findTokenFile(paths.cwd, paths.home)).toBeUndefined();
+    expect(() => loadClientConfig(env, paths)).toThrow(
+      expect.objectContaining({ code: 'identity_missing' }),
+    );
+    token(root, 'root');
+    expect(findTokenFile(paths.cwd, paths.home)).toBe('root');
+    mkdirSync(join(paths.cwd, '.git'));
+    expect(findTokenFile(paths.cwd, paths.home)).toBeUndefined();
+
+    const repo = join(paths.outside, 'repo');
+    mkdirSync(join(repo, '.git'), { recursive: true });
+    mkdirSync(join(repo, 'sub'));
+    token(paths.outside, 'x');
+    expect(findTokenFile(join(repo, 'sub'), paths.home)).toBeUndefined();
   });
 
   it('uses BOARD_TOKEN before a file and skips lookup for a session', () => {
