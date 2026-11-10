@@ -1,5 +1,5 @@
 {
-  "version": "9e258e21c6560bd567e776a8d3e12045dd6b79163514edf7af3a2d1ad7fd5156",
+  "version": "98d2a5e31f0399dfa13ca203837d46f656eda47146acfe3fad9aa84f486cdf8f",
   "grants": [
     "operator",
     "project-agent",
@@ -502,7 +502,7 @@
         "retryTiming": "After fixing the cause."
       },
       "mcp": {
-        "hint": "Set the variable in `context.environmentVariable` where `board mcp` starts, or fix `http.port` in the config.yaml at `context.configPath`.",
+        "hint": "Fix the variable named in `context.environmentVariable` where `board mcp` starts. Only when `context.configPath` is also present, fixing `http.port` in that config.yaml works instead.",
         "recovery": {
           "action": "Fix the named variable or config.yaml, restarting your agent session after a variable change, then retry the tool call.",
           "sideEffects": "none",

@@ -224,7 +224,7 @@ export const ERRORS = {
     hint: 'Fix the configuration file named in the error, then run the command again.',
     recovery: noRetry('Fix the named configuration file and retry.'),
     mcp: {
-      hint: 'Set the variable in `context.environmentVariable` where `board mcp` starts, or fix `http.port` in the config.yaml at `context.configPath`.',
+      hint: 'Fix the variable named in `context.environmentVariable` where `board mcp` starts. Only when `context.configPath` is also present, fixing `http.port` in that config.yaml works instead.',
       recovery: noRetry(
         'Fix the named variable or config.yaml, restarting your agent session after a variable change, then retry the tool call.',
       ),
