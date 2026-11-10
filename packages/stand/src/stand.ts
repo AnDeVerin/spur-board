@@ -355,6 +355,10 @@ export async function startStand(options: StandOptions): Promise<Stand> {
 
   let current: { daemon: InProcessDaemon; runner: ReturnType<typeof runnerController> } | undefined;
   let stopping: Promise<number> | undefined;
+  /** A daemon a reset is stopping, until it stopped cleanly; stop() waits for its teardown. */
+  let retiring: InProcessDaemon | undefined;
+  /** Set when a reset failed; the stand then exits 1. */
+  let failure: number | undefined;
   let resolveExited: (code: number) => void = () => undefined;
   const exited = new Promise<number>((resolve) => {
     resolveExited = resolve;
@@ -500,11 +504,14 @@ export async function startStand(options: StandOptions): Promise<Stand> {
       if (running === undefined)
         return { status: 503, body: { error: 'The daemon is not running.' } };
       current = undefined;
+      // Shared with stop(): a stop that races this reset still waits for this daemon.
+      retiring = running.daemon;
       try {
         const code = await running.daemon.stop();
         if (code !== 0) {
           // The old daemon may still hold the store and its lock: leave every file as it is.
-          void stop(1, running.daemon);
+          failure = 1;
+          void stop();
           return {
             status: 500,
             body: {
@@ -512,13 +519,15 @@ export async function startStand(options: StandOptions): Promise<Stand> {
             },
           };
         }
+        retiring = undefined;
         for (const suffix of ['', '-wal', '-shm'])
           rmSync(`${paths.dbFile}${suffix}`, { force: true });
         await writeHome();
         current = await startDaemon();
         writeCurrentManifest(current.daemon.address, controlUrl());
       } catch (err) {
-        void stop(1);
+        failure = 1;
+        void stop();
         return { status: 500, body: { error: errorMessage(err) } };
       }
       return { status: 200, body: { daemonUrl: current.daemon.address } };
@@ -526,18 +535,19 @@ export async function startStand(options: StandOptions): Promise<Stand> {
   };
 
   /**
-   * Stops the stand once. `stalled` is a daemon reset already stopped whose teardown may still run;
-   * the log stays open and `exited` waits until every daemon has released its store and lock.
+   * Stops the stand once. Control closes first, which waits for a queued reset; then the current
+   * daemon stops. The log stays open and `exited` waits until the current daemon and any daemon
+   * a reset retired have released their store and lock. A failed reset makes the result 1.
    */
-  function stop(code?: number, stalled?: InProcessDaemon): Promise<number> {
+  function stop(code?: number): Promise<number> {
     stopping ??= (async () => {
       await control?.close();
       const running = current;
       current = undefined;
       const daemonCode = running === undefined ? 0 : await running.daemon.stop();
-      await Promise.all([running?.daemon.teardown, stalled?.teardown]);
+      await Promise.all([running?.daemon.teardown, retiring?.teardown]);
       closeSync(logFd);
-      const result = code ?? daemonCode;
+      const result = code ?? failure ?? daemonCode;
       resolveExited(result);
       return result;
     })();

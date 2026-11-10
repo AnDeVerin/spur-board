@@ -19,7 +19,7 @@ import { configSchema } from '@spur-board/contracts';
 import { openStore } from '@spur-board/core';
 import { acquireLock } from '@spur-board/daemon/in-process';
 import { sql } from 'kysely';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import YAML from 'yaml';
 import { runCli, type CliIo } from '../../cli/src/cli.ts';
 import { readManifest, standManifest, type StandManifest } from '../src/manifest.ts';
@@ -451,6 +451,45 @@ describe('stand', () => {
     expect(() => acquireLock(join(manifest.home, 'board.lock'))).toThrow();
 
     release();
+    expect(await current.exited).toBe(1);
+    acquireLock(join(manifest.home, 'board.lock')).release();
+  }, 60_000);
+
+  it('a stop during a stalled reset waits for the retiring daemon and exits 1', async () => {
+    let release: () => void = () => undefined;
+    const stalled = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    stand = await startStand({
+      root,
+      port: 0,
+      env: {},
+      osHome,
+      shutdownTimeoutMs: 300,
+      tick: () => stalled,
+    });
+    const current = stand;
+    const manifest = current.manifest();
+    await waitFor(manifest, 'api-ready');
+    const log = join(manifest.home, 'logs', 'daemon.log');
+    const reset = control(manifest, '/reset');
+    // The reset has signalled the old daemon, which now waits for the stalled tick.
+    await vi.waitFor(() => {
+      expect(readFileSync(log, 'utf8')).toContain('"msg":"shutting down"');
+    });
+    let stopped: number | undefined;
+    const stopping = current.stop().then((code) => {
+      stopped = code;
+      return code;
+    });
+    expect((await reset).status).toBe(500);
+    // Past the shutdown timeout the old daemon still holds its lock, and stop has not resolved.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(stopped).toBeUndefined();
+    expect(() => acquireLock(join(manifest.home, 'board.lock'))).toThrow();
+
+    release();
+    expect(await stopping).toBe(1);
     expect(await current.exited).toBe(1);
     acquireLock(join(manifest.home, 'board.lock')).release();
   }, 60_000);
