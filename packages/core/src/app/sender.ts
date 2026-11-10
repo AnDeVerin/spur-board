@@ -562,8 +562,9 @@ export function createSender(options: SenderOptions): Sender {
    * for a space, the slot of the next send and, under a health row, the probe clock. A slow
    * earlier send in the tick does not age them. The clock is read here, once the write lock is
    * held, so waiting for the lock does not age them either. Returns the stamp. `expiredAt` is
-   * read before the transaction: token expiry writes it into a feed edit, a gateway string, so a
-   * time read here would change on every scan replay.
+   * read once, on the first pass after the lock is held, and reused on replays: token expiry
+   * writes it into a feed edit, a gateway string, so a fresh read per pass would change it on
+   * every scan replay, and a read before the lock would miss a request that lapses meanwhile.
    */
   async function start(
     trx: Trx,
@@ -941,9 +942,9 @@ export function createSender(options: SenderOptions): Sender {
         );
         return;
       }
-      const expiredAt = now();
+      let expiredAt: Date | undefined;
       const started = await scanTransaction(store, options.config, (trx) =>
-        start(trx, c, expiredAt),
+        start(trx, c, (expiredAt ??= now())),
       );
       if (started.skip) continue;
       // After start() commits, finish and record this attempt even if shutdown begins.

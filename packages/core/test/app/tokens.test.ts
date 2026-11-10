@@ -345,6 +345,38 @@ describe('operator token lifecycle', () => {
     ).toHaveLength(1);
   });
 
+  it('expires a request that lapses while its send waits for the write lock', async () => {
+    const file = join(mkdtempSync(join(tmpdir(), 'core-token-')), 'board.db');
+    const store = openStore(file);
+    stores.push(store);
+    await enroll(store);
+    // The clock reads one ms before expiry until the send-start transaction holds the lock.
+    const expiry = AT.getTime() + 15 * 60 * 1000;
+    let transactions = 0;
+    const transaction = store.transaction.bind(store);
+    const counted: Store = {
+      ...store,
+      transaction: (fn) => {
+        transactions += 1;
+        return transaction(fn);
+      },
+    };
+    const observed = observeGateway(createFakeGateway({ profile: 'slack-like' }), file);
+    const sender = createSender({
+      config: testConfig,
+      store: counted,
+      gateway: observed.gateway,
+      spur: { send: () => Promise.resolve() },
+      now: () => new Date(transactions >= 2 ? expiry : expiry - 1),
+      spaceIntervalMs: 0,
+    });
+    await sender.tick();
+    expect(observed.requests).toHaveLength(0);
+    expect(await store.db.selectFrom('operator_token').select('status').execute()).toEqual([
+      { status: 'expired' },
+    ]);
+  });
+
   it('expires unreviewed requests and clears their approval items once', async () => {
     const store = setup();
     await enroll(store);
