@@ -12,8 +12,8 @@ export {
 } from './app/authorize.ts';
 export {
   CommandError,
-  commandRetention,
   createApply,
+  purgeExpiredCommands,
   type Apply,
   type CommandContext,
   type Mutation,
