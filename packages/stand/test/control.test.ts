@@ -56,7 +56,7 @@ describe('control endpoint', () => {
     const reset = vi.fn(() => Promise.resolve({ status: 200, body: {} }));
     control = await startControl({
       token: TOKEN,
-      routes: { wait: vi.fn(), poll: vi.fn(), reset },
+      routes: { wait: vi.fn(), poll: vi.fn(), reset, fake: vi.fn() },
     });
     const port = new URL(control.url).port;
     const host = `127.0.0.1:${port}`;
@@ -76,7 +76,7 @@ describe('control endpoint', () => {
   it('answers 404 to an unknown route and 413 to a large body', async () => {
     control = await startControl({
       token: TOKEN,
-      routes: { wait: vi.fn(), poll: vi.fn(), reset: vi.fn() },
+      routes: { wait: vi.fn(), poll: vi.fn(), reset: vi.fn(), fake: vi.fn() },
     });
     const headers = { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' };
     expect((await fetch(`${control.url}/nope`, { method: 'POST', headers })).status).toBe(404);
@@ -115,6 +115,7 @@ describe('control endpoint', () => {
           calls.push(`reset ${String(n)} end`);
           return Promise.resolve({ status: 200, body: { n } });
         },
+        fake: vi.fn(),
       },
     });
     const closeWait = new AbortController();
@@ -144,7 +145,10 @@ describe('control endpoint', () => {
   it('answers 503 once close has begun and awaits the queued reset', async () => {
     const pending = deferred<RouteResult>();
     const reset = vi.fn(() => pending.promise);
-    control = await startControl({ token: TOKEN, routes: { wait: vi.fn(), poll: vi.fn(), reset } });
+    control = await startControl({
+      token: TOKEN,
+      routes: { wait: vi.fn(), poll: vi.fn(), reset, fake: vi.fn() },
+    });
     const running = post(control, '/reset');
     await vi.waitFor(() => {
       expect(reset).toHaveBeenCalled();
@@ -172,6 +176,7 @@ describe('control endpoint', () => {
         },
         poll: vi.fn(),
         reset: vi.fn(),
+        fake: vi.fn(),
       },
     });
     const wait = (raw: string) =>
@@ -185,6 +190,57 @@ describe('control endpoint', () => {
     expect(asked).toEqual([MAX_WAIT_MS]);
   });
 
+  it('answers /fake beside a held poll, passing its body through', async () => {
+    const held = deferred<RouteResult>();
+    const poll = vi.fn(() => held.promise);
+    const fake = vi.fn(() => ({ status: 200, body: { ok: 1 } }));
+    control = await startControl({
+      token: TOKEN,
+      routes: { wait: vi.fn(), poll, reset: vi.fn(), fake },
+    });
+    const polling = post(control, '/poll');
+    await vi.waitFor(() => {
+      expect(poll).toHaveBeenCalled();
+    });
+    const answer = await fetch(`${control.url}/fake`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ action: 'violations' }),
+    });
+    expect(answer.status).toBe(200);
+    expect(fake).toHaveBeenCalledWith({ action: 'violations' });
+    held.resolve({ status: 200, body: {} });
+    expect((await polling).status).toBe(200);
+  });
+
+  it('passes a poll timeout through, clamps a long one and rejects a bad one', async () => {
+    const asked: unknown[] = [];
+    control = await startControl({
+      token: TOKEN,
+      routes: {
+        wait: vi.fn(),
+        poll: (body) => {
+          asked.push(body);
+          return Promise.resolve({ status: 200, body: {} });
+        },
+        reset: vi.fn(),
+        fake: vi.fn(),
+      },
+    });
+    const poll = (raw: string) =>
+      fetch(`${control?.url ?? ''}/poll`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+        body: raw,
+      });
+    expect((await poll('{}')).status).toBe(200);
+    expect((await poll('{"source":"s","timeoutMs":5}')).status).toBe(200);
+    expect((await poll('{"timeoutMs":10000000}')).status).toBe(200);
+    expect((await poll('{"timeoutMs":-1}')).status).toBe(400);
+    expect((await poll('{"timeoutMs":"5"}')).status).toBe(400);
+    expect(asked).toEqual([{}, { source: 's', timeoutMs: 5 }, { timeoutMs: MAX_WAIT_MS }]);
+  });
+
   it('drops a request whose body is still arriving when close begins', async () => {
     const reset = vi.fn(() => Promise.resolve({ status: 200, body: {} }));
     let reading: () => void = () => undefined;
@@ -193,7 +249,7 @@ describe('control endpoint', () => {
     });
     control = await startControl({
       token: TOKEN,
-      routes: { wait: vi.fn(), poll: vi.fn(), reset },
+      routes: { wait: vi.fn(), poll: vi.fn(), reset, fake: vi.fn() },
       onBodyRead: () => {
         reading();
       },
@@ -244,6 +300,7 @@ describe('control endpoint', () => {
         },
         poll: vi.fn(),
         reset: vi.fn(),
+        fake: vi.fn(),
       },
     });
     const url = new URL(control.url);
@@ -276,6 +333,7 @@ describe('control endpoint', () => {
         wait: vi.fn(),
         poll: vi.fn(),
         reset: () => Promise.resolve({ status: 200, body: { ok: 1 } }),
+        fake: vi.fn(),
       },
     });
     const answer = await callLocal(`${control.url}/reset`, {

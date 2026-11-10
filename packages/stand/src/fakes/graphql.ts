@@ -40,7 +40,7 @@ export interface WireObject {
   readonly [field: string]: Wire;
 }
 
-export interface GraphqlError {
+interface GraphqlError {
   type: 'NOT_FOUND';
   path: (string | number)[];
   message: string;

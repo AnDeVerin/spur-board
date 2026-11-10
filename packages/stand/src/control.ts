@@ -18,8 +18,10 @@ export interface RouteResult {
 export interface ControlRoutes {
   /** Re-reads state until the condition holds or the timeout passes; never queued. */
   wait(body: { condition: string; timeoutMs: number }, signal: AbortSignal): Promise<RouteResult>;
-  poll(body: { source?: string }): Promise<RouteResult>;
+  poll(body: { source?: string; timeoutMs?: number }): Promise<RouteResult>;
   reset(): Promise<RouteResult>;
+  /** Changes or reads the fakes; synchronous and never queued, so it answers beside a hung poll. */
+  fake(body: Record<string, unknown>): RouteResult;
 }
 
 export interface Control {
@@ -76,13 +78,13 @@ async function readJson(request: IncomingMessage): Promise<Record<string, unknow
   return parsed as Record<string, unknown>;
 }
 
-const ROUTES = new Set(['/wait', '/poll', '/reset']);
+const ROUTES = new Set(['/wait', '/poll', '/reset', '/fake']);
 
 /**
  * The stand's control endpoint on 127.0.0.1. Checks, in order: no `Origin` (403), Host exactly
  * `127.0.0.1:<port>` (403), the Bearer token (401), a known route (404), the body size (413) and
  * its arrival time (10 s). `wait` runs at most `MAX_WAIT_MS`.
- * `poll` and `reset` run one at a time through one queue; `wait` runs outside it.
+ * `poll` and `reset` run one at a time through one queue; `wait` and `fake` run outside it.
  */
 export async function startControl(options: {
   token: string;
@@ -153,10 +155,22 @@ export async function startControl(options: {
         waits.signal.removeEventListener('abort', abort);
       }
     } else if (path === '/poll') {
-      const { source } = body;
+      const { source, timeoutMs: asked } = body;
       if (source !== undefined && typeof source !== 'string')
         throw new HttpError(400, 'source must be a string.');
-      result = await queued(() => options.routes.poll(source === undefined ? {} : { source }));
+      if (
+        asked !== undefined &&
+        (typeof asked !== 'number' || !Number.isFinite(asked) || asked < 0)
+      )
+        throw new HttpError(400, 'timeoutMs must be a finite number of milliseconds.');
+      result = await queued(() =>
+        options.routes.poll({
+          ...(source === undefined ? {} : { source }),
+          ...(asked === undefined ? {} : { timeoutMs: Math.min(asked, MAX_WAIT_MS) }),
+        }),
+      );
+    } else if (path === '/fake') {
+      result = options.routes.fake(body);
     } else {
       result = await queued(() => options.routes.reset());
     }

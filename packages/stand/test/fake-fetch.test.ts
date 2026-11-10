@@ -1,5 +1,6 @@
 import { AdapterError } from '@spur-board/contracts';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { fakeBody } from '../src/cli.ts';
 import {
   createFakes,
   FakeViolation,
@@ -268,5 +269,70 @@ describe('release', () => {
     fakes.release();
     const fallback = vi.fn<typeof fetch>(() => Promise.resolve(new Response('real')));
     expect(await (await fakes.wrap(fallback)(REST)).text()).toBe('real');
+  });
+});
+
+describe('fakeBody', () => {
+  const pr = { system: 'github', action: 'pr', repo: BOARD, number: 7 };
+  const fail = (failure: Record<string, unknown>) => ({
+    system: 'github',
+    action: 'fail',
+    failure,
+  });
+  const SHA = 'b'.repeat(40);
+
+  it.each<[string[], Record<string, string>, Record<string, unknown>]>([
+    [['violations'], {}, { action: 'violations' }],
+    [['github', 'fail', 'delay', '250'], {}, fail({ mode: 'delay', ms: 250 })],
+    [['github', 'fail', 'refuse'], {}, fail({ mode: 'refuse' })],
+    [['github', 'fail', 'hang'], {}, fail({ mode: 'hang' })],
+    [['github', 'fail', 'rate-limit', '30'], {}, fail({ mode: 'rate-limit', seconds: 30 })],
+    [['github', 'fail', 'server-error'], {}, fail({ mode: 'server-error' })],
+    [['github', 'fail', 'server-error', '503'], {}, fail({ mode: 'server-error', status: 503 })],
+    [['github', 'fail', 'clear'], {}, fail({ mode: 'clear' })],
+    [['github', 'pr', '7', 'create'], {}, { ...pr, verb: 'create' }],
+    [
+      ['github', 'pr', '7', 'create'],
+      { repo: 'stand-org/service', seed: '{"title":"t"}' },
+      { ...pr, repo: 'stand-org/service', verb: 'create', seed: { title: 't' } },
+    ],
+    [['github', 'pr', '7', 'approve'], {}, { ...pr, verb: 'approve' }],
+    [['github', 'pr', '7', 'ci-red'], {}, { ...pr, verb: 'ci-red' }],
+    [['github', 'pr', '7', 'ci-green'], {}, { ...pr, verb: 'ci-green' }],
+    [['github', 'pr', '7', 'merge'], {}, { ...pr, verb: 'merge' }],
+    [['github', 'pr', '7', 'conflict'], {}, { ...pr, verb: 'conflict' }],
+    [['github', 'pr', '7', 'push', SHA], {}, { ...pr, verb: 'push', sha: SHA }],
+  ])('maps %j %j', (positionals, values, expected) => {
+    expect(fakeBody(positionals, values)).toEqual(expected);
+  });
+
+  it.each<[string[], Record<string, string>?]>([
+    [[]],
+    [['nope']],
+    [['violations', 'extra']],
+    [['violations'], { repo: BOARD }],
+    [['github']],
+    [['github', 'fail']],
+    [['github', 'fail', 'nope']],
+    [['github', 'fail', 'delay']],
+    [['github', 'fail', 'delay', 'soon']],
+    [['github', 'fail', 'delay', '1', '2']],
+    [['github', 'fail', 'rate-limit']],
+    [['github', 'fail', 'refuse', '1']],
+    [['github', 'fail', 'hang', '1']],
+    [['github', 'fail', 'clear', '1']],
+    [['github', 'fail', 'server-error', '500', '1']],
+    [['github', 'fail', 'hang'], { seed: '{}' }],
+    [['github', 'pr']],
+    [['github', 'pr', 'x', 'create']],
+    [['github', 'pr', '7']],
+    [['github', 'pr', '7', 'nope']],
+    [['github', 'pr', '7', 'create', 'extra']],
+    [['github', 'pr', '7', 'push']],
+    [['github', 'pr', '7', 'push', SHA, 'extra']],
+    [['github', 'pr', '7', 'approve'], { seed: '{}' }],
+    [['github', 'pr', '7', 'create'], { seed: 'not json' }],
+  ])('rejects %j %j', (positionals, values = {}) => {
+    expect(() => fakeBody(positionals, values)).toThrow();
   });
 });

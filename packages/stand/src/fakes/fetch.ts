@@ -14,7 +14,7 @@ export interface FakeRequest {
   signal: AbortSignal | undefined;
 }
 
-export interface FakeAnswer {
+interface FakeAnswer {
   status: number;
   body: unknown;
   headers?: Record<string, string>;
