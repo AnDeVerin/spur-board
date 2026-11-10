@@ -13,8 +13,8 @@ Pick the lowest layer that can fail for the bug you guard against. Projects are 
   `startInProcessDaemon` from `@spur-board/daemon/in-process`. Await its `teardown`, not
   `exited`, before removing a home: `exited` can settle while the store and lock are still held.
 - `process` - tests that spawn a real process (`scripts/hooks.test.ts`,
-  `packages/daemon/test/main.test.ts`, `packages/daemon/test/single-instance.test.ts`); a 30 s
-  timeout. Add a file here only when the behaviour lives in the OS process: signals, locks, exit.
+  `packages/daemon/test/main.test.ts`, `packages/daemon/test/single-instance.test.ts`,
+  `packages/stand/test/fake-cli.test.ts`); a 30 s timeout. Add a file here only when the behaviour lives in the OS process: signals, locks, exit.
   List it in both the `process` include and the `unit` exclude in `vitest.config.ts`, or it runs
   in both projects.
 - `startup` - `packages/cli/test/startup.test.ts` only.
@@ -36,6 +36,8 @@ Pick the lowest layer that can fail for the bug you guard against. Projects are 
 - Gateways: `createFakeGateway` from `@spur-board/gateway-testkit`
   (`packages/gateway-testkit/src/fake.ts`); shared inbound and outbound cases from
   `@spur-board/gateway-testkit/cases` (`packages/gateway-testkit/src/cases.ts`).
+- Stand: `createFakes` (`packages/stand/src/fakes/fetch.ts`) answers the real adapters. A GitHub
+  GraphQL query change must update `KNOWN_DOCUMENTS` in `packages/stand/src/fakes/github-pr.ts`.
 - Builders: there is no shared test-data builder yet. Inline the data while one test needs it;
   when a second test needs the same shape, move a builder into `packages/<x>/test/`.
 
