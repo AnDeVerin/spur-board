@@ -2,6 +2,7 @@ import { startAdapters, type AdapterRunner, type StartAdaptersOptions } from '@s
 import { BOARD_TICK_MS } from '@spur-board/contracts';
 import { createObservationCore, tickBoard, type Store } from '@spur-board/core';
 import type { ModuleContext, ModuleEntry } from './lifecycle.ts';
+import { createJob } from './scheduler.ts';
 
 interface BoardModuleOptions {
   /** Test seams preserve the real core and lifecycle behavior. */
@@ -26,52 +27,28 @@ export function createBoardModules(
       config: coreCtx.config,
       clock: coreCtx.clock,
     });
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  let active: Promise<void> = Promise.resolve();
-  let stopped = false;
-  let signal: AbortSignal | undefined;
   const tick = options.tick ?? tickBoard;
-  const schedule = (): void => {
-    if (stopped || signal?.aborted) return;
-    timer = setTimeout(() => {
-      timer = undefined;
-      runTick();
-    }, BOARD_TICK_MS);
-  };
-  const runTick = (): void => {
-    if (stopped || signal?.aborted) return;
-    active = Promise.resolve()
-      .then(() =>
-        tick({
-          store: coreCtx.store,
-          config: coreCtx.config,
-          clock: coreCtx.clock,
-          completeSince: core.completeSince,
-        }),
-      )
-      .then(() => options.onTick?.())
-      .catch((err: unknown) => {
-        coreCtx.log.error({ err }, 'board tick failed');
-      })
-      .finally(schedule);
-  };
+  const boardCore = createJob({
+    run: async () => {
+      await tick({
+        store: coreCtx.store,
+        config: coreCtx.config,
+        clock: coreCtx.clock,
+        completeSince: core.completeSince,
+      });
+      options.onTick?.();
+    },
+    intervalMs: BOARD_TICK_MS,
+    onError: (err) => {
+      coreCtx.log.error({ err }, 'board tick failed');
+    },
+  });
   let runner: AdapterRunner | undefined;
   return [
     {
       name: 'board-core',
       stopStage: 'final',
-      module: {
-        start(startSignal) {
-          signal = startSignal;
-          runTick();
-          return Promise.resolve();
-        },
-        async stop() {
-          stopped = true;
-          if (timer !== undefined) clearTimeout(timer);
-          await active;
-        },
-      },
+      module: boardCore,
     },
     {
       name: 'board-adapters',

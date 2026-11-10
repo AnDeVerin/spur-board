@@ -2,10 +2,10 @@ import type { ServerResponse } from 'node:http';
 import { startAdapters } from '@spur-board/adapters';
 import type { Gateway } from '@spur-board/contracts';
 import {
-  commandRetention,
   createObservationCore,
   createOperationRegistry,
   firstPollDone,
+  purgeExpiredCommands,
   tickBoard,
   type SpurPort,
   type Store,
@@ -16,7 +16,10 @@ import { createHttpModule } from './http-module.ts';
 import { createInboundModule } from './inbound-module.ts';
 import type { ModuleContext, ModuleEntry } from './lifecycle.ts';
 import { createOutboxModule, slackSettings } from './outbox-module.ts';
+import { createJob } from './scheduler.ts';
 import { createSystemdModule, createSystemdNotifier, type NotifySend } from './systemd.ts';
+
+const DAY_MS = 86_400_000;
 
 export interface DaemonModulePorts {
   productVersion?: string;
@@ -66,10 +69,16 @@ export function createDaemonModules(
     {
       name: 'commands',
       stopStage: 'final',
-      module: commandRetention({
-        store: commands.store,
-        clock: commands.clock,
-        retentionDays: commands.config.commands.retentionDays,
+      // A failed first purge rejects start; a failed daily purge is logged.
+      module: createJob({
+        run: () =>
+          purgeExpiredCommands(
+            commands.store,
+            commands.clock,
+            commands.config.commands.retentionDays,
+          ),
+        intervalMs: DAY_MS,
+        first: 'await',
         onError: (err) => {
           commands.log.error({ err }, 'command purge failed');
         },
