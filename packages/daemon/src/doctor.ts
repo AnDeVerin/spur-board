@@ -6,7 +6,7 @@ import { spurErrorText, spurSendRequest } from './spur-port.ts';
 
 type DoctorReport = Awaited<ReturnType<NonNullable<ApiOptions['doctor']>>>;
 type Check = DoctorReport['checks'][number];
-const TIMEOUT_MS = 5_000;
+const DEADLINE_MS = 5_000;
 const SPUR_PROBE_SESSION = 'spur-board-doctor-probe';
 const SPUR_SEND_UNREACHABLE_FIX =
   'Start Spur or correct adapters.spur.baseUrl in config.yaml, then restart the service; the daemon sends doorbells to that Spur API.';
@@ -60,10 +60,11 @@ function scopedGithubError(value: unknown): string | null {
   return null;
 }
 
-// Runs `call` under logCall with a TIMEOUT_MS deadline that also aborts its signal; any failure
+// Runs `call` under logCall with a `deadlineMs` deadline that also aborts its signal; any failure
 // is logged as `failure`, so no vendor text reaches the log, and returns null.
 async function deadlineCall<T>(
   ctx: ModuleContext<Store>,
+  deadlineMs: number,
   name: string,
   failure: string,
   call: (signal: AbortSignal) => Promise<T>,
@@ -71,7 +72,7 @@ async function deadlineCall<T>(
   const controller = new AbortController();
   const deadline = setTimeout(() => {
     controller.abort();
-  }, TIMEOUT_MS);
+  }, deadlineMs);
   const aborted = new Promise<never>((_resolve, reject) => {
     controller.signal.addEventListener(
       'abort',
@@ -99,24 +100,31 @@ async function deadlineCall<T>(
 async function githubGraphql(
   ctx: ModuleContext<Store>,
   fetcher: typeof fetch,
+  deadlineMs: number,
   token: string,
   repo: string,
 ): Promise<{ response: Response; body: unknown } | null> {
   const [owner, name] = repo.split('/');
   if (!owner || !name) return null;
-  return deadlineCall(ctx, 'doctor.github', 'GitHub doctor probe failed', async (signal) => {
-    const response = await fetcher('https://api.github.com/graphql', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: 'application/vnd.github+json',
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ query: GITHUB_PROBE, variables: { owner, repo: name } }),
-      signal,
-    });
-    return { response, body: response.ok ? ((await response.json()) as unknown) : null };
-  });
+  return deadlineCall(
+    ctx,
+    deadlineMs,
+    'doctor.github',
+    'GitHub doctor probe failed',
+    async (signal) => {
+      const response = await fetcher('https://api.github.com/graphql', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: 'application/vnd.github+json',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ query: GITHUB_PROBE, variables: { owner, repo: name } }),
+        signal,
+      });
+      return { response, body: response.ok ? ((await response.json()) as unknown) : null };
+    },
+  );
 }
 
 type Project = Config['projects'][number];
@@ -136,11 +144,12 @@ const LINK_RULES_TOKEN_FIX =
 function sampleProject(
   ctx: ModuleContext<Store>,
   fetcher: typeof fetch,
+  deadlineMs: number,
   token: string,
   project: Project,
   repo: string,
 ): Promise<LinkSample | null> {
-  return deadlineCall(ctx, 'doctor.link_rules', 'GitHub link sample failed', (signal) =>
+  return deadlineCall(ctx, deadlineMs, 'doctor.link_rules', 'GitHub link sample failed', (signal) =>
     sampleLinkRules(
       { repo, login: project.operatorGithubLogin, tracker: project.tracker, link: project.link },
       { token, fetch: fetcher, signal },
@@ -151,6 +160,7 @@ function sampleProject(
 function sampleLinks(
   ctx: ModuleContext<Store>,
   fetcher: typeof fetch,
+  deadlineMs: number,
   token: string | undefined,
 ): Promise<LinkOutcome[]> | null {
   // A github-issues project links PRs in tracker.repo; a Jira project in every repos entry.
@@ -164,7 +174,12 @@ function sampleLinks(
     projects.map(async ({ project, repo }): Promise<LinkOutcome> => {
       const polled = project.repos.some((entry) => entry.toLowerCase() === repo.toLowerCase());
       return polled
-        ? { project, repo, polled, sample: await sampleProject(ctx, fetcher, token, project, repo) }
+        ? {
+            project,
+            repo,
+            polled,
+            sample: await sampleProject(ctx, fetcher, deadlineMs, token, project, repo),
+          }
         : { project, repo, polled };
     }),
   );
@@ -261,13 +276,14 @@ function warning(id: string, fix: string): Check {
 async function request(
   ctx: ModuleContext<Store>,
   fetcher: typeof fetch,
+  deadlineMs: number,
   id: string,
   url: string | URL,
   init: RequestInit = {},
 ): Promise<Response | null> {
   try {
     return await ctx.logCall(`doctor.${id}`, () =>
-      fetcher(url, { ...init, signal: AbortSignal.timeout(TIMEOUT_MS) }),
+      fetcher(url, { ...init, signal: AbortSignal.timeout(deadlineMs) }),
     );
   } catch {
     return null;
@@ -307,6 +323,7 @@ export async function runDaemonDoctor(
   ctx: ModuleContext<Store>,
   productVersion: string,
   fetcher: typeof fetch = fetch,
+  { deadlineMs = DEADLINE_MS }: { deadlineMs?: number } = {},
 ): Promise<DoctorReport> {
   const { config, secrets } = ctx;
   const checks: Check[] = [];
@@ -317,7 +334,7 @@ export async function runDaemonDoctor(
     config.slack.channels.feed || config.slack.channels.orchestrators,
   );
   // Started first so the link samples run alongside the credential probes.
-  const linkSamples = sampleLinks(ctx, fetcher, secrets['GITHUB_TOKEN']);
+  const linkSamples = sampleLinks(ctx, fetcher, deadlineMs, secrets['GITHUB_TOKEN']);
   const required = requiredSecretKeys(config);
   const missing = required.filter((name) => !secrets[name]);
   checks.push(
@@ -336,7 +353,7 @@ export async function runDaemonDoctor(
     const results = await Promise.all(
       jiraTrackers.map(async (tracker) => {
         const url = new URL('/rest/api/3/myself', tracker.baseUrl);
-        const response = await request(ctx, fetcher, 'jira', url, {
+        const response = await request(ctx, fetcher, deadlineMs, 'jira', url, {
           headers: { Authorization: `Basic ${credentials}`, Accept: 'application/json' },
         });
         return response?.ok === true;
@@ -358,6 +375,7 @@ export async function runDaemonDoctor(
             const response = await request(
               ctx,
               fetcher,
+              deadlineMs,
               'github',
               `https://api.github.com/repos/${repo}`,
               {
@@ -368,7 +386,7 @@ export async function runDaemonDoctor(
               },
             );
             if (response?.ok !== true) return GITHUB_FIX;
-            const probe = await githubGraphql(ctx, fetcher, githubToken, repo);
+            const probe = await githubGraphql(ctx, fetcher, deadlineMs, githubToken, repo);
             if (probe?.response.ok !== true) return GITHUB_FIX;
             const payload = object(probe.body);
             const errors = payload?.['errors'];
@@ -406,10 +424,11 @@ export async function runDaemonDoctor(
     request(
       ctx,
       fetcher,
+      deadlineMs,
       'spur',
       new URL('sessions', `${config.adapters.spur.baseUrl.replace(/\/$/, '')}/`),
     ),
-    request(ctx, fetcher, 'spur.send', probe.url, probe.init),
+    request(ctx, fetcher, deadlineMs, 'spur.send', probe.url, probe.init),
   ]);
   checks.push(check('spur.api', spur?.ok === true, 'Start or correct the configured Spur API.'));
   const spurSendOk =
@@ -434,7 +453,7 @@ export async function runDaemonDoctor(
     const slackApi = secrets['SLACK_API_URL'] || 'https://slack.com/api/';
     const slackBase = `${slackApi.replace(/\/$/, '')}/`;
     const auth = botToken
-      ? await request(ctx, fetcher, 'slack.auth', new URL('auth.test', slackBase), {
+      ? await request(ctx, fetcher, deadlineMs, 'slack.auth', new URL('auth.test', slackBase), {
           method: 'POST',
           headers: slackHeaders,
         })
@@ -466,6 +485,7 @@ export async function runDaemonDoctor(
           ? await request(
               ctx,
               fetcher,
+              deadlineMs,
               id,
               new URL(`conversations.info?channel=${encodeURIComponent(channel)}`, slackBase),
               { headers: slackHeaders },
@@ -488,6 +508,7 @@ export async function runDaemonDoctor(
       const response = await request(
         ctx,
         fetcher,
+        deadlineMs,
         'slack.command',
         new URL('apps.manifest.export', slackBase),
         {
