@@ -188,7 +188,7 @@ it('observes a batch, ticks every 60 seconds, and stops pollers before an active
 });
 
 it('moves Spur observation times and the Slack recovery window with one shifted clock', async () => {
-  // A sub-second clock: the fake Slack API puts its sequence in the sub-millisecond digits of ts.
+  // A sub-second clock: the fake Slack API stamps that exact millisecond, not the whole second.
   let t = Date.parse('2031-01-01T00:00:00.500Z');
   const clock = { now: () => t };
   const store = openStore(join(mkdtempSync(join(tmpdir(), 'board-daemon-')), 'board.db'));
@@ -270,7 +270,7 @@ it('moves Spur observation times and the Slack recovery window with one shifted 
       const recovered: InboundEvent[] = [];
       for await (const event of gateway.recover({
         conversations: [{ ref: conversation }],
-        since: new Date(t - 60_000),
+        since: new Date(t),
       })) {
         recovered.push(event);
       }
@@ -298,10 +298,10 @@ it('moves Spur observation times and the Slack recovery window with one shifted 
       );
     }
     expect(first.replies.find((event) => event.message === first.reply)?.at).toBe(
-      new Date(Math.floor(t1 / 1000) * 1000).toISOString(),
+      new Date(t1).toISOString(),
     );
     expect(second.replies.find((event) => event.message === second.reply)?.at).toBe(
-      new Date(Math.floor(t2 / 1000) * 1000).toISOString(),
+      new Date(t2).toISOString(),
     );
     expect(second.replies.some((event) => event.message === first.reply)).toBe(false);
   } finally {

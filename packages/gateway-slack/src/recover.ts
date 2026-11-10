@@ -15,9 +15,20 @@ function string(value: unknown): string | undefined {
   return typeof value === 'string' ? value : undefined;
 }
 
+/** Milliseconds of a Slack ts, read from its digits so float error cannot shift the millisecond. */
+function tsMillis(ts: string): number {
+  const [seconds = '', fraction = ''] = ts.split('.');
+  if (!/^\d+$/.test(seconds) || !/^\d*$/.test(fraction)) return Number.NaN;
+  return Number(seconds) * 1000 + Number(fraction.padEnd(3, '0').slice(0, 3));
+}
+
+/**
+ * The bounds are clock readings in whole milliseconds, so a message counts by its millisecond:
+ * one posted later within the millisecond `until` was read in is still inside the window.
+ */
 function inInterval(ts: string | undefined, from: number, until: number): boolean {
   if (ts === undefined) return false;
-  const at = Number(ts) * 1000;
+  const at = tsMillis(ts);
   return Number.isFinite(at) && at >= from && at <= until;
 }
 

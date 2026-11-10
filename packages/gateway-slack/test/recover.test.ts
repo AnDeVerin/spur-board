@@ -257,8 +257,9 @@ describe('Slack thread recovery', () => {
   });
 
   it('stamps fake messages and bounds recovery with the injected clock', async () => {
-    // A sub-second clock: the fake puts its sequence in the sub-millisecond digits of ts.
-    let t = Date.parse('2031-01-01T00:00:00.500Z');
+    // Frozen on a whole second, and every scan starts at that same instant: a reply posted
+    // while the clock stands still must stay recoverable.
+    let t = Date.parse('2031-01-01T00:00:00.000Z');
     const clock = () => t;
     const fake = await startFakeSlackApi({ now: clock });
     try {
@@ -291,7 +292,7 @@ describe('Slack thread recovery', () => {
         author,
         text: 'first',
       });
-      const firstRound = await recoverSince(new Date(t - 60_000));
+      const firstRound = await recoverSince(new Date(t));
       expect(firstRound.find((event) => event.message === first.message)?.at).toBe(
         '2031-01-01T00:00:00.000Z',
       );
@@ -303,7 +304,7 @@ describe('Slack thread recovery', () => {
         author,
         text: 'second',
       });
-      const secondRound = await recoverSince(new Date(t - 60_000));
+      const secondRound = await recoverSince(new Date(t));
       expect(secondRound.find((event) => event.message === second.message)?.at).toBe(
         '2031-01-01T01:00:00.000Z',
       );
