@@ -273,6 +273,36 @@ export interface Stand {
 }
 
 /**
+ * Stops `stand` on request, but gives up waiting `ms` after the first request: a process that
+ * must end (the foreground CLI) then exits 1 even if a module stop hangs. In-process callers keep
+ * waiting on `stand.exited` itself.
+ */
+export function boundedStop(
+  stand: Pick<Stand, 'stop' | 'exited'>,
+  ms: number,
+  onTimeout: () => void,
+): { request(): void; exited: Promise<number> } {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let giveUp: (code: number) => void = () => undefined;
+  const timedOut = new Promise<number>((resolve) => {
+    giveUp = resolve;
+  });
+  const exited = Promise.race([stand.exited, timedOut]).finally(() => {
+    clearTimeout(timer);
+  });
+  return {
+    request() {
+      void stand.stop();
+      timer ??= setTimeout(() => {
+        onTimeout();
+        giveUp(1);
+      }, ms);
+    },
+    exited,
+  };
+}
+
+/**
  * Starts a stand: an in-process daemon on a generated home with dummy secrets, the loopback-only
  * network guard and a control endpoint. Every refusal happens before anything is created.
  */

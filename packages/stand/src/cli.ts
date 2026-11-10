@@ -38,7 +38,7 @@ import {
   TRUSTED_PATH,
   type StandRole,
 } from './roles.ts';
-import { startStand, WAIT_CONDITIONS } from './stand.ts';
+import { boundedStop, startStand, WAIT_CONDITIONS } from './stand.ts';
 
 const SELF = fileURLToPath(import.meta.url);
 // Read as soon as this module runs: a parent that exits while the stand starts must still stop
@@ -46,6 +46,8 @@ const SELF = fileURLToPath(import.meta.url);
 const STARTUP_PARENT = process.ppid;
 const UP_TIMEOUT_MS = 30_000;
 const DOWN_TIMEOUT_MS = 15_000;
+/** Below DOWN_TIMEOUT_MS, so a hung foreground stand exits before `down` escalates to SIGKILL. */
+const STOP_TIMEOUT_MS = 10_000;
 const PARENT_CHECK_MS = 1_000;
 const WAIT_DEFAULT_S = 30;
 const WAIT_MAX_S = 600;
@@ -176,18 +178,22 @@ async function upForeground(options: {
       process.on('unhandledRejection', handler);
     },
   });
+  // This process must end: a module stop that hangs past the bound makes it exit 1.
+  const stopping = boundedStop(stand, STOP_TIMEOUT_MS, () => {
+    err(`The stand did not stop within ${String(STOP_TIMEOUT_MS / 1_000)} s; exiting.\n`);
+  });
   for (const signal of ['SIGTERM', 'SIGINT', 'SIGHUP'] as const)
     process.on(signal, () => {
-      void stand.stop();
+      stopping.request();
     });
   if (!options.detached) {
-    if (parentGone()) void stand.stop();
+    if (parentGone()) stopping.request();
     setInterval(() => {
-      if (parentGone()) void stand.stop();
+      if (parentGone()) stopping.request();
     }, PARENT_CHECK_MS).unref();
   }
   out(`${JSON.stringify(publicView(stand.manifest()))}\n`);
-  return stand.exited;
+  return stopping.exited;
 }
 
 async function up(port: number): Promise<number> {
