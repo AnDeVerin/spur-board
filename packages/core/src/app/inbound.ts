@@ -1,18 +1,17 @@
 import { scanTransaction } from './secrets.ts';
 import { createHash } from 'node:crypto';
 import {
-  EVENT_VERSION,
   ERRORS,
   OPERATIONS,
   RESERVED_PROJECT,
   conversationRefSchema,
-  eventPayloadSchemas,
   inboundEventSchema,
-  parseActorId,
   messageRefSchema,
+  parseActorId,
   type ActorId,
   type Config,
   type EventKind,
+  type EventPayload,
   type Gateway,
   type InboundEvent,
   type OperationId,
@@ -28,6 +27,7 @@ import {
 import { toJson } from '../store/json.ts';
 import type { Row, Tables } from '../store/schema.ts';
 import type { Store } from '../store/store.ts';
+import { emit, withCommandKey } from './board-utils.ts';
 import { editInboundComment, recordInboundBlockMessage } from './blocks.ts';
 import { registerAnswerNotification, selectNotificationRecipient } from './doorbells.ts';
 import { replayOperation } from './commands.ts';
@@ -83,23 +83,15 @@ async function journal(
     at: string;
   },
 ): Promise<void> {
-  const actor = parseActorId(input.actor);
-  if (actor === null) throw new Error('Invalid journal actor');
-  const schema = eventPayloadSchemas[input.kind];
-  await trx
-    .insertInto('event')
-    .values({
-      at: input.at,
-      project: input.project,
-      task_id: input.taskId,
-      kind: input.kind,
-      actor: actor.actor,
-      actor_ref: actor.actor === 'agent' ? JSON.stringify(actor.actorRef) : null,
-      payload: toJson(z.unknown(), schema.parse(input.payload)),
-      v: EVENT_VERSION,
-      request_id: null,
-    })
-    .execute();
+  await emit(
+    trx,
+    input.kind,
+    input.project,
+    input.taskId,
+    input.at,
+    input.payload as EventPayload<EventKind>,
+    input.actor,
+  );
 }
 
 async function taskContext(
@@ -656,30 +648,32 @@ export function createInbound(input: {
   }
 
   async function recordFailure(event: UserEvent, error: unknown, at: string): Promise<void> {
-    await scanTransaction(store, config, async (trx) => {
-      const context = await taskContext(trx, event, gateway.kind);
-      await journal(trx, {
-        kind: 'inbound_failed',
-        payload: {
-          gateway: gateway.kind,
-          reason: error instanceof Error ? error.message : String(error),
-          normalizedEvent: event,
-        },
-        actor: 'system',
-        taskId: context.taskId,
-        project: context.project ?? RESERVED_PROJECT,
-        at,
-      });
-      await raiseInboundItem(trx, {
-        sourceKey: `inbound:failure:${event.dedupeKey}`,
-        title: 'Slack message not processed',
-        sourceUrl: event.sourceUrl,
-        event,
-        taskId: context.taskId,
-        at,
-        retry: true,
-      });
-    });
+    await withCommandKey(event.dedupeKey, () =>
+      scanTransaction(store, config, async (trx) => {
+        const context = await taskContext(trx, event, gateway.kind);
+        await journal(trx, {
+          kind: 'inbound_failed',
+          payload: {
+            gateway: gateway.kind,
+            reason: error instanceof Error ? error.message : String(error),
+            normalizedEvent: event,
+          },
+          actor: 'system',
+          taskId: context.taskId,
+          project: context.project ?? RESERVED_PROJECT,
+          at,
+        });
+        await raiseInboundItem(trx, {
+          sourceKey: `inbound:failure:${event.dedupeKey}`,
+          title: 'Slack message not processed',
+          sourceUrl: event.sourceUrl,
+          event,
+          taskId: context.taskId,
+          at,
+          retry: true,
+        });
+      }),
+    );
   }
 
   async function dispatchInteraction(event: Extract<UserEvent, { kind: 'command' | 'action' }>) {

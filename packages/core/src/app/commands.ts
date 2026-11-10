@@ -12,6 +12,7 @@ import { z } from 'zod';
 import { parseJson, toJson } from '../store/json.ts';
 import type { Tables } from '../store/schema.ts';
 import type { Store } from '../store/store.ts';
+import { withCommandKey } from './board-utils.ts';
 import { authorize, type ResolvedTarget } from './authorize.ts';
 import { writeDeniedEvent } from './denied-event.ts';
 
@@ -106,7 +107,7 @@ export async function replayOperation<Output extends z.ZodType>(
     }
     return parseJson(input.output, row.result);
   }
-  const value = await input.run();
+  const value = await withCommandKey(input.key, input.run);
   if (value === undefined) return undefined;
   const resultText = toJson(input.output, value);
   await trx

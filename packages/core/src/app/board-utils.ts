@@ -7,6 +7,7 @@ import {
   type EventKind,
   type EventPayload,
 } from '@spur-board/contracts';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import type { Kysely, Selectable } from 'kysely';
 import { toJson } from '../store/json.ts';
 import type { LinkTable, Tables, TaskTable } from '../store/schema.ts';
@@ -65,6 +66,20 @@ export function taskUrl(task: Task, config: Config): string {
   return `https://github.com/${task.key.replace('#', '/issues/')}`;
 }
 
+const commandKeys = new AsyncLocalStorage<string>();
+
+/**
+ * Runs fn in the scope of one command: every event `emit` writes inside it carries `key` in
+ * `request_id`. The innermost scope wins. Run only `trx` work inside it. Never trigger a job or
+ * start detached work (timers, unawaited promises) in the scope: async context propagates into
+ * it, and a scheduler job chains its next runs from that context, so a leaked `trigger()` would
+ * stamp this key on every later scheduled run, not just one.
+ */
+export function withCommandKey<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  return commandKeys.run(key, fn);
+}
+
+/** The only writer of the journal; `request_id` is the key of the enclosing command, or null. */
 export async function emit<K extends EventKind>(
   trx: Trx,
   kind: K,
@@ -87,7 +102,7 @@ export async function emit<K extends EventKind>(
       actor_ref: parsed.actor === 'agent' ? JSON.stringify(parsed.actorRef) : null,
       payload: toJson(eventPayloadSchemas[kind], payload),
       v: EVENT_VERSION,
-      request_id: null,
+      request_id: commandKeys.getStore() ?? null,
     })
     .execute();
 }

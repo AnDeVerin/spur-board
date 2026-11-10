@@ -70,6 +70,13 @@ const sqliteImportOptions = {
   patterns: [{ group: ['better-sqlite3/*'], message: sqliteMessage }],
 };
 
+// One journal writer: `emit` fills `request_id` from the command scope, so no other module
+// inserts into the `event` table.
+const journalInsertBan = {
+  selector: "CallExpression[callee.property.name='insertInto'][arguments.0.value='event']",
+  message: 'Write journal events only through emit in packages/core/src/app/board-utils.ts.',
+};
+
 // Adapters reach core through the runner's port, and each adapter folder stays on its own;
 // only `github/client` is shared. Same-rule options replace earlier ones, so every adapters
 // block restates the SQLite ban.
@@ -213,6 +220,12 @@ export default defineConfig(
     rules: {
       'no-restricted-syntax': ['error', sqliteImportBan, sqliteTypeImportBan, ...wallTimeBans],
     },
+  },
+  {
+    // No earlier no-restricted-syntax options apply to these sources, so nothing to restate.
+    files: ['packages/core/src/**/*.ts', 'packages/daemon/src/**/*.ts'],
+    ignores: ['packages/core/src/app/board-utils.ts'],
+    rules: { 'no-restricted-syntax': ['error', journalInsertBan] },
   },
   {
     // Same-rule options replace earlier ones, so test files restate the vi.mock ban.

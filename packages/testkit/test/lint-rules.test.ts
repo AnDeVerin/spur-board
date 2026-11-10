@@ -50,6 +50,29 @@ describe('test-file lint rules', () => {
   );
 });
 
+describe('journal insert lint rule', () => {
+  const insert = "export const q = trx.insertInto('event');";
+
+  it.each(['packages/core/src/app/x.ts', 'packages/daemon/src/x.ts'])(
+    'an event insert in %s reports no-restricted-syntax',
+    async (path) => {
+      expect(await textRuleIds(insert, path)).toEqual(['no-restricted-syntax']);
+    },
+    30_000,
+  );
+
+  it.each([
+    ['packages/core/src/app/board-utils.ts', insert],
+    ['packages/core/src/app/x.ts', "export const q = trx.insertInto('task');"],
+  ])(
+    '%s passes %s',
+    async (path, code) => {
+      expect(await textRuleIds(code, path)).toEqual([]);
+    },
+    30_000,
+  );
+});
+
 describe('project id lint rule', () => {
   it.each([
     "export const r = task.project === 'web';",

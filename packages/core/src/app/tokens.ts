@@ -1,16 +1,10 @@
 import { scanTransaction } from './secrets.ts';
 import { createHash } from 'node:crypto';
-import {
-  EVENT_VERSION,
-  RESERVED_PROJECT,
-  eventPayloadSchemas,
-  type Config,
-  type EventKind,
-} from '@spur-board/contracts';
+import { RESERVED_PROJECT, type Config, type EventKind } from '@spur-board/contracts';
 import type { Kysely } from 'kysely';
-import { toJson } from '../store/json.ts';
 import type { OperatorTokenStatus, Row, Tables } from '../store/schema.ts';
 import type { Store } from '../store/store.ts';
+import { emit } from './board-utils.ts';
 import { CommandError, type Mutation } from './commands.ts';
 import { clearItem, raiseItem } from './feed.ts';
 import type { Query } from './queries.ts';
@@ -32,23 +26,17 @@ async function journalToken(
   name: string,
   at: Date,
 ): Promise<void> {
-  await trx
-    .insertInto('event')
-    .values({
-      at: at.toISOString(),
-      project: RESERVED_PROJECT,
-      task_id: null,
-      kind,
-      actor:
-        kind === 'token_approved' || kind === 'token_denied' || kind === 'token_revoked'
-          ? 'operator'
-          : 'system',
-      actor_ref: null,
-      payload: toJson(eventPayloadSchemas[kind], { name }),
-      v: EVENT_VERSION,
-      request_id: null,
-    })
-    .execute();
+  await emit(
+    trx,
+    kind,
+    RESERVED_PROJECT,
+    null,
+    at.toISOString(),
+    { name },
+    kind === 'token_approved' || kind === 'token_denied' || kind === 'token_revoked'
+      ? 'operator'
+      : 'system',
+  );
 }
 
 /** Lapse one pending request: journal it once and clear its approval item. */

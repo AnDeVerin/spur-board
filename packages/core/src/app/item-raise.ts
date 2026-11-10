@@ -1,15 +1,8 @@
 // Operator item raising without the outbox, so the outbox can raise a blocked-post item.
-import {
-  EVENT_VERSION,
-  RESERVED_PROJECT,
-  eventPayloadSchemas,
-  parseActorId,
-  type Action,
-  type ActorId,
-} from '@spur-board/contracts';
+import { RESERVED_PROJECT, type Action, type ActorId } from '@spur-board/contracts';
 import type { Kysely } from 'kysely';
-import { toJson } from '../store/json.ts';
 import type { Row, Tables } from '../store/schema.ts';
+import { emit } from './board-utils.ts';
 
 type Trx = Kysely<Tables>;
 
@@ -25,8 +18,6 @@ export async function journal(
   rule?: string,
   actor: ActorId = 'system',
 ): Promise<void> {
-  const parsed = parseActorId(actor);
-  if (parsed === null) throw new Error('Invalid journal actor');
   const task =
     item.task_id === null
       ? undefined
@@ -35,23 +26,18 @@ export async function journal(
           .select(['project'])
           .where('id', '=', item.task_id)
           .executeTakeFirstOrThrow();
-  await trx
-    .insertInto('event')
-    .values({
-      at: at.toISOString(),
-      project: task?.project ?? RESERVED_PROJECT,
-      task_id: item.task_id,
-      kind,
-      actor: parsed.actor,
-      actor_ref: parsed.actor === 'agent' ? JSON.stringify(parsed.actorRef) : null,
-      payload: toJson(eventPayloadSchemas[kind], {
-        item: `I${String(item.id)}`,
-        ...(kind === 'from_you_raised' && rule !== undefined ? { rule } : {}),
-      }),
-      v: EVENT_VERSION,
-      request_id: null,
-    })
-    .execute();
+  await emit(
+    trx,
+    kind,
+    task?.project ?? RESERVED_PROJECT,
+    item.task_id,
+    at.toISOString(),
+    {
+      item: `I${String(item.id)}`,
+      ...(kind === 'from_you_raised' && rule !== undefined ? { rule } : {}),
+    },
+    actor,
+  );
 }
 
 /** Kinds whose item has a retry action besides `delivery:<id>` (see `items.ts`). */
