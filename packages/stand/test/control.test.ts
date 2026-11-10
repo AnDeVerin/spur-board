@@ -1,6 +1,6 @@
 import { request } from 'node:http';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { startControl, type Control, type RouteResult } from '../src/control.ts';
+import { MAX_WAIT_MS, startControl, type Control, type RouteResult } from '../src/control.ts';
 
 const TOKEN = 'control-token';
 
@@ -152,5 +152,67 @@ describe('control endpoint', () => {
     expect((await running).status).toBe(200);
     await closing;
     expect(closed).toBe(true);
+  });
+
+  it('rejects a non-finite wait timeout and clamps a long one', async () => {
+    const asked: number[] = [];
+    control = await startControl({
+      token: TOKEN,
+      routes: {
+        wait: (body) => {
+          asked.push(body.timeoutMs);
+          return Promise.resolve({ status: 200, body: {} });
+        },
+        poll: vi.fn(),
+        reset: vi.fn(),
+      },
+    });
+    const wait = (raw: string) =>
+      fetch(`${control?.url ?? ''}/wait`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+        body: raw,
+      });
+    expect((await wait('{"condition":"x","timeoutMs":1e309}')).status).toBe(400);
+    expect((await wait('{"condition":"x","timeoutMs":10000000}')).status).toBe(200);
+    expect(asked).toEqual([MAX_WAIT_MS]);
+  });
+
+  it('drops a request whose body is still arriving when close begins', async () => {
+    const reset = vi.fn(() => Promise.resolve({ status: 200, body: {} }));
+    control = await startControl({ token: TOKEN, routes: { wait: vi.fn(), poll: vi.fn(), reset } });
+    const url = new URL(`${control.url}/reset`);
+    let arrived: () => void = () => undefined;
+    const reached = new Promise<void>((resolve) => {
+      arrived = resolve;
+    });
+    const req = request({
+      host: url.hostname,
+      port: url.port,
+      path: url.pathname,
+      method: 'POST',
+      headers: {
+        host: url.host,
+        authorization: `Bearer ${TOKEN}`,
+        'content-type': 'application/json',
+        'content-length': '100',
+      },
+    });
+    const failed = new Promise<unknown>((resolve) => {
+      req.on('error', resolve);
+      req.on('response', (response) => {
+        response.resume();
+        resolve(response.statusCode);
+      });
+    });
+    req.write('{', () => {
+      arrived();
+    });
+    await reached;
+    // Give the server time to parse the headers and start reading the body.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    await control.close();
+    expect(await failed).not.toBe(200);
+    expect(reset).not.toHaveBeenCalled();
   });
 });

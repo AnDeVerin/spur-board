@@ -3,6 +3,10 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import type { AddressInfo } from 'node:net';
 
 const MAX_BODY = 64 * 1024;
+/** A body still arriving after this is dropped, so a slow client cannot hold a route or close. */
+const BODY_TIMEOUT_MS = 10_000;
+/** The longest `wait` the server runs, whatever the request asks. */
+export const MAX_WAIT_MS = 600_000;
 
 export interface RouteResult {
   status: number;
@@ -44,11 +48,18 @@ function send(response: ServerResponse, status: number, body: unknown): void {
 async function readJson(request: IncomingMessage): Promise<Record<string, unknown>> {
   const chunks: Buffer[] = [];
   let size = 0;
-  for await (const chunk of request) {
-    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk));
-    size += buffer.length;
-    if (size > MAX_BODY) throw new HttpError(413, 'The body is over 64 KiB.');
-    chunks.push(buffer);
+  const timer = setTimeout(() => {
+    request.destroy(new HttpError(408, 'The body took too long.'));
+  }, BODY_TIMEOUT_MS);
+  try {
+    for await (const chunk of request) {
+      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk));
+      size += buffer.length;
+      if (size > MAX_BODY) throw new HttpError(413, 'The body is over 64 KiB.');
+      chunks.push(buffer);
+    }
+  } finally {
+    clearTimeout(timer);
   }
   const text = Buffer.concat(chunks).toString('utf8');
   if (text.trim() === '') return {};
@@ -67,7 +78,8 @@ const ROUTES = new Set(['/wait', '/poll', '/reset']);
 
 /**
  * The stand's control endpoint on 127.0.0.1. Checks, in order: no `Origin` (403), Host exactly
- * `127.0.0.1:<port>` (403), the Bearer token (401), a known route (404), the body size (413).
+ * `127.0.0.1:<port>` (403), the Bearer token (401), a known route (404), the body size (413) and
+ * its arrival time (10 s). `wait` runs at most `MAX_WAIT_MS`.
  * `poll` and `reset` run one at a time through one queue; `wait` runs outside it.
  */
 export async function startControl(options: {
@@ -77,7 +89,11 @@ export async function startControl(options: {
   const expected = digest(`Bearer ${options.token}`);
   let tail: Promise<unknown> = Promise.resolve();
   let closing = false;
+  // A function, so a check after an await reads the flag anew.
+  const isClosing = (): boolean => closing;
   const waits = new AbortController();
+  // Requests whose body is still arriving; close drops them.
+  const reading = new Set<IncomingMessage>();
   const queued = (run: () => Promise<RouteResult>): Promise<RouteResult> => {
     const result = tail.then(run);
     tail = result.catch(() => undefined);
@@ -96,12 +112,26 @@ export async function startControl(options: {
       throw new HttpError(401, 'A valid Bearer token is required.');
     const path = request.url ?? '';
     if (request.method !== 'POST' || !ROUTES.has(path)) throw new HttpError(404, 'Unknown route.');
-    const body = await readJson(request);
+    reading.add(request);
+    let body: Record<string, unknown>;
+    try {
+      body = await readJson(request);
+    } finally {
+      reading.delete(request);
+    }
+    // Shutdown may have begun while the body arrived; nothing new runs after it.
+    if (isClosing()) throw new HttpError(503, 'The stand is stopping.');
     let result: RouteResult;
     if (path === '/wait') {
-      const { condition, timeoutMs } = body;
-      if (typeof condition !== 'string' || typeof timeoutMs !== 'number' || timeoutMs < 0)
-        throw new HttpError(400, 'Send { condition, timeoutMs }.');
+      const { condition, timeoutMs: asked } = body;
+      if (
+        typeof condition !== 'string' ||
+        typeof asked !== 'number' ||
+        !Number.isFinite(asked) ||
+        asked < 0
+      )
+        throw new HttpError(400, 'Send { condition, timeoutMs } with a finite timeoutMs.');
+      const timeoutMs = Math.min(asked, MAX_WAIT_MS);
       const aborted = new AbortController();
       const abort = () => {
         aborted.abort();
@@ -155,6 +185,8 @@ export async function startControl(options: {
     close() {
       closed ??= (async () => {
         closing = true;
+        for (const request of reading)
+          request.destroy(new HttpError(503, 'The stand is stopping.'));
         await tail;
         waits.abort();
         await Promise.all([...open]);
