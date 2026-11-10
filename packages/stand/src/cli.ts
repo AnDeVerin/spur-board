@@ -126,6 +126,12 @@ const sleep = (ms: number): Promise<void> =>
     setTimeout(resolve, ms);
   });
 
+/** Removes verified-dead stands under the root and says which. */
+function pruneDead(): void {
+  for (const { dir, result } of prune(root()))
+    if (result === 'removed') err(`removed dead stand ${dir}\n`);
+}
+
 async function upForeground(options: { port: number; home?: string; detached: boolean }) {
   const env = { ...process.env };
   const execArgv = [...process.execArgv];
@@ -133,6 +139,8 @@ async function upForeground(options: { port: number; home?: string; detached: bo
     proxyRefusal({ env, execArgv }) ??
     refusal({ root: root(), port: options.port, env, osHome: homedir() });
   if (refused !== undefined) throw new StandRefusedError(refused);
+  // A detached child was spawned by an `up` that already pruned.
+  if (!options.detached) pruneDead();
   scrubEnv(process.env);
   // The daemon lock spawns flock by name; only trusted directories may provide it.
   process.env['PATH'] = TRUSTED_PATH;
@@ -166,8 +174,7 @@ async function up(port: number): Promise<number> {
   const dir = root();
   const refused = refusal({ root: dir, port, env: process.env, osHome: homedir() });
   if (refused !== undefined) throw new StandRefusedError(refused);
-  for (const { dir: pruned, result } of prune(dir))
-    if (result === 'removed') err(`removed dead stand ${pruned}\n`);
+  pruneDead();
   const home = mkdtempSync(join(dir, STAND_PREFIX));
   mkdirSync(join(home, 'logs'), { mode: 0o700 });
   const logFile = join(home, 'logs', 'stand.log');
