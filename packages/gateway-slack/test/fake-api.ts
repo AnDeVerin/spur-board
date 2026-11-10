@@ -88,9 +88,10 @@ async function readForm(req: IncomingMessage): Promise<URLSearchParams> {
 }
 
 export async function startFakeSlackApi(
-  options: { pageSize?: number } = {},
+  options: { pageSize?: number; now?: () => number } = {},
 ): Promise<FakeSlackApi> {
   const pageSize = options.pageSize ?? 100;
+  const now = options.now ?? (() => Date.now());
   const requests: FakeRequest[] = [];
   const stored: StoredMessage[] = [];
   const done = new Set<string>();
@@ -110,7 +111,7 @@ export async function startFakeSlackApi(
 
   function ts(): string {
     sequence += 1;
-    const seconds = Math.floor(Date.now() / 1000);
+    const seconds = Math.floor(now() / 1000);
     return `${String(seconds)}.${String(sequence).padStart(6, '0')}`;
   }
 

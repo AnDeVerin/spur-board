@@ -46,8 +46,9 @@ export async function* recoverThreads(
   client: WebClient,
   request: RecoverRequest,
   botIdentity: () => Promise<BotIdentity>,
+  now: () => number,
 ): AsyncIterable<InboundEvent> {
-  const until = Date.now();
+  const until = now();
   const from = request.since.getTime();
   if (!Number.isFinite(from) || from > until) return;
   const bot = await botIdentity();
