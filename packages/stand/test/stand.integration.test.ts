@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { createServer } from 'node:net';
 import { request } from 'node:http';
 import {
+  chmodSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
@@ -241,6 +242,33 @@ describe('stand', () => {
     await expect(startStand({ root, home, port: 0, env: {}, osHome })).rejects.toThrow(
       /did not create/,
     );
+  });
+
+  it.each([
+    ['the home', 'home'],
+    ['its logs directory', 'logs'],
+  ])('refuses a passed home when %s is writable by others', async (_name, which) => {
+    const home = mkdtempSync(join(root, 'spur-board-stand.'));
+    mkdirSync(join(home, 'logs'), { mode: 0o700 });
+    chmodSync(which === 'home' ? home : join(home, 'logs'), 0o777);
+    await expect(startStand({ root, home, port: 0, env: {}, osHome })).rejects.toThrow(
+      /did not create/,
+    );
+    expect(readdirSync(join(home, 'logs'))).toEqual([]);
+  });
+
+  it('refuses a passed home that is the live board home', async () => {
+    const home = mkdtempSync(join(root, 'spur-board-stand.'));
+    const error: unknown = await startStand({
+      root,
+      home,
+      port: 0,
+      env: { BOARD_HOME: home },
+      osHome,
+    }).catch((err: unknown) => err);
+    expect(error).toBeInstanceOf(StandRefusedError);
+    expect((error as StandRefusedError).reason).toBe('live_home');
+    expect(readdirSync(home)).toEqual([]);
   });
 
   it('starts on a passed home that holds only its spawn log', async () => {

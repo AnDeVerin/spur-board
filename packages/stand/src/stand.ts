@@ -1,7 +1,9 @@
 import { createHash, randomBytes } from 'node:crypto';
 import {
   closeSync,
+  constants,
   existsSync,
+  fstatSync,
   lstatSync,
   mkdirSync,
   mkdtempSync,
@@ -173,40 +175,74 @@ function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-/**
- * Replaces `file` with a new mode-600 file. `rm` removes a symlink itself and `wx` creates the
- * file exclusively, so no write follows a link.
- */
+/** Create-only, never through a symlink: an existing entry or a link at the path fails the open. */
+const EXCLUSIVE = constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW;
+
+/** Replaces `file` with a new mode-600 file. `rm` removes a symlink itself, never its target. */
 function replaceFile(file: string, text: string): void {
   rmSync(file, { force: true });
-  writeFileSync(file, text, { mode: 0o600, flag: 'wx' });
+  const fd = openSync(file, EXCLUSIVE, 0o600);
+  try {
+    writeFileSync(fd, text);
+  } finally {
+    closeSync(fd);
+  }
 }
 
-/** A real directory or regular file owned by this user, never a symlink. */
-function ownEntry(path: string, kind: 'dir' | 'file'): boolean {
+/**
+ * A real directory owned by this user that no group or other user can write, so no other user
+ * can put an entry into it or swap one of its entries for a link.
+ */
+function privateDir(path: string): boolean {
   const info = lstatSync(path);
   return (
     !info.isSymbolicLink() &&
-    (kind === 'dir' ? info.isDirectory() : info.isFile()) &&
-    info.uid === process.getuid?.()
+    info.isDirectory() &&
+    info.uid === process.getuid?.() &&
+    (info.mode & 0o022) === 0
   );
 }
 
+/** A regular file owned by this user, never a symlink. */
+function ownFile(path: string): boolean {
+  const info = lstatSync(path);
+  return !info.isSymbolicLink() && info.isFile() && info.uid === process.getuid?.();
+}
+
 /**
- * A home `up` created holds nothing but its spawn log, `logs/stand.log`. Anything else means
- * another process prepared it, so the stand refuses it before writing.
+ * A home `up` created is private and holds nothing but its spawn log, `logs/stand.log`, in a
+ * private `logs` directory. Anything else means another process prepared it, so the stand
+ * refuses it before writing.
  */
 function checkFreshHome(home: string): void {
   const entries = readdirSync(home);
   const logs = join(home, 'logs');
   const fresh =
+    privateDir(home) &&
     entries.every((name) => name === 'logs') &&
     (entries.length === 0 ||
-      (ownEntry(logs, 'dir') &&
-        readdirSync(logs).every(
-          (name) => name === 'stand.log' && ownEntry(join(logs, name), 'file'),
-        )));
+      (privateDir(logs) &&
+        readdirSync(logs).every((name) => name === 'stand.log' && ownFile(join(logs, name)))));
   if (!fresh) throw new Error(`${home} holds files the stand did not create; refusing it.`);
+}
+
+/**
+ * Creates `logs/daemon.log` exclusively, which claims the home: a second stand on it fails here.
+ * The open refuses a link, and the file must still be the entry inside the private `logs`.
+ */
+function claimLog(home: string): number {
+  const logs = join(home, 'logs');
+  if (!existsSync(logs)) mkdirSync(logs, { mode: 0o700 });
+  if (!privateDir(logs)) throw new Error(`${logs} is not a private directory; refusing it.`);
+  const file = join(logs, 'daemon.log');
+  const fd = openSync(file, EXCLUSIVE | constants.O_APPEND, 0o600);
+  const opened = fstatSync(fd);
+  const entry = lstatSync(file);
+  if (!privateDir(logs) || opened.ino !== entry.ino || opened.dev !== entry.dev) {
+    closeSync(fd);
+    throw new Error(`${file} changed while it was opened; refusing the home.`);
+  }
+  return fd;
 }
 
 export interface StandOptions {
@@ -251,13 +287,24 @@ export async function startStand(options: StandOptions): Promise<Stand> {
     if (!isStandDir(options.home, root))
       throw new Error(`${options.home} is not a stand directory under ${root}.`);
     home = realpathSync(options.home);
-    checkFreshHome(home);
   }
   // A start that fails removes the home it created; a home the caller passed is the caller's.
   const created = options.home === undefined;
   const discardHome = (): void => {
     if (created) rmSync(home, { recursive: true, force: true });
   };
+  // The root passed the live-home guard, but the home itself may be the live board's home.
+  const homeRefused = refusal({
+    root: home,
+    port: options.port,
+    env: options.env,
+    osHome: options.osHome,
+  });
+  if (homeRefused !== undefined) {
+    discardHome();
+    throw new StandRefusedError(homeRefused);
+  }
+  if (!created) checkFreshHome(home);
   const id = basename(home).slice(STAND_PREFIX.length);
   const paths: Paths = resolvePaths({ BOARD_HOME: home }, options.osHome);
   const tokenPath = join(home, 'token');
@@ -265,9 +312,7 @@ export async function startStand(options: StandOptions): Promise<Stand> {
   const controlToken = randomBytes(32).toString('hex');
   let logFd: number;
   try {
-    if (!existsSync(join(home, 'logs'))) mkdirSync(join(home, 'logs'), { mode: 0o700 });
-    // `ax` creates the log exclusively: it claims the home, and a second stand on it fails here.
-    logFd = openSync(join(home, 'logs', 'daemon.log'), 'ax', 0o600);
+    logFd = claimLog(home);
   } catch (err) {
     discardHome();
     throw err;
