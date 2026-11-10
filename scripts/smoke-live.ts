@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { createInterface } from 'node:readline/promises';
+import { parse } from 'yaml';
 import type { UserId } from '../packages/contracts/src/index.ts';
 import { liveCases, type LiveCaseId } from '../packages/gateway-testkit/src/cases.ts';
 import type { LiveRunReport } from '../packages/gateway-slack/test/live-conformance.ts';
@@ -119,20 +120,20 @@ export async function verifyLiveChannel(
   }
 }
 
+/** The pinned SDK versions from the workspace catalog, which every package installs. */
 function sdkVersions(): { web: string; socket: string } {
-  const raw: unknown = JSON.parse(
-    readFileSync(new URL('../packages/gateway-slack/package.json', import.meta.url), 'utf8'),
+  const raw: unknown = parse(
+    readFileSync(new URL('../pnpm-workspace.yaml', import.meta.url), 'utf8'),
   );
-  if (typeof raw !== 'object' || raw === null || !('dependencies' in raw)) {
+  if (typeof raw !== 'object' || raw === null || !('catalog' in raw)) {
     throw new Error('Slack SDK versions unavailable');
   }
-  const dependencies = raw.dependencies;
-  if (typeof dependencies !== 'object' || dependencies === null) {
+  const catalog = raw.catalog;
+  if (typeof catalog !== 'object' || catalog === null) {
     throw new Error('Slack SDK versions unavailable');
   }
-  const web = '@slack/web-api' in dependencies ? dependencies['@slack/web-api'] : undefined;
-  const socket =
-    '@slack/socket-mode' in dependencies ? dependencies['@slack/socket-mode'] : undefined;
+  const web = '@slack/web-api' in catalog ? catalog['@slack/web-api'] : undefined;
+  const socket = '@slack/socket-mode' in catalog ? catalog['@slack/socket-mode'] : undefined;
   if (typeof web !== 'string' || typeof socket !== 'string') {
     throw new Error('Slack SDK versions unavailable');
   }
