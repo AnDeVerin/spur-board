@@ -182,6 +182,9 @@ export async function runDaemon<S extends { close(): Promise<void> }>(
       code = 1;
     } finally {
       lock.release();
+      // When the exit was already reported (an in-process fatal error), finish is a no-op and
+      // would leave the timer armed to log a timeout after the teardown it measures.
+      clearTimeout(timer);
       finish(code);
     }
   }

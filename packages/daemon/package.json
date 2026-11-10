@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/main.ts"
+    ".": "./src/main.ts",
+    "./in-process": "./src/in-process.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit -p .",

@@ -7,10 +7,7 @@ import { configSchema, userIdSchema } from '@spur-board/contracts';
 import { openStore, type Store } from '@spur-board/core';
 import { createFakeGateway } from '@spur-board/gateway-testkit';
 import { runCli, type CliIo } from '../../cli/src/cli.ts';
-import { createDaemonModules } from '../src/composition.ts';
-import { createInboundModule } from '../src/inbound-module.ts';
-import { runDaemon, type ProcessPort } from '../src/lifecycle.ts';
-import { createOutboxModule } from '../src/outbox-module.ts';
+import { startInProcessDaemon, type InProcessDaemon } from '../src/in-process.ts';
 
 const START = Date.parse('2026-11-04T08:00:00.000Z');
 const TASK_KEY = 'PROJ-123';
@@ -156,81 +153,56 @@ export async function createE2eHarness() {
   }
 
   let store: Store | undefined;
-  let outbox: ReturnType<typeof createOutboxModule> | undefined;
-  let inbound: ReturnType<typeof createInboundModule> | undefined;
+  let outbox: InProcessDaemon['outbox'] | undefined;
+  let inbound: InProcessDaemon['inbound'] | undefined;
   let address: string | undefined;
-  let signal: ((name: string) => void) | undefined;
-  let exited: Promise<number> | undefined;
-  let resolveExit: ((code: number) => void) | undefined;
+  let handle: InProcessDaemon | undefined;
   let crashNext = false;
 
   async function start(): Promise<void> {
-    exited = new Promise<number>((resolve) => {
-      resolveExit = resolve;
-    });
-    const port: ProcessPort = {
-      onSignal(handler) {
-        signal = handler;
-      },
-      onFatal() {},
-      exit(code) {
-        resolveExit?.(code);
-      },
-      writeErr(text) {
-        throw new Error(text);
-      },
-    };
-    await runDaemon<Store>({
+    handle = await startInProcessDaemon({
       paths,
       acquireLock: () => ({ release() {} }),
       loadConfig: () => ({ config, secrets: {} }),
-      openStore: (file) => {
-        store = openStore(file);
-        return store;
+      writeErr(text) {
+        throw new Error(text);
       },
-      modules: (ctxFor) => {
-        const composed = createDaemonModules(ctxFor, {
-          gateway,
-          spur: {
-            send(session, text) {
-              sends.push({ session, text });
-              return Promise.resolve();
-            },
+      ports: {
+        gateway,
+        spur: {
+          send(session, text) {
+            sends.push({ session, text });
+            return Promise.resolve();
           },
-          tick: () => Promise.resolve(),
-          startAdapters: () => ({ stop: () => Promise.resolve() }),
-          sessionFetcher: () => Promise.reject(new Error('unexpected live session lookup')),
-          onListening: (bound) => {
-            address = bound;
-          },
-          afterOperation: (response: ServerResponse) => {
-            if (crashNext) {
-              crashNext = false;
-              response.destroy();
-              signal?.('SIGTERM');
-            }
-          },
-        });
-        inbound = composed.inbound;
-        outbox = composed.outbox;
-        return composed.entries;
+        },
+        tick: () => Promise.resolve(),
+        startAdapters: () => ({ stop: () => Promise.resolve() }),
+        sessionFetcher: () => Promise.reject(new Error('unexpected live session lookup')),
+        afterOperation: (response: ServerResponse) => {
+          if (crashNext) {
+            crashNext = false;
+            response.destroy();
+            void handle?.stop();
+          }
+        },
       },
-      port,
       stdout: { write() {} },
       clock,
       shutdownTimeoutMs: 5_000,
     });
-    if (address === undefined) throw new Error('Daemon did not bind HTTP');
+    store = handle.store;
+    address = handle.address;
+    inbound = handle.inbound;
+    outbox = handle.outbox;
     await gateway.platform.settle();
     await inbound?.awaitRecovery();
   }
 
   async function stop(): Promise<void> {
-    if (signal === undefined || exited === undefined) return;
-    signal('SIGTERM');
-    const code = await exited;
+    if (handle === undefined) return;
+    const code = await handle.stop();
     if (code !== 0) throw new Error(`Daemon stopped with code ${String(code)}`);
-    signal = undefined;
+    handle = undefined;
     outbox = undefined;
     inbound = undefined;
   }
