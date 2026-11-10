@@ -22,8 +22,8 @@ description: Package map, allowed dependencies, PR order, new packages, catalog 
 - Declare every workspace import in the importing package's `package.json` as `workspace:*`.
 - Lint enforces only four edges: adapters import only contracts and
   `packages/adapters/src/runner/`, and adapter folders do not import each other; the CLI imports
-  only contracts; only core and daemon import SQLite; no other package imports the stand. Every other edge is held by `package.json`
-  alone, so check the direction yourself.
+  only contracts; only core and daemon import SQLite; no other package imports the stand. Every
+  other edge is held by `package.json` alone, so check the direction yourself.
 
 ## PR order
 
