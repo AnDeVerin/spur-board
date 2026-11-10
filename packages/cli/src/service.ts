@@ -4,7 +4,7 @@ import { access, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { homedir, userInfo } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { SYSTEMD_SERVICE_SETTINGS } from '@spur-board/contracts';
+import { DEFAULT_HTTP_PORT, SYSTEMD_SERVICE_SETTINGS } from '@spur-board/contracts';
 import { CliError } from './exit-codes.ts';
 import { readConfiguredPort } from './config.ts';
 import { bindLoopback, checkHttpPort } from './port.ts';
@@ -235,7 +235,11 @@ export async function installService(options: ServiceOptions = {}): Promise<{
   const paths = servicePaths(options);
   await preflight(paths);
   const runner = options.runner ?? runCommand;
-  const port = readConfiguredPort(options.env ?? process.env, resolve(options.home ?? homedir()));
+  // Install can run before config.yaml exists; once a config without http.port is written, the
+  // daemon binds DEFAULT_HTTP_PORT, so that is the port to check.
+  const port =
+    readConfiguredPort(options.env ?? process.env, resolve(options.home ?? homedir())) ??
+    DEFAULT_HTTP_PORT;
   const fix = await checkHttpPort(port, {
     bind: options.bind ?? bindLoopback,
     run: runner,

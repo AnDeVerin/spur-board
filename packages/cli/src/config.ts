@@ -10,7 +10,7 @@ import {
 } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { DEFAULT_HTTP_PORT, configSchema } from '@spur-board/contracts';
+import { configSchema } from '@spur-board/contracts';
 import YAML from 'yaml';
 import { CliError } from './exit-codes.ts';
 
@@ -45,8 +45,8 @@ export function dataDirectory(env: NodeJS.ProcessEnv, home: string, cwd = proces
   return join(xdg && isAbsolute(xdg) ? xdg : join(home, '.local', 'share'), 'spur-board');
 }
 
-/** The http.port in config.yaml, or the default when the file is missing or invalid. */
-export function readConfiguredPort(env: NodeJS.ProcessEnv, home: string): number {
+/** The http.port in config.yaml, or undefined when the file is missing or invalid. */
+export function readConfiguredPort(env: NodeJS.ProcessEnv, home: string): number | undefined {
   try {
     const parsed = YAML.parseDocument(readFileSync(configFile(env, home), 'utf8'));
     if (parsed.errors.length === 0) {
@@ -54,9 +54,9 @@ export function readConfiguredPort(env: NodeJS.ProcessEnv, home: string): number
       if (config.success) return config.data.http.port;
     }
   } catch {
-    // The daemon can report the config error; clients still try its default port.
+    // A missing or unreadable file has no port; the caller decides what that means.
   }
-  return DEFAULT_HTTP_PORT;
+  return undefined;
 }
 
 export function resolveDaemonAddress(
@@ -67,10 +67,19 @@ export function resolveDaemonAddress(
   const rawAddress = env['BOARD_DAEMON_URL'];
   if (rawAddress === undefined) {
     const port = configuredPort ?? readConfiguredPort(env, home);
+    if (port === undefined) {
+      // Guessing the default port could reach another board, so nothing is sent.
+      throw new CliError(
+        'config',
+        { environmentVariable: 'BOARD_DAEMON_URL', configPath: configFile(env, home) },
+        undefined,
+        'Set BOARD_DAEMON_URL to the daemon address, or make config.yaml valid and set http.port in it; `board doctor --offline` names what is wrong.',
+      );
+    }
     if (port === 0) {
       throw new CliError(
         'config',
-        undefined,
+        { environmentVariable: 'BOARD_DAEMON_URL', configPath: configFile(env, home) },
         undefined,
         'http.port: 0 assigns a runtime port that clients cannot discover. Set BOARD_DAEMON_URL to the daemon listening address.',
       );
@@ -126,6 +135,21 @@ function tokenInFolder(folder: string, warn: (message: string) => void): string 
   }
 }
 
+/** A `.git` file or directory marks the worktree root; an unreadable entry counts as one. */
+function isWorktreeRoot(folder: string): boolean {
+  try {
+    lstatSync(join(folder, '.git'));
+    return true;
+  } catch (error) {
+    return !(
+      error !== null &&
+      typeof error === 'object' &&
+      'code' in error &&
+      error.code === 'ENOENT'
+    );
+  }
+}
+
 export function findTokenFile(
   cwd: string,
   home: string,
@@ -147,6 +171,7 @@ export function findTokenFile(
     }
     const token = tokenInFolder(folder, warn);
     if (token !== undefined) return token;
+    if (isWorktreeRoot(folder)) break;
     const parent = dirname(folder);
     if (parent === folder) break;
     folder = parent;

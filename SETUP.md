@@ -146,7 +146,9 @@ board token create --name <name> --into <folder>
 ```
 
 Approve the request in Slack before using the token. The CLI looks for the folder's
-`.spur-board/token` while walking upward from the current directory, stopping at home.
+`.spur-board/token` while walking upward from the current directory, stopping at the root of
+the git worktree, or at home outside git. Home itself is never searched, so when home is the
+worktree root, choose a subfolder.
 Register `board mcp` with the operator's agent if it is not already registered.
 
 ## 5. Install skills and verify

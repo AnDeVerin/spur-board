@@ -97,6 +97,9 @@ Start or restart the user service, then rerun `board doctor --json`. If it still
 the service journal. The CLI connects to `http.port` in `config.yaml` (default `4777`) unless
 `BOARD_DAEMON_URL` is set; that variable overrides the configured port. An empty or invalid
 `BOARD_DAEMON_URL`, or `http.port: 0` without the variable, fails before any request is sent.
+Without the variable, a missing, malformed or invalid `config.yaml` also fails with `config`
+before any request: the CLI does not guess the default port. Set `BOARD_DAEMON_URL` to the
+daemon address, or fix `config.yaml` with `board doctor --offline` and set `http.port`.
 
 ### secrets
 
@@ -189,9 +192,14 @@ old Node or package path, run `board service install` again.
 - **4 — configuration:** `config` means a config field, private secret key, or environment
   variable is wrong: correct the named one and retry after validation. An empty `BOARD_TOKEN`
   override fails with `config`. `BOARD_DAEMON_URL` must be a valid HTTP(S) address when set; an
-  empty value fails. Use `board doctor --offline` to check `config.yaml` while the service is
+  empty value fails. Without `BOARD_DAEMON_URL`, a missing, malformed or invalid `config.yaml`
+  fails with `config` and nothing is sent: set the variable, or fix the file and its `http.port`.
+  Use `board doctor --offline` to check `config.yaml` while the service is
   down. `identity_missing` means there is no Spur session, `BOARD_TOKEN` is unset, and the CLI
-  found no `.spur-board/token` walking up from the current folder. Run the command in a Spur
+  found no `.spur-board/token` walking up from the current folder to the root of its git
+  worktree, or to home outside git; home itself is never searched, even as a worktree root. A
+  token above the worktree root or in home is not used: create one in a folder inside the
+  worktree or set `BOARD_TOKEN`. Run the command in a Spur
   session of a project listed in `config.yaml`, or run
   `board token create --name <name> --into <folder>` and approve the request in Slack. An
   operator-only command such as `board token list` needs a Spur project marked `operator` or an

@@ -326,7 +326,26 @@ describe('error representations', () => {
     expect(renderStderrError(input)).not.toContain('agent session');
   });
 
-  it.each(Object.keys(ERRORS).filter((code) => code !== 'version_mismatch'))(
+  it('renders the MCP hint for config only in MCP errors', () => {
+    const spec = ERRORS.config;
+    expect(spec.mcp?.hint).toContain('context.environmentVariable');
+    expect(spec.mcp?.hint).toContain('http.port');
+    expect(spec.mcp?.recovery).toMatchObject({ sideEffects: 'none', maxRetries: 0 });
+    const input = {
+      code: 'config' as const,
+      requestId: 'req-c',
+      context: { environmentVariable: 'BOARD_DAEMON_URL', configPath: '/tmp/config.yaml' },
+    };
+    const mcp = renderMcpError(input);
+    expect(mcp.structuredContent.hint).toBe(spec.mcp?.hint);
+    expect(mcp.structuredContent.recovery).toEqual(spec.mcp?.recovery);
+    expect(mcp.content[0]?.text).toContain(`fix: ${String(spec.mcp?.hint)}`);
+    expect(renderJsonError(input).error.hint).toBe(spec.hint);
+    expect(renderStderrError(input)).toContain(`fix: ${spec.hint}`);
+    expect(renderStderrError(input)).not.toContain('board mcp');
+  });
+
+  it.each(Object.keys(ERRORS).filter((code) => !['version_mismatch', 'config'].includes(code)))(
     '%s renders MCP like JSON and stderr',
     (code) => {
       const input = {

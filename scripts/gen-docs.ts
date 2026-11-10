@@ -97,6 +97,12 @@ export function renderCliDocs(): string {
     `| ${String(EXIT_CODES.config)} | Configuration or installation failure. |`,
     `| ${String(EXIT_CODES.outcomeUnknown)} | The action may have applied; inspect the result before retrying with the same key. |`,
     '',
+    '## Daemon address and caller identity',
+    '',
+    'Catalog commands, `board token create` and MCP tool calls reach the daemon at `BOARD_DAEMON_URL`, otherwise at `http://127.0.0.1:<http.port>` from `config.yaml`. With `BOARD_DAEMON_URL` unset and `config.yaml` missing, malformed or invalid, they stop with `config` (exit 4) before sending anything; the error names both. Set `BOARD_DAEMON_URL`, or fix `config.yaml` and set `http.port`; `board doctor --offline` names what is wrong.',
+    '',
+    'The caller is `SPUR_SESSION` inside a Spur session, otherwise `BOARD_TOKEN`, otherwise the first `.spur-board/token` found walking upward from the working directory. The walk stops at the root of the git worktree (the first folder with a `.git` file or directory, which is still searched); outside git it stops before home. Home itself is never searched, even when it is the worktree root. A token above the worktree root, or in home, is not used: move it into a folder inside the worktree or set `BOARD_TOKEN`.',
+    '',
     '## Commands',
     '',
   ];
