@@ -98,17 +98,31 @@ export function renderUserUnit(paths: ServicePaths): string {
   ].join('\n');
 }
 
-async function runCommand(command: string, args: readonly string[]): Promise<CommandResult> {
+export interface RunOptions {
+  /** Replaces the inherited environment. */
+  env?: NodeJS.ProcessEnv;
+  /** An open fd the child gets as fd 3, so it shares a lock on that file's description. */
+  lockFd?: number;
+}
+
+/** Runs a command to completion. */
+export async function runCommand(
+  command: string,
+  args: readonly string[],
+  options: RunOptions = {},
+): Promise<CommandResult> {
   return new Promise((resolveResult, reject) => {
-    const child = spawn(command, [...args], { stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(command, [...args], {
+      stdio: ['ignore', 'pipe', 'pipe', options.lockFd ?? 'ignore'],
+      ...(options.env === undefined ? {} : { env: options.env }),
+    });
     let stdout = '';
     let stderr = '';
-    child.stdout.setEncoding('utf8');
-    child.stderr.setEncoding('utf8');
-    child.stdout.on('data', (chunk: string) => {
+    // Both are pipes; the type only loses that with a fourth stdio entry.
+    child.stdout?.setEncoding('utf8').on('data', (chunk: string) => {
       stdout += chunk;
     });
-    child.stderr.on('data', (chunk: string) => {
+    child.stderr?.setEncoding('utf8').on('data', (chunk: string) => {
       stderr += chunk;
     });
     child.on('error', reject);
@@ -259,6 +273,11 @@ export async function restartService(options: ServiceOptions = {}): Promise<void
   await requireStart(options.runner ?? runCommand, ['--user', 'restart', serviceName], {
     file: unitFile,
   });
+}
+
+/** Stops the service; a failed stop throws with systemctl's output. */
+export async function stopService(options: ServiceOptions = {}): Promise<void> {
+  await requireSuccess(options.runner ?? runCommand, 'systemctl', ['--user', 'stop', serviceName]);
 }
 
 export async function statusService(options: ServiceOptions = {}): Promise<ServiceStatus> {

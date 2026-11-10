@@ -177,8 +177,8 @@ its request in Slack. A token waiting for approval does not satisfy this check.
 
 ### versions
 
-Install matching CLI and skill versions, then restart the daemon. After an upgrade, rerun
-`board skills install`, check `board --version` in both the current and live Spur session
+Install matching CLI and skill versions with `board update`: it restarts the daemon and
+reinstalls the skills. Then check `board --version` in both the current and live Spur session
 `PATH`, and restart sessions that still use an older skill. If the service unit points to an
 old Node or package path, run `board service install` again.
 
@@ -198,10 +198,69 @@ old Node or package path, run `board service install` again.
   approved token. `service_start_failed` means `board service install` or
   `board service restart` left the unit installed but the daemon did not start: read
   `journalctl --user -u spur-board.service -n 100` and run `board doctor`, fix the cause, then
-  run `board service restart`.
+  run `board service restart`. `update_rolled_back` means `board update` failed and put the
+  previous version back, and `rollback_failed` means a rollback stopped part way: see
+  [Failed update or rollback](#failed-update-or-rollback).
 - **5 — outcome unknown:** the action may already have happened. Read the task or item first;
   if a mutation still needs to be retried, reuse its original idempotency key. A read-only
   request can be repeated after the dependency recovers.
+
+## Failed update or rollback
+
+`board update` keeps its state in the data directory: `$BOARD_HOME` when set, else
+`$XDG_DATA_HOME/spur-board/`, default `$HOME/.local/share/spur-board/`. Under it,
+`update/state.json` records the last update, `update/package-<version>/` is a copy of the
+package before the update, and `update/db/board-<version>.sqlite` is the database backup taken
+with the service stopped. A new update replaces them only once its own copy and backup are
+complete, so `board rollback` keeps returning to the version before the last successful update
+when a later update stops early. A running update or rollback holds a lock on
+`update/update.lock`, shared with the service stop, the npm install and the other install steps
+it starts; the lock ends when all of them have exited, and the file stays.
+
+- `config` before any change: the hint names the reason. When another update or rollback holds
+  the lock, the hint gives the PID that took it; wait for it. If that process is gone, an npm
+  install it started may still run; wait for that too. Never remove `update/update.lock`: that
+  does not stop the holder and lets a second update start beside it. A running service whose
+  command differs from this shell's, or whose process uses another data directory or config
+  file, is refused. Its `BOARD_HOME`, `XDG_*` and `HOME` come from the unit, its drop-ins and
+  any `EnvironmentFile`: `systemctl --user cat spur-board.service` shows them. As in the daemon,
+  a relative `BOARD_HOME` counts from the service's working directory, and without `HOME` the
+  account's home from the passwd entry is used. Remove the override and run
+  `board service install`, or run the update from the environment the service runs with. A
+  service whose process runs as another user, as a unit with `User=` under root's user manager
+  can, is refused, and so is one whose real or effective uid differs from this shell's: run the
+  update as that user. A service with no running process is refused
+  too: run `board service restart`.
+
+- `update_rolled_back`: the update failed and the previous version runs again. The hint names
+  the failed step. If it stopped at `stop`, `lock wait` or `database backup`, the package,
+  database and the record of the last update were not changed; for `lock wait` stop the process
+  whose PID the hint gives. If an update is interrupted at those steps, the service may stay
+  stopped: run `board service restart`. At
+  `first poll`, a source of the new version did not finish its first complete poll within five
+  minutes; check the source's credentials and network with `board doctor`. After a later step,
+  the hint says whether the database was kept or restored from the backup. Fix the cause, then
+  run `board update` again.
+- `rollback_failed`: a rollback stopped part way and the service may be down. `board update`
+  refuses until a rollback finishes. Fix the step the hint names, then run
+  `board rollback --yes` again; it repeats the whole rollback from the saved copy.
+- `board rollback` returns to the version before the last update. It keeps the current
+  database when the update did not change the schema, and loses nothing. When the schema
+  changed, it restores the backup and loses the Board changes and journal events recorded after
+  the update started. It prints which case applies before it acts.
+
+If `board` no longer runs, recover by hand, with `<data>` for the data directory above and
+`<prefix>` for the npm prefix the package was installed into:
+
+1. Stop the service: `systemctl --user stop spur-board.service`.
+2. Replace `<prefix>/lib/node_modules/spur-board` with a copy of `<data>/update/package-<version>/`,
+   for example `cp -a` into the emptied directory.
+3. If the update changed the schema, or the restored daemon logs that the database is newer than
+   its code, remove `board.sqlite-wal` and `board.sqlite-shm` next to `board.sqlite`, then copy
+   `<data>/update/db/board-<version>.sqlite` over `board.sqlite`. The service must stay stopped.
+4. Run `board service install` and `board skills install`, then `board doctor`.
+5. Delete `<data>/update/state.json`; while it records an unfinished update, `board update`
+   refuses to start.
 
 ## Slash command answers from another app
 

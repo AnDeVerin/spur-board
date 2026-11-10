@@ -88,6 +88,7 @@ async function server(
     registry?: OperationRegistry;
     logRequest?: ApiOptions['logRequest'];
     doctor?: ApiOptions['doctor'];
+    firstPollDone?: ApiOptions['firstPollDone'];
     clock?: ApiOptions['clock'];
   } = {},
 ) {
@@ -101,6 +102,7 @@ async function server(
     verifyToken: () => Promise.resolve({ name: 'test' }),
     registry: options.registry ?? {},
     ...(options.doctor === undefined ? {} : { doctor: options.doctor }),
+    ...(options.firstPollDone === undefined ? {} : { firstPollDone: options.firstPollDone }),
     logRequest: options.logRequest ?? vi.fn(),
   });
 }
@@ -231,6 +233,42 @@ describe('catalog HTTP API', () => {
       expect(second.statusCode).toBe(503);
       expect(first.body + second.body).not.toContain('private failure');
       expect(doctor).toHaveBeenCalledOnce();
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('answers first-poll health per request without identity or doctor probes', async () => {
+    let ready = false;
+    let done = false;
+    const doctor = vi.fn(() => Promise.resolve({ version: '1.2.3', checks: [] }));
+    const firstPollDone = vi.fn(() => Promise.resolve(done));
+    const app = await server(newStore(), { ready: () => ready, doctor, firstPollDone });
+    const health = () => app.inject({ method: 'GET', url: '/v1/health', headers: { host } });
+    try {
+      expectProblem(await health(), 'starting', 'Wait until the daemon is ready.');
+      expect(firstPollDone).not.toHaveBeenCalled();
+      ready = true;
+      const before = await health();
+      expect(before.statusCode).toBe(200);
+      expect(before.json()).toEqual({ firstPollDone: false });
+      done = true;
+      expect((await health()).json()).toEqual({ firstPollDone: true });
+      expect(firstPollDone).toHaveBeenCalledTimes(2);
+      expect(doctor).not.toHaveBeenCalled();
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('answers not_found for health when the daemon gives no first-poll state', async () => {
+    const app = await server(newStore());
+    try {
+      expectProblem(
+        await app.inject({ method: 'GET', url: '/v1/health', headers: { host } }),
+        'not_found',
+        'Health is unavailable.',
+      );
     } finally {
       await app.close();
     }

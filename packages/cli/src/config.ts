@@ -25,11 +25,24 @@ export interface ClientConfig {
 const CONNECT_TIMEOUT_MS = 2_000;
 const RESPONSE_TIMEOUT_MS = 30_000;
 
-export function configFile(env: NodeJS.ProcessEnv, home: string): string {
+/** A relative `BOARD_HOME` counts from `cwd`; relative XDG directories are ignored. */
+export function configFile(env: NodeJS.ProcessEnv, home: string, cwd = process.cwd()): string {
   const boardHome = env['BOARD_HOME'];
-  if (boardHome) return join(resolve(boardHome), 'config.yaml');
+  if (boardHome) return join(resolve(cwd, boardHome), 'config.yaml');
   const xdg = env['XDG_CONFIG_HOME'];
   return join(xdg && isAbsolute(xdg) ? xdg : join(home, '.config'), 'spur-board', 'config.yaml');
+}
+
+/**
+ * The directory of the daemon database and its lock. It mirrors `resolvePaths` in
+ * packages/daemon/src/config.ts, which resolves a relative `BOARD_HOME` from the daemon's
+ * working directory, here `cwd`; the CLI cannot import the daemon package.
+ */
+export function dataDirectory(env: NodeJS.ProcessEnv, home: string, cwd = process.cwd()): string {
+  const boardHome = env['BOARD_HOME'];
+  if (boardHome) return resolve(cwd, boardHome);
+  const xdg = env['XDG_DATA_HOME'];
+  return join(xdg && isAbsolute(xdg) ? xdg : join(home, '.local', 'share'), 'spur-board');
 }
 
 /** The http.port in config.yaml, or the default when the file is missing or invalid. */

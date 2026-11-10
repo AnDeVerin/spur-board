@@ -202,6 +202,7 @@ describe('classifyChanges', () => {
   it('classifies package inputs but not unrelated tooling', () => {
     expect(classifyChanges(['packages/cli/src/bin.mjs']).package).toBe(true);
     expect(classifyChanges(['scripts/package-smoke.ts']).package).toBe(true);
+    expect(classifyChanges(['scripts/update-smoke.ts']).package).toBe(true);
     expect(classifyChanges(['pnpm-lock.yaml']).package).toBe(true);
     expect(classifyChanges(['scripts/ci.ts']).package).toBe(false);
   });

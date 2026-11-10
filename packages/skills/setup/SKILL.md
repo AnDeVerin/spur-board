@@ -41,4 +41,4 @@ Ask one question at a time, only when current state cannot answer it. Check befo
 
 ## Update
 
-For a newer package, follow [the update run](references/update.md). Keep completed config and operator access intact.
+Follow [the update run](references/update.md): `board update`, or a manual first upgrade when it is missing.

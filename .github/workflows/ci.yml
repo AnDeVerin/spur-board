@@ -168,7 +168,7 @@ jobs:
     needs: changes
     if: github.event_name != 'pull_request' || needs.changes.outputs.package == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 25
     permissions:
       contents: read
     strategy:
@@ -187,6 +187,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm package:smoke
       - run: pnpm upgrade:smoke
+      - run: pnpm update:smoke
 
   ci-ok:
     if: always()

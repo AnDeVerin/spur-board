@@ -1,9 +1,10 @@
 import { homedir } from 'node:os';
 import { existsSync, readFileSync } from 'node:fs';
-import { openStore, type Store } from '@spur-board/core';
+import { isAbsolute, resolve } from 'node:path';
+import { copyDatabase, openStore, type Store } from '@spur-board/core';
 import { loadConfig, resolvePaths } from './config.ts';
 import { DEFAULT_SHUTDOWN_TIMEOUT_MS, runDaemon, type ProcessPort } from './lifecycle.ts';
-import { acquireLock } from './lock.ts';
+import { acquireLock, LockHeldError } from './lock.ts';
 import { createDaemonModules } from './composition.ts';
 import { slackSettings } from './outbox-module.ts';
 
@@ -81,6 +82,58 @@ export async function main(): Promise<void> {
     clock: { now: () => Date.now() },
     shutdownTimeoutMs: DEFAULT_SHUTDOWN_TIMEOUT_MS,
   });
+}
+
+function errorText(error: unknown): string {
+  if (!(error instanceof Error)) return String(error);
+  return error.cause instanceof Error ? `${error.message}: ${error.cause.message}` : error.message;
+}
+
+/**
+ * `copy-database <source> <target>` in the packed binary: copies the board database to or from
+ * a backup with `copyDatabase` while holding the board lock. One of the two absolute paths must
+ * be this environment's database file. Exits 0 on success, 2 on bad arguments, 75 while another
+ * process holds the lock, and 1 on any other error.
+ */
+export function copyDatabaseMain(
+  args: readonly string[],
+  env: Readonly<Record<string, string | undefined>> = process.env,
+  home: string = homedir(),
+  writeErr: (text: string) => void = (text) => {
+    process.stderr.write(text);
+  },
+): number {
+  const paths = resolvePaths(env, home);
+  // A relative HOME leaves the database path relative; compare it as the absolute path it names.
+  const dbFile = resolve(paths.dbFile);
+  const [source, target] = args;
+  if (
+    args.length !== 2 ||
+    source === undefined ||
+    target === undefined ||
+    !isAbsolute(source) ||
+    !isAbsolute(target) ||
+    (resolve(source) !== dbFile && resolve(target) !== dbFile)
+  ) {
+    writeErr(`copy-database: give two absolute paths, one of them the board database ${dbFile}\n`);
+    return 2;
+  }
+  let lock: { release(): void };
+  try {
+    lock = acquireLock(paths.lockFile);
+  } catch (error) {
+    writeErr(`copy-database: ${errorText(error)}\n`);
+    return error instanceof LockHeldError ? 75 : 1;
+  }
+  try {
+    copyDatabase(source, target);
+    return 0;
+  } catch (error) {
+    writeErr(`copy-database: ${errorText(error)}\n`);
+    return 1;
+  } finally {
+    lock.release();
+  }
 }
 
 if (import.meta.main) void main();

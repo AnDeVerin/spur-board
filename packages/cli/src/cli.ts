@@ -29,6 +29,7 @@ import {
 } from './service.ts';
 import { installSkills, type InstallSkillsOptions } from './skills.ts';
 import { escapeTerminalControls } from './terminal.ts';
+import { rollbackPackage, updatePackage, type UpdatePorts } from './update.ts';
 import {
   checkCatalog,
   cliPackageVersion,
@@ -53,6 +54,7 @@ export interface CliOptions {
   home?: string;
   setup?: InstallSkillsOptions & Omit<ServiceOptions, 'env'>;
   doctor?: Partial<DoctorPorts>;
+  update?: Partial<UpdatePorts>;
 }
 
 const processIo: CliIo = {
@@ -365,6 +367,31 @@ function registerSetupCommands(
     .action(async () => {
       print({ unit: serviceName, ...(await runSetup(() => uninstallService(serviceOptions))) });
     });
+
+  const updateOptions = () => ({
+    env,
+    home: options.home ?? homedir(),
+    stdoutIsTTY: io.isTTY,
+    progress: io.stderr,
+    ports: options.update,
+  });
+  commandFor(program, 'update')
+    .description(
+      'Update the package, service and skills, and roll back if the new version is unhealthy.',
+    )
+    .argument('[version]', 'Version to install, such as 1.2.3; the latest when omitted.')
+    .action(async (...parts: unknown[]) => {
+      const version = parts[0];
+      if (version !== undefined && typeof version !== 'string') throw new CliError('usage');
+      print(await runSetup(() => updatePackage(updateOptions(), version)));
+    });
+  const rollback = commandFor(program, 'rollback');
+  rollback.description('Return to the version before the last update.');
+  rollback.option('--yes', 'Roll back without asking; required when not at a terminal.');
+  rollback.action(async () => {
+    const yes = rollback.opts()['yes'] === true;
+    print(await runSetup(() => rollbackPackage(updateOptions(), yes)));
+  });
 
   commandFor(program, 'mcp')
     .summary('Start the MCP server for an agent on standard input and output.')

@@ -5,6 +5,7 @@ import {
   commandRetention,
   createObservationCore,
   createOperationRegistry,
+  firstPollDone,
   tickBoard,
   type SpurPort,
   type Store,
@@ -126,6 +127,7 @@ export function createDaemonModules(
     stopStage: 'final',
     module: createHttpModule(ctxFor('http'), {
       registry,
+      firstPollDone: () => firstPollDone(board.store.db, board.config, core.completeSince),
       ...(ports.productVersion === undefined ? {} : { productVersion: ports.productVersion }),
       ...(ports.sessionFetcher === undefined ? {} : { fetcher: ports.sessionFetcher }),
       ...(ports.afterOperation === undefined ? {} : { afterOperation: ports.afterOperation }),

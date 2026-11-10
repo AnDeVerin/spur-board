@@ -180,6 +180,7 @@ board service status
 board status
 ```
 
-**Fix.** A package update runs `board service install`, which enables and starts a stopped
-service. To keep the pause, run `systemctl --user stop spur-board.service` again after the
-update, and `disable` again if you had disabled it.
+**Fix.** `board update` needs a running daemon: it refuses while the service is stopped, so
+start it before the update. The update leaves the service enabled and running. To keep the
+pause, run `systemctl --user stop spur-board.service` again after the update, and `disable`
+again if you had disabled it.

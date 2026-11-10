@@ -1,5 +1,5 @@
 {
-  "version": "71f761d3c4e6a2f93953ea64b7953cda7b31c855d1b53ad0497b5357b51d32ad",
+  "version": "b4661c7ed54998a89e005cb99c40ec3170c0317aec743baae6d4e0a097e6b684",
   "grants": [
     "operator",
     "project-agent",
@@ -560,6 +560,64 @@
         "retryTiming": "After fixing the cause."
       },
       "docs": "docs/errors.md#service_start_failed",
+      "context": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "clientVersion": { "type": "string" },
+          "serverVersion": { "type": "string" },
+          "configPath": { "type": "string" },
+          "environmentVariable": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+          "idempotencyKey": { "type": "string", "minLength": 1 },
+          "causeLabel": {
+            "type": "string",
+            "enum": ["storage_unavailable", "transport_unavailable", "internal_failure"]
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "update_rolled_back": {
+      "status": null,
+      "exit": 4,
+      "message": "The update failed, so the board is back on the version it ran before.",
+      "hint": "Fix the cause named in this error, then run `board update` again.",
+      "recovery": {
+        "action": "Fix the reported cause, then run `board update` again.",
+        "sideEffects": "none",
+        "maxRetries": 0,
+        "retryTiming": "After fixing the cause."
+      },
+      "docs": "docs/errors.md#update_rolled_back",
+      "context": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "clientVersion": { "type": "string" },
+          "serverVersion": { "type": "string" },
+          "configPath": { "type": "string" },
+          "environmentVariable": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+          "idempotencyKey": { "type": "string", "minLength": 1 },
+          "causeLabel": {
+            "type": "string",
+            "enum": ["storage_unavailable", "transport_unavailable", "internal_failure"]
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "rollback_failed": {
+      "status": null,
+      "exit": 4,
+      "message": "A rollback step failed; the package, database or service may be only partly restored.",
+      "hint": "Fix the step named in this error, then run `board rollback --yes` again.",
+      "recovery": {
+        "action": "Fix the reported step, then run `board rollback --yes`.",
+        "sideEffects": "applied",
+        "maxRetries": 0,
+        "retryTiming": "After fixing the reported step."
+      },
+      "docs": "docs/errors.md#rollback_failed",
       "context": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",

@@ -29,6 +29,7 @@
     "package:smoke": "node scripts/package-smoke.ts",
     "smoke:live": "node scripts/smoke-live.ts",
     "upgrade:smoke": "node scripts/upgrade-smoke.ts",
+    "update:smoke": "node scripts/update-smoke.ts",
     "prepare": "node scripts/hooks.ts install",
     "typecheck": "tsc --noEmit -p . && pnpm -r typecheck",
     "test": "vitest run"
