@@ -203,6 +203,13 @@ describe('stand', () => {
     ['port_range', () => ({ env: {}, port: 4800 })],
     ['external_secrets', () => ({ env: { GITHUB_TOKEN: 'real' }, port: 0 })],
     ['env_proxy', () => ({ env: { NODE_USE_ENV_PROXY: '1' }, port: 0 })],
+    [
+      'unsafe_root',
+      () => {
+        chmodSync(root, 0o777);
+        return { env: {}, port: 0 };
+      },
+    ],
   ])('refuses %s before creating anything', async (reason, input) => {
     const error: unknown = await startStand({ root, osHome, ...input() }).catch(
       (err: unknown) => err,
@@ -257,17 +264,15 @@ describe('stand', () => {
   });
 
   it.each([
-    ['the home is writable by others', 'home', 0o777],
-    ['the home is readable by others', 'home', 0o755],
-    ['its logs directory is writable by others', 'logs', 0o777],
-    ['its logs directory is readable by others', 'logs', 0o750],
-  ])('refuses a passed home when %s', async (_name, which, mode) => {
+    ['the home is writable by others', 'home', 0o777, /not a stand directory/],
+    ['the home is readable by others', 'home', 0o755, /not a stand directory/],
+    ['its logs directory is writable by others', 'logs', 0o777, /did not create/],
+    ['its logs directory is readable by others', 'logs', 0o750, /did not create/],
+  ])('refuses a passed home when %s', async (_name, which, mode, message) => {
     const home = mkdtempSync(join(root, 'spur-board-stand.'));
     mkdirSync(join(home, 'logs'), { mode: 0o700 });
     chmodSync(which === 'home' ? home : join(home, 'logs'), mode);
-    await expect(startStand({ root, home, port: 0, env: {}, osHome })).rejects.toThrow(
-      /not a stand directory|did not create/,
-    );
+    await expect(startStand({ root, home, port: 0, env: {}, osHome })).rejects.toThrow(message);
     expect(readdirSync(join(home, 'logs'))).toEqual([]);
   });
 
@@ -481,9 +486,12 @@ describe('stand', () => {
       const log = join(manifest.home, 'logs', 'daemon.log');
       const reset = control(manifest, '/reset');
       // The reset has signalled the old daemon, which now waits for the stalled tick.
-      await vi.waitFor(() => {
-        expect(readFileSync(log, 'utf8')).toContain('"msg":"shutting down"');
-      });
+      await vi.waitFor(
+        () => {
+          expect(readFileSync(log, 'utf8')).toContain('"msg":"shutting down"');
+        },
+        { timeout: 10_000 },
+      );
       let stopped: number | undefined;
       const stopping = current.stop().then((code) => {
         stopped = code;

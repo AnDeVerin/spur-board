@@ -174,6 +174,7 @@ describe('untrusted stand directories', () => {
   it.each([
     ['770', 0o770],
     ['707', 0o707],
+    ['750', 0o750],
   ])('keeps a dead stand whose directory has mode %s', (_name, mode) => {
     const dir = join(root, 'spur-board-stand.wrtabl');
     stand(dir, { pid: deadPid(), pidStartTime: 1 });

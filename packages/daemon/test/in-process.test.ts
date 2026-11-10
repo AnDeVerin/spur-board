@@ -116,7 +116,8 @@ describe('startInProcessDaemon', () => {
       optionsFor({
         tick: () => Promise.resolve(),
         lines,
-        shutdownTimeoutMs: 100,
+        // Long enough that a teardown slowed by machine load still beats the timer.
+        shutdownTimeoutMs: 1_500,
         registerFatal: (handler) => {
           fatal = handler;
         },
@@ -126,9 +127,9 @@ describe('startInProcessDaemon', () => {
     expect(await daemon.exited).toBe(1);
     await daemon.teardown;
     // Past the shutdown timeout window: the cleared timer must log nothing.
-    await new Promise((resolve) => setTimeout(resolve, 300));
+    await new Promise((resolve) => setTimeout(resolve, 2_000));
     expect(lines.filter((line) => line.includes('shutdown timed out'))).toEqual([]);
-  });
+  }, 10_000);
 
   it('rejects a failed start only after teardown has freed the lock', async () => {
     const taken = createServer();

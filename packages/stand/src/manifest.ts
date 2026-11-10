@@ -129,8 +129,8 @@ export function watchProcess(pid: number, read: ReadProc = readProc): (() => boo
 
 /**
  * A directory a stand may own: a direct child of `root` named `spur-board-stand.` plus six
- * letters or digits, a real directory (not a symlink) owned by this user that no group or other
- * user can write.
+ * letters or digits, a real directory (not a symlink) owned by this user with no group or other
+ * permission (0700).
  */
 export function isStandDir(dir: string, root: string): boolean {
   try {
@@ -139,8 +139,9 @@ export function isStandDir(dir: string, root: string): boolean {
       info.isSymbolicLink() ||
       !info.isDirectory() ||
       info.uid !== process.getuid?.() ||
-      // Another user who can write here could plant a manifest naming one of our processes.
-      (info.mode & 0o022) !== 0
+      // Owner-only, like the home the stand writes: another user who could write here could plant
+      // a manifest naming one of our processes, and one who could read could see its database.
+      (info.mode & 0o077) !== 0
     )
       return false;
     if (!STAND_NAME.test(basename(dir))) return false;
