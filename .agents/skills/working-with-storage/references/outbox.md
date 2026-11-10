@@ -17,7 +17,9 @@
   cancels both. A gateway row with `uncertain=1` is never cancelled as stale (it may be posted):
   it goes with `maybeSent`, then its dependents.
 - A doorbell's delivered ring count lives in `notification`, not `outbox.attempts`: transport
-  retries reuse the same outbox row. Reconcile due rings and recheck their recipient before send.
+  retries reuse the same outbox row. Due rings are reconciled by their own job
+  (`reconcileDueDoorbells` in `packages/core/src/app/doorbells.ts`), not in the claim transaction,
+  and the sender rechecks their recipient before send.
 - A doorbell retries for 30 min from its first attempt. A Spur rejection or the end of the window
   kills it and ends its notification (`ringUndelivered` in `packages/core/src/app/doorbells.ts`).
   Archive cancels any ring that is not in flight, uncertain or not.

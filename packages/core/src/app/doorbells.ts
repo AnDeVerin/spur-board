@@ -13,6 +13,8 @@ import { emit, taskUrl } from './board-utils.ts';
 import { CommandError } from './commands.ts';
 import { clearItem, raiseItem } from './feed.ts';
 import { enqueueDoorbell } from './outbox.ts';
+import { scanTransaction } from './secrets.ts';
+import type { Store } from '../store/store.ts';
 
 type Trx = Kysely<Tables>;
 type Notification = Row<'notification'>;
@@ -238,17 +240,32 @@ export async function ringUndelivered(
   await journal(trx, n, 'doorbell_undelivered', { doorbell: `N${String(n.id)}`, reason }, at);
 }
 
-/** Reconcile due semantic notifications in the sender's claim transaction. */
-export async function reconcileDoorbells(trx: Trx, at: Date, config: Config): Promise<void> {
+/** Notifications reconcile looks at: unacked, not exhausted, due, on a task not archived. */
+function dueNotifications(db: Trx, at: Date) {
   // Archive cancels unsent rings (`archiveTask`); ringing again before `task.add` would undo that.
-  const due = await trx
+  return db
     .selectFrom('notification')
     .innerJoin('task', 'task.id', 'notification.task_id')
-    .selectAll('notification')
     .where('task.membership', '!=', 'archived')
     .where('notification.acked_at', 'is', null)
     .where('notification.exhausted_at', 'is', null)
-    .where('notification.next_at', '<=', at.toISOString())
+    .where('notification.next_at', '<=', at.toISOString());
+}
+
+/**
+ * Reconciles due notifications in their own transaction. With none due it opens no transaction;
+ * a due notification waiting on a working recipient or an unsent ring still opens one.
+ */
+export async function reconcileDueDoorbells(store: Store, config: Config, at: Date): Promise<void> {
+  const due = await dueNotifications(store.db, at).select('notification.id').executeTakeFirst();
+  if (due === undefined) return;
+  await scanTransaction(store, config, (trx) => reconcileDoorbells(trx, at, config));
+}
+
+/** Reconcile due semantic notifications in the caller's transaction. */
+export async function reconcileDoorbells(trx: Trx, at: Date, config: Config): Promise<void> {
+  const due = await dueNotifications(trx, at)
+    .selectAll('notification')
     .orderBy('notification.id')
     .execute();
   for (const n of due) {

@@ -32,6 +32,7 @@ import {
   tickBoard,
   type Inbound,
   type Store,
+  reconcileDueDoorbells,
 } from '../../src/index.ts';
 import { sampleRows } from '../store/sample-rows.ts';
 
@@ -146,6 +147,8 @@ async function setup(options: { inbound?: boolean; worker?: boolean } = {}) {
     advance(ms: number) {
       now += ms;
     },
+    /** Runs the daemon's doorbell job once, as it runs before a tick. */
+    ring: () => reconcileDueDoorbells(store, config, new Date(now)),
     tick: () => tickBoard({ store, config, clock, completeSince: new Map() }),
   };
 }
@@ -248,6 +251,7 @@ async function exhaust(ctx: Ctx, kind: 'block' | 'answer'): Promise<number> {
   }
   for (const pause of [0, 120_000, 300_000, 900_000]) {
     ctx.advance(pause);
+    await ctx.ring();
     await ctx.sender.tick();
   }
   expect(ctx.sent).toHaveLength(3);
@@ -523,7 +527,9 @@ describe('item.retry and item.close', () => {
           .executeTakeFirstOrThrow(),
       ).toEqual({ rings: 0, exhausted_at: null, recipient_session: 'worker-1' });
       expect((await item(ctx, id)).cleared_at).not.toBeNull();
+      await ctx.ring();
       await ctx.sender.tick();
+      await ctx.ring();
       await ctx.sender.tick();
       expect(ctx.sent.map((entry) => entry.session)).toEqual([
         'worker-1',

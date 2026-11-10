@@ -11,6 +11,7 @@ import {
   createQuery,
   createSender,
   openStore,
+  reconcileDueDoorbells,
   tickBoard,
   type Store,
 } from '../../src/index.ts';
@@ -150,8 +151,11 @@ function setup() {
       outcomes: [],
     });
   }
+  /** Runs the daemon's doorbell job once, as it runs before a tick. */
+  const ring = () => reconcileDueDoorbells(store, config, new Date(now));
   async function drain() {
     for (let i = 0; i < 20; i += 1) {
+      await ring();
       await sender.tick();
       const pending = await store.db
         .selectFrom('outbox')
@@ -173,6 +177,7 @@ function setup() {
     query,
     ops,
     poll,
+    ring,
     drain,
     holdNextDelivery,
   };
@@ -348,6 +353,7 @@ describe('task archive', () => {
       await ctx.apply(ctx.ops.ask, { task: KEY, text: 'Still open?' }, worker);
       // Gateway lanes go before doorbells, so the ring is claimed while the open is held.
       const hold = ctx.holdNextDelivery();
+      await ctx.ring();
       const tick = ctx.sender.tick();
       await hold.reached;
       const claimed = await ctx.store.db
@@ -447,9 +453,11 @@ describe('task archive', () => {
     await ctx.apply(ctx.ops.answer, { block: asked.block.id, text: 'Use v2.' }, 'operator');
     await ctx.store.transaction((trx) => reconcileDoorbells(trx, new Date(now), config));
     await ctx.apply(ctx.ops.archive, { task: KEY }, 'operator');
+    await ctx.ring();
     await ctx.sender.tick();
     now += 1_000;
     await ctx.apply(ctx.ops.add, { task: KEY }, 'operator');
+    await ctx.ring();
     await ctx.sender.tick();
 
     expect(ctx.spur.sends).toEqual([['worker-1', expect.stringContaining('check board inbox')]]);
@@ -499,7 +507,9 @@ describe('task archive', () => {
 
     await ctx.apply(ctx.ops.archive, { task: KEY }, 'operator');
     now += 24 * 60 * 60 * 1_000;
+    await ctx.ring();
     await ctx.sender.tick();
+    await ctx.ring();
     await ctx.sender.tick();
 
     expect(ctx.spur.sends).toHaveLength(1);

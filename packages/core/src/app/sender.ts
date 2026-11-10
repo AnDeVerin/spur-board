@@ -15,13 +15,7 @@ import {
 import { sql, type Kysely } from 'kysely';
 import type { Store } from '../store/store.ts';
 import type { Row, Tables } from '../store/schema.ts';
-import {
-  reconcileDoorbells,
-  recordRingDelivery,
-  ringStillCurrent,
-  ringTask,
-  ringUndelivered,
-} from './doorbells.ts';
+import { recordRingDelivery, ringStillCurrent, ringTask, ringUndelivered } from './doorbells.ts';
 import { clearItem, raiseItem, resolvedFeedBody } from './feed.ts';
 import {
   deliveredRefSchema,
@@ -390,7 +384,6 @@ export function createSender(options: SenderOptions): Sender {
     const nowIso = new Date(at).toISOString();
     // Ticks never overlap, so a row still in flight was left by a tick that threw.
     await releaseOrphans(trx, nowIso);
-    await reconcileDoorbells(trx, new Date(at), options.config);
     const rows = await trx
       .selectFrom('outbox')
       .selectAll()
