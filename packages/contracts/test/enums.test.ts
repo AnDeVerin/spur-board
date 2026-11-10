@@ -58,9 +58,10 @@ it('lists block outcomes', () => {
   expect(BLOCK_OUTCOMES).toEqual(['done', 'reason', 'terminal', 'withdrawn', 'archived']);
 });
 
-it('lists addressee roles: operator, one orchestrator per column id, worker', () => {
+it('lists addressee roles: operator, curator, one orchestrator per column id, worker', () => {
   expect(ADDRESSEE_ROLES).toEqual([
     'operator',
+    'curator',
     'orchestrator:todo',
     'orchestrator:ready-for-dev',
     'orchestrator:dev',
