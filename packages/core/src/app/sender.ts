@@ -561,17 +561,20 @@ export function createSender(options: SenderOptions): Sender {
    * Stamps the start of a send, just before its IO: the row's retry window if none is open and,
    * for a space, the slot of the next send and, under a health row, the probe clock. A slow
    * earlier send in the tick does not age them. The clock is read here, once the write lock is
-   * held, so waiting for the lock does not age them either. Returns the stamp.
+   * held, so waiting for the lock does not age them either. Returns the stamp. `expiredAt` is
+   * read before the transaction: token expiry writes it into a feed edit, a gateway string, so a
+   * time read here would change on every scan replay.
    */
   async function start(
     trx: Trx,
     c: Claim,
+    expiredAt: Date,
   ): Promise<{ at: number; firstDeliveryAt: string | null; skip: boolean }> {
     const at = now().getTime();
     const sentAtIso = new Date(at).toISOString();
     // An expired token request clears its item here, so its approval line is not posted.
     if (c.body.kind === 'feed.line' && c.body.payload.itemId !== undefined) {
-      await expireTokenOfItem(trx, c.body.payload.itemId, new Date(at));
+      await expireTokenOfItem(trx, c.body.payload.itemId, expiredAt);
     }
     if (c.body.kind === 'feed.line' && c.body.payload.itemId !== undefined && !c.maybeSent) {
       const item = await trx
@@ -938,7 +941,10 @@ export function createSender(options: SenderOptions): Sender {
         );
         return;
       }
-      const started = await scanTransaction(store, options.config, (trx) => start(trx, c));
+      const expiredAt = now();
+      const started = await scanTransaction(store, options.config, (trx) =>
+        start(trx, c, expiredAt),
+      );
       if (started.skip) continue;
       // After start() commits, finish and record this attempt even if shutdown begins.
       const { outcome, error } = await attempt(c, started.firstDeliveryAt);

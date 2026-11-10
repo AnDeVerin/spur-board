@@ -295,6 +295,56 @@ describe('operator token lifecycle', () => {
     ).toHaveLength(1);
   });
 
+  it('expires a request at send time under a clock that moves on every read', async () => {
+    // The expiry time lands in the edit payload, a gateway string: read inside the scan
+    // transaction, it would change on every replay and abort the tick.
+    const file = join(mkdtempSync(join(tmpdir(), 'core-token-')), 'board.db');
+    const store = openStore(file);
+    stores.push(store);
+    await enroll(store);
+    await scanTransaction(store, testConfig, (trx) =>
+      raiseItem(trx, {
+        itemKey: 'other',
+        kind: 'worker_not_reading',
+        text: 'Unrelated item',
+        url: '',
+        taskId: null,
+        blockId: null,
+        at: AT,
+      }),
+    );
+    let ms = AT.getTime() + 15 * 60 * 1000;
+    const observed = observeGateway(createFakeGateway({ profile: 'slack-like' }), file);
+    const sender = createSender({
+      config: testConfig,
+      store,
+      gateway: observed.gateway,
+      spur: { send: () => Promise.resolve() },
+      now: () => new Date((ms += 7)),
+      spaceIntervalMs: 0,
+    });
+    for (let i = 0; i < 3; i++) await sender.tick();
+    expect(observed.requests).toHaveLength(1);
+    expect(JSON.stringify(observed.requests[0]?.body)).toContain('Unrelated item');
+    expect(await store.db.selectFrom('operator_token').select('status').execute()).toEqual([
+      { status: 'expired' },
+    ]);
+    expect(
+      await store.db
+        .selectFrom('outbox')
+        .select('state')
+        .where('dedupe_key', 'like', '%token:desk%')
+        .execute(),
+    ).toEqual([{ state: 'dead' }, { state: 'dead' }]);
+    expect(
+      await store.db
+        .selectFrom('event')
+        .select('kind')
+        .where('kind', '=', 'token_expired')
+        .execute(),
+    ).toHaveLength(1);
+  });
+
   it('expires unreviewed requests and clears their approval items once', async () => {
     const store = setup();
     await enroll(store);
