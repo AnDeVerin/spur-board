@@ -16,7 +16,10 @@ const BASE = {
   https_proxy: 'http://127.0.0.1:2',
   NO_PROXY: 'localhost',
   NODE_USE_ENV_PROXY: '1',
-  NODE_OPTIONS: '--use-env-proxy --max-old-space-size=64',
+  NODE_OPTIONS: '--use-env-proxy --require=/tmp/preload.cjs',
+  SSH_AUTH_SOCK: '/run/agent.sock',
+  HOME: '/home/u',
+  LC_ALL: 'C.UTF-8',
 };
 const PROXY_NAMES = ['HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'NO_PROXY', 'NODE_USE_ENV_PROXY'];
 
@@ -51,15 +54,11 @@ function proxyFree(env: Record<string, string>): void {
 }
 
 describe('standEnv', () => {
-  it('drops scrubbed names and the env proxy flag', () => {
+  it('keeps only allowlisted names: no secret, proxy, preload or agent socket', () => {
     const env = standEnv(BASE);
-    expect(env).toEqual({ PATH: '/usr/bin', NODE_OPTIONS: '--max-old-space-size=64' });
+    expect(env).toEqual({ PATH: '/usr/bin', HOME: '/home/u', LC_ALL: 'C.UTF-8' });
     expect(Object.keys(env).filter(isScrubbed)).toEqual([]);
     proxyFree(env);
-  });
-
-  it('drops NODE_OPTIONS when only the proxy flag was in it', () => {
-    expect(standEnv({ NODE_OPTIONS: '--use-env-proxy' })).not.toHaveProperty('NODE_OPTIONS');
   });
 });
 

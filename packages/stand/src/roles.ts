@@ -1,6 +1,5 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { isScrubbed } from '@spur-board/testkit';
 import type { StandManifest } from './manifest.ts';
 
 type Env = Readonly<Record<string, string | undefined>>;
@@ -14,21 +13,28 @@ export const BOARD_CLI = fileURLToPath(new URL('../../cli/src/bin.mjs', import.m
 /** Commands that act on the real machine: the user's service manager, the global install. */
 const BLOCKED = new Set(['service', 'update', 'rollback', 'skills']);
 
-/**
- * `base` without session identity, credentials or proxy settings (`isScrubbed`), and with
- * `--use-env-proxy` removed from `NODE_OPTIONS`.
- */
+/** Names a stand child inherits; everything else, `NODE_OPTIONS` included, stays behind. */
+const INHERITED = new Set([
+  'PATH',
+  'HOME',
+  'TMPDIR',
+  'LANG',
+  'LANGUAGE',
+  'TZ',
+  'TERM',
+  'USER',
+  'LOGNAME',
+  // The live board's directories, so the stand child's own live-home guard sees them.
+  'XDG_CONFIG_HOME',
+  'XDG_DATA_HOME',
+]);
+
+/** The part of `base` a stand child may inherit: an allowlist plus the `LC_*` locale names. */
 export function standEnv(base: Env): Record<string, string> {
   const env: Record<string, string> = {};
   for (const [name, value] of Object.entries(base)) {
-    if (value !== undefined && !isScrubbed(name)) env[name] = value;
+    if (value !== undefined && (INHERITED.has(name) || name.startsWith('LC_'))) env[name] = value;
   }
-  const options = (env['NODE_OPTIONS'] ?? '')
-    .split(/\s+/)
-    .filter((word) => word !== '' && word !== '--use-env-proxy')
-    .join(' ');
-  if (options === '') Reflect.deleteProperty(env, 'NODE_OPTIONS');
-  else env['NODE_OPTIONS'] = options;
   return env;
 }
 
