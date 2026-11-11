@@ -178,7 +178,8 @@ export async function startControl(options: {
         throw new HttpError(400, 'Send { system, verb, args }.');
       const run = () => options.routes.fake({ system, verb, args });
       // A reset replaces the fake Spur, so it waits its turn. The other fakes outlive a reset and
-      // must answer beside a poll they hold: `fail clear` is how a hang is lifted.
+      // must answer beside a poll they hold. `fail clear` affects later requests only: a request
+      // already held waits for its abort, the poll bound or shutdown.
       result = await (system === 'spur' ? queued(run) : run());
     } else if (path === '/violations') {
       result = await options.routes.violations();

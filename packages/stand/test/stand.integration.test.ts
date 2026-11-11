@@ -57,22 +57,11 @@ beforeEach(() => {
   root = realpathSync(root);
 });
 
-/** Whether shutdown has begun; a stand already stopping no longer answers `/violations`. */
-async function isStopping(current: Stand): Promise<boolean> {
-  return Promise.race([
-    current.stopping.then(() => true),
-    new Promise<boolean>((resolve) => {
-      setImmediate(resolve, false);
-    }),
-  ]);
-}
-
 afterEach(async () => {
   let log: { status: number; body: unknown } | undefined;
   try {
     // The runner swallows a violation's 400, so only the log shows an unknown request.
-    if (checked !== undefined && stand !== undefined && !(await isStopping(stand)))
-      log = await control(checked, '/violations');
+    if (checked !== undefined) log = await control(checked, '/violations');
   } finally {
     await stand?.stop();
     stand = undefined;
@@ -902,6 +891,8 @@ describe('stand', () => {
       expect(result.status).toBe(200);
       const current = stand;
       stand = undefined;
+      // This test stops its own stand, which then cannot answer the log check.
+      checked = undefined;
       await current?.stop();
     }, 60_000);
 
@@ -930,6 +921,8 @@ describe('stand', () => {
         const started = Date.now();
         const current = stand;
         stand = undefined;
+        // This test stops its own stand, which then cannot answer the log check.
+        checked = undefined;
         await current?.stop();
         expect(Date.now() - started).toBeLessThan(10_000);
         await Promise.allSettled(polls);
