@@ -121,6 +121,8 @@
               { "id": "ready-for-dev", "enabled": true, "orchestrator": "none" },
               { "id": "dev", "enabled": true, "orchestrator": "none" },
               { "id": "review", "enabled": true, "orchestrator": "none" },
+              { "id": "product-review", "enabled": true, "orchestrator": "none" },
+              { "id": "external-review", "enabled": true, "orchestrator": "none" },
               { "id": "qa", "enabled": true, "orchestrator": "none" },
               { "id": "ready-to-merge", "enabled": true, "orchestrator": "none" },
               { "id": "done", "enabled": true, "orchestrator": "none" }
@@ -131,7 +133,17 @@
               "properties": {
                 "id": {
                   "type": "string",
-                  "enum": ["todo", "ready-for-dev", "dev", "review", "qa", "ready-to-merge", "done"]
+                  "enum": [
+                    "todo",
+                    "ready-for-dev",
+                    "dev",
+                    "review",
+                    "product-review",
+                    "external-review",
+                    "qa",
+                    "ready-to-merge",
+                    "done"
+                  ]
                 },
                 "enabled": { "default": true, "type": "boolean" },
                 "orchestrator": { "default": "none", "type": "string", "minLength": 1 }
