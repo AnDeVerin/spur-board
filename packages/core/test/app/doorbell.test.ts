@@ -476,6 +476,47 @@ describe('role addressed doorbells', () => {
     expect(ctx.sent).toHaveLength(1);
   });
 
+  it('delivers an escalation note as a reply in the opened thread', async () => {
+    const ctx = await setup({ gateway: true });
+    const fake = ctx.fake;
+    if (fake === undefined) throw new Error('no gateway');
+    const block = await ctx.store.transaction((trx) =>
+      trx
+        .insertInto('block')
+        .values({
+          task_id: 1,
+          type: 'code',
+          reason: 'Fix checks',
+          author: 'agent:web/worker-1',
+          addressee_role: 'worker',
+          target_column: null,
+          state: 'open',
+          outcome: null,
+          outcome_reason: null,
+          repeat_of: null,
+          unblocked_by: null,
+          unblocked_at: null,
+          created_at: new Date(START).toISOString(),
+        })
+        .returning('id')
+        .executeTakeFirstOrThrow(),
+    );
+    await ctx.apply(
+      ops.escalate,
+      { block: `B${String(block.id)}`, note: 'Tried twice already.' },
+      'agent:web/worker-1',
+      'escalate-note',
+    );
+    await ctx.sender.tick();
+    ctx.advance(60_000);
+    await ctx.sender.tick();
+    expect(fake.platform.conversations()).toHaveLength(1);
+    const texts = fake.platform.messages().map((message) => message.text);
+    expect(texts.some((text) => text.includes('Fix checks'))).toBe(true);
+    expect(texts.some((text) => text.includes('Tried twice already.'))).toBe(true);
+    expect(ctx.sent).toEqual([]);
+  });
+
   it('raises answer_undelivered only after three unanswered rings to a live role session', async () => {
     const ctx = await setup({ author: 'ended', replacement: true });
     const asked = await ctx.apply(
@@ -1408,30 +1449,80 @@ describe('doorbell policy', () => {
     ]);
   });
 
+  const reviewByCurator = configSchema.parse({
+    ...policyConfig,
+    projects: policyConfig.projects.map((project) => ({
+      ...project,
+      columns: project.columns.map((column) =>
+        column.id === 'review' ? { ...column, orchestrator: 'cur' } : column,
+      ),
+    })),
+  });
+  const withdraw = (block: string) => ({
+    mode: 'withdraw' as const,
+    block,
+    answer: 'Never mind.',
+  });
+  /** Opens a question from `asker` after starting the live `session` of `project`. */
+  const question = (asker: ActorId, session: string, project: string) => async (ctx: Board) => {
+    await addSession(ctx, session, project);
+    return (await ctx.apply(ctx.ops.ask, { task: KEY, text: 'Q?' }, asker, 'ask')).block.id;
+  };
+
   it.each([
     {
       by: 'its author',
       actor: worker,
-      open: async (ctx: Board) => {
-        await addSession(ctx, 'cur-1', 'cur');
-        return (await ctx.apply(ctx.ops.ask, { task: KEY, text: 'Q?' }, worker, 'ask')).block.id;
-      },
-      input: (block: string) => ({ mode: 'withdraw' as const, block, answer: 'Never mind.' }),
+      config: policyConfig,
+      column: 'qa' as const,
+      open: question(worker, 'cur-1', 'cur'),
+      input: withdraw,
       session: 'cur-1',
+      addressee: 'curator',
     },
     {
       by: 'the operator',
       actor: 'operator' as const,
+      config: policyConfig,
+      column: 'qa' as const,
       open: (ctx: Board) => workerBlock(ctx.store),
       input: (block: string) => ({ mode: 'reason' as const, block, reason: 'Never mind.' }),
       session: 'worker-1',
+      addressee: 'worker',
+    },
+    {
+      by: 'a new orchestrator session at the curator',
+      actor: 'agent:qa/qa-2' as const,
+      config: policyConfig,
+      column: 'dev' as const,
+      open: question('agent:qa/qa-1', 'cur-1', 'cur'),
+      input: withdraw,
+      session: 'cur-1',
+      addressee: 'curator',
+    },
+    {
+      by: 'a new orchestrator session at another orchestrator',
+      actor: 'agent:qa/qa-2' as const,
+      config: reviewByCurator,
+      column: 'review' as const,
+      open: question('agent:qa/qa-1', 'cur-1', 'cur'),
+      input: withdraw,
+      session: 'cur-1',
+      addressee: 'orchestrator:review',
     },
   ])(
     'rings the addressee once when $by removes the block',
-    async ({ actor, open, input, session }) => {
-      const ctx = await setup({ config: policyConfig, column: 'qa' });
+    async ({ actor, config, column, open, input, session, addressee }) => {
+      const ctx = await setup({ config, column });
       const block = await open(ctx);
       await ctx.apply(ctx.ops.unblock, input(block), actor, 'remove');
+      expect(
+        await ctx.store.db
+          .selectFrom('block')
+          .select(['outcome_reason', 'addressee_role'])
+          .executeTakeFirstOrThrow(),
+      ).toEqual({ outcome_reason: 'Never mind.', addressee_role: addressee });
+      expect((await notices(ctx)).filter((n) => n.kind === 'answer')).toEqual([]);
       await step(ctx);
       expect(ctx.sent).toEqual([
         {
@@ -1525,6 +1616,28 @@ describe('doorbell policy', () => {
           'agent:cur/cur-1',
           'withdraw',
         );
+      },
+    },
+    {
+      name: 'an operator question withdrawn by a new curator session',
+      run: async (ctx: Board) => {
+        const asked = await ctx.apply(
+          ctx.ops.ask,
+          { task: KEY, text: 'Q?' },
+          'agent:cur/cur-1',
+          'ask',
+        );
+        await ctx.apply(
+          ctx.ops.unblock,
+          { mode: 'withdraw', block: asked.block.id, answer: 'Never mind.' },
+          'agent:cur/cur-2',
+          'withdraw',
+        );
+        expect(
+          (await ctx.store.db.selectFrom('outbox').select('kind').orderBy('id').execute()).map(
+            (row) => row.kind,
+          ),
+        ).toEqual(['conversation.open', 'conversation.reply', 'conversation.close']);
       },
     },
   ])('registers no operator notification for $name', async ({ run }) => {

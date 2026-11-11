@@ -213,6 +213,10 @@ function holdsBlock(config: Config, actor: ActorId, target: ResolvedTarget): boo
   return authorize([{ grant: 'block-addressee' }], actor, { config, target }).status === 'allowed';
 }
 
+function wroteBlock(config: Config, actor: ActorId, target: ResolvedTarget): boolean {
+  return authorize([{ grant: 'block-author' }], actor, { config, target }).status === 'allowed';
+}
+
 async function addComment(
   trx: Trx,
   task: Task,
@@ -221,8 +225,13 @@ async function addComment(
   ctx: CommandContext,
   addressee: AddresseeRole,
   config: Config,
-  source?: { conversationRef: string; messageRef: string },
+  options: {
+    source?: { conversationRef: string; messageRef: string };
+    /** False for a comment that is not an answer to the block's author. */
+    ringsAuthor?: boolean;
+  } = {},
 ): Promise<Comment> {
+  const { source, ringsAuthor = true } = options;
   const row = await trx
     .insertInto('comment')
     .values({
@@ -240,20 +249,23 @@ async function addComment(
     .returningAll()
     .executeTakeFirstOrThrow();
   await journal(trx, task, ctx, 'comment_added', { comment: commentId(row.id), addressee });
-  await applyDoorbellPolicy(
-    trx,
-    block === undefined
-      ? { kind: 'task_comment' }
-      : {
-          kind: 'answer',
-          block,
-          commentId: row.id,
-          revision: row.revision,
-          authorRole: authorRole(config, task, block.author),
-          actor: ctx.actor,
-        },
-    new Date(ctx.at),
-  );
+  // A note or a withdrawal comment is not an answer, so it rings nobody.
+  if (ringsAuthor) {
+    await applyDoorbellPolicy(
+      trx,
+      block === undefined
+        ? { kind: 'task_comment' }
+        : {
+            kind: 'answer',
+            block,
+            commentId: row.id,
+            revision: row.revision,
+            authorRole: authorRole(config, task, block.author),
+            actor: ctx.actor,
+          },
+      new Date(ctx.at),
+    );
+  }
   if (block !== undefined && source === undefined) {
     await enqueueConversationReply(trx, {
       commentId: row.id,
@@ -385,7 +397,7 @@ export async function recordInboundBlockMessage(
     ctx,
     authorRole(input.config, task, block.author),
     input.config,
-    { conversationRef: input.conversationRef, messageRef: input.messageRef },
+    { source: { conversationRef: input.conversationRef, messageRef: input.messageRef } },
   );
   const updated = answered ? await closeOpenBlock(trx, task, block, ctx, 'done', null) : block;
   return {
@@ -419,7 +431,14 @@ export async function editInboundComment(
     revision: next.revision,
     clarification: next.clarification,
   });
-  if (next.clarification && updated.block_id !== null) {
+  // Only a comment that rang as an answer rings again; a note or a withdrawal never did.
+  const answered = await trx
+    .selectFrom('notification')
+    .select('id')
+    .where('kind', '=', 'answer')
+    .where('comment_id', '=', updated.id)
+    .executeTakeFirst();
+  if (next.clarification && updated.block_id !== null && answered !== undefined) {
     const block = await trx
       .selectFrom('block')
       .selectAll()
@@ -496,10 +515,19 @@ export function createBlockMutations(config: Config) {
       active(task);
       const hasCurator = curatorProject(config, task.project) !== null;
       const next = rule(() => escalateBlock(current(block), hasCurator));
-      if (!next.changed) return { block: blockView(block, task) };
+      // A no-op leaves the block as it is but still posts the note to its current thread.
+      const unchanged = async () => {
+        if (input.note !== undefined) {
+          await addComment(trx, task, block, input.note, ctx, block.addressee_role, config, {
+            ringsAuthor: false,
+          });
+        }
+        return { block: blockView(block, task) };
+      };
+      if (!next.changed) return unchanged();
       // An earlier addressee passes authorization to retry; only the current one moves the block.
       const target = await authorizationTarget(trx, task, block);
-      if (!holdsBlock(config, ctx.actor, target)) return { block: blockView(block, task) };
+      if (!holdsBlock(config, ctx.actor, target)) return unchanged();
       const updated = await moveBlockToAddressee(trx, {
         task,
         block,
@@ -507,6 +535,12 @@ export function createBlockMutations(config: Config) {
         ctx,
         config,
       });
+      // After the open, so the note is a reply and never replaces the original text at the head.
+      if (input.note !== undefined) {
+        await addComment(trx, task, updated, input.note, ctx, next.addressee, config, {
+          ringsAuthor: false,
+        });
+      }
       return { block: blockView(updated, task) };
     },
   };
@@ -540,6 +574,7 @@ export function createBlockMutations(config: Config) {
       const block = found(await blockById(trx, input.block));
       const task = await taskById(trx, block.task_id);
       active(task);
+      const target = await authorizationTarget(trx, task, block);
       const decision = rule(() =>
         input.mode === 'done'
           ? closeBlock(current(block), {
@@ -548,10 +583,16 @@ export function createBlockMutations(config: Config) {
             })
           : input.mode === 'reason'
             ? closeBlock(current(block), { mode: 'reason', reason: input.reason })
-            : closeBlock(current(block), { mode: 'withdraw', actor: ctx.actor }),
+            : closeBlock(current(block), {
+                mode: 'withdraw',
+                isAuthor: wroteBlock(config, ctx.actor, target),
+                reason: input.answer,
+              }),
       );
       if (input.mode === 'withdraw') {
-        await addComment(trx, task, block, input.answer, ctx, block.addressee_role, config);
+        await addComment(trx, task, block, input.answer, ctx, block.addressee_role, config, {
+          ringsAuthor: false,
+        });
       }
       const updated = await closeOpenBlock(
         trx,
@@ -561,9 +602,7 @@ export function createBlockMutations(config: Config) {
         decision.outcome,
         decision.outcomeReason,
       );
-      const closedByAddressee =
-        input.mode === 'done' ||
-        holdsBlock(config, ctx.actor, await authorizationTarget(trx, task, block));
+      const closedByAddressee = input.mode === 'done' || holdsBlock(config, ctx.actor, target);
       await applyDoorbellPolicy(
         trx,
         closedByAddressee

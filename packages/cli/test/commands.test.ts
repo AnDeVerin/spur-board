@@ -396,6 +396,7 @@ describe('catalog commands', () => {
       ['inbox', 'ack', 'B13', '--key', 'ack-block'],
       ['block', 'PROJ-123', '--type', 'dependency', '--reason', 'Waiting', '--key', 'block-1'],
       ['unblock', 'B12', '--withdraw', 'No longer needed', '--key', 'unblock-1'],
+      ['escalate', 'B12', '--note', 'Owner is away', '--key', 'escalate-1'],
     ];
     for (const command of commands) {
       const output = capture();
@@ -421,6 +422,7 @@ describe('catalog commands', () => {
         id: 'block.unblock',
         input: { block: 'B12', mode: 'withdraw', answer: 'No longer needed' },
       },
+      { id: 'block.escalate', input: { block: 'B12', note: 'Owner is away' } },
     ]);
   });
 

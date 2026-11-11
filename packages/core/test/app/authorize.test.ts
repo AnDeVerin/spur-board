@@ -285,6 +285,116 @@ describe('authorize catalog grants', () => {
     });
   });
 
+  describe('author rule', () => {
+    const unblock = operation('block.unblock');
+    const curatorOne = 'agent:cur/cur-1';
+    const curatorTwo = 'agent:cur/cur-2';
+    const qaOne = 'agent:qa/qa-1';
+    const qaTwo = 'agent:qa/qa-2';
+    const roles = configSchema.parse({
+      ...config,
+      projects: config.projects.map((project) => ({
+        ...project,
+        spurProjects:
+          project.id === 'other'
+            ? [{ name: 'foreign', role: 'curator' }]
+            : [
+                ...project.spurProjects,
+                { name: 'cur', role: 'curator' },
+                { name: 'none', role: 'worker' },
+                { name: 'operator', role: 'worker' },
+              ],
+        ...(project.id === 'other'
+          ? {}
+          : {
+              columns: project.columns.map((column) =>
+                column.id === 'qa' ? { ...column, orchestrator: 'operator' } : column,
+              ),
+            }),
+      })),
+    });
+    const withdraw = (
+      actor: ActorId,
+      author: ActorId,
+      workers: AuthorizationTarget['workers'] = [],
+      type: BlockType = 'needs_input',
+    ) =>
+      authorize(unblock.grants, actor, {
+        config: roles,
+        mode: 'withdraw',
+        target: {
+          kind: 'found',
+          value: { ...target, workers, block: { ...block, type, author } },
+        },
+      }).status;
+    const link = (session_id: string, role: string | null, banned = 0) => ({
+      session_id,
+      role,
+      banned,
+    });
+
+    it('allows a new curator or orchestrator session of the same project', () => {
+      expect(withdraw(curatorTwo, curatorOne)).toBe('allowed');
+      expect(withdraw(qaTwo, qaOne)).toBe('allowed');
+    });
+
+    it('matches an orchestrator of any column of the project', () => {
+      const moved: AuthorizationTarget = {
+        ...target,
+        task: { id: 1, column: 'review' },
+        workers: [],
+        block: { ...block, type: 'needs_input', author: qaOne },
+      };
+      expect(
+        authorize(unblock.grants, qaTwo, {
+          config: roles,
+          mode: 'withdraw',
+          target: { kind: 'found', value: moved },
+        }).status,
+      ).toBe('allowed');
+    });
+
+    it('keeps a worker project on identity by session', () => {
+      expect(withdraw('agent:web/web-2', 'agent:web/web-1')).toBe('denied');
+      expect(withdraw('agent:web/web-1', 'agent:web/web-1')).toBe('allowed');
+    });
+
+    it.each([
+      ['worker-linked author', [link('qa-1', 'worker')]],
+      ['worker-linked actor', [link('qa-2', 'worker')]],
+      ['other-linked author', [link('qa-1', 'other')]],
+      ['other-linked actor', [link('qa-2', 'other')]],
+      ['banned worker author', [link('qa-1', 'worker', 1)]],
+      ['banned other actor', [link('qa-2', 'other', 1)]],
+    ])('refuses a session of an orchestrator project with a %s', (_label, workers) => {
+      expect(withdraw(qaTwo, qaOne, workers)).toBe('denied');
+    });
+
+    it('does not count a banned link with no role on the author', () => {
+      expect(withdraw(qaTwo, qaOne, [link('qa-1', null, 1)])).toBe('allowed');
+    });
+
+    it('never matches a system-authored block', () => {
+      expect(withdraw('system', 'system')).toBe('denied');
+      expect(withdraw(curatorTwo, 'system')).toBe('denied');
+    });
+
+    it("refuses another project's sessions", () => {
+      expect(withdraw('agent:foreign/foreign-2', 'agent:foreign/foreign-1')).toBe('denied');
+      expect(withdraw('agent:foreign/foreign-2', curatorOne)).toBe('denied');
+      expect(withdraw(curatorTwo, qaOne)).toBe('denied');
+    });
+
+    it('does not read the reserved orchestrator names as project names', () => {
+      expect(withdraw('agent:none/n-2', 'agent:none/n-1')).toBe('denied');
+      expect(withdraw('agent:operator/o-2', 'agent:operator/o-1')).toBe('denied');
+    });
+
+    it('refuses to withdraw a code block', () => {
+      expect(withdraw(curatorTwo, curatorOne, [], 'code')).toBe('denied');
+    });
+  });
+
   it('limits unblock grants to their declared block types', () => {
     const unblock = operation('block.unblock');
     const state = (type: BlockType, mode: string) => ({
@@ -322,6 +432,7 @@ describe('authorize catalog grants', () => {
       'ref',
       'answer',
       'detail',
+      'note',
     ];
     const keys = new Set<string>();
     for (const entry of OPERATIONS) {

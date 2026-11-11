@@ -478,6 +478,7 @@ Arguments: `<block>`.
 
 Flags:
 
+`--note <value>` — Context for the next addressee, posted after the original text.
 `--key <key>` — Idempotency key for this action.
 `--json` — Print JSON output or a JSON error.
 

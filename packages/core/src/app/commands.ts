@@ -181,7 +181,7 @@ export function createApply(deps: { store: Store; clock: Clock; config: Config }
               : ackMismatch
                 ? [...resolved, { kind: 'missing' }]
                 : resolved;
-          const mode = 'mode' in parsed.data ? String(parsed.data.mode) : undefined;
+          const mode = 'mode' in parsed.data ? parsed.data.mode : undefined;
           for (const target of targets) {
             const decision = authorize(entry.grants, actor, {
               config,

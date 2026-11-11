@@ -11,6 +11,7 @@ import {
   openStore,
   type Store,
 } from '../../src/index.ts';
+import { editInboundComment } from '../../src/app/blocks.ts';
 import { reconcileItems } from '../../src/app/fromYou.ts';
 import { scanTransaction } from '../../src/app/secrets.ts';
 import { sampleRows } from '../store/sample-rows.ts';
@@ -550,7 +551,11 @@ describe('block and comment mutations', () => {
       author,
       'withdraw-own',
     );
-    expect(result.block).toMatchObject({ outcome: 'withdrawn', unblockedBy: author });
+    expect(result.block).toMatchObject({
+      outcome: 'withdrawn',
+      outcomeReason: 'Elsewhere.',
+      unblockedBy: author,
+    });
     const comments = await store.db
       .selectFrom('comment')
       .select(['block_id', 'text'])
@@ -560,7 +565,10 @@ describe('block and comment mutations', () => {
       { block_id: 1, text: 'Question?' },
       { block_id: 1, text: 'Elsewhere.' },
     ]);
-    expect((await events(store)).map((event) => event.kind)).toContain('block_unblocked');
+    expect((await events(store)).at(-1)).toMatchObject({
+      kind: 'block_unblocked',
+      payload: { block: asked.block.id, outcome: 'withdrawn', reason: 'Elsewhere.' },
+    });
   });
 
   it('edits after acknowledgement as an observable clarification and rejects a stale revision', async () => {
@@ -1048,4 +1056,349 @@ describe('curator delivery', () => {
       persona: { name: 'cur', role: 'orchestrator' },
     });
   });
+});
+
+describe('withdrawal by the author role', () => {
+  const used = withCurator();
+  const notifications = (store: Store) =>
+    store.db.selectFrom('notification').select(['kind', 'role']).orderBy('id').execute();
+
+  it('withdraws a question of the previous curator session', async () => {
+    const { apply, ops: curated } = await curatorBoard('qa', used);
+    const { block } = await apply(curated.ask, { task: KEY, text: 'Q?' }, curator, 'ask');
+    const closed = await apply(
+      curated.unblock,
+      { mode: 'withdraw', block: block.id, answer: 'Settled.' },
+      'agent:cur/cur-2',
+      'withdraw',
+    );
+    expect(closed.block).toMatchObject({
+      outcome: 'withdrawn',
+      outcomeReason: 'Settled.',
+      unblockedBy: 'agent:cur/cur-2',
+    });
+  });
+
+  it('refuses a linked worker of an orchestrator project', async () => {
+    const { store, apply, ops: curated } = await curatorBoard('dev', used);
+    await store.transaction((trx) =>
+      trx
+        .insertInto('link')
+        .values({
+          ...sampleRows.link,
+          id: 3,
+          entity: 'session',
+          repo: null,
+          number: null,
+          pr_state: null,
+          session_id: 'qa-1',
+          role: 'worker',
+        })
+        .execute(),
+    );
+    const { block } = await apply(curated.ask, { task: KEY, text: 'Q?' }, orchestrator, 'ask');
+    await expect(
+      apply(
+        curated.unblock,
+        { mode: 'withdraw', block: block.id, answer: 'Mine now.' },
+        'agent:qa/qa-2',
+        'withdraw',
+      ),
+    ).rejects.toMatchObject({ code: 'forbidden' });
+  });
+
+  it('withdraws an orchestrator question after a column move', async () => {
+    const { store, apply, ops: curated } = await curatorBoard('dev', used);
+    const { block } = await apply(curated.ask, { task: KEY, text: 'Q?' }, orchestrator, 'ask');
+    await store.transaction((trx) =>
+      trx.updateTable('task').set({ column: 'qa' }).where('id', '=', 1).execute(),
+    );
+    const closed = await apply(
+      curated.unblock,
+      { mode: 'withdraw', block: block.id, answer: 'Settled.' },
+      'agent:qa/qa-2',
+      'withdraw',
+    );
+    expect(closed.block).toMatchObject({ outcome: 'withdrawn', unblockedBy: 'agent:qa/qa-2' });
+    // The curator it waited on hears of the removal once; the author gets no answer ring.
+    expect(await notifications(store)).toEqual([
+      { kind: 'block', role: 'curator' },
+      { kind: 'removed', role: 'curator' },
+    ]);
+  });
+
+  it('posts the reason to the operator thread when a new curator session withdraws', async () => {
+    const { store, apply, ops: curated } = await curatorBoard('qa', used);
+    const { block } = await apply(curated.ask, { task: KEY, text: 'Q?' }, curator, 'ask');
+    expect(block.addressee).toBe('operator');
+    await apply(
+      curated.unblock,
+      { mode: 'withdraw', block: block.id, answer: 'Settled.' },
+      'agent:cur/cur-2',
+      'withdraw',
+    );
+    const rows = await store.db.selectFrom('outbox').selectAll().orderBy('id').execute();
+    expect(rows.map((row) => row.kind)).toEqual([
+      'conversation.open',
+      'conversation.reply',
+      'conversation.close',
+    ]);
+    expect(rows.map((row) => row.parent_outbox_id)).toEqual([null, rows[0]?.id, rows[1]?.id]);
+    expect(JSON.parse(rows[1]?.payload ?? '{}')).toMatchObject({ text: 'Settled.' });
+    expect(await notifications(store)).toEqual([]);
+  });
+});
+
+describe('escalation note', () => {
+  const used = withCurator();
+  const outbox = (store: Store) =>
+    store.db.selectFrom('outbox').selectAll().orderBy('id').execute();
+  const comments = (store: Store) =>
+    store.db.selectFrom('comment').select('text').orderBy('id').execute();
+  const answerRows = (store: Store) =>
+    store.db.selectFrom('notification').select('id').where('kind', '=', 'answer').execute();
+
+  it('opens the thread with the question and replies with the note', async () => {
+    const { store, apply, ops: curated } = await curatorBoard('qa', used);
+    const { block } = await apply(curated.ask, { task: KEY, text: 'Q?' }, author, 'ask');
+    await apply(curated.escalate, { block: block.id, note: 'Owner away.' }, curator, 'esc');
+    const rows = await outbox(store);
+    expect(rows.map((row) => row.kind)).toEqual(['conversation.open', 'conversation.reply']);
+    expect(rows[1]?.parent_outbox_id).toBe(rows[0]?.id);
+    expect(JSON.parse(rows[0]?.payload ?? '{}')).toMatchObject({ text: 'Q?', commentId: 1 });
+    expect(JSON.parse(rows[1]?.payload ?? '{}')).toMatchObject({
+      text: 'Owner away.',
+      commentId: 2,
+      persona: { name: 'cur', role: 'orchestrator' },
+    });
+    expect((await events(store)).at(-1)).toMatchObject({
+      kind: 'comment_added',
+      payload: { comment: 'C2', addressee: 'operator' },
+    });
+  });
+
+  it('keeps the reason at the head of a thread', async () => {
+    const { store, apply, ops: curated } = await curatorBoard('dev', used);
+    const { block } = await apply(
+      curated.create,
+      { task: KEY, type: 'dependency', reason: 'Needs outside work.' },
+      orchestrator,
+      'create',
+    );
+    await apply(curated.escalate, { block: block.id, note: 'Still waiting.' }, orchestrator, 'esc');
+    const rows = await outbox(store);
+    expect(rows.map((row) => row.kind)).toEqual(['conversation.open', 'conversation.reply']);
+    expect(JSON.parse(rows[0]?.payload ?? '{}')).toMatchObject({
+      text: 'Needs outside work.',
+      commentId: null,
+    });
+    expect(JSON.parse(rows[1]?.payload ?? '{}')).toMatchObject({ text: 'Still waiting.' });
+  });
+
+  it('replays a note left at the curator when the block reaches the operator', async () => {
+    const { store, apply, ops: curated } = await curatorBoard('dev', used);
+    const { block } = await apply(curated.ask, { task: KEY, text: 'Q?' }, author, 'ask');
+    await apply(curated.escalate, { block: block.id, note: 'First.' }, orchestrator, 'esc-1');
+    expect(await outbox(store)).toEqual([]);
+    await apply(curated.escalate, { block: block.id, note: 'Second.' }, curator, 'esc-2');
+    const texts = (await outbox(store)).map(
+      (row) => (JSON.parse(row.payload) as { text: string }).text,
+    );
+    expect(texts).toEqual(['Q?', 'First.', 'Second.']);
+  });
+
+  it('rolls back an escalation note', async () => {
+    const { store, apply, ops: curated } = await curatorBoard('qa', used);
+    const { block } = await apply(curated.ask, { task: KEY, text: 'Q?' }, author, 'ask');
+    const before = await counts(store);
+    await sql
+      .raw(
+        "CREATE TEMP TRIGGER fail_reply BEFORE INSERT ON outbox WHEN NEW.kind = 'conversation.reply' BEGIN SELECT RAISE(FAIL, 'injected'); END",
+      )
+      .execute(store.db);
+    await expect(
+      apply(curated.escalate, { block: block.id, note: 'Owner away.' }, curator, 'esc'),
+    ).rejects.toThrow('injected');
+    expect(await counts(store)).toEqual(before);
+    expect(
+      await store.db.selectFrom('block').select('addressee_role').executeTakeFirstOrThrow(),
+    ).toEqual({ addressee_role: 'curator' });
+  });
+
+  it.each([
+    { by: 'worker', column: 'qa', asker: author, escalator: curator },
+    { by: 'orchestrator', column: 'dev', asker: orchestrator, escalator: curator },
+    { by: 'curator', column: 'qa', asker: curator, escalator: 'operator' },
+  ] as const)(
+    'does not ring the question author for a note ($by author)',
+    async ({ column, asker, escalator }) => {
+      const { store, apply, ops: curated } = await curatorBoard(column, used);
+      const { block } = await apply(curated.ask, { task: KEY, text: 'Q?' }, asker, 'ask');
+      await apply(curated.escalate, { block: block.id, note: 'Owner away.' }, escalator, 'esc');
+      expect(await comments(store)).toEqual([{ text: 'Q?' }, { text: 'Owner away.' }]);
+      expect(await answerRows(store)).toEqual([]);
+    },
+  );
+
+  describe('on a no-op escalation', () => {
+    const replies = async (store: Store) =>
+      (await outbox(store)).filter((row) => row.kind === 'conversation.reply');
+    const operatorThread = async () => {
+      const board = await curatorBoard('dev', used);
+      const { apply, ops: curated } = board;
+      const { block } = await apply(curated.ask, { task: KEY, text: 'Q?' }, author, 'ask');
+      await apply(curated.escalate, { block: block.id }, orchestrator, 'esc-1');
+      await apply(curated.escalate, { block: block.id, note: 'First.' }, curator, 'esc-2');
+      return { ...board, id: block.id };
+    };
+
+    it('adds an earlier addressee note to the current thread', async () => {
+      const { store, apply, ops: curated, id } = await operatorThread();
+      const before = await events(store);
+      const notices = await store.db.selectFrom('notification').selectAll().execute();
+      const tail = (await outbox(store)).at(-1);
+      const input = { block: id, note: 'Late.' };
+      const late = await apply(curated.escalate, input, curator, 'late');
+      expect(late.block).toMatchObject({ addressee: 'operator', state: 'open' });
+      expect(await comments(store)).toEqual([
+        { text: 'Q?' },
+        { text: 'First.' },
+        { text: 'Late.' },
+      ]);
+      const reply = (await replies(store)).at(-1);
+      expect(reply?.parent_outbox_id).toBe(tail?.id);
+      expect(JSON.parse(reply?.payload ?? '{}')).toMatchObject({ text: 'Late.' });
+      expect((await events(store)).slice(before.length).map((event) => event.kind)).toEqual([
+        'comment_added',
+      ]);
+      expect(await escalations(store)).toHaveLength(2);
+      expect((await outbox(store)).filter((row) => row.kind === 'conversation.open')).toHaveLength(
+        1,
+      );
+      expect(await store.db.selectFrom('notification').selectAll().execute()).toEqual(notices);
+      expect(await answerRows(store)).toEqual([]);
+
+      const settled = await counts(store);
+      expect(await apply(curated.escalate, input, curator, 'late')).toEqual(late);
+      await expect(
+        apply(curated.escalate, { ...input, note: 'Changed.' }, curator, 'late'),
+      ).rejects.toMatchObject({ code: 'idempotency_key_mismatch' });
+      expect(await counts(store)).toEqual(settled);
+    });
+
+    it('adds the note when the block is already at the top', async () => {
+      const { store, apply, ops: curated, id } = await operatorThread();
+      const notices = await store.db.selectFrom('notification').selectAll().execute();
+      const tail = (await outbox(store)).at(-1);
+      const top = await apply(curated.escalate, { block: id, note: 'Top.' }, 'operator', 'top');
+      expect(top.block).toMatchObject({ addressee: 'operator', state: 'open' });
+      expect((await comments(store)).at(-1)).toEqual({ text: 'Top.' });
+      const reply = (await replies(store)).at(-1);
+      expect(reply?.parent_outbox_id).toBe(tail?.id);
+      expect(JSON.parse(reply?.payload ?? '{}')).toMatchObject({ text: 'Top.' });
+      expect(await escalations(store)).toHaveLength(2);
+      expect(await store.db.selectFrom('notification').selectAll().execute()).toEqual(notices);
+      expect(await answerRows(store)).toEqual([]);
+    });
+
+    it('writes nothing without a note', async () => {
+      const { store, apply, ops: curated, id } = await operatorThread();
+      const settled = await counts(store);
+      await apply(curated.escalate, { block: id }, curator, 'retry');
+      await apply(curated.escalate, { block: id }, 'operator', 'top');
+      expect(await counts(store)).toEqual({ ...settled, commands: settled.commands + 2 });
+    });
+  });
+});
+
+describe('edit of an acknowledged comment', () => {
+  const used = withCurator();
+  const answers = (store: Store, comment: string) =>
+    store.db
+      .selectFrom('notification')
+      .select(['revision', 'acked_at'])
+      .where('kind', '=', 'answer')
+      .where('comment_id', '=', Number(comment.slice(1)))
+      .orderBy('revision')
+      .execute();
+
+  /** Writes `kind` as C2 on a worker question, acknowledged by the worker, and returns its writer. */
+  async function acked(kind: 'note' | 'withdrawal' | 'answer') {
+    const board = await curatorBoard(kind === 'withdrawal' ? 'dev' : 'qa', used);
+    const { store, apply, ops: curated } = board;
+    const asker = kind === 'withdrawal' ? orchestrator : author;
+    const { block } = await apply(curated.ask, { task: KEY, text: 'Q?' }, asker, 'ask');
+    let writer: ActorId = curator;
+    if (kind === 'note') {
+      await apply(curated.escalate, { block: block.id, note: 'Owner away.' }, curator, 'esc');
+    } else if (kind === 'answer') {
+      await apply(curated.answer, { block: block.id, text: 'Use v2.' }, curator, 'answer');
+    } else {
+      // After the move the asker's role reads as worker, so an answer ring would reach it.
+      await store.transaction((trx) =>
+        trx.updateTable('task').set({ column: 'qa' }).where('id', '=', 1).execute(),
+      );
+      writer = 'agent:qa/qa-2';
+      await apply(
+        curated.unblock,
+        { mode: 'withdraw', block: block.id, answer: 'Settled.' },
+        writer,
+        'withdraw',
+      );
+    }
+    await apply(curated.ack, { entries: [{ id: 'C2', revision: 1 }] }, asker, 'ack');
+    return { ...board, writer };
+  }
+
+  const paths = {
+    command: async (board: Awaited<ReturnType<typeof acked>>) => {
+      await board.apply(board.ops.edit, { comment: 'C2', text: 'Edited.' }, board.writer, 'edit');
+    },
+    inbound: async (board: Awaited<ReturnType<typeof acked>>) => {
+      await board.store.transaction(async (trx) => {
+        const comment = await trx
+          .selectFrom('comment')
+          .selectAll()
+          .where('id', '=', 2)
+          .executeTakeFirstOrThrow();
+        await editInboundComment(trx, {
+          comment,
+          text: 'Edited.',
+          at: new Date(NOW).toISOString(),
+          actor: board.writer,
+          config: used,
+        });
+      });
+    },
+  } as const;
+
+  it.each([
+    ['note', 'command'],
+    ['note', 'inbound'],
+    ['withdrawal', 'command'],
+    ['withdrawal', 'inbound'],
+  ] as const)('does not ring the question author for an edited %s (%s)', async (kind, path) => {
+    const board = await acked(kind);
+    await paths[path](board);
+    expect(
+      await board.store.db
+        .selectFrom('comment')
+        .select(['text', 'revision'])
+        .where('id', '=', 2)
+        .executeTakeFirstOrThrow(),
+    ).toEqual({ text: 'Edited.', revision: 2 });
+    expect(await answers(board.store, 'C2')).toEqual([]);
+  });
+
+  it.each(['command', 'inbound'] as const)(
+    'rings the question author for an edited answer (%s)',
+    async (path) => {
+      const board = await acked('answer');
+      await paths[path](board);
+      expect(await answers(board.store, 'C2')).toEqual([
+        { revision: 1, acked_at: new Date(NOW).toISOString() },
+        { revision: 2, acked_at: null },
+      ]);
+    },
+  );
 });

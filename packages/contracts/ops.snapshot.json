@@ -1,5 +1,5 @@
 {
-  "version": "de56a6592896eceeef6f2523ce3cc5528bd95be975521c01a245d468e6feee03",
+  "version": "b55c09bb7b95c284d1a242598cc0531ca7e5e80161a753f8ea3292987cc7c424",
   "grants": [
     "operator",
     "project-agent",
@@ -4666,6 +4666,26 @@
               "unblockedAt": null
             }
           }
+        },
+        {
+          "summary": "Escalate a question with a note",
+          "input": { "block": "B12", "note": "The API owner is away until Monday." },
+          "output": {
+            "block": {
+              "id": "B12",
+              "task": "PROJ-123",
+              "type": "needs_input",
+              "state": "open",
+              "author": "agent:web/web-7",
+              "addressee": "operator",
+              "reason": "Which API version should the client target?",
+              "at": "2026-01-05T09:30:00.000Z",
+              "outcome": null,
+              "outcomeReason": null,
+              "unblockedBy": null,
+              "unblockedAt": null
+            }
+          }
         }
       ],
       "input": {
@@ -4676,6 +4696,11 @@
             "type": "string",
             "pattern": "^B[1-9]\\d{0,14}$",
             "description": "Block ID: B followed by a number, e.g. B12."
+          },
+          "note": {
+            "description": "Context for the next addressee, posted after the original text.",
+            "type": "string",
+            "minLength": 1
           }
         },
         "required": ["block"],
@@ -5171,7 +5196,7 @@
               "reason": "Which API version should the client target?",
               "at": "2026-01-05T09:30:00.000Z",
               "outcome": "withdrawn",
-              "outcomeReason": null,
+              "outcomeReason": "Answered outside the board.",
               "unblockedBy": "agent:web/web-7",
               "unblockedAt": "2026-01-05T09:30:00.000Z"
             }
@@ -5243,7 +5268,7 @@
               "answer": {
                 "type": "string",
                 "minLength": 1,
-                "description": "Answer received outside the board."
+                "description": "Why it is withdrawn, e.g. the answer received outside the board."
               }
             },
             "required": ["mode", "block", "answer"],

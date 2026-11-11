@@ -736,7 +736,14 @@ export const OPERATIONS = [
       whenToUse: 'Escalate an open block.',
       whenNotToUse: 'Use block_answer to answer a question.',
     },
-    input: z.strictObject({ block: blockIdSchema }),
+    input: z.strictObject({
+      block: blockIdSchema,
+      note: z
+        .string()
+        .min(1)
+        .optional()
+        .describe('Context for the next addressee, posted after the original text.'),
+    }),
     output: blockOutput,
     grants: [{ grant: 'block-addressee' }],
     errors: ['wrong_id_kind', 'not_found', 'block_not_open', 'task_archived'],
@@ -747,6 +754,11 @@ export const OPERATIONS = [
         summary: 'Escalate a failing build to the operator',
         input: { block: 'B13' },
         output: { block: { ...codeBlock, addressee: 'operator' } },
+      },
+      {
+        summary: 'Escalate a question with a note',
+        input: { block: 'B12', note: 'The API owner is away until Monday.' },
+        output: { block: { ...question, addressee: 'operator' } },
       },
     ],
   }),
@@ -811,7 +823,7 @@ export const OPERATIONS = [
             .literal('withdraw')
             .describe('The author takes their own question back (needs_input only).'),
           block: blockIdSchema,
-          answer: text('Answer received outside the board.'),
+          answer: text('Why it is withdrawn, e.g. the answer received outside the board.'),
         })
         .describe('Withdraw the block.'),
     ]),
@@ -871,6 +883,7 @@ export const OPERATIONS = [
             ...question,
             state: 'unblocked',
             outcome: 'withdrawn',
+            outcomeReason: 'Answered outside the board.',
             unblockedBy: 'agent:web/web-7',
             unblockedAt: at,
           },
