@@ -130,6 +130,7 @@ export function startAdapters(
   });
   return {
     firstAttempts: runner.firstAttempts,
+    pollPr: runner.pollPr,
     async stop() {
       await runner.stop();
       await Promise.allSettled([...notices]);
