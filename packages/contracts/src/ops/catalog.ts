@@ -620,7 +620,8 @@ export const OPERATIONS = [
   defineOperation({
     id: 'block.ask',
     kind: 'mutation',
-    description: 'Ask the operator a question; the task is blocked until it is answered.',
+    description:
+      'Ask a blocking question; the Board routes it to the column orchestrator, the curator or the operator.',
     mcp: {
       whenToUse: 'Ask a blocking question.',
       whenNotToUse: 'Use comment_add for a nonblocking note.',

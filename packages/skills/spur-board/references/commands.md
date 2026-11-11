@@ -83,7 +83,7 @@ Other errors: `wrong_id_kind`, `not_found`, `stale_comment_revision`, `idempoten
 
 ### `board ask`
 
-Purpose: Ask the operator a question; the task is blocked until it is answered.
+Purpose: Ask a blocking question; the Board routes it to the column orchestrator, the curator or the operator.
 Arguments: `<task>`, `<text>`.
 Flags: `--key <key>`, `--json`.
 Use when: Ask a blocking question.

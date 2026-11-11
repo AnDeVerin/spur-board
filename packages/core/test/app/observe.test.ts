@@ -475,6 +475,60 @@ describe('accepted observation', () => {
     ).toEqual([{ session_id: 'worker-1', role: 'other' }]);
   });
 
+  it('does not link a curator session through its pr field or a task branch', async () => {
+    const withCurator = {
+      ...config,
+      projects: config.projects.map((project) => ({
+        ...project,
+        spurProjects: [...project.spurProjects, { name: 'cur', role: 'curator' as const }],
+      })),
+    };
+    const { store, core, apply, mutations } = setup(withCurator);
+    await apply(mutations.add, { task: 'o/r#9' }, 'operator');
+    await core.observe('github:board:o/r', {
+      batch: {
+        source: 'github:board:o/r',
+        observedAt: at,
+        complete: true,
+        items: [{ kind: 'pr', facts: prFact() }],
+        entities: [],
+      },
+      effectiveComplete: true,
+      state: { lastCompleteAt: at, gone: [] },
+      outcomes: [],
+    });
+    const pr = { repo: 'o/r', number: 7 };
+    await core.observe('spur', {
+      batch: {
+        source: 'spur',
+        observedAt: at,
+        complete: true,
+        items: [
+          {
+            kind: 'session',
+            facts: { ...sessionFact('cur-1'), spurProject: 'cur', branch: 'unrelated', pr },
+          },
+          {
+            kind: 'session',
+            facts: { ...sessionFact('cur-2'), spurProject: 'cur', branch: 'o/r#9-retry' },
+          },
+          { kind: 'session', facts: { ...sessionFact('worker-1'), branch: 'unrelated', pr } },
+        ],
+        entities: [],
+      },
+      effectiveComplete: true,
+      state: { lastCompleteAt: at, gone: [] },
+      outcomes: [],
+    });
+    expect(
+      await store.db
+        .selectFrom('link')
+        .select(['session_id', 'role'])
+        .where('entity', '=', 'session')
+        .execute(),
+    ).toEqual([{ session_id: 'worker-1', role: 'other' }]);
+  });
+
   it('links a worker branch that equals the linked PR head even without a key in the branch', async () => {
     const { store, core, apply, mutations } = setup();
     await apply(mutations.add, { task: 'o/r#9' }, 'operator');

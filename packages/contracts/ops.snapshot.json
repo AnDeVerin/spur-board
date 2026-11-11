@@ -1,5 +1,5 @@
 {
-  "version": "1f10025343f0069ce05719f3c91dc8afb75e8b3c16f580c09525efea2344417a",
+  "version": "de56a6592896eceeef6f2523ce3cc5528bd95be975521c01a245d468e6feee03",
   "grants": [
     "operator",
     "project-agent",
@@ -2205,6 +2205,7 @@
                   "type": "string",
                   "enum": [
                     "operator",
+                    "curator",
                     "orchestrator:todo",
                     "orchestrator:ready-for-dev",
                     "orchestrator:dev",
@@ -2975,6 +2976,7 @@
                   "type": "string",
                   "enum": [
                     "operator",
+                    "curator",
                     "orchestrator:todo",
                     "orchestrator:ready-for-dev",
                     "orchestrator:dev",
@@ -3951,7 +3953,7 @@
     {
       "id": "block.ask",
       "kind": "mutation",
-      "description": "Ask the operator a question; the task is blocked until it is answered.",
+      "description": "Ask a blocking question; the Board routes it to the column orchestrator, the curator or the operator.",
       "grants": [{ "grant": "project-agent" }],
       "preconditions": null,
       "errors": [
@@ -4049,6 +4051,7 @@
                 "type": "string",
                 "enum": [
                   "operator",
+                  "curator",
                   "orchestrator:todo",
                   "orchestrator:ready-for-dev",
                   "orchestrator:dev",
@@ -4532,6 +4535,7 @@
                 "type": "string",
                 "enum": [
                   "operator",
+                  "curator",
                   "orchestrator:todo",
                   "orchestrator:ready-for-dev",
                   "orchestrator:dev",
@@ -4716,6 +4720,7 @@
                 "type": "string",
                 "enum": [
                   "operator",
+                  "curator",
                   "orchestrator:todo",
                   "orchestrator:ready-for-dev",
                   "orchestrator:dev",
@@ -4913,6 +4918,7 @@
                 "type": "string",
                 "enum": [
                   "operator",
+                  "curator",
                   "orchestrator:todo",
                   "orchestrator:ready-for-dev",
                   "orchestrator:dev",
@@ -5285,6 +5291,7 @@
                 "type": "string",
                 "enum": [
                   "operator",
+                  "curator",
                   "orchestrator:todo",
                   "orchestrator:ready-for-dev",
                   "orchestrator:dev",

@@ -132,9 +132,9 @@ const githubIssuesTracker = z
 const spurProject = z.strictObject({
   name: nonEmpty,
   role: z
-    .enum(['worker', 'operator'])
+    .enum(['worker', 'operator', 'curator'])
     .describe(
-      "worker: sessions of this Spur project may link to this project's tasks through their PR or branch. operator: sessions act as the operator.",
+      "worker: sessions of this Spur project may link to this project's tasks through their PR or branch. operator: sessions act as the operator. curator: sessions answer the questions no column orchestrator takes and escalate the rest to the operator; a board project has at most one.",
     ),
 });
 
@@ -237,6 +237,18 @@ const projectSchema = z
       .array(spurProject)
       .superRefine((items, ctx) => {
         rejectDuplicates(items, 'name', 'spur project name', ctx);
+        let curator: string | undefined;
+        items.forEach((item, i) => {
+          if (item.role !== 'curator') return;
+          if (curator !== undefined) {
+            ctx.addIssue({
+              code: 'custom',
+              path: [i, 'role'],
+              message: `Second curator ${JSON.stringify(item.name)}: ${JSON.stringify(curator)} is already the curator of this board project`,
+            });
+          }
+          curator ??= item.name;
+        });
       })
       .default([]),
     columns: z

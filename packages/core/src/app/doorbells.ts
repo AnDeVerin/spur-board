@@ -1,5 +1,13 @@
-import { parseActorId, type ActorId, type Config, type EventPayload } from '@spur-board/contracts';
+import {
+  assertNever,
+  parseActorId,
+  type ActorId,
+  type AddresseeRole,
+  type Config,
+  type EventPayload,
+} from '@spur-board/contracts';
 import type { Kysely } from 'kysely';
+import { parseAddressee } from '../domain/blocks/blocks.ts';
 import type { Row, Tables } from '../store/schema.ts';
 import { emit, taskUrl } from './board-utils.ts';
 import { CommandError } from './commands.ts';
@@ -93,6 +101,22 @@ async function liveSession(trx: Trx, id: string): Promise<Row<'session_snapshot'
     : undefined;
 }
 
+/** The session link role that receives an addressee's rings; board-wide roles have none. */
+function recipientLinkRole(role: AddresseeRole): 'worker' | 'orchestrator' | null {
+  const addressee = parseAddressee(role);
+  switch (addressee.kind) {
+    case 'worker':
+      return 'worker';
+    case 'orchestrator':
+      return 'orchestrator';
+    case 'operator':
+    case 'curator':
+      return null;
+    default:
+      return assertNever(addressee);
+  }
+}
+
 /** Select the current live recipient for a semantic notification. */
 export async function selectNotificationRecipient(
   trx: Trx,
@@ -102,12 +126,14 @@ export async function selectNotificationRecipient(
     const author = await liveSession(trx, n.author_session);
     if (author !== undefined) return author;
   }
+  const linkRole = recipientLinkRole(n.role);
+  if (linkRole === null) return undefined;
   const links = await trx
     .selectFrom('link')
     .select('session_id')
     .where('task_id', '=', n.task_id)
     .where('entity', '=', 'session')
-    .where('role', '=', n.role === 'worker' ? 'worker' : 'orchestrator')
+    .where('role', '=', linkRole)
     .where('banned', '=', 0)
     .orderBy('created_at', 'desc')
     .execute();
