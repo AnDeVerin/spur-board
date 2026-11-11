@@ -550,7 +550,11 @@ describe('block and comment mutations', () => {
       author,
       'withdraw-own',
     );
-    expect(result.block).toMatchObject({ outcome: 'withdrawn', unblockedBy: author });
+    expect(result.block).toMatchObject({
+      outcome: 'withdrawn',
+      outcomeReason: 'Elsewhere.',
+      unblockedBy: author,
+    });
     const comments = await store.db
       .selectFrom('comment')
       .select(['block_id', 'text'])
@@ -560,7 +564,10 @@ describe('block and comment mutations', () => {
       { block_id: 1, text: 'Question?' },
       { block_id: 1, text: 'Elsewhere.' },
     ]);
-    expect((await events(store)).map((event) => event.kind)).toContain('block_unblocked');
+    expect((await events(store)).at(-1)).toMatchObject({
+      kind: 'block_unblocked',
+      payload: { block: asked.block.id, outcome: 'withdrawn', reason: 'Elsewhere.' },
+    });
   });
 
   it('edits after acknowledgement as an observable clarification and rejects a stale revision', async () => {
@@ -1038,5 +1045,92 @@ describe('curator delivery', () => {
     expect(JSON.parse(rows[0]?.payload ?? '{}')).toMatchObject({
       persona: { name: 'cur', role: 'orchestrator' },
     });
+  });
+});
+
+describe('withdrawal by the author role', () => {
+  const used = withCurator();
+  const notifications = (store: Store) =>
+    store.db.selectFrom('notification').select('id').execute();
+
+  it('withdraws a question of the previous curator session', async () => {
+    const { apply, ops: curated } = await curatorBoard('qa', used);
+    const { block } = await apply(curated.ask, { task: KEY, text: 'Q?' }, curator, 'ask');
+    const closed = await apply(
+      curated.unblock,
+      { mode: 'withdraw', block: block.id, answer: 'Settled.' },
+      'agent:cur/cur-2',
+      'withdraw',
+    );
+    expect(closed.block).toMatchObject({
+      outcome: 'withdrawn',
+      outcomeReason: 'Settled.',
+      unblockedBy: 'agent:cur/cur-2',
+    });
+  });
+
+  it('refuses a linked worker of an orchestrator project', async () => {
+    const { store, apply, ops: curated } = await curatorBoard('dev', used);
+    await store.transaction((trx) =>
+      trx
+        .insertInto('link')
+        .values({
+          ...sampleRows.link,
+          id: 3,
+          entity: 'session',
+          repo: null,
+          number: null,
+          pr_state: null,
+          session_id: 'qa-1',
+          role: 'worker',
+        })
+        .execute(),
+    );
+    const { block } = await apply(curated.ask, { task: KEY, text: 'Q?' }, orchestrator, 'ask');
+    await expect(
+      apply(
+        curated.unblock,
+        { mode: 'withdraw', block: block.id, answer: 'Mine now.' },
+        'agent:qa/qa-2',
+        'withdraw',
+      ),
+    ).rejects.toMatchObject({ code: 'forbidden' });
+  });
+
+  it('withdraws an orchestrator question after a column move', async () => {
+    const { store, apply, ops: curated } = await curatorBoard('dev', used);
+    const { block } = await apply(curated.ask, { task: KEY, text: 'Q?' }, orchestrator, 'ask');
+    await store.transaction((trx) =>
+      trx.updateTable('task').set({ column: 'qa' }).where('id', '=', 1).execute(),
+    );
+    const closed = await apply(
+      curated.unblock,
+      { mode: 'withdraw', block: block.id, answer: 'Settled.' },
+      'agent:qa/qa-2',
+      'withdraw',
+    );
+    expect(closed.block).toMatchObject({ outcome: 'withdrawn', unblockedBy: 'agent:qa/qa-2' });
+    expect(await notifications(store)).toEqual([]);
+  });
+
+  it('posts the reason to the operator thread when a new curator session withdraws', async () => {
+    const { store, apply, ops: curated } = await curatorBoard('qa', used);
+    const { block } = await apply(curated.ask, { task: KEY, text: 'Q?' }, curator, 'ask');
+    expect(block.addressee).toBe('operator');
+    await apply(
+      curated.unblock,
+      { mode: 'withdraw', block: block.id, answer: 'Settled.' },
+      'agent:cur/cur-2',
+      'withdraw',
+    );
+    const rows = await store.db.selectFrom('outbox').selectAll().orderBy('id').execute();
+    expect(rows.map((row) => row.kind)).toEqual([
+      'conversation.open',
+      'conversation.reply',
+      'conversation.close',
+    ]);
+    expect(rows.map((row) => row.parent_outbox_id)).toEqual([null, rows[0]?.id, rows[1]?.id]);
+    expect(JSON.parse(rows[1]?.payload ?? '{}')).toMatchObject({ text: 'Settled.' });
+    expect(await notifications(store)).toEqual([]);
   });
 });

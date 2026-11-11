@@ -265,6 +265,99 @@ describe('CLI against the real HTTP API', () => {
     }
   });
 
+  describe('with a curator', () => {
+    async function curatorApi() {
+      const home = mkdtempSync(join(tmpdir(), 'board-api-note-'));
+      const store = openStore(join(home, 'board.db'));
+      const config = configSchema.parse({
+        projects: [
+          {
+            id: 'proj',
+            tracker: { type: 'github-issues', repo: 'o/r', milestone: 'M1' },
+            repos: ['o/r'],
+            operatorGithubLogin: 'operator',
+            spurProjects: [
+              { name: 'web', role: 'worker' },
+              { name: 'cur', role: 'curator' },
+            ],
+          },
+        ],
+        operator: { slack: 'operator' },
+        digest: { tz: 'UTC' },
+      });
+      const clock = { now: () => Date.parse('2026-11-04T08:00:00.000Z') };
+      await store.transaction(async (trx) => {
+        await trx
+          .insertInto('task')
+          .values({
+            ...sampleRows.task,
+            key: 'o/r#101',
+            project: 'proj',
+            column: 'dev',
+            membership: 'active',
+            archive_reason: null,
+          })
+          .execute();
+      });
+      const app = await createApiServer({
+        store,
+        config,
+        port: 0,
+        ready: () => true,
+        clock,
+        lookupSession: (id) =>
+          Promise.resolve({ project: id.startsWith('cur-') ? 'cur' : 'web', status: 'running' }),
+        verifyToken: () => Promise.resolve(null),
+        registry: createOperationRegistry({ config, clock, completeSince: new Map() }),
+        logRequest: () => {},
+      });
+      await listenApiServer(app, 0);
+      const address = app.server.address();
+      if (address === null || typeof address === 'string') throw new Error('Expected a TCP port.');
+      const board = async (session: string, args: string[]) => {
+        const io = capture();
+        const code = await runCli([...args, '--json'], {
+          clientConfig: {
+            address: new URL(`http://127.0.0.1:${String(address.port)}`),
+            session,
+            token: undefined,
+            connectTimeoutMs: 2_000,
+            responseTimeoutMs: 2_000,
+          },
+          io: io.io,
+        });
+        return { code, stdout: io.stdout };
+      };
+      const close = async () => {
+        try {
+          await app.close();
+        } finally {
+          await store.close();
+          rmSync(home, { recursive: true, force: true });
+        }
+      };
+      return { store, board, close };
+    }
+
+    it('withdraws from a new curator session', async () => {
+      const { board, close } = await curatorApi();
+      try {
+        expect((await board('cur-1', ['ask', 'o/r#101', 'Which version?'])).code).toBe(0);
+        const withdrawn = await board('cur-2', ['unblock', 'B1', '--withdraw', 'Settled.']);
+        expect(withdrawn.code).toBe(0);
+        expect(JSON.parse(withdrawn.stdout)).toMatchObject({
+          block: {
+            outcome: 'withdrawn',
+            outcomeReason: 'Settled.',
+            unblockedBy: 'agent:cur/cur-2',
+          },
+        });
+      } finally {
+        await close();
+      }
+    });
+  });
+
   it('parses task queries and startup without an unknown outcome', async () => {
     const home = mkdtempSync(join(tmpdir(), 'board-api-cli-'));
     let store: ReturnType<typeof openStore> | undefined;

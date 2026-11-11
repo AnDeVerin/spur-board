@@ -139,14 +139,14 @@ export function closeBlock(
   input:
     | { mode: 'done'; ref?: string }
     | { mode: 'reason'; reason: string }
-    | { mode: 'withdraw'; actor: ActorId },
+    | { mode: 'withdraw'; isAuthor: boolean; reason: string },
 ): { outcome: 'done' | 'reason' | 'withdrawn'; outcomeReason: string | null } {
   requireOpen(block);
   if (input.mode === 'withdraw') {
-    if (block.type !== 'needs_input' || block.author !== input.actor) {
+    if (block.type !== 'needs_input' || !input.isAuthor) {
       throw new BlockRuleError('forbidden', 'Only the question author can withdraw it.');
     }
-    return { outcome: 'withdrawn', outcomeReason: null };
+    return { outcome: 'withdrawn', outcomeReason: input.reason };
   }
   if (input.mode === 'done') {
     if (block.type !== 'code') {

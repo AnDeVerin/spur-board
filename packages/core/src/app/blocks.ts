@@ -294,6 +294,10 @@ function holdsBlock(config: Config, actor: ActorId, target: ResolvedTarget): boo
   return authorize([{ grant: 'block-addressee' }], actor, { config, target }).status === 'allowed';
 }
 
+function wroteBlock(config: Config, actor: ActorId, target: ResolvedTarget): boolean {
+  return authorize([{ grant: 'block-author' }], actor, { config, target }).status === 'allowed';
+}
+
 async function addComment(
   trx: Trx,
   task: Task,
@@ -302,8 +306,13 @@ async function addComment(
   ctx: CommandContext,
   addressee: AddresseeRole,
   config: Config,
-  source?: { conversationRef: string; messageRef: string },
+  options: {
+    source?: { conversationRef: string; messageRef: string };
+    /** False for a comment that is not an answer to the block's author. */
+    ringsAuthor?: boolean;
+  } = {},
 ): Promise<Comment> {
+  const { source, ringsAuthor = true } = options;
   const row = await trx
     .insertInto('comment')
     .values({
@@ -321,7 +330,7 @@ async function addComment(
     .returningAll()
     .executeTakeFirstOrThrow();
   await journal(trx, task, ctx, 'comment_added', { comment: commentId(row.id), addressee });
-  if (block !== undefined && source === undefined && ctx.actor !== block.author) {
+  if (block !== undefined && source === undefined && ringsAuthor && ctx.actor !== block.author) {
     await registerAnswerNotification(trx, {
       block,
       commentId: row.id,
@@ -457,7 +466,7 @@ export async function recordInboundBlockMessage(
     ctx,
     authorRole(input.config, task, block.author),
     input.config,
-    { conversationRef: input.conversationRef, messageRef: input.messageRef },
+    { source: { conversationRef: input.conversationRef, messageRef: input.messageRef } },
   );
   const updated = answered ? await closeOpenBlock(trx, task, block, ctx, 'done', null) : block;
   return {
@@ -616,6 +625,7 @@ export function createBlockMutations(config: Config) {
       const block = found(await blockById(trx, input.block));
       const task = await taskById(trx, block.task_id);
       active(task);
+      const target = await authorizationTarget(trx, task, block);
       const decision = rule(() =>
         input.mode === 'done'
           ? closeBlock(current(block), {
@@ -624,10 +634,16 @@ export function createBlockMutations(config: Config) {
             })
           : input.mode === 'reason'
             ? closeBlock(current(block), { mode: 'reason', reason: input.reason })
-            : closeBlock(current(block), { mode: 'withdraw', actor: ctx.actor }),
+            : closeBlock(current(block), {
+                mode: 'withdraw',
+                isAuthor: wroteBlock(config, ctx.actor, target),
+                reason: input.answer,
+              }),
       );
       if (input.mode === 'withdraw') {
-        await addComment(trx, task, block, input.answer, ctx, block.addressee_role, config);
+        await addComment(trx, task, block, input.answer, ctx, block.addressee_role, config, {
+          ringsAuthor: false,
+        });
       }
       const updated = await closeOpenBlock(
         trx,

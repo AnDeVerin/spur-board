@@ -224,16 +224,15 @@ describe('block transitions', () => {
       outcome: 'done',
       outcomeReason: 'commit-1',
     });
-    expect(closeBlock(question, { mode: 'withdraw', actor: question.author })).toEqual({
-      outcome: 'withdrawn',
-      outcomeReason: null,
-    });
-    expect(() => closeBlock(question, { mode: 'withdraw', actor: 'agent:web/worker-2' })).toThrow(
-      'Only the question author',
-    );
-    expect(() => closeBlock(code, { mode: 'withdraw', actor: question.author })).toThrow(
-      'Only the question author',
-    );
+    expect(
+      closeBlock(question, { mode: 'withdraw', isAuthor: true, reason: 'Elsewhere.' }),
+    ).toEqual({ outcome: 'withdrawn', outcomeReason: 'Elsewhere.' });
+    expect(() =>
+      closeBlock(question, { mode: 'withdraw', isAuthor: false, reason: 'Elsewhere.' }),
+    ).toThrow('Only the question author');
+    expect(() =>
+      closeBlock(code, { mode: 'withdraw', isAuthor: true, reason: 'Elsewhere.' }),
+    ).toThrow('Only the question author');
   });
 });
 
