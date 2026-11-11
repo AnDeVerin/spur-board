@@ -178,6 +178,12 @@ delivery is wanted. This check appears instead of the four Slack integration che
 Choose a Spur project marked `operator`, or create a named token in a chosen folder and approve
 its request in Slack. A token waiting for approval does not satisfy this check.
 
+### curator.sessions
+
+Lists each Board project with its curator and the curator's live session. A warning names the
+Board projects whose curator has no live session: start a Spur session of that curator. A Board
+project with no curator is listed and does not warn. This check never blocks readiness.
+
 ### versions
 
 Install matching CLI and skill versions with `board update`: it restarts the daemon and

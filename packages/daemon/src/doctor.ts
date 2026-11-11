@@ -1,6 +1,6 @@
 import { sampleLinkRules } from '@spur-board/adapters';
 import { SLACK_BOT_SCOPES, requiredSecretKeys, type Config } from '@spur-board/contracts';
-import type { ApiOptions, Store } from '@spur-board/core';
+import { curatorSessions, type ApiOptions, type Store } from '@spur-board/core';
 import type { ModuleContext } from './lifecycle.ts';
 import { spurErrorText, spurSendRequest } from './spur-port.ts';
 
@@ -261,6 +261,45 @@ function linkRulesCheck(outcomes: readonly LinkOutcome[] | null): Check {
       problems,
       problems.some((segment) => segment.unmatched) ? ` ${LINK_RULES_TAIL}` : '',
       `link rules miss recent PRs in ${String(problems.length)} projects; change projects[].link to the repo's branch and PR title rules.`,
+    ),
+  );
+}
+
+const CURATOR_TAIL = 'Start a Spur session of each curator with no live session.';
+
+// Projects whose curator has no live session come first; never blocking.
+function curatorSessionsCheck(entries: Awaited<ReturnType<typeof curatorSessions>>): Check {
+  const id = 'curator.sessions';
+  const segment = (text: string, problem: boolean): LinkSegment => ({
+    problem,
+    unmatched: false,
+    text: () => text,
+  });
+  const segments = entries.map(({ project, curator, session }) =>
+    curator === null
+      ? segment(`${project}: no curator configured`, false)
+      : session === null
+        ? segment(`${project}: curator ${curator}, no live session`, true)
+        : segment(`${project}: curator ${curator}, session ${session}`, false),
+  );
+  const missing = segments.filter((entry) => entry.problem).length;
+  if (missing === 0)
+    return {
+      id,
+      status: 'pass',
+      blocking: false,
+      fix: fitFix(
+        segments,
+        '',
+        `Every configured curator has a live session in ${String(segments.length)} projects.`,
+      ),
+    };
+  return warning(
+    id,
+    fitFix(
+      [...segments.filter((entry) => entry.problem), ...segments.filter((entry) => !entry.problem)],
+      ` ${CURATOR_TAIL}`,
+      `${String(missing)} curators have no live session. Start a Spur session of each.`,
     ),
   );
 }
@@ -579,5 +618,6 @@ export async function runDaemonDoctor(
       'Configure a Spur project with the operator role or approve a named operator token.',
     ),
   );
+  checks.push(curatorSessionsCheck(await curatorSessions(ctx.store.db, config)));
   return { version: productVersion, checks };
 }
