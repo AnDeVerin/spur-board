@@ -1,6 +1,7 @@
 import { configSchema, type Batch, type PollContext } from '@spur-board/contracts';
 import { githubSources } from '../../adapters/src/github/index.ts';
 import { createFakes, type Fakes } from '../src/fakes/fetch.ts';
+import { createGithubIssuesFake } from '../src/fakes/github-issues.ts';
 import { createGithubPrFake } from '../src/fakes/github-pr.ts';
 import { standConfig } from '../src/stand.ts';
 
@@ -13,6 +14,32 @@ export function githubFakes(now: () => number = () => NOW): Fakes {
   return createFakes({
     now,
     modules: [(clock) => createGithubPrFake({ now: clock, repos: [BOARD, SERVICE] })],
+  });
+}
+
+/** Both GitHub fakes, in the stand's order. */
+export function issueFakes(now: () => number = () => NOW): Fakes {
+  return createFakes({
+    now,
+    modules: [
+      (clock) => createGithubPrFake({ now: clock, repos: [BOARD, SERVICE] }),
+      (clock) => createGithubIssuesFake({ now: clock, repos: [BOARD, SERVICE] }),
+    ],
+  });
+}
+
+/** Sends one issue verb (`open`, `close`, `label`, `milestone`) and returns the result. */
+export function issue(
+  fakes: Fakes,
+  number: number,
+  verb: string,
+  extra: Record<string, unknown> = {},
+  repo = BOARD,
+) {
+  return fakes.control({
+    system: 'github',
+    verb: `issue-${verb}`,
+    args: { repo, number, ...extra },
   });
 }
 
