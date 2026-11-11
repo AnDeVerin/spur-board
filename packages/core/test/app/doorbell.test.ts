@@ -1415,30 +1415,80 @@ describe('doorbell policy', () => {
     ]);
   });
 
+  const reviewByCurator = configSchema.parse({
+    ...policyConfig,
+    projects: policyConfig.projects.map((project) => ({
+      ...project,
+      columns: project.columns.map((column) =>
+        column.id === 'review' ? { ...column, orchestrator: 'cur' } : column,
+      ),
+    })),
+  });
+  const withdraw = (block: string) => ({
+    mode: 'withdraw' as const,
+    block,
+    answer: 'Never mind.',
+  });
+  /** Opens a question from `asker` after starting the live `session` of `project`. */
+  const question = (asker: ActorId, session: string, project: string) => async (ctx: Board) => {
+    await addSession(ctx, session, project);
+    return (await ctx.apply(ctx.ops.ask, { task: KEY, text: 'Q?' }, asker, 'ask')).block.id;
+  };
+
   it.each([
     {
       by: 'its author',
       actor: worker,
-      open: async (ctx: Board) => {
-        await addSession(ctx, 'cur-1', 'cur');
-        return (await ctx.apply(ctx.ops.ask, { task: KEY, text: 'Q?' }, worker, 'ask')).block.id;
-      },
-      input: (block: string) => ({ mode: 'withdraw' as const, block, answer: 'Never mind.' }),
+      config: policyConfig,
+      column: 'qa' as const,
+      open: question(worker, 'cur-1', 'cur'),
+      input: withdraw,
       session: 'cur-1',
+      addressee: 'curator',
     },
     {
       by: 'the operator',
       actor: 'operator' as const,
+      config: policyConfig,
+      column: 'qa' as const,
       open: (ctx: Board) => workerBlock(ctx.store),
       input: (block: string) => ({ mode: 'reason' as const, block, reason: 'Never mind.' }),
       session: 'worker-1',
+      addressee: 'worker',
+    },
+    {
+      by: 'a new orchestrator session at the curator',
+      actor: 'agent:qa/qa-2' as const,
+      config: policyConfig,
+      column: 'dev' as const,
+      open: question('agent:qa/qa-1', 'cur-1', 'cur'),
+      input: withdraw,
+      session: 'cur-1',
+      addressee: 'curator',
+    },
+    {
+      by: 'a new orchestrator session at another orchestrator',
+      actor: 'agent:qa/qa-2' as const,
+      config: reviewByCurator,
+      column: 'review' as const,
+      open: question('agent:qa/qa-1', 'cur-1', 'cur'),
+      input: withdraw,
+      session: 'cur-1',
+      addressee: 'orchestrator:review',
     },
   ])(
     'rings the addressee once when $by removes the block',
-    async ({ actor, open, input, session }) => {
-      const ctx = await setup({ config: policyConfig, column: 'qa' });
+    async ({ actor, config, column, open, input, session, addressee }) => {
+      const ctx = await setup({ config, column });
       const block = await open(ctx);
       await ctx.apply(ctx.ops.unblock, input(block), actor, 'remove');
+      expect(
+        await ctx.store.db
+          .selectFrom('block')
+          .select(['outcome_reason', 'addressee_role'])
+          .executeTakeFirstOrThrow(),
+      ).toEqual({ outcome_reason: 'Never mind.', addressee_role: addressee });
+      expect((await notices(ctx)).filter((n) => n.kind === 'answer')).toEqual([]);
       await step(ctx);
       expect(ctx.sent).toEqual([
         {
@@ -1532,6 +1582,28 @@ describe('doorbell policy', () => {
           'agent:cur/cur-1',
           'withdraw',
         );
+      },
+    },
+    {
+      name: 'an operator question withdrawn by a new curator session',
+      run: async (ctx: Board) => {
+        const asked = await ctx.apply(
+          ctx.ops.ask,
+          { task: KEY, text: 'Q?' },
+          'agent:cur/cur-1',
+          'ask',
+        );
+        await ctx.apply(
+          ctx.ops.unblock,
+          { mode: 'withdraw', block: asked.block.id, answer: 'Never mind.' },
+          'agent:cur/cur-2',
+          'withdraw',
+        );
+        expect(
+          (await ctx.store.db.selectFrom('outbox').select('kind').orderBy('id').execute()).map(
+            (row) => row.kind,
+          ),
+        ).toEqual(['conversation.open', 'conversation.reply', 'conversation.close']);
       },
     },
   ])('registers no operator notification for $name', async ({ run }) => {
