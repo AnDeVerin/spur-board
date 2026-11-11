@@ -23,6 +23,10 @@ export interface ControlRoutes {
   /** Lists what the fake Slack API holds; never queued. */
   slackOutbox(): Promise<RouteResult>;
   slackClick(body: { message: number; button: string; text?: string }): Promise<RouteResult>;
+  /** One verb on one fake system, queued with `poll` and `reset`. */
+  fake(body: { system: string; verb: string; args: unknown }): Promise<RouteResult>;
+  /** 200 with an empty log, 409 otherwise; never queued. */
+  violations(): Promise<RouteResult>;
 }
 
 export interface Control {
@@ -79,14 +83,22 @@ async function readJson(request: IncomingMessage): Promise<Record<string, unknow
   return parsed as Record<string, unknown>;
 }
 
-const ROUTES = new Set(['/wait', '/poll', '/reset', '/fake/slack/outbox', '/fake/slack/click']);
+const ROUTES = new Set([
+  '/wait',
+  '/poll',
+  '/reset',
+  '/fake',
+  '/violations',
+  '/fake/slack/outbox',
+  '/fake/slack/click',
+]);
 
 /**
  * The stand's control endpoint on 127.0.0.1. Checks, in order: no `Origin` (403), Host exactly
  * `127.0.0.1:<port>` (403), the Bearer token (401), a known route (404), the body size (413) and
  * its arrival time (10 s). `wait` runs at most `MAX_WAIT_MS`.
- * `poll`, `reset` and the Slack click run one at a time through one queue; `wait` and the Slack
- * outbox run outside it.
+ * `poll`, `reset`, `fake` and the Slack click run one at a time through one queue; `wait`,
+ * `violations` and the Slack outbox run outside it.
  */
 export async function startControl(options: {
   token: string;
@@ -161,6 +173,13 @@ export async function startControl(options: {
       if (source !== undefined && typeof source !== 'string')
         throw new HttpError(400, 'source must be a string.');
       result = await queued(() => options.routes.poll(source === undefined ? {} : { source }));
+    } else if (path === '/fake') {
+      const { system, verb, args = {} } = body;
+      if (typeof system !== 'string' || typeof verb !== 'string')
+        throw new HttpError(400, 'Send { system, verb, args }.');
+      result = await queued(() => options.routes.fake({ system, verb, args }));
+    } else if (path === '/violations') {
+      result = await options.routes.violations();
     } else if (path === '/fake/slack/outbox') {
       result = await options.routes.slackOutbox();
     } else if (path === '/fake/slack/click') {

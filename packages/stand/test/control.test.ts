@@ -10,7 +10,6 @@ import {
 } from '../src/control.ts';
 
 const TOKEN = 'control-token';
-const slackStubs = { slackOutbox: vi.fn(), slackClick: vi.fn() };
 
 function deferred<T>() {
   let resolve: (value: T) => void = () => undefined;
@@ -45,6 +44,14 @@ function raw(control: Control, headers: Record<string, string>, path = '/reset')
   });
 }
 
+/** The routes a test does not exercise. */
+const unused = {
+  fake: vi.fn(),
+  violations: vi.fn(),
+  slackOutbox: vi.fn(),
+  slackClick: vi.fn(),
+};
+
 let control: Control | undefined;
 
 afterEach(async () => {
@@ -57,7 +64,7 @@ describe('control endpoint', () => {
     const reset = vi.fn(() => Promise.resolve({ status: 200, body: {} }));
     control = await startControl({
       token: TOKEN,
-      routes: { wait: vi.fn(), poll: vi.fn(), reset, ...slackStubs },
+      routes: { ...unused, wait: vi.fn(), poll: vi.fn(), reset },
     });
     const port = new URL(control.url).port;
     const host = `127.0.0.1:${port}`;
@@ -81,7 +88,14 @@ describe('control endpoint', () => {
       const slackClick = vi.fn(() => Promise.resolve({ status: 200, body: {} }));
       control = await startControl({
         token: TOKEN,
-        routes: { wait: vi.fn(), poll: vi.fn(), reset: vi.fn(), slackOutbox, slackClick },
+        routes: {
+          ...unused,
+          wait: vi.fn(),
+          poll: vi.fn(),
+          reset: vi.fn(),
+          slackOutbox,
+          slackClick,
+        },
       });
       const port = new URL(control.url).port;
       const host = `127.0.0.1:${port}`;
@@ -109,7 +123,7 @@ describe('control endpoint', () => {
     const slackClick = vi.fn(() => Promise.resolve({ status: 200, body: {} }));
     control = await startControl({
       token: TOKEN,
-      routes: { wait: vi.fn(), poll: vi.fn(), reset: vi.fn(), slackOutbox: vi.fn(), slackClick },
+      routes: { ...unused, wait: vi.fn(), poll: vi.fn(), reset: vi.fn(), slackClick },
     });
     const response = await fetch(`${control.url}/fake/slack/click`, {
       method: 'POST',
@@ -124,7 +138,7 @@ describe('control endpoint', () => {
     const slackClick = vi.fn(() => Promise.resolve({ status: 200, body: { ok: true } }));
     control = await startControl({
       token: TOKEN,
-      routes: { wait: vi.fn(), poll: vi.fn(), reset: vi.fn(), slackOutbox: vi.fn(), slackClick },
+      routes: { ...unused, wait: vi.fn(), poll: vi.fn(), reset: vi.fn(), slackClick },
     });
     const click = (body: unknown) =>
       fetch(`${control?.url ?? ''}/fake/slack/click`, {
@@ -147,7 +161,7 @@ describe('control endpoint', () => {
     const slackClick = vi.fn(() => Promise.resolve({ status: 200, body: {} }));
     control = await startControl({
       token: TOKEN,
-      routes: { wait: vi.fn(), poll: vi.fn(), reset, slackOutbox, slackClick },
+      routes: { ...unused, wait: vi.fn(), poll: vi.fn(), reset, slackOutbox, slackClick },
     });
     const running = post(control, '/reset');
     await vi.waitFor(() => {
@@ -171,7 +185,7 @@ describe('control endpoint', () => {
   it('answers 404 to an unknown route and 413 to a large body', async () => {
     control = await startControl({
       token: TOKEN,
-      routes: { wait: vi.fn(), poll: vi.fn(), reset: vi.fn(), ...slackStubs },
+      routes: { ...unused, wait: vi.fn(), poll: vi.fn(), reset: vi.fn() },
     });
     const headers = { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' };
     expect((await fetch(`${control.url}/nope`, { method: 'POST', headers })).status).toBe(404);
@@ -190,7 +204,7 @@ describe('control endpoint', () => {
     control = await startControl({
       token: TOKEN,
       routes: {
-        ...slackStubs,
+        ...unused,
         wait: (_body, signal) =>
           new Promise((resolve) => {
             calls.push('wait');
@@ -242,7 +256,7 @@ describe('control endpoint', () => {
     const reset = vi.fn(() => pending.promise);
     control = await startControl({
       token: TOKEN,
-      routes: { wait: vi.fn(), poll: vi.fn(), reset, ...slackStubs },
+      routes: { ...unused, wait: vi.fn(), poll: vi.fn(), reset },
     });
     const running = post(control, '/reset');
     await vi.waitFor(() => {
@@ -260,12 +274,81 @@ describe('control endpoint', () => {
     expect(closed).toBe(true);
   });
 
+  it('applies the auth checks to the fake and violations routes', async () => {
+    const fake = vi.fn(() => Promise.resolve({ status: 200, body: {} }));
+    const violations = vi.fn(() => Promise.resolve({ status: 200, body: {} }));
+    control = await startControl({
+      token: TOKEN,
+      routes: { ...unused, wait: vi.fn(), poll: vi.fn(), reset: vi.fn(), fake, violations },
+    });
+    for (const path of ['/fake', '/violations']) {
+      const denied = await fetch(`${control.url}${path}`, { method: 'POST', body: '{}' });
+      expect(denied.status).toBe(401);
+    }
+    expect(fake).not.toHaveBeenCalled();
+    expect(violations).not.toHaveBeenCalled();
+  });
+
+  it('checks the fake body and passes system, verb and args through the queue', async () => {
+    const calls: string[] = [];
+    const first = deferred<RouteResult>();
+    const fake = vi.fn((body: unknown) => {
+      calls.push(`fake ${JSON.stringify(body)}`);
+      return Promise.resolve({ status: 200, body: {} });
+    });
+    control = await startControl({
+      token: TOKEN,
+      routes: {
+        ...unused,
+        wait: vi.fn(),
+        poll: vi.fn(),
+        reset: () => {
+          calls.push('reset');
+          return first.promise;
+        },
+        fake,
+        violations: () => {
+          calls.push('violations');
+          return Promise.resolve({ status: 409, body: { total: 1 } });
+        },
+      },
+    });
+    const url = control.url;
+    const call = (path: string, body: string) =>
+      fetch(`${url}${path}`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+        body,
+      });
+    expect((await call('/fake', '{"system":"spur"}')).status).toBe(400);
+    expect((await call('/fake', '{"verb":"clear"}')).status).toBe(400);
+    expect(fake).not.toHaveBeenCalled();
+
+    const reset = post(control, '/reset');
+    await vi.waitFor(() => {
+      expect(calls).toContain('reset');
+    });
+    const queued = call('/fake', '{"system":"spur","verb":"session","args":{"id":"s1"}}');
+    // Violations runs outside the queue, so it answers while the reset still holds it.
+    expect((await call('/violations', '{}')).status).toBe(409);
+    expect(fake).not.toHaveBeenCalled();
+
+    first.resolve({ status: 200, body: {} });
+    expect((await reset).status).toBe(200);
+    expect((await queued).status).toBe(200);
+    expect(calls).toEqual([
+      'reset',
+      'violations',
+      'fake {"system":"spur","verb":"session","args":{"id":"s1"}}',
+    ]);
+  });
+
   it('rejects a non-finite wait timeout and clamps a long one', async () => {
     const asked: number[] = [];
     control = await startControl({
       token: TOKEN,
       routes: {
-        ...slackStubs,
+        ...unused,
         wait: (body) => {
           asked.push(body.timeoutMs);
           return Promise.resolve({ status: 200, body: {} });
@@ -293,7 +376,7 @@ describe('control endpoint', () => {
     });
     control = await startControl({
       token: TOKEN,
-      routes: { wait: vi.fn(), poll: vi.fn(), reset, ...slackStubs },
+      routes: { ...unused, wait: vi.fn(), poll: vi.fn(), reset },
       onBodyRead: () => {
         reading();
       },
@@ -334,7 +417,7 @@ describe('control endpoint', () => {
     control = await startControl({
       token: TOKEN,
       routes: {
-        ...slackStubs,
+        ...unused,
         wait: () => {
           answered();
           // Far larger than the socket buffers, so it cannot flush to a client that reads nothing.
@@ -374,7 +457,7 @@ describe('control endpoint', () => {
     control = await startControl({
       token: TOKEN,
       routes: {
-        ...slackStubs,
+        ...unused,
         wait: vi.fn(),
         poll: vi.fn(),
         reset: () => Promise.resolve({ status: 200, body: { ok: 1 } }),

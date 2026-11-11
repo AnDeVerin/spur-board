@@ -180,6 +180,36 @@ describe('fixtures', () => {
     expect(config.slack.appId).toBe('A123ABC');
   });
 
+  it('accepts one curator per board project', () => {
+    const config = configSchema.parse(
+      validConfig(
+        {},
+        {
+          projects: [
+            {
+              ...jiraProject(),
+              spurProjects: [
+                { name: 'worker-a', role: 'worker' },
+                { name: 'curator-a', role: 'curator' },
+              ],
+            },
+            {
+              ...jiraProject(),
+              id: 'api',
+              repos: ['example-org/api'],
+              spurProjects: [{ name: 'curator-b', role: 'curator' }],
+            },
+          ],
+        },
+      ),
+    );
+    expect(
+      config.projects.map(
+        (project) => project.spurProjects.find((spur) => spur.role === 'curator')?.name,
+      ),
+    ).toEqual(['curator-a', 'curator-b']);
+  });
+
   it('accepts an explicit HTTP port', () => {
     expect(configSchema.parse(validConfig({}, { http: { port: 4312 } })).http.port).toBe(4312);
     expect(configSchema.parse(validConfig({}, { http: { port: 0 } })).http.port).toBe(0);
@@ -351,6 +381,17 @@ describe('invalid configs', () => {
       }),
       'Duplicate spur project name: "qa-bot"',
       'projects[0].spurProjects[1].name',
+    ],
+    [
+      'second curator in one board project',
+      validConfig({
+        spurProjects: [
+          { name: 'curator-a', role: 'curator' },
+          { name: 'curator-b', role: 'curator' },
+        ],
+      }),
+      'Second curator "curator-b": "curator-a" is already the curator of this board project',
+      'projects[0].spurProjects[1].role',
     ],
     [
       'unknown time zone',

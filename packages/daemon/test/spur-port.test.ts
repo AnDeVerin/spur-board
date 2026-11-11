@@ -69,6 +69,25 @@ describe('spur send port', () => {
     ]);
   });
 
+  it('sends through an injected fetch instead of the global one', async () => {
+    const calls: { url: string; body: unknown }[] = [];
+    const port = createSpurPort({
+      // The host is refused by the network guard, so only the injected fetch can answer.
+      baseUrl: 'http://spur.test.invalid',
+      fetch: (input, init) => {
+        calls.push({
+          url: input instanceof Request ? input.url : input.toString(),
+          body: init?.body,
+        });
+        return Promise.resolve(Response.json({}));
+      },
+    });
+    await port.send('worker-1', 'ping');
+    expect(calls).toEqual([
+      { url: 'http://spur.test.invalid/sessions/worker-1/send', body: '{"message":"ping"}' },
+    ]);
+  });
+
   it('keeps a path prefix in the base URL', async () => {
     const spur = await fakeSpur(json(200, {}));
     await createSpurPort({ baseUrl: `${spur.baseUrl}/spur/` }).send('worker-1', 'ping');

@@ -1,4 +1,5 @@
 import {
+  assertNever,
   parseActorId,
   type ActorId,
   type AddresseeRole,
@@ -24,22 +25,43 @@ interface Routing {
   authorRole: AddresseeRole;
   column: ColumnId;
   orchestrator: string | null;
+  curator?: string | null;
   hasWorker: boolean;
 }
 
 /** Roles survive a change in the session currently filling them. */
 export function blockAddressee(input: Routing): AddresseeRole {
-  const { type, author, authorRole, column, orchestrator, hasWorker } = input;
+  const { type, author, authorRole, column, orchestrator, curator = null, hasWorker } = input;
   if (author === 'system') {
     return orchestrator !== null ? `orchestrator:${column}` : hasWorker ? 'worker' : 'operator';
   }
   if (type === 'code') return 'worker';
   if (type === 'dependency' || type === 'external') return authorRole;
-  if (orchestrator === null) return 'operator';
-  if (orchestrator === 'operator') return 'operator';
   const parsed = parseActorId(author);
-  if (parsed?.actor === 'agent' && parsed.actorRef.project === orchestrator) return 'operator';
-  return `orchestrator:${column}`;
+  const asker = parsed?.actor === 'agent' ? parsed.actorRef.project : null;
+  if (asker !== null && asker === curator) return 'operator';
+  if (orchestrator === 'operator') return 'operator';
+  if (orchestrator !== null && asker !== orchestrator) return `orchestrator:${column}`;
+  return curator === null ? 'operator' : 'curator';
+}
+
+type ParsedAddressee =
+  { kind: 'operator' | 'curator' | 'worker' } | { kind: 'orchestrator'; column: ColumnId };
+
+function orchestratorColumn(role: `orchestrator:${ColumnId}`): ColumnId {
+  return role.slice('orchestrator:'.length) as ColumnId;
+}
+
+/** A new role fails typecheck here; a new kind fails at each caller's `assertNever`. */
+export function parseAddressee(role: AddresseeRole): ParsedAddressee {
+  switch (role) {
+    case 'operator':
+    case 'curator':
+    case 'worker':
+      return { kind: role };
+    default:
+      return { kind: 'orchestrator', column: orchestratorColumn(role) };
+  }
 }
 
 export interface CurrentBlock {
@@ -59,9 +81,50 @@ function requireOpen(block: CurrentBlock): void {
   );
 }
 
-export function escalateBlock(block: CurrentBlock): { addressee: AddresseeRole; changed: boolean } {
+/** Only a question stops at the curator; every other step goes straight to the operator. */
+function nextAddressee(
+  current: AddresseeRole,
+  type: BlockType,
+  hasCurator: boolean,
+): AddresseeRole {
+  const addressee = parseAddressee(current);
+  switch (addressee.kind) {
+    case 'orchestrator':
+      return type === 'needs_input' && hasCurator ? 'curator' : 'operator';
+    case 'operator':
+    case 'curator':
+    case 'worker':
+      return 'operator';
+    default:
+      return assertNever(addressee);
+  }
+}
+
+/** The steps a block took from `original` to `current`, or none if `current` is not on that path. */
+export function priorAddressees(
+  original: AddresseeRole,
+  current: AddresseeRole,
+  type: BlockType,
+  hasCurator: boolean,
+): AddresseeRole[] {
+  const path: AddresseeRole[] = [];
+  let step = original;
+  while (step !== current) {
+    const next = nextAddressee(step, type, hasCurator);
+    if (next === step) return [];
+    path.push(step);
+    step = next;
+  }
+  return path;
+}
+
+export function escalateBlock(
+  block: CurrentBlock,
+  hasCurator = false,
+): { addressee: AddresseeRole; changed: boolean } {
   requireOpen(block);
-  return { addressee: 'operator', changed: block.addressee !== 'operator' };
+  const addressee = nextAddressee(block.addressee, block.type, hasCurator);
+  return { addressee, changed: block.addressee !== addressee };
 }
 
 export function answerBlock(block: CurrentBlock): void {

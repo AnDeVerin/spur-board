@@ -38,9 +38,10 @@ export const BLOCK_OUTCOMES = ['done', 'reason', 'terminal', 'withdrawn', 'archi
 export type BlockOutcome = (typeof BLOCK_OUTCOMES)[number];
 
 /** Who a block, comment or doorbell is addressed to. */
-export type AddresseeRole = 'operator' | 'worker' | `orchestrator:${ColumnId}`;
+export type AddresseeRole = 'operator' | 'curator' | 'worker' | `orchestrator:${ColumnId}`;
 export const ADDRESSEE_ROLES: readonly AddresseeRole[] = [
   'operator',
+  'curator',
   ...COLUMN_IDS.map((id): AddresseeRole => `orchestrator:${id}`),
   'worker',
 ];

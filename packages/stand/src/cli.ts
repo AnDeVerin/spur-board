@@ -14,7 +14,9 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { scrubEnv } from '@spur-board/testkit';
+import { z } from 'zod';
 import { callLocal } from './control.ts';
+import { parseFakeArgs } from './fake-spur.ts';
 import { liveBoardDirs, proxyRefusal, refusal, StandRefusedError } from './guards.ts';
 import {
   isLive,
@@ -65,16 +67,23 @@ const USAGE = `Usage: pnpm stand <command>
   board [--as role] <args...>     run the board CLI against the stand (operator, worker, orchestrator)
   mcp [--as role]                 run the board MCP server against the stand
   wait <condition> [--timeout s]  wait for ${WAIT_CONDITIONS.join(', ')} (default ${String(WAIT_DEFAULT_S)} s)
-                                  outbox-drained also waits for doorbells, which stay pending
-                                  while the stand has no fake Spur
   poll [source]                   restart every source's poll now (source is only checked to
                                   exist), then tick and pulse the outbox
-  reset                           stop the daemon, restore the home and start it again
+  reset                           stop the daemon, restore the home and start it again; this
+                                  drops the violation log, so read it first
   fake slack outbox               list the messages posted to the fake Slack and any call to a
                                   Slack method it lacks
   fake slack click <n> <button> [--text <text>]
                                   press a button on outbox message n as the operator. The button
                                   answer takes --text: a thread reply, as Slack has no such button
+  fake spur session <id> [--state s] [--status s] [--project p] [--branch b] [--retain]
+                                  create or update a session in the fake Spur
+  fake spur restart               change the Spur instance id
+  fake spur fail <delay|refuse|hang|5xx> [--route list|detail|send|all] [--ms n] [--status 5xx]
+                                  fail a route until clear; delay needs --ms (1-60000)
+  fake spur clear                 drop every failure rule
+  fake spur inspect               print sessions, rules, requests, sends and violations
+  violations                      print requests no fake models; exit 1 if there are any
 
 Every command but up takes --home <dir> to pick one of several stands.
 Exit codes: 0 ok, 1 failure, 2 usage, 3 refused.
@@ -302,6 +311,22 @@ async function down(manifest: StandManifest): Promise<number> {
   return 0;
 }
 
+/** The size of the stand's violation log; null when its control endpoint does not say. */
+async function violationCount(manifest: StandManifest): Promise<number | null> {
+  try {
+    const response = await callLocal(`${manifest.controlUrl}/violations`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${manifest.controlToken}` },
+      body: '{}',
+      timeoutMs: 2_000,
+    });
+    if (response.status !== 200 && response.status !== 409) return null;
+    return z.object({ total: z.number() }).parse(JSON.parse(response.body)).total;
+  } catch {
+    return null;
+  }
+}
+
 async function status(manifest: StandManifest, json: boolean): Promise<number> {
   let apiReady = false;
   try {
@@ -313,7 +338,12 @@ async function status(manifest: StandManifest, json: boolean): Promise<number> {
   } catch {
     apiReady = false;
   }
-  const view = { ...publicView(manifest), alive: isLive(manifest), apiReady };
+  const view = {
+    ...publicView(manifest),
+    alive: isLive(manifest),
+    apiReady,
+    violations: await violationCount(manifest),
+  };
   out(
     json
       ? `${JSON.stringify(view)}\n`
@@ -359,6 +389,42 @@ function runBoard(manifest: StandManifest, as: StandRole, args: string[]): Promi
   });
 }
 
+/** `fake slack outbox` and `fake slack click <n> <button> [--text <text>]`. */
+function fakeSlack(home: string | undefined, args: string[]): Promise<number> {
+  const { values, positionals } = parseArgs({
+    args,
+    allowPositionals: true,
+    options: { home: { type: 'string' }, text: { type: 'string' } },
+  });
+  const manifest = (): StandManifest => target(values.home ?? home);
+  const [verb, ...rest] = positionals;
+  if (verb === 'outbox') {
+    if (rest.length > 0 || values.text !== undefined)
+      throw new UsageError('fake slack outbox takes no arguments');
+    return control(manifest(), '/fake/slack/outbox', {}, 10_000);
+  }
+  if (verb !== 'click') throw new UsageError('fake slack needs outbox or click');
+  const [message, button, ...extra] = rest;
+  if (
+    message === undefined ||
+    !/^[1-9]\d*$/.test(message) ||
+    button === undefined ||
+    extra.length > 0
+  )
+    throw new UsageError('fake slack click needs a message number and a button');
+  // Queued behind a reset, so it gets the same bound as one.
+  return control(
+    manifest(),
+    '/fake/slack/click',
+    {
+      message: Number(message),
+      button,
+      ...(values.text === undefined ? {} : { text: values.text }),
+    },
+    120_000,
+  );
+}
+
 async function main(argv: string[]): Promise<number> {
   const [command, ...args] = argv;
   if (command === undefined || command === 'help' || command === '--help' || command === '-h') {
@@ -377,6 +443,14 @@ async function main(argv: string[]): Promise<number> {
     const blocked = blockedBoardCommand(parsed.rest);
     if (blocked !== undefined) throw new UsageError(blocked);
     return runBoard(manifest, as, parsed.rest);
+  }
+  if (command === 'fake') {
+    const parsed = leading(args);
+    if (parsed.as !== undefined) throw new UsageError('fake does not take --as');
+    if (parsed.rest[0] === 'slack') return fakeSlack(parsed.home, parsed.rest.slice(1));
+    const fake = parseFakeArgs(parsed.rest);
+    if (!fake.ok) throw new UsageError(fake.error);
+    return control(target(parsed.home), '/fake', fake.value, 120_000);
   }
   const { values, positionals } = parseArgs({
     args,
@@ -444,35 +518,9 @@ async function main(argv: string[]): Promise<number> {
     }
     case 'reset':
       return control(target(values.home), '/reset', {}, 120_000);
-    case 'fake': {
-      const [platform, verb, ...rest] = positionals;
-      if (platform !== 'slack') throw new UsageError('fake needs a platform: slack');
-      if (verb === 'outbox') {
-        if (rest.length > 0 || values.text !== undefined)
-          throw new UsageError('fake slack outbox takes no arguments');
-        return control(target(values.home), '/fake/slack/outbox', {}, 10_000);
-      }
-      if (verb !== 'click') throw new UsageError('fake slack needs outbox or click');
-      const [message, button, ...extra] = rest;
-      if (
-        message === undefined ||
-        !/^[1-9]\d*$/.test(message) ||
-        button === undefined ||
-        extra.length > 0
-      )
-        throw new UsageError('fake slack click needs a message number and a button');
-      // Queued behind a reset, so it gets the same bound as one.
-      return control(
-        target(values.home),
-        '/fake/slack/click',
-        {
-          message: Number(message),
-          button,
-          ...(values.text === undefined ? {} : { text: values.text }),
-        },
-        120_000,
-      );
-    }
+    case 'violations':
+      if (positionals.length > 0) throw new UsageError('violations takes no arguments');
+      return control(target(values.home), '/violations', {}, 5_000);
     default:
       throw new UsageError(`Unknown command ${command}`);
   }
