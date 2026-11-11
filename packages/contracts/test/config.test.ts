@@ -3,7 +3,6 @@ import { describe, expect, it } from 'vitest';
 import YAML from 'yaml';
 import { z } from 'zod';
 import {
-  COLUMN_IDS,
   DEFAULT_HTTP_PORT,
   RESERVED_PROJECT,
   type Config,
@@ -116,13 +115,15 @@ describe('fixtures', () => {
     const project = config.projects[0];
     expect(project?.tracker.type === 'jira' && project.tracker.projectKeys).toEqual([]);
     expect(project?.spurProjects).toEqual([{ name: 'qa-bot', role: 'worker' }]);
-    expect(project?.columns).toEqual(
-      COLUMN_IDS.map((id) => ({
-        id,
-        enabled: true,
-        orchestrator: id === 'qa' ? 'qa-bot' : 'none',
-      })),
-    );
+    expect(project?.columns).toEqual([
+      { id: 'todo', enabled: true, orchestrator: 'none' },
+      { id: 'ready-for-dev', enabled: true, orchestrator: 'none' },
+      { id: 'dev', enabled: true, orchestrator: 'none' },
+      { id: 'review', enabled: true, orchestrator: 'none' },
+      { id: 'qa', enabled: true, orchestrator: 'qa-bot' },
+      { id: 'ready-to-merge', enabled: true, orchestrator: 'none' },
+      { id: 'done', enabled: true, orchestrator: 'none' },
+    ]);
   });
 
   it('parses the github-issues project and fills the defaults', () => {
@@ -146,13 +147,15 @@ describe('fixtures', () => {
     expect(project?.columns.filter((c) => !c.enabled).map((c) => c.id)).toEqual(['ready-for-dev']);
   });
 
-  it('gives a project without columns all seven columns, enabled, orchestrator none', () => {
+  it('gives a project without columns all nine columns, enabled, orchestrator none', () => {
     const config = configSchema.parse(validConfig());
     expect(config.projects[0]?.columns).toEqual([
       { id: 'todo', enabled: true, orchestrator: 'none' },
       { id: 'ready-for-dev', enabled: true, orchestrator: 'none' },
       { id: 'dev', enabled: true, orchestrator: 'none' },
       { id: 'review', enabled: true, orchestrator: 'none' },
+      { id: 'product-review', enabled: true, orchestrator: 'none' },
+      { id: 'external-review', enabled: true, orchestrator: 'none' },
       { id: 'qa', enabled: true, orchestrator: 'none' },
       { id: 'ready-to-merge', enabled: true, orchestrator: 'none' },
       { id: 'done', enabled: true, orchestrator: 'none' },
@@ -307,8 +310,32 @@ describe('invalid configs', () => {
     [
       'built-in columns out of order',
       validConfig({ columns: columns('todo', 'dev', 'qa', 'review', 'done') }),
-      'Column "review" is out of order: built-in columns go in the order todo, ready-for-dev, dev, review, qa, ready-to-merge, done',
+      'Column "review" is out of order: built-in columns go in the order todo, ready-for-dev, dev, review, product-review, external-review, qa, ready-to-merge, done',
       'projects[0].columns[3].id',
+    ],
+    [
+      'external review before product review',
+      validConfig({ columns: columns('todo', 'dev', 'external-review', 'product-review', 'done') }),
+      'Column "product-review" is out of order',
+      'projects[0].columns[3].id',
+    ],
+    [
+      'product review after QA',
+      validConfig({ columns: columns('todo', 'dev', 'qa', 'product-review', 'done') }),
+      'Column "product-review" is out of order',
+      'projects[0].columns[3].id',
+    ],
+    [
+      'external review after QA',
+      validConfig({ columns: columns('todo', 'dev', 'qa', 'external-review', 'done') }),
+      'Column "external-review" is out of order',
+      'projects[0].columns[3].id',
+    ],
+    [
+      'product review before dev',
+      validConfig({ columns: columns('todo', 'product-review', 'dev', 'done') }),
+      'Column "dev" is out of order',
+      'projects[0].columns[2].id',
     ],
     [
       'unknown orchestrator',
@@ -530,6 +557,23 @@ describe('invalid configs', () => {
     [
       'disabled optional columns',
       { columns: [...columns('todo', 'dev'), { id: 'qa', enabled: false }, ...columns('done')] },
+      {},
+    ],
+    ['only product review', { columns: columns('todo', 'dev', 'product-review', 'done') }, {}],
+    ['only external review', { columns: columns('todo', 'dev', 'external-review', 'done') }, {}],
+    [
+      'both review columns between review and QA',
+      {
+        columns: columns(
+          'todo',
+          'dev',
+          'review',
+          'product-review',
+          'external-review',
+          'qa',
+          'done',
+        ),
+      },
       {},
     ],
   ])('accepts %s', (_name, project, root) => {

@@ -1,5 +1,5 @@
 {
-  "version": "b55c09bb7b95c284d1a242598cc0531ca7e5e80161a753f8ea3292987cc7c424",
+  "version": "9498727dee40e403dd76ba326228b583603290a07e7bc52f796e8c44402a8835",
   "grants": [
     "operator",
     "project-agent",
@@ -1011,6 +1011,8 @@
                     "ready-for-dev",
                     "dev",
                     "review",
+                    "product-review",
+                    "external-review",
                     "qa",
                     "ready-to-merge",
                     "done"
@@ -2126,7 +2128,17 @@
               },
               "column": {
                 "type": "string",
-                "enum": ["todo", "ready-for-dev", "dev", "review", "qa", "ready-to-merge", "done"],
+                "enum": [
+                  "todo",
+                  "ready-for-dev",
+                  "dev",
+                  "review",
+                  "product-review",
+                  "external-review",
+                  "qa",
+                  "ready-to-merge",
+                  "done"
+                ],
                 "description": "Board column the task is in."
               },
               "membership": {
@@ -2210,6 +2222,8 @@
                     "orchestrator:ready-for-dev",
                     "orchestrator:dev",
                     "orchestrator:review",
+                    "orchestrator:product-review",
+                    "orchestrator:external-review",
                     "orchestrator:qa",
                     "orchestrator:ready-to-merge",
                     "orchestrator:done",
@@ -2445,7 +2459,17 @@
               },
               "column": {
                 "type": "string",
-                "enum": ["todo", "ready-for-dev", "dev", "review", "qa", "ready-to-merge", "done"],
+                "enum": [
+                  "todo",
+                  "ready-for-dev",
+                  "dev",
+                  "review",
+                  "product-review",
+                  "external-review",
+                  "qa",
+                  "ready-to-merge",
+                  "done"
+                ],
                 "description": "Board column the task is in."
               },
               "membership": {
@@ -2981,6 +3005,8 @@
                     "orchestrator:ready-for-dev",
                     "orchestrator:dev",
                     "orchestrator:review",
+                    "orchestrator:product-review",
+                    "orchestrator:external-review",
                     "orchestrator:qa",
                     "orchestrator:ready-to-merge",
                     "orchestrator:done",
@@ -3369,7 +3395,17 @@
               },
               "column": {
                 "type": "string",
-                "enum": ["todo", "ready-for-dev", "dev", "review", "qa", "ready-to-merge", "done"],
+                "enum": [
+                  "todo",
+                  "ready-for-dev",
+                  "dev",
+                  "review",
+                  "product-review",
+                  "external-review",
+                  "qa",
+                  "ready-to-merge",
+                  "done"
+                ],
                 "description": "Board column the task is in."
               },
               "membership": {
@@ -3459,7 +3495,17 @@
               },
               "column": {
                 "type": "string",
-                "enum": ["todo", "ready-for-dev", "dev", "review", "qa", "ready-to-merge", "done"],
+                "enum": [
+                  "todo",
+                  "ready-for-dev",
+                  "dev",
+                  "review",
+                  "product-review",
+                  "external-review",
+                  "qa",
+                  "ready-to-merge",
+                  "done"
+                ],
                 "description": "Board column the task is in."
               },
               "membership": {
@@ -4056,6 +4102,8 @@
                   "orchestrator:ready-for-dev",
                   "orchestrator:dev",
                   "orchestrator:review",
+                  "orchestrator:product-review",
+                  "orchestrator:external-review",
                   "orchestrator:qa",
                   "orchestrator:ready-to-merge",
                   "orchestrator:done",
@@ -4540,6 +4588,8 @@
                   "orchestrator:ready-for-dev",
                   "orchestrator:dev",
                   "orchestrator:review",
+                  "orchestrator:product-review",
+                  "orchestrator:external-review",
                   "orchestrator:qa",
                   "orchestrator:ready-to-merge",
                   "orchestrator:done",
@@ -4750,6 +4800,8 @@
                   "orchestrator:ready-for-dev",
                   "orchestrator:dev",
                   "orchestrator:review",
+                  "orchestrator:product-review",
+                  "orchestrator:external-review",
                   "orchestrator:qa",
                   "orchestrator:ready-to-merge",
                   "orchestrator:done",
@@ -4948,6 +5000,8 @@
                   "orchestrator:ready-for-dev",
                   "orchestrator:dev",
                   "orchestrator:review",
+                  "orchestrator:product-review",
+                  "orchestrator:external-review",
                   "orchestrator:qa",
                   "orchestrator:ready-to-merge",
                   "orchestrator:done",
@@ -5321,6 +5375,8 @@
                   "orchestrator:ready-for-dev",
                   "orchestrator:dev",
                   "orchestrator:review",
+                  "orchestrator:product-review",
+                  "orchestrator:external-review",
                   "orchestrator:qa",
                   "orchestrator:ready-to-merge",
                   "orchestrator:done",
