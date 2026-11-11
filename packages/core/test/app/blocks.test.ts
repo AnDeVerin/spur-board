@@ -798,7 +798,7 @@ describe('curator routing', () => {
 
   it('treats a dual-role project as the orchestrator for its dependency blocks', async () => {
     const used = withCurator({ dev: 'cur' });
-    const { apply, ops: curated } = await curatorBoard('dev', used);
+    const { store, apply, ops: curated } = await curatorBoard('dev', used);
     const created = await apply(
       curated.create,
       { task: KEY, type: 'dependency', reason: 'Waiting.' },
@@ -806,6 +806,7 @@ describe('curator routing', () => {
       'create',
     );
     expect(created.block.addressee).toBe('orchestrator:dev');
+    expect(await store.db.selectFrom('notification').select('id').execute()).toEqual([]);
     const own = await apply(curated.ask, { task: KEY, text: 'Q?' }, curator, 'own');
     expect(own.block.addressee).toBe('operator');
     const asked = await apply(curated.ask, { task: KEY, text: 'Q?' }, author, 'ask');

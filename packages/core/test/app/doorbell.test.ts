@@ -1,7 +1,7 @@
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { configSchema } from '@spur-board/contracts';
+import { configSchema, type ActorId, type ColumnId, type Config } from '@spur-board/contracts';
 import { createFakeGateway } from '@spur-board/gateway-testkit';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
@@ -17,6 +17,8 @@ import {
   restartNotification,
   selectNotificationRecipient,
 } from '../../src/app/doorbells.ts';
+import { reconcileItems } from '../../src/app/fromYou.ts';
+import { scanTransaction } from '../../src/app/secrets.ts';
 import { SpurRejectedError } from '../../src/app/sender.ts';
 import { sampleRows } from '../store/sample-rows.ts';
 
@@ -49,6 +51,8 @@ async function setup(
     tester?: boolean;
     retry?: { firstRetryMs: number; secondRetryMs: number; unansweredAfterMs: number };
     gateway?: boolean;
+    config?: Config;
+    column?: ColumnId;
   } = {},
 ) {
   const store = openStore(join(mkdtempSync(join(tmpdir(), 'core-doorbell-')), 'board.db'));
@@ -67,7 +71,7 @@ async function setup(
         project: 'proj',
         membership: 'active',
         archive_reason: null,
-        column: 'dev',
+        column: options.column ?? 'dev',
       })
       .execute();
     const sessions = [
@@ -112,9 +116,10 @@ async function setup(
         .execute();
     }
   });
+  const baseConfig = options.config ?? config;
   const usedConfig = options.retry
-    ? configSchema.parse({ ...config, doorbells: options.retry })
-    : config;
+    ? configSchema.parse({ ...baseConfig, doorbells: options.retry })
+    : baseConfig;
   const apply = createApply({ store, clock: { now: () => now }, config: usedConfig });
   const fake = options.gateway ? createFakeGateway({ profile: 'slack-like' }) : undefined;
   const sender = createSender({
@@ -143,6 +148,8 @@ async function setup(
     sender,
     sent,
     fake,
+    config: usedConfig,
+    ops: createBlockMutations(usedConfig),
     now: () => new Date(now),
     /** Runs the daemon's doorbell job once, as it runs before a tick. */
     ring: () => reconcileDueDoorbells(store, usedConfig, new Date(now)),
@@ -914,4 +921,675 @@ describe('role addressed doorbells', () => {
     expect(await reconcile()).toBe(1);
     expect(await doorbells(ctx)).toHaveLength(1);
   });
+});
+
+/** One board project with a `qa` orchestrator on `dev`, a `cur` curator and an `ops` operator. */
+function policyBoard(devOrchestrator = 'qa'): Config {
+  return configSchema.parse({
+    projects: [
+      {
+        id: 'proj',
+        tracker: { type: 'github-issues', repo: 'o/r', milestone: 'M1' },
+        repos: ['o/r'],
+        operatorGithubLogin: 'operator',
+        spurProjects: [
+          { name: 'web', role: 'worker' },
+          { name: 'qa', role: 'worker' },
+          { name: 'cur', role: 'curator' },
+          { name: 'ops', role: 'operator' },
+        ],
+        columns: [
+          { id: 'todo', orchestrator: 'none' },
+          { id: 'ready-for-dev', orchestrator: 'none' },
+          { id: 'dev', orchestrator: devOrchestrator },
+          { id: 'review', orchestrator: 'none' },
+          { id: 'qa', orchestrator: 'none' },
+          { id: 'ready-to-merge', orchestrator: 'none' },
+          { id: 'done', orchestrator: 'none' },
+        ],
+      },
+    ],
+    operator: { slack: 'operator' },
+    digest: { tz: 'UTC' },
+  });
+}
+const policyConfig = policyBoard();
+const worker: ActorId = 'agent:web/worker-1';
+
+type Board = Awaited<ReturnType<typeof setup>>;
+
+/** A live Spur session; `firstSeen` is an offset from START. */
+async function addSession(
+  ctx: Board,
+  id: string,
+  project: string,
+  extra: { firstSeen?: number; activity?: string; absent?: boolean } = {},
+): Promise<void> {
+  const seen = new Date(START + (extra.firstSeen ?? 0)).toISOString();
+  await ctx.store.transaction(async (trx) => {
+    await trx
+      .insertInto('session_snapshot')
+      .values({
+        ...sampleRows.session_snapshot,
+        id,
+        spur_project: project,
+        state: 'waiting',
+        ended_at: null,
+        end_reason: null,
+        first_seen: seen,
+        absent_since: extra.absent === true ? seen : null,
+        detail:
+          extra.activity === undefined ? '{}' : JSON.stringify({ lastActivityAt: extra.activity }),
+      })
+      .execute();
+  });
+}
+
+async function addLink(ctx: Board, id: number, session: string, role: 'worker' | 'orchestrator') {
+  await ctx.store.transaction(async (trx) => {
+    await trx
+      .insertInto('link')
+      .values({
+        ...sampleRows.link,
+        id,
+        task_id: 1,
+        entity: 'session',
+        repo: null,
+        number: null,
+        pr_state: null,
+        session_id: session,
+        role,
+      })
+      .execute();
+  });
+}
+
+async function setSession(
+  ctx: Board,
+  id: string,
+  values: { ended_at?: string; state?: string; absent_since?: string },
+) {
+  await ctx.store.transaction(async (trx) => {
+    await trx.updateTable('session_snapshot').set(values).where('id', '=', id).execute();
+  });
+}
+
+/** Runs the doorbell job, then one sender tick. */
+async function step(ctx: Board): Promise<void> {
+  await ctx.ring();
+  await ctx.sender.tick();
+}
+
+const sessionsRung = (ctx: Board) => ctx.sent.map((entry) => entry.session);
+
+function notices(ctx: Board) {
+  return ctx.store.db.selectFrom('notification').selectAll().orderBy('id').execute();
+}
+
+async function journalled(ctx: Board, kind: 'block_escalated' | 'doorbell_undelivered') {
+  const rows = await ctx.store.db
+    .selectFrom('event')
+    .select(['actor', 'payload'])
+    .where('kind', '=', kind)
+    .orderBy('id')
+    .execute();
+  return rows.map((row) => ({ actor: row.actor, payload: JSON.parse(row.payload) as unknown }));
+}
+
+function itemKinds(ctx: Board) {
+  return ctx.store.db.selectFrom('operator_item').select(['kind', 'item_key']).execute();
+}
+
+/** Where each role resolved by Spur project lives on `policyConfig`. */
+const BY_PROJECT = {
+  curator: { column: 'qa', project: 'cur' },
+  'orchestrator:dev': { column: 'dev', project: 'qa' },
+} as const;
+
+describe('curator doorbells', () => {
+  it('rings the later session, then the most active on a tie, choosing on every ring', async () => {
+    const ctx = await setup({ config: policyConfig, column: 'qa' });
+    await addSession(ctx, 'cur-1', 'cur', { firstSeen: -2000 });
+    await addSession(ctx, 'cur-2', 'cur', {
+      firstSeen: -1000,
+      activity: '2026-11-03T09:00:00Z',
+    });
+    const asked = await ctx.apply(ctx.ops.ask, { task: KEY, text: 'Q?' }, worker, 'ask');
+    expect(asked.block.addressee).toBe('curator');
+    await step(ctx);
+    await addSession(ctx, 'cur-3', 'cur', {
+      firstSeen: -1000,
+      activity: '2026-11-03T09:30:00.5Z',
+    });
+    ctx.advance(120_000);
+    await step(ctx);
+    expect(sessionsRung(ctx)).toEqual(['cur-2', 'cur-3']);
+  });
+
+  it.each(['curator', 'orchestrator:dev'] as const)(
+    'moves the next %s ring to a new session and keeps the count',
+    async (role) => {
+      const { column, project } = BY_PROJECT[role];
+      const ctx = await setup({ config: policyConfig, column });
+      await addSession(ctx, `${project}-1`, project, { firstSeen: -2000 });
+      const asked = await ctx.apply(ctx.ops.ask, { task: KEY, text: 'Q?' }, worker, 'ask');
+      expect(asked.block.addressee).toBe(role);
+      await step(ctx);
+      await addSession(ctx, `${project}-2`, project, { firstSeen: -1000 });
+      ctx.advance(120_000);
+      await step(ctx);
+      expect(sessionsRung(ctx)).toEqual([`${project}-1`, `${project}-2`]);
+      expect(await notices(ctx)).toEqual([
+        expect.objectContaining({ role, rings: 2, recipient_session: `${project}-2` }),
+      ]);
+    },
+  );
+
+  it.each(['curator', 'orchestrator:dev'] as const)(
+    'a %s ring killed by a move does not block the ring after a move back',
+    async (role) => {
+      const { column, project } = BY_PROJECT[role];
+      const ctx = await setup({ config: policyConfig, column });
+      await addSession(ctx, `${project}-1`, project, { firstSeen: -2000 });
+      await ctx.apply(ctx.ops.ask, { task: KEY, text: 'Q?' }, worker, 'ask');
+      await ctx.ring();
+      await addSession(ctx, `${project}-2`, project, { firstSeen: -1000 });
+      await ctx.ring();
+      await setSession(ctx, `${project}-2`, { absent_since: ctx.now().toISOString() });
+      await ctx.ring();
+      await ctx.sender.tick();
+      expect(sessionsRung(ctx)).toEqual([`${project}-1`]);
+      const rows = await ctx.store.db
+        .selectFrom('outbox')
+        .select(['dedupe_key', 'state'])
+        .where('kind', '=', 'doorbell')
+        .orderBy('id')
+        .execute();
+      expect(rows.map((row) => row.state)).toEqual(['dead', 'dead', 'done']);
+      expect(rows[2]?.dedupe_key).toMatch(new RegExp(`:${project}-1:1:m2$`));
+    },
+  );
+
+  it('does not choose an absent curator session; a worker is unaffected', async () => {
+    const ctx = await setup({ config: policyConfig, column: 'qa' });
+    await addSession(ctx, 'cur-1', 'cur', { firstSeen: -2000 });
+    await addSession(ctx, 'cur-2', 'cur', { firstSeen: -1000, absent: true });
+    await ctx.apply(ctx.ops.ask, { task: KEY, text: 'Q?' }, worker, 'ask');
+    await step(ctx);
+    expect(sessionsRung(ctx)).toEqual(['cur-1']);
+
+    const plain = await setup();
+    expect(
+      await plain.store.db
+        .selectFrom('session_snapshot')
+        .select('absent_since')
+        .where('id', '=', 'worker-1')
+        .executeTakeFirst(),
+    ).toEqual({ absent_since: expect.any(String) as unknown });
+    await workerBlock(plain.store);
+    await step(plain);
+    expect(sessionsRung(plain)).toEqual(['worker-1']);
+  });
+
+  it.each(['rejected', 'no session'] as const)(
+    'moves a curator block to the operator when the ring is %s',
+    async (cause) => {
+      const ctx = await setup({ config: policyConfig, column: 'qa' });
+      if (cause === 'rejected') {
+        await addSession(ctx, 'cur-1', 'cur');
+        ctx.failNext(
+          new SpurRejectedError('Spur send failed with HTTP 404: Session not found: cur-1'),
+        );
+      }
+      const asked = await ctx.apply(ctx.ops.ask, { task: KEY, text: 'Q?' }, worker, 'ask');
+      await step(ctx);
+      expect(
+        await ctx.store.db.selectFrom('block').select('addressee_role').executeTakeFirst(),
+      ).toEqual({ addressee_role: 'operator' });
+      expect(await journalled(ctx, 'block_escalated')).toEqual([
+        {
+          actor: 'system',
+          payload: {
+            block: asked.block.id,
+            from: 'curator',
+            to: 'operator',
+            reason:
+              cause === 'rejected'
+                ? (expect.stringContaining('HTTP 404') as unknown)
+                : 'no live curator session',
+          },
+        },
+      ]);
+      expect(
+        await ctx.store.db
+          .selectFrom('outbox')
+          .select('kind')
+          .where('kind', '=', 'conversation.open')
+          .execute(),
+      ).toHaveLength(1);
+      // The item rules parse full session facts, which these fixture sessions do not carry.
+      await scanTransaction(ctx.store, ctx.config, async (trx) => {
+        await trx.deleteFrom('link').execute();
+        await trx.deleteFrom('session_snapshot').execute();
+        await reconcileItems(trx, ctx.config, ctx.now().getTime(), true);
+      });
+      expect(await itemKinds(ctx)).toEqual([
+        {
+          kind: expect.any(String) as unknown,
+          item_key: `operator-block:${asked.block.id.slice(1)}`,
+        },
+      ]);
+      expect(await journalled(ctx, 'doorbell_undelivered')).toHaveLength(1);
+    },
+  );
+
+  it('escalates after three unanswered rings', async () => {
+    const ctx = await setup({ config: policyConfig, column: 'qa' });
+    await addSession(ctx, 'cur-1', 'cur');
+    const asked = await ctx.apply(ctx.ops.ask, { task: KEY, text: 'Q?' }, worker, 'ask');
+    for (const pause of [0, 120_000, 300_000]) {
+      ctx.advance(pause);
+      await step(ctx);
+    }
+    expect(ctx.sent).toHaveLength(3);
+    ctx.advance(900_000);
+    await step(ctx);
+    expect(await journalled(ctx, 'block_escalated')).toEqual([
+      {
+        actor: 'system',
+        payload: { block: asked.block.id, from: 'curator', to: 'operator', reason: 'unanswered' },
+      },
+    ]);
+    expect(await itemKinds(ctx)).toEqual([]);
+    expect(ctx.sent).toHaveLength(3);
+  });
+
+  it('stops the series on an ack from a curator session that was not rung', async () => {
+    const ctx = await setup({ config: policyConfig, column: 'qa' });
+    await addSession(ctx, 'cur-1', 'cur', { firstSeen: -2000 });
+    await addSession(ctx, 'cur-2', 'cur', { firstSeen: -1000 });
+    const asked = await ctx.apply(ctx.ops.ask, { task: KEY, text: 'Q?' }, worker, 'ask');
+    await step(ctx);
+    expect(sessionsRung(ctx)).toEqual(['cur-2']);
+    await ctx.apply(ctx.ops.ack, { entries: [{ id: asked.block.id }] }, 'agent:cur/cur-1', 'ack');
+    ctx.advance(2_000_000);
+    await step(ctx);
+    expect(ctx.sent).toHaveLength(1);
+    expect((await notices(ctx))[0]?.acked_at).not.toBeNull();
+  });
+
+  it.each(['orchestrator:dev', 'operator'] as const)(
+    'refuses a linked worker an %s answer and accepts the role that holds it',
+    async (role) => {
+      const ctx = await setup({ config: policyConfig, column: role === 'operator' ? 'qa' : 'dev' });
+      const asker: ActorId = role === 'operator' ? 'agent:ops/ops-1' : 'agent:qa/qa-1';
+      const asked = await ctx.apply(ctx.ops.ask, { task: KEY, text: 'Q?' }, asker, 'ask');
+      const answered = await ctx.apply(
+        ctx.ops.answer,
+        { block: asked.block.id, text: 'A.' },
+        'operator',
+        'answer',
+      );
+      expect((await notices(ctx)).filter((n) => n.kind === 'answer')).toEqual([
+        expect.objectContaining({ role, recipient_session: null }),
+      ]);
+      const entries = { entries: [{ id: answered.comment.id, revision: 1 }] };
+      await expect(ctx.apply(ctx.ops.ack, entries, worker, 'ack-worker')).rejects.toMatchObject({
+        code: 'forbidden',
+      });
+      let holder = asker;
+      if (role === 'orchestrator:dev') {
+        await addSession(ctx, 'helper-1', 'web');
+        await addLink(ctx, 20, 'helper-1', 'orchestrator');
+        holder = 'agent:web/helper-1';
+      }
+      await ctx.apply(ctx.ops.ack, entries, holder, 'ack-holder');
+      expect((await notices(ctx)).every((n) => n.acked_at !== null)).toBe(true);
+    },
+  );
+
+  it.each([
+    { role: 'worker', column: 'qa', project: 'web', session: 'worker-1' },
+    { role: 'curator', column: 'qa', project: 'cur', session: 'cur-1' },
+    { role: 'orchestrator:dev', column: 'dev', project: 'qa', session: 'qa-1' },
+  ] as const)(
+    'rings the $role author after an answer and after a clarification',
+    async ({ role, column, project, session }) => {
+      const ctx = await setup({ config: policyConfig, column });
+      if (role !== 'worker') await addSession(ctx, session, project);
+      const asker: ActorId = `agent:${project}/${session}`;
+      const asked = await ctx.apply(ctx.ops.ask, { task: KEY, text: 'Q?' }, asker, 'ask');
+      const answered = await ctx.apply(
+        ctx.ops.answer,
+        { block: asked.block.id, text: 'A.' },
+        'operator',
+        'answer',
+      );
+      await step(ctx);
+      expect(sessionsRung(ctx)).toEqual([session]);
+      await ctx.apply(
+        ctx.ops.ack,
+        { entries: [{ id: answered.comment.id, revision: 1 }] },
+        asker,
+        'ack',
+      );
+      await ctx.apply(ctx.ops.edit, { comment: answered.comment.id, text: 'A2.' }, 'operator');
+      await step(ctx);
+      expect(sessionsRung(ctx)).toEqual([session, session]);
+      expect(
+        (await notices(ctx))
+          .filter((n) => n.kind === 'answer')
+          .map((n) => ({ role: n.role, revision: n.revision })),
+      ).toEqual([
+        { role, revision: 1 },
+        { role, revision: 2 },
+      ]);
+    },
+  );
+
+  it.each([
+    {
+      name: 'rings the later curator session over a live older author',
+      ...BY_PROJECT.curator,
+      author: { firstSeen: -2000 },
+      other: { firstSeen: -1000 },
+      expected: 'cur-2',
+    },
+    {
+      name: 'does not ring an absent curator author',
+      ...BY_PROJECT.curator,
+      author: { firstSeen: -1000, absent: true },
+      other: { firstSeen: -2000 },
+      expected: 'cur-2',
+    },
+    {
+      name: 'rings a live orchestrator author first',
+      ...BY_PROJECT['orchestrator:dev'],
+      author: { firstSeen: -2000 },
+      other: { firstSeen: -1000 },
+      expected: 'qa-1',
+    },
+    {
+      name: 'passes over an absent orchestrator author',
+      ...BY_PROJECT['orchestrator:dev'],
+      author: { firstSeen: -2000, absent: true },
+      other: { firstSeen: -3000 },
+      expected: 'qa-2',
+    },
+  ])('$name', async ({ column, project, author, other, expected }) => {
+    const ctx = await setup({ config: policyConfig, column });
+    await addSession(ctx, `${project}-1`, project, author);
+    await addSession(ctx, `${project}-2`, project, other);
+    const asked = await ctx.apply(
+      ctx.ops.ask,
+      { task: KEY, text: 'Q?' },
+      `agent:${project}/${project}-1`,
+      'ask',
+    );
+    await ctx.apply(ctx.ops.answer, { block: asked.block.id, text: 'A.' }, 'operator', 'answer');
+    await step(ctx);
+    expect(sessionsRung(ctx)).toEqual([expected]);
+  });
+
+  it('holds a curator answer with no live session and keeps its rings', async () => {
+    const ctx = await setup({ config: policyConfig, column: 'qa' });
+    await addSession(ctx, 'cur-1', 'cur');
+    const asked = await ctx.apply(ctx.ops.ask, { task: KEY, text: 'Q?' }, 'agent:cur/cur-1', 'ask');
+    await ctx.apply(ctx.ops.answer, { block: asked.block.id, text: 'A.' }, 'operator', 'answer');
+    await step(ctx);
+    expect(sessionsRung(ctx)).toEqual(['cur-1']);
+    await setSession(ctx, 'cur-1', { ended_at: ctx.now().toISOString(), state: 'stopped' });
+    ctx.advance(120_000);
+    await step(ctx);
+    expect(await notices(ctx)).toEqual([
+      expect.objectContaining({
+        kind: 'answer',
+        rings: 1,
+        exhausted_at: null,
+        recipient_session: null,
+      }),
+    ]);
+    expect(await itemKinds(ctx)).toEqual([]);
+    await addSession(ctx, 'cur-2', 'cur', { firstSeen: 120_000 });
+    await step(ctx);
+    expect(sessionsRung(ctx)).toEqual(['cur-1', 'cur-2']);
+    expect((await notices(ctx))[0]?.rings).toBe(2);
+  });
+});
+
+describe('doorbell policy', () => {
+  it('rings the addressee of an opened block, then only the new one after an escalation', async () => {
+    const ctx = await setup({ config: policyConfig, column: 'dev' });
+    await addSession(ctx, 'qa-1', 'qa');
+    await addSession(ctx, 'cur-1', 'cur');
+    const asked = await ctx.apply(ctx.ops.ask, { task: KEY, text: 'Q?' }, worker, 'ask');
+    await step(ctx);
+    expect(sessionsRung(ctx)).toEqual(['qa-1']);
+    await ctx.apply(ctx.ops.escalate, { block: asked.block.id }, 'agent:qa/qa-1', 'esc');
+    await step(ctx);
+    expect(sessionsRung(ctx)).toEqual(['qa-1', 'cur-1']);
+    expect((await notices(ctx)).map((n) => [n.source_key, n.acked_at === null])).toEqual([
+      ['block:1:orchestrator:dev', false],
+      ['block:1:curator', true],
+    ]);
+  });
+
+  it.each([
+    {
+      by: 'its author',
+      actor: worker,
+      open: async (ctx: Board) => {
+        await addSession(ctx, 'cur-1', 'cur');
+        return (await ctx.apply(ctx.ops.ask, { task: KEY, text: 'Q?' }, worker, 'ask')).block.id;
+      },
+      input: (block: string) => ({ mode: 'withdraw' as const, block, answer: 'Never mind.' }),
+      session: 'cur-1',
+    },
+    {
+      by: 'the operator',
+      actor: 'operator' as const,
+      open: (ctx: Board) => workerBlock(ctx.store),
+      input: (block: string) => ({ mode: 'reason' as const, block, reason: 'Never mind.' }),
+      session: 'worker-1',
+    },
+  ])(
+    'rings the addressee once when $by removes the block',
+    async ({ actor, open, input, session }) => {
+      const ctx = await setup({ config: policyConfig, column: 'qa' });
+      const block = await open(ctx);
+      await ctx.apply(ctx.ops.unblock, input(block), actor, 'remove');
+      await step(ctx);
+      expect(ctx.sent).toEqual([
+        {
+          session,
+          text: `${KEY} block ${block} was removed by ${actor}; see board task ${KEY} (N2-1)`,
+        },
+      ]);
+      expect((await notices(ctx)).find((n) => n.kind === 'removed')?.acked_at).not.toBeNull();
+      ctx.advance(2_000_000);
+      await step(ctx);
+      expect(ctx.sent).toHaveLength(1);
+    },
+  );
+
+  it('rings nobody when the addressee closes a block with --done', async () => {
+    const ctx = await setup({ config: policyConfig });
+    const block = await workerBlock(ctx.store);
+    await ctx.apply(ctx.ops.unblock, { mode: 'done', block }, worker, 'done');
+    await step(ctx);
+    expect(ctx.sent).toEqual([]);
+    expect((await notices(ctx)).map((n) => n.kind)).toEqual(['block']);
+  });
+
+  it('rings nobody for a task-level comment', async () => {
+    const ctx = await setup({ config: policyConfig });
+    await ctx.apply(ctx.ops.add, { task: KEY, text: 'Note.' }, 'operator', 'note');
+    await step(ctx);
+    expect(await notices(ctx)).toEqual([]);
+    expect(ctx.sent).toEqual([]);
+  });
+
+  it.each(['rejected', 'timed out'] as const)(
+    'ends a removal ring Spur %s without an operator item',
+    async (cause) => {
+      const ctx = await setup({ config: policyConfig });
+      const block = await workerBlock(ctx.store);
+      await ctx.apply(
+        ctx.ops.unblock,
+        { mode: 'reason', block, reason: 'Moot.' },
+        'operator',
+        'remove',
+      );
+      if (cause === 'rejected') {
+        ctx.failNext(new SpurRejectedError('Spur send failed with HTTP 409: Session completed'));
+        await step(ctx);
+      } else {
+        ctx.failAlways(true);
+        for (let minute = 0; minute <= 30; minute++) {
+          await step(ctx);
+          ctx.advance(60_000);
+        }
+        ctx.failAlways(false);
+      }
+      const removed = (await notices(ctx)).find((n) => n.kind === 'removed');
+      expect(removed?.exhausted_at).not.toBeNull();
+      expect(await journalled(ctx, 'doorbell_undelivered')).toEqual([
+        { actor: 'system', payload: { doorbell: 'N2', reason: expect.any(String) as unknown } },
+      ]);
+      expect(await itemKinds(ctx)).toEqual([]);
+      ctx.advance(24 * 60 * 60_000);
+      await step(ctx);
+      expect(ctx.sent).toEqual([]);
+    },
+  );
+
+  it.each([
+    {
+      name: 'a question opened to the operator',
+      run: (ctx: Board) =>
+        ctx.apply(ctx.ops.ask, { task: KEY, text: 'Q?' }, 'agent:cur/cur-1', 'ask'),
+    },
+    {
+      name: 'an escalation to the operator',
+      run: async (ctx: Board) => {
+        const asked = await ctx.apply(ctx.ops.ask, { task: KEY, text: 'Q?' }, worker, 'ask');
+        await ctx.apply(ctx.ops.escalate, { block: asked.block.id }, 'agent:cur/cur-1', 'esc');
+      },
+    },
+    {
+      name: 'a withdrawn operator question',
+      run: async (ctx: Board) => {
+        const asked = await ctx.apply(
+          ctx.ops.ask,
+          { task: KEY, text: 'Q?' },
+          'agent:cur/cur-1',
+          'ask',
+        );
+        await ctx.apply(
+          ctx.ops.unblock,
+          { mode: 'withdraw', block: asked.block.id, answer: 'Never mind.' },
+          'agent:cur/cur-1',
+          'withdraw',
+        );
+      },
+    },
+  ])('registers no operator notification for $name', async ({ run }) => {
+    const ctx = await setup({ config: policyConfig, column: 'qa' });
+    await run(ctx);
+    expect((await notices(ctx)).filter((n) => n.role === 'operator')).toEqual([]);
+    await step(ctx);
+    expect(
+      await ctx.store.db.selectFrom('outbox').select('id').where('kind', '=', 'doorbell').execute(),
+    ).toEqual([]);
+    expect(await journalled(ctx, 'doorbell_undelivered')).toEqual([]);
+  });
+
+  it.each([
+    ['dependency', 'qa', 'agent:qa/qa-1'],
+    ['external', 'qa', 'agent:qa/qa-1'],
+    ['dependency', 'cur', 'agent:cur/cur-1'],
+  ] as const)(
+    'rings nobody for an orchestrator own %s block (orchestrator %s)',
+    async (type, orchestrator, actor) => {
+      const ctx = await setup({ config: policyBoard(orchestrator), column: 'dev' });
+      await addSession(ctx, actor.split('/')[1] ?? '', orchestrator);
+      const created = await ctx.apply(
+        ctx.ops.create,
+        { task: KEY, type, reason: 'Waiting.' },
+        actor,
+        'create',
+      );
+      expect(created.block.addressee).toBe('orchestrator:dev');
+      await step(ctx);
+      expect(await notices(ctx)).toEqual([]);
+      expect(ctx.sent).toEqual([]);
+    },
+  );
+
+  it("a second session of the addressee's role closing a block rings nobody", async () => {
+    const ctx = await setup({ config: policyConfig, column: 'qa' });
+    await addSession(ctx, 'cur-1', 'cur');
+    const asked = await ctx.apply(ctx.ops.ask, { task: KEY, text: 'Q?' }, worker, 'ask');
+    await ctx.apply(
+      ctx.ops.unblock,
+      { mode: 'reason', block: asked.block.id, reason: 'Moot.' },
+      'agent:cur/cur-2',
+      'close',
+    );
+    await step(ctx);
+    expect((await notices(ctx)).map((n) => n.kind)).toEqual(['block']);
+    expect(ctx.sent).toEqual([]);
+  });
+
+  it('a dual-role escalation still rings the curator role', async () => {
+    const ctx = await setup({ config: policyBoard('cur'), column: 'dev' });
+    await addSession(ctx, 'cur-1', 'cur');
+    const asked = await ctx.apply(ctx.ops.ask, { task: KEY, text: 'Q?' }, worker, 'ask');
+    expect(asked.block.addressee).toBe('orchestrator:dev');
+    const moved = await ctx.apply(
+      ctx.ops.escalate,
+      { block: asked.block.id },
+      'agent:cur/cur-1',
+      'esc',
+    );
+    expect(moved.block.addressee).toBe('curator');
+    expect((await notices(ctx)).map((n) => [n.role, n.acked_at === null])).toEqual([
+      ['orchestrator:dev', false],
+      ['curator', true],
+    ]);
+    await step(ctx);
+    expect(sessionsRung(ctx)).toEqual(['cur-1']);
+  });
+
+  it.each(['curator', 'orchestrator:dev'] as const)(
+    'registers no answer when a later %s session comments on or edits its question',
+    async (role) => {
+      const { column, project } = BY_PROJECT[role];
+      const ctx = await setup({ config: policyConfig, column });
+      const asked = await ctx.apply(
+        ctx.ops.ask,
+        { task: KEY, text: 'Q?' },
+        `agent:${project}/${project}-1`,
+        'ask',
+      );
+      const later: ActorId = `agent:${project}/${project}-2`;
+      const added = await ctx.apply(
+        ctx.ops.add,
+        { task: KEY, block: asked.block.id, text: 'More detail.' },
+        later,
+        'add',
+      );
+      await ctx.store.transaction((trx) =>
+        trx.updateTable('comment').set({ acked_revision: 1 }).execute(),
+      );
+      const edited = await ctx.apply(
+        ctx.ops.edit,
+        { comment: added.comment.id, text: 'Even more detail.' },
+        later,
+        'edit',
+      );
+      expect(edited.comment.revision).toBe(2);
+      expect((await notices(ctx)).filter((n) => n.kind === 'answer')).toEqual([]);
+    },
+  );
 });

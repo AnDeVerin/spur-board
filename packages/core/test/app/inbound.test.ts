@@ -1407,6 +1407,83 @@ describe('inbound apply', () => {
     expect(sends).toEqual([pointer]);
   });
 
+  it('holds a Slack answer to a curator until a curator session appears, and rings its edit', async () => {
+    const { store, gateway } = await setup('agent:cur/cur-1');
+    const curatorConfig = configSchema.parse({
+      ...config,
+      projects: config.projects.map((project) => ({
+        ...project,
+        spurProjects: [...project.spurProjects, { name: 'cur', role: 'curator' }],
+      })),
+    });
+    const inbound = createInbound({
+      store,
+      gateway,
+      config: curatorConfig,
+      clock: { now: () => now },
+    });
+    const sends: string[] = [];
+    const sender = createSender({
+      store,
+      gateway,
+      config: curatorConfig,
+      now: () => new Date(now),
+      spur: {
+        send: (session) => {
+          sends.push(session);
+          return Promise.resolve();
+        },
+      },
+    });
+    const ring = async () => {
+      await reconcileDueDoorbells(store, curatorConfig, new Date(now));
+      await sender.tick();
+    };
+    await inbound.sink(message({ conversation: 'thread-1', root: 'root-1' }));
+    expect(
+      await store.db
+        .selectFrom('notification')
+        .select(['kind', 'role', 'author_session'])
+        .execute(),
+    ).toEqual([{ kind: 'answer', role: 'curator', author_session: 'cur-1' }]);
+    expect(await store.db.selectFrom('operator_item').select('kind').execute()).toEqual([
+      { kind: 'answer_author_unavailable' },
+    ]);
+    await ring();
+    expect(sends).toEqual([]);
+    expect(
+      await store.db.selectFrom('notification').select(['rings', 'exhausted_at']).execute(),
+    ).toEqual([{ rings: 0, exhausted_at: null }]);
+    await scanTransaction(store, curatorConfig, (trx) =>
+      trx
+        .insertInto('session_snapshot')
+        .values({
+          ...sampleRows.session_snapshot,
+          id: 'cur-2',
+          spur_project: 'cur',
+          ended_at: null,
+          end_reason: null,
+          absent_since: null,
+        })
+        .execute(),
+    );
+    await ring();
+    expect(sends).toEqual(['cur-2']);
+    await store.transaction((trx) =>
+      trx.updateTable('comment').set({ acked_revision: 1 }).execute(),
+    );
+    await inbound.sink({
+      ...message({ conversation: 'thread-1', root: 'root-1', key: 'edit-1' }),
+      kind: 'message_edited',
+      text: 'Revised',
+    });
+    await ring();
+    expect(sends).toEqual(['cur-2', 'cur-2']);
+    expect(await store.db.selectFrom('operator_item').select('kind').execute()).toEqual([
+      { kind: 'answer_author_unavailable' },
+    ]);
+  });
+
   it('keeps an ended author answer pending until a replacement worker arrives', async () => {
     const { store, inbound, gateway } = await setup('agent:proj/sess-1');
     await scanTransaction(store, config, (trx) =>
