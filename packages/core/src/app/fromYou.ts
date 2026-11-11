@@ -270,7 +270,7 @@ export async function reconcileItems(
     if (old !== undefined && (dismissal?.fingerprint === hash || !kept))
       await clearItem(trx, old.id, new Date(now));
     if (dismissal?.fingerprint === hash) continue;
-    if (old !== undefined && kept) {
+    if (kept) {
       if (old.fact_at !== candidate.factAt || old.source !== candidate.source)
         await trx
           .updateTable('operator_item')
