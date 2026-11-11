@@ -140,6 +140,8 @@ const spurProject = z.strictObject({
     ),
 });
 
+const DEFAULT_CYCLE_LIMIT = 10;
+
 const columnConfig = z.strictObject({
   id: z.enum(COLUMN_IDS, {
     error: (issue) =>
@@ -149,6 +151,13 @@ const columnConfig = z.strictObject({
   }),
   enabled: z.boolean().default(true),
   orchestrator: nonEmpty.default('none'),
+  cycleLimit: z
+    .int()
+    .min(1)
+    .default(DEFAULT_CYCLE_LIMIT)
+    .describe(
+      'How many times a task may return to Dev from this column before the board stops it for the operator. Returns by the column executor, changes requested and external comments count; a conflict, red CI and a draft do not.',
+    ),
 });
 
 type ColumnConfig = z.output<typeof columnConfig>;
@@ -256,7 +265,14 @@ const projectSchema = z
     columns: z
       .array(columnConfig)
       .superRefine(checkBoard)
-      .default(() => COLUMN_IDS.map((id) => ({ id, enabled: true, orchestrator: 'none' }))),
+      .default(() =>
+        COLUMN_IDS.map((id) => ({
+          id,
+          enabled: true,
+          orchestrator: 'none',
+          cycleLimit: DEFAULT_CYCLE_LIMIT,
+        })),
+      ),
   })
   .superRefine((project, ctx) => {
     const spurNames = new Set(project.spurProjects.map((p) => p.name));

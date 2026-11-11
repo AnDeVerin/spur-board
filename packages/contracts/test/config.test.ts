@@ -116,13 +116,13 @@ describe('fixtures', () => {
     expect(project?.tracker.type === 'jira' && project.tracker.projectKeys).toEqual([]);
     expect(project?.spurProjects).toEqual([{ name: 'qa-bot', role: 'worker' }]);
     expect(project?.columns).toEqual([
-      { id: 'todo', enabled: true, orchestrator: 'none' },
-      { id: 'ready-for-dev', enabled: true, orchestrator: 'none' },
-      { id: 'dev', enabled: true, orchestrator: 'none' },
-      { id: 'review', enabled: true, orchestrator: 'none' },
-      { id: 'qa', enabled: true, orchestrator: 'qa-bot' },
-      { id: 'ready-to-merge', enabled: true, orchestrator: 'none' },
-      { id: 'done', enabled: true, orchestrator: 'none' },
+      { id: 'todo', enabled: true, orchestrator: 'none', cycleLimit: 10 },
+      { id: 'ready-for-dev', enabled: true, orchestrator: 'none', cycleLimit: 10 },
+      { id: 'dev', enabled: true, orchestrator: 'none', cycleLimit: 10 },
+      { id: 'review', enabled: true, orchestrator: 'none', cycleLimit: 10 },
+      { id: 'qa', enabled: true, orchestrator: 'qa-bot', cycleLimit: 10 },
+      { id: 'ready-to-merge', enabled: true, orchestrator: 'none', cycleLimit: 10 },
+      { id: 'done', enabled: true, orchestrator: 'none', cycleLimit: 10 },
     ]);
   });
 
@@ -150,15 +150,15 @@ describe('fixtures', () => {
   it('gives a project without columns all nine columns, enabled, orchestrator none', () => {
     const config = configSchema.parse(validConfig());
     expect(config.projects[0]?.columns).toEqual([
-      { id: 'todo', enabled: true, orchestrator: 'none' },
-      { id: 'ready-for-dev', enabled: true, orchestrator: 'none' },
-      { id: 'dev', enabled: true, orchestrator: 'none' },
-      { id: 'review', enabled: true, orchestrator: 'none' },
-      { id: 'product-review', enabled: true, orchestrator: 'none' },
-      { id: 'external-review', enabled: true, orchestrator: 'none' },
-      { id: 'qa', enabled: true, orchestrator: 'none' },
-      { id: 'ready-to-merge', enabled: true, orchestrator: 'none' },
-      { id: 'done', enabled: true, orchestrator: 'none' },
+      { id: 'todo', enabled: true, orchestrator: 'none', cycleLimit: 10 },
+      { id: 'ready-for-dev', enabled: true, orchestrator: 'none', cycleLimit: 10 },
+      { id: 'dev', enabled: true, orchestrator: 'none', cycleLimit: 10 },
+      { id: 'review', enabled: true, orchestrator: 'none', cycleLimit: 10 },
+      { id: 'product-review', enabled: true, orchestrator: 'none', cycleLimit: 10 },
+      { id: 'external-review', enabled: true, orchestrator: 'none', cycleLimit: 10 },
+      { id: 'qa', enabled: true, orchestrator: 'none', cycleLimit: 10 },
+      { id: 'ready-to-merge', enabled: true, orchestrator: 'none', cycleLimit: 10 },
+      { id: 'done', enabled: true, orchestrator: 'none', cycleLimit: 10 },
     ]);
     expect(config.projects[0]?.spurProjects).toEqual([]);
   });
@@ -348,6 +348,22 @@ describe('invalid configs', () => {
       }),
       'Unknown orchestrator "ghost"',
       'projects[0].columns[2].orchestrator',
+    ],
+    [
+      'zero column cycle limit',
+      validConfig({
+        columns: [...columns('todo', 'dev'), { id: 'review', cycleLimit: 0 }, ...columns('done')],
+      }),
+      'Too small: expected number to be >=1',
+      'projects[0].columns[2].cycleLimit',
+    ],
+    [
+      'fractional column cycle limit',
+      validConfig({
+        columns: [...columns('todo', 'dev'), { id: 'review', cycleLimit: 1.5 }, ...columns('done')],
+      }),
+      'Invalid input: expected int, received number',
+      'projects[0].columns[2].cycleLimit',
     ],
     [
       'github-issues with label and milestone',
@@ -557,6 +573,11 @@ describe('invalid configs', () => {
     [
       'disabled optional columns',
       { columns: [...columns('todo', 'dev'), { id: 'qa', enabled: false }, ...columns('done')] },
+      {},
+    ],
+    [
+      'a column cycle limit',
+      { columns: [...columns('todo', 'dev'), { id: 'review', cycleLimit: 3 }, ...columns('done')] },
       {},
     ],
     ['only product review', { columns: columns('todo', 'dev', 'product-review', 'done') }, {}],
