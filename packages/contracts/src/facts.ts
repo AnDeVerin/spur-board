@@ -42,6 +42,10 @@ export const REVIEW_STATES = ['approved', 'changes_requested', 'commented', 'dis
 export type ReviewState = (typeof REVIEW_STATES)[number];
 export const REVIEWER_KINDS = ['user', 'team', 'bot'] as const;
 export type ReviewerKind = (typeof REVIEWER_KINDS)[number];
+export const FEEDBACK_KINDS = ['comment', 'review'] as const;
+export type FeedbackKind = (typeof FEEDBACK_KINDS)[number];
+export const AUTHOR_TYPES = ['user', 'bot'] as const;
+export type AuthorType = (typeof AUTHOR_TYPES)[number];
 
 /** Spur session lifecycle values known today. */
 export const SESSION_STATUSES = [
@@ -86,6 +90,20 @@ const checkSchema = z.strictObject({
   state: z.enum(CHECK_STATES).describe('State of the latest run of this check on the head commit.'),
   completedAt: at.nullable().describe('When the latest run finished; null while it runs.'),
 });
+
+const feedbackSchema = z.strictObject({
+  kind: z.enum(FEEDBACK_KINDS).describe('Whether this is a comment or a submitted review.'),
+  id: z.string().min(1).describe('Stable id of the comment or review in the source.'),
+  author: z
+    .strictObject({
+      login: login.describe('Login of the author.'),
+      type: z.enum(AUTHOR_TYPES).describe('Whether the author is a user or a bot.'),
+    })
+    .nullable()
+    .describe('Who posted it; null for a deleted account.'),
+  postedAt: at.describe('When the comment was posted or the review submitted.'),
+});
+export type PrFeedback = z.output<typeof feedbackSchema>;
 
 export const prFactsSchema = z
   .strictObject({
@@ -164,9 +182,32 @@ export const prFactsSchema = z
       .array(taskKeySchema)
       .describe('Ticket keys found in the head branch name and the title.'),
     updatedAt: at.describe('When the pull request last changed.'),
+    feedback: z
+      .array(feedbackSchema)
+      .optional()
+      .describe(
+        'Comments and submitted reviews on the pull request, oldest first, without their text.',
+      ),
+    feedbackComplete: z
+      .boolean()
+      .optional()
+      .describe(
+        'Whether feedback holds every comment back to the last one handed over, or to the start of the pull request; missing reads as incomplete.',
+      ),
   })
   .describe('Facts about one pull request.');
 export type PrFacts = z.output<typeof prFactsSchema>;
+
+/**
+ * Whether a comment or review came from outside: not by `agentLogin` in any letter case and not
+ * by a bot. A deleted account counts as external.
+ */
+export function isExternalAuthor(entry: Pick<PrFeedback, 'author'>, agentLogin: string): boolean {
+  return (
+    entry.author === null ||
+    (entry.author.type !== 'bot' && entry.author.login.toLowerCase() !== agentLogin.toLowerCase())
+  );
+}
 
 /** A tracker ticket; tracker-neutral, so a Jira issue and a GitHub issue both fit. */
 export const ticketFactsSchema = z

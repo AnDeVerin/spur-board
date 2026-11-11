@@ -288,7 +288,8 @@ describe('obligation ids', () => {
 // controls are named after platform behaviour.
 const scanned = ['packages/contracts', 'packages/core/src'];
 const skipped = new Set(['node_modules', 'dist', 'coverage']);
-const wireTerms = /rateLimit|pageInfo|endCursor|nextPageToken|statusCheckRollup/i;
+const wireTerms =
+  /rateLimit|pageInfo|startCursor|endCursor|hasPreviousPage|nextPageToken|statusCheckRollup/i;
 
 function filesUnder(dir: string): string[] {
   if (!existsSync(dir)) return [];
@@ -301,8 +302,10 @@ function filesUnder(dir: string): string[] {
 
 describe('no wire formats', () => {
   it('flags wire terms and leaves neutral words alone', () => {
-    for (const term of ['X-RateLimit-Reset', 'pageInfo']) expect(term).toMatch(wireTerms);
-    for (const word of ['cursor', 'retryAt', 'throttled']) expect(word).not.toMatch(wireTerms);
+    for (const term of ['X-RateLimit-Reset', 'pageInfo', 'startCursor', 'hasPreviousPage'])
+      expect(term).toMatch(wireTerms);
+    for (const word of ['cursor', 'retryAt', 'throttled', 'feedbackCursors'])
+      expect(word).not.toMatch(wireTerms);
   });
 
   it('keeps wire terms out of the contracts and core', () => {
