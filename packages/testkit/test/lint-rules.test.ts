@@ -357,6 +357,8 @@ describe('Slack fake boundary', () => {
     ['packages/contracts/src/x.ts', '@spur-board/gateway-slack/testing'],
     ['packages/daemon/src/x.ts', '../../gateway-slack/src/testing.ts'],
     ['packages/gateway-slack/src/x.ts', './testing.ts'],
+    ['packages/gateway-slack/src/sub/x.ts', '../testing.ts'],
+    ['packages/gateway-slack/src/sub/deeper/x.ts', '../../testing'],
     ['packages/gateway-slack/src/x.ts', '@spur-board/gateway-slack/testing'],
   ])(
     '%s: import of %s reports no-restricted-imports',
@@ -384,6 +386,8 @@ describe('Slack fake boundary', () => {
     ['packages/stand/src/x.ts', '@spur-board/gateway-slack/testing'],
     ['packages/gateway-slack/test/x.test.ts', '@spur-board/gateway-slack/testing'],
     ['packages/gateway-slack/src/testing.ts', './ref.ts'],
+    ['packages/gateway-slack/src/sub/x.ts', '../ref.ts'],
+    ['packages/gateway-slack/src/x.ts', './testing-helpers.ts'],
   ])(
     '%s: import of %s passes',
     async (path, from) => {

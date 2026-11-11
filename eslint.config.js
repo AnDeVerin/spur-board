@@ -101,7 +101,8 @@ const slackFakeMessage = 'Production code does not import the fake Slack API.';
 const slackFakePatterns = [
   '^@spur-board/gateway-slack/testing$',
   'gateway-slack/src/testing([.]ts)?$',
-  '^[.]/testing([.]ts)?$',
+  // Any relative path ending in testing, so a subdirectory of gateway-slack/src cannot reach it.
+  '^[.]{1,2}/([.]{2}/)*testing([.]ts)?$',
 ].map((regex) => ({ regex, caseSensitive: true, message: slackFakeMessage }));
 
 // Adapters reach core through the runner's port, and each adapter folder stays on its own;
