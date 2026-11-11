@@ -1,12 +1,9 @@
-import {
-  assertNever,
-  parseActorId,
-  type ActorId,
-  type AddresseeRole,
-  type Config,
-  type EventKind,
-  type EventPayload,
-  type Persona,
+import type {
+  ActorId,
+  AddresseeRole,
+  Config,
+  EventKind,
+  EventPayload,
 } from '@spur-board/contracts';
 import type { Kysely, Selectable } from 'kysely';
 import type { BlockTable, CommentTable, Tables, TaskTable } from '../store/schema.ts';
@@ -18,11 +15,11 @@ import {
   closeBlock,
   editComment,
   escalateBlock,
-  parseAddressee,
   priorAddressees,
   type CurrentBlock,
 } from '../domain/blocks/blocks.ts';
 import { authorize, curatorProject, type ResolvedTarget } from './authorize.ts';
+import { authorRole, orchestrator, personaFor, queueBlockOpen } from './block-thread.ts';
 import { emit } from './board-utils.ts';
 import { CommandError, type CommandContext, type Mutation } from './commands.ts';
 import {
@@ -32,7 +29,7 @@ import {
   registerBlockNotification,
 } from './doorbells.ts';
 import { clearItem } from './feed.ts';
-import { enqueueConversationOpen, enqueueConversationReply } from './outbox.ts';
+import { enqueueConversationReply } from './outbox.ts';
 import { enqueueConversationClose } from './outbox.ts';
 
 type Task = Selectable<TaskTable>;
@@ -180,84 +177,6 @@ async function journal<K extends EventKind>(
   payload: EventPayload<K>,
 ): Promise<void> {
   await emit(trx, kind, task.project, task.id, ctx.at, payload, ctx.actor);
-}
-
-function orchestrator(config: Config, task: Task): string | null {
-  const name = config.projects
-    .find((project) => project.id === task.project)
-    ?.columns.find((column) => column.id === task.column)?.orchestrator;
-  return name === undefined || name === 'none' ? null : name;
-}
-
-function authorRole(config: Config, task: Task, actor: ActorId): AddresseeRole {
-  if (actor === 'operator') return 'operator';
-  const parsed = parseActorId(actor);
-  if (
-    parsed?.actor === 'agent' &&
-    config.projects.some((project) =>
-      project.spurProjects.some(
-        (spur) => spur.name === parsed.actorRef.project && spur.role === 'operator',
-      ),
-    )
-  ) {
-    return 'operator';
-  }
-  if (parsed?.actor !== 'agent') return 'worker';
-  if (parsed.actorRef.project === orchestrator(config, task)) return `orchestrator:${task.column}`;
-  return parsed.actorRef.project === curatorProject(config, task.project) ? 'curator' : 'worker';
-}
-
-function personaRole(role: AddresseeRole): Persona['role'] {
-  const addressee = parseAddressee(role);
-  switch (addressee.kind) {
-    case 'operator':
-      return 'board';
-    case 'worker':
-      return 'worker';
-    case 'curator':
-    case 'orchestrator':
-      return 'orchestrator';
-    default:
-      return assertNever(addressee);
-  }
-}
-
-function personaFor(config: Config, task: Task, actor: ActorId): Persona {
-  if (actor === 'system') return { name: 'board', role: 'board' };
-  if (actor === 'operator') return { name: 'operator', role: 'board' };
-  const parsed = parseActorId(actor);
-  if (parsed?.actor !== 'agent') throw new Error('Invalid actor');
-  return { name: parsed.actorRef.project, role: personaRole(authorRole(config, task, actor)) };
-}
-
-async function queueBlockOpen(
-  trx: Trx,
-  task: Task,
-  block: Block,
-  ctx: CommandContext,
-  config: Config,
-): Promise<void> {
-  if (authorRole(config, task, block.author) === 'operator') return;
-  const comments = await trx
-    .selectFrom('comment')
-    .select(['id', 'author'])
-    .where('block_id', '=', block.id)
-    .orderBy('id')
-    .execute();
-  const opened = await enqueueConversationOpen(trx, {
-    blockId: block.id,
-    commentId: comments[0]?.id ?? null,
-    persona: personaFor(config, task, comments[0]?.author ?? block.author),
-    at: new Date(ctx.at),
-  });
-  if (opened === null) return;
-  for (const comment of comments.slice(1)) {
-    await enqueueConversationReply(trx, {
-      commentId: comment.id,
-      persona: personaFor(config, task, comment.author),
-      at: new Date(ctx.at),
-    });
-  }
 }
 
 async function hasWorker(trx: Trx, task: Task): Promise<boolean> {
