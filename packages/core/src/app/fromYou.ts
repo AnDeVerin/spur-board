@@ -38,6 +38,8 @@ export async function reconcileItems(
   const sourceById = new Map(sources.map((state) => [state.source, state]));
   for (const source of sources) {
     if (source.blind_reason === null) continue;
+    // A stale tracker shows as a status flag only; stale Spur also blinds worker health.
+    if (source.blind_reason === 'stale' && source.source !== 'spur') continue;
     candidates.push({
       key: `source:${source.source}`,
       kind: 'board_observation',
@@ -56,7 +58,8 @@ export async function reconcileItems(
   const taskById = new Map(tasks.map((task) => [task.id, task]));
   const misses = await trx.selectFrom('source_miss').selectAll().execute();
   for (const miss of misses) {
-    if (miss.outcome !== 'not_found' && miss.outcome !== 'no_access' && miss.gone !== 1) continue;
+    // A linked PR or ticket raises an item only once the runner counts it gone.
+    if (miss.gone !== 1) continue;
     const ref = JSON.parse(miss.ref) as {
       kind: string;
       key?: string;
@@ -88,11 +91,7 @@ export async function reconcileItems(
       continue;
     }
     if (ref.kind !== 'ticket') continue;
-    const task = tasks.find(
-      (entry) =>
-        entry.key === ref.key &&
-        (entry.manual_include === 1 || miss.outcome === 'no_access' || miss.gone === 1),
-    );
+    const task = tasks.find((entry) => entry.key === ref.key);
     if (task === undefined) continue;
     candidates.push({
       key: `lookup:${String(task.id)}`,
@@ -222,17 +221,6 @@ export async function reconcileItems(
       oc.column('key').doUpdateSet({ value: toJson(episodeSchema, health.episode) }),
     )
     .execute();
-  if (health.hostLoad !== null)
-    candidates.push({
-      key: 'host-load',
-      kind: 'board_observation',
-      taskId: null,
-      summary: 'Host under load',
-      factAt: health.episode === null ? null : new Date(health.episode.startedAt).toISOString(),
-      source: 'spur',
-      priority: 4,
-      revision: health.episode === null ? null : String(health.episode.startedAt),
-    });
   for (const flag of health.flags) {
     const task = taskById.get(Number(flag.taskId));
     if (task === undefined) continue;

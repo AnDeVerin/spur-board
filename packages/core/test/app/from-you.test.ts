@@ -71,7 +71,7 @@ it('marks a fact stale only after the strict multiplier boundary, and while blin
     },
     effectiveComplete: true,
     state: { lastCompleteAt: at, gone: [] },
-    outcomes: [{ ref, misses: 1, gone: false }],
+    outcomes: [{ ref, misses: 3, gone: true }],
   });
   now += 180_000;
   expect((await status()).items[0]?.unconfirmed).toBe(false);
@@ -98,12 +98,39 @@ it('marks a fact stale only after the strict multiplier boundary, and while blin
     },
     effectiveComplete: true,
     state: { lastCompleteAt: recovered, gone: [] },
-    outcomes: [{ ref, misses: 2, gone: false }],
+    outcomes: [{ ref, misses: 4, gone: true }],
   });
   expect((await status()).items.some((item) => item.key.startsWith('source:'))).toBe(false);
 });
 
-it('clears a missing-key item on the first successful lookup', async () => {
+type EntityRef = Parameters<
+  ReturnType<typeof setup>['core']['observe']
+>[1]['outcomes'][number]['ref'];
+
+/** One complete poll of `observedSource` that answers `ref` with `status` after `misses`. */
+async function observeMiss(
+  core: ReturnType<typeof setup>['core'],
+  observedSource: string,
+  ref: EntityRef,
+  status: 'not_found' | 'no_access',
+  misses: number,
+) {
+  const at = new Date(now).toISOString();
+  await core.observe(observedSource, {
+    batch: {
+      source: observedSource,
+      observedAt: at,
+      complete: true,
+      items: [],
+      entities: [{ ref, status }],
+    },
+    effectiveComplete: true,
+    state: { lastCompleteAt: at, gone: [] },
+    outcomes: [{ ref, misses, gone: misses >= 3 }],
+  });
+}
+
+it('raises a ticket lookup item only once the runner marks it gone and clears it on the first successful lookup', async () => {
   const { store, core, status } = setup();
   await createApply({ store, config, clock })(
     createMembershipMutations(config).add,
@@ -112,20 +139,16 @@ it('clears a missing-key item on the first successful lookup', async () => {
   );
   const ref = (await core.context(source)).observe.tickets[0];
   if (ref === undefined) throw new Error('Missing ticket request');
-  const at = new Date(now).toISOString();
-  await core.observe(source, {
-    batch: {
-      source,
-      observedAt: at,
-      complete: true,
-      items: [],
-      entities: [{ ref, status: 'no_access' }],
-    },
-    effectiveComplete: true,
-    state: { lastCompleteAt: at, gone: [] },
-    outcomes: [{ ref, misses: 1, gone: false }],
-  });
-  expect((await status()).items.some((item) => item.summary.includes('no_access'))).toBe(true);
+  const lookup = async () => (await status()).items.find((item) => item.key.startsWith('lookup:'));
+  for (const misses of [1, 2]) {
+    await observeMiss(core, source, ref, 'no_access', misses);
+    expect(await lookup()).toBeUndefined();
+    now += 1_000;
+  }
+  await observeMiss(core, source, ref, 'no_access', 3);
+  const gone = await lookup();
+  expect(gone?.summary).toContain('no_access');
+  expect(gone?.unconfirmed).toBe(true);
   now += 1_000;
   const later = new Date(now).toISOString();
   await core.observe(source, {
@@ -157,7 +180,133 @@ it('clears a missing-key item on the first successful lookup', async () => {
     state: { lastCompleteAt: later, gone: [] },
     outcomes: [{ ref, misses: 0, gone: false }],
   });
-  expect((await status()).items.some((item) => item.key.startsWith('lookup:'))).toBe(false);
+  expect(await lookup()).toBeUndefined();
+});
+
+it('raises a filter ticket lookup item only once the runner marks it gone', async () => {
+  const { core, status } = setup();
+  const at = new Date(now).toISOString();
+  await core.observe(source, {
+    batch: {
+      source,
+      observedAt: at,
+      complete: true,
+      items: [
+        {
+          kind: 'ticket',
+          facts: {
+            trackerId: source,
+            id: 'node-9',
+            key: 'o/r#9',
+            title: 'Ticket',
+            status: 'open',
+            assignee: null,
+            sprint: null,
+            labels: ['board'],
+            inFilter: true,
+            url: 'https://github.com/o/r/issues/9',
+            updatedAt: at,
+          },
+        },
+      ],
+      entities: [],
+    },
+    effectiveComplete: true,
+    state: { lastCompleteAt: at, gone: [] },
+    outcomes: [],
+  });
+  const ref = (await core.context(source)).observe.tickets[0];
+  if (ref === undefined) throw new Error('Missing ticket request');
+  const lookup = async () => (await status()).items.find((item) => item.key.startsWith('lookup:'));
+  for (const misses of [1, 2]) {
+    now += 1_000;
+    await observeMiss(core, source, ref, 'not_found', misses);
+    expect(await lookup()).toBeUndefined();
+  }
+  now += 1_000;
+  await observeMiss(core, source, ref, 'not_found', 3);
+  expect((await lookup())?.summary).toContain('o/r#9: tracker returned not_found');
+});
+
+it('raises a linked PR item only once the runner marks it gone', async () => {
+  const { store, core, status } = setup();
+  await createApply({ store, config, clock })(
+    createMembershipMutations(config).add,
+    { task: 'o/r#9' },
+    'operator',
+  );
+  const task = await store.db.selectFrom('task').select('id').executeTakeFirstOrThrow();
+  await scanTransaction(store, config, (trx) =>
+    trx
+      .insertInto('link')
+      .values({ ...sampleRows.link, task_id: task.id, repo: 'o/r', number: 5 })
+      .execute(),
+  );
+  const prSource = 'github:board:o/r';
+  const ref = { kind: 'pr' as const, repo: 'o/r', number: 5 };
+  const key = `pr-outcome:${String(task.id)}:o/r#5`;
+  const item = async () => (await status()).items.find((entry) => entry.key === key);
+  await observeMiss(core, prSource, ref, 'not_found', 1);
+  expect(await item()).toBeUndefined();
+  now += 1_000;
+  await observeMiss(core, prSource, ref, 'no_access', 2);
+  expect(await item()).toBeUndefined();
+  now += 1_000;
+  await observeMiss(core, prSource, ref, 'not_found', 3);
+  expect((await item())?.summary).toContain('o/r#9: linked pull request not_found');
+  now += 1_000;
+  const later = new Date(now).toISOString();
+  await core.observe(prSource, {
+    batch: {
+      source: prSource,
+      observedAt: later,
+      complete: true,
+      items: [],
+      entities: [{ ref, status: 'ok' }],
+    },
+    effectiveComplete: true,
+    state: { lastCompleteAt: later, gone: [] },
+    outcomes: [{ ref, misses: 0, gone: false }],
+  });
+  expect(await item()).toBeUndefined();
+});
+
+it('keeps a stale tracker source quiet and raises auth blindness', async () => {
+  const { store, core, status } = setup();
+  const lines = () =>
+    store.db.selectFrom('outbox').select('id').where('kind', '=', 'feed.line').execute();
+  const stale = { reason: 'stale', message: 'No complete observation' } as const;
+  await core.reportSourceState(source, { blind: stale, gone: [] });
+  let current = await status();
+  expect(current.items.some((item) => item.key === `source:${source}`)).toBe(false);
+  expect(current.sources.find((entry) => entry.source === source)?.blindReason).toBe('stale');
+  expect(await lines()).toEqual([]);
+
+  now += 1_000;
+  await core.reportSourceState(source, {
+    blind: { reason: 'auth', message: 'Access rejected' },
+    gone: [],
+  });
+  const auth = await store.db
+    .selectFrom('operator_item')
+    .select(['priority', 'line_outbox_id'])
+    .where('item_key', '=', `source:${source}`)
+    .where('cleared_at', 'is', null)
+    .executeTakeFirstOrThrow();
+  expect(auth.priority).toBe(2);
+  expect(auth.line_outbox_id).not.toBeNull();
+
+  now += 1_000;
+  await core.reportSourceState('spur', { blind: stale, gone: [] });
+  current = await status();
+  expect(current.items.some((item) => item.key === 'source:spur')).toBe(true);
+  expect(current.spurUnavailable).toBe('Spur unavailable: No complete observation');
+  const spur = await store.db
+    .selectFrom('operator_item')
+    .select('line_outbox_id')
+    .where('item_key', '=', 'source:spur')
+    .executeTakeFirstOrThrow();
+  expect(spur.line_outbox_id).not.toBeNull();
 });
 
 it('keeps a dismissed item hidden until the outcome fingerprint changes', async () => {
@@ -192,7 +341,7 @@ it('keeps a dismissed item hidden until the outcome fingerprint changes', async 
       },
       effectiveComplete: true,
       state: { lastCompleteAt: at, gone: [] },
-      outcomes: [{ ref, misses: 1, gone: false }],
+      outcomes: [{ ref, misses: 3, gone: true }],
     });
   };
   await observeOutcome('not_found');
