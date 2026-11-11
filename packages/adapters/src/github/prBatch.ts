@@ -58,7 +58,8 @@ const nodes = <T extends z.ZodType>(node: T) => z.object({ nodes: z.array(node) 
 export const commentWire = z.object({
   id: z.string().min(1),
   author: typedActor,
-  createdAt: z.string(),
+  // Same check as the fact's postedAt, so a bad time fails its own history page.
+  createdAt: z.iso.datetime(),
 });
 const loginReviewer = <T extends string>(type: T) =>
   z.object({ __typename: z.literal(type), login: z.string() });

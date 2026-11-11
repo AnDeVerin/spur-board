@@ -1492,6 +1492,12 @@ describe('PR feedback', () => {
       [],
     ],
     [
+      'has a comment with an invalid time',
+      () => historyPage(back([...range(0, 49), { ...comment(49), createdAt: 'invalid' }])),
+      4321,
+      [],
+    ],
+    [
       'has no rateLimit',
       () =>
         new Response(
