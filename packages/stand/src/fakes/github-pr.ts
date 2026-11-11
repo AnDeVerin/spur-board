@@ -23,8 +23,10 @@ const SHA = /^[0-9a-f]{40,64}$/;
 // query must fail until this list is updated, so these never come from the adapter's builders.
 const REVIEWER_FIELDS =
   'requestedReviewer { __typename ... on Bot { login } ... on Mannequin { login } ... on User { login } ... on Team { slug } ... on EnterpriseTeam { slug } } asCodeOwner';
-const REVIEW_FIELDS = 'author { login } state commit { oid } submittedAt';
+const REVIEW_FIELDS = 'id author { __typename login } state commit { oid } submittedAt';
 const PAGE_INFO = 'pageInfo { hasNextPage endCursor }';
+const COMMENT_FIELDS =
+  'nodes { id author { __typename login } createdAt } pageInfo { hasPreviousPage startCursor }';
 const CLOSING_FIELDS = `nodes { number repository { nameWithOwner } } ${PAGE_INFO}`;
 const DISCOVERY_FIELDS = `nodes { number updatedAt author { login } state } ${PAGE_INFO}`;
 const RATE_LIMIT = 'rateLimit { remaining resetAt }';
@@ -32,13 +34,13 @@ const ORDER = 'orderBy: {field: UPDATED_AT, direction: DESC}';
 const contextNodes = (number: string): string =>
   `nodes { ... on CheckRun { __typename name status conclusion startedAt completedAt checkSuite { createdAt } isRequired(pullRequestNumber: ${number}) } ... on StatusContext { __typename context state createdAt isRequired(pullRequestNumber: ${number}) } }`;
 const prAlias = (closing: boolean): string =>
-  `pr0: repository(owner: $owner, name: $repo) { pullRequest(number: 1) { id number url title updatedAt state isDraft mergeable mergeStateStatus author { login } headRefName headRefOid statusCheckRollup { contexts(first: 100) { ${contextNodes('1')} ${PAGE_INFO} } } reviews(first: 100) { nodes { ${REVIEW_FIELDS} } ${PAGE_INFO} } reviewThreads(first: 100) { nodes { isResolved } ${PAGE_INFO} } reviewRequests(first: 100) { nodes { ${REVIEWER_FIELDS} } ${PAGE_INFO} }${closing ? ` closingIssuesReferences(first: 100) { ${CLOSING_FIELDS} }` : ''} } }`;
+  `pr0: repository(owner: $owner, name: $repo) { pullRequest(number: 1) { id number url title updatedAt state isDraft mergeable mergeStateStatus author { login } headRefName headRefOid statusCheckRollup { contexts(first: 100) { ${contextNodes('1')} ${PAGE_INFO} } } reviews(first: 100) { nodes { ${REVIEW_FIELDS} } ${PAGE_INFO} } comments(last: 100) { ${COMMENT_FIELDS} } reviewThreads(first: 100) { nodes { isResolved } ${PAGE_INFO} } reviewRequests(first: 100) { nodes { ${REVIEWER_FIELDS} } ${PAGE_INFO} }${closing ? ` closingIssuesReferences(first: 100) { ${CLOSING_FIELDS} }` : ''} } }`;
 const prBatch = (states: string, baseline: string, aliases: string): string =>
   `query PrBatch($owner: String!, $repo: String!) { ${RATE_LIMIT} repository(owner: $owner, name: $repo) { pullRequests(first: 100, states: [${states}], ${ORDER}) { ${DISCOVERY_FIELDS} }${baseline} } ${aliases} }`;
 const prDetails = (closing: boolean): string =>
   `query PrDetails($owner: String!, $repo: String!) { ${RATE_LIMIT} ${prAlias(closing)} }`;
-const prPage = (field: string): string =>
-  `query PrPage($owner: String!, $repo: String!, $number: Int!, $after: String!) { ${RATE_LIMIT} repository(owner: $owner, name: $repo) { pullRequest(number: $number) { ${field} } } }`;
+const prPage = (field: string, cursor = 'after'): string =>
+  `query PrPage($owner: String!, $repo: String!, $number: Int!, $${cursor}: String!) { ${RATE_LIMIT} repository(owner: $owner, name: $repo) { pullRequest(number: $number) { ${field} } } }`;
 const discoveryPage = (states: string): string =>
   `query DiscoveryPage($owner: String!, $repo: String!, $after: String!) { ${RATE_LIMIT} repository(owner: $owner, name: $repo) { pullRequests(first: 100, after: $after, states: [${states}], ${ORDER}) { ${DISCOVERY_FIELDS} } } }`;
 const BASELINE = ` mergedBaseline: pullRequests(first: 1, states: [MERGED], ${ORDER}) { nodes { updatedAt } }`;
@@ -58,6 +60,7 @@ const KNOWN_DOCUMENTS = [
     `statusCheckRollup { contexts(first: 100, after: $after) { ${contextNodes('$number')} ${PAGE_INFO} } }`,
   ),
   prPage(`closingIssuesReferences(first: 100, after: $after) { ${CLOSING_FIELDS} }`),
+  prPage(`comments(last: 100, before: $before) { ${COMMENT_FIELDS} }`, 'before'),
   discoveryPage('OPEN, MERGED'),
   discoveryPage('OPEN'),
 ];
@@ -69,6 +72,10 @@ export function isKnownShape(query: string): boolean {
 }
 
 const actorSchema = z.strictObject({ login: z.string().min(1) }).nullable();
+// Comment and review authors also name their type, as GitHub's Actor union does.
+const typedActorSchema = z
+  .strictObject({ __typename: z.string().min(1), login: z.string().min(1) })
+  .nullable();
 const contextSchema = z.discriminatedUnion('__typename', [
   z.strictObject({
     __typename: z.literal('CheckRun'),
@@ -108,12 +115,13 @@ const fieldsSchema = z.strictObject({
   contexts: z.array(contextSchema),
   reviews: z.array(
     z.strictObject({
-      author: actorSchema,
+      author: typedActorSchema,
       state: z.string(),
       commit: z.strictObject({ oid: z.string() }).nullable(),
       submittedAt: z.string().nullable(),
     }),
   ),
+  comments: z.array(z.strictObject({ author: typedActorSchema, createdAt: z.iso.datetime() })),
   reviewThreads: z.array(z.strictObject({ isResolved: z.boolean() })),
   reviewRequests: z.array(
     z.strictObject({ requestedReviewer: reviewerSchema.nullable(), asCodeOwner: z.boolean() }),
@@ -170,6 +178,26 @@ function page(connection: string, items: readonly Wire[], args: Args): WireObjec
     },
   };
 }
+// GitHub's backward paging: the `last` items before the `before` cursor, newest page first.
+function pageBack(connection: string, items: readonly Wire[], args: Args): WireObject {
+  // The variable check has already made a given `before` a string.
+  const before = args['before'] as string | undefined;
+  let end = items.length;
+  if (before !== undefined) {
+    const match = new RegExp(`^fake:${connection}:(0|[1-9][0-9]*)$`).exec(before);
+    end = Number(match?.[1] ?? Number.NaN);
+    if (!(end <= items.length)) throw new FakeViolation(`Unknown ${connection} cursor ${before}.`);
+  }
+  const start = Math.max(0, end - Number(args['last']));
+  const nodes = items.slice(start, end);
+  return {
+    nodes,
+    pageInfo: {
+      hasPreviousPage: start > 0,
+      startCursor: nodes.length === 0 ? null : `fake:${connection}:${String(start)}`,
+    },
+  };
+}
 
 /** Pull requests of the configured repositories, with the verbs that change them. */
 export function createGithubPrFake(options: {
@@ -222,6 +250,7 @@ export function createGithubPrFake(options: {
         },
       ],
       reviews: [],
+      comments: [],
       reviewThreads: [],
       reviewRequests: [
         { requestedReviewer: { __typename: 'User', login: REVIEWER }, asCodeOwner: false },
@@ -250,7 +279,7 @@ export function createGithubPrFake(options: {
         pr.reviews = [
           ...pr.reviews,
           {
-            author: { login: REVIEWER },
+            author: { __typename: 'User', login: REVIEWER },
             state: 'APPROVED',
             commit: { oid: pr.headRefOid },
             submittedAt: at,
@@ -293,6 +322,9 @@ export function createGithubPrFake(options: {
 
   function prView(pr: Pr): WireObject {
     const { closingIssuesReferences: closing, contexts } = pr;
+    const n = String(pr.number);
+    const reviews = pr.reviews.map((review, i) => ({ id: `PRR_${n}_${String(i)}`, ...review }));
+    const comments = pr.comments.map((comment, i) => ({ id: `IC_${n}_${String(i)}`, ...comment }));
     return {
       id: `PR_${String(pr.number)}`,
       number: pr.number,
@@ -310,7 +342,8 @@ export function createGithubPrFake(options: {
         contexts.length === 0
           ? null
           : { contexts: (args: Args) => page('contexts', contexts, args) },
-      reviews: (args: Args) => page('reviews', pr.reviews, args),
+      reviews: (args: Args) => page('reviews', reviews, args),
+      comments: (args: Args) => pageBack('comments', comments, args),
       reviewThreads: (args: Args) => page('reviewThreads', pr.reviewThreads, args),
       reviewRequests: (args: Args) => page('reviewRequests', pr.reviewRequests, args),
       closingIssuesReferences:

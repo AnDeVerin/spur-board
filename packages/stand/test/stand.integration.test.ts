@@ -1189,6 +1189,10 @@ describe('stand', () => {
       expect(approved.reviews).toMatchObject([
         { reviewer: 'stand-reviewer', state: 'approved', commitSha: first.headSha },
       ]);
+      expect(approved.feedback).toMatchObject([
+        { kind: 'review', author: { login: 'stand-reviewer', type: 'user' } },
+      ]);
+      expect(approved.feedbackComplete).toBe(true);
 
       const red = await step('ci-red');
       expect(red.mergeState).toBe('blocked');
