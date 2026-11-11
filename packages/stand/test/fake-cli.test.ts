@@ -29,6 +29,8 @@ async function stubStand(answer: RouteResult): Promise<string> {
       poll: vi.fn(),
       reset: vi.fn(),
       fake: vi.fn(),
+      slackOutbox: vi.fn(),
+      slackClick: vi.fn(),
       violations: () => Promise.resolve(answer),
     },
   });

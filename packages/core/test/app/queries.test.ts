@@ -327,7 +327,7 @@ describe('production query handlers', () => {
   });
 
   it('lists a task comment without a block for its linked worker until acknowledged', async () => {
-    const { registry, query, apply } = await seeded();
+    const { store, registry, query, apply } = await seeded();
     const posted = await apply(
       required(registry['comment.add']),
       { task: KEY, text: 'Please also update the README.' },
@@ -341,6 +341,7 @@ describe('production query handlers', () => {
       worker,
       'worker-task-comment',
     );
+    expect(await store.db.selectFrom('notification').select('id').execute()).toEqual([]);
     const inbox = await query(required(registry['inbox.get']), {}, worker);
     expect(inbox.comments).toEqual([
       expect.objectContaining({

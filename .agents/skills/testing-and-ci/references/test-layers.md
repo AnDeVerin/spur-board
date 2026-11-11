@@ -20,7 +20,7 @@ Pick the lowest layer that can fail for the bug you guard against. Projects are 
 - `startup` - `packages/cli/test/startup.test.ts` only.
 - HTTP level - adapters take an injected `fetch` (`packages/adapters/test/spur/spur.test.ts`);
   Slack code runs against the local HTTP and WebSocket fake in
-  `packages/gateway-slack/test/fake-api.ts`.
+  `packages/gateway-slack/src/testing.ts`.
 - Contract - a gateway passes `runGatewayConformance` from `@spur-board/gateway-testkit`
   (`packages/gateway-slack/test/conformance.test.ts`).
 - End to end - `scripts/package-smoke.ts` installs and exercises the packed tarball;
@@ -69,7 +69,7 @@ Pick the lowest layer that can fail for the bug you guard against. Projects are 
   (`describe('runDaemon',`) and the timer checks in `packages/daemon/test/systemd.test.ts`.
 - The rule covers waits before an assertion. A delay inside a fake that only keeps calls
   overlapping or imitates a slow server is outside it, e.g. the timeout delays in
-  `packages/gateway-slack/test/fake-api.ts` and the overlap delay in
+  `packages/gateway-slack/src/testing.ts` and the overlap delay in
   `packages/cli/test/skills.test.ts`.
 - One existing wait is known debt, not a pattern: `packages/daemon/test/main.test.ts`
   (`describe('daemon process',`) sleeps 100 ms after SIGTERM and then asserts a positive state

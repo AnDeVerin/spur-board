@@ -29,8 +29,8 @@ function post(control: Control, path: string, init: { signal?: AbortSignal } = {
 }
 
 /** A raw request, so the test sets Host and Origin itself. */
-function raw(control: Control, headers: Record<string, string>): Promise<number> {
-  const url = new URL(`${control.url}/reset`);
+function raw(control: Control, headers: Record<string, string>, path = '/reset'): Promise<number> {
+  const url = new URL(`${control.url}${path}`);
   return new Promise((resolve, reject) => {
     const req = request(
       { host: url.hostname, port: url.port, path: url.pathname, method: 'POST', headers },
@@ -45,7 +45,12 @@ function raw(control: Control, headers: Record<string, string>): Promise<number>
 }
 
 /** The routes a test does not exercise. */
-const unused = { fake: vi.fn(), violations: vi.fn() };
+const unused = {
+  fake: vi.fn(),
+  violations: vi.fn(),
+  slackOutbox: vi.fn(),
+  slackClick: vi.fn(),
+};
 
 let control: Control | undefined;
 
@@ -74,6 +79,107 @@ describe('control endpoint', () => {
     expect(reset).not.toHaveBeenCalled();
     expect(await raw(control, { host, authorization: `Bearer ${TOKEN}` })).toBe(200);
     expect(reset).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['/fake/slack/outbox', '/fake/slack/click'])(
+    'rejects a missing token, a foreign Host and an Origin on %s',
+    async (path) => {
+      const slackOutbox = vi.fn(() => Promise.resolve({ status: 200, body: {} }));
+      const slackClick = vi.fn(() => Promise.resolve({ status: 200, body: {} }));
+      control = await startControl({
+        token: TOKEN,
+        routes: {
+          ...unused,
+          wait: vi.fn(),
+          poll: vi.fn(),
+          reset: vi.fn(),
+          slackOutbox,
+          slackClick,
+        },
+      });
+      const port = new URL(control.url).port;
+      const host = `127.0.0.1:${port}`;
+      const authorization = `Bearer ${TOKEN}`;
+      expect(await raw(control, { host }, path)).toBe(401);
+      expect(await raw(control, { host, authorization: 'Bearer wrong' }, path)).toBe(401);
+      expect(await raw(control, { host: `localhost:${port}`, authorization }, path)).toBe(403);
+      expect(await raw(control, { host, authorization, origin: 'http://evil' }, path)).toBe(403);
+      expect(slackOutbox).not.toHaveBeenCalled();
+      expect(slackClick).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    ['no fields', {}],
+    ['a zero message', { message: 0, button: 'b' }],
+    ['a negative message', { message: -1, button: 'b' }],
+    ['a fractional message', { message: 1.5, button: 'b' }],
+    ['a string message', { message: '1', button: 'b' }],
+    ['no button', { message: 1 }],
+    ['an empty button', { message: 1, button: '' }],
+    ['a numeric button', { message: 1, button: 2 }],
+    ['non-string text', { message: 1, button: 'answer', text: 1 }],
+  ])('answers 400 to a click with %s', async (_name, body) => {
+    const slackClick = vi.fn(() => Promise.resolve({ status: 200, body: {} }));
+    control = await startControl({
+      token: TOKEN,
+      routes: { ...unused, wait: vi.fn(), poll: vi.fn(), reset: vi.fn(), slackClick },
+    });
+    const response = await fetch(`${control.url}/fake/slack/click`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    expect(response.status).toBe(400);
+    expect(slackClick).not.toHaveBeenCalled();
+  });
+
+  it('passes a valid click to its route', async () => {
+    const slackClick = vi.fn(() => Promise.resolve({ status: 200, body: { ok: true } }));
+    control = await startControl({
+      token: TOKEN,
+      routes: { ...unused, wait: vi.fn(), poll: vi.fn(), reset: vi.fn(), slackClick },
+    });
+    const click = (body: unknown) =>
+      fetch(`${control?.url ?? ''}/fake/slack/click`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    expect((await click({ message: 2, button: 'answer', text: 'Yes.' })).status).toBe(200);
+    expect((await click({ message: 1, button: 'item:1:close' })).status).toBe(200);
+    expect(slackClick.mock.calls).toEqual([
+      [{ message: 2, button: 'answer', text: 'Yes.' }],
+      [{ message: 1, button: 'item:1:close' }],
+    ]);
+  });
+
+  it('queues a click behind a reset and answers the outbox beside it', async () => {
+    const pending = deferred<RouteResult>();
+    const reset = vi.fn(() => pending.promise);
+    const slackOutbox = vi.fn(() => Promise.resolve({ status: 200, body: {} }));
+    const slackClick = vi.fn(() => Promise.resolve({ status: 200, body: {} }));
+    control = await startControl({
+      token: TOKEN,
+      routes: { ...unused, wait: vi.fn(), poll: vi.fn(), reset, slackOutbox, slackClick },
+    });
+    const running = post(control, '/reset');
+    await vi.waitFor(() => {
+      expect(reset).toHaveBeenCalled();
+    });
+    const clicking = fetch(`${control.url}/fake/slack/click`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ message: 1, button: 'b' }),
+    });
+    expect((await post(control, '/fake/slack/outbox')).status).toBe(200);
+    // The click is queued: give its request time to arrive, then check it has not run.
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(slackClick).not.toHaveBeenCalled();
+    pending.resolve({ status: 200, body: {} });
+    expect((await running).status).toBe(200);
+    expect((await clicking).status).toBe(200);
+    expect(slackClick).toHaveBeenCalledTimes(1);
   });
 
   it('answers 404 to an unknown route and 413 to a large body', async () => {
@@ -173,7 +279,7 @@ describe('control endpoint', () => {
     const violations = vi.fn(() => Promise.resolve({ status: 200, body: {} }));
     control = await startControl({
       token: TOKEN,
-      routes: { wait: vi.fn(), poll: vi.fn(), reset: vi.fn(), fake, violations },
+      routes: { ...unused, wait: vi.fn(), poll: vi.fn(), reset: vi.fn(), fake, violations },
     });
     for (const path of ['/fake', '/violations']) {
       const denied = await fetch(`${control.url}${path}`, { method: 'POST', body: '{}' });
@@ -193,6 +299,7 @@ describe('control endpoint', () => {
     control = await startControl({
       token: TOKEN,
       routes: {
+        ...unused,
         wait: vi.fn(),
         poll: vi.fn(),
         reset: () => {

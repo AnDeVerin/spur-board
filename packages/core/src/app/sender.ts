@@ -607,6 +607,7 @@ export function createSender(options: SenderOptions): Sender {
         trx,
         c.body.payload.notificationId,
         c.body.payload.session,
+        options.config,
       );
       if (status === 'dead') {
         await kill(trx, [c.id], 'notification no longer current');

@@ -1,7 +1,7 @@
 import { userIdSchema } from '@spur-board/contracts';
 import { describe, expect, it, vi } from 'vitest';
 import { parseRef } from '../src/ref.ts';
-import { startFakeSlackApi } from './fake-api.ts';
+import { startFakeSlackApi } from '@spur-board/gateway-slack/testing';
 import { runLiveConformance, type LivePrompt } from './live-conformance.ts';
 
 vi.setConfig({ testTimeout: 15_000 });

@@ -462,6 +462,9 @@ importers:
       '@spur-board/contracts':
         specifier: workspace:*
         version: link:../contracts
+      ws:
+        specifier: 8.21.3
+        version: 8.21.3
     devDependencies:
       '@spur-board/gateway-testkit':
         specifier: workspace:*
@@ -469,9 +472,6 @@ importers:
       '@types/ws':
         specifier: 8.18.2
         version: 8.18.2
-      ws:
-        specifier: 8.21.3
-        version: 8.21.3
 
   packages/gateway-testkit:
     dependencies:
@@ -496,6 +496,9 @@ importers:
       '@spur-board/daemon':
         specifier: workspace:*
         version: link:../daemon
+      '@spur-board/gateway-slack':
+        specifier: workspace:*
+        version: link:../gateway-slack
       '@spur-board/testkit':
         specifier: workspace:*
         version: link:../testkit

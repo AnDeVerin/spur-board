@@ -136,7 +136,7 @@ const samples: { [K in EventKind]: Extract<JournalEvent, { kind: K }> } = {
   block_escalated: {
     ...base,
     kind: 'block_escalated',
-    payload: { block: 'blk-1', from: 'orchestrator:qa', to: 'operator' },
+    payload: { block: 'blk-1', from: 'curator', to: 'operator', reason: 'unanswered' },
   },
   block_unblocked: {
     ...base,
