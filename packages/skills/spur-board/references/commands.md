@@ -125,7 +125,7 @@ Other errors: `wrong_id_kind`, `not_found`, `task_archived`, `idempotency_key_mi
 
 Purpose: Pass a block on to the next addressee up the chain.
 Arguments: `<block>`.
-Flags: `--key <key>`, `--json`.
+Flags: `--note <value>`, `--key <key>`, `--json`.
 Use when: Escalate an open block.
 Avoid when: Use `board answer <block> <text>` to answer a question.
 Example: `board escalate B13 --key escalate-PROJ-123-failing-build-1432` — Escalate a failing build to the operator.

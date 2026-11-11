@@ -4323,6 +4323,11 @@ Choose a unique idempotencyKey for each action; reuse it on retries.",
           "minLength": 1,
           "type": "string",
         },
+        "note": {
+          "description": "Context for the next addressee, posted after the original text.",
+          "minLength": 1,
+          "type": "string",
+        },
       },
       "required": [
         "block",
@@ -4883,7 +4888,7 @@ Choose a unique idempotencyKey for each action; reuse it on retries.",
           "description": "Withdraw the block.",
           "properties": {
             "answer": {
-              "description": "Answer received outside the board.",
+              "description": "Why it is withdrawn, e.g. the answer received outside the board.",
               "minLength": 1,
               "type": "string",
             },
