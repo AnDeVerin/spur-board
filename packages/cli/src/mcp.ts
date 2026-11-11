@@ -174,18 +174,22 @@ export function createMcpServer(
           };
         } catch (cause) {
           const error = cause instanceof CliError ? cause : new CliError('unexpected');
-          return renderMcpError({
-            code: error.code,
-            requestId: error.requestId,
-            ...(error.context || (key && ERRORS[error.code].exit === 5)
-              ? {
-                  context: {
-                    ...error.context,
-                    ...(key && ERRORS[error.code].exit === 5 ? { idempotencyKey: key } : {}),
-                  },
-                }
-              : {}),
-          });
+          return renderMcpError(
+            {
+              code: error.code,
+              requestId: error.requestId,
+              ...(error.context || (key && ERRORS[error.code].exit === 5)
+                ? {
+                    context: {
+                      ...error.context,
+                      ...(key && ERRORS[error.code].exit === 5 ? { idempotencyKey: key } : {}),
+                    },
+                  }
+                : {}),
+            },
+            // Only a refusal's per-call hint says more than the catalog's MCP guidance.
+            error.code === 'forbidden' ? error.hint : undefined,
+          );
         }
       },
     );
