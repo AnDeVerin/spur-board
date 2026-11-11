@@ -216,6 +216,9 @@ interface Accumulator {
   parseError: AdapterError | undefined;
   parseFailedRefs: number;
 }
+function accumulator(complete: boolean, budget: Accumulator['budget']): Accumulator {
+  return { complete, entities: [], items: [], budget, parseError: undefined, parseFailedRefs: 0 };
+}
 interface PrScope {
   client: GithubClient;
   repo: string;
@@ -326,14 +329,7 @@ async function pollRepository({
     { owner, repo: name },
     ctx.signal,
   );
-  const acc: Accumulator = {
-    complete: true,
-    entities: [],
-    items: [],
-    budget: response.budget,
-    parseError: undefined,
-    parseFailedRefs: 0,
-  };
+  const acc = accumulator(true, response.budget);
   const roots = ['repository', ...numbers.map((_, i) => `pr${String(i)}`)];
   rejectUnscoped(response.errors, roots);
   let discoveryOk = scoped(response.errors, 'repository').length === 0;
@@ -444,14 +440,7 @@ async function pollOnePr({ id, repo, keys, client, now, ref, signal }: PrArgs): 
     signal,
   );
   rejectUnscoped(response.errors, ['pr0']);
-  const acc: Accumulator = {
-    complete: false,
-    entities: [],
-    items: [],
-    budget: response.budget,
-    parseError: undefined,
-    parseFailedRefs: 0,
-  };
+  const acc = accumulator(false, response.budget);
   const scope: PrScope = { client, repo, owner, name, keys, signal };
   await processPr(
     scope,
