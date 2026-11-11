@@ -640,8 +640,9 @@ export async function startStand(options: StandOptions): Promise<Stand> {
 
   /**
    * Stops the stand once. Control closes first, which waits for a queued reset; then the current
-   * daemon stops, and only then the fake Slack API. The log stays open and `exited` waits until the current daemon and any daemon
-   * a reset retired have released their store and lock. A failed reset makes the result 1.
+   * daemon stops, and only then the fake Slack API. The log stays open and `exited` waits until
+   * the current daemon and any daemon a reset retired have released their store and lock. A failed
+   * reset makes the result 1.
    */
   function stop(code?: number): Promise<number> {
     resolveShutdownBegun();

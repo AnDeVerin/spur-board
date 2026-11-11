@@ -338,6 +338,21 @@ function answeredBlock(manifest: StandManifest) {
   }));
 }
 
+/** A second connection takes the fake's envelopes from the gateway; this one acks nothing itself. */
+async function silentClient(manifest: StandManifest) {
+  const socketUrl = new URL('../socket', slackUrl(manifest));
+  socketUrl.protocol = 'ws:';
+  const client = new WebSocket(socketUrl);
+  const frames: { type: string; envelope_id?: string }[] = [];
+  await new Promise<void>((resolve) => {
+    client.addEventListener('message', (event) => {
+      frames.push(JSON.parse(String(event.data)) as { type: string; envelope_id?: string });
+      resolve();
+    });
+  });
+  return { client, frames, types: () => frames.map((frame) => frame.type) };
+}
+
 /** Runs the real stand CLI; async, because a blocking spawn would stall the in-process stand. */
 function standCli(
   manifest: StandManifest,
@@ -853,24 +868,16 @@ describe('stand', () => {
     const message = await requestToken(manifest, 'silent');
     const close = button(message, /^item:\d+:close$/);
 
-    // A second connection takes the fake's envelopes from the gateway, and this one never acks.
-    const socketUrl = new URL('../socket', slackUrl(manifest));
-    socketUrl.protocol = 'ws:';
-    const client = new WebSocket(socketUrl);
-    const frames: string[] = [];
-    await new Promise<void>((resolve) => {
-      client.addEventListener('message', (event) => {
-        frames.push((JSON.parse(String(event.data)) as { type: string }).type);
-        resolve();
-      });
-    });
+    const { client, types } = await silentClient(manifest);
 
     expect((await click(manifest, 999, close.id)).status).toBe(404);
     expect((await click(manifest, message.n, 'nope')).status).toBe(400);
-    expect(frames).toEqual(['hello']);
+    expect((await click(manifest, message.n, 'answer')).status).toBe(400);
+    expect((await click(manifest, message.n, close.id, 'extra')).status).toBe(400);
+    expect(types()).toEqual(['hello']);
 
     expect((await click(manifest, message.n, close.id)).status).toBe(504);
-    expect(frames).toEqual(['hello', 'probe']);
+    expect(types()).toEqual(['hello', 'probe']);
     expect(await clearedAt(manifest, close.item)).toBeNull();
 
     const closed = new Promise((resolve) => {
@@ -879,7 +886,24 @@ describe('stand', () => {
     client.close();
     await closed;
     expect((await click(manifest, message.n, close.id)).status).toBe(503);
-    expect(frames).toEqual(['hello', 'probe']);
+    expect(types()).toEqual(['hello', 'probe']);
+    expect(await clearedAt(manifest, close.item)).toBeNull();
+  }, 60_000);
+
+  it('sends no action when the probe is acked after the 504', async () => {
+    const manifest = await up();
+    const message = await requestToken(manifest, 'late');
+    const close = button(message, /^item:\d+:close$/);
+    const { client, frames, types } = await silentClient(manifest);
+
+    expect((await click(manifest, message.n, close.id)).status).toBe(504);
+    const probe = frames.find((frame) => frame.type === 'probe');
+    if (probe === undefined) throw new Error('no probe arrived');
+    client.send(JSON.stringify({ envelope_id: probe.envelope_id }));
+
+    // A late action would reach this client, not the gateway, so the frames are what can fail.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(types()).toEqual(['hello', 'probe']);
     expect(await clearedAt(manifest, close.item)).toBeNull();
   }, 60_000);
 });
