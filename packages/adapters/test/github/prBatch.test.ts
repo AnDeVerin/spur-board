@@ -4,6 +4,7 @@ import {
   DEFAULT_LINK,
   batchSchema,
   configSchema,
+  isExternalAuthor,
   prFactsSchema,
   sourceCursorSchema,
   type Adapter,
@@ -21,6 +22,15 @@ const ref = { kind: 'pr' as const, repo: 'demo/widgets', number: 7 };
 const conn = (nodes: Json[], endCursor: string | null = null) => ({
   nodes,
   pageInfo: { hasNextPage: endCursor !== null, endCursor },
+});
+// A comment page read back from the newest; `startCursor` set means older pages remain.
+const back = (
+  nodes: Json[],
+  startCursor: string | null = null,
+  hasPreviousPage = startCursor !== null,
+) => ({
+  nodes,
+  pageInfo: { hasPreviousPage, startCursor },
 });
 function wire(number = 7) {
   return {
@@ -65,8 +75,15 @@ function wire(number = 7) {
       ]),
     },
     reviews: conn([
-      { author: { login: 'reviewer' }, state: 'APPROVED', commit: { oid: sha }, submittedAt: time },
+      {
+        id: 'PRR_1',
+        author: { __typename: 'User', login: 'reviewer' },
+        state: 'APPROVED',
+        commit: { oid: sha },
+        submittedAt: time,
+      },
     ]),
+    comments: back([]),
     reviewThreads: conn([{ isResolved: false }]),
     reviewRequests: conn([
       { requestedReviewer: { __typename: 'User', login: 'reviewer' }, asCodeOwner: true },
@@ -167,14 +184,14 @@ describe('GitHub PR batch', () => {
   it('pins the initial query and asks for rateLimit, discovery and aliases together', () => {
     const query = initialQuery([7]);
     expect(createHash('sha256').update(query).digest('hex')).toBe(
-      '0d0ec7219daba9a156e3fc2dabcb02d11ebb729e7f149a0bf5548fb7390c2662',
+      '8e42e02ea21aae8741f55341aaf415536ab90280ffd4dc8ac50001db7f2dd103',
     );
     expect(query).toContain('rateLimit { remaining resetAt }');
     expect(query).toContain('pullRequests(first: 100');
     expect(query).toContain('pr0: repository');
     const bootstrapQuery = initialQuery([7], true);
     expect(createHash('sha256').update(bootstrapQuery).digest('hex')).toBe(
-      '506fbd6d599212b43b1bbc4bbe187ef0765b843e3f24a9e83422038ff6a600cf',
+      'b8da83652b8ccdbf66f9d7328ed5171815b092bfa102d3d578d7f0dbc822c202',
     );
     expect(bootstrapQuery).toContain('states: [OPEN]');
     expect(pageQuery('pullRequests', true)).toContain('states: [OPEN]');
@@ -182,7 +199,7 @@ describe('GitHub PR batch', () => {
     expect(bootstrapQuery).not.toContain('closingIssuesReferences');
     const issuesQuery = initialQuery([7], true, true);
     expect(createHash('sha256').update(issuesQuery).digest('hex')).toBe(
-      '3cbd8116118cac6497f8c818c6803157b98d9f31807947a6e00b1b62115ae8b4',
+      '3cd30c62e68987acc0bf39bef2340ad8d41f280e6e81604c64e1f047d340b34d',
     );
     expect(issuesQuery).toContain('closingIssuesReferences(first: 100)');
     for (const selection of [query, pageQuery('reviewRequests')]) {
@@ -216,7 +233,7 @@ describe('GitHub PR batch', () => {
         { requestedReviewer: null, asCodeOwner: true },
       ]),
     };
-    expect(normalizePr('demo/widgets', pr, demoKeys).reviewRequests).toEqual([
+    expect(normalizePr('demo/widgets', pr, demoKeys, true).reviewRequests).toEqual([
       { kind: 'user', id: 'octocat', asCodeOwner: false },
       { kind: 'user', id: 'imported', asCodeOwner: false },
       { kind: 'bot', id: 'copilot-pull-request-reviewer', asCodeOwner: false },
@@ -225,7 +242,7 @@ describe('GitHub PR batch', () => {
     ]);
   });
   it('normalizes latest required checks, reviews and configured keys', () => {
-    const facts = normalizePr('demo/widgets', wire(), demoKeys);
+    const facts = normalizePr('demo/widgets', wire(), demoKeys, true);
     expect(prFactsSchema.parse(facts)).toEqual(facts);
     expect(facts.mergeable).toBe('unknown');
     expect(facts.mergeState).toBe('blocked');
@@ -243,12 +260,13 @@ describe('GitHub PR batch', () => {
   it('keeps the latest review opinion after a comment-only review', () => {
     const pr = wire();
     pr.reviews.nodes.push({
-      author: { login: 'reviewer' },
+      id: 'PRR_2',
+      author: { __typename: 'User', login: 'reviewer' },
       state: 'COMMENTED',
       commit: { oid: sha },
       submittedAt: '2026-01-03T00:00:00.000Z',
     });
-    expect(normalizePr('demo/widgets', pr, demoKeys).reviews).toEqual([
+    expect(normalizePr('demo/widgets', pr, demoKeys, true).reviews).toEqual([
       { reviewer: 'reviewer', state: 'approved', commitSha: sha, submittedAt: time },
     ]);
   });
@@ -271,7 +289,7 @@ describe('GitHub PR batch', () => {
       checkSuite: { createdAt: '2026-01-03T00:00:00.000Z' },
       isRequired: true,
     });
-    expect(normalizePr('demo/widgets', pr, demoKeys).requiredChecks).toEqual([
+    expect(normalizePr('demo/widgets', pr, demoKeys, true).requiredChecks).toEqual([
       { name: 'build', state: 'pending', completedAt: null },
     ]);
     expect(pageQuery('contexts')).toContain('startedAt completedAt checkSuite { createdAt }');
@@ -288,7 +306,7 @@ describe('GitHub PR batch', () => {
       checkSuite: { createdAt: '2026-01-04T00:00:00.000Z' },
       isRequired: true,
     });
-    expect(normalizePr('demo/widgets', pr, demoKeys).requiredChecks).toEqual([
+    expect(normalizePr('demo/widgets', pr, demoKeys, true).requiredChecks).toEqual([
       { name: 'build', state: 'pending', completedAt: null },
     ]);
   });
@@ -325,7 +343,7 @@ describe('GitHub PR batch', () => {
         ]),
       },
     };
-    expect(normalizePr('demo/widgets', head, demoKeys).requiredChecks).toEqual([
+    expect(normalizePr('demo/widgets', head, demoKeys, true).requiredChecks).toEqual([
       { name: 'build', state: 'failure', completedAt: time },
     ]);
     expect(initialQuery([7])).not.toContain('commits(first: 1)');
@@ -382,7 +400,8 @@ describe('GitHub PR batch', () => {
     const first = wire();
     first.reviews.pageInfo = { hasNextPage: true, endCursor: 'review-next' };
     const newerReview = {
-      author: { login: 'reviewer' },
+      id: 'PRR_2',
+      author: { __typename: 'User', login: 'reviewer' },
       state: 'CHANGES_REQUESTED',
       commit: { oid: sha },
       submittedAt: '2026-01-03T00:00:00.000Z',
@@ -830,7 +849,7 @@ describe('GitHub PR batch', () => {
     );
     const batch = await adapter(fetcher).poll(context());
     expect(batch.items).toEqual([
-      { kind: 'pr', facts: normalizePr('demo/widgets', wire(), demoKeys) },
+      { kind: 'pr', facts: normalizePr('demo/widgets', wire(), demoKeys, true) },
     ]);
   });
   it('fails the poll naming the missing PR field without its value', async () => {
@@ -884,10 +903,16 @@ describe('GitHub PR batch', () => {
         ]),
       },
       reviews: conn([
-        { author: { login: 'reviewer' }, state: 'FUTURE', commit: { oid: sha }, submittedAt: time },
+        {
+          id: 'PRR_1',
+          author: { __typename: 'User', login: 'reviewer' },
+          state: 'FUTURE',
+          commit: { oid: sha },
+          submittedAt: time,
+        },
       ]),
     };
-    const facts = normalizePr('demo/widgets', pr, demoKeys);
+    const facts = normalizePr('demo/widgets', pr, demoKeys, true);
     expect(facts).toMatchObject({ state: 'open', mergeable: 'unknown', mergeState: 'unknown' });
     expect(facts.checks.map((check) => [check.name, check.state])).toEqual([
       ['completed', 'error'],
@@ -1253,5 +1278,313 @@ describe('link rule sample', () => {
     await sample(plain, issuesConfig(['demo/widgets'], { sources: ['branch', 'title'] }));
     expect(bodyQuery(plain)).not.toContain('closingIssuesReferences');
     expect(bodyQuery(plain)).toContain('states: [OPEN, MERGED]');
+  });
+});
+
+describe('PR feedback', () => {
+  const BASE = Date.parse('2026-01-01T00:00:00.000Z');
+  const postedAt = (i: number) => new Date(BASE + i * 1000).toISOString();
+  const user = (login: string) => ({ __typename: 'User', login });
+  const comment = (i: number, author: Json = user('alice')) => ({
+    id: `IC_${String(i)}`,
+    author,
+    createdAt: postedAt(i),
+  });
+  const range = (from: number, to: number) =>
+    Array.from({ length: to - from }, (_, i) => comment(from + i));
+  const ref8 = { kind: 'pr' as const, repo: 'demo/widgets', number: 8 };
+  function prWith(comments: Json, number = 7) {
+    return { ...wire(number), comments };
+  }
+  const initial = (...prs: unknown[]) =>
+    response({
+      repository: { pullRequests: conn([]) },
+      ...Object.fromEntries(prs.map((pr, i) => [`pr${String(i)}`, { pullRequest: pr }])),
+    });
+  // A comment history page; its default budget is the same 4321 as every other response.
+  const historyPage = (comments: Json, remaining?: number) =>
+    response({
+      repository: { pullRequest: { comments } },
+      ...(remaining === undefined
+        ? {}
+        : { rateLimit: { remaining, resetAt: '2026-01-03T00:00:00.000Z' } }),
+    });
+  function variables(fetcher: ReturnType<typeof vi.fn<typeof fetch>>, call: number): unknown {
+    const body = fetcher.mock.calls[call]?.[1]?.body;
+    if (typeof body !== 'string') throw new Error('Missing GraphQL body');
+    return (JSON.parse(body) as { variables: unknown }).variables;
+  }
+  function factsOf(batch: { items: { kind: string; facts?: unknown }[] }) {
+    const item = batch.items[0];
+    if (item?.kind !== 'pr') throw new Error('Missing PR item');
+    return prFactsSchema.parse(item.facts);
+  }
+  const commentIds = (batch: { items: { kind: string; facts?: unknown }[] }) =>
+    (factsOf(batch).feedback ?? []).filter((e) => e.kind === 'comment').map((e) => e.id);
+  const withCursors = (
+    feedbackCursors: { ref: typeof ref; id: string; postedAt: string }[],
+    prs = [ref],
+  ) => ({ ...context(prs), feedbackCursors });
+
+  it('maps comment and review authors to user or bot', async () => {
+    const pr = {
+      ...prWith(
+        back([
+          comment(1, user('operator')),
+          comment(2, { __typename: 'Bot', login: 'renovate' }),
+          comment(3, user('alice')),
+          comment(4, { __typename: 'Mannequin', login: 'old' }),
+          comment(5, null),
+        ]),
+      ),
+      reviews: conn([
+        {
+          id: 'PRR_9',
+          author: { __typename: 'Bot', login: 'ci-bot' },
+          state: 'COMMENTED',
+          commit: { oid: sha },
+          submittedAt: postedAt(6),
+        },
+        // A pending review has no submit time and is not feedback yet.
+        {
+          id: 'PRR_10',
+          author: user('alice'),
+          state: 'PENDING',
+          commit: { oid: sha },
+          submittedAt: null,
+        },
+      ]),
+    };
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValueOnce(initial(pr));
+    const facts = factsOf(await adapter(fetcher).poll(context()));
+    expect(facts.feedback).toEqual([
+      {
+        kind: 'comment',
+        id: 'IC_1',
+        author: { login: 'operator', type: 'user' },
+        postedAt: postedAt(1),
+      },
+      {
+        kind: 'comment',
+        id: 'IC_2',
+        author: { login: 'renovate', type: 'bot' },
+        postedAt: postedAt(2),
+      },
+      {
+        kind: 'comment',
+        id: 'IC_3',
+        author: { login: 'alice', type: 'user' },
+        postedAt: postedAt(3),
+      },
+      {
+        kind: 'comment',
+        id: 'IC_4',
+        author: { login: 'old', type: 'user' },
+        postedAt: postedAt(4),
+      },
+      { kind: 'comment', id: 'IC_5', author: null, postedAt: postedAt(5) },
+      {
+        kind: 'review',
+        id: 'PRR_9',
+        author: { login: 'ci-bot', type: 'bot' },
+        postedAt: postedAt(6),
+      },
+    ]);
+    expect(facts.feedbackComplete).toBe(true);
+    const external = (facts.feedback ?? []).filter((entry) => isExternalAuthor(entry, 'operator'));
+    expect(external.map((entry) => entry.author?.login ?? null)).toEqual(['alice', 'old', null]);
+    expect(bodyQuery(fetcher)).toContain(
+      'comments(last: 100) { nodes { id author { __typename login } createdAt }',
+    );
+    expect(bodyQuery(fetcher)).not.toContain('body');
+  });
+
+  it('sorts feedback by time, then id, whatever order the pages arrive in', () => {
+    const pr = prWith(
+      back([comment(3), { ...comment(2), id: 'IC_b' }, { ...comment(2), id: 'IC_a' }]),
+    );
+    const facts = normalizePr('demo/widgets', pr, demoKeys, true);
+    expect(facts.feedback?.map((entry) => entry.id)).toEqual(['IC_a', 'IC_b', 'IC_3', 'PRR_1']);
+  });
+
+  it('reads a comment burst longer than one page back to the start of the PR', async () => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(initial(prWith(back(range(50, 150), 'c-100'))))
+      .mockResolvedValueOnce(historyPage(back(range(0, 50)), 4000));
+    const batch = await adapter(fetcher).poll(context());
+    expect(commentIds(batch)).toEqual(range(0, 150).map((node) => node.id));
+    expect(factsOf(batch).feedbackComplete).toBe(true);
+    expect(bodyQuery(fetcher, 1)).toBe(pageQuery('comments'));
+    expect(pageQuery('comments')).toContain('comments(last: 100, before: $before)');
+    expect(variables(fetcher, 1)).toEqual({
+      owner: 'demo',
+      repo: 'widgets',
+      number: 7,
+      before: 'c-100',
+    });
+    expect(batch.budget?.remaining).toBe(4000);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    ['an id on page 2', { ref, id: 'IC_15', postedAt: postedAt(0) }],
+    ['a time only', { ref, id: 'IC_gone', postedAt: postedAt(15) }],
+    [
+      'a repo in another letter case',
+      { ref: { ...ref, repo: 'Demo/Widgets' }, id: 'IC_15', postedAt: postedAt(15) },
+    ],
+  ])('stops paging at the cursor (%s)', async (_name, cursor) => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(initial(prWith(back(range(20, 30), 'p2'))))
+      .mockResolvedValueOnce(historyPage(back(range(10, 20), 'p1')))
+      .mockResolvedValue(historyPage(back(range(0, 10))));
+    const batch = await adapter(fetcher).poll(withCursors([cursor]));
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(factsOf(batch).feedbackComplete).toBe(true);
+    expect(commentIds(batch)).toEqual(range(10, 30).map((node) => node.id));
+  });
+
+  it('reads no history page when the first page holds the cursor', async () => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(initial(prWith(back(range(20, 30), 'p2'))));
+    const batch = await adapter(fetcher).poll(
+      withCursors([{ ref, id: 'IC_25', postedAt: postedAt(25) }]),
+    );
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(factsOf(batch).feedbackComplete).toBe(true);
+  });
+
+  it.each<[string, () => Response, number, string[]]>([
+    ['answers HTTP 500', () => new Response('unavailable', { status: 500 }), 4321, []],
+    [
+      'carries a scoped comments error',
+      () =>
+        response(
+          {
+            repository: { pullRequest: { comments: null } },
+            rateLimit: { remaining: 4000, resetAt: '2026-01-03T00:00:00.000Z' },
+          },
+          [
+            {
+              message: 'Something went wrong',
+              type: 'INTERNAL',
+              path: ['repository', 'pullRequest', 'comments'],
+            },
+          ],
+        ),
+      4000,
+      [],
+    ],
+    [
+      'is malformed',
+      () => historyPage({ nodes: 'x', pageInfo: { hasPreviousPage: false, startCursor: null } }),
+      4321,
+      [],
+    ],
+    [
+      'has no rateLimit',
+      () =>
+        new Response(
+          JSON.stringify({
+            data: { repository: { pullRequest: { comments: back(range(0, 50)) } } },
+          }),
+          { status: 200 },
+        ),
+      4321,
+      [],
+    ],
+    [
+      'has an older page but no start cursor',
+      () => historyPage(back(range(0, 50), null, true)),
+      4321,
+      range(0, 50).map((node) => node.id),
+    ],
+  ])(
+    'keeps the PR with incomplete feedback when a history page %s',
+    async (_name, page, remaining, older) => {
+      const fetcher = vi
+        .fn<typeof fetch>()
+        .mockResolvedValueOnce(initial(prWith(back(range(50, 150), 'c-100'))))
+        .mockImplementationOnce(() => Promise.resolve(page()));
+      const batch = await adapter(fetcher).poll(context());
+      expect(batch.complete).toBe(true);
+      expect(batch.entities).toEqual([{ ref, status: 'ok' }]);
+      expect(factsOf(batch).feedbackComplete).toBe(false);
+      expect(commentIds(batch)).toEqual([...older, ...range(50, 150).map((node) => node.id)]);
+      expect(batch.budget?.remaining).toBe(remaining);
+      expect(fetcher).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it.each<[string, (controller: AbortController) => Promise<Response>, object]>([
+    [
+      'HTTP 429',
+      () =>
+        Promise.resolve(
+          new Response('', { status: 429, headers: { 'x-ratelimit-reset': '1767225600' } }),
+        ),
+      { kind: 'throttled', retryAt: new Date('2026-01-01T00:00:00.000Z') },
+    ],
+    [
+      'a GraphQL rate-limit error',
+      () =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify({
+              data: null,
+              errors: [{ type: 'RATE_LIMITED', message: 'Rate limit exceeded' }],
+            }),
+            { status: 200, headers: { 'x-ratelimit-reset': '1767225600' } },
+          ),
+        ),
+      { kind: 'throttled', retryAt: new Date('2026-01-01T00:00:00.000Z') },
+    ],
+    ['HTTP 401', () => Promise.resolve(new Response('', { status: 401 })), { kind: 'auth' }],
+    [
+      'an abort before the request',
+      (controller) => {
+        controller.abort();
+        return Promise.reject(controller.signal.reason as Error);
+      },
+      { name: 'AbortError' },
+    ],
+    [
+      'an abort while the body is read',
+      (controller) => {
+        controller.abort();
+        return Promise.resolve(new Response('{', { status: 200 }));
+      },
+      { kind: 'transient' },
+    ],
+  ])('rejects the poll on %s during history paging', async (_name, failure, expected) => {
+    const controller = new AbortController();
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        initial(prWith(back(range(50, 150), 'c-100')), prWith(back(range(50, 150), 'c-100'), 8)),
+      )
+      .mockImplementationOnce(() => failure(controller))
+      .mockImplementation(() => Promise.resolve(historyPage(back(range(0, 50)))));
+    const poll = adapter(fetcher).poll({ ...context([ref, ref8]), signal: controller.signal });
+    await expect(poll).rejects.toMatchObject(expected);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it('stops at 3 comment pages and marks feedback incomplete', async () => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(initial(prWith(back(range(200, 300), 'p2'))))
+      .mockResolvedValueOnce(historyPage(back(range(100, 200), 'p1'), 4100))
+      .mockResolvedValueOnce(historyPage(back(range(0, 100), 'p0'), 4000))
+      .mockResolvedValue(historyPage(back([]), 3900));
+    const batch = await adapter(fetcher).poll(context());
+    expect(fetcher).toHaveBeenCalledTimes(3);
+    expect(variables(fetcher, 2)).toMatchObject({ before: 'p1' });
+    expect(factsOf(batch).feedbackComplete).toBe(false);
+    expect(commentIds(batch)).toHaveLength(300);
+    expect(batch.budget?.remaining).toBe(4000);
   });
 });

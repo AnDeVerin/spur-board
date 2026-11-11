@@ -35,8 +35,14 @@ const baselineRootWire = z.object({
 });
 // Pagination reads only the paged connections; normalizePr parses the PR content once merged.
 const pagingWire = connectionWire(z.unknown());
+// Comments page back from the newest; the stop rule reads each node's id and time.
+const backPagingWire = z.object({
+  nodes: z.array(z.looseObject({ id: z.string(), createdAt: z.string() })),
+  pageInfo: z.object({ hasPreviousPage: z.boolean(), startCursor: z.string().nullable() }),
+});
 const prPagingWire = z.looseObject({
   reviews: pagingWire,
+  comments: backPagingWire,
   reviewThreads: pagingWire,
   reviewRequests: pagingWire,
   statusCheckRollup: z.object({ contexts: pagingWire }).nullish(),
@@ -44,7 +50,12 @@ const prPagingWire = z.looseObject({
 });
 const aliasWire = z.object({ pullRequest: prPagingWire.nullish() }).nullish();
 const pageRootWire = z.object({ pullRequest: prPagingWire.partial() });
+const commentsRootWire = z.object({ pullRequest: z.object({ comments: backPagingWire }) });
 type Paging = z.output<typeof pagingWire>;
+type BackPaging = z.output<typeof backPagingWire>;
+type FeedbackCursor = NonNullable<PollContext['feedbackCursors']>[number];
+// Comment pages per PR per poll, the first one included.
+const FEEDBACK_PAGES = 3;
 type PrPaging = z.output<typeof prPagingWire>;
 type PagePr = z.output<typeof pageRootWire>['pullRequest'];
 type PagedField =
@@ -204,6 +215,57 @@ async function fullPr(
   }
   return { status: 'ok', pr };
 }
+function reachesCursor(nodes: BackPaging['nodes'], cursor: FeedbackCursor | undefined): boolean {
+  if (cursor === undefined) return false;
+  const postedAt = Date.parse(cursor.postedAt);
+  return nodes.some((node) => node.id === cursor.id || Date.parse(node.createdAt) < postedAt);
+}
+/**
+ * Reads comments back from `first` to `cursor`, or to the start of the PR, within
+ * `FEEDBACK_PAGES`. A transient failure keeps the comments read so far as incomplete; every
+ * other failure, and any failure after an abort, rejects the poll.
+ */
+async function readFeedback(
+  client: GithubClient,
+  first: BackPaging,
+  owner: string,
+  name: string,
+  number: number,
+  cursor: FeedbackCursor | undefined,
+  signal: AbortSignal,
+  budget: (value: NonNullable<Batch['budget']>) => void,
+): Promise<{ nodes: BackPaging['nodes']; complete: boolean }> {
+  let nodes = first.nodes;
+  let page = first;
+  const seen = new Set<string>();
+  try {
+    for (let pages = 1; !reachesCursor(page.nodes, cursor); pages += 1) {
+      if (!page.pageInfo.hasPreviousPage) break;
+      const before = page.pageInfo.startCursor;
+      if (!before || seen.has(before) || pages >= FEEDBACK_PAGES) return { nodes, complete: false };
+      seen.add(before);
+      const response = await client.query(
+        pageQuery('comments'),
+        { owner, repo: name, number, before },
+        signal,
+      );
+      budget(response.budget);
+      rejectUnscoped(response.errors, ['repository']);
+      if (response.errors.length > 0) return { nodes, complete: false };
+      page = parseWire(commentsRootWire, response.data.repository, MALFORMED, [
+        'data',
+        'repository',
+      ]).pullRequest.comments;
+      nodes = [...page.nodes, ...nodes];
+    }
+    return { nodes, complete: true };
+  } catch (error) {
+    if (signal.aborted) throw error;
+    if (error instanceof AdapterError && error.kind === 'transient')
+      return { nodes, complete: false };
+    throw error;
+  }
+}
 interface PollArgs {
   id: string;
   repo: string;
@@ -317,16 +379,31 @@ async function pollRepository({
       else complete = false;
       return false;
     }
-    const full = await fullPr(client, wire, owner, name, number, ctx.signal, (next) => {
+    const report = (next: NonNullable<Batch['budget']>): void => {
       budget = next;
-    });
+    };
+    const full = await fullPr(client, wire, owner, name, number, ctx.signal, report);
     if (full.status === 'denied') {
       complete = false;
       if (ref) entities.push({ ref, status: 'no_access' });
       return false;
     }
     if (full.status === 'malformed') return malformed(full.error, ref);
-    const facts = content(() => normalizePr(ref?.repo ?? repo, full.pr, keys));
+    const cursor = ctx.feedbackCursors?.find(
+      (entry) => entry.ref.number === number && entry.ref.repo.toLowerCase() === repo.toLowerCase(),
+    );
+    const feedback = await readFeedback(
+      client,
+      full.pr.comments,
+      owner,
+      name,
+      number,
+      cursor,
+      ctx.signal,
+      report,
+    );
+    const pr = { ...full.pr, comments: { ...full.pr.comments, nodes: feedback.nodes } };
+    const facts = content(() => normalizePr(ref?.repo ?? repo, pr, keys, feedback.complete));
     if (facts instanceof AdapterError) return malformed(facts, ref);
     items.push({ kind: 'pr', facts });
     if (ref) entities.push({ ref, status: 'ok' });

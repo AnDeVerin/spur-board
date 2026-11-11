@@ -295,7 +295,10 @@ describe('startAdapters', () => {
 describe('repository context', () => {
   it('sends and validates only PR refs from the source repository', async () => {
     const foreign: PrEntityRef = { kind: 'pr', repo: 'demo/other', number: 9 };
-    const core = createFakeCore({ context: () => context({ prs: [pr, foreign] }) });
+    const feedbackCursors = [{ ref: pr, id: 'IC_1', postedAt: '2026-01-01T00:00:00.000Z' }];
+    const core = createFakeCore({
+      context: () => ({ ...context({ prs: [pr, foreign] }), feedbackCursors }),
+    });
     const poll = vi.fn(() => Promise.resolve(prNotFound()));
     const adapter = createFakeAdapter({ id: 'github', intervalMs: I, poll });
     const runner = startRunner({
@@ -307,6 +310,7 @@ describe('repository context', () => {
     runners.push(runner);
     await flush();
     expect(adapter.contexts[0]?.observe.prs).toEqual([pr]);
+    expect(adapter.contexts[0]?.feedbackCursors).toEqual(feedbackCursors);
     expect(core.observed).toHaveLength(1);
   });
 });
