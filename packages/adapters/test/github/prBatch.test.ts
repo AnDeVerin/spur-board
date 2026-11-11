@@ -9,7 +9,7 @@ import {
   type Adapter,
 } from '@spur-board/contracts';
 import { describe, expect, it, vi } from 'vitest';
-import { initialQuery, pageQuery, type Json } from '../../src/github/client.ts';
+import { detailQuery, initialQuery, pageQuery, type Json } from '../../src/github/client.ts';
 import { githubSources } from '../../src/github/index.ts';
 import { sampleLinkRules } from '../../src/github/linkSample.ts';
 import { normalizePr, ticketKeys, type KeyRule } from '../../src/github/prBatch.ts';
@@ -904,6 +904,66 @@ describe('GitHub PR batch', () => {
     expect(batch.complete).toBe(true);
     expect(batch.entities).toEqual([{ ref, status: 'not_found' }]);
     expect(batch.items).toEqual([]);
+  });
+});
+
+describe('GitHub on-demand PR', () => {
+  const signal = () => new AbortController().signal;
+  function pollPr(fetcher: typeof fetch, now?: () => number) {
+    const source = adapter(fetcher, config(), 0, now);
+    if (source.pollPr === undefined) throw new Error('Missing pollPr');
+    return source.pollPr.bind(source);
+  }
+
+  it('reads only the requested PR, never complete and without a cursor', async () => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(response({ pr0: { pullRequest: wire() } }));
+    const batch = await pollPr(fetcher, () => Date.parse(time))(ref, { signal: signal() });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(bodyQuery(fetcher)).toBe(detailQuery([7]));
+    expect(bodyQuery(fetcher)).not.toContain('pullRequests(');
+    expect(batchSchema.parse(batch)).toEqual(batch);
+    expect(batch).toMatchObject({
+      source: 'github:demo:demo/widgets',
+      observedAt: time,
+      complete: false,
+      entities: [{ ref, status: 'ok' }],
+      budget: { remaining: 4321, resetAt: '2026-01-03T00:00:00.000Z' },
+    });
+    expect(batch).not.toHaveProperty('cursor');
+    expect(batch.items).toHaveLength(1);
+    expect(batch.items[0]?.facts).toMatchObject({ repo: 'demo/widgets', number: 7 });
+  });
+
+  it('answers not_found for a null alias', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(response({ pr0: null }));
+    const batch = await pollPr(fetcher)(ref, { signal: signal() });
+    expect(batch).toMatchObject({ complete: false, entities: [{ ref, status: 'not_found' }] });
+    expect(batch.items).toEqual([]);
+  });
+
+  it('rejects after its signal aborts', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(response({ pr0: { pullRequest: wire() } }));
+    await expect(pollPr(fetcher)(ref, { signal: controller.signal })).rejects.toThrow(
+      'GitHub poll aborted',
+    );
+  });
+
+  it('rejects a lone malformed PR naming the field', async () => {
+    const missing: Partial<ReturnType<typeof wire>> = wire();
+    delete missing.title;
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(response({ pr0: { pullRequest: missing } }));
+    await expect(pollPr(fetcher)(ref, { signal: signal() })).rejects.toMatchObject({
+      kind: 'transient',
+      message: 'Malformed GitHub PR response at title',
+    });
   });
 });
 

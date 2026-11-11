@@ -91,6 +91,8 @@ export function githubSources(config: Config, options: GithubOptions): GithubSou
               now: options.now,
               ctx,
             }),
+          pollPr: (ref, ctx) =>
+            pollOnePr({ id, repo, keys, client, now: options.now, ref, signal: ctx.signal }),
         },
       });
     }
@@ -281,6 +283,18 @@ async function processPr(
   if (ref) acc.entities.push({ ref, status: 'ok' });
   return true;
 }
+function closingSelected(keys: KeyRule): boolean {
+  return keys.type === 'issues' && keys.sources.includes('closing');
+}
+// Nothing parsed and no other answer: fail loudly with the path rather than go stale-blind.
+function rethrowLoneParseFailure(acc: Accumulator): void {
+  if (
+    acc.parseError !== undefined &&
+    acc.items.length === 0 &&
+    acc.entities.length === acc.parseFailedRefs
+  )
+    throw acc.parseError;
+}
 interface PollArgs {
   id: string;
   repo: string;
@@ -306,7 +320,7 @@ async function pollRepository({
   const requested = ctx.observe.prs.filter((ref) => ref.repo.toLowerCase() === repo.toLowerCase());
   const byNumber = new Map<number, PrEntityRef>(requested.map((ref) => [ref.number, ref]));
   const numbers = [...byNumber.keys()];
-  const closing = keys.type === 'issues' && keys.sources.includes('closing');
+  const closing = closingSelected(keys);
   const response = await client.query(
     initialQuery(numbers, bootstrap, closing),
     { owner, repo: name },
@@ -392,13 +406,7 @@ async function pollRepository({
     }
   }
   if (ctx.signal.aborted) throw new AdapterError('transient', 'GitHub poll aborted');
-  // Nothing parsed and no other answer: fail loudly with the path rather than go stale-blind.
-  if (
-    acc.parseError !== undefined &&
-    acc.items.length === 0 &&
-    acc.entities.length === acc.parseFailedRefs
-  )
-    throw acc.parseError;
+  rethrowLoneParseFailure(acc);
   const nextCursor = bootstrap ? bootstrapCursor : found.cursor;
   return {
     source: id,
@@ -413,6 +421,55 @@ async function pollRepository({
       : ctx.cursor === undefined
         ? {}
         : { cursor: ctx.cursor }),
+    budget: acc.budget,
+  };
+}
+interface PrArgs {
+  id: string;
+  repo: string;
+  keys: KeyRule;
+  client: GithubClient;
+  now: () => number;
+  ref: PrEntityRef;
+  signal: AbortSignal;
+}
+// Reads one requested PR without discovery (A9): never complete, no cursor.
+async function pollOnePr({ id, repo, keys, client, now, ref, signal }: PrArgs): Promise<Batch> {
+  const observedAt = new Date(now()).toISOString();
+  const [owner, name] = repo.split('/');
+  if (!owner || !name) throw new AdapterError('config', 'Invalid repository');
+  const response = await client.query(
+    detailQuery([ref.number], closingSelected(keys)),
+    { owner, repo: name },
+    signal,
+  );
+  rejectUnscoped(response.errors, ['pr0']);
+  const acc: Accumulator = {
+    complete: false,
+    entities: [],
+    items: [],
+    budget: response.budget,
+    parseError: undefined,
+    parseFailedRefs: 0,
+  };
+  const scope: PrScope = { client, repo, owner, name, keys, signal };
+  await processPr(
+    scope,
+    acc,
+    ref.number,
+    'pr0',
+    response.data,
+    scoped(response.errors, 'pr0'),
+    ref,
+  );
+  if (signal.aborted) throw new AdapterError('transient', 'GitHub poll aborted');
+  rethrowLoneParseFailure(acc);
+  return {
+    source: id,
+    observedAt,
+    complete: false,
+    items: acc.items,
+    entities: acc.entities,
     budget: acc.budget,
   };
 }
