@@ -4,9 +4,16 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createFakeGateway } from '@spur-board/gateway-testkit';
 import type { Config, Gateway } from '@spur-board/contracts';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, expectTypeOf, it } from 'vitest';
 import { createSender, enqueueConversationOpen, openStore, type Store } from '../../src/index.ts';
 import { clearItem, raiseItem } from '../../src/app/feed.ts';
+import type { RaiseItemInput } from '../../src/app/item-raise.ts';
+import {
+  ITEM_POLICY,
+  RECONCILED_KINDS,
+  isItemKind,
+  type ItemKind,
+} from '../../src/domain/fromYou.ts';
 import { observeGateway } from '../support/observe.ts';
 import { sampleRows } from '../store/sample-rows.ts';
 import { testConfig } from '../support/config.ts';
@@ -53,7 +60,7 @@ const TEXT = 'worker worker-1 is not reading block B1 on o/r#101';
 
 async function raise(
   store: Store,
-  kind = 'worker_not_reading',
+  kind: ItemKind = 'worker_not_reading',
   itemKey = 'worker:B1',
   text = TEXT,
 ) {
@@ -120,7 +127,7 @@ describe('operator item feed', () => {
     });
   });
 
-  it.each(['worker_not_reading', 'review_required'])(
+  it.each<ItemKind>(['worker_not_reading', 'board_observation'])(
     'edits a cleared %s line to the same resolved shape',
     async (kind) => {
       const ctx = await setup();
@@ -196,12 +203,12 @@ describe('operator item feed', () => {
       { kind: 'feed.line.edit', state: 'dead' },
     ]);
 
-    const second = await raise(ctx.store, 'review_required', 'review:1');
+    const second = await raise(ctx.store, 'board_observation', 'review:1');
     await ctx.sender.tick();
     await ctx.store.close();
     const reopened = openStore(ctx.file);
     stores.push(reopened);
-    expect(await raise(reopened, 'review_required', 'review:1')).toMatchObject({
+    expect(await raise(reopened, 'board_observation', 'review:1')).toMatchObject({
       id: second.id,
       raise_no: 1,
     });
@@ -218,10 +225,9 @@ describe('operator item feed', () => {
     expect(ctx.observed.requests).toHaveLength(1);
   });
 
-  it.each([
+  it.each<[string, ItemKind, string, string[]]>([
     ['a doorbell kind', 'worker_not_reading', 'worker_not_reading:block:1', ['retry', 'close']],
     ['an inbound failure', 'inbound_failure', 'inbound:failure:x', ['retry', 'close']],
-    ['a failed post', 'board_observation', 'delivery:7', ['retry', 'close']],
     ['a blocked post', 'post_blocked', 'secret-post:abc', ['close']],
     ['another observation', 'board_observation', 'block:1', ['close']],
     ['an inbound gap', 'inbound_gap', 'inbound:gap:x', ['close']],
@@ -244,7 +250,7 @@ describe('operator item feed', () => {
     );
   });
 
-  it.each(['post_failed', 'answer_undelivered', 'transport_health'])(
+  it.each<ItemKind>(['post_failed', 'answer_undelivered', 'transport_health', 'worker_ended'])(
     'does not enqueue a feed line for %s',
     async (kind) => {
       const ctx = await setup();
@@ -252,6 +258,15 @@ describe('operator item feed', () => {
       expect(await ctx.store.db.selectFrom('outbox').select('id').execute()).toEqual([]);
     },
   );
+
+  it('gives every item kind a policy', () => {
+    expectTypeOf<keyof typeof ITEM_POLICY>().toEqualTypeOf<ItemKind>();
+    expectTypeOf<RaiseItemInput['kind']>().toEqualTypeOf<ItemKind>();
+    expect(RECONCILED_KINDS).toEqual(['post_failed', 'board_observation', 'worker_ended']);
+    expect(Object.keys(ITEM_POLICY).every(isItemKind)).toBe(true);
+    expect(isItemKind('manual')).toBe(false);
+    expect(isItemKind('toString')).toBe(false);
+  });
 
   it('cancels a claimed line when its item clears before send start', async () => {
     const ctx = await setup();

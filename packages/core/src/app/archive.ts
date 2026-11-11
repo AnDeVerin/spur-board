@@ -1,5 +1,6 @@
 import type { ActorId, ArchiveReason } from '@spur-board/contracts';
 import type { Row } from '../store/schema.ts';
+import { RECONCILED_KINDS } from '../domain/fromYou.ts';
 import { emit, type Trx } from './board-utils.ts';
 import { closeOpenBlock } from './blocks.ts';
 import { clearItem } from './feed.ts';
@@ -27,7 +28,7 @@ export async function archiveTask(
   const items = await trx
     .selectFrom('operator_item')
     .select('id')
-    .where('kind', '=', 'board_observation')
+    .where('kind', 'in', RECONCILED_KINDS)
     .where('task_id', '=', task.id)
     .where('cleared_at', 'is', null)
     .orderBy('id')

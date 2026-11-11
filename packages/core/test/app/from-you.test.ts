@@ -10,11 +10,13 @@ import {
   createObservationCore,
   getStatus,
   openStore,
+  OUTBOX_KINDS,
   tickBoard,
   type Store,
 } from '../../src/index.ts';
 import { sampleRows } from '../store/sample-rows.ts';
 import { raiseItem } from '../../src/app/feed.ts';
+import { enqueueFeedLine } from '../../src/app/outbox.ts';
 
 const base = Date.parse('2026-11-04T12:00:00.000Z');
 let now = base;
@@ -168,7 +170,7 @@ it('keeps a dismissed item hidden until the outcome fingerprint changes', async 
   await scanTransaction(store, config, (trx) =>
     raiseItem(trx, {
       itemKey: 'existing-operator-item',
-      kind: 'test_existing',
+      kind: 'inbound_gap',
       text: 'Existing item',
       url: 'https://example.test/item',
       taskId: null,
@@ -367,66 +369,107 @@ it('posts and clears a feed line for a taskless source item', async () => {
   ]);
 });
 
-it('keeps failed feed lines and edits actionable without recursively feeding them', async () => {
+it('raises a failed delivery item of every outbox kind with no feed line', async () => {
   const { store, core, status } = setup();
+  const lineId = OUTBOX_KINDS.indexOf('feed.line') + 1;
   await scanTransaction(store, config, async (trx) => {
-    for (const [id, kind] of [
-      [1, 'feed.line'],
-      [2, 'feed.line.edit'],
-      [3, 'conversation.reply'],
-    ] as const)
+    for (const [index, kind] of OUTBOX_KINDS.entries())
       await trx
         .insertInto('outbox')
         .values({
           ...sampleRows.outbox,
-          id,
+          id: index + 1,
           kind,
-          dedupe_key: `failed:${String(id)}`,
+          dedupe_key: `failed:${String(index + 1)}`,
           state: 'post_failed',
-          parent_outbox_id: kind === 'feed.line.edit' ? 1 : null,
+          parent_outbox_id: kind === 'feed.line.edit' ? lineId : null,
         })
         .execute();
   });
-  await tickBoard({ store, config, clock, completeSince: core.completeSince });
-  expect((await status()).items.map((item) => item.key)).toEqual([
-    'delivery:1',
-    'delivery:2',
-    'delivery:3',
-  ]);
-  const firstLines = await store.db
-    .selectFrom('outbox')
-    .select('id')
-    .where('kind', '=', 'feed.line')
-    .execute();
-  expect(firstLines).toHaveLength(2);
-  const ordinaryLine = firstLines.find((line) => line.id !== 1);
-  expect(ordinaryLine).toBeDefined();
-  expect(
-    await store.db
-      .selectFrom('operator_item')
-      .select(['item_key', 'line_outbox_id'])
-      .orderBy('item_key')
-      .execute(),
-  ).toEqual([
-    { item_key: 'delivery:1', line_outbox_id: null },
-    { item_key: 'delivery:2', line_outbox_id: null },
-    { item_key: 'delivery:3', line_outbox_id: ordinaryLine?.id },
-  ]);
-  await scanTransaction(store, config, (trx) =>
-    trx
-      .updateTable('outbox')
-      .set({ state: 'post_failed' })
-      .where('id', '=', ordinaryLine?.id ?? -1)
-      .execute(),
-  );
-  for (let tick = 0; tick < 2; tick++) {
-    now += 1_000;
-    await tickBoard({ store, config, clock, completeSince: core.completeSince });
+  const keys = OUTBOX_KINDS.map((_kind, index) => `delivery:${String(index + 1)}`);
+  for (const ticks of [1, 2]) {
+    for (let tick = 0; tick < ticks; tick++) {
+      now += 1_000;
+      await tickBoard({ store, config, clock, completeSince: core.completeSince });
+    }
+    expect((await status()).items.map((item) => item.key)).toEqual(keys);
+    expect(
+      await store.db
+        .selectFrom('operator_item')
+        .select(['item_key', 'kind', 'line_outbox_id'])
+        .orderBy('item_key')
+        .execute(),
+    ).toEqual(keys.map((key) => ({ item_key: key, kind: 'post_failed', line_outbox_id: null })));
     expect(
       await store.db.selectFrom('outbox').select('id').where('kind', '=', 'feed.line').execute(),
-    ).toHaveLength(2);
+    ).toEqual([{ id: lineId }]);
   }
-  expect((await status()).items.map((item) => item.key)).toContain(
-    `delivery:${String(ordinaryLine?.id)}`,
+});
+
+it('re-raises a pre-upgrade delivery item under post_failed', async () => {
+  const { store, core } = setup();
+  await scanTransaction(store, config, (trx) =>
+    trx
+      .insertInto('outbox')
+      .values({ ...sampleRows.outbox, kind: 'conversation.reply', state: 'post_failed' })
+      .execute(),
   );
+  await tickBoard({ store, config, clock, completeSince: core.completeSince });
+  // Before this kind existed, a failed post was a board observation with a feed line.
+  const old = await store.db
+    .selectFrom('operator_item')
+    .selectAll()
+    .where('item_key', '=', 'delivery:1')
+    .executeTakeFirstOrThrow();
+  const oldLine = await scanTransaction(store, config, (trx) =>
+    enqueueFeedLine(trx, {
+      itemId: old.id,
+      itemKey: old.item_key,
+      raise: old.raise_no,
+      key: 'spur-board',
+      text: old.text,
+      title: `spur-board: ${old.text}`,
+      url: old.url,
+      taskId: null,
+      at: new Date(now),
+    }),
+  );
+  await scanTransaction(store, config, (trx) =>
+    trx
+      .updateTable('operator_item')
+      .set({ kind: 'board_observation', line_outbox_id: oldLine })
+      .where('id', '=', old.id)
+      .execute(),
+  );
+  now += 1_000;
+  await tickBoard({ store, config, clock, completeSince: core.completeSince });
+  const items = await store.db
+    .selectFrom('operator_item')
+    .select(['id', 'kind', 'raise_no', 'cleared_at', 'line_outbox_id'])
+    .where('item_key', '=', 'delivery:1')
+    .orderBy('raise_no')
+    .execute();
+  expect(items).toEqual([
+    {
+      id: old.id,
+      kind: 'board_observation',
+      raise_no: 1,
+      cleared_at: new Date(now).toISOString(),
+      line_outbox_id: oldLine,
+    },
+    {
+      id: expect.any(Number) as number,
+      kind: 'post_failed',
+      raise_no: 2,
+      cleared_at: null,
+      line_outbox_id: null,
+    },
+  ]);
+  expect(
+    await store.db
+      .selectFrom('outbox')
+      .select('parent_outbox_id')
+      .where('kind', '=', 'feed.line.edit')
+      .execute(),
+  ).toEqual([{ parent_outbox_id: oldLine }]);
 });
