@@ -1217,26 +1217,69 @@ describe('escalation note', () => {
     expect(await store.db.selectFrom('notification').select('id').execute()).toEqual([]);
   });
 
-  it('writes no note for a no-op escalation', async () => {
-    const { store, apply, ops: curated } = await curatorBoard('dev', used);
-    const { block } = await apply(curated.ask, { task: KEY, text: 'Q?' }, author, 'ask');
-    const input = { block: block.id, note: 'First.' };
-    const first = await apply(curated.escalate, input, orchestrator, 'esc');
-    const settled = await counts(store);
+  describe('on a no-op escalation', () => {
+    const replies = async (store: Store) =>
+      (await outbox(store)).filter((row) => row.kind === 'conversation.reply');
+    const operatorThread = async () => {
+      const board = await curatorBoard('dev', used);
+      const { apply, ops: curated } = board;
+      const { block } = await apply(curated.ask, { task: KEY, text: 'Q?' }, author, 'ask');
+      await apply(curated.escalate, { block: block.id }, orchestrator, 'esc-1');
+      await apply(curated.escalate, { block: block.id, note: 'First.' }, curator, 'esc-2');
+      return { ...board, id: block.id };
+    };
 
-    expect(await apply(curated.escalate, input, orchestrator, 'esc')).toEqual(first);
-    await expect(
-      apply(curated.escalate, { ...input, note: 'Changed.' }, orchestrator, 'esc'),
-    ).rejects.toMatchObject({ code: 'idempotency_key_mismatch' });
-    expect(await counts(store)).toEqual(settled);
+    it('adds an earlier addressee note to the current thread', async () => {
+      const { store, apply, ops: curated, id } = await operatorThread();
+      const before = await events(store);
+      const tail = (await outbox(store)).at(-1);
+      const input = { block: id, note: 'Late.' };
+      const late = await apply(curated.escalate, input, curator, 'late');
+      expect(late.block).toMatchObject({ addressee: 'operator', state: 'open' });
+      expect(await comments(store)).toEqual([
+        { text: 'Q?' },
+        { text: 'First.' },
+        { text: 'Late.' },
+      ]);
+      const reply = (await replies(store)).at(-1);
+      expect(reply?.parent_outbox_id).toBe(tail?.id);
+      expect(JSON.parse(reply?.payload ?? '{}')).toMatchObject({ text: 'Late.' });
+      expect((await events(store)).slice(before.length).map((event) => event.kind)).toEqual([
+        'comment_added',
+      ]);
+      expect(await escalations(store)).toHaveLength(2);
+      expect((await outbox(store)).filter((row) => row.kind === 'conversation.open')).toHaveLength(
+        1,
+      );
+      expect(await store.db.selectFrom('notification').select('id').execute()).toEqual([]);
 
-    await apply(curated.escalate, input, orchestrator, 'retry');
-    expect(await counts(store)).toEqual({ ...settled, commands: settled.commands + 1 });
+      const settled = await counts(store);
+      expect(await apply(curated.escalate, input, curator, 'late')).toEqual(late);
+      await expect(
+        apply(curated.escalate, { ...input, note: 'Changed.' }, curator, 'late'),
+      ).rejects.toMatchObject({ code: 'idempotency_key_mismatch' });
+      expect(await counts(store)).toEqual(settled);
+    });
 
-    await apply(curated.escalate, { block: block.id }, curator, 'top');
-    const atTop = await counts(store);
-    await apply(curated.escalate, { block: block.id, note: 'Late.' }, 'operator', 'late');
-    expect(await counts(store)).toEqual({ ...atTop, commands: atTop.commands + 1 });
-    expect(await comments(store)).toEqual([{ text: 'Q?' }, { text: 'First.' }]);
+    it('adds the note when the block is already at the top', async () => {
+      const { store, apply, ops: curated, id } = await operatorThread();
+      const tail = (await outbox(store)).at(-1);
+      const top = await apply(curated.escalate, { block: id, note: 'Top.' }, 'operator', 'top');
+      expect(top.block).toMatchObject({ addressee: 'operator', state: 'open' });
+      expect((await comments(store)).at(-1)).toEqual({ text: 'Top.' });
+      const reply = (await replies(store)).at(-1);
+      expect(reply?.parent_outbox_id).toBe(tail?.id);
+      expect(JSON.parse(reply?.payload ?? '{}')).toMatchObject({ text: 'Top.' });
+      expect(await escalations(store)).toHaveLength(2);
+      expect(await store.db.selectFrom('notification').select('id').execute()).toEqual([]);
+    });
+
+    it('writes nothing without a note', async () => {
+      const { store, apply, ops: curated, id } = await operatorThread();
+      const settled = await counts(store);
+      await apply(curated.escalate, { block: id }, curator, 'retry');
+      await apply(curated.escalate, { block: id }, 'operator', 'top');
+      expect(await counts(store)).toEqual({ ...settled, commands: settled.commands + 2 });
+    });
   });
 });

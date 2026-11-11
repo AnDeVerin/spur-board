@@ -574,10 +574,19 @@ export function createBlockMutations(config: Config) {
       active(task);
       const hasCurator = curatorProject(config, task.project) !== null;
       const next = rule(() => escalateBlock(current(block), hasCurator));
-      if (!next.changed) return { block: blockView(block, task) };
+      // A no-op leaves the block as it is but still posts the note to its current thread.
+      const unchanged = async () => {
+        if (input.note !== undefined) {
+          await addComment(trx, task, block, input.note, ctx, block.addressee_role, config, {
+            ringsAuthor: false,
+          });
+        }
+        return { block: blockView(block, task) };
+      };
+      if (!next.changed) return unchanged();
       // An earlier addressee passes authorization to retry; only the current one moves the block.
       const target = await authorizationTarget(trx, task, block);
-      if (!holdsBlock(config, ctx.actor, target)) return { block: blockView(block, task) };
+      if (!holdsBlock(config, ctx.actor, target)) return unchanged();
       const updated = await trx
         .updateTable('block')
         .set({ addressee_role: next.addressee })
