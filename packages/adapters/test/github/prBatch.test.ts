@@ -1485,6 +1485,13 @@ describe('PR feedback', () => {
       [],
     ],
     [
+      'has a comment author without a login',
+      () =>
+        historyPage(back([...range(0, 49), { ...comment(49), author: { __typename: 'User' } }])),
+      4321,
+      [],
+    ],
+    [
       'has no rateLimit',
       () =>
         new Response(

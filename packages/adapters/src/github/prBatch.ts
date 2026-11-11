@@ -55,7 +55,7 @@ const reviewWire = z
     { path: ['commit'] },
   );
 const nodes = <T extends z.ZodType>(node: T) => z.object({ nodes: z.array(node) });
-const commentWire = z.object({
+export const commentWire = z.object({
   id: z.string().min(1),
   author: typedActor,
   createdAt: z.string(),

@@ -26,7 +26,7 @@ import {
   nextPage,
   pastCursor,
 } from './discovery.ts';
-import { normalizePr, projectKeyRule, type KeyRule } from './prBatch.ts';
+import { commentWire, normalizePr, projectKeyRule, type KeyRule } from './prBatch.ts';
 
 const MALFORMED = 'Malformed GitHub response';
 const discoveryRootWire = z.object({ pullRequests: connectionWire(discoveryNodeWire) });
@@ -35,9 +35,10 @@ const baselineRootWire = z.object({
 });
 // Pagination reads only the paged connections; normalizePr parses the PR content once merged.
 const pagingWire = connectionWire(z.unknown());
-// Comments page back from the newest; the stop rule reads each node's id and time.
+// Comments page back from the newest; nodes parse as normalizePr does, so a bad history node
+// fails its page instead of the merged PR.
 const backPagingWire = z.object({
-  nodes: z.array(z.looseObject({ id: z.string(), createdAt: z.string() })),
+  nodes: z.array(commentWire),
   pageInfo: z.object({ hasPreviousPage: z.boolean(), startCursor: z.string().nullable() }),
 });
 const prPagingWire = z.looseObject({
