@@ -17,10 +17,31 @@ import {
 } from '../../src/index.ts';
 import { reconcileDoorbells } from '../../src/app/doorbells.ts';
 import { raiseItem } from '../../src/app/feed.ts';
-import { enqueueInboundDoorbell } from '../../src/app/outbox.ts';
 import { scanTransaction } from '../../src/app/secrets.ts';
+import type { Trx } from '../../src/app/board-utils.ts';
 import { observeGateway, observeSpur } from '../support/observe.ts';
 import { sampleRows } from '../store/sample-rows.ts';
+
+/** A ring for a Slack answer as releases before the notification path stored it. */
+async function insertLegacyDoorbell(
+  trx: Trx,
+  input: { key: string; session: string; text: string; at: Date },
+): Promise<void> {
+  await trx
+    .insertInto('outbox')
+    .values({
+      kind: 'doorbell',
+      dedupe_key: input.key,
+      payload: JSON.stringify({ session: input.session, text: input.text }),
+      state: 'pending',
+      next_at: input.at.toISOString(),
+      last_error: null,
+      external_ref: null,
+      parent_outbox_id: null,
+      first_attempt_at: null,
+    })
+    .execute();
+}
 
 const KEY = 'o/r#9';
 const base = Date.parse('2026-11-04T12:00:00.000Z');
@@ -342,7 +363,7 @@ describe('task archive', () => {
       } else {
         const comment = await ctx.apply(ctx.ops.comment, { task: KEY, text: 'Note.' }, worker);
         await ctx.store.transaction((trx) =>
-          enqueueInboundDoorbell(trx, {
+          insertLegacyDoorbell(trx, {
             key: `doorbell:comment:${comment.comment.id.slice(1)}:revision:1`,
             session: 'worker-1',
             text: 'New reply',
@@ -392,7 +413,7 @@ describe('task archive', () => {
     } else {
       const comment = await ctx.apply(ctx.ops.comment, { task: KEY, text: 'Note.' }, worker);
       await ctx.store.transaction((trx) =>
-        enqueueInboundDoorbell(trx, {
+        insertLegacyDoorbell(trx, {
           key: `doorbell:comment:${comment.comment.id.slice(1)}:revision:1`,
           session: 'worker-1',
           text: 'New reply',
@@ -476,7 +497,7 @@ describe('task archive', () => {
     const comment = await ctx.apply(ctx.ops.comment, { task: KEY, text: 'Note.' }, worker);
     const key = `doorbell:comment:${comment.comment.id.slice(1)}:revision:1`;
     await ctx.store.transaction((trx) =>
-      enqueueInboundDoorbell(trx, {
+      insertLegacyDoorbell(trx, {
         key,
         session: 'worker-1',
         text: 'New reply',

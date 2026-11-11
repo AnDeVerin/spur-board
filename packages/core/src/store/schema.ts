@@ -254,7 +254,7 @@ export interface SpaceSlotTable {
 export interface NotificationTable {
   id: Generated<number>;
   source_key: string;
-  kind: 'answer' | 'block';
+  kind: 'answer' | 'block' | 'removed';
   task_id: number;
   block_id: number;
   comment_id: number | null;
