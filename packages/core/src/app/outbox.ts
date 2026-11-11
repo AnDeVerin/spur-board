@@ -239,10 +239,10 @@ export async function enqueueCuratorAnswerLine(
     curator: string;
     at: Date;
   },
-): Promise<number | null> {
+): Promise<void> {
   const block = `B${String(input.blockId)}`;
   const itemKey = `curator-answer:comment:${String(input.commentId)}`;
-  const row = await insertOutbox(trx, {
+  await insertOutbox(trx, {
     kind: 'feed.line',
     dedupeKey: `feed.line:${itemKey}`,
     payload: {
@@ -257,7 +257,6 @@ export async function enqueueCuratorAnswerLine(
     parent: null,
     at: input.at,
   });
-  return row.id;
 }
 
 export async function enqueueFeedEdit(

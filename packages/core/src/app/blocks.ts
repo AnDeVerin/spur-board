@@ -465,7 +465,6 @@ export async function editInboundComment(
   return updated;
 }
 
-/** Concrete block and comment mutations for the generic apply boundary. */
 /** Posts a curator's answer to the feed; an operator answer is already on the board. */
 async function queueCuratorAnswerLine(
   trx: Trx,
@@ -504,6 +503,7 @@ async function queueCuratorAnswerLine(
   });
 }
 
+/** Concrete block and comment mutations for the generic apply boundary. */
 export function createBlockMutations(config: Config) {
   const ask: Mutation<'block.ask'> = {
     id: 'block.ask',
