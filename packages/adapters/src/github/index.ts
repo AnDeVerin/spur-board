@@ -239,8 +239,11 @@ async function readFeedback(
   let page = first;
   const seen = new Set<string>();
   try {
-    for (let pages = 1; !reachesCursor(page.nodes, cursor); pages += 1) {
-      if (!page.pageInfo.hasPreviousPage) break;
+    for (
+      let pages = 1;
+      page.pageInfo.hasPreviousPage && !reachesCursor(page.nodes, cursor);
+      pages += 1
+    ) {
       const before = page.pageInfo.startCursor;
       if (!before || seen.has(before) || pages >= FEEDBACK_PAGES) return { nodes, complete: false };
       seen.add(before);
