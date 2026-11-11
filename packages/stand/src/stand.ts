@@ -33,7 +33,7 @@ import YAML from 'yaml';
 import type { RouteResult } from './control.ts';
 import { startControl, type Control } from './control.ts';
 import { createFakeSpur, requestUrl, type FakeSpur } from './fake-spur.ts';
-import { createFakes, type Fakes } from './fakes/fetch.ts';
+import { createFakes } from './fakes/fetch.ts';
 import { createGithubPrFake } from './fakes/github-pr.ts';
 import { proxyRefusal, refusal, StandRefusedError } from './guards.ts';
 import {

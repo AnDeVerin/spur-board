@@ -57,7 +57,7 @@ beforeEach(() => {
   root = realpathSync(root);
 });
 
-/** Whether shutdown has begun; a stand already stopping no longer answers `/fake`. */
+/** Whether shutdown has begun; a stand already stopping no longer answers `/violations`. */
 async function isStopping(current: Stand): Promise<boolean> {
   return Promise.race([
     current.stopping.then(() => true),
