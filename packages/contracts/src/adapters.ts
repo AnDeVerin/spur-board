@@ -303,7 +303,7 @@ export type PollPrValue =
 
 /** Why an on-demand PR poll applied nothing. */
 export type PollPrError =
-  | { kind: 'unknown_source' | 'unsupported' | 'timeout' | 'stopped'; message: string }
+  | { kind: Exclude<PollPrErrorKind, 'blind' | 'failed'>; message: string }
   | { kind: 'blind'; reason: NonNullable<SourceState['blind']>['reason']; message: string }
   | {
       kind: 'failed';

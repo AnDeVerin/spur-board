@@ -12,6 +12,8 @@ import {
   type EntityStatus,
   type FactKind,
   POLL_PR_ERROR_KINDS,
+  type PollPrError,
+  type PollPrErrorKind,
   type PollPrResult,
   type PrEntityRef,
   type PrPoller,
@@ -289,6 +291,10 @@ describe('PrPoller', () => {
       'failed',
       'stopped',
     ]);
+  });
+
+  it('derives every error kind from the list', () => {
+    expectTypeOf<PollPrError['kind']>().toEqualTypeOf<PollPrErrorKind>();
   });
 
   it('accepts a minimal poller', () => {
