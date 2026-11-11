@@ -955,6 +955,11 @@ describe('stand', () => {
     ]);
     expect(usage.code).toBe(2);
     expect(usage.stderr).toContain('Usage:');
+
+    // --text belongs to fake slack click only.
+    const stray = await standCli(['reset', '--text', 'x', '--home', manifest.home]);
+    expect(stray.code, stray.stdout).toBe(2);
+    expect(stray.stderr).toContain('Usage:');
   }, 60_000);
 
   it('approves a token and closes an item by click', async () => {

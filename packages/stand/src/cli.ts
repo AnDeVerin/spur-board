@@ -463,7 +463,6 @@ async function main(argv: string[]): Promise<number> {
       json: { type: 'boolean' },
       stand: { type: 'boolean' },
       timeout: { type: 'string' },
-      text: { type: 'string' },
       'watch-pid': { type: 'string' },
     },
   });
