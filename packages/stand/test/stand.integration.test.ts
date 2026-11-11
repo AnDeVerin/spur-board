@@ -1,3 +1,4 @@
+import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { createServer } from 'node:net';
 import { request } from 'node:http';
@@ -15,6 +16,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { configSchema } from '@spur-board/contracts';
 import { openStore } from '@spur-board/core';
 import { acquireLock } from '@spur-board/daemon/in-process';
@@ -194,6 +196,171 @@ async function fingerprint(manifest: StandManifest) {
   } finally {
     await store.close();
   }
+}
+
+interface OutboxMessage {
+  n: number;
+  message: string;
+  text: string;
+  actions: string[];
+}
+
+interface Outbox {
+  messages: OutboxMessage[];
+  violations: { method: string; params: Record<string, string> }[];
+}
+
+const STAND_CLI = fileURLToPath(new URL('../src/cli.ts', import.meta.url));
+const DELIVERY_WAIT = { timeout: 10_000 };
+
+async function outbox(manifest: StandManifest): Promise<Outbox> {
+  const result = await control(manifest, '/fake/slack/outbox');
+  expect(result.status).toBe(200);
+  return result.body as Outbox;
+}
+
+function click(
+  manifest: StandManifest,
+  message: number,
+  button: string,
+  text?: string,
+): Promise<{ status: number; body: unknown }> {
+  return control(manifest, '/fake/slack/click', {
+    message,
+    button,
+    ...(text === undefined ? {} : { text }),
+  });
+}
+
+/** The value of SLACK_API_URL in the stand's generated secrets. */
+function slackUrl(manifest: StandManifest): string {
+  const match = /^SLACK_API_URL=(.+)$/m.exec(
+    readFileSync(join(manifest.home, 'secrets.env'), 'utf8'),
+  );
+  if (match?.[1] === undefined) throw new Error('secrets.env has no SLACK_API_URL');
+  return match[1];
+}
+
+/** Requests an operator token and waits until the fake holds its approval message. */
+async function requestToken(manifest: StandManifest, name: string): Promise<OutboxMessage> {
+  const response = await fetch(`${manifest.daemonUrl}/v1/tokens/requests`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      name,
+      folder: `/work/${name}`,
+      host: 'box',
+      hash: createHash('sha256').update(name).digest('hex'),
+    }),
+  });
+  expect(response.ok, await response.text()).toBe(true);
+  return vi.waitFor(async () => {
+    const found = (await outbox(manifest)).messages.find((message) =>
+      message.text.includes(`token ${name} `),
+    );
+    if (found === undefined) throw new Error(`no message for token ${name}`);
+    return found;
+  }, DELIVERY_WAIT);
+}
+
+function button(message: OutboxMessage, pattern: RegExp): { id: string; item: number } {
+  const id = message.actions.find((action) => pattern.test(action));
+  if (id === undefined) throw new Error(`no ${String(pattern)} in ${message.actions.join(', ')}`);
+  return { id, item: Number(id.split(':')[1]) };
+}
+
+async function withStore<T>(
+  manifest: StandManifest,
+  read: (store: ReturnType<typeof openStore>) => Promise<T>,
+): Promise<T> {
+  const store = openStore(join(manifest.home, 'board.sqlite'));
+  try {
+    return await read(store);
+  } finally {
+    await store.close();
+  }
+}
+
+function clearedAt(manifest: StandManifest, item: number): Promise<string | null> {
+  return withStore(manifest, async (store) => {
+    const row = await store.db
+      .selectFrom('operator_item')
+      .select('cleared_at')
+      .where('id', '=', item)
+      .executeTakeFirstOrThrow();
+    return row.cleared_at;
+  });
+}
+
+/** Seeds an active task in a column with no orchestrator and asks a question on it as worker. */
+async function askQuestion(manifest: StandManifest): Promise<OutboxMessage> {
+  await withStore(manifest, (store) =>
+    store.db
+      .insertInto('task')
+      .values({
+        project: 'stand',
+        tracker_kind: 'github-issues',
+        tracker_id: '1',
+        key: 'board#1',
+        membership: 'active',
+        archive_reason: null,
+        column: 'dev',
+        created_at: new Date().toISOString(),
+      })
+      .execute(),
+  );
+  let stderr = '';
+  const io: CliIo = {
+    isTTY: false,
+    stdout: () => undefined,
+    stderr: (text) => {
+      stderr += text;
+    },
+  };
+  const code = await runCli(['ask', 'board#1', 'Which version?', '--key', 'k', '--json'], {
+    env: roleEnv(manifest, 'worker', {}),
+    io,
+  });
+  expect(code, stderr).toBe(0);
+  await waitFor(manifest, 'outbox-drained');
+  const [message] = (await outbox(manifest)).messages;
+  if (message === undefined) throw new Error('the question was not posted');
+  return message;
+}
+
+function answeredBlock(manifest: StandManifest) {
+  return withStore(manifest, async (store) => ({
+    block: await store.db
+      .selectFrom('block')
+      .select(['state', 'outcome'])
+      .executeTakeFirstOrThrow(),
+    comments: await store.db.selectFrom('comment').select(['author', 'text']).execute(),
+  }));
+}
+
+/** Runs the real stand CLI; async, because a blocking spawn would stall the in-process stand. */
+function standCli(
+  manifest: StandManifest,
+  args: string[],
+): Promise<{ code: number | null; stdout: string; stderr: string }> {
+  const child = spawn(process.execPath, [STAND_CLI, ...args, '--home', manifest.home], {
+    env: { ...process.env, TMPDIR: root },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  let stdout = '';
+  let stderr = '';
+  child.stdout.on('data', (chunk: Buffer) => {
+    stdout += chunk.toString('utf8');
+  });
+  child.stderr.on('data', (chunk: Buffer) => {
+    stderr += chunk.toString('utf8');
+  });
+  return new Promise((resolve, reject) => {
+    child.on('error', reject);
+    child.on('close', (code) => {
+      resolve({ code, stdout, stderr });
+    });
+  });
 }
 
 describe('stand', () => {
@@ -532,5 +699,187 @@ describe('stand', () => {
     const unknown = await control(manifest, '/poll', { source: 'nope' });
     expect(unknown.status).toBe(400);
     expect((unknown.body as { sources: string[] }).sources.sort()).toEqual(SOURCES);
+  }, 60_000);
+
+  it('posts a question to the fake Slack and a click answers it', async () => {
+    const manifest = await up();
+    expect(new URL(slackUrl(manifest)).hostname).toBe('127.0.0.1');
+    const question = await askQuestion(manifest);
+    expect(question.text).toContain('Which version?');
+    expect(question.actions).toEqual([]);
+
+    const answer = await click(manifest, question.n, 'answer', 'Use v2.');
+    expect(answer, JSON.stringify(answer.body)).toMatchObject({ status: 200 });
+    // Not outbox-drained: the answer raises a doorbell, which stays pending without a fake Spur.
+    await vi.waitFor(async () => {
+      const { block, comments } = await answeredBlock(manifest);
+      expect(block).toEqual({ state: 'unblocked', outcome: 'done' });
+      expect(comments).toContainEqual({ author: 'operator', text: 'Use v2.' });
+    }, DELIVERY_WAIT);
+    expect((await outbox(manifest)).violations).toEqual([]);
+  }, 60_000);
+
+  it('tears the fake down with stop and restores it on reset', async () => {
+    const manifest = await up();
+    const url = slackUrl(manifest);
+    await requestToken(manifest, 'before');
+    const unknown = await fetch(`${url}no.such.method`, { method: 'POST', body: 'a=1' });
+    expect(await unknown.json()).toEqual({ ok: false, error: 'unknown_method' });
+    const before = await outbox(manifest);
+    expect(before.messages).not.toEqual([]);
+    expect(before.violations).toEqual([{ method: 'no.such.method', params: { a: '1' } }]);
+
+    expect((await control(manifest, '/reset')).status).toBe(200);
+    const current = stand;
+    if (current === undefined) throw new Error('stand stopped');
+    const after = current.manifest();
+    expect(slackUrl(after)).toBe(url);
+    expect(await outbox(after)).toEqual({ messages: [], violations: [] });
+
+    const message = await requestToken(after, 'after');
+    const close = button(message, /^item:\d+:close$/);
+    expect(await click(after, message.n, close.id)).toEqual({
+      status: 200,
+      body: { ok: true, responses: [`Closed I${String(close.item)}.`] },
+    });
+    expect(await clearedAt(after, close.item)).not.toBeNull();
+
+    expect(await current.stop()).toBe(0);
+    await expect(fetch(`${url}auth.test`, { method: 'POST' })).rejects.toThrow();
+  }, 60_000);
+
+  it('stamps the fake and the daemon from one injected clock', async () => {
+    const offset = 30 * 24 * 60 * 60 * 1_000;
+    const startedAt = Date.now();
+    stand = await startStand({
+      root,
+      port: 0,
+      env: {},
+      osHome,
+      clock: { now: () => Date.now() + offset },
+    });
+    const manifest = stand.manifest();
+    const message = await requestToken(manifest, 'later');
+    const { ts } = JSON.parse(message.message) as { ts: string };
+    const raised = await withStore(manifest, (store) =>
+      store.db
+        .selectFrom('operator_item')
+        .select('raised_at')
+        .where('item_key', '=', 'token:later')
+        .executeTakeFirstOrThrow(),
+    );
+    for (const at of [Number(ts) * 1_000, Date.parse(raised.raised_at)]) {
+      expect(at).toBeGreaterThanOrEqual(startedAt + offset);
+      expect(at).toBeLessThanOrEqual(startedAt + offset + 60_000);
+    }
+  }, 60_000);
+
+  it('runs fake slack outbox and click through the real CLI', async () => {
+    const manifest = await up();
+    await askQuestion(manifest);
+
+    const listed = await standCli(manifest, ['fake', 'slack', 'outbox']);
+    expect(listed.code, listed.stderr).toBe(0);
+    expect(listed.stdout).toContain('Which version?');
+
+    const answered = await standCli(manifest, [
+      'fake',
+      'slack',
+      'click',
+      '1',
+      'answer',
+      '--text',
+      'Use v2.',
+    ]);
+    expect(answered.code, answered.stderr).toBe(0);
+    await vi.waitFor(async () => {
+      expect((await answeredBlock(manifest)).block).toEqual({
+        state: 'unblocked',
+        outcome: 'done',
+      });
+    }, DELIVERY_WAIT);
+
+    const missing = await standCli(manifest, [
+      'fake',
+      'slack',
+      'click',
+      '999',
+      'answer',
+      '--text',
+      'x',
+    ]);
+    expect(missing.code, missing.stderr).toBe(1);
+
+    const usage = await standCli(manifest, ['fake', 'slack', 'click', 'abc', 'answer']);
+    expect(usage.code).toBe(2);
+    expect(usage.stderr).toContain('Usage:');
+  }, 60_000);
+
+  it('approves a token and closes an item by click', async () => {
+    const manifest = await up();
+    const first = await requestToken(manifest, 'alpha');
+    const second = await requestToken(manifest, 'beta');
+    const approve = button(first, /^token:\d+:approve$/);
+    const close = button(second, /^item:\d+:close$/);
+
+    expect(await click(manifest, first.n, close.id)).toMatchObject({
+      status: 400,
+      body: { actions: first.actions },
+    });
+    expect(await clearedAt(manifest, close.item)).toBeNull();
+    expect((await click(manifest, 999, close.id)).status).toBe(404);
+
+    expect(await click(manifest, first.n, approve.id)).toEqual({
+      status: 200,
+      body: { ok: true, responses: ['alpha: approved'] },
+    });
+    expect(await click(manifest, second.n, close.id)).toEqual({
+      status: 200,
+      body: { ok: true, responses: [`Closed I${String(close.item)}.`] },
+    });
+    const token = await withStore(manifest, (store) =>
+      store.db
+        .selectFrom('operator_token')
+        .select('status')
+        .where('name', '=', 'alpha')
+        .executeTakeFirstOrThrow(),
+    );
+    expect(token.status).toBe('approved');
+    expect(await clearedAt(manifest, close.item)).not.toBeNull();
+  }, 60_000);
+
+  it('answers 504 without an ack and 503 on a closed socket, after validating', async () => {
+    const manifest = await up();
+    const message = await requestToken(manifest, 'silent');
+    const close = button(message, /^item:\d+:close$/);
+
+    // A second connection takes the fake's envelopes from the gateway, and this one never acks.
+    const socketUrl = new URL('../socket', slackUrl(manifest));
+    socketUrl.protocol = 'ws:';
+    const client = new WebSocket(socketUrl);
+    const frames: string[] = [];
+    await new Promise<void>((resolve) => {
+      client.addEventListener('message', (event) => {
+        frames.push((JSON.parse(String(event.data)) as { type: string }).type);
+        resolve();
+      });
+    });
+
+    expect((await click(manifest, 999, close.id)).status).toBe(404);
+    expect((await click(manifest, message.n, 'nope')).status).toBe(400);
+    expect(frames).toEqual(['hello']);
+
+    expect((await click(manifest, message.n, close.id)).status).toBe(504);
+    expect(frames).toEqual(['hello', 'probe']);
+    expect(await clearedAt(manifest, close.item)).toBeNull();
+
+    const closed = new Promise((resolve) => {
+      client.addEventListener('close', resolve);
+    });
+    client.close();
+    await closed;
+    expect((await click(manifest, message.n, close.id)).status).toBe(503);
+    expect(frames).toEqual(['hello', 'probe']);
+    expect(await clearedAt(manifest, close.item)).toBeNull();
   }, 60_000);
 });

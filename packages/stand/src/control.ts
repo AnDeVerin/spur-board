@@ -20,6 +20,9 @@ export interface ControlRoutes {
   wait(body: { condition: string; timeoutMs: number }, signal: AbortSignal): Promise<RouteResult>;
   poll(body: { source?: string }): Promise<RouteResult>;
   reset(): Promise<RouteResult>;
+  /** Lists what the fake Slack API holds; never queued. */
+  slackOutbox(): Promise<RouteResult>;
+  slackClick(body: { message: number; button: string; text?: string }): Promise<RouteResult>;
 }
 
 export interface Control {
@@ -76,13 +79,14 @@ async function readJson(request: IncomingMessage): Promise<Record<string, unknow
   return parsed as Record<string, unknown>;
 }
 
-const ROUTES = new Set(['/wait', '/poll', '/reset']);
+const ROUTES = new Set(['/wait', '/poll', '/reset', '/fake/slack/outbox', '/fake/slack/click']);
 
 /**
  * The stand's control endpoint on 127.0.0.1. Checks, in order: no `Origin` (403), Host exactly
  * `127.0.0.1:<port>` (403), the Bearer token (401), a known route (404), the body size (413) and
  * its arrival time (10 s). `wait` runs at most `MAX_WAIT_MS`.
- * `poll` and `reset` run one at a time through one queue; `wait` runs outside it.
+ * `poll`, `reset` and the Slack click run one at a time through one queue; `wait` and the Slack
+ * outbox run outside it.
  */
 export async function startControl(options: {
   token: string;
@@ -157,6 +161,29 @@ export async function startControl(options: {
       if (source !== undefined && typeof source !== 'string')
         throw new HttpError(400, 'source must be a string.');
       result = await queued(() => options.routes.poll(source === undefined ? {} : { source }));
+    } else if (path === '/fake/slack/outbox') {
+      result = await options.routes.slackOutbox();
+    } else if (path === '/fake/slack/click') {
+      const { message, button, text } = body;
+      if (
+        typeof message !== 'number' ||
+        !Number.isSafeInteger(message) ||
+        message < 1 ||
+        typeof button !== 'string' ||
+        button === '' ||
+        (text !== undefined && typeof text !== 'string')
+      )
+        throw new HttpError(
+          400,
+          'Send { message, button, text? } with a positive integer message.',
+        );
+      result = await queued(() =>
+        options.routes.slackClick({
+          message,
+          button,
+          ...(typeof text === 'string' ? { text } : {}),
+        }),
+      );
     } else {
       result = await queued(() => options.routes.reset());
     }
