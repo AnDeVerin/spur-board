@@ -148,8 +148,8 @@ function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: nu
   let gone: readonly GoneRef[] = [];
   /** Set while a regular poll is in flight. */
   let controller: AbortController | undefined;
-  /** Set while an on-demand adapter call is in flight. */
-  let demand: AbortController | undefined;
+  /** Unsettled on-demand requests; each entry resolves its request as stopped unless observing. */
+  const pending = new Set<() => void>();
   /** Until when a regular throttled failure forbids calling the source. */
   let throttledUntilMs: number | undefined;
   /** Tail of the single-flight chain: regular polls and on-demand requests, one at a time. */
@@ -385,10 +385,8 @@ function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: nu
     }
     const aborted = () => abort.signal.aborted;
     let step: PollFailure['step'] = 'poll';
-    demand = abort;
     try {
       const batch = await untilAborted(adapter.pollPr(ref, { signal: abort.signal }), abort.signal);
-      demand = undefined;
       // Aborted by stop() or by the timeout; after a timeout the caller already has its answer.
       if (aborted()) return err(stoppedError);
       step = 'batch';
@@ -423,8 +421,11 @@ function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: nu
         return err({ kind: 'failed', adapterKind: 'transient', message: error.message });
       }
       step = 'observe';
-      observing();
-      const accepted = reports.then(async () => {
+      // The timeout and stop() stay armed until this request's turn on the report chain.
+      const accepted = reports.then(async (): Promise<PollPrResult | undefined> => {
+        if (!live()) return;
+        if (stopping) return err(stoppedError);
+        observing();
         const committed = state();
         await core.observe(source, {
           batch: parsed.data,
@@ -433,12 +434,11 @@ function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: nu
           outcomes: [],
         });
         lastReported = JSON.stringify(committed);
+        return ok(value);
       });
       reports = accepted.then(noop, noop);
-      await accepted;
-      return ok(value);
+      return await accepted;
     } catch (error) {
-      demand = undefined;
       if (aborted()) return err(stoppedError);
       fail(step, error);
       const retryAt = throttledRetryAt(error);
@@ -466,8 +466,16 @@ function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: nu
         if (settled) return;
         settled = true;
         clearTimeout(timer);
+        pending.delete(cancel);
         resolve(result);
       };
+      // Once core commits, the caller gets the real result.
+      const cancel = () => {
+        if (observing) return;
+        settle(err(stoppedError));
+        abort.abort();
+      };
+      pending.add(cancel);
       const timer = setTimeout(() => {
         // Once core commits, the caller gets the real result.
         if (observing) return;
@@ -502,7 +510,7 @@ function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: nu
       clearTimeout(hardBoundTimer);
       pollTimer = deadlineTimer = hardBoundTimer = undefined;
       controller?.abort();
-      demand?.abort();
+      for (const cancel of [...pending]) cancel();
       await chain;
       await reports;
     },

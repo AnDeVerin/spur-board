@@ -1305,6 +1305,30 @@ describe('on-demand PR poll', () => {
       expect(failures).toEqual([]);
     });
 
+    it('times out behind a pending state report and never writes', async () => {
+      random(0);
+      const onDemand = deferred<Batch>();
+      const { core, runner } = start(() => Promise.resolve(batch({ complete: false })), {
+        pollPr: () => onDemand.promise,
+      });
+      await advanceTo(3 * I);
+      core.holdReports();
+      const call = request(runner, pr, { timeoutMs: I / 2 });
+      await flush();
+      // The stale deadline report is now ahead of the request on the report chain.
+      await advanceTo(3 * I + 1);
+      expect(core.reports).toHaveLength(1);
+      onDemand.resolve(demandOk());
+      await advanceTo(3 * I + I / 2);
+      await expect(call.result).resolves.toEqual({
+        ok: false,
+        error: { kind: 'timeout', message: 'The on-demand poll timed out' },
+      });
+      core.releaseReport();
+      await flush();
+      expect(core.observed.filter((observed) => observed.batch.entities.length > 0)).toEqual([]);
+    });
+
     it('returns the real result once core.observe started', async () => {
       const held = deferred<undefined>();
       const { core, runner } = start(() => Promise.resolve(batch()), {
@@ -1506,6 +1530,27 @@ describe('on-demand PR poll', () => {
       expect(starts).toEqual([0]);
       expect(adapter.prRequests).toHaveLength(1);
       expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('stop resolves a request queued behind a pending context as stopped at once', async () => {
+      const held = deferred<Omit<PollContext, 'signal'>>();
+      const { adapter, runner } = start(() => Promise.resolve(batch()), {
+        core: { context: () => held.promise },
+        pollPr: () => Promise.resolve(demandOk()),
+      });
+      await flush();
+      const call = request(runner, pr, { timeoutMs: I / 2 });
+      const stopped = runner.stop();
+      await flush();
+      expect(call.settled).toBe(true);
+      await expect(call.result).resolves.toEqual({
+        ok: false,
+        error: { kind: 'stopped', message: 'The adapter runner is stopping' },
+      });
+      expect(vi.getTimerCount()).toBe(0);
+      held.resolve(context());
+      await stopped;
+      expect(adapter.prRequests).toHaveLength(0);
     });
   });
 
