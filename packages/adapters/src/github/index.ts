@@ -204,6 +204,83 @@ async function fullPr(
   }
   return { status: 'ok', pr };
 }
+/** What a poll has read so far; `processPr` adds to it. */
+interface Accumulator {
+  complete: boolean;
+  entities: Batch['entities'];
+  items: Batch['items'];
+  budget: NonNullable<Batch['budget']>;
+  /** The first PR content failure, and how many requested refs it and later ones answered. */
+  parseError: AdapterError | undefined;
+  parseFailedRefs: number;
+}
+interface PrScope {
+  client: GithubClient;
+  repo: string;
+  owner: string;
+  name: string;
+  keys: KeyRule;
+  signal: AbortSignal;
+}
+function malformed(acc: Accumulator, error: AdapterError, ref?: PrEntityRef): false {
+  acc.parseError ??= error;
+  acc.complete = false;
+  if (ref) {
+    acc.entities.push({ ref, status: 'no_access' });
+    acc.parseFailedRefs += 1;
+  }
+  return false;
+}
+async function processPr(
+  scope: PrScope,
+  acc: Accumulator,
+  number: number,
+  alias: string,
+  data: Record<string, unknown>,
+  scopedErrors: GraphError[],
+  ref?: PrEntityRef,
+): Promise<boolean> {
+  const errors = withoutDeniedReferences(scopedErrors);
+  requireCheckAccess(errors);
+  const error = errors[0];
+  if (error !== undefined) {
+    const direct = error.path === undefined || error.path.length <= 2;
+    if (!ref || !direct || (error.type !== 'NOT_FOUND' && error.type !== 'FORBIDDEN'))
+      acc.complete = false;
+    if (ref) acc.entities.push({ ref, status: direct ? status(error) : 'no_access' });
+    return false;
+  }
+  const root = content(() => parseWire(aliasWire, data[alias], MALFORMED, ['data', alias]));
+  if (root instanceof AdapterError) return malformed(acc, root, ref);
+  const wire = root?.pullRequest;
+  if (wire === null || wire === undefined) {
+    if (ref) acc.entities.push({ ref, status: 'not_found' });
+    else acc.complete = false;
+    return false;
+  }
+  const full = await fullPr(
+    scope.client,
+    wire,
+    scope.owner,
+    scope.name,
+    number,
+    scope.signal,
+    (next) => {
+      acc.budget = next;
+    },
+  );
+  if (full.status === 'denied') {
+    acc.complete = false;
+    if (ref) acc.entities.push({ ref, status: 'no_access' });
+    return false;
+  }
+  if (full.status === 'malformed') return malformed(acc, full.error, ref);
+  const facts = content(() => normalizePr(ref?.repo ?? scope.repo, full.pr, scope.keys));
+  if (facts instanceof AdapterError) return malformed(acc, facts, ref);
+  acc.items.push({ kind: 'pr', facts });
+  if (ref) acc.entities.push({ ref, status: 'ok' });
+  return true;
+}
 interface PollArgs {
   id: string;
   repo: string;
@@ -235,12 +312,16 @@ async function pollRepository({
     { owner, repo: name },
     ctx.signal,
   );
-  let budget = response.budget;
-  let complete = true;
+  const acc: Accumulator = {
+    complete: true,
+    entities: [],
+    items: [],
+    budget: response.budget,
+    parseError: undefined,
+    parseFailedRefs: 0,
+  };
   const roots = ['repository', ...numbers.map((_, i) => `pr${String(i)}`)];
   rejectUnscoped(response.errors, roots);
-  const entities: Batch['entities'] = [];
-  const items: Batch['items'] = [];
   let discoveryOk = scoped(response.errors, 'repository').length === 0;
   const first = discoveryOk
     ? parseWire(discoveryRootWire, response.data.repository, MALFORMED, ['data', 'repository'])
@@ -257,7 +338,7 @@ async function pollRepository({
       { owner, repo: name, after: cursor },
       ctx.signal,
     );
-    budget = page.budget;
+    acc.budget = page.budget;
     rejectUnscoped(page.errors, ['repository']);
     if (page.errors.length > 0) {
       discoveryOk = false;
@@ -270,7 +351,7 @@ async function pollRepository({
     nodes.push(...connection.nodes);
     cursor = pastCursor(connection.nodes, ctx.cursor) ? undefined : nextPage(connection);
   }
-  if (!discoveryOk) complete = false;
+  if (!discoveryOk) acc.complete = false;
   const found = discover(nodes, ctx.cursor, login);
   const bootstrapCursor =
     bootstrap && discoveryOk
@@ -280,64 +361,13 @@ async function pollRepository({
           found.cursor,
         ) ?? sourceCursorSchema.parse('1970-01-01T00:00:00.000Z'))
       : undefined;
-  // The first PR content failure, and how many requested refs it and later ones answered.
-  let parseError: AdapterError | undefined;
-  let parseFailedRefs = 0;
-  const malformed = (error: AdapterError, ref?: PrEntityRef): false => {
-    parseError ??= error;
-    complete = false;
-    if (ref) {
-      entities.push({ ref, status: 'no_access' });
-      parseFailedRefs += 1;
-    }
-    return false;
-  };
-  const process = async (
-    number: number,
-    alias: string,
-    data: Record<string, unknown>,
-    scopedErrors: GraphError[],
-    ref?: PrEntityRef,
-  ): Promise<boolean> => {
-    const errors = withoutDeniedReferences(scopedErrors);
-    requireCheckAccess(errors);
-    const error = errors[0];
-    if (error !== undefined) {
-      const direct = error.path === undefined || error.path.length <= 2;
-      if (!ref || !direct || (error.type !== 'NOT_FOUND' && error.type !== 'FORBIDDEN'))
-        complete = false;
-      if (ref) entities.push({ ref, status: direct ? status(error) : 'no_access' });
-      return false;
-    }
-    const root = content(() => parseWire(aliasWire, data[alias], MALFORMED, ['data', alias]));
-    if (root instanceof AdapterError) return malformed(root, ref);
-    const wire = root?.pullRequest;
-    if (wire === null || wire === undefined) {
-      if (ref) entities.push({ ref, status: 'not_found' });
-      else complete = false;
-      return false;
-    }
-    const full = await fullPr(client, wire, owner, name, number, ctx.signal, (next) => {
-      budget = next;
-    });
-    if (full.status === 'denied') {
-      complete = false;
-      if (ref) entities.push({ ref, status: 'no_access' });
-      return false;
-    }
-    if (full.status === 'malformed') return malformed(full.error, ref);
-    const facts = content(() => normalizePr(ref?.repo ?? repo, full.pr, keys));
-    if (facts instanceof AdapterError) return malformed(facts, ref);
-    items.push({ kind: 'pr', facts });
-    if (ref) entities.push({ ref, status: 'ok' });
-    return true;
-  };
+  const scope: PrScope = { client, repo, owner, name, keys, signal: ctx.signal };
   let discoveredOk = true;
   for (const [i, number] of numbers.entries()) {
     const alias = `pr${String(i)}`;
     const errors = scoped(response.errors, alias);
     if (
-      !(await process(number, alias, response.data, errors, byNumber.get(number))) &&
+      !(await processPr(scope, acc, number, alias, response.data, errors, byNumber.get(number))) &&
       found.numbers.includes(number)
     )
       discoveredOk = false;
@@ -350,28 +380,32 @@ async function pollRepository({
       { owner, repo: name },
       ctx.signal,
     );
-    budget = detail.budget;
+    acc.budget = detail.budget;
     rejectUnscoped(
       detail.errors,
       chunk.map((_, i) => `pr${String(i)}`),
     );
     for (const [i, number] of chunk.entries()) {
       const alias = `pr${String(i)}`;
-      if (!(await process(number, alias, detail.data, scoped(detail.errors, alias))))
+      if (!(await processPr(scope, acc, number, alias, detail.data, scoped(detail.errors, alias))))
         discoveredOk = false;
     }
   }
   if (ctx.signal.aborted) throw new AdapterError('transient', 'GitHub poll aborted');
   // Nothing parsed and no other answer: fail loudly with the path rather than go stale-blind.
-  if (parseError !== undefined && items.length === 0 && entities.length === parseFailedRefs)
-    throw parseError;
+  if (
+    acc.parseError !== undefined &&
+    acc.items.length === 0 &&
+    acc.entities.length === acc.parseFailedRefs
+  )
+    throw acc.parseError;
   const nextCursor = bootstrap ? bootstrapCursor : found.cursor;
   return {
     source: id,
     observedAt,
-    complete,
-    items,
-    entities,
+    complete: acc.complete,
+    items: acc.items,
+    entities: acc.entities,
     ...(discoveryOk && discoveredOk
       ? nextCursor === undefined
         ? {}
@@ -379,6 +413,6 @@ async function pollRepository({
       : ctx.cursor === undefined
         ? {}
         : { cursor: ctx.cursor }),
-    budget,
+    budget: acc.budget,
   };
 }
