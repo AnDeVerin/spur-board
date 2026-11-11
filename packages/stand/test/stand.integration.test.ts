@@ -1,3 +1,4 @@
+import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { createServer } from 'node:net';
 import { request } from 'node:http';
@@ -15,6 +16,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { configSchema } from '@spur-board/contracts';
 import { openStore } from '@spur-board/core';
 import { acquireLock } from '@spur-board/daemon/in-process';
@@ -38,6 +40,11 @@ let base: string;
 let root: string;
 let osHome: string;
 let stand: Stand | undefined;
+/** A stand still live at the end of its test; `afterEach` fails on a non-empty violation log. */
+let checked: StandManifest | undefined;
+
+const DRIFT_URL = 'http://spur.stand.invalid/drift';
+const CLI = fileURLToPath(new URL('../src/cli.ts', import.meta.url));
 
 beforeEach(() => {
   base = mkdtempSync(join(tmpdir(), 'stand-it-'));
@@ -51,9 +58,16 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
-  await stand?.stop();
-  stand = undefined;
-  rmSync(base, { recursive: true, force: true });
+  let log: { status: number; body: unknown } | undefined;
+  try {
+    if (checked !== undefined) log = await control(checked, '/violations');
+  } finally {
+    await stand?.stop();
+    stand = undefined;
+    checked = undefined;
+    rmSync(base, { recursive: true, force: true });
+  }
+  if (log !== undefined) expect(log.status, JSON.stringify(log.body)).toBe(200);
 });
 
 /** Listens on the first free stand port, so a stand asked to bind it fails to start. */
@@ -92,6 +106,13 @@ function expectPrivateDatabase(home: string): void {
 
 async function up(): Promise<StandManifest> {
   stand = await startStand({ root, port: 0, env: {}, osHome });
+  checked = stand.manifest();
+  return checked;
+}
+
+/** A stand whose board calls Spur under a path the fake does not model; not checked. */
+async function upDrifted(): Promise<StandManifest> {
+  stand = await startStand({ root, port: 0, env: {}, osHome, spurBaseUrl: DRIFT_URL });
   return stand.manifest();
 }
 
@@ -122,9 +143,15 @@ async function instance(manifest: StandManifest): Promise<string | null> {
   return response.headers.get('x-board-instance');
 }
 
-async function operatorStatus(
+function operatorStatus(
   manifest: StandManifest,
   role: StandRole = 'operator',
+): Promise<{ code: number; stdout: string; stderr: string }> {
+  return boardStatus(roleEnv(manifest, role, {}));
+}
+
+async function boardStatus(
+  env: Record<string, string>,
 ): Promise<{ code: number; stdout: string; stderr: string }> {
   let stdout = '';
   let stderr = '';
@@ -137,10 +164,7 @@ async function operatorStatus(
       stderr += text;
     },
   };
-  const code = await runCli(['status', '--json'], {
-    env: roleEnv(manifest, role, {}),
-    io,
-  });
+  const code = await runCli(['status', '--json'], { env, io });
   return { code, stdout, stderr };
 }
 
@@ -163,6 +187,111 @@ function rawReset(manifest: StandManifest, headers: Record<string, string>): Pro
     );
     req.on('error', reject);
     req.end('{}');
+  });
+}
+
+/** Runs one fake Spur verb and expects it to succeed. */
+async function fake(
+  manifest: StandManifest,
+  verb: string,
+  args: Record<string, unknown> = {},
+): Promise<unknown> {
+  const result = await control(manifest, '/fake', { system: 'spur', verb, args });
+  expect(result.status, JSON.stringify(result.body)).toBe(200);
+  return result.body;
+}
+
+interface Inspected {
+  instanceId: string;
+  sessions: { id: string }[];
+  rules: Record<string, unknown>;
+  requests: { method: string; path: string }[];
+  sends: { session: string; message: string }[];
+}
+
+const inspect = async (manifest: StandManifest) => (await fake(manifest, 'inspect')) as Inspected;
+
+async function poll(manifest: StandManifest): Promise<Record<string, string>> {
+  const result = await control(manifest, '/poll');
+  expect(result.status, JSON.stringify(result.body)).toBe(200);
+  const { outcomes } = result.body as { outcomes: { source: string; outcome: string }[] };
+  return Object.fromEntries(outcomes.map(({ source, outcome }) => [source, outcome]));
+}
+
+async function snapshot(manifest: StandManifest, id: string) {
+  const store = openStore(join(manifest.home, 'board.sqlite'));
+  try {
+    return await store.db
+      .selectFrom('session_snapshot')
+      .select(['raw_state', 'detail', 'ended_at', 'absent_since'])
+      .where('id', '=', id)
+      .executeTakeFirst();
+  } finally {
+    await store.close();
+  }
+}
+
+/** A raw doorbell row: the stand has no tasks that would produce one until GitHub is faked. */
+async function insertDoorbell(manifest: StandManifest, session: string): Promise<void> {
+  const store = openStore(join(manifest.home, 'board.sqlite'));
+  try {
+    await store.db
+      .insertInto('outbox')
+      .values({
+        kind: 'doorbell',
+        dedupe_key: `doorbell:${session}`,
+        payload: JSON.stringify({ session, text: 'ring' }),
+        state: 'pending',
+        next_at: new Date().toISOString(),
+        last_error: null,
+        external_ref: null,
+        parent_outbox_id: null,
+        first_attempt_at: null,
+        first_delivery_at: null,
+      })
+      .execute();
+  } finally {
+    await store.close();
+  }
+}
+
+async function doorbellState(manifest: StandManifest, session: string) {
+  const store = openStore(join(manifest.home, 'board.sqlite'));
+  try {
+    const row = await store.db
+      .selectFrom('outbox')
+      .select('state')
+      .where('dedupe_key', '=', `doorbell:${session}`)
+      .executeTakeFirst();
+    return row?.state;
+  } finally {
+    await store.close();
+  }
+}
+
+/** Waits until the doorbell's POST has reached the fake. */
+async function waitForSendRequest(manifest: StandManifest, session: string): Promise<void> {
+  await vi.waitFor(
+    async () => {
+      expect((await inspect(manifest)).requests).toContainEqual(
+        expect.objectContaining({ method: 'POST', path: `/sessions/${session}/send` }),
+      );
+    },
+    { timeout: 20_000, interval: 100 },
+  );
+}
+
+/** The stand CLI in a child. Async: `spawnSync` would block the control endpoint in this process. */
+function standCli(args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
+  return new Promise((resolve) => {
+    execFile(
+      process.execPath,
+      [CLI, ...args],
+      { env: { PATH: process.env['PATH'] ?? '', HOME: osHome, TMPDIR: root } },
+      (error, stdout, stderr) => {
+        resolve({ code: error === null ? 0 : Number(error.code ?? -1), stdout, stderr });
+      },
+    );
   });
 }
 
@@ -190,7 +319,15 @@ async function fingerprint(manifest: StandManifest) {
       .select(['source', 'blind_reason', 'initialized', 'last_complete_at', 'gone'])
       .orderBy('source')
       .execute();
-    return { files, counts, sources };
+    return {
+      files,
+      counts,
+      // A source the fake answers has a poll time, which differs between any two runs.
+      sources: sources.map((row) => ({
+        ...row,
+        last_complete_at: row.last_complete_at !== null,
+      })),
+    };
   } finally {
     await store.close();
   }
@@ -295,6 +432,7 @@ describe('stand', () => {
     mkdirSync(join(home, 'logs'), { mode: 0o700 });
     writeFileSync(join(home, 'logs', 'stand.log'), '', { mode: 0o600 });
     stand = await startStand({ root, home, port: 0, env: {}, osHome });
+    checked = stand.manifest();
     expect(stand.manifest().home).toBe(realpathSync(home));
   }, 60_000);
 
@@ -406,7 +544,7 @@ describe('stand', () => {
 
   it('answers worker and orchestrator calls after up and after reset', async () => {
     const manifest = await up();
-    // A Spur poll has failed against the guard by now; the seeded sessions must survive it.
+    // A Spur poll has listed them by now; the seeded sessions must survive it.
     await waitFor(manifest, 'sources-polled');
     for (const role of ['worker', 'orchestrator'] as const) {
       const result = await operatorStatus(manifest, role);
@@ -519,10 +657,10 @@ describe('stand', () => {
     const polled = await control(manifest, '/poll');
     expect(polled.status).toBe(200);
     const { outcomes } = polled.body as { outcomes: { source: string; outcome: string }[] };
-    // Every request fails against the network guard. The GitHub Issues adapter turns that failure
-    // into an incomplete batch, so its poll counts as delivered; the others fail.
+    // The fake answers Spur. Every other request fails against the network guard: the GitHub
+    // Issues adapter turns that failure into an incomplete batch, so its poll counts as delivered.
     expect(Object.fromEntries(outcomes.map(({ source, outcome }) => [source, outcome]))).toEqual({
-      spur: 'failed',
+      spur: 'delivered',
       'github-issues:stand:stand-org/board': 'delivered',
       'github:stand:stand-org/board': 'failed',
       'jira:stand-jira': 'failed',
@@ -532,5 +670,202 @@ describe('stand', () => {
     const unknown = await control(manifest, '/poll', { source: 'nope' });
     expect(unknown.status).toBe(400);
     expect((unknown.body as { sources: string[] }).sources.sort()).toEqual(SOURCES);
+  }, 60_000);
+});
+
+describe('fake Spur in a running stand', () => {
+  const HELD: [string, Record<string, unknown>][] = [
+    ['hang', { mode: 'hang', route: 'send' }],
+    ['delay', { mode: 'delay', route: 'send', ms: 60_000 }],
+  ];
+
+  it('carries list facts to the snapshot and marks an unlisted session absent', async () => {
+    const manifest = await up();
+    await fake(manifest, 'session', { id: 'run-1', status: 'running', state: 'waiting' });
+    await fake(manifest, 'session', { id: 'stop-1', status: 'stopped', state: 'stale' });
+    await fake(manifest, 'session', {
+      id: 'done-1',
+      status: 'completed',
+      state: 'stale',
+      retain: true,
+    });
+    await fake(manifest, 'session', { id: 'kill-1' });
+    expect((await poll(manifest))['spur']).toBe('delivered');
+
+    for (const [id, status, health] of [
+      ['run-1', 'running', 'waiting'],
+      ['stop-1', 'stopped', 'stale'],
+      ['done-1', 'completed', 'stale'],
+    ] as const) {
+      const row = await snapshot(manifest, id);
+      expect(row, id).toMatchObject({ raw_state: status, ended_at: null, absent_since: null });
+      expect(JSON.parse(row?.detail ?? '{}'), id).toMatchObject({ health });
+    }
+    expect((await snapshot(manifest, 'kill-1'))?.absent_since).toBeNull();
+
+    // absent_since is set only on a row that exists, so the session was listed once above.
+    await fake(manifest, 'session', { id: 'kill-1', status: 'killed' });
+    await poll(manifest);
+    expect((await snapshot(manifest, 'kill-1'))?.absent_since).not.toBeNull();
+    expect((await snapshot(manifest, 'run-1'))?.absent_since).toBeNull();
+  }, 60_000);
+
+  it('logs spur restarted on a scheduled poll after restart', async () => {
+    const manifest = await up();
+    await waitFor(manifest, 'sources-polled');
+    const log = join(manifest.home, 'logs', 'daemon.log');
+    expect(readFileSync(log, 'utf8')).not.toContain('"msg":"spur restarted"');
+    await fake(manifest, 'restart');
+    await vi.waitFor(
+      () => {
+        expect(readFileSync(log, 'utf8')).toContain('"msg":"spur restarted"');
+      },
+      { timeout: 20_000, interval: 100 },
+    );
+  }, 60_000);
+
+  it('serves the adapter poll, the session lookup and the send port from one fake', async () => {
+    const manifest = await up();
+    await waitFor(manifest, 'sources-polled');
+    await fake(manifest, 'session', { id: 'list-1' });
+    expect((await poll(manifest))['spur']).toBe('delivered');
+    expect(await snapshot(manifest, 'list-1')).toMatchObject({ raw_state: 'running' });
+    expect((await inspect(manifest)).requests).toContainEqual(
+      expect.objectContaining({ method: 'GET', path: '/sessions' }),
+    );
+
+    // Refused first, so live-1 never reaches a snapshot and identity must look it up.
+    await fake(manifest, 'fail', { mode: 'refuse', route: 'list' });
+    await fake(manifest, 'session', { id: 'live-1' });
+    const status = await boardStatus({
+      ...roleEnv(manifest, 'worker', {}),
+      SPUR_SESSION: 'live-1',
+    });
+    expect(status.code, status.stderr).toBe(0);
+    expect(await snapshot(manifest, 'live-1')).toBeUndefined();
+    expect((await inspect(manifest)).requests).toContainEqual(
+      expect.objectContaining({ method: 'GET', path: '/sessions/live-1' }),
+    );
+
+    await insertDoorbell(manifest, 'list-1');
+    await vi.waitFor(
+      async () => {
+        expect((await inspect(manifest)).sends).toContainEqual(
+          expect.objectContaining({ session: 'list-1', message: 'ring' }),
+        );
+        expect(await doorbellState(manifest, 'list-1')).toBe('done');
+      },
+      { timeout: 20_000, interval: 100 },
+    );
+  }, 60_000);
+
+  it('passes the daemon doctor Spur checks without a violation', async () => {
+    const manifest = await up();
+    const response = await fetch(`${manifest.daemonUrl}/v1/doctor`);
+    expect(response.status).toBe(200);
+    const { checks } = (await response.json()) as { checks: { id: string; status: string }[] };
+    const byId = new Map(checks.map((check) => [check.id, check.status]));
+    expect(byId.get('spur.api')).toBe('pass');
+    expect(byId.get('spur.send')).toBe('pass');
+  }, 60_000);
+
+  it('reset replaces the fake and reports an empty log', async () => {
+    const manifest = await up();
+    await fake(manifest, 'session', { id: 'old-1' });
+    await fake(manifest, 'restart');
+    await fake(manifest, 'fail', { mode: '5xx', route: 'detail' });
+    const start = 'stand-spur-1';
+    expect((await inspect(manifest)).instanceId).not.toBe(start);
+
+    const reset = await control(manifest, '/reset');
+    expect(reset).toMatchObject({ status: 200, body: { violationsCleared: 0 } });
+    const after = await inspect(manifest);
+    expect(after.instanceId).toBe(start);
+    expect(after.sessions.map((session) => session.id)).not.toContain('old-1');
+    expect(after.rules).toEqual({});
+  }, 60_000);
+
+  it.each(HELD)(
+    'reset does not stall behind a held send: %s',
+    async (_name, rule) => {
+      const manifest = await up();
+      await fake(manifest, 'fail', rule);
+      await insertDoorbell(manifest, 'held-1');
+      await waitForSendRequest(manifest, 'held-1');
+      expect((await control(manifest, '/reset')).status).toBe(200);
+    },
+    60_000,
+  );
+
+  it.each(HELD)(
+    'stop does not stall behind a held send: %s',
+    async (_name, rule) => {
+      stand = await startStand({ root, port: 0, env: {}, osHome });
+      const manifest = stand.manifest();
+      await fake(manifest, 'fail', rule);
+      await insertDoorbell(manifest, 'held-1');
+      await waitForSendRequest(manifest, 'held-1');
+      expect(await stand.stop()).toBe(0);
+    },
+    60_000,
+  );
+
+  it('records a drifted route, fails the poll and answers 409 on violations', async () => {
+    const manifest = await upDrifted();
+    expect((await poll(manifest))['spur']).toBe('failed');
+    const log = await control(manifest, '/violations');
+    expect(log.status).toBe(409);
+    expect(log.body).toMatchObject({
+      items: expect.arrayContaining([
+        expect.objectContaining({ method: 'GET', path: '/drift/sessions', reason: 'route' }),
+      ]) as unknown,
+    });
+  }, 60_000);
+
+  it('reports how many violations a reset dropped', async () => {
+    const manifest = await upDrifted();
+    await poll(manifest);
+    const reset = await control(manifest, '/reset');
+    expect(reset.status).toBe(200);
+    expect((reset.body as { violationsCleared: number }).violationsCleared).toBeGreaterThanOrEqual(
+      1,
+    );
+  }, 60_000);
+
+  it('drives the fake and reads the log through the CLI on a clean stand', async () => {
+    const { home } = await up();
+    const session = await standCli([
+      'fake',
+      '--home',
+      home,
+      'spur',
+      'session',
+      's1',
+      '--state',
+      'stale',
+      '--status',
+      'stopped',
+    ]);
+    expect(session.code, session.stderr).toBe(0);
+    expect(JSON.parse(session.stdout)).toMatchObject({
+      session: { id: 's1', state: 'stale', status: 'stopped' },
+    });
+    expect((await standCli(['fake', '--home', home, 'spur', 'nope'])).code).toBe(2);
+    const violations = await standCli(['violations', '--home', home]);
+    expect(violations.code, violations.stderr).toBe(0);
+    const status = await standCli(['status', '--home', home, '--json']);
+    expect(status.code, status.stderr).toBe(0);
+    expect(JSON.parse(status.stdout)).toMatchObject({ violations: 0 });
+  }, 60_000);
+
+  it('exits 1 on violations and counts them in status on a drifted stand', async () => {
+    const manifest = await upDrifted();
+    await poll(manifest);
+    const violations = await standCli(['violations', '--home', manifest.home]);
+    expect(violations.code, violations.stderr).toBe(1);
+    const status = await standCli(['status', '--home', manifest.home, '--json']);
+    expect(status.code, status.stderr).toBe(0);
+    const { violations: count } = JSON.parse(status.stdout) as { violations: number };
+    expect(count).toBeGreaterThan(0);
   }, 60_000);
 });

@@ -36,13 +36,18 @@ export async function spurErrorText(response: Response): Promise<string | null> 
 }
 
 /** Send a doorbell through the Spur HTTP API; runs no executable, so PATH does not matter. */
-export function createSpurPort(options: { baseUrl: string; timeoutMs?: number }): SpurPort {
+export function createSpurPort(options: {
+  baseUrl: string;
+  timeoutMs?: number;
+  /** Replaces the global `fetch`; the stand passes its in-process fake here. */
+  fetch?: typeof fetch;
+}): SpurPort {
   return {
     async send(session, text) {
       const { url, init } = spurSendRequest(options.baseUrl, session, text);
       let response: Response;
       try {
-        response = await fetch(url, {
+        response = await (options.fetch ?? fetch)(url, {
           ...init,
           signal: AbortSignal.timeout(options.timeoutMs ?? SEND_TIMEOUT_MS),
         });
