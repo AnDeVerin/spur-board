@@ -270,7 +270,7 @@ async function sessionOf(store: Store, project: string) {
 }
 
 describe('curator sessions', () => {
-  it('drops absent and completed sessions and keeps paused and errored ones live', async () => {
+  it('drops absent, completed and errored sessions and keeps paused ones live', async () => {
     const { store, core } = curatorSetup();
     const listed = [
       curatorSession('cur-a-done', { lifecycle: 'completed' }),
@@ -288,7 +288,8 @@ describe('curator sessions', () => {
     expect(await curatorSessions(store.db, curatorConfig)).toEqual([
       { project: 'alpha', curator: 'cur-a', session: null },
       { project: 'beta', curator: 'cur-b', session: 'cur-b-1' },
-      { project: 'gamma', curator: 'cur-g', session: 'cur-g-1' },
+      // An errored session cannot read a ring, so the doorbells do not choose it.
+      { project: 'gamma', curator: 'cur-g', session: null },
       { project: 'delta', curator: null, session: null },
     ]);
   });

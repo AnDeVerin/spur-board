@@ -17,6 +17,7 @@ import {
   restartNotification,
   selectNotificationRecipient,
 } from '../../src/app/doorbells.ts';
+import { curatorSessions } from '../../src/app/doctor.ts';
 import { reconcileItems } from '../../src/app/fromYou.ts';
 import { scanTransaction } from '../../src/app/secrets.ts';
 import { SpurRejectedError } from '../../src/app/sender.ts';
@@ -1064,6 +1065,39 @@ describe('curator doorbells', () => {
     ctx.advance(120_000);
     await step(ctx);
     expect(sessionsRung(ctx)).toEqual(['cur-2', 'cur-3']);
+  });
+
+  it('names in board doctor the curator session it rings, also past a corrupt row', async () => {
+    const ctx = await setup({ config: policyConfig, column: 'qa' });
+    await addSession(ctx, 'cur-1', 'cur', { firstSeen: -3000 });
+    await addSession(ctx, 'cur-2', 'cur', { firstSeen: -1000, activity: '2026-11-03T09:00:00Z' });
+    await addSession(ctx, 'cur-3', 'cur', {
+      firstSeen: -1000,
+      activity: '2026-11-03T09:00:00.5Z',
+    });
+    await addSession(ctx, 'cur-errored', 'cur', { firstSeen: 0 });
+    await setSession(ctx, 'cur-errored', { state: 'errored' });
+    await addSession(ctx, 'cur-absent', 'cur', { firstSeen: 0, absent: true });
+    await addSession(ctx, 'cur-corrupt', 'cur', { firstSeen: -2000 });
+    await ctx.store.db
+      .updateTable('session_snapshot')
+      .set({ detail: 'not json' })
+      .where('id', '=', 'cur-corrupt')
+      .execute();
+    const doctor = async () =>
+      (await curatorSessions(ctx.store.db, policyConfig)).map((entry) => entry.session);
+
+    await ctx.apply(ctx.ops.ask, { task: KEY, text: 'Q?' }, worker, 'ask');
+    await step(ctx);
+    expect(await doctor()).toEqual(['cur-3']);
+    expect(sessionsRung(ctx)).toEqual(['cur-3']);
+
+    await setSession(ctx, 'cur-3', { absent_since: ctx.now().toISOString() });
+    await setSession(ctx, 'cur-2', { state: 'completed' });
+    ctx.advance(120_000);
+    await step(ctx);
+    expect(await doctor()).toEqual(['cur-corrupt']);
+    expect(sessionsRung(ctx)).toEqual(['cur-3', 'cur-corrupt']);
   });
 
   it.each(['curator', 'orchestrator:dev'] as const)(

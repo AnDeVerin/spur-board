@@ -2,6 +2,7 @@ import type { Config } from '@spur-board/contracts';
 import { sql } from 'kysely';
 import { curatorProject } from './authorize.ts';
 import { trackerSource, type Trx } from './board-utils.ts';
+import { curatorSession } from './doorbells.ts';
 import { enqueueLiveFeedLine } from './outbox.ts';
 
 const LIVE_VERSION_KEY = 'doctor_live_version';
@@ -44,68 +45,21 @@ export interface CuratorSession {
   readonly session: string | null;
 }
 
-/** Milliseconds of a stored time, or null for a missing or unreadable one. */
-function instant(value: unknown): number | null {
-  if (typeof value !== 'string') return null;
-  const ms = Date.parse(value);
-  return Number.isNaN(ms) ? null : ms;
-}
-
-/** Negative when `a` is later; a null time is the oldest. Compared, never subtracted. */
-function laterFirst(a: number | null, b: number | null): number {
-  const left = a ?? -Infinity;
-  const right = b ?? -Infinity;
-  return left > right ? -1 : left < right ? 1 : 0;
-}
-
 /**
- * The curator and live curator session of each board project, in config order. A session is
- * live while it has not ended, was not omitted by a complete poll, and is not killed, stopped or
- * completed. The latest first seen wins, then the latest activity, then the lowest id. A row with
- * an unreadable time or detail stays eligible and sorts as oldest on that time.
+ * The curator of each board project and the live session its curator blocks ring, in config
+ * order. It asks the doorbells for their choice rather than keeping a copy, so the doctor cannot
+ * name one session while the rings go to another.
  */
 export async function curatorSessions(db: Trx, config: Config): Promise<CuratorSession[]> {
-  const curators = config.projects.map((project) => ({
-    project: project.id,
-    curator: curatorProject(config, project.id),
-  }));
-  const names = curators.flatMap((entry) => (entry.curator === null ? [] : [entry.curator]));
-  const rows =
-    names.length === 0
-      ? []
-      : await db
-          .selectFrom('session_snapshot')
-          .select([
-            'id',
-            'spur_project',
-            'first_seen',
-            // json_extract raises on malformed JSON; a bad row must not fail the doctor.
-            sql`CASE WHEN json_valid(detail) THEN json_extract(detail, '$.lastActivityAt') END`.as(
-              'last_activity_at',
-            ),
-          ])
-          .where('spur_project', 'in', names)
-          .where('ended_at', 'is', null)
-          .where('absent_since', 'is', null)
-          .where('state', 'not in', ['killed', 'stopped', 'completed'])
-          .execute();
-  const ranked = rows
-    .map((row) => ({
-      id: row.id,
-      project: row.spur_project,
-      firstSeen: instant(row.first_seen),
-      lastActivity: instant(row.last_activity_at),
-    }))
-    .sort(
-      (a, b) =>
-        laterFirst(a.firstSeen, b.firstSeen) ||
-        laterFirst(a.lastActivity, b.lastActivity) ||
-        (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
-    );
-  return curators.map((entry) => ({
-    ...entry,
-    session: ranked.find((row) => row.project === entry.curator)?.id ?? null,
-  }));
+  const entries: CuratorSession[] = [];
+  for (const project of config.projects) {
+    entries.push({
+      project: project.id,
+      curator: curatorProject(config, project.id),
+      session: (await curatorSession(db, config, project.id))?.id ?? null,
+    });
+  }
+  return entries;
 }
 
 /**
