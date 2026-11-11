@@ -11,6 +11,10 @@ import {
   ENTITY_STATUSES,
   type EntityStatus,
   type FactKind,
+  POLL_PR_ERROR_KINDS,
+  type PollPrResult,
+  type PrEntityRef,
+  type PrPoller,
   batchSchema,
 } from '../src/index.ts';
 import { walk } from './json-schema-walk.ts';
@@ -269,12 +273,46 @@ it('accepts a minimal adapter', () => {
   expectTypeOf<Omit<Minimal, 'poll'>>().not.toExtend<Adapter>();
 });
 
+it('accepts an optional pollPr of the port shape', () => {
+  type PollPr = (ref: PrEntityRef, ctx: { signal: AbortSignal }) => Promise<Batch>;
+  expectTypeOf<Minimal & { pollPr: PollPr }>().toExtend<Adapter>();
+  expectTypeOf<Minimal & { pollPr: (ref: string) => Promise<Batch> }>().not.toExtend<Adapter>();
+});
+
+describe('PrPoller', () => {
+  it('lists the on-demand error kinds', () => {
+    expect(POLL_PR_ERROR_KINDS).toEqual([
+      'unknown_source',
+      'unsupported',
+      'blind',
+      'timeout',
+      'failed',
+      'stopped',
+    ]);
+  });
+
+  it('accepts a minimal poller', () => {
+    const poller = {
+      pollPr: (): Promise<PollPrResult> =>
+        Promise.resolve({ ok: false, error: { kind: 'unsupported', message: 'no' } }),
+    };
+    expectTypeOf(poller).toExtend<PrPoller>();
+    expectTypeOf({ pollPr: () => Promise.resolve(1) }).not.toExtend<PrPoller>();
+  });
+});
+
 describe('obligation ids', () => {
   const source = readFileSync(join(root, 'packages/contracts/src/adapters.ts'), 'utf8');
 
-  it('lists A1-A8 in order, each once, in the Adapter TSDoc', () => {
+  it('lists A1-A9 in order, each once, in the Adapter TSDoc', () => {
     const ids = [...source.matchAll(/^\s*\*\s+- (A\d+):/gm)].map((match) => match[1]);
-    expect(ids).toEqual(Array.from({ length: 8 }, (_, i) => `A${String(i + 1)}`));
+    expect(ids).toEqual(Array.from({ length: 9 }, (_, i) => `A${String(i + 1)}`));
+  });
+
+  it('keeps the cursor and completeness out of an on-demand batch in A9', () => {
+    const a9 = source.slice(source.indexOf('- A9:'), source.indexOf('*/', source.indexOf('- A9:')));
+    expect(a9).toContain('cursor');
+    expect(a9).toContain('complete');
   });
 
   it('states the 404 rule in A4', () => {
