@@ -242,6 +242,19 @@ describe('CLI against the real HTTP API', () => {
         blocks: [{ id: 'B1', addressee: 'curator' }],
       });
 
+      const acked = capture();
+      expect(
+        await runCli(['inbox', 'ack', 'B1', '--json'], {
+          clientConfig: clientConfig('cur-1'),
+          io: acked.io,
+        }),
+      ).toBe(0);
+      expect(
+        await store.db.selectFrom('notification').select(['kind', 'role', 'acked_at']).execute(),
+      ).toEqual([
+        { kind: 'block', role: 'curator', acked_at: new Date(clock.now()).toISOString() },
+      ]);
+
       const answered = capture();
       expect(
         await runCli(['answer', 'B1', 'Use v2.', '--json'], {
@@ -253,7 +266,128 @@ describe('CLI against the real HTTP API', () => {
         block: { state: 'unblocked', unblockedBy: 'agent:cur/cur-1' },
       });
       expect(await store.db.selectFrom('notification').select(['kind', 'role']).execute()).toEqual([
+        { kind: 'block', role: 'curator' },
         { kind: 'answer', role: 'worker' },
+      ]);
+    } finally {
+      try {
+        await app?.close();
+      } finally {
+        await store.close();
+        rmSync(home, { recursive: true, force: true });
+      }
+    }
+  });
+
+  it('a linked worker neither lists nor acks a held curator answer and cannot ack a curator block before the first ring', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'board-api-curator-ack-'));
+    const store = openStore(join(home, 'board.db'));
+    let app: Awaited<ReturnType<typeof createApiServer>> | undefined;
+    try {
+      const config = configSchema.parse({
+        projects: [
+          {
+            id: 'proj',
+            tracker: { type: 'github-issues', repo: 'o/r', milestone: 'M1' },
+            repos: ['o/r'],
+            operatorGithubLogin: 'operator',
+            spurProjects: [
+              { name: 'web', role: 'worker' },
+              { name: 'cur', role: 'curator' },
+            ],
+          },
+        ],
+        operator: { slack: 'operator' },
+        digest: { tz: 'UTC' },
+      });
+      const clock = { now: () => Date.parse('2026-11-04T08:00:00.000Z') };
+      await store.transaction(async (trx) => {
+        await trx
+          .insertInto('task')
+          .values({
+            ...sampleRows.task,
+            key: 'o/r#101',
+            project: 'proj',
+            column: 'qa',
+            membership: 'active',
+            archive_reason: null,
+          })
+          .execute();
+        await trx
+          .insertInto('link')
+          .values({
+            ...sampleRows.link,
+            entity: 'session',
+            repo: null,
+            number: null,
+            pr_state: null,
+            session_id: 'worker-1',
+            role: 'worker',
+          })
+          .execute();
+      });
+      const apply = createApply({ store, clock, config });
+      const ops = createBlockMutations(config);
+      const own = await apply(ops.ask, { task: 'o/r#101', text: 'Q?' }, 'agent:cur/cur-1', 'own');
+      const answered = await apply(
+        ops.answer,
+        { block: own.block.id, text: 'A.' },
+        'operator',
+        'answer',
+      );
+      const held = await apply(
+        ops.ask,
+        { task: 'o/r#101', text: 'Q2?' },
+        'agent:web/worker-2',
+        'q2',
+      );
+      expect(held.block.addressee).toBe('curator');
+      expect(
+        await store.db
+          .selectFrom('notification')
+          .select(['kind', 'role', 'recipient_session'])
+          .orderBy('id')
+          .execute(),
+      ).toEqual([
+        { kind: 'answer', role: 'curator', recipient_session: null },
+        { kind: 'block', role: 'curator', recipient_session: null },
+      ]);
+      app = await createApiServer({
+        store,
+        config,
+        port: 0,
+        ready: () => true,
+        clock,
+        lookupSession: (id) =>
+          Promise.resolve({ project: id.startsWith('cur-') ? 'cur' : 'web', status: 'running' }),
+        verifyToken: () => Promise.resolve(null),
+        registry: createOperationRegistry({ config, clock, completeSince: new Map() }),
+        logRequest: () => {},
+      });
+      await listenApiServer(app, 0);
+      const address = app.server.address();
+      if (address === null || typeof address === 'string') throw new Error('Expected a TCP port.');
+      const asWorker = {
+        address: new URL(`http://127.0.0.1:${String(address.port)}`),
+        session: 'worker-1',
+        token: undefined,
+        connectTimeoutMs: 2_000,
+        responseTimeoutMs: 2_000,
+      };
+      const inbox = capture();
+      expect(await runCli(['inbox', '--json'], { clientConfig: asWorker, io: inbox.io })).toBe(0);
+      expect(JSON.parse(inbox.stdout)).toMatchObject({ comments: [] });
+      for (const id of [`${answered.comment.id}@1`, held.block.id]) {
+        const acked = capture();
+        expect(
+          await runCli(['inbox', 'ack', id, '--json'], { clientConfig: asWorker, io: acked.io }),
+          id,
+        ).not.toBe(0);
+        expect(acked.stdout + acked.stderr, id).toContain('forbidden');
+      }
+      expect(await store.db.selectFrom('notification').select('acked_at').execute()).toEqual([
+        { acked_at: null },
+        { acked_at: null },
       ]);
     } finally {
       try {

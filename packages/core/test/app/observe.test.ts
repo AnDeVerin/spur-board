@@ -321,6 +321,48 @@ describe('accepted observation', () => {
     expect(status.spurUnavailable).toBe('Spur unavailable: Access rejected');
   });
 
+  it('requests curator sessions by id and ends one Spur no longer knows', async () => {
+    const curated = configSchema.parse({
+      ...config,
+      projects: config.projects.map((project) => ({
+        ...project,
+        spurProjects: [...project.spurProjects, { name: 'cur', role: 'curator' }],
+      })),
+    });
+    const { store, core } = setup(curated);
+    const curatorFact = { ...sessionFact('cur-1'), spurProject: 'cur', branch: null };
+    const observe = (
+      items: SessionFacts[],
+      entities: { ref: { kind: 'session'; id: string }; status: 'ok' | 'not_found' }[],
+    ) =>
+      core.observe('spur', {
+        batch: {
+          source: 'spur',
+          observedAt: new Date(now).toISOString(),
+          complete: true,
+          items: items.map((facts) => ({ kind: 'session' as const, facts })),
+          entities,
+        },
+        effectiveComplete: true,
+        state: { lastCompleteAt: new Date(now).toISOString(), gone: [] },
+        outcomes: [],
+      });
+    await observe([curatorFact, sessionFact('worker-9')], []);
+    expect((await core.context('spur')).observe.sessions).toEqual([
+      { kind: 'session', id: 'cur-1' },
+    ]);
+    now += 1_000;
+    await observe([], [{ ref: { kind: 'session', id: 'cur-1' }, status: 'not_found' }]);
+    expect(
+      await store.db
+        .selectFrom('session_snapshot')
+        .select(['ended_at', 'end_reason'])
+        .where('id', '=', 'cur-1')
+        .executeTakeFirst(),
+    ).toEqual({ ended_at: new Date(now).toISOString(), end_reason: 'vanished' });
+    expect((await core.context('spur')).observe.sessions).toEqual([]);
+  });
+
   it('hides an unlinked session gone from complete Spur lists for over 7 days until it is listed again', async () => {
     const { store, core } = setup();
     const poll = async (sessions: readonly string[]) => {

@@ -5,7 +5,7 @@ import { createSlackGateway } from '@spur-board/gateway-slack';
 import { createFakeGateway } from '@spur-board/gateway-testkit';
 import pino from 'pino';
 import { describe, expect, it, vi } from 'vitest';
-import { startFakeSlackApi } from '../../gateway-slack/test/fake-api.ts';
+import { startFakeSlackApi } from '@spur-board/gateway-slack/testing';
 import { loadConfig, resolvePaths } from '../src/config.ts';
 import type { ModuleContext } from '../src/lifecycle.ts';
 import { createLogger, logCall } from '../src/logger.ts';

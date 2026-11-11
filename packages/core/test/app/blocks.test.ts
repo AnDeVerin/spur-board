@@ -806,7 +806,7 @@ describe('curator routing', () => {
 
   it('treats a dual-role project as the orchestrator for its dependency blocks', async () => {
     const used = withCurator({ dev: 'cur' });
-    const { apply, ops: curated } = await curatorBoard('dev', used);
+    const { store, apply, ops: curated } = await curatorBoard('dev', used);
     const created = await apply(
       curated.create,
       { task: KEY, type: 'dependency', reason: 'Waiting.' },
@@ -814,6 +814,7 @@ describe('curator routing', () => {
       'create',
     );
     expect(created.block.addressee).toBe('orchestrator:dev');
+    expect(await store.db.selectFrom('notification').select('id').execute()).toEqual([]);
     const own = await apply(curated.ask, { task: KEY, text: 'Q?' }, curator, 'own');
     expect(own.block.addressee).toBe('operator');
     const asked = await apply(curated.ask, { task: KEY, text: 'Q?' }, author, 'ask');
@@ -1013,17 +1014,25 @@ describe('curator delivery', () => {
       .map((row) => row.item_key)
       .filter((key) => key.startsWith('operator-block:'));
 
-  it('rings nobody at the curator and opens the thread once at the operator', async () => {
+  it('registers a curator doorbell and opens the thread once at the operator', async () => {
     const { store, apply, ops: curated } = await curatorBoard('qa', used);
     const { block } = await apply(curated.ask, { task: KEY, text: 'Q?' }, author, 'ask');
     expect(block.addressee).toBe('curator');
-    expect(await store.db.selectFrom('notification').select('id').execute()).toEqual([]);
+    const notices = () =>
+      store.db
+        .selectFrom('notification')
+        .select(['kind', 'role', 'acked_at'])
+        .orderBy('id')
+        .execute();
+    expect(await notices()).toEqual([{ kind: 'block', role: 'curator', acked_at: null }]);
     expect(await store.db.selectFrom('outbox').select('id').execute()).toEqual([]);
     await reconcile(store);
     expect(await operatorItems(store)).toEqual([]);
 
     await apply(curated.escalate, { block: block.id }, curator, 'esc');
-    expect(await store.db.selectFrom('notification').select('id').execute()).toEqual([]);
+    expect(await notices()).toEqual([
+      { kind: 'block', role: 'curator', acked_at: new Date(NOW).toISOString() },
+    ]);
     expect(await store.db.selectFrom('outbox').select('kind').execute()).toEqual([
       { kind: 'conversation.open' },
     ]);
@@ -1052,7 +1061,7 @@ describe('curator delivery', () => {
 describe('withdrawal by the author role', () => {
   const used = withCurator();
   const notifications = (store: Store) =>
-    store.db.selectFrom('notification').select('id').execute();
+    store.db.selectFrom('notification').select(['kind', 'role']).orderBy('id').execute();
 
   it('withdraws a question of the previous curator session', async () => {
     const { apply, ops: curated } = await curatorBoard('qa', used);
@@ -1111,7 +1120,11 @@ describe('withdrawal by the author role', () => {
       'withdraw',
     );
     expect(closed.block).toMatchObject({ outcome: 'withdrawn', unblockedBy: 'agent:qa/qa-2' });
-    expect(await notifications(store)).toEqual([]);
+    // The curator it waited on hears of the removal once; the author gets no answer ring.
+    expect(await notifications(store)).toEqual([
+      { kind: 'block', role: 'curator' },
+      { kind: 'removed', role: 'curator' },
+    ]);
   });
 
   it('posts the reason to the operator thread when a new curator session withdraws', async () => {
@@ -1142,6 +1155,8 @@ describe('escalation note', () => {
     store.db.selectFrom('outbox').selectAll().orderBy('id').execute();
   const comments = (store: Store) =>
     store.db.selectFrom('comment').select('text').orderBy('id').execute();
+  const answerRows = (store: Store) =>
+    store.db.selectFrom('notification').select('id').where('kind', '=', 'answer').execute();
 
   it('opens the thread with the question and replies with the note', async () => {
     const { store, apply, ops: curated } = await curatorBoard('qa', used);
@@ -1210,13 +1225,20 @@ describe('escalation note', () => {
     ).toEqual({ addressee_role: 'curator' });
   });
 
-  it('does not ring the question author for a note', async () => {
-    const { store, apply, ops: curated } = await curatorBoard('qa', used);
-    const { block } = await apply(curated.ask, { task: KEY, text: 'Q?' }, author, 'ask');
-    await apply(curated.escalate, { block: block.id, note: 'Owner away.' }, curator, 'esc');
-    expect(await comments(store)).toEqual([{ text: 'Q?' }, { text: 'Owner away.' }]);
-    expect(await store.db.selectFrom('notification').select('id').execute()).toEqual([]);
-  });
+  it.each([
+    { by: 'worker', column: 'qa', asker: author, escalator: curator },
+    { by: 'orchestrator', column: 'dev', asker: orchestrator, escalator: curator },
+    { by: 'curator', column: 'qa', asker: curator, escalator: 'operator' },
+  ] as const)(
+    'does not ring the question author for a note ($by author)',
+    async ({ column, asker, escalator }) => {
+      const { store, apply, ops: curated } = await curatorBoard(column, used);
+      const { block } = await apply(curated.ask, { task: KEY, text: 'Q?' }, asker, 'ask');
+      await apply(curated.escalate, { block: block.id, note: 'Owner away.' }, escalator, 'esc');
+      expect(await comments(store)).toEqual([{ text: 'Q?' }, { text: 'Owner away.' }]);
+      expect(await answerRows(store)).toEqual([]);
+    },
+  );
 
   describe('on a no-op escalation', () => {
     const replies = async (store: Store) =>
@@ -1233,6 +1255,7 @@ describe('escalation note', () => {
     it('adds an earlier addressee note to the current thread', async () => {
       const { store, apply, ops: curated, id } = await operatorThread();
       const before = await events(store);
+      const notices = await store.db.selectFrom('notification').selectAll().execute();
       const tail = (await outbox(store)).at(-1);
       const input = { block: id, note: 'Late.' };
       const late = await apply(curated.escalate, input, curator, 'late');
@@ -1252,7 +1275,8 @@ describe('escalation note', () => {
       expect((await outbox(store)).filter((row) => row.kind === 'conversation.open')).toHaveLength(
         1,
       );
-      expect(await store.db.selectFrom('notification').select('id').execute()).toEqual([]);
+      expect(await store.db.selectFrom('notification').selectAll().execute()).toEqual(notices);
+      expect(await answerRows(store)).toEqual([]);
 
       const settled = await counts(store);
       expect(await apply(curated.escalate, input, curator, 'late')).toEqual(late);
@@ -1264,6 +1288,7 @@ describe('escalation note', () => {
 
     it('adds the note when the block is already at the top', async () => {
       const { store, apply, ops: curated, id } = await operatorThread();
+      const notices = await store.db.selectFrom('notification').selectAll().execute();
       const tail = (await outbox(store)).at(-1);
       const top = await apply(curated.escalate, { block: id, note: 'Top.' }, 'operator', 'top');
       expect(top.block).toMatchObject({ addressee: 'operator', state: 'open' });
@@ -1272,7 +1297,8 @@ describe('escalation note', () => {
       expect(reply?.parent_outbox_id).toBe(tail?.id);
       expect(JSON.parse(reply?.payload ?? '{}')).toMatchObject({ text: 'Top.' });
       expect(await escalations(store)).toHaveLength(2);
-      expect(await store.db.selectFrom('notification').select('id').execute()).toEqual([]);
+      expect(await store.db.selectFrom('notification').selectAll().execute()).toEqual(notices);
+      expect(await answerRows(store)).toEqual([]);
     });
 
     it('writes nothing without a note', async () => {

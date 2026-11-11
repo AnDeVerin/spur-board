@@ -10,8 +10,8 @@ description: Package map, allowed dependencies, PR order, new packages, catalog 
 - What each package holds: `AGENTS.md` `## Packages`. The boundary rules: `eslint.config.js`.
 - Runtime edges: core, adapters, gateway-slack and gateway-testkit depend on contracts; daemon
   depends on adapters, contracts, core and gateway-slack. The private stand depends on adapters,
-  contracts, core, daemon and testkit. Runtime dependencies point toward contracts; contracts
-  depends on no workspace package at runtime.
+  contracts, core, daemon, gateway-slack and testkit. Runtime dependencies point toward contracts;
+  contracts depends on no workspace package at runtime.
 - Dev edges: core, daemon and gateway-slack use gateway-testkit; contracts uses testkit; the CLI
   takes contracts as a dev dependency because its bundle inlines it. A dev dependency on
   `packages/testkit` or `packages/gateway-testkit` is allowed from any package except adapters
@@ -20,10 +20,11 @@ description: Package map, allowed dependencies, PR order, new packages, catalog 
   adapters. Their tests import local fakes by relative path, e.g. `createFakeCore` from
   `packages/adapters/src/testing.ts`.
 - Declare every workspace import in the importing package's `package.json` as `workspace:*`.
-- Lint enforces only four edges: adapters import only contracts and
+- Lint enforces only five edges: adapters import only contracts and
   `packages/adapters/src/runner/`, and adapter folders do not import each other; the CLI imports
-  only contracts; only core and daemon import SQLite; no other package imports the stand. Every
-  other edge is held by `package.json` alone, so check the direction yourself.
+  only contracts; only core and daemon import SQLite; no other package imports the stand;
+  production `src` does not import the Slack fake. Every other edge is held by `package.json`
+  alone, so check the direction yourself.
 
 ## PR order
 

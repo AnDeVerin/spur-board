@@ -1,12 +1,9 @@
-import {
-  assertNever,
-  parseActorId,
-  type ActorId,
-  type AddresseeRole,
-  type Config,
-  type EventKind,
-  type EventPayload,
-  type Persona,
+import type {
+  ActorId,
+  AddresseeRole,
+  Config,
+  EventKind,
+  EventPayload,
 } from '@spur-board/contracts';
 import type { Kysely, Selectable } from 'kysely';
 import type { BlockTable, CommentTable, Tables, TaskTable } from '../store/schema.ts';
@@ -18,21 +15,21 @@ import {
   closeBlock,
   editComment,
   escalateBlock,
-  parseAddressee,
   priorAddressees,
   type CurrentBlock,
 } from '../domain/blocks/blocks.ts';
 import { authorize, curatorProject, type ResolvedTarget } from './authorize.ts';
+import { authorRole, orchestrator, personaFor, queueBlockOpen } from './block-thread.ts';
 import { emit } from './board-utils.ts';
 import { CommandError, type CommandContext, type Mutation } from './commands.ts';
 import {
   acknowledgeNotification,
+  applyDoorbellPolicy,
   closeBlockNotification,
-  registerAnswerNotification,
-  registerBlockNotification,
+  moveBlockToAddressee,
 } from './doorbells.ts';
 import { clearItem } from './feed.ts';
-import { enqueueConversationOpen, enqueueConversationReply } from './outbox.ts';
+import { enqueueConversationReply } from './outbox.ts';
 import { enqueueConversationClose } from './outbox.ts';
 
 type Task = Selectable<TaskTable>;
@@ -182,84 +179,6 @@ async function journal<K extends EventKind>(
   await emit(trx, kind, task.project, task.id, ctx.at, payload, ctx.actor);
 }
 
-function orchestrator(config: Config, task: Task): string | null {
-  const name = config.projects
-    .find((project) => project.id === task.project)
-    ?.columns.find((column) => column.id === task.column)?.orchestrator;
-  return name === undefined || name === 'none' ? null : name;
-}
-
-function authorRole(config: Config, task: Task, actor: ActorId): AddresseeRole {
-  if (actor === 'operator') return 'operator';
-  const parsed = parseActorId(actor);
-  if (
-    parsed?.actor === 'agent' &&
-    config.projects.some((project) =>
-      project.spurProjects.some(
-        (spur) => spur.name === parsed.actorRef.project && spur.role === 'operator',
-      ),
-    )
-  ) {
-    return 'operator';
-  }
-  if (parsed?.actor !== 'agent') return 'worker';
-  if (parsed.actorRef.project === orchestrator(config, task)) return `orchestrator:${task.column}`;
-  return parsed.actorRef.project === curatorProject(config, task.project) ? 'curator' : 'worker';
-}
-
-function personaRole(role: AddresseeRole): Persona['role'] {
-  const addressee = parseAddressee(role);
-  switch (addressee.kind) {
-    case 'operator':
-      return 'board';
-    case 'worker':
-      return 'worker';
-    case 'curator':
-    case 'orchestrator':
-      return 'orchestrator';
-    default:
-      return assertNever(addressee);
-  }
-}
-
-function personaFor(config: Config, task: Task, actor: ActorId): Persona {
-  if (actor === 'system') return { name: 'board', role: 'board' };
-  if (actor === 'operator') return { name: 'operator', role: 'board' };
-  const parsed = parseActorId(actor);
-  if (parsed?.actor !== 'agent') throw new Error('Invalid actor');
-  return { name: parsed.actorRef.project, role: personaRole(authorRole(config, task, actor)) };
-}
-
-async function queueBlockOpen(
-  trx: Trx,
-  task: Task,
-  block: Block,
-  ctx: CommandContext,
-  config: Config,
-): Promise<void> {
-  if (authorRole(config, task, block.author) === 'operator') return;
-  const comments = await trx
-    .selectFrom('comment')
-    .select(['id', 'author'])
-    .where('block_id', '=', block.id)
-    .orderBy('id')
-    .execute();
-  const opened = await enqueueConversationOpen(trx, {
-    blockId: block.id,
-    commentId: comments[0]?.id ?? null,
-    persona: personaFor(config, task, comments[0]?.author ?? block.author),
-    at: new Date(ctx.at),
-  });
-  if (opened === null) return;
-  for (const comment of comments.slice(1)) {
-    await enqueueConversationReply(trx, {
-      commentId: comment.id,
-      persona: personaFor(config, task, comment.author),
-      at: new Date(ctx.at),
-    });
-  }
-}
-
 async function hasWorker(trx: Trx, task: Task): Promise<boolean> {
   const link = await trx
     .selectFrom('link')
@@ -330,14 +249,22 @@ async function addComment(
     .returningAll()
     .executeTakeFirstOrThrow();
   await journal(trx, task, ctx, 'comment_added', { comment: commentId(row.id), addressee });
-  if (block !== undefined && source === undefined && ringsAuthor && ctx.actor !== block.author) {
-    await registerAnswerNotification(trx, {
-      block,
-      commentId: row.id,
-      revision: row.revision,
-      authorRole: authorRole(config, task, block.author),
-      at: new Date(ctx.at),
-    });
+  // A note or a withdrawal comment is not an answer, so it rings nobody.
+  if (ringsAuthor) {
+    await applyDoorbellPolicy(
+      trx,
+      block === undefined
+        ? { kind: 'task_comment' }
+        : {
+            kind: 'answer',
+            block,
+            commentId: row.id,
+            revision: row.revision,
+            authorRole: authorRole(config, task, block.author),
+            actor: ctx.actor,
+          },
+      new Date(ctx.at),
+    );
   }
   if (block !== undefined && source === undefined) {
     await enqueueConversationReply(trx, {
@@ -378,7 +305,11 @@ async function openBlock(
     .returningAll()
     .executeTakeFirstOrThrow();
   await journal(trx, task, ctx, 'block_opened', { block: blockId(row.id), type, addressee });
-  await registerBlockNotification(trx, row, new Date(ctx.at));
+  await applyDoorbellPolicy(
+    trx,
+    { kind: 'block_opened', block: row, authorRole: authorRole(config, task, ctx.actor) },
+    new Date(ctx.at),
+  );
   return row;
 }
 
@@ -442,7 +373,7 @@ export async function recordInboundBlockMessage(
   block: Block;
   task: Task;
   answered: boolean;
-  workerAuthor: boolean;
+  authorRole: AddresseeRole;
 }> {
   const block = await trx
     .selectFrom('block')
@@ -474,7 +405,7 @@ export async function recordInboundBlockMessage(
     block: updated,
     task,
     answered,
-    workerAuthor: authorRole(input.config, task, block.author) === 'worker',
+    authorRole: authorRole(input.config, task, block.author),
   };
 }
 
@@ -513,15 +444,18 @@ export async function editInboundComment(
       .selectAll()
       .where('id', '=', updated.block_id)
       .executeTakeFirstOrThrow();
-    if (input.actor !== block.author) {
-      await registerAnswerNotification(trx, {
+    await applyDoorbellPolicy(
+      trx,
+      {
+        kind: 'answer',
         block,
         commentId: updated.id,
         revision: updated.revision,
         authorRole: authorRole(input.config, task, block.author),
-        at: new Date(input.at),
-      });
-    }
+        actor: input.actor,
+      },
+      new Date(input.at),
+    );
   }
   return updated;
 }
@@ -594,26 +528,19 @@ export function createBlockMutations(config: Config) {
       // An earlier addressee passes authorization to retry; only the current one moves the block.
       const target = await authorizationTarget(trx, task, block);
       if (!holdsBlock(config, ctx.actor, target)) return unchanged();
-      const updated = await trx
-        .updateTable('block')
-        .set({ addressee_role: next.addressee })
-        .where('id', '=', block.id)
-        .returningAll()
-        .executeTakeFirstOrThrow();
-      await journal(trx, task, ctx, 'block_escalated', {
-        block: input.block,
-        from: block.addressee_role,
+      const updated = await moveBlockToAddressee(trx, {
+        task,
+        block,
         to: next.addressee,
+        ctx,
+        config,
       });
-      await closeBlockNotification(trx, block.id, new Date(ctx.at));
-      await queueBlockOpen(trx, task, updated, ctx, config);
       // After the open, so the note is a reply and never replaces the original text at the head.
       if (input.note !== undefined) {
         await addComment(trx, task, updated, input.note, ctx, next.addressee, config, {
           ringsAuthor: false,
         });
       }
-      await registerBlockNotification(trx, updated, new Date(ctx.at));
       return { block: blockView(updated, task) };
     },
   };
@@ -674,6 +601,14 @@ export function createBlockMutations(config: Config) {
         ctx,
         decision.outcome,
         decision.outcomeReason,
+      );
+      const closedByAddressee = input.mode === 'done' || holdsBlock(config, ctx.actor, target);
+      await applyDoorbellPolicy(
+        trx,
+        closedByAddressee
+          ? { kind: 'block_closed_by_addressee' }
+          : { kind: 'block_removed', block: updated },
+        new Date(ctx.at),
       );
       return { block: blockView(updated, task) };
     },
@@ -747,6 +682,7 @@ export function createBlockMutations(config: Config) {
             blockId: block.id,
             actor: ctx.actor,
             at: new Date(ctx.at),
+            config,
           });
           if (!read) throw new CommandError('not_found', 'No unread block notification.');
           continue;
@@ -759,6 +695,7 @@ export function createBlockMutations(config: Config) {
           revision,
           actor: ctx.actor,
           at: new Date(ctx.at),
+          config,
         });
         await trx
           .updateTable('comment')

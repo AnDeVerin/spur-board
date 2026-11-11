@@ -16,7 +16,7 @@ import {
 } from 'node:fs';
 import { basename, join } from 'node:path';
 import { startAdapters, type AdapterRunner } from '@spur-board/adapters';
-import { COLUMN_IDS, configSchema, type Config } from '@spur-board/contracts';
+import { COLUMN_IDS, configSchema, userIdSchema, type Config } from '@spur-board/contracts';
 import { openStore } from '@spur-board/core';
 import {
   acquireLock,
@@ -28,6 +28,7 @@ import {
   type InProcessOptions,
   type Paths,
 } from '@spur-board/daemon/in-process';
+import { startFakeSlackApi, type FakeSlackApi } from '@spur-board/gateway-slack/testing';
 import { installNetworkGuard } from '@spur-board/testkit';
 import YAML from 'yaml';
 import type { RouteResult } from './control.ts';
@@ -46,6 +47,8 @@ export { StandRefusedError } from './guards.ts';
 
 type Env = Readonly<Record<string, string | undefined>>;
 
+type ClickInput = Parameters<FakeSlackApi['platform']['inject']>[0];
+
 export const WAIT_CONDITIONS = ['api-ready', 'sources-polled', 'outbox-drained'] as const;
 const WAIT_STEP_MS = 100;
 /** The Spur project of each role session; both are `spurProjects` of the stand project. */
@@ -55,7 +58,14 @@ const SECRETS = {
   GITHUB_TOKEN: 'stand-dummy-github',
   JIRA_EMAIL: 'stand@stand.invalid',
   JIRA_API_TOKEN: 'stand-dummy-jira',
+  SLACK_BOT_TOKEN: 'stand-dummy-slack-bot',
+  SLACK_APP_TOKEN: 'stand-dummy-slack-app',
 };
+const OPERATOR_SLACK = 'U0STANDOP';
+/** Stands for the thread reply that answers a question; Slack shows no button for it. */
+const ANSWER_BUTTON = 'answer';
+/** How long a click may wait for Socket Mode acknowledgements. */
+const CLICK_TIMEOUT_MS = 5_000;
 
 /**
  * The stand's config. Every external host is under `.stand.invalid`: Spur's is answered by the
@@ -97,8 +107,8 @@ export function standConfig(
         operatorGithubLogin: 'stand-agent',
       },
     ],
-    // A Slack user id only: with no Slack channel and no Slack secret no gateway starts.
-    operator: { slack: 'U0STANDOP' },
+    operator: { slack: OPERATOR_SLACK },
+    slack: { channels: { orchestrators: 'C0STANDORCH', feed: 'C0STANDFEED' } },
     digest: { tz: 'UTC' },
     http: { port },
     adapters: {
@@ -270,6 +280,8 @@ export interface StandOptions {
   shutdownTimeoutMs?: number;
   /** Replaces the board tick; a test seam for a daemon that cannot stop cleanly. */
   tick?: NonNullable<InProcessOptions['ports']>['tick'];
+  /** Replaces the wall clock of the daemon and the fake Slack API; a test seam. */
+  clock?: InProcessOptions['clock'];
   /** Replaces the configured Spur URL; a test seam, whose path prefix makes every call drift. */
   spurBaseUrl?: string;
 }
@@ -349,11 +361,11 @@ export async function startStand(options: StandOptions): Promise<Stand> {
     writeSync(logFd, text);
   };
 
-  async function writeHome(): Promise<void> {
+  async function writeHome(slackUrl: string): Promise<void> {
     replaceFile(paths.configFile, `${CONFIG_HEADER}${YAML.stringify(config)}`);
     replaceFile(
       paths.secretsFile,
-      Object.entries(SECRETS)
+      Object.entries({ ...SECRETS, SLACK_API_URL: slackUrl })
         .map(([name, value]) => `${name}=${value}\n`)
         .join(''),
     );
@@ -369,6 +381,11 @@ export async function startStand(options: StandOptions): Promise<Stand> {
     fatal?.(err);
   });
 
+  const clock = options.clock ?? { now: () => Date.now() };
+  const startFake = (port?: number): Promise<FakeSlackApi> =>
+    startFakeSlackApi({ now: () => clock.now(), ...(port === undefined ? {} : { port }) });
+  /** Outlives each daemon: it closes only after the daemon using it has stopped. */
+  let fake: FakeSlackApi | undefined;
   let current:
     | { daemon: InProcessDaemon; runner: ReturnType<typeof runnerController>; spur: FakeSpur }
     | undefined;
@@ -389,7 +406,7 @@ export async function startStand(options: StandOptions): Promise<Stand> {
   async function startDaemon(): Promise<NonNullable<typeof current>> {
     const spur = createFakeSpur({
       baseUrl: SPUR_BASE_URL,
-      now: () => Date.now(),
+      now: () => clock.now(),
       log,
       sessions: (['worker', 'orchestrator'] as const).map((role) => ({
         id: roles[role],
@@ -409,7 +426,7 @@ export async function startStand(options: StandOptions): Promise<Stand> {
       paths,
       acquireLock,
       loadConfig,
-      clock: { now: () => Date.now() },
+      clock,
       stdout: { write: log },
       writeErr: log,
       ports: {
@@ -486,15 +503,7 @@ export async function startStand(options: StandOptions): Promise<Stand> {
       .select(['id', 'kind', 'state'])
       .where('state', 'in', ['pending', 'in_flight'])
       .execute();
-    return pending.length === 0
-      ? { ok: true }
-      : {
-          ok: false,
-          diagnostics: {
-            pending,
-            note: 'Gateway rows stay pending: the stand has no messenger gateway yet.',
-          },
-        };
+    return pending.length === 0 ? { ok: true } : { ok: false, diagnostics: { pending } };
   }
 
   const routes = {
@@ -563,7 +572,14 @@ export async function startStand(options: StandOptions): Promise<Stand> {
         retiring = undefined;
         for (const suffix of ['', '-wal', '-shm'])
           rmSync(`${paths.dbFile}${suffix}`, { force: true });
-        await writeHome();
+        const previous = fake;
+        if (previous === undefined) throw new Error('The fake Slack API is not running.');
+        // The same port keeps SLACK_API_URL stable; a new instance drops everything it held.
+        const port = Number(new URL(previous.url).port);
+        fake = undefined;
+        await previous.close();
+        fake = await startFake(port);
+        await writeHome(fake.url);
         current = await startDaemon();
         writeCurrentManifest(current.daemon.address, controlUrl());
       } catch (err) {
@@ -591,13 +607,93 @@ export async function startStand(options: StandOptions): Promise<Stand> {
       const log = current.spur.violations();
       return Promise.resolve({ status: log.total === 0 ? 200 : 409, body: log });
     },
+    async slackOutbox(): Promise<RouteResult> {
+      const api = runningFake();
+      if (api === undefined) return { status: 503, body: { error: 'The daemon is not running.' } };
+      const messages = await api.platform.messages();
+      return {
+        status: 200,
+        body: {
+          messages: messages.map((message, index) => ({ n: index + 1, ...message })),
+          violations: api.violations(),
+        },
+      };
+    },
+    async slackClick(body: {
+      message: number;
+      button: string;
+      text?: string;
+    }): Promise<RouteResult> {
+      const api = runningFake();
+      if (api === undefined) return { status: 503, body: { error: 'The daemon is not running.' } };
+      const target = (await api.platform.messages())[body.message - 1];
+      if (target === undefined)
+        return { status: 404, body: { error: `No message ${String(body.message)}.` } };
+      const author = userIdSchema.parse(OPERATOR_SLACK);
+      let input: ClickInput;
+      if (body.button === ANSWER_BUTTON) {
+        if (body.text === undefined || body.text.trim() === '')
+          return { status: 400, body: { error: 'answer needs text.' } };
+        input = { kind: 'message', conversation: target.conversation, author, text: body.text };
+      } else {
+        if (body.text !== undefined)
+          return { status: 400, body: { error: 'Only answer takes text.' } };
+        if (!target.actions.includes(body.button))
+          return {
+            status: 400,
+            body: { error: 'The message has no such button.', actions: target.actions },
+          };
+        input = { kind: 'action', message: target.message, actionId: body.button, author };
+      }
+      return boundedClick(api, input);
+    },
   };
 
+  /** The fake, unless a reset or a stop has taken the daemon away from it. */
+  function runningFake(): FakeSlackApi | undefined {
+    return current === undefined ? undefined : fake;
+  }
+
   /**
-   * Stops the stand once. The fake closes first, so no held request stalls what follows; then
-   * control, which waits for a queued reset; then the fake of any daemon that reset started, and
-   * the current daemon. The log stays open and `exited` waits until the current daemon and any daemon
-   * a reset retired have released their store and lock. A failed reset makes the result 1.
+   * A probe first: the fake reports success for an action sent on a closed socket, and an action
+   * must not run once the bound has passed. Ephemeral replies are awaited before the ack.
+   */
+  async function boundedClick(api: FakeSlackApi, input: ClickInput): Promise<RouteResult> {
+    const bound = AbortSignal.timeout(CLICK_TIMEOUT_MS);
+    const noAck: RouteResult = {
+      status: 504,
+      body: { error: `No Socket Mode ack in ${String(CLICK_TIMEOUT_MS / 1_000)} s.` },
+    };
+    const run = async (): Promise<RouteResult> => {
+      try {
+        await api.emitEnvelope('probe', {});
+      } catch (err) {
+        return { status: 503, body: { error: errorMessage(err) } };
+      }
+      if (bound.aborted) return noAck;
+      const seen = api.requests().length;
+      await api.platform.inject(input);
+      const responses = api
+        .requests()
+        .slice(seen)
+        .filter((request) => request.method === 'chat.postEphemeral')
+        .map((request) => request.params['text']);
+      return { status: 200, body: { ok: true, responses } };
+    };
+    const expired = new Promise<RouteResult>((resolve) => {
+      bound.addEventListener('abort', () => {
+        resolve(noAck);
+      });
+    });
+    return Promise.race([run(), expired]);
+  }
+
+  /**
+   * Stops the stand once. The fake Spur closes first, so no held request stalls what follows;
+   * then control, which waits for a queued reset; then the fake Spur of any daemon that reset
+   * started, and the current daemon, and only then the fake Slack API. The log stays open and
+   * `exited` waits until the current daemon and any daemon a reset retired have released their
+   * store and lock. A failed reset makes the result 1.
    */
   function stop(code?: number): Promise<number> {
     resolveShutdownBegun();
@@ -609,6 +705,13 @@ export async function startStand(options: StandOptions): Promise<Stand> {
       running?.spur.close();
       const daemonCode = running === undefined ? 0 : await running.daemon.stop();
       await Promise.all([running?.daemon.teardown, retiring?.teardown]);
+      try {
+        await fake?.close();
+      } catch (err) {
+        failure ??= 1;
+        log(`The fake Slack API did not close: ${errorMessage(err)}\n`);
+      }
+      fake = undefined;
       closeSync(logFd);
       const result = code ?? failure ?? daemonCode;
       resolveExited(result);
@@ -618,7 +721,8 @@ export async function startStand(options: StandOptions): Promise<Stand> {
   }
 
   try {
-    await writeHome();
+    fake = await startFake();
+    await writeHome(fake.url);
     current = await startDaemon();
     control = await startControl({ token: controlToken, routes });
     writeCurrentManifest(current.daemon.address, control.url);

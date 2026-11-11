@@ -6,7 +6,7 @@ import {
 } from '@spur-board/contracts';
 import { describe, expect, it, vi } from 'vitest';
 import { createSlackGateway } from '../src/index.ts';
-import { startFakeSlackApi } from './fake-api.ts';
+import { startFakeSlackApi } from '@spur-board/gateway-slack/testing';
 
 // The Socket Mode SDK waits five seconds before its first automatic reconnect.
 vi.setConfig({ testTimeout: 15_000 });

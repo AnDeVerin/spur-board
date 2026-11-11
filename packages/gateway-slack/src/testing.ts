@@ -14,8 +14,8 @@ import type {
   VisibleConversation,
   VisibleMessage,
 } from '@spur-board/gateway-testkit';
-import { parseRef } from '../src/ref.ts';
-import { markerFromBlocks } from '../src/render.ts';
+import { parseRef } from './ref.ts';
+import { markerFromBlocks } from './render.ts';
 
 interface StoredMessage {
   channel: string;
@@ -39,6 +39,8 @@ export interface FakeSlackApi {
   url: string;
   platform: ConformancePlatform;
   requests(): readonly FakeRequest[];
+  /** Requests for a Slack method the fake does not implement. */
+  violations(): readonly FakeRequest[];
   respondNext(status: number, body?: object, headers?: Record<string, string>): void;
   networkErrorNext(): void;
   searchUnknownNext(): void;
@@ -88,11 +90,12 @@ async function readForm(req: IncomingMessage): Promise<URLSearchParams> {
 }
 
 export async function startFakeSlackApi(
-  options: { pageSize?: number; now?: () => number } = {},
+  options: { pageSize?: number; now?: () => number; port?: number } = {},
 ): Promise<FakeSlackApi> {
   const pageSize = options.pageSize ?? 100;
   const now = options.now ?? (() => Date.now());
   const requests: FakeRequest[] = [];
+  const violations: FakeRequest[] = [];
   const stored: StoredMessage[] = [];
   const done = new Set<string>();
   let nextFault: Fault | undefined;
@@ -162,7 +165,8 @@ export async function startFakeSlackApi(
       req.method === 'GET'
         ? new URLSearchParams(new URL(req.url ?? '', 'http://localhost').search)
         : await readForm(req);
-    requests.push({ method, params: Object.fromEntries(form) });
+    const params = Object.fromEntries(form);
+    requests.push({ method, params });
     const write =
       method === 'chat.postMessage' || method === 'chat.update' || method === 'reactions.add';
     const fault = nextFault;
@@ -304,6 +308,7 @@ export async function startFakeSlackApi(
         result = { ok: true, message_ts: ts() };
         break;
       default:
+        violations.push({ method, params });
         result = { ok: false, error: 'unknown_method' };
     }
     if (timedOut) {
@@ -320,6 +325,9 @@ export async function startFakeSlackApi(
     });
   });
   const sockets = new WebSocketServer({ server, path: '/socket' });
+  // The server re-emits the HTTP server's errors and would throw without a listener; a failed
+  // listen still rejects through `once` below.
+  sockets.on('error', () => undefined);
   function activate(ws: WebSocket): void {
     connected = ws;
     waitingSocket = undefined;
@@ -328,6 +336,8 @@ export async function startFakeSlackApi(
     connectedWaiters.clear();
   }
   sockets.on('connection', (ws) => {
+    // A malformed frame raises `error`; `close` still follows and clears the connection.
+    ws.on('error', () => undefined);
     ws.on('message', (raw) => {
       try {
         const wire = Array.isArray(raw)
@@ -352,7 +362,7 @@ export async function startFakeSlackApi(
     if (acceptSocket) activate(ws);
     else waitingSocket = ws;
   });
-  server.listen(0, '127.0.0.1');
+  server.listen(options.port ?? 0, '127.0.0.1');
   await once(server, 'listening');
   const address = server.address() as AddressInfo;
 
@@ -559,6 +569,7 @@ export async function startFakeSlackApi(
     url: `http://127.0.0.1:${String(address.port)}/api/`,
     platform,
     requests: () => requests,
+    violations: () => violations,
     respondNext(status, body = { ok: false, error: 'fake_error' }, headers = {}) {
       nextFault = { kind: 'response', status, body, headers };
     },
