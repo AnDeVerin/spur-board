@@ -552,8 +552,12 @@ describe('daemon doctor checks', () => {
     });
     expect(
       report.checks
-        .filter((check) => check.id !== 'link.rules' && check.id !== 'curator.sessions')
-        .every((check) => check.status === 'pass' && check.fix === null),
+        .filter((check) => check.id !== 'link.rules')
+        // curator.sessions passes with text naming each project's curator.
+        .every(
+          (check) =>
+            check.status === 'pass' && (check.id === 'curator.sessions' || check.fix === null),
+        ),
     ).toBe(true);
     expect(JSON.stringify(report)).not.toMatch(/secret-canary/);
   });
