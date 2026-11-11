@@ -1,9 +1,10 @@
-import type {
-  ActorId,
-  AddresseeRole,
-  Config,
-  EventKind,
-  EventPayload,
+import {
+  parseActorId,
+  type ActorId,
+  type AddresseeRole,
+  type Config,
+  type EventKind,
+  type EventPayload,
 } from '@spur-board/contracts';
 import type { Kysely, Selectable } from 'kysely';
 import type { BlockTable, CommentTable, Tables, TaskTable } from '../store/schema.ts';
@@ -15,12 +16,13 @@ import {
   closeBlock,
   editComment,
   escalateBlock,
+  parseAddressee,
   priorAddressees,
   type CurrentBlock,
 } from '../domain/blocks/blocks.ts';
 import { authorize, curatorProject, type ResolvedTarget } from './authorize.ts';
 import { authorRole, orchestrator, personaFor, queueBlockOpen } from './block-thread.ts';
-import { emit } from './board-utils.ts';
+import { emit, taskUrl } from './board-utils.ts';
 import { CommandError, type CommandContext, type Mutation } from './commands.ts';
 import {
   acknowledgeNotification,
@@ -29,8 +31,11 @@ import {
   moveBlockToAddressee,
 } from './doorbells.ts';
 import { clearItem } from './feed.ts';
-import { enqueueConversationReply } from './outbox.ts';
-import { enqueueConversationClose } from './outbox.ts';
+import {
+  enqueueConversationClose,
+  enqueueConversationReply,
+  enqueueCuratorAnswerLine,
+} from './outbox.ts';
 
 type Task = Selectable<TaskTable>;
 type Block = Selectable<BlockTable>;
@@ -461,6 +466,44 @@ export async function editInboundComment(
 }
 
 /** Concrete block and comment mutations for the generic apply boundary. */
+/** Posts a curator's answer to the feed; an operator answer is already on the board. */
+async function queueCuratorAnswerLine(
+  trx: Trx,
+  task: Task,
+  block: Block,
+  answer: Comment,
+  ctx: CommandContext,
+  config: Config,
+): Promise<void> {
+  if (parseAddressee(block.addressee_role).kind !== 'curator') return;
+  if (authorRole(config, task, ctx.actor) === 'operator') return;
+  const curator = parseActorId(ctx.actor);
+  if (curator?.actor !== 'agent') return;
+  const asker = parseActorId(block.author);
+  const question = await trx
+    .selectFrom('comment')
+    .select('text')
+    .where('block_id', '=', block.id)
+    .where('id', '<', answer.id)
+    .orderBy('id')
+    .executeTakeFirst();
+  await enqueueCuratorAnswerLine(trx, {
+    taskId: task.id,
+    key: task.key,
+    url: taskUrl(task, config),
+    blockId: block.id,
+    commentId: answer.id,
+    asker:
+      asker?.actor === 'agent'
+        ? `${asker.actorRef.project}/${asker.actorRef.session}`
+        : block.author,
+    question: question?.text ?? block.reason,
+    answer: answer.text,
+    curator: curator.actorRef.project,
+    at: new Date(ctx.at),
+  });
+}
+
 export function createBlockMutations(config: Config) {
   const ask: Mutation<'block.ask'> = {
     id: 'block.ask',
@@ -564,6 +607,7 @@ export function createBlockMutations(config: Config) {
         config,
       );
       const updated = await closeOpenBlock(trx, task, block, ctx, 'done', null);
+      await queueCuratorAnswerLine(trx, task, block, comment, ctx, config);
       return { block: blockView(updated, task), comment: commentView(comment, task) };
     },
   };

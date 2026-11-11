@@ -2,12 +2,14 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { configSchema, type ActorId, type ColumnId, type Config } from '@spur-board/contracts';
+import { createFakeGateway } from '@spur-board/gateway-testkit';
 import { sql } from 'kysely';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   CommandError,
   createApply,
   createBlockMutations,
+  createSender,
   openStore,
   type Store,
 } from '../../src/index.ts';
@@ -15,6 +17,7 @@ import { editInboundComment } from '../../src/app/blocks.ts';
 import { reconcileItems } from '../../src/app/fromYou.ts';
 import { scanTransaction } from '../../src/app/secrets.ts';
 import { sampleRows } from '../store/sample-rows.ts';
+import { observeGateway } from '../support/observe.ts';
 
 const KEY = 'o/r#101';
 const NOW = Date.parse('2026-11-03T10:00:00.000Z');
@@ -706,12 +709,13 @@ function withCurator(orchestrators: Partial<Record<ColumnId, string>> = {}): Con
 
 /** A board on the shared seed whose task sits in `column`; `dev` is orchestrated by `qa`. */
 async function curatorBoard(column: ColumnId = 'dev', used: Config = withCurator()) {
-  const { store } = await seeded();
+  const { store, file } = await seeded();
   await store.transaction((trx) =>
     trx.updateTable('task').set({ column }).where('id', '=', 1).execute(),
   );
   return {
     store,
+    file,
     apply: createApply({ store, clock, config: used }),
     ops: createBlockMutations(used),
   };
@@ -980,7 +984,7 @@ describe('curator limits', () => {
   });
 
   it('keeps the operator answer on a curator-addressed question', async () => {
-    const { apply, ops: curated } = await curatorBoard('qa');
+    const { store, apply, ops: curated } = await curatorBoard('qa');
     const { block } = await apply(curated.ask, { task: KEY, text: 'Q?' }, author, 'ask');
     expect(block.addressee).toBe('curator');
     const answered = await apply(
@@ -990,6 +994,12 @@ describe('curator limits', () => {
       'answer',
     );
     expect(answered.block).toMatchObject({ state: 'unblocked', outcome: 'done' });
+    const lines = await store.db
+      .selectFrom('outbox')
+      .select('id')
+      .where('kind', '=', 'feed.line')
+      .execute();
+    expect(lines).toEqual([]);
   });
 
   it('keeps the operator reason on a curator-addressed question', async () => {
@@ -1040,11 +1050,113 @@ describe('curator delivery', () => {
     expect(await operatorItems(store)).toEqual([`operator-block:${block.id.slice(1)}`]);
   });
 
-  it('answers at the curator without writing a thread reply or close', async () => {
-    const { store, apply, ops: curated } = await curatorBoard('qa', used);
+  const feedLines = async (store: Store) =>
+    (
+      await store.db
+        .selectFrom('outbox')
+        .select(['dedupe_key', 'payload'])
+        .where('kind', '=', 'feed.line')
+        .orderBy('id')
+        .execute()
+    ).map((row) => ({
+      dedupeKey: row.dedupe_key,
+      payload: JSON.parse(row.payload) as { text: string },
+    }));
+
+  it('answers at the curator with one feed line and no thread reply or close', async () => {
+    const { store, file, apply, ops: curated } = await curatorBoard('qa', used);
     const { block } = await apply(curated.ask, { task: KEY, text: 'Q?' }, author, 'ask');
     await apply(curated.answer, { block: block.id, text: 'A.' }, curator, 'answer');
-    expect(await store.db.selectFrom('outbox').select('kind').execute()).toEqual([]);
+    expect(await store.db.selectFrom('outbox').select('kind').execute()).toEqual([
+      { kind: 'feed.line' },
+    ]);
+    expect(await store.db.selectFrom('operator_item').select('id').execute()).toEqual([]);
+
+    const observed = observeGateway(createFakeGateway({ profile: 'slack-like' }), file);
+    const sender = createSender({
+      config: used,
+      store,
+      gateway: observed.gateway,
+      spur: { send: () => Promise.resolve() },
+      now: () => new Date(NOW),
+      spaceIntervalMs: 0,
+    });
+    await sender.tick();
+    expect(observed.requests).toHaveLength(1);
+    expect(observed.requests[0]).toMatchObject({
+      target: { kind: 'open', space: 'feed' },
+      persona: { name: 'cur', role: 'curator' },
+    });
+    expect(observed.requests[0]?.body).toEqual([
+      {
+        kind: 'paragraph',
+        children: [{ kind: 'link', url: 'https://github.com/o/r/issues/101', text: KEY }],
+      },
+      {
+        kind: 'quote',
+        children: [{ kind: 'text', text: 'B1 · web/worker-1 asked: Q? → curator answered: A.' }],
+      },
+    ]);
+    expect(observed.requests[0]?.actions).toBeUndefined();
+    expect(observed.violations).toEqual([]);
+  });
+
+  it('writes no second curator line on a replay', async () => {
+    const { store, apply, ops: curated } = await curatorBoard('qa', used);
+    const { block } = await apply(curated.ask, { task: KEY, text: 'Q?' }, author, 'ask');
+    const input = { block: block.id, text: 'A.' };
+    const first = await apply(curated.answer, input, curator, 'answer');
+    const before = await counts(store);
+    const again = await apply(curated.answer, input, curator, 'answer');
+    expect(again).toEqual(first);
+    expect(await counts(store)).toEqual(before);
+    expect((await feedLines(store)).map((line) => line.dedupeKey)).toEqual([
+      `feed.line:curator-answer:comment:${first.comment.id.slice(1)}`,
+    ]);
+  });
+
+  it('shortens the question and answer in the line and keeps the full answer', async () => {
+    const { store, apply, ops: curated } = await curatorBoard('qa', used);
+    const question = `Why\n  ${'q'.repeat(150)}`;
+    const answer = 'a'.repeat(300);
+    const { block } = await apply(curated.ask, { task: KEY, text: question }, author, 'ask');
+    const answered = await apply(curated.answer, { block: block.id, text: answer }, curator, 'a');
+    const [line] = await feedLines(store);
+    expect(line?.payload.text).toBe(
+      `B1 · web/worker-1 asked: Why ${'q'.repeat(115)}… → curator answered: ${'a'.repeat(199)}…`,
+    );
+    const comment = await store.db
+      .selectFrom('comment')
+      .select(['text', 'delivery_state'])
+      .where('id', '=', Number(answered.comment.id.slice(1)))
+      .executeTakeFirstOrThrow();
+    expect(comment).toEqual({ text: answer, delivery_state: null });
+  });
+
+  it.each([
+    ['the operator', 'qa', 'operator'],
+    ['an operator-role agent', 'qa', operatorAgent],
+    ['the column orchestrator', 'dev', orchestrator],
+  ] as const)('writes no curator line when %s answers', async (_who, column, actor) => {
+    const { store, apply, ops: curated } = await curatorBoard(column, used);
+    const { block } = await apply(curated.ask, { task: KEY, text: 'Q?' }, author, 'ask');
+    expect(block.addressee).toBe(column === 'dev' ? 'orchestrator:dev' : 'curator');
+    await apply(curated.answer, { block: block.id, text: 'A.' }, actor, 'answer');
+    expect(await feedLines(store)).toEqual([]);
+  });
+
+  it('writes the line when the curator also orchestrates the task column', async () => {
+    const dual = withCurator({ qa: 'cur' });
+    const { store, apply, ops: curated } = await curatorBoard('dev', dual);
+    const { block } = await apply(curated.ask, { task: KEY, text: 'Q?' }, orchestrator, 'ask');
+    expect(block.addressee).toBe('curator');
+    await store.transaction((trx) =>
+      trx.updateTable('task').set({ column: 'qa' }).where('id', '=', 1).execute(),
+    );
+    await apply(curated.answer, { block: block.id, text: 'A.' }, curator, 'answer');
+    expect((await feedLines(store)).map((line) => line.payload.text)).toEqual([
+      'B1 · qa/qa-1 asked: Q? → curator answered: A.',
+    ]);
   });
 
   it('opens the thread of a curator question under the orchestrator persona', async () => {
