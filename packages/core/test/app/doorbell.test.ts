@@ -220,7 +220,7 @@ describe('role addressed doorbells', () => {
     });
     const select = (role: 'curator' | 'orchestrator:dev') =>
       ctx.store.transaction((trx) =>
-        selectNotificationRecipient(trx, { task_id: 1, role, author_session: null }),
+        selectNotificationRecipient(trx, { task_id: 1, role, author_session: null }, config),
       );
     expect(await select('curator')).toBeUndefined();
     expect((await select('orchestrator:dev'))?.id).toBe('orchestrator-1');

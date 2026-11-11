@@ -132,9 +132,10 @@ delivered: <reason>" (for a worker block, "worker <session> did not get block B<
 <reason>"). The reason names the HTTP status and Spur's error, for example
 `Spur send failed with HTTP 404: Session not found`, or reads
 "no answer from Spur for 30 min" when every send failed for 30 minutes. The Board stops ringing
-at once instead of retrying. A doorbell for an answer posted in a Slack thread raises
-"Answer author unavailable: <reason>" instead; that item has no retry, so pass the answer to the
-session that has the task, then close the item.
+at once instead of retrying. An answer posted in a Slack thread follows the same path. If no
+session can read it when it is posted, the Board also raises "Answer author unavailable" and keeps
+the answer waiting for the next session; pass the answer on yourself if none is coming, then close
+that item.
 
 **Check.**
 

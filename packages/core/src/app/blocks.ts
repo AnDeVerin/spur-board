@@ -24,9 +24,9 @@ import { emit } from './board-utils.ts';
 import { CommandError, type CommandContext, type Mutation } from './commands.ts';
 import {
   acknowledgeNotification,
+  applyDoorbellPolicy,
   closeBlockNotification,
-  registerAnswerNotification,
-  registerBlockNotification,
+  moveBlockToAddressee,
 } from './doorbells.ts';
 import { clearItem } from './feed.ts';
 import { enqueueConversationReply } from './outbox.ts';
@@ -240,15 +240,20 @@ async function addComment(
     .returningAll()
     .executeTakeFirstOrThrow();
   await journal(trx, task, ctx, 'comment_added', { comment: commentId(row.id), addressee });
-  if (block !== undefined && source === undefined && ctx.actor !== block.author) {
-    await registerAnswerNotification(trx, {
-      block,
-      commentId: row.id,
-      revision: row.revision,
-      authorRole: authorRole(config, task, block.author),
-      at: new Date(ctx.at),
-    });
-  }
+  await applyDoorbellPolicy(
+    trx,
+    block === undefined
+      ? { kind: 'task_comment' }
+      : {
+          kind: 'answer',
+          block,
+          commentId: row.id,
+          revision: row.revision,
+          authorRole: authorRole(config, task, block.author),
+          actor: ctx.actor,
+        },
+    new Date(ctx.at),
+  );
   if (block !== undefined && source === undefined) {
     await enqueueConversationReply(trx, {
       commentId: row.id,
@@ -288,7 +293,11 @@ async function openBlock(
     .returningAll()
     .executeTakeFirstOrThrow();
   await journal(trx, task, ctx, 'block_opened', { block: blockId(row.id), type, addressee });
-  await registerBlockNotification(trx, row, new Date(ctx.at));
+  await applyDoorbellPolicy(
+    trx,
+    { kind: 'block_opened', block: row, authorRole: authorRole(config, task, ctx.actor) },
+    new Date(ctx.at),
+  );
   return row;
 }
 
@@ -352,7 +361,7 @@ export async function recordInboundBlockMessage(
   block: Block;
   task: Task;
   answered: boolean;
-  workerAuthor: boolean;
+  authorRole: AddresseeRole;
 }> {
   const block = await trx
     .selectFrom('block')
@@ -384,7 +393,7 @@ export async function recordInboundBlockMessage(
     block: updated,
     task,
     answered,
-    workerAuthor: authorRole(input.config, task, block.author) === 'worker',
+    authorRole: authorRole(input.config, task, block.author),
   };
 }
 
@@ -416,15 +425,18 @@ export async function editInboundComment(
       .selectAll()
       .where('id', '=', updated.block_id)
       .executeTakeFirstOrThrow();
-    if (input.actor !== block.author) {
-      await registerAnswerNotification(trx, {
+    await applyDoorbellPolicy(
+      trx,
+      {
+        kind: 'answer',
         block,
         commentId: updated.id,
         revision: updated.revision,
         authorRole: authorRole(input.config, task, block.author),
-        at: new Date(input.at),
-      });
-    }
+        actor: input.actor,
+      },
+      new Date(input.at),
+    );
   }
   return updated;
 }
@@ -488,20 +500,13 @@ export function createBlockMutations(config: Config) {
       // An earlier addressee passes authorization to retry; only the current one moves the block.
       const target = await authorizationTarget(trx, task, block);
       if (!holdsBlock(config, ctx.actor, target)) return { block: blockView(block, task) };
-      const updated = await trx
-        .updateTable('block')
-        .set({ addressee_role: next.addressee })
-        .where('id', '=', block.id)
-        .returningAll()
-        .executeTakeFirstOrThrow();
-      await journal(trx, task, ctx, 'block_escalated', {
-        block: input.block,
-        from: block.addressee_role,
+      const updated = await moveBlockToAddressee(trx, {
+        task,
+        block,
         to: next.addressee,
+        ctx,
+        config,
       });
-      await closeBlockNotification(trx, block.id, new Date(ctx.at));
-      await queueBlockOpen(trx, task, updated, ctx, config);
-      await registerBlockNotification(trx, updated, new Date(ctx.at));
       return { block: blockView(updated, task) };
     },
   };
@@ -555,6 +560,16 @@ export function createBlockMutations(config: Config) {
         ctx,
         decision.outcome,
         decision.outcomeReason,
+      );
+      const closedByAddressee =
+        input.mode === 'done' ||
+        holdsBlock(config, ctx.actor, await authorizationTarget(trx, task, block));
+      await applyDoorbellPolicy(
+        trx,
+        closedByAddressee
+          ? { kind: 'block_closed_by_addressee' }
+          : { kind: 'block_removed', block: updated },
+        new Date(ctx.at),
       );
       return { block: blockView(updated, task) };
     },
@@ -628,6 +643,7 @@ export function createBlockMutations(config: Config) {
             blockId: block.id,
             actor: ctx.actor,
             at: new Date(ctx.at),
+            config,
           });
           if (!read) throw new CommandError('not_found', 'No unread block notification.');
           continue;
@@ -640,6 +656,7 @@ export function createBlockMutations(config: Config) {
           revision,
           actor: ctx.actor,
           at: new Date(ctx.at),
+          config,
         });
         await trx
           .updateTable('comment')

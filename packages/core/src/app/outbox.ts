@@ -120,8 +120,9 @@ type Trx = Kysely<Tables>;
 
 /**
  * A distinct semantic ring. Transport retries reuse this row and its text. A restarted series
- * (`series` > 0) and a ring after the task was archived (`archives` > 0) get their own keys, so a
- * ring cancelled by an archive does not block its replacement; unsuffixed keys stay as before.
+ * (`series` > 0), a ring after the task was archived (`archives` > 0) and a ring after a move
+ * killed an earlier one (`moves` > 0) get their own keys, so a cancelled ring does not block its
+ * replacement; unsuffixed keys stay as before.
  */
 export async function enqueueDoorbell(
   trx: Trx,
@@ -133,15 +134,17 @@ export async function enqueueDoorbell(
     at: Date;
     series?: number;
     archives?: number;
+    moves?: number;
   },
 ): Promise<number> {
   const series = input.series ?? 0;
   const archives = input.archives ?? 0;
+  const moves = input.moves ?? 0;
   const row = await insertOutbox(trx, {
     kind: 'doorbell',
     dedupeKey: `doorbell:${String(input.notificationId)}:${input.session}:${String(input.ring)}${
       series > 0 ? `:s${String(series)}` : ''
-    }${archives > 0 ? `:a${String(archives)}` : ''}`,
+    }${archives > 0 ? `:a${String(archives)}` : ''}${moves > 0 ? `:m${String(moves)}` : ''}`,
     payload: {
       notificationId: input.notificationId,
       ring: input.ring,
@@ -546,17 +549,4 @@ export async function enqueueConversationClose(
     .where('block_id', '=', input.blockId)
     .where('state', '=', 'open')
     .execute();
-}
-
-export async function enqueueInboundDoorbell(
-  trx: Trx,
-  input: { key: string; session: string; text: string; at: Date },
-): Promise<void> {
-  await insertOutbox(trx, {
-    kind: 'doorbell',
-    dedupeKey: input.key,
-    payload: { session: input.session, text: input.text },
-    parent: null,
-    at: input.at,
-  });
 }

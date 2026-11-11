@@ -242,6 +242,19 @@ describe('CLI against the real HTTP API', () => {
         blocks: [{ id: 'B1', addressee: 'curator' }],
       });
 
+      const acked = capture();
+      expect(
+        await runCli(['inbox', 'ack', 'B1', '--json'], {
+          clientConfig: clientConfig('cur-1'),
+          io: acked.io,
+        }),
+      ).toBe(0);
+      expect(
+        await store.db.selectFrom('notification').select(['kind', 'role', 'acked_at']).execute(),
+      ).toEqual([
+        { kind: 'block', role: 'curator', acked_at: new Date(clock.now()).toISOString() },
+      ]);
+
       const answered = capture();
       expect(
         await runCli(['answer', 'B1', 'Use v2.', '--json'], {
@@ -253,6 +266,7 @@ describe('CLI against the real HTTP API', () => {
         block: { state: 'unblocked', unblockedBy: 'agent:cur/cur-1' },
       });
       expect(await store.db.selectFrom('notification').select(['kind', 'role']).execute()).toEqual([
+        { kind: 'block', role: 'curator' },
         { kind: 'answer', role: 'worker' },
       ]);
     } finally {

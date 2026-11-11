@@ -1351,7 +1351,7 @@ describe('inbound apply', () => {
     expect(await store.db.selectFrom('operator_item').select('id').execute()).toEqual([]);
   });
 
-  it('rings a non-worker author with a content-free task pointer', async () => {
+  it('rings a non-worker author through a content-free answer notification', async () => {
     const { store, gateway } = await setup('agent:proj/sess-1');
     const operatorConfig = configSchema.parse({
       ...config,
@@ -1374,12 +1374,20 @@ describe('inbound apply', () => {
     );
     const secret = ['xoxb', '123', 'abc'].join('-');
     await inbound.sink(message({ conversation: 'thread-1', root: 'root-1', text: secret }));
+    expect(
+      await store.db
+        .selectFrom('notification')
+        .select(['kind', 'role', 'author_session'])
+        .execute(),
+    ).toEqual([{ kind: 'answer', role: 'operator', author_session: 'sess-1' }]);
+    expect(await store.db.selectFrom('operator_item').select('id').execute()).toEqual([]);
+    await reconcileDueDoorbells(store, operatorConfig, new Date(now));
     const doorbell = await store.db
       .selectFrom('outbox')
       .select('payload')
       .where('kind', '=', 'doorbell')
       .executeTakeFirstOrThrow();
-    const pointer = 'Answer for o/r#101 block B1; read board task o/r#101';
+    const pointer = 'o/r#101 block B1: check board inbox (N1-1)';
     expect(JSON.parse(doorbell.payload)).toMatchObject({ session: 'sess-1', text: pointer });
     expect(doorbell.payload).not.toContain(secret);
     const sends: string[] = [];

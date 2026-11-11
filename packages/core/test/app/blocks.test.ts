@@ -1005,17 +1005,25 @@ describe('curator delivery', () => {
       .map((row) => row.item_key)
       .filter((key) => key.startsWith('operator-block:'));
 
-  it('rings nobody at the curator and opens the thread once at the operator', async () => {
+  it('registers a curator doorbell and opens the thread once at the operator', async () => {
     const { store, apply, ops: curated } = await curatorBoard('qa', used);
     const { block } = await apply(curated.ask, { task: KEY, text: 'Q?' }, author, 'ask');
     expect(block.addressee).toBe('curator');
-    expect(await store.db.selectFrom('notification').select('id').execute()).toEqual([]);
+    const notices = () =>
+      store.db
+        .selectFrom('notification')
+        .select(['kind', 'role', 'acked_at'])
+        .orderBy('id')
+        .execute();
+    expect(await notices()).toEqual([{ kind: 'block', role: 'curator', acked_at: null }]);
     expect(await store.db.selectFrom('outbox').select('id').execute()).toEqual([]);
     await reconcile(store);
     expect(await operatorItems(store)).toEqual([]);
 
     await apply(curated.escalate, { block: block.id }, curator, 'esc');
-    expect(await store.db.selectFrom('notification').select('id').execute()).toEqual([]);
+    expect(await notices()).toEqual([
+      { kind: 'block', role: 'curator', acked_at: new Date(NOW).toISOString() },
+    ]);
     expect(await store.db.selectFrom('outbox').select('kind').execute()).toEqual([
       { kind: 'conversation.open' },
     ]);

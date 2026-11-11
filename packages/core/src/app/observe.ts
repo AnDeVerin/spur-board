@@ -861,6 +861,19 @@ export function createObservationCore(deps: {
               link.session_id === null ? [] : [{ kind: 'session' as const, id: link.session_id }],
             )
           : [];
+      // A curator session has no link, yet a ring needs to know at once when it is gone.
+      const curators = config.projects.flatMap((project) =>
+        project.spurProjects.filter((spur) => spur.role === 'curator').map((spur) => spur.name),
+      );
+      if (source === 'spur' && curators.length > 0) {
+        const rows = await store.db
+          .selectFrom('session_snapshot')
+          .select('id')
+          .where('spur_project', 'in', curators)
+          .where('ended_at', 'is', null)
+          .execute();
+        sessions.push(...rows.map((row) => ({ kind: 'session' as const, id: row.id })));
+      }
       const misses = await store.db
         .selectFrom('source_miss')
         .selectAll()

@@ -118,7 +118,7 @@ export const eventPayloadSchemas = {
   task_added: z.looseObject({ column: z.enum(COLUMN_IDS) }),
   task_archived: z.looseObject({ reason: z.enum(ARCHIVE_REASONS) }),
   block_opened: z.looseObject({ block: S, type: z.enum(BLOCK_TYPES), addressee: role }),
-  block_escalated: z.looseObject({ block: S, from: role, to: role }),
+  block_escalated: z.looseObject({ block: S, from: role, to: role, reason: S.optional() }),
   block_unblocked: z.looseObject({
     block: S,
     outcome: z.enum(BLOCK_OUTCOMES),

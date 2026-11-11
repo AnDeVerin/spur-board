@@ -208,7 +208,7 @@ export function createTaskQueries(config: Config) {
           .executeTakeFirst();
         if (task === undefined || !projects.has(task.project)) continue;
         seen.add(notice.comment_id);
-        if (!(await notificationAddressedTo(trx, notice, actor))) continue;
+        if (!(await notificationAddressedTo(trx, notice, actor, config))) continue;
         const comment = await trx
           .selectFrom('comment')
           .selectAll()
