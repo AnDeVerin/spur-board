@@ -10,7 +10,7 @@ import {
   renderText,
   splitText,
 } from '../src/render.ts';
-import { startFakeSlackApi, type FakeSlackApi } from './fake-api.ts';
+import { startFakeSlackApi, type FakeSlackApi } from '@spur-board/gateway-slack/testing';
 
 const fakes: FakeSlackApi[] = [];
 afterEach(async () => {

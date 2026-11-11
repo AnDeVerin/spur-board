@@ -9,7 +9,7 @@ import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { openStore, requestToken } from '@spur-board/core';
 import { afterEach, describe, expect, it, onTestFinished } from 'vitest';
-import { startFakeSlackApi } from '../../gateway-slack/test/fake-api.ts';
+import { startFakeSlackApi } from '@spur-board/gateway-slack/testing';
 import { loadConfig, resolvePaths } from '../src/config.ts';
 import { acquireLock } from '../src/lock.ts';
 import { copyDatabaseMain, publishedVersion } from '../src/main.ts';

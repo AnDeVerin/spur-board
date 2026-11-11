@@ -338,10 +338,56 @@ describe('wall time ban', () => {
     ['packages/adapters/test/x.test.ts', 'export const t = Date.now();'],
     ['packages/gateway-slack/test/x.ts', 'export const t = Date.now();'],
     ['packages/daemon/src/x.ts', 'export const t = Date.now();'],
+    ['packages/gateway-slack/src/testing.ts', 'export const t = Date.now();'],
   ])(
     '%s: %s passes',
     async (path, code) => {
       expect(await textRuleIds(code, path)).toEqual([]);
+    },
+    30_000,
+  );
+});
+
+describe('Slack fake boundary', () => {
+  const imports = (from: string): string => `import { x } from '${from}';\nexport const y = x;`;
+
+  it.each([
+    ['packages/daemon/src/x.ts', '@spur-board/gateway-slack/testing'],
+    ['packages/core/src/x.ts', '@spur-board/gateway-slack/testing'],
+    ['packages/contracts/src/x.ts', '@spur-board/gateway-slack/testing'],
+    ['packages/daemon/src/x.ts', '../../gateway-slack/src/testing.ts'],
+    ['packages/gateway-slack/src/x.ts', './testing.ts'],
+    ['packages/gateway-slack/src/x.ts', '@spur-board/gateway-slack/testing'],
+  ])(
+    '%s: import of %s reports no-restricted-imports',
+    async (path, from) => {
+      expect(await textRuleIds(imports(from), path)).toEqual(['no-restricted-imports']);
+    },
+    30_000,
+  );
+
+  // The blocks replace earlier import options, so the older bans must still hold there.
+  it.each([
+    ['packages/daemon/src/x.ts', '@spur-board/stand'],
+    ['packages/gateway-slack/src/x.ts', 'better-sqlite3'],
+    ['packages/contracts/src/x.ts', 'node:sqlite'],
+  ])(
+    '%s: import of %s still reports no-restricted-imports',
+    async (path, from) => {
+      expect(await textRuleIds(imports(from), path)).toEqual(['no-restricted-imports']);
+    },
+    30_000,
+  );
+
+  it.each([
+    ['packages/daemon/test/x.test.ts', '@spur-board/gateway-slack/testing'],
+    ['packages/stand/src/x.ts', '@spur-board/gateway-slack/testing'],
+    ['packages/gateway-slack/test/x.test.ts', '@spur-board/gateway-slack/testing'],
+    ['packages/gateway-slack/src/testing.ts', './ref.ts'],
+  ])(
+    '%s: import of %s passes',
+    async (path, from) => {
+      expect(await textRuleIds(imports(from), path)).toEqual([]);
     },
     30_000,
   );

@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { commandUsage, parseCommand } from '../src/commands.ts';
 import { createSlackGateway } from '../src/index.ts';
 import { MAX_PART_TEXT, renderText } from '../src/render.ts';
-import { startFakeSlackApi, type FakeSlackApi } from './fake-api.ts';
+import { startFakeSlackApi, type FakeSlackApi } from '@spur-board/gateway-slack/testing';
 
 const fakes: FakeSlackApi[] = [];
 afterEach(async () => {

@@ -17,7 +17,7 @@ import {
 import { openStore, tickBoard, type Store } from '@spur-board/core';
 import { createSlackGateway } from '@spur-board/gateway-slack';
 import { afterEach, expect, it, vi } from 'vitest';
-import { startFakeSlackApi } from '../../gateway-slack/test/fake-api.ts';
+import { startFakeSlackApi } from '@spur-board/gateway-slack/testing';
 import { createBoardModules } from '../src/board-modules.ts';
 import { runDaemon, type ModuleContext, type ProcessPort } from '../src/lifecycle.ts';
 import { createLogger, logCall } from '../src/logger.ts';
