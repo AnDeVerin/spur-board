@@ -334,6 +334,7 @@ describe('rendering and surface', () => {
 
   it.each([
     ['orchestrator', ':compass:'],
+    ['curator', ':classical_building:'],
     ['worker', ':hammer:'],
     ['board', ':clipboard:'],
   ] as const)('sets persona %s username and icon', async (role, icon) => {

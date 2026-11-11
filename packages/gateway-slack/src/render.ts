@@ -7,6 +7,7 @@ const ORIGIN_PREFIX = 'spur-origin:';
 
 const roleIcons: Record<Persona['role'], string> = {
   orchestrator: ':compass:',
+  curator: ':classical_building:',
   worker: ':hammer:',
   board: ':clipboard:',
 };
