@@ -13,6 +13,17 @@ describe('generated public references', () => {
     expect(configuration).toBe(rendered.configuration);
   });
 
+  it('documents that a session outranks a token and how an unknown Spur project is refused', () => {
+    const section = cli.split('## Daemon address and caller identity')[1]?.split('\n## ')[0];
+    expect(section).toBeDefined();
+    expect(section).toContain(
+      'Inside a Spur session the session wins over a token: `SPUR_SESSION` is sent and neither `BOARD_TOKEN` nor `.spur-board/token` is read.',
+    );
+    expect(section).toContain(
+      "A session whose Spur project is in no `projects[].spurProjects` of the Board's `config.yaml`, or is listed under several Board projects, is refused with `forbidden` (exit 1), and the hint names the Spur project and the fix.",
+    );
+  });
+
   it('covers catalog, setup, and direct binary commands with registered flags', () => {
     const registered = registeredCommands();
     const expected = [...registered.map(({ path }) => path), ...binaryRoutes()];

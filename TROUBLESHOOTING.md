@@ -12,7 +12,8 @@ reached its agent, or a planned pause, follow the [runbook](docs/runbook.md).
 
 Create or correct `config.yaml` using the [configuration reference](docs/configuration.md) and
 [JSON Schema](packages/contracts/config.schema.json). The reported path points to the first
-invalid field. An offline pass checks this file only.
+invalid field. An offline pass checks this file only. A Spur project can be listed under only one
+Board project.
 
 ### service.installed
 
@@ -190,6 +191,15 @@ Install matching CLI and skill versions with `board update`: it restarts the dae
 reinstalls the skills. Then check `board --version` in both the current and live Spur session
 `PATH`, and restart sessions that still use an older skill. If the service unit points to an
 old Node or package path, run `board service install` again.
+
+## Refused Spur session
+
+Inside a Spur session the session wins over a token: `SPUR_SESSION` is sent and neither
+`BOARD_TOKEN` nor `.spur-board/token` is read. A session whose Spur project is in no
+`projects[].spurProjects` of the Board's `config.yaml`, or is listed under several Board
+projects, is refused with `forbidden` (exit 1), and the hint names the Spur project and the fix.
+Keep the Spur project under exactly one Board project in the Board's `config.yaml`, not Spur's
+`spur.yaml`, and restart the Board daemon.
 
 ## Exit codes 3, 4, and 5
 
