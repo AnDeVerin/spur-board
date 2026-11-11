@@ -96,6 +96,14 @@ const globalImportOptions = {
   paths: sqliteImportOptions.paths,
   patterns: [...sqliteImportOptions.patterns, ...standBoundaryPatterns],
 };
+// The fake Slack API is for tests and the stand; production code must not bundle it or `ws`.
+const slackFakeMessage = 'Production code does not import the fake Slack API.';
+const slackFakePatterns = [
+  '^@spur-board/gateway-slack/testing$',
+  'gateway-slack/src/testing([.]ts)?$',
+  // Any relative path ending in testing, so a subdirectory of gateway-slack/src cannot reach it.
+  '^[.]{1,2}/([.]{2}/)*testing([.]ts)?$',
+].map((regex) => ({ regex, caseSensitive: true, message: slackFakeMessage }));
 
 // Adapters reach core through the runner's port, and each adapter folder stays on its own;
 // only `github/client` is shared. Same-rule options replace earlier ones, so every adapters
@@ -245,8 +253,34 @@ export default defineConfig(
     rules: { 'no-restricted-imports': ['error', { patterns: standBoundaryPatterns }] },
   },
   {
-    // Same-rule options replace earlier ones, so the gateway restates both sqlite bans.
+    // Same-rule options replace earlier ones, so this restates the stand ban.
+    files: ['packages/core/src/**/*.ts', 'packages/daemon/src/**/*.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        { patterns: [...standBoundaryPatterns, ...slackFakePatterns] },
+      ],
+    },
+  },
+  {
+    // Same-rule options replace earlier ones, so this restates the global import options.
+    files: ['packages/contracts/src/**/*.ts', 'packages/gateway-slack/src/**/*.ts'],
+    ignores: ['packages/gateway-slack/src/testing.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: globalImportOptions.paths,
+          patterns: [...globalImportOptions.patterns, ...slackFakePatterns],
+        },
+      ],
+    },
+  },
+  {
+    // Same-rule options replace earlier ones, so the gateway restates both sqlite bans. The fake
+    // in testing.ts defaults its `now` to the wall clock for tests that pass none.
     files: ['packages/gateway-slack/src/**/*.ts'],
+    ignores: ['packages/gateway-slack/src/testing.ts'],
     rules: {
       'no-restricted-syntax': ['error', sqliteImportBan, sqliteTypeImportBan, ...wallTimeBans],
     },

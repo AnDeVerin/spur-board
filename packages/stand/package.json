@@ -14,6 +14,7 @@
     "@spur-board/contracts": "workspace:*",
     "@spur-board/core": "workspace:*",
     "@spur-board/daemon": "workspace:*",
+    "@spur-board/gateway-slack": "workspace:*",
     "@spur-board/testkit": "workspace:*",
     "yaml": "catalog:",
     "zod": "catalog:"

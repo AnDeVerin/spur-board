@@ -9,6 +9,7 @@ import {
   messageRefSchema,
   parseActorId,
   type ActorId,
+  type AddresseeRole,
   type Config,
   type EventKind,
   type EventPayload,
@@ -29,7 +30,7 @@ import type { Row, Tables } from '../store/schema.ts';
 import type { Store } from '../store/store.ts';
 import { emit, withCommandKey } from './board-utils.ts';
 import { editInboundComment, recordInboundBlockMessage } from './blocks.ts';
-import { registerAnswerNotification, selectNotificationRecipient } from './doorbells.ts';
+import { selectNotificationRecipient } from './doorbells.ts';
 import { replayOperation } from './commands.ts';
 import { CommandError } from './commands.ts';
 import { commandReply } from './command-replies.ts';
@@ -37,7 +38,7 @@ import { deniedProject } from './denied-event.ts';
 import { raiseItem as raiseOperatorItem, clearItem as clearOperatorItem } from './feed.ts';
 import type { ReapplyInbound } from './items.ts';
 import { dispatchOperation, type OperationRegistry } from './operations.ts';
-import { enqueueConversationClose, enqueueInboundDoorbell } from './outbox.ts';
+import { enqueueConversationClose } from './outbox.ts';
 import { redactPrivateReply, redactSecretMatches } from './secrets.ts';
 import { decideTokenInTransaction } from './tokens.ts';
 
@@ -219,6 +220,7 @@ async function linkedComment(trx: Trx, event: MessageEvent): Promise<Row<'commen
     .executeTakeFirst();
 }
 
+/** The answer's notification is already registered; this raises the item when nobody can read it. */
 async function ringAuthor(
   trx: Trx,
   input: {
@@ -226,43 +228,24 @@ async function ringAuthor(
     block: Row<'block'>;
     task: Row<'task'>;
     comment: Row<'comment'>;
-    workerAuthor: boolean;
+    authorRole: AddresseeRole;
     at: string;
+    config: Config;
   },
 ): Promise<void> {
   const key = `doorbell:comment:${String(input.comment.id)}:revision:${String(input.comment.revision)}`;
   const parsed = parseActorId(input.block.author);
   if (parsed?.actor === 'agent') {
-    if (input.workerAuthor) {
-      const recipient = await selectNotificationRecipient(trx, {
+    const recipient = await selectNotificationRecipient(
+      trx,
+      {
         task_id: input.task.id,
-        role: 'worker',
+        role: input.authorRole,
         author_session: parsed.actorRef.session,
-      });
-      await registerAnswerNotification(trx, {
-        block: input.block,
-        commentId: input.comment.id,
-        revision: input.comment.revision,
-        authorRole: 'worker',
-        at: new Date(input.at),
-      });
-      if (recipient !== undefined) return;
-    } else {
-      const session = await trx
-        .selectFrom('session_snapshot')
-        .select(['id', 'ended_at'])
-        .where('id', '=', parsed.actorRef.session)
-        .executeTakeFirst();
-      if (session !== undefined && session.ended_at === null) {
-        await enqueueInboundDoorbell(trx, {
-          key,
-          session: session.id,
-          text: `Answer for ${input.task.key} block B${String(input.block.id)}; read board task ${input.task.key}`,
-          at: new Date(input.at),
-        });
-        return;
-      }
-    }
+      },
+      input.config,
+    );
+    if (recipient !== undefined) return;
   }
   const reason =
     parsed?.actor !== 'agent' ? 'author is not an agent' : 'author session is unavailable';
@@ -350,8 +333,9 @@ export function createInbound(input: {
         block: recorded.block,
         task: recorded.task,
         comment: recorded.comment,
-        workerAuthor: recorded.workerAuthor,
+        authorRole: recorded.authorRole,
         at,
+        config,
       });
       return { status: 'applied' };
     }
