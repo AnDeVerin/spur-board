@@ -345,7 +345,8 @@ export function parseFakeArgs(
     return err(cause instanceof Error ? cause.message : String(cause));
   }
   const [system, verb, ...operands] = parsed.positionals;
-  if (system !== 'spur') return err(`Unknown fake system ${system ?? '(none)'}; use spur.`);
+  if (system !== 'spur')
+    return err(`Unknown fake system ${system ?? '(none)'}; use spur or github.`);
   if (verb === undefined) return err('fake spur needs a verb.');
   const operand = verb === 'session' ? 'id' : verb === 'fail' ? 'mode' : undefined;
   if (operands.length !== (operand === undefined ? 0 : 1))

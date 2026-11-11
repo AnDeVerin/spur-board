@@ -368,6 +368,61 @@ describe('control endpoint', () => {
     expect(asked).toEqual([MAX_WAIT_MS]);
   });
 
+  it('answers a GitHub /fake beside a held poll, passing its body through', async () => {
+    const held = deferred<RouteResult>();
+    const poll = vi.fn(() => held.promise);
+    const fake = vi.fn(() => Promise.resolve({ status: 200, body: { ok: 1 } }));
+    control = await startControl({
+      token: TOKEN,
+      routes: { ...unused, wait: vi.fn(), poll, reset: vi.fn(), fake },
+    });
+    const polling = post(control, '/poll');
+    await vi.waitFor(() => {
+      expect(poll).toHaveBeenCalled();
+    });
+    const answer = await fetch(`${control.url}/fake`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ system: 'github', verb: 'fail', args: { mode: 'clear' } }),
+    });
+    expect(answer.status).toBe(200);
+    expect(fake).toHaveBeenCalledWith({
+      system: 'github',
+      verb: 'fail',
+      args: { mode: 'clear' },
+    });
+    held.resolve({ status: 200, body: {} });
+    expect((await polling).status).toBe(200);
+  });
+
+  it('passes a poll timeout through, clamps a long one and rejects a bad one', async () => {
+    const asked: unknown[] = [];
+    control = await startControl({
+      token: TOKEN,
+      routes: {
+        ...unused,
+        wait: vi.fn(),
+        poll: (body) => {
+          asked.push(body);
+          return Promise.resolve({ status: 200, body: {} });
+        },
+        reset: vi.fn(),
+      },
+    });
+    const poll = (raw: string) =>
+      fetch(`${control?.url ?? ''}/poll`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+        body: raw,
+      });
+    expect((await poll('{}')).status).toBe(200);
+    expect((await poll('{"source":"s","timeoutMs":5}')).status).toBe(200);
+    expect((await poll('{"timeoutMs":10000000}')).status).toBe(200);
+    expect((await poll('{"timeoutMs":-1}')).status).toBe(400);
+    expect((await poll('{"timeoutMs":"5"}')).status).toBe(400);
+    expect(asked).toEqual([{}, { source: 's', timeoutMs: 5 }, { timeoutMs: MAX_WAIT_MS }]);
+  });
+
   it('drops a request whose body is still arriving when close begins', async () => {
     const reset = vi.fn(() => Promise.resolve({ status: 200, body: {} }));
     let reading: () => void = () => undefined;

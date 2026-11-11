@@ -54,6 +54,8 @@ const STOP_TIMEOUT_MS = 10_000;
 const PARENT_CHECK_MS = 1_000;
 const WAIT_DEFAULT_S = 30;
 const WAIT_MAX_S = 600;
+const FAKE_TIMEOUT_MS = 10_000;
+const DEFAULT_FAKE_REPO = 'stand-org/board';
 
 const USAGE = `Usage: pnpm stand <command>
 
@@ -83,6 +85,11 @@ const USAGE = `Usage: pnpm stand <command>
                                   fail a route until clear; delay needs --ms (1-60000)
   fake spur clear                 drop every failure rule
   fake spur inspect               print sessions, rules, requests, sends and violations
+  fake github fail <mode>         delay <ms>, refuse, hang, rate-limit <seconds>,
+                                  server-error [status] or clear; lasts until clear or reset
+  fake github pr <n> <verb> [--repo owner/name]
+                                  create [--seed '<json>'], approve, ci-red, ci-green, merge,
+                                  conflict or push <sha>; --repo defaults to ${DEFAULT_FAKE_REPO}
   violations                      print requests no fake models; exit 1 if there are any
 
 Every command but up takes --home <dir> to pick one of several stands.
@@ -90,6 +97,8 @@ Exit codes: 0 ok, 1 failure, 2 usage, 3 refused.
 `;
 
 class UsageError extends Error {}
+
+const FAKE_PR_VERBS = ['create', 'approve', 'ci-red', 'ci-green', 'merge', 'conflict', 'push'];
 
 const out = (text: string): void => {
   process.stdout.write(text);
@@ -389,6 +398,89 @@ function runBoard(manifest: StandManifest, as: StandRole, args: string[]): Promi
   });
 }
 
+function wholeNumber(value: string | undefined, name: string): number {
+  if (value === undefined || !/^\d+$/.test(value))
+    throw new UsageError(`${name} must be a whole number, got ${value ?? 'nothing'}`);
+  return Number(value);
+}
+
+function failureBody(args: readonly string[]): Record<string, unknown> {
+  const [mode, value, ...extra] = args;
+  const arity = (count: number): void => {
+    if (extra.length > 0 || (count === 0 && value !== undefined))
+      throw new UsageError(`fail ${mode ?? ''} takes ${String(count)} value(s)`);
+  };
+  switch (mode) {
+    case 'delay':
+      arity(1);
+      return { mode, ms: wholeNumber(value, 'delay') };
+    case 'rate-limit':
+      arity(1);
+      return { mode, seconds: wholeNumber(value, 'rate-limit') };
+    case 'server-error':
+      arity(1);
+      return value === undefined ? { mode } : { mode, status: wholeNumber(value, 'status') };
+    case 'refuse':
+    case 'hang':
+    case 'clear':
+      arity(0);
+      return { mode };
+    default:
+      throw new UsageError(
+        'fail needs delay <ms>, refuse, hang, rate-limit <seconds>, server-error [status] or clear',
+      );
+  }
+}
+
+function seedOf(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new UsageError('--seed must be JSON');
+  }
+}
+
+function prBody(
+  args: readonly string[],
+  values: { repo?: string | undefined; seed?: string | undefined },
+): Record<string, unknown> {
+  const [number, verb, value, ...extra] = args;
+  if (number === undefined || !/^[1-9]\d*$/.test(number))
+    throw new UsageError('pr needs a pull request number');
+  if (verb === undefined) throw new UsageError('pr needs a verb');
+  if (!FAKE_PR_VERBS.includes(verb))
+    throw new UsageError(`pr verb must be one of ${FAKE_PR_VERBS.join(', ')}`);
+  if (extra.length > 0 || (verb === 'push') !== (value !== undefined))
+    throw new UsageError(verb === 'push' ? 'push needs one sha' : `${verb} takes no value`);
+  if (values.seed !== undefined && verb !== 'create')
+    throw new UsageError('--seed goes only with create');
+  return {
+    system: 'github',
+    verb,
+    args: {
+      repo: values.repo ?? DEFAULT_FAKE_REPO,
+      number: Number(number),
+      ...(value === undefined ? {} : { sha: value }),
+      ...(values.seed === undefined ? {} : { seed: seedOf(values.seed) }),
+    },
+  };
+}
+
+/** Maps the arguments of `stand fake github` to the body of a `/fake` control call. */
+export function fakeBody(
+  positionals: readonly string[],
+  values: { repo?: string | undefined; seed?: string | undefined },
+): Record<string, unknown> {
+  const [first, kind, ...rest] = positionals;
+  const pr = first === 'github' && kind === 'pr';
+  if (!pr && (values.repo !== undefined || values.seed !== undefined))
+    throw new UsageError('--repo and --seed go only with fake github pr');
+  if (pr) return prBody(rest, values);
+  if (first === 'github' && kind === 'fail')
+    return { system: 'github', verb: 'fail', args: failureBody(rest) };
+  throw new UsageError('fake github needs fail <mode> or pr <n> <verb>');
+}
+
 /** `fake slack outbox` and `fake slack click <n> <button> [--text <text>]`. */
 function fakeSlack(home: string | undefined, args: string[]): Promise<number> {
   const { values, positionals } = parseArgs({
@@ -448,6 +540,19 @@ async function main(argv: string[]): Promise<number> {
     const parsed = leading(args);
     if (parsed.as !== undefined) throw new UsageError('fake does not take --as');
     if (parsed.rest[0] === 'slack') return fakeSlack(parsed.home, parsed.rest.slice(1));
+    if (parsed.rest[0] === 'github') {
+      const { values, positionals } = parseArgs({
+        args: parsed.rest,
+        allowPositionals: true,
+        options: {
+          home: { type: 'string' },
+          repo: { type: 'string' },
+          seed: { type: 'string' },
+        },
+      });
+      const body = fakeBody(positionals, values);
+      return control(target(values.home ?? parsed.home), '/fake', body, FAKE_TIMEOUT_MS);
+    }
     const fake = parseFakeArgs(parsed.rest);
     if (!fake.ok) throw new UsageError(fake.error);
     return control(target(parsed.home), '/fake', fake.value, 120_000);

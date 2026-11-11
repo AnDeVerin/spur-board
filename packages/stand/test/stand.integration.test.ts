@@ -17,7 +17,7 @@ import {
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { configSchema } from '@spur-board/contracts';
+import { configSchema, type PrFacts } from '@spur-board/contracts';
 import { openStore } from '@spur-board/core';
 import { acquireLock } from '@spur-board/daemon/in-process';
 import { sql } from 'kysely';
@@ -60,6 +60,7 @@ beforeEach(() => {
 afterEach(async () => {
   let log: { status: number; body: unknown } | undefined;
   try {
+    // The runner swallows a violation's 400, so only the log shows an unknown request.
     if (checked !== undefined) log = await control(checked, '/violations');
   } finally {
     await stand?.stop();
@@ -811,14 +812,15 @@ describe('stand', () => {
     const polled = await control(manifest, '/poll');
     expect(polled.status).toBe(200);
     const { outcomes } = polled.body as { outcomes: { source: string; outcome: string }[] };
-    // The fake answers Spur. Every other request fails against the network guard: the GitHub
-    // Issues adapter turns that failure into an incomplete batch, so its poll counts as delivered.
+    // The fakes answer Spur and GitHub pull requests. Every other request fails against the
+    // network guard: the GitHub Issues adapter turns that failure into an incomplete batch, so
+    // its poll counts as delivered.
     expect(Object.fromEntries(outcomes.map(({ source, outcome }) => [source, outcome]))).toEqual({
       spur: 'delivered',
       'github-issues:stand:stand-org/board': 'delivered',
-      'github:stand:stand-org/board': 'failed',
+      'github:stand:stand-org/board': 'delivered',
       'jira:stand-jira': 'failed',
-      'github:stand-jira:stand-org/service': 'failed',
+      'github:stand-jira:stand-org/service': 'delivered',
     });
     expect(outcomes).toHaveLength(SOURCES.length);
     const unknown = await control(manifest, '/poll', { source: 'nope' });
@@ -1038,6 +1040,263 @@ describe('stand', () => {
     expect(types()).toEqual(['hello', 'probe']);
     expect(await clearedAt(manifest, close.item)).toBeNull();
   }, 60_000);
+
+  describe('fake GitHub', () => {
+    const REPO = 'stand-org/board';
+    const pr = (manifest: StandManifest, number: number, verb: string, extra = {}) =>
+      control(manifest, '/fake', {
+        system: 'github',
+        verb,
+        args: { repo: REPO, number, ...extra },
+      });
+    const fail = (manifest: StandManifest, args: Record<string, unknown>) =>
+      control(manifest, '/fake', { system: 'github', verb: 'fail', args });
+
+    /** The PR's stored facts, or undefined when no poll has written them. */
+    async function snapshot(manifest: StandManifest, number: number): Promise<PrFacts | undefined> {
+      const store = openStore(join(manifest.home, 'board.sqlite'));
+      try {
+        const row = await store.db
+          .selectFrom('pr_snapshot')
+          .select('detail')
+          .where('number', '=', number)
+          .executeTakeFirst();
+        return row === undefined ? undefined : (JSON.parse(row.detail) as PrFacts);
+      } finally {
+        await store.close();
+      }
+    }
+
+    async function polled(manifest: StandManifest, number: number): Promise<PrFacts> {
+      const result = await control(manifest, '/poll');
+      expect(result.status, JSON.stringify(result.body)).toBe(200);
+      const facts = await snapshot(manifest, number);
+      if (facts === undefined) throw new Error(`no pr_snapshot row for ${String(number)}`);
+      return facts;
+    }
+
+    /** A stand whose GitHub fake knows no repo, so every PR poll is a violation; not checked. */
+    async function upUnknownRepos(spurBaseUrl?: string): Promise<StandManifest> {
+      stand = await startStand({
+        root,
+        port: 0,
+        env: {},
+        osHome,
+        githubRepos: [],
+        ...(spurBaseUrl === undefined ? {} : { spurBaseUrl }),
+      });
+      return stand.manifest();
+    }
+
+    interface Log {
+      total: number;
+      items: { system: string }[];
+    }
+
+    it('answers 409 and exits 1 on a violation from the GitHub fake alone', async () => {
+      const manifest = await upUnknownRepos();
+      expect((await control(manifest, '/poll')).status).toBe(200);
+      const log = await control(manifest, '/violations');
+      expect(log.status).toBe(409);
+      const { total, items } = log.body as Log;
+      expect(total).toBeGreaterThan(0);
+      expect(new Set(items.map(({ system }) => system))).toEqual(new Set(['github']));
+      const cli = await standCli(['violations', '--home', manifest.home]);
+      expect(cli.code, cli.stderr).toBe(1);
+    }, 60_000);
+
+    it('keeps both fakes in one log, and reset counts both', async () => {
+      const manifest = await upUnknownRepos(DRIFT_URL);
+      expect((await control(manifest, '/poll')).status).toBe(200);
+      const log = await control(manifest, '/violations');
+      expect(log.status).toBe(409);
+      const { total, items } = log.body as Log;
+      expect(total).toBe(items.length);
+      expect(new Set(items.map(({ system }) => system))).toEqual(new Set(['spur', 'github']));
+      const reset = await control(manifest, '/reset');
+      expect(reset.status).toBe(200);
+      expect(
+        (reset.body as { violationsCleared: number }).violationsCleared,
+      ).toBeGreaterThanOrEqual(total);
+    }, 60_000);
+
+    it('leaves doctor GraphQL at the network guard, out of the fake', async () => {
+      const manifest = await up();
+      const doctor = await fetch(`${manifest.daemonUrl}/v1/doctor`);
+      expect(doctor.status).toBe(200);
+      await doctor.body?.cancel();
+      const { items } = (await control(manifest, '/violations')).body as Log;
+      expect(items.filter(({ system }) => system === 'github')).toEqual([]);
+    }, 60_000);
+
+    it('drives the fake through the CLI, with --home on either side', async () => {
+      const { home } = await up();
+      const created = await standCli(['fake', '--home', home, 'github', 'pr', '7', 'create']);
+      expect(created.code, created.stderr).toBe(0);
+      const approved = await standCli(['fake', 'github', 'pr', '7', 'approve', '--home', home]);
+      expect(approved.code, approved.stderr).toBe(0);
+      const failed = await standCli(['fake', '--home', home, 'github', 'fail', 'hang']);
+      expect(failed.code, failed.stderr).toBe(0);
+      expect((await standCli(['fake', '--home', home, 'github', 'pr', '7', 'nope'])).code).toBe(2);
+      const cleared = await standCli(['fake', '--home', home, 'github', 'fail', 'clear']);
+      expect(cleared.code, cleared.stderr).toBe(0);
+    }, 60_000);
+
+    it('runs the real adapter against the fake', async () => {
+      const manifest = await up();
+      expect((await pr(manifest, 7, 'create')).status).toBe(200);
+      const result = await control(manifest, '/poll');
+      expect(result.status).toBe(200);
+      const { outcomes } = result.body as { outcomes: { source: string; outcome: string }[] };
+      const bySource = Object.fromEntries(outcomes.map((o) => [o.source, o.outcome]));
+      expect(bySource['github:stand:stand-org/board']).toBe('delivered');
+      expect(bySource['github:stand-jira:stand-org/service']).toBe('delivered');
+      expect(await snapshot(manifest, 7)).toMatchObject({ repo: REPO, number: 7, state: 'open' });
+      expect(
+        YAML.parse(readFileSync(join(manifest.home, 'config.yaml'), 'utf8')),
+      ).not.toHaveProperty('adapters.github.baseUrl');
+      expect((await control(manifest, '/violations')).status).toBe(200);
+    }, 60_000);
+
+    it('walks every verb through the control endpoint and the real daemon', async () => {
+      const manifest = await up();
+      const sha = 'c'.repeat(40);
+      expect((await pr(manifest, 8, 'create')).status).toBe(200);
+      const first = await polled(manifest, 8);
+      expect(first).toMatchObject({
+        author: 'stand-agent',
+        headBranch: 'stand-8',
+        mergeable: 'mergeable',
+        mergeState: 'blocked',
+        requiredChecks: [{ name: 'build', state: 'pending' }],
+        reviews: [],
+        reviewRequests: [{ kind: 'user', id: 'stand-reviewer', asCodeOwner: false }],
+      });
+      expect(first.checks.map((check) => check.name)).toEqual(['build', 'status/lint']);
+
+      let previous = first.updatedAt;
+      /** Applies a verb, polls, and checks the verb moved `updatedAt` forward. */
+      const step = async (verb: string, extra = {}): Promise<PrFacts> => {
+        expect((await pr(manifest, 8, verb, extra)).status).toBe(200);
+        const facts = await polled(manifest, 8);
+        expect(Date.parse(facts.updatedAt), verb).toBeGreaterThan(Date.parse(previous));
+        previous = facts.updatedAt;
+        return facts;
+      };
+
+      const approved = await step('approve');
+      expect(approved.reviewRequests).toEqual([]);
+      expect(approved.reviews).toMatchObject([
+        { reviewer: 'stand-reviewer', state: 'approved', commitSha: first.headSha },
+      ]);
+
+      const red = await step('ci-red');
+      expect(red.mergeState).toBe('blocked');
+      expect(red.requiredChecks).toMatchObject([{ name: 'build', state: 'failure' }]);
+      expect(red.checks.find((c) => c.name === 'status/lint')?.state).toBe('pending');
+
+      const green = await step('ci-green');
+      expect(green.mergeState).toBe('clean');
+      expect(green.checks.map((check) => check.state)).toEqual(['success', 'success']);
+
+      expect(await step('conflict')).toMatchObject({
+        mergeable: 'conflicting',
+        mergeState: 'dirty',
+      });
+
+      expect((await pr(manifest, 8, 'push', { sha: 'nope' })).status).toBe(400);
+      const pushed = await step('push', { sha });
+      expect(pushed).toMatchObject({
+        headSha: sha,
+        mergeable: 'mergeable',
+        mergeState: 'blocked',
+        reviews: [{ reviewer: 'stand-reviewer', commitSha: first.headSha }],
+      });
+      expect(pushed.checks.map((check) => check.state)).toEqual(['pending', 'pending']);
+
+      const again = await pr(manifest, 8, 'create', { seed: { title: 'overwritten' } });
+      expect(again.status).toBe(409);
+      expect((await polled(manifest, 8)).title).toBe(pushed.title);
+
+      expect(await step('merge')).toMatchObject({
+        state: 'merged',
+        mergeable: 'unknown',
+        mergeState: 'unknown',
+      });
+      expect((await pr(manifest, 8, 'approve')).status).toBe(409);
+      expect((await pr(manifest, 99, 'approve')).status).toBe(404);
+    }, 120_000);
+
+    it('a reset removes fake pull requests', async () => {
+      const manifest = await up();
+      expect((await pr(manifest, 9, 'create')).status).toBe(200);
+      await polled(manifest, 9);
+      expect((await control(manifest, '/reset')).status).toBe(200);
+      const after = stand?.manifest();
+      if (after === undefined) throw new Error('stand stopped');
+      expect((await control(after, '/poll')).status).toBe(200);
+      const store = openStore(join(after.home, 'board.sqlite'));
+      try {
+        expect(await store.db.selectFrom('pr_snapshot').selectAll().execute()).toEqual([]);
+      } finally {
+        await store.close();
+      }
+      expect((await pr(after, 9, 'approve')).status).toBe(404);
+    }, 60_000);
+
+    it('bounds a poll under hang, then resets and stops', async () => {
+      const manifest = await up();
+      await waitFor(manifest, 'sources-polled');
+      expect((await fail(manifest, { mode: 'hang' })).status).toBe(200);
+      const bounded = await control(manifest, '/poll', { timeoutMs: 300 });
+      expect(bounded.status).toBe(504);
+      expect((await control(manifest, '/reset')).status).toBe(200);
+      const after = stand?.manifest();
+      if (after === undefined) throw new Error('stand stopped');
+      // The failure went with the reset: this poll answers.
+      const result = await control(after, '/poll', { timeoutMs: 20_000 });
+      expect(result.status).toBe(200);
+      const current = stand;
+      stand = undefined;
+      // This test stops its own stand, which then cannot answer the log check.
+      checked = undefined;
+      await current?.stop();
+    }, 60_000);
+
+    it.each<[string, Record<string, unknown>]>([
+      ['hang', { mode: 'hang' }],
+      ['delay', { mode: 'delay', ms: 600_000 }],
+    ])(
+      'stops in time with %s set and two polls sent',
+      async (_name, failure) => {
+        const manifest = await up();
+        await waitFor(manifest, 'sources-polled');
+        expect((await fail(manifest, failure)).status).toBe(200);
+        const polls = [control(manifest, '/poll'), control(manifest, '/poll')];
+        let answered = false;
+        for (const poll of polls)
+          void poll.then(
+            () => {
+              answered = true;
+            },
+            () => {
+              answered = true;
+            },
+          );
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        expect(answered).toBe(false);
+        const started = Date.now();
+        const current = stand;
+        stand = undefined;
+        // This test stops its own stand, which then cannot answer the log check.
+        checked = undefined;
+        await current?.stop();
+        expect(Date.now() - started).toBeLessThan(10_000);
+        await Promise.allSettled(polls);
+      },
+      60_000,
+    );
+  });
 });
 
 describe('fake Spur in a running stand', () => {

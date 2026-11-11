@@ -18,12 +18,12 @@ export interface RouteResult {
 export interface ControlRoutes {
   /** Re-reads state until the condition holds or the timeout passes; never queued. */
   wait(body: { condition: string; timeoutMs: number }, signal: AbortSignal): Promise<RouteResult>;
-  poll(body: { source?: string }): Promise<RouteResult>;
+  poll(body: { source?: string; timeoutMs?: number }): Promise<RouteResult>;
   reset(): Promise<RouteResult>;
   /** Lists what the fake Slack API holds; never queued. */
   slackOutbox(): Promise<RouteResult>;
   slackClick(body: { message: number; button: string; text?: string }): Promise<RouteResult>;
-  /** One verb on one fake system, queued with `poll` and `reset`. */
+  /** One verb on one fake system; only `spur` is queued with `poll` and `reset`. */
   fake(body: { system: string; verb: string; args: unknown }): Promise<RouteResult>;
   /** 200 with an empty log, 409 otherwise; never queued. */
   violations(): Promise<RouteResult>;
@@ -97,8 +97,8 @@ const ROUTES = new Set([
  * The stand's control endpoint on 127.0.0.1. Checks, in order: no `Origin` (403), Host exactly
  * `127.0.0.1:<port>` (403), the Bearer token (401), a known route (404), the body size (413) and
  * its arrival time (10 s). `wait` runs at most `MAX_WAIT_MS`.
- * `poll`, `reset`, `fake` and the Slack click run one at a time through one queue; `wait`,
- * `violations` and the Slack outbox run outside it.
+ * `poll`, `reset`, `fake spur` and the Slack click run one at a time through one queue; `wait`,
+ * `violations`, the Slack outbox and the other fakes run outside it.
  */
 export async function startControl(options: {
   token: string;
@@ -169,15 +169,29 @@ export async function startControl(options: {
         waits.signal.removeEventListener('abort', abort);
       }
     } else if (path === '/poll') {
-      const { source } = body;
+      const { source, timeoutMs: asked } = body;
       if (source !== undefined && typeof source !== 'string')
         throw new HttpError(400, 'source must be a string.');
-      result = await queued(() => options.routes.poll(source === undefined ? {} : { source }));
+      if (
+        asked !== undefined &&
+        (typeof asked !== 'number' || !Number.isFinite(asked) || asked < 0)
+      )
+        throw new HttpError(400, 'timeoutMs must be a finite number of milliseconds.');
+      result = await queued(() =>
+        options.routes.poll({
+          ...(source === undefined ? {} : { source }),
+          ...(asked === undefined ? {} : { timeoutMs: Math.min(asked, MAX_WAIT_MS) }),
+        }),
+      );
     } else if (path === '/fake') {
       const { system, verb, args = {} } = body;
       if (typeof system !== 'string' || typeof verb !== 'string')
         throw new HttpError(400, 'Send { system, verb, args }.');
-      result = await queued(() => options.routes.fake({ system, verb, args }));
+      const run = () => options.routes.fake({ system, verb, args });
+      // A reset replaces the fake Spur, so it waits its turn. The other fakes outlive a reset and
+      // must answer beside a poll they hold. `fail clear` affects later requests only: a request
+      // already held waits for its abort, the poll bound or shutdown.
+      result = await (system === 'spur' ? queued(run) : run());
     } else if (path === '/violations') {
       result = await options.routes.violations();
     } else if (path === '/fake/slack/outbox') {
