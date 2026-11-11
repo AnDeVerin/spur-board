@@ -21,12 +21,25 @@ export interface IdentifiedCaller {
 }
 
 function sessionActor(project: string, session: string, config: Config): ActorId {
+  // Parsed first: the hints below quote the project, and a live one can be arbitrary text.
+  const actor = actorIdSchema.safeParse(`agent:${project}/${session}`);
+  if (!actor.success) throw new CommandError('forbidden', 'Invalid session identity.');
   const matches = config.projects.filter((entry) =>
     entry.spurProjects.some((spur) => spur.name === project),
   );
-  if (matches.length !== 1) throw new CommandError('forbidden', 'Unknown session project.');
-  const actor = actorIdSchema.safeParse(`agent:${project}/${session}`);
-  if (!actor.success) throw new CommandError('forbidden', 'Invalid session identity.');
+  if (matches.length === 0) {
+    throw new CommandError(
+      'forbidden',
+      `Spur project "${project}" is not listed in any spurProjects in the Board's config.yaml (not Spur's spur.yaml), and inside a Spur session a token is not used. Ask the operator to add it under projects[].spurProjects there and restart the Board daemon, or run the command outside a Spur session.`,
+    );
+  }
+  // configSchema refuses this; without the branch a hand-built config would authenticate.
+  if (matches.length > 1) {
+    throw new CommandError(
+      'forbidden',
+      `Spur project "${project}" is listed under several Board projects: ${matches.map((entry) => entry.id).join(', ')}. Ask the operator to keep it under one of them in the Board's config.yaml (not Spur's spur.yaml) and restart the Board daemon.`,
+    );
+  }
   return actor.data;
 }
 
