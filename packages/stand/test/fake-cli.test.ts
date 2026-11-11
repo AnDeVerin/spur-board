@@ -20,11 +20,17 @@ afterEach(async () => {
   home = undefined;
 });
 
-/** A stand home whose manifest names a real control endpoint answering `/fake` with `answer`. */
+/** A stand home whose manifest names a real control endpoint answering `/violations` with `answer`. */
 async function stubStand(answer: RouteResult): Promise<string> {
   control = await startControl({
     token: TOKEN,
-    routes: { wait: vi.fn(), poll: vi.fn(), reset: vi.fn(), fake: () => answer },
+    routes: {
+      wait: vi.fn(),
+      poll: vi.fn(),
+      reset: vi.fn(),
+      fake: vi.fn(),
+      violations: () => Promise.resolve(answer),
+    },
   });
   home = mkdtempSync(join(realpathSync(tmpdir()), STAND_PREFIX));
   writeManifest(home, {
@@ -57,19 +63,19 @@ function runCli(args: readonly string[]): Promise<{ code: number | null; stdout:
   });
 }
 
-describe('stand fake violations', () => {
+describe('stand violations', () => {
   it('exits 0 on an empty log', async () => {
-    const dir = await stubStand({ status: 200, body: { violations: [], dropped: 0 } });
-    const result = await runCli(['fake', 'violations', '--home', dir]);
+    const dir = await stubStand({ status: 200, body: { total: 0, items: [] } });
+    const result = await runCli(['violations', '--home', dir]);
     expect(result.code).toBe(0);
   });
 
   it('exits 1 and prints the entries on a non-empty log', async () => {
     const dir = await stubStand({
       status: 409,
-      body: { violations: [{ reason: 'unknown-shape-marker' }], dropped: 0 },
+      body: { total: 1, items: [{ reason: 'unknown-shape-marker' }] },
     });
-    const result = await runCli(['fake', 'violations', '--home', dir]);
+    const result = await runCli(['violations', '--home', dir]);
     expect(result.code).toBe(1);
     expect(result.stdout).toContain('unknown-shape-marker');
   });

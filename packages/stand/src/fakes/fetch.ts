@@ -1,6 +1,7 @@
 // The seam between the stand's pollers and its fake external systems: one in-process `fetch`.
 import { z } from 'zod';
 import type { RouteResult } from '../control.ts';
+import { requestUrl } from '../fake-spur.ts';
 
 const MAX_VIOLATIONS = 100;
 const MAX_LOGGED_BODY = 4_096;
@@ -29,8 +30,8 @@ export interface FakeModule {
   claims(url: URL): boolean;
   /** The strict check: throws `FakeViolation`, else returns what answers the request later. */
   prepare(request: FakeRequest): () => FakeAnswer;
-  /** Handles a control body for this system; undefined when the action is not this module's. */
-  control(body: Record<string, unknown>): RouteResult | undefined;
+  /** Runs one verb of this system; undefined when the verb is not this module's. */
+  control(verb: string, args: unknown): RouteResult | undefined;
   reset(): void;
 }
 
@@ -42,27 +43,18 @@ interface Violation {
   body: string;
 }
 
-const failSchema = z.strictObject({
-  system: z.string(),
-  action: z.literal('fail'),
-  failure: z.discriminatedUnion('mode', [
-    z.strictObject({ mode: z.literal('delay'), ms: z.int().nonnegative() }),
-    z.strictObject({ mode: z.literal('refuse') }),
-    z.strictObject({ mode: z.literal('hang') }),
-    z.strictObject({ mode: z.literal('rate-limit'), seconds: z.int().nonnegative() }),
-    z.strictObject({
-      mode: z.literal('server-error'),
-      status: z.int().min(500).max(599).default(500),
-    }),
-    z.strictObject({ mode: z.literal('clear') }),
-  ]),
-});
-type Failure = Exclude<z.output<typeof failSchema>['failure'], { mode: 'clear' }>;
-
-function urlOf(input: Parameters<typeof fetch>[0]): URL {
-  if (input instanceof URL) return input;
-  return new URL(typeof input === 'string' ? input : input.url);
-}
+const failSchema = z.discriminatedUnion('mode', [
+  z.strictObject({ mode: z.literal('delay'), ms: z.int().nonnegative() }),
+  z.strictObject({ mode: z.literal('refuse') }),
+  z.strictObject({ mode: z.literal('hang') }),
+  z.strictObject({ mode: z.literal('rate-limit'), seconds: z.int().nonnegative() }),
+  z.strictObject({
+    mode: z.literal('server-error'),
+    status: z.int().min(500).max(599).default(500),
+  }),
+  z.strictObject({ mode: z.literal('clear') }),
+]);
+type Failure = Exclude<z.output<typeof failSchema>, { mode: 'clear' }>;
 
 async function readRequest(
   input: Parameters<typeof fetch>[0],
@@ -182,7 +174,7 @@ export function createFakes(options: {
     /** A `fetch` that answers claimed requests from the fakes and passes the rest to `fallback`. */
     wrap(fallback: typeof fetch): typeof fetch {
       return async (input, init) => {
-        const url = urlOf(input);
+        const url = requestUrl(input);
         const module = modules.find((candidate) => candidate.claims(url));
         if (module === undefined) return fallback(input, init);
         const request = await readRequest(input, init, url);
@@ -200,31 +192,32 @@ export function createFakes(options: {
     },
 
     /** Handles one `/fake` body; synchronous, so it answers while a poll hangs. */
-    control(body: Record<string, unknown>): RouteResult {
-      if (body['action'] === 'violations')
-        return {
-          status: violations.length === 0 && dropped === 0 ? 200 : 409,
-          body: { violations, dropped },
-        };
-      const owners = modules.filter((module) => module.system === body['system']);
+    control(body: { system: string; verb: string; args: unknown }): RouteResult {
+      const { system, verb, args } = body;
+      const owners = modules.filter((module) => module.system === system);
       if (owners.length === 0)
         return {
           status: 400,
           body: { error: 'Unknown system.', systems: [...new Set(modules.map((m) => m.system))] },
         };
-      if (body['action'] === 'fail') {
-        const parsed = failSchema.safeParse(body);
+      if (verb === 'fail') {
+        const parsed = failSchema.safeParse(args);
         if (!parsed.success) return { status: 400, body: { error: z.prettifyError(parsed.error) } };
-        const { system, failure } = parsed.data;
+        const failure = parsed.data;
         if (failure.mode === 'clear') failures.delete(system);
         else failures.set(system, failure);
         return { status: 200, body: { system, failure: failure.mode } };
       }
       for (const module of owners) {
-        const result = module.control(body);
+        const result = module.control(verb, args);
         if (result !== undefined) return result;
       }
-      return { status: 400, body: { error: 'Unknown action.' } };
+      return { status: 400, body: { error: 'Unknown verb.' } };
+    },
+
+    /** The kept entries, and how many violations there were in all. */
+    violations(): { total: number; items: readonly Violation[] } {
+      return { total: violations.length + dropped, items: violations };
     },
 
     /** Back to a fresh start: no failures, no violations, no module state. Keeps the latch. */

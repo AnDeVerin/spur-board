@@ -54,7 +54,7 @@ export function pollRepo(
   return source.adapter.poll(context);
 }
 
-/** Sends one `pr` control body and returns the result. */
+/** Sends one pull request verb and returns the result. */
 export function pr(
   fakes: Fakes,
   number: number,
@@ -62,10 +62,9 @@ export function pr(
   extra: Record<string, unknown> = {},
   repo = BOARD,
 ) {
-  return fakes.control({ system: 'github', action: 'pr', repo, number, verb, ...extra });
+  return fakes.control({ system: 'github', verb, args: { repo, number, ...extra } });
 }
 
-export function violations(fakes: Fakes): { reason: string }[] {
-  return (fakes.control({ action: 'violations' }).body as { violations: { reason: string }[] })
-    .violations;
+export function violations(fakes: Fakes): readonly { reason: string }[] {
+  return fakes.violations().items;
 }

@@ -135,8 +135,6 @@ type Seed = z.output<typeof seedSchema>;
 type Pr = z.output<typeof fieldsSchema> & { repo: string; number: number };
 
 const target = {
-  system: z.literal('github'),
-  action: z.literal('pr'),
   repo: z.string().regex(/^[^/\s]+\/[^/\s]+$/),
   number: z.int().positive(),
 };
@@ -149,6 +147,7 @@ const prControlSchema = z.discriminatedUnion('verb', [
   z.strictObject({ ...target, verb: z.literal('conflict') }),
   z.strictObject({ ...target, verb: z.literal('push'), sha: z.string().regex(SHA) }),
 ]);
+const PR_VERBS = new Set<string>(prControlSchema.options.map((option) => option.shape.verb.value));
 type Verb = Exclude<z.output<typeof prControlSchema>, { verb: 'create' }>;
 
 function page(connection: string, items: readonly Wire[], args: Args): WireObject {
@@ -348,9 +347,9 @@ export function createGithubPrFake(options: {
     };
   }
 
-  function control(body: Record<string, unknown>): RouteResult | undefined {
-    if (body['action'] !== 'pr') return undefined;
-    const parsed = prControlSchema.safeParse(body);
+  function control(verb: string, args: unknown): RouteResult | undefined {
+    if (!PR_VERBS.has(verb)) return undefined;
+    const parsed = prControlSchema.safeParse({ ...(args as object), verb });
     if (!parsed.success) return { status: 400, body: { error: z.prettifyError(parsed.error) } };
     const command = parsed.data;
     if (!repos.has(command.repo.toLowerCase()))

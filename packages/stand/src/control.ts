@@ -20,8 +20,10 @@ export interface ControlRoutes {
   wait(body: { condition: string; timeoutMs: number }, signal: AbortSignal): Promise<RouteResult>;
   poll(body: { source?: string; timeoutMs?: number }): Promise<RouteResult>;
   reset(): Promise<RouteResult>;
-  /** Changes or reads the fakes; synchronous and never queued, so it answers beside a hung poll. */
-  fake(body: Record<string, unknown>): RouteResult;
+  /** One verb on one fake system; only `spur` is queued with `poll` and `reset`. */
+  fake(body: { system: string; verb: string; args: unknown }): Promise<RouteResult>;
+  /** 200 with an empty log, 409 otherwise; never queued. */
+  violations(): Promise<RouteResult>;
 }
 
 export interface Control {
@@ -78,13 +80,14 @@ async function readJson(request: IncomingMessage): Promise<Record<string, unknow
   return parsed as Record<string, unknown>;
 }
 
-const ROUTES = new Set(['/wait', '/poll', '/reset', '/fake']);
+const ROUTES = new Set(['/wait', '/poll', '/reset', '/fake', '/violations']);
 
 /**
  * The stand's control endpoint on 127.0.0.1. Checks, in order: no `Origin` (403), Host exactly
  * `127.0.0.1:<port>` (403), the Bearer token (401), a known route (404), the body size (413) and
  * its arrival time (10 s). `wait` runs at most `MAX_WAIT_MS`.
- * `poll` and `reset` run one at a time through one queue; `wait` and `fake` run outside it.
+ * `poll`, `reset` and `fake spur` run one at a time through one queue; `wait`, `violations` and
+ * the other fakes run outside it.
  */
 export async function startControl(options: {
   token: string;
@@ -170,7 +173,15 @@ export async function startControl(options: {
         }),
       );
     } else if (path === '/fake') {
-      result = options.routes.fake(body);
+      const { system, verb, args = {} } = body;
+      if (typeof system !== 'string' || typeof verb !== 'string')
+        throw new HttpError(400, 'Send { system, verb, args }.');
+      const run = () => options.routes.fake({ system, verb, args });
+      // A reset replaces the fake Spur, so it waits its turn. The other fakes outlive a reset and
+      // must answer beside a poll they hold: `fail clear` is how a hang is lifted.
+      result = await (system === 'spur' ? queued(run) : run());
+    } else if (path === '/violations') {
+      result = await options.routes.violations();
     } else {
       result = await queued(() => options.routes.reset());
     }

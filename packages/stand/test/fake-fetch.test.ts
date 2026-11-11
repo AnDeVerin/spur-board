@@ -28,7 +28,7 @@ afterEach(() => {
 });
 
 function failWith(fakes: ReturnType<typeof githubFakes>, failure: Record<string, unknown>): void {
-  expect(fakes.control({ system: 'github', action: 'fail', failure }).status).toBe(200);
+  expect(fakes.control({ system: 'github', verb: 'fail', args: failure }).status).toBe(200);
 }
 
 const pendingAfterTurns = async (promise: Promise<unknown>): Promise<boolean> => {
@@ -53,8 +53,7 @@ describe('fake fetch', () => {
         if (request.method !== 'GET') throw new FakeViolation('REST module takes GET.');
         return () => ({ status: 200, body: { from: 'rest' } });
       },
-      control: (body) =>
-        body['action'] === 'rest' ? { status: 200, body: { rest: true } } : undefined,
+      control: (verb) => (verb === 'rest' ? { status: 200, body: { rest: true } } : undefined),
       reset,
     };
     const fakes = createFakes({
@@ -71,7 +70,7 @@ describe('fake fetch', () => {
     const answered = await fetcher(REST);
     expect(await answered.json()).toEqual({ from: 'rest' });
     expect(seen).toHaveLength(1);
-    expect(fakes.control({ system: 'github', action: 'rest' }).status).toBe(200);
+    expect(fakes.control({ system: 'github', verb: 'rest', args: {} }).status).toBe(200);
 
     expect((await fetcher(REST, { method: 'POST' })).status).toBe(400);
     expect((await postQuery(fetcher, BAD_QUERY, {})).status).toBe(400);
@@ -109,18 +108,13 @@ describe('fake fetch', () => {
     expect(violations(fakes)).toEqual([]);
   });
 
-  it('answers 200 on an empty log and 409 with the entries otherwise', async () => {
+  it('reports an empty log, then the entries and their total', async () => {
     const fakes = githubFakes();
-    expect(fakes.control({ action: 'violations' })).toEqual({
-      status: 200,
-      body: { violations: [], dropped: 0 },
-    });
+    expect(fakes.violations()).toEqual({ total: 0, items: [] });
     await postQuery(fakeFetch(fakes), BAD_QUERY, {});
-    const result = fakes.control({ action: 'violations' });
-    expect(result.status).toBe(409);
-    expect(result.body).toMatchObject({
-      violations: [{ system: 'github', method: 'POST', url: GRAPHQL }],
-      dropped: 0,
+    expect(fakes.violations()).toMatchObject({
+      total: 1,
+      items: [{ system: 'github', method: 'POST', url: GRAPHQL }],
     });
   });
 
@@ -128,10 +122,8 @@ describe('fake fetch', () => {
     const fakes = githubFakes();
     const fetcher = fakeFetch(fakes);
     for (let i = 0; i < 103; i += 1) await postQuery(fetcher, BAD_QUERY, {});
-    const result = fakes.control({ action: 'violations' });
-    expect(result.status).toBe(409);
     expect(violations(fakes)).toHaveLength(100);
-    expect(result.body).toMatchObject({ dropped: 3 });
+    expect(fakes.violations().total).toBe(103);
   });
 
   it('never stores the Authorization header in the log', async () => {
@@ -145,19 +137,19 @@ describe('fake fetch', () => {
         headers: { Authorization: `Bearer ${marker}` },
       },
     );
-    const text = JSON.stringify(fakes.control({ action: 'violations' }).body);
+    const text = JSON.stringify(fakes.violations());
     expect(violations(fakes)).toHaveLength(1);
     expect(text.toLowerCase()).not.toContain('authorization');
     expect(text).not.toContain(marker);
   });
 
-  it('refuses an unknown system, action and malformed failure', () => {
+  it('refuses an unknown system, verb and malformed failure', () => {
     const fakes = githubFakes();
-    expect(fakes.control({ system: 'nope', action: 'fail' }).status).toBe(400);
-    expect(fakes.control({ system: 'github', action: 'nope' }).status).toBe(400);
-    expect(
-      fakes.control({ system: 'github', action: 'fail', failure: { mode: 'nope' } }).status,
-    ).toBe(400);
+    expect(fakes.control({ system: 'nope', verb: 'fail', args: {} }).status).toBe(400);
+    expect(fakes.control({ system: 'github', verb: 'nope', args: {} }).status).toBe(400);
+    expect(fakes.control({ system: 'github', verb: 'fail', args: { mode: 'nope' } }).status).toBe(
+      400,
+    );
   });
 });
 
@@ -273,16 +265,16 @@ describe('release', () => {
 });
 
 describe('fakeBody', () => {
-  const pr = { system: 'github', action: 'pr', repo: BOARD, number: 7 };
-  const fail = (failure: Record<string, unknown>) => ({
+  const target = { repo: BOARD, number: 7 };
+  const pr = (verb: string, args: Record<string, unknown> = {}) => ({
     system: 'github',
-    action: 'fail',
-    failure,
+    verb,
+    args: { ...target, ...args },
   });
+  const fail = (args: Record<string, unknown>) => ({ system: 'github', verb: 'fail', args });
   const SHA = 'b'.repeat(40);
 
   it.each<[string[], Record<string, string>, Record<string, unknown>]>([
-    [['violations'], {}, { action: 'violations' }],
     [['github', 'fail', 'delay', '250'], {}, fail({ mode: 'delay', ms: 250 })],
     [['github', 'fail', 'refuse'], {}, fail({ mode: 'refuse' })],
     [['github', 'fail', 'hang'], {}, fail({ mode: 'hang' })],
@@ -290,18 +282,18 @@ describe('fakeBody', () => {
     [['github', 'fail', 'server-error'], {}, fail({ mode: 'server-error' })],
     [['github', 'fail', 'server-error', '503'], {}, fail({ mode: 'server-error', status: 503 })],
     [['github', 'fail', 'clear'], {}, fail({ mode: 'clear' })],
-    [['github', 'pr', '7', 'create'], {}, { ...pr, verb: 'create' }],
+    [['github', 'pr', '7', 'create'], {}, pr('create')],
     [
       ['github', 'pr', '7', 'create'],
       { repo: 'stand-org/service', seed: '{"title":"t"}' },
-      { ...pr, repo: 'stand-org/service', verb: 'create', seed: { title: 't' } },
+      pr('create', { repo: 'stand-org/service', seed: { title: 't' } }),
     ],
-    [['github', 'pr', '7', 'approve'], {}, { ...pr, verb: 'approve' }],
-    [['github', 'pr', '7', 'ci-red'], {}, { ...pr, verb: 'ci-red' }],
-    [['github', 'pr', '7', 'ci-green'], {}, { ...pr, verb: 'ci-green' }],
-    [['github', 'pr', '7', 'merge'], {}, { ...pr, verb: 'merge' }],
-    [['github', 'pr', '7', 'conflict'], {}, { ...pr, verb: 'conflict' }],
-    [['github', 'pr', '7', 'push', SHA], {}, { ...pr, verb: 'push', sha: SHA }],
+    [['github', 'pr', '7', 'approve'], {}, pr('approve')],
+    [['github', 'pr', '7', 'ci-red'], {}, pr('ci-red')],
+    [['github', 'pr', '7', 'ci-green'], {}, pr('ci-green')],
+    [['github', 'pr', '7', 'merge'], {}, pr('merge')],
+    [['github', 'pr', '7', 'conflict'], {}, pr('conflict')],
+    [['github', 'pr', '7', 'push', SHA], {}, pr('push', { sha: SHA })],
   ])('maps %j %j', (positionals, values, expected) => {
     expect(fakeBody(positionals, values)).toEqual(expected);
   });
@@ -309,8 +301,7 @@ describe('fakeBody', () => {
   it.each<[string[], Record<string, string>?]>([
     [[]],
     [['nope']],
-    [['violations', 'extra']],
-    [['violations'], { repo: BOARD }],
+    [['violations']],
     [['github']],
     [['github', 'fail']],
     [['github', 'fail', 'nope']],

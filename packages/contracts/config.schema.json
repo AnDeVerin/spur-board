@@ -103,8 +103,8 @@
                 "name": { "type": "string", "minLength": 1 },
                 "role": {
                   "type": "string",
-                  "enum": ["worker", "operator"],
-                  "description": "worker: sessions of this Spur project may link to this project's tasks through their PR or branch. operator: sessions act as the operator."
+                  "enum": ["worker", "operator", "curator"],
+                  "description": "worker: sessions of this Spur project may link to this project's tasks through their PR or branch. operator: sessions act as the operator. curator: sessions answer the questions no column orchestrator takes and escalate the rest to the operator; a board project has at most one."
                 }
               },
               "required": ["name", "role"],

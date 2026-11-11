@@ -407,7 +407,7 @@ Operation errors: `usage` (exit 2: Run `board schema` to see the expected input 
 
 ### `board ask`
 
-Ask the operator a question; the task is blocked until it is answered.
+Ask a blocking question; the Board routes it to the column orchestrator, the curator or the operator.
 
 Arguments: `<task> <text>`.
 

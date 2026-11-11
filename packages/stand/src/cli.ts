@@ -14,7 +14,9 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { scrubEnv } from '@spur-board/testkit';
+import { z } from 'zod';
 import { callLocal } from './control.ts';
+import { parseFakeArgs } from './fake-spur.ts';
 import { liveBoardDirs, proxyRefusal, refusal, StandRefusedError } from './guards.ts';
 import {
   isLive,
@@ -70,13 +72,21 @@ const USAGE = `Usage: pnpm stand <command>
                                   outbox-drained needs a messenger gateway, which the stand lacks yet
   poll [source]                   restart every source's poll now (source is only checked to
                                   exist), then tick and pulse the outbox
-  reset                           stop the daemon, restore the home and start it again
-  fake violations                 print requests the fakes did not know; exit 1 if there are any
+  reset                           stop the daemon, restore the home and start it again; this
+                                  drops the violation log, so read it first
+  fake spur session <id> [--state s] [--status s] [--project p] [--branch b] [--retain]
+                                  create or update a session in the fake Spur
+  fake spur restart               change the Spur instance id
+  fake spur fail <delay|refuse|hang|5xx> [--route list|detail|send|all] [--ms n] [--status 5xx]
+                                  fail a route until clear; delay needs --ms (1-60000)
+  fake spur clear                 drop every failure rule
+  fake spur inspect               print sessions, rules, requests, sends and violations
   fake github fail <mode>         delay <ms>, refuse, hang, rate-limit <seconds>,
                                   server-error [status] or clear; lasts until clear or reset
   fake github pr <n> <verb> [--repo owner/name]
                                   create [--seed '<json>'], approve, ci-red, ci-green, merge,
                                   conflict or push <sha>; --repo defaults to ${DEFAULT_FAKE_REPO}
+  violations                      print requests no fake models; exit 1 if there are any
 
 Every command but up takes --home <dir> to pick one of several stands.
 Exit codes: 0 ok, 1 failure, 2 usage, 3 refused.
@@ -306,6 +316,22 @@ async function down(manifest: StandManifest): Promise<number> {
   return 0;
 }
 
+/** The size of the stand's violation log; null when its control endpoint does not say. */
+async function violationCount(manifest: StandManifest): Promise<number | null> {
+  try {
+    const response = await callLocal(`${manifest.controlUrl}/violations`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${manifest.controlToken}` },
+      body: '{}',
+      timeoutMs: 2_000,
+    });
+    if (response.status !== 200 && response.status !== 409) return null;
+    return z.object({ total: z.number() }).parse(JSON.parse(response.body)).total;
+  } catch {
+    return null;
+  }
+}
+
 async function status(manifest: StandManifest, json: boolean): Promise<number> {
   let apiReady = false;
   try {
@@ -317,7 +343,12 @@ async function status(manifest: StandManifest, json: boolean): Promise<number> {
   } catch {
     apiReady = false;
   }
-  const view = { ...publicView(manifest), alive: isLive(manifest), apiReady };
+  const view = {
+    ...publicView(manifest),
+    alive: isLive(manifest),
+    apiReady,
+    violations: await violationCount(manifest),
+  };
   out(
     json
       ? `${JSON.stringify(view)}\n`
@@ -421,16 +452,17 @@ function prBody(
     throw new UsageError('--seed goes only with create');
   return {
     system: 'github',
-    action: 'pr',
-    repo: values.repo ?? DEFAULT_FAKE_REPO,
-    number: Number(number),
     verb,
-    ...(value === undefined ? {} : { sha: value }),
-    ...(values.seed === undefined ? {} : { seed: seedOf(values.seed) }),
+    args: {
+      repo: values.repo ?? DEFAULT_FAKE_REPO,
+      number: Number(number),
+      ...(value === undefined ? {} : { sha: value }),
+      ...(values.seed === undefined ? {} : { seed: seedOf(values.seed) }),
+    },
   };
 }
 
-/** Maps the arguments after `stand fake` to the body of a `/fake` control call. */
+/** Maps the arguments of `stand fake github` to the body of a `/fake` control call. */
 export function fakeBody(
   positionals: readonly string[],
   values: { repo?: string | undefined; seed?: string | undefined },
@@ -439,14 +471,10 @@ export function fakeBody(
   const pr = first === 'github' && kind === 'pr';
   if (!pr && (values.repo !== undefined || values.seed !== undefined))
     throw new UsageError('--repo and --seed go only with fake github pr');
-  if (first === 'violations') {
-    if (kind !== undefined) throw new UsageError('fake violations takes no arguments');
-    return { action: 'violations' };
-  }
   if (pr) return prBody(rest, values);
   if (first === 'github' && kind === 'fail')
-    return { system: 'github', action: 'fail', failure: failureBody(rest) };
-  throw new UsageError('fake needs violations, github fail <mode> or github pr <n> <verb>');
+    return { system: 'github', verb: 'fail', args: failureBody(rest) };
+  throw new UsageError('fake github needs fail <mode> or pr <n> <verb>');
 }
 
 async function main(argv: string[]): Promise<number> {
@@ -468,6 +496,26 @@ async function main(argv: string[]): Promise<number> {
     if (blocked !== undefined) throw new UsageError(blocked);
     return runBoard(manifest, as, parsed.rest);
   }
+  if (command === 'fake') {
+    const parsed = leading(args);
+    if (parsed.as !== undefined) throw new UsageError('fake does not take --as');
+    if (parsed.rest[0] === 'github') {
+      const { values, positionals } = parseArgs({
+        args: parsed.rest,
+        allowPositionals: true,
+        options: {
+          home: { type: 'string' },
+          repo: { type: 'string' },
+          seed: { type: 'string' },
+        },
+      });
+      const body = fakeBody(positionals, values);
+      return control(target(values.home ?? parsed.home), '/fake', body, FAKE_TIMEOUT_MS);
+    }
+    const fake = parseFakeArgs(parsed.rest);
+    if (!fake.ok) throw new UsageError(fake.error);
+    return control(target(parsed.home), '/fake', fake.value, 120_000);
+  }
   const { values, positionals } = parseArgs({
     args,
     allowPositionals: true,
@@ -480,8 +528,6 @@ async function main(argv: string[]): Promise<number> {
       stand: { type: 'boolean' },
       timeout: { type: 'string' },
       'watch-pid': { type: 'string' },
-      repo: { type: 'string' },
-      seed: { type: 'string' },
     },
   });
   switch (command) {
@@ -535,10 +581,9 @@ async function main(argv: string[]): Promise<number> {
     }
     case 'reset':
       return control(target(values.home), '/reset', {}, 120_000);
-    case 'fake': {
-      const body = fakeBody(positionals, values);
-      return control(target(values.home), '/fake', body, FAKE_TIMEOUT_MS);
-    }
+    case 'violations':
+      if (positionals.length > 0) throw new UsageError('violations takes no arguments');
+      return control(target(values.home), '/violations', {}, 5_000);
     default:
       throw new UsageError(`Unknown command ${command}`);
   }

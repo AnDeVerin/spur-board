@@ -198,6 +198,92 @@ describe('authorize catalog grants', () => {
     expect(authorize(escalate.grants, actors.worker, state('worker')).status).toBe('allowed');
   });
 
+  describe('curator', () => {
+    const curator = 'agent:cur/cur-1';
+    const curated = (projHasCurator: boolean) =>
+      configSchema.parse({
+        ...config,
+        projects: config.projects.map((project) => ({
+          ...project,
+          spurProjects:
+            project.id === 'other'
+              ? [{ name: 'foreign', role: 'curator' }]
+              : projHasCurator
+                ? [...project.spurProjects, { name: 'cur', role: 'curator' }]
+                : project.spurProjects,
+        })),
+      });
+    const state = (
+      addressee_role: NonNullable<AuthorizationTarget['block']>['addressee_role'],
+      type: BlockType = 'needs_input',
+      mode?: string,
+      used = curated(true),
+    ) => ({
+      config: used,
+      target: {
+        kind: 'found' as const,
+        value: { ...target, block: { ...block, type, addressee_role } },
+      },
+      ...(mode === undefined ? {} : { mode }),
+    });
+    const answer = operation('block.answer');
+    const unblock = operation('block.unblock');
+
+    it('lets the curator of the board project answer and unblock a curator-addressed block', () => {
+      expect(authorize(answer.grants, curator, state('curator')).status).toBe('allowed');
+      expect(
+        authorize(unblock.grants, curator, state('curator', 'needs_input', 'reason')).status,
+      ).toBe('allowed');
+    });
+
+    it.each([true, false])(
+      "denies another board project's curator on this project's block (own curator: %s)",
+      (projHasCurator) => {
+        const decision = authorize(
+          answer.grants,
+          actors.other,
+          state('curator', 'needs_input', undefined, curated(projHasCurator)),
+        );
+        expect(decision.status).toBe('denied');
+      },
+    );
+
+    it('denies workers and orchestrators on a curator-addressed block', () => {
+      for (const actor of [actors.worker, actors.same, actors.orchestrator]) {
+        expect(authorize(answer.grants, actor, state('curator')).status, actor).toBe('denied');
+      }
+    });
+
+    it('keeps the operator override on a curator-addressed block', () => {
+      expect(authorize(answer.grants, actors.operator, state('curator')).status).toBe('allowed');
+      expect(
+        authorize(unblock.grants, actors.operator, state('curator', 'needs_input', 'reason'))
+          .status,
+      ).toBe('allowed');
+    });
+
+    it('denies a curator on blocks addressed to anyone else', () => {
+      expect(authorize(answer.grants, curator, state('operator')).status).toBe('denied');
+      for (const role of ['worker', 'orchestrator:dev'] as const) {
+        expect(authorize(answer.grants, curator, state(role, 'code')).status, role).toBe('denied');
+        for (const mode of ['reason', 'done']) {
+          expect(
+            authorize(unblock.grants, curator, state(role, 'code', mode)).status,
+            `${role}/${mode}`,
+          ).toBe('denied');
+        }
+      }
+    });
+
+    it('never gives a curator the operator grant', () => {
+      for (const id of ['task.archive', 'task.add', 'link.add', 'item.close', 'block.create']) {
+        expect(authorize(operation(id).grants, curator, state('curator')).status, id).toBe(
+          'denied',
+        );
+      }
+    });
+  });
+
   it('limits unblock grants to their declared block types', () => {
     const unblock = operation('block.unblock');
     const state = (type: BlockType, mode: string) => ({

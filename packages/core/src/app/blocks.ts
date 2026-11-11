@@ -1,4 +1,5 @@
 import {
+  assertNever,
   parseActorId,
   type ActorId,
   type AddresseeRole,
@@ -17,9 +18,11 @@ import {
   closeBlock,
   editComment,
   escalateBlock,
+  parseAddressee,
+  priorAddressees,
   type CurrentBlock,
 } from '../domain/blocks/blocks.ts';
-import { authorize, type ResolvedTarget } from './authorize.ts';
+import { authorize, curatorProject, type ResolvedTarget } from './authorize.ts';
 import { emit } from './board-utils.ts';
 import { CommandError, type CommandContext, type Mutation } from './commands.ts';
 import {
@@ -199,10 +202,24 @@ function authorRole(config: Config, task: Task, actor: ActorId): AddresseeRole {
   ) {
     return 'operator';
   }
-  const configured = orchestrator(config, task);
-  return parsed?.actor === 'agent' && parsed.actorRef.project === configured
-    ? `orchestrator:${task.column}`
-    : 'worker';
+  if (parsed?.actor !== 'agent') return 'worker';
+  if (parsed.actorRef.project === orchestrator(config, task)) return `orchestrator:${task.column}`;
+  return parsed.actorRef.project === curatorProject(config, task.project) ? 'curator' : 'worker';
+}
+
+function personaRole(role: AddresseeRole): Persona['role'] {
+  const addressee = parseAddressee(role);
+  switch (addressee.kind) {
+    case 'operator':
+      return 'board';
+    case 'worker':
+      return 'worker';
+    case 'curator':
+    case 'orchestrator':
+      return 'orchestrator';
+    default:
+      return assertNever(addressee);
+  }
 }
 
 function personaFor(config: Config, task: Task, actor: ActorId): Persona {
@@ -210,11 +227,7 @@ function personaFor(config: Config, task: Task, actor: ActorId): Persona {
   if (actor === 'operator') return { name: 'operator', role: 'board' };
   const parsed = parseActorId(actor);
   if (parsed?.actor !== 'agent') throw new Error('Invalid actor');
-  const role = authorRole(config, task, actor);
-  return {
-    name: parsed.actorRef.project,
-    role: role === 'operator' ? 'board' : role === 'worker' ? 'worker' : 'orchestrator',
-  };
+  return { name: parsed.actorRef.project, role: personaRole(authorRole(config, task, actor)) };
 }
 
 async function queueBlockOpen(
@@ -257,6 +270,28 @@ async function hasWorker(trx: Trx, task: Task): Promise<boolean> {
     .where('banned', '=', 0)
     .executeTakeFirst();
   return link !== undefined;
+}
+
+/** The addressee a block gets from current config and links. */
+async function routeBlock(
+  trx: Trx,
+  task: Task,
+  block: Pick<Block, 'type' | 'author'>,
+  config: Config,
+): Promise<AddresseeRole> {
+  return blockAddressee({
+    type: block.type,
+    author: block.author,
+    authorRole: authorRole(config, task, block.author),
+    column: task.column,
+    orchestrator: orchestrator(config, task),
+    curator: curatorProject(config, task.project),
+    hasWorker: await hasWorker(trx, task),
+  });
+}
+
+function holdsBlock(config: Config, actor: ActorId, target: ResolvedTarget): boolean {
+  return authorize([{ grant: 'block-addressee' }], actor, { config, target }).status === 'allowed';
 }
 
 async function addComment(
@@ -313,14 +348,7 @@ async function openBlock(
   ctx: CommandContext,
   config: Config,
 ): Promise<Block> {
-  const addressee = blockAddressee({
-    type,
-    author: ctx.actor,
-    authorRole: authorRole(config, task, ctx.actor),
-    column: task.column,
-    orchestrator: orchestrator(config, task),
-    hasWorker: await hasWorker(trx, task),
-  });
+  const addressee = await routeBlock(trx, task, { type, author: ctx.actor }, config);
   const row = await trx
     .insertInto('block')
     .values({
@@ -511,40 +539,36 @@ export function createBlockMutations(config: Config) {
     id: 'block.escalate',
     async resolveTargets(trx, input, actor) {
       const block = await blockById(trx, input.block);
-      if (block === undefined || block.addressee_role !== 'operator') {
-        return blockTarget(trx, input.block);
-      }
+      if (block === undefined) return blockTarget(trx, input.block);
       const task = await taskById(trx, block.task_id);
       const target = await authorizationTarget(trx, task, block);
       if (target.kind !== 'found' || target.value.block === null) return [target];
-      const original = blockAddressee({
-        type: block.type,
-        author: block.author,
-        authorRole: authorRole(config, task, block.author),
-        column: task.column,
-        orchestrator: orchestrator(config, task),
-        hasWorker: block.author === 'system' && (await hasWorker(trx, task)),
-      });
-      if (original === 'operator') return [target];
-      const originalTarget: ResolvedTarget = {
-        kind: 'found',
-        value: {
-          ...target.value,
-          block: { ...target.value.block, addressee_role: original },
-        },
-      };
-      const originalAllowed = authorize([{ grant: 'block-addressee' }], actor, {
-        config,
-        target: originalTarget,
-      });
-      return [originalAllowed.status === 'allowed' ? originalTarget : target];
+      if (holdsBlock(config, actor, target)) return [target];
+      const priors = priorAddressees(
+        await routeBlock(trx, task, block, config),
+        block.addressee_role,
+        block.type,
+        curatorProject(config, task.project) !== null,
+      );
+      for (const addressee_role of priors) {
+        const prior: ResolvedTarget = {
+          kind: 'found',
+          value: { ...target.value, block: { ...target.value.block, addressee_role } },
+        };
+        if (holdsBlock(config, actor, prior)) return [prior];
+      }
+      return [target];
     },
     async run(trx, input, ctx) {
       const block = found(await blockById(trx, input.block));
       const task = await taskById(trx, block.task_id);
       active(task);
-      const next = rule(() => escalateBlock(current(block)));
+      const hasCurator = curatorProject(config, task.project) !== null;
+      const next = rule(() => escalateBlock(current(block), hasCurator));
       if (!next.changed) return { block: blockView(block, task) };
+      // An earlier addressee passes authorization to retry; only the current one moves the block.
+      const target = await authorizationTarget(trx, task, block);
+      if (!holdsBlock(config, ctx.actor, target)) return { block: blockView(block, task) };
       const updated = await trx
         .updateTable('block')
         .set({ addressee_role: next.addressee })

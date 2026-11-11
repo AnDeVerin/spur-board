@@ -1,5 +1,13 @@
-import type { ActorId, BlockType, ColumnId, Config, GrantRule } from '@spur-board/contracts';
-import { parseActorId } from '@spur-board/contracts';
+import type {
+  ActorId,
+  AddresseeRole,
+  BlockType,
+  ColumnId,
+  Config,
+  GrantRule,
+} from '@spur-board/contracts';
+import { assertNever, parseActorId } from '@spur-board/contracts';
+import { parseAddressee } from '../domain/blocks/blocks.ts';
 
 export interface AuthorizationTarget {
   readonly project: string;
@@ -7,7 +15,7 @@ export interface AuthorizationTarget {
   readonly block: {
     readonly type: BlockType;
     readonly author: ActorId;
-    readonly addressee_role: 'operator' | 'worker' | `orchestrator:${ColumnId}`;
+    readonly addressee_role: AddresseeRole;
   } | null;
   readonly workers: readonly {
     readonly session_id: string | null;
@@ -44,6 +52,15 @@ function operator(actor: ActorId, config: Config): boolean {
         (spur) => spur.name === parsed.actorRef.project && spur.role === 'operator',
       ),
     )
+  );
+}
+
+/** The Spur project that curates one board project, or null when it has none. */
+export function curatorProject(config: Config, projectId: string): string | null {
+  return (
+    config.projects
+      .find((project) => project.id === projectId)
+      ?.spurProjects.find((spur) => spur.role === 'curator')?.name ?? null
   );
 }
 
@@ -97,10 +114,22 @@ function matches(
       return target.task !== null && orchestrator(actor, target, config, target.task.column);
     case 'block-addressee': {
       if (target.block === null) return false;
-      const role = target.block.addressee_role;
-      if (role === 'operator') return operator(actor, config);
-      if (role === 'worker') return worker(actor, target);
-      return orchestrator(actor, target, config, role.slice('orchestrator:'.length) as ColumnId);
+      const addressee = parseAddressee(target.block.addressee_role);
+      switch (addressee.kind) {
+        case 'operator':
+          return operator(actor, config);
+        case 'curator':
+          return (
+            parsed?.actor === 'agent' &&
+            parsed.actorRef.project === curatorProject(config, target.project)
+          );
+        case 'worker':
+          return worker(actor, target);
+        case 'orchestrator':
+          return orchestrator(actor, target, config, addressee.column);
+        default:
+          return assertNever(addressee);
+      }
     }
     case 'block-author':
       return target.block?.author === actor;

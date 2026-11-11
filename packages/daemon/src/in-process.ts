@@ -8,6 +8,7 @@ import type { Clock } from './logger.ts';
 
 export { loadConfig, resolvePaths, type Paths } from './config.ts';
 export { acquireLock } from './lock.ts';
+export { createSpurPort } from './spur-port.ts';
 
 export interface InProcessOptions {
   paths: Paths;
