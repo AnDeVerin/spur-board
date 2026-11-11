@@ -223,6 +223,8 @@ describe('matching', () => {
     ['unknown milestone number', `${ISSUES}?state=open&per_page=100&milestone=7`],
     ['milestones without state=all', '/repos/stand-org/board/milestones?per_page=100'],
     ['query on the repo lookup', '/repos/stand-org/board?x=1'],
+    ['inherited key on the repo lookup', '/repos/stand-org/board?constructor=x'],
+    ['inherited key on the list', `${ISSUES}?state=open&per_page=100&toString=x`],
     ['query on the detail', `${ISSUES}/1?x=1`],
     ['GraphQL path with a query', '/graphql?x=1'],
     ['missing accept', ISSUES, { authorization: 'Bearer dummy' }],

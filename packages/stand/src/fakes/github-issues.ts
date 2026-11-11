@@ -67,7 +67,7 @@ function readQuery(url: URL, rule: QueryRule): Map<string, string> {
   const values = new Map<string, string>();
   for (const [key, value] of url.searchParams) {
     if (values.has(key)) throw new FakeViolation(`Query parameter ${key} is repeated.`);
-    if (!(key in rule.required) && !rule.optional.includes(key))
+    if (!Object.hasOwn(rule.required, key) && !rule.optional.includes(key))
       throw new FakeViolation(`Unknown query parameter ${key} on ${url.pathname}.`);
     values.set(key, value);
   }
