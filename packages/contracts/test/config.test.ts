@@ -447,6 +447,20 @@ describe('invalid configs', () => {
       'Invalid input: expected object, received undefined',
       'operator',
     ],
+    [
+      'a Spur project under two board projects',
+      validConfig(
+        {},
+        {
+          projects: [
+            { ...jiraProject(), spurProjects: [{ name: 'shared', role: 'worker' }] },
+            { ...jiraProject(), id: 'api', spurProjects: [{ name: 'shared', role: 'operator' }] },
+          ],
+        },
+      ),
+      'Spur project "shared" is listed under board projects "web" and "api": list it under only one',
+      'projects[1].spurProjects[0].name',
+    ],
   ])('rejects %s', (_name, input, message, path) => {
     const error = errorFor(input);
     expect(error).toContain(message);

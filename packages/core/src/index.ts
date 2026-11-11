@@ -45,7 +45,7 @@ export { createMembershipMutations } from './app/membership.ts';
 export { createOperationRegistry } from './app/registry.ts';
 export { createObservationCore } from './app/observe.ts';
 export { getStatus } from './app/status.ts';
-export { firstPollDone } from './app/doctor.ts';
+export { curatorSessions, firstPollDone } from './app/doctor.ts';
 export { tickBoard } from './app/tick.ts';
 export { createInbound, getOperatorItem, type Inbound } from './app/inbound.ts';
 export {

@@ -2,7 +2,7 @@ import { scanTransaction } from '../../src/app/secrets.ts';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { configSchema } from '@spur-board/contracts';
+import { configSchema, type Config } from '@spur-board/contracts';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   authorize,
@@ -274,6 +274,90 @@ describe('API identity', () => {
         { session: 'missing-1', authorization: undefined },
       ),
     ).rejects.toMatchObject({ code });
+  });
+
+  const notListedHint =
+    'Spur project "stray" is not listed in any spurProjects in the Board\'s config.yaml (not Spur\'s spur.yaml), and inside a Spur session a token is not used. Ask the operator to add it under projects[].spurProjects there and restart the Board daemon, or run the command outside a Spur session.';
+
+  it('names an unlisted Spur project from a snapshot without consulting a bearer', async () => {
+    const store = await storeWithSession();
+    await scanTransaction(store, config, async (trx) => {
+      await trx
+        .insertInto('session_snapshot')
+        .values({
+          ...sampleRows.session_snapshot,
+          id: 'stray-1',
+          spur_project: 'stray',
+          ended_at: null,
+          end_reason: null,
+        })
+        .execute();
+    });
+    const lookupSession = vi.fn();
+    const verifyToken = vi.fn().mockResolvedValue({ name: 'test' });
+    await expect(
+      identify(
+        { store, config, lookupSession, verifyToken },
+        { session: 'stray-1', authorization: 'Bearer valid' },
+      ),
+    ).rejects.toMatchObject({ code: 'forbidden', hint: notListedHint });
+    expect(lookupSession).not.toHaveBeenCalled();
+    expect(verifyToken).not.toHaveBeenCalled();
+  });
+
+  it('names an unlisted Spur project from a live lookup without consulting a bearer', async () => {
+    const store = await storeWithSession();
+    const verifyToken = vi.fn().mockResolvedValue({ name: 'test' });
+    await expect(
+      identify(
+        {
+          store,
+          config,
+          lookupSession: vi.fn().mockResolvedValue({ project: 'stray', status: 'running' }),
+          verifyToken,
+        },
+        { session: 'stray-1', authorization: 'Bearer valid' },
+      ),
+    ).rejects.toMatchObject({ code: 'forbidden', hint: notListedHint });
+    expect(verifyToken).not.toHaveBeenCalled();
+  });
+
+  it('names the Board projects of a Spur project listed under several', async () => {
+    const store = await storeWithSession();
+    const [board] = config.projects;
+    if (board === undefined) throw new Error('Missing project');
+    // configSchema refuses this shape, so the config is built without parsing.
+    const duplicated: Config = { ...config, projects: [board, { ...board, id: 'other' }] };
+    const verifyToken = vi.fn();
+    await expect(
+      identify(
+        {
+          store,
+          config: duplicated,
+          lookupSession: vi.fn().mockResolvedValue({ project: 'worker', status: 'running' }),
+          verifyToken,
+        },
+        { session: 'worker-1', authorization: 'Bearer valid' },
+      ),
+    ).rejects.toMatchObject({
+      code: 'forbidden',
+      hint: 'Spur project "worker" is listed under several Board projects: board, other. Ask the operator to keep it under one of them in the Board\'s config.yaml (not Spur\'s spur.yaml) and restart the Board daemon.',
+    });
+    expect(verifyToken).not.toHaveBeenCalled();
+  });
+
+  it('does not echo a live project name with control characters', async () => {
+    const store = await storeWithSession();
+    const error: unknown = await identify(
+      {
+        store,
+        config,
+        lookupSession: vi.fn().mockResolvedValue({ project: 'stray\u001b[31m', status: 'running' }),
+        verifyToken: vi.fn(),
+      },
+      { session: 'stray-1', authorization: undefined },
+    ).catch((cause: unknown) => cause);
+    expect(error).toMatchObject({ code: 'forbidden', hint: 'Invalid session identity.' });
   });
 
   it('reports unavailable identity on a failed live lookup', async () => {

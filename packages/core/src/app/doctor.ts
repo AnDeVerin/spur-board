@@ -1,6 +1,8 @@
 import type { Config } from '@spur-board/contracts';
 import { sql } from 'kysely';
+import { curatorProject } from './authorize.ts';
 import { trackerSource, type Trx } from './board-utils.ts';
+import { curatorSession } from './doorbells.ts';
 import { enqueueLiveFeedLine } from './outbox.ts';
 
 const LIVE_VERSION_KEY = 'doctor_live_version';
@@ -34,6 +36,30 @@ export async function firstPollDone(
   return [...doctorSources(config)].every(
     (source) => blind.has(source) || completeSince.has(source),
   );
+}
+
+/** One board project's curator and its live session; null where there is none. */
+export interface CuratorSession {
+  readonly project: string;
+  readonly curator: string | null;
+  readonly session: string | null;
+}
+
+/**
+ * The curator of each board project and the live session its curator blocks ring, in config
+ * order. It asks the doorbells for their choice rather than keeping a copy, so the doctor cannot
+ * name one session while the rings go to another.
+ */
+export async function curatorSessions(db: Trx, config: Config): Promise<CuratorSession[]> {
+  const entries: CuratorSession[] = [];
+  for (const project of config.projects) {
+    entries.push({
+      project: project.id,
+      curator: curatorProject(config, project.id),
+      session: (await curatorSession(db, config, project.id))?.id ?? null,
+    });
+  }
+  return entries;
 }
 
 /**

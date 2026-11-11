@@ -42,8 +42,10 @@ export function renderHttpProblem(input: ErrorInput & { code: ServerErrorCode })
   };
 }
 
-export function renderMcpError(input: ErrorInput) {
-  const content = fields(input, 'mcp');
+/** `hint` replaces the catalog hint for one call; `errorInputSchema` stays hint-free. */
+export function renderMcpError(input: ErrorInput, hint?: string) {
+  const rendered = fields(input, 'mcp');
+  const content = hint === undefined ? rendered : { ...rendered, hint };
   return {
     isError: true as const,
     content: [{ type: 'text' as const, text: renderLines(content) }],

@@ -1,9 +1,9 @@
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { configSchema } from '@spur-board/contracts';
+import { configSchema, type SessionFacts } from '@spur-board/contracts';
 import { afterEach, describe, expect, it } from 'vitest';
-import { enqueueLiveAfterFirstPoll, firstPollDone } from '../../src/app/doctor.ts';
+import { curatorSessions, enqueueLiveAfterFirstPoll, firstPollDone } from '../../src/app/doctor.ts';
 import { scanTransaction } from '../../src/app/secrets.ts';
 import { createObservationCore, openStore, type Store } from '../../src/index.ts';
 
@@ -199,5 +199,153 @@ describe('live feed announcement', () => {
         .where('key', '=', 'doctor_live_version')
         .executeTakeFirst(),
     ).toBeUndefined();
+  });
+});
+
+const curatorConfig = configSchema.parse({
+  projects: ['alpha', 'beta', 'gamma', 'delta'].map((id) => ({
+    id,
+    tracker: { type: 'github-issues', repo: `o/${id}`, label: 'board' },
+    repos: [`o/${id}`],
+    operatorGithubLogin: 'operator',
+    spurProjects: id === 'delta' ? [] : [{ name: `cur-${id[0] ?? ''}`, role: 'curator' }],
+  })),
+  operator: { slack: 'operator' },
+  digest: { tz: 'UTC' },
+});
+
+function curatorSetup() {
+  const store = openStore(join(mkdtempSync(join(tmpdir(), 'board-curators-')), 'board.db'));
+  stores.push(store);
+  const core = createObservationCore({
+    store,
+    config: curatorConfig,
+    clock: { now: () => Date.parse(at) },
+  });
+  return { store, core };
+}
+
+function curatorSession(
+  id: string,
+  options: { lifecycle?: SessionFacts['lifecycle']; lastActivityAt?: string | null } = {},
+): SessionFacts {
+  return {
+    id,
+    spurProject: id.split('-').slice(0, 2).join('-'),
+    branch: null,
+    pr: null,
+    links: {},
+    lifecycle: options.lifecycle ?? 'running',
+    health: 'working',
+    healthSince: at,
+    lastActivityAt: options.lastActivityAt ?? null,
+    endedAt: null,
+    endReason: null,
+  };
+}
+
+async function spurPoll(
+  core: ReturnType<typeof curatorSetup>['core'],
+  observedAt: string,
+  sessions: readonly SessionFacts[],
+  complete = false,
+) {
+  await core.observe('spur', {
+    batch: {
+      source: 'spur',
+      observedAt,
+      complete,
+      items: sessions.map((facts) => ({ kind: 'session' as const, facts })),
+      entities: [],
+    },
+    effectiveComplete: complete,
+    state: { ...(complete ? { lastCompleteAt: observedAt } : {}), gone: [] },
+    outcomes: [],
+  });
+}
+
+async function sessionOf(store: Store, project: string) {
+  return (await curatorSessions(store.db, curatorConfig)).find((entry) => entry.project === project)
+    ?.session;
+}
+
+describe('curator sessions', () => {
+  it('drops absent, completed and errored sessions and keeps paused ones live', async () => {
+    const { store, core } = curatorSetup();
+    const listed = [
+      curatorSession('cur-a-done', { lifecycle: 'completed' }),
+      curatorSession('cur-b-1', { lifecycle: 'paused' }),
+      curatorSession('cur-g-1', { lifecycle: 'errored' }),
+    ];
+    await spurPoll(
+      core,
+      '2026-11-04T12:00:00.000Z',
+      [curatorSession('cur-a-gone'), ...listed],
+      true,
+    );
+    expect((await curatorSessions(store.db, curatorConfig))[0]?.session).toBe('cur-a-gone');
+    await spurPoll(core, '2026-11-04T12:01:00.000Z', listed, true);
+    expect(await curatorSessions(store.db, curatorConfig)).toEqual([
+      { project: 'alpha', curator: 'cur-a', session: null },
+      { project: 'beta', curator: 'cur-b', session: 'cur-b-1' },
+      // An errored session cannot read a ring, so the doorbells do not choose it.
+      { project: 'gamma', curator: 'cur-g', session: null },
+      { project: 'delta', curator: null, session: null },
+    ]);
+  });
+
+  it('picks the later first seen as an instant across mixed precision', async () => {
+    const { store, core } = curatorSetup();
+    await spurPoll(core, '2026-11-04T12:00:00Z', [curatorSession('cur-a-1')]);
+    await spurPoll(core, '2026-11-04T12:00:00.5Z', [curatorSession('cur-a-2')]);
+    expect(await sessionOf(store, 'alpha')).toBe('cur-a-2');
+  });
+
+  it('breaks a first-seen tie by the later activity as an instant', async () => {
+    const { store, core } = curatorSetup();
+    await spurPoll(core, at, [
+      curatorSession('cur-a-1', { lastActivityAt: '2026-11-04T10:00:00Z' }),
+      curatorSession('cur-a-2', { lastActivityAt: '2026-11-04T10:00:00.5Z' }),
+    ]);
+    expect(await sessionOf(store, 'alpha')).toBe('cur-a-2');
+  });
+
+  it('sorts a null activity as the oldest', async () => {
+    const { store, core } = curatorSetup();
+    await spurPoll(core, at, [
+      curatorSession('cur-a-1'),
+      curatorSession('cur-a-2', { lastActivityAt: '2026-11-04T10:00:00.000Z' }),
+    ]);
+    expect(await sessionOf(store, 'alpha')).toBe('cur-a-2');
+  });
+
+  it.each([
+    { column: 'detail', value: 'not json' },
+    { column: 'first_seen', value: 'not a date' },
+  ] as const)('sorts a row with an unreadable $column as the oldest', async ({ column, value }) => {
+    const { store, core } = curatorSetup();
+    // Untouched, cur-a-1 wins on its later activity.
+    await spurPoll(core, at, [
+      curatorSession('cur-a-1', { lastActivityAt: '2026-11-04T11:00:00.000Z' }),
+      curatorSession('cur-a-2', { lastActivityAt: '2026-11-04T10:00:00.000Z' }),
+    ]);
+    expect(await sessionOf(store, 'alpha')).toBe('cur-a-1');
+    await store.db
+      .updateTable('session_snapshot')
+      .set({ [column]: value })
+      .where('id', '=', 'cur-a-1')
+      .execute();
+    expect(await sessionOf(store, 'alpha')).toBe('cur-a-2');
+  });
+
+  it('still reports an unreadable row when it is the only live session', async () => {
+    const { store, core } = curatorSetup();
+    await spurPoll(core, at, [curatorSession('cur-a-1')]);
+    await store.db
+      .updateTable('session_snapshot')
+      .set({ detail: 'not json', first_seen: 'not a date' })
+      .where('id', '=', 'cur-a-1')
+      .execute();
+    expect(await sessionOf(store, 'alpha')).toBe('cur-a-1');
   });
 });

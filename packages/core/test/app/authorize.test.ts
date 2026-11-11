@@ -8,6 +8,7 @@ import {
   configSchema,
   type ActorId,
   type BlockType,
+  type Config,
 } from '@spur-board/contracts';
 import { afterEach, describe, expect, it } from 'vitest';
 import { z } from 'zod';
@@ -749,13 +750,14 @@ describe('target-less denial project', () => {
     await expect(
       createApply({ store, clock, config })(taskless, { task: 'zz/q#1' }, stranger, 'D3'),
     ).rejects.toMatchObject({ code: 'forbidden' });
-    const shared = configSchema.parse({
+    // configSchema refuses a Spur project under two board projects, so this is built without it.
+    const shared: Config = {
       ...config,
       projects: config.projects.map((project) => ({
         ...project,
         spurProjects: [...project.spurProjects, { name: 'shared', role: 'worker' }],
       })),
-    });
+    };
     await expect(
       createApply({ store, clock, config: shared })(
         taskless,

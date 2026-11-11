@@ -107,6 +107,28 @@ describe('loadConfig', () => {
     expect(message).not.toContain('Expected lowercase');
   });
 
+  it('names both board projects of a Spur project listed under two', () => {
+    const project = (id: string) => `  - id: ${id}
+    tracker:
+      type: github-issues
+      repo: example-org/${id}
+      label: board
+    repos: [example-org/${id}]
+    operatorGithubLogin: octocat
+    spurProjects:
+      - name: shared
+        role: worker
+`;
+    const message = configError(
+      makeHome({
+        config: `projects:\n${project('alpha')}${project('beta')}operator:\n  slack: U0000000000\ndigest:\n  tz: UTC\n`,
+      }),
+    );
+    expect(message).toContain(
+      '  projects.1.spurProjects.0.name: Spur project "shared" is listed under board projects "alpha" and "beta": list it under only one',
+    );
+  });
+
   it('refuses a secrets.env readable by others', () => {
     const home = makeHome({ secrets: SECRETS_TEXT });
     chmodSync(join(home, 'secrets.env'), 0o644);

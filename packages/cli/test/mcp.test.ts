@@ -11,7 +11,7 @@ import {
   type JsonSchemaType,
 } from '@modelcontextprotocol/server';
 import { AjvJsonSchemaValidator } from '@modelcontextprotocol/server/validators/ajv';
-import { OPERATIONS } from '@spur-board/contracts';
+import { ERRORS, OPERATIONS, renderHttpProblem } from '@spur-board/contracts';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createMcpServer } from '../src/mcp.ts';
 import { loadClientConfig } from '../src/config.ts';
@@ -252,6 +252,46 @@ describe('board mcp', () => {
         expect(daemon.requests[0]?.body.input).toEqual({ task: 'PROJ-123', text: 'Hello' });
       },
     );
+  });
+
+  it('carries the per-call hint of a refused session', async () => {
+    const hint = 'Spur project "stray" is not listed in any spurProjects.';
+    const daemon = await fakeDaemon((_request, response) => {
+      response.writeHead(403, { 'content-type': 'application/problem+json' });
+      response.end(
+        JSON.stringify({
+          ...renderHttpProblem({ code: 'forbidden', requestId: 'req-1' }).body,
+          hint,
+        }),
+      );
+    });
+    await withClient({ BOARD_DAEMON_URL: daemon.url, SPUR_SESSION: 'stray-1' }, async (client) => {
+      const result = await client.callTool({ name: 'status_get', arguments: {} });
+      expect(result.isError).toBe(true);
+      expect(result.structuredContent).toMatchObject({ code: 'forbidden', hint });
+      expect(result.content).toEqual([
+        { type: 'text', text: expect.stringContaining(`fix: ${hint}\n`) as string },
+      ]);
+    });
+  });
+
+  it('keeps the catalog hint for a code other than forbidden', async () => {
+    const daemon = await fakeDaemon((_request, response) => {
+      response.writeHead(503, { 'content-type': 'application/problem+json' });
+      response.end(
+        JSON.stringify({
+          ...renderHttpProblem({ code: 'identity_unavailable', requestId: 'req-1' }).body,
+          hint: 'Session identity is unavailable.',
+        }),
+      );
+    });
+    await withClient({ BOARD_DAEMON_URL: daemon.url, SPUR_SESSION: 'worker-1' }, async (client) => {
+      const result = await client.callTool({ name: 'status_get', arguments: {} });
+      expect(result.structuredContent).toMatchObject({
+        code: 'identity_unavailable',
+        hint: ERRORS.identity_unavailable.hint,
+      });
+    });
   });
 
   it('generates a key for an operator mutation and returns the sent key on timeout', async () => {

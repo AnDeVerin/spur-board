@@ -33,29 +33,38 @@ function doctorContext(
     // A github-issues project tracking example/board instead of the Jira project.
     issues?: boolean;
     repos?: readonly string[];
+    // Board projects and their Spur projects in place of the single `board` project.
+    projects?: readonly {
+      id: string;
+      spurProjects: readonly { name: string; role: 'worker' | 'operator' | 'curator' }[];
+    }[];
   } = {},
 ) {
   const store = openStore(join(makeHome(), 'board.sqlite'));
   stores.push(store);
+  const projects = options.projects ?? [
+    {
+      id: 'board',
+      spurProjects: options.operator ? [{ name: 'operator', role: 'operator' as const }] : [],
+    },
+  ];
   const config = configSchema.parse({
-    projects: [
-      {
-        id: 'board',
-        tracker: options.issues
-          ? { type: 'github-issues', repo: 'example/board', label: 'board' }
-          : {
-              type: 'jira',
-              baseUrl: 'https://jira.example.test',
-              jql: 'project = BOARD',
-              doneStatuses: ['Done'],
-              readyStatuses: ['Ready'],
-              projectKeys: ['BOARD'],
-            },
-        repos: options.repos ?? ['example/board'],
-        operatorGithubLogin: 'operator',
-        spurProjects: options.operator ? [{ name: 'operator', role: 'operator' }] : [],
-      },
-    ],
+    projects: projects.map(({ id, spurProjects }) => ({
+      id,
+      tracker: options.issues
+        ? { type: 'github-issues', repo: 'example/board', label: 'board' }
+        : {
+            type: 'jira',
+            baseUrl: 'https://jira.example.test',
+            jql: 'project = BOARD',
+            doneStatuses: ['Done'],
+            readyStatuses: ['Ready'],
+            projectKeys: ['BOARD'],
+          },
+      repos: options.repos ?? ['example/board'],
+      operatorGithubLogin: 'operator',
+      spurProjects,
+    })),
     operator: { slack: 'U0000000000' },
     ...(options.slack === false
       ? {}
@@ -465,6 +474,7 @@ describe('daemon doctor checks', () => {
       'spur.send',
       'slack.configured',
       'operator.path',
+      'curator.sessions',
     ]);
     expect(report.checks.find((check) => check.id === 'slack.configured')).toEqual({
       id: 'slack.configured',
@@ -532,6 +542,7 @@ describe('daemon doctor checks', () => {
       'slack.feed_member',
       'slack.command',
       'operator.path',
+      'curator.sessions',
     ]);
     expect(report.checks.find((check) => check.id === 'link.rules')).toEqual({
       id: 'link.rules',
@@ -542,7 +553,11 @@ describe('daemon doctor checks', () => {
     expect(
       report.checks
         .filter((check) => check.id !== 'link.rules')
-        .every((check) => check.status === 'pass' && check.fix === null),
+        // curator.sessions passes with text naming each project's curator.
+        .every(
+          (check) =>
+            check.status === 'pass' && (check.id === 'curator.sessions' || check.fix === null),
+        ),
     ).toBe(true);
     expect(JSON.stringify(report)).not.toMatch(/secret-canary/);
   });
@@ -629,6 +644,93 @@ describe('daemon doctor checks', () => {
       blocking: false,
     });
     expect(command?.fix).toContain('Verify the installed Slack slash command');
+  });
+});
+
+// A Spur-observed session row; `detail` and `first_seen` can be overridden with bad values.
+async function seedSession(
+  ctx: ModuleContext<Store>,
+  id: string,
+  spurProject: string,
+  overrides: { detail?: string; first_seen?: string } = {},
+) {
+  const at = '2026-11-04T08:00:00.000Z';
+  await ctx.store.db
+    .insertInto('session_snapshot')
+    .values({
+      id,
+      spur_project: spurProject,
+      branch: null,
+      pr: null,
+      raw_state: 'running',
+      state: 'running',
+      first_seen: overrides.first_seen ?? at,
+      last_seen: at,
+      ended_at: null,
+      end_reason: null,
+      detail: overrides.detail ?? JSON.stringify({ lastActivityAt: at }),
+      source: 'spur',
+      observed_at: at,
+      absent_since: null,
+    })
+    .execute();
+}
+
+describe('daemon doctor curator sessions', () => {
+  const curators = (...ids: string[]) =>
+    ids.map((id) => ({
+      id,
+      spurProjects: id === 'gamma' ? [] : [{ name: `cur-${id}`, role: 'curator' as const }],
+    }));
+  const curatorCheck = async (ctx: ModuleContext<Store>) =>
+    (await runDaemonDoctor(ctx, '1.2.3', doctorFetch())).checks.find(
+      (check) => check.id === 'curator.sessions',
+    );
+
+  it('warns about a curator with no live session, problems first, without blocking', async () => {
+    const ctx = doctorContext({ operator: true, projects: curators('alpha', 'beta', 'gamma') });
+    await seedSession(ctx, 'cur-alpha-7', 'cur-alpha');
+    expect(await curatorCheck(ctx)).toEqual({
+      id: 'curator.sessions',
+      status: 'warning',
+      blocking: false,
+      fix: 'beta: curator cur-beta, no live session. alpha: curator cur-alpha, session cur-alpha-7. gamma: no curator configured. Start a Spur session of each curator with no live session.',
+    });
+  });
+
+  it('passes with the session of every configured curator', async () => {
+    const ctx = doctorContext({ operator: true, projects: curators('alpha', 'gamma') });
+    await seedSession(ctx, 'cur-alpha-7', 'cur-alpha');
+    expect(await curatorCheck(ctx)).toEqual({
+      id: 'curator.sessions',
+      status: 'pass',
+      blocking: false,
+      fix: 'alpha: curator cur-alpha, session cur-alpha-7. gamma: no curator configured.',
+    });
+  });
+
+  it('fits many projects in the fix limit', async () => {
+    const ids = Array.from({ length: 12 }, (_, i) => `project-${String(i + 10)}`);
+    const entry = await curatorCheck(doctorContext({ operator: true, projects: curators(...ids) }));
+    expect(entry).toMatchObject({ status: 'warning', blocking: false });
+    expect(entry?.fix?.length).toBeLessThanOrEqual(300);
+    expect(entry?.fix).toMatch(
+      /^project-10: curator cur-project-10, no live session\..*; and \d+ more projects\. Start a Spur session of each curator with no live session\.$/,
+    );
+  });
+
+  it('reports a live row whose detail and first seen cannot be read', async () => {
+    const ctx = doctorContext({ operator: true, projects: curators('alpha') });
+    await seedSession(ctx, 'cur-alpha-1', 'cur-alpha', {
+      detail: 'not json',
+      first_seen: 'not a date',
+    });
+    expect(await curatorCheck(ctx)).toEqual({
+      id: 'curator.sessions',
+      status: 'pass',
+      blocking: false,
+      fix: 'alpha: curator cur-alpha, session cur-alpha-1.',
+    });
   });
 });
 

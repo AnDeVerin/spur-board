@@ -248,34 +248,61 @@ function resolvedByProject(role: AddresseeRole): boolean {
   return kind === 'curator' || kind === 'orchestrator';
 }
 
-/** Orders later times first and missing times last. */
-function laterFirst(left: number | null, right: number | null): number {
-  if (left === right) return 0;
-  if (left === null) return 1;
-  if (right === null) return -1;
-  return right - left;
+/**
+ * Milliseconds of a stored time, or null for a missing or unreadable one. `Date.parse`, not text
+ * order: ISO values with different fractions do not sort as text.
+ */
+function instant(value: unknown): number | null {
+  if (typeof value !== 'string') return null;
+  const ms = Date.parse(value);
+  return Number.isNaN(ms) ? null : ms;
 }
 
-/** The newest live session of a Spur project, then the most recently active, then by id. */
+/** Orders later times first and missing times last. Compared, never subtracted. */
+function laterFirst(left: number | null, right: number | null): number {
+  const a = left ?? -Infinity;
+  const b = right ?? -Infinity;
+  return a > b ? -1 : a < b ? 1 : 0;
+}
+
+/**
+ * The newest live session of a Spur project, then the most recently active, then by id. A row
+ * with an unreadable time or detail stays eligible and sorts last on that time.
+ */
 async function bestProjectSession(trx: Trx, project: string | null): Promise<Session | undefined> {
   if (project === null) return undefined;
   const rows = await trx
     .selectFrom('session_snapshot')
     .selectAll()
-    .select(sql<string | null>`json_extract(detail, '$.lastActivityAt')`.as('last_activity'))
+    // json_extract raises on malformed JSON; one bad row must not stop rings or the doctor.
+    .select(
+      sql`CASE WHEN json_valid(detail) THEN json_extract(detail, '$.lastActivityAt') END`.as(
+        'last_activity',
+      ),
+    )
     .where('spur_project', '=', project)
     .where('ended_at', 'is', null)
     .where('absent_since', 'is', null)
     .where('state', 'not in', FINISHED_STATES)
     .execute();
-  // `Date.parse`, not text order: ISO values with different fractions do not sort as text.
-  const activity = (value: string | null) => (value === null ? null : Date.parse(value));
   return rows.sort(
     (left, right) =>
-      laterFirst(Date.parse(left.first_seen), Date.parse(right.first_seen)) ||
-      laterFirst(activity(left.last_activity), activity(right.last_activity)) ||
+      laterFirst(instant(left.first_seen), instant(right.first_seen)) ||
+      laterFirst(instant(left.last_activity), instant(right.last_activity)) ||
       (left.id < right.id ? -1 : 1),
   )[0];
+}
+
+/**
+ * The live session that a curator block on a board project rings, or undefined when the project
+ * has no curator or the curator has no live session. `board doctor` reports the same choice.
+ */
+export async function curatorSession(
+  trx: Trx,
+  config: Config,
+  projectId: string,
+): Promise<Session | undefined> {
+  return bestProjectSession(trx, curatorProject(config, projectId));
 }
 
 /** The newest live session linked to a task in a role. */
@@ -332,7 +359,7 @@ export async function selectNotificationRecipient(
   switch (addressee.kind) {
     case 'curator':
       // Any current curator speaks for the role, so the session that asked has no claim.
-      return bestProjectSession(trx, curatorProject(config, await taskProject(trx, n.task_id)));
+      return curatorSession(trx, config, await taskProject(trx, n.task_id));
     case 'orchestrator': {
       const author =
         n.author_session === null ? undefined : await sessionById(trx, n.author_session);

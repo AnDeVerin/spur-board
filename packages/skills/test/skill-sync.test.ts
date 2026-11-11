@@ -440,6 +440,19 @@ describe('public guide command mentions', () => {
       expect(section).toContain(token);
   });
 
+  it('documents a refused Spur session and the one-project rule', () => {
+    const troubleshooting = publicGuides[2]?.replace(/\s+/g, ' ') ?? '';
+    const section = troubleshooting.split('## Refused Spur session')[1]?.split(' ## ')[0];
+    expect(section).toBeDefined();
+    for (const sentence of [
+      'Inside a Spur session the session wins over a token: `SPUR_SESSION` is sent and neither `BOARD_TOKEN` nor `.spur-board/token` is read.',
+      "A session whose Spur project is in no `projects[].spurProjects` of the Board's `config.yaml`, or is listed under several Board projects, is refused with `forbidden` (exit 1), and the hint names the Spur project and the fix.",
+      "Keep the Spur project under exactly one Board project in the Board's `config.yaml`, not Spur's `spur.yaml`, and restart the Board daemon.",
+    ])
+      expect(section).toContain(sentence);
+    expect(troubleshooting).toContain('A Spur project can be listed under only one Board project.');
+  });
+
   it('documents board update and the rollback recovery', () => {
     const [, setup, troubleshooting] = publicGuides;
     const updateRun = setupReferenceTexts[setupReferenceNames.indexOf('update.md')];
