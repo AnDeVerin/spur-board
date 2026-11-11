@@ -11,6 +11,7 @@ import {
   openStore,
   type Store,
 } from '../../src/index.ts';
+import { editInboundComment } from '../../src/app/blocks.ts';
 import { reconcileItems } from '../../src/app/fromYou.ts';
 import { scanTransaction } from '../../src/app/secrets.ts';
 import { sampleRows } from '../store/sample-rows.ts';
@@ -1282,4 +1283,96 @@ describe('escalation note', () => {
       expect(await counts(store)).toEqual({ ...settled, commands: settled.commands + 2 });
     });
   });
+});
+
+describe('edit of an acknowledged comment', () => {
+  const used = withCurator();
+  const answers = (store: Store, comment: string) =>
+    store.db
+      .selectFrom('notification')
+      .select(['revision', 'acked_at'])
+      .where('kind', '=', 'answer')
+      .where('comment_id', '=', Number(comment.slice(1)))
+      .orderBy('revision')
+      .execute();
+
+  /** Writes `kind` as C2 on a worker question, acknowledged by the worker, and returns its writer. */
+  async function acked(kind: 'note' | 'withdrawal' | 'answer') {
+    const board = await curatorBoard(kind === 'withdrawal' ? 'dev' : 'qa', used);
+    const { store, apply, ops: curated } = board;
+    const asker = kind === 'withdrawal' ? orchestrator : author;
+    const { block } = await apply(curated.ask, { task: KEY, text: 'Q?' }, asker, 'ask');
+    let writer: ActorId = curator;
+    if (kind === 'note') {
+      await apply(curated.escalate, { block: block.id, note: 'Owner away.' }, curator, 'esc');
+    } else if (kind === 'answer') {
+      await apply(curated.answer, { block: block.id, text: 'Use v2.' }, curator, 'answer');
+    } else {
+      // After the move the asker's role reads as worker, so an answer ring would reach it.
+      await store.transaction((trx) =>
+        trx.updateTable('task').set({ column: 'qa' }).where('id', '=', 1).execute(),
+      );
+      writer = 'agent:qa/qa-2';
+      await apply(
+        curated.unblock,
+        { mode: 'withdraw', block: block.id, answer: 'Settled.' },
+        writer,
+        'withdraw',
+      );
+    }
+    await apply(curated.ack, { entries: [{ id: 'C2', revision: 1 }] }, asker, 'ack');
+    return { ...board, writer };
+  }
+
+  const paths = {
+    command: async (board: Awaited<ReturnType<typeof acked>>) => {
+      await board.apply(board.ops.edit, { comment: 'C2', text: 'Edited.' }, board.writer, 'edit');
+    },
+    inbound: async (board: Awaited<ReturnType<typeof acked>>) => {
+      await board.store.transaction(async (trx) => {
+        const comment = await trx
+          .selectFrom('comment')
+          .selectAll()
+          .where('id', '=', 2)
+          .executeTakeFirstOrThrow();
+        await editInboundComment(trx, {
+          comment,
+          text: 'Edited.',
+          at: new Date(NOW).toISOString(),
+          actor: board.writer,
+          config: used,
+        });
+      });
+    },
+  } as const;
+
+  it.each([
+    ['note', 'command'],
+    ['note', 'inbound'],
+    ['withdrawal', 'command'],
+    ['withdrawal', 'inbound'],
+  ] as const)('does not ring the question author for an edited %s (%s)', async (kind, path) => {
+    const board = await acked(kind);
+    await paths[path](board);
+    expect(
+      await board.store.db
+        .selectFrom('comment')
+        .select(['text', 'revision'])
+        .where('id', '=', 2)
+        .executeTakeFirstOrThrow(),
+    ).toEqual({ text: 'Edited.', revision: 2 });
+    expect(await answers(board.store, 'C2')).toEqual([]);
+  });
+
+  it.each(['command', 'inbound'] as const)(
+    'rings the question author for an edited answer (%s)',
+    async (path) => {
+      const board = await acked('answer');
+      await paths[path](board);
+      expect(await answers(board.store, 'C2')).toEqual([
+        { revision: 1, acked_at: new Date(NOW).toISOString() },
+        { revision: 2, acked_at: null },
+      ]);
+    },
+  );
 });

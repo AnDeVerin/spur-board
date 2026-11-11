@@ -500,7 +500,14 @@ export async function editInboundComment(
     revision: next.revision,
     clarification: next.clarification,
   });
-  if (next.clarification && updated.block_id !== null) {
+  // Only a comment that rang as an answer rings again; a note or a withdrawal never did.
+  const answered = await trx
+    .selectFrom('notification')
+    .select('id')
+    .where('kind', '=', 'answer')
+    .where('comment_id', '=', updated.id)
+    .executeTakeFirst();
+  if (next.clarification && updated.block_id !== null && answered !== undefined) {
     const block = await trx
       .selectFrom('block')
       .selectAll()
