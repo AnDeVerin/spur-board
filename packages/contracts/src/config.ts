@@ -130,7 +130,9 @@ const githubIssuesTracker = z
   });
 
 const spurProject = z.strictObject({
-  name: nonEmpty,
+  name: nonEmpty.describe(
+    'The name of the project in Spur. A Spur project can be listed under only one board project.',
+  ),
   role: z
     .enum(['worker', 'operator', 'curator'])
     .describe(
@@ -301,6 +303,27 @@ function isTimeZone(tz: string): boolean {
   }
 }
 
+/** A session belongs to one board project, so a Spur project can be listed under only one. */
+function rejectSharedSpurProjects(
+  items: readonly z.output<typeof projectSchema>[],
+  ctx: z.RefinementCtx,
+): void {
+  const owners = new Map<string, string>();
+  items.forEach((project, i) => {
+    project.spurProjects.forEach(({ name }, j) => {
+      const owner = owners.get(name);
+      if (owner === undefined) owners.set(name, project.id);
+      else if (owner !== project.id) {
+        ctx.addIssue({
+          code: 'custom',
+          path: [i, 'spurProjects', j, 'name'],
+          message: `Spur project ${JSON.stringify(name)} is listed under board projects ${JSON.stringify(owner)} and ${JSON.stringify(project.id)}: list it under only one`,
+        });
+      }
+    });
+  });
+}
+
 /** The board config file. Every object rejects unknown keys; no key holds a secret. */
 export const configSchema = z.strictObject({
   projects: z
@@ -308,6 +331,7 @@ export const configSchema = z.strictObject({
     .min(1)
     .superRefine((items, ctx) => {
       rejectDuplicates(items, 'id', 'project id', ctx);
+      rejectSharedSpurProjects(items, ctx);
     }),
   operator: z.strictObject({ slack: nonEmpty }),
   slack: z
