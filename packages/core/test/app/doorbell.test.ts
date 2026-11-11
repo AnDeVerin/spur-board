@@ -468,6 +468,47 @@ describe('role addressed doorbells', () => {
     expect(ctx.sent).toHaveLength(1);
   });
 
+  it('delivers an escalation note as a reply in the opened thread', async () => {
+    const ctx = await setup({ gateway: true });
+    const fake = ctx.fake;
+    if (fake === undefined) throw new Error('no gateway');
+    const block = await ctx.store.transaction((trx) =>
+      trx
+        .insertInto('block')
+        .values({
+          task_id: 1,
+          type: 'code',
+          reason: 'Fix checks',
+          author: 'agent:web/worker-1',
+          addressee_role: 'worker',
+          target_column: null,
+          state: 'open',
+          outcome: null,
+          outcome_reason: null,
+          repeat_of: null,
+          unblocked_by: null,
+          unblocked_at: null,
+          created_at: new Date(START).toISOString(),
+        })
+        .returning('id')
+        .executeTakeFirstOrThrow(),
+    );
+    await ctx.apply(
+      ops.escalate,
+      { block: `B${String(block.id)}`, note: 'Tried twice already.' },
+      'agent:web/worker-1',
+      'escalate-note',
+    );
+    await ctx.sender.tick();
+    ctx.advance(60_000);
+    await ctx.sender.tick();
+    expect(fake.platform.conversations()).toHaveLength(1);
+    const texts = fake.platform.messages().map((message) => message.text);
+    expect(texts.some((text) => text.includes('Fix checks'))).toBe(true);
+    expect(texts.some((text) => text.includes('Tried twice already.'))).toBe(true);
+    expect(ctx.sent).toEqual([]);
+  });
+
   it('raises answer_undelivered only after three unanswered rings to a live role session', async () => {
     const ctx = await setup({ author: 'ended', replacement: true });
     const asked = await ctx.apply(

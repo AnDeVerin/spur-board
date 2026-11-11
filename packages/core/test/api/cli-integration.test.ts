@@ -339,6 +339,23 @@ describe('CLI against the real HTTP API', () => {
       return { store, board, close };
     }
 
+    it('escalates with a note', async () => {
+      const { store, board, close } = await curatorApi();
+      try {
+        expect((await board('worker-1', ['ask', 'o/r#101', 'Which version?'])).code).toBe(0);
+        const escalated = await board('cur-1', ['escalate', 'B1', '--note', 'Owner is away.']);
+        expect(escalated.code).toBe(0);
+        expect(JSON.parse(escalated.stdout)).toMatchObject({ block: { addressee: 'operator' } });
+        const rows = await store.db.selectFrom('outbox').selectAll().orderBy('id').execute();
+        expect(rows.map((row) => row.kind)).toEqual(['conversation.open', 'conversation.reply']);
+        expect(JSON.parse(rows[0]?.payload ?? '{}')).toMatchObject({ text: 'Which version?' });
+        expect(JSON.parse(rows[1]?.payload ?? '{}')).toMatchObject({ text: 'Owner is away.' });
+        expect(rows[1]?.parent_outbox_id).toBe(rows[0]?.id);
+      } finally {
+        await close();
+      }
+    });
+
     it('withdraws from a new curator session', async () => {
       const { board, close } = await curatorApi();
       try {

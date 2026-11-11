@@ -591,6 +591,12 @@ export function createBlockMutations(config: Config) {
       });
       await closeBlockNotification(trx, block.id, new Date(ctx.at));
       await queueBlockOpen(trx, task, updated, ctx, config);
+      // After the open, so the note is a reply and never replaces the original text at the head.
+      if (input.note !== undefined) {
+        await addComment(trx, task, updated, input.note, ctx, next.addressee, config, {
+          ringsAuthor: false,
+        });
+      }
       await registerBlockNotification(trx, updated, new Date(ctx.at));
       return { block: blockView(updated, task) };
     },
