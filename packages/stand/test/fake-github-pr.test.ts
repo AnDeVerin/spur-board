@@ -104,6 +104,22 @@ describe('matching', () => {
       'mismatched isRequired number',
       batch.replace('isRequired(pullRequestNumber: 2)', 'isRequired(pullRequestNumber: 3)'),
     ],
+    ['directive on a field', batch.replaceAll(' isDraft', ' isDraft @skip(if: true)')],
+    [
+      'directive on a field with arguments',
+      batch.replaceAll('reviews(first: 100)', 'reviews(first: 100) @include(if: false)'),
+    ],
+    [
+      'directive on an aliased root',
+      batch.replace(/pr\d: repository\([^)]*\)/g, '$& @include(if: true)'),
+    ],
+    [
+      'directive on an inline fragment',
+      batch.replaceAll('... on CheckRun', '... on CheckRun @skip(if: false)'),
+    ],
+    ['directive on the operation', batch.replace('$repo: String!)', '$repo: String!) @live')],
+    ['directive on a variable', batch.replace('$repo: String!', '$repo: String! @deprecated')],
+    ['variable default', batch.replace('$repo: String!', '$repo: String! = "x"')],
     ['syntax error', 'query {'],
   ])('logs one violation and refuses: %s', async (_name, query, variables) => {
     created(1, {
@@ -316,6 +332,7 @@ describe('wire facts', () => {
 });
 
 describe('pagination', () => {
+  const CURSOR = sourceCursorSchema.parse('2025-01-01T00:00:00.000Z');
   const many = <T>(make: (i: number) => T): T[] =>
     Array.from({ length: 101 }, (_, i) => make(i + 1));
 
@@ -360,13 +377,30 @@ describe('pagination', () => {
 
   it.each([
     ['bootstrap', undefined],
-    ['a later poll', sourceCursorSchema.parse('2025-01-01T00:00:00.000Z')],
+    ['a later poll', CURSOR],
   ])('discovers 101 PRs over two pages on %s', async (_name, cursor) => {
     for (let number = 1; number <= 101; number += 1)
       created(number, { updatedAt: new Date(NOW + number).toISOString() }, SERVICE);
     const batch = await pollRepo(fakes, SERVICE, pollContext({ cursor }));
     expect(batch.complete).toBe(true);
     expect(batch.items).toHaveLength(101);
+  });
+
+  it.each([
+    ['closing, with a cursor', BOARD, CURSOR],
+    ['no closing, with a cursor', SERVICE, CURSOR],
+    ['no closing, on bootstrap', SERVICE, undefined],
+  ])('answers an observed PR in PrBatch: %s', async (_name, repo, cursor) => {
+    created(1, {}, repo);
+    const ref = { kind: 'pr' as const, repo, number: 1 };
+    const batch = await pollRepo(
+      fakes,
+      repo,
+      pollContext({ cursor, observe: { prs: [ref], tickets: [], sessions: [] } }),
+    );
+    expect(batch.complete).toBe(true);
+    expect(batch.entities).toEqual([{ ref, status: 'ok' }]);
+    expect(factsOf(batch, 1).repo).toBe(repo);
   });
 
   it('answers newest first and honours states', async () => {

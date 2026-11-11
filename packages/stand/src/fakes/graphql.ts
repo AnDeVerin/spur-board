@@ -3,6 +3,7 @@ import {
   Kind,
   parse,
   type ArgumentNode,
+  type DirectiveNode,
   type DocumentNode,
   type FieldNode,
   type OperationDefinitionNode,
@@ -153,9 +154,17 @@ function printArgument(field: FieldNode, argument: ArgumentNode, number?: string
   return `${name}:${printValue(argument.value)}`;
 }
 
+/** No known shape has a directive, and the answer would ignore one such as `@skip`. */
+function refuseDirectives(node: { readonly directives?: readonly DirectiveNode[] | undefined }) {
+  const name = node.directives?.[0]?.name.value;
+  if (name !== undefined)
+    throw new FakeViolation(`Directive @${name} is not part of any known shape.`);
+}
+
 function printSelection(selection: SelectionNode, number?: string): string {
   if (selection.kind === Kind.FRAGMENT_SPREAD)
     throw new FakeViolation('Fragment spreads are not part of any known shape.');
+  refuseDirectives(selection);
   if (selection.kind === Kind.INLINE_FRAGMENT)
     return `...on ${selection.typeCondition?.name.value ?? ''}${printSet(selection.selectionSet, number)}`;
   const alias = selection.alias === undefined ? '' : `${selection.alias.value}:`;
@@ -202,9 +211,11 @@ function printAliases(aliases: readonly FieldNode[]): string[] {
 
 /**
  * One text per request shape: selections, arguments and variable definitions in sorted order, and
- * `pr<i>` root aliases collapsed to one template with the pull request number replaced.
+ * `pr<i>` root aliases collapsed to one template with the pull request number replaced. A directive
+ * or a variable default has no canonical form and throws `FakeViolation`.
  */
 export function canonicalize(operation: OperationDefinitionNode): string {
+  refuseDirectives(operation);
   const aliases: FieldNode[] = [];
   const others: SelectionNode[] = [];
   for (const selection of operation.selectionSet.selections) {
@@ -213,7 +224,13 @@ export function canonicalize(operation: OperationDefinitionNode): string {
     else others.push(selection);
   }
   const variables = (operation.variableDefinitions ?? [])
-    .map((definition) => `$${definition.variable.name.value}:${typeText(definition.type)}`)
+    .map((definition) => {
+      const name = definition.variable.name.value;
+      refuseDirectives(definition);
+      if (definition.defaultValue !== undefined)
+        throw new FakeViolation(`Variable $${name} has a default, which no known shape has.`);
+      return `$${name}:${typeText(definition.type)}`;
+    })
     .sort()
     .join(',');
   const roots = [
