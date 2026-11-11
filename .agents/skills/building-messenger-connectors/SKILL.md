@@ -13,7 +13,7 @@ A gateway adapts one chat platform to the `Gateway` port.
   checklist; a member's TSDoc cites the ids it implements.
 - Register `runGatewayConformance` with `caseIds: fakeCaseIds` against a fake of the platform
   API, as `packages/gateway-slack/test/conformance.test.ts` does with
-  `packages/gateway-slack/test/fake-api.ts`.
+  `packages/gateway-slack/src/testing.ts`.
 - Set `maxTextLength` to the platform limit, less any marker or repeat mark rendered in the
   text. Slack keeps its marker out of the text, so its target uses the limit itself
   (`MAX_PART_TEXT` in `packages/gateway-slack/src/render.ts`).

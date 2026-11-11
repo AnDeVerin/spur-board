@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./testing": "./src/testing.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit -p .",
@@ -13,11 +14,11 @@
   "dependencies": {
     "@slack/socket-mode": "catalog:",
     "@slack/web-api": "catalog:",
-    "@spur-board/contracts": "workspace:*"
+    "@spur-board/contracts": "workspace:*",
+    "ws": "8.21.3"
   },
   "devDependencies": {
     "@spur-board/gateway-testkit": "workspace:*",
-    "@types/ws": "8.18.2",
-    "ws": "8.21.3"
+    "@types/ws": "8.18.2"
   }
 }

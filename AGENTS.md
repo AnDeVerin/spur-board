@@ -13,7 +13,8 @@ A map of the repo for agents and contributors. The rules live in the files and s
   Skill: `designing-agent-surfaces`.
 - `packages/core` - the SQLite store in `src/store/`. Skill: `working-with-storage`.
 - `packages/gateway-slack` - the Slack gateway: Web API delivery, Socket Mode inbound,
-  thread-history recovery and the board slash commands. Skill: `building-messenger-connectors`.
+  thread-history recovery and the board slash commands. Tests and the stand get its fake Slack API
+  from `@spur-board/gateway-slack/testing`. Skill: `building-messenger-connectors`.
 - `packages/gateway-testkit` - the gateway conformance suite, its case registry for fake and live
   targets, and an in-memory fake gateway with `slack-like` and `telegram-like` profiles. Skill:
   `building-messenger-connectors`.
@@ -28,9 +29,9 @@ A map of the repo for agents and contributors. The rules live in the files and s
   `pnpm --filter @spur-board/daemon daemon` (`daemon:dev` pretty-prints the log). Skill:
   `running-the-daemon`.
 - `packages/stand` - a private disposable board for agents and tests: one process holding the
-  in-process daemon on a temp home with dummy secrets, the network guard, an in-memory fake Spur
-  and a control endpoint (`wait`, `poll`, `reset`, `fake`, `violations`). Production packages
-  never import it; the boundary lint is in `eslint.config.js`.
+  in-process daemon on a temp home with dummy secrets, the fake Slack API, the network guard, an
+  in-memory fake Spur and a control endpoint (`wait`, `poll`, `reset`, `fake`, `violations`).
+  Production packages never import it; the boundary lint is in `eslint.config.js`.
 - `packages/testkit` - the shared Vitest harness: environment scrub and network guard. Skill:
   `testing-and-ci`.
 - `scripts/` - repo tooling, run as `node scripts/<name>.ts` through the pnpm scripts below. Check

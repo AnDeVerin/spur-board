@@ -3,7 +3,7 @@ import { fakeCaseIds } from '@spur-board/gateway-testkit/cases';
 import { vi } from 'vitest';
 import { createSlackGateway } from '../src/index.ts';
 import { MAX_PART_TEXT } from '../src/render.ts';
-import { startFakeSlackApi } from './fake-api.ts';
+import { startFakeSlackApi } from '@spur-board/gateway-slack/testing';
 
 // The SDK's first automatic reconnect waits 5 seconds before opening a new socket.
 vi.setConfig({ testTimeout: 10_000 });
