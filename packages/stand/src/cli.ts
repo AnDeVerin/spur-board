@@ -90,6 +90,10 @@ const USAGE = `Usage: pnpm stand <command>
   fake github pr <n> <verb> [--repo owner/name]
                                   create [--seed '<json>'], approve, ci-red, ci-green, merge,
                                   conflict or push <sha>; --repo defaults to ${DEFAULT_FAKE_REPO}
+  fake github issue <n> <verb> [--repo owner/name]
+                                  open [--title t] (create, or reopen a closed issue), close,
+                                  label [name...] (replaces the labels; none clears them) or
+                                  milestone [title] (none clears it); --repo as for pr
   violations                      print requests no fake models; exit 1 if there are any
 
 Every command but up takes --home <dir> to pick one of several stands.
@@ -99,6 +103,7 @@ Exit codes: 0 ok, 1 failure, 2 usage, 3 refused.
 class UsageError extends Error {}
 
 const FAKE_PR_VERBS = ['create', 'approve', 'ci-red', 'ci-green', 'merge', 'conflict', 'push'];
+const FAKE_ISSUE_VERBS = ['open', 'close', 'label', 'milestone'];
 
 const out = (text: string): void => {
   process.stdout.write(text);
@@ -466,19 +471,52 @@ function prBody(
   };
 }
 
+function issueBody(
+  args: readonly string[],
+  values: { repo?: string | undefined; title?: string | undefined },
+): Record<string, unknown> {
+  const [number, verb, ...names] = args;
+  if (number === undefined || !/^[1-9]\d*$/.test(number))
+    throw new UsageError('issue needs an issue number');
+  if (verb === undefined) throw new UsageError('issue needs a verb');
+  if (!FAKE_ISSUE_VERBS.includes(verb))
+    throw new UsageError(`issue verb must be one of ${FAKE_ISSUE_VERBS.join(', ')}`);
+  if (values.title !== undefined && verb !== 'open')
+    throw new UsageError('--title goes only with open');
+  const target = { repo: values.repo ?? DEFAULT_FAKE_REPO, number: Number(number) };
+  const body = (extra: Record<string, unknown> = {}) => ({
+    system: 'github',
+    verb: `issue-${verb}`,
+    args: { ...target, ...extra },
+  });
+  if (verb === 'label') return body({ labels: names });
+  if (verb === 'milestone') {
+    if (names.length > 1) throw new UsageError('milestone takes at most one title');
+    return body({ milestone: names[0] ?? null });
+  }
+  if (names.length > 0) throw new UsageError(`${verb} takes no value`);
+  return body(values.title === undefined ? {} : { title: values.title });
+}
+
 /** Maps the arguments of `stand fake github` to the body of a `/fake` control call. */
 export function fakeBody(
   positionals: readonly string[],
-  values: { repo?: string | undefined; seed?: string | undefined },
+  values: { repo?: string | undefined; seed?: string | undefined; title?: string | undefined },
 ): Record<string, unknown> {
   const [first, kind, ...rest] = positionals;
   const pr = first === 'github' && kind === 'pr';
-  if (!pr && (values.repo !== undefined || values.seed !== undefined))
-    throw new UsageError('--repo and --seed go only with fake github pr');
+  const issue = first === 'github' && kind === 'issue';
+  if (!pr && !issue && values.repo !== undefined)
+    throw new UsageError('--repo goes only with fake github pr or issue');
+  if (!pr && values.seed !== undefined)
+    throw new UsageError('--seed goes only with fake github pr');
+  if (!issue && values.title !== undefined)
+    throw new UsageError('--title goes only with fake github issue');
   if (pr) return prBody(rest, values);
+  if (issue) return issueBody(rest, values);
   if (first === 'github' && kind === 'fail')
     return { system: 'github', verb: 'fail', args: failureBody(rest) };
-  throw new UsageError('fake github needs fail <mode> or pr <n> <verb>');
+  throw new UsageError('fake github needs fail <mode>, pr <n> <verb> or issue <n> <verb>');
 }
 
 /** `fake slack outbox` and `fake slack click <n> <button> [--text <text>]`. */
@@ -548,6 +586,7 @@ async function main(argv: string[]): Promise<number> {
           home: { type: 'string' },
           repo: { type: 'string' },
           seed: { type: 'string' },
+          title: { type: 'string' },
         },
       });
       const body = fakeBody(positionals, values);
