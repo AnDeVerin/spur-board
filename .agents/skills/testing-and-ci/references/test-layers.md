@@ -55,6 +55,8 @@ Pick the lowest layer that can fail for the bug you guard against. Projects are 
   the recovery window; the fake Slack API takes `startFakeSlackApi({ now })` (`() => number`,
   optional) and stamps each message ts in that millisecond.
 - Daemon modules read `ctx.clock`; see `running-the-daemon`.
+- Stand: `pnpm stand clock +<n><s|m|h|d>` moves its one clock forward only, then ticks and
+  pulses; timers stay real (`packages/stand/src/stand.ts`).
 - Test controls: `vi.useFakeTimers` for timers, `FakeGateway.advance()` for the fake gateway's
   clock.
 - Ids: there is no id seam. Commands take an idempotency `key` and generate a random one only
