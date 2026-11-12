@@ -348,9 +348,9 @@ Arguments: `<task>`.
 Flags:
 
 `--reason <value>` — Why this link is being changed.
-`--pr <pr>` —
-`--session <session>` —
-`--ticket <ticket>` —
+`--pr <pr>` — Pull request URL.
+`--session <session>` — Spur session ID.
+`--ticket <ticket>` — Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42).
 `--key <key>` — Idempotency key for this action.
 `--json` — Print JSON output or a JSON error.
 
@@ -367,9 +367,9 @@ Arguments: `<task>`.
 Flags:
 
 `--reason <value>` — Why this link is being changed.
-`--pr <pr>` —
-`--session <session>` —
-`--ticket <ticket>` —
+`--pr <pr>` — Pull request URL.
+`--session <session>` — Spur session ID.
+`--ticket <ticket>` — Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42).
 `--key <key>` — Idempotency key for this action.
 `--json` — Print JSON output or a JSON error.
 
@@ -509,9 +509,9 @@ Arguments: `<block>`.
 
 Flags:
 
-`--done [ref]` —
-`--reason <reason>` —
-`--withdraw <answer>` —
+`--done [ref]` — What resolved the block, e.g. a commit SHA or a pull request.
+`--reason <reason>` — Why the block no longer applies.
+`--withdraw <answer>` — Why it is withdrawn, e.g. the answer received outside the board.
 `--key <key>` — Idempotency key for this action.
 `--json` — Print JSON output or a JSON error.
 
