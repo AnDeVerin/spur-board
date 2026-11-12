@@ -38,13 +38,13 @@ export function overrideRunMatches(run, pr) {
     run.display_title === `Owner override PR #${pr.number} SHA ${pr.head.sha}`
   );
 }
-export async function main(env = process.env) {
+export async function main(env = process.env, fetchFn = fetch) {
   const event = JSON.parse(readFileSync(env.GITHUB_EVENT_PATH, 'utf8'));
   const repo = env.GITHUB_REPOSITORY;
   if (repo !== 'AnDeVerin/spur-board') throw Error('Unexpected repository');
   const root = `/repos/${repo}`;
   async function api(path, method = 'GET', body) {
-    const response = await fetch(`https://api.github.com${path}`, {
+    const response = await fetchFn(`https://api.github.com${path}`, {
       method,
       headers: {
         authorization: `Bearer ${env.GH_TOKEN}`,
