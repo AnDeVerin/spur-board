@@ -33,6 +33,8 @@ export interface SocketConfig extends ApiConfig {
   appToken?: string;
   channels: SlackChannels;
   command?: string;
+  /** Receives every rejection of Socket Mode background work; without it the rejection is dropped. */
+  onError?: (err: unknown, work: 'connection' | 'envelope') => void;
 }
 
 /** Socket Mode owns transport reconnects; this layer owns sink-before-ack ordering. */
@@ -47,9 +49,12 @@ export function createSocket(
   let connected = false;
   const pending = new Set<Promise<void>>();
 
-  function track(work: Promise<void>): void {
+  function track(work: Promise<void>, kind: 'connection' | 'envelope'): void {
     pending.add(work);
-    void work.finally(() => pending.delete(work)).catch(() => {});
+    void work
+      .catch((err: unknown) => config.onError?.(err, kind))
+      .finally(() => pending.delete(work))
+      .catch(() => {});
   }
 
   function emit(event: InboundEvent): Promise<void> {
@@ -130,6 +135,7 @@ export function createSocket(
         connected = true;
         track(
           emit({ kind: 'connection', state: 'up', dedupeKey: `slack:connection:${randomUUID()}` }),
+          'connection',
         );
       });
       client.on('close', () => {
@@ -141,10 +147,11 @@ export function createSocket(
             state: 'down',
             dedupeKey: `slack:connection:${randomUUID()}`,
           }),
+          'connection',
         );
       });
       client.on('slack_event', (envelope: Envelope) => {
-        track(handle(envelope));
+        track(handle(envelope), 'envelope');
       });
       try {
         await client.start();
