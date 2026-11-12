@@ -29,8 +29,8 @@ The numbers are the canonical gate order.
    stops again; at the designer cap it gets `BLOCKED_DESIGN` and implements.
 9. Simplify (tier 2+) - `developer` with `simplify pass` on `git diff <sha>...HEAD`.
 10. Review - a PR exists: push, and bring its `## Changed checks` section up to date with the
-    developer's output per `gitflow`. Then `reviewer` with the spec, the developer output and
-    `PR: <url> | none`.
+    developer's output per `gitflow`. Then `reviewer` with the spec, every `developer` output of
+    the run and `PR: <url> | none`.
 11. Design review (UI) - `designer` (code) with the changed files and any screenshots the run
     already has.
 12. Validate - `tester` when a modifier asks for it, with its `Head:` line (`references/runtime.md`,
