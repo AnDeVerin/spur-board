@@ -117,15 +117,20 @@
           },
           "columns": {
             "default": [
-              { "id": "todo", "enabled": true, "orchestrator": "none" },
-              { "id": "ready-for-dev", "enabled": true, "orchestrator": "none" },
-              { "id": "dev", "enabled": true, "orchestrator": "none" },
-              { "id": "review", "enabled": true, "orchestrator": "none" },
-              { "id": "product-review", "enabled": true, "orchestrator": "none" },
-              { "id": "external-review", "enabled": true, "orchestrator": "none" },
-              { "id": "qa", "enabled": true, "orchestrator": "none" },
-              { "id": "ready-to-merge", "enabled": true, "orchestrator": "none" },
-              { "id": "done", "enabled": true, "orchestrator": "none" }
+              { "id": "todo", "enabled": true, "orchestrator": "none", "cycleLimit": 10 },
+              { "id": "ready-for-dev", "enabled": true, "orchestrator": "none", "cycleLimit": 10 },
+              { "id": "dev", "enabled": true, "orchestrator": "none", "cycleLimit": 10 },
+              { "id": "review", "enabled": true, "orchestrator": "none", "cycleLimit": 10 },
+              { "id": "product-review", "enabled": true, "orchestrator": "none", "cycleLimit": 10 },
+              {
+                "id": "external-review",
+                "enabled": true,
+                "orchestrator": "none",
+                "cycleLimit": 10
+              },
+              { "id": "qa", "enabled": true, "orchestrator": "none", "cycleLimit": 10 },
+              { "id": "ready-to-merge", "enabled": true, "orchestrator": "none", "cycleLimit": 10 },
+              { "id": "done", "enabled": true, "orchestrator": "none", "cycleLimit": 10 }
             ],
             "type": "array",
             "items": {
@@ -146,7 +151,14 @@
                   ]
                 },
                 "enabled": { "default": true, "type": "boolean" },
-                "orchestrator": { "default": "none", "type": "string", "minLength": 1 }
+                "orchestrator": { "default": "none", "type": "string", "minLength": 1 },
+                "cycleLimit": {
+                  "default": 10,
+                  "description": "How many times a task may return to Dev from this column before the board stops it for the operator. Returns by the column executor, changes requested and external comments count; a conflict, red CI and a draft do not.",
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                }
               },
               "required": ["id"],
               "additionalProperties": false
