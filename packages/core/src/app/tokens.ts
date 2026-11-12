@@ -215,6 +215,20 @@ export async function verifyOperatorToken(
   return row?.status === 'approved' ? { name: row.name } : null;
 }
 
+/** Read-only: an expired pending row is reported as expired but left for the sweep. */
+export async function tokenStatusByHash(
+  store: Store,
+  hash: string,
+  at: Date,
+): Promise<OperatorTokenStatus | 'unknown'> {
+  const row = await store.db
+    .selectFrom('operator_token')
+    .selectAll()
+    .where('hash', '=', hash)
+    .executeTakeFirst();
+  return row === undefined ? 'unknown' : effectiveStatus(row, at);
+}
+
 export function tokenListQuery(clock: { now(): number }): Query<'token.list'> {
   return {
     id: 'token.list',

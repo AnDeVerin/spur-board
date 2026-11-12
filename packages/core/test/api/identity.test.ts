@@ -106,6 +106,88 @@ describe('API identity', () => {
     }
   });
 
+  it('reports a token state by hash without a credential and writes nothing', async () => {
+    const store = await storeWithSession();
+    let now = Date.parse('2026-11-04T10:00:00.000Z');
+    const logRequest = vi.fn();
+    const app = await createApiServer({
+      store,
+      config,
+      port: 4311,
+      ready: () => true,
+      clock: { now: () => now },
+      lookupSession: vi.fn(),
+      verifyToken: (token) => verifyOperatorToken(store, token),
+      registry: {},
+      logRequest,
+    });
+    const headers = { host: '127.0.0.1:4311', 'content-type': 'application/json' };
+    const hashOf = (secret: string) => createHash('sha256').update(secret).digest('hex');
+    const enroll = (secret: string) =>
+      app.inject({
+        method: 'POST',
+        url: '/v1/tokens/requests',
+        headers,
+        payload: JSON.stringify({
+          name: 'desk',
+          folder: 'workspace/desk',
+          host: 'local',
+          hash: hashOf(secret),
+        }),
+      });
+    const status = (body: unknown) =>
+      app.inject({
+        method: 'POST',
+        url: '/v1/tokens/status',
+        headers,
+        payload: JSON.stringify(body),
+      });
+    try {
+      expect((await enroll('first')).statusCode).toBe(200);
+      const pending = await status({ hash: hashOf('first') });
+      expect(pending.statusCode).toBe(200);
+      expect(pending.json()).toMatchObject({ ok: true, value: { status: 'pending' } });
+
+      now += 15 * 60 * 1000;
+      const tokenRow = () =>
+        store.db.selectFrom('operator_token').selectAll().where('name', '=', 'desk').execute();
+      const eventCount = () =>
+        store.db
+          .selectFrom('event')
+          .select((eb) => eb.fn.countAll<number>().as('count'))
+          .executeTakeFirstOrThrow();
+      const items = () => store.db.selectFrom('operator_item').selectAll().execute();
+      const before = { token: await tokenRow(), events: await eventCount(), items: await items() };
+      const expired = await status({ hash: hashOf('first') });
+      expect(expired.statusCode).toBe(200);
+      expect(expired.json()).toMatchObject({ ok: true, value: { status: 'expired' } });
+      expect(Object.keys(expired.json<{ value: object }>().value)).toEqual(['status']);
+      expect(before.token[0]?.status).toBe('pending');
+      expect({ token: await tokenRow(), events: await eventCount(), items: await items() }).toEqual(
+        before,
+      );
+      expect(logRequest.mock.calls.at(-1)?.[0]).toMatchObject({
+        method: 'POST',
+        url: '/v1/tokens/status',
+        status: 200,
+      });
+
+      expect((await enroll('second')).statusCode).toBe(200);
+      expect((await status({ hash: hashOf('first') })).json()).toMatchObject({
+        value: { status: 'unknown' },
+      });
+      expect((await status({ hash: hashOf('second') })).json()).toMatchObject({
+        value: { status: 'pending' },
+      });
+
+      const extra = await status({ hash: hashOf('second'), extra: 1 });
+      expect(extra.statusCode).toBe(400);
+      expect(extra.json()).toMatchObject({ code: 'usage' });
+    } finally {
+      await app.close();
+    }
+  });
+
   it('keeps a session as agent while an approved token alone is operator and logs its name', async () => {
     const store = await storeWithSession('active');
     const at = new Date('2026-11-04T10:00:00.000Z');
