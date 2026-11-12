@@ -420,14 +420,28 @@ export async function reconcileItems(
     .where('kind', 'in', RECONCILED_KINDS)
     .where('cleared_at', 'is', null)
     .execute();
+  // A host-load episode holds the error block of a session still in error, not a recovered one.
+  const stillInError = new Set(
+    health.hostLoad === null
+      ? []
+      : subjects
+          .filter(
+            (subject) =>
+              subject.endedAt === null && subject.health === 'error' && subject.role !== 'other',
+          )
+          .map((subject) =>
+            healthKey(Number(subject.taskId), {
+              taskId: subject.taskId,
+              sessionId: subject.id,
+              kind: subject.role === 'worker' ? 'stuck_worker' : 'stuck_orchestrator',
+            }),
+          ),
+  );
   for (const item of existing) {
     if (item.kind !== ('anomaly' satisfies ItemKind)) continue;
     // Spur-derived blocks wait out a blind Spur, and error blocks a host-load episode.
-    const held =
-      (spurBlind && item.source === 'spur') ||
-      (health.hostLoad !== null &&
-        (item.item_key.endsWith(':stuck_worker') || item.item_key.endsWith(':stuck_orchestrator')));
-    if (held) seen.add(item.item_key);
+    if ((spurBlind && item.source === 'spur') || stillInError.has(item.item_key))
+      seen.add(item.item_key);
   }
   for (const item of existing) {
     if (!seen.has(item.item_key)) await clearReconciled(trx, item, new Date(now));

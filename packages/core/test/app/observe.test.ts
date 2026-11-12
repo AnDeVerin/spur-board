@@ -2002,6 +2002,35 @@ describe('anomaly blocks', () => {
     expect((await surface(b)).closes).toBe(0);
   });
 
+  it("withdraws a recovered session's error block during a host-load episode", async () => {
+    const b = await board();
+    const other = { 'board-other': 'https://github.com/o/r/issues/9' };
+    await spur(b, [session('worker-1', 'error')]);
+    now += config.health.errorAfterMs;
+    await tick(b);
+    expect(await openLedger(b)).toEqual(['health:worker-1:stuck_worker']);
+    now += 1_000;
+    await spur(b, [
+      session('worker-1', 'working'),
+      { ...sessionFact('reviewer-1', other), health: 'error', healthSince: iso() },
+      { ...sessionFact('reviewer-2', other), health: 'error', healthSince: iso() },
+    ]);
+    const recovered = iso();
+    now += 1_000;
+    await tick(b);
+    expect(
+      (await getStatus({ store: b.store, config, clock, completeSince: b.core.completeSince }))
+        .hostLoad,
+    ).toBe('Host under load');
+    const state = await surface(b);
+    expect(await openLedger(b)).toEqual([]);
+    expect(state.blocks.map((block) => [block.state, block.outcome, block.unblocked_by])).toEqual([
+      ['unblocked', 'withdrawn', 'system'],
+    ]);
+    expect(state.items.map((item) => item.cleared_at)).toEqual([recovered]);
+    expect(state.closes).toBe(1);
+  });
+
   it('opens a block for needs input without a board question', async () => {
     const b = await board();
     await spur(b, [session('worker-1', 'needs_input')]);
