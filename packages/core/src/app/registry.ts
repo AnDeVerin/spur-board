@@ -6,6 +6,7 @@ import {
 } from '@spur-board/contracts';
 import { authorize } from './authorize.ts';
 import { createBlockMutations } from './blocks.ts';
+import { CommandError, type Mutation } from './commands.ts';
 import { createItemMutations, type ReapplyInbound } from './items.ts';
 import { createLinkMutations } from './links.ts';
 import { createMembershipMutations } from './membership.ts';
@@ -16,6 +17,18 @@ import { createTaskQueries, projectTargets, visibleProjects } from './task-queri
 import { tokenListQuery, tokenRevokeMutation } from './tokens.ts';
 
 const catalog = await buildCatalogSnapshot(OPERATIONS);
+
+/** Catalog entry whose handler has not landed yet (#322): every call answers `not_implemented`. */
+function notImplemented<Id extends 'task.submit' | 'task.return'>(id: Id): Mutation<Id> {
+  const refuse = () =>
+    Promise.reject(
+      new CommandError(
+        'not_implemented',
+        `Operation ${id} is not available in this daemon build. Ask the operator to update the daemon.`,
+      ),
+    );
+  return { id, resolveTargets: refuse, run: refuse };
+}
 
 /** Concrete handlers shared by the daemon's HTTP and inbound transports. */
 export function createOperationRegistry(deps: {
@@ -110,5 +123,7 @@ export function createOperationRegistry(deps: {
     'inbox.ack': blocks.ack,
     'item.retry': items.retry,
     'item.close': items.close,
+    'task.submit': notImplemented('task.submit'),
+    'task.return': notImplemented('task.return'),
   };
 }

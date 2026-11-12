@@ -40,6 +40,8 @@ const EVENT_SUMMARIES = {
   link_removed: 'Link removed',
   task_added: 'Task added',
   task_archived: 'Task archived',
+  task_submitted: 'Turn submitted',
+  task_moved: 'Task moved',
   block_opened: 'Block opened',
   block_escalated: 'Block escalated',
   block_unblocked: 'Block unblocked',

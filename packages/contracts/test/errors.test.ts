@@ -30,7 +30,7 @@ describe('error catalog', () => {
     });
   });
 
-  it('pins the 23 codes in order, with HTTP status and exit code', () => {
+  it('pins the 28 codes in order, with HTTP status and exit code', () => {
     const table = Object.entries(ERRORS).map(([code, { status, exit }]) => [code, status, exit]);
     expect(table).toEqual([
       ['usage', 400, 2],
@@ -41,12 +41,17 @@ describe('error catalog', () => {
       ['block_not_open', 409, 1],
       ['wrong_block_type', 409, 1],
       ['stale_comment_revision', 409, 1],
+      ['turn_closed', 409, 1],
+      ['not_turn_taker', 409, 1],
+      ['head_mismatch', 409, 1],
+      ['return_not_allowed', 409, 1],
       ['task_archived', 409, 1],
       ['link_conflict', 409, 1],
       ['retry_not_applicable', 409, 1],
       ['idempotency_key_mismatch', 409, 1],
       ['identity_unavailable', 503, 3],
       ['starting', 503, 3],
+      ['github_unavailable', 503, 3],
       ['version_mismatch', 409, 3],
       ['daemon_unavailable', null, 3],
       ['config', null, 4],

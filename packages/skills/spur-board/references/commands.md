@@ -1,24 +1,6 @@
 # Board command reference
 
-Every command can return the common errors below. Each entry lists its other codes; find their hints here too.
-
-## Errors every command can return
-
-- `usage`: Run `board schema` to see the expected input and fix the arguments.
-- `forbidden`: Check which role may run the operation in `board schema`, or ask the operator.
-- `not_implemented`: Ask the operator to update the daemon to a build with this operation.
-- `identity_unavailable`: Ask in your own session, then retry the same command later with its existing idempotency key if it has one.
-- `starting`: Wait until the daemon is ready, then retry the command with its existing idempotency key if it has one.
-
-## Other error hints
-
-- `not_found`: Check the ID with `board status` or `board task <KEY>`.
-- `wrong_id_kind`: Pass the ID kind the operation expects, e.g. B<n> for a block or a task key for a task.
-- `stale_comment_revision`: Read the latest comment revision, then acknowledge that revision.
-- `idempotency_key_mismatch`: Use a new key for a new command, or repeat the earlier input with the same key.
-- `task_archived`: Ask an operator to add the task to the board again if work continues.
-- `block_not_open`: Read the task with `board task <KEY>` to see the current blocks.
-- `wrong_block_type`: Read the block type with `board task <KEY>` and use the operation for that type.
+Every command can return the common errors in [errors.md](errors.md). Each entry lists its other codes; their hints are there too.
 
 ### `board status`
 
@@ -152,3 +134,23 @@ Avoid when: Use `board answer <block> <text>` for a question answer.
 Worker example: `board unblock B13 --done example/web#9 --key unblock-PROJ-123-fixing-build-1432` — Unblock after fixing the build.
 Orchestrator example: `board unblock B13 --reason "The build issue was resolved." --key unblock-PROJ-123-code-block-1432` — Explain why a code block no longer applies.
 Other errors: `wrong_id_kind`, `not_found`, `block_not_open`, `task_archived`, `idempotency_key_mismatch`.
+
+### `board submit`
+
+Purpose: Submit the commit at the head of the task's pull request for a turn this session took; the turn closes.
+Arguments: `<turn>`, `<sha>`.
+Flags: `--key <key>`, `--json`.
+Use when: Hand in the work of a turn you took, at the pull request head.
+Avoid when: Use `board return <turn> <reason>` to send the task back to Dev instead.
+Example: `board submit T4 9f2c4e1b7a3d5c8e0f1a2b3c4d5e6f708192a3b4 --key submit-PROJ-123-submit-pull-1432` — Submit the pull request head for a review turn.
+Other errors: `wrong_id_kind`, `not_found`, `turn_closed`, `not_turn_taker`, `head_mismatch`, `task_archived`, `idempotency_key_mismatch`, `github_unavailable`.
+
+### `board return`
+
+Purpose: Return the task of a turn this session took to Dev, opening a code block on the worker with the reason.
+Arguments: `<turn>`, `<reason>`.
+Flags: `--key <key>`, `--json`.
+Use when: Send the task back to Dev because the work needs code changes.
+Avoid when: Use `board submit <turn> <sha>` to hand in the work instead.
+Example: `board return T4 "Handle the empty list in the parser." --key return-PROJ-123-return-reviewed-1432` — Return a reviewed task to Dev.
+Other errors: `wrong_id_kind`, `not_found`, `turn_closed`, `not_turn_taker`, `return_not_allowed`, `task_archived`, `idempotency_key_mismatch`.

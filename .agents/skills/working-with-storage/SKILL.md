@@ -1,6 +1,6 @@
 ---
 name: working-with-storage
-description: Rules for the SQLite store (packages/core/src/store/) and outbox (packages/core/src/app/{outbox,sender}.ts) - transactions, outbox, migrations and tests, PRAGMAs. Use when you edit them or write through store.transaction. Don't use for zod schemas, enums or event kinds (use working-with-contracts).
+description: Rules for the SQLite store (packages/core/src/store/) and outbox (packages/core/src/app/{outbox,sender}.ts) - transactions, outbox, migrations and tests, PRAGMAs. Use when you edit them or write to the store. Don't use for zod schemas, enums or event kinds (use working-with-contracts).
 ---
 
 # Working with storage
@@ -11,8 +11,8 @@ numbered migrations. Where a test enforces a rule, the rule names it.
 ## When to use
 
 - Any edit under `packages/core/src/store/`, `packages/core/test/store/` or the outbox
-  (`packages/core/src/app/{outbox,sender}.ts`), and any code that writes through
-  `store.transaction`.
+  (`packages/core/src/app/{outbox,sender}.ts`), and any code that writes to the
+  store (`scanTransaction` or `store.transaction`).
 - Not for zod schemas, enums or event kinds: use `working-with-contracts`. A migration that
   breaks stored data as users see it (its Breaking changes section lists the cases, a new required
   column and a tightened constraint among them) needs both skills: this one for the migration,
@@ -20,7 +20,8 @@ numbered migrations. Where a test enforces a rule, the rule names it.
 
 ## Transactions
 
-- Read references/transactions.md for transaction scope, locking, rollback and command rules.
+- Read references/transactions.md for the write entry point and scan replay,
+  transaction scope, locking, rollback and command rules.
 
 ## State, journal and outbox
 

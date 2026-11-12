@@ -287,7 +287,13 @@ function buildInput(
     }
   }
   const selected = op.cli.modes?.filter((mode) => options[optionField(mode.flag)] !== undefined);
-  if (selected && selected.length !== 1) throw new CliError('usage');
+  if (selected && selected.length !== 1)
+    throw new CliError(
+      'usage',
+      undefined,
+      undefined,
+      `Pass exactly one of ${(op.cli.modes ?? []).map((mode) => mode.flag).join(', ')}.`,
+    );
   if (selected?.[0]) {
     input['mode'] = selected[0].mode;
     if (selected[0].value) {
@@ -474,8 +480,13 @@ export function createProgram(options: CliOptions = {}): CommandUnknownOpts {
       const json = Boolean(invoked.opts()['json'] || program.opts()['json']);
       const input = buildInput(op, parts.slice(0, -1), invoked.opts());
       const keyOption = invoked.opts()['key'];
-      if (keyOption !== undefined && typeof keyOption !== 'string') throw new CliError('usage');
-      if (keyOption === '') throw new CliError('usage');
+      if (keyOption !== undefined && (typeof keyOption !== 'string' || keyOption === ''))
+        throw new CliError(
+          'usage',
+          undefined,
+          undefined,
+          'Pass a nonempty --key, or omit it to have one generated.',
+        );
       if (keyOption !== undefined && escapeTerminalControls(keyOption) !== keyOption)
         throw new CliError(
           'usage',
@@ -483,7 +494,6 @@ export function createProgram(options: CliOptions = {}): CommandUnknownOpts {
           undefined,
           'The idempotency key must contain only printable characters.',
         );
-      if (op.kind === 'mutation' && env['SPUR_SESSION'] && !keyOption) throw new CliError('usage');
       const config = options.clientConfig ?? loadOperationConfig(op, input, env);
       const key = op.kind === 'mutation' ? keyOption || randomUUID() : undefined;
       if (key) io.stderr(`key: ${escapeTerminalControls(key)}\n`);
