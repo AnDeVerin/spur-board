@@ -18,6 +18,7 @@ Pick the lowest layer that can fail for the bug you guard against. Projects are 
   List it in both the `process` include and the `unit` exclude in `vitest.config.ts`, or it runs
   in both projects.
 - `startup` - `packages/cli/test/startup.test.ts` only.
+- `stand` - `packages/stand/test/scenarios.integration.test.ts` only; `integration` excludes it.
 - HTTP level - adapters take an injected `fetch` (`packages/adapters/test/spur/spur.test.ts`);
   Slack code runs against the local HTTP and WebSocket fake in
   `packages/gateway-slack/src/testing.ts`.
@@ -98,13 +99,14 @@ Every test runs through the root config, so all of these hold:
 - `pnpm check` (changed mode): format and lint on changed files; types and the `unit`,
   `integration` and `process` projects for changed packages plus their dependents
   (`withDependents`, `buildSteps` in `scripts/check.ts`). `startup` and package smoke run only when
-  `packages/cli` is affected.
+  `packages/cli` is affected, `stand` only when `packages/stand` is.
 - A change to a file in `GLOBAL_FILES` or `GLOBAL_DIRS` (`scripts/check-plan.ts`), or to a
   root `tsconfig*.json`, switches to full mode; a package's own `tsconfig.json` does not.
 - `pnpm run check --pre-push` (the pre-push hook): changed-file format and lint, types and `unit`
   only.
-- `pnpm check:full --only test`: all four projects plus `scripts/package-smoke.ts`.
-- CI `test` job: `check:full --only test` on Node 24 and 26 (`.github/workflows/ci.yml`).
+- `pnpm check:full --only test`: `unit`, `integration`, `process`, `startup` and package smoke.
+- CI `test` and `stand` jobs: `check:full --only test` and `--only stand` on Node 24 and 26
+  (`.github/workflows/ci.yml`).
 - CI `package-smoke` job: `pnpm package:smoke`, `pnpm upgrade:smoke`, then `pnpm update:smoke`.
   On a PR it runs only when `classifyChanges` in `scripts/ci.ts` marks a package change.
 - `.github/workflows/nightly.yml`: runs the published package's `--version`; on failure

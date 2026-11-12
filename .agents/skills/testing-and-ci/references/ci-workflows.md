@@ -5,13 +5,14 @@
   `scripts/ci.ts`).
 - Cancel older runs for the same PR, but let main and manual runs finish. The PR-number group
   and `cancel-in-progress` expression enforce this (`.github/workflows/ci.yml`).
-- Run test and package-smoke jobs on Node 24 and 26; pin workflow actions to commit SHAs and give
+- Run test, stand and package-smoke jobs on Node 24 and 26; pin workflow actions to commit SHAs and give
   each job a timeout (`.github/workflows/ci.yml`).
 - Report a scheduled workflow through `scripts/nightly.ts` under its own issue title. Grant
   `issues: write` only to its `report` job, list every other job in that job's `needs`, and gate
   it to `main` (`scripts/nightly.test.ts`, `describe('scheduled workflows',`).
 - The nightly test run shuffles with the run id as seed; reproduce a failing order with
-  `--sequence.shuffle --sequence.seed=<run id>` (`.github/workflows/nightly-tests.yml`).
+  `--sequence.shuffle --sequence.seed=<run id>`; the shuffled runs name every Vitest project
+  (`.github/workflows/nightly-tests.yml`, `scripts/nightly.test.ts`, `describe('nightly-tests.yml',`).
 - Keep knip in the `quality` job, not in scheduled workflows (`.github/workflows/ci.yml`).
 - Run Stryker weekly over `packages/core/src/domain` with no threshold: the score goes to the job
   summary, the report to the `mutation-report` artifact. Call it as
