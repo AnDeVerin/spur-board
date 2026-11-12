@@ -1,4 +1,4 @@
-import { issueKey, issueRef, openIssues } from './helpers.ts';
+import { issueKey, openIssues } from './helpers.ts';
 import type { Board, Scenario } from './index.ts';
 
 const SESSION = 'stand-killed';
@@ -27,7 +27,7 @@ export const workerKilledNoPr: Scenario = {
     });
     await board.call('operator', 'link.add', {
       mode: 'session',
-      task: issueRef(1),
+      task: issueKey(1),
       session: SESSION,
       reason: 'Stand scenario worker-killed-no-pr',
     });
