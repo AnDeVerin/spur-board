@@ -1,0 +1,11 @@
+name: Review approval signal
+on:
+  pull_request_review:
+    types: [submitted, edited, dismissed]
+permissions: {}
+jobs:
+  signal:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 1
+    steps:
+      - run: echo 'Review changed; trusted default-branch workflow will re-read GitHub reviews.'

@@ -41,6 +41,7 @@ import {
   type StandRole,
 } from './roles.ts';
 import { foregroundStop } from './foreground.ts';
+import { scenarioNames } from './scenarios/index.ts';
 import { startStand, WAIT_CONDITIONS } from './stand.ts';
 
 const SELF = fileURLToPath(import.meta.url);
@@ -59,10 +60,11 @@ const DEFAULT_FAKE_REPO = 'stand-org/board';
 
 const USAGE = `Usage: pnpm stand <command>
 
-  up [--port N] [--foreground [--watch-pid PID]]
-                                  start a stand (port 0 or 4780-4799; default 0). In the
-                                  foreground it stops with its parent; a launcher that may exit
-                                  first passes itself: pnpm stand up --foreground --watch-pid $$
+  up [--port N] [--scenario S] [--foreground [--watch-pid PID]]
+                                  start a stand (port 0 or 4780-4799; default 0), seeded with
+                                  scenario S when given. In the foreground it stops with its
+                                  parent; a launcher that may exit first passes itself:
+                                  pnpm stand up --foreground --watch-pid $$
   down                            stop the stand and remove its home
   status [--json]                 show the stand and whether its API answers
   logs [--stand]                  print the daemon log (--stand: the stand process log)
@@ -71,8 +73,11 @@ const USAGE = `Usage: pnpm stand <command>
   wait <condition> [--timeout s]  wait for ${WAIT_CONDITIONS.join(', ')} (default ${String(WAIT_DEFAULT_S)} s)
   poll [source]                   restart every source's poll now (source is only checked to
                                   exist), then tick and pulse the outbox
-  reset                           stop the daemon, restore the home and start it again; this
-                                  drops the violation log, so read it first
+  reset                           stop the daemon, restore the home and start it again, seeding
+                                  the last seeded scenario again; this drops the violation log,
+                                  so read it first
+  seed <scenario>                 reset onto the scenario's config and seed it; then
+                                  wait scenario. Scenarios: ${scenarioNames().join(', ')}
   fake slack outbox               list the messages posted to the fake Slack and any call to a
                                   Slack method it lacks
   fake slack click <n> <button> [--text <text>]
@@ -85,7 +90,7 @@ const USAGE = `Usage: pnpm stand <command>
                                   fail a route until clear; delay needs --ms (1-60000)
   fake spur clear                 drop every failure rule
   fake spur inspect               print sessions, rules, requests, sends and violations
-  fake github fail <mode>         delay <ms>, refuse, hang, rate-limit <seconds>,
+  fake github fail <mode>         delay <ms>, refuse, hang, auth (401), rate-limit <seconds>,
                                   server-error [status] or clear; lasts until clear or reset
   fake github pr <n> <verb> [--repo owner/name]
                                   create [--seed '<json>'], approve, ci-red, ci-green, merge,
@@ -145,8 +150,16 @@ function target(home: string | undefined): StandManifest {
 }
 
 function publicView(manifest: StandManifest): Record<string, unknown> {
-  const { id, home, pid, daemonUrl, controlUrl } = manifest;
-  return { id, home, pid, daemonUrl, controlUrl };
+  const { id, home, pid, daemonUrl, controlUrl, scenario } = manifest;
+  return { id, home, pid, daemonUrl, controlUrl, ...(scenario === undefined ? {} : { scenario }) };
+}
+
+/** The name, after checking it is a known scenario. */
+function scenarioName(value: string | undefined): string {
+  const names = scenarioNames();
+  if (value === undefined || !names.includes(value))
+    throw new UsageError(`Unknown scenario ${value ?? '(none)'}; use one of ${names.join(', ')}`);
+  return value;
 }
 
 async function control(manifest: StandManifest, route: string, body: unknown, timeoutMs: number) {
@@ -173,6 +186,7 @@ function pruneDead(): void {
 
 async function upForeground(options: {
   port: number;
+  scenario?: string;
   home?: string;
   detached: boolean;
   watchPid?: number;
@@ -216,6 +230,7 @@ async function upForeground(options: {
       root: root(),
       home: options.home,
       port: options.port,
+      scenario: options.scenario,
       env,
       execArgv,
       osHome: homedir(),
@@ -232,7 +247,7 @@ async function upForeground(options: {
   return stopper.attach(result);
 }
 
-async function up(port: number): Promise<number> {
+async function up(port: number, scenario: string | undefined): Promise<number> {
   const dir = root();
   const refused = refusal({ root: dir, port, env: process.env, osHome: homedir() });
   if (refused !== undefined) throw new StandRefusedError(refused);
@@ -243,7 +258,17 @@ async function up(port: number): Promise<number> {
   const log = openSync(logFile, 'a', 0o600);
   const child = spawn(
     process.execPath,
-    [SELF, 'up', '--foreground', '--detached', '--home', home, '--port', String(port)],
+    [
+      SELF,
+      'up',
+      '--foreground',
+      '--detached',
+      '--home',
+      home,
+      '--port',
+      String(port),
+      ...(scenario === undefined ? [] : ['--scenario', scenario]),
+    ],
     { detached: true, env: standEnv(process.env), stdio: ['ignore', log, log] },
   );
   let exitSeen = false;
@@ -362,7 +387,11 @@ async function status(manifest: StandManifest, json: boolean): Promise<number> {
     json
       ? `${JSON.stringify(view)}\n`
       : `${Object.entries(view)
-          .map(([key, value]) => `${key}: ${String(value)}`)
+          // An object (the scenario) prints as JSON; null prints as null either way.
+          .map(
+            ([key, value]) =>
+              `${key}: ${typeof value === 'object' ? JSON.stringify(value) : String(value)}`,
+          )
           .join('\n')}\n`,
   );
   return 0;
@@ -427,12 +456,13 @@ function failureBody(args: readonly string[]): Record<string, unknown> {
       return value === undefined ? { mode } : { mode, status: wholeNumber(value, 'status') };
     case 'refuse':
     case 'hang':
+    case 'auth':
     case 'clear':
       arity(0);
       return { mode };
     default:
       throw new UsageError(
-        'fail needs delay <ms>, refuse, hang, rate-limit <seconds>, server-error [status] or clear',
+        'fail needs delay <ms>, refuse, hang, auth, rate-limit <seconds>, server-error [status] or clear',
       );
   }
 }
@@ -608,17 +638,21 @@ async function main(argv: string[]): Promise<number> {
       stand: { type: 'boolean' },
       timeout: { type: 'string' },
       'watch-pid': { type: 'string' },
+      scenario: { type: 'string' },
     },
   });
+  if (command !== 'up' && values.scenario !== undefined)
+    throw new UsageError('--scenario goes only with up; seed takes the name itself');
   switch (command) {
     case 'up': {
       const port = parsePort(values.port);
+      const scenario = values.scenario === undefined ? undefined : scenarioName(values.scenario);
       if (!values.foreground) {
         if (values.home !== undefined || values.detached || values['watch-pid'] !== undefined)
           throw new UsageError(
             'up takes --home, --detached and --watch-pid only with --foreground',
           );
-        return up(port);
+        return up(port, scenario);
       }
       const watch = values['watch-pid'];
       if (watch !== undefined && (!/^[1-9]\d*$/.test(watch) || values.detached))
@@ -626,6 +660,7 @@ async function main(argv: string[]): Promise<number> {
       return upForeground({
         ...(watch === undefined ? {} : { watchPid: Number(watch) }),
         port,
+        ...(scenario === undefined ? {} : { scenario }),
         ...(values.home === undefined ? {} : { home: values.home }),
         detached: values.detached ?? false,
       });
@@ -661,6 +696,13 @@ async function main(argv: string[]): Promise<number> {
     }
     case 'reset':
       return control(target(values.home), '/reset', {}, 120_000);
+    case 'seed': {
+      const [name, ...extra] = positionals;
+      if (extra.length > 0) throw new UsageError('seed takes one scenario');
+      // Checked before any call, so an unknown name exits 2 without touching the stand.
+      const scenario = scenarioName(name);
+      return control(target(values.home), '/seed', { scenario }, 120_000);
+    }
     case 'violations':
       if (positionals.length > 0) throw new UsageError('violations takes no arguments');
       return control(target(values.home), '/violations', {}, 5_000);

@@ -1,5 +1,6 @@
-import { AdapterError } from '@spur-board/contracts';
+import { AdapterError, configSchema } from '@spur-board/contracts';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { createGithubIssuesAdapter } from '../../adapters/src/github/issues.ts';
 import { fakeBody } from '../src/cli.ts';
 import {
   createFakes,
@@ -8,11 +9,13 @@ import {
   type FakeRequest,
 } from '../src/fakes/fetch.ts';
 import { createGithubPrFake } from '../src/fakes/github-pr.ts';
+import { standConfig } from '../src/stand.ts';
 import {
   BOARD,
   fakeFetch,
   githubFakes,
   GRAPHQL,
+  issueFakes,
   NOW,
   pollContext,
   pollRepo,
@@ -184,6 +187,28 @@ describe('failure modes through the real adapter', () => {
     expect(error).not.toBeInstanceOf(AdapterError);
   });
 
+  it('auth is an auth failure', async () => {
+    const fakes = issueFakes();
+    failWith(fakes, { mode: 'auth' });
+    const error: unknown = await pollRepo(fakes, BOARD).catch((err: unknown) => err);
+    expect(error).toBeInstanceOf(AdapterError);
+    expect(error).toMatchObject({ kind: 'auth' });
+    const config = configSchema.parse(standConfig(0));
+    const project = config.projects.find(({ tracker }) => tracker.type === 'github-issues');
+    if (project?.tracker.type !== 'github-issues') throw new Error('No GitHub Issues tracker');
+    const issues = createGithubIssuesAdapter({
+      id: 'github-issues:stand:stand-org/board',
+      tracker: project.tracker,
+      token: 'dummy',
+      intervalMs: 5_000,
+      now: () => NOW,
+      fetch: fakeFetch(fakes),
+    });
+    const issuesError: unknown = await issues.poll(pollContext()).catch((err: unknown) => err);
+    expect(issuesError).toBeInstanceOf(AdapterError);
+    expect(issuesError).toMatchObject({ kind: 'auth' });
+  });
+
   it('rate-limit is throttled with retryAt from Retry-After', async () => {
     const fakes = githubFakes();
     failWith(fakes, { mode: 'rate-limit', seconds: 30 });
@@ -278,6 +303,7 @@ describe('fakeBody', () => {
     [['github', 'fail', 'delay', '250'], {}, fail({ mode: 'delay', ms: 250 })],
     [['github', 'fail', 'refuse'], {}, fail({ mode: 'refuse' })],
     [['github', 'fail', 'hang'], {}, fail({ mode: 'hang' })],
+    [['github', 'fail', 'auth'], {}, fail({ mode: 'auth' })],
     [['github', 'fail', 'rate-limit', '30'], {}, fail({ mode: 'rate-limit', seconds: 30 })],
     [['github', 'fail', 'server-error'], {}, fail({ mode: 'server-error' })],
     [['github', 'fail', 'server-error', '503'], {}, fail({ mode: 'server-error', status: 503 })],
@@ -323,6 +349,7 @@ describe('fakeBody', () => {
     [['github', 'fail', 'refuse', '1']],
     [['github', 'fail', 'hang', '1']],
     [['github', 'fail', 'clear', '1']],
+    [['github', 'fail', 'auth', '401']],
     [['github', 'fail', 'server-error', '500', '1']],
     [['github', 'fail', 'hang'], { seed: '{}' }],
     [['github', 'pr']],

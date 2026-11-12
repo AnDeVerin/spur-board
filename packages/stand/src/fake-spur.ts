@@ -29,6 +29,8 @@ const sessionArgs = z.strictObject({
   project: text.optional(),
   branch: text.optional(),
   retain: z.literal(true).optional(),
+  /** Why Spur stopped the session, as a live Spur reports it (`stale_timeout`). */
+  stopReason: text.optional(),
 });
 const failArgs = z.discriminatedUnion('mode', [
   z.strictObject({
@@ -62,6 +64,7 @@ interface FakeSession {
   status: string;
   state: string;
   lastActivityAt: string | null;
+  stopReason?: string;
   retainInList?: true;
 }
 
@@ -146,6 +149,7 @@ export function createFakeSpur(options: {
 
   function upsert(args: SessionArgs): FakeSession {
     const previous = sessions.get(args.id);
+    const stopReason = args.stopReason ?? previous?.stopReason;
     const session: FakeSession = {
       id: args.id,
       project: args.project ?? previous?.project ?? 'stand-worker',
@@ -153,6 +157,7 @@ export function createFakeSpur(options: {
       status: args.status ?? previous?.status ?? 'running',
       state: args.state ?? previous?.state ?? 'working',
       lastActivityAt: iso(),
+      ...(stopReason === undefined ? {} : { stopReason }),
       ...(args.retain === true || previous?.retainInList === true
         ? { retainInList: true as const }
         : {}),
