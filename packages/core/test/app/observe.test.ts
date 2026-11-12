@@ -20,6 +20,8 @@ import {
   type Store,
 } from '../../src/index.ts';
 import { createLinkMutations } from '../../src/app/links.ts';
+import { scanTransaction } from '../../src/app/secrets.ts';
+import { openTurn } from '../../src/app/turns.ts';
 
 const at = '2026-11-04T12:00:00.000Z';
 let now = Date.parse(at);
@@ -1552,6 +1554,143 @@ describe('accepted observation', () => {
       tracker_id: 'node-9',
       manual_include: 1,
     });
+  });
+
+  it('closes the turns of a merged pending task', async () => {
+    const { store, core, apply, mutations } = setup();
+    await core.observe(source, {
+      batch: {
+        source,
+        observedAt: at,
+        complete: true,
+        items: [{ kind: 'ticket', facts: { ...fact('o/r#8'), inFilter: true } }],
+        entities: [],
+      },
+      effectiveComplete: true,
+      state: { lastCompleteAt: at, gone: [] },
+      outcomes: [],
+    });
+    await apply(mutations.add, { task: 'o/r#9' }, 'operator');
+    const pending = await store.db
+      .selectFrom('task')
+      .selectAll()
+      .where('key', '=', 'o/r#9')
+      .executeTakeFirstOrThrow();
+    await scanTransaction(store, config, (trx) =>
+      openTurn(trx, { task: pending, reason: 'Pick it up', handed: [], at: new Date(now), config }),
+    );
+    const ref = (await core.context(source)).observe.tickets.find((entry) => entry.key === 'o/r#9');
+    if (ref === undefined) throw new Error('Missing pending ticket request');
+    now += 1_000;
+    const later = new Date(now).toISOString();
+    await core.observe(source, {
+      batch: {
+        source,
+        observedAt: later,
+        complete: true,
+        items: [{ kind: 'ticket', facts: fact('o/r#9') }],
+        entities: [{ ref, status: 'ok' }],
+      },
+      effectiveComplete: true,
+      state: { lastCompleteAt: later, gone: [] },
+      outcomes: [],
+    });
+
+    const archived = await store.db
+      .selectFrom('task')
+      .select('membership')
+      .where('id', '=', pending.id)
+      .executeTakeFirst();
+    expect(archived).toEqual({ membership: 'archived' });
+    expect(await store.db.selectFrom('turn').selectAll().execute()).toEqual([
+      expect.objectContaining({ task_id: pending.id, closed_reason: 'archived', closed_at: later }),
+    ]);
+    expect(
+      await store.db
+        .selectFrom('turn')
+        .select('id')
+        .where('task_id', '=', pending.id)
+        .where('closed_at', 'is', null)
+        .execute(),
+    ).toEqual([]);
+  });
+
+  it('passes each PR the newest feedback handed over', async () => {
+    const { store, core, apply, mutations } = setup();
+    const github = 'github:board:o/r';
+    await apply(mutations.add, { task: 'o/r#9' }, 'operator');
+    await store.db
+      .insertInto('link')
+      .values({
+        task_id: 1,
+        entity: 'pr',
+        repo: 'O/R',
+        number: 5,
+        pr_state: 'active',
+        pr_open: 1,
+        session_id: null,
+        role: null,
+        source: 'manual',
+        ticket_key: null,
+        created_at: at,
+      })
+      .execute();
+    expect('feedbackCursors' in (await core.context(github))).toBe(false);
+
+    const entry = (number: number, kind: 'comment' | 'review', id: string, postedAt: string) => ({
+      repo: 'o/r',
+      number,
+      kind,
+      id,
+      postedAt,
+    });
+    const turn = { task_id: 1, column: 'todo' as const, epoch: 0, role: 'operator' as const };
+    // The older turn is closed (one unclosed turn per task) and handed the newest entry.
+    await store.db
+      .insertInto('turn')
+      .values([
+        {
+          ...turn,
+          seq: 1,
+          reason: 'first',
+          handed: JSON.stringify([
+            entry(5, 'comment', 'c-new', '2026-11-04T11:00:00Z'),
+            entry(6, 'comment', 'c-unlinked', '2026-11-04T11:30:00Z'),
+          ]),
+          acked_by: null,
+          acked_at: null,
+          closed_at: at,
+          closed_reason: 'moved',
+          created_at: at,
+        },
+        {
+          ...turn,
+          seq: 2,
+          reason: 'second',
+          handed: JSON.stringify([
+            entry(5, 'review', 'r-old', '2026-11-04T10:00:00Z'),
+            entry(5, 'comment', 'c-0', '2026-11-04T11:00:00.000Z'),
+          ]),
+          acked_by: null,
+          acked_at: null,
+          closed_at: null,
+          closed_reason: null,
+          created_at: at,
+        },
+      ])
+      .execute();
+
+    const context = await core.context(github);
+
+    expect(context.observe.prs).toEqual([{ kind: 'pr', repo: 'O/R', number: 5 }]);
+    expect(context.feedbackCursors).toEqual([
+      {
+        ref: { kind: 'pr', repo: 'O/R', number: 5 },
+        id: 'c-new',
+        postedAt: '2026-11-04T11:00:00Z',
+      },
+    ]);
+    expect('feedbackCursors' in (await core.context(source))).toBe(false);
   });
 });
 
