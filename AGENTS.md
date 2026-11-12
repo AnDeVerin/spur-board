@@ -33,7 +33,8 @@ A map of the repo for agents and contributors. The rules live in the files and s
   control endpoint (`wait`, `poll`, `reset`, `seed`, `clock`, `fake`, `violations`). An in-memory
   fake Spur and the fakes in `src/fakes/` answer the real adapters through one in-process `fetch`;
   the named scenarios `seed` and `up --scenario` set up live in `src/scenarios/`. Production
-  packages never import it; the boundary lint is in `eslint.config.js`.
+  packages never import it; the boundary lint is in `eslint.config.js`. Skills: `qa-stand`,
+  `qa-seed` and `qa-report`; sidecar example in `docs/qa-stand.md`.
 - `packages/testkit` - the shared Vitest harness: environment scrub and network guard. Skill:
   `testing-and-ci`.
 - `scripts/` - repo tooling, run as `node scripts/<name>.ts` through the pnpm scripts below. Check
@@ -120,6 +121,9 @@ Generated from frontmatter by `pnpm agents:sync`; edit the source file, not this
 | [handling-errors](.agents/skills/handling-errors/SKILL.md) | skill | Rules for errors - Result vs throw, retries, the ERRORS catalog, hints, exit codes, boundary catches, one shape over HTTP, CLI and MCP |
 | [manager](.agents/skills/manager/SKILL.md) | skill | Run a GitHub issue through tiered gates of role agents - plan, spec check, one Clarify round, implement, review, PR, close-out |
 | [pr-comments-fix](.agents/skills/pr-comments-fix/SKILL.md) | skill | Answer feedback on your own PR - collect unresolved review threads and new comments, fix or reply with a reason, push once, sign each post |
+| [qa-report](.agents/skills/qa-report/SKILL.md) | skill | Plan, evidence and outcome of a QA round - the qa/<task>/<sha8>/r<N>/ layout, the report and what goes to the live board on pass or fail |
+| [qa-seed](.agents/skills/qa-seed/SKILL.md) | skill | Put a stand into a known state - scenarios, fakes, the stand clock, wait, poll, reset and the violation log |
+| [qa-stand](.agents/skills/qa-stand/SKILL.md) | skill | Run a disposable board stand for QA - up, down, status, logs, roles, refusals and cleanup, reached only through pnpm stand board\|mcp |
 | [running-the-daemon](.agents/skills/running-the-daemon/SKILL.md) | skill | Rules for packages/daemon/ - modules, config and secrets, logging and redaction, pollers, shutdown, the lock |
 | [skill-writer](.agents/skills/skill-writer/SKILL.md) | skill | Rules for writing and changing skills, role agents and AGENTS.md - format, frontmatter, triggers, size budgets, copies |
 | [testing-and-ci](.agents/skills/testing-and-ci/SKILL.md) | skill | Tests, fakes, clocks, flaky quarantine, checks and CI |
@@ -134,7 +138,7 @@ Generated from frontmatter by `pnpm agents:sync`; edit the source file, not this
 | [researcher](.agents/agents/researcher.md) | role | Find 2-3 distinct ways to build the change, with code evidence, keeping verified facts apart from inferences |
 | [reviewer](.agents/agents/reviewer.md) | role | Code review gate - falsify the branch diff against the spec's criteria, invariants and tests, and catch checks weakened without notice |
 | [spec-critic](.agents/agents/spec-critic.md) | role | Try to falsify the architect's spec before any code - cited facts, change map, invariants, and a bound verification for every criterion |
-| [tester](.agents/agents/tester.md) | role | Validation gate - exercise the change as a user would (CLI, API, or web UI through a browser tool) and return PASS or FAIL with evidence |
+| [tester](.agents/agents/tester.md) | role | Validation gate - exercise the change as a user would (CLI, API, a disposable stand, or web UI through a browser tool) and return PASS or FAIL with evidence |
 
 <!-- prettier-ignore-end -->
 
