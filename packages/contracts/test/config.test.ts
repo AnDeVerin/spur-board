@@ -161,6 +161,17 @@ describe('fixtures', () => {
       { id: 'done', enabled: true, orchestrator: 'none', cycleLimit: 10 },
     ]);
     expect(config.projects[0]?.spurProjects).toEqual([]);
+    expect(config.projects[0]?.reposWithoutCi).toEqual([]);
+  });
+
+  it('accepts a repo without CI from repos, in any letter case', () => {
+    const config = configSchema.parse(
+      validConfig({
+        repos: ['example-org/web', 'example-org/api'],
+        reposWithoutCi: ['Example-Org/API'],
+      }),
+    );
+    expect(config.projects[0]?.reposWithoutCi).toEqual(['Example-Org/API']);
   });
 
   it('accepts configured Slack channel IDs', () => {
@@ -364,6 +375,18 @@ describe('invalid configs', () => {
       }),
       'Invalid input: expected int, received number',
       'projects[0].columns[2].cycleLimit',
+    ],
+    [
+      'a repo without CI not in repos',
+      validConfig({ reposWithoutCi: ['o/x'] }),
+      'Repository "o/x" is not in repos',
+      'projects[0].reposWithoutCi[0]',
+    ],
+    [
+      'an invalid repo without CI',
+      validConfig({ reposWithoutCi: ['web'] }),
+      'Expected owner/name',
+      'projects[0].reposWithoutCi[0]',
     ],
     [
       'github-issues with label and milestone',
