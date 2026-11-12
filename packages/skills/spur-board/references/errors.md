@@ -17,3 +17,8 @@
 - `task_archived`: Ask an operator to add the task to the board again if work continues.
 - `block_not_open`: Read the task with `board task <KEY>` to see the current blocks.
 - `wrong_block_type`: Read the block type with `board task <KEY>` and use the operation for that type.
+- `turn_closed`: Read your open turns with `board inbox` and act only on a turn listed there.
+- `not_turn_taker`: Take the turn with `board inbox ack` first; only the session that took it can submit or return it.
+- `head_mismatch`: Push the commit to the pull request branch, then submit the commit at its head.
+- `github_unavailable`: Wait until GitHub answers, then submit again.
+- `return_not_allowed`: In Dev, ask with `board ask` instead.

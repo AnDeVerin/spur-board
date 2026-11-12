@@ -70,6 +70,8 @@ operation result or current state before retrying.
 - [`board escalate`](references/commands.md#board-escalate)
 - [`board answer`](references/commands.md#board-answer)
 - [`board unblock`](references/commands.md#board-unblock)
+- [`board submit`](references/commands.md#board-submit)
+- [`board return`](references/commands.md#board-return)
 
 ### Orchestrator
 
@@ -86,5 +88,7 @@ operation result or current state before retrying.
 - [`board escalate`](references/commands.md#board-escalate)
 - [`board answer`](references/commands.md#board-answer)
 - [`board unblock`](references/commands.md#board-unblock)
+- [`board submit`](references/commands.md#board-submit)
+- [`board return`](references/commands.md#board-return)
 
 <!-- END GENERATED BOARD COMMANDS -->
