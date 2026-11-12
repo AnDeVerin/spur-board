@@ -2,12 +2,12 @@ import { z } from 'zod';
 import type { Actor } from './enums.ts';
 import { type Result, err, ok } from './errors.ts';
 
-/** Kinds of ID an operation takes: `B<n>`, `C<n>`, `I<n>`, or a tracker task key. */
-export const REF_KINDS = ['block', 'comment', 'item', 'task'] as const;
+/** Kinds of ID an operation takes: `B<n>`, `C<n>`, `I<n>`, `T<n>`, or a tracker task key. */
+export const REF_KINDS = ['block', 'comment', 'item', 'turn', 'task'] as const;
 export type RefKind = (typeof REF_KINDS)[number];
 
 export type TypedRef =
-  | { kind: 'block' | 'comment' | 'item'; text: string; n: number }
+  | { kind: 'block' | 'comment' | 'item' | 'turn'; text: string; n: number }
   | { kind: 'task'; text: string; form: 'jira' | 'github' | 'github-short' };
 
 /**
@@ -25,9 +25,10 @@ const PATTERNS: Record<RefKind, string> = {
   block: `^B${N}$`,
   comment: `^C${N}$`,
   item: `^I${N}$`,
+  turn: `^T${N}$`,
   task: `^(?:${TASK_FORMS.map((t) => t.source).join('|')})$`,
 };
-const NUMBERED_KINDS = ['block', 'comment', 'item'] as const;
+const NUMBERED_KINDS = ['block', 'comment', 'item', 'turn'] as const;
 
 function matchRef(text: string): TypedRef | null {
   for (const kind of NUMBERED_KINDS) {
@@ -40,9 +41,9 @@ function matchRef(text: string): TypedRef | null {
 }
 
 /**
- * Parses a block, comment or item ID or a task key. Block, comment and item IDs are tried
- * first, so `B12` is a block and `B-12` a Jira key. A valid ID of another kind than `expected`
- * is `wrong_id_kind`; anything else that does not parse is `usage`.
+ * Parses a block, comment, item or turn ID or a task key. Numbered IDs are tried first, so
+ * `B12` is a block and `B-12` a Jira key. A valid ID of another kind than `expected` is
+ * `wrong_id_kind`; anything else that does not parse is `usage`.
  */
 export function parseRef(
   text: string,
@@ -58,6 +59,7 @@ const EXAMPLES: Record<RefKind, string> = {
   block: 'B12',
   comment: 'C3',
   item: 'I7',
+  turn: 'T4',
   task: 'PROJ-123, owner/repo#42 or repo#42',
 };
 
@@ -83,6 +85,7 @@ function refSchema(kind: RefKind, description: string) {
 export const blockIdSchema = refSchema('block', 'Block ID: B followed by a number, e.g. B12.');
 export const commentIdSchema = refSchema('comment', 'Comment ID: C followed by a number, e.g. C3.');
 export const itemIdSchema = refSchema('item', 'Item ID: I followed by a number, e.g. I7.');
+export const turnIdSchema = refSchema('turn', 'Turn ID: T followed by a number, e.g. T4.');
 export const taskKeySchema = refSchema(
   'task',
   'Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42).',

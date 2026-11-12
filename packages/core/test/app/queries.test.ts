@@ -1,7 +1,7 @@
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { EVENT_KINDS, configSchema } from '@spur-board/contracts';
+import { EVENT_KINDS, OPERATIONS, configSchema } from '@spur-board/contracts';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   createApply,
@@ -427,5 +427,37 @@ describe('production query handlers', () => {
     await expect(
       query(required(registry['inbox.get']), { project: 'board' }, foreign),
     ).rejects.toMatchObject({ code: 'forbidden' });
+  });
+
+  it('refuses a turn id that shares a block number', async () => {
+    const { store, registry, query, apply } = await seeded();
+    const asked = await apply(
+      required(registry['block.ask']),
+      { task: KEY, text: 'Review this?' },
+      worker,
+      'ask-1',
+    );
+    expect(asked.block.id).toBe('B1');
+    for (const [entries, key] of [
+      [[{ id: 'T1' }], 'ack-turn'],
+      [[{ id: 'B1' }, { id: 'T1' }], 'ack-block-and-turn'],
+    ] as const) {
+      await expect(
+        apply(required(registry['inbox.ack']), { entries: [...entries] }, orchestrator, key),
+      ).rejects.toMatchObject({ code: 'not_found' });
+    }
+    const notices = await store.db
+      .selectFrom('notification')
+      .select('acked_at')
+      .where('block_id', '=', 1)
+      .execute();
+    expect(notices).toEqual([{ acked_at: null }]);
+    const events = await store.db.selectFrom('event').select('kind').execute();
+    expect(events.filter(({ kind }) => kind === 'doorbell_read')).toEqual([]);
+
+    const inbox = await query(required(registry['inbox.get']), {}, orchestrator);
+    expect(inbox.turns).toEqual([]);
+    const entry = OPERATIONS.find(({ id }) => id === 'inbox.get');
+    expect(entry?.output.safeParse(inbox).success).toBe(true);
   });
 });

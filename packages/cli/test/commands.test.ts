@@ -394,6 +394,7 @@ describe('catalog commands', () => {
       ['task', 'history', 'PROJ-123'],
       ['inbox', 'ack', 'C3@2', 'C4@1', '--key', 'ack-1'],
       ['inbox', 'ack', 'B13', '--key', 'ack-block'],
+      ['inbox', 'ack', 'T4', '--key', 'ack-turn'],
       ['block', 'PROJ-123', '--type', 'dependency', '--reason', 'Waiting', '--key', 'block-1'],
       ['unblock', 'B12', '--withdraw', 'No longer needed', '--key', 'unblock-1'],
       ['escalate', 'B12', '--note', 'Owner is away', '--key', 'escalate-1'],
@@ -417,6 +418,7 @@ describe('catalog commands', () => {
         },
       },
       { id: 'inbox.ack', input: { entries: [{ id: 'B13' }] } },
+      { id: 'inbox.ack', input: { entries: [{ id: 'T4' }] } },
       { id: 'block.create', input: { task: 'PROJ-123', type: 'dependency', reason: 'Waiting' } },
       {
         id: 'block.unblock',

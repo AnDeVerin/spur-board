@@ -2,7 +2,7 @@ import { CHECK_STATES, COLUMN_IDS, configSchema, type ColumnId } from '@spur-boa
 import { describe, expect, it } from 'vitest';
 import { countCycles, evaluateGate, type TaskGateFacts } from '../../src/domain/gates.ts';
 
-type Board = Parameters<typeof evaluateGate>[2];
+type Board = Parameters<typeof evaluateGate>[2]['columns'];
 type Mark = TaskGateFacts['marks'][number];
 type Pr = NonNullable<TaskGateFacts['pr']>;
 type Check = Pr['checks'][number];
@@ -20,6 +20,7 @@ const mark = (column: 'review' | 'product-review', headSha: string): Mark => ({
 });
 
 const readyPr: Pr = {
+  repo: 'o/r',
   state: 'open',
   draft: false,
   mergeable: 'mergeable',
@@ -74,6 +75,14 @@ const disable = (board: Board, ...ids: ColumnId[]): Board =>
   board.map((c) => (ids.includes(c.id) ? { ...c, enabled: false } : c));
 const orchestrate = (board: Board, id: ColumnId, orchestrator: string): Board =>
   board.map((c) => (c.id === id ? { ...c, orchestrator } : c));
+
+/** evaluateGate on `board`, with the project's repos without CI. */
+const gate = (
+  column: ColumnId,
+  facts: TaskGateFacts,
+  board: Board,
+  reposWithoutCi: readonly string[] = [],
+): Expected => evaluateGate(column, facts, { columns: board, reposWithoutCi });
 
 const SB = disable(ORCH, 'external-review', 'qa');
 const reviewMarks = [submit('dev', A), mark('review', A), mark('product-review', A)];
@@ -382,17 +391,17 @@ const gateCases: [string, ColumnId, TaskGateFacts, Board, Expected][] = [
 
 describe('evaluateGate', () => {
   it.each(gateCases)('%s', (_name, column, facts, board, expected) => {
-    expect(evaluateGate(column, facts, board)).toEqual(expected);
+    expect(gate(column, facts, board)).toEqual(expected);
   });
 
   it('keeps every column consistent with the leftmost broken one', () => {
     for (const [name, , facts, board] of gateCases) {
       if (facts.pr?.state === 'merged') continue;
       const before = structuredClone(facts);
-      const last = evaluateGate('done', facts, board);
+      const last = gate('done', facts, board);
       const brokenAt = last.ok ? COLUMN_IDS.length : COLUMN_IDS.indexOf(last.column);
       COLUMN_IDS.forEach((column, i) => {
-        expect(evaluateGate(column, facts, board), `${name} at ${column}`).toEqual(
+        expect(gate(column, facts, board), `${name} at ${column}`).toEqual(
           i < brokenAt ? ok : last,
         );
       });
@@ -417,7 +426,7 @@ describe('check verdict', () => {
   };
 
   it.each(CHECK_STATES)('a required %s check', (state) => {
-    expect(evaluateGate('dev', ready({ pr: { requiredChecks: [check(state)] } }), ORCH)).toEqual(
+    expect(gate('dev', ready({ pr: { requiredChecks: [check(state)] } }), ORCH)).toEqual(
       verdictOf[state],
     );
   });
@@ -441,7 +450,77 @@ describe('check verdict', () => {
       broken('dev', 'checks_red'),
     ],
   ])('%s', (_name, requiredChecks, checks, expected) => {
-    expect(evaluateGate('dev', ready({ pr: { requiredChecks, checks } }), ORCH)).toEqual(expected);
+    expect(gate('dev', ready({ pr: { requiredChecks, checks } }), ORCH)).toEqual(expected);
+  });
+});
+
+describe('repositories without CI', () => {
+  const noChecks = { requiredChecks: [], checks: [] };
+  const waived = { checksWaivedBy: 'reposWithoutCi' } as const;
+
+  it.each<[string, readonly string[], Check[], Check[], Expected]>([
+    ['no key, no checks', [], [], [], broken('dev', 'checks_pending')],
+    ['key for another repo, no checks', ['o/other'], [], [], broken('dev', 'checks_pending')],
+    ['key, no checks', ['o/r'], [], [], { ok: true, ...waived }],
+    ['key in other case', ['O/R'], [], [], { ok: true, ...waived }],
+    ['key, a red check', ['o/r'], [], [check('failure')], broken('dev', 'checks_red')],
+    ['key, a pending check', ['o/r'], [], [check('pending')], broken('dev', 'checks_pending')],
+    [
+      'key, a required expected check',
+      ['o/r'],
+      [check('expected')],
+      [check('expected')],
+      broken('dev', 'checks_pending'),
+    ],
+    ['key, only skipped checks', ['o/r'], [], [check('skipped')], broken('dev', 'checks_pending')],
+  ])('%s', (_name, reposWithoutCi, requiredChecks, checks, expected) => {
+    expect(gate('dev', ready({ pr: { requiredChecks, checks } }), ORCH, reposWithoutCi)).toEqual(
+      expected,
+    );
+  });
+
+  it.each<[string, ColumnId, TaskGateFacts, Board, Expected]>([
+    ['(a) dev passes', 'dev', ready({ pr: noChecks }), ORCH, { ok: true, ...waived }],
+    [
+      '(b) broken right of dev',
+      'review',
+      ready({ pr: noChecks }),
+      ORCH,
+      { ...broken('review', 'no_review_on_head'), ...waived },
+    ],
+    [
+      '(c1) broken at dev without a submit',
+      'dev',
+      ready({ pr: noChecks, marks: [] }),
+      ORCH,
+      { ...broken('dev', 'no_submit_on_head'), ...waived },
+    ],
+    [
+      '(c2) broken at dev as a draft',
+      'dev',
+      ready({ pr: { ...noChecks, draft: true } }),
+      ORCH,
+      { ...broken('dev', 'pr_draft'), ...waived },
+    ],
+    ['(d) asked left of dev', 'ready-for-dev', ready({ pr: noChecks }), ORCH, ok],
+    ['(e) merged', 'done', ready({ pr: { ...noChecks, state: 'merged' } }), ORCH, ok],
+    [
+      '(f) closed',
+      'dev',
+      ready({ pr: { ...noChecks, state: 'closed' } }),
+      ORCH,
+      broken('dev', 'pr_closed'),
+    ],
+    ['(g) no PR', 'dev', ready({ pr: null, marks: [] }), ORCH, broken('dev', 'no_pr')],
+    [
+      '(h) dev disabled',
+      'review',
+      ready({ pr: noChecks }),
+      disable(ORCH, 'dev'),
+      broken('review', 'no_review_on_head'),
+    ],
+  ])('marker %s', (_name, column, facts, board, expected) => {
+    expect(gate(column, facts, board, ['o/r'])).toEqual(expected);
   });
 });
 

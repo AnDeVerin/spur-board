@@ -713,6 +713,8 @@ export function createBlockMutations(config: Config) {
       return Promise.all(
         input.entries.map(async ({ id }) => {
           if (id.startsWith('C')) return commentTarget(trx, id);
+          // No turn is stored yet: refuse a T id so it can never ack block B<n>.
+          if (id.startsWith('T')) return { kind: 'missing' as const, id };
           const targets = await blockTarget(trx, id);
           const target = targets[0];
           return target === undefined ? { kind: 'missing' as const, id } : { ...target, id };

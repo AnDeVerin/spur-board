@@ -63,7 +63,7 @@ Other errors: none.
 
 ### `board inbox`
 
-Purpose: List the comments and blocks addressed to the caller and not yet handled.
+Purpose: List the comments, blocks and turns addressed to the caller and not yet handled.
 Arguments: none.
 Flags: `--project <value>`, `--json`.
 Use when: Read items awaiting the caller.
@@ -73,7 +73,7 @@ Other errors: `not_found`.
 
 ### `board inbox ack`
 
-Purpose: Mark comments or agent-addressed blocks as read in the inbox.
+Purpose: Mark comments, agent-addressed blocks or turns as read; acking a turn makes the caller its taker.
 Arguments: `<entries>`.
 Flags: `--key <key>`, `--json`.
 Use when: Mark handled inbox items read.
