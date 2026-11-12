@@ -399,6 +399,16 @@ describe('each scenario', () => {
     const { tasks, items } = await status(current());
     expect(tasks).toEqual([]);
     expect(items).toEqual([]);
+
+    await ok(current(), '/fake', {
+      system: 'github',
+      verb: 'issue-open',
+      args: { repo: 'stand-org/board', number: 1, title: 'Not empty' },
+    });
+    await ok(current(), '/poll');
+    const wait = await control(current(), '/wait', { condition: 'scenario', timeoutMs: 0 });
+    expect(wait.status).toBe(504);
+    expect(JSON.stringify(wait.body)).toContain('task stand-org/board#1 exists');
   }, 60_000);
 
   it('columns-basic: each column holds the task the manifest names', async () => {
