@@ -615,20 +615,75 @@ export function createProgram(options: CliOptions = {}): CommandUnknownOpts {
     } catch {
       throw exclusiveFailure();
     }
-    const existing = tokenInFolder(folder, () => {});
-    if (existing !== undefined) await replaceStaleToken(file, existing, config);
-    let created = false;
-    let descriptor: number | undefined;
+    const lock = join(tokenFolder, 'token.lock');
     try {
-      descriptor = openSync(file, 'wx', 0o600);
-      created = true;
-      writeFileSync(descriptor, `${secret}\n`);
-      closeSync(descriptor);
-      descriptor = undefined;
-      chmodSync(file, 0o600);
-    } catch {
-      if (descriptor !== undefined) closeSync(descriptor);
-      if (created) {
+      closeSync(openSync(lock, 'wx', 0o600));
+    } catch (error) {
+      if (
+        error !== null &&
+        typeof error === 'object' &&
+        'code' in error &&
+        error.code === 'EEXIST'
+      ) {
+        throw new CliError(
+          'config',
+          undefined,
+          undefined,
+          `Another \`board token create\` is running for this folder: ${lock} exists. Wait for it to finish, or delete ${lock} if no such run is active, then run again.`,
+        );
+      }
+      throw exclusiveFailure();
+    }
+    // Held across the probe, the replacement and the enrollment cleanup so that a concurrent run
+    // cannot delete this run's new token file; removed only by this run.
+    try {
+      const existing = tokenInFolder(folder, () => {});
+      if (existing !== undefined) await replaceStaleToken(file, existing, config);
+      let created = false;
+      let descriptor: number | undefined;
+      try {
+        descriptor = openSync(file, 'wx', 0o600);
+        created = true;
+        writeFileSync(descriptor, `${secret}\n`);
+        closeSync(descriptor);
+        descriptor = undefined;
+        chmodSync(file, 0o600);
+      } catch {
+        if (descriptor !== undefined) closeSync(descriptor);
+        if (created) {
+          try {
+            unlinkSync(file);
+          } catch {
+            throw new CliError(
+              'config',
+              undefined,
+              undefined,
+              'The new token file could not be secured or removed.',
+            );
+          }
+        }
+        throw exclusiveFailure();
+      }
+      try {
+        const result = await requestTokenEnrollment(
+          {
+            name,
+            folder,
+            host: hostname(),
+            hash: createHash('sha256').update(secret).digest('hex'),
+          },
+          config,
+        );
+        io.stdout(`${json || !io.isTTY ? JSON.stringify(result) : formatHuman(result)}\n`);
+      } catch (error) {
+        if (error instanceof CliError && error.code === 'outcome_unknown') {
+          throw new CliError(
+            'outcome_unknown',
+            undefined,
+            error.requestId,
+            'The request may have reached the daemon. Keep the new token file and check the approval request before retrying.',
+          );
+        }
         try {
           unlinkSync(file);
         } catch {
@@ -636,43 +691,17 @@ export function createProgram(options: CliOptions = {}): CommandUnknownOpts {
             'config',
             undefined,
             undefined,
-            'The new token file could not be secured or removed.',
+            'Registration failed and the new token file could not be removed. Remove it before retrying.',
           );
         }
+        throw error;
       }
-      throw exclusiveFailure();
-    }
-    try {
-      const result = await requestTokenEnrollment(
-        {
-          name,
-          folder,
-          host: hostname(),
-          hash: createHash('sha256').update(secret).digest('hex'),
-        },
-        config,
-      );
-      io.stdout(`${json || !io.isTTY ? JSON.stringify(result) : formatHuman(result)}\n`);
-    } catch (error) {
-      if (error instanceof CliError && error.code === 'outcome_unknown') {
-        throw new CliError(
-          'outcome_unknown',
-          undefined,
-          error.requestId,
-          'The request may have reached the daemon. Keep the new token file and check the approval request before retrying.',
-        );
-      }
+    } finally {
       try {
-        unlinkSync(file);
+        unlinkSync(lock);
       } catch {
-        throw new CliError(
-          'config',
-          undefined,
-          undefined,
-          'Registration failed and the new token file could not be removed. Remove it before retrying.',
-        );
+        // A lock left behind is named by the next run's hint.
       }
-      throw error;
     }
   });
   return program;
