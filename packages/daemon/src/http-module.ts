@@ -84,6 +84,9 @@ export function createHttpModule(
             'http request',
           );
         },
+        logError: ({ requestId, err }) => {
+          ctx.log.error({ err, requestId }, 'http request failed');
+        },
       });
       try {
         if (aborted()) return;

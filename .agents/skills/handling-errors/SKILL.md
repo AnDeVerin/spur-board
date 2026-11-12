@@ -30,7 +30,8 @@ description: Rules for errors - Result vs throw, retries, the ERRORS catalog, hi
 - Catch only at a boundary: HTTP `setErrorHandler` (`packages/core/src/api/server.ts`), CLI
   `runCli` (`packages/cli/src/cli.ts`), the MCP tool callback (`packages/cli/src/mcp.ts`),
   `runDaemon` (`packages/daemon/src/lifecycle.ts`), and background loops: the adapter runner,
-  purge `onError` (`packages/daemon/src/composition.ts`), inbound dispatch.
+  purge `onError` (`packages/daemon/src/composition.ts`), inbound dispatch, Socket Mode `track`
+  (`packages/gateway-slack/src/socket.ts`, reported through `onError`).
 - `runDaemon` writes lock and config failures with `port.writeErr`, before a logger exists; later
   failures go to the log as `{ err }`.
 - A middle layer translates one known error and rethrows the rest; `logCall`
@@ -38,9 +39,9 @@ description: Rules for errors - Result vs throw, retries, the ERRORS catalog, hi
 - Keep the cause when you wrap: `new AdapterError(..., { cause })`
   (`packages/adapters/src/github/client.ts`), `ConfigError` in `packages/daemon/src/config.ts`.
 - Log a cause as `err` through `ctx.log`; a cause or stack never reaches the wire.
-- The HTTP, CLI and MCP boundaries turn an unknown error into `unexpected` without logging its
-  cause, and `trace` names the daemon log even for a client-side `client-<uuid>` requestId. Log
-  the cause where you still hold it.
+- HTTP, CLI and MCP turn an unknown error into `unexpected`; only HTTP logs the cause, through
+  `logError` as `{ err, requestId }`. `trace` names the daemon log even for a client-side
+  `client-<uuid>` requestId. Log the cause where you still hold it.
 
 ## One shape over HTTP, CLI and MCP
 

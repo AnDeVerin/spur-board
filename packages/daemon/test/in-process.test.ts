@@ -2,7 +2,8 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { configSchema } from '@spur-board/contracts';
+import { configSchema, type Config } from '@spur-board/contracts';
+import { startFakeSlackApi } from '@spur-board/gateway-slack/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { acquireLock, startInProcessDaemon, type InProcessDaemon } from '../src/in-process.ts';
 
@@ -28,6 +29,8 @@ function optionsFor(input: {
   lines?: string[];
   shutdownTimeoutMs?: number;
   registerFatal?: (handler: (err: unknown) => void) => void;
+  config?: Config;
+  secrets?: Readonly<Record<string, string>>;
 }): Parameters<typeof startInProcessDaemon>[0] {
   return {
     paths: {
@@ -36,7 +39,10 @@ function optionsFor(input: {
       dbFile: join(home, 'board.sqlite'),
       lockFile: join(home, 'board.lock'),
     },
-    loadConfig: () => ({ config: configFor(input.port ?? 0), secrets: {} }),
+    loadConfig: () => ({
+      config: input.config ?? configFor(input.port ?? 0),
+      secrets: input.secrets ?? {},
+    }),
     acquireLock,
     clock: { now: () => Date.now() },
     stdout: {
@@ -173,4 +179,58 @@ describe('startInProcessDaemon', () => {
       );
     }
   }, 30_000);
+
+  it('logs a failed Slack envelope through the gateway-slack logger', async () => {
+    const fake = await startFakeSlackApi();
+    const lines: string[] = [];
+    const config = configFor(0);
+    try {
+      daemon = await startInProcessDaemon(
+        optionsFor({
+          tick: () => Promise.resolve(),
+          lines,
+          config: {
+            ...config,
+            slack: {
+              ...config.slack,
+              channels: { orchestrators: 'C000000001', feed: 'C000000002' },
+            },
+          },
+          secrets: {
+            SLACK_BOT_TOKEN: 'xoxb-in-process',
+            SLACK_APP_TOKEN: 'xapp-in-process',
+            SLACK_API_URL: fake.url,
+          },
+        }),
+      );
+      // An unknown thread root fails the envelope before the sink, so it is never acked.
+      void fake.emitEnvelope('events_api', {
+        event: {
+          type: 'message',
+          channel: 'C000000001',
+          user: 'U1',
+          text: 'x',
+          ts: '200.000002',
+          thread_ts: '100.000001',
+        },
+      });
+      await vi.waitFor(() => {
+        const records = lines.map((line) => JSON.parse(line) as Record<string, unknown>);
+        expect(records).toContainEqual(
+          expect.objectContaining({
+            level: 50,
+            module: 'gateway-slack',
+            msg: 'slack envelope failed',
+            err: expect.objectContaining({
+              message: 'Slack thread root unavailable',
+              stack: expect.any(String) as unknown,
+            }) as unknown,
+          }),
+        );
+      });
+      expect(await daemon.stop()).toBe(0);
+    } finally {
+      await fake.close();
+    }
+  });
 });

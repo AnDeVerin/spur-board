@@ -40,6 +40,7 @@ describe('generated public references', () => {
       const section = cli.split(`### \`board ${path}\``)[1]?.split('\n### ')[0] ?? '';
       for (const option of command.options) expect(section).toContain(`\`${option.flags}\``);
     }
+    expect(cli).not.toMatch(/ —$/m);
   });
 
   it('documents config fields and every recognized secret name without values', () => {
