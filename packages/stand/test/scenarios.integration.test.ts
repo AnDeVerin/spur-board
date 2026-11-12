@@ -469,6 +469,20 @@ describe('each scenario', () => {
       },
       { timeout: 20_000, interval: 100 },
     );
+    // Ring 2 is due firstRetryMs (2 min) after ring 1: a poll does not bring it, a shift does.
+    const workerSends = async () =>
+      (await inspect(current())).sends.filter(({ session }) => session === manifest.roles.worker)
+        .length;
+    await ok(current(), '/poll');
+    expect(await workerSends()).toBe(1);
+    const shifted = await standCli(['clock', '+3m', '--home', manifest.home]);
+    expect(shifted.code, shifted.stderr).toBe(0);
+    await vi.waitFor(
+      async () => {
+        expect(await workerSends()).toBe(2);
+      },
+      { timeout: 5_000, interval: 100 },
+    );
   }, 60_000);
 
   it('worker-killed-no-pr: the ended worker item is raised', async () => {
