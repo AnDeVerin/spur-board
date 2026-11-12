@@ -2,11 +2,11 @@
 import { RESERVED_PROJECT, type Action, type ActorId } from '@spur-board/contracts';
 import type { Kysely } from 'kysely';
 import type { Row, Tables } from '../store/schema.ts';
+import { hasRetryButton, ITEM_POLICY, type ItemKind } from '../domain/fromYou.ts';
 import { emit } from './board-utils.ts';
 
 type Trx = Kysely<Tables>;
 
-const NO_FEED = new Set(['post_failed', 'answer_undelivered', 'transport_health']);
 /** Display label of a feed line with no task; not part of the line's identity. */
 export const TASKLESS_FEED_KEY = 'spur-board';
 
@@ -40,28 +40,23 @@ export async function journal(
   );
 }
 
-/** Kinds whose item has a retry action besides `delivery:<id>` (see `items.ts`). */
-const RETRY_KINDS = new Set(['answer_undelivered', 'worker_not_reading', 'inbound_failure']);
-
 /** Every item line gets Close, after Retry when its kind has a retry action. */
-function itemActions(item: Row<'operator_item'>): Action[] {
-  const id = String(item.id);
+function itemActions(itemId: number, kind: ItemKind): Action[] {
+  const id = String(itemId);
   const close = { id: `item:${id}:close`, label: 'Close' };
-  if (item.kind === 'token_request') {
+  if (ITEM_POLICY[kind].buttons === 'approve_deny') {
     return [
       { id: `token:${id}:approve`, label: 'Approve' },
       { id: `token:${id}:deny`, label: 'Deny' },
       close,
     ];
   }
-  return item.item_key.startsWith('delivery:') || RETRY_KINDS.has(item.kind)
-    ? [{ id: `item:${id}:retry`, label: 'Retry' }, close]
-    : [close];
+  return hasRetryButton(kind) ? [{ id: `item:${id}:retry`, label: 'Retry' }, close] : [close];
 }
 
 export type RaiseItemInput = {
   itemKey: string;
-  kind: string;
+  kind: ItemKind;
   text: string;
   url: string;
   taskId: number | null;
@@ -70,8 +65,8 @@ export type RaiseItemInput = {
   fingerprint?: string;
   factAt?: string | null;
   source?: string | null;
+  /** Overrides the kind's policy priority. */
   priority?: number;
-  suppressFeed?: boolean;
   rule?: string;
 };
 
@@ -130,13 +125,13 @@ export async function raiseItemWith(
       fingerprint: input.fingerprint ?? null,
       fact_at: input.factAt ?? null,
       source: input.source ?? null,
-      priority: input.priority ?? null,
+      priority: input.priority ?? ITEM_POLICY[input.kind].priority,
       inbound_event_json: null,
     })
     .returningAll()
     .executeTakeFirstOrThrow();
   await journal(trx, item, 'from_you_raised', input.at, input.rule);
-  if (!NO_FEED.has(item.kind) && !input.suppressFeed) {
+  if (ITEM_POLICY[input.kind].feed) {
     const task =
       item.task_id === null
         ? null
@@ -155,7 +150,7 @@ export async function raiseItemWith(
       title: `${key}: ${item.text}`,
       url: item.url,
       taskId: item.task_id,
-      actions: itemActions(item),
+      actions: itemActions(item.id, input.kind),
       at: input.at,
     });
     if (line !== null) {

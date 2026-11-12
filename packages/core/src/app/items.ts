@@ -1,5 +1,6 @@
+import { assertNever } from '@spur-board/contracts';
 import type { Kysely } from 'kysely';
-import { fingerprint } from '../domain/fromYou.ts';
+import { fingerprint, isItemKind, ITEM_POLICY } from '../domain/fromYou.ts';
 import type { Row, Tables } from '../store/schema.ts';
 import { CommandError, type Mutation } from './commands.ts';
 import { restartNotification, ringTask } from './doorbells.ts';
@@ -11,8 +12,6 @@ type Item = Row<'operator_item'>;
 
 /** Re-applies an `inbound_failure` item's stored event in `trx`; the caller clears the item. */
 export type ReapplyInbound = (trx: Trx, itemId: number, at: string) => Promise<void>;
-
-const DOORBELL_ITEM = /^(?:answer_undelivered|worker_not_reading):(.+)$/;
 
 async function loadItem(
   trx: Trx,
@@ -37,7 +36,7 @@ async function loadItem(
 
 /** The task a `delivery:<outbox id>` item's row belongs to; the item itself has no task. */
 async function deliveryTask(trx: Trx, item: Item): Promise<Row<'task'> | undefined> {
-  if (!item.item_key.startsWith('delivery:')) return undefined;
+  if (item.kind !== 'post_failed') return undefined;
   const row = await trx
     .selectFrom('outbox')
     .select(['kind', 'dedupe_key', 'payload'])
@@ -76,32 +75,51 @@ export function createItemMutations(deps: { reapplyInbound?: () => ReapplyInboun
   retry: Mutation<'item.retry'>;
   close: Mutation<'item.close'>;
 } {
-  async function retryAction(trx: Trx, item: Item, at: string): Promise<void> {
+  /** Runs the retry behind the item's kind; false when the item must stay raised. */
+  async function retryAction(trx: Trx, item: Item, at: string): Promise<boolean> {
     const closeHint = `close it with \`board item close I${String(item.id)}\`.`;
-    if (item.item_key.startsWith('delivery:')) {
-      const outboxId = Number(item.item_key.slice('delivery:'.length));
-      if ((await requeuePostFailed(trx, [outboxId], at)) === 0) {
-        throw notApplicable('The delivery is no longer failed.');
+    const noAction = notApplicable(`This item has no retry action; ${closeHint}`);
+    const action = isItemKind(item.kind) ? ITEM_POLICY[item.kind].retry : 'none';
+    switch (action) {
+      case 'requeue_post': {
+        const outboxId = Number(item.item_key.slice('delivery:'.length));
+        if ((await requeuePostFailed(trx, [outboxId], at)) === 0) {
+          throw notApplicable('The delivery is no longer failed.');
+        }
+        return true;
       }
-      return;
-    }
-    const doorbell = DOORBELL_ITEM.exec(item.item_key);
-    if (doorbell?.[1] !== undefined) {
-      await restartNotification(trx, doorbell[1], new Date(at));
-      return;
-    }
-    if (item.kind === 'inbound_failure') {
-      const reapply = deps.reapplyInbound?.();
-      if (reapply === undefined) {
-        throw notApplicable('Slack inbound is not running; close the item instead.');
+      case 'restart_ring': {
+        const prefix = `${item.kind}:`;
+        if (!item.item_key.startsWith(prefix) || item.item_key.length === prefix.length) {
+          throw noAction;
+        }
+        await restartNotification(trx, item.item_key.slice(prefix.length), new Date(at));
+        return true;
       }
-      await reapply(trx, item.id, at);
-      return;
+      case 'reapply_inbound': {
+        const reapply = deps.reapplyInbound?.();
+        if (reapply === undefined) {
+          throw notApplicable('Slack inbound is not running; close the item instead.');
+        }
+        await reapply(trx, item.id, at);
+        return true;
+      }
+      case 'probe_transport': {
+        // Probe now; only the sender clears this item, once the transport is back. A probe
+        // that fails again adds no row, so nothing would raise the item again if retry cleared it.
+        const gateway = item.item_key.slice('transport:'.length);
+        if ((await retryTransport(trx, gateway, at)) === 0) {
+          throw notApplicable('No transport outage is recorded; the item clears on its own.');
+        }
+        return false;
+      }
+      case 'never_sent':
+        throw notApplicable(`The blocked text is never sent; ${closeHint}`);
+      case 'none':
+        throw noAction;
+      default:
+        return assertNever(action);
     }
-    if (item.kind === 'post_blocked') {
-      throw notApplicable(`The blocked text is never sent; ${closeHint}`);
-    }
-    throw notApplicable(`This item has no retry action; ${closeHint}`);
   }
 
   return {
@@ -115,17 +133,9 @@ export function createItemMutations(deps: { reapplyInbound?: () => ReapplyInboun
           throw new CommandError('task_archived', 'Add the task again before retrying its item.');
         }
         if (item.cleared_at !== null) throw notApplicable('The item is already cleared.');
-        if (item.kind === 'transport_health') {
-          // Probe now; only the sender clears this item, once the transport is back. A probe
-          // that fails again adds no row, so nothing would raise the item again if retry cleared it.
-          const gateway = item.item_key.slice('transport:'.length);
-          if ((await retryTransport(trx, gateway, ctx.at)) === 0) {
-            throw notApplicable('No transport outage is recorded; the item clears on its own.');
-          }
-          return view(item, task);
+        if (await retryAction(trx, item, ctx.at)) {
+          await clearItem(trx, item.id, new Date(ctx.at), ctx.actor);
         }
-        await retryAction(trx, item, ctx.at);
-        await clearItem(trx, item.id, new Date(ctx.at), ctx.actor);
         return view(item, task);
       },
     },
@@ -139,11 +149,8 @@ export function createItemMutations(deps: { reapplyInbound?: () => ReapplyInboun
             item.fingerprint ??
             fingerprint({
               key: item.item_key,
-              taskId: item.task_id,
               summary: item.text,
-              factAt: item.fact_at,
               source: item.source,
-              priority: item.priority ?? 0,
               revision: null,
             });
           await trx
@@ -162,7 +169,7 @@ export function createItemMutations(deps: { reapplyInbound?: () => ReapplyInboun
               }),
             )
             .execute();
-          if (item.item_key.startsWith('delivery:')) {
+          if (item.kind === 'post_failed') {
             // A closed failed post stays unsent: neither `recover()` nor a retry may resend it.
             await trx
               .updateTable('outbox')

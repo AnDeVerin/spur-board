@@ -161,7 +161,7 @@ describe('accepted observation', () => {
       },
       effectiveComplete: true,
       state: { lastCompleteAt: at, gone: [] },
-      outcomes: [{ ref, misses: 1, gone: false }],
+      outcomes: [{ ref, misses: 3, gone: true }],
     });
     const status = await getStatus({ store, config, clock, completeSince: core.completeSince });
     expect(status.tasks).toHaveLength(1);
@@ -763,6 +763,24 @@ describe('accepted observation', () => {
   it('persists a host-load episode across a new core instance and a tick', async () => {
     const { store, core, apply, mutations } = setup();
     await apply(mutations.add, { task: 'o/r#9' }, 'operator');
+    // Host load used to raise an item; one left active from before is cleared.
+    const old = await store.db
+      .insertInto('operator_item')
+      .values({
+        item_key: 'host-load',
+        raise_no: 1,
+        kind: 'board_observation',
+        text: 'Host under load',
+        url: 'https://github.com',
+        task_id: null,
+        block_id: null,
+        raised_at: at,
+        cleared_at: null,
+        line_outbox_id: null,
+        inbound_event_json: null,
+      })
+      .returning('id')
+      .executeTakeFirstOrThrow();
     const worker = {
       ...sessionFact('worker-1', { 'board-worker': 'https://github.com/o/r/issues/9' }),
       health: 'error' as const,
@@ -803,6 +821,20 @@ describe('accepted observation', () => {
     });
     expect(status.hostLoad).toBe('Host under load');
     expect(status.warmingUp).toBe(true);
+    const hostItems = await store.db
+      .selectFrom('operator_item')
+      .select(['id', 'cleared_at'])
+      .where('item_key', '=', 'host-load')
+      .execute();
+    expect(hostItems).toEqual([{ id: old.id, cleared_at: expect.any(String) as string }]);
+    expect(status.items.some((item) => item.key === 'host-load')).toBe(false);
+    expect(
+      await store.db
+        .selectFrom('outbox')
+        .select('id')
+        .where('dedupe_key', 'like', 'feed.line:host-load:%')
+        .execute(),
+    ).toEqual([]);
   });
 
   it('raises a linked worker health item on a tick even with no PR', async () => {
@@ -979,23 +1011,26 @@ describe('accepted observation', () => {
       reason: 'complete',
       kind: 'worker_completed',
       text: 'o/r#9: worker ended (completed), no PR (worker-1)',
+      itemKind: 'worker_ended',
       lines: 0,
     },
     {
       reason: 'kill',
       kind: 'worker_killed',
       text: 'o/r#9: worker ended (killed), no PR (worker-1)',
+      itemKind: 'worker_ended',
       lines: 0,
     },
     {
       reason: 'vanished',
       kind: 'worker_vanished',
       text: 'o/r#9: worker vanished, no PR (worker-1)',
+      itemKind: 'board_observation',
       lines: 1,
     },
   ] as const)(
     'names a $reason worker end in the item and posts $lines feed lines',
-    async ({ reason, kind, text, lines }) => {
+    async ({ reason, kind, text, itemKind, lines }) => {
       const { store, core, apply, mutations } = setup();
       await apply(mutations.add, { task: 'o/r#9' }, 'operator');
       await observeSpur(core, [sessionFact('worker-1', workerLink)]);
@@ -1023,6 +1058,7 @@ describe('accepted observation', () => {
       expect(items.map((item) => [item.item_key.split(':').at(-1), item.text])).toEqual([
         [kind, text],
       ]);
+      expect(items[0]?.kind).toBe(itemKind);
       expect(items[0]?.line_outbox_id === null).toBe(lines === 0);
       expect(await healthLines(store)).toHaveLength(lines);
       expect(
@@ -1035,6 +1071,55 @@ describe('accepted observation', () => {
       ).toHaveLength(1);
     },
   );
+
+  it('re-raises a pre-upgrade completed-worker item under worker_ended', async () => {
+    const { store, core, apply, mutations } = setup();
+    await apply(mutations.add, { task: 'o/r#9' }, 'operator');
+    await observeSpur(core, [sessionFact('worker-1', workerLink)]);
+    now += 1_000;
+    await observeSpur(core, [sessionFact('worker-1', workerLink, true)]);
+    const old = await store.db
+      .selectFrom('operator_item')
+      .selectAll()
+      .where('item_key', 'like', 'health:%:worker_completed')
+      .executeTakeFirstOrThrow();
+    // Before this kind existed, the ended-worker item was a board observation.
+    await store.transaction((trx) =>
+      trx
+        .updateTable('operator_item')
+        .set({ kind: 'board_observation' })
+        .where('id', '=', old.id)
+        .execute(),
+    );
+    now += 1_000;
+    await tickBoard({ store, config, clock, completeSince: core.completeSince });
+    expect(
+      await store.db
+        .selectFrom('operator_item')
+        .select(['id', 'kind', 'raise_no', 'cleared_at', 'line_outbox_id'])
+        .where('item_key', '=', old.item_key)
+        .orderBy('raise_no')
+        .execute(),
+    ).toEqual([
+      {
+        id: old.id,
+        kind: 'board_observation',
+        raise_no: 1,
+        cleared_at: new Date(now).toISOString(),
+        line_outbox_id: null,
+      },
+      {
+        id: expect.any(Number) as number,
+        kind: 'worker_ended',
+        raise_no: 2,
+        cleared_at: null,
+        line_outbox_id: null,
+      },
+    ]);
+    expect(
+      await store.db.selectFrom('outbox').select('id').where('kind', '=', 'feed.line').execute(),
+    ).toEqual([]);
+  });
 
   it('clears an open pre-upgrade vanished item for a killed worker and raises it without a line', async () => {
     const { store, core, apply, mutations } = setup();
@@ -1388,7 +1473,7 @@ describe('accepted observation', () => {
     expect(session).toEqual(loose);
   });
 
-  it('keeps old ticket facts and marks access unconfirmed on an incomplete batch', async () => {
+  it('keeps old ticket facts and raises no lookup item on an incomplete batch', async () => {
     const { store, core, apply, mutations } = setup();
     await apply(mutations.add, { task: 'o/r#9' }, 'operator');
     const pending = (await core.context(source)).observe.tickets[0];
@@ -1425,10 +1510,7 @@ describe('accepted observation', () => {
       { detail: true },
     );
     expect(status.tasks[0]?.ticket?.title).toBe('A ticket');
-    expect(status.items.find((item) => item.key.startsWith('lookup:'))?.summary).toContain(
-      'no_access',
-    );
-    expect(status.items.find((item) => item.key.startsWith('lookup:'))?.unconfirmed).toBe(true);
+    expect(status.items.some((item) => item.key.startsWith('lookup:'))).toBe(false);
   });
 
   it('transfers a pending include to the existing stable ticket instead of duplicating active tasks', async () => {

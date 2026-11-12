@@ -165,7 +165,6 @@ it('reports transport state per gateway and keeps the health item board-wide', a
       taskId: null,
       blockId: null,
       priority: 1,
-      suppressFeed: true,
       at: new Date(clock.now()),
     });
   });
@@ -406,7 +405,6 @@ it('keeps the default status for 100 tasks under the budget and lists every item
         taskId: ids[n - 1] ?? null,
         blockId: null,
         priority,
-        suppressFeed: true,
         at: new Date(clock.now() + n * 1_000),
       });
     }

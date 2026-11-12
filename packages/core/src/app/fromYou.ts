@@ -6,7 +6,14 @@ import {
   type SessionHealthFlag,
   type SessionHealthFlagKind,
 } from '../domain/health.ts';
-import { fingerprint, orderItems, type ItemCandidate } from '../domain/fromYou.ts';
+import {
+  fingerprint,
+  ITEM_POLICY,
+  orderItems,
+  RECONCILED_KINDS,
+  type ItemCandidate,
+  type ItemKind,
+} from '../domain/fromYou.ts';
 import { parseJson, toJson } from '../store/json.ts';
 import { taskUrl, type Trx } from './board-utils.ts';
 import { clearItem, raiseItem } from './feed.ts';
@@ -31,8 +38,11 @@ export async function reconcileItems(
   const sourceById = new Map(sources.map((state) => [state.source, state]));
   for (const source of sources) {
     if (source.blind_reason === null) continue;
+    // A stale tracker shows as a status flag only; stale Spur also blinds worker health.
+    if (source.blind_reason === 'stale' && source.source !== 'spur') continue;
     candidates.push({
       key: `source:${source.source}`,
+      kind: 'board_observation',
       taskId: null,
       summary: `${source.source}: ${source.blind_message ?? source.blind_reason}`,
       factAt: source.observed_at,
@@ -48,7 +58,8 @@ export async function reconcileItems(
   const taskById = new Map(tasks.map((task) => [task.id, task]));
   const misses = await trx.selectFrom('source_miss').selectAll().execute();
   for (const miss of misses) {
-    if (miss.outcome !== 'not_found' && miss.outcome !== 'no_access' && miss.gone !== 1) continue;
+    // A linked PR or ticket raises an item only once the runner counts it gone.
+    if (miss.gone !== 1) continue;
     const ref = JSON.parse(miss.ref) as {
       kind: string;
       key?: string;
@@ -69,6 +80,7 @@ export async function reconcileItems(
         if (task === undefined) continue;
         candidates.push({
           key: `pr-outcome:${String(task.id)}:${ref.repo}#${String(ref.number)}`,
+          kind: 'board_observation',
           taskId: task.id,
           summary: `${task.key}: linked pull request ${miss.outcome ?? 'gone'}`,
           factAt: sourceById.get(miss.source)?.observed_at ?? null,
@@ -79,14 +91,11 @@ export async function reconcileItems(
       continue;
     }
     if (ref.kind !== 'ticket') continue;
-    const task = tasks.find(
-      (entry) =>
-        entry.key === ref.key &&
-        (entry.manual_include === 1 || miss.outcome === 'no_access' || miss.gone === 1),
-    );
+    const task = tasks.find((entry) => entry.key === ref.key);
     if (task === undefined) continue;
     candidates.push({
       key: `lookup:${String(task.id)}`,
+      kind: 'board_observation',
       taskId: task.id,
       summary: `${task.key}: tracker returned ${miss.outcome ?? 'gone'}`,
       factAt: sourceById.get(miss.source)?.observed_at ?? null,
@@ -98,6 +107,7 @@ export async function reconcileItems(
     if (task.membership === 'out_of_filter')
       candidates.push({
         key: `filter:${String(task.id)}`,
+        kind: 'board_observation',
         taskId: task.id,
         summary: `${task.key} left the tracker filter while work is still linked`,
         factAt: task.last_change_at,
@@ -109,7 +119,7 @@ export async function reconcileItems(
   const blockedRoots = await trx
     .selectFrom('operator_item')
     .select('block_id')
-    .where('kind', '=', 'post_blocked')
+    .where('kind', '=', 'post_blocked' satisfies ItemKind)
     .where('source', '=', 'conversation.open')
     .execute();
   const blockedIds = new Set(blockedRoots.map((item) => item.block_id));
@@ -123,6 +133,7 @@ export async function reconcileItems(
     )
       candidates.push({
         key: `operator-block:${String(block.id)}`,
+        kind: 'board_observation',
         taskId: task.id,
         summary: `${task.key}: ${block.reason}`,
         factAt: block.created_at,
@@ -132,6 +143,7 @@ export async function reconcileItems(
     if (now - Date.parse(block.created_at) >= config.thresholds.blockOpenMs)
       candidates.push({
         key: `block:${String(block.id)}`,
+        kind: 'board_observation',
         taskId: task.id,
         summary: `${task.key}: block has been open for more than a day`,
         factAt: block.created_at,
@@ -147,12 +159,12 @@ export async function reconcileItems(
   for (const delivery of failedDeliveries)
     candidates.push({
       key: `delivery:${String(delivery.id)}`,
+      kind: 'post_failed',
       taskId: null,
       summary: `Delivery failed: ${delivery.kind}`,
       factAt: null,
       source: null,
-      priority: 1,
-      suppressFeed: delivery.kind === 'feed.line' || delivery.kind === 'feed.line.edit',
+      priority: ITEM_POLICY.post_failed.priority,
     });
   const sessionLinks = await trx
     .selectFrom('link')
@@ -209,16 +221,6 @@ export async function reconcileItems(
       oc.column('key').doUpdateSet({ value: toJson(episodeSchema, health.episode) }),
     )
     .execute();
-  if (health.hostLoad !== null)
-    candidates.push({
-      key: 'host-load',
-      taskId: null,
-      summary: 'Host under load',
-      factAt: health.episode === null ? null : new Date(health.episode.startedAt).toISOString(),
-      source: 'spur',
-      priority: 4,
-      revision: health.episode === null ? null : String(health.episode.startedAt),
-    });
   for (const flag of health.flags) {
     const task = taskById.get(Number(flag.taskId));
     if (task === undefined) continue;
@@ -228,13 +230,16 @@ export async function reconcileItems(
     const endedLabel = ENDED_WORKER_LABELS[flag.kind];
     candidates.push({
       key: healthKey(task.id, flag),
+      kind:
+        flag.kind === 'worker_completed' || flag.kind === 'worker_killed'
+          ? 'worker_ended'
+          : 'board_observation',
       taskId: task.id,
       summary: `${task.key}: ${endedLabel ?? flag.kind.replaceAll('_', ' ')} (${flag.sessionId})`,
       factAt: fact?.healthSince ?? null,
       source: 'spur',
       priority: 4,
       revision: endedLabel === undefined ? (fact?.healthSince ?? null) : (fact?.endedAt ?? null),
-      suppressFeed: flag.kind === 'worker_completed' || flag.kind === 'worker_killed',
     });
   }
   const ordered = orderItems(candidates);
@@ -246,7 +251,7 @@ export async function reconcileItems(
   const existing = await trx
     .selectFrom('operator_item')
     .selectAll()
-    .where('kind', '=', 'board_observation')
+    .where('kind', 'in', RECONCILED_KINDS)
     .where('cleared_at', 'is', null)
     .execute();
   for (const item of existing) {
@@ -260,10 +265,12 @@ export async function reconcileItems(
       .select('fingerprint')
       .where('item_key', '=', candidate.key)
       .executeTakeFirst();
-    if (old !== undefined && (dismissal?.fingerprint === hash || old.fingerprint !== hash))
+    // A kind change re-raises the item, so a row raised before the kind existed takes its policy.
+    const kept = old !== undefined && old.fingerprint === hash && old.kind === candidate.kind;
+    if (old !== undefined && (dismissal?.fingerprint === hash || !kept))
       await clearItem(trx, old.id, new Date(now));
     if (dismissal?.fingerprint === hash) continue;
-    if (old !== undefined && old.fingerprint === hash) {
+    if (kept) {
       if (old.fact_at !== candidate.factAt || old.source !== candidate.source)
         await trx
           .updateTable('operator_item')
@@ -275,7 +282,7 @@ export async function reconcileItems(
     const task = candidate.taskId === null ? null : taskById.get(candidate.taskId);
     await raiseItem(trx, {
       itemKey: candidate.key,
-      kind: 'board_observation',
+      kind: candidate.kind,
       text: candidate.summary,
       url: task === null || task === undefined ? 'https://github.com' : taskUrl(task, config),
       taskId: candidate.taskId,
@@ -285,7 +292,6 @@ export async function reconcileItems(
       factAt: candidate.factAt,
       source: candidate.source,
       priority: candidate.priority,
-      suppressFeed: candidate.suppressFeed ?? false,
     });
   }
 }
