@@ -3,9 +3,11 @@
 ## Transactions
 
 - Write through `scanTransaction(store, config, fn)` (`packages/core/src/app/secrets.ts`); it
-  runs `fn` in `store.transaction` and passes its `trx`. It is required when `fn` can reach an
-  outbox producer (`packages/core/src/app/outbox.ts`) or `scanConfig`: outside a scan they throw
-  `Gateway outbox requires a secret scan transaction`.
+  runs `fn` in `store.transaction` and passes its `trx`. It is required when `fn` can reach a
+  gateway outbox producer (`packages/core/src/app/outbox.ts`) or `scanConfig`: outside a scan
+  they throw `Gateway outbox requires a secret scan transaction`. `enqueueDoorbell` is the
+  exception: doorbell rows skip the scan, so it also works in a plain
+  `store.transaction`.
 - Use plain `store.transaction(fn)` only for a body that reaches neither, as
   `purgeExpiredCommands` in `packages/core/src/app/commands.ts` and `createQuery` in
   `packages/core/src/app/queries.ts` do.
