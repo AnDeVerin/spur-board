@@ -12,6 +12,22 @@ export const MAX_WAIT_MS = 600_000;
 /** The longest single `clock` shift: 365 days. */
 export const MAX_SHIFT_MS = 365 * 24 * 60 * 60 * 1000;
 
+function isShift(shiftMs: unknown): shiftMs is number {
+  return (
+    typeof shiftMs === 'number' &&
+    Number.isSafeInteger(shiftMs) &&
+    shiftMs >= 1 &&
+    shiftMs <= MAX_SHIFT_MS
+  );
+}
+
+const SHIFT_REFUSAL = `Send { shiftMs } with an integer from 1 to ${String(MAX_SHIFT_MS)}; the clock only moves forward.`;
+
+/** Why a clock shift is refused, or undefined when it may move the clock forward. */
+export function shiftRefusal(shiftMs: unknown): string | undefined {
+  return isShift(shiftMs) ? undefined : SHIFT_REFUSAL;
+}
+
 export interface RouteResult {
   status: number;
   body: unknown;
@@ -198,16 +214,7 @@ export async function startControl(options: {
       result = await queued(() => options.routes.seed({ scenario }));
     } else if (path === '/clock') {
       const { shiftMs } = body;
-      if (
-        typeof shiftMs !== 'number' ||
-        !Number.isSafeInteger(shiftMs) ||
-        shiftMs < 1 ||
-        shiftMs > MAX_SHIFT_MS
-      )
-        throw new HttpError(
-          400,
-          `Send { shiftMs } with an integer from 1 to ${String(MAX_SHIFT_MS)}; the clock only moves forward.`,
-        );
+      if (!isShift(shiftMs)) throw new HttpError(400, SHIFT_REFUSAL);
       result = await queued(() => options.routes.clock({ shiftMs }));
     } else if (path === '/fake') {
       const { system, verb, args = {} } = body;
