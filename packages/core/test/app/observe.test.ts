@@ -21,7 +21,13 @@ import {
 } from '../../src/index.ts';
 import { createLinkMutations } from '../../src/app/links.ts';
 import { scanTransaction } from '../../src/app/secrets.ts';
-import { openTurn } from '../../src/app/turns.ts';
+import { createBlockMutations } from '../../src/app/blocks.ts';
+import {
+  reconcileDoorbells,
+  recordRingDelivery,
+  ringUndelivered,
+} from '../../src/app/doorbells.ts';
+import { closeTurns, openTurn } from '../../src/app/turns.ts';
 
 const at = '2026-11-04T12:00:00.000Z';
 let now = Date.parse(at);
@@ -1013,8 +1019,9 @@ describe('accepted observation', () => {
       reason: 'complete',
       kind: 'worker_completed',
       text: 'o/r#9: worker ended (completed), no PR (worker-1)',
-      itemKind: 'worker_ended',
+      itemKind: 'anomaly',
       lines: 0,
+      blocks: 1,
     },
     {
       reason: 'kill',
@@ -1022,6 +1029,7 @@ describe('accepted observation', () => {
       text: 'o/r#9: worker ended (killed), no PR (worker-1)',
       itemKind: 'worker_ended',
       lines: 0,
+      blocks: 0,
     },
     {
       reason: 'vanished',
@@ -1029,10 +1037,11 @@ describe('accepted observation', () => {
       text: 'o/r#9: worker vanished, no PR (worker-1)',
       itemKind: 'board_observation',
       lines: 1,
+      blocks: 0,
     },
   ] as const)(
     'names a $reason worker end in the item and posts $lines feed lines',
-    async ({ reason, kind, text, itemKind, lines }) => {
+    async ({ reason, kind, text, itemKind, lines, blocks }) => {
       const { store, core, apply, mutations } = setup();
       await apply(mutations.add, { task: 'o/r#9' }, 'operator');
       await observeSpur(core, [sessionFact('worker-1', workerLink)]);
@@ -1063,6 +1072,13 @@ describe('accepted observation', () => {
       expect(items[0]?.kind).toBe(itemKind);
       expect(items[0]?.line_outbox_id === null).toBe(lines === 0);
       expect(await healthLines(store)).toHaveLength(lines);
+      const open = await store.db
+        .selectFrom('block')
+        .select(['id', 'author', 'addressee_role'])
+        .where('state', '=', 'open')
+        .execute();
+      expect(open).toHaveLength(blocks);
+      expect(items[0]?.block_id ?? null).toBe(open[0]?.id ?? null);
       expect(
         await store.db
           .selectFrom('event')
@@ -1074,46 +1090,68 @@ describe('accepted observation', () => {
     },
   );
 
-  it('re-raises a pre-upgrade completed-worker item under worker_ended', async () => {
+  it('re-raises a pre-upgrade completed-worker item under anomaly', async () => {
     const { store, core, apply, mutations } = setup();
     await apply(mutations.add, { task: 'o/r#9' }, 'operator');
     await observeSpur(core, [sessionFact('worker-1', workerLink)]);
+    const task = await store.db.selectFrom('task').select('id').executeTakeFirstOrThrow();
+    const key = `health:${String(task.id)}:worker-1:worker_completed`;
+    // Before ledger items existed, the completed-worker item was a worker_ended row, no block.
+    const old = await store.db
+      .insertInto('operator_item')
+      .values({
+        item_key: key,
+        raise_no: 1,
+        kind: 'worker_ended',
+        text: 'o/r#9: worker ended (completed), no PR (worker-1)',
+        url: 'https://github.com/o/r/issues/9',
+        task_id: task.id,
+        block_id: null,
+        raised_at: at,
+        cleared_at: null,
+        line_outbox_id: null,
+        fingerprint: null,
+        inbound_event_json: null,
+      })
+      .returning('id')
+      .executeTakeFirstOrThrow();
     now += 1_000;
     await observeSpur(core, [sessionFact('worker-1', workerLink, true)]);
-    const old = await store.db
-      .selectFrom('operator_item')
-      .selectAll()
-      .where('item_key', 'like', 'health:%:worker_completed')
-      .executeTakeFirstOrThrow();
-    // Before this kind existed, the ended-worker item was a board observation.
-    await store.transaction((trx) =>
-      trx
-        .updateTable('operator_item')
-        .set({ kind: 'board_observation' })
-        .where('id', '=', old.id)
-        .execute(),
-    );
     now += 1_000;
     await tickBoard({ store, config, clock, completeSince: core.completeSince });
+    const blocks = await store.db
+      .selectFrom('block')
+      .select(['id', 'author', 'addressee_role', 'state'])
+      .execute();
+    expect(blocks).toEqual([
+      {
+        id: expect.any(Number) as number,
+        author: 'system',
+        addressee_role: 'operator',
+        state: 'open',
+      },
+    ]);
     expect(
       await store.db
         .selectFrom('operator_item')
-        .select(['id', 'kind', 'raise_no', 'cleared_at', 'line_outbox_id'])
-        .where('item_key', '=', old.item_key)
+        .select(['id', 'kind', 'raise_no', 'block_id', 'cleared_at', 'line_outbox_id'])
+        .where('item_key', '=', key)
         .orderBy('raise_no')
         .execute(),
     ).toEqual([
       {
         id: old.id,
-        kind: 'board_observation',
+        kind: 'worker_ended',
         raise_no: 1,
-        cleared_at: new Date(now).toISOString(),
+        block_id: null,
+        cleared_at: expect.any(String) as string,
         line_outbox_id: null,
       },
       {
         id: expect.any(Number) as number,
-        kind: 'worker_ended',
+        kind: 'anomaly',
         raise_no: 2,
+        block_id: blocks[0]?.id,
         cleared_at: null,
         line_outbox_id: null,
       },
@@ -1762,5 +1800,606 @@ describe('a clock that moves during the transaction', () => {
       .executeTakeFirstOrThrow();
     expect(open.line_outbox_id).not.toBeNull();
     expect(open.line_outbox_id).not.toBe(first);
+  });
+});
+
+describe('anomaly blocks', () => {
+  const link = { 'board-worker': 'https://github.com/o/r/issues/9' };
+  const github = 'github:board:o/r';
+  const IDLE = config.health.idleInDevAfterMs;
+  const iso = () => new Date(now).toISOString();
+  type Items = Parameters<ReturnType<typeof setup>['core']['observe']>[1]['batch']['items'];
+
+  async function board(testConfig = config, key = 'o/r#9') {
+    const ctx = setup(testConfig);
+    await ctx.apply(ctx.mutations.add, { task: key }, 'operator');
+    const task = await ctx.store.db.selectFrom('task').selectAll().executeTakeFirstOrThrow();
+    return { ...ctx, task, config: testConfig };
+  }
+  type Board = Awaited<ReturnType<typeof board>>;
+
+  async function poll(b: Board, src: string, items: Items, lastCompleteAt = iso()) {
+    await b.core.observe(src, {
+      batch: { source: src, observedAt: iso(), complete: true, items, entities: [] },
+      effectiveComplete: true,
+      state: { lastCompleteAt, gone: [] },
+      outcomes: [],
+    });
+  }
+  const spur = (b: Board, facts: SessionFacts[]) =>
+    poll(
+      b,
+      'spur',
+      facts.map((entry) => ({ kind: 'session' as const, facts: entry })),
+    );
+  const prs = (b: Board, facts: PrFacts[], lastCompleteAt = iso()) =>
+    poll(
+      b,
+      github,
+      facts.map((entry) => ({ kind: 'pr' as const, facts: entry })),
+      lastCompleteAt,
+    );
+  const session = (
+    id: string,
+    health: SessionFacts['health'],
+    changes: Partial<SessionFacts> = {},
+  ): SessionFacts => ({ ...sessionFact(id, link), health, healthSince: iso(), ...changes });
+  const killed = (id: string): SessionFacts => ({
+    ...sessionFact(id, link, true),
+    endedAt: iso(),
+    endReason: 'kill',
+    lifecycle: 'killed',
+  });
+  const pr = (number: number, state: PrFacts['state']): PrFacts => ({
+    ...prFact(),
+    number,
+    url: `https://github.com/o/r/pull/${String(number)}`,
+    state,
+  });
+  const tick = (b: Board) =>
+    tickBoard({ store: b.store, config: b.config, clock, completeSince: b.core.completeSince });
+
+  async function surface(b: Board) {
+    const outbox = async (kind: string) =>
+      (await b.store.db.selectFrom('outbox').select('id').where('kind', '=', kind).execute())
+        .length;
+    return {
+      blocks: await b.store.db.selectFrom('block').selectAll().orderBy('id').execute(),
+      items: await b.store.db
+        .selectFrom('operator_item')
+        .selectAll()
+        .where('kind', '=', 'anomaly')
+        .orderBy('id')
+        .execute(),
+      opens: await outbox('conversation.open'),
+      closes: await outbox('conversation.close'),
+      lines: await outbox('feed.line'),
+    };
+  }
+  /** The open system blocks with their active ledger item keys, without the task id. */
+  async function openLedger(b: Board) {
+    const { blocks, items } = await surface(b);
+    return blocks
+      .filter((block) => block.state === 'open' && block.author === 'system')
+      .map((block) => {
+        const item = items.find(
+          (entry) => entry.block_id === block.id && entry.cleared_at === null,
+        );
+        // Task-scoped keys lose their task id; a stuck-turn key keeps its turn id.
+        return (
+          item?.item_key.replace(
+            new RegExp(`^(health|pr-closed|ticket-closed):${String(b.task.id)}(?=:|$)`),
+            '$1',
+          ) ?? null
+        );
+      });
+  }
+
+  /** A worker turn of the task taken by `session` at the current time. */
+  function heldTurn(b: Board, session = 'worker-1') {
+    return b.store.transaction((trx) =>
+      trx
+        .insertInto('turn')
+        .values({
+          task_id: b.task.id,
+          column: b.task.column,
+          epoch: b.task.column_epoch,
+          seq: 1,
+          role: 'worker',
+          reason: 'Pick it up',
+          handed: '[]',
+          acked_by: `agent:worker/${session}`,
+          acked_at: iso(),
+          closed_at: null,
+          closed_reason: null,
+          created_at: iso(),
+        })
+        .returningAll()
+        .executeTakeFirstOrThrow(),
+    );
+  }
+  const closeTurn = (b: Board) =>
+    scanTransaction(b.store, b.config, (trx) =>
+      closeTurns(trx, { taskId: b.task.id, reason: 'moved', at: new Date(now) }),
+    );
+  const reminders = (b: Board) =>
+    b.store.db.selectFrom('notification').selectAll().where('kind', '=', 'turn_reminder').execute();
+  /** Hands the due reminder to the sender and returns its notification and outbox row. */
+  async function sendReminder(b: Board) {
+    await scanTransaction(b.store, b.config, (trx) =>
+      reconcileDoorbells(trx, new Date(now), b.config),
+    );
+    const [reminder] = await reminders(b);
+    if (reminder?.last_outbox_id == null) throw new Error('Missing reminder ring');
+    return { reminder, outboxId: reminder.last_outbox_id };
+  }
+
+  it('opens one block for a session in error and closes it on recovery', async () => {
+    const b = await board();
+    await spur(b, [session('worker-1', 'error')]);
+    now += config.health.errorAfterMs;
+    await tick(b);
+    let state = await surface(b);
+    expect(state.blocks).toEqual([
+      expect.objectContaining({
+        author: 'system',
+        addressee_role: 'operator',
+        type: 'needs_input',
+        state: 'open',
+        reason: 'stuck worker (worker-1)',
+      }),
+    ]);
+    expect(state.items).toEqual([
+      expect.objectContaining({
+        item_key: `health:${String(b.task.id)}:worker-1:stuck_worker`,
+        block_id: state.blocks[0]?.id,
+        cleared_at: null,
+        line_outbox_id: null,
+      }),
+    ]);
+    expect([state.opens, state.closes, state.lines]).toEqual([1, 0, 0]);
+    now += 1_000;
+    await tick(b);
+    expect(await surface(b)).toEqual(state);
+
+    now += 1_000;
+    await spur(b, [session('worker-1', 'working')]);
+    state = await surface(b);
+    expect(state.blocks).toEqual([
+      expect.objectContaining({
+        state: 'unblocked',
+        outcome: 'withdrawn',
+        outcome_reason: 'condition ended',
+        unblocked_by: 'system',
+      }),
+    ]);
+    expect(state.items.map((item) => item.cleared_at)).toEqual([iso()]);
+    expect([state.opens, state.closes, state.lines]).toEqual([1, 1, 0]);
+    expect(await b.store.db.selectFrom('dismissal').select('item_key').execute()).toEqual([]);
+  });
+
+  it('keeps an error block open through a host-load episode', async () => {
+    const b = await board();
+    const other = { 'board-other': 'https://github.com/o/r/issues/9' };
+    await spur(b, [session('worker-1', 'error')]);
+    now += config.health.errorAfterMs;
+    await tick(b);
+    expect(await openLedger(b)).toEqual(['health:worker-1:stuck_worker']);
+    now += 1_000;
+    await spur(b, [
+      session('worker-1', 'error', { healthSince: at }),
+      { ...sessionFact('reviewer-1', other), health: 'error', healthSince: iso() },
+      { ...sessionFact('reviewer-2', other), health: 'error', healthSince: iso() },
+    ]);
+    now += 1_000;
+    await tick(b);
+    expect(
+      (await getStatus({ store: b.store, config, clock, completeSince: b.core.completeSince }))
+        .hostLoad,
+    ).toBe('Host under load');
+    expect(await openLedger(b)).toEqual(['health:worker-1:stuck_worker']);
+    expect((await surface(b)).closes).toBe(0);
+  });
+
+  it('opens a block for needs input without a board question', async () => {
+    const b = await board();
+    await spur(b, [session('worker-1', 'needs_input')]);
+    now += config.health.needsInputAfterMs;
+    await tick(b);
+    expect(await openLedger(b)).toEqual(['health:worker-1:needs_input']);
+    expect((await surface(b)).lines).toBe(0);
+  });
+
+  it('keeps the needs-input item while the session has an open question', async () => {
+    const b = await board();
+    await spur(b, [session('worker-1', 'needs_input')]);
+    await b.apply(
+      createBlockMutations(config).ask,
+      { task: 'o/r#9', text: 'Which API?' },
+      'agent:worker/worker-1',
+      'ask-1',
+    );
+    now += config.health.needsInputAfterMs;
+    await tick(b);
+    const state = await surface(b);
+    expect(state.blocks.map((block) => block.author)).toEqual(['agent:worker/worker-1']);
+    expect(state.items).toEqual([]);
+    expect(
+      await b.store.db
+        .selectFrom('operator_item')
+        .select(['kind', 'block_id'])
+        .where('item_key', 'like', 'health:%:needs_input')
+        .where('cleared_at', 'is', null)
+        .execute(),
+    ).toEqual([{ kind: 'board_observation', block_id: null }]);
+  });
+
+  it('opens a block for a PR closed without merge until another PR is linked', async () => {
+    const b = await board();
+    await prs(b, [pr(7, 'closed')]);
+    let state = await surface(b);
+    expect(await openLedger(b)).toEqual(['pr-closed']);
+    expect(state.blocks[0]?.reason).toBe(
+      'linked pull request o/r#7 closed without merge, no open PR',
+    );
+    expect(state.items[0]?.source).toBe(github);
+    expect([state.opens, state.lines]).toEqual([1, 0]);
+    now += 1_000;
+    await prs(b, [pr(7, 'closed'), pr(8, 'open')]);
+    state = await surface(b);
+    expect(await openLedger(b)).toEqual([]);
+    expect(state.blocks).toEqual([
+      expect.objectContaining({ state: 'unblocked', outcome: 'withdrawn', unblocked_by: 'system' }),
+    ]);
+    expect(state.items.map((item) => item.cleared_at)).toEqual([iso()]);
+
+    const beside = await board();
+    await prs(beside, [pr(7, 'closed'), pr(8, 'open')]);
+    expect((await surface(beside)).blocks).toEqual([]);
+  });
+
+  it('replaces the block when the closed-PR revision changes', async () => {
+    const b = await board();
+    await prs(b, [pr(7, 'closed')]);
+    const [first] = (await surface(b)).items;
+    now += 1_000;
+    await prs(b, [pr(7, 'closed'), pr(8, 'closed')]);
+    const state = await surface(b);
+    expect(state.blocks.map((block) => [block.state, block.outcome, block.unblocked_by])).toEqual([
+      ['unblocked', 'withdrawn', 'system'],
+      ['open', null, null],
+    ]);
+    expect(state.items.map((item) => [item.id, item.block_id, item.cleared_at])).toEqual([
+      [first?.id, state.blocks[0]?.id, iso()],
+      [expect.any(Number), state.blocks[1]?.id, null],
+    ]);
+    expect(state.blocks[1]?.reason).toBe(
+      'linked pull request o/r#7, o/r#8 closed without merge, no open PR',
+    );
+  });
+
+  it('keeps an operator-closed anomaly block closed until its revision changes', async () => {
+    const b = await board();
+    await prs(b, [pr(7, 'closed')]);
+    const [block] = (await surface(b)).blocks;
+    if (block === undefined) throw new Error('Missing closed-PR block');
+    now += 1_000;
+    await b.apply(
+      createBlockMutations(config).unblock,
+      { mode: 'reason', block: `B${String(block.id)}`, reason: 'Abandoned on purpose.' },
+      'operator',
+    );
+    const [item] = (await surface(b)).items;
+    expect(item?.cleared_at).toBe(iso());
+    expect(await b.store.db.selectFrom('dismissal').selectAll().execute()).toEqual([
+      expect.objectContaining({
+        item_key: item?.item_key,
+        fingerprint: item?.fingerprint,
+        dismissed_by: 'operator',
+      }),
+    ]);
+    now += 1_000;
+    await prs(b, [pr(7, 'closed')]);
+    await tick(b);
+    expect(await openLedger(b)).toEqual([]);
+    expect((await surface(b)).blocks).toHaveLength(1);
+    now += 1_000;
+    await prs(b, [pr(7, 'closed'), pr(8, 'closed')]);
+    expect(await openLedger(b)).toEqual(['pr-closed']);
+  });
+
+  it('opens a block for a ticket closed while work is live, not for one closed by its merge', async () => {
+    async function closedTicket(prFacts: PrFacts[]) {
+      const b = await board();
+      const ref = (await b.core.context(source)).observe.tickets[0];
+      if (ref === undefined) throw new Error('Missing ticket request');
+      const ticket = (status: string) =>
+        b.core.observe(source, {
+          batch: {
+            source,
+            observedAt: iso(),
+            complete: true,
+            items: [{ kind: 'ticket', facts: { ...fact(), status, updatedAt: iso() } }],
+            entities: [{ ref, status: 'ok' }],
+          },
+          effectiveComplete: true,
+          state: { lastCompleteAt: iso(), gone: [] },
+          outcomes: [],
+        });
+      await ticket('open');
+      await spur(b, [session('worker-1', 'working')]);
+      if (prFacts.length > 0) await prs(b, prFacts);
+      now += 1_000;
+      const closedAt = iso();
+      await ticket('closed');
+      return { b, closedAt };
+    }
+    const live = await closedTicket([]);
+    expect(await openLedger(live.b)).toEqual([]);
+    now += 1_000;
+    await prs(live.b, [], new Date(Date.parse(live.closedAt) - 1).toISOString());
+    expect(await openLedger(live.b)).toEqual([]);
+    now += 1_000;
+    await prs(live.b, []);
+    expect(await openLedger(live.b)).toEqual(['ticket-closed']);
+    expect((await surface(live.b)).lines).toBe(0);
+
+    const merged = await closedTicket([pr(7, 'merged')]);
+    expect(await openLedger(merged.b)).toEqual([]);
+    now += 1_000;
+    await prs(merged.b, [pr(7, 'merged')]);
+    await tick(merged.b);
+    expect((await surface(merged.b)).blocks).toEqual([]);
+  });
+
+  it('skips the filter item for a done Jira ticket with live work and keeps it beside a merged PR', async () => {
+    const jira = configSchema.parse({
+      projects: [
+        {
+          id: 'web',
+          tracker: {
+            type: 'jira',
+            baseUrl: 'https://jira.example.test',
+            jql: 'project = WEBDEV',
+            doneStatuses: ['Done'],
+            readyStatuses: ['Ready'],
+            projectKeys: ['WEBDEV'],
+          },
+          repos: ['o/r'],
+          operatorGithubLogin: 'operator',
+          spurProjects: [{ name: 'worker', role: 'worker' }],
+        },
+      ],
+      operator: { slack: 'operator' },
+      digest: { tz: 'UTC' },
+    });
+    const jiraSource = 'jira:web';
+    const repo = 'github:web:o/r';
+    const ticket = (status: string, inFilter: boolean): TicketFacts => ({
+      trackerId: jiraSource,
+      id: '10001',
+      key: 'WEBDEV-1',
+      title: 'A ticket',
+      status,
+      assignee: null,
+      sprint: null,
+      labels: [],
+      inFilter,
+      url: 'https://jira.example.test/browse/WEBDEV-1',
+      updatedAt: iso(),
+    });
+    async function doneTicket(merged: boolean) {
+      const { store, core } = setup(jira);
+      const observe = (src: string, items: Items, lastCompleteAt = iso()) =>
+        core.observe(src, {
+          batch: { source: src, observedAt: iso(), complete: true, items, entities: [] },
+          effectiveComplete: true,
+          state: { lastCompleteAt, gone: [] },
+          outcomes: [],
+        });
+      const prs = merged
+        ? [
+            {
+              kind: 'pr' as const,
+              facts: {
+                ...prFact(),
+                state: 'merged' as const,
+                title: 'WEBDEV-1 work',
+                headBranch: 'WEBDEV-1-work',
+                ticketKeys: ['WEBDEV-1'],
+              },
+            },
+          ]
+        : [];
+      await observe(jiraSource, [{ kind: 'ticket', facts: ticket('In Progress', true) }]);
+      await observe('spur', [
+        { kind: 'session', facts: { ...sessionFact('worker-1'), branch: 'WEBDEV-1-work' } },
+      ]);
+      await observe(repo, prs);
+      now += 1_000;
+      const closedAt = iso();
+      await observe(jiraSource, [{ kind: 'ticket', facts: ticket('Done', false) }]);
+      const filter = async () => ({
+        membership: (await store.db.selectFrom('task').select('membership').executeTakeFirst())
+          ?.membership,
+        filter: (
+          await store.db
+            .selectFrom('operator_item')
+            .select('kind')
+            .where('item_key', 'like', 'filter:%')
+            .execute()
+        ).map((item) => item.kind),
+        lines: (
+          await store.db.selectFrom('outbox').select('id').where('kind', '=', 'feed.line').execute()
+        ).length,
+        blocks: (await store.db.selectFrom('block').select('author').execute()).map(
+          (block) => block.author,
+        ),
+      });
+      const beforePoll = await filter();
+      now += 1_000;
+      await observe(repo, prs, new Date(Date.parse(closedAt) + 500).toISOString());
+      return { beforePoll, afterPoll: await filter() };
+    }
+    expect(await doneTicket(false)).toEqual({
+      beforePoll: { membership: 'out_of_filter', filter: [], lines: 0, blocks: [] },
+      afterPoll: { membership: 'out_of_filter', filter: [], lines: 0, blocks: ['system'] },
+    });
+    expect(await doneTicket(true)).toEqual({
+      beforePoll: {
+        membership: 'out_of_filter',
+        filter: ['board_observation'],
+        lines: 1,
+        blocks: [],
+      },
+      afterPoll: {
+        membership: 'out_of_filter',
+        filter: ['board_observation'],
+        lines: 1,
+        blocks: [],
+      },
+    });
+  });
+
+  it('opens a block for a worker killed during its open turn', async () => {
+    async function lost() {
+      const b = await board();
+      await prs(b, [pr(7, 'open')]);
+      await spur(b, [session('worker-1', 'working')]);
+      await heldTurn(b);
+      now += 1_000;
+      await spur(b, [killed('worker-1')]);
+      expect(await openLedger(b)).toEqual(['health:worker-1:worker_lost']);
+      expect((await surface(b)).blocks[0]?.reason).toBe(
+        'worker ended during its open turn (worker-1)',
+      );
+      return b;
+    }
+    const closed = await lost();
+    now += 1_000;
+    await closeTurn(closed);
+    await tick(closed);
+    expect(await openLedger(closed)).toEqual([]);
+    expect((await surface(closed)).blocks.map((block) => block.outcome)).toEqual(['withdrawn']);
+
+    const replaced = await lost();
+    now += 1_000;
+    await spur(replaced, [killed('worker-1'), session('worker-2', 'working')]);
+    expect(await openLedger(replaced)).toEqual([]);
+    expect((await surface(replaced)).blocks.map((block) => block.outcome)).toEqual(['withdrawn']);
+  });
+
+  it('opens a stuck-turn block a threshold after the reminder and closes it with the turn', async () => {
+    const b = await board();
+    await prs(b, [pr(7, 'open')]);
+    await spur(b, [session('worker-1', 'waiting')]);
+    const turn = await heldTurn(b);
+    now += IDLE;
+    await tick(b);
+    expect(await reminders(b)).toEqual([
+      expect.objectContaining({ source_key: `turn:${String(turn.id)}:reminder:worker-1` }),
+    ]);
+    expect(await openLedger(b)).toEqual([]);
+    const { reminder } = await sendReminder(b);
+    await scanTransaction(b.store, b.config, (trx) =>
+      recordRingDelivery(trx, reminder.id, 1, 'worker-1', new Date(now), b.config),
+    );
+    now += IDLE - 1;
+    await tick(b);
+    expect(await openLedger(b)).toEqual([]);
+    now += 1;
+    await tick(b);
+    expect(await openLedger(b)).toEqual([`stuck-turn:${String(turn.id)}`]);
+    const state = await surface(b);
+    expect(state.blocks[0]?.reason).toBe(
+      `turn T${String(turn.id)} taken by worker-1 has no submit or question`,
+    );
+    expect(state.items[0]?.source).toBe('spur');
+    expect(state.lines).toBe(0);
+    expect(await reminders(b)).toHaveLength(1);
+
+    now += 1_000;
+    await closeTurn(b);
+    await tick(b);
+    expect(await openLedger(b)).toEqual([]);
+    expect((await surface(b)).blocks.map((block) => block.outcome)).toEqual(['withdrawn']);
+  });
+
+  it('opens it at once after an undelivered reminder', async () => {
+    const b = await board();
+    await prs(b, [pr(7, 'open')]);
+    await spur(b, [session('worker-1', 'waiting')]);
+    const turn = await heldTurn(b);
+    now += IDLE;
+    await tick(b);
+    const { reminder, outboxId } = await sendReminder(b);
+    now += 1_000;
+    await scanTransaction(b.store, b.config, (trx) =>
+      ringUndelivered(trx, {
+        notificationId: reminder.id,
+        outboxId,
+        dedupeKey: 'unused',
+        session: 'worker-1',
+        reason: 'rejected',
+        at: new Date(now),
+        config: b.config,
+      }),
+    );
+    expect((await reminders(b))[0]?.exhausted_at).toBe(iso());
+    await tick(b);
+    expect(await openLedger(b)).toEqual([`stuck-turn:${String(turn.id)}`]);
+  });
+
+  it('opens no stuck-turn block for a lost worker', async () => {
+    const b = await board();
+    await prs(b, [pr(7, 'open')]);
+    await spur(b, [session('worker-1', 'waiting')]);
+    await heldTurn(b);
+    now += 1_000;
+    await spur(b, [killed('worker-1')]);
+    now += IDLE * 2;
+    await tick(b);
+    expect(await openLedger(b)).toEqual(['health:worker-1:worker_lost']);
+    expect(await reminders(b)).toEqual([]);
+  });
+
+  it('holds open Spur-derived blocks while Spur is blind', async () => {
+    const b = await board();
+    await spur(b, [session('worker-1', 'error'), session('worker-2', 'waiting')]);
+    const turn = await heldTurn(b, 'worker-2');
+    now += IDLE;
+    await tick(b);
+    const { reminder, outboxId } = await sendReminder(b);
+    await scanTransaction(b.store, b.config, (trx) =>
+      ringUndelivered(trx, {
+        notificationId: reminder.id,
+        outboxId,
+        dedupeKey: 'unused',
+        session: 'worker-2',
+        reason: 'rejected',
+        at: new Date(now),
+        config: b.config,
+      }),
+    );
+    await tick(b);
+    const held = [`stuck-turn:${String(turn.id)}`, 'health:worker-1:stuck_worker'].sort();
+    expect((await openLedger(b)).sort()).toEqual(held);
+    now += 1_000;
+    await b.core.reportSourceState('spur', {
+      lastCompleteAt: iso(),
+      blind: { reason: 'stale', message: 'Spur stopped answering' },
+      gone: [],
+    });
+    expect(
+      await b.store.db
+        .selectFrom('source_state')
+        .select('blind_reason')
+        .where('source', '=', 'spur')
+        .executeTakeFirstOrThrow(),
+    ).toEqual({ blind_reason: 'stale' });
+    now += IDLE;
+    await tick(b);
+    expect((await openLedger(b)).sort()).toEqual(held);
+    expect((await surface(b)).closes).toBe(0);
   });
 });

@@ -23,6 +23,13 @@ export function trackerSource(project: Config['projects'][number]): string {
     : `github-issues:${project.id}:${project.tracker.repo.toLowerCase()}`;
 }
 
+/** Whether a ticket status is done: a Jira done status, or a closed GitHub Issue. */
+export function ticketDone(project: Config['projects'][number], status: string): boolean {
+  return project.tracker.type === 'jira'
+    ? project.tracker.doneStatuses.includes(status)
+    : status === 'closed';
+}
+
 /** The project whose tracker or repo source wrote an observation. */
 export function projectForSource(config: Config, source: string) {
   return config.projects.find(

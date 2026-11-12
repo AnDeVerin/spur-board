@@ -8,7 +8,7 @@ import {
 } from '@spur-board/contracts';
 import type { Kysely, Selectable } from 'kysely';
 import type { BlockTable, CommentTable, Tables, TaskTable } from '../store/schema.ts';
-import type { ItemKind } from '../domain/fromYou.ts';
+import { BLOCK_ITEM_KINDS, isItemKind, ITEM_POLICY, type ItemKind } from '../domain/fromYou.ts';
 import {
   acknowledgeComment,
   answerBlock,
@@ -31,7 +31,7 @@ import {
   closeBlockNotification,
   moveBlockToAddressee,
 } from './doorbells.ts';
-import { clearItem } from './feed.ts';
+import { clearItem, dismissItem } from './feed.ts';
 import { takeTurn } from './turns.ts';
 import {
   enqueueConversationClose,
@@ -300,8 +300,9 @@ async function openBlock(
   reason: string,
   ctx: CommandContext,
   config: Config,
+  addressee?: AddresseeRole,
 ): Promise<Block> {
-  const addressee = await routeBlock(trx, task, { type, author: ctx.actor }, config);
+  addressee ??= await routeBlock(trx, task, { type, author: ctx.actor }, config);
   const row = await trx
     .insertInto('block')
     .values({
@@ -330,7 +331,26 @@ async function openBlock(
   return row;
 }
 
-/** Unblocks one block with its journal entry, thread close, doorbell close and item clears. */
+/**
+ * Opens a `system` question to the operator on a condition only the operator can fix, with its
+ * thread. The caller raises the ledger item that names the block.
+ */
+export async function openSystemBlock(
+  trx: Trx,
+  input: { task: Task; reason: string; at: string; config: Config },
+): Promise<Block> {
+  const { task, reason, at, config } = input;
+  const ctx: CommandContext = { actor: 'system', at };
+  const block = await openBlock(trx, task, 'needs_input', reason, ctx, config, 'operator');
+  await queueBlockOpen(trx, task, block, ctx, config);
+  return block;
+}
+
+/**
+ * Unblocks one block with its journal entry, thread close, doorbell close and item clears. An
+ * operator or agent close of a reconciled ledger block dismisses its item, so the condition
+ * raises again only once it changes; a `system` or archive close only clears it.
+ */
 export async function closeOpenBlock(
   trx: Trx,
   task: Task,
@@ -363,14 +383,24 @@ export async function closeOpenBlock(
     at: new Date(ctx.at),
   });
   await closeBlockNotification(trx, block.id, new Date(ctx.at));
-  const blockedItems = await trx
+  const items = await trx
     .selectFrom('operator_item')
-    .select('id')
-    .where('kind', '=', 'post_blocked' satisfies ItemKind)
+    .selectAll()
+    .where('kind', 'in', ['post_blocked', ...BLOCK_ITEM_KINDS] satisfies ItemKind[])
     .where('block_id', '=', block.id)
     .where('cleared_at', 'is', null)
     .execute();
-  for (const item of blockedItems) await clearItem(trx, item.id, new Date(ctx.at));
+  for (const item of items) {
+    if (item.kind === 'post_blocked') await clearItem(trx, item.id, new Date(ctx.at));
+    else if (
+      ctx.actor !== 'system' &&
+      outcome !== 'archived' &&
+      isItemKind(item.kind) &&
+      ITEM_POLICY[item.kind].reconciled
+    )
+      await dismissItem(trx, item, ctx.actor, new Date(ctx.at));
+    else await clearItem(trx, item.id, new Date(ctx.at), ctx.actor);
+  }
   return updated;
 }
 

@@ -14,6 +14,8 @@ const ITEM_KINDS = [
   'board_observation',
   'worker_ended',
   'turn',
+  'anomaly',
+  'cycle_limit',
 ] as const;
 
 export type ItemKind = (typeof ITEM_KINDS)[number];
@@ -31,6 +33,11 @@ interface ItemPolicy {
   buttons: 'approve_deny' | 'item';
   /** Whether `reconcileItems` raises and clears the kind from board state. */
   reconciled: boolean;
+  /**
+   * Whether the item is the ledger of an operator block: its raise opens the block, its clear
+   * closes it, and the block, not a feed line, is what the operator sees.
+   */
+  block: boolean;
 }
 
 export const ITEM_POLICY = {
@@ -40,6 +47,7 @@ export const ITEM_POLICY = {
     priority: 4,
     buttons: 'approve_deny',
     reconciled: false,
+    block: false,
   },
   post_blocked: {
     retry: 'never_sent',
@@ -47,6 +55,7 @@ export const ITEM_POLICY = {
     priority: 4,
     buttons: 'item',
     reconciled: false,
+    block: false,
   },
   post_failed: {
     retry: 'requeue_post',
@@ -54,6 +63,7 @@ export const ITEM_POLICY = {
     priority: 1,
     buttons: 'item',
     reconciled: true,
+    block: false,
   },
   transport_health: {
     retry: 'probe_transport',
@@ -61,6 +71,7 @@ export const ITEM_POLICY = {
     priority: 1,
     buttons: 'item',
     reconciled: false,
+    block: false,
   },
   answer_undelivered: {
     retry: 'restart_ring',
@@ -68,6 +79,7 @@ export const ITEM_POLICY = {
     priority: 4,
     buttons: 'item',
     reconciled: false,
+    block: false,
   },
   worker_not_reading: {
     retry: 'restart_ring',
@@ -75,6 +87,7 @@ export const ITEM_POLICY = {
     priority: 4,
     buttons: 'item',
     reconciled: false,
+    block: false,
   },
   answer_author_unavailable: {
     retry: 'none',
@@ -82,6 +95,7 @@ export const ITEM_POLICY = {
     priority: 4,
     buttons: 'item',
     reconciled: false,
+    block: false,
   },
   inbound_failure: {
     retry: 'reapply_inbound',
@@ -89,12 +103,59 @@ export const ITEM_POLICY = {
     priority: 4,
     buttons: 'item',
     reconciled: false,
+    block: false,
   },
-  inbound_gap: { retry: 'none', feed: true, priority: 4, buttons: 'item', reconciled: false },
-  board_observation: { retry: 'none', feed: true, priority: 4, buttons: 'item', reconciled: true },
-  worker_ended: { retry: 'none', feed: false, priority: 4, buttons: 'item', reconciled: true },
+  inbound_gap: {
+    retry: 'none',
+    feed: true,
+    priority: 4,
+    buttons: 'item',
+    reconciled: false,
+    block: false,
+  },
+  board_observation: {
+    retry: 'none',
+    feed: true,
+    priority: 4,
+    buttons: 'item',
+    reconciled: true,
+    block: false,
+  },
+  worker_ended: {
+    retry: 'none',
+    feed: false,
+    priority: 4,
+    buttons: 'item',
+    reconciled: true,
+    block: false,
+  },
   /** A turn whose executor is the operator; `closeTurns` clears it. */
-  turn: { retry: 'none', feed: true, priority: 4, buttons: 'item', reconciled: false },
+  turn: {
+    retry: 'none',
+    feed: true,
+    priority: 4,
+    buttons: 'item',
+    reconciled: false,
+    block: false,
+  },
+  /** A task-scoped condition only the operator can fix; `reconcileItems` owns its block. */
+  anomaly: {
+    retry: 'none',
+    feed: false,
+    priority: 4,
+    buttons: 'item',
+    reconciled: true,
+    block: true,
+  },
+  /** A task that reached its column's cycle limit; the operator's close resets it. */
+  cycle_limit: {
+    retry: 'none',
+    feed: false,
+    priority: 4,
+    buttons: 'item',
+    reconciled: false,
+    block: true,
+  },
 } as const satisfies Record<ItemKind, ItemPolicy>;
 
 /** Guards a stored kind: the column is free text and old or hand-written rows may hold others. */
@@ -120,6 +181,15 @@ type ReconciledKind = {
 /** The kinds `reconcileItems` owns: it clears an active one whose candidate is gone. */
 export const RECONCILED_KINDS = ITEM_KINDS.filter(
   (kind): kind is ReconciledKind => ITEM_POLICY[kind].reconciled,
+);
+
+type BlockItemKind = {
+  [K in ItemKind]: (typeof ITEM_POLICY)[K]['block'] extends true ? K : never;
+}[ItemKind];
+
+/** The kinds whose item is the ledger of an operator block. */
+export const BLOCK_ITEM_KINDS = ITEM_KINDS.filter(
+  (kind): kind is BlockItemKind => ITEM_POLICY[kind].block,
 );
 
 export interface ItemCandidate {

@@ -1,10 +1,11 @@
 import { assertNever } from '@spur-board/contracts';
 import type { Kysely } from 'kysely';
-import { fingerprint, isItemKind, ITEM_POLICY } from '../domain/fromYou.ts';
+import { isItemKind, ITEM_POLICY } from '../domain/fromYou.ts';
 import type { Row, Tables } from '../store/schema.ts';
-import { CommandError, type Mutation } from './commands.ts';
+import { closeOpenBlock } from './blocks.ts';
+import { CommandError, type CommandContext, type Mutation } from './commands.ts';
 import { restartNotification, ringTask } from './doorbells.ts';
-import { clearItem } from './feed.ts';
+import { clearItem, dismissItem } from './feed.ts';
 import { requeuePostFailed, retryTransport } from './sender.ts';
 
 type Trx = Kysely<Tables>;
@@ -61,6 +62,25 @@ function view(item: Item, task: Row<'task'> | undefined) {
       summary: item.text,
     },
   };
+}
+
+/** Closes the open block a ledger item stands for, as the actor that closed the item. */
+async function closeLedgerBlock(
+  trx: Trx,
+  item: Item,
+  task: Row<'task'> | undefined,
+  ctx: CommandContext,
+): Promise<void> {
+  if (task === undefined || item.block_id === null) return;
+  if (!isItemKind(item.kind) || !ITEM_POLICY[item.kind].block) return;
+  const block = await trx
+    .selectFrom('block')
+    .selectAll()
+    .where('id', '=', item.block_id)
+    .where('state', '=', 'open')
+    .executeTakeFirst();
+  if (block === undefined) return;
+  await closeOpenBlock(trx, task, block, ctx, 'reason', `closed as item I${String(item.id)}`);
 }
 
 function notApplicable(hint: string): CommandError {
@@ -145,30 +165,6 @@ export function createItemMutations(deps: { reapplyInbound?: () => ReapplyInboun
       async run(trx, input, ctx) {
         const { item, task } = await loadItem(trx, input.item);
         if (item.cleared_at === null) {
-          const hash =
-            item.fingerprint ??
-            fingerprint({
-              key: item.item_key,
-              summary: item.text,
-              source: item.source,
-              revision: null,
-            });
-          await trx
-            .insertInto('dismissal')
-            .values({
-              item_key: item.item_key,
-              fingerprint: hash,
-              dismissed_by: ctx.actor,
-              dismissed_at: ctx.at,
-            })
-            .onConflict((oc) =>
-              oc.column('item_key').doUpdateSet({
-                fingerprint: hash,
-                dismissed_by: ctx.actor,
-                dismissed_at: ctx.at,
-              }),
-            )
-            .execute();
           if (item.kind === 'post_failed') {
             // A closed failed post stays unsent: neither `recover()` nor a retry may resend it.
             await trx
@@ -178,7 +174,8 @@ export function createItemMutations(deps: { reapplyInbound?: () => ReapplyInboun
               .where('state', '=', 'post_failed')
               .execute();
           }
-          await clearItem(trx, item.id, new Date(ctx.at), ctx.actor);
+          await dismissItem(trx, item, ctx.actor, new Date(ctx.at));
+          await closeLedgerBlock(trx, item, task, ctx);
         }
         return view(item, task);
       },

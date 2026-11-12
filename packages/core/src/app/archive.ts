@@ -26,7 +26,8 @@ export async function archiveTask(
     .execute();
   for (const block of blocks) await closeOpenBlock(trx, task, block, ctx, 'archived', null);
   await closeTurns(trx, { taskId: task.id, reason: 'archived', at: new Date(at) });
-  // Every state-derived item has a null block_id; the next reconcile would clear them anyway.
+  // A ledger item was cleared with its block above, without a dismissal; the other
+  // state-derived items have a null block_id, and the next reconcile would clear them anyway.
   const items = await trx
     .selectFrom('operator_item')
     .select('id')
