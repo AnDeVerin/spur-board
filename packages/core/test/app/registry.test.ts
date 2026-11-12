@@ -5,7 +5,6 @@ import { join } from 'node:path';
 import { OPERATIONS, configSchema, roleCanUseOperation } from '@spur-board/contracts';
 import { afterEach, expect, expectTypeOf, it } from 'vitest';
 import {
-  createApply,
   createObservationCore,
   createOperationRegistry,
   createQuery,
@@ -705,19 +704,4 @@ it('hides no session as gone from the list until a complete Spur poll omits it',
   expect(ids).not.toContain('completed-0');
   expect(ids).not.toContain('ended-0');
   expect(result.hiddenUnlinkedSessions).toBe(150);
-});
-
-it('answers not_implemented for task.submit and task.return until their handlers land', async () => {
-  const store = openStore(join(mkdtempSync(join(tmpdir(), 'board-registry-')), 'board.db'));
-  stores.push(store);
-  const registry = createOperationRegistry({ config, clock, completeSince: new Map() });
-  const apply = createApply({ store, clock, config });
-  await expect(
-    apply(registry['task.submit'], { turn: 'T1', sha: 'a'.repeat(40) }, 'operator', 'k'),
-  ).rejects.toMatchObject({ code: 'not_implemented' });
-  await expect(
-    apply(registry['task.return'], { turn: 'T1', reason: 'Fix the parser.' }, 'operator', 'k'),
-  ).rejects.toMatchObject({ code: 'not_implemented' });
-  expect(await store.db.selectFrom('command').selectAll().execute()).toEqual([]);
-  expect(await store.db.selectFrom('event').selectAll().execute()).toEqual([]);
 });

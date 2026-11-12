@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { Writable } from 'node:stream';
 import {
   configSchema,
+  ok,
   userIdSchema,
   type AcceptedObservation,
   type InboundEvent,
@@ -306,6 +307,74 @@ it('moves Spur observation times and the Slack recovery window with one shifted 
     expect(second.replies.some((event) => event.message === first.reply)).toBe(false);
   } finally {
     await fake.close();
+    await store.close();
+  }
+});
+
+it('forwards pollPr to the started runner', async () => {
+  const clock = { now: () => base };
+  const store = openStore(join(mkdtempSync(join(tmpdir(), 'board-daemon-')), 'board.db'));
+  const log = createLogger(
+    {
+      write() {
+        /* The test reads poll results, not log lines. */
+      },
+    },
+    {},
+  );
+  const ctxFor = (name: string): ModuleContext<Store> => ({
+    config,
+    secrets: {},
+    store,
+    log: log.child({ module: name }),
+    clock,
+    logCall: (call, fn) => logCall(log, clock, call, fn),
+    state: () => 'ready',
+  });
+  const ref = { kind: 'pr', repo: 'o/r', number: 7 } as const;
+  const answer = ok({ status: 'not_found' as const, observedAt: new Date(base).toISOString() });
+  const calls: unknown[][] = [];
+  let withPollPr = true;
+  const { entries, pollPr } = createBoardModules(ctxFor, {
+    startAdapters: () => ({
+      stop: () => Promise.resolve(),
+      ...(withPollPr
+        ? {
+            pollPr: (...args: unknown[]) => {
+              calls.push(args);
+              return Promise.resolve(answer);
+            },
+          }
+        : {}),
+    }),
+  });
+  const adapters = entries.find((entry) => entry.name === 'board-adapters');
+  if (adapters === undefined) throw new Error('No board-adapters entry');
+  try {
+    await expect(pollPr('github:board:o/r', ref, { timeoutMs: 10 })).resolves.toMatchObject({
+      ok: false,
+      error: { kind: 'stopped' },
+    });
+
+    await adapters.module.start(new AbortController().signal);
+    await expect(pollPr('github:board:o/r', ref, { timeoutMs: 10 })).resolves.toBe(answer);
+    expect(calls).toEqual([['github:board:o/r', ref, { timeoutMs: 10 }]]);
+
+    await adapters.module.stop();
+    await expect(pollPr('github:board:o/r', ref, { timeoutMs: 10 })).resolves.toMatchObject({
+      ok: false,
+      error: { kind: 'stopped' },
+    });
+
+    withPollPr = false;
+    await adapters.module.start(new AbortController().signal);
+    await expect(pollPr('github:board:o/r', ref, { timeoutMs: 10 })).resolves.toMatchObject({
+      ok: false,
+      error: { kind: 'unsupported' },
+    });
+    await adapters.module.stop();
+    expect(calls).toHaveLength(1);
+  } finally {
     await store.close();
   }
 });
