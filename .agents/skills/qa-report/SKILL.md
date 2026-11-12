@@ -9,9 +9,9 @@ description: Plan, evidence and outcome of a QA round - the qa/<task>/<sha8>/r<N
 
 - Evidence goes in `$SPUR_SESSION_ARTIFACTS_DIR/qa/<task>/<sha8>/r<N>/`, or the same layout in
   another directory outside the repo; never inside the checkout.
-- `<task>` is the task key with each character outside `[A-Za-z0-9._-]` replaced by `-`;
-  `<sha8>` the first 8 characters of the tested head; `<N>` the next free round number. Never
-  overwrite an earlier round.
+- `<task>` is the task key, or `issue-<issue-number>` in a manager run with no task key, with
+  each character outside `[A-Za-z0-9._-]` replaced by `-`; `<sha8>` the first 8 characters of
+  the tested head; `<N>` the next free round number. Never overwrite an earlier round.
 
 ## Layout
 

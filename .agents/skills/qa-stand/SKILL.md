@@ -32,6 +32,8 @@ A stand is a disposable board with fake Slack, Spur and GitHub APIs (`docs/qa-st
   `stand-qa`, the orchestrator of the stand's `qa` column.
 - The wrapper refuses `service`, `update`, `rollback`, `skills` and `token create` with exit 2:
   they act on the real machine or write outside the stand.
+- Find board commands with `pnpm stand board --help`, `pnpm stand board <command> --help` and
+  `pnpm stand board schema`, or in `docs/cli.md`; never guess a command.
 
 ## Live board
 
@@ -49,7 +51,7 @@ A stand is a disposable board with fake Slack, Spur and GitHub APIs (`docs/qa-st
 | `unsafe_root` | `TMPDIR` or a parent owned by another user, or group- or world-writable without the sticky bit | `TMPDIR` = a private directory, mode 700 |
 | `live_port` | the live board's port | `--port 0` or 4780-4799 |
 | `port_range` | port outside the stand range | `--port 0` or 4780-4799 |
-| `external_secrets` | real credential variables in the environment | run the printed `env -u <NAME> ... pnpm stand up` |
+| `external_secrets` | real credential variables in the environment | rerun the printed `env -u <NAME> ... pnpm stand up` with your `--scenario` and `--port` added |
 | `env_proxy` | the Node env proxy is on | start without it |
 
 - Never put real credentials back to get past a refusal; the guard keeps the stand off real

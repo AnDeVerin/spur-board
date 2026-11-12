@@ -29,6 +29,9 @@ verbs and scenario names; this card keeps the rules and traps.
 
 - Drive the fakes with `pnpm stand fake slack ...`, `pnpm stand fake spur ...` and
   `pnpm stand fake github ...`.
+- `fake spur session` takes `--status` from `SESSION_STATUSES` (default `running`) and `--state`
+  from `SESSION_HEALTH_STATES` (default `working`), both in `packages/contracts/src/facts.ts`.
+  The fake stores any string; the board reports other values as unknown.
 - There are no fake PR comments or reviews yet, and no Jira fake: Jira polls fail by design and
   show in the daemon log, not in the violation log.
 
