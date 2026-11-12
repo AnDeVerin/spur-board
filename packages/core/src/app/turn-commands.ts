@@ -112,7 +112,7 @@ async function takenTurn(
 function pollErrorHint(error: PollPrError, pr: string): string {
   switch (error.kind) {
     case 'timeout':
-      return `GitHub did not answer for ${pr} within 10 s; wait, then submit again.`;
+      return `GitHub did not answer for ${pr} within ${String(SUBMIT_POLL_TIMEOUT_MS / 1000)} s; wait, then submit again.`;
     case 'blind':
       return `The board cannot read ${pr} (${error.reason}); ask the operator to fix the GitHub access, then submit again.`;
     case 'failed':

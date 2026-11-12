@@ -385,6 +385,21 @@ describe('task.submit', () => {
     expect(ctx.calls).toHaveLength(name === 'no poller' ? 0 : 1);
     expect(await ctx.tables()).toEqual(before);
   });
+
+  it('names the poll timeout it waited for in the timeout hint', async () => {
+    const ctx = await taken();
+    ctx.answers(err({ kind: 'timeout', message: 'GitHub timed out' }));
+
+    const refused = ctx.submit(REV_1, A, 'submit-1');
+
+    await expect(refused).rejects.toMatchObject({
+      code: 'github_unavailable',
+      hint: 'GitHub did not answer for o/r#7 within 10 s; wait, then submit again.',
+    });
+    expect(ctx.calls).toEqual([
+      [SOURCE, { kind: 'pr', repo: 'o/r', number: 7 }, { timeoutMs: 10_000 }],
+    ]);
+  });
 });
 
 describe('turn refusals', () => {
