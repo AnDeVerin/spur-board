@@ -3,10 +3,18 @@
 import {
   AdapterError,
   batchSchema,
+  err,
+  ok,
   type Adapter,
   type AdapterCore,
   type AdapterErrorKind,
+  type Batch,
   type Config,
+  type PollPrError,
+  type PollPrResult,
+  type PollPrValue,
+  type PrEntityRef,
+  type PrPoller,
   type SourceState,
 } from '@spur-board/contracts';
 import {
@@ -16,6 +24,7 @@ import {
   nextDelay,
   staleDeadline,
   staleHardBound,
+  throttledRetryAt,
   type GoneRef,
   type PollOutcome,
 } from './policy.ts';
@@ -32,7 +41,15 @@ export interface AdapterRunner {
   /** Outcome of the first poll of each source, after its observation or failure report. */
   firstAttempts?:
     Promise<readonly { source: string; outcome: PollOutcome | undefined }[]> | undefined;
-  /** Aborts the in-flight polls, clears every timer and waits for pending reports. */
+  /**
+   * Polls one PR out of turn on its source's single-flight chain and commits it through core;
+   * always set by `startRunner`.
+   */
+  pollPr?: PrPoller['pollPr'] | undefined;
+  /**
+   * Aborts the in-flight polls, resolves pending on-demand requests as `stopped`, clears every
+   * timer and waits for pending reports.
+   */
   stop(): Promise<void>;
 }
 
@@ -65,6 +82,7 @@ export interface RunnerOptions {
 export function startRunner(options: RunnerOptions): AdapterRunner {
   const startedAt = options.now();
   const sources = options.entries.map((entry) => runSource(entry, options, startedAt));
+  const byId = new Map(sources.map((source) => [source.id, source]));
   return {
     firstAttempts: Promise.all(
       sources.map(async (source) => ({
@@ -72,6 +90,15 @@ export function startRunner(options: RunnerOptions): AdapterRunner {
         outcome: await source.firstAttempt,
       })),
     ),
+    pollPr(source, ref, { timeoutMs }) {
+      const found = byId.get(source);
+      if (found === undefined) {
+        return Promise.resolve(
+          err({ kind: 'unknown_source', message: `No source with id ${source}` }),
+        );
+      }
+      return found.pollPr(ref, timeoutMs);
+    },
     async stop() {
       await Promise.all(sources.map((source) => source.stop()));
     },
@@ -80,6 +107,9 @@ export function startRunner(options: RunnerOptions): AdapterRunner {
 
 type Blind = NonNullable<SourceState['blind']>;
 type Timer = ReturnType<typeof setTimeout>;
+
+const noop = () => undefined;
+const stoppedError: PollPrError = { kind: 'stopped', message: 'The adapter runner is stopping' };
 
 function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: number) {
   const { adapter, reserveRemaining } = entry;
@@ -116,9 +146,14 @@ function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: nu
   let counts: ReadonlyMap<string, number> = new Map();
   let hydrated = false;
   let gone: readonly GoneRef[] = [];
-  /** Set while a poll is in flight. */
+  /** Set while a regular poll is in flight. */
   let controller: AbortController | undefined;
-  let current: Promise<void> = Promise.resolve();
+  /** Unsettled on-demand requests; each entry resolves its request as stopped unless observing. */
+  const pending = new Set<() => void>();
+  /** Until when a regular throttled failure forbids calling the source. */
+  let throttledUntilMs: number | undefined;
+  /** Tail of the single-flight chain: regular polls and on-demand requests, one at a time. */
+  let chain: Promise<void> = Promise.resolve();
   let pollTimer: Timer | undefined;
   let deadlineTimer: Timer | undefined;
   let hardBoundTimer: Timer | undefined;
@@ -180,15 +215,23 @@ function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: nu
     void report();
   }
 
+  /** Runs `task` after every task queued before it has settled. */
+  function run<T>(task: () => Promise<T>): Promise<T> {
+    const result = chain.then(task);
+    chain = result.then(noop, noop);
+    return result;
+  }
+
   function schedule(delayMs: number): void {
     if (stopping) return;
     pollTimer = setTimeout(() => {
       pollTimer = undefined;
-      current = poll().then(() => undefined);
+      void run(poll);
     }, delayMs);
   }
 
   async function poll(): Promise<PollOutcome | undefined> {
+    if (stopping) return;
     const abort = new AbortController();
     // A function, so each check reads the signal anew after an await.
     const aborted = () => abort.signal.aborted;
@@ -308,19 +351,158 @@ function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: nu
       now: now(),
     });
     failures = delay.failures;
+    throttledUntilMs = outcome.kind === 'failed' ? throttledRetryAt(outcome.error) : undefined;
     if (!options.oneShot) armDeadline();
     await report();
     if (!options.oneShot) schedule(delay.delayMs);
     return outcome;
   }
 
+  /** One on-demand request at its turn on the chain; `live` is false once its caller left. */
+  async function demandTurn(
+    ref: PrEntityRef,
+    abort: AbortController,
+    live: () => boolean,
+    observing: () => void,
+  ): Promise<PollPrResult | undefined> {
+    if (stopping) return err(stoppedError);
+    if (!live()) return;
+    const startMs = now();
+    const blind = state().blind;
+    if (blind !== undefined) {
+      return err({ kind: 'blind', reason: blind.reason, message: blind.message });
+    }
+    if (adapter.pollPr === undefined) {
+      return err({ kind: 'unsupported', message: 'The source does not poll one PR on demand' });
+    }
+    if (throttledUntilMs !== undefined && startMs < throttledUntilMs) {
+      return err({
+        kind: 'failed',
+        adapterKind: 'throttled',
+        retryAt: iso(throttledUntilMs),
+        message: 'The source is throttled until retryAt',
+      });
+    }
+    const aborted = () => abort.signal.aborted;
+    let step: PollFailure['step'] = 'poll';
+    try {
+      const batch = await untilAborted(adapter.pollPr(ref, { signal: abort.signal }), abort.signal);
+      // Aborted by stop() or by the timeout; after a timeout the caller already has its answer.
+      if (aborted()) return err(stoppedError);
+      step = 'batch';
+      const observedAt = iso(startMs);
+      const parsed = batchSchema.safeParse({ ...batch, observedAt });
+      const value = parsed.success ? demandValue(parsed.data, observedAt) : undefined;
+      const invalid = !parsed.success
+        ? undefined
+        : parsed.data.source !== source
+          ? 'names another source'
+          : !answersRequest({ prs: [ref], tickets: [], sessions: [] }, parsed.data.entities)
+            ? 'does not answer the request'
+            : parsed.data.complete
+              ? 'is marked complete'
+              : parsed.data.cursor !== undefined
+                ? 'carries a cursor'
+                : value === undefined
+                  ? 'carries another item'
+                  : undefined;
+      if (!parsed.success || invalid !== undefined || value === undefined) {
+        const reason = invalid ?? 'fails the batch schema';
+        const error = new AdapterError('transient', `Invalid batch: ${reason}`);
+        fail(
+          'batch',
+          error,
+          parsed.error?.issues.map((issue) => ({
+            path: issue.path.map(String).join('.'),
+            code: issue.code,
+            message: issue.message,
+          })),
+        );
+        return err({ kind: 'failed', adapterKind: 'transient', message: error.message });
+      }
+      step = 'observe';
+      // The timeout and stop() stay armed until this request's turn on the report chain.
+      const accepted = reports.then(async (): Promise<PollPrResult | undefined> => {
+        if (!live()) return;
+        if (stopping) return err(stoppedError);
+        observing();
+        const committed = state();
+        await core.observe(source, {
+          batch: parsed.data,
+          effectiveComplete: false,
+          state: committed,
+          outcomes: [],
+        });
+        lastReported = JSON.stringify(committed);
+        return ok(value);
+      });
+      reports = accepted.then(noop, noop);
+      return await accepted;
+    } catch (error) {
+      if (aborted()) return err(stoppedError);
+      fail(step, error);
+      const retryAt = throttledRetryAt(error);
+      return err({
+        kind: 'failed',
+        adapterKind: error instanceof AdapterError ? error.kind : 'unexpected',
+        ...(retryAt === undefined ? {} : { retryAt: iso(retryAt) }),
+        message: error instanceof AdapterError ? error.message : `The ${step} step failed`,
+      });
+    }
+  }
+
+  function pollPr(ref: PrEntityRef, timeoutMs: number): Promise<PollPrResult> {
+    if (entry.repo !== undefined && ref.repo.toLowerCase() !== entry.repo.toLowerCase()) {
+      return Promise.resolve(
+        err({ kind: 'unknown_source', message: `The source does not own ${ref.repo}` }),
+      );
+    }
+    if (stopping) return Promise.resolve(err(stoppedError));
+    return new Promise((resolve) => {
+      const abort = new AbortController();
+      let settled = false;
+      let observing = false;
+      const settle = (result: PollPrResult) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        pending.delete(cancel);
+        resolve(result);
+      };
+      // Once core commits, the caller gets the real result.
+      const cancel = () => {
+        if (observing) return;
+        settle(err(stoppedError));
+        abort.abort();
+      };
+      pending.add(cancel);
+      const timer = setTimeout(() => {
+        // Once core commits, the caller gets the real result.
+        if (observing) return;
+        settle(err({ kind: 'timeout', message: 'The on-demand poll timed out' }));
+        abort.abort();
+      }, timeoutMs);
+      void run(async () => {
+        const result = await demandTurn(
+          ref,
+          abort,
+          () => !settled,
+          () => {
+            observing = true;
+          },
+        );
+        if (result !== undefined) settle(result);
+      });
+    });
+  }
+
   if (!options.oneShot) armDeadline();
-  const firstAttempt = poll();
-  current = firstAttempt.then(() => undefined);
+  const firstAttempt = run(poll);
 
   return {
     id: source,
     firstAttempt,
+    pollPr,
     async stop(): Promise<void> {
       stopping = true;
       clearTimeout(pollTimer);
@@ -328,10 +510,24 @@ function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: nu
       clearTimeout(hardBoundTimer);
       pollTimer = deadlineTimer = hardBoundTimer = undefined;
       controller?.abort();
-      await current;
+      for (const cancel of [...pending]) cancel();
+      await chain;
       await reports;
     },
   };
+}
+
+/** The answer of an A9 batch: its one entity and at most that PR's own item; else undefined. */
+function demandValue(batch: Batch, observedAt: string): PollPrValue | undefined {
+  const [entity] = batch.entities;
+  const [item, ...rest] = batch.items;
+  if (entity === undefined) return undefined;
+  if (entity.status !== 'ok') {
+    return item === undefined ? { status: entity.status, observedAt } : undefined;
+  }
+  return item?.kind === 'pr' && rest.length === 0
+    ? { status: 'ok', facts: item.facts, observedAt }
+    : undefined;
 }
 
 /**

@@ -137,6 +137,7 @@ function start(
     config?: typeof defaults;
     now?: () => number;
     onFailure?: (failure: PollFailure) => void;
+    pollPr?: (ref: PrEntityRef, ctx: Pick<PollContext, 'signal'>) => Promise<Batch>;
   } = {},
 ): Started {
   const core = createFakeCore(options.core);
@@ -149,6 +150,7 @@ function start(
       starts.push(elapsed());
       return poll(ctx, starts.length - 1);
     },
+    ...(options.pollPr === undefined ? {} : { pollPr: options.pollPr }),
   });
   const runner = startRunner({
     entries: [{ adapter, reserveRemaining: options.reserveRemaining }],
@@ -1151,5 +1153,449 @@ describe('failure log', () => {
     await flush();
     await runner.stop();
     expect(failures).toEqual([]);
+  });
+});
+
+describe('on-demand PR poll', () => {
+  const demandOk = (overrides: Partial<Batch> = {}) => prOk({ complete: false, ...overrides });
+  const demandNotFound = (overrides: Partial<Batch> = {}) =>
+    prNotFound({ complete: false, ...overrides });
+  const withHead = (headSha: string): Batch['items'][number] => ({
+    kind: 'pr',
+    facts: { ...prItem.facts, headSha },
+  });
+  const otherPrItem: Batch['items'][number] = {
+    kind: 'pr',
+    facts: { ...prItem.facts, number: 43, url: 'https://github.com/acme/web/pull/43' },
+  };
+  const wait = { timeoutMs: 10 * I };
+
+  /** Calls pollPr and records when it settles. */
+  function request(runner: AdapterRunner, ref: PrEntityRef = pr, options = wait) {
+    const call = { settled: false, result: runner.pollPr?.('github', ref, options) };
+    void call.result?.then(() => {
+      call.settled = true;
+    });
+    return call;
+  }
+
+  it('applies one PR out of turn and returns its facts', async () => {
+    random(0);
+    const { core, adapter, runner } = start(() => Promise.resolve(batch()), {
+      pollPr: () => Promise.resolve(demandOk({ observedAt: at(0) })),
+    });
+    await advanceTo(I / 2);
+    const prior = core.states.at(-1)?.state;
+    expect(prior).toBeDefined();
+    const result = await runner.pollPr?.('github', pr, wait);
+    expect(result).toEqual({
+      ok: true,
+      value: { status: 'ok', facts: prItem.facts, observedAt: at(I / 2) },
+    });
+    expect(adapter.prRequests.map((call) => call.ref)).toEqual([pr]);
+    expect(core.observed).toHaveLength(2);
+    expect(core.observed[1]?.observation).toEqual({
+      batch: demandOk({ observedAt: at(I / 2) }),
+      effectiveComplete: false,
+      state: prior,
+      outcomes: [],
+    });
+  });
+
+  it('answers not_found without an item', async () => {
+    const { runner } = start(() => Promise.resolve(batch()), {
+      pollPr: () => Promise.resolve(demandNotFound()),
+    });
+    await flush();
+    await expect(runner.pollPr?.('github', pr, wait)).resolves.toEqual({
+      ok: true,
+      value: { status: 'not_found', observedAt: at(0) },
+    });
+  });
+
+  it('waits for the regular poll in flight; the newer head is committed last', async () => {
+    const shaA = 'a'.repeat(40);
+    const shaB = 'c'.repeat(40);
+    const regular = deferred<Batch>();
+    const { core, adapter, runner } = start(() => regular.promise, {
+      core: { context: () => context({ prs: [pr] }) },
+      pollPr: () => Promise.resolve(demandOk({ items: [withHead(shaB)] })),
+    });
+    await advanceTo(I / 4);
+    const call = request(runner);
+    await advanceTo(I / 2);
+    expect(adapter.prRequests).toHaveLength(0);
+    expect(call.settled).toBe(false);
+    regular.resolve(prOk({ items: [withHead(shaA)] }));
+    const result = await call.result;
+    expect(adapter.prRequests).toHaveLength(1);
+    expect(
+      core.observed.map((observed) => observed.batch.items.map((item) => item.facts)),
+    ).toMatchObject([[{ headSha: shaA }], [{ headSha: shaB }]]);
+    expect(core.observed[1]?.batch.observedAt).toBe(at(I / 2));
+    expect(result).toMatchObject({ ok: true, value: { status: 'ok', observedAt: at(I / 2) } });
+  });
+
+  it('a timer poll waits for the on-demand call', async () => {
+    random(0);
+    const onDemand = deferred<Batch>();
+    const { runner, starts } = start(() => Promise.resolve(batch()), {
+      pollPr: () => onDemand.promise,
+    });
+    await advanceTo(I / 2);
+    const call = request(runner);
+    await advanceTo(I);
+    expect(starts).toEqual([0]);
+    onDemand.resolve(demandOk());
+    await call.result;
+    await flush();
+    expect(starts).toEqual([0, I]);
+  });
+
+  it('leaves schedule, cursor and miss counts alone', async () => {
+    random(0);
+    const cursor = sourceCursorSchema.parse('cursor-1');
+    const { core, adapter, runner, starts } = start(() => Promise.resolve(prNotFound()), {
+      core: { context: () => ({ ...context({ prs: [pr] }), cursor }) },
+      pollPr: () => Promise.resolve(demandNotFound()),
+    });
+    await advanceTo(I / 2);
+    await runner.pollPr?.('github', pr, wait);
+    await advanceTo(2 * I);
+    expect(gaps(starts)).toEqual([I, I]);
+    expect(adapter.contexts[1]?.cursor).toBe(cursor);
+    expect(core.observed.map((observed) => observed.observation.outcomes)).toEqual([
+      [{ ref: pr, misses: 1, gone: false }],
+      [],
+      [{ ref: pr, misses: 2, gone: false }],
+      [{ ref: pr, misses: 3, gone: true }],
+    ]);
+  });
+
+  describe('timeout', () => {
+    it('times out while queued and never calls the adapter', async () => {
+      const regular = deferred<Batch>();
+      const { core, adapter, runner } = start(() => regular.promise, {
+        pollPr: () => Promise.resolve(demandOk()),
+      });
+      await flush();
+      const call = request(runner, pr, { timeoutMs: I });
+      await vi.advanceTimersByTimeAsync(I);
+      await expect(call.result).resolves.toEqual({
+        ok: false,
+        error: { kind: 'timeout', message: 'The on-demand poll timed out' },
+      });
+      regular.resolve(batch());
+      await flush();
+      expect(adapter.prRequests).toHaveLength(0);
+      expect(core.observed).toHaveLength(1);
+    });
+
+    it('aborts an adapter call in flight and observes nothing', async () => {
+      const { core, adapter, runner, failures } = start(() => Promise.resolve(batch()), {
+        pollPr: (_, ctx) => hang({ ...context(), signal: ctx.signal }),
+      });
+      await flush();
+      const call = request(runner, pr, { timeoutMs: I / 2 });
+      await vi.advanceTimersByTimeAsync(I / 2);
+      await expect(call.result).resolves.toMatchObject({ ok: false, error: { kind: 'timeout' } });
+      expect(adapter.prRequests[0]?.signal.aborted).toBe(true);
+      await flush();
+      expect(core.observed).toHaveLength(1);
+      expect(failures).toEqual([]);
+    });
+
+    it('times out behind a pending state report and never writes', async () => {
+      random(0);
+      const onDemand = deferred<Batch>();
+      const { core, runner } = start(() => Promise.resolve(batch({ complete: false })), {
+        pollPr: () => onDemand.promise,
+      });
+      await advanceTo(3 * I);
+      core.holdReports();
+      const call = request(runner, pr, { timeoutMs: I / 2 });
+      await flush();
+      // The stale deadline report is now ahead of the request on the report chain.
+      await advanceTo(3 * I + 1);
+      expect(core.reports).toHaveLength(1);
+      onDemand.resolve(demandOk());
+      await advanceTo(3 * I + I / 2);
+      await expect(call.result).resolves.toEqual({
+        ok: false,
+        error: { kind: 'timeout', message: 'The on-demand poll timed out' },
+      });
+      core.releaseReport();
+      await flush();
+      expect(core.observed.filter((observed) => observed.batch.entities.length > 0)).toEqual([]);
+    });
+
+    it('returns the real result once core.observe started', async () => {
+      const held = deferred<undefined>();
+      const { core, runner } = start(() => Promise.resolve(batch()), {
+        core: {
+          observe: (_, observation) => (observation.effectiveComplete ? undefined : held.promise),
+        },
+        pollPr: () => Promise.resolve(demandOk()),
+      });
+      await flush();
+      const call = request(runner, pr, { timeoutMs: I });
+      await vi.advanceTimersByTimeAsync(I);
+      expect(call.settled).toBe(false);
+      held.resolve(undefined);
+      await expect(call.result).resolves.toMatchObject({ ok: true, value: { status: 'ok' } });
+      expect(core.observed).toHaveLength(2);
+    });
+  });
+
+  it('refuses a blind source without calling the adapter', async () => {
+    const { adapter, runner } = start(() => Promise.reject(new AdapterError('auth', 'bad token')), {
+      pollPr: () => Promise.resolve(demandOk()),
+    });
+    await flush();
+    await expect(runner.pollPr?.('github', pr, wait)).resolves.toEqual({
+      ok: false,
+      error: { kind: 'blind', reason: 'auth', message: 'bad token' },
+    });
+    expect(adapter.prRequests).toHaveLength(0);
+  });
+
+  it('answers blind for a GitHub source without a token', async () => {
+    const config = configSchema.parse({
+      projects: [
+        {
+          id: 'web',
+          tracker: {
+            type: 'jira',
+            baseUrl: 'https://example.atlassian.net',
+            jql: 'project = PROJ',
+            doneStatuses: ['Done'],
+            readyStatuses: ['Ready for Dev'],
+          },
+          repos: ['example-org/web'],
+          operatorGithubLogin: 'octocat',
+        },
+      ],
+      operator: { slack: 'U0000000000' },
+      digest: { tz: 'Europe/Berlin' },
+    });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json([])));
+    const runner = entry.startAdapters(config, createFakeCore(), { now: () => Date.now() });
+    runners.push(runner);
+    await flush();
+    const ref: PrEntityRef = { kind: 'pr', repo: 'example-org/web', number: 7 };
+    await expect(runner.pollPr?.('github:web:example-org/web', ref, wait)).resolves.toEqual({
+      ok: false,
+      error: { kind: 'blind', reason: 'config', message: 'GitHub credential is missing' },
+    });
+  });
+
+  it('unknown source', async () => {
+    const { runner } = start(() => Promise.resolve(batch()), {
+      pollPr: () => Promise.resolve(demandOk()),
+    });
+    await expect(runner.pollPr?.('github:web:acme/other', pr, wait)).resolves.toMatchObject({
+      ok: false,
+      error: { kind: 'unknown_source' },
+    });
+  });
+
+  it('ref outside the source repository', async () => {
+    const adapter = createFakeAdapter({
+      id: 'github',
+      intervalMs: I,
+      poll: () => Promise.resolve(batch()),
+      pollPr: (ref) =>
+        Promise.resolve(
+          demandOk({ items: [{ kind: 'pr', facts: { ...prItem.facts, repo: ref.repo } }] }),
+        ),
+    });
+    const runner = startRunner({
+      entries: [{ adapter, repo: 'acme/web' }],
+      core: createFakeCore(),
+      config: defaults,
+      now: () => Date.now(),
+    });
+    runners.push(runner);
+    await flush();
+    const foreign: PrEntityRef = { kind: 'pr', repo: 'demo/other', number: 42 };
+    await expect(runner.pollPr?.('github', foreign, wait)).resolves.toMatchObject({
+      ok: false,
+      error: { kind: 'unknown_source' },
+    });
+    expect(adapter.prRequests).toHaveLength(0);
+    const upper: PrEntityRef = { kind: 'pr', repo: 'ACME/web', number: 42 };
+    const answered = await runner.pollPr?.('github', upper, wait);
+    expect(adapter.prRequests).toHaveLength(1);
+    expect(answered).toMatchObject({ ok: false, error: { kind: 'failed' } });
+  });
+
+  it('unsupported adapter', async () => {
+    const { runner } = start(() => Promise.resolve(batch()));
+    await flush();
+    await expect(runner.pollPr?.('github', pr, wait)).resolves.toEqual({
+      ok: false,
+      error: { kind: 'unsupported', message: 'The source does not poll one PR on demand' },
+    });
+  });
+
+  it('returns failed with kind and retryAt', async () => {
+    random(0);
+    const retryAt = new Date(T0 + 5 * I);
+    const { runner, starts, failures } = start(() => Promise.resolve(batch()), {
+      pollPr: () => Promise.reject(new AdapterError('throttled', 'slow down', { retryAt })),
+    });
+    await flush();
+    await expect(runner.pollPr?.('github', pr, wait)).resolves.toEqual({
+      ok: false,
+      error: { kind: 'failed', adapterKind: 'throttled', retryAt: at(5 * I), message: 'slow down' },
+    });
+    expect(failures).toMatchObject([{ step: 'poll', kind: 'throttled' }]);
+    await advanceTo(I);
+    expect(starts).toEqual([0, I]);
+  });
+
+  it('returns failed unexpected for a plain rejection', async () => {
+    const { runner, failures } = start(() => Promise.resolve(batch()), {
+      pollPr: () => Promise.reject(new Error('boom')),
+    });
+    await flush();
+    await expect(runner.pollPr?.('github', pr, wait)).resolves.toEqual({
+      ok: false,
+      error: { kind: 'failed', adapterKind: 'unexpected', message: 'The poll step failed' },
+    });
+    expect(failures).toMatchObject([{ step: 'poll', kind: 'unexpected' }]);
+  });
+
+  it.each([
+    ['a cursor', demandOk({ cursor: sourceCursorSchema.parse('cursor-1') })],
+    ['complete true', prOk()],
+    ['a missing entity', batch({ complete: false })],
+    [
+      'another entity',
+      demandNotFound({ entities: [{ ref: { ...pr, number: 43 }, status: 'not_found' }] }),
+    ],
+    ['another source', demandOk({ source: 'other' })],
+    ['an extra PR item beside its own', demandOk({ items: [prItem, otherPrItem] })],
+    ['an extra PR item with a not_found entity', demandNotFound({ items: [otherPrItem] })],
+  ])('rejects a batch that breaks A9: %s', async (_, invalid) => {
+    const { core, runner, failures } = start(() => Promise.resolve(batch()), {
+      pollPr: () => Promise.resolve(invalid),
+    });
+    await flush();
+    await expect(runner.pollPr?.('github', pr, wait)).resolves.toMatchObject({
+      ok: false,
+      error: { kind: 'failed', adapterKind: 'transient' },
+    });
+    expect(core.observed).toHaveLength(1);
+    expect(failures).toMatchObject([{ step: 'batch' }]);
+  });
+
+  it('returns failed when observe rejects', async () => {
+    const { runner, failures } = start(() => Promise.resolve(batch()), {
+      core: {
+        observe: (_, observation) =>
+          observation.effectiveComplete ? undefined : Promise.reject(new Error('locked')),
+      },
+      pollPr: () => Promise.resolve(demandOk()),
+    });
+    await flush();
+    await expect(runner.pollPr?.('github', pr, wait)).resolves.toMatchObject({
+      ok: false,
+      error: { kind: 'failed', adapterKind: 'unexpected' },
+    });
+    expect(failures).toMatchObject([{ step: 'observe' }]);
+  });
+
+  describe('stop', () => {
+    it('stop resolves queued and in-flight on-demand requests as stopped', async () => {
+      random(0);
+      const { adapter, runner, starts } = start(() => Promise.resolve(batch()), {
+        pollPr: (_, ctx) => hang({ ...context(), signal: ctx.signal }),
+      });
+      await advanceTo(I / 2);
+      const inFlight = request(runner);
+      const queued = request(runner);
+      await advanceTo(I);
+      expect(starts).toEqual([0]);
+      expect(adapter.prRequests).toHaveLength(1);
+      await runner.stop();
+      expect(adapter.prRequests[0]?.signal.aborted).toBe(true);
+      const stopped = {
+        ok: false,
+        error: { kind: 'stopped', message: 'The adapter runner is stopping' },
+      };
+      await expect(inFlight.result).resolves.toEqual(stopped);
+      await expect(queued.result).resolves.toEqual(stopped);
+      await expect(runner.pollPr?.('github', pr, wait)).resolves.toEqual(stopped);
+      expect(starts).toEqual([0]);
+      expect(adapter.prRequests).toHaveLength(1);
+      expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('stop resolves a request queued behind a pending context as stopped at once', async () => {
+      const held = deferred<Omit<PollContext, 'signal'>>();
+      const { adapter, runner } = start(() => Promise.resolve(batch()), {
+        core: { context: () => held.promise },
+        pollPr: () => Promise.resolve(demandOk()),
+      });
+      await flush();
+      const call = request(runner, pr, { timeoutMs: I / 2 });
+      const stopped = runner.stop();
+      await flush();
+      expect(call.settled).toBe(true);
+      await expect(call.result).resolves.toEqual({
+        ok: false,
+        error: { kind: 'stopped', message: 'The adapter runner is stopping' },
+      });
+      expect(vi.getTimerCount()).toBe(0);
+      held.resolve(context());
+      await stopped;
+      expect(adapter.prRequests).toHaveLength(0);
+    });
+  });
+
+  it('refuses during a regular throttle wait and goes ahead after it', async () => {
+    random(0);
+    const retryAt = new Date(T0 + 5 * I);
+    // The runner clock lags the timers, so the next poll is delivered before retryAt.
+    let lag = 0;
+    const { adapter, runner, failures } = start(
+      (_, n) =>
+        n === 0
+          ? Promise.reject(new AdapterError('throttled', 'quota spent', { retryAt }))
+          : Promise.resolve(batch()),
+      { pollPr: () => Promise.resolve(demandOk()), now: () => Date.now() - lag },
+    );
+    await flush();
+    expect(failures).toHaveLength(1);
+    await expect(runner.pollPr?.('github', pr, wait)).resolves.toEqual({
+      ok: false,
+      error: {
+        kind: 'failed',
+        adapterKind: 'throttled',
+        retryAt: at(5 * I),
+        message: 'The source is throttled until retryAt',
+      },
+    });
+    expect(adapter.prRequests).toHaveLength(0);
+    expect(failures).toHaveLength(1);
+    lag = 2 * I;
+    await advanceTo(5 * I);
+    expect(adapter.contexts).toHaveLength(2);
+    await expect(runner.pollPr?.('github', pr, wait)).resolves.toMatchObject({ ok: true });
+    expect(adapter.prRequests).toHaveLength(1);
+  });
+
+  it('goes ahead below the budget reserve', async () => {
+    random(0);
+    const { adapter, runner, starts } = start(
+      () => Promise.resolve(batch({ budget: { remaining: 10, resetAt: at(10 * I) } })),
+      { reserveRemaining: 100, pollPr: () => Promise.resolve(demandOk()) },
+    );
+    await flush();
+    await expect(runner.pollPr?.('github', pr, wait)).resolves.toMatchObject({ ok: true });
+    expect(adapter.prRequests).toHaveLength(1);
+    await advanceTo(10 * I);
+    expect(starts).toEqual([0, 10 * I]);
   });
 });
