@@ -251,6 +251,8 @@ interface SmokeContext {
   env: NodeJS.ProcessEnv;
   home: string;
   packageRoot: string;
+  /** The previous release in an upgrade smoke: skip checks bound to the current catalog. */
+  baselineOnly?: boolean;
   daemon?: ChildProcess;
   port?: number;
 }
@@ -344,7 +346,7 @@ export const smokeSteps: readonly SmokeStep[] = [
     name: 'mcp',
     baseline: true,
     async run(ctx) {
-      await handshake(ctx.binary, ctx.expectedVersion);
+      await handshake(ctx.binary, ctx.expectedVersion, ctx.baselineOnly !== true);
     },
   },
   {
@@ -448,6 +450,7 @@ export async function smokeInstalled(
       expectedVersion,
       home,
       packageRoot: dirname(dirname(realpathSync(binary))),
+      baselineOnly,
       env: {
         ...process.env,
         HOME: home,
