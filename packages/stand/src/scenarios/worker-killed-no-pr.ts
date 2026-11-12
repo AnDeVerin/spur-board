@@ -1,4 +1,4 @@
-import { issueKey, openIssues } from './helpers.ts';
+import { issueKey, issueRef, openIssues } from './helpers.ts';
 import type { Board, Scenario } from './index.ts';
 
 const SESSION = 'stand-killed';
@@ -19,7 +19,6 @@ export const workerKilledNoPr: Scenario = {
   async seed(board, fakes) {
     await openIssues(fakes, 1);
     await board.poll();
-    const task = issueKey(1);
     await fakes.spur('session', {
       id: SESSION,
       project: 'stand-worker',
@@ -28,7 +27,7 @@ export const workerKilledNoPr: Scenario = {
     });
     await board.call('operator', 'link.add', {
       mode: 'session',
-      task,
+      task: issueRef(1),
       session: SESSION,
       reason: 'Stand scenario worker-killed-no-pr',
     });
@@ -41,7 +40,7 @@ export const workerKilledNoPr: Scenario = {
       return key !== undefined;
     });
     return {
-      tasks: { killed: task },
+      tasks: { killed: issueKey(1) },
       sessions: { killed: SESSION },
       ...(key === undefined ? {} : { items: { killed: key } }),
     };

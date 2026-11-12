@@ -3,8 +3,16 @@ import type { ScenarioFakes, Settled } from './index.ts';
 
 export const STAND_REPO = 'stand-org/board';
 
-/** The open GitHub issue `number` of the stand project, as a task key. */
+/** The open GitHub issue `number` of the stand project, as the board stores its task key. */
 export const issueKey = (number: number): string => `${STAND_REPO}#${String(number)}`;
+
+/**
+ * The same task in the short form `link.add` takes. It resolves its key through the project's
+ * tracker, and the full key also matches the stand's Jira project, whose key `STAND` prefixes
+ * `stand-org/...`, so the board finds no unique project. Operations that look the task up by
+ * key, like `block.ask` and `task.get`, take the full key.
+ */
+export const issueRef = (number: number): string => `board#${String(number)}`;
 
 /** Opens issues 1..count, titled by `title`, in the fake. */
 export async function openIssues(

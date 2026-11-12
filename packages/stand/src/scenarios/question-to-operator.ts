@@ -10,11 +10,15 @@ export const questionToOperator: Scenario = {
   async seed(board, fakes) {
     await openIssues(fakes, 1);
     await board.poll();
-    const task = issueKey(1);
-    const { block } = await board.call('worker', 'block.ask', { task, text: QUESTION });
+    const { block } = await board.call(
+      'worker',
+      'block.ask',
+      { task: issueKey(1), text: QUESTION },
+      'question-to-operator',
+    );
     await board.wait('outbox-drained');
     return {
-      tasks: { question: task },
+      tasks: { question: issueKey(1) },
       blocks: { question: block.id },
       sessions: { asker: board.roles.worker },
     };
