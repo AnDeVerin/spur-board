@@ -294,6 +294,17 @@ describe('fakeBody', () => {
     [['github', 'pr', '7', 'merge'], {}, pr('merge')],
     [['github', 'pr', '7', 'conflict'], {}, pr('conflict')],
     [['github', 'pr', '7', 'push', SHA], {}, pr('push', { sha: SHA })],
+    [['github', 'issue', '7', 'open'], {}, pr('issue-open')],
+    [
+      ['github', 'issue', '7', 'open'],
+      { repo: 'stand-org/service', title: 'A task' },
+      pr('issue-open', { repo: 'stand-org/service', title: 'A task' }),
+    ],
+    [['github', 'issue', '7', 'close'], {}, pr('issue-close')],
+    [['github', 'issue', '7', 'label', 'a', 'b'], {}, pr('issue-label', { labels: ['a', 'b'] })],
+    [['github', 'issue', '7', 'label'], {}, pr('issue-label', { labels: [] })],
+    [['github', 'issue', '7', 'milestone', 'S1'], {}, pr('issue-milestone', { milestone: 'S1' })],
+    [['github', 'issue', '7', 'milestone'], {}, pr('issue-milestone', { milestone: null })],
   ])('maps %j %j', (positionals, values, expected) => {
     expect(fakeBody(positionals, values)).toEqual(expected);
   });
@@ -323,6 +334,18 @@ describe('fakeBody', () => {
     [['github', 'pr', '7', 'push', SHA, 'extra']],
     [['github', 'pr', '7', 'approve'], { seed: '{}' }],
     [['github', 'pr', '7', 'create'], { seed: 'not json' }],
+    [['github', 'pr', '7', 'create'], { title: 't' }],
+    [['github', 'fail', 'hang'], { title: 't' }],
+    [['github', 'fail', 'hang'], { repo: BOARD }],
+    [['github', 'issue']],
+    [['github', 'issue', 'x', 'open']],
+    [['github', 'issue', '7']],
+    [['github', 'issue', '7', 'nope']],
+    [['github', 'issue', '7', 'open', 'extra']],
+    [['github', 'issue', '7', 'close', 'extra']],
+    [['github', 'issue', '7', 'close'], { title: 't' }],
+    [['github', 'issue', '7', 'open'], { seed: '{}' }],
+    [['github', 'issue', '7', 'milestone', 'a', 'b']],
   ])('rejects %j %j', (positionals, values = {}) => {
     expect(() => fakeBody(positionals, values)).toThrow();
   });
