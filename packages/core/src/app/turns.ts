@@ -222,7 +222,8 @@ function latest(values: readonly string[]): string {
 }
 
 /**
- * Every taken, unclosed agent turn with its holder's session snapshot and the holder's reminder.
+ * Every taken, unclosed agent turn with its holder's session id, whether that session ended, and
+ * the holder's reminder.
  * `quietSince` is when the holder last had something to do: the take, the start of its idle
  * spell, or the close of its last question on the task. Null while the holder works, has an open
  * question on the task, or has no readable snapshot.
@@ -238,8 +239,9 @@ export async function quietTurns(trx: Trx) {
     .execute();
   const quiet = [];
   for (const turn of turns) {
-    const holder = turn.acked_by === null ? null : parseActorId(turn.acked_by);
-    if (holder?.actor !== 'agent' || turn.acked_by === null || turn.acked_at === null) continue;
+    if (turn.acked_by === null || turn.acked_at === null) continue;
+    const holder = parseActorId(turn.acked_by);
+    if (holder?.actor !== 'agent') continue;
     const sessionId = holder.actorRef.session;
     const session = await trx
       .selectFrom('session_snapshot')
@@ -265,7 +267,6 @@ export async function quietTurns(trx: Trx) {
     quiet.push({
       turn,
       sessionId,
-      session,
       ended: session !== undefined && session.ended_at !== null,
       quietSince: idle === null || asking ? null : latest([turn.acked_at, idle, ...unblocked]),
       reminder,
@@ -286,7 +287,7 @@ export async function remindStuckTurns(trx: Trx, config: Config, at: Date): Prom
     .where('source', '=', 'spur')
     .executeTakeFirst();
   if (spur !== undefined && spur.blind_reason !== null) return;
-  for (const { turn, sessionId, session, ended, quietSince, reminder } of await quietTurns(trx)) {
+  for (const { turn, sessionId, ended, quietSince, reminder } of await quietTurns(trx)) {
     await trx
       .updateTable('notification')
       .set({ acked_at: at.toISOString() })
@@ -296,7 +297,7 @@ export async function remindStuckTurns(trx: Trx, config: Config, at: Date): Prom
       .where('acked_at', 'is', null)
       .where('exhausted_at', 'is', null)
       .execute();
-    if (session === undefined || ended || quietSince === null || reminder !== undefined) continue;
+    if (ended || quietSince === null || reminder !== undefined) continue;
     if (at.getTime() < Date.parse(quietSince) + stuckTurnAfterMs(config)) continue;
     await registerTurnReminder(trx, turn, sessionId, at);
   }
