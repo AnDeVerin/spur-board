@@ -300,6 +300,8 @@ describe('catalog commands', () => {
       ).toBe(0);
       for (const example of op.examples) expect(output.stdout).toContain(example.summary);
       expect(output.stdout).toContain('Examples:');
+      for (const option of command.options)
+        expect(option.description, `${op.id} ${option.flags}`).not.toBe('');
     }
   });
 
@@ -593,6 +595,19 @@ describe('catalog commands', () => {
     expect(await runCli(['unblock', '--help'], { env: {}, io: unblock.io })).toBe(0);
     expect(unblock.stdout).toContain('--done [ref]');
     expect(unblock.stdout).toContain('--withdraw <answer>');
+    expect(unblock.stdout).toMatch(/--done \[ref\]\s+What resolved the block/);
+    expect(unblock.stdout).toMatch(/--reason <reason>\s+Why the block no longer applies/);
+    expect(unblock.stdout).toMatch(/--withdraw <answer>\s+Why it is withdrawn/);
+    expect(unblock.stdout).toMatch(/--key <key>\s+Idempotency key for this action/);
+    expect(unblock.stdout).toMatch(/--json\s+Print JSON output or a JSON error/);
+
+    for (const command of ['link', 'unlink']) {
+      const help = capture();
+      expect(await runCli([command, '--help'], { env: {}, io: help.io })).toBe(0);
+      expect(help.stdout, command).toMatch(/--pr <pr>\s+Pull request URL/);
+      expect(help.stdout, command).toMatch(/--session <session>\s+Spur session ID/);
+      expect(help.stdout, command).toMatch(/--ticket <ticket>\s+Task key/);
+    }
   });
 
   it('quotes untrusted comments in human output', async () => {
