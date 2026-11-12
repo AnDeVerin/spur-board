@@ -474,24 +474,25 @@ describe('migrate', () => {
       { ...old, id: 7, source_key: 'removed:1', kind: 'removed', turn_id: null },
     ]);
     insertRaw(raw, 'turn', { ...sampleRows.turn, closed_at: null, closed_reason: null });
-    const insert = (row: Record<string, unknown>) =>
+    const insert = (row: Record<string, unknown>) => {
       insertRaw(raw, 'notification', without({ ...old, ...row }, ['id']));
+    };
     insert({ source_key: 'turn:1:worker', kind: 'turn', block_id: null, turn_id: 1 });
     expect(
       raw.prepare("SELECT id FROM notification WHERE source_key = 'turn:1:worker'").pluck().get(),
     ).toBe(21);
-    expect(() => insert({ source_key: 'turn:1:a', kind: 'turn', block_id: null })).toThrow(
-      /CHECK constraint failed/,
-    );
-    expect(() => insert({ source_key: 'turn:1:b', kind: 'turn', turn_id: 1 })).toThrow(
-      /CHECK constraint failed/,
-    );
-    expect(() => insert({ source_key: 'block:1:c', block_id: null })).toThrow(
-      /CHECK constraint failed/,
-    );
-    expect(() => insert({ source_key: 'block:1:d', turn_id: 1 })).toThrow(
-      /CHECK constraint failed/,
-    );
+    expect(() => {
+      insert({ source_key: 'turn:1:a', kind: 'turn', block_id: null });
+    }).toThrow(/CHECK constraint failed/);
+    expect(() => {
+      insert({ source_key: 'turn:1:b', kind: 'turn', turn_id: 1 });
+    }).toThrow(/CHECK constraint failed/);
+    expect(() => {
+      insert({ source_key: 'block:1:c', block_id: null });
+    }).toThrow(/CHECK constraint failed/);
+    expect(() => {
+      insert({ source_key: 'block:1:d', turn_id: 1 });
+    }).toThrow(/CHECK constraint failed/);
     expect(raw.pragma('foreign_key_check')).toEqual([]);
   });
 
