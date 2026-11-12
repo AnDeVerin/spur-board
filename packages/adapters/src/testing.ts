@@ -6,6 +6,7 @@ import type {
   AdapterCore,
   Batch,
   PollContext,
+  PrEntityRef,
   SourceState,
 } from '@spur-board/contracts';
 
@@ -85,21 +86,36 @@ export function createFakeCore(options: FakeCoreOptions = {}): FakeCore {
 export interface FakeAdapter extends Adapter {
   /** Every context `poll` was called with, in order. */
   readonly contexts: PollContext[];
+  /** Every ref and signal `pollPr` was called with, in order. */
+  readonly prRequests: { ref: PrEntityRef; signal: AbortSignal }[];
 }
 
 export function createFakeAdapter(options: {
   id: string;
   intervalMs: number;
   poll: (ctx: PollContext) => Promise<Batch>;
+  /** Answers on-demand PR polls; without it the adapter has no `pollPr`. */
+  pollPr?: (ref: PrEntityRef, ctx: Pick<PollContext, 'signal'>) => Promise<Batch>;
 }): FakeAdapter {
   const contexts: PollContext[] = [];
+  const prRequests: FakeAdapter['prRequests'] = [];
+  const { pollPr } = options;
   return {
     id: options.id,
     intervalMs: options.intervalMs,
     contexts,
+    prRequests,
     poll(ctx) {
       contexts.push(ctx);
       return options.poll(ctx);
     },
+    ...(pollPr === undefined
+      ? {}
+      : {
+          pollPr(ref: PrEntityRef, ctx: Pick<PollContext, 'signal'>) {
+            prRequests.push({ ref, signal: ctx.signal });
+            return pollPr(ref, ctx);
+          },
+        }),
   };
 }

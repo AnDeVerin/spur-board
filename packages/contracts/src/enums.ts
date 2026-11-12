@@ -7,6 +7,8 @@ export const COLUMNS = [
   { id: 'ready-for-dev', name: 'Ready for Dev', required: false },
   { id: 'dev', name: 'Dev', required: true },
   { id: 'review', name: 'Review', required: false },
+  { id: 'product-review', name: 'Product Review', required: false },
+  { id: 'external-review', name: 'External Review', required: false },
   { id: 'qa', name: 'QA', required: false },
   { id: 'ready-to-merge', name: 'Ready to Merge', required: false },
   { id: 'done', name: 'Done', required: true },

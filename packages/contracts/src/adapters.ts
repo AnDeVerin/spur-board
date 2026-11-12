@@ -1,7 +1,14 @@
 // The adapter port: one poll method per source. `Batch` is what an adapter hands back to core
 // and is validated at runtime; `Adapter` and `PollContext` are built by core and are not.
 import { z } from 'zod';
-import { prFactsSchema, prRefSchema, sessionFactsSchema, ticketFactsSchema } from './facts.ts';
+import type { Result } from './errors.ts';
+import {
+  prFactsSchema,
+  prRefSchema,
+  sessionFactsSchema,
+  ticketFactsSchema,
+  type PrFacts,
+} from './facts.ts';
 import { actorPartSchema, taskKeySchema } from './ids.ts';
 
 export const ADAPTER_ERROR_KINDS = ['auth', 'config', 'throttled', 'transient'] as const;
@@ -213,6 +220,9 @@ export interface PollContext {
  * - A7: The adapter honours `PollContext.signal` and returns no batch after it is aborted.
  * - A8: A pending ticket request has no stable id. Its `ok` item matches by tracker and key;
  *   the next observation binds the returned stable id. Known tickets still match by id.
+ * - A9: `pollPr` observes one requested PR. `entities` holds exactly that ref, `items` at most
+ *   its own item, `complete` is false and the batch carries no cursor, so an out-of-turn poll
+ *   never moves discovery or reads as a complete listing. A1, A2, A6 and A7 apply.
  */
 export interface Adapter {
   /** Stable id of this adapter instance; becomes `Batch.source`. */
@@ -221,6 +231,11 @@ export interface Adapter {
   readonly intervalMs: number;
   /** Observes the source once (A1-A7). */
   poll(ctx: PollContext): Promise<Batch>;
+  /**
+   * Observes one pull request out of turn (A9). Omitted by a source that cannot; the runner
+   * then answers `unsupported`.
+   */
+  pollPr?(ref: PrEntityRef, ctx: Pick<PollContext, 'signal'>): Promise<Batch>;
 }
 
 /** State accepted with a batch; a separate report handles failures without a batch. */
@@ -268,4 +283,47 @@ export class AdapterError extends Error {
     this.kind = kind;
     this.retryAt = options.retryAt;
   }
+}
+
+/** Why an on-demand PR poll returned no facts. Separate from `ADAPTER_ERROR_KINDS`. */
+export const POLL_PR_ERROR_KINDS = [
+  'unknown_source',
+  'unsupported',
+  'blind',
+  'timeout',
+  'failed',
+  'stopped',
+] as const;
+export type PollPrErrorKind = (typeof POLL_PR_ERROR_KINDS)[number];
+
+/** What an applied on-demand PR poll observed; `observedAt` is the start of its turn. */
+export type PollPrValue =
+  | { status: 'ok'; facts: PrFacts; observedAt: string }
+  | { status: 'not_found' | 'no_access'; observedAt: string };
+
+/** Why an on-demand PR poll applied nothing. */
+export type PollPrError =
+  | { kind: Exclude<PollPrErrorKind, 'blind' | 'failed'>; message: string }
+  | { kind: 'blind'; reason: NonNullable<SourceState['blind']>['reason']; message: string }
+  | {
+      kind: 'failed';
+      /** The `AdapterError` kind, or `unexpected` for any other failure. */
+      adapterKind: AdapterErrorKind | 'unexpected';
+      /** When the source allows the next attempt, for a throttled failure. */
+      retryAt?: string | undefined;
+      message: string;
+    };
+
+export type PollPrResult = Result<PollPrValue, PollPrError>;
+
+/** Polls one pull request out of turn through the runner, the only writer of PR facts. */
+export interface PrPoller {
+  /**
+   * Queues a poll of `ref` on the source's single-flight chain, after any poll in flight, and
+   * resolves once core committed its observation; it never rejects. `source` is the id core
+   * builds (`github:<project>:<repo>`). The commit moves the source's `observed_at` but not its
+   * last complete time. While a regular throttle wait runs it resolves `failed` with
+   * `adapterKind: 'throttled'` and `retryAt` without calling the source.
+   */
+  pollPr(source: string, ref: PrEntityRef, options: { timeoutMs: number }): Promise<PollPrResult>;
 }

@@ -50,6 +50,13 @@ export interface Delay {
   failures: number;
 }
 
+/** When a `throttled` error lets the source be called again; undefined without a valid time. */
+export function throttledRetryAt(error: unknown): number | undefined {
+  if (!(error instanceof AdapterError) || error.kind !== 'throttled') return undefined;
+  const retryAt = error.retryAt?.getTime();
+  return retryAt === undefined || Number.isNaN(retryAt) ? undefined : retryAt;
+}
+
 /** The wait before the next poll and the new failure count. */
 export function nextDelay(input: DelayInput): Delay {
   const { outcome, intervalMs, failures, now } = input;
@@ -62,10 +69,8 @@ export function nextDelay(input: DelayInput): Delay {
     if (error.kind === 'auth' || error.kind === 'config') {
       return { delayMs: jitter(input.authRetryMs), failures };
     }
-    const retryAt = error.retryAt?.getTime();
-    if (error.kind === 'throttled' && retryAt !== undefined && !Number.isNaN(retryAt)) {
-      return { delayMs: Math.max(retryAt - now, intervalMs), failures };
-    }
+    const retryAt = throttledRetryAt(error);
+    if (retryAt !== undefined) return { delayMs: Math.max(retryAt - now, intervalMs), failures };
   }
   const next = failures + 1;
   const cap = Math.max(MAX_BACKOFF_MS, intervalMs);
