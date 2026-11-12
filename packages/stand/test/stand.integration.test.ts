@@ -812,9 +812,8 @@ describe('stand', () => {
     const polled = await control(manifest, '/poll');
     expect(polled.status).toBe(200);
     const { outcomes } = polled.body as { outcomes: { source: string; outcome: string }[] };
-    // The fakes answer Spur and GitHub pull requests. Every other request fails against the
-    // network guard: the GitHub Issues adapter turns that failure into an incomplete batch, so
-    // its poll counts as delivered.
+    // The fakes answer Spur, GitHub pull requests and GitHub Issues. Jira fails against the
+    // network guard.
     expect(Object.fromEntries(outcomes.map(({ source, outcome }) => [source, outcome]))).toEqual({
       spur: 'delivered',
       'github-issues:stand:stand-org/board': 'delivered',
@@ -1140,6 +1139,59 @@ describe('stand', () => {
       expect((await standCli(['fake', '--home', home, 'github', 'pr', '7', 'nope'])).code).toBe(2);
       const cleared = await standCli(['fake', '--home', home, 'github', 'fail', 'clear']);
       expect(cleared.code, cleared.stderr).toBe(0);
+    }, 60_000);
+
+    it('drives the issues fake through the CLI into the real adapter', async () => {
+      const manifest = await up();
+      const { home } = manifest;
+      const run = async (args: string[]): Promise<void> => {
+        const result = await standCli(['fake', '--home', home, 'github', 'issue', ...args]);
+        expect(result.code, result.stderr).toBe(0);
+      };
+      await run(['3', 'open', '--title', 'Stand task']);
+      await run(['3', 'label', 'on-board', 'bug']);
+      await run(['3', 'milestone', 'Sprint 1']);
+      await run(['4', 'open']);
+      await run(['4', 'close']);
+      expect((await standCli(['fake', '--home', home, 'github', 'issue', '4', 'close'])).code).toBe(
+        1,
+      );
+      expect((await standCli(['fake', '--home', home, 'github', 'issue', '4', 'nope'])).code).toBe(
+        2,
+      );
+      const polled = await control(manifest, '/poll');
+      expect(polled.status).toBe(200);
+      const { outcomes } = polled.body as { outcomes: { source: string; outcome: string }[] };
+      expect(outcomes).toContainEqual({
+        source: 'github-issues:stand:stand-org/board',
+        outcome: 'delivered',
+      });
+      const store = openStore(join(home, 'board.sqlite'));
+      try {
+        const rows = await store.db
+          .selectFrom('ticket_snapshot')
+          .select('detail')
+          .where('source', '=', 'github-issues:stand:stand-org/board')
+          .execute();
+        const byKey = new Map(
+          rows.map(({ detail }) => {
+            const facts = JSON.parse(detail) as { key: string; status: string };
+            return [facts.key, facts];
+          }),
+        );
+        expect(byKey.get(`${REPO}#3`)).toMatchObject({
+          title: 'Stand task',
+          status: 'open',
+          labels: ['on-board', 'bug'],
+          sprint: 'Sprint 1',
+        });
+        // A timed poll may have seen #4 while it was open; the board then reads its detail.
+        if (byKey.has(`${REPO}#4`)) expect(byKey.get(`${REPO}#4`)?.status).toBe('closed');
+        for (const key of byKey.keys()) expect([`${REPO}#3`, `${REPO}#4`]).toContain(key);
+      } finally {
+        await store.close();
+      }
+      expect((await control(manifest, '/violations')).status).toBe(200);
     }, 60_000);
 
     it('runs the real adapter against the fake', async () => {

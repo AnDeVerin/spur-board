@@ -9,7 +9,7 @@ import type {
   UserId,
 } from './schemas.ts';
 
-export const PERSONA_ROLES = ['orchestrator', 'worker', 'board'] as const;
+export const PERSONA_ROLES = ['orchestrator', 'curator', 'worker', 'board'] as const;
 export type PersonaRole = (typeof PERSONA_ROLES)[number];
 
 /** Who a delivered message speaks as. */
