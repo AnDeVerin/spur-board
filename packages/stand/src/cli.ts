@@ -74,14 +74,16 @@ const USAGE = `Usage: pnpm stand <command>
   wait <condition> [--timeout s]  wait for ${WAIT_CONDITIONS.join(', ')} (default ${String(WAIT_DEFAULT_S)} s)
   poll [source]                   restart every source's poll now (source is only checked to
                                   exist), then tick and pulse the outbox
-  reset                           stop the daemon, restore the home and start it again, seeding
-                                  the last seeded scenario again; this drops the violation log,
-                                  so read it first
+  reset                           stop the daemon, restore the home and start it again with the
+                                  last seeded scenario's database and fake snapshot, seeding it
+                                  again when its code or a migration changed or the clock passed
+                                  a pending token request's expiry; restored rows keep their
+                                  seeded times. This drops the violation log: read it first
   clock +<n><s|m|h|d>             move the stand clock forward (never back), then tick and pulse
                                   the outbox; timers stay real. stand poll after a shift
                                   restarts the stale window
-  seed <scenario>                 reset onto the scenario's config and seed it; then
-                                  wait scenario. Scenarios: ${scenarioNames().join(', ')}
+  seed <scenario>                 reset onto the scenario's config and seed it with fresh times,
+                                  replacing its snapshot; then wait scenario. Scenarios: ${scenarioNames().join(', ')}
   fake slack outbox               list the messages posted to the fake Slack and any call to a
                                   Slack method it lacks
   fake slack click <n> <button> [--text <text>]

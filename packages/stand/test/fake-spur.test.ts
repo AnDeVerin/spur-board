@@ -564,3 +564,31 @@ describe('parseFakeArgs', () => {
     expect(parseFakeArgs(rest).ok).toBe(false);
   });
 });
+
+describe('state and restore', () => {
+  it('gives a fresh fake the same sessions, rules and instance id, unaffected by later changes', () => {
+    const { fake } = createFake();
+    run(fake, 'session', { id: 's1', state: 'idle' });
+    run(fake, 'restart');
+    run(fake, 'fail', { mode: '5xx', route: 'send', status: 503 });
+    const before = run(fake, 'inspect') as {
+      instanceId: string;
+      sessions: unknown;
+      rules: unknown;
+    };
+    const state = fake.state();
+    run(fake, 'session', { id: 's2' });
+    run(fake, 'restart');
+    run(fake, 'clear');
+
+    const { fake: restored } = createFake();
+    restored.restore(state);
+    const after = run(restored, 'inspect') as typeof before;
+    expect(after.instanceId).toBe('stand-spur-2');
+    expect(after.sessions).toEqual(before.sessions);
+    expect(after.rules).toEqual(before.rules);
+    run(restored, 'session', { id: 's3' });
+    expect(fake.state()).not.toEqual(state);
+    expect(state.sessions.map(([id]) => id)).toEqual(['s1']);
+  });
+});
