@@ -16,6 +16,19 @@ export async function openIssues(
     await fakes.github('issue-open', { repo: STAND_REPO, number, title: title(number) });
 }
 
+/** Ticket `number` of the stand-jira project's Jira project, as the board stores its task key. */
+export const jiraKey = (number: number): string => `STAND-${String(number)}`;
+
+/** Creates Jira tickets STAND-1..count, titled by `title`, in the fake. */
+export async function openJiraIssues(
+  fakes: ScenarioFakes,
+  count: number,
+  title: (number: number) => string = (number) => `Stand ticket ${String(number)}`,
+): Promise<void> {
+  for (let number = 1; number <= count; number += 1)
+    await fakes.jira('issue', { key: jiraKey(number), title: title(number) });
+}
+
 /** Settled when `problems` is empty; otherwise its lines are the diagnostics. */
 export function settledUnless(problems: readonly string[]): Settled {
   return problems.length === 0 ? { ok: true } : { ok: false, diagnostics: problems };

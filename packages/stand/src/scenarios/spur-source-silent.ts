@@ -12,9 +12,8 @@ const RESTARTED = '"msg":"spur restarted"';
 export const spurSourceSilent: Scenario = {
   name: 'spur-source-silent',
   summary: 'The #275 Spur shape and a restart, then Spur refused until the source turns stale.',
-  // Stale after 3 intervals (6 s for Spur); Jira, which fails against the network guard, polls
-  // too rarely to turn stale while the scenario runs.
-  config: { thresholds: { staleMultiplier: 3 }, adapters: { jira: { intervalMs: 600_000 } } },
+  // Stale after 3 intervals (6 s for Spur).
+  config: { thresholds: { staleMultiplier: 3 } },
   async seed(board, fakes) {
     await openIssues(fakes, LINKED.length);
     await board.poll();
