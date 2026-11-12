@@ -29,9 +29,10 @@ qa/<task>/<sha8>/r<N>/
   fakes-outbox.json  pnpm stand fake slack outbox > "$R/fakes-outbox.json"
   fakes-spur.json    pnpm stand fake spur inspect > "$R/fakes-spur.json"
   daemon.log         pnpm stand logs > "$R/daemon.log"
-  board.sqlite       cp "<home>/board.sqlite" "<home>/board.sqlite-wal" "<home>/board.sqlite-shm" "$R/"
-  board.sqlite-wal   (same cp)
-  board.sqlite-shm   (same cp)
+  board.sqlite       node --input-type=module -e 'import { copyDatabase } from
+                       "./packages/core/src/store/copy.ts";
+                       copyDatabase(process.argv[1], process.argv[2]);' \
+                       "<home>/board.sqlite" "$R/board.sqlite"
 ```
 
 ## Capture order
@@ -41,8 +42,11 @@ qa/<task>/<sha8>/r<N>/
 - Take the stand state from `pnpm stand status --json`: it leaves out the control token. Never
   copy the home's manifest, `secrets.env`, the token file or `config.yaml`; copy named files only,
   never the whole home.
-- Copy the three database files in one `cp` after the last action. The daemon still runs, so the
-  copy is for reading, not a backup. The host may have no sqlite CLI; read it with Node.
+- Snapshot the database after the last action with `copyDatabase`
+  (`packages/core/src/store/copy.ts`): it writes one consistent file with `VACUUM INTO` while the
+  daemon keeps writing. Never `cp` the live `board.sqlite` and its `-wal`; a checkpoint between
+  the copies loses rows or breaks the file. The host may have no sqlite CLI; read it with
+  `node:sqlite`.
 
 ## Plan
 
