@@ -24,8 +24,9 @@ export function commandReply(
         line(
           `Board status: ${String(status.tasks.length)} tasks, ${String(status.items.length)} items needing attention.`,
         ),
-        ...status.tasks.map((task) => line(`${task.key}: ${task.column} (${task.membership})`)),
+        // Items first: a long Slack reply is cut from the tail, so task lines drop before items.
         ...status.items.map((item) => line(`${item.key}: ${item.summary}`)),
+        ...status.tasks.map((task) => line(`${task.key}: ${task.column} (${task.membership})`)),
         line(
           `Unlinked: ${String(status.unlinkedPrs.length)} pull requests, ${String(status.unlinkedSessions.length)} sessions${
             status.hiddenUnlinkedPrs + status.hiddenUnlinkedSessions === 0
