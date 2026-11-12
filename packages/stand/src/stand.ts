@@ -32,7 +32,7 @@ import { startFakeSlackApi, type FakeSlackApi } from '@spur-board/gateway-slack/
 import { installNetworkGuard } from '@spur-board/testkit';
 import YAML from 'yaml';
 import type { RouteResult } from './control.ts';
-import { shiftRefusal, startControl, type Control } from './control.ts';
+import { isShift, SHIFT_REFUSAL, startControl, type Control } from './control.ts';
 import { createFakeSpur, requestUrl, type FakeSpur } from './fake-spur.ts';
 import { createFakes } from './fakes/fetch.ts';
 import { createGithubIssuesFake } from './fakes/github-issues.ts';
@@ -672,8 +672,7 @@ export async function startStand(options: StandOptions): Promise<Stand> {
     },
     /** Moves the stand clock forward, then runs one board tick and one outbox pulse. */
     async clock(body: { shiftMs: number }): Promise<RouteResult> {
-      const refusal = shiftRefusal(body.shiftMs);
-      if (refusal !== undefined) return { status: 400, body: { error: refusal } };
+      if (!isShift(body.shiftMs)) return { status: 400, body: { error: SHIFT_REFUSAL } };
       const running = current;
       if (running === undefined)
         return { status: 503, body: { error: 'The daemon is not running.' } };

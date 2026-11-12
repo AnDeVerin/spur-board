@@ -12,7 +12,8 @@ export const MAX_WAIT_MS = 600_000;
 /** The longest single `clock` shift: 365 days. */
 export const MAX_SHIFT_MS = 365 * 24 * 60 * 60 * 1000;
 
-function isShift(shiftMs: unknown): shiftMs is number {
+/** Whether a clock shift may move the clock forward. */
+export function isShift(shiftMs: unknown): shiftMs is number {
   return (
     typeof shiftMs === 'number' &&
     Number.isSafeInteger(shiftMs) &&
@@ -21,12 +22,7 @@ function isShift(shiftMs: unknown): shiftMs is number {
   );
 }
 
-const SHIFT_REFUSAL = `Send { shiftMs } with an integer from 1 to ${String(MAX_SHIFT_MS)}; the clock only moves forward.`;
-
-/** Why a clock shift is refused, or undefined when it may move the clock forward. */
-export function shiftRefusal(shiftMs: unknown): string | undefined {
-  return isShift(shiftMs) ? undefined : SHIFT_REFUSAL;
-}
+export const SHIFT_REFUSAL = `Send { shiftMs } with an integer from 1 to ${String(MAX_SHIFT_MS)}; the clock only moves forward.`;
 
 export interface RouteResult {
   status: number;
