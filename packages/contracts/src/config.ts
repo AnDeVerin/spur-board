@@ -206,6 +206,12 @@ const projectSchema = z
       .regex(/^[a-z][a-z0-9-]*$/, 'Expected lowercase letters, digits and dashes'),
     tracker: z.discriminatedUnion('type', [jiraTracker, githubIssuesTracker]),
     repos: z.array(repoSlugSchema).min(1),
+    reposWithoutCi: z
+      .array(repoSlugSchema)
+      .default([])
+      .describe(
+        'Repos from repos that run no CI checks, in any letter case. In a listed repo, a PR whose check list on head is empty passes the Dev gate check condition instead of waiting in Dev. A list of only skipped checks still waits, and red or pending checks still count. A listed repo whose branch protection requires checks that have not reported yet also passes, so list only repos that run no checks. Without this key, a PR with no checks waits in Dev.',
+      ),
     link: z
       .strictObject({
         sources: z
@@ -275,6 +281,15 @@ const projectSchema = z
       ),
   })
   .superRefine((project, ctx) => {
+    const repos = new Set(project.repos.map((repo) => repo.toLowerCase()));
+    project.reposWithoutCi.forEach((repo, j) => {
+      if (repos.has(repo.toLowerCase())) return;
+      ctx.addIssue({
+        code: 'custom',
+        path: ['reposWithoutCi', j],
+        message: `Repository ${JSON.stringify(repo)} is not in repos`,
+      });
+    });
     const spurNames = new Set(project.spurProjects.map((p) => p.name));
     project.columns.forEach(({ orchestrator }, j) => {
       if (orchestrator === 'none' || orchestrator === 'operator' || spurNames.has(orchestrator)) {
