@@ -162,10 +162,16 @@ export function renderCommandReferences(): CommandReference[] {
   const otherErrors = [
     ...new Set(visibleOperations.flatMap((operation) => operation.errors)),
   ].filter((code) => !commonErrors.includes(code));
-  const content = [
+  const commands = [
     '# Board command reference',
     '',
-    'Every command can return the common errors below. Each entry lists its other codes; find their hints here too.',
+    'Every command can return the common errors in [errors.md](errors.md). Each entry lists its other codes; their hints are there too.',
+    '',
+    visibleOperations.map(renderOperation).join('\n\n'),
+    '',
+  ].join('\n');
+  const errors = [
+    '# Board error hints',
     '',
     '## Errors every command can return',
     '',
@@ -175,21 +181,23 @@ export function renderCommandReferences(): CommandReference[] {
     '',
     ...otherErrors.map((code) => `- \`${code}\`: ${ERRORS[code].hint}`),
     '',
-    visibleOperations.map(renderOperation).join('\n\n'),
-    '',
   ].join('\n');
-  if (Buffer.byteLength(content) > referenceBudget) {
-    throw new Error(
-      `Command reference is ${String(Buffer.byteLength(content))} bytes; limit is ${String(referenceBudget)}.`,
-    );
-  }
-  return [
+  const references = [
     {
       fileName: 'commands.md',
       commands: visibleOperations.map((operation) => operation.cli.command),
-      content,
+      content: commands,
     },
+    { fileName: 'errors.md', commands: [], content: errors },
   ];
+  for (const { fileName, content } of references) {
+    if (Buffer.byteLength(content) > referenceBudget) {
+      throw new Error(
+        `Reference ${fileName} is ${String(Buffer.byteLength(content))} bytes; limit is ${String(referenceBudget)}.`,
+      );
+    }
+  }
+  return references;
 }
 
 export function renderBoardCommands(references = renderCommandReferences()): string {
@@ -202,7 +210,7 @@ export function renderBoardCommands(references = renderCommandReferences()): str
           const command = operation.cli.command;
           const reference = references.find((item) => item.commands.includes(command));
           if (reference === undefined) throw new Error(`No reference for ${operation.id}`);
-          return `- \`board ${command}\` — [details](references/${reference.fileName}#board-${command.replaceAll(' ', '-')})`;
+          return `- [\`board ${command}\`](references/${reference.fileName}#board-${command.replaceAll(' ', '-')})`;
         });
       return `### ${heading}\n\n${entries.join('\n')}`;
     })
@@ -228,12 +236,12 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   writeFileSync(target, next);
   mkdirSync(referencesDir, { recursive: true });
   for (const file of readdirSync(referencesDir)) {
-    if (/^(?:worker|orchestrator)-[1-9][0-9]*\.md$|^commands\.md$/.test(file)) {
+    if (/^(?:worker|orchestrator)-[1-9][0-9]*\.md$|^(?:commands|errors)\.md$/.test(file)) {
       rmSync(join(referencesDir, file));
     }
   }
   for (const reference of references) {
     writeFileSync(join(referencesDir, reference.fileName), reference.content);
   }
-  console.log(`wrote product skill and ${String(references.length)} command references`);
+  console.log(`wrote product skill and ${String(references.length)} references`);
 }

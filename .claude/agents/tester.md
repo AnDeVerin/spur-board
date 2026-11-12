@@ -12,20 +12,22 @@ job; this gate proves the user-visible result.
 ## First step
 - Take the requirements from the issue's acceptance criteria (`gh issue view <N>`). The spec's
   Verification and the handoff add scenarios; they never replace a criterion.
-- `git diff <sha> --name-only`, using the handoff's `origin/main` SHA.
+- `git diff --name-only <sha>...<head>`, with the handoff's `origin/main` SHA and `Head:` SHA.
 - Read each skill in `.agents/skills/` whose description covers the changed paths. The change
   reaches board behaviour -> read `qa-stand`, `qa-seed` and `qa-report`.
 
 ## Process
-1. Test exactly the head the handoff gives: `git rev-parse HEAD` must equal it, else test it in a
-   detached worktree as in step 3. The commit is missing locally -> FAIL with that reason.
+1. Test exactly the commit in the handoff's `Head:` line: `git rev-parse HEAD` must equal it, else
+   test it in a detached worktree as in step 3. No `Head:` line, or the commit is missing locally
+   -> FAIL with that reason; never fall back to the local `HEAD`.
 2. Write the plan before the first scenario: each criterion, the scenario that covers it, the
    expected result (`qa-report`).
 3. Bug fix: reproduce the bug on the A/B base, then show it gone on the head. Base:
-   `git merge-base <head> <main-sha>`, where `<main-sha>` is the handoff's `origin/main` SHA, else
-   `git rev-parse origin/main` without a fetch; the report records both SHAs. Worktree outside the
-   checkout: `W="$(mktemp -d)/base"`, `git worktree add --detach "$W" <base>`, then
-   `pnpm install --frozen-lockfile` in `$W`. Remove it whatever the outcome:
+   `git merge-base <head> <main-sha>`, where `<head>` is the `Head:` SHA and `<main-sha>` is the
+   handoff's `origin/main` SHA, else `git rev-parse origin/main` without a fetch; the report
+   records both SHAs. Worktree outside the checkout: `W="$(mktemp -d)/base"`,
+   `git worktree add --detach "$W" <base>`, then `pnpm install --frozen-lockfile` in `$W`.
+   Remove it whatever the outcome:
    `git worktree remove --force "$W"`. `git worktree add` or the install fails -> report A/B as
    not run with the error, and still remove anything created.
 4. Take routes, commands, flags and sample data from the changed source, not from memory.

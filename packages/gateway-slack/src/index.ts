@@ -10,6 +10,8 @@ interface SlackGatewayConfig extends ApiConfig {
   channels: SlackChannels;
   appToken?: string;
   command?: string;
+  /** Receives every rejection of Socket Mode background work; without it the rejection is dropped. */
+  onError?: (err: unknown, work: 'connection' | 'envelope') => void;
   /** The current time in epoch milliseconds; recovery reads it as the end of its window. */
   now: () => number;
 }

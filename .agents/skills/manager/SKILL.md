@@ -7,7 +7,8 @@ description: Run a GitHub issue through tiered gates of role agents - plan, spec
 
 Route one issue through the gates below. Roles do the work; the manager spawns them, passes their
 output blocks on, writes the spec file and reports. It never edits tracked files and runs only
-intake (`gh`, `git fetch`) and PR (`git push`, `gh pr`) commands.
+intake (`gh`, `git fetch`), PR (`git push`, `gh pr`) and read-only handoff (`git rev-parse HEAD`,
+`git diff --name-only`) commands.
 
 Role files: `.agents/agents/<role>.md`. Branches, commits and the PR: `gitflow`. Spawning,
 handoff and tracking details: `references/runtime.md`. Report and question templates:

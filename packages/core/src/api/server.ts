@@ -33,6 +33,11 @@ export interface ApiOptions extends IdentityPorts {
     status: number;
     tokenName?: string;
   }) => void;
+  /**
+   * Called once for each request answered as `unexpected`, before the reply; never for a
+   * `CommandError` or a 400/413 input error. Must not throw.
+   */
+  readonly logError?: (entry: { requestId: string; err: unknown }) => void;
 }
 
 interface DoctorCheck {
@@ -148,6 +153,7 @@ export async function createApiServer(options: ApiOptions): Promise<FastifyInsta
       if (error.statusCode === 400 || error.statusCode === 413) code = 'usage';
       if (error.statusCode === 413) hint = 'Send a smaller JSON body.';
     }
+    if (code === 'unexpected') options.logError?.({ requestId: request.id, err: error });
     const problem = renderHttpProblem({ code, requestId: request.id });
     reply
       .code(problem.status)

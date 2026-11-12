@@ -146,6 +146,38 @@ export const ERRORS = {
     hint: 'Read the latest comment revision, then acknowledge that revision.',
     recovery: noRetry('Read the latest comment revision before acknowledging it.'),
   }),
+  turn_closed: spec('turn_closed', {
+    status: 409,
+    exit: EXIT_CODES.refused,
+    message: 'The turn is closed: the task was submitted, moved or archived since.',
+    hint: 'Read your open turns with `board inbox` and act only on a turn listed there.',
+    recovery: noRetry('Read your open turns and act only on a turn listed there.'),
+  }),
+  not_turn_taker: spec('not_turn_taker', {
+    status: 409,
+    exit: EXIT_CODES.refused,
+    message: 'This session has not taken the turn.',
+    hint: 'Take the turn with `board inbox ack` first; only the session that took it can submit or return it.',
+    recovery: noRetry(
+      'Take the turn first; only the session that took it can submit or return it.',
+    ),
+  }),
+  head_mismatch: spec('head_mismatch', {
+    status: 409,
+    exit: EXIT_CODES.refused,
+    message: "The commit is not the head of the task's pull request, or the task has none.",
+    hint: "Push the commit to the task's pull request branch and submit its head; if the task has none, ask the operator to link the pull request with `board link` first.",
+    recovery: noRetry(
+      "Push the commit to the task's pull request branch and submit its head; if the task has none, ask the operator to link the pull request first.",
+    ),
+  }),
+  return_not_allowed: spec('return_not_allowed', {
+    status: 409,
+    exit: EXIT_CODES.refused,
+    message: 'A task can be returned to Dev only from a column right of Dev.',
+    hint: 'In Dev, ask with `board ask` instead.',
+    recovery: noRetry('In Dev, ask with a block instead of returning the task.'),
+  }),
   task_archived: spec('task_archived', {
     status: 409,
     exit: EXIT_CODES.refused,
@@ -192,6 +224,16 @@ export const ERRORS = {
     recovery: retry(
       'Wait until the daemon is ready, then retry the command with its existing idempotency key if it has one.',
       'After the daemon is ready; wait briefly between retries.',
+    ),
+  }),
+  github_unavailable: spec('github_unavailable', {
+    status: 503,
+    exit: EXIT_CODES.notApplied,
+    message: 'GitHub did not confirm the pull request head; nothing was applied.',
+    hint: 'Wait until GitHub answers, then submit again.',
+    recovery: retry(
+      'Wait until GitHub answers, then submit again.',
+      'After GitHub is reachable; wait briefly between retries.',
     ),
   }),
   version_mismatch: spec('version_mismatch', {

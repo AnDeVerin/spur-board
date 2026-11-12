@@ -265,12 +265,19 @@ function registerOptions(command: CommandUnknownOpts, op: CatalogOperation): voi
   }
   for (const mode of op.cli.modes ?? []) {
     if (mode.value === null) {
-      command.option(mode.flag);
+      const branch = branches(op.input).find(
+        (item) => (item.shape.mode as z.ZodType | undefined)?.safeParse(mode.mode).success,
+      );
+      command.option(
+        mode.flag,
+        (branch?.shape.mode as z.ZodType | undefined)?.description ?? mode.mode,
+      );
     } else {
       const schema = fieldSchema(op, mode.value);
       if (!schema) throw new Error(`Catalog mode value ${mode.value} is missing from ${op.id}.`);
       const value = schema instanceof z.ZodOptional ? `[${mode.value}]` : `<${mode.value}>`;
-      command.option(`${mode.flag} ${value}`);
+      const description = schema.description ?? bareSchema(schema).description ?? mode.value;
+      command.option(`${mode.flag} ${value}`, description);
     }
   }
   if (op.kind === 'mutation') command.option('--key <key>', 'Idempotency key for this action.');

@@ -76,7 +76,8 @@ export type SessionHealthState = (typeof SESSION_HEALTH_STATES)[number];
 const at = z.iso.datetime();
 const webUrl = z.url({ protocol: /^https?$/ });
 const login = z.string().min(1);
-const commitSha = z.string().regex(/^[0-9a-f]{40,64}$/, 'Expected a full commit SHA');
+/** A full lowercase commit SHA (SHA-1 or SHA-256). */
+export const commitShaSchema = z.string().regex(/^[0-9a-f]{40,64}$/, 'Expected a full commit SHA');
 
 /** A pull request by repository and number. */
 export const prRefSchema = z.strictObject({
@@ -112,7 +113,7 @@ export const prFactsSchema = z
     url: webUrl.describe('Web URL of the pull request.'),
     title: z.string().describe('Pull request title.'),
     author: login.describe('Login of the pull request author.'),
-    headSha: commitSha.describe('Commit SHA of the head of the pull request.'),
+    headSha: commitShaSchema.describe('Commit SHA of the head of the pull request.'),
     headBranch: z.string().min(1).describe('Branch name of the head of the pull request.'),
     state: z.enum(PR_STATES).describe('Whether the pull request is open, closed or merged.'),
     draft: z.boolean().describe('Whether the pull request is a draft.'),
@@ -135,7 +136,7 @@ export const prFactsSchema = z
         z.strictObject({
           reviewer: login.describe('Login of the reviewer.'),
           state: z.enum(REVIEW_STATES).describe('State of the latest review by this reviewer.'),
-          commitSha: commitSha.describe('Commit the review was given on.'),
+          commitSha: commitShaSchema.describe('Commit the review was given on.'),
           submittedAt: at.describe('When the review was submitted.'),
         }),
       )
