@@ -453,6 +453,13 @@ describe('public guide command mentions', () => {
     expect(troubleshooting).toContain('A Spur project can be listed under only one Board project.');
   });
 
+  it('documents when token create replaces an existing token file', () => {
+    const troubleshooting = publicGuides[2]?.replace(/\s+/g, ' ') ?? '';
+    expect(troubleshooting).toContain(
+      'When `<folder>/.spur-board/token` already exists, `board token create` replaces it only if the daemon reports that token expired or denied; an approved, pending, revoked or unknown token stays in place and the command fails with `config`, naming the file and the fix.',
+    );
+  });
+
   it('documents board update and the rollback recovery', () => {
     const [, setup, troubleshooting] = publicGuides;
     const updateRun = setupReferenceTexts[setupReferenceNames.indexOf('update.md')];
