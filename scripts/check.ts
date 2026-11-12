@@ -279,6 +279,11 @@ export function buildSteps(plan: Plan, prePush: boolean, workers = 2): Step[] {
     plan.mode === 'full' || plan.packageDirs.length > 0
       ? { name: 'test', commands: testCommands }
       : { name: 'test', ...noPackages },
+    prePush
+      ? { name: 'stand', skip: 'pre-push runs unit tests only' }
+      : plan.mode === 'full' || plan.packageDirs.includes('packages/stand')
+        ? { name: 'stand', commands: [{ cmd: bin('vitest'), args: ['run', '--project', 'stand'] }] }
+        : { name: 'stand', skip: 'packages/stand not affected' },
   ];
 }
 

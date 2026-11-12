@@ -274,3 +274,27 @@ describe('scheduled workflows', () => {
     });
   });
 });
+
+describe('nightly-tests.yml', () => {
+  const text = readFileSync(
+    new URL('../.github/workflows/nightly-tests.yml', import.meta.url),
+    'utf8',
+  );
+  const shuffled = text.split('\n').filter((line) => line.includes('--sequence.shuffle'));
+
+  it('shuffles every Vitest project', () => {
+    const config = readFileSync(new URL('../vitest.config.ts', import.meta.url), 'utf8');
+    const projects = [...config.matchAll(/name: '([\w-]+)'/g)].map((match) => match[1]);
+    const named = shuffled.flatMap((line) =>
+      [...line.matchAll(/--project ([\w-]+)/g)].map((match) => match[1]),
+    );
+    expect(projects.length).toBeGreaterThan(0);
+    expect([...new Set(named)].sort()).toEqual([...new Set(projects)].sort());
+  });
+
+  it('seeds every shuffled run with the run id', () => {
+    expect(shuffled.length).toBeGreaterThan(0);
+    for (const line of shuffled) expect(line).toContain('--sequence.seed="$SEED"');
+    expect(text).toContain('SEED: ${{ github.run_id }}');
+  });
+});
