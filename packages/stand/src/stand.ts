@@ -17,7 +17,7 @@ import {
 import { basename, join } from 'node:path';
 import { startAdapters, type AdapterRunner } from '@spur-board/adapters';
 import { COLUMN_IDS, configSchema, userIdSchema, type Config } from '@spur-board/contracts';
-import { openStore } from '@spur-board/core';
+import { migrationsDir, openStore, readMigrations } from '@spur-board/core';
 import {
   acquireLock,
   createSpurPort,
@@ -28,13 +28,17 @@ import {
   type InProcessOptions,
   type Paths,
 } from '@spur-board/daemon/in-process';
-import { startFakeSlackApi, type FakeSlackApi } from '@spur-board/gateway-slack/testing';
+import {
+  startFakeSlackApi,
+  type FakeSlackApi,
+  type FakeSlackState,
+} from '@spur-board/gateway-slack/testing';
 import { installNetworkGuard } from '@spur-board/testkit';
 import YAML from 'yaml';
 import type { RouteResult } from './control.ts';
 import { startControl, type Control } from './control.ts';
-import { createFakeSpur, requestUrl, type FakeSpur } from './fake-spur.ts';
-import { createFakes } from './fakes/fetch.ts';
+import { createFakeSpur, requestUrl, type FakeSpur, type FakeSpurState } from './fake-spur.ts';
+import { createFakes, type FakesState } from './fakes/fetch.ts';
 import { createGithubIssuesFake } from './fakes/github-issues.ts';
 import { createGithubPrFake } from './fakes/github-pr.ts';
 import { proxyRefusal, refusal, StandRefusedError } from './guards.ts';
@@ -54,6 +58,7 @@ import {
   type Scenario,
   type ScenarioEntities,
 } from './scenarios/index.ts';
+import { privateDir, restoreSnapshot, saveSnapshot, snapshotKey } from './snapshots.ts';
 
 export { StandRefusedError } from './guards.ts';
 
@@ -235,20 +240,6 @@ function replaceFile(file: string, text: string): void {
   }
 }
 
-/**
- * A real directory owned by this user with no group or other permission at all (0700): nobody
- * else can add or swap an entry, or even look inside at the database and its session ids.
- */
-function privateDir(path: string): boolean {
-  const info = lstatSync(path);
-  return (
-    !info.isSymbolicLink() &&
-    info.isDirectory() &&
-    info.uid === process.getuid?.() &&
-    (info.mode & 0o077) === 0
-  );
-}
-
 /** A regular file owned by this user, never a symlink. */
 function ownFile(path: string): boolean {
   const info = lstatSync(path);
@@ -316,7 +307,24 @@ export interface StandOptions {
   scenario?: string | undefined;
   /** Replaces the scenario registry; a test seam. */
   scenarios?: readonly Scenario[];
+  /**
+   * Replaces the migrations the snapshot key is computed from; a test seam. It feeds only the
+   * key: the daemon still migrates with core's own files.
+   */
+  migrationsDir?: URL;
 }
+
+/** What a reset restores in place of seeding `name` again. */
+interface SnapshotRecord {
+  key: string;
+  file: string;
+  entities: ScenarioEntities;
+  fakes: FakesState;
+  spur: FakeSpurState;
+  slack: FakeSlackState;
+}
+
+type SnapshotOutcome = 'restored' | 'taken' | 'failed';
 
 export interface Stand {
   manifest(): StandManifest;
@@ -401,8 +409,15 @@ export async function startStand(options: StandOptions): Promise<Stand> {
     writeSync(logFd, text);
   };
 
-  /** Writes the home for a fresh daemon, with the config of `scenario` when one is named. */
-  async function writeHome(slackUrl: string, scenario: string | undefined): Promise<void> {
+  /**
+   * Writes the home for a fresh daemon, with the config of `scenario` when one is named. The
+   * database is the `snapshot` file when one is given, else a new one with the stand identities.
+   */
+  async function writeHome(
+    slackUrl: string,
+    scenario: string | undefined,
+    snapshot?: string,
+  ): Promise<void> {
     const extra = scenario === undefined ? undefined : findScenario(scenario)?.config;
     const written = extra === undefined ? config : mergeConfig(config, extra);
     // Fails here, before any file is written, rather than in the daemon's config load.
@@ -418,6 +433,10 @@ export async function startStand(options: StandOptions): Promise<Stand> {
         .join(''),
     );
     replaceFile(tokenPath, `${operatorToken}\n`);
+    if (snapshot !== undefined) {
+      restoreSnapshot(snapshot, paths.dbFile, paths.lockFile);
+      return;
+    }
     // SQLite creates its WAL and SHM files with the database file's mode, so an owner-only empty
     // file here keeps all three owner-only. Start and reset both find no database file.
     closeSync(openSync(paths.dbFile, EXCLUSIVE, 0o600));
@@ -475,7 +494,8 @@ export async function startStand(options: StandOptions): Promise<Stand> {
     resolveExited = resolve;
   });
 
-  async function startDaemon(): Promise<NonNullable<typeof current>> {
+  /** Starts a daemon with a new fake Spur, holding `spurState` when a snapshot is restored. */
+  async function startDaemon(spurState?: FakeSpurState): Promise<NonNullable<typeof current>> {
     const spur = createFakeSpur({
       baseUrl: SPUR_BASE_URL,
       now: () => clock.now(),
@@ -486,6 +506,7 @@ export async function startStand(options: StandOptions): Promise<Stand> {
         branch: `stand-${role}`,
       })),
     });
+    if (spurState !== undefined) spur.restore(spurState);
     const spurOrigin = new URL(SPUR_BASE_URL).origin;
     // Any other host goes to the real fetch, where the network guard refuses it.
     const standFetch: typeof fetch = (input, init) =>
@@ -532,6 +553,24 @@ export async function startStand(options: StandOptions): Promise<Stand> {
    * only then does `stand.json` carry it and `wait scenario` consult its `settled`.
    */
   let scenario: { name: string; entities?: ScenarioEntities } | undefined;
+  /** The last snapshot of each seeded scenario; a failed snapshot drops the scenario's record. */
+  const snapshots = new Map<string, SnapshotRecord>();
+  const snapshotDir = join(home, 'snapshots');
+  /** Re-reads the migrations on every call, so a changed file changes the key at once. */
+  const keyOf = (definition: Scenario): string =>
+    snapshotKey(definition, readMigrations(options.migrationsDir ?? migrationsDir));
+  /** The snapshot of `name` a reset may restore: its key still matches and its file exists. */
+  function snapshotHit(name: string): SnapshotRecord | undefined {
+    const record = snapshots.get(name);
+    const definition = findScenario(name);
+    if (record === undefined || definition === undefined) return undefined;
+    try {
+      return record.key === keyOf(definition) && existsSync(record.file) ? record : undefined;
+    } catch {
+      // A key that cannot be computed now matches nothing; the seed then takes a new snapshot.
+      return undefined;
+    }
+  }
   /** Aborts on stop, so a seed waiting on the board cannot hold shutdown. */
   const stopSignal = new AbortController();
   const writeCurrentManifest = (daemonUrl: string, controlUrl: string): void => {
@@ -687,9 +726,12 @@ export async function startStand(options: StandOptions): Promise<Stand> {
         },
       };
     },
-    /** Resets onto the scenario seeded last, and seeds it again; a plain reset without one. */
+    /**
+     * Resets onto the scenario seeded last, restoring its snapshot, or seeding it again when its
+     * scenario code or a migration changed; a plain reset without one.
+     */
     reset(): Promise<RouteResult> {
-      return restart(scenario?.name);
+      return restart(scenario?.name, { restore: true });
     },
     seed(body: { scenario: string }): Promise<RouteResult> {
       if (findScenario(body.scenario) === undefined)
@@ -697,7 +739,7 @@ export async function startStand(options: StandOptions): Promise<Stand> {
           status: 400,
           body: { error: 'Unknown scenario.', scenarios: scenarioNames(scenarios) },
         });
-      return restart(body.scenario);
+      return restart(body.scenario, { restore: false });
     },
     fake(body: { system: string; verb: string; args: unknown }): Promise<RouteResult> {
       if (body.system === 'github') return Promise.resolve(fakes.control(body));
@@ -775,12 +817,18 @@ export async function startStand(options: StandOptions): Promise<Stand> {
 
   /**
    * The reset body: stops the daemon, restores the home with the config of `name` and starts a
-   * fresh daemon, then seeds `name` when given. A failed seed leaves the stand running unseeded.
+   * fresh daemon, then seeds `name` when given. With `restore`, a matching snapshot of `name`
+   * replaces the seed: its database and fake state come back and no seed runs. A failed seed
+   * leaves the stand running unseeded; a failed restore stops the stand.
    */
-  async function restart(name: string | undefined): Promise<RouteResult> {
+  async function restart(
+    name: string | undefined,
+    { restore }: { restore: boolean },
+  ): Promise<RouteResult> {
     const running = current;
     if (running === undefined)
       return { status: 503, body: { error: 'The daemon is not running.' } };
+    const hit = restore && name !== undefined ? snapshotHit(name) : undefined;
     current = undefined;
     // Recorded before the restart, so `wait scenario` says what is being seeded.
     scenario = name === undefined ? undefined : { name };
@@ -814,11 +862,14 @@ export async function startStand(options: StandOptions): Promise<Stand> {
       violationsCleared += previous.violations().length;
       await previous.close();
       fake = await startFake(port);
-      await writeHome(fake.url, name);
+      if (hit !== undefined) fake.restore(hit.slack);
+      await writeHome(fake.url, name, hit?.file);
       violationsCleared += fakes.violations().total;
       // Before the new runner starts, so its first poll sees clean state.
       fakes.reset();
-      current = await startDaemon();
+      if (hit !== undefined) fakes.restore(hit.fakes);
+      current = await startDaemon(hit?.spur);
+      if (name !== undefined && hit !== undefined) scenario = { name, entities: hit.entities };
       writeCurrentManifest(current.daemon.address, controlUrl());
     } catch (err) {
       failure = 1;
@@ -828,10 +879,19 @@ export async function startStand(options: StandOptions): Promise<Stand> {
     const started = current;
     const restarted = { daemonUrl: started.daemon.address, violationsCleared };
     if (name === undefined) return { status: 200, body: restarted };
+    if (hit !== undefined)
+      return {
+        status: 200,
+        body: {
+          ...restarted,
+          scenario: { name, ...hit.entities },
+          snapshot: 'restored' satisfies SnapshotOutcome,
+        },
+      };
     try {
-      const entities = await seedScenario(name, started);
+      const { entities, snapshot } = await seedScenario(name, started);
       writeCurrentManifest(started.daemon.address, controlUrl());
-      return { status: 200, body: { ...restarted, scenario: { name, ...entities } } };
+      return { status: 200, body: { ...restarted, scenario: { name, ...entities }, snapshot } };
     } catch (err) {
       // The stand keeps serving, unseeded: stand.json loses the scenario with `scenario` cleared.
       scenario = undefined;
@@ -860,14 +920,14 @@ export async function startStand(options: StandOptions): Promise<Stand> {
   const scenarioFakes = createScenarioFakes(routes);
 
   /**
-   * Seeds `name` on the running daemon and records it with what it named. Runs inside the control
-   * queue at most once at a time and never calls an HTTP control route, which would wait on that
-   * queue. A throw leaves `scenario` as it was: the caller clears it.
+   * Seeds `name` on the running daemon, records it with what it named and takes its snapshot.
+   * Runs inside the control queue at most once at a time and never calls an HTTP control route,
+   * which would wait on that queue. A throw leaves `scenario` as it was: the caller clears it.
    */
   async function seedScenario(
     name: string,
     running: NonNullable<typeof current>,
-  ): Promise<ScenarioEntities> {
+  ): Promise<{ entities: ScenarioEntities; snapshot: SnapshotOutcome }> {
     const definition = findScenario(name);
     if (definition === undefined) throw new Error(`Unknown scenario ${name}.`);
     scenario = { name };
@@ -876,7 +936,42 @@ export async function startStand(options: StandOptions): Promise<Stand> {
     const entities =
       notes.length === 0 ? seeded : { ...seeded, direct: [...(seeded.direct ?? []), ...notes] };
     scenario = { name, entities };
-    return entities;
+    return { entities, snapshot: takeSnapshot(name, definition, running, entities) };
+  }
+
+  /**
+   * Saves the database and every fake's state for `name`, in one synchronous block, so nothing
+   * changes between the two. A failure is logged and drops the scenario's record, so a later
+   * reset seeds again rather than restoring an older snapshot; the seed still counts.
+   */
+  function takeSnapshot(
+    name: string,
+    definition: Scenario,
+    running: NonNullable<typeof current>,
+    entities: ScenarioEntities,
+  ): 'taken' | 'failed' {
+    const previous = snapshots.get(name);
+    snapshots.delete(name);
+    try {
+      if (fake === undefined) throw new Error('The fake Slack API is not running.');
+      const key = keyOf(definition);
+      const file = join(snapshotDir, `${name}-${key}.sqlite`);
+      const record: SnapshotRecord = {
+        key,
+        file,
+        entities: structuredClone(entities),
+        fakes: fakes.state(),
+        spur: running.spur.state(),
+        slack: fake.state(),
+      };
+      saveSnapshot(paths.dbFile, file);
+      snapshots.set(name, record);
+      if (previous !== undefined && previous.file !== file) rmSync(previous.file, { force: true });
+      return 'taken';
+    } catch (err) {
+      log(`stand snapshot failed: ${errorMessage(err)}\n`);
+      return 'failed';
+    }
   }
 
   /** The fake, unless a reset or a stop has taken the daemon away from it. */
