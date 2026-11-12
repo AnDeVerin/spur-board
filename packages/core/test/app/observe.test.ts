@@ -2153,6 +2153,60 @@ describe('anomaly blocks', () => {
     expect((await surface(merged.b)).blocks).toEqual([]);
   });
 
+  it('keeps a ticket-closed block open while GitHub is blind', async () => {
+    const b = await board();
+    const ref = (await b.core.context(source)).observe.tickets[0];
+    if (ref === undefined) throw new Error('Missing ticket request');
+    const ticket = (status: string) =>
+      b.core.observe(source, {
+        batch: {
+          source,
+          observedAt: iso(),
+          complete: true,
+          items: [{ kind: 'ticket', facts: { ...fact(), status, updatedAt: iso() } }],
+          entities: [{ ref, status: 'ok' }],
+        },
+        effectiveComplete: true,
+        state: { lastCompleteAt: iso(), gone: [] },
+        outcomes: [],
+      });
+    await ticket('open');
+    await spur(b, [session('worker-1', 'working')]);
+    now += 1_000;
+    await ticket('closed');
+    now += 1_000;
+    await prs(b, []);
+    expect(await openLedger(b)).toEqual(['ticket-closed']);
+
+    now += 1_000;
+    await b.core.reportSourceState(github, {
+      lastCompleteAt: iso(),
+      blind: { reason: 'stale', message: 'GitHub stopped answering' },
+      gone: [],
+    });
+    await tick(b);
+    let state = await surface(b);
+    expect(await openLedger(b)).toEqual(['ticket-closed']);
+    expect(state.items.map((item) => item.cleared_at)).toEqual([null]);
+    expect([state.opens, state.closes]).toEqual([1, 0]);
+
+    now += 1_000;
+    await prs(b, []);
+    state = await surface(b);
+    expect(await openLedger(b)).toEqual(['ticket-closed']);
+    expect(state.blocks).toHaveLength(1);
+    expect([state.opens, state.closes]).toEqual([1, 0]);
+
+    now += 1_000;
+    await prs(b, [pr(7, 'merged')]);
+    state = await surface(b);
+    expect(await openLedger(b)).toEqual([]);
+    expect(state.blocks).toEqual([
+      expect.objectContaining({ state: 'unblocked', outcome: 'withdrawn', unblocked_by: 'system' }),
+    ]);
+    expect(state.items.map((item) => item.cleared_at)).toEqual([iso()]);
+  });
+
   it('skips the filter item for a done Jira ticket with live work and keeps it beside a merged PR', async () => {
     const jira = configSchema.parse({
       projects: [

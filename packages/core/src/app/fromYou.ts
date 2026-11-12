@@ -267,6 +267,7 @@ export async function reconcileItems(
     .selectFrom('ticket_snapshot')
     .select(['task_id', 'status', 'detail', 'source'])
     .execute();
+  const unpolledTickets: string[] = [];
   for (const task of tasks) {
     const state = taskPrs[String(task.id)];
     const project = config.projects.find((entry) => entry.id === task.project);
@@ -301,17 +302,22 @@ export async function reconcileItems(
         Date.parse(repoSource.last_complete_at) > Date.parse(updatedAt)
       );
     });
-    if (polled)
-      candidates.push({
-        key: `ticket-closed:${String(task.id)}`,
-        kind: 'anomaly',
-        taskId: task.id,
-        summary: `${task.key}: ticket closed while work is live and no PR merged`,
-        factAt: updatedAt,
-        source: ticket.source,
-        priority: 4,
-        revision: updatedAt,
-      });
+    const key = `ticket-closed:${String(task.id)}`;
+    // An open anomaly outlasts a blind or lagging GitHub; only observed facts end it.
+    if (!polled) {
+      unpolledTickets.push(key);
+      continue;
+    }
+    candidates.push({
+      key,
+      kind: 'anomaly',
+      taskId: task.id,
+      summary: `${task.key}: ticket closed while work is live and no PR merged`,
+      factAt: updatedAt,
+      source: ticket.source,
+      priority: 4,
+      revision: updatedAt,
+    });
   }
   const previousEpisode = await trx
     .selectFrom('meta')
@@ -403,7 +409,7 @@ export async function reconcileItems(
     }
   }
   const ordered = orderItems(candidates);
-  const seen = new Set(ordered.map((item) => item.key));
+  const seen = new Set([...ordered.map((item) => item.key), ...unpolledTickets]);
   for (const flag of health.held) {
     const task = taskById.get(Number(flag.taskId));
     if (task !== undefined) seen.add(healthKey(task.id, flag));
