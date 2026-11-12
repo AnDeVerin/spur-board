@@ -2270,7 +2270,7 @@ describe('turns', () => {
     expect(await reminders(ctx)).toHaveLength(1);
   });
 
-  it("reminds the orchestrator that takes over a reminded turn and drops the old holder's ring", async () => {
+  it("reminds the orchestrator that takes over a reminded turn, whose take drops the old holder's ring", async () => {
     const ctx = await setup({ config: policyBoard() });
     await addSession(ctx, 'qa-1', 'qa');
     await open(ctx);
@@ -2288,7 +2288,7 @@ describe('turns', () => {
     ctx.advance(1000);
     await ctx.apply(ctx.ops.ack, T1, 'agent:qa/qa-2', 'ack-qa-2');
     await health(ctx, 'qa-2', 'qa', 'waiting', ctx.now());
-    await remind(ctx);
+    // No tick runs between the take-over and the send: the take itself drops the queued ring.
     await ctx.sender.tick();
 
     expect(sessionsRung(ctx)).toEqual(['qa-1']);

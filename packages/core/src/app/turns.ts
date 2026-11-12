@@ -142,6 +142,7 @@ export async function openTurn(
  * Takes a turn for `actor`. False for a missing, closed, operator or taken worker turn. An
  * untaken turn needs its unread notification addressed to the actor; a taken orchestrator turn
  * may be taken over by whoever its notification is now addressed to. Others get `forbidden`.
+ * An unsent reminder to an earlier holder is acked, so `ringStillCurrent` drops its ring.
  */
 export async function takeTurn(
   trx: Trx,
@@ -164,6 +165,17 @@ export async function takeTurn(
     .set({ acked_by: actor, acked_at: at.toISOString() })
     .where('id', '=', turnId)
     .execute();
+  const holder = parseActorId(actor);
+  let stale = trx
+    .updateTable('notification')
+    .set({ acked_at: at.toISOString() })
+    .where('turn_id', '=', turnId)
+    .where('kind', '=', 'turn_reminder')
+    .where('acked_at', 'is', null)
+    .where('exhausted_at', 'is', null);
+  if (holder?.actor === 'agent')
+    stale = stale.where('author_session', '!=', holder.actorRef.session);
+  await stale.execute();
   return true;
 }
 
@@ -276,9 +288,9 @@ export async function quietTurns(trx: Trx) {
 }
 
 /**
- * Registers one reminder to the holder of each turn quiet for `stuckTurnAfterMs`, and drops an
- * unsent reminder to an earlier holder: the sender then finds it acked (`ringStillCurrent`).
- * Nothing while Spur is blind, since the holder's health is then unknown.
+ * Registers one reminder to the holder of each turn quiet for `stuckTurnAfterMs`; `takeTurn`
+ * drops the reminder of an earlier holder. Nothing while Spur is blind, since the holder's health
+ * is then unknown.
  */
 export async function remindStuckTurns(trx: Trx, config: Config, at: Date): Promise<void> {
   const spur = await trx
@@ -288,15 +300,6 @@ export async function remindStuckTurns(trx: Trx, config: Config, at: Date): Prom
     .executeTakeFirst();
   if (spur !== undefined && spur.blind_reason !== null) return;
   for (const { turn, sessionId, ended, quietSince, reminder } of await quietTurns(trx)) {
-    await trx
-      .updateTable('notification')
-      .set({ acked_at: at.toISOString() })
-      .where('turn_id', '=', turn.id)
-      .where('kind', '=', 'turn_reminder')
-      .where('author_session', '!=', sessionId)
-      .where('acked_at', 'is', null)
-      .where('exhausted_at', 'is', null)
-      .execute();
     if (ended || quietSince === null || reminder !== undefined) continue;
     if (at.getTime() < Date.parse(quietSince) + stuckTurnAfterMs(config)) continue;
     await registerTurnReminder(trx, turn, sessionId, at);
