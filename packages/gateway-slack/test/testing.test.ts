@@ -69,4 +69,13 @@ describe('startFakeSlackApi', () => {
     });
     expect(fake.violations()).toEqual([{ method: 'no.such.method', params: { a: '1' } }]);
   });
+
+  it('answers conversations.info as a member channel', async () => {
+    const fake = await start();
+    expect(await call(fake, 'conversations.info', 'channel=C1')).toEqual({
+      ok: true,
+      channel: { id: 'C1', is_member: true },
+    });
+    expect(fake.violations()).toEqual([]);
+  });
 });

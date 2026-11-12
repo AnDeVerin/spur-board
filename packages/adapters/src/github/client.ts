@@ -49,6 +49,10 @@ function teamScopeDenied(error: GraphError, query: string): boolean {
 // Every member of the RequestedReviewer union, so none arrives as an empty object.
 const REVIEWER_FIELDS =
   'requestedReviewer { __typename ... on Bot { login } ... on Mannequin { login } ... on User { login } ... on Team { slug } ... on EnterpriseTeam { slug } } asCodeOwner';
+const REVIEW_FIELDS = 'id author { __typename login } state commit { oid } submittedAt';
+// Comments are read newest first, back from the end of the PR.
+const COMMENT_FIELDS =
+  'nodes { id author { __typename login } createdAt } pageInfo { hasPreviousPage startCursor }';
 const CLOSING_FIELDS =
   'nodes { number repository { nameWithOwner } } pageInfo { hasNextPage endCursor }';
 // `closing` adds the issues a PR closes; only the tracker repo of a github-issues project
@@ -62,7 +66,8 @@ const prFields = (
  ... on CheckRun { __typename name status conclusion startedAt completedAt checkSuite { createdAt } isRequired(pullRequestNumber: ${String(number)}) }
  ... on StatusContext { __typename context state createdAt isRequired(pullRequestNumber: ${String(number)}) }
  } pageInfo { hasNextPage endCursor } } }
- reviews(first: 100) { nodes { author { login } state commit { oid } submittedAt } pageInfo { hasNextPage endCursor } }
+ reviews(first: 100) { nodes { ${REVIEW_FIELDS} } pageInfo { hasNextPage endCursor } }
+ comments(last: 100) { ${COMMENT_FIELDS} }
  reviewThreads(first: 100) { nodes { isResolved } pageInfo { hasNextPage endCursor } }
  reviewRequests(first: 100) { nodes { ${REVIEWER_FIELDS} } pageInfo { hasNextPage endCursor } }${closing ? `\n closingIssuesReferences(first: 100) { ${CLOSING_FIELDS} }` : ''}`;
 const DISCOVERY_FIELDS = `nodes { number updatedAt author { login } state } pageInfo { hasNextPage endCursor }`;
@@ -96,9 +101,12 @@ export function pageQuery(
     | 'reviewThreads'
     | 'reviewRequests'
     | 'contexts'
-    | 'closingIssuesReferences',
+    | 'closingIssuesReferences'
+    | 'comments',
   bootstrap = false,
 ): string {
+  if (connection === 'comments')
+    return `query PrPage($owner: String!, $repo: String!, $number: Int!, $before: String!) { rateLimit { remaining resetAt } repository(owner: $owner, name: $repo) { pullRequest(number: $number) { comments(last: 100, before: $before) { ${COMMENT_FIELDS} } } } }`;
   if (connection === 'pullRequests') {
     const states = bootstrap ? 'OPEN' : 'OPEN, MERGED';
     return `query DiscoveryPage($owner: String!, $repo: String!, $after: String!) { rateLimit { remaining resetAt } repository(owner: $owner, name: $repo) { pullRequests(first: 100, after: $after, states: [${states}], orderBy: {field: UPDATED_AT, direction: DESC}) { ${DISCOVERY_FIELDS} } } }`;
@@ -108,7 +116,7 @@ export function pageQuery(
       ? `closingIssuesReferences(first: 100, after: $after) { ${CLOSING_FIELDS} }`
       : connection === 'contexts'
         ? `statusCheckRollup { contexts(first: 100, after: $after) { nodes { ... on CheckRun { __typename name status conclusion startedAt completedAt checkSuite { createdAt } isRequired(pullRequestNumber: $number) } ... on StatusContext { __typename context state createdAt isRequired(pullRequestNumber: $number) } } pageInfo { hasNextPage endCursor } } }`
-        : `${connection}(first: 100, after: $after) { nodes { ${connection === 'reviews' ? 'author { login } state commit { oid } submittedAt' : connection === 'reviewThreads' ? 'isResolved' : REVIEWER_FIELDS} } pageInfo { hasNextPage endCursor } }`;
+        : `${connection}(first: 100, after: $after) { nodes { ${connection === 'reviews' ? REVIEW_FIELDS : connection === 'reviewThreads' ? 'isResolved' : REVIEWER_FIELDS} } pageInfo { hasNextPage endCursor } }`;
   return `query PrPage($owner: String!, $repo: String!, $number: Int!, $after: String!) { rateLimit { remaining resetAt } repository(owner: $owner, name: $repo) { pullRequest(number: $number) { ${field} } } }`;
 }
 

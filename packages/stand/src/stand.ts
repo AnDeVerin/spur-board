@@ -696,13 +696,18 @@ export async function startStand(options: StandOptions): Promise<Stand> {
       if (current === undefined)
         return Promise.resolve({ status: 503, body: { error: 'The daemon is not running.' } });
       const spur = current.spur.violations();
+      const slack = fake?.violations() ?? [];
       const others = fakes.violations();
-      const total = spur.total + others.total;
+      const total = spur.total + slack.length + others.total;
       return Promise.resolve({
         status: total === 0 ? 200 : 409,
         body: {
           total,
-          items: [...spur.items.map((item) => ({ system: 'spur', ...item })), ...others.items],
+          items: [
+            ...spur.items.map((item) => ({ system: 'spur', ...item })),
+            ...slack.map((item) => ({ system: 'slack', ...item })),
+            ...others.items,
+          ],
         },
       });
     },
@@ -785,6 +790,8 @@ export async function startStand(options: StandOptions): Promise<Stand> {
       // The same port keeps SLACK_API_URL stable; a new instance drops everything it held.
       const port = Number(new URL(previous.url).port);
       fake = undefined;
+      // After the daemon stopped, so a call made during its shutdown is counted too.
+      violationsCleared += previous.violations().length;
       await previous.close();
       fake = await startFake(port);
       await writeHome(fake.url, name);

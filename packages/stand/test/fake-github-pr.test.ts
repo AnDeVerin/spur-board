@@ -27,6 +27,7 @@ const CONNECTIONS = {
   reviewRequests: true,
   contexts: true,
   closingIssuesReferences: true,
+  comments: true,
 } satisfies Record<Parameters<typeof pageQuery>[0], true>;
 const FIELDS = Object.keys(CONNECTIONS) as (keyof typeof CONNECTIONS)[];
 
@@ -124,7 +125,12 @@ describe('matching', () => {
   ])('logs one violation and refuses: %s', async (_name, query, variables) => {
     created(1, {
       reviews: [
-        { author: { login: 'r' }, state: 'APPROVED', commit: { oid: SHA }, submittedAt: AT },
+        {
+          author: { __typename: 'User', login: 'r' },
+          state: 'APPROVED',
+          commit: { oid: SHA },
+          submittedAt: AT,
+        },
       ],
     });
     const response = await postQuery(fakeFetch(fakes), query, variables);
@@ -202,7 +208,7 @@ describe('wire facts', () => {
       ],
       reviews: [
         {
-          author: { login: 'alice' },
+          author: { __typename: 'User', login: 'alice' },
           state: 'CHANGES_REQUESTED',
           commit: { oid: SHA },
           submittedAt: AT,
@@ -335,6 +341,10 @@ describe('pagination', () => {
   const CURSOR = sourceCursorSchema.parse('2025-01-01T00:00:00.000Z');
   const many = <T>(make: (i: number) => T): T[] =>
     Array.from({ length: 101 }, (_, i) => make(i + 1));
+  const comment = (i: number) => ({
+    author: { __typename: 'User', login: `commenter-${String(i)}` },
+    createdAt: new Date(Date.parse(AT) + i * 1000).toISOString(),
+  });
 
   it('reads every connection past its first page through the real adapter', async () => {
     created(1, {
@@ -346,7 +356,7 @@ describe('pagination', () => {
         isRequired: false,
       })),
       reviews: many((i) => ({
-        author: { login: `reviewer-${String(i)}` },
+        author: { __typename: 'User', login: `reviewer-${String(i)}` },
         state: 'APPROVED',
         commit: { oid: SHA },
         submittedAt: AT,
@@ -360,6 +370,7 @@ describe('pagination', () => {
         number: i,
         repository: { nameWithOwner: BOARD },
       })),
+      comments: many(comment),
     });
     const ref = { kind: 'pr' as const, repo: BOARD, number: 1 };
     const batch = await pollRepo(
@@ -373,6 +384,25 @@ describe('pagination', () => {
     expect(facts.reviews).toHaveLength(101);
     expect(facts.reviewThreads).toHaveLength(101);
     expect(facts.reviewRequests).toHaveLength(101);
+    expect(facts.feedback).toHaveLength(202);
+    expect(facts.feedbackComplete).toBe(true);
+  });
+
+  it('reads comments back to the cursor through the real adapter', async () => {
+    created(1, { comments: Array.from({ length: 250 }, (_, i) => comment(i)) });
+    const ref = { kind: 'pr' as const, repo: BOARD, number: 1 };
+    const batch = await pollRepo(
+      fakes,
+      BOARD,
+      pollContext({
+        observe: { prs: [ref], tickets: [], sessions: [] },
+        feedbackCursors: [{ ref, id: 'IC_1_120', postedAt: comment(120).createdAt }],
+      }),
+    );
+    const facts = factsOf(batch, 1);
+    expect(facts.feedback?.filter((entry) => entry.kind === 'comment')).toHaveLength(200);
+    expect(facts.feedback?.[0]).toMatchObject({ id: 'IC_1_50', author: { type: 'user' } });
+    expect(facts.feedbackComplete).toBe(true);
   });
 
   it.each([

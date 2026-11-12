@@ -879,6 +879,43 @@ describe('stand', () => {
     await expect(fetch(`${url}auth.test`, { method: 'POST' })).rejects.toThrow();
   }, 60_000);
 
+  it('folds the fake Slack unknown methods into the shared log, and reset clears them', async () => {
+    const manifest = await up();
+    const unknown = await fetch(`${slackUrl(manifest)}no.such.method`, {
+      method: 'POST',
+      body: 'a=1',
+    });
+    expect(await unknown.json()).toEqual({ ok: false, error: 'unknown_method' });
+
+    const log = await control(manifest, '/violations');
+    expect(log.status).toBe(409);
+    expect(log.body).toMatchObject({ total: 1 });
+    expect((log.body as { items: unknown[] }).items).toContainEqual({
+      system: 'slack',
+      method: 'no.such.method',
+      params: { a: '1' },
+    });
+    const cli = await standCli(['violations', '--home', manifest.home]);
+    expect(cli.code, cli.stderr).toBe(1);
+    expect(cli.stdout).toContain('no.such.method');
+    const status = await standCli(['status', '--home', manifest.home, '--json']);
+    expect(status.code, status.stderr).toBe(0);
+    expect(JSON.parse(status.stdout)).toMatchObject({ violations: 1 });
+    expect((await outbox(manifest)).violations).toEqual([
+      { method: 'no.such.method', params: { a: '1' } },
+    ]);
+
+    const reset = await control(manifest, '/reset');
+    expect(reset.status).toBe(200);
+    expect((reset.body as { violationsCleared: number }).violationsCleared).toBeGreaterThanOrEqual(
+      1,
+    );
+    const after = await control(manifest, '/violations');
+    expect(after, JSON.stringify(after.body)).toMatchObject({ status: 200, body: { total: 0 } });
+    const clean = await standCli(['violations', '--home', manifest.home]);
+    expect(clean.code, clean.stderr).toBe(0);
+  }, 60_000);
+
   it('stamps the fake and the daemon from one injected clock', async () => {
     const offset = 30 * 24 * 60 * 60 * 1_000;
     const startedAt = Date.now();
@@ -1241,6 +1278,10 @@ describe('stand', () => {
       expect(approved.reviews).toMatchObject([
         { reviewer: 'stand-reviewer', state: 'approved', commitSha: first.headSha },
       ]);
+      expect(approved.feedback).toMatchObject([
+        { kind: 'review', author: { login: 'stand-reviewer', type: 'user' } },
+      ]);
+      expect(approved.feedbackComplete).toBe(true);
 
       const red = await step('ci-red');
       expect(red.mergeState).toBe('blocked');

@@ -26,7 +26,7 @@ import {
   nextPage,
   pastCursor,
 } from './discovery.ts';
-import { normalizePr, projectKeyRule, type KeyRule } from './prBatch.ts';
+import { commentWire, normalizePr, projectKeyRule, type KeyRule } from './prBatch.ts';
 
 const MALFORMED = 'Malformed GitHub response';
 const discoveryRootWire = z.object({ pullRequests: connectionWire(discoveryNodeWire) });
@@ -35,8 +35,15 @@ const baselineRootWire = z.object({
 });
 // Pagination reads only the paged connections; normalizePr parses the PR content once merged.
 const pagingWire = connectionWire(z.unknown());
+// Comments page back from the newest; nodes parse as normalizePr does, so a bad history node
+// fails its page instead of the merged PR.
+const backPagingWire = z.object({
+  nodes: z.array(commentWire),
+  pageInfo: z.object({ hasPreviousPage: z.boolean(), startCursor: z.string().nullable() }),
+});
 const prPagingWire = z.looseObject({
   reviews: pagingWire,
+  comments: backPagingWire,
   reviewThreads: pagingWire,
   reviewRequests: pagingWire,
   statusCheckRollup: z.object({ contexts: pagingWire }).nullish(),
@@ -44,7 +51,12 @@ const prPagingWire = z.looseObject({
 });
 const aliasWire = z.object({ pullRequest: prPagingWire.nullish() }).nullish();
 const pageRootWire = z.object({ pullRequest: prPagingWire.partial() });
+const commentsRootWire = z.object({ pullRequest: z.object({ comments: backPagingWire }) });
 type Paging = z.output<typeof pagingWire>;
+type BackPaging = z.output<typeof backPagingWire>;
+type FeedbackCursor = NonNullable<PollContext['feedbackCursors']>[number];
+// Comment pages per PR per poll, the first one included.
+const FEEDBACK_PAGES = 3;
 type PrPaging = z.output<typeof prPagingWire>;
 type PagePr = z.output<typeof pageRootWire>['pullRequest'];
 type PagedField =
@@ -206,6 +218,60 @@ async function fullPr(
   }
   return { status: 'ok', pr };
 }
+function reachesCursor(nodes: BackPaging['nodes'], cursor: FeedbackCursor | undefined): boolean {
+  if (cursor === undefined) return false;
+  const postedAt = Date.parse(cursor.postedAt);
+  return nodes.some((node) => node.id === cursor.id || Date.parse(node.createdAt) < postedAt);
+}
+/**
+ * Reads comments back from `first` to `cursor`, or to the start of the PR, within
+ * `FEEDBACK_PAGES`. A transient failure keeps the comments read so far as incomplete; every
+ * other failure, and any failure after an abort, rejects the poll.
+ */
+async function readFeedback(
+  client: GithubClient,
+  first: BackPaging,
+  owner: string,
+  name: string,
+  number: number,
+  cursor: FeedbackCursor | undefined,
+  signal: AbortSignal,
+  budget: (value: NonNullable<Batch['budget']>) => void,
+): Promise<{ nodes: BackPaging['nodes']; complete: boolean }> {
+  let nodes = first.nodes;
+  let page = first;
+  const seen = new Set<string>();
+  try {
+    for (
+      let pages = 1;
+      page.pageInfo.hasPreviousPage && !reachesCursor(page.nodes, cursor);
+      pages += 1
+    ) {
+      const before = page.pageInfo.startCursor;
+      if (!before || seen.has(before) || pages >= FEEDBACK_PAGES) return { nodes, complete: false };
+      seen.add(before);
+      const response = await client.query(
+        pageQuery('comments'),
+        { owner, repo: name, number, before },
+        signal,
+      );
+      budget(response.budget);
+      rejectUnscoped(response.errors, ['repository']);
+      if (response.errors.length > 0) return { nodes, complete: false };
+      page = parseWire(commentsRootWire, response.data.repository, MALFORMED, [
+        'data',
+        'repository',
+      ]).pullRequest.comments;
+      nodes = [...page.nodes, ...nodes];
+    }
+    return { nodes, complete: true };
+  } catch (error) {
+    if (signal.aborted) throw error;
+    if (error instanceof AdapterError && error.kind === 'transient')
+      return { nodes, complete: false };
+    throw error;
+  }
+}
 /** What a poll has read so far; `processPr` adds to it. */
 interface Accumulator {
   complete: boolean;
@@ -226,6 +292,7 @@ interface PrScope {
   name: string;
   keys: KeyRule;
   signal: AbortSignal;
+  feedbackCursors?: PollContext['feedbackCursors'];
 }
 function malformed(acc: Accumulator, error: AdapterError, ref?: PrEntityRef): false {
   acc.parseError ??= error;
@@ -263,6 +330,9 @@ async function processPr(
     else acc.complete = false;
     return false;
   }
+  const report = (next: NonNullable<Batch['budget']>): void => {
+    acc.budget = next;
+  };
   const full = await fullPr(
     scope.client,
     wire,
@@ -270,9 +340,7 @@ async function processPr(
     scope.name,
     number,
     scope.signal,
-    (next) => {
-      acc.budget = next;
-    },
+    report,
   );
   if (full.status === 'denied') {
     acc.complete = false;
@@ -280,7 +348,24 @@ async function processPr(
     return false;
   }
   if (full.status === 'malformed') return malformed(acc, full.error, ref);
-  const facts = content(() => normalizePr(ref?.repo ?? scope.repo, full.pr, scope.keys));
+  const cursor = scope.feedbackCursors?.find(
+    (entry) =>
+      entry.ref.number === number && entry.ref.repo.toLowerCase() === scope.repo.toLowerCase(),
+  );
+  const feedback = await readFeedback(
+    scope.client,
+    full.pr.comments,
+    scope.owner,
+    scope.name,
+    number,
+    cursor,
+    scope.signal,
+    report,
+  );
+  const pr = { ...full.pr, comments: { ...full.pr.comments, nodes: feedback.nodes } };
+  const facts = content(() =>
+    normalizePr(ref?.repo ?? scope.repo, pr, scope.keys, feedback.complete),
+  );
   if (facts instanceof AdapterError) return malformed(acc, facts, ref);
   acc.items.push({ kind: 'pr', facts });
   if (ref) acc.entities.push({ ref, status: 'ok' });
@@ -371,7 +456,15 @@ async function pollRepository({
           found.cursor,
         ) ?? sourceCursorSchema.parse('1970-01-01T00:00:00.000Z'))
       : undefined;
-  const scope: PrScope = { client, repo, owner, name, keys, signal: ctx.signal };
+  const scope: PrScope = {
+    client,
+    repo,
+    owner,
+    name,
+    keys,
+    signal: ctx.signal,
+    ...(ctx.feedbackCursors === undefined ? {} : { feedbackCursors: ctx.feedbackCursors }),
+  };
   let discoveredOk = true;
   for (const [i, number] of numbers.entries()) {
     const alias = `pr${String(i)}`;

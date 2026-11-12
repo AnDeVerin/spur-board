@@ -63,6 +63,7 @@ const pr = {
     ]),
   },
   reviews: connection([]),
+  comments: { nodes: [], pageInfo: { hasPreviousPage: false, startCursor: null } },
   reviewThreads: connection([]),
   reviewRequests: connection([]),
 };

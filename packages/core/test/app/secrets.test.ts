@@ -299,7 +299,7 @@ describe('gateway secret scan', () => {
       for (let i = 0; i < 128; i += 1) {
         await raiseItem(trx, {
           itemKey: `review:${String(i)}`,
-          kind: 'review_required',
+          kind: 'board_observation',
           text: `Review item ${String(i)}`,
           url: 'https://github.com/o/r/issues/101',
           taskId: 1,
@@ -377,7 +377,7 @@ describe('gateway secret scan', () => {
     const blockedItem = await scanTransaction(store, config, (trx) =>
       raiseItem(trx, {
         itemKey: 'secret-feed',
-        kind: 'review_required',
+        kind: 'board_observation',
         text: token,
         url: 'https://github.com/o/r/issues/101',
         taskId: 1,
@@ -393,7 +393,7 @@ describe('gateway secret scan', () => {
     const cleanItem = await scanTransaction(store, config, (trx) =>
       raiseItem(trx, {
         itemKey: 'clean-feed',
-        kind: 'review_required',
+        kind: 'board_observation',
         text: 'Review clean item',
         url: 'https://github.com/o/r/issues/101',
         taskId: 1,
