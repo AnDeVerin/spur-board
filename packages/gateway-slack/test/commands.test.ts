@@ -185,4 +185,44 @@ describe('Slack board commands', () => {
     expect(text.slice(0, -pointer.length)).not.toMatch(/&(?:a|am|amp|amp;)$/);
     expect(text).not.toContain('y'.repeat(200));
   });
+
+  it('keeps status items ahead of the task lines when the reply is cut', async () => {
+    const fake = await startFakeSlackApi();
+    fakes.push(fake);
+    const gateway = createSlackGateway({
+      token: 'xoxb-test',
+      now: () => Date.now(),
+      channels: { orchestrators: 'C_ORCH', feed: 'C_FEED' },
+      apiUrl: fake.url,
+    });
+    const paragraph = (text: string) => ({
+      kind: 'paragraph' as const,
+      children: [{ kind: 'text' as const, text }],
+    });
+    const items = ['ITEM-A: Worker ended without a PR', 'ITEM-B: Inbound gap on C_ORCH'];
+    const body = [
+      paragraph('Board status: 60 tasks, 2 items needing attention.'),
+      ...items.map(paragraph),
+      ...Array.from({ length: 60 }, (_, index) =>
+        paragraph(`TASK-${String(index + 1)}: dev (member)`),
+      ),
+    ];
+    const interaction = interactionRefSchema.parse(
+      JSON.stringify({ channel: 'C_ORCH', user: 'U_OPERATOR', triggerId: 'T3' }),
+    );
+    expect(
+      await gateway.respond(interaction, body, { private: true, cliHint: 'board status' }),
+    ).toBe('sent');
+    const posted = fake.requests().find((request) => request.method === 'chat.postEphemeral');
+    const text = posted?.params.text ?? '';
+    for (const item of items) expect(text).toContain(item);
+    expect(text).not.toContain('TASK-60:');
+    expect(text.endsWith('\n\nMore: board status (CLI)')).toBe(true);
+    const blocks = JSON.parse(posted?.params.blocks ?? '[]') as {
+      elements: { elements: { text: string }[] }[];
+    }[];
+    const elements = blocks[0]?.elements ?? [];
+    expect(elements).toHaveLength(41);
+    expect(elements[40]?.elements[0]?.text).toBe('More: board status (CLI)');
+  });
 });

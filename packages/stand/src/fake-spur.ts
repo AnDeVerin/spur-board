@@ -85,6 +85,17 @@ export interface FakeSpur {
   violations(): { total: number; items: readonly Violation[] };
   /** Rejects every held request and every later one, and leaves no timer. */
   close(): void;
+  /** A deep copy of the sessions, failure rules and instance generation; no request logs. */
+  state(): FakeSpurState;
+  /** Replaces the sessions, failure rules and instance generation with a copy of `state`. */
+  restore(state: FakeSpurState): void;
+}
+
+/** What `FakeSpur.state` returns. */
+export interface FakeSpurState {
+  sessions: [string, FakeSession][];
+  rules: [RouteName, FailureRule][];
+  generation: number;
 }
 
 /** The URL of a `fetch` input. */
@@ -317,6 +328,15 @@ export function createFakeSpur(options: {
       }
     },
     violations: currentViolations,
+    state: () => structuredClone({ sessions: [...sessions], rules: [...rules], generation }),
+    restore(state) {
+      const copy = structuredClone(state);
+      sessions.clear();
+      for (const [id, session] of copy.sessions) sessions.set(id, session);
+      rules.clear();
+      for (const [name, rule] of copy.rules) rules.set(name, rule);
+      generation = copy.generation;
+    },
     close() {
       closed = true;
       for (const release of [...held]) release();
@@ -351,7 +371,7 @@ export function parseFakeArgs(
   }
   const [system, verb, ...operands] = parsed.positionals;
   if (system !== 'spur')
-    return err(`Unknown fake system ${system ?? '(none)'}; use spur or github.`);
+    return err(`Unknown fake system ${system ?? '(none)'}; use spur, github, jira or slack.`);
   if (verb === undefined) return err('fake spur needs a verb.');
   const operand = verb === 'session' ? 'id' : verb === 'fail' ? 'mode' : undefined;
   if (operands.length !== (operand === undefined ? 0 : 1))

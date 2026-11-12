@@ -47,6 +47,14 @@ export default defineConfig({
         test: {
           name: 'integration',
           include: ['packages/*/test/**/*.integration.test.ts'],
+          exclude: ['packages/stand/test/scenarios.integration.test.ts'],
+        },
+      },
+      {
+        extends: true,
+        test: {
+          name: 'stand',
+          include: ['packages/stand/test/scenarios.integration.test.ts'],
         },
       },
       {

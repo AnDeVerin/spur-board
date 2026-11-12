@@ -79,3 +79,30 @@ describe('startFakeSlackApi', () => {
     expect(fake.violations()).toEqual([]);
   });
 });
+
+describe('state and restore', () => {
+  it('gives a fresh fake the same messages and reactions, unaffected by later changes', async () => {
+    const fake = await start();
+    const posted = (await call(fake, 'chat.postMessage', 'channel=C1&text=first')) as {
+      ts: string;
+    };
+    await call(fake, 'reactions.add', `channel=C1&timestamp=${posted.ts}&name=white_check_mark`);
+    const before = fake.platform.messages();
+    const state = fake.state();
+    await call(fake, 'chat.postMessage', 'channel=C1&text=second');
+
+    const restored = await start();
+    restored.restore(state);
+    expect(restored.platform.messages()).toEqual(before);
+    expect(
+      await call(restored, 'reactions.add', `channel=C1&timestamp=${posted.ts}&name=x`),
+    ).toEqual({ ok: false, error: 'already_reacted' });
+    // A later post never reuses a restored ts.
+    const next = (await call(restored, 'chat.postMessage', 'channel=C1&text=next')) as {
+      ts: string;
+    };
+    expect(Number(next.ts)).toBeGreaterThan(Number(posted.ts));
+    expect(state.stored).toHaveLength(1);
+    expect(fake.violations()).toEqual([]);
+  });
+});

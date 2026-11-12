@@ -48,6 +48,17 @@ export interface FakeSlackApi {
   close(): Promise<void>;
   /** Send a raw Socket Mode envelope and wait for its acknowledgement when connected. */
   emitEnvelope(type: string, payload: object, retryAttempt?: number): Promise<void>;
+  /** A deep copy of the stored messages, the reactions and the last ts; no request logs. */
+  state(): FakeSlackState;
+  /** Replaces the messages and reactions with a copy of `state`; ts never moves backward. */
+  restore(state: FakeSlackState): void;
+}
+
+/** What `FakeSlackApi.state` returns. */
+export interface FakeSlackState {
+  stored: StoredMessage[];
+  done: string[];
+  lastMicros: number;
 }
 
 type Fault =
@@ -614,5 +625,13 @@ export async function startFakeSlackApi(
       });
     },
     emitEnvelope,
+    state: () => structuredClone({ stored, done: [...done], lastMicros }),
+    restore(state) {
+      const copy = structuredClone(state);
+      stored.splice(0, stored.length, ...copy.stored);
+      done.clear();
+      for (const key of copy.done) done.add(key);
+      lastMicros = Math.max(lastMicros, copy.lastMicros);
+    },
   };
 }
