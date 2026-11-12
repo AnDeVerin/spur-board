@@ -14,6 +14,7 @@ const JOB_IDS = [
   'workflows',
   'quality',
   'test',
+  'stand',
   'package-smoke',
 ];
 
@@ -26,6 +27,7 @@ function allSuccess(): Record<string, { result: string; outputs?: Record<string,
     workflows: { result: 'success' },
     quality: { result: 'success' },
     test: { result: 'success' },
+    stand: { result: 'success' },
     'package-smoke': { result: 'success' },
   };
 }
@@ -52,6 +54,15 @@ describe('decideCiOk', () => {
     expect(verdict.ok).toBe(false);
     expect(verdict.lines).toContain('ci-ok: test failure FAIL');
     expect(verdict.lines.at(-1)).toBe('ci-ok: FAIL');
+  });
+
+  it('fails on a failed or skipped stand job', () => {
+    const failed = decide({ stand: { result: 'failure' } });
+    expect(failed.ok).toBe(false);
+    expect(failed.lines).toContain('ci-ok: stand failure FAIL');
+    const skipped = decide({ stand: { result: 'skipped' } });
+    expect(skipped.ok).toBe(false);
+    expect(skipped.lines).toContain('ci-ok: stand skipped FAIL');
   });
 
   it.each(JOB_IDS)('fails when %s was cancelled', (id) => {
@@ -154,9 +165,12 @@ describe('jobIdsFromWorkflow', () => {
       "${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.ci-ok.result == 'success' }}",
     );
     expect(workflow).toContain(
-      'needs: [changes, pr-title, guardrails, secrets, workflows, quality, test, package-smoke]',
+      'needs: [changes, pr-title, guardrails, secrets, workflows, quality, test, stand, package-smoke]',
     );
     expect(workflow).toMatch(/package-smoke:\n[\s\S]*?node: \[24, 26\]/);
+    expect(workflow).toMatch(
+      /  stand:\n[\s\S]*?node: \[24, 26\][\s\S]*?pnpm check:full --only stand/,
+    );
     expect(workflow).toContain('id-token: write');
     expect(workflow).not.toMatch(/NPM_TOKEN|NODE_AUTH_TOKEN|npm-token:/);
   });
