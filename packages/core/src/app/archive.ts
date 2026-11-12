@@ -8,8 +8,8 @@ import { closeTurns } from './turns.ts';
 
 /**
  * Takes a task off the board in the caller's transaction: closes its open blocks with outcome
- * `archived` and its unclosed turns, clears its board-derived items, cancels its unsent doorbells and journals
- * `task_archived`. Callers set their own extra columns (manual flags, the Done slot).
+ * `archived` and its unclosed turns, clears its board-derived items, cancels its unsent doorbells
+ * and journals `task_archived`. Callers set their own extra columns (manual flags, the Done slot).
  */
 export async function archiveTask(
   trx: Trx,
