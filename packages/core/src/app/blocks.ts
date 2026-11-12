@@ -32,6 +32,7 @@ import {
   moveBlockToAddressee,
 } from './doorbells.ts';
 import { clearItem } from './feed.ts';
+import { takeTurn } from './turns.ts';
 import {
   enqueueConversationClose,
   enqueueConversationReply,
@@ -122,6 +123,16 @@ async function blockTarget(trx: Trx, id: string): Promise<readonly ResolvedTarge
       block,
     ),
   ];
+}
+
+async function turnTarget(trx: Trx, id: string): Promise<ResolvedTarget> {
+  const turn = await trx
+    .selectFrom('turn')
+    .select('task_id')
+    .where('id', '=', idNumber(id))
+    .executeTakeFirst();
+  if (turn === undefined) return { kind: 'missing', id };
+  return { ...(await authorizationTarget(trx, await taskById(trx, turn.task_id))), id };
 }
 
 async function commentTarget(trx: Trx, id: string): Promise<ResolvedTarget> {
@@ -713,8 +724,7 @@ export function createBlockMutations(config: Config) {
       return Promise.all(
         input.entries.map(async ({ id }) => {
           if (id.startsWith('C')) return commentTarget(trx, id);
-          // No turn is stored yet: refuse a T id so it can never ack block B<n>.
-          if (id.startsWith('T')) return { kind: 'missing' as const, id };
+          if (id.startsWith('T')) return turnTarget(trx, id);
           const targets = await blockTarget(trx, id);
           const target = targets[0];
           return target === undefined ? { kind: 'missing' as const, id } : { ...target, id };
@@ -723,6 +733,16 @@ export function createBlockMutations(config: Config) {
     },
     async run(trx, input, ctx) {
       for (const entry of input.entries) {
+        if (entry.id.startsWith('T')) {
+          const taken = await takeTurn(trx, {
+            turnId: idNumber(entry.id),
+            actor: ctx.actor,
+            at: new Date(ctx.at),
+            config,
+          });
+          if (!taken) throw new CommandError('not_found', 'No open turn to take for this ID.');
+          continue;
+        }
         if (!('revision' in entry)) {
           const block = found(await blockById(trx, entry.id));
           const read = await acknowledgeNotification(trx, {

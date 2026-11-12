@@ -114,6 +114,51 @@ export async function registerBlockNotification(trx: Trx, block: Block, at: Date
     .execute();
 }
 
+/**
+ * Register an agent executor's turn. Core opens a turn, so no session authored it: the worker
+ * or column orchestrator the board selects is rung.
+ */
+export async function registerTurnNotification(
+  trx: Trx,
+  turn: Pick<Row<'turn'>, 'id' | 'task_id' | 'role'>,
+  at: Date,
+): Promise<void> {
+  await trx
+    .insertInto('notification')
+    .values({
+      source_key: `turn:${String(turn.id)}:${turn.role}`,
+      kind: 'turn',
+      task_id: turn.task_id,
+      block_id: null,
+      turn_id: turn.id,
+      comment_id: null,
+      revision: null,
+      role: turn.role,
+      author_session: null,
+      recipient_session: null,
+      next_at: at.toISOString(),
+      last_outbox_id: null,
+      acked_at: null,
+      exhausted_at: null,
+      created_at: at.toISOString(),
+    })
+    .onConflict((oc) => oc.column('source_key').doNothing())
+    .execute();
+}
+
+/** The block of a block-owned notification; the store CHECK gives every non-turn kind one. */
+function noticeBlockId(n: Pick<Notification, 'kind' | 'block_id'>): number {
+  if (n.block_id === null) throw new Error(`notification of kind ${n.kind} has no block`);
+  return n.block_id;
+}
+
+/** What a notification is about, as the operator item names it. */
+function noticeRef(n: Notification, task: Task): string {
+  return n.kind === 'turn'
+    ? `turn T${String(n.turn_id)} on ${task.key}`
+    : `block B${String(noticeBlockId(n))} on ${task.key}`;
+}
+
 /** Register a one-ring notice that a block its addressee held was closed by someone else. */
 async function registerRemovedNotification(trx: Trx, block: Block, at: Date): Promise<void> {
   if (block.addressee_role === 'operator') return;
@@ -306,7 +351,7 @@ export async function curatorSession(
 }
 
 /** The newest live session linked to a task in a role. */
-async function linkedSession(
+export async function linkedSession(
   trx: Trx,
   taskId: number,
   role: 'worker' | 'orchestrator',
@@ -439,7 +484,7 @@ async function endNotification(
     const block = await trx
       .selectFrom('block')
       .selectAll()
-      .where('id', '=', n.block_id)
+      .where('id', '=', noticeBlockId(n))
       .executeTakeFirstOrThrow();
     await moveBlockToAddressee(trx, {
       task,
@@ -450,7 +495,7 @@ async function endNotification(
       config,
     });
   } else if (n.kind !== 'removed' && session !== null) {
-    const blockRef = `block B${String(n.block_id)} on ${task.key}`;
+    const blockRef = noticeRef(n, task);
     const answer = `Answer to ${blockRef} was not`;
     const holder = `${addressee.kind} ${session}`;
     await raiseItem(trx, {
@@ -466,7 +511,7 @@ async function endNotification(
             : `${holder} did not get ${blockRef}: ${reason}`,
       url: taskUrl(task, config),
       taskId: task.id,
-      blockId: n.block_id,
+      blockId: n.kind === 'turn' ? null : n.block_id,
       at,
     });
   }
@@ -545,15 +590,18 @@ function noRecipientEnd(n: Notification): string | null {
 /** A ring never carries comment or reason text: only where to look. */
 async function ringText(trx: Trx, n: Notification, task: Task, ring: number): Promise<string> {
   const suffix = `(N${String(n.id)}-${String(ring)})`;
+  if (n.kind === 'turn')
+    return `${task.key} turn T${String(n.turn_id)}: check board inbox ${suffix}`;
+  const blockId = noticeBlockId(n);
   if (n.kind !== 'removed') {
-    return `${task.key} block B${String(n.block_id)}: check board inbox ${suffix}`;
+    return `${task.key} block B${String(blockId)}: check board inbox ${suffix}`;
   }
   const block = await trx
     .selectFrom('block')
     .select('unblocked_by')
-    .where('id', '=', n.block_id)
+    .where('id', '=', blockId)
     .executeTakeFirstOrThrow();
-  return `${task.key} block B${String(n.block_id)} was removed by ${block.unblocked_by ?? 'system'}; see board task ${task.key} ${suffix}`;
+  return `${task.key} block B${String(blockId)} was removed by ${block.unblocked_by ?? 'system'}; see board task ${task.key} ${suffix}`;
 }
 
 /** Notifications reconcile looks at: unacked, not exhausted, due, on a task not archived. */
@@ -779,6 +827,7 @@ export async function acknowledgeNotification(
   input: {
     blockId?: number;
     commentId?: number;
+    turnId?: number;
     revision?: number;
     actor: ActorId;
     at: Date;
@@ -790,6 +839,8 @@ export async function acknowledgeNotification(
     query = query.where('block_id', '=', input.blockId).where('kind', '=', 'block');
   else if (input.commentId !== undefined)
     query = query.where('comment_id', '=', input.commentId).where('kind', '=', 'answer');
+  else if (input.turnId !== undefined)
+    query = query.where('turn_id', '=', input.turnId).where('kind', '=', 'turn');
   else return false;
   const notices = await query.orderBy('id', 'desc').execute();
   const n = notices[0];
@@ -892,11 +943,25 @@ async function workerNotificationAddressedTo(
 }
 
 export async function closeBlockNotification(trx: Trx, blockId: number, at: Date): Promise<void> {
+  await closeOwnedNotifications(trx, 'block', blockId, at);
+}
+
+/** Ends a turn's ring series for good: acked, and its exhaustion item cleared by the system. */
+export async function closeTurnNotification(trx: Trx, turnId: number, at: Date): Promise<void> {
+  await closeOwnedNotifications(trx, 'turn', turnId, at);
+}
+
+async function closeOwnedNotifications(
+  trx: Trx,
+  kind: 'block' | 'turn',
+  ownerId: number,
+  at: Date,
+): Promise<void> {
   const closed = await trx
     .updateTable('notification')
     .set({ acked_at: at.toISOString() })
-    .where('block_id', '=', blockId)
-    .where('kind', '=', 'block')
+    .where(kind === 'block' ? 'block_id' : 'turn_id', '=', ownerId)
+    .where('kind', '=', kind)
     .where('acked_at', 'is', null)
     .returning(['kind', 'source_key'])
     .execute();

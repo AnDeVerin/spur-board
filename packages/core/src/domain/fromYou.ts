@@ -13,6 +13,7 @@ const ITEM_KINDS = [
   'inbound_gap',
   'board_observation',
   'worker_ended',
+  'turn',
 ] as const;
 
 export type ItemKind = (typeof ITEM_KINDS)[number];
@@ -92,6 +93,8 @@ export const ITEM_POLICY = {
   inbound_gap: { retry: 'none', feed: true, priority: 4, buttons: 'item', reconciled: false },
   board_observation: { retry: 'none', feed: true, priority: 4, buttons: 'item', reconciled: true },
   worker_ended: { retry: 'none', feed: false, priority: 4, buttons: 'item', reconciled: true },
+  /** A turn whose executor is the operator; `closeTurns` clears it. */
+  turn: { retry: 'none', feed: true, priority: 4, buttons: 'item', reconciled: false },
 } as const satisfies Record<ItemKind, ItemPolicy>;
 
 /** Guards a stored kind: the column is free text and old or hand-written rows may hold others. */
