@@ -1,4 +1,6 @@
 import {
+  parseActorId,
+  sessionFactsSchema,
   turnHandedSchema,
   type ActorId,
   type AddresseeRole,
@@ -19,6 +21,8 @@ import {
   linkedSession,
   notificationAddressedTo,
   registerTurnNotification,
+  registerTurnReminder,
+  turnReminderKey,
 } from './doorbells.ts';
 import { clearItem, raiseItem } from './feed.ts';
 
@@ -188,6 +192,113 @@ export async function closeTurns(
       .where('cleared_at', 'is', null)
       .executeTakeFirst();
     if (item !== undefined) await clearItem(trx, item.id, at);
+  }
+}
+
+/** How long the holder of a taken turn may sit quiet before it is reminded, then flagged. */
+export function stuckTurnAfterMs(config: Config): number {
+  return config.health.idleInDevAfterMs;
+}
+
+/**
+ * Since when a holder session sits idle: from its end, or from when it began `waiting` at its
+ * prompt. Null for any other health, an unknown one, or a detail that does not parse.
+ */
+function idleSince(session: Row<'session_snapshot'>): string | null {
+  if (session.ended_at !== null) return session.ended_at;
+  let detail: unknown;
+  try {
+    detail = JSON.parse(session.detail);
+  } catch {
+    return null;
+  }
+  const fact = sessionFactsSchema.safeParse(detail);
+  return fact.success && fact.data.health === 'waiting' ? fact.data.healthSince : null;
+}
+
+/** The latest of ISO instants, compared as instants. */
+function latest(values: readonly string[]): string {
+  return new Date(Math.max(...values.map((value) => Date.parse(value)))).toISOString();
+}
+
+/**
+ * Every taken, unclosed agent turn with its holder's session snapshot and the holder's reminder.
+ * `quietSince` is when the holder last had something to do: the take, the start of its idle
+ * spell, or the close of its last question on the task. Null while the holder works, has an open
+ * question on the task, or has no readable snapshot.
+ */
+export async function quietTurns(trx: Trx) {
+  const turns = await trx
+    .selectFrom('turn')
+    .selectAll()
+    .where('closed_at', 'is', null)
+    .where('acked_at', 'is not', null)
+    .where('role', '!=', 'operator')
+    .orderBy('id')
+    .execute();
+  const quiet = [];
+  for (const turn of turns) {
+    const holder = turn.acked_by === null ? null : parseActorId(turn.acked_by);
+    if (holder?.actor !== 'agent' || turn.acked_by === null || turn.acked_at === null) continue;
+    const sessionId = holder.actorRef.session;
+    const session = await trx
+      .selectFrom('session_snapshot')
+      .selectAll()
+      .where('id', '=', sessionId)
+      .executeTakeFirst();
+    const idle = session === undefined ? null : idleSince(session);
+    const blocks = await trx
+      .selectFrom('block')
+      .select(['state', 'unblocked_at'])
+      .where('task_id', '=', turn.task_id)
+      .where('author', '=', turn.acked_by)
+      .execute();
+    const asking = blocks.some((block) => block.state === 'open');
+    const unblocked = blocks.flatMap((block) =>
+      block.unblocked_at === null ? [] : [block.unblocked_at],
+    );
+    const reminder = await trx
+      .selectFrom('notification')
+      .selectAll()
+      .where('source_key', '=', turnReminderKey(turn.id, sessionId))
+      .executeTakeFirst();
+    quiet.push({
+      turn,
+      sessionId,
+      session,
+      ended: session !== undefined && session.ended_at !== null,
+      quietSince: idle === null || asking ? null : latest([turn.acked_at, idle, ...unblocked]),
+      reminder,
+    });
+  }
+  return quiet;
+}
+
+/**
+ * Registers one reminder to the holder of each turn quiet for `stuckTurnAfterMs`, and drops an
+ * unsent reminder to an earlier holder: the sender then finds it acked (`ringStillCurrent`).
+ * Nothing while Spur is blind, since the holder's health is then unknown.
+ */
+export async function remindStuckTurns(trx: Trx, config: Config, at: Date): Promise<void> {
+  const spur = await trx
+    .selectFrom('source_state')
+    .select('blind_reason')
+    .where('source', '=', 'spur')
+    .executeTakeFirst();
+  if (spur !== undefined && spur.blind_reason !== null) return;
+  for (const { turn, sessionId, session, ended, quietSince, reminder } of await quietTurns(trx)) {
+    await trx
+      .updateTable('notification')
+      .set({ acked_at: at.toISOString() })
+      .where('turn_id', '=', turn.id)
+      .where('kind', '=', 'turn_reminder')
+      .where('author_session', '!=', sessionId)
+      .where('acked_at', 'is', null)
+      .where('exhausted_at', 'is', null)
+      .execute();
+    if (session === undefined || ended || quietSince === null || reminder !== undefined) continue;
+    if (at.getTime() < Date.parse(quietSince) + stuckTurnAfterMs(config)) continue;
+    await registerTurnReminder(trx, turn, sessionId, at);
   }
 }
 

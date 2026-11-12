@@ -146,6 +146,45 @@ export async function registerTurnNotification(
     .execute();
 }
 
+/** The key of the reminder to `session` about a turn it holds. */
+export const turnReminderKey = (turnId: number, session: string) =>
+  `turn:${String(turnId)}:reminder:${session}`;
+
+const isTurnKind = (kind: Notification['kind']) => kind === 'turn' || kind === 'turn_reminder';
+
+/**
+ * Register the single reminder to the session holding a quiet turn. The key names the holder, so
+ * a session that takes the turn over gets its own reminder and no holder gets a second.
+ */
+export async function registerTurnReminder(
+  trx: Trx,
+  turn: Pick<Row<'turn'>, 'id' | 'task_id' | 'role'>,
+  session: string,
+  at: Date,
+): Promise<void> {
+  await trx
+    .insertInto('notification')
+    .values({
+      source_key: turnReminderKey(turn.id, session),
+      kind: 'turn_reminder',
+      task_id: turn.task_id,
+      block_id: null,
+      turn_id: turn.id,
+      comment_id: null,
+      revision: null,
+      role: turn.role,
+      author_session: session,
+      recipient_session: null,
+      next_at: at.toISOString(),
+      last_outbox_id: null,
+      acked_at: null,
+      exhausted_at: null,
+      created_at: at.toISOString(),
+    })
+    .onConflict((oc) => oc.column('source_key').doNothing())
+    .execute();
+}
+
 /** The block of a block-owned notification; the store CHECK gives every non-turn kind one. */
 function noticeBlockId(n: Pick<Notification, 'kind' | 'block_id'>): number {
   if (n.block_id === null) throw new Error(`notification of kind ${n.kind} has no block`);
@@ -154,7 +193,7 @@ function noticeBlockId(n: Pick<Notification, 'kind' | 'block_id'>): number {
 
 /** What a notification is about, as the operator item names it. */
 function noticeRef(n: Notification, task: Task): string {
-  return n.kind === 'turn'
+  return isTurnKind(n.kind)
     ? `turn T${String(n.turn_id)} on ${task.key}`
     : `block B${String(noticeBlockId(n))} on ${task.key}`;
 }
@@ -394,12 +433,18 @@ function columnOrchestratorProject(
   return name === undefined || name === 'none' || name === 'operator' ? null : name;
 }
 
-/** Select the current live recipient for a semantic notification. */
+/**
+ * Select the current live recipient for a semantic notification. A turn reminder reaches only
+ * the session it names, while that session lives.
+ */
 export async function selectNotificationRecipient(
   trx: Trx,
-  n: Pick<Notification, 'task_id' | 'role' | 'author_session'>,
+  n: Pick<Notification, 'task_id' | 'role' | 'author_session'> &
+    Partial<Pick<Notification, 'kind'>>,
   config: Config,
 ): Promise<Session | undefined> {
+  if (n.kind === 'turn_reminder')
+    return n.author_session === null ? undefined : liveSession(trx, n.author_session);
   const addressee = parseAddressee(n.role);
   switch (addressee.kind) {
     case 'curator':
@@ -463,8 +508,8 @@ export async function restartNotification(trx: Trx, sourceKey: string, at: Date)
 }
 
 /**
- * Ends a notification's ring series. A curator block moves to the operator; a removal or a ring
- * with no session to name ends alone; anything else raises the operator item, whose Retry restarts
+ * Ends a notification's ring series. A curator block moves to the operator; a removal, a turn
+ * reminder or a ring with no session to name ends alone; anything else raises the operator item, whose Retry restarts
  * the series (`restartNotification`). Every end journals `doorbell_undelivered`.
  */
 async function endNotification(
@@ -494,7 +539,7 @@ async function endNotification(
       ctx: { actor: 'system', at: at.toISOString() },
       config,
     });
-  } else if (n.kind !== 'removed' && session !== null) {
+  } else if (n.kind !== 'removed' && n.kind !== 'turn_reminder' && session !== null) {
     const blockRef = noticeRef(n, task);
     const answer = `Answer to ${blockRef} was not`;
     const holder = `${addressee.kind} ${session}`;
@@ -582,7 +627,11 @@ export async function ringUndelivered(
 
 /** Why a notification with no recipient ends now, or null when it stays due for a next session. */
 function noRecipientEnd(n: Notification): string | null {
-  if (n.kind === 'removed' || (n.kind === 'answer' && n.role === 'operator'))
+  if (
+    n.kind === 'removed' ||
+    n.kind === 'turn_reminder' ||
+    (n.kind === 'answer' && n.role === 'operator')
+  )
     return 'no live addressee';
   return n.kind === 'block' && n.role === 'curator' ? 'no live curator session' : null;
 }
@@ -592,6 +641,8 @@ async function ringText(trx: Trx, n: Notification, task: Task, ring: number): Pr
   const suffix = `(N${String(n.id)}-${String(ring)})`;
   if (n.kind === 'turn')
     return `${task.key} turn T${String(n.turn_id)}: check board inbox ${suffix}`;
+  if (n.kind === 'turn_reminder')
+    return `${task.key} turn T${String(n.turn_id)} is still open: check board inbox ${suffix}`;
   const blockId = noticeBlockId(n);
   if (n.kind !== 'removed') {
     return `${task.key} block B${String(blockId)}: check board inbox ${suffix}`;
@@ -760,8 +811,8 @@ export async function recordRingDelivery(
     .set({
       rings: ring,
       next_at: new Date(at.getTime() + (pauses[ring - 1] ?? 0)).toISOString(),
-      // A removal asks for nothing: it is done once delivered.
-      ...(n.kind === 'removed' ? { acked_at: at.toISOString() } : {}),
+      // A removal or a turn reminder asks for nothing: it is done once delivered.
+      ...(n.kind === 'removed' || n.kind === 'turn_reminder' ? { acked_at: at.toISOString() } : {}),
     })
     .where('id', '=', notificationId)
     .execute();
@@ -946,7 +997,10 @@ export async function closeBlockNotification(trx: Trx, blockId: number, at: Date
   await closeOwnedNotifications(trx, 'block', blockId, at);
 }
 
-/** Ends a turn's ring series for good: acked, and its exhaustion item cleared by the system. */
+/**
+ * Ends a turn's ring series and reminders for good: acked, and its exhaustion item cleared by the
+ * system.
+ */
 export async function closeTurnNotification(trx: Trx, turnId: number, at: Date): Promise<void> {
   await closeOwnedNotifications(trx, 'turn', turnId, at);
 }
@@ -961,7 +1015,7 @@ async function closeOwnedNotifications(
     .updateTable('notification')
     .set({ acked_at: at.toISOString() })
     .where(kind === 'block' ? 'block_id' : 'turn_id', '=', ownerId)
-    .where('kind', '=', kind)
+    .where('kind', 'in', kind === 'block' ? ['block'] : ['turn', 'turn_reminder'])
     .where('acked_at', 'is', null)
     .returning(['kind', 'source_key'])
     .execute();

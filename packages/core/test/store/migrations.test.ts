@@ -496,6 +496,52 @@ describe('migrate', () => {
     expect(raw.pragma('foreign_key_check')).toEqual([]);
   });
 
+  it('rebuilds notification with a turn reminder kind', () => {
+    const dir = tempDir();
+    const { raw } = rawDb(join(dir, 'board.db'));
+    migrate(raw, real.slice(0, 12));
+    insertRaw(raw, 'task', sampleRows.task);
+    insertRaw(raw, 'block', sampleRows.block);
+    insertRaw(raw, 'turn', { ...sampleRows.turn, closed_at: null, closed_reason: null });
+    const block = { ...sampleRows.notification, author_session: null, last_outbox_id: null };
+    const turn = { ...block, id: 7, source_key: 'turn:1:worker', kind: 'turn', block_id: null };
+    insertRaw(raw, 'notification', block);
+    insertRaw(raw, 'notification', { ...turn, turn_id: 1 });
+    raw.prepare("UPDATE sqlite_sequence SET seq = 30 WHERE name = 'notification'").run();
+
+    migrate(raw, real);
+
+    expect(rows(raw, 'notification')).toEqual([block, { ...turn, turn_id: 1 }]);
+    const insert = (row: Record<string, unknown>) => {
+      insertRaw(raw, 'notification', without({ ...block, ...row }, ['id']));
+    };
+    insert({
+      source_key: 'turn:1:reminder:worker-1',
+      kind: 'turn_reminder',
+      block_id: null,
+      turn_id: 1,
+    });
+    expect(
+      raw
+        .prepare("SELECT id FROM notification WHERE source_key = 'turn:1:reminder:worker-1'")
+        .pluck()
+        .get(),
+    ).toBe(31);
+    expect(() => {
+      insert({ source_key: 'turn:1:reminder:a', kind: 'turn_reminder', block_id: null });
+    }).toThrow(/CHECK constraint failed/);
+    expect(() => {
+      insert({ source_key: 'turn:1:reminder:b', kind: 'turn_reminder', turn_id: 1 });
+    }).toThrow(/CHECK constraint failed/);
+    expect(() => {
+      insert({ source_key: 'turn:1:c', kind: 'turn', block_id: null });
+    }).toThrow(/CHECK constraint failed/);
+    expect(() => {
+      insert({ source_key: 'block:1:d', turn_id: 1 });
+    }).toThrow(/CHECK constraint failed/);
+    expect(raw.pragma('foreign_key_check')).toEqual([]);
+  });
+
   it('refuses a database newer than the code', () => {
     const dir = tempDir();
     const file = join(dir, 'board.db');
@@ -564,6 +610,7 @@ describe('migration pins', () => {
     '0011_session_absent_since.sql':
       '6522f14d6984e4c0af5b1330b5bc7acacee97906e59d20a08f0437fe551d7c46',
     '0012_turn.sql': '181f5fbcc24e1af558471ceaecf76589c314f26813742b057ed84c68f4ea9a8d',
+    '0013_turn_reminder.sql': '5843346871e99e0de1fd655f0402fb162dab583318a24c0baf51c7504b71053b',
   };
 
   interface MigrationFile {

@@ -3,6 +3,7 @@ import type { Config } from '@spur-board/contracts';
 import type { Store } from '../store/store.ts';
 import { archiveTask } from './archive.ts';
 import { reconcileItems } from './fromYou.ts';
+import { remindStuckTurns } from './turns.ts';
 import { lastLocalSlot } from '../domain/slot.ts';
 
 /** One board tick, including an archive slot missed during downtime. */
@@ -55,6 +56,7 @@ export async function tickBoard(deps: {
         .execute();
       await archiveTask(trx, { task, reason: 'done', actor: 'system', at });
     }
+    await remindStuckTurns(trx, config, new Date(now));
     await reconcileItems(trx, config, now, completeSince.has('spur'));
   });
 }

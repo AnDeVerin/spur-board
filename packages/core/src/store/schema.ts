@@ -273,9 +273,9 @@ export interface SpaceSlotTable {
 export interface NotificationTable {
   id: Generated<number>;
   source_key: string;
-  kind: 'answer' | 'block' | 'removed' | 'turn';
+  kind: 'answer' | 'block' | 'removed' | 'turn' | 'turn_reminder';
   task_id: number;
-  /** Null exactly for kind `turn`, which has `turn_id` instead. */
+  /** Null exactly for kinds `turn` and `turn_reminder`, which have `turn_id` instead. */
   block_id: number | null;
   comment_id: number | null;
   revision: number | null;
