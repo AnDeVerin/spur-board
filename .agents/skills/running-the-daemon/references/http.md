@@ -14,4 +14,5 @@
 - Keep token approval and denial in the authenticated inbound gateway handler, outside the
   operation catalog; a button press requires the configured gateway user and space.
 - Log each request's `requestId`, method, path and status through `ctx.log`, without the query
-  string. Register HTTP at `stopStage: 'final'` so outbox delivery finishes before close.
+  string; an `unexpected` reply also logs `http request failed` at error with `err` and
+  `requestId`. Register HTTP at `stopStage: 'final'` so outbox delivery finishes before close.
