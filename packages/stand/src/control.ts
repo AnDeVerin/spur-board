@@ -9,6 +9,8 @@ const BODY_TIMEOUT_MS = 10_000;
 const FLUSH_TIMEOUT_MS = 2_000;
 /** The longest `wait` the server runs, whatever the request asks. */
 export const MAX_WAIT_MS = 600_000;
+/** The longest single `clock` shift: 365 days. */
+export const MAX_SHIFT_MS = 365 * 24 * 60 * 60 * 1000;
 
 export interface RouteResult {
   status: number;
@@ -20,6 +22,8 @@ export interface ControlRoutes {
   wait(body: { condition: string; timeoutMs: number }, signal: AbortSignal): Promise<RouteResult>;
   poll(body: { source?: string; timeoutMs?: number }): Promise<RouteResult>;
   reset(): Promise<RouteResult>;
+  /** Moves the stand clock forward by `shiftMs`; queued with `reset`. */
+  clock(body: { shiftMs: number }): Promise<RouteResult>;
   /** Resets the stand onto the scenario's config and seeds it; queued with `reset`. */
   seed(body: { scenario: string }): Promise<RouteResult>;
   /** Lists what the fake Slack API holds; never queued. */
@@ -89,6 +93,7 @@ const ROUTES = new Set([
   '/wait',
   '/poll',
   '/reset',
+  '/clock',
   '/seed',
   '/fake',
   '/violations',
@@ -100,8 +105,8 @@ const ROUTES = new Set([
  * The stand's control endpoint on 127.0.0.1. Checks, in order: no `Origin` (403), Host exactly
  * `127.0.0.1:<port>` (403), the Bearer token (401), a known route (404), the body size (413) and
  * its arrival time (10 s). `wait` runs at most `MAX_WAIT_MS`.
- * `poll`, `reset`, `seed`, `fake spur` and the Slack click run one at a time through one queue; `wait`,
- * `violations`, the Slack outbox and the other fakes run outside it.
+ * `poll`, `reset`, `seed`, `clock`, `fake spur` and the Slack click run one at a time through one
+ * queue; `wait`, `violations`, the Slack outbox and the other fakes run outside it.
  */
 export async function startControl(options: {
   token: string;
@@ -191,6 +196,19 @@ export async function startControl(options: {
       if (typeof scenario !== 'string' || scenario === '')
         throw new HttpError(400, 'Send { scenario } with a scenario name.');
       result = await queued(() => options.routes.seed({ scenario }));
+    } else if (path === '/clock') {
+      const { shiftMs } = body;
+      if (
+        typeof shiftMs !== 'number' ||
+        !Number.isSafeInteger(shiftMs) ||
+        shiftMs < 1 ||
+        shiftMs > MAX_SHIFT_MS
+      )
+        throw new HttpError(
+          400,
+          `Send { shiftMs } with an integer from 1 to ${String(MAX_SHIFT_MS)}; the clock only moves forward.`,
+        );
+      result = await queued(() => options.routes.clock({ shiftMs }));
     } else if (path === '/fake') {
       const { system, verb, args = {} } = body;
       if (typeof system !== 'string' || typeof verb !== 'string')

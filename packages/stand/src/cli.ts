@@ -15,7 +15,7 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { scrubEnv } from '@spur-board/testkit';
 import { z } from 'zod';
-import { callLocal } from './control.ts';
+import { callLocal, MAX_SHIFT_MS } from './control.ts';
 import { parseFakeArgs } from './fake-spur.ts';
 import { liveBoardDirs, proxyRefusal, refusal, StandRefusedError } from './guards.ts';
 import {
@@ -76,6 +76,9 @@ const USAGE = `Usage: pnpm stand <command>
   reset                           stop the daemon, restore the home and start it again, seeding
                                   the last seeded scenario again; this drops the violation log,
                                   so read it first
+  clock +<n><s|m|h|d>             move the stand clock forward (never back), then tick and pulse
+                                  the outbox; timers stay real. stand poll after a shift
+                                  restarts the stale window
   seed <scenario>                 reset onto the scenario's config and seed it; then
                                   wait scenario. Scenarios: ${scenarioNames().join(', ')}
   fake slack outbox               list the messages posted to the fake Slack and any call to a
@@ -106,6 +109,29 @@ Exit codes: 0 ok, 1 failure, 2 usage, 3 refused.
 `;
 
 class UsageError extends Error {}
+
+const SHIFT_UNIT_MS = { s: 1_000, m: 60_000, h: 3_600_000, d: 86_400_000 } as const;
+
+/** Parses `clock` arguments: exactly one `+<n><s|m|h|d>` shift, and `--home`. */
+function parseClockArgs(args: string[]): { shiftMs: number; home: string | undefined } {
+  // A `-5m` would reach parseArgs as an unknown option; name the real rule instead.
+  if (args.some((arg) => /^-\d/.test(arg)))
+    throw new UsageError('the stand clock only moves forward; pass +<n><s|m|h|d>');
+  const { values, positionals } = parseArgs({
+    args,
+    allowPositionals: true,
+    options: { home: { type: 'string' } },
+  });
+  if (positionals.length !== 1) throw new UsageError('clock takes one shift, +<n><s|m|h|d>');
+  const match = /^\+([1-9]\d*)([smhd])$/.exec(positionals[0] ?? '');
+  if (match === null)
+    throw new UsageError(
+      'clock takes a shift of +<n><s|m|h|d> with n above 0; the stand clock only moves forward',
+    );
+  const shiftMs = Number(match[1]) * SHIFT_UNIT_MS[match[2] as keyof typeof SHIFT_UNIT_MS];
+  if (shiftMs > MAX_SHIFT_MS) throw new UsageError('clock moves at most 365 days per call');
+  return { shiftMs, home: values.home };
+}
 
 const FAKE_PR_VERBS = ['create', 'approve', 'ci-red', 'ci-green', 'merge', 'conflict', 'push'];
 const FAKE_ISSUE_VERBS = ['open', 'close', 'label', 'milestone'];
@@ -625,6 +651,11 @@ async function main(argv: string[]): Promise<number> {
     const fake = parseFakeArgs(parsed.rest);
     if (!fake.ok) throw new UsageError(fake.error);
     return control(target(parsed.home), '/fake', fake.value, 120_000);
+  }
+  if (command === 'clock') {
+    // Checked before any call, so a bad shift exits 2 without touching the stand.
+    const { shiftMs, home } = parseClockArgs(args);
+    return control(target(home), '/clock', { shiftMs }, 120_000);
   }
   const { values, positionals } = parseArgs({
     args,
