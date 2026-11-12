@@ -222,7 +222,7 @@ export function createTurnMutations(deps: {
       if (pr === null) {
         throw new CommandError(
           'head_mismatch',
-          'The task has no active pull request; link the pull request, then submit its head.',
+          'The task has no active pull request; ask the operator to link it with `board link`, then submit its head.',
         );
       }
       confirmPolled(ctx.prepared, pr);
