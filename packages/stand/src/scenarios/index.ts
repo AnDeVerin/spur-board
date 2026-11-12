@@ -47,6 +47,11 @@ export interface Board {
   ): Promise<z.output<Op<Id>['output']>>;
   /** Restarts the adapter runner, ticks and pulses the outbox; the outcome of each source. */
   poll(): Promise<Record<string, string>>;
+  /**
+   * Moves the stand clock forward by `ms`, ticks and pulses the outbox once like `stand clock`;
+   * the adapter runner keeps its state. A shift outside 1..MAX_SHIFT_MS throws.
+   */
+  shiftClock(ms: number): Promise<void>;
   check(condition: string): Promise<Settled>;
   /** Re-checks `condition` until it holds; throws once `timeoutMs` passes. */
   wait(condition: string, timeoutMs?: number): Promise<void>;
@@ -167,6 +172,7 @@ export function createBoardClient(options: {
   home: string;
   db: Db;
   poll: () => Promise<RouteResult>;
+  clock: (shiftMs: number) => Promise<RouteResult>;
   check: (condition: string) => Promise<Settled>;
   signal: AbortSignal;
 }): { board: Board; notes: string[] } {
@@ -201,6 +207,12 @@ export function createBoardClient(options: {
         throw new Error(`poll answered ${String(result.status)}: ${JSON.stringify(result.body)}`);
       const { outcomes } = result.body as { outcomes: { source: string; outcome: string }[] };
       return Object.fromEntries(outcomes.map(({ source, outcome }) => [source, outcome]));
+    },
+    async shiftClock(ms) {
+      stopped();
+      const result = await options.clock(ms);
+      if (result.status !== 200)
+        throw new Error(`clock answered ${String(result.status)}: ${JSON.stringify(result.body)}`);
     },
     check: options.check,
     async wait(condition, timeoutMs = DEFAULT_WAIT_MS) {

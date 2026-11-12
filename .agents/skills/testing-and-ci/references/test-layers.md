@@ -18,6 +18,7 @@ Pick the lowest layer that can fail for the bug you guard against. Projects are 
   List it in both the `process` include and the `unit` exclude in `vitest.config.ts`, or it runs
   in both projects.
 - `startup` - `packages/cli/test/startup.test.ts` only.
+- `stand` - `packages/stand/test/scenarios.integration.test.ts` only; `integration` excludes it.
 - HTTP level - adapters take an injected `fetch` (`packages/adapters/test/spur/spur.test.ts`);
   Slack code runs against the local HTTP and WebSocket fake in
   `packages/gateway-slack/src/testing.ts`.
@@ -30,7 +31,6 @@ Pick the lowest layer that can fail for the bug you guard against. Projects are 
 
 ## Fakes, not module mocks
 
-- Pass the dependency in; `vi.mock` and `vi.doMock` fail lint (`viMockBan`).
 - Adapters and the runner: `createFakeCore`, `createFakeAdapter` from
   `@spur-board/adapters/testing` (`packages/adapters/src/testing.ts`).
 - Gateways: `createFakeGateway` from `@spur-board/gateway-testkit`
@@ -39,7 +39,8 @@ Pick the lowest layer that can fail for the bug you guard against. Projects are 
 - Stand: `createFakeSpur` (`packages/stand/src/fake-spur.ts`) and `createFakes`
   (`packages/stand/src/fakes/fetch.ts`) answer the real adapters; `pnpm stand violations` reads
   their one log together with the fake Slack API's unknown methods. A GitHub GraphQL query
-  change must update `KNOWN_DOCUMENTS` in `packages/stand/src/fakes/github-pr.ts`.
+  change must update `KNOWN_DOCUMENTS` in `packages/stand/src/fakes/github-pr.ts`, and a GitHub
+  Issues REST call change the routes and query rules in `packages/stand/src/fakes/github-issues.ts`.
 - Builders: there is no shared test-data builder yet. Inline the data while one test needs it;
   when a second test needs the same shape, move a builder into `packages/<x>/test/`.
 
@@ -57,8 +58,7 @@ Pick the lowest layer that can fail for the bug you guard against. Projects are 
 - Daemon modules read `ctx.clock`; see `running-the-daemon`.
 - Stand: `pnpm stand clock +<n><s|m|h|d>` moves its one clock forward only, then ticks and
   pulses; timers stay real (`packages/stand/src/stand.ts`).
-- Test controls: `vi.useFakeTimers` for timers, `FakeGateway.advance()` for the fake gateway's
-  clock.
+- `FakeGateway.advance()` moves the fake gateway's clock; timers use `vi.useFakeTimers`.
 - Ids: there is no id seam. Commands take an idempotency `key` and generate a random one only
   when it is missing (`createApply`); a test that asserts on an id passes its own `key`.
 
@@ -84,12 +84,11 @@ Every test runs through the root config, so all of these hold:
 - `pool: 'forks'` - each worker is a child process that inherits the scrubbed environment; with
   threads, the OS environment would still hold the parent's secrets.
 - `packages/testkit/src/global-setup.ts` runs once before workers fork: it scrubs credential
-  variables and points `HOME`, `TMPDIR` and the XDG directories at a fresh temporary root, so no
-  test reads or writes the real home. It also removes `DBUS_SESSION_BUS_ADDRESS` and
-  `NOTIFY_SOCKET`, so `systemctl --user` in a test or its children cannot reach the real user
-  manager; a test that needs a user bus sets one explicitly.
+  variables, points `HOME`, `TMPDIR` and the XDG directories at a fresh temporary root, and
+  removes `DBUS_SESSION_BUS_ADDRESS` and `NOTIFY_SOCKET` so `systemctl --user` cannot reach the
+  real user manager; a test that needs a user bus sets one explicitly.
 - `packages/testkit/src/setup.ts` installs the network guard in each worker: a connection to a
-  non-local host throws, so a test cannot reach a real service by accident.
+  non-local host throws.
 - Pinned by `packages/testkit/test/env.test.ts` and
   `packages/testkit/test/network.integration.test.ts`.
 
@@ -98,13 +97,13 @@ Every test runs through the root config, so all of these hold:
 - `pnpm check` (changed mode): format and lint on changed files; types and the `unit`,
   `integration` and `process` projects for changed packages plus their dependents
   (`withDependents`, `buildSteps` in `scripts/check.ts`). `startup` and package smoke run only when
-  `packages/cli` is affected.
+  `packages/cli` is affected, `stand` only when `packages/stand` is.
 - A change to a file in `GLOBAL_FILES` or `GLOBAL_DIRS` (`scripts/check-plan.ts`), or to a
   root `tsconfig*.json`, switches to full mode; a package's own `tsconfig.json` does not.
 - `pnpm run check --pre-push` (the pre-push hook): changed-file format and lint, types and `unit`
   only.
-- `pnpm check:full --only test`: all four projects plus `scripts/package-smoke.ts`.
-- CI `test` job: `check:full --only test` on Node 24 and 26 (`.github/workflows/ci.yml`).
+- `pnpm check:full --only test`: `unit`, `integration`, `process`, `startup` and package smoke.
+- CI `test` and `stand` jobs: `check:full --only test` and `--only stand` (`.github/workflows/ci.yml`).
 - CI `package-smoke` job: `pnpm package:smoke`, `pnpm upgrade:smoke`, then `pnpm update:smoke`.
   On a PR it runs only when `classifyChanges` in `scripts/ci.ts` marks a package change.
 - `.github/workflows/nightly.yml`: runs the published package's `--version`; on failure
@@ -118,4 +117,3 @@ Every test runs through the root config, so all of these hold:
 - The linked issue is open and labelled `flaky`. Fix it within one week, as the label says, or
   delete the test.
 - No retries: the config sets no `retry`, and a retry hides the race instead of fixing it.
-- `pnpm guardrails` reports every added `.skip`, so the PR names it under Changed checks.

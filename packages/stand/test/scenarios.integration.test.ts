@@ -14,6 +14,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { COLUMN_IDS } from '@spur-board/contracts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import YAML from 'yaml';
 import { MANIFEST_FILE, readManifest, STAND_PREFIX, type StandManifest } from '../src/manifest.ts';
 import { SCENARIOS, scenarioNames, type Scenario } from '../src/scenarios/index.ts';
 import { startStand, type Stand, type StandOptions } from '../src/stand.ts';
@@ -136,6 +137,21 @@ interface Status {
 }
 
 const status = (manifest: StandManifest) => op<Status>(manifest, 'status.get', {});
+
+/** The sources status.get reports blind for staleness. */
+const staleSources = (sources: Status['sources']): string[] =>
+  sources.filter(({ blindReason }) => blindReason === 'stale').map(({ source }) => source);
+
+interface WrittenConfig {
+  thresholds: { staleMultiplier: number };
+  adapters: Record<string, { intervalMs: number }>;
+}
+
+const configText = (manifest: StandManifest): string =>
+  readFileSync(join(manifest.home, 'config.yaml'), 'utf8');
+
+const writtenConfig = (manifest: StandManifest): WrittenConfig =>
+  YAML.parse(configText(manifest)) as WrittenConfig;
 
 interface OutboxMessage {
   n: number;
@@ -393,6 +409,48 @@ describe('scenarios', () => {
     await ok(current(), '/reset');
     expect((await control(current(), '/wait', SEED_WAIT)).status).toBe(400);
   }, 60_000);
+
+  it('writes a scenario config under its header line', async () => {
+    const tuned: Scenario = {
+      name: 'tuned',
+      summary: 'A scenario that tunes thresholds and one adapter.',
+      config: {
+        thresholds: { staleMultiplier: 2_000 },
+        adapters: { jira: { intervalMs: 600_000 } },
+      },
+      seed: () => Promise.resolve({}),
+      settled: () => Promise.resolve({ ok: true }),
+    };
+    const manifest = await up({ scenarios: [tuned] });
+    expect(configText(manifest)).not.toContain('# Scenario ');
+    expect(writtenConfig(manifest).thresholds.staleMultiplier).toBe(1_000);
+    await ok(current(), '/seed', { scenario: 'tuned' });
+    expect(configText(current())).toContain(
+      '# Scenario tuned overrides thresholds and adapters here.\n',
+    );
+    const config = writtenConfig(current());
+    expect(config.thresholds.staleMultiplier).toBe(2_000);
+    expect(config.adapters['jira']?.intervalMs).toBe(600_000);
+    expect(config.adapters['spur']?.intervalMs).toBe(2_000);
+    expect(config.adapters['github']?.intervalMs).toBe(5_000);
+  }, 60_000);
+
+  it('a seed shift outside 1..MAX_SHIFT_MS fails the seed and leaves the clock', async () => {
+    const backwards: Scenario = {
+      name: 'backwards',
+      summary: 'A seed that shifts the clock by zero.',
+      async seed(board) {
+        await board.shiftClock(0);
+        return {};
+      },
+      settled: () => Promise.resolve({ ok: true }),
+    };
+    const manifest = await up({ scenarios: [backwards] });
+    const failed = await control(manifest, '/seed', { scenario: 'backwards' });
+    expect(failed.status).toBe(500);
+    expect((failed.body as { error: string }).error).toContain('the clock only moves forward');
+    expect(await ok(current(), '/clock', { shiftMs: 1 })).toMatchObject({ offsetMs: 1 });
+  }, 60_000);
 });
 
 describe('each scenario', () => {
@@ -531,13 +589,28 @@ describe('each scenario', () => {
     expect(restarts).toHaveLength(1);
     expect(firstFailure).toBeGreaterThan(restarts[0] ?? Infinity);
 
+    // The stand's own stale window: the seed reaches it through a clock shift, not by waiting.
+    expect(configText(manifest)).not.toContain('# Scenario ');
+    expect(writtenConfig(manifest).thresholds.staleMultiplier).toBe(1_000);
+
     const { sources, items } = await status(manifest);
     expect(sources).toContainEqual(
       expect.objectContaining({ source: 'spur', blindReason: 'stale' }),
     );
+    expect(staleSources(sources)).toEqual(['spur']);
     expect(items.map(({ key }) => key)).toContain(manifest.scenario?.items?.['silent']);
     expect(manifest.scenario?.items?.['silent']).toBe('source:spur');
-  }, 90_000);
+
+    // A reset reseeds onto a fresh runner and shifts the clock again.
+    await ok(current(), '/reset');
+    await ok(current(), '/wait', SEED_WAIT);
+    const again = await status(current());
+    expect(staleSources(again.sources)).toEqual(['spur']);
+    expect(again.items.map(({ key }) => key)).toContain('source:spur');
+    expect(await ok(current(), '/clock', { shiftMs: 1 })).toMatchObject({
+      offsetMs: 2 * 2_400_000 + 1,
+    });
+  }, 120_000);
 
   it('source-blind: the GitHub Issues tracker is blind for auth', async () => {
     await up();
