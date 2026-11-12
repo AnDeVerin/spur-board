@@ -1159,13 +1159,13 @@ describe('curator delivery', () => {
     ]);
   });
 
-  it('opens the thread of a curator question under the orchestrator persona', async () => {
+  it('opens the thread of a curator question under the curator persona', async () => {
     const { store, apply, ops: curated } = await curatorBoard('qa', used);
     await apply(curated.ask, { task: KEY, text: 'Q?' }, curator, 'ask');
     const rows = await store.db.selectFrom('outbox').select(['kind', 'payload']).execute();
     expect(rows.map((row) => row.kind)).toEqual(['conversation.open']);
     expect(JSON.parse(rows[0]?.payload ?? '{}')).toMatchObject({
-      persona: { name: 'cur', role: 'orchestrator' },
+      persona: { name: 'cur', role: 'curator' },
     });
   });
 });
@@ -1281,7 +1281,7 @@ describe('escalation note', () => {
     expect(JSON.parse(rows[1]?.payload ?? '{}')).toMatchObject({
       text: 'Owner away.',
       commentId: 2,
-      persona: { name: 'cur', role: 'orchestrator' },
+      persona: { name: 'cur', role: 'curator' },
     });
     expect((await events(store)).at(-1)).toMatchObject({
       kind: 'comment_added',
@@ -1304,7 +1304,10 @@ describe('escalation note', () => {
       text: 'Needs outside work.',
       commentId: null,
     });
-    expect(JSON.parse(rows[1]?.payload ?? '{}')).toMatchObject({ text: 'Still waiting.' });
+    expect(JSON.parse(rows[1]?.payload ?? '{}')).toMatchObject({
+      text: 'Still waiting.',
+      persona: { name: 'qa', role: 'orchestrator' },
+    });
   });
 
   it('replays a note left at the curator when the block reaches the operator', async () => {
