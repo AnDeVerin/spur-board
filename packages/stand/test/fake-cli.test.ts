@@ -28,6 +28,7 @@ async function stubStand(answer: RouteResult): Promise<string> {
       wait: vi.fn(),
       poll: vi.fn(),
       reset: vi.fn(),
+      seed: vi.fn(),
       fake: vi.fn(),
       slackOutbox: vi.fn(),
       slackClick: vi.fn(),

@@ -20,6 +20,9 @@ export const MANIFEST_FILE = 'stand.json';
 export const STAND_PREFIX = 'spur-board-stand.';
 const STAND_NAME = /^spur-board-stand\.[A-Za-z0-9]{6}$/;
 
+/** Entities a scenario names in one group, by the scenario's own names. */
+const named = z.record(z.string().min(1), z.string().min(1)).optional();
+
 export const standManifest = z.strictObject({
   version: z.literal(1),
   id: z.string().min(1),
@@ -32,6 +35,24 @@ export const standManifest = z.strictObject({
   controlToken: z.string().min(1),
   tokenPath: z.string().min(1),
   roles: z.strictObject({ worker: z.string().min(1), orchestrator: z.string().min(1) }),
+  /**
+   * The scenario whose seed resolved, with what it named: items by key, Slack messages by their
+   * outbox number, and `direct` the notes of each write made outside the public API.
+   */
+  scenario: z
+    .strictObject({
+      name: z.string().min(1),
+      tasks: named,
+      prs: named,
+      blocks: named,
+      sessions: named,
+      sources: named,
+      items: named,
+      tokens: named,
+      messages: named,
+      direct: z.array(z.string().min(1)).optional(),
+    })
+    .optional(),
 });
 export type StandManifest = z.output<typeof standManifest>;
 
