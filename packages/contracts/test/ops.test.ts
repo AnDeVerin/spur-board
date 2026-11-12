@@ -376,6 +376,20 @@ describe('grants', () => {
       null,
       ['wrong_id_kind', 'not_found', 'block_not_open', 'task_archived'],
     ],
+    [
+      'task.submit',
+      'mutation',
+      [{ grant: 'task-worker' }, { grant: 'column-orchestrator' }],
+      null,
+      [...archived, 'turn_closed', 'not_turn_taker', 'head_mismatch', 'github_unavailable'],
+    ],
+    [
+      'task.return',
+      'mutation',
+      [{ grant: 'task-worker' }, { grant: 'column-orchestrator' }],
+      null,
+      [...archived, 'turn_closed', 'not_turn_taker', 'return_not_allowed'],
+    ],
   ];
 
   it('declares the six grants', () => {
@@ -389,7 +403,7 @@ describe('grants', () => {
     ]);
   });
 
-  it('pins the 21 operations with kinds, grants, preconditions and errors', () => {
+  it('pins the 23 operations with kinds, grants, preconditions and errors', () => {
     const order = Object.keys(ERRORS);
     expect(
       OPERATIONS.map((op) => [op.id, op.kind, op.grants, op.preconditions, op.errors]),
@@ -409,7 +423,7 @@ describe('grants', () => {
         return [opId, kind, grants, preconditions, errors];
       }),
     );
-    expect(OPERATIONS).toHaveLength(21);
+    expect(OPERATIONS).toHaveLength(23);
   });
 
   it('names a branch of the input discriminator in every grant mode', () => {

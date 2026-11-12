@@ -30,6 +30,8 @@ export const EVENT_KINDS = [
   'link_removed',
   'task_added',
   'task_archived',
+  'task_submitted',
+  'task_moved',
   'block_opened',
   'block_escalated',
   'block_unblocked',
@@ -117,6 +119,13 @@ export const eventPayloadSchemas = {
   ]),
   task_added: z.looseObject({ column: z.enum(COLUMN_IDS) }),
   task_archived: z.looseObject({ reason: z.enum(ARCHIVE_REASONS) }),
+  task_submitted: z.looseObject({ turn: S, column: z.enum(COLUMN_IDS), sha: S }),
+  task_moved: z.looseObject({
+    from: z.enum(COLUMN_IDS),
+    to: z.enum(COLUMN_IDS),
+    turn: S.optional(),
+    block: S.optional(),
+  }),
   block_opened: z.looseObject({ block: S, type: z.enum(BLOCK_TYPES), addressee: role }),
   block_escalated: z.looseObject({ block: S, from: role, to: role, reason: S.optional() }),
   block_unblocked: z.looseObject({

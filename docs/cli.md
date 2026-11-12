@@ -519,6 +519,36 @@ Example: `board unblock B13 --done example/web#9 --key unblock-PROJ-123-example-
 
 Operation errors: `usage` (exit 2: Run `board schema` to see the expected input and fix the arguments.); `wrong_id_kind` (exit 2: Pass the ID kind the operation expects, e.g. B<n> for a block or a task key for a task.); `forbidden` (exit 1: Check which role may run the operation in `board schema`, or ask the operator.); `not_found` (exit 1: Check the ID with `board status` or `board task <KEY>`.); `not_implemented` (exit 1: Ask the operator to update the daemon to a build with this operation.); `block_not_open` (exit 1: Read the task with `board task <KEY>` to see the current blocks.); `task_archived` (exit 1: Ask an operator to add the task to the board again if work continues.); `idempotency_key_mismatch` (exit 1: Use a new key for a new command, or repeat the earlier input with the same key.); `identity_unavailable` (exit 3: Ask in your own session, then retry the same command later with its existing idempotency key if it has one.); `starting` (exit 3: Wait until the daemon is ready, then retry the command with its existing idempotency key if it has one.).
 
+### `board submit`
+
+Submit the commit at the head of the task's pull request for a turn this session took; the turn closes.
+
+Arguments: `<turn> <sha>`.
+
+Flags:
+
+`--key <key>` — Idempotency key for this action.
+`--json` — Print JSON output or a JSON error.
+
+Example: `board submit T4 9f2c4e1b7a3d5c8e0f1a2b3c4d5e6f708192a3b4 --key submit-PROJ-123-example-1432`
+
+Operation errors: `usage` (exit 2: Run `board schema` to see the expected input and fix the arguments.); `wrong_id_kind` (exit 2: Pass the ID kind the operation expects, e.g. B<n> for a block or a task key for a task.); `forbidden` (exit 1: Check which role may run the operation in `board schema`, or ask the operator.); `not_found` (exit 1: Check the ID with `board status` or `board task <KEY>`.); `not_implemented` (exit 1: Ask the operator to update the daemon to a build with this operation.); `turn_closed` (exit 1: Read your open turns with `board inbox` and act only on a turn listed there.); `not_turn_taker` (exit 1: Take the turn with `board inbox ack` first; only the session that took it can submit or return it.); `head_mismatch` (exit 1: Push the commit to the task's pull request branch and submit its head; if the task has none, ask the operator to link the pull request with `board link` first.); `task_archived` (exit 1: Ask an operator to add the task to the board again if work continues.); `idempotency_key_mismatch` (exit 1: Use a new key for a new command, or repeat the earlier input with the same key.); `identity_unavailable` (exit 3: Ask in your own session, then retry the same command later with its existing idempotency key if it has one.); `starting` (exit 3: Wait until the daemon is ready, then retry the command with its existing idempotency key if it has one.); `github_unavailable` (exit 3: Wait until GitHub answers, then submit again.).
+
+### `board return`
+
+Return the task of a turn this session took to Dev, opening a code block on the worker with the reason.
+
+Arguments: `<turn> <reason>`.
+
+Flags:
+
+`--key <key>` — Idempotency key for this action.
+`--json` — Print JSON output or a JSON error.
+
+Example: `board return T4 "Handle the empty list in the parser." --key return-PROJ-123-example-1432`
+
+Operation errors: `usage` (exit 2: Run `board schema` to see the expected input and fix the arguments.); `wrong_id_kind` (exit 2: Pass the ID kind the operation expects, e.g. B<n> for a block or a task key for a task.); `forbidden` (exit 1: Check which role may run the operation in `board schema`, or ask the operator.); `not_found` (exit 1: Check the ID with `board status` or `board task <KEY>`.); `not_implemented` (exit 1: Ask the operator to update the daemon to a build with this operation.); `turn_closed` (exit 1: Read your open turns with `board inbox` and act only on a turn listed there.); `not_turn_taker` (exit 1: Take the turn with `board inbox ack` first; only the session that took it can submit or return it.); `return_not_allowed` (exit 1: In Dev, ask with `board ask` instead.); `task_archived` (exit 1: Ask an operator to add the task to the board again if work continues.); `idempotency_key_mismatch` (exit 1: Use a new key for a new command, or repeat the earlier input with the same key.); `identity_unavailable` (exit 3: Ask in your own session, then retry the same command later with its existing idempotency key if it has one.); `starting` (exit 3: Wait until the daemon is ready, then retry the command with its existing idempotency key if it has one.).
+
 ### `board --version`
 
 Print the installed package version.

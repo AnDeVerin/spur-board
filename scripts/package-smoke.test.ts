@@ -2,6 +2,8 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { OPERATIONS } from '../packages/contracts/src/index.ts';
+import { verifyTools } from './package-smoke-mcp.ts';
 import {
   command,
   prepareSkillsForSmoke,
@@ -134,6 +136,17 @@ describe('packed smoke steps', () => {
     expect(() => {
       verifySchema({ code: 0, stdout: '{}', stderr: '' });
     }).toThrow('invalid catalog');
+  });
+
+  it('holds the candidate to the catalog and a previous release only to named tools', () => {
+    const catalog = OPERATIONS.map((op) => ({ name: op.mcp.name }));
+    const previous = catalog.slice(0, -2);
+    expect(verifyTools(catalog, true)).toBe(OPERATIONS.length);
+    expect(() => verifyTools(previous, true)).toThrow('differ from catalog');
+    expect(verifyTools(previous, false)).toBe(OPERATIONS.length - 2);
+    expect(() => verifyTools([], false)).toThrow('unnamed tools');
+    expect(() => verifyTools([{ name: 1 }], false)).toThrow('unnamed tools');
+    expect(() => verifyTools(undefined, false)).toThrow('did not list tools');
   });
 
   it('compares the packed binary version with its manifest', () => {

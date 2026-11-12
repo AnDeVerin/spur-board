@@ -1,5 +1,5 @@
 {
-  "version": "561047024bab284d9d9aeccf8fb7c52777b265dac5a4417f82919a4274d77b6d",
+  "version": "fb60767f8c05ce676b2dc272ea4d3e3accd8486b8bb8083f66d668708d0407cd",
   "grants": [
     "operator",
     "project-agent",
@@ -249,6 +249,122 @@
         "additionalProperties": false
       }
     },
+    "turn_closed": {
+      "status": 409,
+      "exit": 1,
+      "message": "The turn is closed: the task was submitted, moved or archived since.",
+      "hint": "Read your open turns with `board inbox` and act only on a turn listed there.",
+      "recovery": {
+        "action": "Read your open turns and act only on a turn listed there.",
+        "sideEffects": "none",
+        "maxRetries": 0,
+        "retryTiming": "After fixing the cause."
+      },
+      "docs": "docs/errors.md#turn_closed",
+      "context": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "clientVersion": { "type": "string" },
+          "serverVersion": { "type": "string" },
+          "configPath": { "type": "string" },
+          "environmentVariable": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+          "idempotencyKey": { "type": "string", "minLength": 1 },
+          "causeLabel": {
+            "type": "string",
+            "enum": ["storage_unavailable", "transport_unavailable", "internal_failure"]
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "not_turn_taker": {
+      "status": 409,
+      "exit": 1,
+      "message": "This session has not taken the turn.",
+      "hint": "Take the turn with `board inbox ack` first; only the session that took it can submit or return it.",
+      "recovery": {
+        "action": "Take the turn first; only the session that took it can submit or return it.",
+        "sideEffects": "none",
+        "maxRetries": 0,
+        "retryTiming": "After fixing the cause."
+      },
+      "docs": "docs/errors.md#not_turn_taker",
+      "context": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "clientVersion": { "type": "string" },
+          "serverVersion": { "type": "string" },
+          "configPath": { "type": "string" },
+          "environmentVariable": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+          "idempotencyKey": { "type": "string", "minLength": 1 },
+          "causeLabel": {
+            "type": "string",
+            "enum": ["storage_unavailable", "transport_unavailable", "internal_failure"]
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "head_mismatch": {
+      "status": 409,
+      "exit": 1,
+      "message": "The commit is not the head of the task's pull request, or the task has none.",
+      "hint": "Push the commit to the task's pull request branch and submit its head; if the task has none, ask the operator to link the pull request with `board link` first.",
+      "recovery": {
+        "action": "Push the commit to the task's pull request branch and submit its head; if the task has none, ask the operator to link the pull request first.",
+        "sideEffects": "none",
+        "maxRetries": 0,
+        "retryTiming": "After fixing the cause."
+      },
+      "docs": "docs/errors.md#head_mismatch",
+      "context": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "clientVersion": { "type": "string" },
+          "serverVersion": { "type": "string" },
+          "configPath": { "type": "string" },
+          "environmentVariable": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+          "idempotencyKey": { "type": "string", "minLength": 1 },
+          "causeLabel": {
+            "type": "string",
+            "enum": ["storage_unavailable", "transport_unavailable", "internal_failure"]
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "return_not_allowed": {
+      "status": 409,
+      "exit": 1,
+      "message": "A task can be returned to Dev only from a column right of Dev.",
+      "hint": "In Dev, ask with `board ask` instead.",
+      "recovery": {
+        "action": "In Dev, ask with a block instead of returning the task.",
+        "sideEffects": "none",
+        "maxRetries": 0,
+        "retryTiming": "After fixing the cause."
+      },
+      "docs": "docs/errors.md#return_not_allowed",
+      "context": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "clientVersion": { "type": "string" },
+          "serverVersion": { "type": "string" },
+          "configPath": { "type": "string" },
+          "environmentVariable": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+          "idempotencyKey": { "type": "string", "minLength": 1 },
+          "causeLabel": {
+            "type": "string",
+            "enum": ["storage_unavailable", "transport_unavailable", "internal_failure"]
+          }
+        },
+        "additionalProperties": false
+      }
+    },
     "task_archived": {
       "status": 409,
       "exit": 1,
@@ -406,6 +522,35 @@
         "retryTiming": "After the daemon is ready; wait briefly between retries."
       },
       "docs": "docs/errors.md#starting",
+      "context": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "clientVersion": { "type": "string" },
+          "serverVersion": { "type": "string" },
+          "configPath": { "type": "string" },
+          "environmentVariable": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+          "idempotencyKey": { "type": "string", "minLength": 1 },
+          "causeLabel": {
+            "type": "string",
+            "enum": ["storage_unavailable", "transport_unavailable", "internal_failure"]
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "github_unavailable": {
+      "status": 503,
+      "exit": 3,
+      "message": "GitHub did not confirm the pull request head; nothing was applied.",
+      "hint": "Wait until GitHub answers, then submit again.",
+      "recovery": {
+        "action": "Wait until GitHub answers, then submit again.",
+        "sideEffects": "none",
+        "maxRetries": 3,
+        "retryTiming": "After GitHub is reachable; wait briefly between retries."
+      },
+      "docs": "docs/errors.md#github_unavailable",
       "context": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
@@ -2619,6 +2764,8 @@
                     "link_removed",
                     "task_added",
                     "task_archived",
+                    "task_submitted",
+                    "task_moved",
                     "block_opened",
                     "block_escalated",
                     "block_unblocked",
@@ -5737,6 +5884,365 @@
           }
         },
         "required": ["block"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "task.submit",
+      "kind": "mutation",
+      "description": "Submit the commit at the head of the task's pull request for a turn this session took; the turn closes.",
+      "grants": [{ "grant": "task-worker" }, { "grant": "column-orchestrator" }],
+      "preconditions": null,
+      "errors": [
+        "usage",
+        "wrong_id_kind",
+        "forbidden",
+        "not_found",
+        "not_implemented",
+        "turn_closed",
+        "not_turn_taker",
+        "head_mismatch",
+        "task_archived",
+        "idempotency_key_mismatch",
+        "identity_unavailable",
+        "starting",
+        "github_unavailable"
+      ],
+      "cli": { "command": "submit", "args": ["turn", "sha"], "modes": null, "key": "--key" },
+      "mcp": {
+        "name": "task_submit",
+        "key": "idempotencyKey",
+        "whenToUse": "Hand in the work of a turn you took, at the pull request head.",
+        "whenNotToUse": "Use task_return to send the task back to Dev instead.",
+        "destructive": true
+      },
+      "slack": null,
+      "examples": [
+        {
+          "summary": "Submit the pull request head for a review turn",
+          "input": { "turn": "T4", "sha": "9f2c4e1b7a3d5c8e0f1a2b3c4d5e6f708192a3b4" },
+          "output": {
+            "task": {
+              "key": "PROJ-123",
+              "project": "web",
+              "column": "review",
+              "membership": "active"
+            },
+            "turn": "T4",
+            "sha": "9f2c4e1b7a3d5c8e0f1a2b3c4d5e6f708192a3b4"
+          }
+        }
+      ],
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "turn": {
+            "type": "string",
+            "pattern": "^T[1-9]\\d{0,14}$",
+            "description": "Turn ID: T followed by a number, e.g. T4."
+          },
+          "sha": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{40,64}$",
+            "description": "Full commit SHA at the head of the pull request, lowercase."
+          }
+        },
+        "required": ["turn", "sha"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "task": {
+            "type": "object",
+            "properties": {
+              "key": {
+                "type": "string",
+                "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
+                "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
+              },
+              "project": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Project the task belongs to."
+              },
+              "column": {
+                "type": "string",
+                "enum": [
+                  "todo",
+                  "ready-for-dev",
+                  "dev",
+                  "review",
+                  "product-review",
+                  "external-review",
+                  "qa",
+                  "ready-to-merge",
+                  "done"
+                ],
+                "description": "Board column the task is in."
+              },
+              "membership": {
+                "type": "string",
+                "enum": ["active", "out_of_filter", "archived"],
+                "description": "Whether the task is on the board, outside the tracker filter, or archived."
+              }
+            },
+            "required": ["key", "project", "column", "membership"],
+            "additionalProperties": false,
+            "description": "A task on the board."
+          },
+          "turn": {
+            "type": "string",
+            "pattern": "^T[1-9]\\d{0,14}$",
+            "description": "Turn ID: T followed by a number, e.g. T4."
+          },
+          "sha": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{40,64}$",
+            "description": "The submitted commit SHA."
+          }
+        },
+        "required": ["task", "turn", "sha"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "task.return",
+      "kind": "mutation",
+      "description": "Return the task of a turn this session took to Dev, opening a code block on the worker with the reason.",
+      "grants": [{ "grant": "task-worker" }, { "grant": "column-orchestrator" }],
+      "preconditions": null,
+      "errors": [
+        "usage",
+        "wrong_id_kind",
+        "forbidden",
+        "not_found",
+        "not_implemented",
+        "turn_closed",
+        "not_turn_taker",
+        "return_not_allowed",
+        "task_archived",
+        "idempotency_key_mismatch",
+        "identity_unavailable",
+        "starting"
+      ],
+      "cli": { "command": "return", "args": ["turn", "reason"], "modes": null, "key": "--key" },
+      "mcp": {
+        "name": "task_return",
+        "key": "idempotencyKey",
+        "whenToUse": "Send the task back to Dev because the work needs code changes.",
+        "whenNotToUse": "Use task_submit to hand in the work instead.",
+        "destructive": true
+      },
+      "slack": null,
+      "examples": [
+        {
+          "summary": "Return a reviewed task to Dev",
+          "input": { "turn": "T4", "reason": "Handle the empty list in the parser." },
+          "output": {
+            "task": {
+              "key": "PROJ-123",
+              "project": "web",
+              "column": "dev",
+              "membership": "active"
+            },
+            "block": {
+              "id": "B14",
+              "task": "PROJ-123",
+              "type": "code",
+              "state": "open",
+              "author": "agent:rev/rev-1",
+              "addressee": "worker",
+              "reason": "Handle the empty list in the parser.",
+              "at": "2026-01-05T09:30:00.000Z",
+              "outcome": null,
+              "outcomeReason": null,
+              "unblockedBy": null,
+              "unblockedAt": null
+            }
+          }
+        }
+      ],
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "turn": {
+            "type": "string",
+            "pattern": "^T[1-9]\\d{0,14}$",
+            "description": "Turn ID: T followed by a number, e.g. T4."
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "description": "What the worker must change, sent to the worker as a code block."
+          }
+        },
+        "required": ["turn", "reason"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "task": {
+            "type": "object",
+            "properties": {
+              "key": {
+                "type": "string",
+                "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
+                "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
+              },
+              "project": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Project the task belongs to."
+              },
+              "column": {
+                "type": "string",
+                "enum": [
+                  "todo",
+                  "ready-for-dev",
+                  "dev",
+                  "review",
+                  "product-review",
+                  "external-review",
+                  "qa",
+                  "ready-to-merge",
+                  "done"
+                ],
+                "description": "Board column the task is in."
+              },
+              "membership": {
+                "type": "string",
+                "enum": ["active", "out_of_filter", "archived"],
+                "description": "Whether the task is on the board, outside the tracker filter, or archived."
+              }
+            },
+            "required": ["key", "project", "column", "membership"],
+            "additionalProperties": false,
+            "description": "A task on the board."
+          },
+          "block": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^B[1-9]\\d{0,14}$",
+                "description": "Block ID: B followed by a number, e.g. B12."
+              },
+              "task": {
+                "type": "string",
+                "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
+                "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
+              },
+              "type": {
+                "type": "string",
+                "enum": ["code", "needs_input", "dependency", "external"],
+                "description": "Block type."
+              },
+              "state": {
+                "type": "string",
+                "enum": ["open", "unblocked"],
+                "description": "Whether the block is open or unblocked."
+              },
+              "author": {
+                "anyOf": [
+                  { "type": "string", "const": "operator" },
+                  { "type": "string", "const": "system" },
+                  { "type": "string", "pattern": "^agent:[A-Za-z0-9._-]+\\/[A-Za-z0-9._-]+$" }
+                ],
+                "description": "Actor: operator, system, or agent:<project>/<session>."
+              },
+              "addressee": {
+                "type": "string",
+                "enum": [
+                  "operator",
+                  "curator",
+                  "orchestrator:todo",
+                  "orchestrator:ready-for-dev",
+                  "orchestrator:dev",
+                  "orchestrator:review",
+                  "orchestrator:product-review",
+                  "orchestrator:external-review",
+                  "orchestrator:qa",
+                  "orchestrator:ready-to-merge",
+                  "orchestrator:done",
+                  "worker"
+                ],
+                "description": "Who is expected to resolve the block."
+              },
+              "reason": {
+                "type": "string",
+                "description": "Why the task is blocked, or the question asked."
+              },
+              "at": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                "description": "When the block was opened, ISO 8601 UTC."
+              },
+              "outcome": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": ["done", "reason", "terminal", "withdrawn", "archived"]
+                  },
+                  { "type": "null" }
+                ],
+                "description": "How the block was resolved; null while it is open."
+              },
+              "outcomeReason": {
+                "description": "Done reference or closure explanation; null when absent.",
+                "type": ["string", "null"]
+              },
+              "unblockedBy": {
+                "anyOf": [
+                  {
+                    "anyOf": [
+                      { "type": "string", "const": "operator" },
+                      { "type": "string", "const": "system" },
+                      { "type": "string", "pattern": "^agent:[A-Za-z0-9._-]+\\/[A-Za-z0-9._-]+$" }
+                    ],
+                    "description": "Actor: operator, system, or agent:<project>/<session>."
+                  },
+                  { "type": "null" }
+                ],
+                "description": "Actor that unblocked the block; null while open."
+              },
+              "unblockedAt": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                  },
+                  { "type": "null" }
+                ],
+                "description": "When the block was unblocked; null while open."
+              }
+            },
+            "required": [
+              "id",
+              "task",
+              "type",
+              "state",
+              "author",
+              "addressee",
+              "reason",
+              "at",
+              "outcome",
+              "outcomeReason",
+              "unblockedBy",
+              "unblockedAt"
+            ],
+            "additionalProperties": false,
+            "description": "A block on a task."
+          }
+        },
+        "required": ["task", "block"],
         "additionalProperties": false
       }
     }
