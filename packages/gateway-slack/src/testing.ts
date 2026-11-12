@@ -307,6 +307,10 @@ export async function startFakeSlackApi(
       case 'chat.postEphemeral':
         result = { ok: true, message_ts: ts() };
         break;
+      case 'conversations.info':
+        // The bot is a member of every channel, as chat.postMessage accepts any channel.
+        result = { ok: true, channel: { id: formValue(form, 'channel'), is_member: true } };
+        break;
       default:
         violations.push({ method, params });
         result = { ok: false, error: 'unknown_method' };
