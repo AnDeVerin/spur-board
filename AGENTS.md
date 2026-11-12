@@ -30,10 +30,10 @@ A map of the repo for agents and contributors. The rules live in the files and s
   `running-the-daemon`.
 - `packages/stand` - a private disposable board for agents and tests: one process holding the
   in-process daemon on a temp home with dummy secrets, the fake Slack API, the network guard and a
-  control endpoint (`wait`, `poll`, `reset`, `seed`, `fake`, `violations`). An in-memory fake Spur
-  and the fakes in `src/fakes/` answer the real adapters through one in-process `fetch`; the named
-  scenarios `seed` and `up --scenario` set up live in `src/scenarios/`. Production packages never
-  import it; the boundary lint is in `eslint.config.js`.
+  control endpoint (`wait`, `poll`, `reset`, `seed`, `clock`, `fake`, `violations`). An in-memory
+  fake Spur and the fakes in `src/fakes/` answer the real adapters through one in-process `fetch`;
+  the named scenarios `seed` and `up --scenario` set up live in `src/scenarios/`. Production
+  packages never import it; the boundary lint is in `eslint.config.js`.
 - `packages/testkit` - the shared Vitest harness: environment scrub and network guard. Skill:
   `testing-and-ci`.
 - `scripts/` - repo tooling, run as `node scripts/<name>.ts` through the pnpm scripts below. Check
@@ -73,7 +73,7 @@ A map of the repo for agents and contributors. The rules live in the files and s
 - `BOARD_LIVE_CHANNEL=<test-channel-id> BOARD_LIVE_CHANNEL_NAME=<test-channel-name> pnpm smoke:live`
   - run Slack gateway conformance from an interactive terminal after checking private channel
     metadata; use before M1 acceptance, after Slack SDK updates and before releases.
-- `pnpm stand up|down|status|logs|board|mcp|wait|poll|reset|seed|fake|violations` - run a stand under `$TMPDIR`;
+- `pnpm stand up|down|status|logs|board|mcp|wait|poll|reset|seed|clock|fake|violations` - run a stand under `$TMPDIR`;
   `pnpm stand` prints the commands. `up` refuses real external credentials in the environment,
   the live board's home and port 4777.
 - `pnpm upgrade:smoke [tarball]` - test migration from the previous published version when present.

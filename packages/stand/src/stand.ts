@@ -421,10 +421,13 @@ export async function startStand(options: StandOptions): Promise<Stand> {
     // SQLite creates its WAL and SHM files with the database file's mode, so an owner-only empty
     // file here keeps all three owner-only. Start and reset both find no database file.
     closeSync(openSync(paths.dbFile, EXCLUSIVE, 0o600));
-    await seedIdentities(paths.dbFile, operatorToken, roles);
+    await seedIdentities(paths.dbFile, operatorToken, roles, clock.now());
   }
 
-  const clock = options.clock ?? { now: () => Date.now() };
+  const base = options.clock ?? { now: () => Date.now() };
+  // Only grows, also across reset and seed, so the stand clock never moves backward.
+  let offsetMs = 0;
+  const clock = { now: () => base.now() + offsetMs };
   // Outlives every daemon of this stand; a reset clears its state, not the object.
   const fakes = createFakes({
     now: () => clock.now(),
@@ -666,6 +669,23 @@ export async function startStand(options: StandOptions): Promise<Stand> {
       } finally {
         clearTimeout(timer);
       }
+    },
+    /** Moves the stand clock forward, then runs one board tick and one outbox pulse. */
+    async clock(body: { shiftMs: number }): Promise<RouteResult> {
+      const running = current;
+      if (running === undefined)
+        return { status: 503, body: { error: 'The daemon is not running.' } };
+      offsetMs += body.shiftMs;
+      await running.daemon.tick();
+      await running.daemon.outbox.pulse();
+      return {
+        status: 200,
+        body: {
+          now: new Date(clock.now()).toISOString(),
+          offsetMs,
+          note: 'Timers stay real: each job sees the new time at its next run. The board ticked and pulsed once. The adapter runner kept its state; stand poll restarts it and its stale window.',
+        },
+      };
     },
     /** Resets onto the scenario seeded last, and seeds it again; a plain reset without one. */
     reset(): Promise<RouteResult> {
@@ -972,11 +992,12 @@ async function seedIdentities(
   dbFile: string,
   token: string,
   roles: StandManifest['roles'],
+  nowMs: number,
 ): Promise<void> {
   const store = openStore(dbFile);
   try {
     await store.transaction(async (trx) => {
-      const at = new Date().toISOString();
+      const at = new Date(nowMs).toISOString();
       for (const role of ['worker', 'orchestrator'] as const) {
         const id = roles[role];
         const spurProject = ROLE_PROJECTS[role];

@@ -926,7 +926,7 @@ describe('stand', () => {
       osHome,
       clock: { now: () => Date.now() + offset },
     });
-    const manifest = stand.manifest();
+    let manifest = stand.manifest();
     const message = await requestToken(manifest, 'later');
     const { ts } = JSON.parse(message.message) as { ts: string };
     const raised = await withStore(manifest, (store) =>
@@ -940,6 +940,54 @@ describe('stand', () => {
       expect(at).toBeGreaterThanOrEqual(startedAt + offset);
       expect(at).toBeLessThanOrEqual(startedAt + offset + 60_000);
     }
+    const seededToken = () =>
+      withStore(manifest, (store) =>
+        store.db
+          .selectFrom('operator_token')
+          .select('requested_at')
+          .where('name', '=', 'stand')
+          .executeTakeFirstOrThrow(),
+      );
+    expect(Date.parse((await seededToken()).requested_at)).toBeGreaterThanOrEqual(
+      startedAt + offset,
+    );
+
+    // A runtime shift reaches the answer, fake Slack, core and fake Spur, and outlives a reset.
+    const shift = 24 * 60 * 60 * 1_000;
+    const shifted = startedAt + offset + shift;
+    const moved = await control(manifest, '/clock', { shiftMs: shift });
+    expect(moved.status, JSON.stringify(moved.body)).toBe(200);
+    const answer = moved.body as { now: string; offsetMs: number };
+    expect(answer.offsetMs).toBe(shift);
+    expect(Date.parse(answer.now)).toBeGreaterThanOrEqual(shifted);
+    const stampsOf = async (name: string) => {
+      const posted = await requestToken(manifest, name);
+      const item = await withStore(manifest, (store) =>
+        store.db
+          .selectFrom('operator_item')
+          .select('raised_at')
+          .where('item_key', '=', `token:${name}`)
+          .executeTakeFirstOrThrow(),
+      );
+      return [
+        Number((JSON.parse(posted.message) as { ts: string }).ts) * 1_000,
+        Date.parse(item.raised_at),
+      ];
+    };
+    for (const at of await stampsOf('shifted')) expect(at).toBeGreaterThanOrEqual(shifted);
+    await vi.waitFor(async () => {
+      const { requests } = (await inspect(manifest)) as unknown as { requests: { at: string }[] };
+      expect(requests.some(({ at }) => Date.parse(at) >= shifted)).toBe(true);
+    }, DELIVERY_WAIT);
+
+    const reset = await control(manifest, '/reset');
+    expect(reset.status, JSON.stringify(reset.body)).toBe(200);
+    manifest = stand.manifest();
+    expect(Date.parse((await seededToken()).requested_at)).toBeGreaterThanOrEqual(shifted);
+    for (const at of await stampsOf('after-reset')) expect(at).toBeGreaterThanOrEqual(shifted);
+    // A day's shift crosses the open-block threshold and the digest slots; nothing goes unmodelled.
+    const log = await control(manifest, '/violations');
+    expect(log, JSON.stringify(log.body)).toMatchObject({ status: 200, body: { total: 0 } });
   }, 60_000);
 
   it('runs fake slack outbox and click through the real CLI', async () => {

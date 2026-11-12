@@ -3,6 +3,7 @@ import { connect } from 'node:net';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   callLocal,
+  MAX_SHIFT_MS,
   MAX_WAIT_MS,
   startControl,
   type Control,
@@ -47,6 +48,7 @@ function raw(control: Control, headers: Record<string, string>, path = '/reset')
 /** The routes a test does not exercise. */
 const unused = {
   seed: vi.fn(),
+  clock: vi.fn(),
   fake: vi.fn(),
   violations: vi.fn(),
   slackOutbox: vi.fn(),
@@ -215,6 +217,72 @@ describe('control endpoint', () => {
     expect(seeded.status).toBe(200);
     expect(await seeded.json()).toEqual({ seeded: true });
     expect(seed).toHaveBeenCalledExactlyOnceWith({ scenario: 'empty' });
+  });
+
+  it('rejects a missing token, a foreign Host and an Origin on /clock', async () => {
+    const clock = vi.fn(() => Promise.resolve({ status: 200, body: {} }));
+    control = await startControl({
+      token: TOKEN,
+      routes: { ...unused, wait: vi.fn(), poll: vi.fn(), reset: vi.fn(), clock },
+    });
+    const port = new URL(control.url).port;
+    const host = `127.0.0.1:${port}`;
+    const authorization = `Bearer ${TOKEN}`;
+    expect(await raw(control, { host }, '/clock')).toBe(401);
+    expect(await raw(control, { host, authorization: 'Bearer wrong' }, '/clock')).toBe(401);
+    expect(await raw(control, { host: `localhost:${port}`, authorization }, '/clock')).toBe(403);
+    expect(await raw(control, { host, authorization, origin: 'http://evil' }, '/clock')).toBe(403);
+    expect(clock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['no shiftMs', {}],
+    ['a zero shift', { shiftMs: 0 }],
+    ['a negative shift', { shiftMs: -1 }],
+    ['a fractional shift', { shiftMs: 1.5 }],
+    ['a string shift', { shiftMs: '1' }],
+    ['a shift over the cap', { shiftMs: MAX_SHIFT_MS + 1 }],
+  ])('answers 400 to a clock with %s', async (_name, body) => {
+    const clock = vi.fn(() => Promise.resolve({ status: 200, body: {} }));
+    control = await startControl({
+      token: TOKEN,
+      routes: { ...unused, wait: vi.fn(), poll: vi.fn(), reset: vi.fn(), clock },
+    });
+    const response = await fetch(`${control.url}/clock`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    expect(response.status).toBe(400);
+    expect(clock).not.toHaveBeenCalled();
+  });
+
+  it('queues clock behind a reset and passes its shift', async () => {
+    const pending = deferred<RouteResult>();
+    const reset = vi.fn(() => pending.promise);
+    const clock = vi.fn(() => Promise.resolve({ status: 200, body: { offsetMs: 180_000 } }));
+    control = await startControl({
+      token: TOKEN,
+      routes: { ...unused, wait: vi.fn(), poll: vi.fn(), reset, clock },
+    });
+    const running = post(control, '/reset');
+    await vi.waitFor(() => {
+      expect(reset).toHaveBeenCalled();
+    });
+    const shifting = fetch(`${control.url}/clock`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ shiftMs: 180_000 }),
+    });
+    // The clock is queued: give its request time to arrive, then check it has not run.
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(clock).not.toHaveBeenCalled();
+    pending.resolve({ status: 200, body: {} });
+    expect((await running).status).toBe(200);
+    const shifted = await shifting;
+    expect(shifted.status).toBe(200);
+    expect(await shifted.json()).toEqual({ offsetMs: 180_000 });
+    expect(clock).toHaveBeenCalledExactlyOnceWith({ shiftMs: 180_000 });
   });
 
   it('answers 404 to an unknown route and 413 to a large body', async () => {
