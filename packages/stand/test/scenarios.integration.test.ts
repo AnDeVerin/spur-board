@@ -605,8 +605,8 @@ describe('each scenario', () => {
     expect(items.map(({ key }) => key)).toContain(manifest.scenario?.items?.['silent']);
     expect(manifest.scenario?.items?.['silent']).toBe('source:spur');
 
-    // A reset reseeds onto a fresh runner and shifts the clock again.
-    await ok(current(), '/reset');
+    // A reset restores the snapshot onto a fresh runner and makes the seed's clock shift again.
+    expect(await ok(current(), '/reset')).toMatchObject({ snapshot: 'restored' });
     await ok(current(), '/wait', SEED_WAIT);
     const again = await status(current());
     expect(staleSources(again.sources)).toEqual(['spur']);

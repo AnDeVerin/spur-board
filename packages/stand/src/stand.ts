@@ -322,6 +322,8 @@ interface SnapshotRecord {
   fakes: FakesState;
   spur: FakeSpurState;
   slack: FakeSlackState;
+  /** The clock shifts the seed made, in order; a restore makes them again on the new daemon. */
+  shifts: number[];
 }
 
 type SnapshotOutcome = 'restored' | 'taken' | 'failed';
@@ -871,6 +873,13 @@ export async function startStand(options: StandOptions): Promise<Stand> {
       if (hit !== undefined) fakes.restore(hit.fakes);
       current = await startDaemon(hit?.spur);
       if (name !== undefined && hit !== undefined) scenario = { name, entities: hit.entities };
+      // State a seed reaches through the clock lives in the runner, not the snapshot: a fresh
+      // runner gets there again only through the same shifts. The clock still only moves forward.
+      for (const shiftMs of hit?.shifts ?? []) {
+        const shifted = await routes.clock({ shiftMs });
+        if (shifted.status !== 200)
+          throw new Error(`The restored clock shift answered ${String(shifted.status)}.`);
+      }
       writeCurrentManifest(current.daemon.address, controlUrl());
     } catch (err) {
       failure = 1;
@@ -904,8 +913,11 @@ export async function startStand(options: StandOptions): Promise<Stand> {
     }
   }
 
-  /** The board client of a running daemon; `notes` collects its direct writes. */
-  function boardFor(running: NonNullable<typeof current>) {
+  /**
+   * The board client of a running daemon; `notes` collects its direct writes and `onShift` hears
+   * every clock shift it made.
+   */
+  function boardFor(running: NonNullable<typeof current>, onShift?: (shiftMs: number) => void) {
     return createBoardClient({
       daemonUrl: running.daemon.address,
       operatorToken,
@@ -913,7 +925,11 @@ export async function startStand(options: StandOptions): Promise<Stand> {
       home,
       db: running.daemon.store.db,
       poll: () => routes.poll({}),
-      clock: (shiftMs) => routes.clock({ shiftMs }),
+      clock: async (shiftMs) => {
+        const result = await routes.clock({ shiftMs });
+        if (result.status === 200) onShift?.(shiftMs);
+        return result;
+      },
       check,
       signal: stopSignal.signal,
     });
@@ -933,12 +949,13 @@ export async function startStand(options: StandOptions): Promise<Stand> {
     const definition = findScenario(name);
     if (definition === undefined) throw new Error(`Unknown scenario ${name}.`);
     scenario = { name };
-    const { board, notes } = boardFor(running);
+    const shifts: number[] = [];
+    const { board, notes } = boardFor(running, (shiftMs) => shifts.push(shiftMs));
     const seeded = await definition.seed(board, scenarioFakes, { now: () => clock.now() });
     const entities =
       notes.length === 0 ? seeded : { ...seeded, direct: [...(seeded.direct ?? []), ...notes] };
     scenario = { name, entities };
-    return { entities, snapshot: takeSnapshot(name, definition, running, entities) };
+    return { entities, snapshot: takeSnapshot(name, definition, running, entities, shifts) };
   }
 
   /**
@@ -951,6 +968,7 @@ export async function startStand(options: StandOptions): Promise<Stand> {
     definition: Scenario,
     running: NonNullable<typeof current>,
     entities: ScenarioEntities,
+    shifts: number[],
   ): 'taken' | 'failed' {
     const previous = snapshots.get(name);
     snapshots.delete(name);
@@ -965,6 +983,7 @@ export async function startStand(options: StandOptions): Promise<Stand> {
         fakes: fakes.state(),
         spur: running.spur.state(),
         slack: fake.state(),
+        shifts,
       };
       saveSnapshot(paths.dbFile, file);
       snapshots.set(name, record);
