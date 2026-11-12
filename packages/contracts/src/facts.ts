@@ -205,7 +205,7 @@ export type PrFacts = z.output<typeof prFactsSchema>;
 export function isExternalAuthor(entry: Pick<PrFeedback, 'author'>, agentLogin: string): boolean {
   return (
     entry.author === null ||
-    (entry.author.type !== 'bot' && entry.author.login.toLowerCase() !== agentLogin.toLowerCase())
+    (entry.author.type !== 'bot' && entry.author.login.toLowerCase() === agentLogin.toLowerCase())
   );
 }
 
