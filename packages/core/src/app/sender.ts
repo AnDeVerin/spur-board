@@ -152,8 +152,6 @@ async function syncTransportItem(trx: Trx, gateway: string, at: Date): Promise<v
       url: '',
       taskId: null,
       blockId: null,
-      priority: 1,
-      suppressFeed: true,
       at,
     });
     // raiseItem keeps an active item as it is; the item has no feed line, so its text is

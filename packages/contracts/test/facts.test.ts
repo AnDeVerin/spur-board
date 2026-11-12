@@ -4,6 +4,7 @@ import {
   FACT_NAMES,
   FACT_SCHEMAS,
   type FactName,
+  isExternalAuthor,
   isKnownSessionHealth,
   isKnownSessionStatus,
   prFactsSchema,
@@ -44,6 +45,22 @@ function prFacts(): Record<string, unknown> {
     reviewRequests: [{ kind: 'user', id: 'octocat', asCodeOwner: true }],
     ticketKeys: ['PROJ-123'],
     updatedAt: '2026-11-01T11:00:00Z',
+    feedback: [
+      {
+        kind: 'comment',
+        id: 'IC_1',
+        author: { login: 'alice', type: 'user' },
+        postedAt: '2026-11-01T10:30:00Z',
+      },
+      { kind: 'comment', id: 'IC_2', author: null, postedAt: '2026-11-01T10:40:00Z' },
+      {
+        kind: 'review',
+        id: 'PRR_1',
+        author: { login: 'octocat', type: 'user' },
+        postedAt: '2026-11-01T11:00:00Z',
+      },
+    ],
+    feedbackComplete: true,
   };
 }
 
@@ -105,6 +122,22 @@ describe('fixtures', () => {
       'a PR with a review request stored by an earlier version',
       prFactsSchema,
       { ...prFacts(), reviewRequests: [{ reviewer: 'octocat', asCodeOwner: true }] },
+    ],
+    [
+      'a PR with feedback from a bot',
+      prFactsSchema,
+      {
+        ...prFacts(),
+        feedback: [
+          {
+            kind: 'comment',
+            id: 'IC_3',
+            author: { login: 'renovate', type: 'bot' },
+            postedAt: '2026-11-01T10:30:00Z',
+          },
+        ],
+        feedbackComplete: false,
+      },
     ],
     ['a Jira ticket', ticketFactsSchema, ticketFacts()],
     [
@@ -211,10 +244,57 @@ describe('invalid facts', () => {
     expect(pathLines(errorFor(sessionFactsSchema, input))).toContain('→ at healthSince');
   });
 
+  it.each([
+    ['an empty id', { kind: 'comment', id: '', author: null, postedAt: '2026-11-01T10:30:00Z' }],
+    [
+      'an unknown author type',
+      {
+        kind: 'comment',
+        id: 'IC_1',
+        author: { login: 'alice', type: 'team' },
+        postedAt: '2026-11-01T10:30:00Z',
+      },
+    ],
+    [
+      'an author without a login',
+      { kind: 'review', id: 'PRR_1', author: { type: 'user' }, postedAt: '2026-11-01T10:30:00Z' },
+    ],
+    ['no time', { kind: 'comment', id: 'IC_1', author: null }],
+    [
+      'an unknown kind',
+      { kind: 'reaction', id: 'R_1', author: null, postedAt: '2026-11-01T10:30:00Z' },
+    ],
+  ])('rejects a feedback entry with %s at its path', (_name, entry) => {
+    const error = errorFor(prFactsSchema, { ...prFacts(), feedback: [entry] });
+    expect(pathLines(error).some((line) => line.startsWith('→ at feedback[0]'))).toBe(true);
+  });
+
   it('rejects an unknown key', () => {
     expect(errorFor(ticketFactsSchema, { ...ticketFacts(), bogus: 1 })).toContain(
       'Unrecognized key: "bogus"',
     );
+  });
+});
+
+describe('stored facts', () => {
+  it('parses stored PR facts without feedback', () => {
+    const input = prFacts();
+    delete input['feedback'];
+    delete input['feedbackComplete'];
+    expect(prFactsSchema.parse(input)).toEqual(input);
+  });
+});
+
+describe('external authors', () => {
+  it.each<[string, Parameters<typeof isExternalAuthor>[0]['author'], boolean]>([
+    ['the agent login', { login: 'operator', type: 'user' }, false],
+    ['the agent login in another letter case', { login: 'OPERATOR', type: 'user' }, false],
+    ['a bot', { login: 'dependabot', type: 'bot' }, false],
+    ['a bot with the agent login', { login: 'operator', type: 'bot' }, false],
+    ['another user', { login: 'alice', type: 'user' }, true],
+    ['a deleted account', null, true],
+  ])('classifies %s', (_name, author, external) => {
+    expect(isExternalAuthor({ author }, 'operator')).toBe(external);
   });
 });
 

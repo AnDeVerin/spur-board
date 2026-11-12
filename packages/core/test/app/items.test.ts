@@ -15,7 +15,7 @@ import {
 import { createFakeGateway } from '@spur-board/gateway-testkit';
 import { afterEach, describe, expect, it } from 'vitest';
 import { runCli, type CliIo } from '../../../cli/src/cli.ts';
-import { fingerprint } from '../../src/domain/fromYou.ts';
+import { fingerprint, type ItemKind } from '../../src/domain/fromYou.ts';
 import { registerBlockNotification } from '../../src/app/doorbells.ts';
 import { raiseItem } from '../../src/app/feed.ts';
 import { dispatchOperation } from '../../src/app/operations.ts';
@@ -156,7 +156,7 @@ type Ctx = Awaited<ReturnType<typeof setup>>;
 
 async function raise(
   ctx: Ctx,
-  input: { key: string; kind: string; taskId?: number | null; text?: string },
+  input: { key: string; kind: ItemKind; taskId?: number | null; text?: string },
 ): Promise<number> {
   const item = await scanTransaction(ctx.store, config, (trx) =>
     raiseItem(trx, {
@@ -318,6 +318,8 @@ describe('item.retry and item.close', () => {
       .selectAll()
       .where('item_key', '=', `delivery:${String(open.id)}`)
       .executeTakeFirstOrThrow();
+    // A failed post is raised under its own kind, with no feed line (GW8).
+    expect(failed).toMatchObject({ kind: 'post_failed', line_outbox_id: null, priority: 1 });
     ctx.advance(1000);
     const result = await ctx.retry(`I${String(failed.id)}`, 'retry-post');
     expect(result).toEqual({
@@ -891,11 +893,8 @@ describe('item.retry and item.close', () => {
     expect(dismissal.fingerprint).toBe(
       fingerprint({
         key: 'inbound:gap:z',
-        taskId: null,
         summary: 'repeat',
-        factAt: null,
         source: gapRow.source,
-        priority: 0,
         revision: null,
       }),
     );

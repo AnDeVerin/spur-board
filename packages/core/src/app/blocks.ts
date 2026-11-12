@@ -8,6 +8,7 @@ import {
 } from '@spur-board/contracts';
 import type { Kysely, Selectable } from 'kysely';
 import type { BlockTable, CommentTable, Tables, TaskTable } from '../store/schema.ts';
+import type { ItemKind } from '../domain/fromYou.ts';
 import {
   acknowledgeComment,
   answerBlock,
@@ -354,7 +355,7 @@ export async function closeOpenBlock(
   const blockedItems = await trx
     .selectFrom('operator_item')
     .select('id')
-    .where('kind', '=', 'post_blocked')
+    .where('kind', '=', 'post_blocked' satisfies ItemKind)
     .where('block_id', '=', block.id)
     .where('cleared_at', 'is', null)
     .execute();

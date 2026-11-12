@@ -386,6 +386,76 @@ Example: {}",
                       "description": "Whether the pull request is a draft.",
                       "type": "boolean",
                     },
+                    "feedback": {
+                      "description": "Comments and submitted reviews on the pull request, oldest first, without their text.",
+                      "items": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "author": {
+                            "anyOf": [
+                              {
+                                "additionalProperties": false,
+                                "properties": {
+                                  "login": {
+                                    "description": "Login of the author.",
+                                    "minLength": 1,
+                                    "type": "string",
+                                  },
+                                  "type": {
+                                    "description": "Whether the author is a user or a bot.",
+                                    "enum": [
+                                      "user",
+                                      "bot",
+                                    ],
+                                    "type": "string",
+                                  },
+                                },
+                                "required": [
+                                  "login",
+                                  "type",
+                                ],
+                                "type": "object",
+                              },
+                              {
+                                "type": "null",
+                              },
+                            ],
+                            "description": "Who posted it; null for a deleted account.",
+                          },
+                          "id": {
+                            "description": "Stable id of the comment or review in the source.",
+                            "minLength": 1,
+                            "type": "string",
+                          },
+                          "kind": {
+                            "description": "Whether this is a comment or a submitted review.",
+                            "enum": [
+                              "comment",
+                              "review",
+                            ],
+                            "type": "string",
+                          },
+                          "postedAt": {
+                            "description": "When the comment was posted or the review submitted.",
+                            "format": "date-time",
+                            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                            "type": "string",
+                          },
+                        },
+                        "required": [
+                          "kind",
+                          "id",
+                          "author",
+                          "postedAt",
+                        ],
+                        "type": "object",
+                      },
+                      "type": "array",
+                    },
+                    "feedbackComplete": {
+                      "description": "Whether feedback holds every comment back to the last one handed over, or to the start of the pull request; missing reads as incomplete.",
+                      "type": "boolean",
+                    },
                     "headBranch": {
                       "description": "Branch name of the head of the pull request.",
                       "minLength": 1,
@@ -1074,6 +1144,76 @@ Example: {}",
               },
               "draft": {
                 "description": "Whether the pull request is a draft.",
+                "type": "boolean",
+              },
+              "feedback": {
+                "description": "Comments and submitted reviews on the pull request, oldest first, without their text.",
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "author": {
+                      "anyOf": [
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "login": {
+                              "description": "Login of the author.",
+                              "minLength": 1,
+                              "type": "string",
+                            },
+                            "type": {
+                              "description": "Whether the author is a user or a bot.",
+                              "enum": [
+                                "user",
+                                "bot",
+                              ],
+                              "type": "string",
+                            },
+                          },
+                          "required": [
+                            "login",
+                            "type",
+                          ],
+                          "type": "object",
+                        },
+                        {
+                          "type": "null",
+                        },
+                      ],
+                      "description": "Who posted it; null for a deleted account.",
+                    },
+                    "id": {
+                      "description": "Stable id of the comment or review in the source.",
+                      "minLength": 1,
+                      "type": "string",
+                    },
+                    "kind": {
+                      "description": "Whether this is a comment or a submitted review.",
+                      "enum": [
+                        "comment",
+                        "review",
+                      ],
+                      "type": "string",
+                    },
+                    "postedAt": {
+                      "description": "When the comment was posted or the review submitted.",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                      "type": "string",
+                    },
+                  },
+                  "required": [
+                    "kind",
+                    "id",
+                    "author",
+                    "postedAt",
+                  ],
+                  "type": "object",
+                },
+                "type": "array",
+              },
+              "feedbackComplete": {
+                "description": "Whether feedback holds every comment back to the last one handed over, or to the start of the pull request; missing reads as incomplete.",
                 "type": "boolean",
               },
               "headBranch": {
