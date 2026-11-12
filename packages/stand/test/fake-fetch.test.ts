@@ -297,6 +297,7 @@ describe('fakeBody', () => {
     args: { ...target, ...args },
   });
   const fail = (args: Record<string, unknown>) => ({ system: 'github', verb: 'fail', args });
+  const jira = (args: Record<string, unknown>) => ({ system: 'jira', verb: 'issue', args });
   const SHA = 'b'.repeat(40);
 
   it.each<[string[], Record<string, string>, Record<string, unknown>]>([
@@ -331,6 +332,20 @@ describe('fakeBody', () => {
     [['github', 'issue', '7', 'label'], {}, pr('issue-label', { labels: [] })],
     [['github', 'issue', '7', 'milestone', 'S1'], {}, pr('issue-milestone', { milestone: 'S1' })],
     [['github', 'issue', '7', 'milestone'], {}, pr('issue-milestone', { milestone: null })],
+    [['jira', 'issue', 'STAND-1'], {}, jira({ key: 'STAND-1' })],
+    [
+      ['jira', 'issue', 'STAND-12'],
+      { status: 'In Progress', title: 'A ticket' },
+      jira({ key: 'STAND-12', status: 'In Progress', title: 'A ticket' }),
+    ],
+    [['jira', 'issue', 'OPS_2-3'], { status: 'Done' }, jira({ key: 'OPS_2-3', status: 'Done' })],
+    [['jira', 'fail', 'auth'], {}, { system: 'jira', verb: 'fail', args: { mode: 'auth' } }],
+    [
+      ['jira', 'fail', 'rate-limit', '30'],
+      {},
+      { system: 'jira', verb: 'fail', args: { mode: 'rate-limit', seconds: 30 } },
+    ],
+    [['jira', 'fail', 'clear'], {}, { system: 'jira', verb: 'fail', args: { mode: 'clear' } }],
   ])('maps %j %j', (positionals, values, expected) => {
     expect(fakeBody(positionals, values)).toEqual(expected);
   });
@@ -373,6 +388,23 @@ describe('fakeBody', () => {
     [['github', 'issue', '7', 'close'], { title: 't' }],
     [['github', 'issue', '7', 'open'], { seed: '{}' }],
     [['github', 'issue', '7', 'milestone', 'a', 'b']],
+    [['github', 'issue', '7', 'open'], { status: 'Done' }],
+    [['github', 'fail', 'hang'], { status: 'Done' }],
+    [['jira']],
+    [['jira', 'nope']],
+    [['jira', 'pr', '7', 'create']],
+    [['jira', 'issue']],
+    [['jira', 'issue', 'stand-1']],
+    [['jira', 'issue', 'STAND-0']],
+    [['jira', 'issue', 'STAND']],
+    [['jira', 'issue', '7']],
+    [['jira', 'issue', 'STAND-1', 'extra']],
+    [['jira', 'issue', 'STAND-1'], { repo: BOARD }],
+    [['jira', 'issue', 'STAND-1'], { seed: '{}' }],
+    [['jira', 'fail']],
+    [['jira', 'fail', 'nope']],
+    [['jira', 'fail', 'auth'], { status: 'Done' }],
+    [['jira', 'fail', 'auth'], { title: 't' }],
   ])('rejects %j %j', (positionals, values = {}) => {
     expect(() => fakeBody(positionals, values)).toThrow();
   });
