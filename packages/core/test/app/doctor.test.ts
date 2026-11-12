@@ -4,8 +4,10 @@ import { join } from 'node:path';
 import { configSchema, type SessionFacts } from '@spur-board/contracts';
 import { afterEach, describe, expect, it } from 'vitest';
 import { curatorSessions, enqueueLiveAfterFirstPoll, firstPollDone } from '../../src/app/doctor.ts';
+import { raiseItem } from '../../src/app/feed.ts';
 import { scanTransaction } from '../../src/app/secrets.ts';
-import { createObservationCore, openStore, type Store } from '../../src/index.ts';
+import type { ItemKind } from '../../src/domain/fromYou.ts';
+import { createObservationCore, getStatus, openStore, type Store } from '../../src/index.ts';
 
 const at = '2026-11-04T12:00:00.000Z';
 const config = configSchema.parse({
@@ -50,6 +52,35 @@ async function poll(
   });
 }
 
+function item(itemKey: string, kind: ItemKind) {
+  return {
+    itemKey,
+    kind,
+    text: 'Needs attention',
+    url: 'https://example.com',
+    taskId: null,
+    blockId: null,
+    at: new Date(at),
+  };
+}
+
+async function liveText(store: Store, kinds: readonly ItemKind[]) {
+  await scanTransaction(store, config, async (trx) => {
+    for (const [index, kind] of kinds.entries())
+      await raiseItem(trx, item(`item-${String(index)}`, kind));
+    await enqueueLiveAfterFirstPoll(trx, {
+      config,
+      productVersion: '1.2.3',
+      completeSince: new Map(sources.map((source) => [source, at])),
+      blind: new Set(),
+      at,
+    });
+  });
+  const [live] = await liveRows(store);
+  if (live === undefined) throw new Error('Missing live row');
+  return (JSON.parse(live.payload) as { text: string }).text;
+}
+
 async function liveRows(store: Store) {
   return store.db
     .selectFrom('outbox')
@@ -91,23 +122,8 @@ describe('live feed announcement', () => {
           archive_slot_at: null,
         })
         .execute();
-      await trx
-        .insertInto('operator_item')
-        .values({
-          item_key: 'manual',
-          raise_no: 1,
-          kind: 'manual',
-          text: 'Needs attention',
-          url: 'https://example.com',
-          task_id: null,
-          block_id: null,
-          raised_at: at,
-          cleared_at: null,
-          line_outbox_id: null,
-          inbound_event_json: null,
-        })
-        .execute();
     });
+    await scanTransaction(store, config, (trx) => raiseItem(trx, item('gap', 'inbound_gap')));
     await poll(observation, sources[0]);
     const rows = await liveRows(store);
     expect(rows).toHaveLength(1);
@@ -126,6 +142,25 @@ describe('live feed announcement', () => {
           .executeTakeFirst()
       )?.value,
     ).toBe('"1.2.3"');
+  });
+
+  it('counts only items with a feed line and keeps a quiet item in status', async () => {
+    const both = setup();
+    expect(await liveText(both.store, ['worker_ended', 'inbound_gap'])).toBe(
+      'spur-board is live: 0 tasks, 1 for you',
+    );
+
+    const quiet = setup();
+    expect(await liveText(quiet.store, ['worker_ended'])).toBe(
+      'spur-board is live: 0 tasks, 0 for you',
+    );
+    const status = await getStatus({
+      store: quiet.store,
+      config,
+      clock: { now: () => Date.parse(at) },
+      completeSince: new Map(),
+    });
+    expect(status.items).toMatchObject([{ key: 'item-0', summary: 'Needs attention' }]);
   });
 
   it('does not treat a blind poll as complete and does not repost after a same-version restart', async () => {
