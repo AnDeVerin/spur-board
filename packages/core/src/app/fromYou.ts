@@ -394,7 +394,9 @@ export async function reconcileItems(
         reminder.rings >= 1 &&
         reminder.acked_at !== null &&
         now >= Math.max(Date.parse(reminder.acked_at), quiet) + threshold;
-      const unreached = reminder !== undefined && reminder.exhausted_at !== null;
+      // A failed reminder counts only once the current quiet period reaches the threshold.
+      const unreached =
+        reminder !== undefined && reminder.exhausted_at !== null && now >= quiet + threshold;
       if (!reminded && !unreached && !(ended && now >= quiet + threshold)) continue;
       candidates.push({
         key: `stuck-turn:${String(turn.id)}`,

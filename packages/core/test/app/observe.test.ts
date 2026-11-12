@@ -2444,6 +2444,63 @@ describe('anomaly blocks', () => {
     ).toEqual([{ kind: 'anomaly', item_key: `stuck-turn:${String(turn.id)}` }]);
   });
 
+  it('waits a fresh quiet period after an answered question before reopening a stuck-turn block for a failed reminder', async () => {
+    const b = await board();
+    const blocks = createBlockMutations(b.config);
+    await prs(b, [pr(7, 'open')]);
+    await spur(b, [session('worker-1', 'waiting')]);
+    const turn = await heldTurn(b);
+    now += IDLE;
+    await tick(b);
+    const { reminder, outboxId } = await sendReminder(b);
+    now += 1_000;
+    await scanTransaction(b.store, b.config, (trx) =>
+      ringUndelivered(trx, {
+        notificationId: reminder.id,
+        outboxId,
+        dedupeKey: 'unused',
+        session: 'worker-1',
+        reason: 'rejected',
+        at: new Date(now),
+        config: b.config,
+      }),
+    );
+    await tick(b);
+    expect(await openLedger(b)).toEqual([`stuck-turn:${String(turn.id)}`]);
+
+    now += 1_000;
+    const asked = await b.apply(
+      blocks.ask,
+      { task: 'o/r#9', text: 'Which API?' },
+      'agent:worker/worker-1',
+      'ask-1',
+    );
+    await tick(b);
+    expect(await openLedger(b)).toEqual([]);
+
+    now += 1_000;
+    await b.apply(
+      blocks.answer,
+      { block: asked.block.id, text: 'Use v2.' },
+      'operator',
+      'answer-1',
+    );
+    now += 1;
+    await tick(b);
+    expect(await openLedger(b)).toEqual([]);
+    now += IDLE - 2;
+    await tick(b);
+    expect(await openLedger(b)).toEqual([]);
+    now += 1;
+    await tick(b);
+    expect(await openLedger(b)).toEqual([`stuck-turn:${String(turn.id)}`]);
+    expect(
+      (await surface(b)).blocks
+        .filter((block) => block.author === 'system')
+        .map((block) => block.outcome),
+    ).toEqual(['withdrawn', null]);
+  });
+
   it('opens no stuck-turn block for a lost worker', async () => {
     const b = await board();
     await prs(b, [pr(7, 'open')]);
