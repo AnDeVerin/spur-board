@@ -9,6 +9,7 @@ import {
   taskKeySchema,
   turnIdSchema,
 } from '../ids.ts';
+import { commitShaSchema } from '../facts.ts';
 import { defineOperation } from './define.ts';
 import {
   SCHEMA_ROLES,
@@ -116,6 +117,7 @@ const handedReview = {
   id: 'PRR_kwDOA1',
   postedAt: at,
 } as const;
+const submittedSha = '9f2c4e1b7a3d5c8e0f1a2b3c4d5e6f708192a3b4';
 const item = { id: 'I7', task: 'PROJ-123', at, summary: 'Deploy of PROJ-123 failed.' } as const;
 
 const taskOutput = z.strictObject({ task: taskViewSchema });
@@ -918,6 +920,85 @@ export const OPERATIONS = [
             outcomeReason: 'Answered outside the board.',
             unblockedBy: 'agent:web/web-7',
             unblockedAt: at,
+          },
+        },
+      },
+    ],
+  }),
+  defineOperation({
+    id: 'task.submit',
+    kind: 'mutation',
+    description:
+      "Submit the commit at the head of the task's pull request for a turn this session took; the turn closes.",
+    mcp: {
+      whenToUse: 'Hand in the work of a turn you took, at the pull request head.',
+      whenNotToUse: 'Use task_return to send the task back to Dev instead.',
+    },
+    input: z.strictObject({
+      turn: turnIdSchema,
+      sha: commitShaSchema.describe('Full commit SHA at the head of the pull request, lowercase.'),
+    }),
+    output: z.strictObject({
+      task: taskViewSchema,
+      turn: turnIdSchema,
+      sha: commitShaSchema.describe('The submitted commit SHA.'),
+    }),
+    grants: [{ grant: 'task-worker' }, { grant: 'column-orchestrator' }],
+    errors: [
+      'wrong_id_kind',
+      'not_found',
+      'task_archived',
+      'turn_closed',
+      'not_turn_taker',
+      'head_mismatch',
+      'github_unavailable',
+    ],
+    cli: { command: 'submit', args: ['turn', 'sha'] },
+    slack: null,
+    examples: [
+      {
+        summary: 'Submit the pull request head for a review turn',
+        input: { turn: 'T4', sha: submittedSha },
+        output: { task: { ...task, column: 'review' }, turn: 'T4', sha: submittedSha },
+      },
+    ],
+  }),
+  defineOperation({
+    id: 'task.return',
+    kind: 'mutation',
+    description:
+      'Return the task of a turn this session took to Dev, opening a code block on the worker with the reason.',
+    mcp: {
+      whenToUse: 'Send the task back to Dev because the work needs code changes.',
+      whenNotToUse: 'Use task_submit to hand in the work instead.',
+    },
+    input: z.strictObject({
+      turn: turnIdSchema,
+      reason: text('What the worker must change, sent to the worker as a code block.'),
+    }),
+    output: z.strictObject({ task: taskViewSchema, block: blockViewSchema }),
+    grants: [{ grant: 'task-worker' }, { grant: 'column-orchestrator' }],
+    errors: [
+      'wrong_id_kind',
+      'not_found',
+      'task_archived',
+      'turn_closed',
+      'not_turn_taker',
+      'return_not_allowed',
+    ],
+    cli: { command: 'return', args: ['turn', 'reason'] },
+    slack: null,
+    examples: [
+      {
+        summary: 'Return a reviewed task to Dev',
+        input: { turn: 'T4', reason: 'Handle the empty list in the parser.' },
+        output: {
+          task,
+          block: {
+            ...codeBlock,
+            id: 'B14',
+            author: 'agent:rev/rev-1',
+            reason: 'Handle the empty list in the parser.',
           },
         },
       },

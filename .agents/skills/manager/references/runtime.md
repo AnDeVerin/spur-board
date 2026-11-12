@@ -25,13 +25,19 @@ Every spawn gets, and only gets:
 
 - the issue number, title and acceptance criteria;
 - the spec file path (tier 0: the acceptance criteria are the requirement);
-- the mode, when the role has modes (architect draft | final | replan; designer plan | code);
+- the tier as `Tier: <N>`;
+- the mode, when the role has modes (architect draft | final | replan; designer plan | code), and
+  the `developer` directive when it has one (`stop at PLAN_READY` | `simplify pass`);
 - the previous gate's output block; `architect` also gets the researcher's `### Findings` next to
   the critic's selection;
 - the Clarify outcome and the Assumptions so far;
 - the `origin/main` SHA recorded at intake; roles use it wherever they would name `origin/main`;
 - the cycle as `N/cap`;
-- `reviewer` only: `PR: <url> | none`.
+- `reviewer` only: `PR: <url> | none`, and every `developer` output of the run, not only the last;
+- `designer` code only: the changed files from `git diff --name-only <sha>...HEAD` and the
+  screenshots the run already has;
+- `tester` only: `Head: <sha>`, from `git rev-parse HEAD` run right before each `tester` spawn -
+  the last `developer` or fix commit, since no other role commits.
 
 Never pass the raw conversation.
 

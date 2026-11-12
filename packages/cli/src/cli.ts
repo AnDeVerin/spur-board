@@ -259,12 +259,19 @@ function registerOptions(command: CommandUnknownOpts, op: CatalogOperation): voi
   }
   for (const mode of op.cli.modes ?? []) {
     if (mode.value === null) {
-      command.option(mode.flag);
+      const branch = branches(op.input).find(
+        (item) => (item.shape.mode as z.ZodType | undefined)?.safeParse(mode.mode).success,
+      );
+      command.option(
+        mode.flag,
+        (branch?.shape.mode as z.ZodType | undefined)?.description ?? mode.mode,
+      );
     } else {
       const schema = fieldSchema(op, mode.value);
       if (!schema) throw new Error(`Catalog mode value ${mode.value} is missing from ${op.id}.`);
       const value = schema instanceof z.ZodOptional ? `[${mode.value}]` : `<${mode.value}>`;
-      command.option(`${mode.flag} ${value}`);
+      const description = schema.description ?? bareSchema(schema).description ?? mode.value;
+      command.option(`${mode.flag} ${value}`, description);
     }
   }
   if (op.kind === 'mutation') command.option('--key <key>', 'Idempotency key for this action.');
@@ -287,7 +294,13 @@ function buildInput(
     }
   }
   const selected = op.cli.modes?.filter((mode) => options[optionField(mode.flag)] !== undefined);
-  if (selected && selected.length !== 1) throw new CliError('usage');
+  if (selected && selected.length !== 1)
+    throw new CliError(
+      'usage',
+      undefined,
+      undefined,
+      `Pass exactly one of ${(op.cli.modes ?? []).map((mode) => mode.flag).join(', ')}.`,
+    );
   if (selected?.[0]) {
     input['mode'] = selected[0].mode;
     if (selected[0].value) {
@@ -474,8 +487,13 @@ export function createProgram(options: CliOptions = {}): CommandUnknownOpts {
       const json = Boolean(invoked.opts()['json'] || program.opts()['json']);
       const input = buildInput(op, parts.slice(0, -1), invoked.opts());
       const keyOption = invoked.opts()['key'];
-      if (keyOption !== undefined && typeof keyOption !== 'string') throw new CliError('usage');
-      if (keyOption === '') throw new CliError('usage');
+      if (keyOption !== undefined && (typeof keyOption !== 'string' || keyOption === ''))
+        throw new CliError(
+          'usage',
+          undefined,
+          undefined,
+          'Pass a nonempty --key, or omit it to have one generated.',
+        );
       if (keyOption !== undefined && escapeTerminalControls(keyOption) !== keyOption)
         throw new CliError(
           'usage',
@@ -483,7 +501,6 @@ export function createProgram(options: CliOptions = {}): CommandUnknownOpts {
           undefined,
           'The idempotency key must contain only printable characters.',
         );
-      if (op.kind === 'mutation' && env['SPUR_SESSION'] && !keyOption) throw new CliError('usage');
       const config = options.clientConfig ?? loadOperationConfig(op, input, env);
       const key = op.kind === 'mutation' ? keyOption || randomUUID() : undefined;
       if (key) io.stderr(`key: ${escapeTerminalControls(key)}\n`);

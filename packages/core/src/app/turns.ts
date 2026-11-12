@@ -185,7 +185,7 @@ export async function takeTurn(
  */
 export async function closeTurns(
   trx: Trx,
-  input: { taskId: number; reason: 'moved' | 'archived'; at: Date },
+  input: { taskId: number; reason: 'moved' | 'archived' | 'submitted'; at: Date },
 ): Promise<void> {
   const { taskId, reason, at } = input;
   const closed = await trx

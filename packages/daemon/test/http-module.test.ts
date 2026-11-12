@@ -1080,4 +1080,62 @@ describe('HTTP module', () => {
     }
     await expect(fetch(url)).rejects.toThrow();
   });
+
+  it('logs an unexpected error with its requestId and redacted stack, and no CommandError', async () => {
+    const canary = 'xoxb-http-error-canary';
+    const home = makeHome({ httpPort: 0 });
+    const store = openStore(join(home, 'board.sqlite'));
+    stores.push(store);
+    const loaded = loadConfig(resolvePaths({ BOARD_HOME: home }, home));
+    const lines: string[] = [];
+    const log = createLogger(
+      {
+        write(line) {
+          lines.push(line);
+        },
+      },
+      { SLACK_BOT_TOKEN: canary },
+    ).child({ module: 'http' });
+    const records = (): Record<string, unknown>[] =>
+      lines.map((line) => JSON.parse(line) as Record<string, unknown>);
+    const clock = { now: () => Date.parse('2026-11-04T08:00:00.000Z') };
+    let state: DaemonState = 'ready';
+    const ctx: ModuleContext<Store> = {
+      ...loaded,
+      store,
+      log,
+      clock,
+      logCall: (call, fn) => logCall(log, clock, call, fn),
+      state: () => state,
+    };
+    const module = createHttpModule(ctx, {
+      doctor: () => Promise.reject(new Error(`doctor broke with ${canary}`)),
+    });
+    try {
+      await module.start(new AbortController().signal);
+      const port = records().find((record) => record['msg'] === 'http listening')?.['port'];
+      const base = `http://127.0.0.1:${String(port)}`;
+      const failed = await fetch(`${base}/v1/doctor`);
+      expect(failed.status).toBe(500);
+      expect(await failed.json()).toMatchObject({ code: 'unexpected' });
+      const errors = records().filter((record) => record['level'] === 50);
+      expect(errors).toEqual([
+        expect.objectContaining({
+          module: 'http',
+          msg: 'http request failed',
+          requestId: failed.headers.get('x-request-id'),
+          err: expect.objectContaining({
+            stack: expect.stringContaining('doctor broke with [Redacted]') as unknown,
+          }) as unknown,
+        }),
+      ]);
+      state = 'starting';
+      const starting = await fetch(`${base}/v1/schema`);
+      expect(starting.status).toBe(503);
+      expect(records().filter((record) => record['level'] === 50)).toHaveLength(1);
+      expect(lines.join('\n')).not.toContain(canary);
+    } finally {
+      await module.stop();
+    }
+  });
 });

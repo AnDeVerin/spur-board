@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ServerResponse } from 'node:http';
+import type { startAdapters as realStartAdapters } from '@spur-board/adapters';
 import { configSchema, userIdSchema } from '@spur-board/contracts';
 import { openStore, type Store } from '@spur-board/core';
 import { createFakeGateway } from '@spur-board/gateway-testkit';
@@ -34,7 +35,12 @@ export interface CliResult {
   stderr: string;
 }
 
-export async function createE2eHarness() {
+export async function createE2eHarness(
+  options: {
+    /** Replaces the default runner, which polls nothing and has no `pollPr`. */
+    startAdapters?: typeof realStartAdapters;
+  } = {},
+) {
   const home = mkdtempSync(join(tmpdir(), 'board-e2e-'));
   const paths = {
     configFile: join(home, 'config.yaml'),
@@ -176,7 +182,7 @@ export async function createE2eHarness() {
           },
         },
         tick: () => Promise.resolve(),
-        startAdapters: () => ({ stop: () => Promise.resolve() }),
+        startAdapters: options.startAdapters ?? (() => ({ stop: () => Promise.resolve() })),
         sessionFetcher: () => Promise.reject(new Error('unexpected live session lookup')),
         afterOperation: (response: ServerResponse) => {
           if (crashNext) {

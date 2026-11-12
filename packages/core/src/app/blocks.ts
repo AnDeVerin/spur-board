@@ -293,7 +293,7 @@ async function addComment(
   return row;
 }
 
-async function openBlock(
+export async function openBlock(
   trx: Trx,
   task: Task,
   type: Block['type'],

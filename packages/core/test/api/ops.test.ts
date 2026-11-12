@@ -87,6 +87,7 @@ async function server(
     ready?: () => boolean;
     registry?: OperationRegistry;
     logRequest?: ApiOptions['logRequest'];
+    logError?: ApiOptions['logError'];
     doctor?: ApiOptions['doctor'];
     firstPollDone?: ApiOptions['firstPollDone'];
     clock?: ApiOptions['clock'];
@@ -104,6 +105,7 @@ async function server(
     ...(options.doctor === undefined ? {} : { doctor: options.doctor }),
     ...(options.firstPollDone === undefined ? {} : { firstPollDone: options.firstPollDone }),
     logRequest: options.logRequest ?? vi.fn(),
+    ...(options.logError === undefined ? {} : { logError: options.logError }),
   });
 }
 
@@ -174,7 +176,9 @@ describe('catalog HTTP API', () => {
       await app.close();
     }
     const secret = 'never-print-this-secret';
-    const failing = await server(newStore(), { doctor: () => Promise.reject(new Error(secret)) });
+    const cause = new Error(secret);
+    const logError = vi.fn();
+    const failing = await server(newStore(), { doctor: () => Promise.reject(cause), logError });
     try {
       const response = await failing.inject({
         method: 'GET',
@@ -183,6 +187,10 @@ describe('catalog HTTP API', () => {
       });
       expect(response.statusCode).toBe(500);
       expect(response.body).not.toContain(secret);
+      expect(logError).toHaveBeenCalledExactlyOnceWith({
+        requestId: response.headers['x-request-id'],
+        err: cause,
+      });
     } finally {
       await failing.close();
     }
@@ -275,7 +283,8 @@ describe('catalog HTTP API', () => {
   });
 
   it('returns starting before readiness on both routes with a matching request ID', async () => {
-    const app = await server(newStore(), { ready: () => false });
+    const logError = vi.fn();
+    const app = await server(newStore(), { ready: () => false, logError });
     try {
       for (const request of [
         { method: 'GET' as const, url: '/v1/schema', headers: { host } },
@@ -285,6 +294,7 @@ describe('catalog HTTP API', () => {
         const response = await app.inject(request);
         expectProblem(response, 'starting', 'Wait until the daemon is ready.');
       }
+      expect(logError).not.toHaveBeenCalled();
     } finally {
       await app.close();
     }
@@ -397,7 +407,9 @@ describe('catalog HTTP API', () => {
 
   it('rejects oversized JSON as usage before dispatch with no side effects', async () => {
     const resolveTargets = vi.fn();
+    const logError = vi.fn();
     const app = await server(newStore(), {
+      logError,
       registry: {
         'task.get': {
           id: 'task.get',
@@ -413,13 +425,15 @@ describe('catalog HTTP API', () => {
       });
       expectProblem(response, 'usage', 'Send a smaller JSON body.');
       expect(resolveTargets).not.toHaveBeenCalled();
+      expect(logError).not.toHaveBeenCalled();
     } finally {
       await app.close();
     }
   });
 
   it('renders malformed JSON and wrong content type as catalog problems', async () => {
-    const app = await server(newStore());
+    const logError = vi.fn();
+    const app = await server(newStore(), { logError });
     try {
       const malformed = await app.inject({
         ...post({ task: 'PROJ-123' }),
@@ -432,6 +446,7 @@ describe('catalog HTTP API', () => {
         headers: { host, 'x-board-session': 'session-1', 'content-type': 'text/plain' },
       });
       expectProblem(wrongType, 'forbidden', 'Use application/json.');
+      expect(logError).not.toHaveBeenCalled();
     } finally {
       await app.close();
     }

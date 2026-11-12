@@ -417,7 +417,7 @@ describe('CLI exit classes and mutation keys', () => {
     expect(hint).not.toContain('make config.yaml valid');
   });
 
-  it('rejects a missing agent key without sending and announces supplied and generated keys first', async () => {
+  it('generates a missing agent key and announces supplied and generated keys first', async () => {
     let requests = 0;
     const events: string[] = [];
     const received: {
@@ -443,15 +443,6 @@ describe('CLI exit classes and mutation keys', () => {
         );
       });
     });
-    const missing = capture();
-    expect(
-      await runCli(['ask', 'PROJ-123', 'Question?', '--json'], {
-        env: env(url, true),
-        io: missing.io,
-      }),
-    ).toBe(2);
-    expect(requests).toBe(0);
-
     const agent = capture();
     const agentStderr = agent.io.stderr;
     agent.io.stderr = (text) => {
@@ -488,6 +479,31 @@ describe('CLI exit classes and mutation keys', () => {
     const operatorRequest = received[1];
     if (!operatorRequest) throw new Error('Expected operator request.');
     expect(operator.stderr).toContain(`key: ${operatorRequest.key}`);
+    events.length = 0;
+
+    const missing = capture();
+    const missingStderr = missing.io.stderr;
+    missing.io.stderr = (text) => {
+      events.push('key-written');
+      missingStderr(text);
+    };
+    expect(
+      await runCli(['ask', 'PROJ-123', 'Question?', '--json'], {
+        env: env(url, true),
+        io: missing.io,
+      }),
+    ).toBe(0);
+    expect(events.slice(0, 2)).toEqual(['key-written', 'request-started']);
+    expect(requests).toBe(3);
+    const agentRequest = received[2];
+    if (!agentRequest) throw new Error('Expected keyless agent request.');
+    expect(agentRequest.key).toMatch(/^[0-9a-f-]{36}$/);
+    expect(agentRequest).toEqual({
+      key: agentRequest.key,
+      session: 'test-session',
+      authorization: undefined,
+    });
+    expect(missing.stderr).toContain(`key: ${agentRequest.key}`);
   });
 
   it('rejects control characters in a supplied key before announcing or sending it', async () => {

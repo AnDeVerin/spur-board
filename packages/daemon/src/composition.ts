@@ -58,13 +58,23 @@ export function createDaemonModules(
     ports.gateway ??
     (settings === null
       ? undefined
-      : createSlackGateway({ ...settings, now: () => ctx.clock.now() }));
+      : createSlackGateway({
+          ...settings,
+          now: () => ctx.clock.now(),
+          onError: (err, work) => {
+            ctx.log.error(
+              { err },
+              work === 'connection' ? 'slack connection event failed' : 'slack envelope failed',
+            );
+          },
+        }));
   const registry = createOperationRegistry({
     config: board.config,
     clock: board.clock,
     completeSince: core.completeSince,
     gateways: gateway === undefined ? [] : [gateway.kind],
     reapplyInbound: () => inbound?.reapply,
+    prPoller: () => boardModules.pollPr,
   });
   const notifier = createSystemdNotifier({
     log: ctxFor('systemd').log,

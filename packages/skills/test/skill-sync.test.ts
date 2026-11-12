@@ -207,7 +207,8 @@ describe('product skill sync', () => {
   it('keeps the skill and bounded references equal to fresh generation', () => {
     expect(replaceGeneratedSection(skill)).toBe(skill);
     expect(Buffer.byteLength(skill)).toBeLessThanOrEqual(5120);
-    expect(references.map((reference) => reference.fileName)).toEqual(['commands.md']);
+    expect(references.map((reference) => reference.fileName)).toEqual(['commands.md', 'errors.md']);
+    expect(references[0]?.content).toContain('[errors.md](errors.md)');
     expect(readdirSync(referencesPath).sort()).toEqual(
       references.map((reference) => reference.fileName).sort(),
     );
@@ -221,7 +222,7 @@ describe('product skill sync', () => {
     const section = roleSection(role);
     const expected = OPERATIONS.filter((operation) => roleCanUseOperation(operation, role));
     expect(
-      [...section.matchAll(/^- `board ([^`]+)` — \[details\]/gm)].map((match) => match[1]),
+      [...section.matchAll(/^- \[`board ([^`]+)`\]\(references\//gm)].map((match) => match[1]),
     ).toEqual(expected.map((operation) => operation.cli.command));
     for (const operation of expected)
       expect(section).toContain(
@@ -451,6 +452,17 @@ describe('public guide command mentions', () => {
     ])
       expect(section).toContain(sentence);
     expect(troubleshooting).toContain('A Spur project can be listed under only one Board project.');
+  });
+
+  it('documents that item retry restarts the answer_undelivered doorbell series', () => {
+    const runbook = publicGuides[3]?.replace(/\s+/g, ' ') ?? '';
+    const section = runbook.split('## 4. Answer never reached the agent')[1]?.split(' ## 5. ')[0];
+    expect(section).toBeDefined();
+    expect(section).toContain(
+      'To ring again, for either cause: run `board item retry <item> --key <key>`. It clears the item and restarts the doorbell series',
+    );
+    expect(section).toContain('Spur refused the doorbell');
+    expect(section).toContain('Then retry the item as below.');
   });
 
   it('documents board update and the rollback recovery', () => {

@@ -152,7 +152,7 @@ export interface TurnTable {
   acked_at: string | null;
   closed_at: string | null;
   /** Free text in the store, so a later reason (a submit) needs no migration. */
-  closed_reason: 'moved' | 'archived' | null;
+  closed_reason: 'moved' | 'archived' | 'submitted' | null;
   created_at: string;
 }
 

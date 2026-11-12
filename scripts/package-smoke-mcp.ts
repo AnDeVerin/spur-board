@@ -1,8 +1,30 @@
 import { spawn } from 'node:child_process';
 import { OPERATIONS } from '../packages/contracts/src/index.ts';
 
-/** Exercise JSON-RPC initialization and catalog tools through the installed binary. */
-export async function handshake(binary: string, expectedVersion: string): Promise<number> {
+/**
+ * Check the listed MCP tools. The candidate must list exactly the current catalog; a previous
+ * release predates operations added since, so its baseline run only checks named tools.
+ */
+export function verifyTools(tools: unknown, exactCatalog: boolean): number {
+  if (!Array.isArray(tools)) throw new Error('installed MCP did not list tools');
+  const names = tools.map((tool: { name?: unknown } | null) => tool?.name);
+  if (exactCatalog) {
+    const expected = OPERATIONS.map((op) => op.mcp.name);
+    if (JSON.stringify(names) !== JSON.stringify(expected)) {
+      throw new Error(`installed MCP tools differ from catalog: ${JSON.stringify(names)}`);
+    }
+  } else if (names.length === 0 || names.some((name) => typeof name !== 'string' || name === '')) {
+    throw new Error(`installed MCP listed unnamed tools: ${JSON.stringify(names)}`);
+  }
+  return names.length;
+}
+
+/** Exercise JSON-RPC initialization and the listed tools through the installed binary. */
+export async function handshake(
+  binary: string,
+  expectedVersion: string,
+  exactCatalog = true,
+): Promise<number> {
   const child = spawn(binary, ['mcp'], {
     stdio: ['pipe', 'pipe', 'pipe'],
     env: { ...process.env, BOARD_DAEMON_URL: '', BOARD_TOKEN: '', SPUR_SESSION: '' },
@@ -71,15 +93,7 @@ export async function handshake(binary: string, expectedVersion: string): Promis
       throw new Error('installed MCP server version differs from package version');
     }
     const listed = messages[1] as { result?: { tools?: unknown } };
-    if (!Array.isArray(listed.result?.tools)) {
-      throw new Error('installed MCP did not list tools');
-    }
-    const names = listed.result.tools.map((tool: { name?: unknown }) => tool.name);
-    const expected = OPERATIONS.map((op) => op.mcp.name);
-    if (JSON.stringify(names) !== JSON.stringify(expected)) {
-      throw new Error(`installed MCP tools differ from catalog: ${JSON.stringify(names)}`);
-    }
-    return names.length;
+    return verifyTools(listed.result?.tools, exactCatalog);
   } finally {
     child.kill();
   }
