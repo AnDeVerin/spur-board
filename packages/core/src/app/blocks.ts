@@ -404,6 +404,29 @@ export async function closeOpenBlock(
   return updated;
 }
 
+/** Closes block `blockId` through `closeOpenBlock` when it is still open. */
+export async function closeBlockIfOpen(
+  trx: Trx,
+  blockId: number,
+  ctx: CommandContext,
+  outcome: 'reason' | 'withdrawn',
+  outcomeReason: string,
+): Promise<void> {
+  const block = await trx
+    .selectFrom('block')
+    .selectAll()
+    .where('id', '=', blockId)
+    .where('state', '=', 'open')
+    .executeTakeFirst();
+  if (block === undefined) return;
+  const task = await trx
+    .selectFrom('task')
+    .selectAll()
+    .where('id', '=', block.task_id)
+    .executeTakeFirstOrThrow();
+  await closeOpenBlock(trx, task, block, ctx, outcome, outcomeReason);
+}
+
 /** Applies an operator message to the block selected by its conversation, without echoing it. */
 export async function recordInboundBlockMessage(
   trx: Trx,

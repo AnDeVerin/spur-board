@@ -2,8 +2,8 @@ import { assertNever } from '@spur-board/contracts';
 import type { Kysely } from 'kysely';
 import { isItemKind, ITEM_POLICY } from '../domain/fromYou.ts';
 import type { Row, Tables } from '../store/schema.ts';
-import { closeOpenBlock } from './blocks.ts';
-import { CommandError, type CommandContext, type Mutation } from './commands.ts';
+import { closeBlockIfOpen } from './blocks.ts';
+import { CommandError, type Mutation } from './commands.ts';
 import { restartNotification, ringTask } from './doorbells.ts';
 import { clearItem, dismissItem } from './feed.ts';
 import { requeuePostFailed, retryTransport } from './sender.ts';
@@ -62,25 +62,6 @@ function view(item: Item, task: Row<'task'> | undefined) {
       summary: item.text,
     },
   };
-}
-
-/** Closes the open block a ledger item stands for, as the actor that closed the item. */
-async function closeLedgerBlock(
-  trx: Trx,
-  item: Item,
-  task: Row<'task'> | undefined,
-  ctx: CommandContext,
-): Promise<void> {
-  if (task === undefined || item.block_id === null) return;
-  if (!isItemKind(item.kind) || !ITEM_POLICY[item.kind].block) return;
-  const block = await trx
-    .selectFrom('block')
-    .selectAll()
-    .where('id', '=', item.block_id)
-    .where('state', '=', 'open')
-    .executeTakeFirst();
-  if (block === undefined) return;
-  await closeOpenBlock(trx, task, block, ctx, 'reason', `closed as item I${String(item.id)}`);
 }
 
 function notApplicable(hint: string): CommandError {
@@ -175,7 +156,11 @@ export function createItemMutations(deps: { reapplyInbound?: () => ReapplyInboun
               .execute();
           }
           await dismissItem(trx, item, ctx.actor, new Date(ctx.at));
-          await closeLedgerBlock(trx, item, task, ctx);
+          // A ledger item's block closes with it, as the actor that closed the item.
+          if (item.block_id !== null && isItemKind(item.kind) && ITEM_POLICY[item.kind].block) {
+            const reason = `closed as item I${String(item.id)}`;
+            await closeBlockIfOpen(trx, item.block_id, ctx, 'reason', reason);
+          }
         }
         return view(item, task);
       },

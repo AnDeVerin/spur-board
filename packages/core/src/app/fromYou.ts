@@ -23,7 +23,7 @@ import {
 } from '../domain/fromYou.ts';
 import { parseJson, toJson } from '../store/json.ts';
 import type { Row } from '../store/schema.ts';
-import { closeOpenBlock, openSystemBlock } from './blocks.ts';
+import { closeBlockIfOpen, openSystemBlock } from './blocks.ts';
 import { taskUrl, ticketDone, type Trx } from './board-utils.ts';
 import { clearItem, raiseItem } from './feed.ts';
 import type { RaiseItemInput } from './item-raise.ts';
@@ -498,23 +498,9 @@ async function raiseAnomaly(
 
 /** Clears a reconciled item; a ledger item's open block is withdrawn by the board first. */
 async function clearReconciled(trx: Trx, item: Row<'operator_item'>, at: Date): Promise<void> {
-  const block =
-    item.block_id === null
-      ? undefined
-      : await trx
-          .selectFrom('block')
-          .selectAll()
-          .where('id', '=', item.block_id)
-          .where('state', '=', 'open')
-          .executeTakeFirst();
-  if (block !== undefined) {
-    const task = await trx
-      .selectFrom('task')
-      .selectAll()
-      .where('id', '=', block.task_id)
-      .executeTakeFirstOrThrow();
+  if (item.block_id !== null) {
     const ctx = { actor: 'system' as const, at: at.toISOString() };
-    await closeOpenBlock(trx, task, block, ctx, 'withdrawn', 'condition ended');
+    await closeBlockIfOpen(trx, item.block_id, ctx, 'withdrawn', 'condition ended');
   }
   await clearItem(trx, item.id, at);
 }
