@@ -1,7 +1,17 @@
 import { createServer, type Server } from 'node:http';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, statSync, symlinkSync } from 'node:fs';
+import {
+  lstatSync,
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -101,6 +111,57 @@ function capture(isTTY = false) {
 
 function env(url: string): NodeJS.ProcessEnv {
   return { BOARD_DAEMON_URL: url, BOARD_TOKEN: 'token' };
+}
+
+interface RecordedRequest {
+  url: string;
+  authorization: string | undefined;
+  body: unknown;
+}
+
+/** A folder holding a mode-600 token file in a private `.spur-board`, below a fresh home. */
+function existingTokenFolder(prefix: string): {
+  home: string;
+  folder: string;
+  file: string;
+  secret: string;
+} {
+  const root = mkdtempSync(join(tmpdir(), prefix));
+  dirs.push(root);
+  const home = join(root, 'home');
+  const folder = join(home, 'project');
+  mkdirSync(join(folder, '.spur-board'), { recursive: true, mode: 0o700 });
+  const secret = 'existing-token-secret';
+  const file = join(realpathSync(folder), '.spur-board', 'token');
+  writeFileSync(file, `${secret}\n`, { mode: 0o600 });
+  return { home, folder, file, secret };
+}
+
+/** A fake daemon that records every request and answers with one fixed response. */
+async function recordingDaemon(
+  status: number,
+  contentType: string,
+  body: unknown,
+): Promise<{ url: string; requests: RecordedRequest[] }> {
+  const requests: RecordedRequest[] = [];
+  const server = createServer((request, response) => {
+    const chunks: Buffer[] = [];
+    request.on('data', (chunk: Buffer) => chunks.push(chunk));
+    request.on('end', () => {
+      requests.push({
+        url: request.url ?? '',
+        authorization: request.headers.authorization,
+        body: JSON.parse(Buffer.concat(chunks).toString()) as unknown,
+      });
+      response.writeHead(status, { 'content-type': contentType });
+      response.end(JSON.stringify(body));
+    });
+  });
+  servers.push(server);
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  if (!address || typeof address === 'string') throw new Error('Expected TCP port');
+  return { url: `http://127.0.0.1:${String(address.port)}`, requests };
 }
 
 describe('catalog commands', () => {
@@ -246,6 +307,106 @@ describe('catalog commands', () => {
       }),
     ).toBe(2);
     expect(() => statSync(join(folder, '.spur-board', 'token'))).toThrow();
+  });
+
+  it('refuses an existing token file when the daemon cannot report its state', async () => {
+    const { home, folder, file } = existingTokenFolder('cli-token-older-');
+    const before = readFileSync(file);
+    const daemon = await recordingDaemon(404, 'application/problem+json', {
+      status: 404,
+      code: 'not_found',
+      requestId: 'older',
+    });
+    const output = capture();
+    expect(
+      await runCli(['token', 'create', '--name', 'desk', '--into', folder], {
+        env: { BOARD_DAEMON_URL: daemon.url },
+        home,
+        io: output.io,
+      }),
+    ).toBe(4);
+    expect(readFileSync(file)).toEqual(before);
+    expect(daemon.requests.map((request) => request.url)).toEqual(['/v1/tokens/status']);
+    expect(output.stderr).toContain(file);
+    expect(output.stderr).toContain('`board service restart`');
+  });
+
+  it('keeps an existing token file when the daemon is unreachable', async () => {
+    const { home, folder, file } = existingTokenFolder('cli-token-offline-');
+    const before = readFileSync(file);
+    const server = createServer();
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('Expected TCP port');
+    await new Promise<void>((resolve) => {
+      server.close(() => {
+        resolve();
+      });
+    });
+    const output = capture();
+    expect(
+      await runCli(['token', 'create', '--name', 'desk', '--into', folder], {
+        env: { BOARD_DAEMON_URL: `http://127.0.0.1:${String(address.port)}` },
+        home,
+        io: output.io,
+      }),
+    ).toBe(3);
+    expect(readFileSync(file)).toEqual(before);
+    expect(output.stderr).toContain('daemon_unavailable');
+  });
+
+  it('refuses a token file this daemon does not know and points at BOARD_DAEMON_URL', async () => {
+    const { home, folder, file, secret } = existingTokenFolder('cli-token-unknown-');
+    const before = readFileSync(file);
+    const daemon = await recordingDaemon(200, 'application/json', {
+      ok: true,
+      requestId: 'status-1',
+      value: { status: 'unknown' },
+    });
+    const output = capture();
+    expect(
+      await runCli(['token', 'create', '--name', 'desk', '--into', folder], {
+        env: { BOARD_DAEMON_URL: daemon.url },
+        home,
+        io: output.io,
+      }),
+    ).toBe(4);
+    expect(readFileSync(file)).toEqual(before);
+    expect(daemon.requests.map((request) => request.url)).toEqual(['/v1/tokens/status']);
+    expect(daemon.requests[0]?.authorization).toBeUndefined();
+    expect(daemon.requests[0]?.body).toEqual({
+      hash: createHash('sha256').update(secret).digest('hex'),
+    });
+    expect(output.stdout + output.stderr).not.toContain(secret);
+    expect(output.stderr).toContain(file);
+    expect(output.stderr).toContain('BOARD_DAEMON_URL');
+  });
+
+  it('keeps a symlinked existing token without asking the daemon', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'cli-token-symlink-'));
+    dirs.push(root);
+    const home = join(root, 'home');
+    const folder = join(home, 'project');
+    mkdirSync(join(folder, '.spur-board'), { recursive: true, mode: 0o700 });
+    const target = join(root, 'elsewhere');
+    writeFileSync(target, 'elsewhere-secret\n', { mode: 0o600 });
+    const link = join(folder, '.spur-board', 'token');
+    symlinkSync(target, link);
+    const daemon = await recordingDaemon(200, 'application/json', {
+      ok: true,
+      requestId: 'status-1',
+      value: { status: 'expired' },
+    });
+    expect(
+      await runCli(['token', 'create', '--name', 'desk', '--into', folder], {
+        env: { BOARD_DAEMON_URL: daemon.url },
+        home,
+        io: capture().io,
+      }),
+    ).toBe(4);
+    expect(lstatSync(link).isSymbolicLink()).toBe(true);
+    expect(readFileSync(target, 'utf8')).toBe('elsewhere-secret\n');
+    expect(daemon.requests).toEqual([]);
   });
 
   it('uses generated list and revoke commands for named tokens', async () => {

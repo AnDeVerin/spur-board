@@ -14,8 +14,14 @@ import { dirname, join, resolve } from 'node:path';
 import { Command, CommanderError, type CommandUnknownOpts } from '@commander-js/extra-typings';
 import { ERRORS, OPERATIONS, roleCanUseOperation } from '@spur-board/contracts';
 import { z } from 'zod';
-import { requestOperation, requestTokenEnrollment } from './client.ts';
-import { configFile, loadClientConfig, loadEnrollmentConfig, type ClientConfig } from './config.ts';
+import { fetchTokenStatus, requestOperation, requestTokenEnrollment } from './client.ts';
+import {
+  configFile,
+  loadClientConfig,
+  loadEnrollmentConfig,
+  tokenInFolder,
+  type ClientConfig,
+} from './config.ts';
 import { CliError, errorExitCode, renderCliError } from './exit-codes.ts';
 import { loadSlackManifestDefaults, renderSlackManifest } from './manifest.ts';
 import { renderDoctor, runDoctor, type DoctorPorts } from './doctor.ts';
@@ -581,8 +587,13 @@ export function createProgram(options: CliOptions = {}): CommandUnknownOpts {
     const tokenFolder = join(folder, '.spur-board');
     const file = join(tokenFolder, 'token');
     const secret = randomBytes(32).toString('base64url');
-    let created = false;
-    let descriptor: number | undefined;
+    const exclusiveFailure = () =>
+      new CliError(
+        'config',
+        undefined,
+        undefined,
+        'The token file could not be created exclusively.',
+      );
     try {
       mkdirSync(tokenFolder, { recursive: true, mode: 0o700 });
       const directory = lstatSync(tokenFolder);
@@ -594,6 +605,14 @@ export function createProgram(options: CliOptions = {}): CommandUnknownOpts {
       ) {
         throw new Error('Token directory must be owned by the caller and private.');
       }
+    } catch {
+      throw exclusiveFailure();
+    }
+    const existing = tokenInFolder(folder, () => {});
+    if (existing !== undefined) await replaceStaleToken(file, existing, config);
+    let created = false;
+    let descriptor: number | undefined;
+    try {
       descriptor = openSync(file, 'wx', 0o600);
       created = true;
       writeFileSync(descriptor, `${secret}\n`);
@@ -614,12 +633,7 @@ export function createProgram(options: CliOptions = {}): CommandUnknownOpts {
           );
         }
       }
-      throw new CliError(
-        'config',
-        undefined,
-        undefined,
-        'The token file could not be created exclusively.',
-      );
+      throw exclusiveFailure();
     }
     try {
       const result = await requestTokenEnrollment(
@@ -655,6 +669,51 @@ export function createProgram(options: CliOptions = {}): CommandUnknownOpts {
     }
   });
   return program;
+}
+
+/**
+ * Deletes a token file the daemon reports as expired or denied; refuses every other state. Only
+ * the hash of the old token is sent.
+ */
+async function replaceStaleToken(file: string, token: string, config: ClientConfig): Promise<void> {
+  const refuse = (hint: string) => new CliError('config', undefined, undefined, hint);
+  let status: Awaited<ReturnType<typeof fetchTokenStatus>>['status'];
+  try {
+    ({ status } = await fetchTokenStatus(createHash('sha256').update(token).digest('hex'), config));
+  } catch (error) {
+    if (error instanceof CliError && error.code === 'not_found') {
+      throw refuse(
+        `The daemon cannot report the state of ${file}: it is older than this CLI. Ask the operator to run \`board service restart\`, then run again.`,
+      );
+    }
+    throw error;
+  }
+  switch (status) {
+    case 'expired':
+    case 'denied':
+      try {
+        unlinkSync(file);
+      } catch {
+        throw refuse(`Delete ${file} by hand, then run again.`);
+      }
+      return;
+    case 'approved':
+      throw refuse(
+        `${file} holds an approved token. Use it from this folder, or ask the operator to revoke it with \`board token revoke\`, then delete the file and run again; or choose another --into folder.`,
+      );
+    case 'pending':
+      throw refuse(
+        `${file} holds a token request still awaiting approval. Ask the operator to approve or deny it, or wait until it expires, then run again; or choose another --into folder.`,
+      );
+    case 'revoked':
+      throw refuse(
+        `${file} holds a revoked token. Delete the file, then run again with another --name.`,
+      );
+    case 'unknown':
+      throw refuse(
+        `This daemon does not know the token in ${file}; it may belong to another board. Check BOARD_DAEMON_URL (or http.port in config.yaml) first; if it names this board, delete the file and run again.`,
+      );
+  }
 }
 
 export async function runCli(argv: string[], options: CliOptions = {}): Promise<number> {
