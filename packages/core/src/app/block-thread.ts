@@ -50,6 +50,7 @@ function personaRole(role: AddresseeRole): Persona['role'] {
     case 'worker':
       return 'worker';
     case 'curator':
+      return 'curator';
     case 'orchestrator':
       return 'orchestrator';
     default:

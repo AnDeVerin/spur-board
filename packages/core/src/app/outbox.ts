@@ -215,6 +215,50 @@ export async function enqueueLiveFeedLine(
   return row.id;
 }
 
+const QUESTION_CHARS = 120;
+const ANSWER_CHARS = 200;
+
+/** Collapses whitespace and cuts by code points to `limit`, ending a cut text with `…`. */
+function shorten(text: string, limit: number): string {
+  const points = Array.from(text.replace(/\s+/g, ' ').trim());
+  return points.length <= limit ? points.join('') : `${points.slice(0, limit - 1).join('')}…`;
+}
+
+/** One line per curator answer; the key names the answer comment, so a retry adds none. */
+export async function enqueueCuratorAnswerLine(
+  trx: Trx,
+  input: {
+    taskId: number;
+    key: string;
+    url: string;
+    blockId: number;
+    commentId: number;
+    asker: string;
+    question: string;
+    answer: string;
+    curator: string;
+    at: Date;
+  },
+): Promise<void> {
+  const block = `B${String(input.blockId)}`;
+  const itemKey = `curator-answer:comment:${String(input.commentId)}`;
+  await insertOutbox(trx, {
+    kind: 'feed.line',
+    dedupeKey: `feed.line:${itemKey}`,
+    payload: {
+      key: input.key,
+      text: `${block} · ${input.asker} asked: ${shorten(input.question, QUESTION_CHARS)} → curator answered: ${shorten(input.answer, ANSWER_CHARS)}`,
+      title: `${input.key} ${block} answered by curator`,
+      persona: { name: input.curator, role: 'curator' },
+      itemKey,
+      taskId: input.taskId,
+      ...(input.url === '' ? {} : { url: input.url }),
+    },
+    parent: null,
+    at: input.at,
+  });
+}
+
 export async function enqueueFeedEdit(
   trx: Trx,
   input: {
