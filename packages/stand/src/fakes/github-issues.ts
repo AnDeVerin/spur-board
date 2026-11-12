@@ -293,5 +293,10 @@ export function createGithubIssuesFake(options: {
     },
     control,
     reset: fresh,
+    state: () => structuredClone(repos),
+    restore(state) {
+      repos.clear();
+      for (const [key, repo] of structuredClone(state as Map<string, Repo>)) repos.set(key, repo);
+    },
   };
 }

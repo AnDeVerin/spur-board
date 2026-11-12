@@ -15,11 +15,13 @@ import {
   fakeFetch,
   githubFakes,
   GRAPHQL,
+  issue,
   issueFakes,
   NOW,
   pollContext,
   pollRepo,
   postQuery,
+  pr,
   violations,
 } from './fake-helpers.ts';
 
@@ -58,6 +60,8 @@ describe('fake fetch', () => {
       },
       control: (verb) => (verb === 'rest' ? { status: 200, body: { rest: true } } : undefined),
       reset,
+      state: () => ({ rest: true }),
+      restore: () => undefined,
     };
     const fakes = createFakes({
       now: () => NOW,
@@ -297,6 +301,7 @@ describe('fakeBody', () => {
     args: { ...target, ...args },
   });
   const fail = (args: Record<string, unknown>) => ({ system: 'github', verb: 'fail', args });
+  const jira = (args: Record<string, unknown>) => ({ system: 'jira', verb: 'issue', args });
   const SHA = 'b'.repeat(40);
 
   it.each<[string[], Record<string, string>, Record<string, unknown>]>([
@@ -331,6 +336,20 @@ describe('fakeBody', () => {
     [['github', 'issue', '7', 'label'], {}, pr('issue-label', { labels: [] })],
     [['github', 'issue', '7', 'milestone', 'S1'], {}, pr('issue-milestone', { milestone: 'S1' })],
     [['github', 'issue', '7', 'milestone'], {}, pr('issue-milestone', { milestone: null })],
+    [['jira', 'issue', 'STAND-1'], {}, jira({ key: 'STAND-1' })],
+    [
+      ['jira', 'issue', 'STAND-12'],
+      { status: 'In Progress', title: 'A ticket' },
+      jira({ key: 'STAND-12', status: 'In Progress', title: 'A ticket' }),
+    ],
+    [['jira', 'issue', 'OPS_2-3'], { status: 'Done' }, jira({ key: 'OPS_2-3', status: 'Done' })],
+    [['jira', 'fail', 'auth'], {}, { system: 'jira', verb: 'fail', args: { mode: 'auth' } }],
+    [
+      ['jira', 'fail', 'rate-limit', '30'],
+      {},
+      { system: 'jira', verb: 'fail', args: { mode: 'rate-limit', seconds: 30 } },
+    ],
+    [['jira', 'fail', 'clear'], {}, { system: 'jira', verb: 'fail', args: { mode: 'clear' } }],
   ])('maps %j %j', (positionals, values, expected) => {
     expect(fakeBody(positionals, values)).toEqual(expected);
   });
@@ -373,7 +392,51 @@ describe('fakeBody', () => {
     [['github', 'issue', '7', 'close'], { title: 't' }],
     [['github', 'issue', '7', 'open'], { seed: '{}' }],
     [['github', 'issue', '7', 'milestone', 'a', 'b']],
+    [['github', 'issue', '7', 'open'], { status: 'Done' }],
+    [['github', 'fail', 'hang'], { status: 'Done' }],
+    [['jira']],
+    [['jira', 'nope']],
+    [['jira', 'pr', '7', 'create']],
+    [['jira', 'issue']],
+    [['jira', 'issue', 'stand-1']],
+    [['jira', 'issue', 'STAND-0']],
+    [['jira', 'issue', 'STAND']],
+    [['jira', 'issue', '7']],
+    [['jira', 'issue', 'STAND-1', 'extra']],
+    [['jira', 'issue', 'STAND-1'], { repo: BOARD }],
+    [['jira', 'issue', 'STAND-1'], { seed: '{}' }],
+    [['jira', 'fail']],
+    [['jira', 'fail', 'nope']],
+    [['jira', 'fail', 'auth'], { status: 'Done' }],
+    [['jira', 'fail', 'auth'], { title: 't' }],
   ])('rejects %j %j', (positionals, values = {}) => {
     expect(() => fakeBody(positionals, values)).toThrow();
+  });
+});
+
+describe('state and restore', () => {
+  it('carries the failure plan and every module state into fresh fakes', async () => {
+    const fakes = issueFakes();
+    expect(pr(fakes, 1, 'create', { seed: {} }).status).toBe(200);
+    expect(issue(fakes, 2, 'open').status).toBe(200);
+    failWith(fakes, { mode: 'auth' });
+    const state = fakes.state();
+    failWith(fakes, { mode: 'clear' });
+    expect(pr(fakes, 1, 'merge').status).toBe(200);
+    expect(issue(fakes, 2, 'close').status).toBe(200);
+    expect(fakes.state()).not.toEqual(state);
+
+    const restored = issueFakes();
+    restored.restore(state);
+    expect(restored.state()).toEqual(state);
+    const error: unknown = await pollRepo(restored, BOARD).catch((err: unknown) => err);
+    expect(error).toMatchObject({ kind: 'auth' });
+    failWith(restored, { mode: 'clear' });
+    expect(issue(restored, 2, 'open').status).toBe(409);
+    expect(pr(restored, 1, 'merge').status).toBe(200);
+    // The restored fakes own a copy: changing them leaves the captured state as it was.
+    expect(state.failures).toEqual([['github', { mode: 'auth' }]]);
+    restored.restore(state);
+    expect(pr(restored, 1, 'merge').status).toBe(200);
   });
 });
