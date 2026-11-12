@@ -16,7 +16,7 @@ import {
 } from 'node:fs';
 import { basename, join } from 'node:path';
 import { startAdapters, type AdapterRunner } from '@spur-board/adapters';
-import { COLUMN_IDS, configSchema, userIdSchema, type Config } from '@spur-board/contracts';
+import { COLUMN_IDS, configSchema, err, userIdSchema, type Config } from '@spur-board/contracts';
 import { openStore } from '@spur-board/core';
 import {
   acquireLock,
@@ -198,6 +198,12 @@ function runnerController(standFetch: typeof fetch) {
     void track(runner);
     return {
       firstAttempts: runner.firstAttempts,
+      // Forwards to the current runner, so a restart keeps on-demand polls working.
+      pollPr: (source, ref, pollOptions) =>
+        runner?.pollPr?.(source, ref, pollOptions) ??
+        Promise.resolve(
+          err({ kind: 'unsupported', message: 'The adapter runner polls no PR on demand.' }),
+        ),
       async stop() {
         stopped = true;
         await runner?.stop();

@@ -1,5 +1,5 @@
 import { startAdapters, type AdapterRunner, type StartAdaptersOptions } from '@spur-board/adapters';
-import { BOARD_TICK_MS } from '@spur-board/contracts';
+import { BOARD_TICK_MS, err, type PrPoller } from '@spur-board/contracts';
 import { createObservationCore, tickBoard, type Store } from '@spur-board/core';
 import type { ModuleContext, ModuleEntry } from './lifecycle.ts';
 import { createJob } from './scheduler.ts';
@@ -16,11 +16,13 @@ interface BoardModuleOptions {
 /**
  * Compose the board's timer and adapter runner without adding lifecycle state to main. `tick`
  * runs the board-core job once more behind its active run and resolves when that run settles.
+ * `pollPr` forwards to the running runner: `stopped` before its start and after its stop,
+ * `unsupported` for a runner without on-demand polls.
  */
 export function createBoardModules(
   ctxFor: (name: string) => ModuleContext<Store>,
   options: BoardModuleOptions = {},
-): { entries: ModuleEntry[]; tick: () => Promise<void> } {
+): { entries: ModuleEntry[]; tick: () => Promise<void>; pollPr: PrPoller['pollPr'] } {
   const coreCtx = ctxFor('board-core');
   const adapterCtx = ctxFor('board-adapters');
   const core =
@@ -84,10 +86,25 @@ export function createBoardModules(
           if (startSignal.aborted) await runner.stop();
         },
         async stop() {
-          await runner?.stop();
+          const current = runner;
+          runner = undefined;
+          await current?.stop();
         },
       },
     },
   ];
-  return { entries, tick: () => boardCore.trigger() };
+  const pollPr: PrPoller['pollPr'] = (source, ref, pollOptions) => {
+    if (runner === undefined) {
+      return Promise.resolve(
+        err({ kind: 'stopped', message: 'The adapter runner is not running.' }),
+      );
+    }
+    if (runner.pollPr === undefined) {
+      return Promise.resolve(
+        err({ kind: 'unsupported', message: 'The adapter runner polls no PR on demand.' }),
+      );
+    }
+    return runner.pollPr(source, ref, pollOptions);
+  };
+  return { entries, tick: () => boardCore.trigger(), pollPr };
 }

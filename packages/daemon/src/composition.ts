@@ -65,6 +65,7 @@ export function createDaemonModules(
     completeSince: core.completeSince,
     gateways: gateway === undefined ? [] : [gateway.kind],
     reapplyInbound: () => inbound?.reapply,
+    prPoller: () => boardModules.pollPr,
   });
   const notifier = createSystemdNotifier({
     log: ctxFor('systemd').log,
