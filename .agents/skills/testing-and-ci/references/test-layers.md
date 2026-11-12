@@ -31,7 +31,6 @@ Pick the lowest layer that can fail for the bug you guard against. Projects are 
 
 ## Fakes, not module mocks
 
-- Pass the dependency in; `vi.mock` and `vi.doMock` fail lint (`viMockBan`).
 - Adapters and the runner: `createFakeCore`, `createFakeAdapter` from
   `@spur-board/adapters/testing` (`packages/adapters/src/testing.ts`).
 - Gateways: `createFakeGateway` from `@spur-board/gateway-testkit`
@@ -59,8 +58,7 @@ Pick the lowest layer that can fail for the bug you guard against. Projects are 
 - Daemon modules read `ctx.clock`; see `running-the-daemon`.
 - Stand: `pnpm stand clock +<n><s|m|h|d>` moves its one clock forward only, then ticks and
   pulses; timers stay real (`packages/stand/src/stand.ts`).
-- Test controls: `vi.useFakeTimers` for timers, `FakeGateway.advance()` for the fake gateway's
-  clock.
+- `FakeGateway.advance()` moves the fake gateway's clock; timers use `vi.useFakeTimers`.
 - Ids: there is no id seam. Commands take an idempotency `key` and generate a random one only
   when it is missing (`createApply`); a test that asserts on an id passes its own `key`.
 
@@ -86,12 +84,11 @@ Every test runs through the root config, so all of these hold:
 - `pool: 'forks'` - each worker is a child process that inherits the scrubbed environment; with
   threads, the OS environment would still hold the parent's secrets.
 - `packages/testkit/src/global-setup.ts` runs once before workers fork: it scrubs credential
-  variables and points `HOME`, `TMPDIR` and the XDG directories at a fresh temporary root, so no
-  test reads or writes the real home. It also removes `DBUS_SESSION_BUS_ADDRESS` and
-  `NOTIFY_SOCKET`, so `systemctl --user` in a test or its children cannot reach the real user
-  manager; a test that needs a user bus sets one explicitly.
+  variables, points `HOME`, `TMPDIR` and the XDG directories at a fresh temporary root, and
+  removes `DBUS_SESSION_BUS_ADDRESS` and `NOTIFY_SOCKET` so `systemctl --user` cannot reach the
+  real user manager; a test that needs a user bus sets one explicitly.
 - `packages/testkit/src/setup.ts` installs the network guard in each worker: a connection to a
-  non-local host throws, so a test cannot reach a real service by accident.
+  non-local host throws.
 - Pinned by `packages/testkit/test/env.test.ts` and
   `packages/testkit/test/network.integration.test.ts`.
 
@@ -106,8 +103,7 @@ Every test runs through the root config, so all of these hold:
 - `pnpm run check --pre-push` (the pre-push hook): changed-file format and lint, types and `unit`
   only.
 - `pnpm check:full --only test`: `unit`, `integration`, `process`, `startup` and package smoke.
-- CI `test` and `stand` jobs: `check:full --only test` and `--only stand` on Node 24 and 26
-  (`.github/workflows/ci.yml`).
+- CI `test` and `stand` jobs: `check:full --only test` and `--only stand` (`.github/workflows/ci.yml`).
 - CI `package-smoke` job: `pnpm package:smoke`, `pnpm upgrade:smoke`, then `pnpm update:smoke`.
   On a PR it runs only when `classifyChanges` in `scripts/ci.ts` marks a package change.
 - `.github/workflows/nightly.yml`: runs the published package's `--version`; on failure
@@ -121,4 +117,3 @@ Every test runs through the root config, so all of these hold:
 - The linked issue is open and labelled `flaky`. Fix it within one week, as the label says, or
   delete the test.
 - No retries: the config sets no `retry`, and a retry hides the race instead of fixing it.
-- `pnpm guardrails` reports every added `.skip`, so the PR names it under Changed checks.
