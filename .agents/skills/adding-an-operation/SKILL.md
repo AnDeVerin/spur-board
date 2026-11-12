@@ -20,6 +20,10 @@ path order. A PR that changes this path or these rules updates this skill in the
 - Write a `Mutation<'<id>'>` (`packages/core/src/app/commands.ts`) or `Query<'<id>'>`
   (`packages/core/src/app/queries.ts`) in the matching module under `packages/core/src/app/`, and
   register it in `createOperationRegistry` (`packages/core/src/app/registry.ts`).
+- A mutation that must read an external source first adds `prepare`: `createApply` runs it after
+  the input and key checks and a read-only authorization, before the transaction, and passes
+  its result as `ctx.prepared`. `prepare` never writes. Reference: `task.submit` in
+  `packages/core/src/app/turn-commands.ts`.
 - `createOperationRegistry` returns the total `OperationHandlers`
   (`packages/core/src/app/operations.ts`), so a catalog entry without a registration fails
   `tsc`. `OperationRegistry` stays `Partial` for transports, and `dispatchOperation` answers
