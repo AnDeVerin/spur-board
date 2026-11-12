@@ -76,7 +76,7 @@ export interface ScenarioFakes {
   };
 }
 
-export interface SettledContext {
+interface SettledContext {
   board: Board;
   fakes: ScenarioFakes;
   entities: ScenarioEntities;

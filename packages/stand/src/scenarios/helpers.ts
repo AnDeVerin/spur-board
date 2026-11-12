@@ -1,7 +1,7 @@
 // Helpers the scenario files share; kept apart from `index.ts`, which imports every scenario.
 import type { ScenarioFakes, Settled } from './index.ts';
 
-export const STAND_REPO = 'stand-org/board';
+const STAND_REPO = 'stand-org/board';
 
 /** The open GitHub issue `number` of the stand project, as the board stores its task key. */
 export const issueKey = (number: number): string => `${STAND_REPO}#${String(number)}`;
