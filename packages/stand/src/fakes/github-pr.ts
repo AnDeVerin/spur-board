@@ -431,5 +431,10 @@ export function createGithubPrFake(options: {
     reset() {
       prs.clear();
     },
+    state: () => structuredClone(prs),
+    restore(state) {
+      prs.clear();
+      for (const [key, pr] of structuredClone(state as Map<string, Pr>)) prs.set(key, pr);
+    },
   };
 }

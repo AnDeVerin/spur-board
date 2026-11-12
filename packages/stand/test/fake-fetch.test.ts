@@ -15,11 +15,13 @@ import {
   fakeFetch,
   githubFakes,
   GRAPHQL,
+  issue,
   issueFakes,
   NOW,
   pollContext,
   pollRepo,
   postQuery,
+  pr,
   violations,
 } from './fake-helpers.ts';
 
@@ -58,6 +60,8 @@ describe('fake fetch', () => {
       },
       control: (verb) => (verb === 'rest' ? { status: 200, body: { rest: true } } : undefined),
       reset,
+      state: () => ({ rest: true }),
+      restore: () => undefined,
     };
     const fakes = createFakes({
       now: () => NOW,
@@ -407,5 +411,32 @@ describe('fakeBody', () => {
     [['jira', 'fail', 'auth'], { title: 't' }],
   ])('rejects %j %j', (positionals, values = {}) => {
     expect(() => fakeBody(positionals, values)).toThrow();
+  });
+});
+
+describe('state and restore', () => {
+  it('carries the failure plan and every module state into fresh fakes', async () => {
+    const fakes = issueFakes();
+    expect(pr(fakes, 1, 'create', { seed: {} }).status).toBe(200);
+    expect(issue(fakes, 2, 'open').status).toBe(200);
+    failWith(fakes, { mode: 'auth' });
+    const state = fakes.state();
+    failWith(fakes, { mode: 'clear' });
+    expect(pr(fakes, 1, 'merge').status).toBe(200);
+    expect(issue(fakes, 2, 'close').status).toBe(200);
+    expect(fakes.state()).not.toEqual(state);
+
+    const restored = issueFakes();
+    restored.restore(state);
+    expect(restored.state()).toEqual(state);
+    const error: unknown = await pollRepo(restored, BOARD).catch((err: unknown) => err);
+    expect(error).toMatchObject({ kind: 'auth' });
+    failWith(restored, { mode: 'clear' });
+    expect(issue(restored, 2, 'open').status).toBe(409);
+    expect(pr(restored, 1, 'merge').status).toBe(200);
+    // The restored fakes own a copy: changing them leaves the captured state as it was.
+    expect(state.failures).toEqual([['github', { mode: 'auth' }]]);
+    restored.restore(state);
+    expect(pr(restored, 1, 'merge').status).toBe(200);
   });
 });

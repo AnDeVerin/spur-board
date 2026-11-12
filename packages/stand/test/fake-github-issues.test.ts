@@ -255,3 +255,20 @@ describe('matching', () => {
     fakes.reset();
   });
 });
+
+describe('state and restore', () => {
+  it('gives a fresh fake the same issues and milestones, unaffected by later changes', async () => {
+    ok(issue(fakes, 1, 'open', { title: 'Seeded' }));
+    ok(issue(fakes, 2, 'open'));
+    ok(issue(fakes, 2, 'milestone', { milestone: 'Sprint 1' }));
+    const before = facts(await pollIssues());
+    const state = fakes.state();
+    ok(issue(fakes, 1, 'close'));
+    ok(issue(fakes, 3, 'open'));
+
+    fakes = issueFakes();
+    fakes.restore(state);
+    expect(facts(await pollIssues())).toEqual(before);
+    expect(issue(fakes, 1, 'open').status).toBe(409);
+  });
+});

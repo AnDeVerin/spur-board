@@ -1,6 +1,9 @@
 import { execFile } from 'node:child_process';
 import {
+  appendFileSync,
   chmodSync,
+  cpSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
@@ -8,11 +11,14 @@ import {
   realpathSync,
   rmSync,
   statSync,
+  writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { COLUMN_IDS } from '@spur-board/contracts';
+import { migrationsDir, openStore } from '@spur-board/core';
+import { sql } from 'kysely';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import YAML from 'yaml';
 import { MANIFEST_FILE, readManifest, STAND_PREFIX, type StandManifest } from '../src/manifest.ts';
@@ -309,11 +315,12 @@ describe('scenarios', () => {
     expect((await control(manifest, '/seed', {})).status).toBe(400);
   }, 60_000);
 
-  it('reset seeds the same scenario again', async () => {
+  it('reset restores the same scenario', async () => {
     await up();
     await seed('columns-basic');
-    const reset = (await ok(current(), '/reset')) as SeedAnswer;
+    const reset = (await ok(current(), '/reset')) as SeedAnswer & { snapshot?: string };
     expect(reset.scenario.name).toBe('columns-basic');
+    expect(reset.snapshot).toBe('restored');
     await ok(current(), '/wait', SEED_WAIT);
     const { tasks } = await status(current());
     expect(tasks).toHaveLength(COLUMN_IDS.length);
@@ -601,8 +608,8 @@ describe('each scenario', () => {
     expect(items.map(({ key }) => key)).toContain(manifest.scenario?.items?.['silent']);
     expect(manifest.scenario?.items?.['silent']).toBe('source:spur');
 
-    // A reset reseeds onto a fresh runner and shifts the clock again.
-    await ok(current(), '/reset');
+    // A reset restores the snapshot onto a fresh runner and makes the seed's clock shift again.
+    expect(await ok(current(), '/reset')).toMatchObject({ snapshot: 'restored' });
     await ok(current(), '/wait', SEED_WAIT);
     const again = await status(current());
     expect(staleSources(again.sources)).toEqual(['spur']);
@@ -693,5 +700,332 @@ describe('each scenario', () => {
     expect((await tokens()).tokens).toContainEqual(
       expect.objectContaining({ name: 'stand-tester', status: 'approved' }),
     );
+  }, 60_000);
+});
+
+/** `definition` with a seed that counts its calls. */
+function counted(definition: Scenario): { scenario: Scenario; seeds: () => number } {
+  let seeds = 0;
+  return {
+    scenario: {
+      ...definition,
+      seed: (...args) => {
+        seeds += 1;
+        return definition.seed(...args);
+      },
+    },
+    seeds: () => seeds,
+  };
+}
+
+interface ResetAnswer extends SeedAnswer {
+  snapshot?: string;
+}
+
+const snapshotFiles = (manifest: StandManifest, name: string): string[] =>
+  readdirSync(join(manifest.home, 'snapshots')).filter((file) =>
+    new RegExp(`^${name}-[0-9a-f]{16}\\.sqlite$`).test(file),
+  );
+
+/** The rows a seed owns, every table's row count, and the state of the Spur and Slack fakes. */
+async function capture(manifest: StandManifest) {
+  const store = openStore(join(manifest.home, 'board.sqlite'));
+  try {
+    const tables = await sql<{ name: string }>`
+      SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name
+    `.execute(store.db);
+    const counts: Record<string, number> = {};
+    for (const { name } of tables.rows) {
+      const result = await sql<{ n: number }>`SELECT count(*) AS n FROM ${sql.table(name)}`.execute(
+        store.db,
+      );
+      counts[name] = result.rows[0]?.n ?? -1;
+    }
+    const blocks = await store.db
+      .selectFrom('block')
+      .select(['id', 'state', 'addressee_role'])
+      .orderBy('id')
+      .execute();
+    const tasks = await store.db
+      .selectFrom('task')
+      .select(['key', 'column'])
+      .orderBy('key')
+      .execute();
+    const spur = await inspect(manifest);
+    return {
+      counts,
+      blocks,
+      tasks,
+      spur: { instanceId: spur.instanceId, sessions: spur.sessions },
+      rules: (spur as unknown as { rules: unknown }).rules,
+      // Without Slack refs: a feed line the daemon posts after the snapshot is posted again after
+      // a restore, at a new ts.
+      slack: (await outbox(manifest)).map(({ n, text, actions }) => ({ n, text, actions })),
+    };
+  } finally {
+    await store.close();
+  }
+}
+
+describe('snapshots', () => {
+  it('reset restores the seeded state after destructive changes, without seeding again', async () => {
+    const { scenario, seeds } = counted(
+      SCENARIOS.find(({ name }) => name === 'question-to-operator') as Scenario,
+    );
+    await up({ scenarios: [scenario] });
+    const seeded = (await ok(current(), '/seed', { scenario: scenario.name })) as ResetAnswer;
+    expect(seeded.snapshot).toBe('taken');
+    await ok(current(), '/wait', SEED_WAIT);
+    const first = await capture(current());
+    await ok(current(), '/poll');
+    const second = await capture(current());
+    // A poll with unchanged fakes may add rows to some tables; those compare by seed-owned rows.
+    const stable = Object.keys(first.counts).filter(
+      (name) => first.counts[name] === second.counts[name],
+    );
+    const pick = (counts: Record<string, number>) =>
+      Object.fromEntries(stable.map((name) => [name, counts[name]]));
+
+    const question = second.slack.find((message) => message.text.includes('client target'));
+    if (question === undefined) throw new Error('the question was not posted');
+    await ok(current(), '/fake/slack/click', { message: question.n, button: 'answer', text: 'v2' });
+    const github = (verb: string, args: object) =>
+      ok(current(), '/fake', { system: 'github', verb, args });
+    await github('issue-close', { repo: 'stand-org/board', number: 1 });
+    await github('fail', { mode: 'server-error' });
+    await ok(current(), '/fake', { system: 'spur', verb: 'session', args: { id: 'extra-1' } });
+    await ok(current(), '/fake', { system: 'spur', verb: 'fail', args: { mode: '5xx' } });
+    await ok(current(), '/poll');
+    const destroyed = await capture(current());
+    expect(destroyed.blocks).not.toEqual(second.blocks);
+
+    const reset = (await ok(current(), '/reset')) as ResetAnswer;
+    expect(reset.snapshot).toBe('restored');
+    expect(reset.scenario.name).toBe(scenario.name);
+    expect(seeds()).toBe(1);
+    await ok(current(), '/wait', SEED_WAIT);
+    const restored = await capture(current());
+    expect(pick(restored.counts)).toEqual(pick(second.counts));
+    expect(restored.blocks).toEqual(second.blocks);
+    expect(restored.tasks).toEqual(second.tasks);
+    expect(restored.spur).toEqual(second.spur);
+    expect(restored.rules).toEqual({});
+    expect(restored.slack).toEqual(second.slack);
+    const reopen = await control(current(), '/fake', {
+      system: 'github',
+      verb: 'issue-open',
+      args: { repo: 'stand-org/board', number: 1 },
+    });
+    expect(reopen.status).toBe(409);
+    for (const suffix of ['', '-wal', '-shm']) {
+      const file = join(current().home, `board.sqlite${suffix}`);
+      expect(statSync(file).mode & 0o777, file).toBe(0o600);
+    }
+  }, 120_000);
+
+  it('a changed scenario re-seeds and takes a new snapshot', async () => {
+    const empty = SCENARIOS.find(({ name }) => name === 'empty') as Scenario;
+    const { scenario, seeds } = counted(empty);
+    const mutable: Scenario = { ...scenario };
+    const manifest = await up({ scenarios: [mutable] });
+    await seed('empty');
+    const [v1] = snapshotFiles(manifest, 'empty');
+    mutable.seed = async (...args) => {
+      const entities = await scenario.seed(...args);
+      return { ...entities, tasks: { v2: 'none' } };
+    };
+    const changed = (await ok(current(), '/reset')) as ResetAnswer;
+    expect(changed.snapshot).toBe('taken');
+    expect(changed.scenario.tasks).toEqual({ v2: 'none' });
+    expect(seeds()).toBe(2);
+    const files = snapshotFiles(manifest, 'empty');
+    expect(files).toHaveLength(1);
+    expect(files[0]).not.toBe(v1);
+    await ok(current(), '/wait', SEED_WAIT);
+    const again = (await ok(current(), '/reset')) as ResetAnswer;
+    expect(again.snapshot).toBe('restored');
+    expect(again.scenario.tasks).toEqual({ v2: 'none' });
+    expect(seeds()).toBe(2);
+  }, 120_000);
+
+  it('a changed migration re-seeds at reset', async () => {
+    const dir = join(base, 'migrations');
+    cpSync(fileURLToPath(migrationsDir), dir, { recursive: true });
+    const { scenario, seeds } = counted(SCENARIOS.find(({ name }) => name === 'empty') as Scenario);
+    const manifest = await up({
+      scenarios: [scenario],
+      migrationsDir: pathToFileURL(`${dir}/`),
+    });
+    await seed('empty');
+    const [before] = snapshotFiles(manifest, 'empty');
+    expect(((await ok(current(), '/reset')) as ResetAnswer).snapshot).toBe('restored');
+    expect(seeds()).toBe(1);
+    const last = readdirSync(dir)
+      .filter((file) => file.endsWith('.sql'))
+      .sort()
+      .at(-1);
+    if (last === undefined) throw new Error('no migrations');
+    appendFileSync(join(dir, last), '-- changed\n');
+    expect(((await ok(current(), '/reset')) as ResetAnswer).snapshot).toBe('taken');
+    expect(seeds()).toBe(2);
+    const files = snapshotFiles(manifest, 'empty');
+    expect(files).toHaveLength(1);
+    expect(files[0]).not.toBe(before);
+    await ok(current(), '/wait', SEED_WAIT);
+  }, 120_000);
+
+  it('a snapshot that cannot be restored stops the stand', async () => {
+    const manifest = await up();
+    await seed('empty');
+    const [file] = snapshotFiles(manifest, 'empty');
+    if (file === undefined) throw new Error('no snapshot');
+    writeFileSync(join(manifest.home, 'snapshots', file), 'not a database');
+    const reset = await control(current(), '/reset');
+    checked = undefined;
+    expect(reset.status).toBe(500);
+    expect(reset.body).toMatchObject({ error: expect.any(String) as unknown });
+    expect(await stand?.exited).toBe(1);
+    expect(existsSync(join(manifest.home, 'board.sqlite.partial'))).toBe(false);
+  }, 60_000);
+
+  it('a missing snapshot file of a matching record stops the stand', async () => {
+    const { scenario, seeds } = counted(SCENARIOS.find(({ name }) => name === 'empty') as Scenario);
+    const manifest = await up({ scenarios: [scenario] });
+    await seed('empty');
+    const [file] = snapshotFiles(manifest, 'empty');
+    if (file === undefined) throw new Error('no snapshot');
+    rmSync(join(manifest.home, 'snapshots', file));
+    const reset = await control(current(), '/reset');
+    checked = undefined;
+    expect(reset.status).toBe(500);
+    expect(reset.body).toMatchObject({ error: expect.any(String) as unknown });
+    expect(seeds()).toBe(1);
+    expect(await stand?.exited).toBe(1);
+    expect(existsSync(join(manifest.home, 'board.sqlite.partial'))).toBe(false);
+  }, 60_000);
+
+  it('a failed snapshot keeps the seed and reset seeds again', async () => {
+    const { scenario, seeds } = counted(SCENARIOS.find(({ name }) => name === 'empty') as Scenario);
+    const manifest = await up({ scenarios: [scenario] });
+    writeFileSync(join(manifest.home, 'snapshots'), 'not a directory');
+    const seeded = (await ok(current(), '/seed', { scenario: 'empty' })) as ResetAnswer;
+    expect(seeded.snapshot).toBe('failed');
+    await ok(current(), '/wait', SEED_WAIT);
+    expect(readFileSync(join(manifest.home, 'logs', 'daemon.log'), 'utf8')).toContain(
+      'stand snapshot failed',
+    );
+    const reset = (await ok(current(), '/reset')) as ResetAnswer;
+    expect(reset.snapshot).toBe('failed');
+    expect(seeds()).toBe(2);
+    await ok(current(), '/wait', SEED_WAIT);
+  }, 60_000);
+
+  it.each(scenarioNames())(
+    '%s reaches wait scenario after a restore-reset',
+    async (name) => {
+      await up();
+      await seed(name);
+      const reset = (await ok(current(), '/reset')) as ResetAnswer;
+      expect(reset.snapshot).toBe('restored');
+      await ok(current(), '/wait', SEED_WAIT);
+    },
+    90_000,
+  );
+
+  it('a restore never reissues a Slack ts the retiring fake already issued', async () => {
+    // A clock that moves only when the test steps it: the sender takes one send per space per
+    // second of it, and the fake stamps a ts from it.
+    let at = Date.now();
+    await up({ clock: { now: () => at } });
+    const { scenario } = await seed('question-to-operator');
+    const task = scenario.tasks?.['question'];
+    if (task === undefined) throw new Error('no question task');
+    const stamps = async (): Promise<bigint[]> => {
+      const { messages } = (await ok(current(), '/fake/slack/outbox')) as {
+        messages: { message: string }[];
+      };
+      return messages.map(({ message }) => {
+        const { ts } = JSON.parse(message) as { ts: string };
+        return BigInt(ts.replace('.', ''));
+      });
+    };
+    const ask = async (text: string): Promise<void> => {
+      const manifest = current();
+      const response = await fetch(`${manifest.daemonUrl}/v1/ops/block.ask`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-board-session': manifest.roles.worker },
+        body: JSON.stringify({ input: { task, text }, key: text }),
+      });
+      expect(response.status, await response.text()).toBe(200);
+    };
+    const drain = async (): Promise<void> => {
+      for (let step = 0; step < 20; step += 1) {
+        const drained = await control(current(), '/wait', {
+          condition: 'outbox-drained',
+          timeoutMs: 1_500,
+        });
+        if (drained.status === 200) return;
+        at += 1_000;
+      }
+      throw new Error('the outbox did not drain');
+    };
+    const seeded = new Set(await stamps());
+    await ask('Posted after the snapshot?');
+    await drain();
+    const before = await stamps();
+    const highest = before.reduce((a, b) => (a > b ? a : b));
+    expect(before.length).toBeGreaterThan(seeded.size);
+
+    // The clock holds still across the reset, so only the fake's high-water mark keeps the next
+    // ts above the ones the retiring fake issued.
+    expect(((await ok(current(), '/reset')) as ResetAnswer).snapshot).toBe('restored');
+    await ok(current(), '/wait', SEED_WAIT);
+    await ask('Posted after the restore?');
+    await drain();
+    const after = (await stamps()).filter((ts) => !seeded.has(ts));
+    expect(after.length).toBeGreaterThan(0);
+    for (const ts of after) expect(ts > highest, `${String(ts)} > ${String(highest)}`).toBe(true);
+  }, 90_000);
+
+  it('a snapshot whose token request expired by the clock re-seeds at reset', async () => {
+    const { scenario, seeds } = counted(
+      SCENARIOS.find(({ name }) => name === 'token-approval') as Scenario,
+    );
+    await up({ scenarios: [scenario] });
+    await seed('token-approval');
+    // Past the request's 15-minute lifetime: a restored request would come back expired.
+    await ok(current(), '/clock', { shiftMs: 16 * 60_000 });
+    const reset = (await ok(current(), '/reset')) as ResetAnswer;
+    expect(reset.snapshot).toBe('taken');
+    expect(seeds()).toBe(2);
+    await ok(current(), '/wait', SEED_WAIT);
+    const n = Number(reset.scenario.messages?.['approval']);
+    const message = (await outbox(current())).find((candidate) => candidate.n === n);
+    const approve = message?.actions.find((action) => /^token:\d+:approve$/.test(action));
+    if (approve === undefined) throw new Error('no approve button');
+    expect(await ok(current(), '/fake/slack/click', { message: n, button: approve })).toEqual({
+      ok: true,
+      responses: ['stand-tester: approved'],
+    });
+    const { tokens } = await op<{ tokens: { name: string; status: string }[] }>(
+      current(),
+      'token.list',
+      {},
+    );
+    expect(tokens).toContainEqual(
+      expect.objectContaining({ name: 'stand-tester', status: 'approved' }),
+    );
+    // The new snapshot is fresh again: the next reset restores it.
+    expect(((await ok(current(), '/reset')) as ResetAnswer).snapshot).toBe('restored');
+    expect(seeds()).toBe(2);
+  }, 120_000);
+
+  it('the stand clock does not move back across a restore-reset', async () => {
+    await up();
+    await seed('empty');
+    const shifted = (await ok(current(), '/clock', { shiftMs: 3_600_000 })) as { now: string };
+    expect(((await ok(current(), '/reset')) as ResetAnswer).snapshot).toBe('restored');
+    const after = (await ok(current(), '/clock', { shiftMs: 1 })) as { now: string };
+    expect(Date.parse(after.now)).toBeGreaterThanOrEqual(Date.parse(shifted.now) + 1);
   }, 60_000);
 });
