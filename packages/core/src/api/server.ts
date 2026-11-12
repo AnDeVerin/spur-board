@@ -64,14 +64,16 @@ const doctorReportSchema = z.strictObject({
     .max(30),
 });
 
+const tokenHash = z.string().regex(/^[0-9a-f]{64}$/);
+
 const tokenRequestSchema = z.strictObject({
   name: z.string().min(1),
   folder: z.string().min(1),
   host: z.string().min(1),
-  hash: z.string().regex(/^[0-9a-f]{64}$/),
+  hash: tokenHash,
 });
 
-const tokenStatusSchema = z.strictObject({ hash: z.string().regex(/^[0-9a-f]{64}$/) });
+const tokenStatusSchema = z.strictObject({ hash: tokenHash });
 
 function header(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? undefined : value;

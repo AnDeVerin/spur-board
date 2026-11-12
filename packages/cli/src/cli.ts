@@ -677,17 +677,17 @@ export function createProgram(options: CliOptions = {}): CommandUnknownOpts {
  */
 async function replaceStaleToken(file: string, token: string, config: ClientConfig): Promise<void> {
   const refuse = (hint: string) => new CliError('config', undefined, undefined, hint);
-  let status: Awaited<ReturnType<typeof fetchTokenStatus>>['status'];
-  try {
-    ({ status } = await fetchTokenStatus(createHash('sha256').update(token).digest('hex'), config));
-  } catch (error) {
+  const { status } = await fetchTokenStatus(
+    createHash('sha256').update(token).digest('hex'),
+    config,
+  ).catch((error: unknown) => {
     if (error instanceof CliError && error.code === 'not_found') {
       throw refuse(
         `The daemon cannot report the state of ${file}: it is older than this CLI. Ask the operator to run \`board service restart\`, then run again.`,
       );
     }
     throw error;
-  }
+  });
   switch (status) {
     case 'expired':
     case 'denied':
