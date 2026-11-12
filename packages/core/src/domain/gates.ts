@@ -20,7 +20,7 @@ export interface TaskGateFacts {
   /** The task's pull request, or null when it has none. */
   pr: Pick<
     PrFacts,
-    'state' | 'draft' | 'mergeable' | 'headSha' | 'requiredChecks' | 'checks'
+    'repo' | 'state' | 'draft' | 'mergeable' | 'headSha' | 'requiredChecks' | 'checks'
   > | null;
   /** Whether the external reviewers approved the pull request. */
   externalReviewApproved: boolean;
@@ -40,6 +40,12 @@ type GateColumn = Pick<
   Config['projects'][number]['columns'][number],
   'id' | 'enabled' | 'orchestrator'
 >;
+
+/** What the gates read about the task's project: its board and its repos without CI. */
+type GateProject = {
+  columns: readonly GateColumn[];
+  reposWithoutCi: readonly string[];
+};
 
 type GateReason =
   | 'no_pr'
@@ -66,9 +72,21 @@ type GateReason =
  * in its column. These three are hold-only: they mean a fact is not known yet (GitHub has not
  * computed mergeability, the checks on head have not finished, or the comment history was not
  * read to the end), and waiting resolves them.
+ *
+ * `checksWaivedBy` names the config key that passed Dev's check condition: it is present exactly
+ * when Dev was evaluated and its check condition passed only because the PR's repo is in
+ * `reposWithoutCi` and its head has no checks. It never changes `ok`, `column` or `reasons`.
  */
 type GateResult =
-  { ok: true } | { ok: false; column: ColumnId; reasons: readonly [GateReason, ...GateReason[]] };
+  | { ok: true; checksWaivedBy?: ChecksWaiver }
+  | {
+      ok: false;
+      column: ColumnId;
+      reasons: readonly [GateReason, ...GateReason[]];
+      checksWaivedBy?: ChecksWaiver;
+    };
+
+type ChecksWaiver = Extract<keyof Config['projects'][number], 'reposWithoutCi'>;
 
 type Verdict = 'green' | 'pending' | 'red';
 
@@ -88,10 +106,23 @@ const VERDICT = {
 } as const satisfies Record<CheckState, Verdict>;
 
 /**
- * The verdict over the required checks on head, or, when none is required, over every check on
- * head except skipped ones. No check gives pending, and red wins over pending.
+ * Whether `reposWithoutCi` passes Dev's check condition: the PR is open, its repo is listed in any
+ * letter case, and its head has no checks at all. A list of only skipped checks does not count.
  */
-function checksVerdict(pr: NonNullable<TaskGateFacts['pr']>): Verdict {
+function noCiWaives(pr: TaskGateFacts['pr'], project: GateProject): boolean {
+  if (pr === null || pr.state !== 'open') return false;
+  if (pr.checks.length > 0 || pr.requiredChecks.length > 0) return false;
+  const repo = pr.repo.toLowerCase();
+  return project.reposWithoutCi.some((listed) => listed.toLowerCase() === repo);
+}
+
+/**
+ * The verdict over the required checks on head, or, when none is required, over every check on
+ * head except skipped ones. No check gives pending, and red wins over pending. `waived` (from
+ * `noCiWaives`, so the head has no checks) gives green.
+ */
+function checksVerdict(pr: NonNullable<TaskGateFacts['pr']>, waived: boolean): Verdict {
+  if (waived) return 'green';
   const list =
     pr.requiredChecks.length > 0
       ? pr.requiredChecks
@@ -126,13 +157,17 @@ function executorDone(
   );
 }
 
-function devReasons(facts: TaskGateFacts, columns: readonly GateColumn[]): GateReason[] {
+function devReasons(
+  facts: TaskGateFacts,
+  columns: readonly GateColumn[],
+  waived: boolean,
+): GateReason[] {
   const { pr } = facts;
   if (pr === null) return ['no_pr'];
   if (pr.state === 'closed') return ['pr_closed'];
   const reasons: GateReason[] = [];
   if (pr.draft) reasons.push('pr_draft');
-  const verdict = checksVerdict(pr);
+  const verdict = checksVerdict(pr, waived);
   if (verdict === 'red') reasons.push('checks_red');
   if (verdict === 'pending') reasons.push('checks_pending');
   if (pr.mergeable === 'conflicting') reasons.push('conflict');
@@ -148,6 +183,7 @@ function columnCondition(
   column: ColumnId,
   facts: TaskGateFacts,
   columns: readonly GateColumn[],
+  waived: boolean,
 ): GateReason[] {
   switch (column) {
     case 'todo':
@@ -155,7 +191,7 @@ function columnCondition(
     case 'done':
       return [];
     case 'dev':
-      return devReasons(facts, columns);
+      return devReasons(facts, columns, waived);
     case 'review':
     case 'product-review':
       return executorDone(column, facts, columns) ? [] : ['no_review_on_head'];
@@ -172,21 +208,25 @@ function columnCondition(
 
 /**
  * Evaluates the exit conditions of every enabled column from To Do up to and including `column`,
- * and returns the leftmost one that fails. A column absent from `columns` or disabled passes
- * through. A merged pull request passes every column.
+ * and returns the leftmost one that fails. A column absent from the project's columns or disabled
+ * passes through. A merged pull request passes every column. Once Dev is evaluated with its check
+ * condition passed by `reposWithoutCi`, the result carries `checksWaivedBy`.
  */
 export function evaluateGate(
   column: ColumnId,
   facts: TaskGateFacts,
-  columns: readonly GateColumn[],
+  project: GateProject,
 ): GateResult {
   if (facts.pr?.state === 'merged') return { ok: true };
+  const waived = noCiWaives(facts.pr, project);
+  let marker: { checksWaivedBy?: ChecksWaiver } = {};
   for (const id of COLUMN_IDS.slice(0, COLUMN_IDS.indexOf(column) + 1)) {
-    if (columns.find((c) => c.id === id)?.enabled !== true) continue;
-    const [first, ...rest] = columnCondition(id, facts, columns);
-    if (first !== undefined) return { ok: false, column: id, reasons: [first, ...rest] };
+    if (project.columns.find((c) => c.id === id)?.enabled !== true) continue;
+    if (id === 'dev' && waived) marker = { checksWaivedBy: 'reposWithoutCi' };
+    const [first, ...rest] = columnCondition(id, facts, project.columns, waived);
+    if (first !== undefined) return { ok: false, column: id, reasons: [first, ...rest], ...marker };
   }
-  return { ok: true };
+  return { ok: true, ...marker };
 }
 
 type ReturnCause =
