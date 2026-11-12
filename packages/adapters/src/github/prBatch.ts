@@ -5,6 +5,7 @@ import {
   prFactsSchema,
   type Config,
   type PrFacts,
+  type PrFeedback,
   type ReviewerKind,
 } from '@spur-board/contracts';
 import { z } from 'zod';
@@ -12,6 +13,8 @@ import { parseWire } from '../runner/wire.ts';
 
 const KEPT_REVIEWS = ['approved', 'changes_requested', 'dismissed'];
 const actor = z.object({ login: z.string().optional() }).nullish();
+// The author of a comment or review; a deleted account arrives as null.
+const typedActor = z.object({ __typename: z.string(), login: z.string().min(1) }).nullable();
 const checkRunWire = z
   .object({
     __typename: z.literal('CheckRun'),
@@ -37,7 +40,8 @@ const contextWire = z.discriminatedUnion('__typename', [checkRunWire, statusCont
 // A kept review must name its commit.
 const reviewWire = z
   .object({
-    author: actor,
+    id: z.string().min(1),
+    author: typedActor,
     state: z.string(),
     commit: z.object({ oid: z.string() }).nullable(),
     submittedAt: z.string().nullish(),
@@ -51,6 +55,12 @@ const reviewWire = z
     { path: ['commit'] },
   );
 const nodes = <T extends z.ZodType>(node: T) => z.object({ nodes: z.array(node) });
+export const commentWire = z.object({
+  id: z.string().min(1),
+  author: typedActor,
+  // Same check as the fact's postedAt, so a bad time fails its own history page.
+  createdAt: z.iso.datetime(),
+});
 const loginReviewer = <T extends string>(type: T) =>
   z.object({ __typename: z.literal(type), login: z.string() });
 const slugReviewer = <T extends string>(type: T) =>
@@ -93,6 +103,7 @@ const prWire = z.object({
   headRefOid: z.string(),
   statusCheckRollup: z.object({ contexts: nodes(contextWire) }).nullish(),
   reviews: nodes(reviewWire),
+  comments: nodes(commentWire),
   reviewThreads: nodes(z.object({ isResolved: z.boolean() })),
   reviewRequests: nodes(
     z.object({
@@ -106,6 +117,8 @@ const prWire = z.object({
 });
 type ContextWire = z.output<typeof contextWire>;
 type ReviewWire = z.output<typeof reviewWire>;
+type CommentWire = z.output<typeof commentWire>;
+type ActorWire = z.output<typeof typedActor>;
 type ReviewerWire = NonNullable<z.output<typeof reviewerWire>>;
 type ClosingWire = z.output<typeof closingWire>;
 type IssuesRule = Extract<KeyRule, { type: 'issues' }>;
@@ -262,6 +275,43 @@ function latestReviews(nodes: readonly ReviewWire[]): PrFacts['reviews'] {
   }
   return [...latest.values()].sort((a, b) => a.reviewer.localeCompare(b.reviewer));
 }
+function feedbackAuthor(wire: ActorWire): PrFeedback['author'] {
+  return wire === null
+    ? null
+    : { login: wire.login, type: wire.__typename === 'Bot' ? 'bot' : 'user' };
+}
+// Every comment and submitted review once, oldest first; equal times fall back to the id.
+function feedbackOf(
+  reviews: readonly ReviewWire[],
+  comments: readonly CommentWire[],
+): PrFeedback[] {
+  const entries = new Map<string, PrFeedback>();
+  const add = (entry: PrFeedback): void => {
+    entries.set(`${entry.kind}:${entry.id}`, entry);
+  };
+  for (const node of comments)
+    add({
+      kind: 'comment',
+      id: node.id,
+      author: feedbackAuthor(node.author),
+      postedAt: node.createdAt,
+    });
+  for (const node of reviews) {
+    if (node.submittedAt == null) continue;
+    add({
+      kind: 'review',
+      id: node.id,
+      author: feedbackAuthor(node.author),
+      postedAt: node.submittedAt,
+    });
+  }
+  const tie = (entry: PrFeedback): string => `${entry.id}\u0000${entry.kind}`;
+  return [...entries.values()].sort(
+    (a, b) =>
+      Date.parse(a.postedAt) - Date.parse(b.postedAt) ||
+      (tie(a) < tie(b) ? -1 : tie(a) > tie(b) ? 1 : 0),
+  );
+}
 export function ticketKeys(title: string, branch: string, prefixes: readonly string[]): string[] {
   return scanKeys(`${title} ${branch}`, prefixes);
 }
@@ -367,7 +417,13 @@ function reviewer(wire: ReviewerWire): { kind: ReviewerKind; id: string } {
       return assertNever(wire);
   }
 }
-export function normalizePr(repo: string, value: unknown, rule: KeyRule): PrFacts {
+/** `feedbackComplete` says whether the comments in `value` reach back to the cursor or start. */
+export function normalizePr(
+  repo: string,
+  value: unknown,
+  rule: KeyRule,
+  feedbackComplete: boolean,
+): PrFacts {
   const wire = parseWire(prWire, value, 'Malformed GitHub PR response');
   const checks = latestChecks(wire.statusCheckRollup?.contexts.nodes ?? []);
   const state = wire.state === 'MERGED' ? 'merged' : wire.state === 'CLOSED' ? 'closed' : 'open';
@@ -405,6 +461,8 @@ export function normalizePr(repo: string, value: unknown, rule: KeyRule): PrFact
     ),
     ticketKeys: prKeys(rule, title, headBranch, closingRefs(wire.closingIssuesReferences)),
     updatedAt: wire.updatedAt,
+    feedback: feedbackOf(wire.reviews.nodes, wire.comments.nodes),
+    feedbackComplete,
   };
   const parsed = prFactsSchema.safeParse(facts);
   if (!parsed.success)

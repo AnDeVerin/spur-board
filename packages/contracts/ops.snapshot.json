@@ -1,5 +1,5 @@
 {
-  "version": "9498727dee40e403dd76ba326228b583603290a07e7bc52f796e8c44402a8835",
+  "version": "776fa0a5d0ba8ff3ad7ff454725e68b5f162ec655cce52145ab58161db383113",
   "grants": [
     "operator",
     "project-agent",
@@ -1367,6 +1367,60 @@
                         "format": "date-time",
                         "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
                         "description": "When the pull request last changed."
+                      },
+                      "feedback": {
+                        "description": "Comments and submitted reviews on the pull request, oldest first, without their text.",
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "enum": ["comment", "review"],
+                              "description": "Whether this is a comment or a submitted review."
+                            },
+                            "id": {
+                              "type": "string",
+                              "minLength": 1,
+                              "description": "Stable id of the comment or review in the source."
+                            },
+                            "author": {
+                              "anyOf": [
+                                {
+                                  "type": "object",
+                                  "properties": {
+                                    "login": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "description": "Login of the author."
+                                    },
+                                    "type": {
+                                      "type": "string",
+                                      "enum": ["user", "bot"],
+                                      "description": "Whether the author is a user or a bot."
+                                    }
+                                  },
+                                  "required": ["login", "type"],
+                                  "additionalProperties": false
+                                },
+                                { "type": "null" }
+                              ],
+                              "description": "Who posted it; null for a deleted account."
+                            },
+                            "postedAt": {
+                              "type": "string",
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                              "description": "When the comment was posted or the review submitted."
+                            }
+                          },
+                          "required": ["kind", "id", "author", "postedAt"],
+                          "additionalProperties": false
+                        }
+                      },
+                      "feedbackComplete": {
+                        "description": "Whether feedback holds every comment back to the last one handed over, or to the start of the pull request; missing reads as incomplete.",
+                        "type": "boolean"
                       }
                     },
                     "required": [
@@ -1843,6 +1897,60 @@
                   "format": "date-time",
                   "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
                   "description": "When the pull request last changed."
+                },
+                "feedback": {
+                  "description": "Comments and submitted reviews on the pull request, oldest first, without their text.",
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "enum": ["comment", "review"],
+                        "description": "Whether this is a comment or a submitted review."
+                      },
+                      "id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "Stable id of the comment or review in the source."
+                      },
+                      "author": {
+                        "anyOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "login": {
+                                "type": "string",
+                                "minLength": 1,
+                                "description": "Login of the author."
+                              },
+                              "type": {
+                                "type": "string",
+                                "enum": ["user", "bot"],
+                                "description": "Whether the author is a user or a bot."
+                              }
+                            },
+                            "required": ["login", "type"],
+                            "additionalProperties": false
+                          },
+                          { "type": "null" }
+                        ],
+                        "description": "Who posted it; null for a deleted account."
+                      },
+                      "postedAt": {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                        "description": "When the comment was posted or the review submitted."
+                      }
+                    },
+                    "required": ["kind", "id", "author", "postedAt"],
+                    "additionalProperties": false
+                  }
+                },
+                "feedbackComplete": {
+                  "description": "Whether feedback holds every comment back to the last one handed over, or to the start of the pull request; missing reads as incomplete.",
+                  "type": "boolean"
                 },
                 "reason": {
                   "description": "Why the link rules gave this pull request no task link. Present only on an open pull request in the tracker repo of a GitHub Issues project, when the rules found no key or no board task for its keys.",
