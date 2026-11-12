@@ -247,14 +247,11 @@ export async function reconcileItems(
     if (state === undefined || state.hasOpenPr || state.hasMergedPr) continue;
     const closed = prs
       .filter((pr) => pr.task_id === task.id && pr.state === 'closed')
-      .sort((left, right) =>
-        `${left.repo ?? ''}#${String(left.number)}`.localeCompare(
-          `${right.repo ?? ''}#${String(right.number)}`,
-        ),
-      );
+      .map((pr) => ({ ...pr, ref: `${pr.repo ?? ''}#${String(pr.number)}` }))
+      .sort((left, right) => left.ref.localeCompare(right.ref));
     const first = closed[0];
     if (first === undefined) continue;
-    const refs = closed.map((pr) => `${pr.repo ?? ''}#${String(pr.number)}`);
+    const refs = closed.map((pr) => pr.ref);
     candidates.push({
       key: `pr-closed:${String(task.id)}`,
       kind: 'anomaly',
