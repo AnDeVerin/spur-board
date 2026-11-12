@@ -22,6 +22,8 @@ import { reconcileItems } from '../../src/app/fromYou.ts';
 import { scanTransaction } from '../../src/app/secrets.ts';
 import { SpurRejectedError } from '../../src/app/sender.ts';
 import { sampleRows } from '../store/sample-rows.ts';
+import { archiveTask } from '../../src/app/archive.ts';
+import { closeTurns, isTurnOpen, openTurn, turnExecutor } from '../../src/app/turns.ts';
 
 const KEY = 'o/r#101';
 const START = Date.parse('2026-11-03T10:00:00.000Z');
@@ -1739,4 +1741,363 @@ describe('doorbell policy', () => {
       expect((await notices(ctx)).filter((n) => n.kind === 'answer')).toEqual([]);
     },
   );
+});
+
+describe('turns', () => {
+  const T1 = { entries: [{ id: 'T1' }] };
+
+  async function open(ctx: Board, reason = 'Review the PR') {
+    return scanTransaction(ctx.store, ctx.config, async (trx) => {
+      const task = await trx
+        .selectFrom('task')
+        .selectAll()
+        .where('id', '=', 1)
+        .executeTakeFirstOrThrow();
+      return openTurn(trx, { task, reason, handed: [], at: ctx.now(), config: ctx.config });
+    });
+  }
+
+  function close(ctx: Board, reason: 'moved' | 'archived' = 'moved') {
+    return scanTransaction(ctx.store, ctx.config, (trx) =>
+      closeTurns(trx, { taskId: 1, reason, at: ctx.now() }),
+    );
+  }
+
+  function turns(ctx: Board) {
+    return ctx.store.db.selectFrom('turn').selectAll().orderBy('id').execute();
+  }
+
+  function items(ctx: Board) {
+    return ctx.store.db.selectFrom('operator_item').selectAll().orderBy('id').execute();
+  }
+
+  async function events(ctx: Board, kind: 'doorbell_read' | 'from_you_cleared') {
+    const rows = await ctx.store.db
+      .selectFrom('event')
+      .select(['actor', 'payload'])
+      .where('kind', '=', kind)
+      .orderBy('id')
+      .execute();
+    return rows.map((row) => ({ actor: row.actor, payload: JSON.parse(row.payload) as unknown }));
+  }
+
+  function outbox(ctx: Board, kind: string) {
+    return ctx.store.db
+      .selectFrom('outbox')
+      .selectAll()
+      .where('kind', '=', kind)
+      .orderBy('id')
+      .execute();
+  }
+
+  /** Rings three times unanswered, then lets the series end. */
+  async function exhaust(ctx: Board) {
+    for (const pause of [0, 120_000, 300_000]) {
+      ctx.advance(pause);
+      await step(ctx);
+    }
+    ctx.advance(900_000);
+    await step(ctx);
+  }
+
+  it.each([
+    {
+      name: 'rings the live worker for a turn',
+      board: () => policyBoard('none'),
+      session: 'worker-1',
+      holder: 'worker',
+      role: 'worker',
+    },
+    {
+      name: 'rings the column orchestrator project for its turn',
+      board: () => policyBoard(),
+      session: 'qa-1',
+      holder: 'orchestrator',
+      role: 'orchestrator:dev',
+    },
+  ])('$name', async ({ board, session, holder, role }) => {
+    const ctx = await setup({ config: board() });
+    if (session === 'qa-1') await addSession(ctx, 'qa-1', 'qa');
+    expect((await open(ctx)).role).toBe(role);
+    await exhaust(ctx);
+    expect(sessionsRung(ctx)).toEqual([session, session, session]);
+    expect(ctx.sent[0]?.text).toBe(`${KEY} turn T1: check board inbox (N1-1)`);
+    expect(ctx.sent.map((entry) => entry.text)).toEqual(
+      [1, 2, 3].map(
+        (ring) =>
+          expect.stringMatching(
+            new RegExp(`turn T1: check board inbox \\(N1-${String(ring)}\\)$`),
+          ) as unknown,
+      ),
+    );
+    expect(await items(ctx)).toEqual([
+      expect.objectContaining({
+        kind: 'worker_not_reading',
+        item_key: `worker_not_reading:turn:1:${role}`,
+        text: `${holder} ${session} is not reading turn T1 on ${KEY}`,
+        block_id: null,
+      }),
+    ]);
+    expect(await journalled(ctx, 'doorbell_undelivered')).toEqual([
+      expect.objectContaining({ payload: { doorbell: 'N1', reason: 'unanswered' } }),
+    ]);
+    const [notice] = await notices(ctx);
+    expect(notice).toMatchObject({
+      kind: 'turn',
+      turn_id: 1,
+      block_id: null,
+      author_session: null,
+    });
+    await ctx.store.transaction((trx) =>
+      restartNotification(trx, notice?.source_key ?? '', ctx.now()),
+    );
+    await step(ctx);
+    expect(ctx.sent).toHaveLength(4);
+  });
+
+  it('accepts the ack of a later orchestrator session', async () => {
+    const ctx = await setup({ config: policyBoard() });
+    await addSession(ctx, 'qa-1', 'qa');
+    await open(ctx);
+    await step(ctx);
+    expect(sessionsRung(ctx)).toEqual(['qa-1']);
+    await setSession(ctx, 'qa-1', { ended_at: ctx.now().toISOString() });
+    await addSession(ctx, 'qa-2', 'qa');
+
+    const result = await ctx.apply(ctx.ops.ack, T1, 'agent:qa/qa-2', 'ack-qa-2');
+
+    expect(result).toEqual({ acked: ['T1'] });
+    expect(await turns(ctx)).toEqual([
+      expect.objectContaining({ acked_by: 'agent:qa/qa-2', acked_at: ctx.now().toISOString() }),
+    ]);
+    expect((await notices(ctx))[0]?.acked_at).toBe(ctx.now().toISOString());
+    expect(await events(ctx, 'doorbell_read')).toEqual([
+      expect.objectContaining({ payload: { doorbell: 'N1' } }),
+    ]);
+  });
+
+  it('accepts the ack of the worker selected after the rung worker ended', async () => {
+    const ctx = await setup({ config: policyBoard('none'), replacement: true });
+    await open(ctx);
+    await step(ctx);
+    expect(sessionsRung(ctx)).toEqual(['worker-1']);
+    await setSession(ctx, 'worker-1', { ended_at: ctx.now().toISOString() });
+    await addSession(ctx, 'worker-9', 'web');
+
+    await expect(
+      ctx.apply(ctx.ops.ack, T1, 'agent:web/worker-9', 'ack-unlinked'),
+    ).rejects.toMatchObject({ code: 'forbidden' });
+    expect(await turns(ctx)).toEqual([expect.objectContaining({ acked_by: null, acked_at: null })]);
+    expect((await notices(ctx))[0]?.acked_at).toBeNull();
+
+    await expect(ctx.apply(ctx.ops.ack, T1, 'agent:web/worker-2', 'ack-selected')).resolves.toEqual(
+      { acked: ['T1'] },
+    );
+    expect((await turns(ctx))[0]?.acked_by).toBe('agent:web/worker-2');
+  });
+
+  it('lets a later orchestrator session take over a taken turn', async () => {
+    const ctx = await setup({ config: policyBoard() });
+    await addSession(ctx, 'qa-2', 'qa');
+    await open(ctx);
+    await step(ctx);
+    await ctx.apply(ctx.ops.ack, T1, 'agent:qa/qa-2', 'ack-qa-2');
+    const taken = ctx.now().toISOString();
+    await setSession(ctx, 'qa-2', { ended_at: taken });
+    await addSession(ctx, 'qa-3', 'qa');
+    ctx.advance(1000);
+
+    await expect(ctx.apply(ctx.ops.ack, T1, 'agent:qa/qa-3', 'ack-qa-3')).resolves.toEqual({
+      acked: ['T1'],
+    });
+
+    expect(await turns(ctx)).toEqual([
+      expect.objectContaining({ acked_by: 'agent:qa/qa-3', acked_at: ctx.now().toISOString() }),
+    ]);
+    expect((await notices(ctx))[0]?.acked_at).toBe(taken);
+    expect(await events(ctx, 'doorbell_read')).toHaveLength(1);
+    await expect(ctx.apply(ctx.ops.ack, T1, worker, 'ack-worker')).rejects.toMatchObject({
+      code: 'forbidden',
+    });
+    expect((await turns(ctx))[0]?.acked_by).toBe('agent:qa/qa-3');
+  });
+
+  it('refuses a second take of a worker turn', async () => {
+    const ctx = await setup({ config: policyBoard('none') });
+    await open(ctx);
+    await step(ctx);
+    await ctx.apply(ctx.ops.ack, T1, worker, 'ack-1');
+
+    await expect(ctx.apply(ctx.ops.ack, T1, worker, 'ack-2')).rejects.toMatchObject({
+      code: 'not_found',
+    });
+  });
+
+  it('closes an open turn on a move', async () => {
+    const ctx = await setup({ config: policyBoard('none') });
+    await open(ctx);
+    await step(ctx);
+    ctx.advance(120_000);
+    await ctx.ring();
+    expect(await outbox(ctx, 'doorbell')).toEqual([
+      expect.objectContaining({ state: 'done' }),
+      expect.objectContaining({ state: 'pending' }),
+    ]);
+
+    await close(ctx);
+    await ctx.sender.tick();
+    ctx.advance(2_000_000);
+    await step(ctx);
+
+    expect(ctx.sent).toHaveLength(1);
+    expect((await outbox(ctx, 'doorbell'))[1]).toMatchObject({
+      state: 'dead',
+      last_error: 'notification no longer current',
+    });
+    expect(await turns(ctx)).toEqual([
+      expect.objectContaining({ closed_reason: 'moved', closed_at: expect.any(String) as unknown }),
+    ]);
+    expect((await notices(ctx))[0]?.acked_at).not.toBeNull();
+    await expect(ctx.apply(ctx.ops.ack, T1, worker, 'ack-closed')).rejects.toMatchObject({
+      code: 'not_found',
+    });
+  });
+
+  it('clears the exhaustion item of a closed turn', async () => {
+    const ctx = await setup({ config: policyBoard('none') });
+    await open(ctx);
+    await exhaust(ctx);
+    expect(await items(ctx)).toEqual([expect.objectContaining({ cleared_at: null })]);
+
+    await close(ctx);
+
+    expect(await items(ctx)).toEqual([
+      expect.objectContaining({ cleared_at: ctx.now().toISOString() }),
+    ]);
+    expect(await events(ctx, 'from_you_cleared')).toEqual([
+      expect.objectContaining({ actor: 'system' }),
+    ]);
+  });
+
+  it('gives the operator a turn as one feed line', async () => {
+    const ctx = await setup({ config: policyBoard('operator') });
+    const turn = await open(ctx, 'Merge it');
+    expect(turn.role).toBe('operator');
+    expect(await notices(ctx)).toEqual([]);
+    expect(await items(ctx)).toEqual([
+      expect.objectContaining({
+        kind: 'turn',
+        item_key: 'turn:1',
+        text: `turn T1 on ${KEY}: Merge it`,
+        cleared_at: null,
+      }),
+    ]);
+    const [line] = await outbox(ctx, 'feed.line');
+    expect(JSON.parse(line?.payload ?? '{}')).toMatchObject({
+      itemKey: 'turn:1',
+      actions: [{ id: 'item:1:close', label: 'Close' }],
+    });
+    ctx.advance(2_000_000);
+    await step(ctx);
+    expect(ctx.sent).toEqual([]);
+    await expect(ctx.apply(ctx.ops.ack, T1, worker, 'ack-operator-turn')).rejects.toMatchObject({
+      code: 'not_found',
+    });
+
+    await close(ctx);
+
+    expect((await items(ctx))[0]?.cleared_at).toBe(ctx.now().toISOString());
+    expect(await events(ctx, 'from_you_cleared')).toEqual([
+      expect.objectContaining({ actor: 'system' }),
+    ]);
+    const [edit] = await outbox(ctx, 'feed.line.edit');
+    expect(JSON.parse(edit?.payload ?? '{}')).toMatchObject({
+      itemKey: 'turn:1',
+      resolved: { by: 'system' },
+    });
+
+    const ended = await setup({ config: policyBoard('none'), author: 'ended' });
+    expect((await open(ended)).role).toBe('operator');
+    expect(await notices(ended)).toEqual([]);
+  });
+
+  it('reuses the unclosed turn of a visit', async () => {
+    const ctx = await setup({ config: policyBoard('none') });
+    const first = await open(ctx);
+    expect(isTurnOpen(first)).toBe(false);
+    expect((await open(ctx, 'Again')).id).toBe(first.id);
+    expect(await turns(ctx)).toHaveLength(1);
+    await ctx.apply(ctx.ops.ack, T1, worker, 'ack');
+    const [taken] = await turns(ctx);
+    expect(taken !== undefined && isTurnOpen(taken)).toBe(true);
+
+    await close(ctx);
+    const [closed] = await turns(ctx);
+    expect(closed !== undefined && isTurnOpen(closed)).toBe(false);
+    const second = await open(ctx);
+
+    expect(second).toMatchObject({ id: 2, seq: 2, column: 'dev', epoch: first.epoch });
+  });
+
+  it('closes a stale turn of an earlier visit', async () => {
+    const ctx = await setup({ config: policyBoard('none') });
+    const first = await open(ctx);
+    await ctx.store.transaction((trx) =>
+      trx
+        .updateTable('task')
+        .set({ column_epoch: first.epoch + 1 })
+        .execute(),
+    );
+
+    await open(ctx);
+
+    expect(await turns(ctx)).toEqual([
+      expect.objectContaining({ id: 1, closed_reason: 'moved' }),
+      expect.objectContaining({ id: 2, epoch: first.epoch + 1, seq: 1, closed_at: null }),
+    ]);
+    await expect(
+      ctx.store.transaction((trx) =>
+        trx
+          .insertInto('turn')
+          .values({ ...sampleRows.turn, id: 3, closed_at: null, closed_reason: null })
+          .execute(),
+      ),
+    ).rejects.toThrow(/UNIQUE constraint failed/);
+  });
+
+  it('picks the executor', () => {
+    expect(turnExecutor('dev', 'qa', false)).toBe('orchestrator:dev');
+    expect(turnExecutor('dev', 'operator', true)).toBe('operator');
+    expect(turnExecutor('dev', 'none', true)).toBe('worker');
+    expect(turnExecutor('dev', 'none', false)).toBe('operator');
+  });
+
+  it('closes the turns of an archived task', async () => {
+    const ctx = await setup({ config: policyBoard('none') });
+    await open(ctx);
+    await step(ctx);
+
+    await scanTransaction(ctx.store, ctx.config, async (trx) => {
+      const task = await trx
+        .selectFrom('task')
+        .selectAll()
+        .where('id', '=', 1)
+        .executeTakeFirstOrThrow();
+      await archiveTask(trx, {
+        task,
+        reason: 'manual',
+        actor: 'operator',
+        at: ctx.now().toISOString(),
+      });
+    });
+
+    expect((await turns(ctx))[0]?.closed_reason).toBe('archived');
+    expect((await notices(ctx))[0]?.acked_at).not.toBeNull();
+    await ctx.store.transaction((trx) =>
+      trx.updateTable('task').set({ membership: 'active' }).execute(),
+    );
+    ctx.advance(2_000_000);
+    await step(ctx);
+    expect(ctx.sent).toHaveLength(1);
+  });
 });

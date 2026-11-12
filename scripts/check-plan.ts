@@ -2,7 +2,7 @@
 import { parseArgs } from 'node:util';
 
 /** Every check step, in the order they run. */
-const STEP_NAMES = ['format', 'lint', 'types', 'knip', 'agents', 'test'] as const;
+const STEP_NAMES = ['format', 'lint', 'types', 'knip', 'agents', 'test', 'stand'] as const;
 
 /**
  * The steps `--only` selects: null when `--only` is absent (run every step), the selected set,

@@ -56,7 +56,7 @@ A map of the repo for agents and contributors. The rules live in the files and s
   `agents` step for changed agent files. It checks only refs at the current HEAD and uses two
   Vitest workers by default; set a positive integer `VITEST_MAX_WORKERS` to override that limit.
   A missing base for a new ref stops the check with recovery guidance.
-- `pnpm check:full [--only format,lint,types,knip,agents,test]` - the same over the whole repo.
+- `pnpm check:full [--only format,lint,types,knip,agents,test,stand]` - the same over the whole repo.
 - `pnpm guardrails [base]` - lists the changed tests and checks a PR must explain; base defaults
   to `origin/main`, agents pass the handoff's `origin/main` SHA.
 - `pnpm ci:status [PR]` - the latest CI state of a PR's head commit, by job and step.

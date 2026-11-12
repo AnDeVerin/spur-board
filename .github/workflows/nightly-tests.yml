@@ -41,8 +41,8 @@ jobs:
           node-version: ${{ matrix.node }}
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - name: Shuffled unit, integration and process tests
-        run: pnpm exec vitest run --project unit --project integration --project process --sequence.shuffle --sequence.seed="$SEED"
+      - name: Shuffled unit, integration, process and stand tests
+        run: pnpm exec vitest run --project unit --project integration --project process --project stand --sequence.shuffle --sequence.seed="$SEED"
       - name: Shuffled startup test
         if: ${{ !cancelled() }}
         run: pnpm exec vitest run packages/cli/test/startup.test.ts --project startup --sequence.shuffle --sequence.seed="$SEED" --outputFile.junit=reports/junit-startup.xml

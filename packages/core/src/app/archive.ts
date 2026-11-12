@@ -4,11 +4,12 @@ import { RECONCILED_KINDS } from '../domain/fromYou.ts';
 import { emit, type Trx } from './board-utils.ts';
 import { closeOpenBlock } from './blocks.ts';
 import { clearItem } from './feed.ts';
+import { closeTurns } from './turns.ts';
 
 /**
  * Takes a task off the board in the caller's transaction: closes its open blocks with outcome
- * `archived`, clears its board-derived items, cancels its unsent doorbells and journals
- * `task_archived`. Callers set their own extra columns (manual flags, the Done slot).
+ * `archived` and its unclosed turns, clears its board-derived items, cancels its unsent doorbells
+ * and journals `task_archived`. Callers set their own extra columns (manual flags, the Done slot).
  */
 export async function archiveTask(
   trx: Trx,
@@ -24,6 +25,7 @@ export async function archiveTask(
     .orderBy('id')
     .execute();
   for (const block of blocks) await closeOpenBlock(trx, task, block, ctx, 'archived', null);
+  await closeTurns(trx, { taskId: task.id, reason: 'archived', at: new Date(at) });
   // Every state-derived item has a null block_id; the next reconcile would clear them anyway.
   const items = await trx
     .selectFrom('operator_item')

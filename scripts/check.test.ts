@@ -90,6 +90,7 @@ describe('pre-push selection', () => {
       'knip',
       'agents',
       'test',
+      'stand',
     ]);
     expect(steps.filter((step) => 'commands' in step).map((step) => step.name)).toEqual(['format']);
   });
@@ -294,6 +295,7 @@ describe('agents step', () => {
       'format',
       'knip',
       'lint',
+      'stand',
       'test',
       'types',
     ]);
@@ -308,6 +310,51 @@ describe('agents step', () => {
     expect([command?.cmd, ...(command?.args ?? [])].join(' ')).toBe(
       manifest.scripts['lint:agents'],
     );
+  });
+});
+
+describe('stand step', () => {
+  const standDirs = ['packages/cli', 'packages/stand'];
+  const stepFor = (full: boolean, prePush: boolean, path: string) => {
+    const plan = selectPlan({
+      full,
+      prePush,
+      base,
+      changed: full ? [] : [{ path, deleted: false }],
+      packageDirs: standDirs,
+    });
+    if ('error' in plan) throw new Error(plan.error);
+    const steps = buildSteps(plan, prePush);
+    expect(steps.at(-1)?.name).toBe('stand');
+    return steps.at(-1);
+  };
+  const runStep = {
+    name: 'stand',
+    commands: [
+      {
+        cmd: expect.stringMatching(/\/node_modules\/\.bin\/vitest$/) as unknown,
+        args: ['run', '--project', 'stand'],
+      },
+    ],
+  };
+
+  it('runs the stand project last in full mode', () => {
+    expect(stepFor(true, false, '')).toEqual(runStep);
+  });
+
+  it('runs in changed mode only when packages/stand is affected', () => {
+    expect(stepFor(false, false, 'packages/stand/src/stand.ts')).toEqual(runStep);
+    expect(stepFor(false, false, 'packages/cli/src/main.ts')).toEqual({
+      name: 'stand',
+      skip: 'packages/stand not affected',
+    });
+  });
+
+  it('skips in pre-push', () => {
+    expect(stepFor(false, true, 'packages/stand/src/stand.ts')).toEqual({
+      name: 'stand',
+      skip: 'pre-push runs unit tests only',
+    });
   });
 });
 

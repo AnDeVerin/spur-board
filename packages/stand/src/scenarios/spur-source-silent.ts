@@ -3,18 +3,19 @@ import type { Scenario } from './index.ts';
 
 const LINKED = ['done-1', 'done-2', 'done-3', 'killed-4'] as const;
 const RESTARTED = '"msg":"spur restarted"';
+// Above Spur's stale window (2 s x 1000) and below the GitHub and Jira ones (5 s x 1000). A poll
+// after the shift would start a new runner and restart the window.
+const STALE_SHIFT_MS = 40 * 60_000;
 
 /**
  * The shape the live board saw when the spur source stopped advancing (#275): ended linked
  * sessions, a stopped session of another project, a retained completed one, then a Spur restart
- * the board logs. Spur is refused only after that, so the source turns stale.
+ * the board logs. Spur is refused only after that, then a clock shift past its stale window
+ * turns the source stale.
  */
 export const spurSourceSilent: Scenario = {
   name: 'spur-source-silent',
   summary: 'The #275 Spur shape and a restart, then Spur refused until the source turns stale.',
-  // Stale after 3 intervals (6 s for Spur); Jira, which fails against the network guard, polls
-  // too rarely to turn stale while the scenario runs.
-  config: { thresholds: { staleMultiplier: 3 }, adapters: { jira: { intervalMs: 600_000 } } },
   async seed(board, fakes) {
     await openIssues(fakes, LINKED.length);
     await board.poll();
@@ -71,6 +72,7 @@ export const spurSourceSilent: Scenario = {
     await fakes.spur('restart');
     await board.until('spur restarted logged', 20_000, () => board.logCount(RESTARTED) > before);
     await fakes.spur('fail', { mode: 'refuse', route: 'all' });
+    await board.shiftClock(STALE_SHIFT_MS);
     return {
       tasks,
       sessions: Object.fromEntries(['other-1', 'retained-1', ...LINKED].map((id) => [id, id])),

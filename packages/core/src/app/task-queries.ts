@@ -19,6 +19,7 @@ import { CommandError } from './commands.ts';
 import { notificationAddressedTo } from './doorbells.ts';
 import { canonicalKey } from './membership.ts';
 import type { Query } from './queries.ts';
+import { turnHanded, turnNotification } from './turns.ts';
 
 type Trx = Kysely<Tables>;
 const actorRefSchema = z.strictObject({ project: z.string().min(1), session: z.string().min(1) });
@@ -182,6 +183,54 @@ export function createTaskQueries(config: Config) {
       return { task: taskView(task), events };
     },
   };
+  /**
+   * Unclosed agent turns the caller may take or has taken: an untaken one addressed to it, one it
+   * took, and a taken orchestrator turn it may take over. At most one per task.
+   */
+  async function inboxTurns(trx: Trx, projects: ReadonlySet<string>, actor: ActorId) {
+    if (parseActorId(actor)?.actor !== 'agent' || projects.size === 0) return [];
+    const rows = await trx
+      .selectFrom('turn')
+      .innerJoin('task', 'task.id', 'turn.task_id')
+      .selectAll('turn')
+      .select('task.key')
+      .where('task.project', 'in', [...projects])
+      .where('turn.closed_at', 'is', null)
+      .where('turn.role', '!=', 'operator')
+      .orderBy('turn.id')
+      .execute();
+    const turns = [];
+    for (const turn of rows) {
+      if (turn.acked_by !== actor) {
+        const notice = await turnNotification(trx, turn.id);
+        const mayTake =
+          turn.acked_at === null
+            ? notice?.acked_at === null
+            : turn.role.startsWith('orchestrator:');
+        if (
+          notice === undefined ||
+          !mayTake ||
+          !(await notificationAddressedTo(trx, notice, actor, config))
+        )
+          continue;
+      }
+      turns.push({
+        id: `T${String(turn.id)}`,
+        task: turn.key,
+        column: turn.column,
+        addressee: turn.role,
+        reason: turn.reason,
+        handed: turnHanded(turn),
+        at: turn.created_at,
+        taken:
+          turn.acked_by === null || turn.acked_at === null
+            ? null
+            : { by: turn.acked_by, at: turn.acked_at },
+      });
+    }
+    return turns;
+  }
+
   const inbox: Query<'inbox.get'> = {
     id: 'inbox.get',
     resolveTargets(_trx, input, actor) {
@@ -272,7 +321,7 @@ export function createTaskQueries(config: Config) {
           continue;
         blocks.push(blockView(block, task));
       }
-      return { comments, blocks, turns: [] };
+      return { comments, blocks, turns: await inboxTurns(trx, projects, actor) };
     },
   };
   return { get, history, inbox };

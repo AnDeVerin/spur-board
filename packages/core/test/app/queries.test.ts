@@ -10,6 +10,8 @@ import {
   openStore,
   type Store,
 } from '../../src/index.ts';
+import { scanTransaction } from '../../src/app/secrets.ts';
+import { closeTurns, openTurn } from '../../src/app/turns.ts';
 
 const KEY = 'o/r#101';
 const OTHER_KEY = 'x/y#202';
@@ -459,5 +461,64 @@ describe('production query handlers', () => {
     expect(inbox.turns).toEqual([]);
     const entry = OPERATIONS.find(({ id }) => id === 'inbox.get');
     expect(entry?.output.safeParse(inbox).success).toBe(true);
+  });
+
+  it('lists a turn to the role that may take it', async () => {
+    const { store, registry, query, apply } = await seeded();
+    const inboxGet = required(registry['inbox.get']);
+    const output = OPERATIONS.find(({ id }) => id === 'inbox.get')?.output;
+    const turnsFor = async (actor: Parameters<typeof query>[2]) => {
+      const inbox = await query(inboxGet, {}, actor);
+      expect(output?.safeParse(inbox).success).toBe(true);
+      return inbox.turns;
+    };
+    const open = (taskId: number, reason: string) =>
+      scanTransaction(store, config, async (trx) => {
+        const task = await trx
+          .selectFrom('task')
+          .selectAll()
+          .where('id', '=', taskId)
+          .executeTakeFirstOrThrow();
+        return openTurn(trx, { task, reason, handed: [], at: new Date(AT), config });
+      });
+    await open(1, 'Review the PR');
+
+    expect(await turnsFor(orchestrator)).toEqual([
+      {
+        id: 'T1',
+        task: KEY,
+        column: 'dev',
+        addressee: 'orchestrator:dev',
+        reason: 'Review the PR',
+        handed: [],
+        at: AT,
+        taken: null,
+      },
+    ]);
+    expect(await turnsFor(worker)).toEqual([]);
+    expect(await turnsFor('operator')).toEqual([]);
+
+    await expect(
+      apply(required(registry['inbox.ack']), { entries: [{ id: 'T1' }] }, orchestrator, 'ack'),
+    ).resolves.toEqual({ acked: ['T1'] });
+    for (const actor of [orchestrator, 'agent:qa/qa-2'] as const) {
+      expect(await turnsFor(actor)).toEqual([
+        expect.objectContaining({ id: 'T1', taken: { by: orchestrator, at: AT } }),
+      ]);
+    }
+    expect(await turnsFor(worker)).toEqual([]);
+
+    expect((await open(2, 'Merge it')).role).toBe('operator');
+    expect(await turnsFor('operator')).toEqual([]);
+    expect(await turnsFor(foreign)).toEqual([]);
+
+    await scanTransaction(store, config, async (trx) => {
+      for (const taskId of [1, 2]) {
+        await closeTurns(trx, { taskId, reason: 'moved', at: new Date(AT) });
+      }
+    });
+    for (const actor of [orchestrator, 'agent:qa/qa-2', worker, foreign, 'operator'] as const) {
+      expect(await turnsFor(actor)).toEqual([]);
+    }
   });
 });

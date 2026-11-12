@@ -22,6 +22,7 @@ import { emit, projectForKey, projectForSource, trackerSource, type Trx } from '
 import { enqueueLiveAfterFirstPoll } from './doctor.ts';
 import { reconcileMembership } from './membership-rules.ts';
 import { reconcileItems } from './fromYou.ts';
+import { closeTurns, turnFeedbackCursors } from './turns.ts';
 
 function refKey(ref: EntityRef): string {
   switch (ref.kind) {
@@ -228,6 +229,8 @@ async function ticket(
       .where('id', '=', pending.id)
       .execute();
     await emit(trx, 'task_archived', pending.project, pending.id, at, { reason: 'manual' });
+    // A turn belongs to its task's column visit, so it ends here; the surviving task gets its own.
+    await closeTurns(trx, { taskId: pending.id, reason: 'archived', at: new Date(at) });
     await moveOpenWork(trx, pending.id, task.id);
     await trx
       .updateTable('task')
@@ -879,9 +882,11 @@ export function createObservationCore(deps: {
         .selectAll()
         .where('source', '=', source)
         .execute();
+      const requested = [...new Map(prs.map((ref) => [refKey(ref), ref])).values()];
+      const feedbackCursors = await turnFeedbackCursors(store.db, requested);
       return {
         observe: {
-          prs: [...new Map(prs.map((ref) => [refKey(ref), ref])).values()],
+          prs: requested,
           tickets,
           sessions: [...new Map(sessions.map((ref) => [refKey(ref), ref])).values()],
         },
@@ -896,6 +901,7 @@ export function createObservationCore(deps: {
           const ref = parseJson(entityRefSchema, row.ref);
           return ref.kind === 'session' ? [] : [{ ref, count: row.misses }];
         }),
+        ...(feedbackCursors.length === 0 ? {} : { feedbackCursors }),
       };
     },
     async observe(source, observation: AcceptedObservation) {
