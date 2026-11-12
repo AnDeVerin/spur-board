@@ -39,7 +39,8 @@ Pick the lowest layer that can fail for the bug you guard against. Projects are 
 - Stand: `createFakeSpur` (`packages/stand/src/fake-spur.ts`) and `createFakes`
   (`packages/stand/src/fakes/fetch.ts`) answer the real adapters; `pnpm stand violations` reads
   their one log together with the fake Slack API's unknown methods. A GitHub GraphQL query
-  change must update `KNOWN_DOCUMENTS` in `packages/stand/src/fakes/github-pr.ts`.
+  change must update `KNOWN_DOCUMENTS` in `packages/stand/src/fakes/github-pr.ts`, and a GitHub
+  Issues REST call change the routes and query rules in `packages/stand/src/fakes/github-issues.ts`.
 - Builders: there is no shared test-data builder yet. Inline the data while one test needs it;
   when a second test needs the same shape, move a builder into `packages/<x>/test/`.
 
