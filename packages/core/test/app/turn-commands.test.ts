@@ -270,6 +270,9 @@ async function setup(
       apply(registry['inbox.ack'], { entries: [{ id: turn }] }, actor, `ack-${actor}-${turn}`),
     submit: (actor: ActorId, sha: string, key: string, turn = 'T1') =>
       apply(registry['task.submit'], { turn, sha }, actor, key),
+    /** A submit through its own `createApply`, as each daemon request builds one. */
+    submitAlone: (actor: ActorId, sha: string, key: string, turn = 'T1') =>
+      createApply({ store, clock, config })(registry['task.submit'], { turn, sha }, actor, key),
     return: (actor: ActorId, key: string, turn = 'T1') =>
       apply(registry['task.return'], { turn, reason: 'Handle the empty list.' }, actor, key),
     events: async () =>
@@ -345,6 +348,20 @@ describe('task.submit', () => {
     const [first, second] = await Promise.all([
       ctx.submit(REV_1, B, 'submit-1'),
       ctx.submit(REV_1, B, 'submit-1'),
+    ]);
+
+    expect(second).toEqual(first);
+    expect(first).toMatchObject({ turn: 'T1', sha: B });
+    expect(ctx.calls).toHaveLength(1);
+  });
+
+  it('polls once for concurrent same-key submits through separate applies', async () => {
+    const ctx = await taken();
+    ctx.commits(B);
+
+    const [first, second] = await Promise.all([
+      ctx.submitAlone(REV_1, B, 'submit-1'),
+      ctx.submitAlone(REV_1, B, 'submit-1'),
     ]);
 
     expect(second).toEqual(first);

@@ -99,6 +99,12 @@ function storedCommand(db: Kysely<Tables>, actor: ActorId, key: string) {
     .executeTakeFirst();
 }
 
+/**
+ * In-flight same-key calls per store. Keyed by the store, not the `createApply` closure:
+ * `dispatchOperation` builds a new `createApply` for every request.
+ */
+const IN_FLIGHT = new WeakMap<Store, Map<string, Promise<unknown>>>();
+
 /** Runs `fn` after any in-flight call on `slot` settles, so one key never runs twice at once. */
 async function serialized<T>(
   inFlight: Map<string, Promise<unknown>>,
@@ -175,7 +181,8 @@ function emptyAllowed(entry: CatalogMutation): boolean {
 /** Parse, replay, authorize, then apply one catalog mutation in one transaction. */
 export function createApply(deps: { store: Store; clock: Clock; config: Config }): Apply {
   const { store, clock, config } = deps;
-  const inFlight = new Map<string, Promise<unknown>>();
+  const inFlight = IN_FLIGHT.get(store) ?? new Map<string, Promise<unknown>>();
+  IN_FLIGHT.set(store, inFlight);
   const apply: Apply = async (op, input, actor, key) => {
     const entry = catalogMutation(op.id);
     const parsed = entry.input.safeParse(input);
@@ -273,7 +280,8 @@ export function createApply(deps: { store: Store; clock: Clock; config: Config }
     }
     return result as z.output<Entry<typeof op.id>['output']>;
   };
-  // A same-key call waits for the one in flight, then replays its result instead of polling.
+  // A same-key call on this store waits for the one in flight, then replays its result instead
+  // of polling.
   return (op, input, actor, key) =>
     op.prepare === undefined || key === undefined
       ? apply(op, input, actor, key)
