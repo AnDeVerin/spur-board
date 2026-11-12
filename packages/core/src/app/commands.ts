@@ -36,23 +36,34 @@ export class CommandError extends Error {
   }
 }
 
-export interface CommandContext {
+export interface CommandContext<Prepared = unknown> {
   readonly actor: ActorId;
   readonly at: string;
+  /** What the handler's `prepare` returned; absent when it has none or it did not run. */
+  readonly prepared?: Prepared | undefined;
 }
 
 /** A handler names a catalog mutation; the boundary owns its schemas and grants. */
-export interface Mutation<Id extends MutationId> {
+export interface Mutation<Id extends MutationId, Prepared = unknown> {
   readonly id: Id;
   resolveTargets(
     trx: Kysely<Tables>,
     input: z.output<Entry<Id>['input']>,
     actor: ActorId,
   ): Promise<readonly ResolvedTarget[]>;
+  /**
+   * Reads an external source before the transaction, never writes. Runs after the input and key
+   * checks and only when every resolved target is allowed; its result is `ctx.prepared`.
+   */
+  prepare?(
+    db: Kysely<Tables>,
+    input: z.output<Entry<Id>['input']>,
+    actor: ActorId,
+  ): Promise<Prepared>;
   run(
     trx: Kysely<Tables>,
     input: z.output<Entry<Id>['input']>,
-    ctx: CommandContext,
+    ctx: CommandContext<Prepared>,
   ): Promise<z.input<Entry<Id>['output']>>;
 }
 
@@ -153,6 +164,25 @@ export function createApply(deps: { store: Store; clock: Clock; config: Config }
       );
     }
     const commandKey = key ?? randomUUID();
+    const parsedInput = parsed.data as z.output<Entry<typeof op.id>['input']>;
+    const mode = 'mode' in parsed.data ? parsed.data.mode : undefined;
+    // A read-only pass outside the transaction: `prepare` runs only for a call every target
+    // allows. The transaction authorizes again and journals a denial.
+    let prepared: unknown;
+    if (op.prepare !== undefined) {
+      const targets = await op.resolveTargets(store.db, parsedInput, actor);
+      const allowed =
+        targets.length > 0 &&
+        targets.every(
+          (target) =>
+            authorize(entry.grants, actor, {
+              config,
+              target,
+              ...(mode === undefined ? {} : { mode }),
+            }).status === 'allowed',
+        );
+      if (allowed) prepared = await op.prepare(store.db, parsedInput, actor);
+    }
     let deniedHint: string | undefined;
     const at = new Date(clock.now()).toISOString();
     const result = await scanTransaction(store, config, (trx) =>
@@ -164,7 +194,6 @@ export function createApply(deps: { store: Store; clock: Clock; config: Config }
         output: entry.output,
         at,
         run: async () => {
-          const parsedInput = parsed.data as z.output<Entry<typeof op.id>['input']>;
           const resolved = await op.resolveTargets(trx, parsedInput, actor);
           const taskless = resolved.length === 0 && emptyAllowed(entry);
           const ackIds =
@@ -181,7 +210,6 @@ export function createApply(deps: { store: Store; clock: Clock; config: Config }
               : ackMismatch
                 ? [...resolved, { kind: 'missing' }]
                 : resolved;
-          const mode = 'mode' in parsed.data ? parsed.data.mode : undefined;
           for (const target of targets) {
             const decision = authorize(entry.grants, actor, {
               config,
@@ -204,7 +232,11 @@ export function createApply(deps: { store: Store; clock: Clock; config: Config }
           if (!taskless && targets.some((target) => target.kind === 'missing')) {
             throw new CommandError('not_found', 'Check the target ID.');
           }
-          return op.run(trx, parsedInput, { actor, at });
+          return op.run(
+            trx,
+            parsedInput,
+            op.prepare === undefined ? { actor, at } : { actor, at, prepared },
+          );
         },
       }),
     );

@@ -3,10 +3,10 @@ import {
   OPERATIONS,
   roleCanUseOperation,
   type Config,
+  type PrPoller,
 } from '@spur-board/contracts';
 import { authorize } from './authorize.ts';
 import { createBlockMutations } from './blocks.ts';
-import { CommandError, type Mutation } from './commands.ts';
 import { createItemMutations, type ReapplyInbound } from './items.ts';
 import { createLinkMutations } from './links.ts';
 import { createMembershipMutations } from './membership.ts';
@@ -15,20 +15,9 @@ import type { Query } from './queries.ts';
 import { getStatus } from './status.ts';
 import { createTaskQueries, projectTargets, visibleProjects } from './task-queries.ts';
 import { tokenListQuery, tokenRevokeMutation } from './tokens.ts';
+import { createTurnMutations } from './turn-commands.ts';
 
 const catalog = await buildCatalogSnapshot(OPERATIONS);
-
-/** Catalog entry whose handler has not landed yet (#322): every call answers `not_implemented`. */
-function notImplemented<Id extends 'task.submit' | 'task.return'>(id: Id): Mutation<Id> {
-  const refuse = () =>
-    Promise.reject(
-      new CommandError(
-        'not_implemented',
-        `Operation ${id} is not available in this daemon build. Ask the operator to update the daemon.`,
-      ),
-    );
-  return { id, resolveTargets: refuse, run: refuse };
-}
 
 /** Concrete handlers shared by the daemon's HTTP and inbound transports. */
 export function createOperationRegistry(deps: {
@@ -39,6 +28,8 @@ export function createOperationRegistry(deps: {
   gateways?: readonly string[];
   /** Read at operation time: inbound is built after the registry and may be absent. */
   reapplyInbound?: () => ReapplyInbound | undefined;
+  /** Read at operation time: the adapter runner starts after the registry and may be absent. */
+  prPoller?: () => PrPoller['pollPr'] | undefined;
 }): OperationHandlers {
   const { config, clock, completeSince, gateways } = deps;
   const items = createItemMutations(deps);
@@ -46,6 +37,7 @@ export function createOperationRegistry(deps: {
   const links = createLinkMutations(config);
   const blocks = createBlockMutations(config);
   const taskQueries = createTaskQueries(config);
+  const turns = createTurnMutations({ config, prPoller: deps.prPoller });
   const schema: Query<'schema.get'> = {
     id: 'schema.get',
     resolveTargets() {
@@ -123,7 +115,7 @@ export function createOperationRegistry(deps: {
     'inbox.ack': blocks.ack,
     'item.retry': items.retry,
     'item.close': items.close,
-    'task.submit': notImplemented('task.submit'),
-    'task.return': notImplemented('task.return'),
+    'task.submit': turns.submit,
+    'task.return': turns.return,
   };
 }
