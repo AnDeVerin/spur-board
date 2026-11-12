@@ -1,13 +1,25 @@
 import { createServer, type Server } from 'node:http';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, statSync, symlinkSync } from 'node:fs';
+import {
+  existsSync,
+  lstatSync,
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ERRORS, OPERATIONS, errorEnvelopeSchema } from '@spur-board/contracts';
 import { createProgram, exampleCommand, runCli, type CliIo } from '../src/cli.ts';
+import { holder } from './http-holder.ts';
 
 type Program = ReturnType<typeof createProgram>;
 
@@ -101,6 +113,68 @@ function capture(isTTY = false) {
 
 function env(url: string): NodeJS.ProcessEnv {
   return { BOARD_DAEMON_URL: url, BOARD_TOKEN: 'token' };
+}
+
+interface RecordedRequest {
+  url: string;
+  authorization: string | undefined;
+  body: unknown;
+}
+
+/** A folder holding a mode-600 token file in a private `.spur-board`, below a fresh home. */
+function existingTokenFolder(prefix: string): {
+  home: string;
+  folder: string;
+  file: string;
+  secret: string;
+} {
+  const root = mkdtempSync(join(tmpdir(), prefix));
+  dirs.push(root);
+  const home = join(root, 'home');
+  const folder = join(home, 'project');
+  mkdirSync(join(folder, '.spur-board'), { recursive: true, mode: 0o700 });
+  const secret = 'existing-token-secret';
+  const file = join(realpathSync(folder), '.spur-board', 'token');
+  writeFileSync(file, `${secret}\n`, { mode: 0o600 });
+  return { home, folder, file, secret };
+}
+
+/** A fake daemon that records every request and answers with one fixed response. */
+async function recordingDaemon(
+  status: number,
+  contentType: string,
+  body: unknown,
+): Promise<{ url: string; requests: RecordedRequest[] }> {
+  const requests: RecordedRequest[] = [];
+  const server = createServer((request, response) => {
+    const chunks: Buffer[] = [];
+    request.on('data', (chunk: Buffer) => chunks.push(chunk));
+    request.on('end', () => {
+      requests.push({
+        url: request.url ?? '',
+        authorization: request.headers.authorization,
+        body: JSON.parse(Buffer.concat(chunks).toString()) as unknown,
+      });
+      response.writeHead(status, { 'content-type': contentType });
+      response.end(JSON.stringify(body));
+    });
+  });
+  servers.push(server);
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  if (!address || typeof address === 'string') throw new Error('Expected TCP port');
+  return { url: `http://127.0.0.1:${String(address.port)}`, requests };
+}
+
+/** Runs `token create --name desk --into <folder>` against the daemon at `url`. */
+async function createDeskToken(url: string, home: string, folder: string) {
+  const output = capture();
+  const code = await runCli(['token', 'create', '--name', 'desk', '--into', folder], {
+    env: { BOARD_DAEMON_URL: url },
+    home,
+    io: output.io,
+  });
+  return { code, stdout: output.stdout, stderr: output.stderr };
 }
 
 describe('catalog commands', () => {
@@ -246,6 +320,118 @@ describe('catalog commands', () => {
       }),
     ).toBe(2);
     expect(() => statSync(join(folder, '.spur-board', 'token'))).toThrow();
+  });
+
+  it('refuses an existing token file when the daemon cannot report its state', async () => {
+    const { home, folder, file } = existingTokenFolder('cli-token-older-');
+    const before = readFileSync(file);
+    const daemon = await recordingDaemon(404, 'application/problem+json', {
+      status: 404,
+      code: 'not_found',
+      requestId: 'older',
+    });
+    const output = await createDeskToken(daemon.url, home, folder);
+    expect(output.code).toBe(4);
+    expect(readFileSync(file)).toEqual(before);
+    expect(daemon.requests.map((request) => request.url)).toEqual(['/v1/tokens/status']);
+    expect(output.stderr).toContain(file);
+    expect(output.stderr).toContain('`board service restart`');
+  });
+
+  it('keeps an existing token file when the daemon is unreachable', async () => {
+    const { home, folder, file } = existingTokenFolder('cli-token-offline-');
+    const before = readFileSync(file);
+    const closed = await holder({});
+    await closed.close();
+    const output = await createDeskToken(`http://127.0.0.1:${String(closed.port)}`, home, folder);
+    expect(output.code).toBe(3);
+    expect(readFileSync(file)).toEqual(before);
+    expect(output.stderr).toContain('daemon_unavailable');
+  });
+
+  it('refuses a token file this daemon does not know and points at BOARD_DAEMON_URL', async () => {
+    const { home, folder, file, secret } = existingTokenFolder('cli-token-unknown-');
+    const before = readFileSync(file);
+    const daemon = await recordingDaemon(200, 'application/json', {
+      ok: true,
+      requestId: 'status-1',
+      value: { status: 'unknown' },
+    });
+    const output = await createDeskToken(daemon.url, home, folder);
+    expect(output.code).toBe(4);
+    expect(readFileSync(file)).toEqual(before);
+    expect(daemon.requests.map((request) => request.url)).toEqual(['/v1/tokens/status']);
+    expect(daemon.requests[0]?.authorization).toBeUndefined();
+    expect(daemon.requests[0]?.body).toEqual({
+      hash: createHash('sha256').update(secret).digest('hex'),
+    });
+    expect(output.stdout + output.stderr).not.toContain(secret);
+    expect(output.stderr).toContain(file);
+    expect(output.stderr).toContain('BOARD_DAEMON_URL');
+  });
+
+  it('keeps a symlinked existing token without asking the daemon', async () => {
+    const { home, folder, file: link } = existingTokenFolder('cli-token-symlink-');
+    const target = join(home, 'elsewhere');
+    writeFileSync(target, 'elsewhere-secret\n', { mode: 0o600 });
+    rmSync(link);
+    symlinkSync(target, link);
+    const daemon = await recordingDaemon(200, 'application/json', {
+      ok: true,
+      requestId: 'status-1',
+      value: { status: 'expired' },
+    });
+    expect((await createDeskToken(daemon.url, home, folder)).code).toBe(4);
+    expect(lstatSync(link).isSymbolicLink()).toBe(true);
+    expect(readFileSync(target, 'utf8')).toBe('elsewhere-secret\n');
+    expect(daemon.requests).toEqual([]);
+  });
+
+  it('refuses a folder whose token lock another run holds, without asking the daemon', async () => {
+    const { home, folder, file } = existingTokenFolder('cli-token-locked-');
+    const lock = join(dirname(file), 'token.lock');
+    writeFileSync(lock, 'held\n', { mode: 0o600 });
+    const before = readFileSync(file);
+    const daemon = await recordingDaemon(200, 'application/json', {
+      ok: true,
+      requestId: 'status-1',
+      value: { status: 'expired' },
+    });
+    const output = await createDeskToken(daemon.url, home, folder);
+    expect(output.code).toBe(4);
+    expect(readFileSync(file)).toEqual(before);
+    expect(readFileSync(lock, 'utf8')).toBe('held\n');
+    expect(daemon.requests).toEqual([]);
+    expect(output.stderr).toContain(lock);
+    expect(output.stderr).toContain('`board token create`');
+  });
+
+  it('removes the folder lock after a success, a refusal and a failed enrollment', async () => {
+    const enrolled = await recordingDaemon(200, 'application/json', {
+      ok: true,
+      requestId: 'request-1',
+      value: { name: 'desk', status: 'pending', expiresAt: '2026-11-04T10:15:00.000Z' },
+    });
+    const approved = await recordingDaemon(200, 'application/json', {
+      ok: true,
+      requestId: 'status-1',
+      value: { status: 'approved' },
+    });
+    const rejected = await recordingDaemon(400, 'application/problem+json', {
+      status: 400,
+      code: 'usage',
+      requestId: 'rejected',
+    });
+    for (const [daemon, withToken, code] of [
+      [enrolled, false, 0],
+      [approved, true, 4],
+      [rejected, false, 2],
+    ] as const) {
+      const { home, folder, file } = existingTokenFolder('cli-token-unlock-');
+      if (!withToken) rmSync(file);
+      expect((await createDeskToken(daemon.url, home, folder)).code).toBe(code);
+      expect(existsSync(join(dirname(file), 'token.lock'))).toBe(false);
+    }
   });
 
   it('uses generated list and revoke commands for named tokens', async () => {

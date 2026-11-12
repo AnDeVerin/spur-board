@@ -100,7 +100,8 @@ export function resolveDaemonAddress(
   return address;
 }
 
-function tokenInFolder(folder: string, warn: (message: string) => void): string | undefined {
+/** The token under `<folder>/.spur-board`; undefined when absent, unsafe or empty. */
+export function tokenInFolder(folder: string, warn: (message: string) => void): string | undefined {
   const directory = join(folder, '.spur-board');
   const file = join(directory, 'token');
   try {

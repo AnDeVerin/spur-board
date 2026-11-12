@@ -1,4 +1,5 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -7,7 +8,7 @@ import {
   errorEnvelopeSchema,
   roleCanUseOperation,
 } from '@spur-board/contracts';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { runCli, type CliIo } from '../../../cli/src/cli.ts';
 import {
   createApiServer,
@@ -16,8 +17,12 @@ import {
   createOperationRegistry,
   listenApiServer,
   openStore,
+  tokenRevokeMutation,
+  verifyOperatorToken,
   type Query,
 } from '../../src/index.ts';
+import { scanTransaction } from '../../src/app/secrets.ts';
+import { decideTokenInTransaction } from '../../src/app/tokens.ts';
 import { sampleRows } from '../store/sample-rows.ts';
 
 function capture() {
@@ -734,5 +739,194 @@ describe('CLI against the real HTTP API', () => {
         }
       }
     }
+  });
+
+  describe('token create', () => {
+    const tokenConfig = configSchema.parse({
+      projects: [
+        {
+          id: 'board',
+          tracker: { type: 'github-issues', repo: 'o/r', milestone: 'M1' },
+          repos: ['o/r'],
+          operatorGithubLogin: 'operator',
+          spurProjects: [{ name: 'worker', role: 'worker' }],
+        },
+      ],
+      operator: { slack: 'operator' },
+      digest: { tz: 'UTC' },
+    });
+    const cleanups: (() => Promise<void>)[] = [];
+    afterEach(async () => {
+      for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
+    });
+
+    async function tokenBoard() {
+      const home = realpathSync(mkdtempSync(join(tmpdir(), 'board-api-token-create-')));
+      cleanups.push(() => {
+        rmSync(home, { recursive: true, force: true });
+        return Promise.resolve();
+      });
+      const store = openStore(join(home, 'board.db'));
+      cleanups.push(() => store.close());
+      let now = Date.parse('2026-11-04T10:00:00.000Z');
+      const clock = { now: () => now };
+      const app = await createApiServer({
+        store,
+        config: tokenConfig,
+        port: 0,
+        ready: () => true,
+        clock,
+        lookupSession: () => Promise.resolve(null),
+        verifyToken: (token) => verifyOperatorToken(store, token),
+        registry: {},
+        logRequest: () => {},
+      });
+      cleanups.push(() => app.close());
+      await listenApiServer(app, 0);
+      const address = app.server.address();
+      if (address === null || typeof address === 'string') throw new Error('Expected a TCP port.');
+      const env = { BOARD_DAEMON_URL: `http://127.0.0.1:${String(address.port)}` };
+      const folder = (name: string) => {
+        const path = join(home, name);
+        mkdirSync(path);
+        return path;
+      };
+      const row = (name: string) =>
+        store.db
+          .selectFrom('operator_token')
+          .selectAll()
+          .where('name', '=', name)
+          .executeTakeFirst();
+      const decide = async (name: string, decision: 'approve' | 'deny') => {
+        const token = await row(name);
+        if (token === undefined) throw new Error(`No token row for ${name}.`);
+        await scanTransaction(store, tokenConfig, (trx) =>
+          decideTokenInTransaction(trx, token.item_id, decision, new Date(now)),
+        );
+      };
+      return {
+        folder,
+        row,
+        decide,
+        advance: (ms: number) => {
+          now += ms;
+        },
+        revoke: (name: string) =>
+          createApply({ store, clock, config: tokenConfig })(
+            tokenRevokeMutation,
+            { name },
+            'operator',
+            undefined,
+          ),
+        create: async (name: string, into: string) => {
+          const output = capture();
+          const code = await runCli(['token', 'create', '--name', name, '--into', into], {
+            env,
+            home,
+            io: output.io,
+          });
+          return { code, stdout: output.stdout, stderr: output.stderr };
+        },
+      };
+    }
+
+    type TokenBoard = Awaited<ReturnType<typeof tokenBoard>>;
+    const tokenFile = (folder: string) => join(folder, '.spur-board', 'token');
+    const hashOfFile = (folder: string) =>
+      createHash('sha256')
+        .update(readFileSync(tokenFile(folder), 'utf8').trimEnd())
+        .digest('hex');
+
+    it('replaces an expired token file with a new pending request', async () => {
+      const board = await tokenBoard();
+      const into = board.folder('desk');
+      expect((await board.create('desk', into)).code).toBe(0);
+      const first = readFileSync(tokenFile(into), 'utf8');
+      board.advance(15 * 60 * 1000);
+      const again = await board.create('desk', into);
+      expect(again.stderr).toBe('');
+      expect(again.code).toBe(0);
+      expect(again.stdout).toContain('"status":"pending"');
+      expect(readFileSync(tokenFile(into), 'utf8')).not.toBe(first);
+      expect(await board.row('desk')).toMatchObject({
+        hash: hashOfFile(into),
+        status: 'pending',
+      });
+    });
+
+    it('refuses an approved token file and names it', async () => {
+      const board = await tokenBoard();
+      const into = board.folder('desk');
+      expect((await board.create('desk', into)).code).toBe(0);
+      await board.decide('desk', 'approve');
+      const before = readFileSync(tokenFile(into));
+      const refused = await board.create('other', into);
+      expect(refused.code).toBe(4);
+      expect(readFileSync(tokenFile(into))).toEqual(before);
+      expect(refused.stderr).toContain(tokenFile(into));
+      expect(refused.stderr).toContain('ask the operator');
+      expect(refused.stderr).toContain('`board token revoke`');
+      expect(await board.row('other')).toBeUndefined();
+    });
+
+    it.each([
+      {
+        state: 'denied',
+        exit: 0,
+        hint: undefined,
+        arrange: async (board: TokenBoard, into: string) => {
+          expect((await board.create('desk', into)).code).toBe(0);
+          await board.decide('desk', 'deny');
+          return 'desk';
+        },
+      },
+      {
+        state: 'pending',
+        exit: 4,
+        hint: 'Ask the operator',
+        arrange: async (board: TokenBoard, into: string) => {
+          expect((await board.create('desk', into)).code).toBe(0);
+          return 'other';
+        },
+      },
+      {
+        state: 'revoked',
+        exit: 4,
+        hint: 'another --name',
+        arrange: async (board: TokenBoard, into: string) => {
+          expect((await board.create('desk', into)).code).toBe(0);
+          await board.decide('desk', 'approve');
+          await board.revoke('desk');
+          return 'other';
+        },
+      },
+      {
+        state: 'unknown',
+        exit: 4,
+        hint: 'BOARD_DAEMON_URL',
+        arrange: async (board: TokenBoard, into: string) => {
+          expect((await board.create('desk', into)).code).toBe(0);
+          board.advance(15 * 60 * 1000);
+          expect((await board.create('desk', board.folder('elsewhere'))).code).toBe(0);
+          return 'other';
+        },
+      },
+    ])('handles a token file in the $state state', async ({ exit, hint, arrange }) => {
+      const board = await tokenBoard();
+      const into = board.folder('desk');
+      const name = await arrange(board, into);
+      const before = readFileSync(tokenFile(into));
+      const result = await board.create(name, into);
+      expect(result.code).toBe(exit);
+      if (hint === undefined) {
+        expect(readFileSync(tokenFile(into))).not.toEqual(before);
+        expect(await board.row(name)).toMatchObject({ hash: hashOfFile(into), status: 'pending' });
+      } else {
+        expect(readFileSync(tokenFile(into))).toEqual(before);
+        expect(result.stderr).toContain(tokenFile(into));
+        expect(result.stderr).toContain(hint);
+        expect(await board.row('other')).toBeUndefined();
+      }
+    });
   });
 });

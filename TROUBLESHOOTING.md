@@ -217,7 +217,10 @@ Keep the Spur project under exactly one Board project in the Board's `config.yam
   token above the worktree root or in home is not used: create one in a folder inside the
   worktree or set `BOARD_TOKEN`. Run the command in a Spur
   session of a project listed in `config.yaml`, or run
-  `board token create --name <name> --into <folder>` and approve the request in Slack. An
+  `board token create --name <name> --into <folder>` and approve the request in Slack. When
+  `<folder>/.spur-board/token` already exists, `board token create` replaces it only if the
+  daemon reports that token expired or denied; an approved, pending, revoked or unknown token
+  stays in place and the command fails with `config`, naming the file and the fix. An
   operator-only command such as `board token list` needs a Spur project marked `operator` or an
   approved token. `service_start_failed` means `board service install` or
   `board service restart` left the unit installed but the daemon did not start: read

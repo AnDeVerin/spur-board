@@ -12,7 +12,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { CommandError } from '../app/commands.ts';
 import { dispatchOperation, type OperationRegistry } from '../app/operations.ts';
-import { requestToken } from '../app/tokens.ts';
+import { requestToken, tokenStatusByHash } from '../app/tokens.ts';
 import { identifyCaller, type IdentifiedCaller, type IdentityPorts } from './identity.ts';
 
 export type { OperationRegistry } from '../app/operations.ts';
@@ -69,12 +69,16 @@ const doctorReportSchema = z.strictObject({
     .max(30),
 });
 
+const tokenHash = z.string().regex(/^[0-9a-f]{64}$/);
+
 const tokenRequestSchema = z.strictObject({
   name: z.string().min(1),
   folder: z.string().min(1),
   host: z.string().min(1),
-  hash: z.string().regex(/^[0-9a-f]{64}$/),
+  hash: tokenHash,
 });
+
+const tokenStatusSchema = z.strictObject({ hash: tokenHash });
 
 function header(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? undefined : value;
@@ -204,6 +208,21 @@ export async function createApiServer(options: ApiOptions): Promise<FastifyInsta
     );
     return reply.send(
       successEnvelopeSchema.parse({ ok: true, requestId: request.id, value: result }),
+    );
+  });
+
+  /** The hash travels in the body because request logs record the URL. */
+  app.post('/v1/tokens/status', async (request, reply) => {
+    if (!options.ready()) throw new CommandError('starting', 'Wait until the daemon is ready.');
+    const parsed = tokenStatusSchema.safeParse(request.body);
+    if (!parsed.success) throw new CommandError('usage', 'Provide a SHA-256 token hash.');
+    const status = await tokenStatusByHash(
+      options.store,
+      parsed.data.hash,
+      new Date(options.clock.now()),
+    );
+    return reply.send(
+      successEnvelopeSchema.parse({ ok: true, requestId: request.id, value: { status } }),
     );
   });
 
