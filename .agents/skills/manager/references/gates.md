@@ -33,7 +33,8 @@ The numbers are the canonical gate order.
     `PR: <url> | none`.
 11. Design review (UI) - `designer` (code) with the changed files and any screenshots the run
     already has.
-12. Validate - `tester` when a modifier asks for it.
+12. Validate - `tester` when a modifier asks for it, with its `Head:` line (`references/runtime.md`,
+    Handoff), recorded right before each spawn.
 13. PR - follow `gitflow`: push, then open the PR or update its body from the spec, the gate
     outputs and the developer's `Changed checks`. Skip only without commits or when the issue
     says no PR.

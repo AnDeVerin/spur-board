@@ -31,7 +31,9 @@ Every spawn gets, and only gets:
 - the Clarify outcome and the Assumptions so far;
 - the `origin/main` SHA recorded at intake; roles use it wherever they would name `origin/main`;
 - the cycle as `N/cap`;
-- `reviewer` only: `PR: <url> | none`.
+- `reviewer` only: `PR: <url> | none`;
+- `tester` only: `Head: <sha>`, from `git rev-parse HEAD` run right before each `tester` spawn -
+  the last `developer` or fix commit, since no other role commits.
 
 Never pass the raw conversation.
 
