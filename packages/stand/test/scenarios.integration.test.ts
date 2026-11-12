@@ -823,6 +823,43 @@ describe('snapshots', () => {
     }
   }, 120_000);
 
+  it('reset restores the Jira tickets and failure plan of the snapshot, without seeding again', async () => {
+    const { scenario, seeds } = counted(
+      SCENARIOS.find(({ name }) => name === 'columns-basic-jira') as Scenario,
+    );
+    await up({ scenarios: [scenario] });
+    const seeded = (await ok(current(), '/seed', { scenario: scenario.name })) as ResetAnswer;
+    expect(seeded.snapshot).toBe('taken');
+    await ok(current(), '/wait', SEED_WAIT);
+    const before = await capture(current());
+
+    const jira = (args: object) =>
+      control(current(), '/fake', { system: 'jira', verb: 'issue', args });
+    expect((await jira({ key: 'STAND-1', status: 'Done' })).status).toBe(200);
+    expect((await jira({ key: 'STAND-10' })).status).toBe(200);
+    await ok(current(), '/fake', { system: 'jira', verb: 'fail', args: { mode: 'auth' } });
+    await ok(current(), '/poll');
+
+    const reset = (await ok(current(), '/reset')) as ResetAnswer;
+    expect(reset.snapshot).toBe('restored');
+    expect(seeds()).toBe(1);
+    await ok(current(), '/wait', SEED_WAIT);
+    expect((await capture(current())).tasks).toEqual(before.tasks);
+    // STAND-1 is back at its seeded status, STAND-10 is gone and takes the id it took before.
+    expect((await jira({ key: 'STAND-1' })).status).toBe(409);
+    expect(await jira({ key: 'STAND-1', title: 'probe' })).toMatchObject({
+      status: 200,
+      body: { id: '10001', status: 'To Do' },
+    });
+    expect(await jira({ key: 'STAND-10' })).toMatchObject({ status: 200, body: { id: '10010' } });
+    // The snapshot's failure plan had no Jira failure.
+    await ok(current(), '/poll');
+    const { sources } = await status(current());
+    expect(sources).toContainEqual(
+      expect.objectContaining({ source: 'jira:stand-jira', blindReason: null }),
+    );
+  }, 120_000);
+
   it('a changed scenario re-seeds and takes a new snapshot', async () => {
     const empty = SCENARIOS.find(({ name }) => name === 'empty') as Scenario;
     const { scenario, seeds } = counted(empty);

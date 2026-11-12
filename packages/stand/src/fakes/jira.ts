@@ -298,5 +298,12 @@ export function createJiraFake(options: { now: () => number; tracker: JiraTracke
       tickets.clear();
       nextId = FIRST_ID;
     },
+    state: () => structuredClone({ tickets, nextId }),
+    restore(state) {
+      const copy = structuredClone(state as { tickets: Map<string, Ticket>; nextId: number });
+      tickets.clear();
+      for (const [key, ticket] of copy.tickets) tickets.set(key, ticket);
+      nextId = copy.nextId;
+    },
   };
 }
