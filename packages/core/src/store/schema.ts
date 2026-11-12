@@ -137,6 +137,25 @@ export interface SubmissionTable {
   note: string | null;
 }
 
+/** A column executor's turn of one column visit; `seq` counts the turns of the visit. */
+export interface TurnTable {
+  id: Generated<number>;
+  task_id: number;
+  column: ColumnId;
+  epoch: number;
+  seq: number;
+  role: AddresseeRole;
+  reason: string;
+  /** JSON array of `turnHandedSchema` entries: the feedback this turn hands over. */
+  handed: string;
+  acked_by: ActorId | null;
+  acked_at: string | null;
+  closed_at: string | null;
+  /** Free text in the store, so a later reason (a submit) needs no migration. */
+  closed_reason: 'moved' | 'archived' | null;
+  created_at: string;
+}
+
 export interface BlockTable {
   id: Generated<number>;
   task_id: number;
@@ -254,9 +273,10 @@ export interface SpaceSlotTable {
 export interface NotificationTable {
   id: Generated<number>;
   source_key: string;
-  kind: 'answer' | 'block' | 'removed';
+  kind: 'answer' | 'block' | 'removed' | 'turn';
   task_id: number;
-  block_id: number;
+  /** Null exactly for kind `turn`, which has `turn_id` instead. */
+  block_id: number | null;
   comment_id: number | null;
   revision: number | null;
   role: AddresseeRole;
@@ -268,6 +288,7 @@ export interface NotificationTable {
   acked_at: string | null;
   exhausted_at: string | null;
   created_at: string;
+  turn_id: number | null;
 }
 
 export interface OperatorItemTable {
@@ -349,6 +370,7 @@ export interface Tables {
   session_snapshot: SessionSnapshotTable;
   link: LinkTable;
   submission: SubmissionTable;
+  turn: TurnTable;
   block: BlockTable;
   comment: CommentTable;
   conversation: ConversationTable;

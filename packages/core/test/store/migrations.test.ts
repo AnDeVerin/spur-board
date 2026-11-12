@@ -46,6 +46,12 @@ const INDEXES: Record<string, { table: string; columns: string[]; partialUnique:
     columns: ['block_id', 'id'],
     partialUnique: false,
   },
+  notification_turn: {
+    table: 'notification',
+    columns: ['turn_id', 'id'],
+    partialUnique: false,
+  },
+  turn_one_unclosed: { table: 'turn', columns: ['task_id'], partialUnique: true },
   operator_item_active: {
     table: 'operator_item',
     columns: ['item_key', 'cleared_at'],
@@ -447,6 +453,49 @@ describe('migrate', () => {
     expect(raw.pragma('foreign_key_check')).toEqual([]);
   });
 
+  it('rebuilds notification with a turn owner', () => {
+    const dir = tempDir();
+    const { raw } = rawDb(join(dir, 'board.db'));
+    migrate(raw, real.slice(0, 11));
+    insertRaw(raw, 'task', sampleRows.task);
+    insertRaw(raw, 'block', sampleRows.block);
+    const old = without(
+      { ...sampleRows.notification, author_session: null, last_outbox_id: null },
+      ['turn_id'],
+    );
+    insertRaw(raw, 'notification', old);
+    insertRaw(raw, 'notification', { ...old, id: 7, source_key: 'removed:1', kind: 'removed' });
+    raw.prepare("UPDATE sqlite_sequence SET seq = 20 WHERE name = 'notification'").run();
+
+    migrate(raw, real);
+
+    expect(rows(raw, 'notification')).toEqual([
+      { ...old, turn_id: null },
+      { ...old, id: 7, source_key: 'removed:1', kind: 'removed', turn_id: null },
+    ]);
+    insertRaw(raw, 'turn', { ...sampleRows.turn, closed_at: null, closed_reason: null });
+    const insert = (row: Record<string, unknown>) => {
+      insertRaw(raw, 'notification', without({ ...old, ...row }, ['id']));
+    };
+    insert({ source_key: 'turn:1:worker', kind: 'turn', block_id: null, turn_id: 1 });
+    expect(
+      raw.prepare("SELECT id FROM notification WHERE source_key = 'turn:1:worker'").pluck().get(),
+    ).toBe(21);
+    expect(() => {
+      insert({ source_key: 'turn:1:a', kind: 'turn', block_id: null });
+    }).toThrow(/CHECK constraint failed/);
+    expect(() => {
+      insert({ source_key: 'turn:1:b', kind: 'turn', turn_id: 1 });
+    }).toThrow(/CHECK constraint failed/);
+    expect(() => {
+      insert({ source_key: 'block:1:c', block_id: null });
+    }).toThrow(/CHECK constraint failed/);
+    expect(() => {
+      insert({ source_key: 'block:1:d', turn_id: 1 });
+    }).toThrow(/CHECK constraint failed/);
+    expect(raw.pragma('foreign_key_check')).toEqual([]);
+  });
+
   it('refuses a database newer than the code', () => {
     const dir = tempDir();
     const file = join(dir, 'board.db');
@@ -514,6 +563,7 @@ describe('migration pins', () => {
     '0010_manual_links.sql': '40142af689b91dd9ffbf835baa831534a91498bce4685299b3c66ff45513bbee',
     '0011_session_absent_since.sql':
       '6522f14d6984e4c0af5b1330b5bc7acacee97906e59d20a08f0437fe551d7c46',
+    '0012_turn.sql': '181f5fbcc24e1af558471ceaecf76589c314f26813742b057ed84c68f4ea9a8d',
   };
 
   interface MigrationFile {
