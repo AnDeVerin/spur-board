@@ -1,0 +1,51 @@
+name: Review approval gate
+run-name: >-
+  ${{ inputs.mode == 'override' && format('Owner override PR #{0} SHA {1}', inputs.pr_number, inputs.head_sha) || 'Evaluate review approval' }}
+on:
+  pull_request_target: # zizmor: ignore[dangerous-triggers] -- executes only explicitly checked-out main; never PR code
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review, converted_to_draft, edited]
+  workflow_run: # zizmor: ignore[dangerous-triggers] -- signal is untrusted; approvals are re-fetched from GitHub
+    workflows: [Review approval signal]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      mode:
+        type: choice
+        options: [evaluate, override]
+        default: evaluate
+        required: true
+      pr_number:
+        description: Pull request number
+        required: true
+        type: string
+      head_sha:
+        description: Full current head SHA (required for override)
+        type: string
+      reason:
+        description: Why manual override is needed (required for override)
+        type: string
+permissions: {}
+concurrency:
+  group: review-approval-${{ github.event.pull_request.number || inputs.pr_number || github.event.workflow_run.pull_requests[0].number || github.run_id }}
+  cancel-in-progress: false
+jobs:
+  evaluate:
+    if: github.repository == 'AnDeVerin/spur-board' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+      statuses: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          persist-credentials: false
+          sparse-checkout: .github/scripts
+      - name: Evaluate trusted reviews (never execute PR code)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node .github/scripts/approval-gate.mjs

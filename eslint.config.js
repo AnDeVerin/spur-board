@@ -372,4 +372,9 @@ export default defineConfig(
       ],
     },
   },
+  {
+    // Standalone Actions scripts run on built-in Node without the monorepo TS project.
+    ...tseslint.configs.disableTypeChecked,
+    files: ['.github/scripts/*.mjs'],
+  },
 );
