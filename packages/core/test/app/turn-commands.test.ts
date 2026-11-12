@@ -349,7 +349,7 @@ describe('task.submit', () => {
 
     await expect(ctx.submit(REV_1, A, 'submit-1')).rejects.toMatchObject({
       code: 'head_mismatch',
-      hint: expect.stringContaining('ask the operator to link it with `board link`'),
+      hint: 'The task has no active pull request; ask the operator to link it with `board link`, then submit its head.',
     });
 
     expect(ctx.calls).toHaveLength(0);
