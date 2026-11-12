@@ -370,6 +370,64 @@ it('manual archive excludes filter discovery until task.add clears it', async ()
   ).toMatchObject({ membership: 'active', manual_exclude: 0 });
 });
 
+function trackerConfig(jiraId: string, projectKeys: string[]) {
+  return configSchema.parse({
+    projects: [
+      {
+        id: 'board',
+        tracker: { type: 'github-issues', repo: 'my-org/board', label: 'board' },
+        repos: ['my-org/board'],
+        operatorGithubLogin: 'operator',
+      },
+      {
+        id: jiraId,
+        tracker: {
+          type: 'jira',
+          baseUrl: 'https://jira.example.test',
+          jql: 'project = MY',
+          doneStatuses: ['Done'],
+          readyStatuses: ['Ready'],
+          projectKeys,
+        },
+        repos: ['my-org/web'],
+        operatorGithubLogin: 'operator',
+      },
+    ],
+    operator: { slack: 'operator' },
+    digest: { tz: 'UTC' },
+  });
+}
+
+async function addedProject(boardConfig: ReturnType<typeof trackerConfig>, key: string) {
+  const { store } = setup(boardConfig);
+  const apply = createApply({ store, config: boardConfig, clock });
+  const mutations = createMembershipMutations(boardConfig);
+  await apply(mutations.add, { task: key }, 'operator');
+  return store.db.selectFrom('task').select(['project', 'key']).executeTakeFirst();
+}
+
+it('resolves a task key by its form, never a # key to Jira', async () => {
+  const boardConfig = trackerConfig('jira', ['MY']);
+  expect(await addedProject(boardConfig, 'my-org/board#1')).toEqual({
+    project: 'board',
+    key: 'my-org/board#1',
+  });
+  expect((await addedProject(boardConfig, 'MY-12'))?.project).toBe('jira');
+  expect((await addedProject(boardConfig, 'my-12'))?.project).toBe('jira');
+  for (const key of ['MY-12#3', 'my-org#1']) {
+    const { store } = setup(boardConfig);
+    const apply = createApply({ store, config: boardConfig, clock });
+    await expect(
+      apply(createMembershipMutations(boardConfig).add, { task: key }, 'operator'),
+    ).rejects.toMatchObject({ code: 'not_found' });
+    expect(await store.db.selectFrom('task').select('id').executeTakeFirst()).toBeUndefined();
+  }
+});
+
+it('keeps a # key away from a Jira project with no project keys', async () => {
+  expect((await addedProject(trackerConfig('any', []), 'my-org/board#1'))?.project).toBe('board');
+});
+
 it('does not use a poll started before the task changed to prove absence', async () => {
   const { store, core } = setup();
   await ticketPoll(core, true);

@@ -2,6 +2,7 @@ import {
   EVENT_VERSION,
   eventPayloadSchemas,
   parseActorId,
+  parseRef,
   type ActorId,
   type Config,
   type EventKind,
@@ -31,19 +32,22 @@ export function projectForSource(config: Config, source: string) {
   );
 }
 
+/** The one project whose tracker takes `key` by its form: Jira for `ABC-1`, GitHub for `#`. */
 export function projectForKey(config: Config, key: string): Config['projects'][number] | null {
+  const parsed = parseRef(key, 'task');
+  if (!parsed.ok || parsed.value.kind !== 'task') return null;
+  const { form } = parsed.value;
   const lowerKey = key.toLowerCase();
   const matched = config.projects.filter((project) => {
     const tracker = project.tracker;
     if (tracker.type === 'github-issues') {
-      const prefix = `${tracker.repo.toLowerCase()}#`;
-      const short = tracker.repo.split('/')[1];
-      return (
-        lowerKey.startsWith(prefix) ||
-        (short !== undefined && lowerKey.startsWith(`${short.toLowerCase()}#`))
-      );
+      const repo = lowerKey.split('#')[0];
+      const full = tracker.repo.toLowerCase();
+      if (form === 'github') return repo === full;
+      return form === 'github-short' && repo === full.split('/')[1];
     }
-    const prefix = /^([A-Za-z][A-Za-z0-9_]*)-/.exec(key)?.[1]?.toUpperCase();
+    if (form !== 'jira') return false;
+    const prefix = key.split('-')[0]?.toUpperCase();
     return (
       prefix !== undefined &&
       (tracker.projectKeys.length === 0 || tracker.projectKeys.includes(prefix))
