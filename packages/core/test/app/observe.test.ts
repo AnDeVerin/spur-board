@@ -2381,7 +2381,9 @@ describe('anomaly blocks', () => {
     now += IDLE;
     await tick(b);
     expect(await reminders(b)).toEqual([
-      expect.objectContaining({ source_key: `turn:${String(turn.id)}:reminder:worker-1` }),
+      expect.objectContaining({
+        source_key: `turn:${String(turn.id)}:reminder:worker-1:${String(turn.acked_at)}`,
+      }),
     ]);
     expect(await openLedger(b)).toEqual([]);
     const { reminder } = await sendReminder(b);

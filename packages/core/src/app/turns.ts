@@ -142,7 +142,8 @@ export async function openTurn(
  * Takes a turn for `actor`. False for a missing, closed, operator or taken worker turn. An
  * untaken turn needs its unread notification addressed to the actor; a taken orchestrator turn
  * may be taken over by whoever its notification is now addressed to. Others get `forbidden`.
- * An unsent reminder to an earlier holder is acked, so `ringStillCurrent` drops its ring.
+ * Every take starts a new ownership episode: an unsent reminder of an earlier one is acked, so
+ * `ringStillCurrent` drops its ring.
  */
 export async function takeTurn(
   trx: Trx,
@@ -165,17 +166,14 @@ export async function takeTurn(
     .set({ acked_by: actor, acked_at: at.toISOString() })
     .where('id', '=', turnId)
     .execute();
-  const holder = parseActorId(actor);
-  let stale = trx
+  await trx
     .updateTable('notification')
     .set({ acked_at: at.toISOString() })
     .where('turn_id', '=', turnId)
     .where('kind', '=', 'turn_reminder')
     .where('acked_at', 'is', null)
-    .where('exhausted_at', 'is', null);
-  if (holder?.actor === 'agent')
-    stale = stale.where('author_session', '!=', holder.actorRef.session);
-  await stale.execute();
+    .where('exhausted_at', 'is', null)
+    .execute();
   return true;
 }
 
@@ -235,7 +233,7 @@ function latest(values: readonly string[]): string {
 
 /**
  * Every taken, unclosed agent turn with its holder's session id, whether that session ended, and
- * the holder's reminder.
+ * the reminder of the current holder's current take, so an earlier episode's reminder never counts.
  * `quietSince` is when the holder last had something to do: the take, the start of its idle
  * spell, or the close of its last question on the task. Null while the holder works, has an open
  * question on the task, or has no readable snapshot.
@@ -274,7 +272,7 @@ export async function quietTurns(trx: Trx) {
     const reminder = await trx
       .selectFrom('notification')
       .selectAll()
-      .where('source_key', '=', turnReminderKey(turn.id, sessionId))
+      .where('source_key', '=', turnReminderKey(turn.id, sessionId, turn.acked_at))
       .executeTakeFirst();
     quiet.push({
       turn,
@@ -288,8 +286,8 @@ export async function quietTurns(trx: Trx) {
 }
 
 /**
- * Registers one reminder to the holder of each turn quiet for `stuckTurnAfterMs`; `takeTurn`
- * drops the reminder of an earlier holder. Nothing while Spur is blind, since the holder's health
+ * Registers one reminder per take to the holder of each turn quiet for `stuckTurnAfterMs`;
+ * `takeTurn` drops the unsent reminder of an earlier take. Nothing while Spur is blind, since the holder's health
  * is then unknown.
  */
 export async function remindStuckTurns(trx: Trx, config: Config, at: Date): Promise<void> {

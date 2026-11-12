@@ -2138,6 +2138,7 @@ describe('turns', () => {
   it('rings one reminder for a quiet taken turn', async () => {
     const ctx = await setup({ config: policyBoard('none') });
     await takenByWorker(ctx);
+    const taken = ctx.now().toISOString();
     await health(ctx, 'worker-1', 'web', 'waiting', ctx.now());
     const tick = () =>
       tickBoard({
@@ -2156,7 +2157,7 @@ describe('turns', () => {
 
     expect(await reminders(ctx)).toEqual([
       expect.objectContaining({
-        source_key: 'turn:1:reminder:worker-1',
+        source_key: `turn:1:reminder:worker-1:${taken}`,
         role: 'worker',
         turn_id: 1,
         block_id: null,
@@ -2276,17 +2277,22 @@ describe('turns', () => {
     await open(ctx);
     await step(ctx);
     await ctx.apply(ctx.ops.ack, T1, 'agent:qa/qa-1', 'ack-qa-1');
+    const firstTake = ctx.now().toISOString();
     await health(ctx, 'qa-1', 'qa', 'waiting', ctx.now());
     ctx.advance(IDLE);
     await remind(ctx);
     await ctx.ring();
     expect(await reminders(ctx)).toEqual([
-      expect.objectContaining({ source_key: 'turn:1:reminder:qa-1', recipient_session: 'qa-1' }),
+      expect.objectContaining({
+        source_key: `turn:1:reminder:qa-1:${firstTake}`,
+        recipient_session: 'qa-1',
+      }),
     ]);
 
     await addSession(ctx, 'qa-2', 'qa');
     ctx.advance(1000);
     await ctx.apply(ctx.ops.ack, T1, 'agent:qa/qa-2', 'ack-qa-2');
+    const takeOver = ctx.now().toISOString();
     await health(ctx, 'qa-2', 'qa', 'waiting', ctx.now());
     // No tick runs between the take-over and the send: the take itself drops the queued ring.
     await ctx.sender.tick();
@@ -2311,9 +2317,56 @@ describe('turns', () => {
 
     expect(sessionsRung(ctx)).toEqual(['qa-1', 'qa-2']);
     expect((await reminders(ctx)).map((notice) => notice.source_key)).toEqual([
-      'turn:1:reminder:qa-1',
-      'turn:1:reminder:qa-2',
+      `turn:1:reminder:qa-1:${firstTake}`,
+      `turn:1:reminder:qa-2:${takeOver}`,
     ]);
+  });
+
+  it('reminds an orchestrator again when it retakes a turn it lost', async () => {
+    const ctx = await setup({ config: policyBoard() });
+    await addSession(ctx, 'qa-1', 'qa');
+    await addSession(ctx, 'qa-2', 'qa');
+    await open(ctx);
+    await step(ctx);
+    await ctx.apply(ctx.ops.ack, T1, 'agent:qa/qa-1', 'ack-qa-1');
+    await health(ctx, 'qa-1', 'qa', 'waiting', ctx.now());
+    ctx.advance(IDLE);
+    await remind(ctx);
+    expect(await reminders(ctx)).toEqual([
+      expect.objectContaining({ author_session: 'qa-1', rings: 0, acked_at: null }),
+    ]);
+
+    ctx.advance(1000);
+    await ctx.apply(ctx.ops.ack, T1, 'agent:qa/qa-2', 'ack-qa-2');
+    ctx.advance(1000);
+    await ctx.apply(ctx.ops.ack, T1, 'agent:qa/qa-1', 'ack-qa-1-again');
+    const retaken = ctx.now().toISOString();
+    await health(ctx, 'qa-1', 'qa', 'waiting', ctx.now());
+    const rung = sessionsRung(ctx).length;
+    ctx.advance(IDLE);
+    await remind(ctx);
+    await step(ctx);
+
+    expect(sessionsRung(ctx).slice(rung)).toEqual(['qa-1']);
+    const episode = `turn:1:reminder:qa-1:${retaken}`;
+    expect(await reminders(ctx)).toEqual([
+      expect.objectContaining({ author_session: 'qa-1', rings: 0 }),
+      expect.objectContaining({ source_key: episode, rings: 1, acked_at: ctx.now().toISOString() }),
+    ]);
+    expect(await ctx.store.transaction((trx) => quietTurns(trx))).toEqual([
+      expect.objectContaining({
+        sessionId: 'qa-1',
+        reminder: expect.objectContaining({ source_key: episode }) as unknown,
+      }),
+    ]);
+
+    ctx.advance(IDLE);
+    await health(ctx, 'worker-1', 'web', 'working', ctx.now());
+    await health(ctx, 'qa-2', 'qa', 'working', ctx.now());
+    await scanTransaction(ctx.store, ctx.config, async (trx) => {
+      await reconcileItems(trx, ctx.config, ctx.now().getTime(), true);
+    });
+    expect(await itemKinds(ctx)).toContainEqual({ kind: 'anomaly', item_key: 'stuck-turn:1' });
   });
 
   it('picks the executor', () => {

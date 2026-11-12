@@ -146,26 +146,30 @@ export async function registerTurnNotification(
     .execute();
 }
 
-/** The key of the reminder to `session` about a turn it holds. */
-export const turnReminderKey = (turnId: number, session: string) =>
-  `turn:${String(turnId)}:reminder:${session}`;
+/**
+ * The key of the reminder to `session` about a turn it took at `takenAt`. The take time names the
+ * ownership episode, so a session that loses the turn and takes it again gets a new reminder.
+ */
+export const turnReminderKey = (turnId: number, session: string, takenAt: string) =>
+  `turn:${String(turnId)}:reminder:${session}:${takenAt}`;
 
 const isTurnKind = (kind: Notification['kind']) => kind === 'turn' || kind === 'turn_reminder';
 
 /**
- * Register the single reminder to the session holding a quiet turn. The key names the holder, so
- * a session that takes the turn over gets its own reminder and no holder gets a second.
+ * Register the single reminder to the session holding a quiet turn. The key names the holder and
+ * its take, so each ownership episode gets its own reminder and no episode gets a second.
  */
 export async function registerTurnReminder(
   trx: Trx,
-  turn: Pick<Row<'turn'>, 'id' | 'task_id' | 'role'>,
+  turn: Pick<Row<'turn'>, 'id' | 'task_id' | 'role' | 'acked_at'>,
   session: string,
   at: Date,
 ): Promise<void> {
+  if (turn.acked_at === null) throw new Error(`turn ${String(turn.id)} is not taken`);
   await trx
     .insertInto('notification')
     .values({
-      source_key: turnReminderKey(turn.id, session),
+      source_key: turnReminderKey(turn.id, session, turn.acked_at),
       kind: 'turn_reminder',
       task_id: turn.task_id,
       block_id: null,
