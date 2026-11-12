@@ -1,4 +1,4 @@
-import { issueKey, issueRef, openIssues, settledUnless } from './helpers.ts';
+import { issueKey, openIssues, settledUnless } from './helpers.ts';
 import type { Scenario } from './index.ts';
 
 const LINKED = ['done-1', 'done-2', 'done-3', 'killed-4'] as const;
@@ -47,7 +47,7 @@ export const spurSourceSilent: Scenario = {
       tasks[session] = issueKey(index + 1);
       await board.call('operator', 'link.add', {
         mode: 'session',
-        task: issueRef(index + 1),
+        task: issueKey(index + 1),
         session,
         reason: 'Stand scenario spur-source-silent',
       });
