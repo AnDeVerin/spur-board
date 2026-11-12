@@ -121,6 +121,29 @@ async function rejection(promise: Promise<unknown>): Promise<AdapterError> {
   throw new Error('Expected a Jira adapter failure');
 }
 
+/** A fetch that never answers; it rejects with the signal's reason once the signal aborts. */
+const hanging: typeof fetch = (_input, init) =>
+  new Promise((_resolve, reject) => {
+    init?.signal?.addEventListener('abort', () => {
+      reject(init.signal?.reason as Error);
+    });
+  });
+
+/** Records how `promise` settles without awaiting it. */
+function settle(promise: Promise<unknown>): { settled: boolean; error?: unknown } {
+  const state: { settled: boolean; error?: unknown } = { settled: false };
+  promise.then(
+    () => {
+      state.settled = true;
+    },
+    (error: unknown) => {
+      state.settled = true;
+      state.error = error;
+    },
+  );
+  return state;
+}
+
 beforeEach(() => {
   vi.useFakeTimers();
   vi.setSystemTime(NOW);
@@ -179,8 +202,8 @@ describe('Jira adapter', () => {
       return { issues: [issue('102', 'PROJ-3', [])], isLast: true };
     });
     const { source } = adapter(fetcher, tracker(), vi.fn(), () => LATER.getTime());
-    const ctx = context();
-    const result = await source.poll(ctx);
+    const poll = new AbortController();
+    const result = await source.poll(context([], poll.signal));
 
     expect(source.intervalMs).toBe(120_000);
     expect(batchSchema.safeParse(result).success).toBe(true);
@@ -214,10 +237,34 @@ describe('Jira adapter', () => {
     ).toEqual([undefined, 'page-2', 'page-3']);
     expect(calls[0]?.path).toBe('/rest/api/3/project/PROJ/statuses');
     expect(calls[1]?.path).toBe('/rest/api/3/field');
-    expect(calls.every((call) => call.signal === ctx.signal)).toBe(true);
+    expect(calls.some((call) => call.signal?.aborted)).toBe(false);
+    poll.abort();
+    expect(calls.every((call) => call.signal?.aborted)).toBe(true);
     expect(calls.every((call) => call.headers.get('authorization')?.startsWith('Basic '))).toBe(
       true,
     );
+  });
+
+  it('fails a request with no answer as timed out after 30 s', async () => {
+    const poll = settle(adapter(hanging).source.poll(context()));
+    await vi.advanceTimersByTimeAsync(29_999);
+    expect(poll.settled).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(poll.error).toBeInstanceOf(AdapterError);
+    expect(poll.error).toMatchObject({ kind: 'transient', message: 'Jira request timed out' });
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('rejects an abort mid-request as a poll abort, not a timeout', async () => {
+    const controller = new AbortController();
+    const poll = settle(adapter(hanging).source.poll(context([], controller.signal)));
+    await vi.advanceTimersByTimeAsync(10_000);
+    controller.abort();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(poll.error).toMatchObject({ kind: 'transient', message: 'Jira poll aborted' });
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(poll.error).toMatchObject({ message: 'Jira poll aborted' });
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it('uses an active sprint from Jira legacy values and ignores closed-only history', async () => {

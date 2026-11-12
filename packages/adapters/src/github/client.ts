@@ -1,6 +1,6 @@
 import { AdapterError, type Batch } from '@spur-board/contracts';
 import { z } from 'zod';
-import { classifyHttpFailure } from '../runner/http.ts';
+import { classifyHttpFailure, withTimeout } from '../runner/http.ts';
 import { parseWire } from '../runner/wire.ts';
 
 export type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
@@ -139,33 +139,40 @@ export class GithubClient {
     variables: Record<string, string | number>,
     signal: AbortSignal,
   ): Promise<ResponseData> {
-    let response: Response;
-    try {
-      response = await this.fetcher('https://api.github.com/graphql', {
-        method: 'POST',
-        signal,
-        headers: {
-          authorization: `Bearer ${this.token}`,
-          'content-type': 'application/json',
-          accept: 'application/vnd.github+json',
-        },
-        body: JSON.stringify({ query, variables }),
-      });
-    } catch (cause) {
-      if (signal.aborted) throw cause;
-      throw new AdapterError('transient', 'GitHub request failed', { cause });
-    }
-    if (!response.ok)
-      throw classifyHttpFailure(
-        { status: response.status, headers: response.headers, body: await response.text() },
-        this.now(),
-      );
-    let body: unknown;
-    try {
-      body = await response.json();
-    } catch (cause) {
-      throw new AdapterError('transient', MALFORMED, { cause });
-    }
+    const { response, body } = await withTimeout(
+      signal,
+      'GitHub request timed out',
+      async (timed) => {
+        let response: Response;
+        try {
+          response = await this.fetcher('https://api.github.com/graphql', {
+            method: 'POST',
+            signal: timed,
+            headers: {
+              authorization: `Bearer ${this.token}`,
+              'content-type': 'application/json',
+              accept: 'application/vnd.github+json',
+            },
+            body: JSON.stringify({ query, variables }),
+          });
+        } catch (cause) {
+          if (timed.aborted) throw cause;
+          throw new AdapterError('transient', 'GitHub request failed', { cause });
+        }
+        if (!response.ok)
+          throw classifyHttpFailure(
+            { status: response.status, headers: response.headers, body: await response.text() },
+            this.now(),
+          );
+        let body: unknown;
+        try {
+          body = await response.json();
+        } catch (cause) {
+          throw new AdapterError('transient', MALFORMED, { cause });
+        }
+        return { response, body };
+      },
+    );
     const wire = parseWire(envelopeWire, body, MALFORMED);
     const errors = wire.errors ?? [];
     if (errors.some((error) => error.type === 'RATE_LIMITED' || /rate limit/i.test(error.message)))

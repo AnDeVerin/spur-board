@@ -932,6 +932,64 @@ describe('GitHub PR batch', () => {
   });
 });
 
+/** A fetch that never answers; it rejects with the signal's reason once the signal aborts. */
+const hanging: typeof fetch = (_input, init) =>
+  new Promise((_resolve, reject) => {
+    init?.signal?.addEventListener('abort', () => {
+      reject(init.signal?.reason as Error);
+    });
+  });
+
+/** Records how `promise` settles without awaiting it. */
+function settle(promise: Promise<unknown>): { settled: boolean; error?: unknown } {
+  const state: { settled: boolean; error?: unknown } = { settled: false };
+  promise.then(
+    () => {
+      state.settled = true;
+    },
+    (error: unknown) => {
+      state.settled = true;
+      state.error = error;
+    },
+  );
+  return state;
+}
+
+describe('GitHub request timeout', () => {
+  it('fails a request with no answer as timed out after 30 s', async () => {
+    vi.useFakeTimers();
+    try {
+      const poll = settle(adapter(hanging).poll(context()));
+      await vi.advanceTimersByTimeAsync(29_999);
+      expect(poll.settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(poll.error).toBeInstanceOf(AdapterError);
+      expect(poll.error).toMatchObject({ kind: 'transient', message: 'GitHub request timed out' });
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('aborts mid-request as a stop, not a timeout', async () => {
+    vi.useFakeTimers();
+    try {
+      const controller = new AbortController();
+      const poll = settle(adapter(hanging).poll({ ...context(), signal: controller.signal }));
+      await vi.advanceTimersByTimeAsync(10_000);
+      const reason = new Error('stop');
+      controller.abort(reason);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(poll.error).toBe(reason);
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(poll.error).toBe(reason);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe('GitHub on-demand PR', () => {
   const signal = () => new AbortController().signal;
   function pollPr(fetcher: typeof fetch, now?: () => number) {

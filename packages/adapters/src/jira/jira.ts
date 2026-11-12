@@ -8,7 +8,7 @@ import {
   type TicketFacts,
 } from '@spur-board/contracts';
 import { z } from 'zod';
-import { classifyHttpFailure } from '../runner/http.ts';
+import { classifyHttpFailure, withTimeout } from '../runner/http.ts';
 import { parseWire } from '../runner/wire.ts';
 
 type JiraTracker = Extract<Config['projects'][number]['tracker'], { type: 'jira' }>;
@@ -163,35 +163,40 @@ export function createJiraAdapter(options: JiraAdapterOptions): Adapter {
     signal: AbortSignal,
     body?: JsonObject,
   ): Promise<unknown> {
-    let response: Response;
-    try {
-      response = await transport(new URL(path, baseUrl), {
-        method: body === undefined ? 'GET' : 'POST',
-        headers: {
-          Accept: 'application/json',
-          Authorization: authorization,
-          ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
-        },
-        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-        signal,
-      });
-    } catch {
-      if (signal.aborted) throw new AdapterError('transient', 'Jira poll aborted');
-      throw new AdapterError('transient', 'Jira request failed');
-    }
-    if (response.status === 414 && options.searchMethod === 'GET') {
-      throw new AdapterError('config', 'Jira GET search URL is too long');
-    }
-    if (!response.ok)
-      throw new JiraHttpError(
-        response.status,
-        classifyHttpFailure({ status: response.status, headers: response.headers }, options.now()),
-      );
-    try {
-      return await response.json();
-    } catch {
-      throw new AdapterError('transient', INVALID);
-    }
+    return withTimeout(signal, 'Jira request timed out', async (timed): Promise<unknown> => {
+      let response: Response;
+      try {
+        response = await transport(new URL(path, baseUrl), {
+          method: body === undefined ? 'GET' : 'POST',
+          headers: {
+            Accept: 'application/json',
+            Authorization: authorization,
+            ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
+          },
+          ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+          signal: timed,
+        });
+      } catch {
+        if (timed.aborted) throw new AdapterError('transient', 'Jira poll aborted');
+        throw new AdapterError('transient', 'Jira request failed');
+      }
+      if (response.status === 414 && options.searchMethod === 'GET') {
+        throw new AdapterError('config', 'Jira GET search URL is too long');
+      }
+      if (!response.ok)
+        throw new JiraHttpError(
+          response.status,
+          classifyHttpFailure(
+            { status: response.status, headers: response.headers },
+            options.now(),
+          ),
+        );
+      try {
+        return await response.json();
+      } catch {
+        throw new AdapterError('transient', INVALID);
+      }
+    });
   }
 
   async function validate(tracker: JiraTracker, signal: AbortSignal): Promise<void> {
