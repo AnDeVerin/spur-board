@@ -836,6 +836,22 @@ describe('snapshots', () => {
     expect(existsSync(join(manifest.home, 'board.sqlite.partial'))).toBe(false);
   }, 60_000);
 
+  it('a missing snapshot file of a matching record stops the stand', async () => {
+    const { scenario, seeds } = counted(SCENARIOS.find(({ name }) => name === 'empty') as Scenario);
+    const manifest = await up({ scenarios: [scenario] });
+    await seed('empty');
+    const [file] = snapshotFiles(manifest, 'empty');
+    if (file === undefined) throw new Error('no snapshot');
+    rmSync(join(manifest.home, 'snapshots', file));
+    const reset = await control(current(), '/reset');
+    checked = undefined;
+    expect(reset.status).toBe(500);
+    expect(reset.body).toMatchObject({ error: expect.any(String) as unknown });
+    expect(seeds()).toBe(1);
+    expect(await stand?.exited).toBe(1);
+    expect(existsSync(join(manifest.home, 'board.sqlite.partial'))).toBe(false);
+  }, 60_000);
+
   it('a failed snapshot keeps the seed and reset seeds again', async () => {
     const { scenario, seeds } = counted(SCENARIOS.find(({ name }) => name === 'empty') as Scenario);
     const manifest = await up({ scenarios: [scenario] });

@@ -561,13 +561,16 @@ export async function startStand(options: StandOptions): Promise<Stand> {
   /** Re-reads the migrations on every call, so a changed file changes the key at once. */
   const keyOf = (definition: Scenario): string =>
     snapshotKey(definition, readMigrations(options.migrationsDir ?? migrationsDir));
-  /** The snapshot of `name` a reset may restore: its key still matches and its file exists. */
+  /**
+   * The snapshot of `name` a reset restores: its key still matches. A missing file is an IO fault
+   * the restore reports and stops on, not a reason to seed again.
+   */
   function snapshotHit(name: string): SnapshotRecord | undefined {
     const record = snapshots.get(name);
     const definition = findScenario(name);
     if (record === undefined || definition === undefined) return undefined;
     try {
-      return record.key === keyOf(definition) && existsSync(record.file) ? record : undefined;
+      return record.key === keyOf(definition) ? record : undefined;
     } catch {
       // A key that cannot be computed now matches nothing; the seed then takes a new snapshot.
       return undefined;
