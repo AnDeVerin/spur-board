@@ -511,7 +511,7 @@ async function endNotification(
             : `${holder} did not get ${blockRef}: ${reason}`,
       url: taskUrl(task, config),
       taskId: task.id,
-      blockId: n.kind === 'turn' ? null : n.block_id,
+      blockId: n.block_id,
       at,
     });
   }

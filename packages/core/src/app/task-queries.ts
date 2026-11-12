@@ -19,7 +19,7 @@ import { CommandError } from './commands.ts';
 import { notificationAddressedTo } from './doorbells.ts';
 import { canonicalKey } from './membership.ts';
 import type { Query } from './queries.ts';
-import { turnHanded } from './turns.ts';
+import { turnHanded, turnNotification } from './turns.ts';
 
 type Trx = Kysely<Tables>;
 const actorRefSchema = z.strictObject({ project: z.string().min(1), session: z.string().min(1) });
@@ -202,13 +202,7 @@ export function createTaskQueries(config: Config) {
     const turns = [];
     for (const turn of rows) {
       if (turn.acked_by !== actor) {
-        const notice = await trx
-          .selectFrom('notification')
-          .selectAll()
-          .where('turn_id', '=', turn.id)
-          .where('kind', '=', 'turn')
-          .orderBy('id', 'desc')
-          .executeTakeFirst();
+        const notice = await turnNotification(trx, turn.id);
         const mayTake =
           turn.acked_at === null
             ? notice?.acked_at === null

@@ -57,6 +57,17 @@ export function turnHanded(turn: Pick<Turn, 'handed'>): Handed[] {
   return parseJson(handedSchema, turn.handed);
 }
 
+/** The newest notification of a turn; an operator turn has none. */
+export async function turnNotification(trx: Trx, turnId: number) {
+  return trx
+    .selectFrom('notification')
+    .selectAll()
+    .where('turn_id', '=', turnId)
+    .where('kind', '=', 'turn')
+    .orderBy('id', 'desc')
+    .executeTakeFirst();
+}
+
 /**
  * Opens a turn for the executor of the task's current column. The unclosed turn of the same
  * visit is returned unchanged; an unclosed turn of an earlier visit is closed as moved first.
@@ -139,13 +150,7 @@ export async function takeTurn(
     if (!(await acknowledgeNotification(trx, { turnId, actor, at, config }))) return false;
   } else {
     if (parseAddressee(turn.role).kind !== 'orchestrator') return false;
-    const notice = await trx
-      .selectFrom('notification')
-      .selectAll()
-      .where('turn_id', '=', turnId)
-      .where('kind', '=', 'turn')
-      .orderBy('id', 'desc')
-      .executeTakeFirst();
+    const notice = await turnNotification(trx, turnId);
     if (notice === undefined || !(await notificationAddressedTo(trx, notice, actor, config))) {
       throw new CommandError('forbidden', 'Only the addressed task role can take this turn.');
     }
