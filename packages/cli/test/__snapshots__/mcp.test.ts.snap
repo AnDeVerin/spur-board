@@ -2530,7 +2530,7 @@ Example: {"role":"worker"}",
       "idempotentHint": false,
       "readOnlyHint": true,
     },
-    "description": "List the comments and blocks addressed to the caller and not yet handled.
+    "description": "List the comments, blocks and turns addressed to the caller and not yet handled.
 Use when: Read items awaiting the caller.
 When not to use: Use inbox_ack to mark them read.
 Example: {}",
@@ -2810,10 +2810,174 @@ Example: {}",
           },
           "type": "array",
         },
+        "turns": {
+          "description": "Unclosed turns the caller may take or has taken; at most one per task.",
+          "items": {
+            "additionalProperties": false,
+            "description": "A turn: the executor of a column is asked to act on a task.",
+            "properties": {
+              "addressee": {
+                "description": "Who executes the turn.",
+                "enum": [
+                  "operator",
+                  "curator",
+                  "orchestrator:todo",
+                  "orchestrator:ready-for-dev",
+                  "orchestrator:dev",
+                  "orchestrator:review",
+                  "orchestrator:product-review",
+                  "orchestrator:external-review",
+                  "orchestrator:qa",
+                  "orchestrator:ready-to-merge",
+                  "orchestrator:done",
+                  "worker",
+                ],
+                "type": "string",
+              },
+              "at": {
+                "description": "When the turn was opened, ISO 8601 UTC.",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                "type": "string",
+              },
+              "column": {
+                "description": "Board column the turn belongs to.",
+                "enum": [
+                  "todo",
+                  "ready-for-dev",
+                  "dev",
+                  "review",
+                  "product-review",
+                  "external-review",
+                  "qa",
+                  "ready-to-merge",
+                  "done",
+                ],
+                "type": "string",
+              },
+              "handed": {
+                "description": "Pull request feedback handed over with the turn.",
+                "items": {
+                  "additionalProperties": false,
+                  "description": "Pull request feedback handed over with a turn.",
+                  "properties": {
+                    "id": {
+                      "description": "Stable id of the comment or review in the source.",
+                      "minLength": 1,
+                      "type": "string",
+                    },
+                    "kind": {
+                      "description": "Whether this is a comment or a submitted review.",
+                      "enum": [
+                        "comment",
+                        "review",
+                      ],
+                      "type": "string",
+                    },
+                    "number": {
+                      "description": "Pull request number in the repository.",
+                      "maximum": 9007199254740991,
+                      "minimum": 1,
+                      "type": "integer",
+                    },
+                    "postedAt": {
+                      "description": "When the comment was posted or the review submitted, ISO 8601 UTC.",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                      "type": "string",
+                    },
+                    "repo": {
+                      "description": "Repository as owner/name.",
+                      "pattern": "^[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+$",
+                      "type": "string",
+                    },
+                  },
+                  "required": [
+                    "repo",
+                    "number",
+                    "kind",
+                    "id",
+                    "postedAt",
+                  ],
+                  "type": "object",
+                },
+                "type": "array",
+              },
+              "id": {
+                "description": "Turn ID: T followed by a number, e.g. T4.",
+                "pattern": "^T[1-9]\\d{0,14}$",
+                "type": "string",
+              },
+              "reason": {
+                "description": "Why the turn was handed to the executor.",
+                "type": "string",
+              },
+              "taken": {
+                "anyOf": [
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "at": {
+                        "description": "When the turn was taken, ISO 8601 UTC.",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                        "type": "string",
+                      },
+                      "by": {
+                        "anyOf": [
+                          {
+                            "const": "operator",
+                            "type": "string",
+                          },
+                          {
+                            "const": "system",
+                            "type": "string",
+                          },
+                          {
+                            "pattern": "^agent:[A-Za-z0-9._-]+\\/[A-Za-z0-9._-]+$",
+                            "type": "string",
+                          },
+                        ],
+                        "description": "Actor: operator, system, or agent:<project>/<session>.",
+                      },
+                    },
+                    "required": [
+                      "by",
+                      "at",
+                    ],
+                    "type": "object",
+                  },
+                  {
+                    "type": "null",
+                  },
+                ],
+                "description": "Who took the turn and when; null until it is taken.",
+              },
+              "task": {
+                "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42).",
+                "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
+                "type": "string",
+              },
+            },
+            "required": [
+              "id",
+              "task",
+              "column",
+              "addressee",
+              "reason",
+              "handed",
+              "at",
+              "taken",
+            ],
+            "type": "object",
+          },
+          "type": "array",
+        },
       },
       "required": [
         "comments",
         "blocks",
+        "turns",
       ],
       "type": "object",
     },
@@ -2826,7 +2990,7 @@ Example: {}",
       "idempotentHint": true,
       "readOnlyHint": false,
     },
-    "description": "Mark comments or agent-addressed blocks as read in the inbox.
+    "description": "Mark comments, agent-addressed blocks or turns as read; acking a turn makes the caller its taker.
 Use when: Mark handled inbox items read.
 When not to use: Use inbox_get to inspect them first.
 Example: {"entries":[{"id":"C3","revision":1}],"idempotencyKey":"inbox_ack-example-001"}
@@ -2838,7 +3002,7 @@ Choose a unique idempotencyKey for each action; reuse it on retries.",
       "additionalProperties": false,
       "properties": {
         "entries": {
-          "description": "Comment revisions and blocks to acknowledge.",
+          "description": "Comment revisions, blocks and turns to acknowledge.",
           "items": {
             "anyOf": [
               {
@@ -2868,6 +3032,20 @@ Choose a unique idempotencyKey for each action; reuse it on retries.",
                   "id": {
                     "description": "Block ID: B followed by a number, e.g. B12.",
                     "pattern": "^B[1-9]\\d{0,14}$",
+                    "type": "string",
+                  },
+                },
+                "required": [
+                  "id",
+                ],
+                "type": "object",
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "id": {
+                    "description": "Turn ID: T followed by a number, e.g. T4.",
+                    "pattern": "^T[1-9]\\d{0,14}$",
                     "type": "string",
                   },
                 },
@@ -2909,6 +3087,11 @@ Choose a unique idempotencyKey for each action; reuse it on retries.",
               {
                 "description": "Block ID: B followed by a number, e.g. B12.",
                 "pattern": "^B[1-9]\\d{0,14}$",
+                "type": "string",
+              },
+              {
+                "description": "Turn ID: T followed by a number, e.g. T4.",
+                "pattern": "^T[1-9]\\d{0,14}$",
                 "type": "string",
               },
             ],

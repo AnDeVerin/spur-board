@@ -82,6 +82,7 @@ export {
   parseActorId,
   parseRef,
   taskKeySchema,
+  turnIdSchema,
   type ActorId,
   type ParsedActorId,
   type RefKind,
@@ -96,7 +97,7 @@ export {
   type OperationKind,
   type SlackBinding,
 } from './ops/define.ts';
-export { commentSchema, type Comment } from './ops/schemas.ts';
+export { commentSchema, turnHandedSchema, type Comment } from './ops/schemas.ts';
 export { OPERATIONS, type OperationId } from './ops/catalog.ts';
 export { roleCanUseOperation, type SchemaRole } from './ops/roles.ts';
 export { buildCatalogSnapshot } from './ops/snapshot.ts';

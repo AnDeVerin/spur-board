@@ -266,7 +266,7 @@ Operation errors: `usage` (exit 2: Run `board schema` to see the expected input 
 
 ### `board inbox`
 
-List the comments and blocks addressed to the caller and not yet handled.
+List the comments, blocks and turns addressed to the caller and not yet handled.
 
 Arguments: none.
 
@@ -281,7 +281,7 @@ Operation errors: `usage` (exit 2: Run `board schema` to see the expected input 
 
 ### `board inbox ack`
 
-Mark comments or agent-addressed blocks as read in the inbox.
+Mark comments, agent-addressed blocks or turns as read; acking a turn makes the caller its taker.
 
 Arguments: `<entries>`.
 
