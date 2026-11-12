@@ -75,8 +75,9 @@ const USAGE = `Usage: pnpm stand <command>
                                   exist), then tick and pulse the outbox
   reset                           stop the daemon, restore the home and start it again with the
                                   last seeded scenario's database and fake snapshot, seeding it
-                                  again when its code or a migration changed; restored rows keep
-                                  their seeded times. This drops the violation log: read it first
+                                  again when its code or a migration changed or the clock passed
+                                  a pending token request's expiry; restored rows keep their
+                                  seeded times. This drops the violation log: read it first
   clock +<n><s|m|h|d>             move the stand clock forward (never back), then tick and pulse
                                   the outbox; timers stay real. stand poll after a shift
                                   restarts the stale window

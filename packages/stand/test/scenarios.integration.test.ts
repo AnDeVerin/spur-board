@@ -935,6 +935,39 @@ describe('snapshots', () => {
     for (const ts of after) expect(ts > highest, `${String(ts)} > ${String(highest)}`).toBe(true);
   }, 90_000);
 
+  it('a snapshot whose token request expired by the clock re-seeds at reset', async () => {
+    const { scenario, seeds } = counted(
+      SCENARIOS.find(({ name }) => name === 'token-approval') as Scenario,
+    );
+    await up({ scenarios: [scenario] });
+    await seed('token-approval');
+    // Past the request's 15-minute lifetime: a restored request would come back expired.
+    await ok(current(), '/clock', { shiftMs: 16 * 60_000 });
+    const reset = (await ok(current(), '/reset')) as ResetAnswer;
+    expect(reset.snapshot).toBe('taken');
+    expect(seeds()).toBe(2);
+    await ok(current(), '/wait', SEED_WAIT);
+    const n = Number(reset.scenario.messages?.['approval']);
+    const message = (await outbox(current())).find((candidate) => candidate.n === n);
+    const approve = message?.actions.find((action) => /^token:\d+:approve$/.test(action));
+    if (approve === undefined) throw new Error('no approve button');
+    expect(await ok(current(), '/fake/slack/click', { message: n, button: approve })).toEqual({
+      ok: true,
+      responses: ['stand-tester: approved'],
+    });
+    const { tokens } = await op<{ tokens: { name: string; status: string }[] }>(
+      current(),
+      'token.list',
+      {},
+    );
+    expect(tokens).toContainEqual(
+      expect.objectContaining({ name: 'stand-tester', status: 'approved' }),
+    );
+    // The new snapshot is fresh again: the next reset restores it.
+    expect(((await ok(current(), '/reset')) as ResetAnswer).snapshot).toBe('restored');
+    expect(seeds()).toBe(2);
+  }, 120_000);
+
   it('the stand clock does not move back across a restore-reset', async () => {
     await up();
     await seed('empty');

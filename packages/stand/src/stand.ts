@@ -90,6 +90,11 @@ const OPERATOR_SLACK = 'U0STANDOP';
 const ANSWER_BUTTON = 'answer';
 /** How long a click may wait for Socket Mode acknowledgements. */
 const CLICK_TIMEOUT_MS = 5_000;
+/**
+ * How long before its first deadline a snapshot stops being restored: the restart and a default
+ * `wait scenario` (30 s) must both fit before a restored row lapses.
+ */
+const FRESH_MARGIN_MS = 60_000;
 const SEED_FAILED_NOTE =
   'The board keeps what the seed wrote before it failed; run reset for a clean stand.';
 
@@ -324,6 +329,11 @@ interface SnapshotRecord {
   slack: FakeSlackState;
   /** The clock shifts the seed made, in order; a restore makes them again on the new daemon. */
   shifts: number[];
+  /**
+   * The earliest stand-clock time, in ms, at which a row the seed left lapses on its own: a
+   * pending token request's expiry. Undefined when nothing does.
+   */
+  lapsesAt: number | undefined;
 }
 
 type SnapshotOutcome = 'restored' | 'taken' | 'failed';
@@ -562,13 +572,20 @@ export async function startStand(options: StandOptions): Promise<Stand> {
   const keyOf = (definition: Scenario): string =>
     snapshotKey(definition, readMigrations(options.migrationsDir ?? migrationsDir));
   /**
-   * The snapshot of `name` a reset restores: its key still matches. A missing file is an IO fault
-   * the restore reports and stops on, not a reason to seed again.
+   * The snapshot of `name` a reset restores: its key still matches and none of its rows lapses
+   * before the restored daemon, its replayed shifts and a settle wait are through. A missing file
+   * is an IO fault the restore reports and stops on, not a reason to seed again.
    */
   function snapshotHit(name: string): SnapshotRecord | undefined {
     const record = snapshots.get(name);
     const definition = findScenario(name);
     if (record === undefined || definition === undefined) return undefined;
+    const replayed = record.shifts.reduce((sum, shiftMs) => sum + shiftMs, 0);
+    if (
+      record.lapsesAt !== undefined &&
+      clock.now() + replayed + FRESH_MARGIN_MS >= record.lapsesAt
+    )
+      return undefined;
     try {
       return record.key === keyOf(definition) ? record : undefined;
     } catch {
@@ -961,24 +978,40 @@ export async function startStand(options: StandOptions): Promise<Stand> {
     const entities =
       notes.length === 0 ? seeded : { ...seeded, direct: [...(seeded.direct ?? []), ...notes] };
     scenario = { name, entities };
-    return { entities, snapshot: takeSnapshot(name, definition, running, entities, shifts) };
+    return { entities, snapshot: await takeSnapshot(name, definition, running, entities, shifts) };
   }
 
   /**
-   * Saves the database and every fake's state for `name`, in one synchronous block, so nothing
-   * changes between the two. A failure is logged and drops the scenario's record, so a later
-   * reset seeds again rather than restoring an older snapshot; the seed still counts.
+   * When the first row of the running daemon's database lapses on its own: the earliest expiry of
+   * a pending token request. Read before the copy: only a seed requests a token, so the copy holds
+   * no request this misses, and one decided in between makes the bound only earlier.
    */
-  function takeSnapshot(
+  async function lapsesAt(running: NonNullable<typeof current>): Promise<number | undefined> {
+    const row = await running.daemon.store.db
+      .selectFrom('operator_token')
+      .select((eb) => eb.fn.min('expires_at').as('first'))
+      .where('status', '=', 'pending')
+      .executeTakeFirst();
+    return row?.first == null ? undefined : Date.parse(row.first);
+  }
+
+  /**
+   * Saves the database and every fake's state for `name`, in one synchronous block after reading
+   * when its rows lapse, so nothing changes between the two. A failure is logged and drops the
+   * scenario's record, so a later reset seeds again rather than restoring an older snapshot; the
+   * seed still counts.
+   */
+  async function takeSnapshot(
     name: string,
     definition: Scenario,
     running: NonNullable<typeof current>,
     entities: ScenarioEntities,
     shifts: number[],
-  ): 'taken' | 'failed' {
+  ): Promise<'taken' | 'failed'> {
     const previous = snapshots.get(name);
     snapshots.delete(name);
     try {
+      const lapses = await lapsesAt(running);
       if (fake === undefined) throw new Error('The fake Slack API is not running.');
       const key = keyOf(definition);
       const file = join(snapshotDir, `${name}-${key}.sqlite`);
@@ -990,6 +1023,7 @@ export async function startStand(options: StandOptions): Promise<Stand> {
         spur: running.spur.state(),
         slack: fake.state(),
         shifts,
+        lapsesAt: lapses,
       };
       saveSnapshot(paths.dbFile, file);
       snapshots.set(name, record);
