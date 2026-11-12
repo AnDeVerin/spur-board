@@ -453,6 +453,17 @@ describe('public guide command mentions', () => {
     expect(troubleshooting).toContain('A Spur project can be listed under only one Board project.');
   });
 
+  it('documents that item retry restarts the answer_undelivered doorbell series', () => {
+    const runbook = publicGuides[3]?.replace(/\s+/g, ' ') ?? '';
+    const section = runbook.split('## 4. Answer never reached the agent')[1]?.split(' ## 5. ')[0];
+    expect(section).toBeDefined();
+    expect(section).toContain(
+      'To ring again, for either cause: run `board item retry <item> --key <key>`. It clears the item and restarts the doorbell series',
+    );
+    expect(section).toContain('Spur refused the doorbell');
+    expect(section).toContain('Then retry the item as below.');
+  });
+
   it('documents board update and the rollback recovery', () => {
     const [, setup, troubleshooting] = publicGuides;
     const updateRun = setupReferenceTexts[setupReferenceNames.indexOf('update.md')];

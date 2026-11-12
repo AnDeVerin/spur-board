@@ -156,8 +156,11 @@ listing (see [cli.md](cli.md)) show the open block and whether the answer is sti
 - The answer is no longer needed: run `board item close <item> --key <key>`.
 - Spur refused the doorbell: run `board doctor` and fix what `spur.send` reports, for example
   a Spur too old for the send route. Spur was down for over 30 minutes: wait until it answers
-  again. Then run `board item retry <item> --key <key>`: the Board rings the current session
-  again, with three new rings.
+  again. Then retry the item as below.
+- To ring again, for either cause: run `board item retry <item> --key <key>`. It clears the item
+  and restarts the doorbell series: the Board rings the current session again, with three new
+  rings. A doorbell that was read or is still ringing answers `retry_not_applicable`; close the
+  item instead.
 
 ## 5. Stopping the Board for a while
 
