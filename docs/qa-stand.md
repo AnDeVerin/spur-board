@@ -5,11 +5,7 @@ dummy secrets, fake Slack, Spur and GitHub APIs, a network guard and a control e
 talks to a real service and is removed by `pnpm stand down`. `pnpm stand help` lists every
 command.
 
-Agents read three skills before a QA round:
-
-- `qa-stand` - start, stop, roles, refusals and cleanup;
-- `qa-seed` - scenarios, fakes, the stand clock, waits and the violation log;
-- `qa-report` - the plan, the evidence layout and the outcome on the live board.
+Agents read the skills `qa-stand`, `qa-seed` and `qa-report` before a QA round.
 
 ## Spur sidecar
 
@@ -33,8 +29,8 @@ projects:
 
 - `env -u` unsets each variable the `external_secrets` refusal names; list the real credential
   variables of your environment there.
-- The port range is the stand's own (4780-4799). In the foreground the stand stops with its
-  parent, the sidecar process, so no `--watch-pid` is needed.
+- The port range is the stand's own (4780-4799). The sidecar process is the stand's parent, so
+  no `--watch-pid` is needed.
 - Start it on demand: `spur sidecar start --session <id> --name board-stand`.
 - The sidecar and the tester must run with the same `TMPDIR`, a private directory of mode 700;
   `pnpm stand` finds stands only under it.

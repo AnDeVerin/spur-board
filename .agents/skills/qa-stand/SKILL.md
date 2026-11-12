@@ -5,9 +5,8 @@ description: Run a disposable board stand for QA - up, down, status, logs, roles
 
 # QA stand
 
-A stand is a disposable board: one process with the daemon on a temp home, dummy secrets, the
-fake Slack, Spur and GitHub APIs and a network guard. `pnpm stand help` prints every command; the
-flags live in `USAGE` in `packages/stand/src/cli.ts`. This card keeps the rules, traps and order.
+A stand is a disposable board with fake Slack, Spur and GitHub APIs (`docs/qa-stand.md`).
+`pnpm stand help` prints every command and flag; this card keeps the rules, traps and order.
 
 ## Lifecycle
 
@@ -16,24 +15,21 @@ flags live in `USAGE` in `packages/stand/src/cli.ts`. This card keeps the rules,
 - `pnpm stand up [--scenario <name>]` detaches and prints one JSON line with `home`, `daemonUrl`,
   `controlUrl` and the seeded `scenario`. Keep `home`.
 - Commands find stands under the real path of `TMPDIR`: run them all with one `TMPDIR`. One live
-  stand is picked by itself; several need `--home <dir>`; none -> exit 2.
-- `pnpm stand status [--json]` shows the stand and whether its API answers; no stand -> exit 2.
-- `pnpm stand logs` prints the daemon log; `pnpm stand logs --stand` the stand process log.
-- `pnpm stand down` stops the process group and removes the home. Capture evidence first
-  (`qa-report`); nothing in the home survives.
+  stand is picked by itself; several need `--home <dir>`.
+- Check the stand with `pnpm stand status` and read its logs with `pnpm stand logs`.
+- `pnpm stand down` stops the process group and removes the home; capture evidence first
+  (`qa-report`).
 - `up` and `down` prune dead stands. `pnpm stand down` every stand you started, on pass, fail or
   error; check with `pnpm stand status` that none is left.
-- `pnpm stand up --foreground` stays attached and stops with its parent; a sidecar runs it this
-  way (`docs/qa-stand.md`).
+- A sidecar runs `pnpm stand up --foreground` (`docs/qa-stand.md`).
 
 ## Roles
 
-- `pnpm stand board [--as operator|worker|orchestrator] <args...>` runs the board CLI against the
-  stand; the default is `operator`.
+- `pnpm stand board` and `pnpm stand mcp` take `--as operator|worker|orchestrator`; the default is
+  `operator`.
 - `operator` carries the stand's operator token and no session.
 - `worker` carries a session of the worker project `stand-worker`; `orchestrator` a session of
   `stand-qa`, the orchestrator of the stand's `qa` column.
-- `pnpm stand mcp [--as <role>]` runs the board MCP server against the stand with the same roles.
 - The wrapper refuses `service`, `update`, `rollback`, `skills` and `token create` with exit 2:
   they act on the real machine or write outside the stand.
 
@@ -58,8 +54,4 @@ flags live in `USAGE` in `packages/stand/src/cli.ts`. This card keeps the rules,
 
 - Never put real credentials back to get past a refusal; the guard keeps the stand off real
   services.
-
-## Exit codes
-
-- 0 ok, 1 failure, 2 usage (bad arguments, no stand, a refused wrapper command), 3 refused.
-- `pnpm stand violations` exits 1 when a request reached no fake (`qa-seed`).
+- Exit 2 is also bad arguments, no stand found, or a refused wrapper command.

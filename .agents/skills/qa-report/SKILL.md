@@ -36,8 +36,8 @@ qa/<task>/<sha8>/r<N>/
 
 ## Capture order
 
-- Save the violation log before any `pnpm stand reset` or `seed`; both drop it (`qa-seed`).
-- Capture everything before `pnpm stand down`, which removes the home (`qa-stand`).
+- Save the violation log before any `pnpm stand reset` or `seed` (`qa-seed`), and everything
+  else before `pnpm stand down`.
 - Take the stand state from `pnpm stand status --json`: it leaves out the control token. Never
   copy the home's manifest, `secrets.env`, the token file or `config.yaml`; copy named files only,
   never the whole home.
@@ -46,8 +46,8 @@ qa/<task>/<sha8>/r<N>/
 
 ## Plan
 
-- Write the plan before the first scenario: the tested head, `<main-sha>` and the A/B base when
-  there is one, and per acceptance criterion the scenario, its commands and the expected result.
+- The plan names the tested head, `<main-sha>` and the A/B base when there is one, and per
+  acceptance criterion the scenario, its commands and the expected result.
 
 ## Report
 
@@ -79,5 +79,5 @@ live board: return the verdict, the reason and the report path to the caller.
     operator; column orchestrator `operator` -> the operator; an orchestrator project other than
     the asker -> that orchestrator; otherwise the curator if any, else the operator.
 - A worker session holds neither block grant (`packages/contracts/src/ops/roles.ts`); never run
-  `board block` from one. An operator session cannot run `board ask`.
+  `board block` from one.
 - Keys follow `packages/skills/spur-board/SKILL.md`.
