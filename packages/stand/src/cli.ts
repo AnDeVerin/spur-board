@@ -57,6 +57,7 @@ const WAIT_DEFAULT_S = 30;
 const WAIT_MAX_S = 600;
 const FAKE_TIMEOUT_MS = 10_000;
 const DEFAULT_FAKE_REPO = 'stand-org/board';
+const JIRA_KEY = /^[A-Z][A-Z0-9_]*-[1-9]\d*$/;
 
 const USAGE = `Usage: pnpm stand <command>
 
@@ -102,6 +103,10 @@ const USAGE = `Usage: pnpm stand <command>
                                   open [--title t] (create, or reopen a closed issue), close,
                                   label [name...] (replaces the labels; none clears them) or
                                   milestone [title] (none clears it); --repo as for pr
+  fake jira issue <KEY> [--status s] [--title t]
+                                  create ticket KEY (at To Do), or change its status or title;
+                                  statuses: To Do, Ready for Dev, In Progress, In Review, Done
+  fake jira fail <mode>           the modes of fake github fail, for Jira alone
   violations                      print requests no fake models; exit 1 if there are any
 
 Every command but up takes --home <dir> to pick one of several stands.
@@ -554,24 +559,52 @@ function issueBody(
   return body(values.title === undefined ? {} : { title: values.title });
 }
 
-/** Maps the arguments of `stand fake github` to the body of a `/fake` control call. */
+function jiraIssueBody(
+  args: readonly string[],
+  values: { status?: string | undefined; title?: string | undefined },
+): Record<string, unknown> {
+  const [key, ...extra] = args;
+  if (key === undefined || !JIRA_KEY.test(key) || extra.length > 0)
+    throw new UsageError('jira issue needs one key such as STAND-1');
+  return {
+    system: 'jira',
+    verb: 'issue',
+    args: {
+      key,
+      ...(values.status === undefined ? {} : { status: values.status }),
+      ...(values.title === undefined ? {} : { title: values.title }),
+    },
+  };
+}
+
+/** Maps the arguments of `stand fake github` and `stand fake jira` to a `/fake` control body. */
 export function fakeBody(
   positionals: readonly string[],
-  values: { repo?: string | undefined; seed?: string | undefined; title?: string | undefined },
+  values: {
+    repo?: string | undefined;
+    seed?: string | undefined;
+    title?: string | undefined;
+    status?: string | undefined;
+  },
 ): Record<string, unknown> {
   const [first, kind, ...rest] = positionals;
   const pr = first === 'github' && kind === 'pr';
   const issue = first === 'github' && kind === 'issue';
+  const jiraIssue = first === 'jira' && kind === 'issue';
   if (!pr && !issue && values.repo !== undefined)
     throw new UsageError('--repo goes only with fake github pr or issue');
   if (!pr && values.seed !== undefined)
     throw new UsageError('--seed goes only with fake github pr');
-  if (!issue && values.title !== undefined)
-    throw new UsageError('--title goes only with fake github issue');
+  if (!issue && !jiraIssue && values.title !== undefined)
+    throw new UsageError('--title goes only with fake github issue or fake jira issue');
+  if (!jiraIssue && values.status !== undefined)
+    throw new UsageError('--status goes only with fake jira issue');
   if (pr) return prBody(rest, values);
   if (issue) return issueBody(rest, values);
-  if (first === 'github' && kind === 'fail')
-    return { system: 'github', verb: 'fail', args: failureBody(rest) };
+  if (jiraIssue) return jiraIssueBody(rest, values);
+  if ((first === 'github' || first === 'jira') && kind === 'fail')
+    return { system: first, verb: 'fail', args: failureBody(rest) };
+  if (first === 'jira') throw new UsageError('fake jira needs fail <mode> or issue <KEY>');
   throw new UsageError('fake github needs fail <mode>, pr <n> <verb> or issue <n> <verb>');
 }
 
@@ -634,7 +667,7 @@ async function main(argv: string[]): Promise<number> {
     const parsed = leading(args);
     if (parsed.as !== undefined) throw new UsageError('fake does not take --as');
     if (parsed.rest[0] === 'slack') return fakeSlack(parsed.home, parsed.rest.slice(1));
-    if (parsed.rest[0] === 'github') {
+    if (parsed.rest[0] === 'github' || parsed.rest[0] === 'jira') {
       const { values, positionals } = parseArgs({
         args: parsed.rest,
         allowPositionals: true,
@@ -643,6 +676,7 @@ async function main(argv: string[]): Promise<number> {
           repo: { type: 'string' },
           seed: { type: 'string' },
           title: { type: 'string' },
+          status: { type: 'string' },
         },
       });
       const body = fakeBody(positionals, values);

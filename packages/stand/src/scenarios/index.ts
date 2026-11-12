@@ -13,13 +13,13 @@ import type { InProcessDaemon } from '@spur-board/daemon/in-process';
 import type { z } from 'zod';
 import type { RouteResult } from '../control.ts';
 import type { StandManifest } from '../manifest.ts';
-import { columnsBasic } from './columns-basic.ts';
+import { columnsBasic, columnsBasicJira } from './columns-basic.ts';
 import { empty } from './empty.ts';
 import { questionToOperator } from './question-to-operator.ts';
-import { sourceBlind } from './source-blind.ts';
+import { sourceBlind, sourceBlindJira } from './source-blind.ts';
 import { spurSourceSilent } from './spur-source-silent.ts';
 import { tokenApproval } from './token-approval.ts';
-import { workerKilledNoPr } from './worker-killed-no-pr.ts';
+import { workerKilledNoPr, workerKilledNoPrJira } from './worker-killed-no-pr.ts';
 
 /** How often `until` and `wait` look again. */
 const WAIT_STEP_MS = 100;
@@ -75,6 +75,7 @@ export interface SlackMessage {
 export interface ScenarioFakes {
   spur(verb: string, args?: Record<string, unknown>): Promise<unknown>;
   github(verb: string, args?: Record<string, unknown>): Promise<unknown>;
+  jira(verb: string, args?: Record<string, unknown>): Promise<unknown>;
   slack: {
     outbox(): Promise<{ messages: SlackMessage[]; violations: unknown[] }>;
     click(message: number, button: string, text?: string): Promise<unknown>;
@@ -105,6 +106,9 @@ export const SCENARIOS: readonly Scenario[] = [
   spurSourceSilent,
   sourceBlind,
   tokenApproval,
+  columnsBasicJira,
+  workerKilledNoPrJira,
+  sourceBlindJira,
 ];
 
 export const scenarioNames = (scenarios: readonly Scenario[] = SCENARIOS): string[] =>
@@ -272,6 +276,7 @@ export function createScenarioFakes(routes: {
     spur: (verb, args = {}) => ok(`fake spur ${verb}`, routes.fake({ system: 'spur', verb, args })),
     github: (verb, args = {}) =>
       ok(`fake github ${verb}`, routes.fake({ system: 'github', verb, args })),
+    jira: (verb, args = {}) => ok(`fake jira ${verb}`, routes.fake({ system: 'jira', verb, args })),
     slack: {
       outbox: async () =>
         (await ok('fake slack outbox', routes.slackOutbox())) as {

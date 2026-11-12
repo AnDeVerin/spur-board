@@ -227,7 +227,7 @@ describe('scenario manifest', () => {
 });
 
 describe('scenarios', () => {
-  it('lists seven scenarios, each with a seed and a settled check', () => {
+  it('lists ten scenarios, each with a seed and a settled check', () => {
     expect(scenarioNames()).toEqual([
       'empty',
       'columns-basic',
@@ -236,6 +236,9 @@ describe('scenarios', () => {
       'spur-source-silent',
       'source-blind',
       'token-approval',
+      'columns-basic-jira',
+      'worker-killed-no-pr-jira',
+      'source-blind-jira',
     ]);
     for (const scenario of SCENARIOS) {
       expect(typeof scenario.seed, scenario.name).toBe('function');
@@ -619,6 +622,55 @@ describe('each scenario', () => {
     });
     const { sources, items } = await status(current());
     expect(sources).toContainEqual(expect.objectContaining({ source, blindReason: 'auth' }));
+    expect(items.map(({ key }) => key)).toContain(`source:${source}`);
+  }, 60_000);
+
+  it('columns-basic-jira: each column holds the stand-jira task the manifest names', async () => {
+    await up();
+    const { scenario } = await seed('columns-basic-jira');
+    const { tasks } = await op<{ tasks: { key: string; column: string; project: string }[] }>(
+      current(),
+      'status.get',
+      { project: 'stand-jira' },
+    );
+    expect(tasks).toHaveLength(COLUMN_IDS.length);
+    for (const [i, column] of COLUMN_IDS.entries()) {
+      const key = scenario.tasks?.[column];
+      expect(key, column).toBe(`STAND-${String(i + 1)}`);
+      expect(tasks.filter((task) => task.column === column).map((task) => task.key)).toEqual([key]);
+    }
+  }, 60_000);
+
+  it('worker-killed-no-pr-jira: the ended worker item is raised on the stand-jira task', async () => {
+    await up();
+    const { scenario } = await seed('worker-killed-no-pr-jira');
+    expect(scenario.tasks?.['killed']).toBe('STAND-1');
+    const { items } = await op<{ items: { key: string; summary: string }[] }>(
+      current(),
+      'status.get',
+      { project: 'stand-jira' },
+    );
+    expect(items).toContainEqual(
+      expect.objectContaining({
+        key: scenario.items?.['killed'],
+        summary: 'STAND-1: worker ended (killed), no PR (stand-killed)',
+      }),
+    );
+  }, 60_000);
+
+  it('source-blind-jira: the Jira tracker is blind for auth, GitHub Issues is not', async () => {
+    await up();
+    const { scenario } = await seed('source-blind-jira');
+    const source = 'jira:stand-jira';
+    expect(scenario).toMatchObject({
+      sources: { blind: source },
+      items: { blind: `source:${source}` },
+    });
+    const { sources, items } = await status(current());
+    expect(sources).toContainEqual(expect.objectContaining({ source, blindReason: 'auth' }));
+    expect(sources).toContainEqual(
+      expect.objectContaining({ source: 'github-issues:stand:stand-org/board', blindReason: null }),
+    );
     expect(items.map(({ key }) => key)).toContain(`source:${source}`);
   }, 60_000);
 
