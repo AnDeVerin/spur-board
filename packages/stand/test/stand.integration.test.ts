@@ -812,13 +812,12 @@ describe('stand', () => {
     const polled = await control(manifest, '/poll');
     expect(polled.status).toBe(200);
     const { outcomes } = polled.body as { outcomes: { source: string; outcome: string }[] };
-    // The fakes answer Spur, GitHub pull requests and GitHub Issues. Jira fails against the
-    // network guard.
+    // The fakes answer Spur, GitHub pull requests, GitHub Issues and Jira.
     expect(Object.fromEntries(outcomes.map(({ source, outcome }) => [source, outcome]))).toEqual({
       spur: 'delivered',
       'github-issues:stand:stand-org/board': 'delivered',
       'github:stand:stand-org/board': 'delivered',
-      'jira:stand-jira': 'failed',
+      'jira:stand-jira': 'delivered',
       'github:stand-jira:stand-org/service': 'delivered',
     });
     expect(outcomes).toHaveLength(SOURCES.length);
@@ -1437,6 +1436,58 @@ describe('stand', () => {
       },
       60_000,
     );
+  });
+
+  describe('fake Jira', () => {
+    it('drives the Jira fake through the CLI into the real adapter', async () => {
+      const manifest = await up();
+      const { home } = manifest;
+      const jira = (args: string[]) => standCli(['fake', '--home', home, 'jira', ...args]);
+      const run = async (args: string[]): Promise<void> => {
+        const result = await jira(args);
+        expect(result.code, result.stderr).toBe(0);
+      };
+      await run(['issue', 'STAND-1', '--title', 'Stand ticket']);
+      await run(['issue', 'STAND-1', '--status', 'In Progress']);
+      await run(['issue', 'STAND-2']);
+      expect((await jira(['issue', 'STAND-2'])).code).toBe(1);
+      expect((await jira(['issue', 'STAND-2', '--status', 'Blocked'])).code).toBe(1);
+      expect((await jira(['issue', 'OPS-1'])).code).toBe(1);
+      expect((await jira(['issue', 'stand-3'])).code).toBe(2);
+      expect((await jira(['issue', 'STAND-3', '--repo', 'stand-org/board'])).code).toBe(2);
+      await run(['fail', 'server-error']);
+      await run(['fail', 'clear']);
+
+      const polled = await control(manifest, '/poll');
+      expect(polled.status).toBe(200);
+      const { outcomes } = polled.body as { outcomes: { source: string; outcome: string }[] };
+      expect(outcomes).toContainEqual({ source: 'jira:stand-jira', outcome: 'delivered' });
+      const store = openStore(join(home, 'board.sqlite'));
+      try {
+        const rows = await store.db
+          .selectFrom('ticket_snapshot')
+          .select('detail')
+          .where('source', '=', 'jira:stand-jira')
+          .execute();
+        const byKey = new Map(
+          rows.map(({ detail }) => {
+            const facts = JSON.parse(detail) as { key: string; title: string; status: string };
+            return [facts.key, facts];
+          }),
+        );
+        expect(byKey.get('STAND-1')).toMatchObject({
+          title: 'Stand ticket',
+          status: 'In Progress',
+          inFilter: true,
+          url: 'https://jira.stand.invalid/browse/STAND-1',
+        });
+        expect(byKey.get('STAND-2')).toMatchObject({ status: 'To Do' });
+        expect([...byKey.keys()].sort()).toEqual(['STAND-1', 'STAND-2']);
+      } finally {
+        await store.close();
+      }
+      expect((await control(manifest, '/violations')).status).toBe(200);
+    }, 60_000);
   });
 });
 

@@ -66,4 +66,41 @@ describe('commandReply', () => {
     });
     expect(JSON.stringify(history.body)).toContain('Added to Dev.');
   });
+
+  it('puts status items right after the header, ahead of every task line', () => {
+    const operation = OPERATIONS.find((entry) => entry.id === 'status.get');
+    if (!operation) throw new Error('Missing status.get');
+    const example = operation.examples[0].output;
+    const [task] = example.tasks;
+    if (!task) throw new Error('Missing example task');
+    const item = (id: string, summary: string) => ({
+      id,
+      task: null,
+      at: '2026-11-04T12:00:00.000Z',
+      summary,
+      key: `ITEM-${id}`,
+      unconfirmed: false,
+      factAt: null,
+    });
+    const status = commandReply(
+      'status.get',
+      {
+        ...example,
+        tasks: Array.from({ length: 60 }, (_, index) => ({
+          ...task,
+          key: `TASK-${String(index + 1)}`,
+        })),
+        items: [item('I1', 'Worker ended without a PR'), item('I2', 'Inbound gap on C_ORCH')],
+      },
+      {},
+    );
+    const paragraph = (text: string) => ({ kind: 'paragraph', children: [{ kind: 'text', text }] });
+    expect(status.body.slice(1, 3)).toEqual([
+      paragraph('ITEM-I1: Worker ended without a PR'),
+      paragraph('ITEM-I2: Inbound gap on C_ORCH'),
+    ]);
+    const isTask = (block: unknown) => JSON.stringify(block).includes('"text":"TASK-');
+    expect(status.body.findIndex(isTask)).toBeGreaterThan(2);
+    expect(status.body.filter(isTask)).toHaveLength(60);
+  });
 });

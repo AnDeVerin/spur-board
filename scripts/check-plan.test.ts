@@ -245,11 +245,12 @@ describe('planCheck', () => {
 
 describe('parseOnly', () => {
   const unknown = (name: string) =>
-    `--only: unknown step "${name}" (steps: format, lint, types, knip, agents, test)`;
+    `--only: unknown step "${name}" (steps: format, lint, types, knip, agents, test, stand)`;
 
   it('selects the listed steps', () => {
     expect(parseOnly('test,format', true)).toEqual(new Set(['test', 'format']));
     expect(parseOnly('agents', true)).toEqual(new Set(['agents']));
+    expect(parseOnly('stand', true)).toEqual(new Set(['stand']));
   });
 
   it('returns null when --only is absent', () => {

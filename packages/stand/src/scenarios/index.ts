@@ -13,13 +13,13 @@ import type { InProcessDaemon } from '@spur-board/daemon/in-process';
 import type { z } from 'zod';
 import type { RouteResult } from '../control.ts';
 import type { StandManifest } from '../manifest.ts';
-import { columnsBasic } from './columns-basic.ts';
+import { columnsBasic, columnsBasicJira } from './columns-basic.ts';
 import { empty } from './empty.ts';
 import { questionToOperator } from './question-to-operator.ts';
-import { sourceBlind } from './source-blind.ts';
+import { sourceBlind, sourceBlindJira } from './source-blind.ts';
 import { spurSourceSilent } from './spur-source-silent.ts';
 import { tokenApproval } from './token-approval.ts';
-import { workerKilledNoPr } from './worker-killed-no-pr.ts';
+import { workerKilledNoPr, workerKilledNoPrJira } from './worker-killed-no-pr.ts';
 
 /** How often `until` and `wait` look again. */
 const WAIT_STEP_MS = 100;
@@ -47,6 +47,11 @@ export interface Board {
   ): Promise<z.output<Op<Id>['output']>>;
   /** Restarts the adapter runner, ticks and pulses the outbox; the outcome of each source. */
   poll(): Promise<Record<string, string>>;
+  /**
+   * Moves the stand clock forward by `ms`, ticks and pulses the outbox once like `stand clock`;
+   * the adapter runner keeps its state. A shift outside 1..MAX_SHIFT_MS throws.
+   */
+  shiftClock(ms: number): Promise<void>;
   check(condition: string): Promise<Settled>;
   /** Re-checks `condition` until it holds; throws once `timeoutMs` passes. */
   wait(condition: string, timeoutMs?: number): Promise<void>;
@@ -70,6 +75,7 @@ export interface SlackMessage {
 export interface ScenarioFakes {
   spur(verb: string, args?: Record<string, unknown>): Promise<unknown>;
   github(verb: string, args?: Record<string, unknown>): Promise<unknown>;
+  jira(verb: string, args?: Record<string, unknown>): Promise<unknown>;
   slack: {
     outbox(): Promise<{ messages: SlackMessage[]; violations: unknown[] }>;
     click(message: number, button: string, text?: string): Promise<unknown>;
@@ -100,6 +106,9 @@ export const SCENARIOS: readonly Scenario[] = [
   spurSourceSilent,
   sourceBlind,
   tokenApproval,
+  columnsBasicJira,
+  workerKilledNoPrJira,
+  sourceBlindJira,
 ];
 
 export const scenarioNames = (scenarios: readonly Scenario[] = SCENARIOS): string[] =>
@@ -163,6 +172,7 @@ export function createBoardClient(options: {
   home: string;
   db: Db;
   poll: () => Promise<RouteResult>;
+  clock: (shiftMs: number) => Promise<RouteResult>;
   check: (condition: string) => Promise<Settled>;
   signal: AbortSignal;
 }): { board: Board; notes: string[] } {
@@ -197,6 +207,12 @@ export function createBoardClient(options: {
         throw new Error(`poll answered ${String(result.status)}: ${JSON.stringify(result.body)}`);
       const { outcomes } = result.body as { outcomes: { source: string; outcome: string }[] };
       return Object.fromEntries(outcomes.map(({ source, outcome }) => [source, outcome]));
+    },
+    async shiftClock(ms) {
+      stopped();
+      const result = await options.clock(ms);
+      if (result.status !== 200)
+        throw new Error(`clock answered ${String(result.status)}: ${JSON.stringify(result.body)}`);
     },
     check: options.check,
     async wait(condition, timeoutMs = DEFAULT_WAIT_MS) {
@@ -260,6 +276,7 @@ export function createScenarioFakes(routes: {
     spur: (verb, args = {}) => ok(`fake spur ${verb}`, routes.fake({ system: 'spur', verb, args })),
     github: (verb, args = {}) =>
       ok(`fake github ${verb}`, routes.fake({ system: 'github', verb, args })),
+    jira: (verb, args = {}) => ok(`fake jira ${verb}`, routes.fake({ system: 'jira', verb, args })),
     slack: {
       outbox: async () =>
         (await ok('fake slack outbox', routes.slackOutbox())) as {

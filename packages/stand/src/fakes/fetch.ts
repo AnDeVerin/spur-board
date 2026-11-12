@@ -33,6 +33,16 @@ export interface FakeModule {
   /** Runs one verb of this system; undefined when the verb is not this module's. */
   control(verb: string, args: unknown): RouteResult | undefined;
   reset(): void;
+  /** A deep copy of the module's state; a later change never alters it. */
+  state(): unknown;
+  /** Replaces the module's state with a copy of what `state` returned. */
+  restore(state: unknown): void;
+}
+
+/** What `createFakes().state()` returns: the failure plan and each module's state, in order. */
+export interface FakesState {
+  failures: [string, Failure][];
+  modules: unknown[];
 }
 
 interface Violation {
@@ -229,6 +239,24 @@ export function createFakes(options: {
       violations = [];
       dropped = 0;
       for (const module of modules) module.reset();
+    },
+
+    /** The failure plan and every module's state; violations are not part of it. */
+    state(): FakesState {
+      return {
+        failures: structuredClone([...failures]),
+        modules: modules.map((module) => module.state()),
+      };
+    },
+
+    /** Replaces the failure plan and every module's state with a copy of `state`. */
+    restore(state: FakesState): void {
+      failures.clear();
+      for (const [system, failure] of structuredClone(state.failures))
+        failures.set(system, failure);
+      modules.forEach((module, index) => {
+        module.restore(state.modules[index]);
+      });
     },
 
     /**

@@ -97,6 +97,8 @@ export async function enqueueLiveAfterFirstPoll(
     .selectFrom('operator_item')
     .select(sql<number>`count(*)`.as('count'))
     .where('cleared_at', 'is', null)
+    // Count what the operator can see in the feed; a quiet item has no line there.
+    .where('line_outbox_id', 'is not', null)
     .executeTakeFirstOrThrow();
   const text = `spur-board is live: ${String(tasks.count)} tasks, ${String(items.count)} for you`;
   await enqueueLiveFeedLine(trx, { version: input.productVersion, text, at: new Date(input.at) });

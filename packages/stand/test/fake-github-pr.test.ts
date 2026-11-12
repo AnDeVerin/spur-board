@@ -465,3 +465,23 @@ describe('updatedAt', () => {
     expect(Date.parse(at(pr(fakes, 1, 'conflict')))).toBe(NOW + 60_000);
   });
 });
+
+describe('state and restore', () => {
+  it('gives a fresh fake the same pull requests, unaffected by later changes', async () => {
+    created(1, { title: 'Seeded' });
+    created(2);
+    const before = await pollRepo(fakes, BOARD);
+    const state = fakes.state();
+    expect(pr(fakes, 1, 'merge').status).toBe(200);
+    created(3);
+
+    const restored = githubFakes();
+    restored.restore(state);
+    const after = await pollRepo(restored, BOARD);
+    expect(factsOf(after, 1)).toEqual(factsOf(before, 1));
+    expect(factsOf(after, 2)).toEqual(factsOf(before, 2));
+    expect(after.items.filter(({ kind }) => kind === 'pr')).toHaveLength(2);
+    expect(pr(restored, 1, 'merge').status).toBe(200);
+    expect(violations(restored)).toEqual([]);
+  });
+});

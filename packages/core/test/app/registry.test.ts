@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { OPERATIONS, configSchema, roleCanUseOperation } from '@spur-board/contracts';
 import { afterEach, expect, expectTypeOf, it } from 'vitest';
 import {
+  createApply,
   createObservationCore,
   createOperationRegistry,
   createQuery,

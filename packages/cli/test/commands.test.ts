@@ -6,8 +6,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ERRORS, OPERATIONS } from '@spur-board/contracts';
-import { createProgram, runCli, type CliIo } from '../src/cli.ts';
+import { ERRORS, OPERATIONS, errorEnvelopeSchema } from '@spur-board/contracts';
+import { createProgram, exampleCommand, runCli, type CliIo } from '../src/cli.ts';
 
 type Program = ReturnType<typeof createProgram>;
 
@@ -531,6 +531,59 @@ describe('catalog commands', () => {
       ['unblock', 'B12', '--withdraw'],
     ]) {
       expect(await runCli(args, { env: {}, io: output.io }), args.join(' ')).toBe(2);
+    }
+  });
+
+  it('sends every mutation from its first example with a generated key as agent and operator', async () => {
+    const calls: { id: string; input: unknown; key: string | undefined }[] = [];
+    const url = await fakeServer((id, input, key) => {
+      calls.push({ id, input, key });
+      return OPERATIONS.find((op) => op.id === id)?.examples[0].output;
+    });
+    const identities: NodeJS.ProcessEnv[] = [
+      { BOARD_DAEMON_URL: url, SPUR_SESSION: 'test-session' },
+      { BOARD_DAEMON_URL: url, BOARD_TOKEN: 'token' },
+    ];
+    const mutations = OPERATIONS.filter((op) => op.kind === 'mutation');
+    expect(mutations.length).toBeGreaterThan(0);
+    for (const op of mutations) {
+      const example = op.examples[0].input as Record<string, unknown>;
+      const words = (exampleCommand(op, example).match(/"(?:[^"\\]|\\.)*"|\S+/g) ?? []).map(
+        (word) => (word.startsWith('"') ? (JSON.parse(word) as string) : word),
+      );
+      const args = [...words.slice(1), '--json'];
+      for (const identity of identities) {
+        calls.length = 0;
+        const output = capture();
+        const label = `${args.join(' ')} as ${identity['SPUR_SESSION'] ? 'agent' : 'operator'}`;
+        expect(await runCli(args, { env: identity, io: output.io }), label).toBe(0);
+        expect(calls, label).toHaveLength(1);
+        const call = calls[0];
+        if (!call) throw new Error(`Expected a request for ${label}.`);
+        expect(call.id, label).toBe(op.id);
+        expect(call.input, label).toEqual(example);
+        expect(call.key, label).toMatch(/^[0-9a-f-]{36}$/);
+        expect(output.stderr, label).toContain(`key: ${call.key ?? ''}`);
+      }
+    }
+  });
+
+  it('names the failing flag or argument in CLI usage hints', async () => {
+    for (const [args, flags] of [
+      [
+        ['unblock', 'B12', '--done', '--reason', 'x'],
+        ['--done', '--reason'],
+      ],
+      [['unblock', 'B12'], ['--done']],
+      [['ask', 'PROJ-123', 'Q?', '--key', ''], ['--key']],
+      [['answer', 'X12', 't'], ['block']],
+    ] as const) {
+      const output = capture();
+      expect(await runCli([...args, '--json'], { env: {}, io: output.io }), args.join(' ')).toBe(2);
+      const { error } = errorEnvelopeSchema.parse(JSON.parse(output.stderr));
+      expect(error.code).toBe('usage');
+      expect(error.hint, args.join(' ')).not.toBe(ERRORS.usage.hint);
+      for (const flag of flags) expect(error.hint, args.join(' ')).toContain(flag);
     }
   });
 
