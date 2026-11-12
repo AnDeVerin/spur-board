@@ -36,19 +36,14 @@ rule names another. A PR changing a practice named here updates this skill.
   (`packages/adapters/src/github/prBatch.ts`), `issueWire` (`packages/adapters/src/jira/jira.ts`).
 - `z.object` strips unknown keys; use `z.looseObject` only for keys read later or chosen at
   runtime (GraphQL `data`, Jira `fields`). Vendor enums are `z.string()`, mapped in code.
-- Parse a GraphQL root only after `GithubClient.query` classifies `errors` and its scoped errors
-  are handled; denied fields arrive null, so make them nullable.
+- GitHub GraphQL errors, partial PR batches and comment history: read
+  `references/github-responses.md`.
 - Lint: `wireWalkerBans` in `eslint.config.js`.
 - Parse normalized output with the contracts schema: `prFactsSchema.safeParse` in `normalizePr`.
   The runner re-validates each batch with `batchSchema`.
 - A missing or denied requested entity gets `not_found` or `no_access`; any other partial error
   clears `complete` (`pollRepository` in `packages/adapters/src/github/index.ts`).
-- Unknown shape in one PR: leave it out, clear `complete`, report it `no_access` if requested;
-  rethrow its error if nothing else answered. Other unknown shapes fail the poll. Never
-  default a field, guess a fact, or mark a batch complete with a part missing.
-- Comment history: read `references/comment-history.md`.
-- Except a denied `closingIssuesReferences` (`deniedReference`) or a `null` `requestedReviewer`:
-  drop it, keep `complete`.
+- Never default a field, guess a fact, or mark a batch complete with a part missing.
 
 ## Failures, backoff and budget
 
@@ -65,6 +60,11 @@ rule names another. A PR changing a practice named here updates this skill.
   `rateLimit { remaining resetAt }`; a missing budget fails the poll. `budgetPause` pauses below
   the config key `github.reserveRemaining`.
 - The runner hands each failed step and rejected report to `onFailure`; no bare `catch`.
+- GitHub, GitHub Issues and Jira requests run under `withTimeout` in
+  `packages/adapters/src/runner/http.ts` (30 s): a timeout is `transient`, a caller abort passes
+  through unchanged. Spur keeps its own 5 s timer.
+- `schedule` in `packages/adapters/src/runner/runner.ts` caps a poll wait at the setTimeout limit,
+  2147483647 ms; a longer delay would otherwise fire after 1 ms.
 - Runner coverage: `describe('batch validation')`, `describe('failures')`,
   `describe('http failure classification')`, `describe('budget')`,
   `describe('auth and config errors')` and `describe('failure log')` in
