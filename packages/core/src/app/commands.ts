@@ -53,7 +53,8 @@ export interface Mutation<Id extends MutationId, Prepared = unknown> {
   ): Promise<readonly ResolvedTarget[]>;
   /**
    * Reads an external source before the transaction, never writes. Runs after the input and key
-   * checks and only when every resolved target is allowed; its result is `ctx.prepared`.
+   * checks, only for a key with no stored command and when every resolved target is allowed; its
+   * result is `ctx.prepared`.
    */
   prepare?(
     db: Kysely<Tables>,
@@ -89,6 +90,33 @@ function fingerprint(id: string, input: unknown, actor: ActorId): string {
     .digest('hex');
 }
 
+function storedCommand(db: Kysely<Tables>, actor: ActorId, key: string) {
+  return db
+    .selectFrom('command')
+    .select(['operation', 'fingerprint', 'result'])
+    .where('actor', '=', actor)
+    .where('key', '=', key)
+    .executeTakeFirst();
+}
+
+/** Runs `fn` after any in-flight call on `slot` settles, so one key never runs twice at once. */
+async function serialized<T>(
+  inFlight: Map<string, Promise<unknown>>,
+  slot: string,
+  fn: () => Promise<T>,
+): Promise<T> {
+  for (let busy = inFlight.get(slot); busy !== undefined; busy = inFlight.get(slot)) {
+    await busy.catch(() => undefined);
+  }
+  const call = fn();
+  inFlight.set(slot, call);
+  try {
+    return await call;
+  } finally {
+    if (inFlight.get(slot) === call) inFlight.delete(slot);
+  }
+}
+
 /**
  * Replays one operation within the caller's transaction. Returning undefined from run leaves
  * no command row; catalog authorization uses that path so a denial remains journal-only.
@@ -106,12 +134,7 @@ export async function replayOperation<Output extends z.ZodType>(
   },
 ): Promise<z.output<Output> | undefined> {
   const hash = fingerprint(input.operation, input.fingerprintInput, input.actor);
-  const row = await trx
-    .selectFrom('command')
-    .select(['operation', 'fingerprint', 'result'])
-    .where('actor', '=', input.actor)
-    .where('key', '=', input.key)
-    .executeTakeFirst();
+  const row = await storedCommand(trx, input.actor, input.key);
   if (row !== undefined) {
     if (row.operation !== input.operation || row.fingerprint !== hash) {
       throw new CommandError('idempotency_key_mismatch', 'Use the original input or a new key.');
@@ -152,7 +175,8 @@ function emptyAllowed(entry: CatalogMutation): boolean {
 /** Parse, replay, authorize, then apply one catalog mutation in one transaction. */
 export function createApply(deps: { store: Store; clock: Clock; config: Config }): Apply {
   const { store, clock, config } = deps;
-  return async (op, input, actor, key) => {
+  const inFlight = new Map<string, Promise<unknown>>();
+  const apply: Apply = async (op, input, actor, key) => {
     const entry = catalogMutation(op.id);
     const parsed = entry.input.safeParse(input);
     if (!parsed.success)
@@ -166,10 +190,14 @@ export function createApply(deps: { store: Store; clock: Clock; config: Config }
     const commandKey = key ?? randomUUID();
     const parsedInput = parsed.data as z.output<Entry<typeof op.id>['input']>;
     const mode = 'mode' in parsed.data ? parsed.data.mode : undefined;
-    // A read-only pass outside the transaction: `prepare` runs only for a call every target
-    // allows. The transaction authorizes again and journals a denial.
+    // A read-only pass outside the transaction: `prepare` runs only for a new key and a call
+    // every target allows. A stored key skips it, and the transaction's replay returns the stored
+    // result or refuses the mismatch. The transaction authorizes again and journals a denial.
     let prepared: unknown;
-    if (op.prepare !== undefined) {
+    if (
+      op.prepare !== undefined &&
+      (await storedCommand(store.db, actor, commandKey)) === undefined
+    ) {
       const targets = await op.resolveTargets(store.db, parsedInput, actor);
       const allowed =
         targets.length > 0 &&
@@ -245,6 +273,11 @@ export function createApply(deps: { store: Store; clock: Clock; config: Config }
     }
     return result as z.output<Entry<typeof op.id>['output']>;
   };
+  // A same-key call waits for the one in flight, then replays its result instead of polling.
+  return (op, input, actor, key) =>
+    op.prepare === undefined || key === undefined
+      ? apply(op, input, actor, key)
+      : serialized(inFlight, `${actor}\0${key}`, () => apply(op, input, actor, key));
 }
 
 /** Deletes command keys older than `retentionDays`; a key exactly at the cutoff stays. */

@@ -267,7 +267,7 @@ async function setup(
       });
     },
     ack: (actor: ActorId, turn = 'T1') =>
-      apply(registry['inbox.ack'], { entries: [{ id: turn }] }, actor, `ack-${actor}`),
+      apply(registry['inbox.ack'], { entries: [{ id: turn }] }, actor, `ack-${actor}-${turn}`),
     submit: (actor: ActorId, sha: string, key: string, turn = 'T1') =>
       apply(registry['task.submit'], { turn, sha }, actor, key),
     return: (actor: ActorId, key: string, turn = 'T1') =>
@@ -319,6 +319,36 @@ describe('task.submit', () => {
     await expect(ctx.submit(REV_1, B, 'submit-2')).rejects.toMatchObject({ code: 'turn_closed' });
     ctx.answers(err({ kind: 'timeout', message: 'GitHub timed out' }));
     await expect(ctx.submit(REV_1, B, 'submit-1')).resolves.toMatchObject({ turn: 'T1', sha: B });
+    expect(ctx.calls).toHaveLength(1);
+  });
+
+  it('refuses a stored key reused for a new turn without polling', async () => {
+    const ctx = await taken();
+    ctx.commits(B);
+    await ctx.submit(REV_1, B, 'submit-1');
+    const turn = `T${String((await ctx.openTurn()).id)}`;
+    await ctx.ack(REV_1, turn);
+    const before = await ctx.tables();
+
+    await expect(ctx.submit(REV_1, B, 'submit-1', turn)).rejects.toMatchObject({
+      code: 'idempotency_key_mismatch',
+    });
+
+    expect(ctx.calls).toHaveLength(1);
+    expect(await ctx.tables()).toEqual(before);
+  });
+
+  it('polls once for concurrent submits with one key', async () => {
+    const ctx = await taken();
+    ctx.commits(B);
+
+    const [first, second] = await Promise.all([
+      ctx.submit(REV_1, B, 'submit-1'),
+      ctx.submit(REV_1, B, 'submit-1'),
+    ]);
+
+    expect(second).toEqual(first);
+    expect(first).toMatchObject({ turn: 'T1', sha: B });
     expect(ctx.calls).toHaveLength(1);
   });
 
