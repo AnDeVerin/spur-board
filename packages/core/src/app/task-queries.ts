@@ -272,7 +272,7 @@ export function createTaskQueries(config: Config) {
           continue;
         blocks.push(blockView(block, task));
       }
-      return { comments, blocks };
+      return { comments, blocks, turns: [] };
     },
   };
   return { get, history, inbox };

@@ -11,6 +11,7 @@ import {
   parseActorId,
   parseRef,
   taskKeySchema,
+  turnIdSchema,
 } from '../src/index.ts';
 
 describe('typed refs', () => {
@@ -18,6 +19,7 @@ describe('typed refs', () => {
     ['B12', { kind: 'block', text: 'B12', n: 12 }],
     ['C3', { kind: 'comment', text: 'C3', n: 3 }],
     ['I7', { kind: 'item', text: 'I7', n: 7 }],
+    ['T4', { kind: 'turn', text: 'T4', n: 4 }],
     ['PROJ-123', { kind: 'task', text: 'PROJ-123', form: 'jira' }],
     ['B-12', { kind: 'task', text: 'B-12', form: 'jira' }],
     ['acme/web#42', { kind: 'task', text: 'acme/web#42', form: 'github' }],
@@ -42,6 +44,7 @@ describe('typed refs', () => {
       [blockIdSchema, 'B'],
       [commentIdSchema, 'C'],
       [itemIdSchema, 'I'],
+      [turnIdSchema, 'T'],
     ] as const;
     for (const [schema, prefix] of schemas) {
       const pattern = new RegExp(String(z.toJSONSchema(schema).pattern));
@@ -69,6 +72,7 @@ describe('typed refs', () => {
   it('gives wrong_id_kind for a valid ID of another kind', () => {
     expect(parseRef('PROJ-123', 'block')).toEqual({ ok: false, error: 'wrong_id_kind' });
     expect(parseRef('B12', 'task')).toEqual({ ok: false, error: 'wrong_id_kind' });
+    expect(parseRef('B12', 'turn')).toEqual({ ok: false, error: 'wrong_id_kind' });
     expect(parseRef('C3', 'comment')).toMatchObject({ ok: true });
   });
 
@@ -92,6 +96,7 @@ describe('typed refs', () => {
     [blockIdSchema, 'B12', 'C3'],
     [commentIdSchema, 'C3', 'I7'],
     [itemIdSchema, 'I7', 'B12'],
+    [turnIdSchema, 'T4', 'B12'],
     [taskKeySchema, 'acme/web#42', 'B12'],
   ])('a schema accepts its kind and rejects another (%#)', (schema, good, bad) => {
     expect(schema.parse(good)).toBe(good);
@@ -103,6 +108,7 @@ describe('typed refs', () => {
       [blockIdSchema, ['B12'], ['B0', 'C3']],
       [commentIdSchema, ['C3'], ['C0', 'B12']],
       [itemIdSchema, ['I7'], ['I0', 'B12']],
+      [turnIdSchema, ['T4'], ['T0', 'B12']],
       [taskKeySchema, ['PROJ-123', 'acme/web#42', 'web#42'], ['B12', '#42']],
     ] as const;
     for (const [schema, accepted, rejected] of cases) {

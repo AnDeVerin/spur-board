@@ -7,6 +7,7 @@ import {
   commentIdSchema,
   itemIdSchema,
   taskKeySchema,
+  turnIdSchema,
 } from '../ids.ts';
 import { defineOperation } from './define.ts';
 import {
@@ -22,6 +23,7 @@ import {
   statusUnlinkedPrSchema,
   statusUnlinkedSessionSchema,
   taskViewSchema,
+  turnViewSchema,
 } from './schemas.ts';
 import { SPACE_IDS } from '../gateway/schemas.ts';
 
@@ -97,6 +99,22 @@ const comment = {
   revision: 1,
   ackedRevision: null,
   untrusted: true,
+} as const;
+const reviewTurn = {
+  id: 'T4',
+  task: 'PROJ-123',
+  column: 'review',
+  addressee: 'orchestrator:review',
+  reason: 'The pull request is ready for review.',
+  at,
+  taken: null,
+} as const;
+const handedReview = {
+  repo: 'acme/web',
+  number: 42,
+  kind: 'review',
+  id: 'PRR_kwDOA1',
+  postedAt: at,
 } as const;
 const item = { id: 'I7', task: 'PROJ-123', at, summary: 'Deploy of PROJ-123 failed.' } as const;
 
@@ -372,7 +390,7 @@ export const OPERATIONS = [
   defineOperation({
     id: 'inbox.get',
     kind: 'query',
-    description: 'List the comments and blocks addressed to the caller and not yet handled.',
+    description: 'List the comments, blocks and turns addressed to the caller and not yet handled.',
     mcp: {
       whenToUse: 'Read items awaiting the caller.',
       whenNotToUse: 'Use inbox_ack to mark them read.',
@@ -381,6 +399,9 @@ export const OPERATIONS = [
     output: z.strictObject({
       comments: z.array(commentSchema).describe('Comments not yet acknowledged.'),
       blocks: z.array(blockViewSchema).describe('Open blocks addressed to the caller.'),
+      turns: z
+        .array(turnViewSchema)
+        .describe('Unclosed turns the caller may take or has taken; at most one per task.'),
     }),
     grants: [{ grant: 'project-agent' }, { grant: 'operator' }],
     errors: ['not_found'],
@@ -390,14 +411,19 @@ export const OPERATIONS = [
       {
         summary: 'Read the inbox',
         input: {},
-        output: { comments: [comment], blocks: [codeBlock] },
+        output: {
+          comments: [comment],
+          blocks: [codeBlock],
+          turns: [{ ...reviewTurn, handed: [handedReview] }],
+        },
       },
     ],
   }),
   defineOperation({
     id: 'inbox.ack',
     kind: 'mutation',
-    description: 'Mark comments or agent-addressed blocks as read in the inbox.',
+    description:
+      'Mark comments, agent-addressed blocks or turns as read; acking a turn makes the caller its taker.',
     mcp: {
       whenToUse: 'Mark handled inbox items read.',
       whenNotToUse: 'Use inbox_get to inspect them first.',
@@ -411,14 +437,15 @@ export const OPERATIONS = [
               revision: z.int().positive().describe('Revision the caller read.'),
             }),
             z.strictObject({ id: blockIdSchema }),
+            z.strictObject({ id: turnIdSchema }),
           ]),
         )
         .min(1)
-        .describe('Comment revisions and blocks to acknowledge.'),
+        .describe('Comment revisions, blocks and turns to acknowledge.'),
     }),
     output: z.strictObject({
       acked: z
-        .array(z.union([commentIdSchema, blockIdSchema]))
+        .array(z.union([commentIdSchema, blockIdSchema, turnIdSchema]))
         .describe('Entries now acknowledged.'),
     }),
     grants: [{ grant: 'project-agent' }],
@@ -435,6 +462,11 @@ export const OPERATIONS = [
         summary: 'Acknowledge an agent-addressed block',
         input: { entries: [{ id: 'B13' }] },
         output: { acked: ['B13'] },
+      },
+      {
+        summary: 'Take a turn',
+        input: { entries: [{ id: 'T4' }] },
+        output: { acked: ['T4'] },
       },
     ],
   }),

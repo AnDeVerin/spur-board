@@ -94,7 +94,7 @@ function positionalInput(op: CatalogOperation, field: string, value: unknown): u
   if (!revisionEntryArray(fieldSchema(op, field)) || !Array.isArray(value)) return value;
   return value.map((item: unknown) => {
     if (typeof item !== 'string') return item;
-    if (/^B[1-9][0-9]*$/.test(item)) return { id: item };
+    if (!item.includes('@')) return { id: item };
     const match = /^([^@]+)@([1-9][0-9]*)$/.exec(item);
     const id = match?.[1];
     const rawRevision = match?.[2];

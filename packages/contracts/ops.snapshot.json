@@ -1,5 +1,5 @@
 {
-  "version": "776fa0a5d0ba8ff3ad7ff454725e68b5f162ec655cce52145ab58161db383113",
+  "version": "561047024bab284d9d9aeccf8fb7c52777b265dac5a4417f82919a4274d77b6d",
   "grants": [
     "operator",
     "project-agent",
@@ -2922,7 +2922,7 @@
     {
       "id": "inbox.get",
       "kind": "query",
-      "description": "List the comments and blocks addressed to the caller and not yet handled.",
+      "description": "List the comments, blocks and turns addressed to the caller and not yet handled.",
       "grants": [{ "grant": "project-agent" }, { "grant": "operator" }],
       "preconditions": null,
       "errors": [
@@ -2974,6 +2974,26 @@
                 "outcomeReason": null,
                 "unblockedBy": null,
                 "unblockedAt": null
+              }
+            ],
+            "turns": [
+              {
+                "id": "T4",
+                "task": "PROJ-123",
+                "column": "review",
+                "addressee": "orchestrator:review",
+                "reason": "The pull request is ready for review.",
+                "at": "2026-01-05T09:30:00.000Z",
+                "taken": null,
+                "handed": [
+                  {
+                    "repo": "acme/web",
+                    "number": 42,
+                    "kind": "review",
+                    "id": "PRR_kwDOA1",
+                    "postedAt": "2026-01-05T09:30:00.000Z"
+                  }
+                ]
               }
             ]
           }
@@ -3190,16 +3210,150 @@
               "description": "A block on a task."
             },
             "description": "Open blocks addressed to the caller."
+          },
+          "turns": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "pattern": "^T[1-9]\\d{0,14}$",
+                  "description": "Turn ID: T followed by a number, e.g. T4."
+                },
+                "task": {
+                  "type": "string",
+                  "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
+                  "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
+                },
+                "column": {
+                  "type": "string",
+                  "enum": [
+                    "todo",
+                    "ready-for-dev",
+                    "dev",
+                    "review",
+                    "product-review",
+                    "external-review",
+                    "qa",
+                    "ready-to-merge",
+                    "done"
+                  ],
+                  "description": "Board column the turn belongs to."
+                },
+                "addressee": {
+                  "type": "string",
+                  "enum": [
+                    "operator",
+                    "curator",
+                    "orchestrator:todo",
+                    "orchestrator:ready-for-dev",
+                    "orchestrator:dev",
+                    "orchestrator:review",
+                    "orchestrator:product-review",
+                    "orchestrator:external-review",
+                    "orchestrator:qa",
+                    "orchestrator:ready-to-merge",
+                    "orchestrator:done",
+                    "worker"
+                  ],
+                  "description": "Who executes the turn."
+                },
+                "reason": {
+                  "type": "string",
+                  "description": "Why the turn was handed to the executor."
+                },
+                "handed": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "repo": {
+                        "type": "string",
+                        "pattern": "^[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+$",
+                        "description": "Repository as owner/name."
+                      },
+                      "number": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 9007199254740991,
+                        "description": "Pull request number in the repository."
+                      },
+                      "kind": {
+                        "type": "string",
+                        "enum": ["comment", "review"],
+                        "description": "Whether this is a comment or a submitted review."
+                      },
+                      "id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "Stable id of the comment or review in the source."
+                      },
+                      "postedAt": {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                        "description": "When the comment was posted or the review submitted, ISO 8601 UTC."
+                      }
+                    },
+                    "required": ["repo", "number", "kind", "id", "postedAt"],
+                    "additionalProperties": false,
+                    "description": "Pull request feedback handed over with a turn."
+                  },
+                  "description": "Pull request feedback handed over with the turn."
+                },
+                "at": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                  "description": "When the turn was opened, ISO 8601 UTC."
+                },
+                "taken": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "by": {
+                          "anyOf": [
+                            { "type": "string", "const": "operator" },
+                            { "type": "string", "const": "system" },
+                            {
+                              "type": "string",
+                              "pattern": "^agent:[A-Za-z0-9._-]+\\/[A-Za-z0-9._-]+$"
+                            }
+                          ],
+                          "description": "Actor: operator, system, or agent:<project>/<session>."
+                        },
+                        "at": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                          "description": "When the turn was taken, ISO 8601 UTC."
+                        }
+                      },
+                      "required": ["by", "at"],
+                      "additionalProperties": false
+                    },
+                    { "type": "null" }
+                  ],
+                  "description": "Who took the turn and when; null until it is taken."
+                }
+              },
+              "required": ["id", "task", "column", "addressee", "reason", "handed", "at", "taken"],
+              "additionalProperties": false,
+              "description": "A turn: the executor of a column is asked to act on a task."
+            },
+            "description": "Unclosed turns the caller may take or has taken; at most one per task."
           }
         },
-        "required": ["comments", "blocks"],
+        "required": ["comments", "blocks", "turns"],
         "additionalProperties": false
       }
     },
     {
       "id": "inbox.ack",
       "kind": "mutation",
-      "description": "Mark comments or agent-addressed blocks as read in the inbox.",
+      "description": "Mark comments, agent-addressed blocks or turns as read; acking a turn makes the caller its taker.",
       "grants": [{ "grant": "project-agent" }],
       "preconditions": null,
       "errors": [
@@ -3232,6 +3386,11 @@
           "summary": "Acknowledge an agent-addressed block",
           "input": { "entries": [{ "id": "B13" }] },
           "output": { "acked": ["B13"] }
+        },
+        {
+          "summary": "Take a turn",
+          "input": { "entries": [{ "id": "T4" }] },
+          "output": { "acked": ["T4"] }
         }
       ],
       "input": {
@@ -3272,10 +3431,22 @@
                   },
                   "required": ["id"],
                   "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "pattern": "^T[1-9]\\d{0,14}$",
+                      "description": "Turn ID: T followed by a number, e.g. T4."
+                    }
+                  },
+                  "required": ["id"],
+                  "additionalProperties": false
                 }
               ]
             },
-            "description": "Comment revisions and blocks to acknowledge."
+            "description": "Comment revisions, blocks and turns to acknowledge."
           }
         },
         "required": ["entries"],
@@ -3298,6 +3469,11 @@
                   "type": "string",
                   "pattern": "^B[1-9]\\d{0,14}$",
                   "description": "Block ID: B followed by a number, e.g. B12."
+                },
+                {
+                  "type": "string",
+                  "pattern": "^T[1-9]\\d{0,14}$",
+                  "description": "Turn ID: T followed by a number, e.g. T4."
                 }
               ]
             },

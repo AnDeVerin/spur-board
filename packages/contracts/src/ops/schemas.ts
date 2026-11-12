@@ -13,8 +13,15 @@ import {
   commentIdSchema,
   itemIdSchema,
   taskKeySchema,
+  turnIdSchema,
 } from '../ids.ts';
-import { prFactsSchema, sessionFactsSchema, ticketFactsSchema } from '../facts.ts';
+import {
+  FEEDBACK_KINDS,
+  prFactsSchema,
+  prRefSchema,
+  sessionFactsSchema,
+  ticketFactsSchema,
+} from '../facts.ts';
 import { OPERATION_KINDS, cliModeSchema, grantRuleSchema } from './define.ts';
 
 // Shapes several operations return. Every object is strict and every field is described, so the
@@ -81,6 +88,37 @@ export const blockViewSchema = z
       .describe('When the block was unblocked; null while open.'),
   })
   .describe('A block on a task.');
+
+/** One pull request comment or review a turn handed to its executor. */
+export const turnHandedSchema = z
+  .strictObject({
+    ...prRefSchema.shape,
+    kind: z.enum(FEEDBACK_KINDS).describe('Whether this is a comment or a submitted review.'),
+    id: z.string().min(1).describe('Stable id of the comment or review in the source.'),
+    postedAt: z.iso
+      .datetime()
+      .describe('When the comment was posted or the review submitted, ISO 8601 UTC.'),
+  })
+  .describe('Pull request feedback handed over with a turn.');
+
+export const turnViewSchema = z
+  .strictObject({
+    id: turnIdSchema,
+    task: taskKeySchema,
+    column: z.enum(COLUMN_IDS).describe('Board column the turn belongs to.'),
+    addressee: z.enum(ADDRESSEE_ROLES).describe('Who executes the turn.'),
+    reason: z.string().describe('Why the turn was handed to the executor.'),
+    handed: z.array(turnHandedSchema).describe('Pull request feedback handed over with the turn.'),
+    at: z.iso.datetime().describe('When the turn was opened, ISO 8601 UTC.'),
+    taken: z
+      .strictObject({
+        by: actorIdSchema,
+        at: z.iso.datetime().describe('When the turn was taken, ISO 8601 UTC.'),
+      })
+      .nullable()
+      .describe('Who took the turn and when; null until it is taken.'),
+  })
+  .describe('A turn: the executor of a column is asked to act on a task.');
 
 export const itemViewSchema = z
   .strictObject({
