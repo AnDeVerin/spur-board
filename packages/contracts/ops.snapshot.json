@@ -1,5 +1,5 @@
 {
-  "version": "fac2577182f0a8f1e473e5f598440b3f81cdc57c1438f17bcff56396ac27a92a",
+  "version": "fb60767f8c05ce676b2dc272ea4d3e3accd8486b8bb8083f66d668708d0407cd",
   "grants": [
     "operator",
     "project-agent",
@@ -310,10 +310,10 @@
     "head_mismatch": {
       "status": 409,
       "exit": 1,
-      "message": "The commit is not the head of the task's pull request.",
-      "hint": "Push the commit to the pull request branch, then submit the commit at its head.",
+      "message": "The commit is not the head of the task's pull request, or the task has none.",
+      "hint": "Push the commit to the task's pull request branch and submit its head; if the task has none, ask the operator to link the pull request with `board link` first.",
       "recovery": {
-        "action": "Push the commit to the pull request branch, then submit the commit at its head.",
+        "action": "Push the commit to the task's pull request branch and submit its head; if the task has none, ask the operator to link the pull request first.",
         "sideEffects": "none",
         "maxRetries": 0,
         "retryTiming": "After fixing the cause."

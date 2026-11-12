@@ -344,12 +344,12 @@ Example:
 
 ## head_mismatch
 
-The commit is not the head of the task's pull request.
+The commit is not the head of the task's pull request, or the task has none.
 
 HTTP: 409  
 Exit code: 1  
-Hint: Push the commit to the pull request branch, then submit the commit at its head.  
-Recovery: Push the commit to the pull request branch, then submit the commit at its head.  
+Hint: Push the commit to the task's pull request branch and submit its head; if the task has none, ask the operator to link the pull request with `board link` first.  
+Recovery: Push the commit to the task's pull request branch and submit its head; if the task has none, ask the operator to link the pull request first.  
 Side effects: none  
 Retry: maximum 0; After fixing the cause.
 
@@ -362,11 +362,11 @@ Example:
   "error": {
     "code": "head_mismatch",
     "requestId": "req-example-123",
-    "message": "The commit is not the head of the task's pull request.",
-    "hint": "Push the commit to the pull request branch, then submit the commit at its head.",
+    "message": "The commit is not the head of the task's pull request, or the task has none.",
+    "hint": "Push the commit to the task's pull request branch and submit its head; if the task has none, ask the operator to link the pull request with `board link` first.",
     "docs": "docs/errors.md#head_mismatch",
     "recovery": {
-      "action": "Push the commit to the pull request branch, then submit the commit at its head.",
+      "action": "Push the commit to the task's pull request branch and submit its head; if the task has none, ask the operator to link the pull request first.",
       "sideEffects": "none",
       "maxRetries": 0,
       "retryTiming": "After fixing the cause."

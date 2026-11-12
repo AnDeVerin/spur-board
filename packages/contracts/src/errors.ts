@@ -165,10 +165,10 @@ export const ERRORS = {
   head_mismatch: spec('head_mismatch', {
     status: 409,
     exit: EXIT_CODES.refused,
-    message: "The commit is not the head of the task's pull request.",
-    hint: 'Push the commit to the pull request branch, then submit the commit at its head.',
+    message: "The commit is not the head of the task's pull request, or the task has none.",
+    hint: "Push the commit to the task's pull request branch and submit its head; if the task has none, ask the operator to link the pull request with `board link` first.",
     recovery: noRetry(
-      'Push the commit to the pull request branch, then submit the commit at its head.',
+      "Push the commit to the task's pull request branch and submit its head; if the task has none, ask the operator to link the pull request first.",
     ),
   }),
   return_not_allowed: spec('return_not_allowed', {
