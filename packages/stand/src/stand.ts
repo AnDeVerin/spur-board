@@ -866,9 +866,12 @@ export async function startStand(options: StandOptions): Promise<Stand> {
       fake = undefined;
       // After the daemon stopped, so a call made during its shutdown is counted too.
       violationsCleared += previous.violations().length;
+      // The retiring fake may have issued a ts past the snapshot's: never issue one again.
+      const { lastMicros } = previous.state();
       await previous.close();
       fake = await startFake(port);
-      if (hit !== undefined) fake.restore(hit.slack);
+      if (hit !== undefined)
+        fake.restore({ ...hit.slack, lastMicros: Math.max(lastMicros, hit.slack.lastMicros) });
       await writeHome(fake.url, name, hit?.file);
       violationsCleared += fakes.violations().total;
       // Before the new runner starts, so its first poll sees clean state.

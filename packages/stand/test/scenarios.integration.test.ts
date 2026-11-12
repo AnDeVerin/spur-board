@@ -880,6 +880,61 @@ describe('snapshots', () => {
     90_000,
   );
 
+  it('a restore never reissues a Slack ts the retiring fake already issued', async () => {
+    // A clock that moves only when the test steps it: the sender takes one send per space per
+    // second of it, and the fake stamps a ts from it.
+    let at = Date.now();
+    await up({ clock: { now: () => at } });
+    const { scenario } = await seed('question-to-operator');
+    const task = scenario.tasks?.['question'];
+    if (task === undefined) throw new Error('no question task');
+    const stamps = async (): Promise<bigint[]> => {
+      const { messages } = (await ok(current(), '/fake/slack/outbox')) as {
+        messages: { message: string }[];
+      };
+      return messages.map(({ message }) => {
+        const { ts } = JSON.parse(message) as { ts: string };
+        return BigInt(ts.replace('.', ''));
+      });
+    };
+    const ask = async (text: string): Promise<void> => {
+      const manifest = current();
+      const response = await fetch(`${manifest.daemonUrl}/v1/ops/block.ask`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-board-session': manifest.roles.worker },
+        body: JSON.stringify({ input: { task, text }, key: text }),
+      });
+      expect(response.status, await response.text()).toBe(200);
+    };
+    const drain = async (): Promise<void> => {
+      for (let step = 0; step < 20; step += 1) {
+        const drained = await control(current(), '/wait', {
+          condition: 'outbox-drained',
+          timeoutMs: 1_500,
+        });
+        if (drained.status === 200) return;
+        at += 1_000;
+      }
+      throw new Error('the outbox did not drain');
+    };
+    const seeded = new Set(await stamps());
+    await ask('Posted after the snapshot?');
+    await drain();
+    const before = await stamps();
+    const highest = before.reduce((a, b) => (a > b ? a : b));
+    expect(before.length).toBeGreaterThan(seeded.size);
+
+    // The clock holds still across the reset, so only the fake's high-water mark keeps the next
+    // ts above the ones the retiring fake issued.
+    expect(((await ok(current(), '/reset')) as ResetAnswer).snapshot).toBe('restored');
+    await ok(current(), '/wait', SEED_WAIT);
+    await ask('Posted after the restore?');
+    await drain();
+    const after = (await stamps()).filter((ts) => !seeded.has(ts));
+    expect(after.length).toBeGreaterThan(0);
+    for (const ts of after) expect(ts > highest, `${String(ts)} > ${String(highest)}`).toBe(true);
+  }, 90_000);
+
   it('the stand clock does not move back across a restore-reset', async () => {
     await up();
     await seed('empty');
