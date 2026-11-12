@@ -7,7 +7,7 @@ import {
   type TicketFacts,
 } from '@spur-board/contracts';
 import { z } from 'zod';
-import { classifyHttpFailure } from '../runner/http.ts';
+import { classifyHttpFailure, withTimeout } from '../runner/http.ts';
 import { parseWire } from '../runner/wire.ts';
 
 type Tracker = Extract<Config['projects'][number]['tracker'], { type: 'github-issues' }>;
@@ -101,34 +101,36 @@ export function createGithubIssuesAdapter(options: GithubIssuesOptions): Adapter
     url: string,
     signal: AbortSignal,
   ): Promise<{ value: unknown; next?: string }> {
-    let response: Response;
-    try {
-      response = await transport(url, {
-        signal,
-        headers: {
-          accept: 'application/vnd.github+json',
-          authorization: `Bearer ${options.token}`,
-          'x-github-api-version': '2022-11-28',
-        },
-      });
-    } catch {
-      throw new AdapterError('transient', 'GitHub issue request failed');
-    }
-    if (!response.ok) {
-      const failure = classifyHttpFailure(
-        { status: response.status, headers: response.headers, body: await response.text() },
-        options.now(),
-      );
-      throw new GithubIssuesHttpError(response.status, failure);
-    }
-    let value: unknown;
-    try {
-      value = await response.json();
-    } catch {
-      throw new AdapterError('transient', 'Malformed GitHub issue response');
-    }
-    const next = response.headers.get('link')?.match(/<([^>]+)>;\s*rel="next"/)?.[1];
-    return { value, ...(next === undefined ? {} : { next }) };
+    return withTimeout(signal, 'GitHub issue request timed out', async (timed) => {
+      let response: Response;
+      try {
+        response = await transport(url, {
+          signal: timed,
+          headers: {
+            accept: 'application/vnd.github+json',
+            authorization: `Bearer ${options.token}`,
+            'x-github-api-version': '2022-11-28',
+          },
+        });
+      } catch {
+        throw new AdapterError('transient', 'GitHub issue request failed');
+      }
+      if (!response.ok) {
+        const failure = classifyHttpFailure(
+          { status: response.status, headers: response.headers, body: await response.text() },
+          options.now(),
+        );
+        throw new GithubIssuesHttpError(response.status, failure);
+      }
+      let value: unknown;
+      try {
+        value = await response.json();
+      } catch {
+        throw new AdapterError('transient', 'Malformed GitHub issue response');
+      }
+      const next = response.headers.get('link')?.match(/<([^>]+)>;\s*rel="next"/)?.[1];
+      return { value, ...(next === undefined ? {} : { next }) };
+    });
   }
 
   let repositoryId: number | undefined;

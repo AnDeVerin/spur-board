@@ -60,6 +60,29 @@ function lookups(urls: URL[]): number {
   return urls.filter((url) => url.pathname === '/repos/acme/board').length;
 }
 
+/** A fetch that never answers; it rejects with the signal's reason once the signal aborts. */
+const hanging: typeof fetch = (_input, init) =>
+  new Promise((_resolve, reject) => {
+    init?.signal?.addEventListener('abort', () => {
+      reject(init.signal?.reason as Error);
+    });
+  });
+
+/** Records how `promise` settles without awaiting it. */
+function settle(promise: Promise<unknown>): { settled: boolean; error?: unknown } {
+  const state: { settled: boolean; error?: unknown } = { settled: false };
+  promise.then(
+    () => {
+      state.settled = true;
+    },
+    (error: unknown) => {
+      state.settled = true;
+      state.error = error;
+    },
+  );
+  return state;
+}
+
 describe('GitHub Issues source', () => {
   it('reads every label page, excludes pull requests, and keeps stable node ids', async () => {
     const next = 'https://api.github.com/repos/acme/board/issues?page=2';
@@ -509,5 +532,50 @@ describe('GitHub Issues source', () => {
     expect(batchSchema.safeParse(batch).success).toBe(true);
     expect(batch.entities).toEqual([{ ref, status: 'not_found' }]);
     expect(batch.items).toEqual([]);
+  });
+});
+
+describe('GitHub Issues request timeout', () => {
+  it('fails a milestone lookup with no answer as timed out after 30 s', async () => {
+    vi.useFakeTimers();
+    try {
+      const adapter = createGithubIssuesAdapter({
+        id,
+        tracker: { type: 'github-issues', repo: 'acme/board', milestone: 'M1' },
+        token: 'test',
+        intervalMs: 60_000,
+        now,
+        fetch: hanging,
+      });
+      const poll = settle(adapter.poll(context()));
+      await vi.advanceTimersByTimeAsync(29_999);
+      expect(poll.settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(poll.error).toBeInstanceOf(AdapterError);
+      expect(poll.error).toMatchObject({
+        kind: 'transient',
+        message: 'GitHub issue request timed out',
+      });
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('rejects a label listing abort as a poll abort, not a timeout', async () => {
+    vi.useFakeTimers();
+    try {
+      const controller = new AbortController();
+      const poll = settle(labelAdapter(hanging).poll({ ...context(), signal: controller.signal }));
+      await vi.advanceTimersByTimeAsync(10_000);
+      controller.abort();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(poll.error).toMatchObject({ kind: 'transient', message: 'GitHub issue poll aborted' });
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(poll.error).toMatchObject({ message: 'GitHub issue poll aborted' });
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

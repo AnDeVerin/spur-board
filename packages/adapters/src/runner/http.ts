@@ -35,3 +35,30 @@ function retryAt(headers: Headers, now: number): Date | undefined {
   }
   return undefined;
 }
+
+/** Longest a GitHub or Jira request may take, body read included. */
+const REQUEST_TIMEOUT_MS = 30_000;
+
+/**
+ * Runs one request under `signal` and a {@link REQUEST_TIMEOUT_MS} timer. A timeout rejects as a
+ * `transient` error with `message`; a caller abort passes through unchanged.
+ */
+export async function withTimeout<T>(
+  signal: AbortSignal,
+  message: string,
+  work: (signal: AbortSignal) => Promise<T>,
+): Promise<T> {
+  const timer = new AbortController();
+  const handle = setTimeout(() => {
+    timer.abort(new DOMException(message, 'TimeoutError'));
+  }, REQUEST_TIMEOUT_MS);
+  try {
+    return await work(AbortSignal.any([signal, timer.signal]));
+  } catch (cause) {
+    if (timer.signal.aborted && !signal.aborted)
+      throw new AdapterError('transient', message, { cause });
+    throw cause;
+  } finally {
+    clearTimeout(handle);
+  }
+}

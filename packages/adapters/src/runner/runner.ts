@@ -29,6 +29,9 @@ import {
   type PollOutcome,
 } from './policy.ts';
 
+/** The setTimeout limit: a longer delay would otherwise fire after 1 ms. */
+const MAX_TIMER_MS = 2_147_483_647;
+
 interface RunnerEntry {
   adapter: Adapter;
   /** Repository owned by a GitHub PR source. */
@@ -224,10 +227,13 @@ function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: nu
 
   function schedule(delayMs: number): void {
     if (stopping) return;
-    pollTimer = setTimeout(() => {
-      pollTimer = undefined;
-      void run(poll);
-    }, delayMs);
+    pollTimer = setTimeout(
+      () => {
+        pollTimer = undefined;
+        void run(poll);
+      },
+      Math.min(delayMs, MAX_TIMER_MS),
+    );
   }
 
   async function poll(): Promise<PollOutcome | undefined> {

@@ -24,6 +24,9 @@ import {
 
 const T0 = Date.parse('2026-01-01T00:00:00.000Z');
 const I = 60_000;
+/** The setTimeout limit; a longer delay would fire after 1 ms. */
+const MAX_TIMER_MS = 2_147_483_647;
+const YEAR = 365 * 86_400_000;
 const sha = 'b'.repeat(40);
 const defaults = {
   sources: { authRetryMs: 900_000, goneAfterPolls: 3 },
@@ -561,6 +564,22 @@ describe('http failure classification', () => {
     await advanceTo(4 * I);
     expect(starts).toEqual([0, I, 3 * I, 4 * I]);
   });
+
+  it('caps a throttle wait a year ahead at the timer limit', async () => {
+    random(0);
+    const retryAt = new Date(T0 + YEAR);
+    const { starts } = start((_, n) =>
+      n === 0
+        ? Promise.reject(new AdapterError('throttled', 'slow down', { retryAt }))
+        : Promise.resolve(batch()),
+    );
+    await advanceTo(1_000);
+    expect(starts).toEqual([0]);
+    await advanceTo(MAX_TIMER_MS - 1);
+    expect(starts).toEqual([0]);
+    await advanceTo(MAX_TIMER_MS);
+    expect(starts).toEqual([0, MAX_TIMER_MS]);
+  });
 });
 
 describe('budget', () => {
@@ -575,6 +594,23 @@ describe('budget', () => {
     );
     await advanceTo(600_000);
     expect(starts).toEqual([0, 600_000]);
+  });
+
+  it('caps a budget pause a year ahead at the timer limit', async () => {
+    random(0);
+    const { starts } = start(
+      (_, n) =>
+        Promise.resolve(
+          n === 0 ? batch({ budget: { remaining: 999, resetAt: at(YEAR) } }) : batch(),
+        ),
+      { reserveRemaining: 1000 },
+    );
+    await advanceTo(1_000);
+    expect(starts).toEqual([0]);
+    await advanceTo(MAX_TIMER_MS - 1);
+    expect(starts).toEqual([0]);
+    await advanceTo(MAX_TIMER_MS);
+    expect(starts).toEqual([0, MAX_TIMER_MS]);
   });
 
   it('does not pause at the reserve or without one', async () => {
