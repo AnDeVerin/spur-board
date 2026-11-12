@@ -830,6 +830,7 @@ describe('CLI against the real HTTP API', () => {
       };
     }
 
+    type TokenBoard = Awaited<ReturnType<typeof tokenBoard>>;
     const tokenFile = (folder: string) => join(folder, '.spur-board', 'token');
     const hashOfFile = (folder: string) =>
       createHash('sha256')
@@ -873,7 +874,7 @@ describe('CLI against the real HTTP API', () => {
         state: 'denied',
         exit: 0,
         hint: undefined,
-        arrange: async (board: Awaited<ReturnType<typeof tokenBoard>>, into: string) => {
+        arrange: async (board: TokenBoard, into: string) => {
           expect((await board.create('desk', into)).code).toBe(0);
           await board.decide('desk', 'deny');
           return 'desk';
@@ -883,7 +884,7 @@ describe('CLI against the real HTTP API', () => {
         state: 'pending',
         exit: 4,
         hint: 'Ask the operator',
-        arrange: async (board: Awaited<ReturnType<typeof tokenBoard>>, into: string) => {
+        arrange: async (board: TokenBoard, into: string) => {
           expect((await board.create('desk', into)).code).toBe(0);
           return 'other';
         },
@@ -892,7 +893,7 @@ describe('CLI against the real HTTP API', () => {
         state: 'revoked',
         exit: 4,
         hint: 'another --name',
-        arrange: async (board: Awaited<ReturnType<typeof tokenBoard>>, into: string) => {
+        arrange: async (board: TokenBoard, into: string) => {
           expect((await board.create('desk', into)).code).toBe(0);
           await board.decide('desk', 'approve');
           await board.revoke('desk');
@@ -903,7 +904,7 @@ describe('CLI against the real HTTP API', () => {
         state: 'unknown',
         exit: 4,
         hint: 'BOARD_DAEMON_URL',
-        arrange: async (board: Awaited<ReturnType<typeof tokenBoard>>, into: string) => {
+        arrange: async (board: TokenBoard, into: string) => {
           expect((await board.create('desk', into)).code).toBe(0);
           board.advance(15 * 60 * 1000);
           expect((await board.create('desk', board.folder('elsewhere'))).code).toBe(0);

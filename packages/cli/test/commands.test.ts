@@ -18,6 +18,7 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ERRORS, OPERATIONS, errorEnvelopeSchema } from '@spur-board/contracts';
 import { createProgram, exampleCommand, runCli, type CliIo } from '../src/cli.ts';
+import { holder } from './http-holder.ts';
 
 type Program = ReturnType<typeof createProgram>;
 
@@ -162,6 +163,17 @@ async function recordingDaemon(
   const address = server.address();
   if (!address || typeof address === 'string') throw new Error('Expected TCP port');
   return { url: `http://127.0.0.1:${String(address.port)}`, requests };
+}
+
+/** Runs `token create --name desk --into <folder>` against the daemon at `url`. */
+async function createDeskToken(url: string, home: string, folder: string) {
+  const output = capture();
+  const code = await runCli(['token', 'create', '--name', 'desk', '--into', folder], {
+    env: { BOARD_DAEMON_URL: url },
+    home,
+    io: output.io,
+  });
+  return { code, stdout: output.stdout, stderr: output.stderr };
 }
 
 describe('catalog commands', () => {
@@ -317,14 +329,8 @@ describe('catalog commands', () => {
       code: 'not_found',
       requestId: 'older',
     });
-    const output = capture();
-    expect(
-      await runCli(['token', 'create', '--name', 'desk', '--into', folder], {
-        env: { BOARD_DAEMON_URL: daemon.url },
-        home,
-        io: output.io,
-      }),
-    ).toBe(4);
+    const output = await createDeskToken(daemon.url, home, folder);
+    expect(output.code).toBe(4);
     expect(readFileSync(file)).toEqual(before);
     expect(daemon.requests.map((request) => request.url)).toEqual(['/v1/tokens/status']);
     expect(output.stderr).toContain(file);
@@ -334,23 +340,10 @@ describe('catalog commands', () => {
   it('keeps an existing token file when the daemon is unreachable', async () => {
     const { home, folder, file } = existingTokenFolder('cli-token-offline-');
     const before = readFileSync(file);
-    const server = createServer();
-    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-    const address = server.address();
-    if (!address || typeof address === 'string') throw new Error('Expected TCP port');
-    await new Promise<void>((resolve) => {
-      server.close(() => {
-        resolve();
-      });
-    });
-    const output = capture();
-    expect(
-      await runCli(['token', 'create', '--name', 'desk', '--into', folder], {
-        env: { BOARD_DAEMON_URL: `http://127.0.0.1:${String(address.port)}` },
-        home,
-        io: output.io,
-      }),
-    ).toBe(3);
+    const closed = await holder({});
+    await closed.close();
+    const output = await createDeskToken(`http://127.0.0.1:${String(closed.port)}`, home, folder);
+    expect(output.code).toBe(3);
     expect(readFileSync(file)).toEqual(before);
     expect(output.stderr).toContain('daemon_unavailable');
   });
@@ -363,14 +356,8 @@ describe('catalog commands', () => {
       requestId: 'status-1',
       value: { status: 'unknown' },
     });
-    const output = capture();
-    expect(
-      await runCli(['token', 'create', '--name', 'desk', '--into', folder], {
-        env: { BOARD_DAEMON_URL: daemon.url },
-        home,
-        io: output.io,
-      }),
-    ).toBe(4);
+    const output = await createDeskToken(daemon.url, home, folder);
+    expect(output.code).toBe(4);
     expect(readFileSync(file)).toEqual(before);
     expect(daemon.requests.map((request) => request.url)).toEqual(['/v1/tokens/status']);
     expect(daemon.requests[0]?.authorization).toBeUndefined();
@@ -383,27 +370,17 @@ describe('catalog commands', () => {
   });
 
   it('keeps a symlinked existing token without asking the daemon', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'cli-token-symlink-'));
-    dirs.push(root);
-    const home = join(root, 'home');
-    const folder = join(home, 'project');
-    mkdirSync(join(folder, '.spur-board'), { recursive: true, mode: 0o700 });
-    const target = join(root, 'elsewhere');
+    const { home, folder, file: link } = existingTokenFolder('cli-token-symlink-');
+    const target = join(home, 'elsewhere');
     writeFileSync(target, 'elsewhere-secret\n', { mode: 0o600 });
-    const link = join(folder, '.spur-board', 'token');
+    rmSync(link);
     symlinkSync(target, link);
     const daemon = await recordingDaemon(200, 'application/json', {
       ok: true,
       requestId: 'status-1',
       value: { status: 'expired' },
     });
-    expect(
-      await runCli(['token', 'create', '--name', 'desk', '--into', folder], {
-        env: { BOARD_DAEMON_URL: daemon.url },
-        home,
-        io: capture().io,
-      }),
-    ).toBe(4);
+    expect((await createDeskToken(daemon.url, home, folder)).code).toBe(4);
     expect(lstatSync(link).isSymbolicLink()).toBe(true);
     expect(readFileSync(target, 'utf8')).toBe('elsewhere-secret\n');
     expect(daemon.requests).toEqual([]);
