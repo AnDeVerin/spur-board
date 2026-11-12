@@ -1144,7 +1144,8 @@ describe('accepted observation', () => {
         kind: 'worker_ended',
         raise_no: 1,
         block_id: null,
-        cleared_at: expect.any(String) as string,
+        // Cleared by the ended-worker poll, one second before the tick.
+        cleared_at: new Date(now - 1_000).toISOString(),
         line_outbox_id: null,
       },
       {
@@ -2348,6 +2349,14 @@ describe('anomaly blocks', () => {
     expect((await reminders(b))[0]?.exhausted_at).toBe(iso());
     await tick(b);
     expect(await openLedger(b)).toEqual([`stuck-turn:${String(turn.id)}`]);
+    // The undelivered reminder raises no worker_not_reading or answer_undelivered item.
+    expect(
+      await b.store.db
+        .selectFrom('operator_item')
+        .select(['kind', 'item_key'])
+        .where('task_id', '=', b.task.id)
+        .execute(),
+    ).toEqual([{ kind: 'anomaly', item_key: `stuck-turn:${String(turn.id)}` }]);
   });
 
   it('opens no stuck-turn block for a lost worker', async () => {
