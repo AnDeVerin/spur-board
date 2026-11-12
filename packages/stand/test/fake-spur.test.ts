@@ -153,6 +153,29 @@ describe('sessions', () => {
       { kind: 'restart', previousInstanceId: before, instanceId: inspect(fake).instanceId },
     ]);
   });
+
+  it('returns stopReason in list and detail', async () => {
+    const { fake } = createFake();
+    run(fake, 'session', {
+      id: 'other-1',
+      project: 'other-project',
+      status: 'stopped',
+      state: 'stale',
+      stopReason: 'stale_timeout',
+    });
+    // A later update without the field keeps it.
+    run(fake, 'session', { id: 'other-1', state: 'stale' });
+    const listed = (await (await fake.fetch(sessionsUrl)).json()) as Record<string, unknown>[];
+    expect(listed).toEqual([
+      expect.objectContaining({ id: 'other-1', stopReason: 'stale_timeout' }),
+    ]);
+    const detail = (await (await fake.fetch(`${sessionsUrl}/other-1`)).json()) as unknown;
+    expect(detail).toMatchObject({ id: 'other-1', status: 'stopped', stopReason: 'stale_timeout' });
+    run(fake, 'session', { id: 'plain' });
+    const plain = (await (await fake.fetch(`${sessionsUrl}/plain`)).json()) as object;
+    expect(plain).not.toHaveProperty('stopReason');
+    expect(fake.violations().total).toBe(0);
+  });
 });
 
 describe('send by status', () => {

@@ -85,7 +85,7 @@ const USAGE = `Usage: pnpm stand <command>
                                   fail a route until clear; delay needs --ms (1-60000)
   fake spur clear                 drop every failure rule
   fake spur inspect               print sessions, rules, requests, sends and violations
-  fake github fail <mode>         delay <ms>, refuse, hang, rate-limit <seconds>,
+  fake github fail <mode>         delay <ms>, refuse, hang, auth (401), rate-limit <seconds>,
                                   server-error [status] or clear; lasts until clear or reset
   fake github pr <n> <verb> [--repo owner/name]
                                   create [--seed '<json>'], approve, ci-red, ci-green, merge,
@@ -427,12 +427,13 @@ function failureBody(args: readonly string[]): Record<string, unknown> {
       return value === undefined ? { mode } : { mode, status: wholeNumber(value, 'status') };
     case 'refuse':
     case 'hang':
+    case 'auth':
     case 'clear':
       arity(0);
       return { mode };
     default:
       throw new UsageError(
-        'fail needs delay <ms>, refuse, hang, rate-limit <seconds>, server-error [status] or clear',
+        'fail needs delay <ms>, refuse, hang, auth, rate-limit <seconds>, server-error [status] or clear',
       );
   }
 }

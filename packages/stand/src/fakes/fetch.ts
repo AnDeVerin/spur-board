@@ -47,6 +47,7 @@ const failSchema = z.discriminatedUnion('mode', [
   z.strictObject({ mode: z.literal('delay'), ms: z.int().nonnegative() }),
   z.strictObject({ mode: z.literal('refuse') }),
   z.strictObject({ mode: z.literal('hang') }),
+  z.strictObject({ mode: z.literal('auth') }),
   z.strictObject({ mode: z.literal('rate-limit'), seconds: z.int().nonnegative() }),
   z.strictObject({
     mode: z.literal('server-error'),
@@ -159,6 +160,8 @@ export function createFakes(options: {
         return undefined;
       case 'refuse':
         throw new TypeError('fetch failed: the stand fake refused the connection');
+      case 'auth':
+        return respond({ status: 401, body: { message: 'Bad credentials' } });
       case 'rate-limit':
         return respond({
           status: 429,
