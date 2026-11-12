@@ -449,9 +449,15 @@ describe('each scenario', () => {
       },
       { timeout: 10_000 },
     );
-    await ok(current(), '/wait', { condition: 'outbox-drained', timeoutMs: 20_000 });
-    expect((await inspect(current())).sends).toContainEqual(
-      expect.objectContaining({ session: manifest.roles.worker }),
+    // The doorbell may be queued on a later tick than the answer, so outbox-drained alone could
+    // pass before it exists: wait for the send itself.
+    await vi.waitFor(
+      async () => {
+        expect((await inspect(current())).sends).toContainEqual(
+          expect.objectContaining({ session: manifest.roles.worker }),
+        );
+      },
+      { timeout: 20_000, interval: 100 },
     );
   }, 60_000);
 
