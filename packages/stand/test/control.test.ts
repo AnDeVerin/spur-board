@@ -46,6 +46,7 @@ function raw(control: Control, headers: Record<string, string>, path = '/reset')
 
 /** The routes a test does not exercise. */
 const unused = {
+  seed: vi.fn(),
   fake: vi.fn(),
   violations: vi.fn(),
   slackOutbox: vi.fn(),
@@ -180,6 +181,40 @@ describe('control endpoint', () => {
     expect((await running).status).toBe(200);
     expect((await clicking).status).toBe(200);
     expect(slackClick).toHaveBeenCalledTimes(1);
+  });
+
+  it('queues seed behind a reset and checks its body', async () => {
+    const pending = deferred<RouteResult>();
+    const reset = vi.fn(() => pending.promise);
+    const seed = vi.fn(() => Promise.resolve({ status: 200, body: { seeded: true } }));
+    control = await startControl({
+      token: TOKEN,
+      routes: { ...unused, wait: vi.fn(), poll: vi.fn(), reset, seed },
+    });
+    const seedBody = (body: string) =>
+      fetch(`${control?.url ?? ''}/seed`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+        body,
+      });
+    for (const body of ['{}', '{"scenario":""}', '{"scenario":1}'])
+      expect((await seedBody(body)).status, body).toBe(400);
+    expect(seed).not.toHaveBeenCalled();
+
+    const running = post(control, '/reset');
+    await vi.waitFor(() => {
+      expect(reset).toHaveBeenCalled();
+    });
+    const seeding = seedBody('{"scenario":"empty"}');
+    // The seed is queued: give its request time to arrive, then check it has not run.
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(seed).not.toHaveBeenCalled();
+    pending.resolve({ status: 200, body: {} });
+    expect((await running).status).toBe(200);
+    const seeded = await seeding;
+    expect(seeded.status).toBe(200);
+    expect(await seeded.json()).toEqual({ seeded: true });
+    expect(seed).toHaveBeenCalledExactlyOnceWith({ scenario: 'empty' });
   });
 
   it('answers 404 to an unknown route and 413 to a large body', async () => {

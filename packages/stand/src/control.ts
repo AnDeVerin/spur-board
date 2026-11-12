@@ -20,6 +20,8 @@ export interface ControlRoutes {
   wait(body: { condition: string; timeoutMs: number }, signal: AbortSignal): Promise<RouteResult>;
   poll(body: { source?: string; timeoutMs?: number }): Promise<RouteResult>;
   reset(): Promise<RouteResult>;
+  /** Resets the stand onto the scenario's config and seeds it; queued with `reset`. */
+  seed(body: { scenario: string }): Promise<RouteResult>;
   /** Lists what the fake Slack API holds; never queued. */
   slackOutbox(): Promise<RouteResult>;
   slackClick(body: { message: number; button: string; text?: string }): Promise<RouteResult>;
@@ -87,6 +89,7 @@ const ROUTES = new Set([
   '/wait',
   '/poll',
   '/reset',
+  '/seed',
   '/fake',
   '/violations',
   '/fake/slack/outbox',
@@ -97,7 +100,7 @@ const ROUTES = new Set([
  * The stand's control endpoint on 127.0.0.1. Checks, in order: no `Origin` (403), Host exactly
  * `127.0.0.1:<port>` (403), the Bearer token (401), a known route (404), the body size (413) and
  * its arrival time (10 s). `wait` runs at most `MAX_WAIT_MS`.
- * `poll`, `reset`, `fake spur` and the Slack click run one at a time through one queue; `wait`,
+ * `poll`, `reset`, `seed`, `fake spur` and the Slack click run one at a time through one queue; `wait`,
  * `violations`, the Slack outbox and the other fakes run outside it.
  */
 export async function startControl(options: {
@@ -183,6 +186,11 @@ export async function startControl(options: {
           ...(asked === undefined ? {} : { timeoutMs: Math.min(asked, MAX_WAIT_MS) }),
         }),
       );
+    } else if (path === '/seed') {
+      const { scenario } = body;
+      if (typeof scenario !== 'string' || scenario === '')
+        throw new HttpError(400, 'Send { scenario } with a scenario name.');
+      result = await queued(() => options.routes.seed({ scenario }));
     } else if (path === '/fake') {
       const { system, verb, args = {} } = body;
       if (typeof system !== 'string' || typeof verb !== 'string')
