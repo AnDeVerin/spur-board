@@ -36,8 +36,10 @@ export function createInboundModule(
     awaitRecovery: () => recovery.settled(),
     start: (signal) => recovery.start(signal),
     async stop() {
+      // Abort the scan first: the recovery job's run waits for it.
+      const draining = inbound.stop();
       await recovery.stop();
-      await inbound.stop();
+      await draining;
     },
   };
 }
