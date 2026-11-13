@@ -60,6 +60,8 @@ export interface TaskTable {
   last_change_at: string | null;
   terminal_at: string | null;
   archive_slot_at: string | null;
+  /** When the ticket last went from done to not done (migration 0014); never cleared. */
+  reopened_at: string | null;
 }
 
 export interface PrSnapshotTable {

@@ -303,6 +303,7 @@ describe('migrate', () => {
         'last_change_at',
         'terminal_at',
         'archive_slot_at',
+        'reopened_at',
       ]),
     );
     insertRaw(raw, 'block', sampleRows.block);
@@ -383,6 +384,7 @@ describe('migrate', () => {
         'last_change_at',
         'terminal_at',
         'archive_slot_at',
+        'reopened_at',
       ]),
     );
     insertRaw(
@@ -391,9 +393,9 @@ describe('migrate', () => {
       without(sampleRows.link, ['ticket_key', 'pr_open', 'reopen_hidden_at', 'reopen_pending_at']),
     );
     migrate(raw, real);
-    expect(raw.prepare('SELECT id, tracker_id, key, manual_include FROM task').all()).toEqual([
-      { id: 1, tracker_id: '101', key: 'o/r#101', manual_include: 0 },
-    ]);
+    expect(
+      raw.prepare('SELECT id, tracker_id, key, manual_include, reopened_at FROM task').all(),
+    ).toEqual([{ id: 1, tracker_id: '101', key: 'o/r#101', manual_include: 0, reopened_at: null }]);
     expect(raw.prepare('SELECT task_id, repo, number FROM link').all()).toEqual([
       { task_id: 1, repo: 'x/y', number: 7 },
     ]);
@@ -404,7 +406,7 @@ describe('migrate', () => {
     const dir = tempDir();
     const { raw } = rawDb(join(dir, 'board.db'));
     migrate(raw, real.slice(0, 9));
-    insertRaw(raw, 'task', sampleRows.task);
+    insertRaw(raw, 'task', without(sampleRows.task, ['reopened_at']));
     insertRaw(raw, 'pr_snapshot', { ...sampleRows.pr_snapshot, state: 'closed' });
     insertRaw(
       raw,
@@ -470,6 +472,7 @@ describe('migrate', () => {
         'last_change_at',
         'terminal_at',
         'archive_slot_at',
+        'reopened_at',
       ]),
     );
     insertRaw(
@@ -512,7 +515,7 @@ describe('migrate', () => {
     const dir = tempDir();
     const { raw } = rawDb(join(dir, 'board.db'));
     migrate(raw, real.slice(0, 11));
-    insertRaw(raw, 'task', sampleRows.task);
+    insertRaw(raw, 'task', without(sampleRows.task, ['reopened_at']));
     insertRaw(raw, 'block', sampleRows.block);
     const old = without(
       { ...sampleRows.notification, author_session: null, last_outbox_id: null },
@@ -555,7 +558,7 @@ describe('migrate', () => {
     const dir = tempDir();
     const { raw } = rawDb(join(dir, 'board.db'));
     migrate(raw, real.slice(0, 12));
-    insertRaw(raw, 'task', sampleRows.task);
+    insertRaw(raw, 'task', without(sampleRows.task, ['reopened_at']));
     insertRaw(raw, 'block', sampleRows.block);
     insertRaw(raw, 'turn', {
       ...without(sampleRows.turn, ['head_sha']),
@@ -765,7 +768,7 @@ describe('migration pins', () => {
       '6522f14d6984e4c0af5b1330b5bc7acacee97906e59d20a08f0437fe551d7c46',
     '0012_turn.sql': '181f5fbcc24e1af558471ceaecf76589c314f26813742b057ed84c68f4ea9a8d',
     '0013_turn_reminder.sql': '5843346871e99e0de1fd655f0402fb162dab583318a24c0baf51c7504b71053b',
-    '0014_dispatcher.sql': '77e8752c86cbbb01dc3beb2721675e73fb75bb3513d0bf7d19f3b30ea76605ba',
+    '0014_dispatcher.sql': 'cbb8ee72ad4fff5bb1eeeaff95eebf93da3e92d902e42eee3e69d98aec11a2b5',
   };
 
   interface MigrationFile {

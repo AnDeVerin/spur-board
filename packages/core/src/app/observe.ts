@@ -198,11 +198,13 @@ async function moveOpenWork(trx: Trx, from: number, to: number): Promise<void> {
 }
 
 /**
- * A ticket reopened: the task's PR links not seen merged or closed yet wait for their merge
- * (`reopen_pending_at`, read by `applyPendingReopen`), since GitHub may have merged one before the
- * reopen while the board still holds an open snapshot. Then `hideMergedLinks` runs.
+ * A ticket reopened: the task keeps the time (`reopened_at`, read by `pr` for a PR it links later),
+ * and its PR links not seen merged or closed yet wait for their merge (`reopen_pending_at`, read
+ * by `applyPendingReopen`), since GitHub may have merged one before the reopen while the board
+ * still holds an open snapshot. Then `hideMergedLinks` runs.
  */
 async function setReopenFloor(trx: Trx, taskId: number, at: string): Promise<void> {
+  await trx.updateTable('task').set({ reopened_at: at }).where('id', '=', taskId).execute();
   const unseen = await trx
     .selectFrom('link')
     .leftJoin('pr_snapshot', (join) =>
@@ -239,6 +241,15 @@ async function setReopenFloor(trx: Trx, taskId: number, at: string): Promise<voi
  * `updatedAt`, never earlier than the merge, so a later edit makes the merge count. Then the reopen hides this link only: another link
  * of the task that already counts, such as a follow-up merged after the reopen, keeps counting.
  */
+/** The PR was merged before `reopenedAt`; a tie counts the merge. */
+function mergedBefore(fact: PrFacts, reopenedAt: string | null): boolean {
+  return (
+    fact.state === 'merged' &&
+    reopenedAt !== null &&
+    Date.parse(fact.mergedAt ?? fact.updatedAt) < Date.parse(reopenedAt)
+  );
+}
+
 async function applyPendingReopen(trx: Trx, fact: PrFacts, at: string): Promise<void> {
   if (fact.state === 'open') return;
   const pending = await trx
@@ -250,9 +261,7 @@ async function applyPendingReopen(trx: Trx, fact: PrFacts, at: string): Promise<
     .where('reopen_pending_at', 'is not', null)
     .execute();
   for (const link of pending) {
-    const before =
-      fact.state === 'merged' &&
-      Date.parse(fact.mergedAt ?? fact.updatedAt) < Date.parse(link.reopen_pending_at ?? '');
+    const before = mergedBefore(fact, link.reopen_pending_at);
     await trx
       .updateTable('link')
       .set({ reopen_pending_at: null, ...(before ? { reopen_hidden_at: at } : {}) })
@@ -538,6 +547,8 @@ async function pr(
           created_at: at,
           ticket_key: null,
           pr_open: fact.state === 'open' ? 1 : 0,
+          // First seen merged after a reopen it predates: hidden like the links the reopen hid.
+          reopen_hidden_at: mergedBefore(fact, task.reopened_at) ? at : null,
         })
         .execute();
       await emit(trx, 'link_added', task.project, task.id, at, {

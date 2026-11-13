@@ -647,6 +647,43 @@ describe('flow tables', () => {
     expect(await ctx.openTurn()).toBeNull();
   });
 
+  it('a PR first seen merged after a reopen it predates sends the task to To Do', async () => {
+    const ctx = await started();
+    const turn = await ctx.openTurn();
+    await ctx.ack(WORKER, turn?.id ?? '');
+    // GitHub merged #7, then the ticket closed and reopened, all before a poll saw #7.
+    const merged = ctx.at();
+    await ctx.ticket('closed');
+    await ctx.ticket('open');
+    await ctx.pr({ state: 'merged', mergedAt: merged });
+    expect(await ctx.task()).toMatchObject({ column: 'todo' });
+    expect(
+      await ctx.store.db
+        .selectFrom('link')
+        .select('number')
+        .where('reopen_hidden_at', 'is not', null)
+        .execute(),
+    ).toEqual([{ number: 7 }]);
+    expect((await ctx.moves()).at(-1)).toEqual({
+      from: 'dev',
+      to: 'todo',
+      reason: 'ticket_reopened',
+    });
+  });
+
+  it('a PR first seen merged after the reopen it follows counts', async () => {
+    const ctx = await started();
+    const turn = await ctx.openTurn();
+    await ctx.ack(WORKER, turn?.id ?? '');
+    await ctx.ticket('closed');
+    await ctx.ticket('open');
+    await ctx.pr({
+      state: 'merged',
+      mergedAt: new Date(Date.parse(ctx.at()) + 30_000).toISOString(),
+    });
+    expect((await ctx.task()).column).toBe('done');
+  });
+
   it('a merge after the reopen still counts', async () => {
     const ctx = await inDev();
     await ctx.ticket('closed');

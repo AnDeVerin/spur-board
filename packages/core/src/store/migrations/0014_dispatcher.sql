@@ -8,10 +8,13 @@
 -- was closed or merged, so the link no longer decides the task (NULL while it counts);
 -- `link.reopen_pending_at` is when the ticket reopened while this PR link was not yet seen
 -- merged, so a merge the board observes later but GitHub made by then still hides it (NULL once
--- the link is seen merged or closed, and when no reopen waits).
+-- the link is seen merged or closed, and when no reopen waits); `task.reopened_at` is when the
+-- task's ticket last went from done to not done (NULL if it never did), so a PR the board first
+-- links merged before that time is hidden too. It is never cleared: a later merge counts anyway.
 ALTER TABLE turn ADD COLUMN head_sha TEXT;
 ALTER TABLE submission ADD COLUMN voided_at TEXT;
 ALTER TABLE submission ADD COLUMN pr_repo TEXT;
 ALTER TABLE submission ADD COLUMN pr_number INTEGER;
 ALTER TABLE link ADD COLUMN reopen_hidden_at TEXT;
 ALTER TABLE link ADD COLUMN reopen_pending_at TEXT;
+ALTER TABLE task ADD COLUMN reopened_at TEXT;

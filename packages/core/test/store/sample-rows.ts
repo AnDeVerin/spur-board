@@ -44,6 +44,7 @@ export const sampleRows: SampleRows = {
     last_change_at: at,
     terminal_at: null,
     archive_slot_at: null,
+    reopened_at: at,
   },
   pr_snapshot: {
     repo: 'x/y',
