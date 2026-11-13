@@ -55,6 +55,7 @@ const UNLINKED_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 function interval(config: Config, source: string): number {
   if (source === 'spur') return config.adapters.spur.intervalMs;
   if (source.startsWith('jira:')) return config.adapters.jira.intervalMs;
+  if (source.startsWith('github-issues:')) return config.adapters.githubIssues.intervalMs;
   return config.adapters.github.intervalMs;
 }
 
