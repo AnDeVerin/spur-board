@@ -108,6 +108,8 @@ export const sampleRows: SampleRows = {
     submitted_at: at,
     note: 'ready for review',
     voided_at: null,
+    pr_repo: 'x/y',
+    pr_number: 7,
   },
   turn: {
     id: 1,

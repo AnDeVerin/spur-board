@@ -269,6 +269,8 @@ async function insertSubmission(
       author: ctx.actor,
       submitted_at: ctx.at,
       note: null,
+      pr_repo: pr.repo,
+      pr_number: pr.number,
     })
     .execute();
 }

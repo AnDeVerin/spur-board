@@ -101,6 +101,8 @@ describe('openStore', () => {
       'submitted_at',
       'note',
       'voided_at',
+      'pr_repo',
+      'pr_number',
     ]);
   });
 

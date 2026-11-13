@@ -308,7 +308,7 @@ function externalApproval(pr: PrFacts, agentLogin: string): boolean {
  * The external feedback nobody handled yet. An approval review is not a comment: an entry is one
  * by its own state, or, in a snapshot written before entries had one, when it matches the
  * reviewer's latest approval. An entry is handled once a turn handed it over, or an older one, or
- * once a handling submission (`handlingSubmits`) was made at or after it.
+ * once a handling submission (`handlingSubmits`) on this PR was made at or after it.
  */
 async function unhandledFeedback(
   trx: Trx,
@@ -331,7 +331,9 @@ async function unhandledFeedback(
           : entry.state === 'approved')
       ),
   );
-  const submitted = await handlingSubmits(trx, [task.id], [project]);
+  const submitted = (await handlingSubmits(trx, [task.id], [project])).filter((row) =>
+    submittedOn(row, pr),
+  );
   const newest = Math.max(...submitted.map((row) => Date.parse(row.submitted_at)));
   const [cursor] = await turnFeedbackCursors(trx, [
     { kind: 'pr', repo: pr.repo, number: pr.number },
@@ -345,8 +347,9 @@ async function unhandledFeedback(
 }
 
 /**
- * The submissions of `taskIds` that handle the external feedback posted before them: those in
- * Dev, whatever its orchestrator, or in another worker column. In `on` mode only a turnless
+ * The submissions of `taskIds` that handle the external feedback posted before them on the PR
+ * they were made on (`submittedOn`): those in Dev, whatever its orchestrator, or in another
+ * worker column. In `on` mode only a turnless
  * (shadow) submit counts, since a turn records what it handed over: a turned submit closes its
  * turn `submitted` at the same instant in the same column visit, and a shadow submit has no turn.
  */
@@ -363,6 +366,8 @@ async function handlingSubmits(db: Trx, taskIds: readonly number[], projects: re
       'task.project',
       'submission.column',
       'submission.submitted_at',
+      'submission.pr_repo',
+      'submission.pr_number',
       sql<number>`exists (select 1 from turn where turn.task_id = submission.task_id and turn."column" = submission."column" and turn.epoch = submission.epoch and turn.closed_reason = 'submitted' and turn.closed_at = submission.submitted_at)`.as(
         'turned',
       ),
@@ -379,6 +384,14 @@ async function handlingSubmits(db: Trx, taskIds: readonly number[], projects: re
   );
 }
 
+/** Whether a submission was checked against `pr`; one recorded without its PR is on none. */
+function submittedOn(
+  row: { pr_repo: string | null; pr_number: number | null },
+  pr: { repo: string; number: number },
+): boolean {
+  return row.pr_repo?.toLowerCase() === pr.repo.toLowerCase() && row.pr_number === pr.number;
+}
+
 /** The columns whose submission handles the external feedback posted before it. */
 function handlingColumns(project: Project): ColumnId[] {
   return project.columns
@@ -390,7 +403,7 @@ type FeedbackCursor = Awaited<ReturnType<typeof turnFeedbackCursors>>[number];
 
 /**
  * Per requested PR, the feedback cursor for the GitHub poll: the newer of the newest entry a turn
- * handed over and the time-only cursor at its task's newest handling submission
+ * handed over and the time-only cursor at its task's newest handling submission on that PR
  * (`handlingSubmits`), the cutoff of `unhandledFeedback`. No real entry has the empty id, so the
  * adapter reads back to the first comment older than that time.
  */
@@ -428,7 +441,7 @@ export async function pollFeedbackCursors(
       if (link.repo?.toLowerCase() !== ref.repo.toLowerCase() || link.number !== ref.number)
         continue;
       for (const row of submitted) {
-        if (row.task_id !== link.task_id) continue;
+        if (row.task_id !== link.task_id || !submittedOn(row, ref)) continue;
         const cursor = { ref, id: '', postedAt: row.submitted_at };
         if (best === undefined || isNewer(cursor, best)) best = cursor;
       }

@@ -139,6 +139,12 @@ export interface SubmissionTable {
   note: string | null;
   /** When a left move made this submit stale; null while it counts. Marks are never voided. */
   voided_at: string | null;
+  /**
+   * The PR whose fresh head the submit was checked against; null for a submit recorded before
+   * migration 0014, which handles feedback on no PR.
+   */
+  pr_repo: string | null;
+  pr_number: number | null;
 }
 
 /** A column executor's turn of one column visit; `seq` counts the turns of the visit. */

@@ -294,6 +294,20 @@ function board(options: Options = {}) {
         `key-${String(++keys)}`,
       );
     },
+    linkPr: (number: number) => {
+      step();
+      return apply(
+        registry['link.add'],
+        {
+          mode: 'pr',
+          task: KEY,
+          pr: `https://github.com/o/r/pull/${String(number)}`,
+          reason: 'This PR replaces the earlier one.',
+        },
+        'operator',
+        `key-${String(++keys)}`,
+      );
+    },
     archive: () => {
       step();
       return apply(registry['task.archive'], { task: KEY }, 'operator', `key-${String(++keys)}`);
@@ -757,6 +771,66 @@ describe('shadow mode', () => {
     ctx.restart({ mode: 'on' });
     expect((await ctx.context()).feedbackCursors).toEqual([
       { ref: { kind: 'pr', repo: 'o/r', number: 7 }, id: '', postedAt: submitted },
+    ]);
+  });
+
+  it('counts a shadow submit as handling feedback only on the PR it was made on', async () => {
+    const ctx = await started({ mode: 'shadow' });
+    await ctx.pr();
+    const comment = {
+      kind: 'comment' as const,
+      id: 'c-8',
+      author: { login: EXTERNAL, type: 'user' as const },
+      postedAt: at(1),
+    };
+    // A conflict PR #8 with a comment posted before the submit on #7.
+    await ctx.pr({
+      number: 8,
+      url: 'https://github.com/o/r/pull/8',
+      headSha: C,
+      feedback: [comment],
+    });
+    expect(
+      await ctx.store.db
+        .selectFrom('link')
+        .select(['number', 'pr_state'])
+        .where('entity', '=', 'pr')
+        .orderBy('id')
+        .execute(),
+    ).toEqual([
+      { number: 7, pr_state: 'active' },
+      { number: 8, pr_state: 'conflict' },
+    ]);
+    await ctx.submit(WORKER, KEY, A);
+    const submitted = ctx.at();
+    expect((await ctx.context()).feedbackCursors).toEqual([
+      { ref: { kind: 'pr', repo: 'o/r', number: 7 }, id: '', postedAt: submitted },
+    ]);
+
+    // #7 closes and the operator makes #8 the task's PR: the submit on #7 did not handle #8's
+    // comment.
+    await ctx.pr({ number: 7, state: 'closed' });
+    await ctx.linkPr(8);
+    expect(
+      await ctx.store.db
+        .selectFrom('link')
+        .select(['number', 'pr_state'])
+        .where('entity', '=', 'pr')
+        .orderBy('id')
+        .execute(),
+    ).toEqual([
+      { number: 7, pr_state: 'active' },
+      { number: 8, pr_state: 'active' },
+    ]);
+    expect((await ctx.task()).shadow_column).toBe('dev');
+    ctx.restart({ mode: 'on' });
+    await ctx.github();
+    await ctx.spur();
+    await ctx.tick();
+    const turn = await ctx.openTurn();
+    expect(turn).toMatchObject({ column: 'dev', head_sha: C });
+    expect(JSON.parse(turn?.handed ?? '[]')).toEqual([
+      { repo: 'o/r', number: 8, kind: 'comment', id: 'c-8', postedAt: at(1) },
     ]);
   });
 });
