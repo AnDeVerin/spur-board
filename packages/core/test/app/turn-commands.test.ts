@@ -858,6 +858,24 @@ describe('task.get why', () => {
     expect(after.turn).toMatchObject({ column: 'dev', addressee: 'worker', taken: null });
   });
 
+  it('shows an incomplete comment history as a waiting Dev condition', async () => {
+    const ctx = await setup({
+      column: 'dev',
+      mode: 'on',
+      complete: true,
+      pr: { ...ready, feedbackComplete: false },
+    });
+
+    const why = await ctx.why();
+
+    expect(why.column).toBe('dev');
+    expect(why.gates.find((gate) => gate.column === 'dev')?.conditions).toContainEqual({
+      condition: 'comment_history_read',
+      state: 'waiting',
+      reason: 'comment_history_incomplete',
+    });
+  });
+
   it('uses the shadow column in shadow mode', async () => {
     const ctx = await setup({ mode: 'shadow', complete: true, pr: ready });
     await ctx.store.db.updateTable('task').set({ shadow_column: 'qa' }).execute();

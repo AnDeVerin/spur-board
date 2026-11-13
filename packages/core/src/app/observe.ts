@@ -7,9 +7,13 @@ import {
   ticketFactsSchema,
   type AcceptedObservation,
   type AdapterCore,
+  type Batch,
   type Config,
   type EntityRef,
+  type PollContext,
+  type PrEntityRef,
   type PrFacts,
+  type SourceCursor,
   type SessionFacts,
   type SourceState,
   type TicketFacts,
@@ -914,6 +918,86 @@ async function session(
   }
 }
 
+/** The PRs of a GitHub source's repo that still have an unbanned link, one per ref key. */
+async function linkedPrs(db: Trx, source: string): Promise<PrEntityRef[]> {
+  if (!source.startsWith('github:')) return [];
+  const repo = source.slice(source.lastIndexOf(':') + 1);
+  const links = await db
+    .selectFrom('link')
+    .select(['repo', 'number'])
+    .where('entity', '=', 'pr')
+    .where(sql<boolean>`lower(repo) = ${repo.toLowerCase()}`)
+    .where('banned', '=', 0)
+    .execute();
+  const prs = links.flatMap((link) =>
+    link.repo === null || link.number === null
+      ? []
+      : [{ kind: 'pr' as const, repo: link.repo, number: link.number }],
+  );
+  return [...new Map(prs.map((ref) => [refKey(ref), ref])).values()];
+}
+
+const heldFeedbackSchema = prFactsSchema.shape.feedback.unwrap();
+
+/** The held comment histories of `prs` (A10); a row that does not parse is skipped. */
+async function heldContinuations(
+  db: Trx,
+  source: string,
+  prs: readonly PrEntityRef[],
+): Promise<NonNullable<PollContext['continuations']>> {
+  if (prs.length === 0) return [];
+  const byKey = new Map(prs.map((ref) => [refKey(ref), ref]));
+  const rows = await db
+    .selectFrom('pr_continuation')
+    .selectAll()
+    .where('source', '=', source)
+    .where('ref_key', 'in', [...byKey.keys()])
+    .orderBy('ref_key')
+    .execute();
+  return rows.flatMap((row) => {
+    const ref = byKey.get(row.ref_key);
+    if (ref === undefined) return [];
+    let feedback: unknown;
+    try {
+      feedback = JSON.parse(row.feedback);
+    } catch {
+      return [];
+    }
+    const parsed = heldFeedbackSchema.safeParse(feedback);
+    if (!parsed.success) return [];
+    // Opaque to core (A10): stored as the adapter issued it and passed back unread.
+    const resume = row.resume as SourceCursor | null;
+    return [{ ref, resume, feedback: parsed.data }];
+  });
+}
+
+/** Applies a `pr` item's `continuation` (A10): omitted keeps the row, null drops it. */
+async function holdContinuation(
+  trx: Trx,
+  source: string,
+  item: Extract<Batch['items'][number], { kind: 'pr' }>,
+): Promise<void> {
+  if (item.continuation === undefined) return;
+  const key = refKey({ kind: 'pr', repo: item.facts.repo, number: item.facts.number });
+  if (item.continuation === null) {
+    await trx
+      .deleteFrom('pr_continuation')
+      .where('source', '=', source)
+      .where('ref_key', '=', key)
+      .execute();
+    return;
+  }
+  const held = {
+    resume: item.continuation.resume,
+    feedback: toJson(heldFeedbackSchema, item.facts.feedback ?? []),
+  };
+  await trx
+    .insertInto('pr_continuation')
+    .values({ source, ref_key: key, ...held })
+    .onConflict((oc) => oc.columns(['source', 'ref_key']).doUpdateSet(held))
+    .execute();
+}
+
 /** Core's adapter-facing port. Every accepted batch and its source state share one transaction. */
 export function createObservationCore(deps: {
   store: Store;
@@ -970,23 +1054,7 @@ export function createObservationCore(deps: {
                 : [];
             })
           : [];
-      const repo = source.startsWith('github:') ? source.slice(source.lastIndexOf(':') + 1) : null;
-      const prs =
-        repo === null
-          ? []
-          : (
-              await store.db
-                .selectFrom('link')
-                .select(['repo', 'number'])
-                .where('entity', '=', 'pr')
-                .where(sql<boolean>`lower(repo) = ${repo.toLowerCase()}`)
-                .where('banned', '=', 0)
-                .execute()
-            ).flatMap((link) =>
-              link.repo === null || link.number === null
-                ? []
-                : [{ kind: 'pr' as const, repo: link.repo, number: link.number }],
-            );
+      const requested = await linkedPrs(store.db, source);
       const sessions =
         source === 'spur'
           ? (
@@ -1019,8 +1087,8 @@ export function createObservationCore(deps: {
         .selectAll()
         .where('source', '=', source)
         .execute();
-      const requested = [...new Map(prs.map((ref) => [refKey(ref), ref])).values()];
       const feedbackCursors = await pollFeedbackCursors(store.db, config, requested);
+      const continuations = await heldContinuations(store.db, source, requested);
       return {
         observe: {
           prs: requested,
@@ -1039,6 +1107,7 @@ export function createObservationCore(deps: {
           return ref.kind === 'session' ? [] : [{ ref, count: row.misses }];
         }),
         ...(feedbackCursors.length === 0 ? {} : { feedbackCursors }),
+        ...(continuations.length === 0 ? {} : { continuations }),
       };
     },
     async observe(source, observation: AcceptedObservation) {
@@ -1097,9 +1166,18 @@ export function createObservationCore(deps: {
         for (const item of orderedItems) {
           if (item.kind === 'ticket')
             await ticket(trx, config, item.facts, batch.observedAt, source);
-          else if (item.kind === 'pr') await pr(trx, config, item.facts, batch.observedAt, source);
-          else await session(trx, config, item.facts, batch.observedAt, source, ambiguous);
+          else if (item.kind === 'pr') {
+            await pr(trx, config, item.facts, batch.observedAt, source);
+            await holdContinuation(trx, source, item);
+          } else await session(trx, config, item.facts, batch.observedAt, source, ambiguous);
         }
+        // A held history outlives no unbanned link: a discovered PR left unlinked drops it here.
+        const linked = (await linkedPrs(trx, source)).map(refKey);
+        await trx
+          .deleteFrom('pr_continuation')
+          .where('source', '=', source)
+          .$if(linked.length > 0, (query) => query.where('ref_key', 'not in', linked))
+          .execute();
         for (const entity of batch.entities) {
           if (entity.ref.kind !== 'session' || entity.status !== 'not_found') continue;
           const old = await trx
