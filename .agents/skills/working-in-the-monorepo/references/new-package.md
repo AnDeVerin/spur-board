@@ -16,5 +16,5 @@ There is no template.
   `testing-and-ci` bullet that starts "Give a new package".
 - Run `pnpm install` so the workspace links the package.
 - Add a line to `AGENTS.md` `## Packages`, with the skill that covers it if one exists.
-- A package that must not import some other package gets a boundary rule: see `SKILL.md`
-  `## Boundary lint errors`.
+- A package that must not import some other package gets a boundary rule: see
+  `references/boundary-lint-errors.md`.
