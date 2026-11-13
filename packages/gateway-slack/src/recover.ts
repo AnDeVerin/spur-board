@@ -59,14 +59,6 @@ function untilAborted<T>(
   });
 }
 
-async function sleep(ms: number, signal: AbortSignal | undefined): Promise<void> {
-  try {
-    await delay(ms, undefined, signal === undefined ? {} : { signal });
-  } catch (error) {
-    if (signal?.aborted !== true) throw error;
-  }
-}
-
 /**
  * Waits out rate limits within `READ_WAIT_BUDGET_MS`; a wait past what remains throws
  * `IncompleteHistoryError` without sleeping. Returns `ABORTED` once `signal` aborts.
@@ -77,15 +69,11 @@ async function readThread(
   threadTs: string,
   signal: AbortSignal | undefined,
 ): Promise<unknown[] | typeof ABORTED> {
-  const aborted = () => signal?.aborted === true;
   let budget = READ_WAIT_BUDGET_MS;
   for (;;) {
-    if (aborted()) return ABORTED;
+    if (signal?.aborted === true) return ABORTED;
     try {
-      return await untilAborted(
-        readMessages(client, { channel, threadTs, ...(signal === undefined ? {} : { signal }) }),
-        signal,
-      );
+      return await untilAborted(readMessages(client, { channel, threadTs, signal }), signal);
     } catch (error) {
       const result = apiFailure(error);
       if (result.status !== 'retry' || result.uncertain) throw error;
@@ -93,7 +81,8 @@ async function readThread(
       if (wait > budget)
         throw new IncompleteHistoryError('rate limit wait exceeds the read budget');
       budget -= wait;
-      await sleep(wait, signal);
+      // The wait rejects only on abort, which the next turn of the loop returns on.
+      await delay(wait, undefined, { signal }).catch(() => undefined);
     }
   }
 }
@@ -113,11 +102,10 @@ export async function* recoverThreads(
   const from = request.since.getTime();
   if (!Number.isFinite(from) || from > until) return;
   const signal = request.signal;
-  const aborted = () => signal?.aborted === true;
   const bot = await untilAborted(botIdentity(), signal);
   if (bot === ABORTED) return;
   for (const conversation of request.conversations) {
-    if (aborted()) return;
+    if (signal?.aborted === true) return;
     const addressed = parseRef(conversation.ref);
     if (addressed === null) {
       yield gap(conversation.ref);

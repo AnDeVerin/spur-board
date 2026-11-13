@@ -23,6 +23,26 @@ async function collect(events: AsyncIterable<InboundEvent>): Promise<InboundEven
   return found;
 }
 
+function repliesCount(fake: { requests(): readonly { method: string }[] }): number {
+  return fake.requests().filter((request) => request.method === 'conversations.replies').length;
+}
+
+/** Recovers one thread through `client` directly, with the bot identity already resolved. */
+function recoverWith(client: unknown, signal: AbortSignal): Promise<InboundEvent[]> {
+  return collect(
+    recoverThreads(
+      client as WebClient,
+      {
+        conversations: [{ ref: conversationRef('C_ORCH', '1700000000.000100') }],
+        since: new Date(0),
+        signal,
+      },
+      () => Promise.resolve({ userId: 'U_BOT' }),
+      () => Date.now(),
+    ),
+  );
+}
+
 async function setup(pageSize = 100) {
   const fake = await startFakeSlackApi({ pageSize });
   const gateway = createSlackGateway({
@@ -205,8 +225,7 @@ describe('Slack thread recovery', () => {
     try {
       await gateway.start(async () => {});
       await fake.platform.rateLimitNext(3000);
-      const replies = () =>
-        fake.requests().filter((request) => request.method === 'conversations.replies').length;
+      const replies = () => repliesCount(fake);
       const before = replies();
       const recovering = collect(
         gateway.recover({
@@ -235,8 +254,7 @@ describe('Slack thread recovery', () => {
     try {
       await gateway.start(async () => {});
       await fake.platform.rateLimitNext(60_000);
-      const replies = () =>
-        fake.requests().filter((request) => request.method === 'conversations.replies').length;
+      const replies = () => repliesCount(fake);
       const before = replies();
       const startedAt = performance.now();
       const recovered = await collect(
@@ -261,20 +279,9 @@ describe('Slack thread recovery', () => {
           return read.promise;
         },
       },
-    } as unknown as WebClient;
+    };
     const controller = new AbortController();
-    const recovering = collect(
-      recoverThreads(
-        client,
-        {
-          conversations: [{ ref: conversationRef('C_ORCH', '1700000000.000100') }],
-          since: new Date(0),
-          signal: controller.signal,
-        },
-        () => Promise.resolve({ userId: 'U_BOT' }),
-        () => Date.now(),
-      ),
-    );
+    const recovering = recoverWith(client, controller.signal);
     await vi.waitFor(() => {
       expect(calls).toBe(1);
     });
@@ -305,20 +312,9 @@ describe('Slack thread recovery', () => {
             : Promise.resolve({ ok: true, messages: [], has_more: false });
         },
       },
-    } as unknown as WebClient;
+    };
     const controller = new AbortController();
-    const recovering = collect(
-      recoverThreads(
-        client,
-        {
-          conversations: [{ ref: conversationRef('C_ORCH', '1700000000.000100') }],
-          since: new Date(0),
-          signal: controller.signal,
-        },
-        () => Promise.resolve({ userId: 'U_BOT' }),
-        () => Date.now(),
-      ),
-    );
+    const recovering = recoverWith(client, controller.signal);
     await vi.waitFor(() => {
       expect(calls).toBe(1);
     });

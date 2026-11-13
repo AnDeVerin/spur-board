@@ -30,7 +30,7 @@ function messageTs(message: unknown): string | undefined {
  */
 export async function readMessages(
   client: WebClient,
-  query: { channel: string; threadTs?: string; oldest?: string; signal?: AbortSignal },
+  query: { channel: string; threadTs?: string; oldest?: string; signal?: AbortSignal | undefined },
 ): Promise<unknown[]> {
   const found: unknown[] = [];
   const seen = new Set<string>();
