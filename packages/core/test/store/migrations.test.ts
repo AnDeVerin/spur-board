@@ -697,7 +697,8 @@ describe('migrate', () => {
     for (let k = 1; k <= KEEP_BACKUPS; k++) expect(mode(join(dir, stamp(k)))).toBe(0o600);
   });
 
-  it('keeps going when an old backup cannot be removed', () => {
+  // Root can unlink files in a read-only directory, so the removal would not fail.
+  it.skipIf(process.getuid?.() === 0)('keeps going when an old backup cannot be removed', () => {
     const dir = tempDir();
     const stamp = (k: number): string => `board.db.v1.2020010${String(k)}T000000000Z.bak`;
     for (let k = 1; k <= KEEP_BACKUPS + 1; k++) {
@@ -714,7 +715,7 @@ describe('migrate', () => {
     }
 
     expect(existsSync(join(dir, stamp(1)))).toBe(true);
-    for (let k = 2; k <= KEEP_BACKUPS + 1; k++) expect(mode(join(dir, stamp(k)))).toBe(0o600);
+    for (let k = 1; k <= KEEP_BACKUPS + 1; k++) expect(mode(join(dir, stamp(k)))).toBe(0o600);
   });
 
   it('rejects a gap or a misnamed migration file', () => {

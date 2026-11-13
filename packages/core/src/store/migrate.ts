@@ -69,8 +69,9 @@ const BACKUP_SUFFIX = /^(\d+)\.(\d{8}T\d{9}Z)\.bak$/;
  * it, by stamp, then version) at mode 0600 and removes the rest. `protect`, when it is one of
  * them, is always kept and counts toward the limit: the clock can step back, so the backup just
  * written may not carry the newest stamp. Anything else is left alone: other names, and
- * directories or symlinks with a backup name. Removing an old backup is best effort, so a
- * backup that cannot be deleted stays until a later prune; a failed chmod still throws.
+ * directories or symlinks with a backup name. Every backup is set to 0600 first, and a failed
+ * chmod throws. Removing an old backup is best effort: one that cannot be deleted stays,
+ * owner-only, until a later prune.
  */
 export function pruneBackups(file: string, protect?: string): void {
   const dir = dirname(file);
@@ -88,10 +89,8 @@ export function pruneBackups(file: string, protect?: string): void {
     ...candidates.filter((backup) => backup.path === shielded),
     ...candidates.filter((backup) => backup.path !== shielded),
   ];
-  ordered.forEach((backup, index) => {
-    if (index < KEEP_BACKUPS) chmodSync(backup.path, 0o600);
-    else removeQuietly(backup.path);
-  });
+  for (const backup of ordered) chmodSync(backup.path, 0o600);
+  for (const backup of ordered.slice(KEEP_BACKUPS)) removeQuietly(backup.path);
 }
 
 function removeQuietly(path: string): void {
