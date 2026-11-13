@@ -226,7 +226,7 @@ function allowed(live: Live, url: URL, method: string, body: string | undefined)
 /**
  * A `fetch` that sends only the recorder's read requests: GET of Spur sessions, a GraphQL `query`,
  * GET of a configured repo's issues and milestones, and Jira's statuses, fields, issue and POST
- * search. Anything else throws before `transport` and lands in `refused`.
+ * search. Anything else throws before `transport` and lands in `refused`. Redirects fail.
  */
 export function createReadGuard(
   live: Live,
@@ -246,7 +246,8 @@ export function createReadGuard(
       refused.push(message);
       return Promise.reject(new Error(message));
     }
-    return transport(input, init);
+    // A redirect would reach a host the guard never checked, and a 307 or 308 resends the body.
+    return transport(input, { ...init, redirect: 'error' });
   };
 }
 

@@ -423,6 +423,7 @@ describe('record:fakes', () => {
     await post('https://api.github.com/graphql', { query: 'query PrBatch { a }' });
     await post(`${JIRA}/rest/api/3/search/jql`, { jql: 'x' });
     expect(transport).toHaveBeenCalledTimes(11);
+    for (const [, init] of transport.mock.calls) expect(init?.redirect).toBe('error');
   });
 
   it('refuses live config shapes the stand cannot hold', async () => {
