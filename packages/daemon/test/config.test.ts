@@ -2,7 +2,7 @@ import { chmodSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { ConfigError, loadConfig, resolvePaths } from '../src/config.ts';
-import { makeHome, VALID_CONFIG_YAML } from './home.ts';
+import { makeHome, SHARED_SPUR_PROJECT_CONFIG_YAML, VALID_CONFIG_YAML } from './home.ts';
 
 const SECRET_NAME = 'DAEMON_TEST_API_KEY';
 const SECRETS_TEXT = `${SECRET_NAME}=value-to-hide-123456\nexport OTHER_VALUE="two words"\n`;
@@ -108,22 +108,7 @@ describe('loadConfig', () => {
   });
 
   it('names both board projects of a Spur project listed under two', () => {
-    const project = (id: string) => `  - id: ${id}
-    tracker:
-      type: github-issues
-      repo: example-org/${id}
-      label: board
-    repos: [example-org/${id}]
-    operatorGithubLogin: octocat
-    spurProjects:
-      - name: shared
-        role: worker
-`;
-    const message = configError(
-      makeHome({
-        config: `projects:\n${project('alpha')}${project('beta')}operator:\n  slack: U0000000000\ndigest:\n  tz: UTC\n`,
-      }),
-    );
+    const message = configError(makeHome({ config: SHARED_SPUR_PROJECT_CONFIG_YAML }));
     expect(message).toContain(
       '  projects.1.spurProjects.0.name: Spur project "shared" is listed under board projects "alpha" and "beta": list it under only one',
     );

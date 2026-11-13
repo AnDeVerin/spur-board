@@ -16,7 +16,7 @@ rule names another. A PR changing a practice named here updates this skill.
 
 ## Port and boundary
 
-- Implement `Adapter` and keep A1-A9 in its TSDoc in `packages/contracts/src/adapters.ts`;
+- Implement `Adapter` and keep A1-A10 in its TSDoc in `packages/contracts/src/adapters.ts`;
   `describe('no wire formats')` in `packages/contracts/test/adapters.test.ts` checks A1.
 - Imports: `adapterBoundaryPatterns` and `siblingPattern` in `eslint.config.js`.
 - Honour `PollContext.signal` (A7): rethrow the abort and return no batch.

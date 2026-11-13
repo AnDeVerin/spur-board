@@ -16,6 +16,28 @@ digest:
   tz: UTC
 `;
 
+/** Board projects alpha and beta both list Spur project shared, which the config refuses. */
+export const SHARED_SPUR_PROJECT_CONFIG_YAML = `projects:
+${['alpha', 'beta']
+  .map(
+    (id) => `  - id: ${id}
+    tracker:
+      type: github-issues
+      repo: example-org/${id}
+      label: board
+    repos: [example-org/${id}]
+    operatorGithubLogin: octocat
+    spurProjects:
+      - name: shared
+        role: worker
+`,
+  )
+  .join('')}operator:
+  slack: U0000000000
+digest:
+  tz: UTC
+`;
+
 interface HomeOptions {
   /** config.yaml text; null leaves the file out. Defaults to VALID_CONFIG_YAML. */
   config?: string | null;

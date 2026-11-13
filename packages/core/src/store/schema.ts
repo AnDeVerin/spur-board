@@ -381,6 +381,16 @@ export interface SourceMissTable {
   outcome: 'ok' | 'not_found' | 'no_access' | null;
 }
 
+/** A PR comment history a regular poll asked core to hold (A10), per source and PR. */
+export interface PrContinuationTable {
+  source: string;
+  ref_key: string;
+  /** Opaque adapter position to read further back from; null at the start of the PR. */
+  resume: string | null;
+  /** JSON array of PR feedback entries read so far. */
+  feedback: string;
+}
+
 /** Every table in the store, for `Kysely<Tables>`. */
 export interface Tables {
   task: TaskTable;
@@ -400,6 +410,7 @@ export interface Tables {
   meta: MetaTable;
   source_state: SourceStateTable;
   source_miss: SourceMissTable;
+  pr_continuation: PrContinuationTable;
   transport_health: TransportHealthTable;
   space_slot: SpaceSlotTable;
   notification: NotificationTable;

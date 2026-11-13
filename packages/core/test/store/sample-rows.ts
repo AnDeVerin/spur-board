@@ -281,6 +281,12 @@ export const sampleRows: SampleRows = {
     gone: 0,
     outcome: 'not_found',
   },
+  pr_continuation: {
+    source: 'github',
+    ref_key: 'pr:x/y#7',
+    resume: 'r1',
+    feedback: '[]',
+  },
   transport_health: {
     gateway: 'fake-slack-like',
     space: 'orchestrators',

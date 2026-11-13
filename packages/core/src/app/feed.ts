@@ -9,6 +9,7 @@ import {
 import type { Kysely } from 'kysely';
 import type { Row, Tables } from '../store/schema.ts';
 import { fingerprint } from '../domain/fromYou.ts';
+import { isOperator } from './authorize.ts';
 import { TASKLESS_FEED_KEY, journal, raiseItemWith, type RaiseItemInput } from './item-raise.ts';
 import { enqueueFeedEdit, enqueueFeedLine, type FeedEditPayload } from './outbox.ts';
 
@@ -30,7 +31,7 @@ export async function raiseItem(trx: Trx, input: RaiseItemInput): Promise<Row<'o
 
 /**
  * Clear an item once; the edit waits for its line and is cancelled with a stale pending line.
- * The journal names `actor`, `system` unless an operator action cleared it.
+ * The journal names `actor`, `system` unless an actor's action cleared it.
  */
 export async function clearItem(
   trx: Trx,
@@ -117,7 +118,7 @@ function resolvedLine(by: ActorId, at: string, config: Config): RichTextInline[]
     hourCycle: 'h23',
   }).format(new Date(at));
   const who: RichTextInline =
-    parsed.actor === 'agent'
+    parsed.actor === 'agent' && !isOperator(by, config)
       ? { kind: 'text', text: `${parsed.actorRef.project}/${parsed.actorRef.session}` }
       : { kind: 'mention', user: userIdSchema.parse(config.operator.slack) };
   return [{ kind: 'text', text: '✓ Resolved by ' }, who, { kind: 'text', text: ` at ${time}` }];

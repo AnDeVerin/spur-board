@@ -751,6 +751,55 @@ describe('role addressed doorbells', () => {
     expect(ctx.sent).toHaveLength(1);
   });
 
+  it.each([
+    {
+      by: 'the operator',
+      actor: 'operator' as const,
+      journal: { actor: 'operator', actor_ref: null },
+      input: (block: string) => ({ mode: 'reason' as const, block, reason: 'Handled.' }),
+    },
+    {
+      by: 'the worker',
+      actor: 'agent:web/worker-1' as const,
+      journal: {
+        actor: 'agent',
+        actor_ref: JSON.stringify({ project: 'web', session: 'worker-1' }),
+      },
+      input: (block: string) => ({ mode: 'done' as const, block }),
+    },
+  ])('clears the not-reading item as $by when $by unblocks', async ({ actor, journal, input }) => {
+    const ctx = await setup();
+    const block = await workerBlock(ctx.store);
+    ctx.failNext(
+      new SpurRejectedError('Spur send failed with HTTP 404: Session not found: worker-1'),
+    );
+    await ctx.ring();
+    await ctx.sender.tick();
+    await ctx.apply(ctx.ops.unblock, input(block), actor, 'unblock');
+    expect(
+      await ctx.store.db
+        .selectFrom('operator_item')
+        .select('cleared_at')
+        .where('kind', '=', 'worker_not_reading')
+        .execute(),
+    ).toEqual([{ cleared_at: ctx.now().toISOString() }]);
+    expect(
+      await ctx.store.db
+        .selectFrom('event')
+        .select(['actor', 'actor_ref'])
+        .where('kind', '=', 'from_you_cleared')
+        .execute(),
+    ).toEqual([journal]);
+    const edits = await ctx.store.db
+      .selectFrom('outbox')
+      .select('payload')
+      .where('kind', '=', 'feed.line.edit')
+      .execute();
+    expect(edits.map((edit) => JSON.parse(edit.payload) as unknown)).toEqual([
+      expect.objectContaining({ resolved: { by: actor, at: ctx.now().toISOString() } }),
+    ]);
+  });
+
   it('ends a ring after 30 min of retryable Spur failures', async () => {
     const ctx = await setup();
     await workerBlock(ctx.store);

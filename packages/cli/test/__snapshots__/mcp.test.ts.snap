@@ -966,7 +966,7 @@ Example: {}",
                 "type": "boolean",
               },
               "state": {
-                "description": "One line: ticket status, pull request states and session health counts, joined by "; ".",
+                "description": "One line: ticket status, pull request states and session counts by health, an ended session counted as \`ended (<reason>)\`, joined by "; ".",
                 "minLength": 1,
                 "type": "string",
               },

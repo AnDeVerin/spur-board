@@ -14,7 +14,7 @@ import { loadConfig, resolvePaths } from '../src/config.ts';
 import { acquireLock } from '../src/lock.ts';
 import { copyDatabaseMain, publishedVersion } from '../src/main.ts';
 import { killDaemons, runDaemonToExit, spawnDaemon, waitForLine } from './daemon-process.ts';
-import { makeHome, VALID_CONFIG_YAML } from './home.ts';
+import { makeHome, SHARED_SPUR_PROJECT_CONFIG_YAML, VALID_CONFIG_YAML } from './home.ts';
 
 afterEach(killDaemons);
 
@@ -82,16 +82,30 @@ describe('daemon process', () => {
     ) as { version: string };
     expect(publishedVersion()).toBe(manifest.version);
   });
-  it('invalid config exits 1 before creating the database', () => {
-    const home = makeHome({
+  it.each([
+    {
+      name: 'repo: bad',
       config: VALID_CONFIG_YAML.replace('repo: example-org/board', 'repo: bad'),
-    });
-    const result = runDaemonToExit(home);
-    expect(result.status).toBe(1);
-    expect(result.stderr).toContain('projects.0.tracker.repo');
-    expect(result.stderr).toContain('hint:');
-    expect(existsSync(join(home, 'board.sqlite'))).toBe(false);
-  }, 30_000);
+      message: 'projects.0.tracker.repo',
+    },
+    {
+      name: 'a Spur project under two board projects',
+      config: SHARED_SPUR_PROJECT_CONFIG_YAML,
+      message:
+        'projects.1.spurProjects.0.name: Spur project "shared" is listed under board projects "alpha" and "beta": list it under only one',
+    },
+  ])(
+    'invalid config exits 1 before creating the database: $name',
+    ({ config, message }) => {
+      const home = makeHome({ config });
+      const result = runDaemonToExit(home);
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain(message);
+      expect(result.stderr).toContain('hint:');
+      expect(existsSync(join(home, 'board.sqlite'))).toBe(false);
+    },
+    30_000,
+  );
 
   it('fails clearly without flock', () => {
     const emptyPath = mkdtempSync(join(tmpdir(), 'daemon-nopath-'));

@@ -3,7 +3,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createFakeGateway } from '@spur-board/gateway-testkit';
-import type { Config, Gateway } from '@spur-board/contracts';
+import { configSchema, type Config, type Gateway } from '@spur-board/contracts';
 import { afterEach, describe, expect, expectTypeOf, it } from 'vitest';
 import { createSender, enqueueConversationOpen, openStore, type Store } from '../../src/index.ts';
 import { clearItem, raiseItem } from '../../src/app/feed.ts';
@@ -172,6 +172,31 @@ describe('operator item feed', () => {
       children: [
         { kind: 'text', text: '✓ Resolved by ' },
         { kind: 'text', text: 'proj/worker-1' },
+        { kind: 'text', text: ' at 10:00' },
+      ],
+    });
+  });
+
+  it('mentions the operator when a session of an operator-role project closes it', async () => {
+    const config = configSchema.parse({
+      ...testConfig,
+      projects: testConfig.projects.map((project) => ({
+        ...project,
+        spurProjects: [...project.spurProjects, { name: 'ops', role: 'operator' }],
+      })),
+    });
+    const ctx = await setup(config);
+    const item = await raise(ctx.store);
+    await ctx.sender.tick();
+    await scanTransaction(ctx.store, testConfig, (trx) =>
+      clearItem(trx, item.id, AT, 'agent:ops/op-1'),
+    );
+    await ctx.sender.tick();
+    expect(ctx.observed.requests[1]?.body.at(-1)).toEqual({
+      kind: 'paragraph',
+      children: [
+        { kind: 'text', text: '✓ Resolved by ' },
+        { kind: 'mention', user: config.operator.slack },
         { kind: 'text', text: ' at 10:00' },
       ],
     });

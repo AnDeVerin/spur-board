@@ -26,11 +26,28 @@ function counts(values: readonly string[], order: readonly string[]): string {
     .join(', ');
 }
 
-/** The one-line task state: ticket status, pull request states, session health counts. */
+/** End reasons in the words of the "worker ended" item (`ENDED_WORKER_LABELS`, fromYou.ts). */
+const END_WORDS = {
+  complete: 'completed',
+  kill: 'killed',
+  vanished: 'vanished',
+  unknown: 'unknown',
+} as const satisfies Record<NonNullable<SessionFacts['endReason']>, string>;
+
+/** A linked session's label in the task row: `ended (<reason>)` once the board knows it ended. */
+function sessionLabel(fact: SessionFacts, absentSince: string | null): string {
+  if (fact.endReason !== null) return `ended (${END_WORDS[fact.endReason]})`;
+  if (fact.lifecycle === 'killed' || fact.lifecycle === 'completed')
+    return `ended (${fact.lifecycle})`;
+  if (absentSince !== null) return 'ended (gone)';
+  return fact.health;
+}
+
+/** The one-line task state: ticket status, pull request states, session counts by label. */
 function taskState(
   ticket: TicketFacts | null,
   prs: readonly PrFacts[],
-  sessions: readonly SessionFacts[],
+  sessions: readonly { fact: SessionFacts; absentSince: string | null }[],
 ): string {
   const parts = [ticket === null ? 'ticket not observed' : `ticket ${ticket.status}`];
   if (prs.length > 0) {
@@ -38,8 +55,8 @@ function taskState(
     parts.push(`PRs ${counts(labels, ['draft', 'open', 'merged', 'closed'])}`);
   }
   if (sessions.length > 0) {
-    const health: string[] = sessions.map((session) => session.health);
-    parts.push(`sessions ${counts(health, [...new Set(health)].sort())}`);
+    const labels = sessions.map((session) => sessionLabel(session.fact, session.absentSince));
+    parts.push(`sessions ${counts(labels, [...new Set(labels)].sort())}`);
   }
   return parts.join('; ');
 }
@@ -120,6 +137,7 @@ export async function getStatus(
     const links = taskLinks.filter((link) => link.banned === 0);
     const prs: PrFacts[] = [];
     const sessions: SessionFacts[] = [];
+    const sessionStates: { fact: SessionFacts; absentSince: string | null }[] = [];
     for (const link of links) {
       if (link.entity === 'pr' && link.repo !== null && link.number !== null) {
         const snapshot = await store.db
@@ -132,10 +150,14 @@ export async function getStatus(
       } else if (link.entity === 'session' && link.session_id !== null) {
         const snapshot = await store.db
           .selectFrom('session_snapshot')
-          .select('detail')
+          .select(['detail', 'absent_since'])
           .where('id', '=', link.session_id)
           .executeTakeFirst();
-        if (snapshot !== undefined) sessions.push(parseJson(sessionFactsSchema, snapshot.detail));
+        if (snapshot !== undefined) {
+          const fact = parseJson(sessionFactsSchema, snapshot.detail);
+          sessions.push(fact);
+          sessionStates.push({ fact, absentSince: snapshot.absent_since });
+        }
       }
     }
     const ticketFacts = ticket === undefined ? null : parseJson(ticketFactsSchema, ticket.detail);
@@ -177,7 +199,7 @@ export async function getStatus(
             shadowDiffers: (task.shadow_column ?? task.column) !== task.column,
           }
         : {}),
-      state: taskState(ticketFacts, prs, sessions),
+      state: taskState(ticketFacts, prs, sessionStates),
       prCount: links.filter((link) => link.entity === 'pr').length,
       sessionCount: links.filter((link) => link.entity === 'session').length,
       openBlocks: openBlocks.get(task.id) ?? 0,

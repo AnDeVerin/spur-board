@@ -1399,6 +1399,83 @@ describe('on-demand PR poll', () => {
     ]);
   });
 
+  it("passes pollPr only its ref's feedback cursor and held history from core.context", async () => {
+    const mixedCase: PrEntityRef = { ...pr, repo: 'Acme/Web' };
+    const otherNumber: PrEntityRef = { ...pr, number: 43 };
+    const otherRepo: PrEntityRef = { ...pr, repo: 'acme/api' };
+    const cursorOf = (ref: PrEntityRef, id: string) => ({ ref, id, postedAt: at(0) });
+    const heldOf = (ref: PrEntityRef, resume: string | null) => ({
+      ref,
+      resume: resume === null ? null : sourceCursorSchema.parse(resume),
+      feedback: [
+        { kind: 'comment' as const, id: `IC_${resume ?? 'start'}`, author: null, postedAt: at(0) },
+      ],
+    });
+    const { adapter, runner } = start(() => Promise.resolve(batch()), {
+      core: {
+        context: () => ({
+          ...context({ prs: [pr, otherNumber, otherRepo] }),
+          feedbackCursors: [
+            cursorOf(otherNumber, 'IC_43'),
+            cursorOf(mixedCase, 'IC_42'),
+            cursorOf(otherRepo, 'IC_api'),
+          ],
+          continuations: [
+            heldOf(otherRepo, 'p-api'),
+            heldOf(mixedCase, 'p-42'),
+            heldOf(otherNumber, null),
+          ],
+        }),
+      },
+      pollPr: () => Promise.resolve(demandOk()),
+    });
+    await flush();
+    await expect(runner.pollPr?.('github', pr, wait)).resolves.toMatchObject({ ok: true });
+    expect(adapter.prRequests).toHaveLength(1);
+    const [call] = adapter.prRequests;
+    expect(Object.keys(call ?? {}).sort()).toEqual([
+      'continuations',
+      'feedbackCursors',
+      'ref',
+      'signal',
+    ]);
+    expect(call?.ref).toEqual(pr);
+    expect(call?.feedbackCursors).toEqual([cursorOf(mixedCase, 'IC_42')]);
+    expect(call?.continuations).toEqual([heldOf(mixedCase, 'p-42')]);
+  });
+
+  it('passes pollPr no feedback cursor or held history when core.context has none for it', async () => {
+    const { adapter, runner } = start(() => Promise.resolve(batch()), {
+      pollPr: () => Promise.resolve(demandOk()),
+    });
+    await flush();
+    await runner.pollPr?.('github', pr, wait);
+    expect(adapter.prRequests).toHaveLength(1);
+    expect(Object.keys(adapter.prRequests[0] ?? {}).sort()).toEqual(['ref', 'signal']);
+  });
+
+  it('fails at the context step when core.context rejects and never calls the adapter', async () => {
+    let calls = 0;
+    const { core, adapter, runner, failures } = start(() => Promise.resolve(batch()), {
+      core: {
+        context: () => {
+          calls += 1;
+          return calls === 1 ? context() : Promise.reject(new Error('locked'));
+        },
+      },
+      pollPr: () => Promise.resolve(demandOk()),
+    });
+    await flush();
+    await expect(runner.pollPr?.('github', pr, wait)).resolves.toEqual({
+      ok: false,
+      error: { kind: 'failed', adapterKind: 'unexpected', message: 'The context step failed' },
+    });
+    expect(calls).toBe(2);
+    expect(adapter.prRequests).toHaveLength(0);
+    expect(core.observed).toHaveLength(1);
+    expect(failures).toMatchObject([{ step: 'context', kind: 'unexpected' }]);
+  });
+
   describe('timeout', () => {
     it('times out while queued and never calls the adapter', async () => {
       const regular = deferred<Batch>();
@@ -1595,6 +1672,7 @@ describe('on-demand PR poll', () => {
 
   it.each([
     ['a cursor', demandOk({ cursor: sourceCursorSchema.parse('cursor-1') })],
+    ['a continuation', demandOk({ items: [{ ...prItem, continuation: null }] })],
     ['complete true', prOk()],
     ['a missing entity', batch({ complete: false })],
     [

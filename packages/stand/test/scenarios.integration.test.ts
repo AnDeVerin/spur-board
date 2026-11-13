@@ -140,7 +140,7 @@ async function op<T>(manifest: StandManifest, id: string, input: object = {}): P
 interface Status {
   items: { key: string; summary: string }[];
   sources: { source: string; blindReason: string | null }[];
-  tasks: { key: string; column: string }[];
+  tasks: { key: string; column: string; state: string }[];
 }
 
 const status = (manifest: StandManifest) => op<Status>(manifest, 'status.get', {});
@@ -234,7 +234,7 @@ describe('scenario manifest', () => {
 });
 
 describe('scenarios', () => {
-  it('lists twenty scenarios, each with a seed and a settled check', () => {
+  it('lists twenty-one scenarios, each with a seed and a settled check', () => {
     expect(scenarioNames()).toEqual([
       'empty',
       'columns-basic',
@@ -256,6 +256,7 @@ describe('scenarios', () => {
       'dispatch-dead-executor',
       'dispatch-source-blind',
       'dispatch-cycle-limit',
+      'dispatch-long-comment-history',
     ]);
     for (const scenario of SCENARIOS) {
       expect(typeof scenario.seed, scenario.name).toBe('function');
@@ -622,15 +623,19 @@ describe('each scenario', () => {
     );
   }, 60_000);
 
-  it('worker-killed-no-pr: the ended worker item is raised', async () => {
+  it('worker-killed-no-pr: the ended worker item is raised and the task row agrees', async () => {
     await up();
     const { scenario } = await seed('worker-killed-no-pr');
-    const { items } = await status(current());
+    const { items, tasks } = await status(current());
     expect(items).toContainEqual(
       expect.objectContaining({
         key: scenario.items?.['killed'],
         summary: 'stand-org/board#1: worker ended (killed), no PR (stand-killed)',
       }),
+    );
+    // #272: the row counted the stored health, not the end reason the item names.
+    expect(tasks.find((task) => task.key === 'stand-org/board#1')?.state).toMatch(
+      /; sessions 1 ended \(killed\)$/,
     );
   }, 60_000);
 
@@ -1044,6 +1049,63 @@ describe('dispatcher scenarios', () => {
       );
       await ack(as('worker'), handing.id);
       expect((await submit(as('worker'), handing.id, A)).task.column).toBe('review');
+    },
+    TIMEOUT,
+  );
+
+  it(
+    'dispatch-long-comment-history: an old external comment is handed by the turned submit and the task leaves Dev',
+    async () => {
+      await up();
+      await seed('dispatch-long-comment-history');
+      interface Why {
+        why: {
+          gates: {
+            column: string;
+            conditions: { condition: string; state: string; reason?: string }[];
+          }[];
+        };
+      }
+      const devConditions = async () =>
+        (await op<Why>(current(), 'task.get', { task: ISSUE, why: true })).why.gates.find(
+          (gate) => gate.column === 'dev',
+        )?.conditions ?? [];
+      const history = async () =>
+        (await devConditions()).find(({ condition }) => condition === 'comment_history_read');
+      const waiting = {
+        condition: 'comment_history_read',
+        state: 'waiting',
+        reason: 'comment_history_incomplete',
+      };
+      // The seed's poll read the newest 300 of 650 comments; each poll reads 3 pages of 100.
+      expect(await history()).toEqual(waiting);
+      await poll();
+      expect(await history()).toEqual(waiting);
+      await poll();
+      expect(await history()).toMatchObject({ state: 'met' });
+      expect(await devConditions()).toContainEqual({
+        condition: 'external_comments_handled',
+        state: 'failed',
+        reason: 'external_comments',
+      });
+
+      await github('comment');
+      const dev = await mustTurn(as('worker'));
+      expect(dev).toMatchObject({ id: 'T1', reason: 'dev: no_pr' });
+      expect((await submit(as('worker'), dev.id, A)).task.column).toBe('dev');
+      // No regular poll since the comment: the submit's on-demand read used the held history.
+      const handing = await mustTurn(as('worker'));
+      expect(handing.reason).toBe('dev: external_comments');
+      expect(handing.handed.map(({ id }) => id).sort()).toEqual(['IC_1_10', 'IC_1_650']);
+      await ack(as('worker'), handing.id);
+      expect((await submit(as('worker'), handing.id, A)).task.column).toBe('review');
+      expect((await fromTo()).at(-1)).toEqual(['dev', 'review', 'gate_passed']);
+
+      await poll();
+      const held = await withStore((store) =>
+        store.db.selectFrom('pr_continuation').select('ref_key').execute(),
+      );
+      expect(held).toEqual([]);
     },
     TIMEOUT,
   );

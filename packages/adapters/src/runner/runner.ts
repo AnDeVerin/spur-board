@@ -390,9 +390,24 @@ function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: nu
       });
     }
     const aborted = () => abort.signal.aborted;
-    let step: PollFailure['step'] = 'poll';
+    let step: PollFailure['step'] = 'context';
     try {
-      const batch = await untilAborted(adapter.pollPr(ref, { signal: abort.signal }), abort.signal);
+      // Only this ref's feedback cursor and held history; the adapter merges but never states it.
+      const received = await untilAborted(core.context(source), abort.signal);
+      if (aborted() || received === undefined) return err(stoppedError);
+      const own = ({ ref: held }: { ref: PrEntityRef }): boolean =>
+        held.number === ref.number && held.repo.toLowerCase() === ref.repo.toLowerCase();
+      const feedbackCursors = received.feedbackCursors?.filter(own) ?? [];
+      const continuations = received.continuations?.filter(own) ?? [];
+      step = 'poll';
+      const batch = await untilAborted(
+        adapter.pollPr(ref, {
+          signal: abort.signal,
+          ...(feedbackCursors.length === 0 ? {} : { feedbackCursors }),
+          ...(continuations.length === 0 ? {} : { continuations }),
+        }),
+        abort.signal,
+      );
       // Aborted by stop() or by the timeout; after a timeout the caller already has its answer.
       if (aborted()) return err(stoppedError);
       step = 'batch';
@@ -409,9 +424,13 @@ function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: nu
               ? 'is marked complete'
               : parsed.data.cursor !== undefined
                 ? 'carries a cursor'
-                : value === undefined
-                  ? 'carries another item'
-                  : undefined;
+                : parsed.data.items.some(
+                      (item) => item.kind === 'pr' && item.continuation !== undefined,
+                    )
+                  ? 'carries a continuation'
+                  : value === undefined
+                    ? 'carries another item'
+                    : undefined;
       if (!parsed.success || invalid !== undefined || value === undefined) {
         const reason = invalid ?? 'fails the batch schema';
         const error = new AdapterError('transient', `Invalid batch: ${reason}`);
