@@ -46,7 +46,9 @@ and `describe('PR index cache')` in `packages/adapters/test/github/prBatch.test.
   the `feedbackCursors` entry match, `feedbackComplete` is true, the read is younger than
   `OPEN_REFRESH_MS` or `CLOSED_REFRESH_MS`, the index lists every check, review, review thread
   and review request (the full read pages past 100, the index does not), and an open PR's
-  rollup is `null` or `SUCCESS`: a failed rollup can hide a check that finished.
+  rollup is `null` or `SUCCESS` with every listed check green, required or not (check run
+  `SUCCESS` or `NEUTRAL`, status `SUCCESS`): a failed rollup can hide a check that finished,
+  and a skipped check can turn required with no fingerprint change.
 - Write the cache only from a full read with an index fingerprint of the same poll; otherwise
   delete the entry, as on `not_found`, `no_access` and `pollPr`. An old entry would re-emit facts
   older than ones already delivered.
