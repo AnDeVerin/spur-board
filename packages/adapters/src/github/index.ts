@@ -663,7 +663,7 @@ async function pollRepository({
           continue;
         }
         const entry = entries.get(number);
-        if (ref !== undefined && entry !== undefined)
+        if (entry !== undefined)
           cache.set(number, {
             fingerprint: entry.fingerprint,
             facts,

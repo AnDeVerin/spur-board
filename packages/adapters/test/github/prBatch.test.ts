@@ -155,8 +155,9 @@ function routed(fetcher: typeof fetch): typeof fetch {
   sent.set(fetcher, queries);
   let aliases: string | undefined;
   return async (input, init) => {
-    const operation = operationOf(queryOf(init));
-    queries.push(queryOf(init));
+    const query = queryOf(init);
+    const operation = operationOf(query);
+    queries.push(query);
     if (aliases !== undefined && (operation === 'PrIndex' || operation === 'PrDetails')) {
       const body = aliases;
       if (operation === 'PrDetails') aliases = undefined;
@@ -1839,13 +1840,14 @@ describe('PR feedback', () => {
   });
 });
 
+const prNumbers = (query: string): number[] =>
+  [...query.matchAll(/pullRequest\(number: (\d+)\)/g)].map((match) => Number(match[1]));
 type Operation = 'PrBatch' | 'PrIndex' | 'PrDetails' | 'PrPage' | 'DiscoveryPage';
 /** A fetch that answers each request by its operation name and the PR numbers it names. */
 function byOperation(answer: (operation: Operation, numbers: number[]) => Response) {
   return vi.fn<typeof fetch>((_input, init) => {
     const query = queryOf(init);
-    const numbers = [...query.matchAll(/pullRequest\(number: (\d+)\)/g)].map((m) => Number(m[1]));
-    return Promise.resolve(answer(operationOf(query) as Operation, numbers));
+    return Promise.resolve(answer(operationOf(query) as Operation, prNumbers(query)));
   });
 }
 /** The PR numbers of each request of one operation, in the order they were sent. */
@@ -1853,9 +1855,7 @@ function numbersSent(fetcher: ReturnType<typeof byOperation>, operation: Operati
   return fetcher.mock.calls
     .map((call) => queryOf(call[1]))
     .filter((query) => operationOf(query) === operation)
-    .map((query) =>
-      [...query.matchAll(/pullRequest\(number: (\d+)\)/g)].map((match) => Number(match[1])),
-    );
+    .map(prNumbers);
 }
 const aliased = (numbers: number[], value: (number: number) => unknown) =>
   Object.fromEntries(numbers.map((number, i) => [`pr${String(i)}`, value(number)]));
