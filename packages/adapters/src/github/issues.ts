@@ -149,6 +149,8 @@ export function createGithubIssuesAdapter(options: GithubIssuesOptions): Adapter
   let repositoryId: number | undefined;
   /** The budget of the current poll's last response that carried one. */
   let budget: Batch['budget'];
+  // Read through a function: `request` writes it during the awaits after poll resets it.
+  const lastBudget = (): Batch['budget'] => budget;
 
   /** Rejects a next link outside this repository before any request goes to it. */
   async function checkNext(next: string, signal: AbortSignal): Promise<void> {
@@ -304,13 +306,14 @@ export function createGithubIssuesAdapter(options: GithubIssuesOptions): Adapter
         entities.push({ ref, status: 'ok' });
       }
       if (ctx.signal.aborted) throw new AdapterError('transient', 'GitHub issue poll aborted');
+      const reported = lastBudget();
       return {
         source: options.id,
         observedAt,
         complete,
         items: [...facts.values()].map((item) => ({ kind: 'ticket', facts: item })),
         entities,
-        ...(budget === undefined ? {} : { budget }),
+        ...(reported === undefined ? {} : { budget: reported }),
       };
     },
   };
