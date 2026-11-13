@@ -236,7 +236,9 @@ function latest(values: readonly string[]): string {
  * the reminder of the current holder's current take, so an earlier episode's reminder never counts.
  * `quietSince` is when the holder last had something to do: the take, the start of its idle
  * spell, or the close of its last question on the task. Null while the holder works, has an open
- * question on the task, or has no readable snapshot.
+ * question on the task, or has no readable snapshot. A worker turn whose holder's session link
+ * the operator removed is left out: the holder no longer works the task. An orchestrator turn is
+ * addressed through the column config, so a link removal does not end its hold.
  */
 export async function quietTurns(trx: Trx) {
   const turns = await trx
@@ -247,12 +249,22 @@ export async function quietTurns(trx: Trx) {
     .where('role', '!=', 'operator')
     .orderBy('id')
     .execute();
+  const removed = await trx
+    .selectFrom('link')
+    .select(['task_id', 'session_id'])
+    .where('entity', '=', 'session')
+    .where('banned', '=', 1)
+    .execute();
+  const unlinked = new Set(
+    removed.map((link) => `${String(link.task_id)}:${link.session_id ?? ''}`),
+  );
   const quiet = [];
   for (const turn of turns) {
     if (turn.acked_by === null || turn.acked_at === null) continue;
     const holder = parseActorId(turn.acked_by);
     if (holder?.actor !== 'agent') continue;
     const sessionId = holder.actorRef.session;
+    if (turn.role === 'worker' && unlinked.has(`${String(turn.task_id)}:${sessionId}`)) continue;
     const session = await trx
       .selectFrom('session_snapshot')
       .selectAll()

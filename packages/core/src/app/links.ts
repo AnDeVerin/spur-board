@@ -163,6 +163,19 @@ async function run(
     } else {
       await trx.updateTable('link').set({ banned: 1 }).where('id', '=', current.id).execute();
     }
+    // The removed session no longer holds its worker turns: `quietTurns` skips them, and an unsent
+    // reminder is acked here so `ringStillCurrent` drops a ring already queued to the live session.
+    if (input.mode === 'session')
+      await trx
+        .updateTable('notification')
+        .set({ acked_at: ctx.at })
+        .where('task_id', '=', task.id)
+        .where('kind', '=', 'turn_reminder')
+        .where('role', '=', 'worker')
+        .where('author_session', '=', input.session)
+        .where('acked_at', 'is', null)
+        .where('exhausted_at', 'is', null)
+        .execute();
     await emit(
       trx,
       'link_removed',

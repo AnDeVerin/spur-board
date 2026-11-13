@@ -2712,4 +2712,45 @@ describe('anomaly blocks', () => {
     expect(await openLedger(b)).toEqual([]);
     expect((await surface(b)).items.map((item) => item.cleared_at !== null)).toEqual([true]);
   });
+
+  it("keeps a stuck-turn block closed after Spur recovers when its holder's link was removed", async () => {
+    const b = await board();
+    await spur(b, [session('worker-1', 'waiting')]);
+    const turn = await heldTurn(b);
+    now += IDLE;
+    await tick(b);
+    const { reminder, outboxId } = await sendReminder(b);
+    await scanTransaction(b.store, b.config, (trx) =>
+      ringUndelivered(trx, {
+        notificationId: reminder.id,
+        outboxId,
+        dedupeKey: 'unused',
+        session: 'worker-1',
+        reason: 'rejected',
+        at: new Date(now),
+        config: b.config,
+      }),
+    );
+    await tick(b);
+    expect(await openLedger(b)).toEqual([`stuck-turn:${String(turn.id)}`]);
+    now += 1_000;
+    await b.core.reportSourceState('spur', {
+      lastCompleteAt: iso(),
+      blind: { reason: 'stale', message: 'Spur stopped answering' },
+      gone: [],
+    });
+    await b.apply(
+      createLinkMutations(b.config).remove,
+      { mode: 'session', task: 'o/r#9', session: 'worker-1', reason: 'Wrong task.' },
+      'operator',
+    );
+    await tick(b);
+    expect(await openLedger(b)).toEqual([]);
+    now += 1_000;
+    await spur(b, [session('worker-1', 'waiting')]);
+    now += IDLE;
+    await tick(b);
+    expect(await openLedger(b)).toEqual([]);
+    expect((await surface(b)).items.map((item) => item.cleared_at !== null)).toEqual([true]);
+  });
 });

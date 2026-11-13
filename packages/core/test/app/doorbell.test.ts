@@ -24,6 +24,7 @@ import { scanTransaction } from '../../src/app/secrets.ts';
 import { SpurRejectedError } from '../../src/app/sender.ts';
 import { sampleRows } from '../store/sample-rows.ts';
 import { archiveTask } from '../../src/app/archive.ts';
+import { createLinkMutations } from '../../src/app/links.ts';
 import {
   closeTurns,
   isTurnOpen,
@@ -2403,5 +2404,39 @@ describe('turns', () => {
     ctx.advance(2_000_000);
     await step(ctx);
     expect(ctx.sent).toHaveLength(1);
+  });
+
+  it('skips the reminder for a worker whose link was removed', async () => {
+    const unlink = (ctx: Board) =>
+      ctx.apply(
+        createLinkMutations(ctx.config).remove,
+        { mode: 'session', task: KEY, session: 'worker-1', reason: 'Wrong task.' },
+        'operator',
+      );
+
+    const quiet = await setup({ config: policyBoard('none') });
+    await takenByWorker(quiet);
+    await health(quiet, 'worker-1', 'web', 'waiting', quiet.now());
+    await unlink(quiet);
+    quiet.advance(IDLE * 3);
+    await remind(quiet);
+    expect(await reminders(quiet)).toEqual([]);
+    expect(await quiet.store.transaction((trx) => quietTurns(trx))).toEqual([]);
+
+    const queued = await setup({ config: policyBoard('none') });
+    await takenByWorker(queued);
+    await health(queued, 'worker-1', 'web', 'waiting', queued.now());
+    queued.advance(IDLE);
+    await remind(queued);
+    await queued.ring();
+    expect(await reminders(queued)).toEqual([
+      expect.objectContaining({ recipient_session: 'worker-1', acked_at: null }),
+    ]);
+    await unlink(queued);
+    await queued.sender.tick();
+    expect(queued.sent).toHaveLength(1);
+    expect(await reminders(queued)).toEqual([
+      expect.objectContaining({ acked_at: queued.now().toISOString() }),
+    ]);
   });
 });
