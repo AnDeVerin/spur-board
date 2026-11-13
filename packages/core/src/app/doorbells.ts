@@ -157,11 +157,25 @@ const isTurnKind = (kind: Notification['kind']) => kind === 'turn' || kind === '
 
 /**
  * Whether a reminder was cancelled before it was ever sent, as a link removal does: it counts as
- * no reminder for its take, so a restored link reminds the holder again.
+ * no reminder for its take, so a restored link reminds the holder again. A ring of it still
+ * queued or in flight, or one that may have reached Spur (`uncertain`), keeps it: the outcome is
+ * not known yet or the reminder may be out, and one reminder per take wins over a missed one.
+ * Only rings the sender killed unsent leave it re-armable.
  */
-export const reminderCancelledUnsent = (
-  n: Pick<Notification, 'acked_at' | 'rings' | 'exhausted_at'>,
-): boolean => n.acked_at !== null && n.rings === 0 && n.exhausted_at === null;
+export async function reminderCancelledUnsent(
+  trx: Trx,
+  n: Pick<Notification, 'id' | 'acked_at' | 'rings' | 'exhausted_at'>,
+): Promise<boolean> {
+  if (n.acked_at === null || n.rings !== 0 || n.exhausted_at !== null) return false;
+  const open = await trx
+    .selectFrom('outbox')
+    .select('id')
+    .where('kind', '=', 'doorbell')
+    .where(sql<number>`json_extract(payload, '$.notificationId')`, '=', n.id)
+    .where((eb) => eb.or([eb('state', '!=', 'dead'), eb('uncertain', '=', 1)]))
+    .executeTakeFirst();
+  return open === undefined;
+}
 
 /**
  * Register the single reminder to the session holding a quiet turn. The key names the holder and
@@ -176,17 +190,19 @@ export async function registerTurnReminder(
   at: Date,
 ): Promise<void> {
   if (turn.acked_at === null) throw new Error(`turn ${String(turn.id)} is not taken`);
-  await trx
-    .deleteFrom('notification')
-    .where('source_key', '=', turnReminderKey(turn.id, session, turn.acked_at))
-    .where('acked_at', 'is not', null)
-    .where('rings', '=', 0)
-    .where('exhausted_at', 'is', null)
-    .execute();
+  const key = turnReminderKey(turn.id, session, turn.acked_at);
+  const earlier = await trx
+    .selectFrom('notification')
+    .selectAll()
+    .where('source_key', '=', key)
+    .executeTakeFirst();
+  if (earlier !== undefined && (await reminderCancelledUnsent(trx, earlier))) {
+    await trx.deleteFrom('notification').where('id', '=', earlier.id).execute();
+  }
   await trx
     .insertInto('notification')
     .values({
-      source_key: turnReminderKey(turn.id, session, turn.acked_at),
+      source_key: key,
       kind: 'turn_reminder',
       task_id: turn.task_id,
       block_id: null,

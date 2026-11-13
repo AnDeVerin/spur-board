@@ -288,7 +288,8 @@ export async function quietTurns(trx: Trx) {
       .selectAll()
       .where('source_key', '=', turnReminderKey(turn.id, sessionId, turn.acked_at))
       .executeTakeFirst();
-    const reminder = row === undefined || reminderCancelledUnsent(row) ? undefined : row;
+    const reminder =
+      row === undefined || (await reminderCancelledUnsent(trx, row)) ? undefined : row;
     quiet.push({
       turn,
       sessionId,
