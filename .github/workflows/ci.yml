@@ -257,6 +257,9 @@ jobs:
     timeout-minutes: 25
     permissions:
       contents: read
+    env:
+      RELEASE_CANDIDATE_VERSION: ${{ needs.release-build.outputs.version }}
+      RELEASE_CANDIDATE_SHA256: ${{ needs.release-build.outputs.sha256 }}
     strategy:
       fail-fast: false
       matrix:
@@ -274,18 +277,9 @@ jobs:
         with:
           name: release-candidate
           path: release-artifacts
-      - env:
-          RELEASE_CANDIDATE_VERSION: ${{ needs.release-build.outputs.version }}
-          RELEASE_CANDIDATE_SHA256: ${{ needs.release-build.outputs.sha256 }}
-        run: sha256sum --check --strict <<< "${RELEASE_CANDIDATE_SHA256}  release-artifacts/spur-board-${RELEASE_CANDIDATE_VERSION}.tgz"
-      - env:
-          RELEASE_CANDIDATE_VERSION: ${{ needs.release-build.outputs.version }}
-          RELEASE_CANDIDATE_SHA256: ${{ needs.release-build.outputs.sha256 }}
-        run: pnpm package:smoke "release-artifacts/spur-board-${RELEASE_CANDIDATE_VERSION}.tgz"
-      - env:
-          RELEASE_CANDIDATE_VERSION: ${{ needs.release-build.outputs.version }}
-          RELEASE_CANDIDATE_SHA256: ${{ needs.release-build.outputs.sha256 }}
-        run: pnpm upgrade:smoke "release-artifacts/spur-board-${RELEASE_CANDIDATE_VERSION}.tgz"
+      - run: sha256sum --check --strict <<< "${RELEASE_CANDIDATE_SHA256}  release-artifacts/spur-board-${RELEASE_CANDIDATE_VERSION}.tgz"
+      - run: pnpm package:smoke "release-artifacts/spur-board-${RELEASE_CANDIDATE_VERSION}.tgz"
+      - run: pnpm upgrade:smoke "release-artifacts/spur-board-${RELEASE_CANDIDATE_VERSION}.tgz"
 
   ci-ok:
     if: always()
