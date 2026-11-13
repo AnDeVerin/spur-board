@@ -11,7 +11,7 @@ import { createFakeSpur } from '../src/fake-spur.ts';
 import { createFakes } from '../src/fakes/fetch.ts';
 import { createGithubIssuesFake } from '../src/fakes/github-issues.ts';
 import { createGithubPrFake } from '../src/fakes/github-pr.ts';
-import { createJiraFake } from '../src/fakes/jira.ts';
+import { createJiraFake, STATUSES as JIRA_STATUSES } from '../src/fakes/jira.ts';
 import {
   RECORDING_FILES,
   recordingSchema,
@@ -32,8 +32,6 @@ const SECRETS = {
 };
 const JIRA_SOURCE = 'jira:stand-jira';
 const REFRESH = 'refresh with pnpm record:fakes';
-/** The fake emits stand-made strings, not the recording's live ones: these differ by design. */
-const JIRA_STATUSES = ['To Do', 'Ready for Dev', 'In Progress', 'In Review', 'Done'];
 
 /** Keys a fake cannot model yet; each entry also covers the paths under it. */
 const KNOWN_OMISSIONS: readonly { system: System; path: string; reason: string }[] = [
@@ -209,7 +207,7 @@ function jiraStatus(status: Json | undefined, tracker: Recording['tracker']): st
   const name = text(status);
   if (tracker?.doneStatuses.includes(name) === true) return 'Done';
   if (tracker?.readyStatuses.includes(name) === true) return 'Ready for Dev';
-  return JIRA_STATUSES.includes(name) ? name : 'To Do';
+  return (JIRA_STATUSES as readonly string[]).includes(name) ? name : 'To Do';
 }
 
 /** Fresh fakes on the stand's config, seeded with what each recording shows. */

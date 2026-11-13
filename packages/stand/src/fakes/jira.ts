@@ -13,7 +13,7 @@ const FIRST_ID = 10_001;
 export const SPRINT_FIELD = 'customfield_10020';
 const SPRINT_SCHEMA = 'com.pyxis.greenhopper.jira:gh-sprint';
 /** The fake's workflow; a new ticket starts at the first status. */
-const STATUSES = ['To Do', 'Ready for Dev', 'In Progress', 'In Review', 'Done'] as const;
+export const STATUSES = ['To Do', 'Ready for Dev', 'In Progress', 'In Review', 'Done'] as const;
 // The fields the adapter asks for, written out here on purpose, as the JQL forms are.
 const FIELDS = ['summary', 'status', 'assignee', 'labels', 'updated', SPRINT_FIELD];
 const KEY = /^[A-Z][A-Z0-9_]*-[1-9]\d*$/;
