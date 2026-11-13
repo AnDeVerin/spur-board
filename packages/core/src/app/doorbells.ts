@@ -75,7 +75,7 @@ export async function applyDoorbellPolicy(trx: Trx, event: DoorbellEvent, at: Da
       return;
     }
     case 'block_escalated':
-      await closeBlockNotification(trx, event.block.id, at);
+      await closeBlockNotification(trx, event.block.id, at, 'system');
       await registerBlockNotification(trx, event.block, at);
       return;
     case 'answer':
@@ -1119,8 +1119,14 @@ async function workerNotificationAddressedTo(
     : (await selectNotificationRecipient(trx, n, config))?.id === session;
 }
 
-export async function closeBlockNotification(trx: Trx, blockId: number, at: Date): Promise<void> {
-  await closeOwnedNotifications(trx, 'block', blockId, at);
+/** Ends a block's ring series; its exhaustion item is cleared by `actor`, who closed the block. */
+export async function closeBlockNotification(
+  trx: Trx,
+  blockId: number,
+  at: Date,
+  actor: ActorId,
+): Promise<void> {
+  await closeOwnedNotifications(trx, 'block', blockId, at, actor);
 }
 
 /**
@@ -1128,7 +1134,7 @@ export async function closeBlockNotification(trx: Trx, blockId: number, at: Date
  * system.
  */
 export async function closeTurnNotification(trx: Trx, turnId: number, at: Date): Promise<void> {
-  await closeOwnedNotifications(trx, 'turn', turnId, at);
+  await closeOwnedNotifications(trx, 'turn', turnId, at, 'system');
 }
 
 async function closeOwnedNotifications(
@@ -1136,6 +1142,7 @@ async function closeOwnedNotifications(
   kind: 'block' | 'turn',
   ownerId: number,
   at: Date,
+  actor: ActorId,
 ): Promise<void> {
   const closed = await trx
     .updateTable('notification')
@@ -1152,6 +1159,6 @@ async function closeOwnedNotifications(
       .where('item_key', '=', exhaustedItemKey(row))
       .where('cleared_at', 'is', null)
       .executeTakeFirst();
-    if (item !== undefined) await clearItem(trx, item.id, at);
+    if (item !== undefined) await clearItem(trx, item.id, at, actor);
   }
 }

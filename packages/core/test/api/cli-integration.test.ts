@@ -23,6 +23,8 @@ import {
 } from '../../src/index.ts';
 import { scanTransaction } from '../../src/app/secrets.ts';
 import { decideTokenInTransaction } from '../../src/app/tokens.ts';
+import { resolvedFeedBody } from '../../src/app/feed.ts';
+import type { FeedEditPayload } from '../../src/app/outbox.ts';
 import { sampleRows } from '../store/sample-rows.ts';
 
 function capture() {
@@ -49,7 +51,10 @@ function capture() {
 }
 
 describe('CLI against the real HTTP API', () => {
-  it('answers a question whose gateway post was blocked', async () => {
+  it.each([
+    { caller: 'the operator token', session: undefined, token: 'local-test-token', by: 'operator' },
+    { caller: 'an operator-role session', session: 'op-1', token: undefined, by: 'agent:ops/op-1' },
+  ] as const)('answers a question whose gateway post was blocked with $caller', async (caller) => {
     const home = mkdtempSync(join(tmpdir(), 'board-api-secret-answer-'));
     const store = openStore(join(home, 'board.db'));
     let app: Awaited<ReturnType<typeof createApiServer>> | undefined;
@@ -61,7 +66,10 @@ describe('CLI against the real HTTP API', () => {
             tracker: { type: 'github-issues', repo: 'o/r', milestone: 'M1' },
             repos: ['o/r'],
             operatorGithubLogin: 'operator',
-            spurProjects: [{ name: 'web', role: 'worker' }],
+            spurProjects: [
+              { name: 'web', role: 'worker' },
+              { name: 'ops', role: 'operator' },
+            ],
             columns: [
               { id: 'todo', orchestrator: 'none' },
               { id: 'ready-for-dev', orchestrator: 'none' },
@@ -113,7 +121,8 @@ describe('CLI against the real HTTP API', () => {
         port: 0,
         ready: () => true,
         clock,
-        lookupSession: () => Promise.resolve(null),
+        lookupSession: (id) =>
+          Promise.resolve(id === 'op-1' ? { project: 'ops', status: 'running' as const } : null),
         verifyToken: (token) =>
           Promise.resolve(token === 'local-test-token' ? { name: 'local' } : null),
         registry: createOperationRegistry({ config, clock, completeSince: new Map() }),
@@ -127,8 +136,8 @@ describe('CLI against the real HTTP API', () => {
         await runCli(['answer', blocked.block.id, 'Handled locally.', '--json'], {
           clientConfig: {
             address: new URL(`http://127.0.0.1:${String(address.port)}`),
-            session: undefined,
-            token: 'local-test-token',
+            session: caller.session,
+            token: caller.token,
             connectTimeoutMs: 2_000,
             responseTimeoutMs: 2_000,
           },
@@ -153,9 +162,19 @@ describe('CLI against the real HTTP API', () => {
         .execute();
       expect(edits).toHaveLength(1);
       expect(edits[0]?.parent_outbox_id).toBe(blockedItem.line_outbox_id);
-      expect(JSON.parse(edits[0]?.payload ?? '{}')).toMatchObject({
+      const payload = JSON.parse(edits[0]?.payload ?? '{}') as FeedEditPayload;
+      expect(payload).toMatchObject({
         text: blockedItem.text,
-        resolved: { by: 'system', at: new Date(clock.now()).toISOString() },
+        resolved: { by: caller.by, at: new Date(clock.now()).toISOString() },
+      });
+      if (payload.resolved === undefined) throw new Error('Expected a resolved edit.');
+      expect(resolvedFeedBody({ ...payload, resolved: payload.resolved }, config).at(-1)).toEqual({
+        kind: 'paragraph',
+        children: [
+          { kind: 'text', text: '✓ Resolved by ' },
+          { kind: 'mention', user: 'operator' },
+          { kind: 'text', text: ' at 08:00' },
+        ],
       });
     } finally {
       try {

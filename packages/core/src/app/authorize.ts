@@ -42,7 +42,8 @@ export type AuthorizationDecision =
   | { readonly status: 'unresolved' }
   | { readonly status: 'denied'; readonly hint: string };
 
-function operator(actor: ActorId, config: Config): boolean {
+/** True for the operator token and for a session of a Spur project with the `operator` role. */
+export function isOperator(actor: ActorId, config: Config): boolean {
   if (actor === 'operator') return true;
   const parsed = parseActorId(actor);
   return (
@@ -84,7 +85,7 @@ function orchestrator(
 ): boolean {
   const project = config.projects.find((entry) => entry.id === target.project);
   const configured = project?.columns.find((entry) => entry.id === column)?.orchestrator;
-  if (configured === 'operator') return operator(actor, config);
+  if (configured === 'operator') return isOperator(actor, config);
   const parsed = parseActorId(actor);
   return (
     parsed?.actor === 'agent' && configured !== 'none' && configured === parsed.actorRef.project
@@ -131,7 +132,7 @@ function matches(
   const parsed = parseActorId(actor);
   switch (rule.grant) {
     case 'operator':
-      return operator(actor, config);
+      return isOperator(actor, config);
     case 'project-agent':
       return (
         parsed?.actor === 'agent' &&
@@ -148,7 +149,7 @@ function matches(
       const addressee = parseAddressee(target.block.addressee_role);
       switch (addressee.kind) {
         case 'operator':
-          return operator(actor, config);
+          return isOperator(actor, config);
         case 'curator':
           return (
             parsed?.actor === 'agent' &&
@@ -177,7 +178,7 @@ export function authorize(
   const rules = grants.filter((rule) => rule.mode === undefined || rule.mode === state.mode);
   const hint = `Allowed role: ${[...new Set(rules.map((rule) => rule.grant))].join(', ') || 'none'}.`;
   if (state.target.kind === 'missing') {
-    if (rules.some((rule) => rule.grant === 'operator' && operator(actor, state.config))) {
+    if (rules.some((rule) => rule.grant === 'operator' && isOperator(actor, state.config))) {
       return { status: 'allowed' };
     }
     return rules.every((rule) => rule.grant === 'operator')
