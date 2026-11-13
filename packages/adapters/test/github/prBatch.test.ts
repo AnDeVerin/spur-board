@@ -2066,11 +2066,17 @@ describe('PR feedback', () => {
       expect(batch.items[0]).toMatchObject({ continuation: null });
     });
 
-    it('keeps the held history unstated when a resume page answers HTTP 500', async () => {
-      const fetcher = pages(
-        initial(prWith(back(range(250, 320), 'p9'))),
-        new Response('unavailable', { status: 500 }),
-      );
+    it.each<[string, () => Response]>([
+      ['answers HTTP 500', () => new Response('unavailable', { status: 500 })],
+      [
+        'carries an unscoped GraphQL error',
+        () => response({ repository: null }, [{ message: 'Something went wrong' }]),
+      ],
+    ])('keeps the held history unstated when a resume page %s', async (_name, page) => {
+      const fetcher = vi
+        .fn<typeof fetch>()
+        .mockResolvedValueOnce(initial(prWith(back(range(250, 320), 'p9'))))
+        .mockImplementationOnce(() => Promise.resolve(page()));
       const batch = await adapter(fetcher).poll(holding('p0', entries(100, 300)));
       expect(fetcher).toHaveBeenCalledTimes(2);
       expect(batch.complete).toBe(true);

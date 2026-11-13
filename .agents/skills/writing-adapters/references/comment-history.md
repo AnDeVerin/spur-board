@@ -41,7 +41,8 @@ position per source and PR in `pr_continuation`, and passes them back in
 - A stale resume page states `null`: a scoped GraphQL error, a malformed page, a missing or
   repeated start position, or nodes newer than the run that overlap none of it.
 - A transient failure thrown on any page, and a phase-1 page failure or a missing or repeated
-  start position on the oldest newest-first page, state nothing: core keeps its row.
+  start position on the oldest newest-first page, state nothing: core keeps its row. An
+  unscoped GraphQL error on a resume page is such a thrown transient failure, not a stale page.
 - `pollPr` reads with the held run and the cursor the runner takes from `core.context` for its
   ref, within the same budget, and states nothing (A9); the runner refuses a `continuation`.
 - Core deletes the row of a PR with no unbanned link; a deleted comment older than the newest
