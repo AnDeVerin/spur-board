@@ -310,7 +310,7 @@ class Pending {
 }
 type Draft = null | boolean | number | string | Pending | Draft[] | { [key: string]: Draft };
 
-type System = 'spur' | 'github-pr' | 'github-issues' | 'jira';
+export type System = 'spur' | 'github-pr' | 'github-issues' | 'jira';
 
 const isObject = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -1228,7 +1228,8 @@ async function recordOrRefuse(
   return files;
 }
 
-const systemOfSource = (source: string): System =>
+/** The system a stand source id belongs to. */
+export const systemOfSource = (source: string): System =>
   source === 'spur'
     ? 'spur'
     : source.startsWith('jira:')

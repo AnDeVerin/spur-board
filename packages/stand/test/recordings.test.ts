@@ -12,7 +12,13 @@ import { createFakes } from '../src/fakes/fetch.ts';
 import { createGithubIssuesFake } from '../src/fakes/github-issues.ts';
 import { createGithubPrFake } from '../src/fakes/github-pr.ts';
 import { createJiraFake } from '../src/fakes/jira.ts';
-import { RECORDING_FILES, recordingSchema, type Recording } from '../src/record.ts';
+import {
+  RECORDING_FILES,
+  recordingSchema,
+  systemOfSource as systemOf,
+  type Recording,
+  type System,
+} from '../src/record.ts';
 import { standConfig } from '../src/stand.ts';
 
 type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
@@ -28,16 +34,6 @@ const JIRA_SOURCE = 'jira:stand-jira';
 const REFRESH = 'refresh with pnpm record:fakes';
 /** The fake emits stand-made strings, not the recording's live ones: these differ by design. */
 const JIRA_STATUSES = ['To Do', 'Ready for Dev', 'In Progress', 'In Review', 'Done'];
-
-type System = 'spur' | 'github-pr' | 'github-issues' | 'jira';
-const systemOf = (source: string): System =>
-  source === 'spur'
-    ? 'spur'
-    : source.startsWith('jira:')
-      ? 'jira'
-      : source.startsWith('github-issues:')
-        ? 'github-issues'
-        : 'github-pr';
 
 /** Keys a fake cannot model yet; each entry also covers the paths under it. */
 const KNOWN_OMISSIONS: readonly { system: System; path: string; reason: string }[] = [
@@ -60,6 +56,8 @@ const KNOWN_OMISSIONS: readonly { system: System; path: string; reason: string }
   },
   { system: 'jira', path: 'issues[].fields.labels[]', reason: 'The Jira fake labels no ticket.' },
 ];
+const omissionsOf = (system: System): string[] =>
+  KNOWN_OMISSIONS.filter((entry) => entry.system === system).map(({ path }) => path);
 
 const recordingsDir = fileURLToPath(new URL('../recordings/', import.meta.url));
 
@@ -435,7 +433,7 @@ function shapeOf(value: Json, path = '', out: Shape = new Map()): Shape {
  * recording lacks, a recorded key the fake lacks, or a fake null or empty list over a recorded
  * value. A recorded null matches any fake value. Values are never compared.
  */
-function shapeDiff(recorded: Json, fake: Json, omitted: readonly string[] = []): string[] {
+function shapeDiff(recorded: Json, fake: Json, omitted: readonly string[]): string[] {
   const left = shapeOf(recorded);
   const right = shapeOf(fake);
   const isOmitted = (path: string): boolean =>
@@ -571,11 +569,7 @@ describe('stand fakes against the recorded live responses', () => {
   it('fake responses have the recorded shape', async () => {
     const { answers } = await askFakes();
     const diffs = answers.flatMap(({ source, exchange, body }) => {
-      const system = systemOf(source);
-      const omitted = KNOWN_OMISSIONS.filter((entry) => entry.system === system).map(
-        ({ path }) => path,
-      );
-      return shapeDiff(exchange.response.body, body, omitted).map(
+      return shapeDiff(exchange.response.body, body, omissionsOf(systemOf(source))).map(
         (diff) => `${source} ${exchange.request.method} ${exchange.request.url} ${diff}`,
       );
     });
@@ -619,12 +613,8 @@ describe('stand fakes against the recorded live responses', () => {
         fields: { ...(issue['fields'] as JsonObject), summary: null },
       })),
     };
-    expect(
-      shapeDiff(
-        search.exchange.response.body,
-        nulled,
-        KNOWN_OMISSIONS.filter(({ system }) => system === 'jira').map(({ path }) => path),
-      ),
-    ).toEqual(['issues[].fields.summary: the fake has null over string']);
+    expect(shapeDiff(search.exchange.response.body, nulled, omissionsOf('jira'))).toEqual([
+      'issues[].fields.summary: the fake has null over string',
+    ]);
   });
 });
