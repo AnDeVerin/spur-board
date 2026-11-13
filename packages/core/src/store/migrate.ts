@@ -65,14 +65,15 @@ export const KEEP_BACKUPS = 5;
 const BACKUP_SUFFIX = /^(\d+)\.(\d{8}T\d{9}Z)\.bak$/;
 
 /**
- * Keeps the newest `keep` migration backups of `file` (`<name>.v<n>.<stamp>.bak` beside it, by
- * stamp, then version) at mode 0600 and removes the rest. `protect`, when it is one of them, is
- * always kept and counts toward `keep`: the clock can step back, so the backup just written may
- * not carry the newest stamp. Any other file name is left alone.
+ * Keeps the newest `KEEP_BACKUPS` migration backups of `file` (`<name>.v<n>.<stamp>.bak` beside
+ * it, by stamp, then version) at mode 0600 and removes the rest. `protect`, when it is one of
+ * them, is always kept and counts toward the limit: the clock can step back, so the backup just
+ * written may not carry the newest stamp. Any other file name is left alone.
  */
-export function pruneBackups(file: string, keep = KEEP_BACKUPS, protect?: string): void {
+export function pruneBackups(file: string, protect?: string): void {
   const dir = dirname(file);
   const prefix = `${basename(file)}.v`;
+  const shielded = protect === undefined ? undefined : normalize(protect);
   const candidates = readdirSync(dir)
     .filter((name) => name.startsWith(prefix))
     .flatMap((name) => {
@@ -81,16 +82,14 @@ export function pruneBackups(file: string, keep = KEEP_BACKUPS, protect?: string
       return [{ path: join(dir, name), version: Number(match[1]), stamp: match[2] }];
     })
     .sort((a, b) => (a.stamp === b.stamp ? b.version - a.version : a.stamp < b.stamp ? 1 : -1));
-  const shielded = candidates.find(
-    (backup) => protect !== undefined && backup.path === normalize(protect),
-  );
-  const others = candidates.filter((backup) => backup !== shielded);
-  const kept =
-    shielded === undefined ? others.slice(0, keep) : [shielded, ...others.slice(0, keep - 1)];
-  for (const backup of candidates) {
-    if (kept.includes(backup)) chmodSync(backup.path, 0o600);
+  const ordered = [
+    ...candidates.filter((backup) => backup.path === shielded),
+    ...candidates.filter((backup) => backup.path !== shielded),
+  ];
+  ordered.forEach((backup, index) => {
+    if (index < KEEP_BACKUPS) chmodSync(backup.path, 0o600);
     else rmSync(backup.path, { force: true });
-  }
+  });
 }
 
 /**
@@ -132,7 +131,7 @@ export function migrate(
   if (!empty) {
     backup = backupPath(db.name, from);
     copyDatabase(db, backup);
-    pruneBackups(db.name, KEEP_BACKUPS, backup);
+    pruneBackups(db.name, backup);
   }
   const kept = `database kept at v${String(from)}${backup === null ? '' : `, backup at ${backup}`}`;
 
