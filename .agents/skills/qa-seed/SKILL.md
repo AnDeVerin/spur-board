@@ -16,6 +16,12 @@ verbs and scenario names; this card keeps the rules and traps.
 - The seeded task keys, block IDs and sessions are in the `scenario` field of the `up` line and of
   `pnpm stand status --json`. Take names from there, not from the scenario source.
 - Quote task keys in the shell: `'stand-org/board#1'`; an unquoted `#` starts a comment.
+- The `dispatch-*` scenarios run project `stand` in `dispatcher.mode: on` with To Do, Dev, Review
+  (`--as orchestrator`), Ready to Merge (the operator) and Done.
+- `dispatch-dead-executor` kills the worker role session and keeps its link. To hand the task to
+  a new worker, create it with `fake spur session` and `poll`, then `link.remove` the dead
+  session and `link.add` the new one; without the removal the new one links as `other` and gets
+  no worker turns.
 
 ## Waiting and time
 
@@ -32,8 +38,9 @@ verbs and scenario names; this card keeps the rules and traps.
 - `fake spur session` takes `--status` from `SESSION_STATUSES` (default `running`) and `--state`
   from `SESSION_HEALTH_STATES` (default `working`), both in `packages/contracts/src/facts.ts`.
   The fake stores any string; the board reports other values as unknown.
-- There are no fake PR comments or reviews yet, and no Jira fake: Jira polls fail by design and
-  show in the daemon log, not in the violation log.
+- `fake github pr <n> comment` and `fake github pr <n> review <state>` add a comment, or a review
+  on the head, at the stand clock. The author is `--author`, else `stand-reviewer`, or `stand-bot`
+  with `--bot`; keep bots off `stand-reviewer`, or its approvals stop counting.
 
 ## Violations and reset
 

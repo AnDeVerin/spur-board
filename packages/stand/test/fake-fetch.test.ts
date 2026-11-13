@@ -304,7 +304,7 @@ describe('fakeBody', () => {
   const jira = (args: Record<string, unknown>) => ({ system: 'jira', verb: 'issue', args });
   const SHA = 'b'.repeat(40);
 
-  it.each<[string[], Record<string, string>, Record<string, unknown>]>([
+  it.each<[string[], Record<string, string | boolean>, Record<string, unknown>]>([
     [['github', 'fail', 'delay', '250'], {}, fail({ mode: 'delay', ms: 250 })],
     [['github', 'fail', 'refuse'], {}, fail({ mode: 'refuse' })],
     [['github', 'fail', 'hang'], {}, fail({ mode: 'hang' })],
@@ -325,6 +325,21 @@ describe('fakeBody', () => {
     [['github', 'pr', '7', 'merge'], {}, pr('merge')],
     [['github', 'pr', '7', 'conflict'], {}, pr('conflict')],
     [['github', 'pr', '7', 'push', SHA], {}, pr('push', { sha: SHA })],
+    [['github', 'pr', '7', 'comment'], {}, pr('comment')],
+    [['github', 'pr', '7', 'comment'], { author: 'x' }, pr('comment', { author: 'x' })],
+    [['github', 'pr', '7', 'comment'], { bot: true }, pr('comment', { bot: true })],
+    [['github', 'pr', '7', 'review', 'approved'], {}, pr('review', { state: 'APPROVED' })],
+    [
+      ['github', 'pr', '7', 'review', 'changes-requested'],
+      { author: 'x' },
+      pr('review', { state: 'CHANGES_REQUESTED', author: 'x' }),
+    ],
+    [['github', 'pr', '7', 'review', 'commented'], {}, pr('review', { state: 'COMMENTED' })],
+    [
+      ['github', 'pr', '7', 'review', 'approved'],
+      { bot: true, author: 'x' },
+      pr('review', { state: 'APPROVED', bot: true, author: 'x' }),
+    ],
     [['github', 'issue', '7', 'open'], {}, pr('issue-open')],
     [
       ['github', 'issue', '7', 'open'],
@@ -354,7 +369,7 @@ describe('fakeBody', () => {
     expect(fakeBody(positionals, values)).toEqual(expected);
   });
 
-  it.each<[string[], Record<string, string>?]>([
+  it.each<[string[], Record<string, string | boolean>?]>([
     [[]],
     [['nope']],
     [['violations']],
@@ -379,6 +394,16 @@ describe('fakeBody', () => {
     [['github', 'pr', '7', 'push']],
     [['github', 'pr', '7', 'push', SHA, 'extra']],
     [['github', 'pr', '7', 'approve'], { seed: '{}' }],
+    [['github', 'pr', '7', 'review']],
+    [['github', 'pr', '7', 'review', 'APPROVED']],
+    [['github', 'pr', '7', 'review', 'constructor']],
+    [['github', 'pr', '7', 'review', 'approved', 'extra']],
+    [['github', 'pr', '7', 'comment', 'extra']],
+    [['github', 'pr', '7', 'approve'], { bot: true }],
+    [['github', 'pr', '7', 'push', SHA], { author: 'x' }],
+    [['github', 'issue', '7', 'open'], { author: 'x' }],
+    [['github', 'fail', 'hang'], { bot: true }],
+    [['jira', 'issue', 'STAND-1'], { author: 'x' }],
     [['github', 'pr', '7', 'create'], { seed: 'not json' }],
     [['github', 'pr', '7', 'create'], { title: 't' }],
     [['github', 'fail', 'hang'], { title: 't' }],
