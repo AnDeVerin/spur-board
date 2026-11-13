@@ -212,6 +212,27 @@ async function skip(
   return { status: 'ignored' };
 }
 
+/**
+ * The journal is the comment's edit cursor: a deletion, or an edit at or after this one, was
+ * already applied. Times compare in milliseconds, since `at` precision varies.
+ */
+async function alreadyApplied(trx: Trx, event: MessageEvent): Promise<boolean> {
+  if (event.kind !== 'message_edited' && event.kind !== 'message_deleted') return false;
+  const comment = await linkedComment(trx, event);
+  if (comment === undefined || comment.author !== 'operator') return false;
+  const rows = await trx
+    .selectFrom('event')
+    .select(['kind', 'at'])
+    .where('task_id', '=', comment.task_id)
+    .where('kind', 'in', ['comment_deleted', 'comment_edited'])
+    .where(sql<string>`json_extract(payload, '$.comment')`, '=', `C${String(comment.id)}`)
+    .execute();
+  if (rows.some((row) => row.kind === 'comment_deleted')) return true;
+  if (event.kind === 'message_deleted') return false;
+  const editedAt = Date.parse(event.at);
+  return rows.some((row) => Date.parse(row.at) >= editedAt);
+}
+
 async function linkedComment(trx: Trx, event: MessageEvent): Promise<Row<'comment'> | undefined> {
   return trx
     .selectFrom('comment')
@@ -316,7 +337,12 @@ export function createInbound(input: {
     return resolved?.conversation;
   }
 
-  async function processMessage(trx: Trx, event: MessageEvent, at: string): Promise<Result> {
+  async function processMessage(
+    trx: Trx,
+    event: MessageEvent,
+    at: string,
+  ): Promise<Result | undefined> {
+    if (await alreadyApplied(trx, event)) return undefined;
     const conversation = await sourceContext(trx, event, at);
     if (conversation?.block_id === null || conversation === undefined) {
       return skip(trx, {
@@ -483,7 +509,7 @@ export function createInbound(input: {
     });
   }
 
-  async function runUser(trx: Trx, event: UserEvent, at: string): Promise<Result> {
+  async function runUser(trx: Trx, event: UserEvent, at: string): Promise<Result | undefined> {
     if (
       event.kind === 'command' &&
       event.name !== undefined &&

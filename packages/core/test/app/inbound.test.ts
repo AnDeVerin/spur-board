@@ -26,6 +26,7 @@ import {
   enqueueConversationOpen,
   getOperatorItem,
   openStore,
+  purgeExpiredCommands,
   type OperationRegistry,
   type Store,
   reconcileDueDoorbells,
@@ -34,6 +35,7 @@ import { sampleRows } from '../store/sample-rows.ts';
 import { requestToken } from '../../src/app/tokens.ts';
 
 const now = Date.parse('2026-11-03T10:00:00.000Z');
+const DAY = 86_400_000;
 const at = new Date(now).toISOString();
 const config = configSchema.parse({
   projects: [
@@ -1665,6 +1667,84 @@ describe('inbound apply', () => {
       { text: 'Updated answer', revision: 2 },
     ]);
     expect(await reopened.db.selectFrom('comment').select('id').execute()).toHaveLength(1);
+  });
+
+  it('skips a replayed edit or deletion after its command key expired', async () => {
+    const { store, inbound } = await setup();
+    const purge = () => purgeExpiredCommands(store, { now: () => now + 8 * DAY }, 7);
+    const edit = (key: string, editedAt: string, text: string) => ({
+      ...message({ conversation: 'thread-1', root: 'root-1', key }),
+      kind: 'message_edited' as const,
+      text,
+      at: editedAt,
+    });
+    const deletion = {
+      kind: 'message_deleted' as const,
+      dedupeKey: 'd',
+      conversation: conversationRefSchema.parse('thread-1'),
+      message: messageRefSchema.parse('reply-1'),
+      rootMessage: messageRefSchema.parse('root-1'),
+      sourceUrl: 'https://example.test/thread/reply',
+    };
+    const e1 = edit('e1', new Date(now + 1000).toISOString(), 'First edit');
+    const e2 = edit('e2', new Date(now + 2000).toISOString(), 'Second edit');
+    const e3 = edit('e3', new Date(now + 3000).toISOString(), 'Third edit');
+    const snapshot = async () => ({
+      event: await store.db.selectFrom('event').selectAll().orderBy('id').execute(),
+      comment: await store.db
+        .selectFrom('comment')
+        .select(['id', 'text', 'revision'])
+        .orderBy('id')
+        .execute(),
+      operator_item: await store.db.selectFrom('operator_item').selectAll().orderBy('id').execute(),
+      notification: await store.db.selectFrom('notification').selectAll().orderBy('id').execute(),
+      outbox: await store.db.selectFrom('outbox').selectAll().orderBy('id').execute(),
+    });
+    const commands = () => store.db.selectFrom('command').select('key').execute();
+    const kinds = async (kind: string) =>
+      (await store.db.selectFrom('event').select('kind').where('kind', '=', kind).execute()).length;
+
+    await inbound.sink(message({ conversation: 'thread-1', root: 'root-1' }));
+    await inbound.sink(e1);
+    await inbound.sink(e2);
+    expect(await store.db.selectFrom('comment').select(['text', 'revision']).execute()).toEqual([
+      { text: 'Second edit', revision: 3 },
+    ]);
+
+    const applied = await snapshot();
+    await purge();
+    await inbound.sink(e2);
+    await inbound.sink({ ...e2, at: '2026-11-03T10:00:02Z' });
+    await inbound.sink(e1);
+    expect(await snapshot()).toEqual(applied);
+    expect(await commands()).toEqual([]);
+
+    await inbound.sink(e3);
+    expect(await store.db.selectFrom('comment').select(['text', 'revision']).execute()).toEqual([
+      { text: 'Third edit', revision: 4 },
+    ]);
+    expect(await kinds('comment_edited')).toBe(3);
+
+    await scanTransaction(store, config, (trx) =>
+      trx.updateTable('task').set({ membership: 'archived' }).where('id', '=', 1).execute(),
+    );
+    const archived = await snapshot();
+    await purge();
+    await inbound.sink(e3);
+    await inbound.sink(e1);
+    expect(await snapshot()).toEqual(archived);
+    expect(await kinds('inbound_failed')).toBe(0);
+
+    await inbound.sink(deletion);
+    expect(await kinds('comment_deleted')).toBe(1);
+
+    const deleted = await snapshot();
+    await purge();
+    await inbound.sink(deletion);
+    await inbound.sink(e3);
+    expect(await snapshot()).toEqual(deleted);
+    expect(await kinds('comment_deleted')).toBe(1);
+    expect(await commands()).toEqual([]);
   });
 });
 
