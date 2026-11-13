@@ -54,15 +54,21 @@ type Options = {
   cycleLimit?: number;
   externalReview?: boolean;
   devOrchestrator?: string;
+  /** The task's project left the config: the only project tracks another repo. */
+  projectRemoved?: boolean;
 };
 
 function boardConfig(options: Options = {}) {
   return configSchema.parse({
     projects: [
       {
-        id: 'proj',
-        tracker: { type: 'github-issues', repo: 'o/r', label: 'board' },
-        repos: ['o/r'],
+        id: options.projectRemoved === true ? 'other' : 'proj',
+        tracker: {
+          type: 'github-issues',
+          repo: options.projectRemoved === true ? 'o/other' : 'o/r',
+          label: 'board',
+        },
+        repos: [options.projectRemoved === true ? 'o/other' : 'o/r'],
         operatorGithubLogin: 'agent-bot',
         spurProjects: [
           { name: 'worker', role: 'worker' },
@@ -1538,6 +1544,29 @@ describe('task.move', () => {
       },
     ]);
     expect(await cycleItems(ctx)).toEqual([]);
+  });
+
+  it('refuses a correction for a task whose project left the config, and writes nothing', async () => {
+    const ctx = await inReview();
+    ctx.restart({ projectRemoved: true });
+    const before = await ctx.snapshot();
+
+    await expect(ctx.move('dev')).rejects.toMatchObject({ code: 'move_not_allowed' });
+
+    expect(await ctx.snapshot()).toEqual(before);
+  });
+
+  it('explains a task whose project left the config with no dispatcher, holds or gates', async () => {
+    const ctx = await inReview();
+    ctx.restart({ projectRemoved: true });
+
+    expect(await ctx.why()).toMatchObject({
+      column: 'review',
+      dispatcher: null,
+      holds: [],
+      gates: [],
+      checksWaivedBy: null,
+    });
   });
 
   it('keeps a correction made before the first pass after a switch to on', async () => {

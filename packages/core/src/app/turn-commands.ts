@@ -69,15 +69,22 @@ async function turnVisitTarget(db: Trx, id: string): Promise<readonly ResolvedTa
 }
 
 /**
- * The task a submit names by its key, a short `repo#N` form read as `task.get` reads it. A key is
- * taken only while the task's project dispatcher is in shadow mode; otherwise `wrong_id_kind`.
+ * The stored key a task key names, read as `task.get` reads it: only the short `repo#N` form needs
+ * a configured project, so a task whose project left the config is still found by its full key.
+ */
+function storedKey(config: Config, key: string): string {
+  const parsed = parseRef(key, 'task');
+  return parsed.ok && parsed.value.kind === 'task' && parsed.value.form === 'github-short'
+    ? canonicalKey(config, key).key
+    : key;
+}
+
+/**
+ * The task a submit names by its key. A key is taken only while the task's project dispatcher is
+ * in shadow mode; otherwise `wrong_id_kind`.
  */
 async function shadowTask(db: Trx, key: string, config: Config): Promise<Task | undefined> {
-  const parsed = parseRef(key, 'task');
-  const stored =
-    parsed.ok && parsed.value.kind === 'task' && parsed.value.form === 'github-short'
-      ? canonicalKey(config, key).key
-      : key;
+  const stored = storedKey(config, key);
   const task = await db.selectFrom('task').selectAll().where('key', '=', stored).executeTakeFirst();
   if (task === undefined) return undefined;
   const project = config.projects.find((entry) => entry.id === task.project);
@@ -404,9 +411,9 @@ export function createTurnMutations(deps: {
    */
   const move: Mutation<'task.move'> = {
     id: 'task.move',
-    resolveTargets: (trx, input) => taskTarget(trx, canonicalKey(config, input.task).key),
+    resolveTargets: (trx, input) => taskTarget(trx, storedKey(config, input.task)),
     async run(trx, input, ctx) {
-      const key = canonicalKey(config, input.task).key;
+      const key = storedKey(config, input.task);
       const task = await trx
         .selectFrom('task')
         .selectAll()
