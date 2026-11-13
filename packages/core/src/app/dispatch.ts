@@ -21,7 +21,15 @@ import type { Row } from '../store/schema.ts';
 import { emit, projectForSource, taskPr, type Trx } from './board-utils.ts';
 import { linkedSession } from './doorbells.ts';
 import { raiseCycleLimit } from './fromYou.ts';
-import { closeTurns, isNewer, openTurn, turnFeedbackCursors, turnHanded } from './turns.ts';
+import {
+  closeTurns,
+  isNewer,
+  openTurn,
+  recalledFeedback,
+  sameHanded,
+  turnFeedbackCursors,
+  turnHanded,
+} from './turns.ts';
 
 // The dispatcher applies the pure cascade of `domain/dispatch.ts` inside its caller's
 // transaction. It reads no clock and does no IO: `at` and the complete-poll map come from the
@@ -363,7 +371,8 @@ function externalApproval(pr: PrFacts, agentLogin: string): boolean {
  * by its own state, or, in a snapshot written before entries had one, when it matches the
  * reviewer's latest approval. An entry is handled once a turn handed it over, or an older one,
  * unless a correction or a reroute closed that turn untaken, or once a handling submission
- * (`handlingSubmits`) on this PR was made at or after it.
+ * (`handlingSubmits`) on this PR was made at or after it. The entries such an untaken turn handed
+ * over come from the turn when a later poll dropped them from the snapshot (`recalledFeedback`).
  */
 async function unhandledFeedback(
   trx: Trx,
@@ -395,12 +404,14 @@ async function unhandledFeedback(
     [{ kind: 'pr', repo: pr.repo, number: pr.number }],
     'handled',
   );
-  return entries
-    .filter(
-      (entry) =>
-        !(Date.parse(entry.postedAt) <= newest) && (cursor === undefined || isNewer(entry, cursor)),
-    )
-    .map((entry) => handedOf(pr, entry));
+  const fromSnapshot = entries.map((entry) => handedOf(pr, entry));
+  const recalled = (
+    await recalledFeedback(trx, { kind: 'pr', repo: pr.repo, number: pr.number })
+  ).filter((entry) => !fromSnapshot.some((old) => sameHanded(old, entry)));
+  return [...recalled, ...fromSnapshot].filter(
+    (entry) =>
+      !(Date.parse(entry.postedAt) <= newest) && (cursor === undefined || isNewer(entry, cursor)),
+  );
 }
 
 /**
@@ -683,16 +694,7 @@ async function applyOn(
   const carried = replaced === undefined ? [] : turnHanded(replaced);
   const handed = [
     ...carried,
-    ...read.handed.filter(
-      (entry) =>
-        !carried.some(
-          (old) =>
-            old.repo.toLowerCase() === entry.repo.toLowerCase() &&
-            old.number === entry.number &&
-            old.kind === entry.kind &&
-            old.id === entry.id,
-        ),
-    ),
+    ...read.handed.filter((entry) => !carried.some((old) => sameHanded(old, entry))),
   ];
   await openTurn(trx, {
     task: current,

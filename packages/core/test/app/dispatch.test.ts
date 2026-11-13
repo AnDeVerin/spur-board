@@ -1590,6 +1590,39 @@ describe('task.move', () => {
       expect(JSON.parse(turn?.handed ?? '[]')).toEqual([handed]);
     });
 
+    it('hands it over from the closed turn after a poll dropped it from the snapshot', async () => {
+      const ctx = await untakenWithComment();
+      // A poll past more than 100 newer comments stops at the turn's c-1 and keeps only the
+      // newest 100: c-1 is gone from the snapshot, and the poll cursor never pages back to it.
+      await ctx.pr({ feedback: [] });
+      expect(await ctx.openTurn()).toMatchObject({ id: 'T1' });
+
+      await ctx.move('dev');
+
+      expect((await ctx.turns())[0]).toMatchObject({ id: 1, closed_reason: 'corrected' });
+      const turn = await ctx.openTurn();
+      expect(turn).toEqual(turnOf('dev', 'operator', 'dev: external_comments, no_submit_on_head'));
+      expect(JSON.parse(turn?.handed ?? '[]')).toEqual([handed]);
+    });
+
+    it('drops it from a closed untaken turn once a later taken turn handed it over', async () => {
+      const ctx = await untakenWithComment();
+      await ctx.spur('live');
+      await ctx.ack(WORKER, 'T2');
+      await ctx.pr({ feedback: [] });
+
+      await ctx.move('dev');
+
+      expect((await ctx.turns()).map((turn) => turn.closed_reason)).toEqual([
+        'rerouted',
+        'corrected',
+        null,
+      ]);
+      const turn = await ctx.openTurn();
+      expect(turn).toEqual(turnOf('dev', 'worker', 'dev: no_submit_on_head'));
+      expect(JSON.parse(turn?.handed ?? '[]')).toEqual([]);
+    });
+
     it('counts it handled when the closed turn was taken', async () => {
       const ctx = await untakenWithComment();
       await ctx.spur('live');
