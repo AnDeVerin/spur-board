@@ -820,7 +820,14 @@ export async function recordRingDelivery(
     .selectAll()
     .where('id', '=', notificationId)
     .executeTakeFirst();
-  if (n === undefined || n.acked_at !== null || n.recipient_session !== session || n.rings >= ring)
+  // A turn reminder acked while its send was in flight still reached its holder: it is counted,
+  // so `reminderCancelledUnsent` never takes it for unsent and a restored link sends no second.
+  if (
+    n === undefined ||
+    (n.acked_at !== null && n.kind !== 'turn_reminder') ||
+    n.recipient_session !== session ||
+    n.rings >= ring
+  )
     return;
   const pauses = [
     config.doorbells.firstRetryMs,
