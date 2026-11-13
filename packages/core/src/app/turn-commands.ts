@@ -15,7 +15,7 @@ import { queueBlockOpen } from './block-thread.ts';
 import { authorizationTarget, blockView, openBlock } from './blocks.ts';
 import { emit, taskPr, taskView } from './board-utils.ts';
 import { CommandError, type CommandContext, type Mutation } from './commands.ts';
-import { dispatchTasks, moveLeft, type DispatchContext } from './dispatch.ts';
+import { dispatchTasks, moveLeft } from './dispatch.ts';
 import { closeTurns } from './turns.ts';
 
 type Trx = Kysely<Tables>;
@@ -223,13 +223,16 @@ async function pollTaskPr(
   return { kind: 'polled', repo, number: pr.number, result };
 }
 
-/** Throws `head_mismatch` or `github_unavailable` unless `sha` is the freshly polled PR head. */
-async function confirmHead(
+/**
+ * Records the submit of `sha` for the task's `column` visit `epoch`. Throws `head_mismatch` or
+ * `github_unavailable` unless `sha` is the freshly polled PR head.
+ */
+async function insertSubmission(
   trx: Trx,
-  task: Task,
-  sha: string,
-  prepared: SubmitPrepared | undefined,
+  input: { task: Task; column: ColumnId; epoch: number; sha: string },
+  ctx: CommandContext<SubmitPrepared>,
 ): Promise<void> {
+  const { task, column, epoch, sha } = input;
   const pr = await taskPr(trx, task.id);
   if (pr === null) {
     throw new CommandError(
@@ -237,7 +240,7 @@ async function confirmHead(
       'The task has no active pull request; ask the operator to link it with `board link`, then submit its head.',
     );
   }
-  confirmPolled(prepared, pr);
+  confirmPolled(ctx.prepared, pr);
   const snapshot = await trx
     .selectFrom('pr_snapshot')
     .select('head_sha')
@@ -250,6 +253,18 @@ async function confirmHead(
       `The head of ${pr.repo}#${String(pr.number)} is ${snapshot?.head_sha ?? 'unknown'}; push the commit, then submit the head.`,
     );
   }
+  await trx
+    .insertInto('submission')
+    .values({
+      task_id: task.id,
+      column,
+      epoch,
+      commit_sha: sha,
+      author: ctx.actor,
+      submitted_at: ctx.at,
+      note: null,
+    })
+    .execute();
 }
 
 /** The executor's submit and return of a turn it took, and the turnless shadow submit. */
@@ -260,14 +275,9 @@ export function createTurnMutations(deps: {
   completeSince: ReadonlyMap<string, string>;
 }) {
   const { config, prPoller, completeSince } = deps;
-  const dispatchContext = (at: string): DispatchContext => ({
-    config,
-    at: new Date(at),
-    complete: completeSince,
-  });
   /** Dispatches the task after the command's change and returns its fresh row. */
   async function dispatched(trx: Trx, taskId: number, at: string): Promise<Task> {
-    await dispatchTasks(trx, [taskId], dispatchContext(at));
+    await dispatchTasks(trx, [taskId], { config, at: new Date(at), complete: completeSince });
     return taskById(trx, taskId);
   }
   async function submitShadow(
@@ -287,19 +297,7 @@ export function createTurnMutations(deps: {
         `Only the executor of ${column} submits this task while the dispatcher is in shadow mode.`,
       );
     }
-    await confirmHead(trx, task, input.sha, ctx.prepared);
-    await trx
-      .insertInto('submission')
-      .values({
-        task_id: task.id,
-        column,
-        epoch: task.column_epoch,
-        commit_sha: input.sha,
-        author: ctx.actor,
-        submitted_at: ctx.at,
-        note: null,
-      })
-      .execute();
+    await insertSubmission(trx, { task, column, epoch: task.column_epoch, sha: input.sha }, ctx);
     await emit(
       trx,
       'task_submitted',
@@ -322,8 +320,12 @@ export function createTurnMutations(deps: {
     async prepare(db, input, actor) {
       if (!isTurnId(input.turn)) {
         const task = await shadowTask(db, input.turn, config);
-        if (task === undefined || task.membership === 'archived') return { kind: 'skipped' };
-        if (!(await executesShadowColumn(db, task, actor, config))) return { kind: 'skipped' };
+        if (
+          task === undefined ||
+          task.membership === 'archived' ||
+          !(await executesShadowColumn(db, task, actor, config))
+        )
+          return { kind: 'skipped' };
         return pollTaskPr(db, task, prPoller?.());
       }
       const turn = await turnById(db, input.turn);
@@ -335,19 +337,11 @@ export function createTurnMutations(deps: {
     async run(trx, input, ctx) {
       if (!isTurnId(input.turn)) return submitShadow(trx, input, ctx);
       const { turn, task } = await takenTurn(trx, input.turn, ctx);
-      await confirmHead(trx, task, input.sha, ctx.prepared);
-      await trx
-        .insertInto('submission')
-        .values({
-          task_id: task.id,
-          column: turn.column,
-          epoch: turn.epoch,
-          commit_sha: input.sha,
-          author: ctx.actor,
-          submitted_at: ctx.at,
-          note: null,
-        })
-        .execute();
+      await insertSubmission(
+        trx,
+        { task, column: turn.column, epoch: turn.epoch, sha: input.sha },
+        ctx,
+      );
       await closeTurns(trx, { taskId: task.id, reason: 'submitted', at: new Date(ctx.at) });
       await emit(
         trx,

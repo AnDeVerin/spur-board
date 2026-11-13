@@ -33,7 +33,7 @@ type DispatchInput = Parameters<typeof dispatch>[0];
 type DispatchResult = ReturnType<typeof dispatch>;
 type Handed = Parameters<typeof openTurn>[1]['handed'][number];
 
-export interface DispatchContext {
+interface DispatchContext {
   config: Config;
   at: Date;
   /** Since when each source has had an effectively complete poll in this process. */
@@ -50,6 +50,9 @@ const MARK_COLUMNS: readonly ColumnId[] = ['review', 'product-review'];
 
 const indexOf = (column: ColumnId) => COLUMN_IDS.indexOf(column);
 const cycleKeyPrefix = (taskId: number) => `cycle-limit:${String(taskId)}:`;
+/** A reopened ticket or a mode switch moves a task left without counting a return. */
+const uncounted = (reason: MoveReason | undefined) =>
+  reason === 'ticket_reopened' || reason === 'mode_changed';
 
 /**
  * Sets `voided_at` on the unvoided submits of `to` and every column right of it. Review and
@@ -71,26 +74,24 @@ async function voidSubmits(trx: Trx, taskId: number, to: ColumnId, at: Date): Pr
 /** Whether the returns from `column` since its last limit reset reach the column's limit. */
 async function cycleLimitReached(
   trx: Trx,
-  task: Task,
+  taskId: number,
   column: ColumnId,
   limit: number,
 ): Promise<boolean> {
+  const prefix = cycleKeyPrefix(taskId);
   const items = await trx
     .selectFrom('operator_item')
     .select(['id', 'item_key'])
-    .where('item_key', 'like', `${cycleKeyPrefix(task.id)}%`)
+    .where('item_key', 'like', `${prefix}%`)
     .execute();
   const itemColumn = new Map(
-    items.map((item) => [
-      `I${String(item.id)}`,
-      item.item_key.slice(cycleKeyPrefix(task.id).length),
-    ]),
+    items.map((item) => [`I${String(item.id)}`, item.item_key.slice(prefix.length)]),
   );
   // One `at` is shared by a whole transaction, so the journal order is the event id.
   const rows = await trx
     .selectFrom('event')
     .select(['kind', 'payload'])
-    .where('task_id', '=', task.id)
+    .where('task_id', '=', taskId)
     .where('kind', 'in', ['task_moved', 'from_you_cleared'])
     .orderBy('id')
     .execute();
@@ -106,8 +107,7 @@ async function cycleLimitReached(
     const moved = eventPayloadSchemas.task_moved.safeParse(JSON.parse(row.payload));
     if (!moved.success) continue;
     const { from, to, reason, gate, block } = moved.data;
-    if (indexOf(to) >= indexOf(from)) continue;
-    if (reason === 'ticket_reopened' || reason === 'mode_changed') continue;
+    if (indexOf(to) >= indexOf(from) || uncounted(reason)) continue;
     const [first, ...rest] = returnCauses(gate ?? [], block !== undefined);
     if (first !== undefined)
       events.push({ kind: 'return', column: from, causes: [first, ...rest] });
@@ -170,9 +170,8 @@ export async function moveLeft(
   if (
     project?.dispatcher.mode !== 'on' ||
     limit === undefined ||
-    reason === 'ticket_reopened' ||
-    reason === 'mode_changed' ||
-    !(await cycleLimitReached(trx, moved, task.column, limit))
+    uncounted(reason) ||
+    !(await cycleLimitReached(trx, task.id, task.column, limit))
   )
     return { task: moved, limitReached: false };
   await raiseCycleLimit(trx, { task: moved, column: task.column, at, config });
