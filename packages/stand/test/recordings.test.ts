@@ -451,8 +451,9 @@ function always(shape: Shape, path: string): boolean {
 /**
  * The paths where `fake` differs from `recorded` by type: a key or type the fake emits that the
  * recording lacks, a recorded key the fake lacks, a key every recorded object holds that some
- * fake object lacks, or a fake null where the recording is never null. A recorded null matches
- * any fake value. Values are never compared.
+ * fake object lacks, a fake null where the recording is never null, or a fake that is only null
+ * where the recording holds a value. A recorded null matches any fake value. Values are never
+ * compared.
  */
 function shapeDiff(recorded: Json, fake: Json, omitted: readonly string[]): string[] {
   const left = shapeOf(recorded);
@@ -481,7 +482,7 @@ function shapeDiff(recorded: Json, fake: Json, omitted: readonly string[]): stri
     const wanted = [...want].filter((type) => type !== 'null');
     const given = [...got].filter((type) => type !== 'null');
     if (wanted.length === 0) continue;
-    if (got.has('null') && !want.has('null'))
+    if (given.length === 0 || (got.has('null') && !want.has('null')))
       diffs.push(`${shown}: the fake has null over ${wanted.join('|')}`);
     const extra = given.filter((type) => !wanted.includes(type));
     if (extra.length > 0)
@@ -632,6 +633,10 @@ describe('stand fakes against the recorded live responses', () => {
     );
     expect(shapeDiff(spur.exchange.response.body, withNull, ['[].slots'])).toEqual([
       '[].lastActivityAt: the fake has null over string',
+    ]);
+    // A path the recording holds as a value and as null still needs a value from the fake.
+    expect(shapeDiff([{ at: 'x' }, { at: null }], [{ at: null }, { at: null }], [])).toEqual([
+      '[].at: the fake has null over string',
     ]);
 
     const issues = answer('github-issues:stand:stand-org/board', '/repos/stand-org/board/issues');
