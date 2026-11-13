@@ -3,6 +3,7 @@ import {
   AdapterError,
   SESSION_HEALTH_STATES,
   SESSION_STATUSES,
+  parseRingMarker,
   prRefSchema,
   sessionFactsSchema,
   type Adapter,
@@ -27,6 +28,7 @@ const sessionWire = z.object({
       links: z.array(z.object({ label: z.string().min(1), url: z.url() })).optional(),
     })
     .optional(),
+  queuedMessages: z.object({ messages: z.array(z.string()) }).optional(),
 });
 type SessionWire = z.output<typeof sessionWire>;
 
@@ -48,6 +50,16 @@ export interface SpurAdapterOptions {
   now: () => number;
   fetch?: typeof fetch;
   onNotice?: ((notice: SpurNotice) => void | Promise<void>) | undefined;
+}
+
+/** The board rings a session's queue still holds, sorted and deduped; other queued text is dropped. */
+function queuedBoardRings(wire: SessionWire): { notification: number; ring: number }[] {
+  const rings = new Map<string, { notification: number; ring: number }>();
+  for (const message of wire.queuedMessages?.messages ?? []) {
+    const parsed = parseRingMarker(message);
+    if (parsed) rings.set(`${String(parsed.notification)}-${String(parsed.ring)}`, parsed);
+  }
+  return [...rings.values()].sort((a, b) => a.notification - b.notification || a.ring - b.ring);
 }
 
 /** A single Spur source. State is scoped to this adapter instance, never shared across daemons. */
@@ -149,6 +161,7 @@ export function createSpurAdapter(options: SpurAdapterOptions): Adapter {
         if (parsed.success) pr = parsed.data;
       }
     }
+    const queuedRings = queuedBoardRings(wire);
     return sessionFactsSchema.parse({
       id: wire.id,
       spurProject: wire.project,
@@ -161,6 +174,7 @@ export function createSpurAdapter(options: SpurAdapterOptions): Adapter {
       lastActivityAt: wire.lastActivityAt ?? null,
       endedAt: endReason === null ? null : observedAt,
       endReason,
+      ...(queuedRings.length > 0 ? { queuedRings } : {}),
     });
   }
 

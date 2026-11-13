@@ -38,6 +38,9 @@ verbs and scenario names; this card keeps the rules and traps.
 - `fake spur session` takes `--status` from `SESSION_STATUSES` (default `running`) and `--state`
   from `SESSION_HEALTH_STATES` (default `working`), both in `packages/contracts/src/facts.ts`.
   The fake stores any string; the board reports other values as unknown.
+- `fake spur session <id> --queue hold` keeps later sends in the session's Spur queue, as a busy
+  session does, so the board holds the next ring; `--queue deliver` empties it. Run
+  `pnpm stand poll` after either so the board reads the queue.
 - `fake github pr <n> comment` and `fake github pr <n> review <state>` add a comment, or a review
   on the head, at the stand clock. The author is `--author`, else `stand-reviewer`, or `stand-bot`
   with `--bot`; keep bots off `stand-reviewer`, or its approvals stop counting.

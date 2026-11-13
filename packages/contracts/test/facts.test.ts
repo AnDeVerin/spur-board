@@ -7,7 +7,9 @@ import {
   isExternalAuthor,
   isKnownSessionHealth,
   isKnownSessionStatus,
+  parseRingMarker,
   prFactsSchema,
+  ringMarker,
   sessionFactsSchema,
   ticketFactsSchema,
 } from '../src/index.ts';
@@ -282,6 +284,40 @@ describe('invalid facts', () => {
   it('rejects an unknown key', () => {
     expect(errorFor(ticketFactsSchema, { ...ticketFacts(), bogus: 1 })).toContain(
       'Unrecognized key: "bogus"',
+    );
+  });
+});
+
+describe('ring markers', () => {
+  it.each([
+    [1, 1],
+    [42, 3],
+  ])('reads back the marker of notification %i ring %i', (notification, ring) => {
+    expect(ringMarker(notification, ring)).toBe(`(N${String(notification)}-${String(ring)})`);
+    expect(parseRingMarker(`x ${ringMarker(notification, ring)}`)).toEqual({ notification, ring });
+  });
+
+  it.each(['no marker', '(N0-1)', '(N1-0)', '(N1-1) trailing', '(N1-x)', '(N99999999999999999-1)'])(
+    'finds no marker in %j',
+    (text) => {
+      expect(parseRingMarker(text)).toBeNull();
+    },
+  );
+
+  it('parses session facts with queued rings unchanged', () => {
+    const input = { ...sessionFacts(), queuedRings: [{ notification: 1, ring: 2 }] };
+    expect(sessionFactsSchema.parse(input)).toEqual(input);
+  });
+
+  it('rejects an empty queue at its path', () => {
+    const error = errorFor(sessionFactsSchema, { ...sessionFacts(), queuedRings: [] });
+    expect(pathLines(error)).toContain('→ at queuedRings');
+  });
+
+  it('rejects a queued ring without a valid notification at its path', () => {
+    const input = { ...sessionFacts(), queuedRings: [{ notification: 0, ring: 1 }] };
+    expect(pathLines(errorFor(sessionFactsSchema, input))).toContain(
+      '→ at queuedRings[0].notification',
     );
   });
 });

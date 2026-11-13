@@ -564,6 +564,49 @@ describe('each scenario', () => {
     );
   }, 60_000);
 
+  it('question-to-operator: ring 2 waits while ring 1 is held in the Spur queue', async () => {
+    const manifest = await up();
+    const { scenario } = await seed('question-to-operator');
+    const worker = manifest.roles.worker;
+    const fakeSession = (queue: 'hold' | 'deliver') =>
+      ok(current(), '/fake', { system: 'spur', verb: 'session', args: { id: worker, queue } });
+    await fakeSession('hold');
+    const question = (await outbox(current())).find((message) =>
+      message.text.includes('Which version should the client target?'),
+    );
+    if (question === undefined) throw new Error('the question was not posted');
+    expect(scenario.blocks?.['question']).toBeDefined();
+    await ok(current(), '/fake/slack/click', {
+      message: question.n,
+      button: 'answer',
+      text: 'Use v2.',
+    });
+    const workerSends = async () =>
+      (await inspect(current())).sends.filter(({ session }) => session === worker).length;
+    await vi.waitFor(
+      async () => {
+        expect(await workerSends()).toBe(1);
+      },
+      { timeout: 20_000, interval: 100 },
+    );
+    // The poll reads ring 1 in the Spur queue; past firstRetryMs the board still holds ring 2.
+    await ok(current(), '/poll');
+    const shifted = await standCli(['clock', '+3m', '--home', manifest.home]);
+    expect(shifted.code, shifted.stderr).toBe(0);
+    await ok(current(), '/poll');
+    await ok(current(), '/wait', { condition: 'outbox-drained', timeoutMs: 10_000 });
+    expect(await workerSends()).toBe(1);
+    // Once Spur delivers the queued ring, the next poll lets ring 2 go.
+    await fakeSession('deliver');
+    await ok(current(), '/poll');
+    await vi.waitFor(
+      async () => {
+        expect(await workerSends()).toBe(2);
+      },
+      { timeout: 5_000, interval: 100 },
+    );
+  }, 60_000);
+
   it('worker-killed-no-pr: the ended worker item is raised', async () => {
     await up();
     const { scenario } = await seed('worker-killed-no-pr');
