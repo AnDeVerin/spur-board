@@ -21,9 +21,10 @@ revoke it first; removing it from the history does not make it safe again.
 
 ## Trust model
 
-The board protects the operator's board from mistakes and from other OS users on the same host.
-It does not protect it from the agents it serves. A report that relies on one of the limits
-below is not a vulnerability; a way around a guarantee below is.
+The board protects the operator's board from mistakes and from other unprivileged OS users on
+the same host. It does not protect it from the agents it serves, or from root and other
+administrators of the host, who can read and change any of its files. A report that relies on
+one of the limits below is not a vulnerability; a way around a guarantee below is.
 
 - **Single-user host.** One operator runs one daemon under their own OS account. The daemon,
   the CLI, the MCP server and every agent session the board serves run as that user.
@@ -48,7 +49,8 @@ below is not a vulnerability; a way around a guarantee below is.
 
 ### Other OS users on the same host
 
-Another local user can connect to the loopback port. Without a credential they can:
+This subsection is about unprivileged users; root is out of scope. Another local user can
+connect to the loopback port. Without a credential they can:
 
 - read `GET /v1/schema`, `/v1/health` and `/v1/doctor`;
 - check a token's status by its hash;
