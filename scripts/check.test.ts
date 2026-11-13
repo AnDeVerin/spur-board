@@ -425,8 +425,8 @@ describe('package smoke selection', () => {
     ]);
   });
 
-  it('runs for a full check', () => {
-    expect(packageSmokeCommands('full', [])).toHaveLength(1);
+  it('does not run for a full check', () => {
+    expect(packageSmokeCommands('full', [])).toEqual([]);
   });
 
   it('does not run for unrelated packages', () => {

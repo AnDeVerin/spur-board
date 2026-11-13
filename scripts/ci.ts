@@ -24,7 +24,7 @@ export function classifyChanges(paths: string[]): Changes {
     github: paths.some((path) => path.startsWith('.github/')),
     package: paths.some(
       (path) =>
-        /^(packages\/|scripts\/(package|upgrade-smoke|update-smoke)|package\.json$|pnpm-lock\.yaml$|pnpm-workspace\.yaml$|release\.config\.cjs$)/.test(
+        /^(packages\/|scripts\/(package|upgrade-smoke|update-smoke)|package\.json$|pnpm-lock\.yaml$|pnpm-workspace\.yaml$|release\.config\.cjs$|tsconfig\.base\.json$)/.test(
           path,
         ) || path === '.github/workflows/ci.yml',
     ),
@@ -44,10 +44,12 @@ export interface Verdict {
 }
 
 const PR_ONLY = new Set(['pr-title', 'guardrails']);
+const PR_SKIPPED = new Set(['release-build', 'release-smoke']);
 
 /**
  * Passes only when every job succeeded. Accepted skips: `pr-title` and `guardrails` outside pull
- * requests, `workflows` when `github=false`, and PR package smoke when `package=false`.
+ * requests, `release-build` and `release-smoke` on pull requests, `workflows` when
+ * `github=false`, and PR package smoke when `package=false`.
  */
 export function decideCiOk(input: {
   needs: Record<string, NeededJob>;
@@ -70,6 +72,7 @@ export function decideCiOk(input: {
     const result = typeof job.result === 'string' ? job.result : String(job.result);
     let accepted = result === 'success';
     if (result === 'skipped' && PR_ONLY.has(id)) accepted = event !== 'pull_request';
+    if (result === 'skipped' && PR_SKIPPED.has(id)) accepted = event === 'pull_request';
     if (result === 'skipped' && id === 'workflows') {
       accepted = changes?.result === 'success' && changes.outputs?.['github'] === 'false';
     }

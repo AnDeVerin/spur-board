@@ -1,11 +1,14 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { join, resolve } from 'node:path';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { OPERATIONS } from '../packages/contracts/src/index.ts';
 import { verifyTools } from './package-smoke-mcp.ts';
 import {
   command,
+  credentialFreeEnv,
+  installedVersion,
+  installPackage,
   prepareSkillsForSmoke,
   runSmokeSteps,
   smokeInstalled,
@@ -13,6 +16,7 @@ import {
   verifySchema,
   verifyVersion,
 } from './package-smoke.ts';
+import { smokeUpgrade } from './upgrade-smoke.ts';
 
 describe('packed smoke steps', () => {
   it('requires both packed skills without replacing their content', () => {
@@ -180,5 +184,158 @@ describe('packed smoke steps', () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+});
+
+describe('credentialFreeEnv', () => {
+  it('drops runner tokens, npm config and board credentials and keeps the rest', () => {
+    const env = credentialFreeEnv({
+      GITHUB_TOKEN: 'x',
+      GH_TOKEN: 'x',
+      ACTIONS_ID_TOKEN_REQUEST_URL: 'x',
+      ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'x',
+      ACTIONS_RUNTIME_TOKEN: 'x',
+      GITHUB_ENV: 'x',
+      'npm_config_//registry.npmjs.org/:_authToken': 'x',
+      SLACK_BOT_TOKEN: 'x',
+      PATH: '/usr/bin',
+      HOME: '/home/x',
+      LANG: 'C.UTF-8',
+      HTTPS_PROXY: 'http://127.0.0.1:3128',
+    });
+    expect(env).toEqual({
+      PATH: '/usr/bin',
+      HOME: '/home/x',
+      LANG: 'C.UTF-8',
+      HTTPS_PROXY: 'http://127.0.0.1:3128',
+    });
+  });
+
+  it('reads the installed package version under a prefix', () => {
+    const prefix = mkdtempSync(join(tmpdir(), 'board-installed-version-'));
+    try {
+      mkdirSync(join(prefix, 'node_modules/spur-board'), { recursive: true });
+      writeFileSync(
+        join(prefix, 'node_modules/spur-board/package.json'),
+        JSON.stringify({ name: 'spur-board', version: '9.9.9' }),
+      );
+      expect(installedVersion(prefix)).toBe('9.9.9');
+    } finally {
+      rmSync(prefix, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('credential-free spawn env', () => {
+  const runnerNames = [
+    'GITHUB_TOKEN',
+    'ACTIONS_ID_TOKEN_REQUEST_URL',
+    'ACTIONS_ID_TOKEN_REQUEST_TOKEN',
+    'npm_config__authToken',
+  ];
+  let root = '';
+
+  function setup(name: string, script: string): string {
+    root = mkdtempSync(join(tmpdir(), 'board-spawn-env-'));
+    const bin = join(root, 'bin');
+    mkdirSync(bin);
+    writeFileSync(join(bin, name), `#!/bin/sh\nenv > "$SMOKE_ENV_DUMP"\n${script}`, {
+      mode: 0o755,
+    });
+    const dump = join(root, 'env-dump');
+    vi.stubEnv('GITHUB_TOKEN', 'sentinel-gh');
+    vi.stubEnv('ACTIONS_ID_TOKEN_REQUEST_URL', 'sentinel-oidc-url');
+    vi.stubEnv('ACTIONS_ID_TOKEN_REQUEST_TOKEN', 'sentinel-oidc');
+    vi.stubEnv('npm_config__authToken', 'sentinel-npm');
+    vi.stubEnv('BOARD_TOKEN', 'sentinel-board');
+    vi.stubEnv('SMOKE_ENV_DUMP', dump);
+    vi.stubEnv('PATH', `${bin}:${process.env['PATH'] ?? ''}`);
+    return join(bin, name);
+  }
+
+  function dumped(): string[] {
+    const lines = readFileSync(join(root, 'env-dump'), 'utf8').split('\n');
+    expect(lines.filter((line) => line.includes('sentinel-'))).toEqual([]);
+    for (const name of runnerNames) {
+      expect(lines.filter((line) => line.startsWith(`${name}=`))).toEqual([]);
+    }
+    return lines;
+  }
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it('gives npm install no runner credentials', () => {
+    setup('npm', 'exit 0\n');
+    installPackage('spur-board@0.1.0', join(root, 'prefix'));
+    dumped();
+  });
+
+  it('gives npm view no runner credentials', async () => {
+    setup('npm', 'echo "npm error code E404 https://registry.npmjs.org/spur-board" >&2\nexit 1\n');
+    await expect(smokeUpgrade()).resolves.toBe('skipped');
+    dumped();
+  });
+
+  it('gives the installed board binary no runner credentials', async () => {
+    const board = setup('board', 'exit 1\n');
+    await expect(smokeInstalled(board, join(root, 'home'), '0.1.0')).rejects.toThrow(
+      '--version failed',
+    );
+    dumped();
+  });
+
+  it('gives the MCP handshake no runner credentials and an empty board token', async () => {
+    const board = setup('board', "echo '{}'\nexec sleep 5\n");
+    const context = {
+      binary: board,
+      expectedVersion: '0.1.0',
+      env: {},
+      home: root,
+      packageRoot: root,
+    };
+    await expect(
+      runSmokeSteps(
+        context,
+        smokeSteps.filter((step) => step.name === 'mcp'),
+      ),
+    ).rejects.toThrow('non-JSON-RPC');
+    expect(dumped()).toContain('BOARD_TOKEN=');
+  });
+});
+
+describe('installPackage tarball argument', () => {
+  let root = '';
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it.each([
+    ['release-artifacts/spur-board-0.1.0.tgz', resolve('release-artifacts/spur-board-0.1.0.tgz')],
+    ['spur-board@0.1.0', 'spur-board@0.1.0'],
+    ['file:./candidate.tgz', 'file:./candidate.tgz'],
+  ])('passes %s to npm install as %s', (packageRef, expected) => {
+    root = mkdtempSync(join(tmpdir(), 'board-install-ref-'));
+    const bin = join(root, 'bin');
+    mkdirSync(bin);
+    writeFileSync(join(bin, 'npm'), `#!/bin/sh\nprintf '%s\\n' "$@" > "$NPM_ARGS_DUMP"\n`, {
+      mode: 0o755,
+    });
+    vi.stubEnv('NPM_ARGS_DUMP', join(root, 'args'));
+    vi.stubEnv('PATH', `${bin}:${process.env['PATH'] ?? ''}`);
+    installPackage(packageRef, join(root, 'prefix'));
+    const args = readFileSync(join(root, 'args'), 'utf8').trimEnd().split('\n');
+    expect(args).toEqual([
+      'install',
+      '--prefix',
+      join(root, 'prefix'),
+      expected,
+      '--no-audit',
+      '--no-fund',
+    ]);
   });
 });

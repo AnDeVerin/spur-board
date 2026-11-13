@@ -1,11 +1,12 @@
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import semanticRelease from 'semantic-release';
-import { createReleasePackage, publishTarball } from './release-package.ts';
+import { dryRunEnv, nextVersion } from './release-candidate.ts';
+import { createReleasePackage, digest, publishTarball } from './release-package.ts';
 
 const require = createRequire(import.meta.url);
 const config = require('../release.config.cjs') as {
@@ -78,46 +79,82 @@ describe('release policy', () => {
     expect(manifest).toMatchObject({ name: 'spur-board' });
   });
 
-  it('checks and smokes the versioned tarball before publishing those same bytes', async () => {
+  function candidate(contents = 'candidate tarball') {
     const cwd = mkdtempSync(join(tmpdir(), 'release-artifact-'));
     const artifact = join(cwd, 'release-artifacts', 'spur-board-0.2.0.tgz');
     mkdirSync(join(cwd, 'release-artifacts'));
-    writeFileSync(artifact, 'first tarball');
+    writeFileSync(artifact, contents);
     const calls: string[] = [];
     const plugin = createReleasePackage({
-      packPackage: () => {
-        calls.push(`pack:${artifact}`);
-        return artifact;
-      },
       checkTarball: (path, version) => {
         calls.push(`check:${path}:${String(version)}`);
-      },
-      smokePackage: (path) => {
-        calls.push(`smoke:${String(path)}`);
-        return Promise.resolve();
-      },
-      smokeUpgrade: (path) => {
-        calls.push(`upgrade:${String(path)}`);
-        return Promise.resolve('passed');
       },
       publishTarball: (path) => {
         calls.push(`publish:${path}`);
       },
     });
-    const context = { cwd, env: {}, nextRelease: { version: '0.2.0' } };
-    await plugin.prepare({}, context);
+    const env = { RELEASE_CANDIDATE_VERSION: '0.2.0', RELEASE_CANDIDATE_SHA256: digest(artifact) };
+    return { cwd, artifact, calls, plugin, env, nextRelease: { version: '0.2.0' } };
+  }
+
+  it('checks the downloaded candidate and publishes those same bytes', () => {
+    const { cwd, artifact, calls, plugin, env, nextRelease } = candidate();
+    const context = { cwd, env, nextRelease };
+    plugin.prepare({}, context);
     plugin.publish({}, context);
-    expect(calls).toEqual([
-      `pack:${artifact}`,
-      `check:${artifact}:0.2.0`,
-      `smoke:${artifact}`,
-      `upgrade:${artifact}`,
-      `publish:${artifact}`,
-    ]);
+    expect(calls).toEqual([`check:${artifact}:0.2.0`, `publish:${artifact}`]);
     writeFileSync(artifact, 'changed tarball');
     expect(() => {
       plugin.publish({}, context);
-    }).toThrow('changed after smoke');
+    }).toThrow('changed after');
+  });
+
+  it('refuses a candidate built for another version', () => {
+    const { cwd, calls, plugin, env } = candidate();
+    expect(() => {
+      plugin.prepare({}, { cwd, env, nextRelease: { version: '0.3.0' } });
+    }).toThrow('re-run all jobs');
+    expect(() => {
+      plugin.prepare(
+        {},
+        {
+          cwd,
+          env: { ...env, RELEASE_CANDIDATE_VERSION: '0.1.9' },
+          nextRelease: { version: '0.2.0' },
+        },
+      );
+    }).toThrow('re-run all jobs');
+    expect(calls).toEqual([]);
+  });
+
+  it('refuses a candidate whose sha256 differs and never publishes it', () => {
+    const { cwd, calls, plugin, env, nextRelease } = candidate();
+    const context = { cwd, env: { ...env, RELEASE_CANDIDATE_SHA256: 'a'.repeat(64) }, nextRelease };
+    expect(() => {
+      plugin.prepare({}, context);
+    }).toThrow('differs from');
+    expect(() => {
+      plugin.prepare({}, { ...context, env: { ...env, RELEASE_CANDIDATE_SHA256: '' } });
+    }).toThrow('not a sha256');
+    expect(() => {
+      plugin.publish({}, context);
+    }).toThrow('changed after');
+    expect(calls).toEqual([]);
+  });
+
+  it('refuses a missing candidate', () => {
+    const { cwd, artifact, calls, plugin, env, nextRelease } = candidate();
+    rmSync(artifact);
+    expect(() => {
+      plugin.prepare({}, { cwd, env, nextRelease });
+    }).toThrow('missing');
+    expect(calls).toEqual([]);
+  });
+
+  it('leaves smoke to release-smoke', () => {
+    const source = readFileSync(new URL('./release-package.ts', import.meta.url), 'utf8');
+    expect(source).not.toContain('./package-smoke.ts');
+    expect(source).not.toContain('./upgrade-smoke.ts');
   });
 
   it('passes the checked tarball to npm publish with provenance', () => {
@@ -160,5 +197,48 @@ describe('release policy', () => {
     );
     expect(result && result.nextRelease.version).toBe(expected);
     expect(result && result.nextRelease.notes).toContain(subject);
+  });
+
+  it('builds a dry-run env with no runner credentials', () => {
+    const env = dryRunEnv({
+      GITHUB_TOKEN: 'sentinel-gh',
+      GH_TOKEN: 'sentinel-gh2',
+      ACTIONS_ID_TOKEN_REQUEST_URL: 'sentinel-oidc-url',
+      ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'sentinel-oidc',
+      ACTIONS_RUNTIME_TOKEN: 'sentinel-rt',
+      GITHUB_EVENT_PATH: 'sentinel-event',
+      npm_config__authToken: 'sentinel-npm',
+      GITHUB_EVENT_NAME: 'pull_request',
+      GITHUB_REF: 'refs/heads/feature',
+      PATH: '/usr/bin',
+      HOME: '/home/x',
+    });
+    expect(Object.values(env).filter((value) => value?.startsWith('sentinel-'))).toEqual([]);
+    const names = Object.keys(env);
+    expect(names.filter((name) => /^ACTIONS_/i.test(name))).toEqual([]);
+    expect(names.filter((name) => /^npm_config_/i.test(name))).toEqual([]);
+    expect(
+      Object.fromEntries(Object.entries(env).filter(([name]) => /^GITHUB_/i.test(name))),
+    ).toEqual({ GITHUB_ACTIONS: 'true', GITHUB_EVENT_NAME: 'push', GITHUB_REF: 'refs/heads/main' });
+    expect(names).not.toContain('GH_TOKEN');
+    expect(env).toMatchObject({ PATH: '/usr/bin', HOME: '/home/x' });
+  });
+
+  it.each([
+    ['feat(core)!: break API', '0.2.0'],
+    ['fix(core): repair API', '0.1.1'],
+    ['chore: tidy', null],
+  ])('computes the next version from a mirror: %s -> %s', async (message, expected) => {
+    const { repo } = fixture(message);
+    // A dispatch checkout: on a feature branch, with no local main.
+    git(repo, 'checkout', '-qb', 'feature');
+    git(repo, 'branch', '-qD', 'main');
+    const version = await nextVersion(repo, {
+      ...process.env,
+      GITHUB_ACTIONS: 'true',
+      GITHUB_EVENT_NAME: 'workflow_dispatch',
+      GITHUB_REF: 'refs/heads/feature',
+    });
+    expect(version).toBe(expected);
   });
 });

@@ -105,10 +105,11 @@ Every test runs through the root config, so all of these hold:
   root `tsconfig*.json`, switches to full mode; a package's own `tsconfig.json` does not.
 - `pnpm run check --pre-push` (the pre-push hook): changed-file format and lint, types and `unit`
   only.
-- `pnpm check:full --only test`: `unit`, `integration`, `process`, `startup` and package smoke.
+- `pnpm check:full --only test`: `unit`, `integration`, `process` and `startup`.
 - CI `test` and `stand` jobs: `check:full --only test` and `--only stand` (`.github/workflows/ci.yml`).
-- CI `package-smoke` job: `pnpm package:smoke`, `pnpm upgrade:smoke`, then `pnpm update:smoke`.
-  On a PR it runs only when `classifyChanges` in `scripts/ci.ts` marks a package change.
+- CI `package-smoke` job: `pnpm package:smoke` and `pnpm upgrade:smoke` on PRs, then
+  `pnpm update:smoke`; on a PR it runs only when `classifyChanges` in `scripts/ci.ts` marks a
+  package change. Pushes and dispatches smoke the candidate in `release-smoke`.
 - `.github/workflows/nightly.yml`: runs the published package's `--version`; on failure
   `scripts/nightly.ts` opens or updates one `ci-nightly` issue.
 

@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { parse } from 'yaml';
 import { classifyChanges, decideCiOk, jobIdsFromWorkflow, secretsLogOpts } from './ci.ts';
 
 const JOB_IDS = [
@@ -16,6 +17,8 @@ const JOB_IDS = [
   'test',
   'stand',
   'package-smoke',
+  'release-build',
+  'release-smoke',
 ];
 
 function allSuccess(): Record<string, { result: string; outputs?: Record<string, string> }> {
@@ -29,6 +32,8 @@ function allSuccess(): Record<string, { result: string; outputs?: Record<string,
     test: { result: 'success' },
     stand: { result: 'success' },
     'package-smoke': { result: 'success' },
+    'release-build': { result: 'success' },
+    'release-smoke': { result: 'success' },
   };
 }
 
@@ -121,6 +126,15 @@ describe('decideCiOk', () => {
     expect(decide({ [id]: { result: 'skipped' } }, 'workflow_dispatch').ok).toBe(true);
   });
 
+  it.each(['release-build', 'release-smoke'])(
+    'accepts a skipped %s only on pull requests',
+    (id) => {
+      expect(decide({ [id]: { result: 'skipped' } }, 'pull_request').ok).toBe(true);
+      expect(decide({ [id]: { result: 'skipped' } }, 'push').ok).toBe(false);
+      expect(decide({ [id]: { result: 'skipped' } }, 'workflow_dispatch').ok).toBe(false);
+    },
+  );
+
   it('accepts a skipped package smoke only for a package-unaffected pull request', () => {
     const changes = { result: 'success', outputs: { github: 'false', package: 'false' } };
     expect(decide({ changes, 'package-smoke': { result: 'skipped' } }).ok).toBe(true);
@@ -160,19 +174,103 @@ describe('jobIdsFromWorkflow', () => {
 
   it('gates release on a successful main push after both package smoke legs', () => {
     const workflow = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8');
-    const releaseCondition = workflow.match(/^  release:\n    needs: ci-ok\n    if: (.+)$/m)?.[1];
+    const releaseCondition = workflow.match(
+      /^  release:\n    needs: \[ci-ok, release-build\]\n    if: (.+)$/m,
+    )?.[1];
     expect(releaseCondition).toBe(
-      "${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.ci-ok.result == 'success' }}",
+      "${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.ci-ok.result == 'success' && needs.release-build.result == 'success' }}",
     );
-    expect(workflow).toContain(
-      'needs: [changes, pr-title, guardrails, secrets, workflows, quality, test, stand, package-smoke]',
-    );
+    const jobs = (parse(workflow) as { jobs: Record<string, { needs?: unknown }> }).jobs;
+    expect(jobs['ci-ok']?.needs).toEqual(JOB_IDS);
     expect(workflow).toMatch(/package-smoke:\n[\s\S]*?node: \[24, 26\]/);
     expect(workflow).toMatch(
       /  stand:\n[\s\S]*?node: \[24, 26\][\s\S]*?pnpm check:full --only stand/,
     );
     expect(workflow).toContain('id-token: write');
     expect(workflow).not.toMatch(/NPM_TOKEN|NODE_AUTH_TOKEN|npm-token:/);
+  });
+});
+
+interface WorkflowStep {
+  uses?: string;
+  run?: string;
+  if?: string;
+  env?: Record<string, string>;
+  with?: Record<string, unknown>;
+}
+
+interface WorkflowJob {
+  if?: string;
+  permissions?: Record<string, string>;
+  env?: Record<string, string>;
+  steps?: WorkflowStep[];
+}
+
+describe('release workflow isolation', () => {
+  const workflow = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8');
+  const jobs = (parse(workflow) as { jobs: Record<string, WorkflowJob> }).jobs;
+  const installsUnpinned = /\b(package|upgrade|update):smoke\b|\bnpm (install|i)\b/;
+  const runs = (id: string) => (jobs[id]?.steps ?? []).map((step) => step.run ?? '');
+
+  it('grants no write scope or token to jobs that install unpinned packages', () => {
+    const installing = Object.entries(jobs).filter(([, job]) =>
+      (job.steps ?? []).some((step) => installsUnpinned.test(step.run ?? '')),
+    );
+    expect(installing.map(([id]) => id).sort()).toEqual(['package-smoke', 'release-smoke']);
+    for (const [id, job] of installing) {
+      expect(job.permissions, id).toEqual({ contents: 'read' });
+      const exposed = JSON.stringify([
+        job.env ?? {},
+        (job.steps ?? []).map((step) => [step.env ?? {}, step.run ?? '']),
+      ]);
+      expect(exposed, id).not.toMatch(/github\.token|secrets\.|GITHUB_TOKEN/);
+    }
+    for (const [id, job] of Object.entries(jobs)) {
+      if (id !== 'release') expect(job.permissions?.['id-token'], id).toBeUndefined();
+    }
+    expect(jobs['release']?.permissions?.['id-token']).toBe('write');
+    for (const run of runs('release')) {
+      expect(run).not.toMatch(/:smoke\b|check:full|\bnpm (install|i)\b/);
+    }
+  });
+
+  it('smokes package and upgrade once per event and checks the candidate first', () => {
+    for (const [id, job] of Object.entries(jobs)) {
+      for (const step of job.steps ?? []) {
+        if (!/\b(package|upgrade):smoke\b/.test(step.run ?? '')) continue;
+        if (id === 'package-smoke') expect(step.if).toBe("github.event_name == 'pull_request'");
+        else {
+          expect(id).toBe('release-smoke');
+          expect(job.if).toBe("github.event_name != 'pull_request'");
+        }
+      }
+    }
+    expect(jobs['release-build']?.if).toBe("github.event_name != 'pull_request'");
+    const smoke = runs('release-smoke');
+    const checked = smoke.findIndex((run) => run.startsWith('sha256sum --check'));
+    expect(checked).toBeGreaterThanOrEqual(0);
+    expect(checked).toBeLessThan(smoke.findIndex((run) => run.startsWith('pnpm package:smoke')));
+    expect(checked).toBeLessThan(smoke.findIndex((run) => run.startsWith('pnpm upgrade:smoke')));
+  });
+
+  it('publishes the candidate release-build reported', () => {
+    const publish = jobs['release']?.steps?.find(
+      (step) => step.run === 'pnpm exec semantic-release',
+    );
+    expect(publish?.env).toMatchObject({
+      RELEASE_CANDIDATE_VERSION: '${{ needs.release-build.outputs.version }}',
+      RELEASE_CANDIDATE_SHA256: '${{ needs.release-build.outputs.sha256 }}',
+    });
+  });
+
+  it('builds and smokes the candidate without a dependency cache', () => {
+    for (const id of ['release-build', 'release-smoke']) {
+      const setupNode = jobs[id]?.steps?.filter((step) =>
+        step.uses?.startsWith('actions/setup-node@'),
+      );
+      expect(setupNode, id).toHaveLength(1);
+      expect(setupNode?.[0]?.with?.['cache'], id).toBeUndefined();
+    }
   });
 });
 
@@ -218,7 +316,9 @@ describe('classifyChanges', () => {
     expect(classifyChanges(['scripts/package-smoke.ts']).package).toBe(true);
     expect(classifyChanges(['scripts/update-smoke.ts']).package).toBe(true);
     expect(classifyChanges(['pnpm-lock.yaml']).package).toBe(true);
+    expect(classifyChanges(['tsconfig.base.json']).package).toBe(true);
     expect(classifyChanges(['scripts/ci.ts']).package).toBe(false);
+    expect(classifyChanges(['tsconfig.json']).package).toBe(false);
   });
 });
 

@@ -135,6 +135,10 @@ describe('update smoke environment', () => {
     BOARD_HOME: '/home/real/board',
     BOARD_DAEMON_URL: 'http://127.0.0.1:7000',
     GITHUB_TOKEN: 'secret',
+    ACTIONS_ID_TOKEN_REQUEST_URL: 'secret',
+    ACTIONS_ID_TOKEN_REQUEST_TOKEN: 'secret',
+    GITHUB_ENV: '/home/runner/env',
+    npm_config__authToken: 'sentinel-npm',
     SLACK_BOT_TOKEN: 'secret',
     DBUS_SESSION_BUS_ADDRESS: 'unix:path=/run/user/1/bus',
     NOTIFY_SOCKET: '/run/systemd/notify',
@@ -168,6 +172,9 @@ describe('update smoke environment', () => {
     for (const name of [
       'BOARD_DAEMON_URL',
       'GITHUB_TOKEN',
+      'ACTIONS_ID_TOKEN_REQUEST_URL',
+      'ACTIONS_ID_TOKEN_REQUEST_TOKEN',
+      'GITHUB_ENV',
       'SLACK_BOT_TOKEN',
       'DBUS_SESSION_BUS_ADDRESS',
       'NOTIFY_SOCKET',
@@ -177,6 +184,7 @@ describe('update smoke environment', () => {
     ]) {
       expect(names).not.toContain(name);
     }
+    expect(Object.values(env)).not.toContain('sentinel-npm');
     expect(env['npm_config_globalconfig']).toBe('/tmp/stand/npmrc');
     expect(
       Object.entries(env)
