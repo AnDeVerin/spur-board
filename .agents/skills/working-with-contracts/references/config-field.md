@@ -11,3 +11,7 @@
 - Add an `invalid configs` row with the message and `→ at <path>`. A custom message goes through
   the `error` callback (pattern: `columnConfig`) or `ctx.addIssue` with `path` (pattern:
   `rejectDuplicates`).
+- Give every field and array element a `.describe()` that says what the board does with it, at
+  the use site and after `.default()` or `.refine()`; on a tracker variant put it on the `type`
+  literal, not the union. `describe('generated public references')` in `scripts/gen-docs.test.ts`
+  fails on a non-object row without a description.

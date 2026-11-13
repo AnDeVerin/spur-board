@@ -67,7 +67,11 @@ export function plainHttpAllowed(url: URL): boolean {
 }
 
 const jiraTracker = z.strictObject({
-  type: z.literal('jira'),
+  type: z
+    .literal('jira')
+    .describe(
+      'jira: tasks come from the Jira issues jql returns, read with JIRA_EMAIL and JIRA_API_TOKEN from secrets.env.',
+    ),
   baseUrl: z
     .url({ protocol: /^https?$/ })
     .refine(
@@ -84,12 +88,32 @@ const jiraTracker = z.strictObject({
       },
     )
     .describe('Jira site URL. https:, or http: only on a loopback host.'),
-  jql: nonEmpty,
-  doneStatuses: z.array(nonEmpty).min(1),
-  readyStatuses: z.array(nonEmpty).min(1),
+  jql: nonEmpty.describe(
+    'Jira search whose issues become tasks in To Do. A task whose issue leaves the result is flagged out of filter while it has an open PR or a live session, and is archived otherwise, once Spur, the tracker and every repo have a complete poll since its last change and none of them is blind; a task added or removed by hand is left alone.',
+  ),
+  doneStatuses: z
+    .array(nonEmpty.describe('A Jira status name, spelled exactly as in Jira.'))
+    .min(1)
+    .describe(
+      'Jira statuses that mean done. A task whose issue is in one of them and that has no open PR is archived on the next archive.doneWeekday, once every repo has a complete poll since its last change. Each name must exist in every projectKeys project, or the Jira poll fails with a config error.',
+    ),
+  readyStatuses: z
+    .array(nonEmpty.describe('A Jira status name, spelled exactly as in Jira.'))
+    .min(1)
+    .describe(
+      'Jira statuses that mean ready for development. The board checks only that each name exists in every projectKeys project; the Jira poll fails with a config error otherwise.',
+    ),
   projectKeys: z
-    .array(z.string().regex(/^[A-Z][A-Z0-9_]*$/, 'Expected a Jira project key like PROJ'))
-    .default([]),
+    .array(
+      z
+        .string()
+        .regex(/^[A-Z][A-Z0-9_]*$/, 'Expected a Jira project key like PROJ')
+        .describe('A Jira project key in capitals, such as PROJ.'),
+    )
+    .default([])
+    .describe(
+      "Keys of this board project's Jira projects, such as PROJ. A PR names its task by one of these keys, and doneStatuses and readyStatuses are checked in each of these projects. A task key such as PROJ-12 belongs to the one board project whose list holds its prefix; an empty list takes every Jira key, and a key that several projects take belongs to none. The Jira poll fails with a config error while the list is empty.",
+    ),
 });
 
 /** Capture groups of a pattern that compiles without flags, or `undefined` when it does not. */
@@ -133,8 +157,14 @@ function linkPattern(fallback: string, description: string) {
 
 const githubIssuesTracker = z
   .strictObject({
-    type: z.literal('github-issues'),
-    repo: repoSlugSchema,
+    type: z
+      .literal('github-issues')
+      .describe(
+        'github-issues: tasks come from the open issues of tracker.repo, narrowed by label or milestone when set, read with GITHUB_TOKEN.',
+      ),
+    repo: repoSlugSchema.describe(
+      'Repository as owner/name whose open issues become tasks. PRs link to its issues only in this repository, so list it in repos too.',
+    ),
     label: nonEmpty
       .describe(
         'Only open issues with this label become tasks. Set at most one of label and milestone; with neither, every open issue of tracker.repo becomes a task.',
@@ -170,14 +200,25 @@ const spurProject = z.strictObject({
 const DEFAULT_CYCLE_LIMIT = 10;
 
 const columnConfig = z.strictObject({
-  id: z.enum(COLUMN_IDS, {
-    error: (issue) =>
-      typeof issue.input === 'string'
-        ? `Unknown column ${JSON.stringify(issue.input)}: custom columns arrive with custom matchers and are not supported yet. Built-in columns: ${COLUMN_IDS.join(', ')}`
-        : undefined,
-  }),
-  enabled: z.boolean().default(true),
-  orchestrator: nonEmpty.default('none'),
+  id: z
+    .enum(COLUMN_IDS, {
+      error: (issue) =>
+        typeof issue.input === 'string'
+          ? `Unknown column ${JSON.stringify(issue.input)}: custom columns arrive with custom matchers and are not supported yet. Built-in columns: ${COLUMN_IDS.join(', ')}`
+          : undefined,
+    })
+    .describe('The built-in column this entry configures.'),
+  enabled: z
+    .boolean()
+    .default(true)
+    .describe(
+      'false skips the column: tasks move past it and its exit condition is not checked. todo, dev and done cannot be disabled.',
+    ),
+  orchestrator: nonEmpty
+    .default('none')
+    .describe(
+      "Who takes the column's turns. none: the task's live worker session, else the operator. operator: the operator, who also gets the questions asked in the column. Otherwise the name of a spurProjects entry whose sessions orchestrate the column and get the questions others ask in it.",
+    ),
   cycleLimit: z
     .int()
     .min(1)
@@ -230,11 +271,19 @@ const projectSchema = z
         message: `"${RESERVED_PROJECT}" is reserved for board-wide journal events; choose another project id`,
         abort: true,
       })
-      .regex(/^[a-z][a-z0-9-]*$/, 'Expected lowercase letters, digits and dashes'),
+      .regex(/^[a-z][a-z0-9-]*$/, 'Expected lowercase letters, digits and dashes')
+      .describe(
+        'Board project id: lowercase letters, digits and dashes, unique, not _board. It names the project on its tasks, in the journal and in its source ids such as jira:<id> and github:<id>:<repo>.',
+      ),
     tracker: z.discriminatedUnion('type', [jiraTracker, githubIssuesTracker]),
-    repos: z.array(repoSlugSchema).min(1),
+    repos: z
+      .array(repoSlugSchema.describe('A repository as owner/name.'))
+      .min(1)
+      .describe(
+        'GitHub repositories as owner/name whose PRs the board polls for this project, one source each. A done task is archived only after every listed repository has a complete poll since its last change.',
+      ),
     reposWithoutCi: z
-      .array(repoSlugSchema)
+      .array(repoSlugSchema.describe('A repository from repos as owner/name, in any letter case.'))
       .default([])
       .describe(
         'Repos from repos that run no CI checks, in any letter case. In a listed repo, a PR whose check list on head is empty passes the Dev gate check condition instead of waiting in Dev. A list of only skipped checks still waits, and red or pending checks still count. A listed repo whose branch protection requires checks that have not reported yet also passes, so list only repos that run no checks. Without this key, a PR with no checks waits in Dev.',
@@ -242,7 +291,11 @@ const projectSchema = z
     link: z
       .strictObject({
         sources: z
-          .array(z.enum(LINK_SOURCES))
+          .array(
+            z
+              .enum(LINK_SOURCES)
+              .describe('One place a PR can name its task: closing, branch or title.'),
+          )
           .min(1)
           .superRefine((sources, ctx) => {
             sources.forEach((source, i) => {
@@ -294,7 +347,10 @@ const projectSchema = z
           curator ??= item.name;
         });
       })
-      .default([]),
+      .default([])
+      .describe(
+        'Spur projects whose sessions work on this board project, each with a role; at most one curator. Board commands from a session whose Spur project is in no spurProjects list are refused.',
+      ),
     columns: z
       .array(columnConfig)
       .superRefine(checkBoard)
@@ -305,6 +361,9 @@ const projectSchema = z
           orchestrator: 'none',
           cycleLimit: DEFAULT_CYCLE_LIMIT,
         })),
+      )
+      .describe(
+        "The project's board columns in canonical order. todo, dev and done must be present and enabled. A column left out or disabled is skipped. Without this key, all nine columns are enabled with orchestrator none.",
       ),
     dispatcher: z
       .strictObject({
@@ -413,39 +472,99 @@ export const configSchema = z.strictObject({
     .superRefine((items, ctx) => {
       rejectDuplicates(items, 'id', 'project id', ctx);
       rejectSharedSpurProjects(items, ctx);
-    }),
-  operator: z.strictObject({ slack: nonEmpty }),
+    })
+    .describe(
+      'Board projects, at least one. Each reads tasks from one tracker and PRs from its repos. A Spur project can be listed under only one board project.',
+    ),
+  operator: z.strictObject({
+    slack: nonEmpty.describe(
+      'Slack user ID of the operator, such as U0123456789. Slack commands, button presses and messages from anyone else are denied. A feed line the operator resolves names this user.',
+    ),
+  }),
   slack: z
     .strictObject({
-      appName: z.string().trim().min(1).default(DEFAULT_SLACK_APP_NAME),
+      appName: z
+        .string()
+        .trim()
+        .min(1)
+        .default(DEFAULT_SLACK_APP_NAME)
+        .describe(
+          'Slack app and bot display name that board slack manifest writes when --app-name is not given.',
+        ),
       command: z
         .string()
         .regex(/^\/[a-z0-9_-]+$/, 'Expected a slash command such as /board')
-        .default(DEFAULT_SLACK_COMMAND),
+        .default(DEFAULT_SLACK_COMMAND)
+        .describe(
+          'Slash command with its leading slash. The board acts only on this command, and board slack manifest writes it when --command is not given. When slack.channels is set and SLACK_APP_CONFIG_TOKEN and slack.appId are present, board doctor compares it with the installed app.',
+        ),
       appId: z
         .string()
         .regex(/^A[A-Z0-9]+$/, 'Expected a Slack app ID')
-        .optional(),
+        .optional()
+        .describe(
+          "Slack app ID, such as A0123456789. When slack.channels is set and SLACK_APP_CONFIG_TOKEN is present, board doctor reads this app's manifest to check the installed slash command against slack.command.",
+        ),
       channels: z
         .strictObject({
-          orchestrators: nonEmpty.optional(),
-          feed: nonEmpty.optional(),
+          orchestrators: nonEmpty
+            .optional()
+            .describe(
+              'Slack channel ID, such as C0123456789, where the board opens a thread for each block addressed to the operator by someone else. Once either channel is set, the daemon does not start without the other channel and SLACK_BOT_TOKEN, and without SLACK_APP_TOKEN it reads nothing from Slack.',
+            ),
+          feed: nonEmpty
+            .optional()
+            .describe(
+              'Slack channel ID where the board posts a line for each curator answer, each newly installed version and each operator item, with the buttons the operator presses. Operator items about failed Slack posts, transport health, undelivered answers and ended workers, and those shown as operator blocks, get no feed line. A line whose item clears before it is first sent, such as an expired token request, is dropped. Set it together with orchestrators.',
+            ),
         })
         .prefault({}),
     })
     .prefault({}),
   thresholds: z
     .strictObject({
-      staleMultiplier: z.number().min(1).default(3),
+      staleMultiplier: z
+        .number()
+        .min(1)
+        .default(3)
+        .describe(
+          'A source with no complete poll for this many of its poll intervals turns blind stale. board status marks that source, and an operator item whose fact is older than that, as stale.',
+        ),
       blockOpenMs: durationMs(
         86_400_000,
         'How long a block may stay open before an item is raised',
       ),
     })
     .prefault({}),
-  archive: z.strictObject({ doneWeekday: z.enum(WEEKDAYS).default('saturday') }).prefault({}),
-  digest: z.strictObject({ tz: z.string().refine(isTimeZone, 'Unknown IANA time zone') }),
-  commands: z.strictObject({ retentionDays: z.int().min(1).default(7) }).prefault({}),
+  archive: z
+    .strictObject({
+      doneWeekday: z
+        .enum(WEEKDAYS)
+        .default('saturday')
+        .describe(
+          'Weekday whose local midnight, in digest.tz, is the weekly archive slot: tasks done before it are archived then, once their repos have a complete poll since their last change. A slot missed while the daemon was down is applied on the next tick.',
+        ),
+    })
+    .prefault({}),
+  digest: z.strictObject({
+    tz: z
+      .string()
+      .refine(isTimeZone, 'Unknown IANA time zone')
+      .describe(
+        'IANA time zone, such as Europe/Berlin, for the archive.doneWeekday slot and the times shown in resolved feed lines.',
+      ),
+  }),
+  commands: z
+    .strictObject({
+      retentionDays: z
+        .int()
+        .min(1)
+        .default(7)
+        .describe(
+          "Days the board keeps each caller's mutation --key with its input and result. In that time the same caller and key with the same input returns the stored result, and with a different input the call is refused. A daily job deletes older keys.",
+        ),
+    })
+    .prefault({}),
   doorbells: z
     .strictObject({
       firstRetryMs: durationMs(120_000, 'Wait after the first unanswered doorbell'),
