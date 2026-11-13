@@ -3,6 +3,7 @@ import {
   clearItem as clearOperatorItem,
   raiseItem as raiseOperatorItem,
 } from '../../src/app/feed.ts';
+import { createHash } from 'node:crypto';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -1746,7 +1747,261 @@ describe('inbound apply', () => {
     expect(await kinds('comment_deleted')).toBe(1);
     expect(await commands()).toEqual([]);
   });
+
+  it('applies a live event between recovery slices', async () => {
+    const { store, gateway } = await setup();
+    await addSecondConversation(store, gateway.kind);
+    const gates = new Map([
+      ['thread-1', Promise.withResolvers<undefined>()],
+      ['thread-2', Promise.withResolvers<undefined>()],
+    ]);
+    const release = (ref: string) => gates.get(ref)?.resolve(undefined);
+    const calls: string[] = [];
+    const inbound = createInbound({
+      store,
+      config,
+      clock: { now: () => now },
+      gateway: {
+        ...gateway,
+        recover(request) {
+          const ref = request.conversations[0]?.ref ?? '';
+          calls.push(ref);
+          return (async function* () {
+            await gates.get(ref)?.promise;
+            yield* gateway.recover(request);
+          })();
+        },
+      },
+    });
+    let scanned = false;
+    const scanning = inbound.recover().then(() => {
+      scanned = true;
+    });
+    try {
+      await settleUntil(() => calls.includes('thread-1'));
+      let sunk = false;
+      const sinking = inbound
+        .sink(message({ conversation: 'thread-3', root: 'root-3', key: 'live-3' }))
+        .then(() => {
+          sunk = true;
+        });
+      release('thread-1');
+      await settleUntil(() => sunk);
+      await sinking;
+      expect(
+        await store.db
+          .selectFrom('event')
+          .select('kind')
+          .where('kind', '=', 'inbound_skipped')
+          .execute(),
+      ).toHaveLength(1);
+      expect(scanned).toBe(false);
+      await settleUntil(() => calls.length === 2);
+      expect(calls).toEqual(['thread-1', 'thread-2']);
+    } finally {
+      release('thread-1');
+      release('thread-2');
+      await scanning;
+    }
+  });
+
+  it("applies a conversation's recovered events before its live event", async () => {
+    const { store, gateway } = await setup();
+    await addSecondConversation(store, gateway.kind);
+    const gate = Promise.withResolvers<undefined>();
+    const calls: string[] = [];
+    const inbound = createInbound({
+      store,
+      config,
+      clock: { now: () => now },
+      gateway: {
+        ...gateway,
+        recover(request) {
+          const ref = request.conversations[0]?.ref ?? '';
+          calls.push(ref);
+          return (async function* () {
+            if (ref === 'thread-1') await gate.promise;
+            if (ref === 'thread-2') {
+              yield message({
+                conversation: 'thread-2',
+                root: 'root-2',
+                key: 'missed-2',
+                ref: 'missed-2',
+                text: 'Missed',
+              });
+            }
+          })();
+        },
+      },
+    });
+    const scanning = inbound.recover();
+    try {
+      await settleUntil(() => calls.includes('thread-1'));
+      const sinking = inbound.sink(
+        message({
+          conversation: 'thread-2',
+          root: 'root-2',
+          key: 'live-2',
+          ref: 'live-2',
+          text: 'Live',
+        }),
+      );
+      gate.resolve(undefined);
+      await sinking;
+      await scanning;
+    } finally {
+      gate.resolve(undefined);
+    }
+    expect(
+      (
+        await store.db
+          .selectFrom('comment')
+          .select('text')
+          .where('block_id', '=', 2)
+          .orderBy('id')
+          .execute()
+      ).map((row) => row.text),
+    ).toEqual(['Missed', 'Live']);
+    expect(calls).toEqual(['thread-1', 'thread-2']);
+  });
+
+  it('aborts the recovery signal on stop and scans nothing after', async () => {
+    const { store, gateway } = await setup();
+    const signals: AbortSignal[] = [];
+    const inbound = createInbound({
+      store,
+      config,
+      clock: { now: () => now },
+      gateway: {
+        ...gateway,
+        recover(request) {
+          const signal = request.signal;
+          if (signal === undefined) throw new Error('Expected a recovery signal');
+          signals.push(signal);
+          return (async function* () {
+            await abortOf(signal);
+            yield* gateway.recover({ conversations: [], since: new Date(now) });
+          })();
+        },
+      },
+    });
+    const scanning = inbound.recover();
+    await settleUntil(() => signals.length === 1);
+    await inbound.stop();
+    expect(signals[0]?.aborted).toBe(true);
+    await inbound.stop();
+    await scanning;
+    await inbound.recover();
+    expect(signals).toHaveLength(1);
+  });
+
+  it('raises a gap for an unread conversation when a live event arrives after stop', async () => {
+    const { store, gateway } = await setup();
+    await addSecondConversation(store, gateway.kind);
+    const calls: string[] = [];
+    const inbound = createInbound({
+      store,
+      config,
+      clock: { now: () => now },
+      gateway: {
+        ...gateway,
+        recover(request) {
+          const signal = request.signal;
+          if (signal === undefined) throw new Error('Expected a recovery signal');
+          calls.push(request.conversations[0]?.ref ?? '');
+          return (async function* () {
+            await abortOf(signal);
+            yield* gateway.recover({ conversations: [], since: new Date(now) });
+          })();
+        },
+      },
+    });
+    const scanning = inbound.recover();
+    await settleUntil(() => calls.includes('thread-1'));
+    await inbound.stop();
+    await scanning;
+    await inbound.sink(
+      message({ conversation: 'thread-2', root: 'root-2', key: 'live-2', ref: 'live-2' }),
+    );
+    expect(calls).toEqual(['thread-1']);
+    const scope = createHash('sha256')
+      .update(JSON.stringify([gateway.kind, 'thread-2']))
+      .digest('hex');
+    expect(
+      await store.db
+        .selectFrom('operator_item')
+        .select(['kind', 'item_key'])
+        .where('kind', '=', 'inbound_gap')
+        .execute(),
+    ).toEqual([{ kind: 'inbound_gap', item_key: `inbound:gap:${scope}` }]);
+    expect(
+      await store.db
+        .selectFrom('comment')
+        .select('text')
+        .where('conversation_ref', '=', 'thread-2')
+        .execute(),
+    ).toEqual([{ text: 'Yes' }]);
+  });
 });
+
+/** Block 2 on task 1 with its own open conversation, created after `thread-1`. */
+async function addSecondConversation(store: Store, gateway: string): Promise<void> {
+  const created = new Date(now + 1000).toISOString();
+  await scanTransaction(store, config, async (trx) => {
+    await trx
+      .insertInto('block')
+      .values({
+        task_id: 1,
+        type: 'needs_input',
+        reason: 'Which other way?',
+        author: 'system',
+        addressee_role: 'operator',
+        target_column: null,
+        state: 'open',
+        outcome: null,
+        outcome_reason: null,
+        repeat_of: null,
+        unblocked_by: null,
+        unblocked_at: null,
+        created_at: created,
+      })
+      .execute();
+    await trx
+      .insertInto('conversation')
+      .values({
+        gateway,
+        ref: 'thread-2',
+        space: 'orchestrators',
+        task_id: 1,
+        block_id: 2,
+        purpose: 'block',
+        state: 'open',
+        root_message_ref: 'root-2',
+        after_message_ref: null,
+        created_at: created,
+        closed_at: null,
+      })
+      .execute();
+  });
+}
+
+/** Lets queued work run until `done` holds; throws instead of hanging when it never does. */
+async function settleUntil(done: () => boolean): Promise<void> {
+  for (let attempt = 0; attempt < 500; attempt += 1) {
+    if (done()) return;
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  }
+  throw new Error('Condition not reached');
+}
+
+function abortOf(signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    if (signal.aborted) resolve();
+    signal.addEventListener('abort', () => {
+      resolve();
+    });
+  });
+}
 
 describe('anomaly block', () => {
   it('closes an anomaly block on an operator reply without an author-unavailable item', async () => {
