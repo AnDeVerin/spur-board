@@ -89,7 +89,7 @@ const jiraTracker = z.strictObject({
     )
     .describe('Jira site URL. https:, or http: only on a loopback host.'),
   jql: nonEmpty.describe(
-    'Jira search whose issues become tasks in To Do. A task whose issue leaves the result is flagged out of filter while it has an open PR or a live session, and is archived otherwise; a task added or removed by hand is left alone.',
+    'Jira search whose issues become tasks in To Do. A task whose issue leaves the result is flagged out of filter while it has an open PR or a live session, and is archived otherwise, once Spur, the tracker and every repo have a complete poll since its last change and none of them is blind; a task added or removed by hand is left alone.',
   ),
   doneStatuses: z
     .array(nonEmpty.describe('A Jira status name, spelled exactly as in Jira.'))
