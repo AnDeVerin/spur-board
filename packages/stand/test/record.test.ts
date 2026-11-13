@@ -161,6 +161,8 @@ interface Fixture {
   statuses: string[];
   issueNodeId: string;
   spurLinks: { label: string; url: string }[];
+  /** The Spur 404 body for the probe session. */
+  probeBody?: Raw;
 }
 
 function defaultFixture(): Fixture {
@@ -202,7 +204,9 @@ function syntheticLive(fixture: Fixture = defaultFixture()) {
             { 'x-spur-lifecycle-instance-id': 'acme-instance-7' },
           ),
         );
-      return Promise.resolve(json({ error: `Session not found: ${url.pathname}` }, 404));
+      return Promise.resolve(
+        json(fixture.probeBody ?? { error: `Session not found: ${url.pathname}` }, 404),
+      );
     }
     if (url.href === 'https://api.github.com/graphql') {
       const variables = body['variables'] as Raw;
@@ -382,6 +386,12 @@ describe('record:fakes', () => {
     const refusedCalls = [
       post('https://api.github.com/graphql', { query: 'mutation { addComment { id } }' }),
       post('https://api.github.com/graphql', { query: ' mutation Q { x }' }),
+      post('https://api.github.com/graphql', {
+        query: 'query A { a } mutation B { b }',
+        operationName: 'B',
+      }),
+      post('https://api.github.com/graphql', { query: 'fragment F on Q { a }' }),
+      post('https://api.github.com/graphql', { query: 'query { a' }),
       post(`https://api.github.com/repos/${BOARD}/issues`, { title: 'x' }),
       guarded(`https://api.github.com/repos/${BOARD}/issues/3`, { method: 'PATCH' }),
       guarded(`https://api.github.com/repos/${BOARD}/issues/3`, { method: 'DELETE' }),
@@ -653,6 +663,16 @@ describe('record:fakes', () => {
     expect(result.errors).toContain('jira/stand-jira.json');
     expect(result.errors).toContain('exchanges[0].response.body[0].statuses[2].name');
     expect(result.errors).toContain('rule 2');
+    expect(result.errors).not.toMatch(/acme/i);
+    expect(existsSync(result.outDir)).toBe(false);
+  });
+
+  it('masks a live name in a refused error-response key', async () => {
+    const fixture = { ...defaultFixture(), probeBody: { 'acme-real-hint': 'Session not found' } };
+    const result = await run(liveConfig(), fixture);
+    expect(result.code).toBe(1);
+    expect(result.errors).toContain('rule 1 or 2 (key)');
+    expect(result.errors).toContain('<live>');
     expect(result.errors).not.toMatch(/acme/i);
     expect(existsSync(result.outDir)).toBe(false);
   });

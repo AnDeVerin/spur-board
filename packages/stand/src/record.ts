@@ -167,12 +167,16 @@ function isReadQuery(body: string | undefined): boolean {
   if (body === undefined) return false;
   try {
     const parsed: unknown = JSON.parse(body);
-    return (
-      parsed !== null &&
-      typeof parsed === 'object' &&
-      'query' in parsed &&
-      typeof parsed.query === 'string' &&
-      /^\s*query\b/.test(parsed.query)
+    if (
+      parsed === null ||
+      typeof parsed !== 'object' ||
+      !('query' in parsed) ||
+      typeof parsed.query !== 'string'
+    )
+      return false;
+    return parse(parsed.query).definitions.every(
+      (definition) =>
+        definition.kind === Kind.OPERATION_DEFINITION && definition.operation === 'query',
     );
   } catch {
     return false;
@@ -1088,16 +1092,18 @@ export async function record(options: RecordOptions, written: string[] = []): Pr
     written.push(...(await recordOrRefuse(options, known)));
     return 0;
   } catch (error) {
-    // An unexpected error may quote a response; only its masked message is printed.
+    // A refusal path is built from response keys and an unexpected error may quote a response:
+    // once the needles are known, every message is masked; before that, only a refusal is shown.
+    const { needles } = known;
     const message =
       error instanceof Refusal
         ? error.message
         : `unexpected ${error instanceof Error ? error.name : 'error'}${
-            error instanceof Error && known.needles !== undefined
-              ? `: ${mask(error.message, known.needles)}`
-              : ''
+            error instanceof Error && needles !== undefined ? `: ${error.message}` : ''
           }`;
-    options.writeErr(`record:fakes refused: ${message}\n`);
+    options.writeErr(
+      `record:fakes refused: ${needles === undefined ? message : mask(message, needles)}\n`,
+    );
     return 1;
   }
 }
