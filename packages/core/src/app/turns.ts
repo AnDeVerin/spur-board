@@ -17,12 +17,12 @@ import { taskUrl } from './board-utils.ts';
 import { CommandError } from './commands.ts';
 import {
   acknowledgeNotification,
+  cancelledRingState,
   closeTurnNotification,
   linkedSession,
   notificationAddressedTo,
   registerTurnNotification,
   registerTurnReminder,
-  reminderCancelledUnsent,
   turnReminderKey,
 } from './doorbells.ts';
 import { clearItem, raiseItem } from './feed.ts';
@@ -235,7 +235,9 @@ function latest(values: readonly string[]): string {
 /**
  * Every taken, unclosed agent turn with its holder's session id, whether that session ended, and
  * the reminder of the current holder's current take, so an earlier episode's reminder never counts
- * and one cancelled unsent counts as none.
+ * and one cancelled unsent counts as none. `delivered` is whether that reminder reached the holder
+ * or may have: a ring killed after an uncertain send counts, so the one-ring limit hides no stuck
+ * turn.
  * `quietSince` is when the holder last had something to do: the take, the start of its idle
  * spell, or the close of its last question on the task. Null while the holder works, has an open
  * question on the task, or has no readable snapshot. A worker turn whose holder's session link
@@ -288,14 +290,14 @@ export async function quietTurns(trx: Trx) {
       .selectAll()
       .where('source_key', '=', turnReminderKey(turn.id, sessionId, turn.acked_at))
       .executeTakeFirst();
-    const reminder =
-      row === undefined || (await reminderCancelledUnsent(trx, row)) ? undefined : row;
+    const cancelled = row === undefined ? null : await cancelledRingState(trx, row);
     quiet.push({
       turn,
       sessionId,
       ended: session !== undefined && session.ended_at !== null,
       quietSince: idle === null || asking ? null : latest([turn.acked_at, idle, ...unblocked]),
-      reminder,
+      reminder: cancelled === 'unsent' ? undefined : row,
+      delivered: row !== undefined && (row.rings >= 1 || cancelled === 'maybe_out'),
     });
   }
   return quiet;

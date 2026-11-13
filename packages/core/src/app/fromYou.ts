@@ -386,13 +386,15 @@ export async function reconcileItems(
         .map((flag) => flag.sessionId),
     );
     const threshold = stuckTurnAfterMs(config);
-    for (const { turn, sessionId, ended, quietSince, reminder } of await quietTurns(trx)) {
+    for (const { turn, sessionId, ended, quietSince, reminder, delivered } of await quietTurns(
+      trx,
+    )) {
       const task = taskById.get(turn.task_id);
       if (task === undefined || quietSince === null || flagged.has(sessionId)) continue;
       const quiet = Date.parse(quietSince);
       const reminded =
         reminder !== undefined &&
-        reminder.rings >= 1 &&
+        delivered &&
         reminder.acked_at !== null &&
         now >= Math.max(Date.parse(reminder.acked_at), quiet) + threshold;
       // A failed reminder counts only once the current quiet period reaches the threshold.

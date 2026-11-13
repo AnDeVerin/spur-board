@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { configSchema, type ActorId, type ColumnId, type Config } from '@spur-board/contracts';
 import { createFakeGateway } from '@spur-board/gateway-testkit';
 import { afterEach, describe, expect, it } from 'vitest';
+import { sql } from 'kysely';
 import {
   createApply,
   createBlockMutations,
@@ -2547,6 +2548,62 @@ describe('turns', () => {
 
     expect(ctx.sent).toHaveLength(2);
     expect(await reminders(ctx)).toEqual([expect.objectContaining({ rings: 1 })]);
+  });
+
+  it('escalates a stuck turn after an uncertain reminder that a relink cancelled', async () => {
+    const link = { mode: 'session', task: KEY, session: 'worker-1', reason: 'Relink.' } as const;
+    const reconcile = () =>
+      scanTransaction(ctx.store, ctx.config, async (trx) => {
+        await reconcileItems(trx, ctx.config, ctx.now().getTime(), true);
+      });
+    const stuck = async () =>
+      (await itemKinds(ctx)).filter((item) => item.item_key === 'stuck-turn:1');
+    const ctx = await setup({ config: policyBoard('none') });
+    await takenByWorker(ctx);
+    await health(ctx, 'worker-1', 'web', 'waiting', ctx.now());
+    ctx.advance(IDLE);
+    await remind(ctx);
+    await ctx.ring();
+    ctx.failNext(new Error('spur send timed out'));
+    await ctx.sender.tick();
+    expect(ctx.sent).toHaveLength(1);
+
+    await ctx.apply(createLinkMutations(ctx.config).remove, link, 'operator');
+    const removedAt = ctx.now().getTime();
+    await ctx.apply(createLinkMutations(ctx.config).add, link, 'operator');
+    ctx.advance(60_000);
+    await ctx.sender.tick();
+    const [reminder] = await reminders(ctx);
+    const rows = await ctx.store.db
+      .selectFrom('outbox')
+      .select(['state', 'uncertain'])
+      .where('kind', '=', 'doorbell')
+      .where(sql<number>`json_extract(payload, '$.notificationId')`, '=', reminder?.id ?? -1)
+      .execute();
+    expect(rows).toEqual([{ state: 'dead', uncertain: 1 }]);
+    expect(await reminders(ctx)).toEqual([
+      expect.objectContaining({
+        rings: 0,
+        exhausted_at: null,
+        acked_at: expect.any(String) as unknown,
+      }),
+    ]);
+
+    ctx.advance(removedAt + IDLE - 1 - ctx.now().getTime());
+    await reconcile();
+    expect(await stuck()).toEqual([]);
+    ctx.advance(1);
+    await reconcile();
+    await remind(ctx);
+    await step(ctx);
+    ctx.advance(IDLE);
+    await reconcile();
+    await remind(ctx);
+    await step(ctx);
+
+    expect(await stuck()).toEqual([{ kind: 'anomaly', item_key: 'stuck-turn:1' }]);
+    expect(ctx.sent).toHaveLength(1);
+    expect(await reminders(ctx)).toHaveLength(1);
   });
 
   it('defers a queued reminder while its holder has an open question and sends it after a fresh quiet period', async () => {

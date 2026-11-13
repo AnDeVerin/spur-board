@@ -166,15 +166,29 @@ export async function reminderCancelledUnsent(
   trx: Trx,
   n: Pick<Notification, 'id' | 'acked_at' | 'rings' | 'exhausted_at'>,
 ): Promise<boolean> {
-  if (n.acked_at === null || n.rings !== 0 || n.exhausted_at !== null) return false;
-  const open = await trx
+  return (await cancelledRingState(trx, n)) === 'unsent';
+}
+
+/**
+ * The rings of a reminder acked before any delivery was counted: `unsent` when the sender killed
+ * them all unsent, `maybe_out` when all are dead and one may have reached Spur, and null while one
+ * is queued or in flight, or for a reminder that was delivered, exhausted or never acked. A
+ * `maybe_out` reminder counts as delivered for the stuck-turn rule, so the one-ring limit does not
+ * hide a stuck turn.
+ */
+export async function cancelledRingState(
+  trx: Trx,
+  n: Pick<Notification, 'id' | 'acked_at' | 'rings' | 'exhausted_at'>,
+): Promise<'unsent' | 'maybe_out' | null> {
+  if (n.acked_at === null || n.rings !== 0 || n.exhausted_at !== null) return null;
+  const rows = await trx
     .selectFrom('outbox')
-    .select('id')
+    .select(['state', 'uncertain'])
     .where('kind', '=', 'doorbell')
     .where(sql<number>`json_extract(payload, '$.notificationId')`, '=', n.id)
-    .where((eb) => eb.or([eb('state', '!=', 'dead'), eb('uncertain', '=', 1)]))
-    .executeTakeFirst();
-  return open === undefined;
+    .execute();
+  if (rows.some((row) => row.state !== 'dead')) return null;
+  return rows.some((row) => row.uncertain === 1) ? 'maybe_out' : 'unsent';
 }
 
 /**
