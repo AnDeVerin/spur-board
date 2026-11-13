@@ -140,7 +140,7 @@ async function op<T>(manifest: StandManifest, id: string, input: object = {}): P
 interface Status {
   items: { key: string; summary: string }[];
   sources: { source: string; blindReason: string | null }[];
-  tasks: { key: string; column: string }[];
+  tasks: { key: string; column: string; state: string }[];
 }
 
 const status = (manifest: StandManifest) => op<Status>(manifest, 'status.get', {});
@@ -622,15 +622,19 @@ describe('each scenario', () => {
     );
   }, 60_000);
 
-  it('worker-killed-no-pr: the ended worker item is raised', async () => {
+  it('worker-killed-no-pr: the ended worker item is raised and the task row agrees', async () => {
     await up();
     const { scenario } = await seed('worker-killed-no-pr');
-    const { items } = await status(current());
+    const { items, tasks } = await status(current());
     expect(items).toContainEqual(
       expect.objectContaining({
         key: scenario.items?.['killed'],
         summary: 'stand-org/board#1: worker ended (killed), no PR (stand-killed)',
       }),
+    );
+    // #272: the row counted the stored health, not the end reason the item names.
+    expect(tasks.find((task) => task.key === 'stand-org/board#1')?.state).toMatch(
+      /; sessions 1 ended \(killed\)$/,
     );
   }, 60_000);
 
