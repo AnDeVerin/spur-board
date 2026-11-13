@@ -328,6 +328,40 @@ export const dispatchExternalComment: Scenario = {
   },
 };
 
+/** The history comment the reviewer wrote, among the agent account's. */
+const OLD_EXTERNAL = 10;
+
+export const dispatchLongCommentHistory: Scenario = {
+  name: 'dispatch-long-comment-history',
+  summary: `PR #1 of ${ISSUE} has 650 older comments, comment ${String(OLD_EXTERNAL)} by a reviewer; the first poll reads only the newest 300, so Dev waits on the comment history.`,
+  config: flow(),
+  async seed(board, fakes, clock) {
+    const dev = await begin(board, fakes);
+    await take(board, 'worker', dev.id);
+    const comments = agentHistory(clock.now(), 650).map((comment, i) =>
+      i === OLD_EXTERNAL
+        ? { ...comment, author: { __typename: 'User', login: 'stand-reviewer' } }
+        : comment,
+    );
+    await openPr(board, fakes, { seed: { comments } });
+    return entities(board);
+  },
+  async settled({ board }) {
+    const problems = await check(board, {
+      column: 'dev',
+      role: 'worker',
+      reason: 'dev: no_pr',
+      taken: true,
+    });
+    const { why } = await board.call('operator', 'task.get', { task: ISSUE, why: true });
+    const dev = why?.gates.find(({ column: id }) => id === 'dev');
+    const history = dev?.conditions.find(({ condition }) => condition === 'comment_history_read');
+    if (history?.state !== 'waiting')
+      problems.push(`comment_history_read is ${history?.state ?? 'missing'}, not waiting`);
+    return settledUnless(problems);
+  },
+};
+
 export const dispatchDeadExecutor: Scenario = {
   name: 'dispatch-dead-executor',
   summary: `The worker role session is killed while ${ISSUE} is in Review; the conductor's return gives the operator a turn item.`,

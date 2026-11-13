@@ -5,7 +5,9 @@ import {
   configSchema,
   OPERATIONS,
   RESERVED_PROJECT,
+  type Batch,
   type PrFacts,
+  type SourceCursor,
   type SessionFacts,
   type TicketFacts,
 } from '@spur-board/contracts';
@@ -1797,6 +1799,146 @@ describe('accepted observation', () => {
       },
     ]);
     expect('feedbackCursors' in (await core.context(source))).toBe(false);
+  });
+});
+
+describe('held comment history (A10)', () => {
+  const github = 'github:board:o/r';
+  const ref = { kind: 'pr' as const, repo: 'o/r', number: 7 };
+  const comment = (id: string) => ({
+    kind: 'comment' as const,
+    id,
+    author: { login: 'reviewer', type: 'user' as const },
+    postedAt: at,
+  });
+  const resume = (value: string) => value as SourceCursor;
+  async function observePr(
+    core: ReturnType<typeof setup>['core'],
+    item: Extract<Batch['items'][number], { kind: 'pr' }>,
+  ) {
+    await core.observe(github, {
+      batch: { source: github, observedAt: at, complete: true, items: [item], entities: [] },
+      effectiveComplete: true,
+      state: { lastCompleteAt: at, gone: [] },
+      outcomes: [],
+    });
+  }
+  async function linkedSetup() {
+    const env = setup();
+    await env.apply(env.mutations.add, { task: 'o/r#9' }, 'operator');
+    return env;
+  }
+
+  it('holds the comment history a PR item asks for and passes it back on the next poll', async () => {
+    const { core } = await linkedSetup();
+    expect('continuations' in (await core.context(github))).toBe(false);
+    const feedback = [comment('c-1'), comment('c-2')];
+    await observePr(core, {
+      kind: 'pr',
+      facts: { ...prFact(), feedback, feedbackComplete: false },
+      continuation: { resume: resume('p1') },
+    });
+
+    expect((await core.context(github)).continuations).toEqual([{ ref, resume: 'p1', feedback }]);
+
+    await observePr(core, {
+      kind: 'pr',
+      facts: { ...prFact(), feedback: [comment('c-0'), ...feedback], feedbackComplete: true },
+      continuation: { resume: null },
+    });
+    expect((await core.context(github)).continuations).toEqual([
+      { ref, resume: null, feedback: [comment('c-0'), ...feedback] },
+    ]);
+  });
+
+  it('keeps the held history when an item states nothing and drops it on null', async () => {
+    const { store, core } = await linkedSetup();
+    const feedback = [comment('c-1')];
+    await observePr(core, {
+      kind: 'pr',
+      facts: { ...prFact(), feedback, feedbackComplete: false },
+      continuation: { resume: resume('p1') },
+    });
+    await observePr(core, {
+      kind: 'pr',
+      facts: { ...prFact('b'.repeat(40)), feedback: [comment('c-9')], feedbackComplete: false },
+    });
+    expect((await core.context(github)).continuations).toEqual([{ ref, resume: 'p1', feedback }]);
+
+    await observePr(core, {
+      kind: 'pr',
+      facts: { ...prFact(), feedback, feedbackComplete: true },
+      continuation: null,
+    });
+    expect('continuations' in (await core.context(github))).toBe(false);
+    expect(await store.db.selectFrom('pr_continuation').selectAll().execute()).toEqual([]);
+  });
+
+  it('drops the held history of a PR with no unbanned link', async () => {
+    const unlinked = setup();
+    await observePr(unlinked.core, {
+      kind: 'pr',
+      facts: { ...prFact(), headBranch: 'unrelated', title: 'unrelated', ticketKeys: [] },
+      continuation: { resume: resume('p1') },
+    });
+    expect(await unlinked.store.db.selectFrom('pr_continuation').selectAll().execute()).toEqual([]);
+
+    const { store, core } = await linkedSetup();
+    await observePr(core, {
+      kind: 'pr',
+      facts: { ...prFact(), feedback: [comment('c-1')] },
+      continuation: { resume: resume('p1') },
+    });
+    expect(await store.db.selectFrom('pr_continuation').select('ref_key').execute()).toEqual([
+      { ref_key: 'pr:o/r#7' },
+    ]);
+    await store.db.updateTable('link').set({ banned: 1 }).where('entity', '=', 'pr').execute();
+    await core.observe(github, {
+      batch: { source: github, observedAt: at, complete: true, items: [], entities: [] },
+      effectiveComplete: true,
+      state: { lastCompleteAt: at, gone: [] },
+      outcomes: [],
+    });
+    expect(await store.db.selectFrom('pr_continuation').selectAll().execute()).toEqual([]);
+  });
+
+  it('skips an unreadable held history row', async () => {
+    const { store, core, apply, mutations } = await linkedSetup();
+    await apply(mutations.add, { task: 'o/r#10' }, 'operator');
+    await apply(mutations.add, { task: 'o/r#11' }, 'operator');
+    const feedback = [comment('c-1')];
+    await observePr(core, {
+      kind: 'pr',
+      facts: { ...prFact(), feedback },
+      continuation: { resume: resume('p1') },
+    });
+    const link = {
+      entity: 'pr' as const,
+      repo: 'o/r',
+      pr_state: 'active' as const,
+      pr_open: 1 as const,
+      session_id: null,
+      role: null,
+      source: 'manual' as const,
+      ticket_key: null,
+      created_at: at,
+    };
+    await store.db
+      .insertInto('link')
+      .values([
+        { ...link, task_id: 2, number: 5 },
+        { ...link, task_id: 3, number: 6 },
+      ])
+      .execute();
+    await store.db
+      .insertInto('pr_continuation')
+      .values([
+        { source: github, ref_key: 'pr:o/r#5', resume: 'p5', feedback: 'not json' },
+        { source: github, ref_key: 'pr:o/r#6', resume: 'p6', feedback: '[{"kind":"poll"}]' },
+      ])
+      .execute();
+
+    expect((await core.context(github)).continuations).toEqual([{ ref, resume: 'p1', feedback }]);
   });
 });
 

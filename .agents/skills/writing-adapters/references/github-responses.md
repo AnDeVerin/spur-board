@@ -42,14 +42,15 @@ and `describe('PR index cache')` in `packages/adapters/test/github/prBatch.test.
   in the `githubSources` closure, keyed by number, holding only refs requested in the last poll.
 - Cache fingerprint: `JSON.stringify` of the parsed index alias (`prIndex.ts`). It lists each
   check's name and state without `isRequired`: a `SUCCESS` rollup also covers skipped checks,
-  which core judges red when required. Re-emit the cached facts only when the fingerprint and
-  the `feedbackCursors` entry match, `feedbackComplete` is true, the read is younger than
-  `OPEN_REFRESH_MS` or `CLOSED_REFRESH_MS`, the index lists every check, review, review thread
-  and review request (the full read pages past 100, the index does not), and an open PR's
-  rollup is `null` or `SUCCESS` with every listed check green, required or not (check run
-  `SUCCESS` or `NEUTRAL`, status `SUCCESS`): a failed rollup can hide a check that finished,
-  and a skipped check can turn required with no fingerprint change.
+  which core judges red when required. Re-emit the cached facts only when the fingerprint, the
+  `feedbackCursors` entry and the `continuations` entry match, `feedbackComplete` is true, the
+  read is younger than `OPEN_REFRESH_MS` or `CLOSED_REFRESH_MS`, the index lists every check,
+  review, review thread and review request (the full read pages past 100, the index does not),
+  and an open PR's rollup is `null` or `SUCCESS` with every listed check green, required or not
+  (check run `SUCCESS` or `NEUTRAL`, status `SUCCESS`): a failed rollup can hide a check that
+  finished, and a skipped check can turn required with no fingerprint change.
 - Write the cache only from a full read with an index fingerprint of the same poll; otherwise
   delete the entry, as on `not_found`, `no_access` and `pollPr`. An old entry would re-emit facts
   older than ones already delivered.
-- A new input to what a full read returns, such as a comment cursor, joins the cache key.
+- A new input to what a full read returns, such as a comment cursor or a held history, joins
+  the cache key. A re-emitted entry carries no `continuation`, so core keeps its row.

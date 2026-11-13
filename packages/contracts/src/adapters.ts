@@ -8,6 +8,7 @@ import {
   sessionFactsSchema,
   ticketFactsSchema,
   type PrFacts,
+  type PrFeedback,
 } from './facts.ts';
 import { actorPartSchema, taskKeySchema } from './ids.ts';
 
@@ -52,6 +53,17 @@ export const batchItemSchema = z.discriminatedUnion('kind', [
   z.strictObject({
     kind: z.literal('pr').describe('Pull request facts.'),
     facts: prFactsSchema,
+    continuation: z
+      .strictObject({
+        resume: sourceCursorSchema
+          .nullable()
+          .describe('Opaque position to read further back from; null at the start of the PR.'),
+      })
+      .nullable()
+      .optional()
+      .describe(
+        'Comment history core holds for the next poll (A10): omitted says nothing, null drops it, an object holds facts.feedback with resume.',
+      ),
   }),
   z.strictObject({
     kind: z.literal('ticket').describe('Ticket facts.'),
@@ -197,6 +209,14 @@ export interface PollContext {
    * for a PR, no limit.
    */
   feedbackCursors?: readonly { ref: PrEntityRef; id: string; postedAt: string }[] | undefined;
+  /**
+   * Per requested PR, the comment history the last regular poll asked core to hold (A10): the
+   * feedback it read and the opaque position to read further back from, `null` at the start of
+   * the PR. Absent for a PR, nothing held.
+   */
+  continuations?:
+    | readonly { ref: PrEntityRef; resume: SourceCursor | null; feedback: readonly PrFeedback[] }[]
+    | undefined;
   /** Aborted when core stops the poll (A7). */
   signal: AbortSignal;
 }
@@ -206,8 +226,8 @@ export interface PollContext {
  *
  * Obligations:
  * - A1: A batch carries facts only. No wire format of the source (query fields, paging
- *   tokens, response JSON, headers) reaches the batch or core. A request budget the source
- *   reports goes in `budget`, in source-neutral terms.
+ *   tokens, response JSON, headers) reaches the batch or core, except the opaque resume of A10.
+ *   A request budget the source reports goes in `budget`, in source-neutral terms.
  * - A2: `observedAt` is the time the poll started, not when it finished.
  * - A3: `complete` is true only when the whole listing was read without errors. A request the
  *   adapter gave up on or deferred for budget also leaves it false. An incomplete batch still
@@ -233,21 +253,31 @@ export interface PollContext {
  * - A8: A pending ticket request has no stable id. Its `ok` item matches by tracker and key;
  *   the next observation binds the returned stable id. Known tickets still match by id.
  * - A9: `pollPr` observes one requested PR. `entities` holds exactly that ref, `items` at most
- *   its own item, `complete` is false and the batch carries no cursor, so an out-of-turn poll
- *   never moves discovery or reads as a complete listing. A1, A2, A6 and A7 apply.
+ *   its own item, `complete` is false and the batch carries no cursor and no `continuation`, so
+ *   an out-of-turn poll never moves discovery, reads as a complete listing or changes what core
+ *   holds. It may receive the PR's `feedbackCursors` and `continuations` entry and merge the
+ *   held history within the same page budget. A1, A2, A6 and A7 apply.
+ * - A10: A `pr` item of `poll` may carry `continuation`. Omitted, it says nothing; `null` drops
+ *   what core holds; an object asks core to hold `facts.feedback` with the opaque `resume`
+ *   (`null` at the start of the PR) and to return both in `PollContext.continuations`. Core
+ *   never parses `resume`. `feedbackComplete` is true only for a run of comments that joins the
+ *   newest one to the feedback cursor or to the start of the PR.
  */
 export interface Adapter {
   /** Stable id of this adapter instance; becomes `Batch.source`. */
   readonly id: string;
   /** Time between two polls in milliseconds, from `adapters.<source>.intervalMs`. */
   readonly intervalMs: number;
-  /** Observes the source once (A1-A7). */
+  /** Observes the source once (A1-A7, A10). */
   poll(ctx: PollContext): Promise<Batch>;
   /**
    * Observes one pull request out of turn (A9). Omitted by a source that cannot; the runner
    * then answers `unsupported`.
    */
-  pollPr?(ref: PrEntityRef, ctx: Pick<PollContext, 'signal'>): Promise<Batch>;
+  pollPr?(
+    ref: PrEntityRef,
+    ctx: Pick<PollContext, 'signal' | 'feedbackCursors' | 'continuations'>,
+  ): Promise<Batch>;
 }
 
 /** State accepted with a batch; a separate report handles failures without a batch. */
