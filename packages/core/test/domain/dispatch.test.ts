@@ -208,6 +208,14 @@ const cases: [string, Changes, Result][] = [
     { moves: [reopened], turn: null },
   ],
   [
+    'a reopened task drops its stale Dev submit and stops at Dev on the same head',
+    { column: 'done', reopened: true },
+    {
+      moves: [reopened, right('todo', 'dev')],
+      turn: turn('entry', 'dev', 'no_submit_on_head'),
+    },
+  ],
+  [
     'a reopened task with its new PR merged stays in Done',
     { column: 'done', reopened: true, pr: { state: 'merged' }, turn: { visit: 'submitted' } },
     nothing,
@@ -352,10 +360,10 @@ const cases: [string, Changes, Result][] = [
     },
   ],
   [
+    // A left move drops the submits, so the longest cascade starts in To Do, not after a reopen.
     'step bound: the longest cascade runs to its end',
     {
-      column: 'done',
-      reopened: true,
+      column: 'todo',
       board: ALL,
       pr: { headSha: B },
       facts: {
@@ -365,7 +373,6 @@ const cases: [string, Changes, Result][] = [
     },
     {
       moves: [
-        reopened,
         right('todo', 'ready-for-dev'),
         right('ready-for-dev', 'dev'),
         right('dev', 'review'),

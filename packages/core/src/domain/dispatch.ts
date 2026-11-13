@@ -99,7 +99,7 @@ export function dispatch(input: DispatchInput): DispatchResult {
   let { column, facts, turn } = input;
   const move = (to: ColumnId, reason: MoveReason, gate?: GateReason[]) => {
     moves.push({ from: column, to, reason, ...(gate === undefined ? {} : { gate }) });
-    if (gate !== undefined) facts = { ...facts, marks: dropSubmits(facts.marks, to) };
+    if (indexOf(to) < indexOf(column)) facts = { ...facts, marks: dropSubmits(facts.marks, to) };
     column = to;
     turn = NO_TURN;
   };
