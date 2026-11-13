@@ -1,4 +1,5 @@
 import { OPERATIONS, type RichText } from '@spur-board/contracts';
+import type { z } from 'zod';
 
 function line(text: string): RichText[number] {
   return { kind: 'paragraph', children: [{ kind: 'text', text }] };
@@ -6,6 +7,72 @@ function line(text: string): RichText[number] {
 
 function quote(text: string): RichText[number] {
   return { kind: 'quote', children: [{ kind: 'text', text }] };
+}
+
+type TaskGet = z.output<Extract<(typeof OPERATIONS)[number], { id: 'task.get' }>['output']>;
+
+/**
+ * The why reply: the column and holds, each enabled column whose own conditions fail, the
+ * waiver, the open turn, the open blocks and the last moves. Agent and operator text is quoted.
+ */
+function whyLines(
+  key: string,
+  why: NonNullable<TaskGet['why']>,
+  blocks: TaskGet['blocks'],
+): RichText {
+  const mode =
+    why.dispatcher === null
+      ? ' (project not configured)'
+      : why.dispatcher === 'shadow'
+        ? ' (shadow)'
+        : '';
+  const here = why.gates.find((gate) => gate.column === why.column);
+  const turn = why.turn;
+  return [
+    line(`Task ${key} is in ${why.column}${mode}.`),
+    ...(why.holds.length === 0 ? [] : [line(`Held: ${why.holds.join(', ')}.`)]),
+    ...why.gates
+      .filter((gate) => gate.enabled && !gate.ok)
+      .map((gate) =>
+        line(
+          `${gate.column}: ${gate.conditions
+            .filter((condition) => condition.state === 'failed' || condition.state === 'waiting')
+            .map(
+              (condition) =>
+                `${condition.condition} ${condition.state} (${condition.reason ?? 'unknown'})`,
+            )
+            .join(', ')}`,
+        ),
+      ),
+    ...(here === undefined
+      ? []
+      : [
+          line(
+            here.blockedIn === null
+              ? `The ${why.column} gate passes.`
+              : `The ${why.column} gate is blocked at ${here.blockedIn}.`,
+          ),
+        ]),
+    ...(why.checksWaivedBy === null
+      ? []
+      : [line(`Dev checks are waived by ${why.checksWaivedBy}.`)]),
+    line(
+      turn === null
+        ? 'No open turn.'
+        : `Turn ${turn.id} (${turn.column}, ${turn.addressee}): ${turn.taken === null ? 'not taken' : `taken by ${turn.taken.by}`}.`,
+    ),
+    ...blocks
+      .filter((block) => block.state === 'open')
+      .flatMap((block) => [line(`Open block ${block.id} (${block.type}):`), quote(block.reason)]),
+    ...why.moves.flatMap((move) => {
+      const gate = move.gate.length === 0 ? '' : `: ${move.gate.join(', ')}`;
+      const text = move.reason === 'returned' && move.text !== null ? ` ${move.text}` : '';
+      const moved = line(`${move.at}: ${move.from} to ${move.to} (${move.reason}${text}${gate})`);
+      return move.reason === 'corrected' && move.text !== null
+        ? [moved, quote(move.text)]
+        : [moved];
+    }),
+  ];
 }
 
 /** A compact Slack view of the same validated catalog output used by CLI and MCP. */
@@ -50,6 +117,12 @@ export function commandReply(
     if (operation === undefined) throw new Error('task.get is missing from the catalog');
     const result = operation.output.parse(value);
     const request = operation.input.parse(input);
+    if (request.why === true && result.why !== undefined) {
+      return {
+        cliHint: `board ${operation.cli.command} ${request.task} --why`,
+        body: whyLines(result.task.key, result.why, result.blocks),
+      };
+    }
     return {
       cliHint: `board ${operation.cli.command} ${request.task}`,
       body: [
