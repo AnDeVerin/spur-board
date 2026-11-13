@@ -64,13 +64,36 @@ describe('createLogger', () => {
       config: { headers: { AUTHORIZATION: 'Bearer err' } },
     });
     log.error({ err }, 'failed');
+    log.info(
+      {
+        password: 'pw-1',
+        db: { Client_Secret: 'cs-1', password: 'pw-2' },
+        headers: { 'X-Api-Key': 'ak-1' },
+        apiKey: 'ak-2',
+        api_key: 'ak-3',
+      },
+      'words',
+    );
 
     for (const line of out.lines) {
-      for (const raw of ['Bearer abc', 'Basic xyz', 'sid=1', 'at-1', 'bt-1', 'Bearer err']) {
+      for (const raw of [
+        'Bearer abc',
+        'Basic xyz',
+        'sid=1',
+        'at-1',
+        'bt-1',
+        'Bearer err',
+        'pw-1',
+        'pw-2',
+        'cs-1',
+        'ak-1',
+        'ak-2',
+        'ak-3',
+      ]) {
         expect(line).not.toContain(raw);
       }
     }
-    const [deep, mixed, bound, failed] = parsed(out.lines);
+    const [deep, mixed, bound, failed, words] = parsed(out.lines);
     expect(deep?.['request']).toEqual({
       options: { headers: { Authorization: '[Redacted]' } },
     });
@@ -82,6 +105,15 @@ describe('createLogger', () => {
     expect((failed?.['err'] as { config: unknown }).config).toEqual({
       headers: { AUTHORIZATION: '[Redacted]' },
     });
+    expect(words).toEqual(
+      expect.objectContaining({
+        password: '[Redacted]',
+        db: { Client_Secret: '[Redacted]', password: '[Redacted]' },
+        headers: { 'X-Api-Key': '[Redacted]' },
+        apiKey: '[Redacted]',
+        api_key: '[Redacted]',
+      }),
+    );
   });
 
   it('withholds a line it cannot censor instead of writing it raw', () => {
@@ -111,10 +143,15 @@ describe('createLogger', () => {
 
   it('keeps keys that only contain a credential word', () => {
     const out = sink();
-    createLogger(out, {}).info({ tokenCount: 3, authorizationUrl: 'https://example.com/a' }, 'ok');
-    expect(parsed(out.lines)[0]).toEqual(
-      expect.objectContaining({ tokenCount: 3, authorizationUrl: 'https://example.com/a' }),
-    );
+    const kept = {
+      tokenCount: 3,
+      authorizationUrl: 'https://example.com/a',
+      passwordPolicy: 'strict',
+      secretCount: 2,
+      apiKeyId: 'key-1',
+    };
+    createLogger(out, {}).info(kept, 'ok');
+    expect(parsed(out.lines)[0]).toEqual(expect.objectContaining(kept));
   });
 
   it('leaves short secret values alone', () => {
