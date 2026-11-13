@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { COLUMN_IDS, REQUIRED_COLUMN_IDS } from './enums.ts';
+import { COLUMN_IDS, DISPATCHER_MODES, REQUIRED_COLUMN_IDS } from './enums.ts';
 
 /**
  * The daemon's default loopback port. It sits above 4310-4399, a margin the board keeps for
@@ -305,6 +305,19 @@ const projectSchema = z
           orchestrator: 'none',
           cycleLimit: DEFAULT_CYCLE_LIMIT,
         })),
+      ),
+    dispatcher: z
+      .strictObject({
+        mode: z
+          .enum(DISPATCHER_MODES)
+          .default('shadow')
+          .describe(
+            'shadow: the board evaluates the column gates and records where each task would go in its shadow column, and opens no turn, doorbell or block; the column executor submits with the task key. on: the board moves the task between columns, hands the column executor a turn and raises the cycle-limit block.',
+          ),
+      })
+      .prefault({})
+      .describe(
+        'How the board moves tasks between columns. The board records the mode it last ran with. The daemon reads the mode at start, so a change takes effect after a restart; a switch from shadow to on copies the shadow column of each task into its column, and a switch back to shadow closes the open turns and starts the shadow column from the column again.',
       ),
   })
   .superRefine((project, ctx) => {

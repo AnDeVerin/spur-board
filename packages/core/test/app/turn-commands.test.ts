@@ -49,7 +49,7 @@ type PollPr = PrPoller['pollPr'];
 const withoutEvents = (snapshot: readonly unknown[]) =>
   snapshot.filter((_rows, index) => TABLES[index] !== 'event');
 
-function board(reviewOrchestrator = 'rev') {
+function board(reviewOrchestrator = 'rev', mode: 'shadow' | 'on' = 'shadow') {
   return configSchema.parse({
     projects: [
       {
@@ -71,6 +71,7 @@ function board(reviewOrchestrator = 'rev') {
           { id: 'ready-to-merge', orchestrator: 'none' },
           { id: 'done', orchestrator: 'none' },
         ],
+        dispatcher: { mode },
       },
     ],
     operator: { slack: 'operator' },
@@ -78,7 +79,7 @@ function board(reviewOrchestrator = 'rev') {
   });
 }
 
-function prFact(headSha: string): PrFacts {
+function prFact(headSha: string, patch: Partial<PrFacts> = {}): PrFacts {
   return {
     repo: 'o/r',
     number: 7,
@@ -98,6 +99,7 @@ function prFact(headSha: string): PrFacts {
     reviewRequests: [],
     ticketKeys: [],
     updatedAt: AT,
+    ...patch,
   };
 }
 
@@ -107,9 +109,17 @@ afterEach(async () => {
 });
 
 async function setup(
-  options: { column?: ColumnId; reviewOrchestrator?: string; noPoller?: boolean } = {},
+  options: {
+    column?: ColumnId;
+    reviewOrchestrator?: string;
+    noPoller?: boolean;
+    mode?: 'shadow' | 'on';
+    /** GitHub and Spur count as polled to the end since start, so the dispatcher decides. */
+    complete?: boolean;
+    pr?: Partial<PrFacts>;
+  } = {},
 ) {
-  const config = board(options.reviewOrchestrator);
+  const config = board(options.reviewOrchestrator, options.mode);
   const clock = { now: () => Date.parse(AT) };
   const store = openStore(join(mkdtempSync(join(tmpdir(), 'board-turn-')), 'board.db'));
   stores.push(store);
@@ -214,7 +224,7 @@ async function setup(
         source: SOURCE,
         observedAt: AT,
         complete: false,
-        items: [{ kind: 'pr', facts: prFact(headSha) }],
+        items: [{ kind: 'pr', facts: prFact(headSha, options.pr) }],
         entities: [],
       },
       effectiveComplete: false,
@@ -235,7 +245,14 @@ async function setup(
   const registry = createOperationRegistry({
     config,
     clock,
-    completeSince: new Map(),
+    completeSince: new Map(
+      options.complete === true
+        ? [
+            [SOURCE, AT],
+            ['spur', AT],
+          ]
+        : [],
+    ),
     ...(options.noPoller === true ? {} : { prPoller: () => pollPr }),
   });
   const apply = createApply({ store, clock, config });
@@ -254,7 +271,7 @@ async function setup(
     commits(headSha: string) {
       answer = async () => {
         await observe(headSha);
-        return ok({ status: 'ok' as const, facts: prFact(headSha), observedAt: AT });
+        return ok({ status: 'ok' as const, facts: prFact(headSha, options.pr), observedAt: AT });
       };
     },
     answers(result: Awaited<ReturnType<PollPr>>) {
@@ -268,6 +285,22 @@ async function setup(
     },
     ack: (actor: ActorId, turn = 'T1') =>
       apply(registry['inbox.ack'], { entries: [{ id: turn }] }, actor, `ack-${actor}-${turn}`),
+    /** A raw submission row, as an earlier visit's submit or mark left it. */
+    submitted: (column: ColumnId, sha: string, author: ActorId) =>
+      store.transaction(async (trx) => {
+        await trx
+          .insertInto('submission')
+          .values({
+            task_id: 1,
+            column,
+            epoch: 0,
+            commit_sha: sha,
+            author,
+            submitted_at: AT,
+            note: null,
+          })
+          .execute();
+      }),
     submit: (actor: ActorId, sha: string, key: string, turn = 'T1') =>
       apply(registry['task.submit'], { turn, sha }, actor, key),
     /** A submit through its own `createApply`, as each daemon request builds one. */
@@ -448,6 +481,88 @@ describe('task.submit', () => {
       [SOURCE, { kind: 'pr', repo: 'o/r', number: 7 }, { timeoutMs: 10_000 }],
     ]);
   });
+  describe('shadow submit', () => {
+    it('submits a shadow task by its key', async () => {
+      const ctx = await setup();
+      ctx.commits(B);
+
+      await expect(ctx.submit(REV_1, B, 'submit-1', 'o/r#9')).resolves.toEqual({
+        task: { key: 'o/r#9', project: 'proj', column: 'review', membership: 'active' },
+        turn: null,
+        sha: B,
+      });
+
+      expect(
+        await ctx.store.db
+          .selectFrom('submission')
+          .select(['column', 'epoch', 'commit_sha', 'author'])
+          .execute(),
+      ).toEqual([{ column: 'review', epoch: 0, commit_sha: B, author: REV_1 }]);
+      expect((await ctx.events()).filter((event) => event.kind === 'task_submitted')).toEqual([
+        { kind: 'task_submitted', payload: { column: 'review', sha: B } },
+      ]);
+      expect(await ctx.store.db.selectFrom('turn').selectAll().execute()).toEqual([]);
+      expect(ctx.calls).toEqual([
+        [SOURCE, { kind: 'pr', repo: 'o/r', number: 7 }, { timeoutMs: 10_000 }],
+      ]);
+    });
+
+    it('submits a shadow task by its short repo#N key', async () => {
+      const ctx = await setup();
+      ctx.commits(B);
+
+      await expect(ctx.submit(REV_1, B, 'submit-1', 'r#9')).resolves.toMatchObject({
+        task: { key: 'o/r#9', column: 'review' },
+        turn: null,
+        sha: B,
+      });
+
+      expect(
+        await ctx.store.db.selectFrom('submission').select(['column', 'commit_sha']).execute(),
+      ).toEqual([{ column: 'review', commit_sha: B }]);
+      expect(ctx.calls).toHaveLength(1);
+    });
+
+    it('refuses a session that does not execute the column', async () => {
+      const ctx = await setup();
+      ctx.commits(B);
+      const before = await ctx.tables();
+
+      for (const actor of [QA_1, WORKER_1]) {
+        await expect(ctx.submit(actor, B, `submit-${actor}`, 'o/r#9')).rejects.toMatchObject({
+          code: 'forbidden',
+        });
+      }
+
+      expect(ctx.calls).toHaveLength(0);
+      expect(withoutEvents(await ctx.tables())).toEqual(withoutEvents(before));
+    });
+
+    it('refuses a stale sha', async () => {
+      const ctx = await setup();
+      ctx.commits(B);
+
+      await expect(ctx.submit(REV_1, A, 'submit-1', 'o/r#9')).rejects.toMatchObject({
+        code: 'head_mismatch',
+      });
+
+      expect(ctx.calls).toHaveLength(1);
+      expect(await ctx.store.db.selectFrom('submission').selectAll().execute()).toEqual([]);
+    });
+
+    it('refuses a task key while the dispatcher is on', async () => {
+      const ctx = await setup({ mode: 'on' });
+      ctx.commits(B);
+      const before = await ctx.tables();
+
+      await expect(ctx.submit(REV_1, B, 'submit-1', 'o/r#9')).rejects.toMatchObject({
+        code: 'wrong_id_kind',
+      });
+
+      expect(ctx.calls).toHaveLength(0);
+      expect(await ctx.tables()).toEqual(before);
+    });
+  });
 });
 
 describe('turn refusals', () => {
@@ -597,6 +712,53 @@ describe('task.return', () => {
     ]);
     expect(await ctx.turn()).toMatchObject({ closed_reason: 'moved', closed_at: AT });
     expect(ctx.calls).toHaveLength(0);
+  });
+
+  it('voids the submits of Dev and right of it and keeps review marks', async () => {
+    const green = { name: 'ci', state: 'success' as const, completedAt: AT };
+    const ctx = await taken({
+      mode: 'on',
+      complete: true,
+      pr: { requiredChecks: [green], feedback: [], feedbackComplete: true },
+    });
+    await ctx.submitted('dev', A, WORKER_1);
+    await ctx.submitted('review', A, REV_1);
+    await ctx.submitted('qa', A, QA_1);
+
+    await expect(ctx.return(REV_1, 'return-1')).resolves.toMatchObject({
+      task: { column: 'dev' },
+    });
+
+    expect(
+      await ctx.store.db
+        .selectFrom('submission')
+        .select(['column', 'voided_at'])
+        .orderBy('id')
+        .execute(),
+    ).toEqual([
+      { column: 'dev', voided_at: AT },
+      { column: 'review', voided_at: null },
+      { column: 'qa', voided_at: AT },
+    ]);
+    expect(await ctx.task()).toMatchObject({ column: 'dev', column_epoch: 1 });
+    expect(
+      await ctx.store.db
+        .selectFrom('turn')
+        .select(['id', 'column', 'role', 'reason'])
+        .where('closed_at', 'is', null)
+        .execute(),
+    ).toEqual([{ id: 2, column: 'dev', role: 'worker', reason: 'dev: no_submit_on_head' }]);
+    expect(
+      await ctx.store.db
+        .selectFrom('notification')
+        .select(['kind', 'block_id', 'turn_id'])
+        .where('role', '=', 'worker')
+        .orderBy('id')
+        .execute(),
+    ).toEqual([
+      { kind: 'block', block_id: 1, turn_id: null },
+      { kind: 'turn', block_id: null, turn_id: 2 },
+    ]);
   });
 
   it.each(['dev', 'done'] as const)('refuses a return from %s', async (column) => {

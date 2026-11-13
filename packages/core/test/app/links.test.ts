@@ -311,6 +311,37 @@ describe('manual task links', () => {
     );
   });
 
+  it('links a new PR to a reopened task whose merged PR is below the floor', async () => {
+    const { store, call, observe } = await setup();
+    const tracker = 'github-issues:board:o/r';
+    await observe(tracker, { kind: 'ticket', facts: ticketFact() });
+    await observe('github:board:o/r', { kind: 'pr', facts: prFact(7, 'merged') });
+    await observe(tracker, { kind: 'ticket', facts: { ...ticketFact(), status: 'closed' } });
+    await observe(tracker, { kind: 'ticket', facts: ticketFact() });
+    expect(
+      await store.db
+        .selectFrom('link')
+        .select('number')
+        .where('reopen_hidden_at', 'is not', null)
+        .execute(),
+    ).toEqual([{ number: 7 }]);
+
+    await call(
+      'link.add',
+      { mode: 'pr', task, pr: prUrl(8), reason: 'The reopened ticket needs a new PR.' },
+      'operator',
+      'after-reopen',
+    );
+    expect(
+      await store.db
+        .selectFrom('link')
+        .select('number')
+        .where('entity', '=', 'pr')
+        .orderBy('id')
+        .execute(),
+    ).toEqual([{ number: 7 }, { number: 8 }]);
+  });
+
   it('restores a reopened manual PR ahead of an automatic open match', async () => {
     const { store, call, observe } = await setup();
     await call('link.add', { mode: 'pr', task, pr: prUrl(7), reason: 'Manual choice.' });

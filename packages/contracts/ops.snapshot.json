@@ -1,5 +1,5 @@
 {
-  "version": "fb60767f8c05ce676b2dc272ea4d3e3accd8486b8bb8083f66d668708d0407cd",
+  "version": "242ed6651317fd090aa0f0488436c4fd717efb88d8ab4b449c553d717156b65a",
   "grants": [
     "operator",
     "project-agent",
@@ -1513,6 +1513,12 @@
                         "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
                         "description": "When the pull request last changed."
                       },
+                      "mergedAt": {
+                        "description": "When the pull request merged; absent while it is not merged and in facts stored by an earlier version.",
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                      },
                       "feedback": {
                         "description": "Comments and submitted reviews on the pull request, oldest first, without their text.",
                         "type": "array",
@@ -1557,6 +1563,11 @@
                               "format": "date-time",
                               "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
                               "description": "When the comment was posted or the review submitted."
+                            },
+                            "state": {
+                              "description": "State of this review; missing for a comment and in snapshots written before it.",
+                              "type": "string",
+                              "enum": ["approved", "changes_requested", "commented", "dismissed"]
                             }
                           },
                           "required": ["kind", "id", "author", "postedAt"],
@@ -2043,6 +2054,12 @@
                   "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
                   "description": "When the pull request last changed."
                 },
+                "mergedAt": {
+                  "description": "When the pull request merged; absent while it is not merged and in facts stored by an earlier version.",
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                },
                 "feedback": {
                   "description": "Comments and submitted reviews on the pull request, oldest first, without their text.",
                   "type": "array",
@@ -2087,6 +2104,11 @@
                         "format": "date-time",
                         "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
                         "description": "When the comment was posted or the review submitted."
+                      },
+                      "state": {
+                        "description": "State of this review; missing for a comment and in snapshots written before it.",
+                        "type": "string",
+                        "enum": ["approved", "changes_requested", "commented", "dismissed"]
                       }
                     },
                     "required": ["kind", "id", "author", "postedAt"],
@@ -2766,6 +2788,8 @@
                     "task_archived",
                     "task_submitted",
                     "task_moved",
+                    "task_shadow_moved",
+                    "dispatcher_mode_changed",
                     "block_opened",
                     "block_escalated",
                     "block_unblocked",
@@ -3130,6 +3154,7 @@
                 "column": "review",
                 "addressee": "orchestrator:review",
                 "reason": "The pull request is ready for review.",
+                "head": "9f2c4e1b7a3d5c8e0f1a2b3c4d5e6f708192a3b4",
                 "at": "2026-01-05T09:30:00.000Z",
                 "taken": null,
                 "handed": [
@@ -3449,6 +3474,13 @@
                   },
                   "description": "Pull request feedback handed over with the turn."
                 },
+                "head": {
+                  "anyOf": [
+                    { "type": "string", "pattern": "^[0-9a-f]{40,64}$" },
+                    { "type": "null" }
+                  ],
+                  "description": "Head commit of the task's pull request when the turn was opened; null when the task had no pull request."
+                },
                 "at": {
                   "type": "string",
                   "format": "date-time",
@@ -3486,7 +3518,17 @@
                   "description": "Who took the turn and when; null until it is taken."
                 }
               },
-              "required": ["id", "task", "column", "addressee", "reason", "handed", "at", "taken"],
+              "required": [
+                "id",
+                "task",
+                "column",
+                "addressee",
+                "reason",
+                "handed",
+                "head",
+                "at",
+                "taken"
+              ],
               "additionalProperties": false,
               "description": "A turn: the executor of a column is asked to act on a task."
             },
@@ -5912,7 +5954,7 @@
       "mcp": {
         "name": "task_submit",
         "key": "idempotencyKey",
-        "whenToUse": "Hand in the work of a turn you took, at the pull request head.",
+        "whenToUse": "Hand in the work of a turn you took, at the pull request head. While the project dispatcher is in shadow mode no turn opens: the column executor submits with the task key.",
         "whenNotToUse": "Use task_return to send the task back to Dev instead.",
         "destructive": true
       },
@@ -5931,6 +5973,20 @@
             "turn": "T4",
             "sha": "9f2c4e1b7a3d5c8e0f1a2b3c4d5e6f708192a3b4"
           }
+        },
+        {
+          "summary": "Submit the pull request head by task key while the dispatcher is in shadow mode",
+          "input": { "turn": "PROJ-123", "sha": "9f2c4e1b7a3d5c8e0f1a2b3c4d5e6f708192a3b4" },
+          "output": {
+            "task": {
+              "key": "PROJ-123",
+              "project": "web",
+              "column": "review",
+              "membership": "active"
+            },
+            "turn": null,
+            "sha": "9f2c4e1b7a3d5c8e0f1a2b3c4d5e6f708192a3b4"
+          }
         }
       ],
       "input": {
@@ -5938,9 +5994,19 @@
         "type": "object",
         "properties": {
           "turn": {
-            "type": "string",
-            "pattern": "^T[1-9]\\d{0,14}$",
-            "description": "Turn ID: T followed by a number, e.g. T4."
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^T[1-9]\\d{0,14}$",
+                "description": "Turn ID: T followed by a number, e.g. T4."
+              },
+              {
+                "type": "string",
+                "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
+                "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
+              }
+            ],
+            "description": "Turn ID you took (T4); while the project dispatcher is in shadow mode, the task key instead."
           },
           "sha": {
             "type": "string",
@@ -5994,9 +6060,15 @@
             "description": "A task on the board."
           },
           "turn": {
-            "type": "string",
-            "pattern": "^T[1-9]\\d{0,14}$",
-            "description": "Turn ID: T followed by a number, e.g. T4."
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^T[1-9]\\d{0,14}$",
+                "description": "Turn ID: T followed by a number, e.g. T4."
+              },
+              { "type": "null" }
+            ],
+            "description": "The closed turn; null for a submit by task key in shadow mode."
           },
           "sha": {
             "type": "string",

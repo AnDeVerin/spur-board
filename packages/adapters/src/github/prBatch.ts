@@ -1,6 +1,7 @@
 import {
   AdapterError,
   DEFAULT_LINK,
+  REVIEW_STATES,
   assertNever,
   prFactsSchema,
   type Config,
@@ -94,6 +95,7 @@ const prWire = z.object({
   url: z.string(),
   title: z.string(),
   updatedAt: z.string(),
+  mergedAt: z.string().nullable(),
   state: z.string(),
   isDraft: z.boolean(),
   mergeable: z.string(),
@@ -298,11 +300,13 @@ function feedbackOf(
     });
   for (const node of reviews) {
     if (node.submittedAt == null) continue;
+    const state = REVIEW_STATES.find((known) => known === node.state.toLowerCase());
     add({
       kind: 'review',
       id: node.id,
       author: feedbackAuthor(node.author),
       postedAt: node.submittedAt,
+      ...(state === undefined ? {} : { state }),
     });
   }
   const tie = (entry: PrFeedback): string => `${entry.id}\u0000${entry.kind}`;
@@ -461,6 +465,7 @@ export function normalizePr(
     ),
     ticketKeys: prKeys(rule, title, headBranch, closingRefs(wire.closingIssuesReferences)),
     updatedAt: wire.updatedAt,
+    ...(state === 'merged' && wire.mergedAt !== null ? { mergedAt: wire.mergedAt } : {}),
     feedback: feedbackOf(wire.reviews.nodes, wire.comments.nodes),
     feedbackComplete,
   };

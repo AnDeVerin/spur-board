@@ -441,6 +441,16 @@ Example: {}",
                             "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
                             "type": "string",
                           },
+                          "state": {
+                            "description": "State of this review; missing for a comment and in snapshots written before it.",
+                            "enum": [
+                              "approved",
+                              "changes_requested",
+                              "commented",
+                              "dismissed",
+                            ],
+                            "type": "string",
+                          },
                         },
                         "required": [
                           "kind",
@@ -487,6 +497,12 @@ Example: {}",
                         "conflicting",
                         "unknown",
                       ],
+                      "type": "string",
+                    },
+                    "mergedAt": {
+                      "description": "When the pull request merged; absent while it is not merged and in facts stored by an earlier version.",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
                       "type": "string",
                     },
                     "number": {
@@ -1201,6 +1217,16 @@ Example: {}",
                       "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
                       "type": "string",
                     },
+                    "state": {
+                      "description": "State of this review; missing for a comment and in snapshots written before it.",
+                      "enum": [
+                        "approved",
+                        "changes_requested",
+                        "commented",
+                        "dismissed",
+                      ],
+                      "type": "string",
+                    },
                   },
                   "required": [
                     "kind",
@@ -1247,6 +1273,12 @@ Example: {}",
                   "conflicting",
                   "unknown",
                 ],
+                "type": "string",
+              },
+              "mergedAt": {
+                "description": "When the pull request merged; absent while it is not merged and in facts stored by an earlier version.",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
                 "type": "string",
               },
               "number": {
@@ -2139,6 +2171,8 @@ Example: {"task":"acme/web#42"}",
                   "task_archived",
                   "task_submitted",
                   "task_moved",
+                  "task_shadow_moved",
+                  "dispatcher_mode_changed",
                   "block_opened",
                   "block_escalated",
                   "block_unblocked",
@@ -2905,6 +2939,18 @@ Example: {}",
                 },
                 "type": "array",
               },
+              "head": {
+                "anyOf": [
+                  {
+                    "pattern": "^[0-9a-f]{40,64}$",
+                    "type": "string",
+                  },
+                  {
+                    "type": "null",
+                  },
+                ],
+                "description": "Head commit of the task's pull request when the turn was opened; null when the task had no pull request.",
+              },
               "id": {
                 "description": "Turn ID: T followed by a number, e.g. T4.",
                 "pattern": "^T[1-9]\\d{0,14}$",
@@ -2968,6 +3014,7 @@ Example: {}",
               "addressee",
               "reason",
               "handed",
+              "head",
               "at",
               "taken",
             ],
@@ -5443,7 +5490,7 @@ Choose a unique idempotencyKey for each action; reuse it on retries.",
       "readOnlyHint": false,
     },
     "description": "Submit the commit at the head of the task's pull request for a turn this session took; the turn closes.
-Use when: Hand in the work of a turn you took, at the pull request head.
+Use when: Hand in the work of a turn you took, at the pull request head. While the project dispatcher is in shadow mode no turn opens: the column executor submits with the task key.
 When not to use: Use task_return to send the task back to Dev instead.
 Example: {"turn":"T4","sha":"9f2c4e1b7a3d5c8e0f1a2b3c4d5e6f708192a3b4","idempotencyKey":"task_submit-example-001"}
 Choose a unique idempotencyKey for each action; reuse it on retries.",
@@ -5464,9 +5511,19 @@ Choose a unique idempotencyKey for each action; reuse it on retries.",
           "type": "string",
         },
         "turn": {
-          "description": "Turn ID: T followed by a number, e.g. T4.",
-          "pattern": "^T[1-9]\\d{0,14}$",
-          "type": "string",
+          "anyOf": [
+            {
+              "description": "Turn ID: T followed by a number, e.g. T4.",
+              "pattern": "^T[1-9]\\d{0,14}$",
+              "type": "string",
+            },
+            {
+              "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42).",
+              "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
+              "type": "string",
+            },
+          ],
+          "description": "Turn ID you took (T4); while the project dispatcher is in shadow mode, the task key instead.",
         },
       },
       "required": [
@@ -5533,9 +5590,17 @@ Choose a unique idempotencyKey for each action; reuse it on retries.",
           "type": "object",
         },
         "turn": {
-          "description": "Turn ID: T followed by a number, e.g. T4.",
-          "pattern": "^T[1-9]\\d{0,14}$",
-          "type": "string",
+          "anyOf": [
+            {
+              "description": "Turn ID: T followed by a number, e.g. T4.",
+              "pattern": "^T[1-9]\\d{0,14}$",
+              "type": "string",
+            },
+            {
+              "type": "null",
+            },
+          ],
+          "description": "The closed turn; null for a submit by task key in shadow mode.",
         },
       },
       "required": [

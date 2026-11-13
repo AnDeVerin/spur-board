@@ -20,6 +20,7 @@ import { parseJson, toJson } from '../store/json.ts';
 import type { Store } from '../store/store.ts';
 import {
   emit,
+  pastReopenFloor,
   projectForKey,
   projectForSource,
   ticketDone,
@@ -29,7 +30,8 @@ import {
 import { enqueueLiveAfterFirstPoll } from './doctor.ts';
 import { reconcileMembership } from './membership-rules.ts';
 import { reconcileItems } from './fromYou.ts';
-import { closeTurns, turnFeedbackCursors } from './turns.ts';
+import { dispatchJournaled, dispatchSource, pollFeedbackCursors } from './dispatch.ts';
+import { closeTurns } from './turns.ts';
 
 function refKey(ref: EntityRef): string {
   switch (ref.kind) {
@@ -78,6 +80,7 @@ async function updateTerminal(
     .where('link.task_id', '=', taskId)
     .where('link.entity', '=', 'pr')
     .where('link.banned', '=', 0)
+    .where(pastReopenFloor)
     .execute();
   const hasOpen = linked.some((pr) => pr.state === 'open');
   const merged = linked.some((pr) => pr.state === 'merged');
@@ -102,6 +105,15 @@ async function updateTerminal(
     })
     .where('id', '=', taskId)
     .execute();
+}
+
+async function blindReason(trx: Trx, source: string): Promise<string | null> {
+  const row = await trx
+    .selectFrom('source_state')
+    .select('blind_reason')
+    .where('source', '=', source)
+    .executeTakeFirst();
+  return row?.blind_reason ?? null;
 }
 
 async function sourceState(
@@ -183,6 +195,105 @@ async function moveOpenWork(trx: Trx, from: number, to: number): Promise<void> {
       ]),
     )
     .execute();
+}
+
+/**
+ * A ticket reopened: the task keeps the time (`reopened_at`, read by `pr` for a PR it links later),
+ * and its PR links not seen merged or closed yet wait for their merge (`reopen_pending_at`, read
+ * by `applyPendingReopen`), since GitHub may have merged one before the reopen while the board
+ * still holds an open snapshot. Then `hideMergedLinks` runs.
+ */
+async function setReopenFloor(trx: Trx, taskId: number, at: string): Promise<void> {
+  await trx.updateTable('task').set({ reopened_at: at }).where('id', '=', taskId).execute();
+  const unseen = await trx
+    .selectFrom('link')
+    .leftJoin('pr_snapshot', (join) =>
+      join
+        .on(sql<boolean>`lower(pr_snapshot.repo) = lower(link.repo)`)
+        .onRef('pr_snapshot.number', '=', 'link.number'),
+    )
+    .select('link.id')
+    .where('link.task_id', '=', taskId)
+    .where('link.entity', '=', 'pr')
+    .where('link.banned', '=', 0)
+    .where((eb) =>
+      eb.or([eb('pr_snapshot.state', 'is', null), eb('pr_snapshot.state', '=', 'open')]),
+    )
+    .execute();
+  if (unseen.length > 0) {
+    await trx
+      .updateTable('link')
+      .set({ reopen_pending_at: at })
+      .where(
+        'id',
+        'in',
+        unseen.map((link) => link.id),
+      )
+      .execute();
+  }
+  await hideMergedLinks(trx, taskId, at);
+}
+
+/**
+ * A PR link seen merged or closed after a reopen stops waiting. Its merge counts as made before
+ * the reopen when the PR's `mergedAt` is before the time the board observed the reopen; a tie
+ * counts the merge. Facts without `mergedAt`, stored by an earlier version, fall back to
+ * `updatedAt`, never earlier than the merge, so a later edit makes the merge count. Then the reopen hides this link only: another link
+ * of the task that already counts, such as a follow-up merged after the reopen, keeps counting.
+ */
+/** The PR was merged before `reopenedAt`; a tie counts the merge. */
+function mergedBefore(fact: PrFacts, reopenedAt: string | null): boolean {
+  return (
+    fact.state === 'merged' &&
+    reopenedAt !== null &&
+    Date.parse(fact.mergedAt ?? fact.updatedAt) < Date.parse(reopenedAt)
+  );
+}
+
+async function applyPendingReopen(trx: Trx, fact: PrFacts, at: string): Promise<void> {
+  if (fact.state === 'open') return;
+  const pending = await trx
+    .selectFrom('link')
+    .select(['id', 'reopen_pending_at'])
+    .where('entity', '=', 'pr')
+    .where(sql<boolean>`lower(repo) = ${fact.repo.toLowerCase()}`)
+    .where('number', '=', fact.number)
+    .where('reopen_pending_at', 'is not', null)
+    .execute();
+  for (const link of pending) {
+    const before = mergedBefore(fact, link.reopen_pending_at);
+    await trx
+      .updateTable('link')
+      .set({ reopen_pending_at: null, ...(before ? { reopen_hidden_at: at } : {}) })
+      .where('id', '=', link.id)
+      .execute();
+  }
+}
+
+/**
+ * A ticket reopened after a merge: the task's PR links that are closed or merged now are hidden
+ * at `at`. They stay in its history, and only the other links decide its state from now on. A
+ * hidden link stays hidden. Nothing without a merged PR link that still counts.
+ */
+async function hideMergedLinks(trx: Trx, taskId: number, at: string): Promise<void> {
+  const links = await trx
+    .selectFrom('link')
+    .leftJoin('pr_snapshot', (join) =>
+      join
+        .on(sql<boolean>`lower(pr_snapshot.repo) = lower(link.repo)`)
+        .onRef('pr_snapshot.number', '=', 'link.number'),
+    )
+    .select(['link.id', 'link.banned', 'link.pr_open', 'pr_snapshot.state'])
+    .where('link.task_id', '=', taskId)
+    .where('link.entity', '=', 'pr')
+    .where(pastReopenFloor)
+    .execute();
+  if (!links.some((link) => link.banned === 0 && link.state === 'merged')) return;
+  // An open link is follow-up work: it is never hidden, so its later merge counts.
+  const hidden = links
+    .filter((link) => link.pr_open !== 1 || link.state === 'merged')
+    .map((link) => link.id);
+  await trx.updateTable('link').set({ reopen_hidden_at: at }).where('id', 'in', hidden).execute();
 }
 
 async function ticket(
@@ -312,11 +423,18 @@ async function ticket(
         }),
       )
       .execute();
-    if (previousFact?.status !== fact.status)
+    if (previousFact?.status !== fact.status) {
       await emit(trx, 'ticket_status_changed', project.id, task.id, at, {
         from: previousFact?.status ?? null,
         to: fact.status,
       });
+      if (
+        previousFact !== null &&
+        ticketDone(project, previousFact.status) &&
+        !ticketDone(project, fact.status)
+      )
+        await setReopenFloor(trx, task.id, at);
+    }
     await emit(trx, 'ticket_facts_changed', project.id, task.id, at, { facts: fact });
     await trx.updateTable('task').set({ last_change_at: at }).where('id', '=', task.id).execute();
   } else {
@@ -429,6 +547,8 @@ async function pr(
           created_at: at,
           ticket_key: null,
           pr_open: fact.state === 'open' ? 1 : 0,
+          // First seen merged after a reopen it predates: hidden like the links the reopen hid.
+          reopen_hidden_at: mergedBefore(fact, task.reopened_at) ? at : null,
         })
         .execute();
       await emit(trx, 'link_added', task.project, task.id, at, {
@@ -448,6 +568,19 @@ async function pr(
     .where(sql<boolean>`lower(repo) = ${fact.repo.toLowerCase()}`)
     .where('number', '=', fact.number)
     .execute();
+  if (fact.state === 'open' && linkedPrs.length > 0) {
+    // A reopened PR counts again: its later merge or close must not fall back under the floor.
+    await trx
+      .updateTable('link')
+      .set({ reopen_hidden_at: null })
+      .where(
+        'id',
+        'in',
+        linkedPrs.map((link) => link.id),
+      )
+      .where('reopen_hidden_at', 'is not', null)
+      .execute();
+  }
   for (const link of linkedPrs) {
     if (fact.state !== 'open' || link.banned === 1) {
       await trx
@@ -488,6 +621,7 @@ async function pr(
       await trx.updateTable('link').set({ pr_open: 1 }).where('id', '=', link.id).execute();
     }
   }
+  await applyPendingReopen(trx, fact, at);
   if (!changed) return;
   const links = await trx
     .selectFrom('link')
@@ -886,7 +1020,7 @@ export function createObservationCore(deps: {
         .where('source', '=', source)
         .execute();
       const requested = [...new Map(prs.map((ref) => [refKey(ref), ref])).values()];
-      const feedbackCursors = await turnFeedbackCursors(store.db, requested);
+      const feedbackCursors = await pollFeedbackCursors(store.db, config, requested);
       return {
         observe: {
           prs: requested,
@@ -912,6 +1046,7 @@ export function createObservationCore(deps: {
       // Read once: every scan pass must build the same gateway strings (`scanTransaction`).
       const now = clock.now();
       await scanTransaction(store, config, async (trx) => {
+        const wasBlind = await blindReason(trx, source);
         await sourceState(trx, source, observation.state, batch.observedAt, batch.cursor);
         for (const outcome of observation.outcomes) {
           const answer = batch.entities.find(
@@ -1095,6 +1230,15 @@ export function createObservationCore(deps: {
         for (const task of activeTasks)
           await updateTerminal(trx, config, task.id, batch.observedAt, currentComplete, blind);
         await reconcileMembership(trx, config, currentComplete, batch.observedAt);
+        const dispatchContext = {
+          config,
+          at: new Date(batch.observedAt),
+          complete: currentComplete,
+        };
+        const recovered = wasBlind !== null && observation.state.blind === undefined;
+        if ((observation.effectiveComplete && !completeSince.has(source)) || recovered)
+          await dispatchSource(trx, source, dispatchContext);
+        await dispatchJournaled(trx, dispatchContext);
         await reconcileItems(trx, config, now, currentComplete.has('spur'));
         if (deps.productVersion !== undefined)
           await enqueueLiveAfterFirstPoll(trx, {
@@ -1110,7 +1254,10 @@ export function createObservationCore(deps: {
     reportSourceState(source, state) {
       const now = clock.now();
       return scanTransaction(store, config, async (trx) => {
+        const wasBlind = await blindReason(trx, source);
         await sourceState(trx, source, state);
+        if (wasBlind !== null && state.blind === undefined)
+          await dispatchSource(trx, source, { config, at: new Date(now), complete: completeSince });
         await reconcileItems(trx, config, now, completeSince.has('spur'));
       });
     },

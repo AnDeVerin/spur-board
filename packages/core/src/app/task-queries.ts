@@ -42,6 +42,8 @@ const EVENT_SUMMARIES = {
   task_archived: 'Task archived',
   task_submitted: 'Turn submitted',
   task_moved: 'Task moved',
+  task_shadow_moved: 'Shadow move',
+  dispatcher_mode_changed: 'Dispatcher mode changed',
   block_opened: 'Block opened',
   block_escalated: 'Block escalated',
   block_unblocked: 'Block unblocked',
@@ -223,6 +225,7 @@ export function createTaskQueries(config: Config) {
         addressee: turn.role,
         reason: turn.reason,
         handed: turnHanded(turn),
+        head: turn.head_sha,
         at: turn.created_at,
         taken:
           turn.acked_by === null || turn.acked_at === null

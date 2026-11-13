@@ -60,6 +60,8 @@ export interface TaskTable {
   last_change_at: string | null;
   terminal_at: string | null;
   archive_slot_at: string | null;
+  /** When the ticket last went from done to not done (migration 0014); never cleared. */
+  reopened_at: string | null;
 }
 
 export interface PrSnapshotTable {
@@ -123,6 +125,13 @@ export interface LinkTable {
   created_at: string;
   ticket_key: string | null;
   pr_open: Flag | null;
+  /** When a ticket reopen after a merge hid this closed or merged PR link; null while it counts. */
+  reopen_hidden_at: string | null;
+  /**
+   * When the ticket reopened while this PR link was not yet seen merged; a later merged
+   * observation with `updatedAt` before it hides the link. Null otherwise.
+   */
+  reopen_pending_at: string | null;
 }
 
 /** A column executor's finished turn at a head commit. No unique key per epoch. */
@@ -135,6 +144,14 @@ export interface SubmissionTable {
   author: ActorId;
   submitted_at: string;
   note: string | null;
+  /** When a left move made this submit stale; null while it counts. Marks are never voided. */
+  voided_at: string | null;
+  /**
+   * The PR whose fresh head the submit was checked against; null for a submit recorded before
+   * migration 0014, which handles feedback on no PR.
+   */
+  pr_repo: string | null;
+  pr_number: number | null;
 }
 
 /** A column executor's turn of one column visit; `seq` counts the turns of the visit. */
@@ -152,8 +169,10 @@ export interface TurnTable {
   acked_at: string | null;
   closed_at: string | null;
   /** Free text in the store, so a later reason (a submit) needs no migration. */
-  closed_reason: 'moved' | 'archived' | 'submitted' | null;
+  closed_reason: 'moved' | 'archived' | 'submitted' | 'rerouted' | null;
   created_at: string;
+  /** Head commit of the task's PR when the turn opened, lowercase; null without a PR. */
+  head_sha: string | null;
 }
 
 export interface BlockTable {

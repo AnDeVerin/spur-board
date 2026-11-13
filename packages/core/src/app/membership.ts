@@ -100,6 +100,17 @@ export function createMembershipMutations(config: Config): {
             })
             .where('id', '=', task.id)
             .execute();
+          // The journal is the dispatcher's trigger: a reactivation evaluates on the next tick.
+          if (task.membership === 'archived')
+            await emit(
+              trx,
+              'task_added',
+              project.id,
+              task.id,
+              ctx.at,
+              { column: task.column },
+              'operator',
+            );
           task = await trx
             .selectFrom('task')
             .selectAll()

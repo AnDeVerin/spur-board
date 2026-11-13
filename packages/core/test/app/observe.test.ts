@@ -19,6 +19,7 @@ import {
   tickBoard,
   type Store,
 } from '../../src/index.ts';
+import { taskPr } from '../../src/app/board-utils.ts';
 import { createLinkMutations } from '../../src/app/links.ts';
 import { scanTransaction } from '../../src/app/secrets.ts';
 import { createBlockMutations } from '../../src/app/blocks.ts';
@@ -2817,5 +2818,143 @@ describe('anomaly blocks', () => {
     await tick(b);
     expect(await openLedger(b)).toEqual([]);
     expect((await surface(b)).items.map((item) => item.cleared_at !== null)).toEqual([true]);
+  });
+  describe('reopen floor', () => {
+    const ticket = (b: Board, status: string) =>
+      poll(b, source, [{ kind: 'ticket', facts: { ...fact(), inFilter: true, status } }]);
+    const task = (b: Board) => b.store.db.selectFrom('task').selectAll().executeTakeFirstOrThrow();
+    /** The numbers of the PR links a reopen hid, in link id order. */
+    async function hidden(b: Board) {
+      const rows = await b.store.db
+        .selectFrom('link')
+        .select('number')
+        .where('entity', '=', 'pr')
+        .where('reopen_hidden_at', 'is not', null)
+        .orderBy('id')
+        .execute();
+      return rows.map((row) => row.number);
+    }
+    /** PR #7 merged, then the ticket closed and reopened. */
+    async function reopened(b: Board) {
+      await ticket(b, 'open');
+      await prs(b, [pr(7, 'merged')]);
+      await ticket(b, 'closed');
+      await ticket(b, 'open');
+    }
+
+    it('sets the reopen floor when a ticket reopens after a merge', async () => {
+      const b = await board();
+      await ticket(b, 'open');
+      await prs(b, [pr(7, 'merged')]);
+      await ticket(b, 'closed');
+      expect(await hidden(b)).toEqual([]);
+
+      await ticket(b, 'open');
+      expect(await hidden(b)).toEqual([7]);
+    });
+
+    it('keeps a reopened task with only its old merged PR out of terminal', async () => {
+      const b = await board();
+      await ticket(b, 'open');
+      await prs(b, [pr(7, 'merged')]);
+      expect((await task(b)).terminal_at).not.toBeNull();
+
+      await ticket(b, 'closed');
+      await ticket(b, 'open');
+      expect((await task(b)).terminal_at).toBeNull();
+    });
+
+    it('keeps a follow-up PR open before the reopen above the floor, so its merge is terminal', async () => {
+      const b = await board();
+      await ticket(b, 'open');
+      await prs(b, [pr(7, 'merged')]);
+      await ticket(b, 'closed');
+      await prs(b, [pr(7, 'merged'), pr(8, 'open')]);
+      await ticket(b, 'open');
+      expect(await hidden(b)).toEqual([7]);
+
+      await prs(b, [pr(7, 'merged'), pr(8, 'merged')]);
+      expect((await task(b)).terminal_at).toBe(iso());
+      expect(await taskPr(b.store.db, (await task(b)).id)).toMatchObject({ number: 8 });
+    });
+
+    it('keeps a follow-up PR open at the reopen counting when a later link was closed', async () => {
+      const b = await board();
+      await ticket(b, 'open');
+      await prs(b, [pr(7, 'merged')]);
+      await ticket(b, 'closed');
+      await prs(b, [pr(7, 'merged'), pr(8, 'open')]);
+      await prs(b, [pr(7, 'merged'), pr(8, 'open'), pr(9, 'open')]);
+      await prs(b, [pr(7, 'merged'), pr(8, 'open'), pr(9, 'closed')]);
+      expect(
+        (
+          await b.store.db
+            .selectFrom('link')
+            .select('number')
+            .where('entity', '=', 'pr')
+            .orderBy('id')
+            .execute()
+        ).map((row) => row.number),
+      ).toEqual([7, 8, 9]);
+      await ticket(b, 'open');
+      expect(await hidden(b)).toEqual([7, 9]);
+      expect((await task(b)).terminal_at).toBeNull();
+
+      await prs(b, [pr(7, 'merged'), pr(8, 'merged'), pr(9, 'closed')]);
+      expect((await task(b)).terminal_at).toBe(iso());
+      expect(await taskPr(b.store.db, (await task(b)).id)).toMatchObject({ number: 8 });
+    });
+
+    it('counts a hidden PR again once it reopens, so its later merge is terminal', async () => {
+      const b = await board();
+      await ticket(b, 'open');
+      await prs(b, [pr(7, 'merged'), pr(9, 'open')]);
+      await prs(b, [pr(7, 'merged'), pr(9, 'closed')]);
+      await ticket(b, 'closed');
+      await ticket(b, 'open');
+      expect(await hidden(b)).toEqual([7, 9]);
+
+      await prs(b, [pr(7, 'merged'), pr(9, 'open')]);
+      expect(await hidden(b)).toEqual([7]);
+
+      await prs(b, [pr(7, 'merged'), pr(9, 'merged')]);
+      expect((await task(b)).terminal_at).toBe(iso());
+      expect(await taskPr(b.store.db, (await task(b)).id)).toMatchObject({ number: 9 });
+    });
+
+    it('keeps a merged task without a floor terminal', async () => {
+      const b = await board();
+      await ticket(b, 'open');
+      await prs(b, [pr(7, 'merged')]);
+      await ticket(b, 'open');
+      expect((await task(b)).terminal_at).toBe(iso());
+      expect(await hidden(b)).toEqual([]);
+    });
+
+    it('opens the pr-closed operator block for a reopened task whose new PR closed unmerged', async () => {
+      const b = await board();
+      await reopened(b);
+      await prs(b, [pr(7, 'merged'), pr(8, 'open')]);
+      expect(await openLedger(b)).toEqual([]);
+
+      await prs(b, [pr(7, 'merged'), pr(8, 'closed')]);
+      expect(await openLedger(b)).toEqual(['pr-closed']);
+      expect((await surface(b)).blocks[0]?.reason).toBe(
+        'linked pull request o/r#8 closed without merge, no open PR',
+      );
+    });
+
+    it('flags a worker that ended on a reopened task with only its old merged PR', async () => {
+      const b = await board();
+      await reopened(b);
+      await spur(b, [sessionFact('worker-1', link, true)]);
+      expect(await openLedger(b)).toEqual(['health:worker-1:worker_completed']);
+
+      const merged = await board();
+      await ticket(merged, 'open');
+      await prs(merged, [pr(7, 'merged')]);
+      await spur(merged, [sessionFact('worker-1', link, true)]);
+      expect(await openLedger(merged)).toEqual([]);
+    });
   });
 });

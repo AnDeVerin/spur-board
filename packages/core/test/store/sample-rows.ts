@@ -44,6 +44,7 @@ export const sampleRows: SampleRows = {
     last_change_at: at,
     terminal_at: null,
     archive_slot_at: null,
+    reopened_at: at,
   },
   pr_snapshot: {
     repo: 'x/y',
@@ -96,6 +97,8 @@ export const sampleRows: SampleRows = {
     created_at: at,
     ticket_key: null,
     pr_open: 1,
+    reopen_hidden_at: null,
+    reopen_pending_at: null,
   },
   submission: {
     id: 1,
@@ -106,6 +109,9 @@ export const sampleRows: SampleRows = {
     author: 'agent:proj/sess-1',
     submitted_at: at,
     note: 'ready for review',
+    voided_at: null,
+    pr_repo: 'x/y',
+    pr_number: 7,
   },
   turn: {
     id: 1,
@@ -121,6 +127,7 @@ export const sampleRows: SampleRows = {
     closed_at: at,
     closed_reason: 'moved',
     created_at: at,
+    head_sha: null,
   },
   block: {
     id: 1,

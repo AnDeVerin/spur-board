@@ -138,6 +138,16 @@ const samples: { [K in EventKind]: Extract<JournalEvent, { kind: K }> } = {
     kind: 'task_moved',
     payload: { from: 'review', to: 'dev', turn: 'T1', block: 'B1' },
   },
+  task_shadow_moved: {
+    ...base,
+    kind: 'task_shadow_moved',
+    payload: { from: 'review', to: 'dev', reason: 'gate_broken', gate: ['checks_red'] },
+  },
+  dispatcher_mode_changed: {
+    ...base,
+    kind: 'dispatcher_mode_changed',
+    payload: { from: 'shadow', to: 'on' },
+  },
   block_opened: {
     ...base,
     kind: 'block_opened',
@@ -207,8 +217,8 @@ const samples: { [K in EventKind]: Extract<JournalEvent, { kind: K }> } = {
 };
 
 describe('event kinds', () => {
-  it('has a payload schema for each of the 39 kinds', () => {
-    expect(EVENT_KINDS).toHaveLength(39);
+  it('has a payload schema for each of the 41 kinds', () => {
+    expect(EVENT_KINDS).toHaveLength(41);
     expect(Object.keys(eventPayloadSchemas).sort()).toEqual([...EVENT_KINDS].sort());
   });
 
@@ -239,6 +249,39 @@ describe('parseEvent', () => {
         payload: { entity: 'ticket', ticket: 'PROJ-456', reason: 'No longer related.' },
       }).status,
     ).toBe('ok');
+  });
+
+  it('accepts a dispatcher move reason and a turnless submit while retaining older lines', () => {
+    expect(
+      parseEvent({
+        ...base,
+        kind: 'task_moved',
+        payload: { from: 'dev', to: 'review', reason: 'gate_passed' },
+      }).status,
+    ).toBe('ok');
+    expect(
+      parseEvent({
+        ...base,
+        kind: 'task_moved',
+        payload: { from: 'review', to: 'dev', reason: 'gate_broken', gate: ['conflict'] },
+      }).status,
+    ).toBe('ok');
+    expect(
+      parseEvent({
+        ...base,
+        kind: 'task_submitted',
+        payload: { column: 'dev', sha: 'a'.repeat(40) },
+      }).status,
+    ).toBe('ok');
+    expect(parseEvent(samples.task_moved).status).toBe('ok');
+    expect(parseEvent(samples.task_submitted).status).toBe('ok');
+    expect(
+      parseEvent({
+        ...base,
+        kind: 'task_shadow_moved',
+        payload: { from: 'dev', to: 'review', reason: 'sideways' },
+      }).status,
+    ).toBe('invalid');
   });
 
   it('accepts an optional rule on a raised operator item', () => {

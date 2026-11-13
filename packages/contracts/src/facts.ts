@@ -103,6 +103,10 @@ const feedbackSchema = z.strictObject({
     .nullable()
     .describe('Who posted it; null for a deleted account.'),
   postedAt: at.describe('When the comment was posted or the review submitted.'),
+  state: z
+    .enum(REVIEW_STATES)
+    .optional()
+    .describe('State of this review; missing for a comment and in snapshots written before it.'),
 });
 export type PrFeedback = z.output<typeof feedbackSchema>;
 
@@ -183,6 +187,11 @@ export const prFactsSchema = z
       .array(taskKeySchema)
       .describe('Ticket keys found in the head branch name and the title.'),
     updatedAt: at.describe('When the pull request last changed.'),
+    mergedAt: at
+      .optional()
+      .describe(
+        'When the pull request merged; absent while it is not merged and in facts stored by an earlier version.',
+      ),
     feedback: z
       .array(feedbackSchema)
       .optional()

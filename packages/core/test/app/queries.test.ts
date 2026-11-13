@@ -491,6 +491,7 @@ describe('production query handlers', () => {
         addressee: 'orchestrator:dev',
         reason: 'Review the PR',
         handed: [],
+        head: null,
         at: AT,
         taken: null,
       },

@@ -9,7 +9,7 @@ import {
   type EventPayload,
 } from '@spur-board/contracts';
 import { AsyncLocalStorage } from 'node:async_hooks';
-import type { Kysely, Selectable } from 'kysely';
+import { sql, type Kysely, type Selectable } from 'kysely';
 import { toJson } from '../store/json.ts';
 import type { LinkTable, Tables, TaskTable } from '../store/schema.ts';
 
@@ -28,6 +28,39 @@ export function ticketDone(project: Config['projects'][number], status: string):
   return project.tracker.type === 'jira'
     ? project.tracker.doneStatuses.includes(status)
     : status === 'closed';
+}
+
+/**
+ * Whether a PR link counts past the task's reopen floor: an open link, or a link not hidden by a
+ * reopen. For a query over `link`. Written so a link without a marker counts: the negated form
+ * is NULL there and would drop it.
+ */
+export const pastReopenFloor = sql<boolean>`(link.pr_open = 1 OR link.reopen_hidden_at IS NULL)`;
+
+/**
+ * The task's PR: the open active unbanned link past the reopen floor, else the newest active
+ * unbanned one past it.
+ */
+export async function taskPr(
+  db: Trx,
+  taskId: number,
+): Promise<{ repo: string; number: number; open: boolean } | null> {
+  const link = await db
+    .selectFrom('link')
+    .select(['link.repo', 'link.number', 'link.pr_open'])
+    .where('link.task_id', '=', taskId)
+    .where('link.entity', '=', 'pr')
+    .where('link.pr_state', '=', 'active')
+    .where('link.banned', '=', 0)
+    .where('link.repo', 'is not', null)
+    .where('link.number', 'is not', null)
+    .where(pastReopenFloor)
+    .orderBy('link.pr_open', 'desc')
+    .orderBy('link.id', 'desc')
+    .executeTakeFirst();
+  return link?.repo == null || link.number === null
+    ? null
+    : { repo: link.repo, number: link.number, open: link.pr_open === 1 };
 }
 
 /** The project whose tracker or repo source wrote an observation. */

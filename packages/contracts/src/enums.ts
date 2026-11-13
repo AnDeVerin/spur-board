@@ -60,6 +60,10 @@ export type PrLinkState = (typeof PR_LINK_STATES)[number];
 export const SESSION_END_REASONS = ['complete', 'kill', 'vanished', 'unknown'] as const;
 export type SessionEndReason = (typeof SESSION_END_REASONS)[number];
 
+/** How a project's dispatcher runs: `shadow` records moves only, `on` moves tasks and opens turns. */
+export const DISPATCHER_MODES = ['shadow', 'on'] as const;
+export type DispatcherMode = (typeof DISPATCHER_MODES)[number];
+
 /** Who caused a journal event. */
 export const ACTORS = ['operator', 'agent', 'system'] as const;
 export type Actor = (typeof ACTORS)[number];
