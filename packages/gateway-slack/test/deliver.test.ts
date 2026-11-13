@@ -345,6 +345,17 @@ describe('rendering and surface', () => {
     expect(posted?.params.icon_emoji).toBe(icon);
   });
 
+  it('uses the persona icon over the role icon', async () => {
+    const { fake, gateway } = await setup();
+    await gateway.deliver({
+      ...request('persona-icon'),
+      persona: { name: 'Cur Bot', role: 'curator', icon: ':owl:' },
+    });
+    const posted = fake.requests().find((entry) => entry.method === 'chat.postMessage');
+    expect(posted?.params.username).toBe('Cur Bot');
+    expect(posted?.params.icon_emoji).toBe(':owl:');
+  });
+
   it('renders mrkdwn and buttons while keeping the marker out of visible text', async () => {
     const { fake, gateway } = await setup();
     await gateway.deliver({
@@ -409,6 +420,12 @@ describe('rendering and surface', () => {
     expect(
       renderText([{ kind: 'quote', children: [{ kind: 'strike', text: ' a~b \n\n  c ' }] }]),
     ).toBe('> ~a∼b~\n> \n> ~c~');
+  });
+
+  it('renders italic per line inside underscores', () => {
+    expect(
+      renderText([{ kind: 'paragraph', children: [{ kind: 'italic', text: ' a<b \n\n  c ' }] }]),
+    ).toBe('_a&lt;b_\n\n_c_');
   });
 
   it('fails a marker longer than Block Kit allows without an HTTP request', async () => {

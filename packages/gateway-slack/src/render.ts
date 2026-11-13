@@ -13,7 +13,7 @@ const roleIcons: Record<Persona['role'], string> = {
 };
 
 export function iconFor(persona: Persona): string {
-  return roleIcons[persona.role];
+  return persona.icon ?? roleIcons[persona.role];
 }
 
 function blockId(prefix: string, key: string): string | null {
@@ -70,13 +70,13 @@ function escapeText(value: string): string {
   return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
 }
 
-/** Slack strikes only within one line and not across edge spaces or a `~` inside. */
-function strike(text: string): string {
+/** Slack applies `~` and `_` only within one line and not across edge spaces. */
+function perLine(text: string, mark: string): string {
   return text
     .split('\n')
     .map((line) => {
-      const value = line.trim().replaceAll('~', '∼');
-      return value.length === 0 ? '' : `~${escapeText(value)}~`;
+      const value = line.trim();
+      return value.length === 0 ? '' : `${mark}${escapeText(value)}${mark}`;
     })
     .join('\n');
 }
@@ -90,7 +90,9 @@ function inline(value: RichTextInline): string {
     case 'code':
       return `\`${value.text.replaceAll('`', '´')}\``;
     case 'strike':
-      return strike(value.text);
+      return perLine(value.text.replaceAll('~', '∼'), '~');
+    case 'italic':
+      return perLine(value.text, '_');
     case 'link':
       return `<${value.url.replace(/[<>|]/g, '')}|${escapeText(value.text).replaceAll('|', '¦')}>`;
     case 'mention':
@@ -122,6 +124,7 @@ function literal(value: RichTextInline): string {
     case 'emphasis':
     case 'code':
     case 'strike':
+    case 'italic':
       return value.text;
     case 'link':
       return `${value.text} (${value.url})`;
