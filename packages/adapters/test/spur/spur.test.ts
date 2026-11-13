@@ -211,6 +211,68 @@ describe('Spur adapter', () => {
     },
   );
 
+  it('reads board rings from the Spur queue', async () => {
+    const queued = {
+      ...wire,
+      queuedMessages: {
+        messages: [
+          'reply to the operator on block B2 (N7-2)',
+          'please also check the logs',
+          'see (N3-1) for details',
+          'check board inbox (N3-1)',
+          'check board inbox (N3-1)',
+        ],
+        awaitingPrompt: false,
+        pipelineMessages: ['pipeline step (N9-1)'],
+      },
+    };
+    const adapter = createSpurAdapter({
+      ...adapterOptions,
+      fetch: () => Promise.resolve(response([queued])),
+    });
+    const batch = await adapter.poll(context());
+
+    expect(batchSchema.parse(batch)).toEqual(batch);
+    const item = batch.items[0];
+    expect(item?.kind === 'session' && item.facts.queuedRings).toEqual([
+      { notification: 3, ring: 1 },
+      { notification: 7, ring: 2 },
+    ]);
+    const text = JSON.stringify(batch);
+    for (const raw of ['check board inbox', 'reply to the operator', 'logs', 'pipeline', 'see ']) {
+      expect(text).not.toContain(raw);
+    }
+  });
+
+  it.each([
+    ['an absent queue', undefined],
+    ['an empty queue', { messages: [], awaitingPrompt: false }],
+    [
+      'a queue without rings',
+      { messages: ['hello', '(N1-1) not at the end'], awaitingPrompt: true },
+    ],
+  ])('omits queuedRings for %s', async (_name, queuedMessages) => {
+    const adapter = createSpurAdapter({
+      ...adapterOptions,
+      fetch: () => Promise.resolve(response([{ ...wire, queuedMessages }])),
+    });
+    const batch = await adapter.poll(context());
+    const item = batch.items[0];
+    expect(item?.kind === 'session' && 'queuedRings' in item.facts).toBe(false);
+  });
+
+  it('fails the poll on a malformed queue', async () => {
+    const adapter = createSpurAdapter({
+      ...adapterOptions,
+      fetch: () =>
+        Promise.resolve(response([{ ...wire, queuedMessages: { messages: 'check (N1-1)' } }])),
+    });
+    await expect(adapter.poll(context())).rejects.toMatchObject({
+      kind: 'transient',
+      message: 'Invalid Spur response at 0.queuedMessages.messages',
+    });
+  });
+
   it('passes extra fields on a session, its slots and its links', async () => {
     const extra = {
       ...wire,

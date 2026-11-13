@@ -1,6 +1,8 @@
 import {
   assertNever,
   parseActorId,
+  ringMarker,
+  sessionFactsSchema,
   type ActorId,
   type AddresseeRole,
   type Config,
@@ -689,7 +691,7 @@ function noRecipientEnd(n: Notification): string | null {
 
 /** A ring never carries comment or reason text: only where to look. */
 async function ringText(trx: Trx, n: Notification, task: Task, ring: number): Promise<string> {
-  const suffix = `(N${String(n.id)}-${String(ring)})`;
+  const suffix = ringMarker(n.id, ring);
   if (n.kind === 'turn')
     return `${task.key} turn T${String(n.turn_id)}: check board inbox ${suffix}`;
   if (n.kind === 'turn_reminder')
@@ -720,7 +722,8 @@ function dueNotifications(db: Trx, at: Date) {
 
 /**
  * Reconciles due notifications in their own transaction. With none due it opens no transaction;
- * a due notification waiting on a working recipient or an unsent ring still opens one.
+ * a due notification waiting on a working recipient, an unsent ring or a ring still in the
+ * recipient's Spur queue still opens one.
  */
 export async function reconcileDueDoorbells(store: Store, config: Config, at: Date): Promise<void> {
   const due = await dueNotifications(store.db, at).select('notification.id').executeTakeFirst();
@@ -793,6 +796,23 @@ export async function reconcileDoorbells(trx: Trx, at: Date, config: Config): Pr
       await endNotification(trx, n, task, { session: session.id, reason: UNANSWERED, at, config });
       continue;
     }
+    // A ring still in the recipient's Spur queue was never read: hold the next one until the
+    // queue lets it go, and end the series when the window it would have rung in closes. A blind
+    // Spur leaves the last queue in the snapshot, so it holds nothing and rings as before.
+    if (rings > 0 && earlierRingQueued(session, n.id, rings) && !(await spurBlind(trx))) {
+      const pauses = ringPauses(config);
+      const deadline =
+        Date.parse(n.next_at) + pauses.slice(rings).reduce((sum, pause) => sum + pause, 0);
+      if (at.getTime() >= deadline) {
+        await endNotification(trx, n, task, {
+          session: session.id,
+          reason: UNANSWERED,
+          at,
+          config,
+        });
+      }
+      continue;
+    }
     // Each exhausted series raised one item generation; a restarted series rings under it.
     const raised = await trx
       .selectFrom('operator_item')
@@ -836,6 +856,35 @@ export async function reconcileDoorbells(trx: Trx, at: Date, config: Config): Pr
   }
 }
 
+/** The pause after each delivered ring of a series: before ring 2, before ring 3, then the end. */
+function ringPauses(config: Config): readonly number[] {
+  return [
+    config.doorbells.firstRetryMs,
+    config.doorbells.secondRetryMs,
+    config.doorbells.unansweredAfterMs,
+  ];
+}
+
+/**
+ * Whether the session's facts list a ring of this series, up to `rings`, still in its Spur queue.
+ * A detail that does not parse, or one without a queue, holds nothing.
+ */
+function earlierRingQueued(session: Session, notificationId: number, rings: number): boolean {
+  let detail: unknown;
+  try {
+    detail = JSON.parse(session.detail);
+  } catch {
+    return false;
+  }
+  const fact = sessionFactsSchema.safeParse(detail);
+  return (
+    fact.success &&
+    (fact.data.queuedRings ?? []).some(
+      (queued) => queued.notification === notificationId && queued.ring <= rings,
+    )
+  );
+}
+
 /** Count one confirmed Spur send, regardless of transport attempts for its outbox row. */
 export async function recordRingDelivery(
   trx: Trx,
@@ -859,11 +908,7 @@ export async function recordRingDelivery(
     n.rings >= ring
   )
     return;
-  const pauses = [
-    config.doorbells.firstRetryMs,
-    config.doorbells.secondRetryMs,
-    config.doorbells.unansweredAfterMs,
-  ];
+  const pauses = ringPauses(config);
   await trx
     .updateTable('notification')
     .set({
@@ -885,6 +930,16 @@ export async function recordRingDelivery(
     },
     at,
   );
+}
+
+/** True while the Spur source is blind: its stored session facts may no longer hold. */
+async function spurBlind(trx: Trx): Promise<boolean> {
+  const state = await trx
+    .selectFrom('source_state')
+    .select('blind_reason')
+    .where('source', '=', 'spur')
+    .executeTakeFirst();
+  return state !== undefined && state.blind_reason !== null;
 }
 
 /** Confirm that a queued ring still belongs to a live, idle, unread recipient. */

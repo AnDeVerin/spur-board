@@ -178,6 +178,48 @@ describe('sessions', () => {
   });
 });
 
+describe('queue', () => {
+  it('holds sends in the queue and delivers them', async () => {
+    const { fake } = createFake();
+    run(fake, 'session', { id: 's1', state: 'waiting', queue: 'hold' });
+    const ring = (text: string) => send(fake, 's1', JSON.stringify({ message: text }));
+    for (const text of [' check board inbox (N1-1) ', 'check board inbox (N1-1)', 'B2 (N2-1)']) {
+      expect((await ring(text)).status).toBe(200);
+    }
+    const listed = async () =>
+      ((await (await fake.fetch(sessionsUrl)).json()) as { queuedMessages?: unknown }[])[0];
+    expect((await listed())?.queuedMessages).toEqual({
+      messages: ['check board inbox (N1-1)', 'B2 (N2-1)'],
+      awaitingPrompt: false,
+    });
+    expect(inspect(fake).sends).toHaveLength(3);
+    const held = (await adapterFor(fake).poll(context())).items[0];
+    expect(held?.kind === 'session' && held.facts.queuedRings).toEqual([
+      { notification: 1, ring: 1 },
+      { notification: 2, ring: 1 },
+    ]);
+
+    run(fake, 'session', { id: 's1', queue: 'deliver' });
+    expect(await listed()).not.toHaveProperty('queuedMessages');
+    const delivered = (await adapterFor(fake).poll(context())).items[0];
+    expect(delivered?.kind === 'session' && 'queuedRings' in delivered.facts).toBe(false);
+    expect((await ring('check board inbox (N1-2)')).status).toBe(200);
+    expect(await listed()).not.toHaveProperty('queuedMessages');
+    expect(inspect(fake).sends).toHaveLength(4);
+  });
+
+  it('keeps holding when a later session update omits the queue', async () => {
+    const { fake } = createFake();
+    run(fake, 'session', { id: 's1', queue: 'hold' });
+    run(fake, 'session', { id: 's1', state: 'waiting' });
+    await send(fake, 's1', JSON.stringify({ message: 'x (N1-1)' }));
+    const [listed] = (await (await fake.fetch(sessionsUrl)).json()) as {
+      queuedMessages?: unknown;
+    }[];
+    expect(listed?.queuedMessages).toEqual({ messages: ['x (N1-1)'], awaitingPrompt: false });
+  });
+});
+
 describe('send by status', () => {
   it.each(['running', 'stopped', 'budget_limited', 'paused', 'spawning'])(
     'accepts a send to a %s session',
@@ -518,6 +560,7 @@ describe('parseFakeArgs', () => {
       'session',
       { id: 's1', state: 'stale', status: 'stopped', project: 'p', branch: 'b', retain: true },
     ],
+    [['spur', 'session', 's1', '--queue', 'hold'], 'session', { id: 's1', queue: 'hold' }],
     [['spur', 'restart'], 'restart', {}],
     [['spur', 'clear'], 'clear', {}],
     [['spur', 'inspect'], 'inspect', {}],
@@ -550,6 +593,7 @@ describe('parseFakeArgs', () => {
     [['spur', 'session', 's1', '--ms', '1']],
     [['spur', 'session', 's1', '--unknown']],
     [['spur', 'session', 's1', '--state', '']],
+    [['spur', 'session', 's1', '--queue', 'nope']],
     [['spur', 'fail']],
     [['spur', 'fail', 'explode']],
     [['spur', 'fail', 'delay']],

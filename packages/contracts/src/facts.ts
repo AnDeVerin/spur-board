@@ -274,6 +274,29 @@ export function isKnownSessionStatus(
   return knownStatus.safeParse(value).success;
 }
 
+const queuedRingSchema = z
+  .strictObject({
+    notification: z.int().positive().describe('Board notification the queued ring belongs to.'),
+    ring: z.int().positive().describe('Ring number within that notification series.'),
+  })
+  .describe('One board ring waiting in the session queue.');
+
+/** The marker that ends a board ring text: `(N<notification>-<ring>)`. */
+export function ringMarker(notification: number, ring: number): string {
+  return `(N${String(notification)}-${String(ring)})`;
+}
+
+/** The notification and ring a text ends with, or null when it ends with no valid marker. */
+export function parseRingMarker(text: string): { notification: number; ring: number } | null {
+  const match = /\(N([1-9]\d*)-([1-9]\d*)\)$/.exec(text);
+  if (!match) return null;
+  const parsed = queuedRingSchema.safeParse({
+    notification: Number(match[1]),
+    ring: Number(match[2]),
+  });
+  return parsed.success ? parsed.data : null;
+}
+
 export const sessionFactsSchema = z
   .strictObject({
     id: actorPartSchema.describe('Spur session name.'),
@@ -300,6 +323,13 @@ export const sessionFactsSchema = z
       .enum(SESSION_END_REASONS)
       .nullable()
       .describe('Why the session ended, or null while it is live. Set together with endedAt.'),
+    queuedRings: z
+      .array(queuedRingSchema)
+      .min(1)
+      .optional()
+      .describe(
+        'Board rings still waiting in the session queue, undelivered. Only board rings are listed, never other queued text; absent when none.',
+      ),
   })
   .superRefine((session, ctx) => {
     if ((session.endedAt === null) !== (session.endReason === null)) {

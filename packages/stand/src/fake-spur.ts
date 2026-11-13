@@ -31,6 +31,8 @@ const sessionArgs = z.strictObject({
   retain: z.literal(true).optional(),
   /** Why Spur stopped the session, as a live Spur reports it (`stale_timeout`). */
   stopReason: text.optional(),
+  /** `hold` keeps later sends in the session queue, as a busy Spur session does; `deliver` empties it. */
+  queue: z.enum(['hold', 'deliver']).optional(),
 });
 const failArgs = z.discriminatedUnion('mode', [
   z.strictObject({
@@ -66,6 +68,9 @@ interface FakeSession {
   lastActivityAt: string | null;
   stopReason?: string;
   retainInList?: true;
+  /** Sends wait in `queuedMessages` until `--queue deliver`. */
+  holdQueue?: true;
+  queuedMessages?: { messages: string[]; awaitingPrompt: boolean };
 }
 
 interface Violation {
@@ -161,6 +166,8 @@ export function createFakeSpur(options: {
   function upsert(args: SessionArgs): FakeSession {
     const previous = sessions.get(args.id);
     const stopReason = args.stopReason ?? previous?.stopReason;
+    const holds = args.queue === undefined ? previous?.holdQueue === true : args.queue === 'hold';
+    const queued = args.queue === 'deliver' ? undefined : previous?.queuedMessages;
     const session: FakeSession = {
       id: args.id,
       project: args.project ?? previous?.project ?? 'stand-worker',
@@ -172,6 +179,8 @@ export function createFakeSpur(options: {
       ...(args.retain === true || previous?.retainInList === true
         ? { retainInList: true as const }
         : {}),
+      ...(holds ? { holdQueue: true as const } : {}),
+      ...(queued === undefined ? {} : { queuedMessages: queued }),
     };
     sessions.set(args.id, session);
     return session;
@@ -241,6 +250,13 @@ export function createFakeSpur(options: {
     if (ENDED.has(status)) return errorResponse(409, `Session has ended (${status}): ${id}`);
     if (!SENDABLE.has(status)) return errorResponse(500, `Unknown session status ${status}: ${id}`);
     pushBounded(sends, { at: iso(), session: id, message });
+    if (session.holdQueue === true) {
+      // Spur queues the trimmed text and drops a message identical to one already queued.
+      const queued = session.queuedMessages ?? { messages: [], awaitingPrompt: false };
+      const text = message.trim();
+      if (!queued.messages.includes(text)) queued.messages.push(text);
+      session.queuedMessages = queued;
+    }
     return Response.json(session);
   }
 
@@ -350,6 +366,7 @@ const FAKE_OPTIONS = {
   project: { type: 'string' },
   branch: { type: 'string' },
   retain: { type: 'boolean' },
+  queue: { type: 'string' },
   route: { type: 'string' },
   ms: { type: 'string' },
 } as const;

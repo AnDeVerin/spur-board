@@ -49,6 +49,16 @@ describe('generated public references', () => {
       expect(configuration).toMatch(new RegExp('^\\| `' + name + '` +\\|', 'm'));
     expect(configuration).toContain('`slack.command`');
     expect(configuration).toContain('`"/board"`');
+    const fieldRows = (configuration.split('## config.yaml fields')[1]?.split('\n## ')[0] ?? '')
+      .split('\n')
+      .filter((line) => line.startsWith('| `'))
+      .map((line) => line.split(/(?<!\\)\|/).map((cell) => cell.trim()));
+    expect(fieldRows.map((cells) => cells[1])).toContain('`projects[].id`');
+    expect(
+      fieldRows
+        .filter((cells) => cells[2] !== 'object' && cells[6] === '—')
+        .map((cells) => cells[1]),
+    ).toEqual([]);
     const row = (name: string) =>
       configuration.split('\n').find((line) => line.startsWith(`| \`projects[].link.${name}\` `));
     const link = configuration.split('\n').find((line) => line.startsWith('| `projects[].link` '));

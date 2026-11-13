@@ -14,6 +14,18 @@ import type { z } from 'zod';
 import type { RouteResult } from '../control.ts';
 import type { StandManifest } from '../manifest.ts';
 import { columnsBasic, columnsBasicJira } from './columns-basic.ts';
+import {
+  dispatchConflictInReadyToMerge,
+  dispatchConflictInReview,
+  dispatchCiRedAfterSubmit,
+  dispatchCycleLimit,
+  dispatchDeadExecutor,
+  dispatchExternalComment,
+  dispatchHappyPath,
+  dispatchReentrySameHead,
+  dispatchReviewLoop,
+  dispatchSourceBlind,
+} from './dispatcher.ts';
 import { empty } from './empty.ts';
 import { questionToOperator } from './question-to-operator.ts';
 import { sourceBlind, sourceBlindJira } from './source-blind.ts';
@@ -91,8 +103,15 @@ interface SettledContext {
 export interface Scenario {
   name: string;
   summary: string;
-  /** Merged into the stand's config; only thresholds and adapters may change. */
-  config?: { thresholds?: Partial<Config['thresholds']>; adapters?: Record<string, object> };
+  /**
+   * Merged into the stand's config: `thresholds` and `adapters` deep-merge, and `stand` replaces
+   * the `columns` and `dispatcher` of the `stand` project. Nothing else may change.
+   */
+  config?: {
+    thresholds?: Partial<Config['thresholds']>;
+    adapters?: Record<string, object>;
+    stand?: { columns?: object[]; dispatcher?: { mode: 'shadow' | 'on' } };
+  };
   seed(board: Board, fakes: ScenarioFakes, clock: { now(): number }): Promise<ScenarioEntities>;
   /** Whether the state the seed set up has arrived; `stand wait scenario` re-runs it. */
   settled(context: SettledContext): Promise<Settled>;
@@ -109,6 +128,16 @@ export const SCENARIOS: readonly Scenario[] = [
   columnsBasicJira,
   workerKilledNoPrJira,
   sourceBlindJira,
+  dispatchHappyPath,
+  dispatchReviewLoop,
+  dispatchCiRedAfterSubmit,
+  dispatchConflictInReview,
+  dispatchConflictInReadyToMerge,
+  dispatchReentrySameHead,
+  dispatchExternalComment,
+  dispatchDeadExecutor,
+  dispatchSourceBlind,
+  dispatchCycleLimit,
 ];
 
 export const scenarioNames = (scenarios: readonly Scenario[] = SCENARIOS): string[] =>
@@ -125,13 +154,24 @@ function merge(base: unknown, extra: unknown): unknown {
   return result;
 }
 
-/** The stand's config with the scenario's `thresholds` and `adapters` deep-merged in. */
+/**
+ * The stand's config with the scenario's `thresholds` and `adapters` deep-merged in, and its
+ * `stand` keys written over the `stand` project's.
+ */
 export function mergeConfig(
   config: Record<string, unknown>,
   extra: NonNullable<Scenario['config']>,
 ): Record<string, unknown> {
+  const { stand } = extra;
   return {
     ...config,
+    ...(stand === undefined
+      ? {}
+      : {
+          projects: (config['projects'] as Record<string, unknown>[]).map((project) =>
+            project['id'] === 'stand' ? { ...project, ...stand } : project,
+          ),
+        }),
     ...(extra.thresholds === undefined
       ? {}
       : { thresholds: merge(config['thresholds'], extra.thresholds) }),

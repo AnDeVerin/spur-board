@@ -1446,6 +1446,56 @@ describe('accepted observation', () => {
     expect(latest.get('session_facts_changed')?.facts).toMatchObject({ id: 'worker-1' });
   });
 
+  it('journals a queue-only session change without moving, archiving or flagging the task', async () => {
+    const { store, core, apply, mutations } = setup();
+    await apply(mutations.add, { task: 'o/r#9' }, 'operator');
+    const linked = sessionFact('worker-1', { 'board-worker': 'https://github.com/o/r/issues/9' });
+    const queued: SessionFacts = { ...linked, queuedRings: [{ notification: 1, ring: 1 }] };
+    const before = await store.db
+      .selectFrom('task')
+      .select(['column', 'membership', 'archive_reason'])
+      .where('key', '=', 'o/r#9')
+      .executeTakeFirstOrThrow();
+    const details: unknown[] = [];
+    for (const facts of [linked, queued, linked]) {
+      now += 15_000;
+      const observedAt = new Date(now).toISOString();
+      await core.observe('spur', {
+        batch: {
+          source: 'spur',
+          observedAt,
+          complete: true,
+          items: [{ kind: 'session', facts }],
+          entities: [],
+        },
+        effectiveComplete: true,
+        state: { lastCompleteAt: observedAt, gone: [] },
+        outcomes: [],
+      });
+      const row = await store.db
+        .selectFrom('session_snapshot')
+        .select('detail')
+        .where('id', '=', 'worker-1')
+        .executeTakeFirstOrThrow();
+      details.push(JSON.parse(row.detail));
+    }
+    await tickBoard({ store, config, clock, completeSince: core.completeSince });
+    expect(details).toEqual([linked, queued, linked]);
+    const kinds = (await store.db.selectFrom('event').select('kind').orderBy('id').execute()).map(
+      (event) => event.kind,
+    );
+    expect(kinds.filter((kind) => kind === 'session_facts_changed')).toHaveLength(3);
+    expect(kinds).not.toContain('task_archived');
+    expect(await store.db.selectFrom('operator_item').selectAll().execute()).toEqual([]);
+    expect(
+      await store.db
+        .selectFrom('task')
+        .select(['column', 'membership', 'archive_reason'])
+        .where('key', '=', 'o/r#9')
+        .executeTakeFirstOrThrow(),
+    ).toEqual(before);
+  });
+
   it('replays the PR and session facts of a manually linked task from its own events', async () => {
     const { store, core, apply, mutations } = setup();
     const links = createLinkMutations(config);

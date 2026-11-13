@@ -1,5 +1,5 @@
 {
-  "version": "e121604f549d9c71de7e06eb55fc42eb1a5b4ecd54a1d2c1598a1ea9c628b66c",
+  "version": "344c1c39a19b627fb09279a21cf353bd83051837b22230f1c07165aa8bf714f9",
   "grants": [
     "operator",
     "project-agent",
@@ -1768,6 +1768,31 @@
                           { "type": "null" }
                         ],
                         "description": "Why the session ended, or null while it is live. Set together with endedAt."
+                      },
+                      "queuedRings": {
+                        "description": "Board rings still waiting in the session queue, undelivered. Only board rings are listed, never other queued text; absent when none.",
+                        "minItems": 1,
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "notification": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991,
+                              "description": "Board notification the queued ring belongs to."
+                            },
+                            "ring": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991,
+                              "description": "Ring number within that notification series."
+                            }
+                          },
+                          "required": ["notification", "ring"],
+                          "additionalProperties": false,
+                          "description": "One board ring waiting in the session queue."
+                        }
                       }
                     },
                     "required": [
@@ -2295,6 +2320,31 @@
                     { "type": "null" }
                   ],
                   "description": "Why the session ended, or null while it is live. Set together with endedAt."
+                },
+                "queuedRings": {
+                  "description": "Board rings still waiting in the session queue, undelivered. Only board rings are listed, never other queued text; absent when none.",
+                  "minItems": 1,
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "notification": {
+                        "type": "integer",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991,
+                        "description": "Board notification the queued ring belongs to."
+                      },
+                      "ring": {
+                        "type": "integer",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991,
+                        "description": "Ring number within that notification series."
+                      }
+                    },
+                    "required": ["notification", "ring"],
+                    "additionalProperties": false,
+                    "description": "One board ring waiting in the session queue."
+                  }
                 }
               },
               "required": ["id", "spurProject", "branch", "lifecycle", "health"],

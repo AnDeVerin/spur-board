@@ -29,7 +29,9 @@ A stand is a disposable board with fake Slack, Spur and GitHub APIs (`docs/qa-st
   `operator`.
 - `operator` carries the stand's operator token and no session.
 - `worker` carries a session of the worker project `stand-worker`; `orchestrator` a session of
-  `stand-qa`, the orchestrator of the stand's `qa` column.
+  `stand-qa`, the orchestrator of the stand's `qa` column, and of Review in the `dispatch-*`
+  scenarios.
+- After `dispatch-dead-executor`, `--as worker` answers `forbidden`: its session is killed.
 - The wrapper refuses `service`, `update`, `rollback`, `skills` and `token create` with exit 2:
   they act on the real machine or write outside the stand.
 - Find board commands with `pnpm stand board --help`, `pnpm stand board <command> --help` and
