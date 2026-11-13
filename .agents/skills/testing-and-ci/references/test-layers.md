@@ -38,11 +38,9 @@ Pick the lowest layer that can fail for the bug you guard against. Projects are 
   `@spur-board/gateway-testkit/cases` (`packages/gateway-testkit/src/cases.ts`).
 - Stand: `createFakeSpur` (`packages/stand/src/fake-spur.ts`) and `createFakes`
   (`packages/stand/src/fakes/fetch.ts`) answer the real adapters; `pnpm stand violations` reads
-  their log and the fake Slack API's unknown methods. A GraphQL change updates
-  `KNOWN_DOCUMENTS` in `packages/stand/src/fakes/github-pr.ts`, an Issues REST change the routes
-  and query rules in `packages/stand/src/fakes/github-issues.ts`. An adapter request change needs
-  `pnpm record:fakes`: `packages/stand/test/recordings.test.ts` checks the fakes against
-  `packages/stand/recordings/`.
+  their one log together with the fake Slack API's unknown methods. A GitHub GraphQL query
+  change must update `KNOWN_DOCUMENTS` in `packages/stand/src/fakes/github-pr.ts`, and a GitHub
+  Issues REST call change the routes and query rules in `packages/stand/src/fakes/github-issues.ts`.
 - Builders: there is no shared test-data builder yet. Inline the data while one test needs it;
   when a second test needs the same shape, move a builder into `packages/<x>/test/`.
 
