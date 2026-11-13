@@ -92,13 +92,16 @@ export function credentialFreeEnv(base: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
 }
 
 /**
- * Installs a registry spec or a local `.tgz`. A tarball path is made absolute first: npm reads a
- * relative `dir/file.tgz` as the GitHub shorthand `owner/repo`.
+ * Installs a registry spec or a local `.tgz`. A bare tarball path is made absolute first: npm reads
+ * a relative `dir/file.tgz` as the GitHub shorthand `owner/repo`. A spec with a scheme prefix
+ * (`file:`, `https:`) is passed unchanged.
  */
 export function installPackage(packageRef: string, prefix: string): string {
   mkdirSync(prefix, { recursive: true });
   const ref =
-    packageRef.endsWith('.tgz') && !packageRef.includes('://') ? resolve(packageRef) : packageRef;
+    packageRef.endsWith('.tgz') && !/^[a-z][a-z0-9+.-]*:/i.test(packageRef)
+      ? resolve(packageRef)
+      : packageRef;
   const result = spawnSync('npm', ['install', '--prefix', prefix, ref, '--no-audit', '--no-fund'], {
     encoding: 'utf8',
     timeout: 120_000,

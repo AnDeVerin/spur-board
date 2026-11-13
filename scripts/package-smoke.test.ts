@@ -317,6 +317,7 @@ describe('installPackage tarball argument', () => {
   it.each([
     ['release-artifacts/spur-board-0.1.0.tgz', resolve('release-artifacts/spur-board-0.1.0.tgz')],
     ['spur-board@0.1.0', 'spur-board@0.1.0'],
+    ['file:./candidate.tgz', 'file:./candidate.tgz'],
   ])('passes %s to npm install as %s', (packageRef, expected) => {
     root = mkdtempSync(join(tmpdir(), 'board-install-ref-'));
     const bin = join(root, 'bin');
