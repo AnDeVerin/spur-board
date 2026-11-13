@@ -93,7 +93,8 @@ export async function createE2eHarness(
             pr: null,
             links: {},
             lifecycle: 'running',
-            health: 'working',
+            // Idle, so the board rings it: a session observed working holds its rings.
+            health: 'waiting',
             healthSince: at,
             lastActivityAt: null,
             endedAt: null,

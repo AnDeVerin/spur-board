@@ -9,6 +9,8 @@ export const questionToOperator: Scenario = {
   summary: 'A worker question on issue 1, open and posted to the operator in Slack.',
   async seed(board, fakes) {
     await openIssues(fakes, 1);
+    // An idle worker, so the answer rings it: the board holds rings to a working session.
+    await fakes.spur('session', { id: board.roles.worker, state: 'waiting' });
     await board.poll();
     const { block } = await board.call(
       'worker',

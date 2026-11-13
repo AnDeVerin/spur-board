@@ -327,30 +327,91 @@ describe('role addressed doorbells', () => {
     expect(ctx.sent.map((entry) => entry.session)).toEqual(['worker-2']);
   });
 
+  it('holds the first ring while the recipient is observed working and rings once it waits', async () => {
+    const ctx = await setup();
+    await observeHealth(ctx, 'worker-1', 'working');
+    expect(
+      await ctx.store.db
+        .selectFrom('session_snapshot')
+        .select(['state', 'raw_state'])
+        .where('id', '=', 'worker-1')
+        .executeTakeFirstOrThrow(),
+    ).toEqual({ state: 'running', raw_state: 'running' });
+    await workerBlock(ctx.store);
+    await step(ctx);
+    ctx.advance(60_000);
+    await step(ctx);
+    expect(ctx.sent).toEqual([]);
+    expect(await ctx.store.db.selectFrom('outbox').select('id').execute()).toEqual([]);
+
+    await observeHealth(ctx, 'worker-1', 'waiting');
+    await step(ctx);
+    expect(ctx.sent.map((entry) => entry.session)).toEqual(['worker-1']);
+    expect(ctx.sent[0]?.text).toContain('(N1-1)');
+  });
+
+  it('defers a queued ring when its recipient turns working before the send', async () => {
+    const ctx = await setup();
+    await observeHealth(ctx, 'worker-1', 'waiting');
+    await workerBlock(ctx.store);
+    await ctx.ring();
+    await observeHealth(ctx, 'worker-1', 'working');
+    await ctx.sender.tick();
+    expect(ctx.sent).toEqual([]);
+    expect(
+      await ctx.store.db
+        .selectFrom('outbox')
+        .select('state')
+        .where('kind', '=', 'doorbell')
+        .execute(),
+    ).toEqual([{ state: 'pending' }]);
+
+    await observeHealth(ctx, 'worker-1', 'waiting');
+    ctx.advance(1000);
+    await ctx.sender.tick();
+    expect(ctx.sent.map((entry) => entry.session)).toEqual(['worker-1']);
+    expect(ctx.sent[0]?.text).toContain('(N1-1)');
+  });
+
+  it.each(['waiting', 'needs_input', 'rate_limited', 'stale', 'error', 'thinking'])(
+    'rings a recipient observed %s at once',
+    async (value) => {
+      const ctx = await setup();
+      await observeHealth(ctx, 'worker-1', value);
+      await workerBlock(ctx.store);
+      await step(ctx);
+      expect(ctx.sent.map((entry) => entry.session)).toEqual(['worker-1']);
+    },
+  );
+
+  it('rings a recipient whose stored health is working while Spur is blind', async () => {
+    const ctx = await setup();
+    await observeHealth(ctx, 'worker-1', 'working');
+    await createObservationCore({
+      store: ctx.store,
+      config: ctx.config,
+      clock: { now: () => ctx.now().getTime() },
+    }).reportSourceState('spur', {
+      blind: { reason: 'auth', message: 'Access rejected' },
+      gone: [],
+    });
+    await workerBlock(ctx.store);
+    await step(ctx);
+    expect(ctx.sent.map((entry) => entry.session)).toEqual(['worker-1']);
+  });
+
   it('pauses while working, then raises one worker refusal after three distinct unanswered rings', async () => {
     const ctx = await setup();
     const blockId = await workerBlock(ctx.store);
     await ctx.ring();
     await ctx.sender.tick();
     expect(ctx.sent).toHaveLength(1);
-    await ctx.store.transaction((trx) =>
-      trx
-        .updateTable('session_snapshot')
-        .set({ state: 'working' })
-        .where('id', '=', 'worker-1')
-        .execute(),
-    );
+    await observeHealth(ctx, 'worker-1', 'working');
     ctx.advance(120_000);
     await ctx.ring();
     await ctx.sender.tick();
     expect(ctx.sent).toHaveLength(1);
-    await ctx.store.transaction((trx) =>
-      trx
-        .updateTable('session_snapshot')
-        .set({ state: 'waiting' })
-        .where('id', '=', 'worker-1')
-        .execute(),
-    );
+    await observeHealth(ctx, 'worker-1', 'waiting');
     await ctx.ring();
     await ctx.sender.tick();
     expect(ctx.sent).toHaveLength(2);
@@ -382,24 +443,12 @@ describe('role addressed doorbells', () => {
     await ctx.ring();
     await ctx.sender.tick();
     expect(ctx.sent).toHaveLength(1);
-    await ctx.store.transaction((trx) =>
-      trx
-        .updateTable('session_snapshot')
-        .set({ state: 'working' })
-        .where('id', '=', 'worker-1')
-        .execute(),
-    );
+    await observeHealth(ctx, 'worker-1', 'working');
     ctx.advance(120_000);
     await ctx.ring();
     await ctx.sender.tick();
     expect(ctx.sent).toHaveLength(1);
-    await ctx.store.transaction((trx) =>
-      trx
-        .updateTable('session_snapshot')
-        .set({ state: 'waiting' })
-        .where('id', '=', 'worker-1')
-        .execute(),
-    );
+    await observeHealth(ctx, 'worker-1', 'waiting');
     await ctx.ring();
     await ctx.sender.tick();
     expect(ctx.sent).toHaveLength(2);
@@ -1238,6 +1287,44 @@ async function queueRings(
     ...(rings.length > 0 ? { queuedRings: rings } : {}),
   } as const;
   await setSession(ctx, id, { detail: toJson(sessionFactsSchema, facts) });
+}
+
+/**
+ * Observes `health` for a session through the Spur observation path, as a poll does. The facts
+ * are stored first so the observer reads a valid previous detail; the poll then writes the
+ * lifecycle columns itself.
+ */
+async function observeHealth(ctx: Board, id: string, health: string, project = 'web') {
+  const facts = sessionFactsSchema.parse({
+    id,
+    spurProject: project,
+    branch: null,
+    pr: null,
+    links: {},
+    lifecycle: 'running',
+    health,
+    healthSince: ctx.now().toISOString(),
+    lastActivityAt: null,
+    endedAt: null,
+    endReason: null,
+  });
+  await setSession(ctx, id, { detail: toJson(sessionFactsSchema, facts) });
+  await createObservationCore({
+    store: ctx.store,
+    config: ctx.config,
+    clock: { now: () => ctx.now().getTime() },
+  }).observe('spur', {
+    batch: {
+      source: 'spur',
+      observedAt: ctx.now().toISOString(),
+      complete: true,
+      items: [{ kind: 'session', facts }],
+      entities: [],
+    },
+    effectiveComplete: false,
+    state: { lastCompleteAt: ctx.now().toISOString(), gone: [] },
+    outcomes: [],
+  });
 }
 
 /** Runs the doorbell job, then one sender tick. */
