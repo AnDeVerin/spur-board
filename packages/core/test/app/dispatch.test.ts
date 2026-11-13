@@ -1309,6 +1309,47 @@ describe('mode switch', () => {
     ]);
   });
 
+  it('an entry turn that hands over a comment after a shadow submit needs its own submit', async () => {
+    const ctx = await started({ mode: 'shadow' });
+    const pending = [{ name: 'ci', state: 'pending' as const, completedAt: null }];
+    await ctx.pr({ requiredChecks: pending });
+    await ctx.submit(WORKER, KEY, A);
+    expect((await ctx.task()).shadow_column).toBe('dev');
+    // The comment comes a step after the submit, so that submit did not handle it.
+    await ctx.github();
+    await ctx.pr({
+      feedback: [
+        {
+          kind: 'comment',
+          id: 'c-1',
+          author: { login: EXTERNAL, type: 'user' },
+          postedAt: ctx.at(),
+        },
+      ],
+    });
+
+    ctx.restart({ mode: 'on' });
+    await ctx.spur();
+    await ctx.pr({ requiredChecks: prFacts().requiredChecks });
+    expect(await ctx.task()).toMatchObject({ column: 'dev', column_epoch: 1 });
+    const turn = await ctx.openTurn();
+    expect(turn).toEqual(turnOf('dev', 'worker', 'dev: external_comments'));
+    expect(JSON.parse(turn?.handed ?? '[]')).toMatchObject([{ kind: 'comment', id: 'c-1' }]);
+    expect(
+      await ctx.store.db.selectFrom('submission').select(['column', 'voided_at']).execute(),
+    ).toEqual([{ column: 'dev', voided_at: expect.any(String) as unknown }]);
+
+    await ctx.tick();
+    await ctx.github();
+    expect((await ctx.task()).column).toBe('dev');
+    expect(await ctx.openTurn()).toMatchObject({ id: turn?.id });
+
+    await ctx.ack(WORKER, turn?.id ?? '');
+    await expect(ctx.submit(WORKER, turn?.id ?? '', A)).resolves.toMatchObject({
+      task: { column: 'review' },
+    });
+  });
+
   it('clears the shadow column on a switch back to shadow', async () => {
     const ctx = await started({ mode: 'shadow' });
     await ctx.pr();

@@ -186,6 +186,27 @@ const cases: [string, Changes, Result][] = [
     { moves: [], turn: turn('after_submit', 'dev', 'external_comments'), voids: 'dev' },
   ],
   [
+    'an entry turn handing over an external comment voids the Dev submit',
+    { facts: { unhandledExternalComments: 1 } },
+    { moves: [], turn: turn('entry', 'dev', 'external_comments'), voids: 'dev' },
+  ],
+  [
+    'an entry turn handing over nothing from an incomplete history keeps the Dev submit',
+    { facts: { unhandledExternalComments: 1, commentHistory: 'incomplete' } },
+    {
+      moves: [],
+      turn: turn('entry', 'dev', 'external_comments', 'comment_history_incomplete'),
+    },
+  ],
+  [
+    'a reroute handing over an external comment voids the Dev submit',
+    {
+      facts: { unhandledExternalComments: 1 },
+      turn: { visit: 'unclosed', operatorUntaken: true },
+    },
+    { moves: [], turn: turn('reroute', 'dev', 'external_comments'), voids: 'dev' },
+  ],
+  [
     'with the Dev submit voided, the after-submit turn holds Dev until its own submit',
     { facts: { marks: [] }, turn: { visit: 'unclosed' } },
     nothing,

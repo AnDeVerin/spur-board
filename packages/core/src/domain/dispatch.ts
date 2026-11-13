@@ -63,8 +63,9 @@ interface DispatchResult {
   moves: DispatchMove[];
   turn: DispatchTurn | null;
   /**
-   * The column whose submits the result voids, marks kept: set with an `after_submit` turn, so
-   * the submit before it cannot pass the gate past the work that turn hands over.
+   * The column whose submits the result voids, marks kept: set with an `after_submit` turn and
+   * with any Dev turn that hands over new feedback, so the submit before it cannot pass the gate
+   * past the work that turn hands over.
    */
   voids?: ColumnId;
 }
@@ -112,7 +113,12 @@ export function dispatch(input: DispatchInput): DispatchResult {
     const deferred =
       next !== null && input.spurBlind && orchestratorOf(project, next.column) === 'none';
     const opened = cycleHeld || deferred ? null : next;
-    return opened?.kind === 'after_submit'
+    // Only a Dev turn hands over feedback, and none from an incomplete history (applyOn).
+    const handsOver =
+      opened?.column === 'dev' &&
+      facts.commentHistory === 'complete' &&
+      facts.unhandledExternalComments > 0;
+    return opened !== null && (opened.kind === 'after_submit' || handsOver)
       ? { moves, turn: opened, voids: opened.column }
       : { moves, turn: opened };
   };
