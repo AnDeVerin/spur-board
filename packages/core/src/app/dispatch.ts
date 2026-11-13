@@ -306,8 +306,8 @@ function externalApproval(pr: PrFacts, agentLogin: string): boolean {
 
 /**
  * The external feedback nobody handled yet. An approval review is not a comment. In `on` mode
- * an entry is handled once a turn handed it over, or an older one; in `shadow`, once a worker
- * column submission was made at or after it.
+ * an entry is handled once a turn handed it over, or an older one; in `shadow`, once a submission
+ * in Dev, whatever its orchestrator, or in another worker column was made at or after it.
  */
 async function unhandledFeedback(
   trx: Trx,
@@ -331,7 +331,7 @@ async function unhandledFeedback(
   );
   if (mode === 'shadow') {
     const workerColumns = project.columns
-      .filter((column) => column.orchestrator === 'none')
+      .filter((column) => column.id === 'dev' || column.orchestrator === 'none')
       .map((column) => column.id);
     const submitted =
       workerColumns.length === 0

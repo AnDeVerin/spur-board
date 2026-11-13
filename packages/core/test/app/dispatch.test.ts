@@ -52,6 +52,7 @@ type Options = {
   mode?: 'on' | 'shadow';
   cycleLimit?: number;
   externalReview?: boolean;
+  devOrchestrator?: string;
 };
 
 function boardConfig(options: Options = {}) {
@@ -69,7 +70,12 @@ function boardConfig(options: Options = {}) {
         ],
         columns: [
           { id: 'todo' },
-          { id: 'dev' },
+          {
+            id: 'dev',
+            ...(options.devOrchestrator === undefined
+              ? {}
+              : { orchestrator: options.devOrchestrator }),
+          },
           { id: 'review', orchestrator: 'rev', cycleLimit: options.cycleLimit ?? 10 },
           { id: 'product-review', orchestrator: 'coord' },
           ...(options.externalReview === true ? [{ id: 'external-review' }] : []),
@@ -693,6 +699,29 @@ describe('shadow mode', () => {
     await ctx.pr({ mergeable: 'mergeable' });
     expect((await ctx.task()).shadow_column).toBe('dev');
     expect(await ctx.task()).toMatchObject({ column: 'todo', column_epoch: 0, left_moves: 0 });
+  });
+
+  it('counts the Dev orchestrator submit as handling external feedback', async () => {
+    const ctx = await started({ mode: 'shadow', devOrchestrator: 'coord' });
+    await ctx.pr({
+      feedback: [
+        {
+          kind: 'comment',
+          id: 'c-1',
+          author: { login: EXTERNAL, type: 'user' },
+          postedAt: at(1),
+        },
+      ],
+    });
+    expect((await ctx.task()).shadow_column).toBe('dev');
+
+    await ctx.submit(COORD, KEY, A);
+    expect((await ctx.task()).shadow_column).toBe('review');
+    expect((await ctx.events('task_shadow_moved')).at(-1)?.payload).toEqual({
+      from: 'dev',
+      to: 'review',
+      reason: 'gate_passed',
+    });
   });
 });
 
