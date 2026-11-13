@@ -22,6 +22,7 @@ import {
   dispatchDeadExecutor,
   dispatchExternalComment,
   dispatchHappyPath,
+  dispatchLongCommentHistory,
   dispatchReentrySameHead,
   dispatchReviewLoop,
   dispatchSourceBlind,
@@ -138,6 +139,7 @@ export const SCENARIOS: readonly Scenario[] = [
   dispatchDeadExecutor,
   dispatchSourceBlind,
   dispatchCycleLimit,
+  dispatchLongCommentHistory,
 ];
 
 export const scenarioNames = (scenarios: readonly Scenario[] = SCENARIOS): string[] =>
