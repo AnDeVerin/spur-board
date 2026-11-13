@@ -957,17 +957,15 @@ async function heldContinuations(
   return rows.flatMap((row) => {
     const ref = byKey.get(row.ref_key);
     if (ref === undefined) return [];
-    let feedback: unknown;
+    let feedback;
     try {
-      feedback = JSON.parse(row.feedback);
+      feedback = parseJson(heldFeedbackSchema, row.feedback);
     } catch {
       return [];
     }
-    const parsed = heldFeedbackSchema.safeParse(feedback);
-    if (!parsed.success) return [];
     // Opaque to core (A10): stored as the adapter issued it and passed back unread.
     const resume = row.resume as SourceCursor | null;
-    return [{ ref, resume, feedback: parsed.data }];
+    return [{ ref, resume, feedback }];
   });
 }
 
