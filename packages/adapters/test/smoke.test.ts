@@ -43,6 +43,7 @@ const pr = {
   url: 'https://github.com/demo/widgets/pull/7',
   title: 'DEMO-42 Add widget',
   updatedAt: at,
+  mergedAt: null,
   state: 'OPEN',
   isDraft: false,
   mergeable: 'UNKNOWN',

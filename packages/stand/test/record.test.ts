@@ -101,6 +101,7 @@ function prNode(number: number) {
     url: `https://github.com/${BOARD}/pull/${String(number)}`,
     title: 'Fix the acme login for jane.doe@acme.example',
     updatedAt: iso(5),
+    mergedAt: null,
     state: 'OPEN',
     isDraft: false,
     mergeable: 'MERGEABLE',

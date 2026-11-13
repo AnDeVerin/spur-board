@@ -34,7 +34,7 @@ const ORDER = 'orderBy: {field: UPDATED_AT, direction: DESC}';
 const contextNodes = (number: string): string =>
   `nodes { ... on CheckRun { __typename name status conclusion startedAt completedAt checkSuite { createdAt } isRequired(pullRequestNumber: ${number}) } ... on StatusContext { __typename context state createdAt isRequired(pullRequestNumber: ${number}) } }`;
 const prAlias = (closing: boolean): string =>
-  `pr0: repository(owner: $owner, name: $repo) { pullRequest(number: 1) { id number url title updatedAt state isDraft mergeable mergeStateStatus author { login } headRefName headRefOid statusCheckRollup { contexts(first: 100) { ${contextNodes('1')} ${PAGE_INFO} } } reviews(first: 100) { nodes { ${REVIEW_FIELDS} } ${PAGE_INFO} } comments(last: 100) { ${COMMENT_FIELDS} } reviewThreads(first: 100) { nodes { isResolved } ${PAGE_INFO} } reviewRequests(first: 100) { nodes { ${REVIEWER_FIELDS} } ${PAGE_INFO} }${closing ? ` closingIssuesReferences(first: 100) { ${CLOSING_FIELDS} }` : ''} } }`;
+  `pr0: repository(owner: $owner, name: $repo) { pullRequest(number: 1) { id number url title updatedAt mergedAt state isDraft mergeable mergeStateStatus author { login } headRefName headRefOid statusCheckRollup { contexts(first: 100) { ${contextNodes('1')} ${PAGE_INFO} } } reviews(first: 100) { nodes { ${REVIEW_FIELDS} } ${PAGE_INFO} } comments(last: 100) { ${COMMENT_FIELDS} } reviewThreads(first: 100) { nodes { isResolved } ${PAGE_INFO} } reviewRequests(first: 100) { nodes { ${REVIEWER_FIELDS} } ${PAGE_INFO} }${closing ? ` closingIssuesReferences(first: 100) { ${CLOSING_FIELDS} }` : ''} } }`;
 const prBatch = (states: string, baseline: string, aliases: string): string =>
   `query PrBatch($owner: String!, $repo: String!) { ${RATE_LIMIT} repository(owner: $owner, name: $repo) { pullRequests(first: 100, states: [${states}], ${ORDER}) { ${DISCOVERY_FIELDS} }${baseline} } ${aliases} }`;
 const prDetails = (closing: boolean): string =>
@@ -105,6 +105,7 @@ const reviewerSchema = z.discriminatedUnion('__typename', [
 const fieldsSchema = z.strictObject({
   title: z.string(),
   updatedAt: z.iso.datetime(),
+  mergedAt: z.iso.datetime().nullable(),
   state: z.enum(['OPEN', 'CLOSED', 'MERGED']),
   isDraft: z.boolean(),
   mergeable: z.string(),
@@ -223,6 +224,7 @@ export function createGithubPrFake(options: {
       number,
       title: `Stand PR ${String(number)}`,
       updatedAt: at,
+      mergedAt: seed.state === 'MERGED' ? (seed.updatedAt ?? at) : null,
       state: 'OPEN',
       isDraft: false,
       mergeable: 'MERGEABLE',
@@ -314,6 +316,7 @@ export function createGithubPrFake(options: {
         break;
       case 'merge':
         pr.state = 'MERGED';
+        pr.mergedAt = at;
         pr.mergeable = 'UNKNOWN';
         pr.mergeStateStatus = 'UNKNOWN';
         break;
@@ -331,6 +334,7 @@ export function createGithubPrFake(options: {
       url: `https://github.stand.invalid/${pr.repo}/pull/${String(pr.number)}`,
       title: pr.title,
       updatedAt: pr.updatedAt,
+      mergedAt: pr.mergedAt,
       state: pr.state,
       isDraft: pr.isDraft,
       mergeable: pr.mergeable,

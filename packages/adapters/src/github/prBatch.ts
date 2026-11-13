@@ -95,6 +95,7 @@ const prWire = z.object({
   url: z.string(),
   title: z.string(),
   updatedAt: z.string(),
+  mergedAt: z.string().nullable(),
   state: z.string(),
   isDraft: z.boolean(),
   mergeable: z.string(),
@@ -464,6 +465,7 @@ export function normalizePr(
     ),
     ticketKeys: prKeys(rule, title, headBranch, closingRefs(wire.closingIssuesReferences)),
     updatedAt: wire.updatedAt,
+    ...(state === 'merged' && wire.mergedAt !== null ? { mergedAt: wire.mergedAt } : {}),
     feedback: feedbackOf(wire.reviews.nodes, wire.comments.nodes),
     feedbackComplete,
   };

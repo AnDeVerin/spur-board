@@ -60,7 +60,7 @@ const CLOSING_FIELDS =
 const prFields = (
   number: number,
   closing = false,
-): string => `id number url title updatedAt state isDraft mergeable mergeStateStatus
+): string => `id number url title updatedAt mergedAt state isDraft mergeable mergeStateStatus
  author { login } headRefName headRefOid
  statusCheckRollup { contexts(first: 100) { nodes {
  ... on CheckRun { __typename name status conclusion startedAt completedAt checkSuite { createdAt } isRequired(pullRequestNumber: ${String(number)}) }

@@ -39,6 +39,7 @@ function wire(number = 7) {
     url: `https://github.com/demo/widgets/pull/${String(number)}`,
     title: 'DEMO-42 Add widget',
     updatedAt: time,
+    mergedAt: null,
     state: 'OPEN',
     isDraft: false,
     mergeable: 'UNKNOWN',
@@ -184,14 +185,14 @@ describe('GitHub PR batch', () => {
   it('pins the initial query and asks for rateLimit, discovery and aliases together', () => {
     const query = initialQuery([7]);
     expect(createHash('sha256').update(query).digest('hex')).toBe(
-      '8e42e02ea21aae8741f55341aaf415536ab90280ffd4dc8ac50001db7f2dd103',
+      '57fea1516516618d75f8c0f2fab85653436cef2b3c4973f09bcf65542e34befa',
     );
     expect(query).toContain('rateLimit { remaining resetAt }');
     expect(query).toContain('pullRequests(first: 100');
     expect(query).toContain('pr0: repository');
     const bootstrapQuery = initialQuery([7], true);
     expect(createHash('sha256').update(bootstrapQuery).digest('hex')).toBe(
-      'b8da83652b8ccdbf66f9d7328ed5171815b092bfa102d3d578d7f0dbc822c202',
+      '7cbbf1aa22ade41e90490ffcd5b1cbadbb032b2ff47a51db6a27f7e127fe1b13',
     );
     expect(bootstrapQuery).toContain('states: [OPEN]');
     expect(pageQuery('pullRequests', true)).toContain('states: [OPEN]');
@@ -199,7 +200,7 @@ describe('GitHub PR batch', () => {
     expect(bootstrapQuery).not.toContain('closingIssuesReferences');
     const issuesQuery = initialQuery([7], true, true);
     expect(createHash('sha256').update(issuesQuery).digest('hex')).toBe(
-      '3cd30c62e68987acc0bf39bef2340ad8d41f280e6e81604c64e1f047d340b34d',
+      '7414f70904725a68c68d3c177eb5b4484c01049ffbd968ac13559e6fe3da404a',
     );
     expect(issuesQuery).toContain('closingIssuesReferences(first: 100)');
     for (const selection of [query, pageQuery('reviewRequests')]) {
@@ -256,6 +257,21 @@ describe('GitHub PR batch', () => {
     ]);
     expect(facts.ticketKeys).toEqual(['DEMO-42']);
     expect(ticketKeys('XDEMO-42 DEMO-420x', 'OTHER-1', ['DEMO'])).toEqual([]);
+  });
+  it('reads mergedAt for a merged PR only', () => {
+    const merged = '2026-01-02T00:00:00.000Z';
+    expect(normalizePr('demo/widgets', wire(), demoKeys, true)).not.toHaveProperty('mergedAt');
+    const facts = normalizePr(
+      'demo/widgets',
+      { ...wire(), state: 'MERGED', mergedAt: merged, updatedAt: '2026-01-05T00:00:00.000Z' },
+      demoKeys,
+      true,
+    );
+    expect(facts).toMatchObject({ state: 'merged', mergedAt: merged });
+    expect(
+      normalizePr('demo/widgets', { ...wire(), state: 'MERGED' }, demoKeys, true),
+    ).not.toHaveProperty('mergedAt');
+    expect(initialQuery([7])).toContain('updatedAt mergedAt state');
   });
   it('keeps the latest review opinion after a comment-only review', () => {
     const pr = wire();

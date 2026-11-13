@@ -268,6 +268,7 @@ describe('wire facts', () => {
       state: 'merged',
       mergeable: 'unknown',
       mergeState: 'unknown',
+      mergedAt: new Date(NOW).toISOString(),
     });
   });
 

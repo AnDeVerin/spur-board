@@ -659,6 +659,22 @@ describe('flow tables', () => {
     expect((await ctx.task()).column).toBe('done');
   });
 
+  it('a merge made before the reopen is hidden though the PR changed after it', async () => {
+    const ctx = await inDev();
+    // GitHub merged #7 before the ticket closed and reopened; its title is edited after the reopen.
+    const merged = ctx.at();
+    await ctx.ticket('closed');
+    await ctx.ticket('open');
+    const edited = new Date(Date.parse(ctx.at()) + 30_000).toISOString();
+    await ctx.pr({ state: 'merged', mergedAt: merged, updatedAt: edited, title: 'Renamed' });
+    expect(await ctx.task()).toMatchObject({ column: 'todo' });
+    expect((await ctx.moves()).at(-1)).toEqual({
+      from: 'dev',
+      to: 'todo',
+      reason: 'ticket_reopened',
+    });
+  });
+
   it('a late pre-reopen merge hides only its own PR, not a follow-up merged after the reopen', async () => {
     const ctx = await inDev();
     // GitHub merged #7 before the ticket closed and reopened; the board sees that merge last.

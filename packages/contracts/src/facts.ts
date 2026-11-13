@@ -187,6 +187,11 @@ export const prFactsSchema = z
       .array(taskKeySchema)
       .describe('Ticket keys found in the head branch name and the title.'),
     updatedAt: at.describe('When the pull request last changed.'),
+    mergedAt: at
+      .optional()
+      .describe(
+        'When the pull request merged; absent while it is not merged and in facts stored by an earlier version.',
+      ),
     feedback: z
       .array(feedbackSchema)
       .optional()

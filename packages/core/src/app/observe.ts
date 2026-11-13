@@ -234,8 +234,9 @@ async function setReopenFloor(trx: Trx, taskId: number, at: string): Promise<voi
 
 /**
  * A PR link seen merged or closed after a reopen stops waiting. Its merge counts as made before
- * the reopen when the PR's `updatedAt`, never earlier than the merge, is before the time the board
- * observed the reopen; a tie counts the merge. Then the reopen hides this link only: another link
+ * the reopen when the PR's `mergedAt` is before the time the board observed the reopen; a tie
+ * counts the merge. Facts without `mergedAt`, stored by an earlier version, fall back to
+ * `updatedAt`, never earlier than the merge, so a later edit makes the merge count. Then the reopen hides this link only: another link
  * of the task that already counts, such as a follow-up merged after the reopen, keeps counting.
  */
 async function applyPendingReopen(trx: Trx, fact: PrFacts, at: string): Promise<void> {
@@ -251,7 +252,7 @@ async function applyPendingReopen(trx: Trx, fact: PrFacts, at: string): Promise<
   for (const link of pending) {
     const before =
       fact.state === 'merged' &&
-      Date.parse(fact.updatedAt) < Date.parse(link.reopen_pending_at ?? '');
+      Date.parse(fact.mergedAt ?? fact.updatedAt) < Date.parse(link.reopen_pending_at ?? '');
     await trx
       .updateTable('link')
       .set({ reopen_pending_at: null, ...(before ? { reopen_hidden_at: at } : {}) })
