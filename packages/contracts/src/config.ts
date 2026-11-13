@@ -515,7 +515,7 @@ export const configSchema = z.strictObject({
           feed: nonEmpty
             .optional()
             .describe(
-              'Slack channel ID where the board posts a line for each operator item, each curator answer and each newly installed version, and where the operator presses their buttons. Set it together with orchestrators.',
+              'Slack channel ID where the board posts a line for each curator answer, each newly installed version and each operator item, with the buttons the operator presses. Operator items about failed Slack posts, transport health, undelivered answers and ended workers, and those shown as operator blocks, get no feed line. Set it together with orchestrators.',
             ),
         })
         .prefault({}),

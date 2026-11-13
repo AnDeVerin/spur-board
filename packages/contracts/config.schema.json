@@ -297,7 +297,7 @@
               "minLength": 1
             },
             "feed": {
-              "description": "Slack channel ID where the board posts a line for each operator item, each curator answer and each newly installed version, and where the operator presses their buttons. Set it together with orchestrators.",
+              "description": "Slack channel ID where the board posts a line for each curator answer, each newly installed version and each operator item, with the buttons the operator presses. Operator items about failed Slack posts, transport health, undelivered answers and ended workers, and those shown as operator blocks, get no feed line. Set it together with orchestrators.",
               "type": "string",
               "minLength": 1
             }
