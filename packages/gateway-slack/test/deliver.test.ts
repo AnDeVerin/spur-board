@@ -422,6 +422,55 @@ describe('rendering and surface', () => {
     ).toBe('> ~a∼b~\n> \n> ~c~');
   });
 
+  it('renders a question and answer line as a section and a context element', async () => {
+    const { fake, gateway } = await setup();
+    const delivered = await gateway.deliver({
+      ...request('curator-answer'),
+      persona: { name: 'Cur Bot', role: 'curator', icon: ':owl:' },
+      body: [
+        {
+          kind: 'paragraph',
+          children: [
+            { kind: 'link', url: 'https://example.com/T1', text: 'T1' },
+            { kind: 'text', text: ' Fix login' },
+          ],
+        },
+        {
+          kind: 'paragraph',
+          children: [
+            { kind: 'emphasis', text: 'Question:' },
+            { kind: 'text', text: ' Q?' },
+          ],
+        },
+        {
+          kind: 'paragraph',
+          children: [
+            { kind: 'emphasis', text: 'Answer:' },
+            { kind: 'text', text: ' A.' },
+          ],
+        },
+        { kind: 'paragraph', children: [{ kind: 'italic', text: 'Checked.' }] },
+        {
+          kind: 'context',
+          children: [{ kind: 'text', text: 'B1 · asked by p/s1 · answered by cur/s2 · unblocked' }],
+        },
+      ],
+    });
+    expect(delivered.status).toBe('delivered');
+    const posted = fake.requests().find((entry) => entry.method === 'chat.postMessage');
+    const text =
+      '<https://example.com/T1|T1> Fix login\n\n*Question:* Q?\n\n*Answer:* A.\n\n_Checked._';
+    expect(posted?.params.text).toBe(text);
+    expect(posted?.params.text).not.toContain('asked by');
+    expect(JSON.parse(posted?.params.blocks ?? 'null')).toEqual([
+      { type: 'section', block_id: 'spur:curator-answer', text: { type: 'mrkdwn', text } },
+      {
+        type: 'context',
+        elements: [{ type: 'mrkdwn', text: 'B1 · asked by p/s1 · answered by cur/s2 · unblocked' }],
+      },
+    ]);
+  });
+
   it('renders italic per line inside underscores', () => {
     expect(
       renderText([{ kind: 'paragraph', children: [{ kind: 'italic', text: ' a<b \n\n  c ' }] }]),

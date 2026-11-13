@@ -100,6 +100,18 @@ function inline(value: RichTextInline): string {
   }
 }
 
+/** Trailing context blocks become context elements after the section, each cut to fit one. */
+export function splitContext(body: RichText): { body: RichText; context: string[] } {
+  let end = body.length;
+  while (end > 0 && body[end - 1]?.kind === 'context') end--;
+  const context = body
+    .slice(end)
+    .map((block) => (block.kind === 'context' ? block.children.map(inline).join('') : ''))
+    .filter((text) => text.length > 0)
+    .map((text) => splitText(text)?.[0] ?? text.slice(0, MAX_PART_TEXT));
+  return { body: body.slice(0, end), context };
+}
+
 export function renderText(body: RichText): string {
   return body
     .map((block) => {
@@ -208,6 +220,7 @@ export function messageBlocks(
   marker: string,
   actions: readonly Action[] = [],
   originKey?: string,
+  context: readonly string[] = [],
 ) {
   type SectionBlock = {
     type: 'section';
@@ -223,8 +236,13 @@ export function messageBlocks(
     block_id: string;
     elements: [{ type: 'plain_text'; text: string }];
   };
-  const blocks: (SectionBlock | ActionsBlock | OriginBlock)[] = [
+  type ContextBlock = { type: 'context'; elements: [{ type: 'mrkdwn'; text: string }] };
+  const blocks: (SectionBlock | ActionsBlock | OriginBlock | ContextBlock)[] = [
     { type: 'section', block_id: marker, text: { type: 'mrkdwn', text } },
+    ...context.map((value): ContextBlock => ({
+      type: 'context',
+      elements: [{ type: 'mrkdwn', text: value }],
+    })),
   ];
   if (originKey !== undefined) {
     const id = originMarkerId(originKey);
