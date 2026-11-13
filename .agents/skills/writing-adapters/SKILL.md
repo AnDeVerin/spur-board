@@ -56,15 +56,15 @@ rule names another. A PR changing a practice named here updates this skill.
   `config`, until `retryAt` after `throttled`, and backs off exponentially otherwise.
 - GraphQL errors in a 200 response: `GithubClient.query` maps rate limiting to a synthetic 429
   and `INSUFFICIENT_SCOPES` to `auth`.
-- Report the source budget in `Batch.budget`. Every GitHub query selects
-  `rateLimit { remaining resetAt }`; a missing budget fails the poll. `budgetPause` pauses below
-  the config key `github.reserveRemaining`.
+- Report the budget in `Batch.budget`: GraphQL selects `rateLimit { remaining resetAt }` or the
+  poll fails; Issues reads `x-ratelimit-remaining`/`-reset`, omitting bad ones. `budgetPause`
+  pauses each bucket below `github.reserveRemaining`.
 - The runner hands each failed step and rejected report to `onFailure`; no bare `catch`.
 - GitHub, GitHub Issues and Jira requests run under `withTimeout` in
   `packages/adapters/src/runner/http.ts` (30 s): a timeout is `transient`, a caller abort passes
   through unchanged. Spur keeps its own 5 s timer.
-- `schedule` in `packages/adapters/src/runner/runner.ts` caps a poll wait at the setTimeout limit,
-  2147483647 ms; a longer delay would otherwise fire after 1 ms.
+- `schedule` (`packages/adapters/src/runner/runner.ts`) caps a poll wait at 2147483647 ms, the
+  setTimeout limit; a longer one fires after 1 ms.
 - Runner coverage: `describe('batch validation')`, `describe('failures')`,
   `describe('http failure classification')`, `describe('budget')`,
   `describe('auth and config errors')` and `describe('failure log')` in
