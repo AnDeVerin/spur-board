@@ -3856,7 +3856,7 @@ Choose a unique idempotencyKey for each action; reuse it on retries.",
         },
         "name": {
           "description": "Unique name of the operator token.",
-          "maxLength": 256,
+          "maxLength": 1048576,
           "minLength": 1,
           "type": "string",
         },
