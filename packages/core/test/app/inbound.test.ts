@@ -1671,21 +1671,25 @@ describe('inbound apply', () => {
     expect(await reopened.db.selectFrom('comment').select('id').execute()).toHaveLength(1);
   });
 
-  it('applies a distinct edit in the same millisecond and skips its replay', async () => {
+  it('orders distinct edits within one millisecond by their full source time', async () => {
     const { store, inbound } = await setup();
-    const edit = (key: string, text: string) => ({
+    const second = new Date(now + 1000).toISOString().replace(/\.\d{3}Z$/, '');
+    const edit = (key: string, micros: string, text: string) => ({
       ...message({ conversation: 'thread-1', root: 'root-1', key }),
       kind: 'message_edited' as const,
       text,
-      at: new Date(now + 1000).toISOString(),
+      at: `${second}.${micros}Z`,
     });
+    const editA = edit('edit-a', '000100', 'First edit');
+    const editB = edit('edit-b', '000200', 'Second edit');
     const comment = () => store.db.selectFrom('comment').select(['text', 'revision']).execute();
     await inbound.sink(message({ conversation: 'thread-1', root: 'root-1' }));
-    await inbound.sink(edit('edit-a', 'First edit'));
-    await inbound.sink(edit('edit-b', 'Second edit'));
+    await inbound.sink(editA);
+    await inbound.sink(editB);
     expect(await comment()).toEqual([{ text: 'Second edit', revision: 3 }]);
     await purgeExpiredCommands(store, { now: () => now + 8 * DAY }, 7);
-    await inbound.sink(edit('edit-b', 'Second edit'));
+    await inbound.sink(editB);
+    await inbound.sink(editA);
     expect(await comment()).toEqual([{ text: 'Second edit', revision: 3 }]);
     expect(await store.db.selectFrom('command').select('key').execute()).toEqual([]);
   });

@@ -214,10 +214,22 @@ async function skip(
 }
 
 /**
- * The journal is the comment's edit cursor: a deletion, or a later edit, was already applied.
- * Times compare in milliseconds, since `at` precision varies. Distinct edits can share a
- * millisecond, so an edit at the same millisecond counts as applied only when the comment
- * already holds its text.
+ * An ISO time as [milliseconds, sub-millisecond digits], so times of any precision compare at
+ * the finest one either carries: a gateway may keep its platform's microseconds for edits.
+ */
+function instant(at: string): [number, number] {
+  const fraction = /\.(\d+)/.exec(at)?.[1] ?? '';
+  return [Date.parse(at), Number(fraction.slice(3).padEnd(6, '0').slice(0, 6))];
+}
+
+function notBefore(a: [number, number], b: [number, number]): boolean {
+  return a[0] > b[0] || (a[0] === b[0] && a[1] >= b[1]);
+}
+
+/**
+ * The journal is the comment's edit cursor: a deletion, or an edit at or after this one, was
+ * already applied. Times compare at full source precision, so distinct edits within one
+ * millisecond keep their order.
  */
 async function alreadyApplied(trx: Trx, event: MessageEvent): Promise<boolean> {
   if (event.kind !== 'message_edited' && event.kind !== 'message_deleted') return false;
@@ -232,11 +244,8 @@ async function alreadyApplied(trx: Trx, event: MessageEvent): Promise<boolean> {
     .execute();
   if (rows.some((row) => row.kind === 'comment_deleted')) return true;
   if (event.kind === 'message_deleted') return false;
-  const editedAt = Date.parse(event.at);
-  return rows.some((row) => {
-    const rowAt = Date.parse(row.at);
-    return rowAt > editedAt || (rowAt === editedAt && comment.text === event.text);
-  });
+  const editedAt = instant(event.at);
+  return rows.some((row) => notBefore(instant(row.at), editedAt));
 }
 
 async function linkedComment(trx: Trx, event: MessageEvent): Promise<Row<'comment'> | undefined> {
