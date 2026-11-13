@@ -316,6 +316,33 @@ export async function remindStuckTurns(trx: Trx, config: Config, at: Date): Prom
   }
 }
 
+/**
+ * Whether a queued ring may go out at `at`. A turn reminder goes out only under the rule
+ * `remindStuckTurns` registers it by: its holder's current take is quiet for `stuckTurnAfterMs`.
+ * Otherwise the sender defers it, so a question opened after it was queued holds it until the
+ * question closes and a fresh quiet period passes. Every other ring is due.
+ */
+export async function ringDue(
+  trx: Trx,
+  notificationId: number,
+  config: Config,
+  at: Date,
+): Promise<boolean> {
+  const n = await trx
+    .selectFrom('notification')
+    .select('kind')
+    .where('id', '=', notificationId)
+    .executeTakeFirst();
+  if (n?.kind !== 'turn_reminder') return true;
+  const quiet = (await quietTurns(trx)).find((entry) => entry.reminder?.id === notificationId);
+  return (
+    quiet !== undefined &&
+    !quiet.ended &&
+    quiet.quietSince !== null &&
+    at.getTime() >= Date.parse(quiet.quietSince) + stuckTurnAfterMs(config)
+  );
+}
+
 /** Whether `left` is newer than `right` by `postedAt` instant, then by id. Compared, not subtracted. */
 function isNewer(left: Handed, right: Handed): boolean {
   const a = Date.parse(left.postedAt);

@@ -2439,4 +2439,52 @@ describe('turns', () => {
       expect.objectContaining({ acked_at: queued.now().toISOString() }),
     ]);
   });
+
+  it('defers a queued reminder while its holder has an open question and sends it after a fresh quiet period', async () => {
+    const ctx = await setup({ config: policyBoard('none') });
+    await takenByWorker(ctx);
+    await health(ctx, 'worker-1', 'web', 'waiting', ctx.now());
+    ctx.advance(IDLE);
+    await remind(ctx);
+    await ctx.ring();
+    const { id } = await question(ctx, worker);
+
+    await ctx.sender.tick();
+    ctx.advance(IDLE * 2);
+    await step(ctx);
+    expect(ctx.sent).toHaveLength(1);
+    expect(await reminders(ctx)).toEqual([
+      expect.objectContaining({ rings: 0, acked_at: null, exhausted_at: null }),
+    ]);
+
+    await ctx.store.transaction((trx) =>
+      trx
+        .updateTable('block')
+        .set({
+          state: 'unblocked',
+          outcome: 'done',
+          unblocked_by: 'operator',
+          unblocked_at: ctx.now().toISOString(),
+        })
+        .where('id', '=', id)
+        .execute(),
+    );
+    // The sender defers a ring for a second, so this retry falls due exactly at the threshold.
+    ctx.advance(IDLE - 1000);
+    await step(ctx);
+    expect(ctx.sent).toHaveLength(1);
+
+    ctx.advance(1000);
+    await step(ctx);
+    expect(ctx.sent.slice(1)).toEqual([
+      { session: 'worker-1', text: `${KEY} turn T1 is still open: check board inbox (N2-1)` },
+    ]);
+    expect(await reminders(ctx)).toEqual([
+      expect.objectContaining({ rings: 1, acked_at: ctx.now().toISOString() }),
+    ]);
+    ctx.advance(IDLE * 2);
+    await remind(ctx);
+    await step(ctx);
+    expect(ctx.sent).toHaveLength(2);
+  });
 });

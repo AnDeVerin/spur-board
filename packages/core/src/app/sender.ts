@@ -17,6 +17,7 @@ import type { Store } from '../store/store.ts';
 import type { Row, Tables } from '../store/schema.ts';
 import { recordRingDelivery, ringStillCurrent, ringTask, ringUndelivered } from './doorbells.ts';
 import { expireTokenOfItem } from './tokens.ts';
+import { ringDue } from './turns.ts';
 import { clearItem, raiseItem, resolvedFeedBody } from './feed.ts';
 import {
   deliveredRefSchema,
@@ -601,12 +602,17 @@ export function createSender(options: SenderOptions): Sender {
       return { at, firstDeliveryAt: null, skip: true };
     }
     if (c.body.kind === 'doorbell' && c.body.payload.notificationId !== undefined) {
-      const status = await ringStillCurrent(
+      let status = await ringStillCurrent(
         trx,
         c.body.payload.notificationId,
         c.body.payload.session,
         options.config,
       );
+      if (
+        status === 'send' &&
+        !(await ringDue(trx, c.body.payload.notificationId, options.config, new Date(at)))
+      )
+        status = 'defer';
       if (status === 'dead') {
         await kill(trx, [c.id], 'notification no longer current');
         return { at, firstDeliveryAt: null, skip: true };
