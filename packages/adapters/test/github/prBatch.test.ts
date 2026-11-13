@@ -1506,6 +1506,7 @@ describe('PR feedback', () => {
         id: 'PRR_9',
         author: { login: 'ci-bot', type: 'bot' },
         postedAt: postedAt(6),
+        state: 'commented',
       },
     ]);
     expect(facts.feedbackComplete).toBe(true);
@@ -1515,6 +1516,29 @@ describe('PR feedback', () => {
       'comments(last: 100) { nodes { id author { __typename login } createdAt }',
     );
     expect(bodyQuery(fetcher)).not.toContain('body');
+  });
+
+  it('keeps the state of every review in feedback, not only the latest per reviewer', async () => {
+    const approval = (id: string, minute: number) => ({
+      id,
+      author: user('alice'),
+      state: 'APPROVED',
+      commit: { oid: sha },
+      submittedAt: postedAt(minute),
+    });
+    const pr = {
+      ...prWith(back([])),
+      reviews: conn([approval('PRR_1', 1), approval('PRR_2', 2)]),
+    };
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValueOnce(initial(pr));
+    const facts = factsOf(await adapter(fetcher).poll(context()));
+    expect(facts.reviews).toEqual([
+      { reviewer: 'alice', state: 'approved', commitSha: sha, submittedAt: postedAt(2) },
+    ]);
+    expect(facts.feedback?.map(({ id, state }) => [id, state])).toEqual([
+      ['PRR_1', 'approved'],
+      ['PRR_2', 'approved'],
+    ]);
   });
 
   it('sorts feedback by time, then id, whatever order the pages arrive in', () => {

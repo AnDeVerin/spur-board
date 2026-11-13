@@ -1119,6 +1119,45 @@ describe('design flows 2.5 and 2.10', () => {
     ]);
   });
 
+  it('a second approval by the same reviewer in Ready to Merge returns nothing', async () => {
+    const ctx = await pastProductReview();
+    expect((await ctx.task()).column).toBe('ready-to-merge');
+    const before = await ctx.task();
+    const moves = await ctx.moves();
+    const approval = (id: string, minute: number) => ({
+      kind: 'review' as const,
+      id,
+      author: { login: EXTERNAL, type: 'user' as const },
+      postedAt: at(minute),
+      state: 'approved' as const,
+    });
+    await ctx.pr({
+      reviews: [{ reviewer: EXTERNAL, state: 'approved', commitSha: A, submittedAt: at(31) }],
+      feedback: [approval('r-1', 30), approval('r-2', 31)],
+    });
+
+    expect(await ctx.task()).toMatchObject({
+      column: 'ready-to-merge',
+      column_epoch: before.column_epoch,
+      left_moves: before.left_moves,
+    });
+    expect(await ctx.moves()).toEqual(moves);
+    expect(
+      await ctx.store.db
+        .selectFrom('submission')
+        .select('column')
+        .where('voided_at', 'is not', null)
+        .execute(),
+    ).toEqual([]);
+    expect(
+      await ctx.store.db
+        .selectFrom('operator_item')
+        .select('item_key')
+        .where('kind', '=', 'cycle_limit')
+        .execute(),
+    ).toEqual([]);
+  });
+
   it('a conflict in External Review returns it at once', async () => {
     const ctx = await pastProductReview({ externalReview: true });
     await ctx.pr({ mergeable: 'conflicting' });

@@ -103,6 +103,10 @@ const feedbackSchema = z.strictObject({
     .nullable()
     .describe('Who posted it; null for a deleted account.'),
   postedAt: at.describe('When the comment was posted or the review submitted.'),
+  state: z
+    .enum(REVIEW_STATES)
+    .optional()
+    .describe('State of this review; missing for a comment and in snapshots written before it.'),
 });
 export type PrFeedback = z.output<typeof feedbackSchema>;
 

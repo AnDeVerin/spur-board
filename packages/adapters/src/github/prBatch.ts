@@ -1,6 +1,7 @@
 import {
   AdapterError,
   DEFAULT_LINK,
+  REVIEW_STATES,
   assertNever,
   prFactsSchema,
   type Config,
@@ -298,11 +299,13 @@ function feedbackOf(
     });
   for (const node of reviews) {
     if (node.submittedAt == null) continue;
+    const state = REVIEW_STATES.find((known) => known === node.state.toLowerCase());
     add({
       kind: 'review',
       id: node.id,
       author: feedbackAuthor(node.author),
       postedAt: node.submittedAt,
+      ...(state === undefined ? {} : { state }),
     });
   }
   const tie = (entry: PrFeedback): string => `${entry.id}\u0000${entry.kind}`;

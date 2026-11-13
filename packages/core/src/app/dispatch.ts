@@ -305,9 +305,11 @@ function externalApproval(pr: PrFacts, agentLogin: string): boolean {
 }
 
 /**
- * The external feedback nobody handled yet. An approval review is not a comment. In `on` mode
- * an entry is handled once a turn handed it over, or an older one; in `shadow`, once a submission
- * in Dev, whatever its orchestrator, or in another worker column was made at or after it.
+ * The external feedback nobody handled yet. An approval review is not a comment: an entry is one
+ * by its own state, or, in a snapshot written before entries had one, when it matches the
+ * reviewer's latest approval. In `on` mode an entry is handled once a turn handed it over, or an
+ * older one; in `shadow`, once a submission in Dev, whatever its orchestrator, or in another
+ * worker column was made at or after it.
  */
 async function unhandledFeedback(
   trx: Trx,
@@ -322,11 +324,13 @@ async function unhandledFeedback(
       isExternalAuthor(entry, project.operatorGithubLogin) &&
       !(
         entry.kind === 'review' &&
-        approvals.some(
-          (review) =>
-            review.reviewer.toLowerCase() === entry.author?.login.toLowerCase() &&
-            Date.parse(review.submittedAt) === Date.parse(entry.postedAt),
-        )
+        (entry.state === undefined
+          ? approvals.some(
+              (review) =>
+                review.reviewer.toLowerCase() === entry.author?.login.toLowerCase() &&
+                Date.parse(review.submittedAt) === Date.parse(entry.postedAt),
+            )
+          : entry.state === 'approved')
       ),
   );
   if (mode === 'shadow') {

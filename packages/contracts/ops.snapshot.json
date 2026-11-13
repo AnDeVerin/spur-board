@@ -1,5 +1,5 @@
 {
-  "version": "0d1fa0ce43fa93e2ca0d2aa0859d51c15355712eee22c060e241202d00886ea7",
+  "version": "f1b0c5623932b8f30f5efbf3d1a4ffb1a67bea92ebe9ea5bb308f8329b79d79c",
   "grants": [
     "operator",
     "project-agent",
@@ -1557,6 +1557,11 @@
                               "format": "date-time",
                               "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
                               "description": "When the comment was posted or the review submitted."
+                            },
+                            "state": {
+                              "description": "State of this review; missing for a comment and in snapshots written before it.",
+                              "type": "string",
+                              "enum": ["approved", "changes_requested", "commented", "dismissed"]
                             }
                           },
                           "required": ["kind", "id", "author", "postedAt"],
@@ -2087,6 +2092,11 @@
                         "format": "date-time",
                         "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
                         "description": "When the comment was posted or the review submitted."
+                      },
+                      "state": {
+                        "description": "State of this review; missing for a comment and in snapshots written before it.",
+                        "type": "string",
+                        "enum": ["approved", "changes_requested", "commented", "dismissed"]
                       }
                     },
                     "required": ["kind", "id", "author", "postedAt"],

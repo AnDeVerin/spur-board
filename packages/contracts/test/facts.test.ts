@@ -261,6 +261,16 @@ describe('invalid facts', () => {
     ],
     ['no time', { kind: 'comment', id: 'IC_1', author: null }],
     [
+      'an unknown review state',
+      {
+        kind: 'review',
+        id: 'PRR_1',
+        author: null,
+        postedAt: '2026-11-01T10:30:00Z',
+        state: 'pending',
+      },
+    ],
+    [
       'an unknown kind',
       { kind: 'reaction', id: 'R_1', author: null, postedAt: '2026-11-01T10:30:00Z' },
     ],
@@ -282,6 +292,17 @@ describe('stored facts', () => {
     delete input['feedback'];
     delete input['feedbackComplete'];
     expect(prFactsSchema.parse(input)).toEqual(input);
+  });
+
+  it('parses review feedback with and without its own state', () => {
+    const input = prFacts();
+    const [comment, , review] = input['feedback'] as Record<string, unknown>[];
+    const feedback = [comment, review, { ...review, id: 'PRR_2', state: 'approved' }];
+    expect(prFactsSchema.parse({ ...input, feedback }).feedback?.map((e) => e.state)).toEqual([
+      undefined,
+      undefined,
+      'approved',
+    ]);
   });
 });
 
