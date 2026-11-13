@@ -2180,6 +2180,71 @@ describe('anomaly blocks', () => {
     expect((await surface(b)).blocks).toHaveLength(1);
   });
 
+  it('keeps one PR-closed block and its dismissal when two projects share the repository', async () => {
+    const shared = configSchema.parse({
+      projects: [
+        {
+          id: 'board',
+          tracker: { type: 'github-issues', repo: 'o/r', label: 'board' },
+          repos: ['o/r'],
+          operatorGithubLogin: 'operator',
+          spurProjects: [{ name: 'worker', role: 'worker' }],
+        },
+        {
+          id: 'web',
+          tracker: {
+            type: 'jira',
+            baseUrl: 'https://jira.example.test',
+            jql: 'project = WEBDEV',
+            doneStatuses: ['Done'],
+            readyStatuses: ['Ready'],
+            projectKeys: ['WEBDEV'],
+          },
+          repos: ['o/r'],
+          operatorGithubLogin: 'operator',
+          spurProjects: [{ name: 'web-worker', role: 'worker' }],
+        },
+      ],
+      operator: { slack: 'operator' },
+      digest: { tz: 'UTC' },
+      health: { hostLoad: { sessions: 2 } },
+    });
+    const b = await board(shared);
+    const closed = [{ kind: 'pr' as const, facts: pr(7, 'closed') }];
+    const both = async () => {
+      now += 1_000;
+      await poll(b, 'github:web:o/r', closed);
+      now += 1_000;
+      await poll(b, github, closed);
+      await tick(b);
+    };
+    await poll(b, github, closed);
+    expect(await openLedger(b)).toEqual(['pr-closed']);
+    await both();
+    await both();
+    let state = await surface(b);
+    expect(await openLedger(b)).toEqual(['pr-closed']);
+    expect(state.blocks).toHaveLength(1);
+    expect(state.items).toHaveLength(1);
+    expect([state.opens, state.closes]).toEqual([1, 0]);
+    const [block] = state.blocks;
+    if (block === undefined) throw new Error('Missing closed-PR block');
+    now += 1_000;
+    await b.apply(
+      createBlockMutations(shared).unblock,
+      { mode: 'reason', block: `B${String(block.id)}`, reason: 'Abandoned on purpose.' },
+      'operator',
+    );
+    const dismissed = await surface(b);
+    await both();
+    await both();
+    state = await surface(b);
+    expect(await openLedger(b)).toEqual([]);
+    expect(state.blocks).toHaveLength(1);
+    expect(state.items).toHaveLength(1);
+    expect([state.opens, state.closes]).toEqual([dismissed.opens, dismissed.closes]);
+  });
+
   it('opens a block for a ticket closed while work is live, not for one closed by its merge', async () => {
     async function closedTicket(prFacts: PrFacts[]) {
       const b = await board();

@@ -252,13 +252,14 @@ export async function reconcileItems(
     const first = closed[0];
     if (first === undefined) continue;
     const refs = closed.map((pr) => pr.ref);
+    // Projects sharing a repo overwrite the snapshot's source, so the task's own repo source names it.
     candidates.push({
       key: `pr-closed:${String(task.id)}`,
       kind: 'anomaly',
       taskId: task.id,
       summary: `${task.key}: linked pull request ${refs.join(', ')} closed without merge, no open PR`,
       factAt: first.observed_at,
-      source: first.source,
+      source: `github:${task.project}:${(first.repo ?? '').toLowerCase()}`,
       priority: 4,
       revision: refs.join(','),
     });
