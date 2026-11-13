@@ -207,8 +207,8 @@ Keep the Spur project under exactly one Board project in the Board's `config.yam
   same action with its existing idempotency key.
 - **4 — configuration:** `config` means a config field, private secret key, or environment
   variable is wrong: correct the named one and retry after validation. An empty `BOARD_TOKEN`
-  override fails with `config`. `BOARD_DAEMON_URL` must be a valid HTTP(S) address when set; an
-  empty value fails. Without `BOARD_DAEMON_URL`, a missing, malformed or invalid `config.yaml`
+  override fails with `config`. `BOARD_DAEMON_URL` must be a valid HTTP(S) address when set, and `http:` only on
+  a loopback host; an empty value fails. Without `BOARD_DAEMON_URL`, a missing, malformed or invalid `config.yaml`
   fails with `config` and nothing is sent: set the variable, or fix the file and its `http.port`.
   Use `board doctor --offline` to check `config.yaml` while the service is
   down. `identity_missing` means there is no Spur session, `BOARD_TOKEN` is unset, and the CLI
