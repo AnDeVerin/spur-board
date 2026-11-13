@@ -219,34 +219,11 @@ async function skip(
   return { status: 'ignored' };
 }
 
-interface Instant {
-  ms: number;
-  /** Digits below the millisecond, scaled to microseconds; undefined when the time has none. */
-  micros: number | undefined;
-}
-
-function instant(at: string): Instant {
-  const fraction = /\.(\d+)/.exec(at)?.[1] ?? '';
-  return {
-    ms: Date.parse(at),
-    micros: fraction.length > 3 ? Number(fraction.slice(3).padEnd(3, '0').slice(0, 3)) : undefined,
-  };
-}
-
 /**
- * `a` is at or after `b`, compared at the precision both carry: microseconds when both have
- * them, else milliseconds. A journal row written before edits kept microseconds therefore still
- * covers a replay of its own edit.
- */
-function notBefore(a: Instant, b: Instant): boolean {
-  if (a.ms !== b.ms || a.micros === undefined || b.micros === undefined) return a.ms >= b.ms;
-  return a.micros >= b.micros;
-}
-
-/**
- * The journal is the comment's edit cursor: a deletion, or an edit at or after this one, was
- * already applied. A gateway may keep its platform's microseconds for edits, so distinct edits
- * within one millisecond keep their order.
+ * The journal is the comment's edit cursor: a deletion, or a later edit, was already applied.
+ * Times compare in milliseconds, since `at` precision varies. Distinct edits can share a
+ * millisecond, so an edit at the same millisecond counts as applied only when the comment
+ * already holds its text.
  */
 async function alreadyApplied(trx: Trx, event: MessageEvent): Promise<boolean> {
   if (event.kind !== 'message_edited' && event.kind !== 'message_deleted') return false;
@@ -261,8 +238,11 @@ async function alreadyApplied(trx: Trx, event: MessageEvent): Promise<boolean> {
     .execute();
   if (rows.some((row) => row.kind === 'comment_deleted')) return true;
   if (event.kind === 'message_deleted') return false;
-  const editedAt = instant(event.at);
-  return rows.some((row) => notBefore(instant(row.at), editedAt));
+  const editedAt = Date.parse(event.at);
+  return rows.some((row) => {
+    const rowAt = Date.parse(row.at);
+    return rowAt > editedAt || (rowAt === editedAt && comment.text === event.text);
+  });
 }
 
 async function linkedComment(trx: Trx, event: MessageEvent): Promise<Row<'comment'> | undefined> {
@@ -848,20 +828,16 @@ export function createInbound(input: {
         ? 'operator'
         : 'system';
     try {
-      const result = await scanTransaction(store, config, async (trx) =>
-        // Before the key check: a retained key may hold the same edit at another time precision.
-        (event.kind === 'message_edited' || event.kind === 'message_deleted') &&
-        (await alreadyApplied(trx, event))
-          ? undefined
-          : replayOperation(trx, {
-              actor,
-              key: event.dedupeKey,
-              operation: operationId(event),
-              fingerprintInput: event,
-              output: resultSchema,
-              at,
-              run: () => runUser(trx, event, at),
-            }),
+      const result = await scanTransaction(store, config, (trx) =>
+        replayOperation(trx, {
+          actor,
+          key: event.dedupeKey,
+          operation: operationId(event),
+          fingerprintInput: event,
+          output: resultSchema,
+          at,
+          run: () => runUser(trx, event, at),
+        }),
       );
       if (result?.response !== undefined && 'interaction' in event) {
         try {
