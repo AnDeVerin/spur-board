@@ -27,6 +27,9 @@ and `describe('PR index cache')` in `packages/adapters/test/github/prBatch.test.
 - Order: discovery, its own request; the index of every requested PR (`indexQuery`, 50 aliases);
   full reads (`detailQuery`, 10 aliases) of the PRs the index shows changed and of newly
   discovered ones.
+- Discovery lists `OPEN` PRs on bootstrap and `OPEN, MERGED, CLOSED` after it (`discoveryQuery`):
+  a merge or close moves `updatedAt`, so an unlinked operator PR's new state reaches core
+  through its detail read.
 - A transient failure (5xx, cut-off body, timeout) of discovery, an index chunk or a detail
   chunk counts toward `MAX_FAILED_REQUESTS` per poll; an aliased chunk is resent as two halves
   down to one PR. At the cap nothing more is sent. If no request succeeded, rethrow the first
