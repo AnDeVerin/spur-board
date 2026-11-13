@@ -77,8 +77,14 @@ passes while `skills.codex_visibility` fails or warns: fix that check first, the
 
 ### sessions.stale
 
-Restart live sessions started before the latest `board skills install`; they do not reload
-new skill files automatically. Verify any session whose start time cannot be read.
+Lists live Spur sessions whose `SPUR_PROJECT` is a configured `spurProjects` name and that
+started before the latest `board skills install`; sessions of other projects, or with no
+project, are left out. A session does not reload new skill files on its own: ask each listed
+session to re-read the `spur-board` skill, SKILL.md and references/. Claude Code reads it from
+`~/.claude/skills/spur-board`, Codex from `~/.codex/skills/spur-board`
+(`$CODEX_HOME/skills/spur-board` when set). No restart is needed. Doctor compares start times
+with the install stamp, so a session stays listed after it re-reads. When a connected session's
+start time cannot be read, the fix asks it to re-read the skill too.
 
 ### http.port
 
@@ -198,8 +204,8 @@ project with no curator is listed and does not warn. This check never blocks rea
 
 Install matching CLI and skill versions with `board update`: it restarts the daemon and
 reinstalls the skills. Then check `board --version` in both the current and live Spur session
-`PATH`, and restart sessions that still use an older skill. If the service unit points to an
-old Node or package path, run `board service install` again.
+`PATH`, and ask sessions that still use an older skill to re-read the `spur-board` skill. If the
+service unit points to an old Node or package path, run `board service install` again.
 
 ## Refused Spur session
 

@@ -590,10 +590,14 @@ export async function runDoctor(
   const latestInstall = Math.max(
     ...stamps.flatMap((entry) => (entry === null ? [] : [entry.installedAt])),
   );
-  const stale = sessions.filter(
+  // Only sessions of a configured Spur project read the board skill.
+  const connected = sessions.filter(
+    (session) => session.project !== undefined && configured.has(session.project),
+  );
+  const stale = connected.filter(
     (session) => session.startAt !== undefined && session.startAt < latestInstall,
   );
-  const unknownStarts = sessions.some((session) => session.startAt === undefined);
+  const unknownStarts = connected.some((session) => session.startAt === undefined);
   // Spur lists one entry per pane or process, so one session can appear several times.
   const staleSessions = [...new Set(stale.map((session) => session.id))];
   const staleIds = safeIds(staleSessions);
@@ -605,9 +609,9 @@ export async function runDoctor(
     stale.length > 0 || unknownStarts
       ? warning(
           'sessions.stale',
-          `Restart ${staleCount} started before the last skill install${listing(staleIds)}; verify sessions whose start time is unavailable.`,
+          `Ask ${staleCount} started before the last skill install to re-read the spur-board skill (SKILL.md and references/)${listing(staleIds)}. Claude Code reads it from ~/.claude/skills/spur-board, Codex from ~/.codex/skills/spur-board ($CODEX_HOME/skills/spur-board when set). No restart is needed; doctor keeps listing a session after it re-reads.${unknownStarts ? ' Ask connected sessions whose start time is unavailable to re-read it too.' : ''}`,
         )
-      : result('sessions.stale', true, 'Restart older sessions.'),
+      : result('sessions.stale', true, 'Ask older sessions to re-read the spur-board skill.'),
   );
 
   // The probe uses the port the daemon listens on, never the client's BOARD_DAEMON_URL.

@@ -36,7 +36,7 @@ Ask one question at a time, only when current state cannot answer it. Check befo
 
 ## 5. Finish
 
-- Run `board doctor --json`. For each failed check, inspect state, apply its `fix` with any needed consent, and repeat until green. Report warnings, especially live sessions started before the last skill install; they must restart to load it.
+- Run `board doctor --json`. For each failed check, inspect state, apply its `fix` with any needed consent, and repeat until green. Report warnings; have sessions in `sessions.stale` re-read the `spur-board` skill (SKILL.md, references/).
 - Wait for the feed's `spur-board is live` line after the first complete poll. If absent, inspect doctor checks and service logs and continue the fix loop. Confirm receipt without exposing a channel ID.
 
 ## Update
