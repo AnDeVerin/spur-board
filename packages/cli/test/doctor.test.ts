@@ -37,6 +37,7 @@ const remoteIds = [
   'slack.feed_member',
   'slack.command',
   'operator.path',
+  'operator.tokens',
   'curator.sessions',
 ];
 const stamp = JSON.stringify({ version: '1.2.3', installedAt: '2026-11-04T09:00:00.000Z' });

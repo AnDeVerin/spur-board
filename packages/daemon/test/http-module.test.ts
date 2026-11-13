@@ -1,7 +1,15 @@
-import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { hostname, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { configSchema } from '@spur-board/contracts';
-import { createOperationRegistry, openStore, type Store } from '@spur-board/core';
+import {
+  createOperationRegistry,
+  openStore,
+  requestToken,
+  tokenAttentionLine,
+  type Store,
+} from '@spur-board/core';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { loadConfig, resolvePaths } from '../src/config.ts';
 import { createHttpModule, lookupLiveSession } from '../src/http-module.ts';
@@ -474,6 +482,7 @@ describe('daemon doctor checks', () => {
       'spur.send',
       'slack.configured',
       'operator.path',
+      'operator.tokens',
       'curator.sessions',
     ]);
     expect(report.checks.find((check) => check.id === 'slack.configured')).toEqual({
@@ -542,6 +551,7 @@ describe('daemon doctor checks', () => {
       'slack.feed_member',
       'slack.command',
       'operator.path',
+      'operator.tokens',
       'curator.sessions',
     ]);
     expect(report.checks.find((check) => check.id === 'link.rules')).toEqual({
@@ -731,6 +741,148 @@ describe('daemon doctor curator sessions', () => {
       blocking: false,
       fix: 'alpha: curator cur-alpha, session cur-alpha-1.',
     });
+  });
+});
+
+const DOCTOR_NOW = Date.parse('2026-11-04T08:00:00.000Z');
+const DAY_MS = 86_400_000;
+
+/** A folder holding `.spur-board/token`, as `board token create` leaves it. */
+function tokenFolder(): string {
+  const folder = mkdtempSync(join(tmpdir(), 'doctor-token-'));
+  mkdirSync(join(folder, '.spur-board'));
+  writeFileSync(join(folder, '.spur-board', 'token'), 'example-file-secret');
+  return folder;
+}
+
+/** Requests a token and approves it with a test-side update; core does not export the decision. */
+async function seedApprovedToken(
+  store: Store,
+  config: ModuleContext<Store>['config'],
+  token: { name: string; folder: string; host?: string; lastUsedAt?: number },
+): Promise<string> {
+  const secret = `secret-${token.name}`;
+  await requestToken(
+    store,
+    config,
+    {
+      name: token.name,
+      folder: token.folder,
+      host: token.host ?? hostname(),
+      hash: createHash('sha256').update(secret).digest('hex'),
+    },
+    new Date(DOCTOR_NOW),
+  );
+  await store.db
+    .updateTable('operator_token')
+    .set({
+      status: 'approved',
+      last_used_at:
+        token.lastUsedAt === undefined ? null : new Date(token.lastUsedAt).toISOString(),
+    })
+    .where('name', '=', token.name)
+    .execute();
+  return secret;
+}
+
+describe('daemon doctor operator tokens', () => {
+  const tokensCheck = async (ctx: ModuleContext<Store>) =>
+    (await runDaemonDoctor(ctx, '1.2.3', doctorFetch())).checks.find(
+      (check) => check.id === 'operator.tokens',
+    );
+  const PASS = { id: 'operator.tokens', status: 'pass', blocking: false, fix: null };
+
+  it('passes for a fresh token whose file is present', async () => {
+    const ctx = doctorContext({ operator: true });
+    await seedApprovedToken(ctx.store, ctx.config, { name: 'desk', folder: tokenFolder() });
+    expect(await tokensCheck(ctx)).toEqual(PASS);
+  });
+
+  it('warns about a token unused for longer than unusedAfterDays, and not before', async () => {
+    const ctx = doctorContext({ operator: true });
+    await seedApprovedToken(ctx.store, ctx.config, {
+      name: 'desk',
+      folder: tokenFolder(),
+      lastUsedAt: DOCTOR_NOW - 15 * DAY_MS,
+    });
+    await seedApprovedToken(ctx.store, ctx.config, {
+      name: 'recent',
+      folder: tokenFolder(),
+      lastUsedAt: DOCTOR_NOW - 13 * DAY_MS,
+    });
+    expect(await tokensCheck(ctx)).toEqual({
+      id: 'operator.tokens',
+      status: 'warning',
+      blocking: false,
+      fix: tokenAttentionLine({ fileMissing: [], unused: ['desk'] }, 14),
+    });
+    expect((await tokensCheck(ctx))?.fix).toContain('unused for 14+ days: desk');
+  });
+
+  it('passes for a token used 13 days ago', async () => {
+    const ctx = doctorContext({ operator: true });
+    await seedApprovedToken(ctx.store, ctx.config, {
+      name: 'desk',
+      folder: tokenFolder(),
+      lastUsedAt: DOCTOR_NOW - 13 * DAY_MS,
+    });
+    expect(await tokensCheck(ctx)).toEqual(PASS);
+  });
+
+  it('warns about a deleted folder and a folder without its token file', async () => {
+    const ctx = doctorContext({ operator: true });
+    const gone = tokenFolder();
+    rmSync(gone, { recursive: true });
+    const emptied = tokenFolder();
+    rmSync(join(emptied, '.spur-board', 'token'));
+    await seedApprovedToken(ctx.store, ctx.config, { name: 'gone', folder: gone });
+    await seedApprovedToken(ctx.store, ctx.config, { name: 'emptied', folder: emptied });
+    expect(await tokensCheck(ctx)).toEqual({
+      id: 'operator.tokens',
+      status: 'warning',
+      blocking: false,
+      fix: tokenAttentionLine({ fileMissing: ['gone', 'emptied'], unused: [] }, 14),
+    });
+    expect((await tokensCheck(ctx))?.fix).toContain('no token file: gone, emptied');
+    expect((await tokensCheck(ctx))?.fix).not.toContain(gone);
+  });
+
+  it('skips the folder check for another host and ignores a revoked token', async () => {
+    const ctx = doctorContext({ operator: true });
+    const missing = join(tmpdir(), 'doctor-token-never-created');
+    await seedApprovedToken(ctx.store, ctx.config, {
+      name: 'away',
+      folder: missing,
+      host: 'elsewhere',
+    });
+    await seedApprovedToken(ctx.store, ctx.config, { name: 'revoked', folder: missing });
+    await ctx.store.db
+      .updateTable('operator_token')
+      .set({ status: 'revoked' })
+      .where('name', '=', 'revoked')
+      .execute();
+    expect(await tokensCheck(ctx)).toEqual(PASS);
+  });
+
+  it('fits twenty long token names in the fix limit', async () => {
+    const ctx = doctorContext({ operator: true });
+    const names = Array.from(
+      { length: 20 },
+      (_, n) => `${String(n).padStart(2, '0')}-${'t'.repeat(57)}`,
+    );
+    // Each request is approved before the next, so the open request limit never applies.
+    for (const name of names) {
+      await seedApprovedToken(ctx.store, ctx.config, {
+        name,
+        folder: tokenFolder(),
+        lastUsedAt: DOCTOR_NOW - 30 * DAY_MS,
+      });
+    }
+    const entry = await tokensCheck(ctx);
+    expect(entry).toMatchObject({ status: 'warning', blocking: false });
+    expect(entry?.fix).toBe(tokenAttentionLine({ fileMissing: [], unused: names }, 14));
+    expect(entry?.fix?.length).toBeLessThanOrEqual(300);
+    expect(entry?.fix).toMatch(/ and \d+ more$/);
   });
 });
 
@@ -1033,6 +1185,86 @@ describe('HTTP module', () => {
     } finally {
       await module.stop();
     }
+  });
+
+  /** Lists tokens with Bearer `secret` through a real HTTP module on a fixed clock. */
+  async function listWithToken(failFirstTransaction: boolean) {
+    const home = makeHome({ httpPort: 0 });
+    const store = openStore(join(home, 'board.sqlite'));
+    stores.push(store);
+    const loaded = loadConfig(resolvePaths({ BOARD_HOME: home }, home));
+    const records: Record<string, unknown>[] = [];
+    const log = createLogger(
+      { write: (line) => records.push(JSON.parse(line) as Record<string, unknown>) },
+      {},
+    ).child({ module: 'http' });
+    const clock = { now: () => DOCTOR_NOW };
+    const secret = await seedApprovedToken(store, loaded.config, { name: 'desk', folder: '/w/a' });
+    await seedApprovedToken(store, loaded.config, { name: 'idle', folder: '/w/b' });
+    let failNext = false;
+    const ctx: ModuleContext<Store> = {
+      ...loaded,
+      store: {
+        ...store,
+        transaction: (fn) => {
+          if (!failNext) return store.transaction(fn);
+          failNext = false;
+          return Promise.reject(new Error('injected'));
+        },
+      },
+      log,
+      clock,
+      logCall: (call, fn) => logCall(log, clock, call, fn),
+      state: () => 'ready',
+    };
+    const module = createHttpModule(ctx, {
+      fetcher: () => Promise.resolve(Response.json(wire)),
+      registry: createOperationRegistry({ config: loaded.config, clock, completeSince: new Map() }),
+    });
+    try {
+      await module.start(new AbortController().signal);
+      const listening = records.find((record) => record['msg'] === 'http listening');
+      failNext = failFirstTransaction;
+      const response = await fetch(
+        `http://127.0.0.1:${String(listening?.['port'])}/v1/ops/token.list`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', authorization: `Bearer ${secret}` },
+          body: JSON.stringify({ input: {} }),
+        },
+      );
+      const body = (await response.json()) as {
+        value?: { tokens: { name: string; lastUsedAt: string | null }[] };
+      };
+      return { status: response.status, tokens: body.value?.tokens, records };
+    } finally {
+      await module.stop();
+    }
+  }
+
+  it("records the calling token's last use at the daemon clock", async () => {
+    const result = await listWithToken(false);
+    expect(result.status).toBe(200);
+    expect(result.tokens).toMatchObject([
+      { name: 'desk', lastUsedAt: '2026-11-04T08:00:00.000Z' },
+      { name: 'idle', lastUsedAt: null },
+    ]);
+    expect(result.records.some((record) => record['msg'] === 'token use not recorded')).toBe(false);
+  });
+
+  it('serves the call and logs the error when the token use is not recorded', async () => {
+    const result = await listWithToken(true);
+    expect(result.status).toBe(200);
+    expect(result.tokens).toMatchObject([
+      { name: 'desk', lastUsedAt: null },
+      { name: 'idle', lastUsedAt: null },
+    ]);
+    expect(
+      result.records.find((record) => record['msg'] === 'token use not recorded'),
+    ).toMatchObject({
+      level: 40,
+      err: { message: 'injected' },
+    });
   });
 
   it('serves starting until ready and stopping after, logs request IDs, and closes its listener', async () => {
