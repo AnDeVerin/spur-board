@@ -14,6 +14,7 @@ import {
   POLL_PR_ERROR_KINDS,
   type PollPrError,
   type PollPrErrorKind,
+  type PollContext,
   type PollPrResult,
   type PrEntityRef,
   type PrPoller,
@@ -226,6 +227,28 @@ describe('batch', () => {
     expect(batchSchema.safeParse(batch({ cursor: '' })).success).toBe(false);
   });
 
+  it('keeps an optional continuation on a PR item and rejects an empty resume', () => {
+    const withContinuation = (continuation: unknown): Record<string, unknown> =>
+      batch({ items: [{ kind: 'pr', facts: prFacts, continuation }] });
+    const first = (input: Record<string, unknown>): unknown => batchSchema.parse(input).items[0];
+    expect(first(withContinuation({ resume: 'opaque-1' }))).toMatchObject({
+      continuation: { resume: 'opaque-1' },
+    });
+    expect(first(withContinuation({ resume: null }))).toMatchObject({
+      continuation: { resume: null },
+    });
+    expect(first(withContinuation(null))).toMatchObject({ continuation: null });
+    expect(first(batch({ items: [items.pr.valid] }))).not.toHaveProperty('continuation');
+    expect(batchSchema.safeParse(withContinuation({ resume: '' })).success).toBe(false);
+    expect(batchSchema.safeParse(withContinuation({})).success).toBe(false);
+    expect(batchSchema.safeParse(withContinuation({ resume: 'p', page: 2 })).success).toBe(false);
+    expect(
+      batchSchema.safeParse(
+        batch({ items: [{ kind: 'ticket', facts: ticketFacts, continuation: null }] }),
+      ).success,
+    ).toBe(false);
+  });
+
   it('describes every property', () => {
     const walked = walk(z.toJSONSchema(batchSchema, { io: 'output' }));
     expect(walked.undescribed).toEqual([]);
@@ -277,7 +300,12 @@ it('accepts a minimal adapter', () => {
 
 it('accepts an optional pollPr of the port shape', () => {
   type PollPr = (ref: PrEntityRef, ctx: { signal: AbortSignal }) => Promise<Batch>;
+  type HeldPollPr = (
+    ref: PrEntityRef,
+    ctx: Pick<PollContext, 'signal' | 'feedbackCursors' | 'continuations'>,
+  ) => Promise<Batch>;
   expectTypeOf<Minimal & { pollPr: PollPr }>().toExtend<Adapter>();
+  expectTypeOf<Minimal & { pollPr: HeldPollPr }>().toExtend<Adapter>();
   expectTypeOf<Minimal & { pollPr: (ref: string) => Promise<Batch> }>().not.toExtend<Adapter>();
 });
 
@@ -310,15 +338,24 @@ describe('PrPoller', () => {
 describe('obligation ids', () => {
   const source = readFileSync(join(root, 'packages/contracts/src/adapters.ts'), 'utf8');
 
-  it('lists A1-A9 in order, each once, in the Adapter TSDoc', () => {
+  it('lists A1-A10 in order, each once, in the Adapter TSDoc', () => {
     const ids = [...source.matchAll(/^\s*\*\s+- (A\d+):/gm)].map((match) => match[1]);
-    expect(ids).toEqual(Array.from({ length: 9 }, (_, i) => `A${String(i + 1)}`));
+    expect(ids).toEqual(Array.from({ length: 10 }, (_, i) => `A${String(i + 1)}`));
   });
 
   it('keeps the cursor and completeness out of an on-demand batch in A9', () => {
-    const a9 = source.slice(source.indexOf('- A9:'), source.indexOf('*/', source.indexOf('- A9:')));
+    const a9 = source.slice(source.indexOf('- A9:'), source.indexOf('- A10:'));
     expect(a9).toContain('cursor');
     expect(a9).toContain('complete');
+    expect(a9).toContain('continuation');
+  });
+
+  it('keeps the held history resume opaque to core in A10', () => {
+    const start = source.indexOf('- A10:');
+    const a10 = source.slice(start, source.indexOf('*/', start));
+    expect(a10).toContain('continuation');
+    expect(a10).toContain('never parses');
+    expect(a10).toContain('feedbackComplete');
   });
 
   it('states the 404 rule in A4', () => {
