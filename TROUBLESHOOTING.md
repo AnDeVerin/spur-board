@@ -216,6 +216,17 @@ projects, is refused with `forbidden` (exit 1), and the hint names the Spur proj
 Keep the Spur project under exactly one Board project in the Board's `config.yaml`, not Spur's
 `spur.yaml`, and restart the Board daemon.
 
+The rule exists because a session's identity is its Spur project and session ID, so a Spur project
+under two Board projects would leave its sessions without one owning Board project. Sessions,
+curator rings and worker links are also kept per Spur project. The daemon refuses such a
+`config.yaml` at start and names the Spur project and both Board projects. To run two Board
+projects, give each its own Spur projects.
+
+A Spur project with `role: operator` has operator access on every Board project. Operations open
+only to project agents, such as `board ask` and `board inbox ack`, still need the session's Spur
+project listed under that task's Board project, and automatic worker linking needs it listed with
+`role: worker` under that task's Board project.
+
 ## Exit codes 3, 4, and 5
 
 - **3 — not applied:** a dependency prevented the action. Fix the dependency, then retry the
