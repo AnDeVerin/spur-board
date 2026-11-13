@@ -1909,6 +1909,33 @@ describe('inbound apply', () => {
     expect(calls).toEqual(['thread-1', 'thread-2', 'thread-1', 'thread-2']);
   });
 
+  it('starts a new scan for a request made just after the last slice ends', async () => {
+    const { store, gateway } = await setup();
+    let calls = 0;
+    let delay = 0;
+    const seconds: Promise<void>[] = [];
+    const inbound = recoveringInbound(store, gateway, (request) => {
+      calls += 1;
+      const schedule = calls % 2 === 1;
+      return (async function* () {
+        yield* gateway.recover(request);
+        if (!schedule) return;
+        // Request again a set number of microtasks after the first scan's last read ends.
+        void (async () => {
+          for (let tick = 0; tick < delay; tick += 1) await Promise.resolve();
+          seconds.push(inbound.recover());
+        })();
+      })();
+    });
+    for (delay = 0; delay < 30; delay += 1) {
+      const before = calls;
+      await inbound.recover();
+      await settleUntil(() => seconds.length > delay);
+      await seconds[delay];
+      expect({ delay, calls: calls - before }).toEqual({ delay, calls: 2 });
+    }
+  });
+
   it('aborts the recovery signal on stop and scans nothing after', async () => {
     const { store, gateway } = await setup();
     const signals: AbortSignal[] = [];

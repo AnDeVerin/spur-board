@@ -946,20 +946,36 @@ export function createInbound(input: {
     if (selected.rows.length === 0) state.readEmpty = true;
   }
 
-  /** One slot per conversation, so live events run between slices, until `pending` is empty. */
+  /**
+   * One slot per conversation, so live events run between slices, until `pending` is empty.
+   * The scan ends where this decides to stop, in the same microtask, so a later request starts
+   * a fresh scan instead of joining one that will not read again.
+   */
   async function drain(state: ScanState): Promise<void> {
-    for (;;) {
-      const selection = state.selection;
-      await selection;
-      for (let ref = first(pending); ref !== undefined && !stopped(); ref = first(pending)) {
-        const next = ref;
-        await serial(() => sliceIfPending(next));
+    const end = () => {
+      if (scan === state) scan = undefined;
+    };
+    try {
+      for (;;) {
+        const selection = state.selection;
+        await selection;
+        for (let ref = first(pending); ref !== undefined && !stopped(); ref = first(pending)) {
+          const next = ref;
+          await serial(() => sliceIfPending(next));
+        }
+        if (state.readEmpty && !stopped()) {
+          state.readEmpty = false;
+          await serial(() => readSlice(undefined));
+        }
+        if (stopped() || state.selection === selection) {
+          end();
+          return;
+        }
       }
-      if (state.readEmpty && !stopped()) {
-        state.readEmpty = false;
-        await serial(() => readSlice(undefined));
-      }
-      if (stopped() || state.selection === selection) return;
+    } catch (error) {
+      end();
+      pending.clear();
+      throw error;
     }
   }
 
@@ -981,16 +997,7 @@ export function createInbound(input: {
     };
     scan = state;
     queueSelection(state);
-    state.promise = (async () => {
-      try {
-        await drain(state);
-      } catch (error) {
-        pending.clear();
-        throw error;
-      } finally {
-        scan = undefined;
-      }
-    })();
+    state.promise = drain(state);
     return state.promise;
   }
 
