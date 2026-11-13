@@ -38,8 +38,6 @@ interface DispatchContext {
   at: Date;
   /** Since when each source has had an effectively complete poll in this process. */
   complete: ReadonlyMap<string, string>;
-  /** Per task, the feedback of untaken turns a correction closed, for its next turn to hand over. */
-  carried?: ReadonlyMap<number, readonly Handed[]>;
 }
 
 const CURSOR_KEY = 'dispatcher_cursor';
@@ -276,16 +274,17 @@ async function syncModes(trx: Trx, config: Config, at: Date): Promise<void> {
  * The operator's correction of a task's column to `to`, as a new visit of `to`. It first applies
  * a pending dispatcher mode switch, so the switch cannot overwrite the correction. In `on` mode it
  * sets the column and bumps `column_epoch`, voids the submits of `to` and right of it, closes the
- * task's turns and journals `task_corrected`; in shadow mode it sets only the shadow column. It is
+ * task's turns as `corrected` and journals `task_corrected`; in shadow mode it sets only the shadow
+ * column. The feedback a closed untaken turn handed over counts as unhandled again
+ * (`turnFeedbackCursors`), so the next Dev turn hands it over, whenever it opens. It is
  * not a dispatcher move: no `task_moved`, no `left_moves` and no cycle count. The caller settles
- * the task with a dispatcher pass after it, given `carried`: the feedback the closed untaken turns
- * handed over, which the feedback cursor already counts and no executor took. `from` is the column
- * the dispatcher worked from, and `eventId` the id of the `task_corrected` event.
+ * the task with a dispatcher pass after it. `from` is the column the dispatcher worked from, and
+ * `eventId` the id of the `task_corrected` event.
  */
 export async function correctColumn(
   trx: Trx,
   input: { taskId: number; to: ColumnId; at: Date; actor: ActorId; reason: string; config: Config },
-): Promise<{ from: ColumnId; eventId: number; carried: Handed[] }> {
+): Promise<{ from: ColumnId; eventId: number }> {
   const { taskId, to, at, actor, reason, config } = input;
   await syncModes(trx, config, at);
   const task = await trx
@@ -306,16 +305,7 @@ export async function correctColumn(
     .where('id', '=', task.id)
     .execute();
   await voidSubmits(trx, task.id, to, at);
-  const untaken = shadow
-    ? []
-    : await trx
-        .selectFrom('turn')
-        .select('handed')
-        .where('task_id', '=', task.id)
-        .where('closed_at', 'is', null)
-        .where('acked_at', 'is', null)
-        .execute();
-  if (!shadow) await closeTurns(trx, { taskId: task.id, reason: 'moved', at });
+  if (!shadow) await closeTurns(trx, { taskId: task.id, reason: 'corrected', at });
   await emit(
     trx,
     'task_corrected',
@@ -331,7 +321,7 @@ export async function correctColumn(
     .where('task_id', '=', task.id)
     .orderBy('id', 'desc')
     .executeTakeFirstOrThrow();
-  return { from, eventId: event.id, carried: untaken.flatMap(turnHanded) };
+  return { from, eventId: event.id };
 }
 
 /** A source has no fresh view while it reports blind or has had no complete poll since start. */
@@ -371,8 +361,9 @@ function externalApproval(pr: PrFacts, agentLogin: string): boolean {
 /**
  * The external feedback nobody handled yet. An approval review is not a comment: an entry is one
  * by its own state, or, in a snapshot written before entries had one, when it matches the
- * reviewer's latest approval. An entry is handled once a turn handed it over, or an older one, or
- * once a handling submission (`handlingSubmits`) on this PR was made at or after it.
+ * reviewer's latest approval. An entry is handled once a turn handed it over, or an older one,
+ * unless a correction or a reroute closed that turn untaken, or once a handling submission
+ * (`handlingSubmits`) on this PR was made at or after it.
  */
 async function unhandledFeedback(
   trx: Trx,
@@ -399,9 +390,11 @@ async function unhandledFeedback(
     submittedOn(row, pr),
   );
   const newest = Math.max(...submitted.map((row) => Date.parse(row.submitted_at)));
-  const [cursor] = await turnFeedbackCursors(trx, [
-    { kind: 'pr', repo: pr.repo, number: pr.number },
-  ]);
+  const [cursor] = await turnFeedbackCursors(
+    trx,
+    [{ kind: 'pr', repo: pr.repo, number: pr.number }],
+    'handled',
+  );
   return entries
     .filter(
       (entry) =>
@@ -476,7 +469,7 @@ export async function pollFeedbackCursors(
   config: Config,
   prs: readonly FeedbackCursor['ref'][],
 ): Promise<FeedbackCursor[]> {
-  const cursors = await turnFeedbackCursors(db, prs);
+  const cursors = await turnFeedbackCursors(db, prs, 'polled');
   if (prs.length === 0) return cursors;
   const links = await db
     .selectFrom('link')
@@ -686,22 +679,21 @@ async function applyOn(
   if (result.voids !== undefined) await voidColumns(trx, current.id, [result.voids], at);
   const replaced = turn.kind === 'reroute' ? read.unclosed : undefined;
   if (replaced !== undefined) await closeTurns(trx, { taskId: current.id, reason: 'rerouted', at });
-  // A reroute carries the feedback the replaced turn handed over, and a correction that of the
-  // untaken turns it closed; the cursor already counts both.
+  // A reroute carries the feedback the replaced turn handed over; the cursor already counts it.
+  const carried = replaced === undefined ? [] : turnHanded(replaced);
   const handed = [
-    ...(replaced === undefined ? [] : turnHanded(replaced)),
-    ...(ctx.carried?.get(current.id) ?? []),
-    ...read.handed,
-  ].filter(
-    (entry, index, all) =>
-      all.findIndex(
-        (old) =>
-          old.repo.toLowerCase() === entry.repo.toLowerCase() &&
-          old.number === entry.number &&
-          old.kind === entry.kind &&
-          old.id === entry.id,
-      ) === index,
-  );
+    ...carried,
+    ...read.handed.filter(
+      (entry) =>
+        !carried.some(
+          (old) =>
+            old.repo.toLowerCase() === entry.repo.toLowerCase() &&
+            old.number === entry.number &&
+            old.kind === entry.kind &&
+            old.id === entry.id,
+        ),
+    ),
+  ];
   await openTurn(trx, {
     task: current,
     reason: turnReason(turn, replaced?.reason),

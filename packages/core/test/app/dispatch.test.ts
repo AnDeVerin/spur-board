@@ -1519,10 +1519,89 @@ describe('task.move', () => {
     const result = await ctx.move('dev');
 
     expect(result.column).toBe('dev');
-    expect((await ctx.turns())[0]).toMatchObject({ id: 1, closed_reason: 'moved' });
+    expect((await ctx.turns())[0]).toMatchObject({ id: 1, closed_reason: 'corrected' });
     const turn = await ctx.openTurn();
     expect(turn).toMatchObject({ id: 'T2', column: 'dev' });
     expect(JSON.parse(turn?.handed ?? '[]')).toEqual([handed]);
+  });
+
+  describe('feedback of the untaken turns a correction closes', () => {
+    const handed = { repo: 'o/r', number: 7, kind: 'comment', id: 'c-1', postedAt: at(1) };
+    /** No live worker: the operator's untaken Dev turn T1 hands over comment c-1. */
+    async function untakenWithComment(): Promise<Board> {
+      const ctx = await started({}, 'none');
+      await ctx.pr({
+        feedback: [
+          {
+            kind: 'comment',
+            id: 'c-1',
+            author: { login: EXTERNAL, type: 'user' },
+            postedAt: at(1),
+          },
+        ],
+      });
+      expect(JSON.parse((await ctx.openTurn())?.handed ?? '[]')).toEqual([handed]);
+      return ctx;
+    }
+
+    it('hands it over in the Dev turn opened once GitHub sees again', async () => {
+      const ctx = await untakenWithComment();
+      await ctx.blind(GITHUB, true);
+
+      await ctx.move('dev');
+      expect((await ctx.turns())[0]).toMatchObject({ id: 1, closed_reason: 'corrected' });
+      expect(await ctx.openTurn()).toBeNull();
+      // The poll cursor still counts the closed turn: the snapshot keeps c-1 either way.
+      expect((await ctx.context()).feedbackCursors).toEqual([
+        { ref: { kind: 'pr', repo: 'o/r', number: 7 }, id: 'c-1', postedAt: at(1) },
+      ]);
+
+      await ctx.blind(GITHUB, false);
+      const turn = await ctx.openTurn();
+      expect(turn).toMatchObject({ id: 'T2', column: 'dev' });
+      expect(JSON.parse(turn?.handed ?? '[]')).toEqual([handed]);
+    });
+
+    it('hands it over in the Dev turn after a correction to Review bounces left', async () => {
+      const ctx = await untakenWithComment();
+
+      const result = await ctx.move('review');
+
+      expect(result).toMatchObject({ column: 'dev', settled: [{ from: 'review', to: 'dev' }] });
+      const turn = await ctx.openTurn();
+      expect(turn).toMatchObject({ id: 'T2', column: 'dev' });
+      expect(JSON.parse(turn?.handed ?? '[]')).toEqual([handed]);
+    });
+
+    it('hands it over in the worker turn deferred while Spur is blind, past a reroute', async () => {
+      const ctx = await untakenWithComment();
+      await ctx.spur('live');
+      expect((await ctx.turns())[0]).toMatchObject({ id: 1, closed_reason: 'rerouted' });
+      expect(await ctx.openTurn()).toMatchObject({ id: 'T2', role: 'worker' });
+      await ctx.blind('spur', true);
+
+      await ctx.move('dev');
+      expect((await ctx.turns())[1]).toMatchObject({ id: 2, closed_reason: 'corrected' });
+      expect(await ctx.openTurn()).toBeNull();
+
+      await ctx.blind('spur', false);
+      const turn = await ctx.openTurn();
+      expect(turn).toMatchObject({ id: 'T3', column: 'dev', role: 'worker' });
+      expect(JSON.parse(turn?.handed ?? '[]')).toEqual([handed]);
+    });
+
+    it('counts it handled when the closed turn was taken', async () => {
+      const ctx = await untakenWithComment();
+      await ctx.spur('live');
+      await ctx.ack(WORKER, 'T2');
+
+      await ctx.move('dev');
+
+      expect((await ctx.turns())[1]).toMatchObject({ id: 2, closed_reason: 'corrected' });
+      const turn = await ctx.openTurn();
+      expect(turn).toEqual(turnOf('dev', 'worker', 'dev: no_submit_on_head'));
+      expect(JSON.parse(turn?.handed ?? '[]')).toEqual([]);
+    });
   });
 
   it('settles a correction out of an unlinked Done to Review back in Dev with no_pr, uncounted', async () => {

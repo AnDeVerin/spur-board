@@ -294,18 +294,8 @@ export function createTurnMutations(deps: {
 }) {
   const { config, prPoller, completeSince } = deps;
   /** Dispatches the task after the command's change and returns its fresh row. */
-  async function dispatched(
-    trx: Trx,
-    taskId: number,
-    at: string,
-    carried: Awaited<ReturnType<typeof correctColumn>>['carried'] = [],
-  ): Promise<Task> {
-    await dispatchTasks(trx, [taskId], {
-      config,
-      at: new Date(at),
-      complete: completeSince,
-      carried: new Map([[taskId, carried]]),
-    });
+  async function dispatched(trx: Trx, taskId: number, at: string): Promise<Task> {
+    await dispatchTasks(trx, [taskId], { config, at: new Date(at), complete: completeSince });
     return taskById(trx, taskId);
   }
   async function submitShadow(
@@ -473,7 +463,7 @@ export function createTurnMutations(deps: {
         reason: input.reason,
         config,
       });
-      const settled = await dispatched(trx, task.id, ctx.at, corrected.carried);
+      const settled = await dispatched(trx, task.id, ctx.at);
       return {
         task: taskView(settled),
         from: corrected.from,

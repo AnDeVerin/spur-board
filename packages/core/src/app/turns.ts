@@ -195,7 +195,7 @@ export async function takeTurn(
  */
 export async function closeTurns(
   trx: Trx,
-  input: { taskId: number; reason: 'moved' | 'archived' | 'submitted' | 'rerouted'; at: Date },
+  input: { taskId: number; reason: NonNullable<Turn['closed_reason']>; at: Date },
 ): Promise<void> {
   const { taskId, reason, at } = input;
   const closed = await trx
@@ -367,6 +367,9 @@ export async function ringDue(
   );
 }
 
+/** Close reasons of a turn whose untaken feedback goes back to a later turn. */
+const recalled = new Set<Turn['closed_reason']>(['corrected', 'rerouted']);
+
 /** Whether `left` is newer than `right` by `postedAt` instant, then by id. Compared, not subtracted. */
 export function isNewer(
   left: Pick<Handed, 'postedAt' | 'id'>,
@@ -378,18 +381,22 @@ export function isNewer(
 }
 
 /**
- * Per requested PR, the newest feedback any turn of its linked tasks handed over, acked or not,
- * closed or not, so the cursor never moves back. A PR with none gets no entry.
+ * Per requested PR, the newest feedback a turn of its linked tasks handed over, acked or not,
+ * closed or not. A PR with none gets no entry. `handled` leaves out a turn a correction or a
+ * reroute closed before anyone took it: no executor received its feedback, so after a correction
+ * it counts as unhandled again and the next Dev turn hands it over, and a reroute's replacement
+ * turn handed it over too. `polled` counts every turn, so the poll cursor never moves back.
  */
 export async function turnFeedbackCursors(
   db: Trx,
   prs: readonly PrEntityRef[],
+  count: 'handled' | 'polled',
 ): Promise<{ ref: PrEntityRef; id: string; postedAt: string }[]> {
   if (prs.length === 0) return [];
   const rows = await db
     .selectFrom('turn')
     .innerJoin('link', 'link.task_id', 'turn.task_id')
-    .select(['link.repo', 'link.number', 'turn.handed'])
+    .select(['link.repo', 'link.number', 'turn.handed', 'turn.acked_at', 'turn.closed_reason'])
     .where('link.entity', '=', 'pr')
     .where('link.banned', '=', 0)
     .where(
@@ -404,6 +411,7 @@ export async function turnFeedbackCursors(
     let best: Handed | undefined;
     for (const row of rows) {
       if (row.repo?.toLowerCase() !== repo || row.number !== ref.number) continue;
+      if (count === 'handled' && row.acked_at === null && recalled.has(row.closed_reason)) continue;
       for (const entry of turnHanded(row)) {
         if (entry.repo.toLowerCase() !== repo || entry.number !== ref.number) continue;
         if (best === undefined || isNewer(entry, best)) best = entry;

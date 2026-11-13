@@ -937,7 +937,7 @@ describe('task.move', () => {
         .orderBy('id')
         .execute(),
     ).toEqual([
-      { column: 'done', closed_reason: 'moved' },
+      { column: 'done', closed_reason: 'corrected' },
       { column: 'dev', closed_reason: null },
     ]);
     expect(
