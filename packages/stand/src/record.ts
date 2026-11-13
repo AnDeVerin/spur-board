@@ -26,6 +26,15 @@ const GRAPHQL_URL = `${GITHUB_API}/graphql`;
 const SPRINT_SCHEMA = 'com.pyxis.greenhopper.jira:gh-sprint';
 /** The session the Spur probe asks for; no Spur holds it, so it answers 404. */
 const PROBE_SESSION = 'stand-missing-session';
+/** Synthetic Jira ids are `99nnnnn`: numeric as Jira's, and told apart by the scan's rule 4. */
+const JIRA_ID_BASE = 9_900_000;
+const SYNTHETIC = {
+  node: /^recorded-node-\d+$/,
+  sha: /^0{30}\d{10}$/,
+  jiraId: /^99\d{5}$/,
+};
+/** Any full commit SHA, wherever it stands; only the synthetic form may be written. */
+const ANY_SHA = /^[0-9a-f]{40}([0-9a-f]{24})?$/i;
 const KEPT_HEADERS = ['content-type', 'link', 'x-spur-lifecycle-instance-id'];
 const SECRET_NAMES = ['GITHUB_TOKEN', 'JIRA_EMAIL', 'JIRA_API_TOKEN'] as const;
 
@@ -299,6 +308,9 @@ const CATEGORIES = {
   link: (n: number) => `https://recorded.invalid/link-${String(n)}`,
   cursor: (n: number) => `recorded-cursor-${String(n)}`,
   text: (n: number) => `recorded-text-${String(n)}`,
+  node: (n: number) => `recorded-node-${String(n)}`,
+  sha: (n: number) => String(n).padStart(40, '0'),
+  jiraId: (n: number) => String(JIRA_ID_BASE + n),
 };
 type Category = keyof typeof CATEGORIES;
 
@@ -388,7 +400,8 @@ class Scrubber {
         const browse = /^\/browse\/([A-Za-z][A-Za-z0-9_]*-[1-9]\d*)$/.exec(url.pathname)?.[1];
         if (browse !== undefined) return `${STAND.jiraBase}/browse/${this.standKey(browse, path)}`;
         const issue = /^\/rest\/api\/3\/issue\/([1-9]\d*)$/.exec(url.pathname)?.[1];
-        if (issue !== undefined) return `${STAND.jiraBase}/rest/api/3/issue/${issue}`;
+        if (issue !== undefined)
+          return new Pending('jiraId', issue, (p) => `${STAND.jiraBase}/rest/api/3/issue/${p}`);
       }
       return new Pending('link', text);
     });
@@ -522,7 +535,7 @@ class Scrubber {
     const nested =
       (map: (inner: Record<string, unknown>, at: string) => Draft) => (v: unknown, p: string) =>
         isObject(v) ? map(v, p) : this.scalar(v, p);
-    keep('node_id', (v, p) => this.scalar(v, p));
+    keep('node_id', this.placeholder('node'));
     keep('number', (v, p) => this.scalar(v, p));
     keep('title', this.placeholder('title'));
     keep('state', (v, p) => this.scalar(v, p));
@@ -562,7 +575,7 @@ class Scrubber {
       if (!isObject(type)) return this.scalar(type, at);
       const statuses = type['statuses'];
       return {
-        id: this.scalar(type['id'], `${at}.id`),
+        id: this.placeholder('jiraId')(type['id'], `${at}.id`),
         name: this.placeholder('type')(type['name'], `${at}.name`),
         subtask: this.scalar(type['subtask'], `${at}.subtask`),
         statuses: Array.isArray(statuses)
@@ -570,7 +583,7 @@ class Scrubber {
               const where = `${at}.statuses[${String(j)}]`;
               return isObject(status)
                 ? {
-                    id: this.scalar(status['id'], `${where}.id`),
+                    id: this.placeholder('jiraId')(status['id'], `${where}.id`),
                     name: this.scalar(status['name'], `${where}.name`),
                   }
                 : this.scalar(status, where);
@@ -628,7 +641,7 @@ class Scrubber {
     if (!isObject(value)) return this.scalar(value, path);
     const fields = value['fields'];
     const out: Record<string, Draft> = {
-      id: this.scalar(value['id'], `${path}.id`),
+      id: this.placeholder('jiraId')(value['id'], `${path}.id`),
       key: this.jiraKey(value['key'], `${path}.key`),
     };
     if ('self' in value) out['self'] = this.url(value['self'], `${path}.self`);
@@ -770,8 +783,12 @@ class Scrubber {
       case 'endCursor':
       case 'startCursor':
         return this.placeholder('cursor')(value, path);
-      case '__typename':
       case 'id':
+        return this.placeholder('node')(value, path);
+      case 'headRefOid':
+      case 'oid':
+        return this.placeholder('sha')(value, path);
+      case '__typename':
       case 'state':
       case 'mergeable':
       case 'mergeStateStatus':
@@ -783,8 +800,6 @@ class Scrubber {
       case 'completedAt':
       case 'submittedAt':
       case 'resetAt':
-      case 'headRefOid':
-      case 'oid':
         return this.scalar(value, path);
       default:
         return this.placeholder('text')(value, path);
@@ -874,8 +889,35 @@ export function needlesOf(config: Config, secrets: Readonly<Record<string, strin
 }
 
 const EMAIL = /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i;
+// Opaque ids skip rule 2: rule 4 pins each of them to a synthetic form instead.
 const OPAQUE = new Set(['id', 'node_id', 'headRefOid', 'oid']);
 const escapeRegex = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/** The Jira field ids a recording keeps: Jira's own names, the same on every site. */
+const JIRA_FIELD_IDS = new Set([
+  'summary',
+  'status',
+  'assignee',
+  'labels',
+  'updated',
+  SPRINT_FIELD,
+]);
+
+/**
+ * Rule 4 for an opaque id or commit key: the test its value must pass, as only the recorder's
+ * synthetic forms may be written there. Undefined for a key that holds no id.
+ */
+function syntheticId(system: System, key: string): ((value: string) => boolean) | undefined {
+  if (system === 'github-pr' && key === 'id') return (value) => SYNTHETIC.node.test(value);
+  if (system === 'github-pr' && (key === 'headRefOid' || key === 'oid'))
+    return (value) => SYNTHETIC.sha.test(value);
+  if (system === 'github-issues' && key === 'node_id') return (value) => SYNTHETIC.node.test(value);
+  if (system === 'jira' && key === 'id')
+    return (value) => SYNTHETIC.jiraId.test(value) || JIRA_FIELD_IDS.has(value);
+  if (system === 'spur' && key === 'id')
+    return (value) => /^recorded-session-\d+$/.test(value) || value === PROBE_SESSION;
+  return undefined;
+}
 
 interface Hit {
   path: string;
@@ -895,6 +937,9 @@ export function scan(recording: unknown, needles: Needles, system: System): Hit 
   const rule3 = (text: string): boolean => needles.shorts.includes(text.toLowerCase());
 
   function rule4(key: string, value: string): boolean {
+    const id = syntheticId(system, key);
+    if (id !== undefined) return !id(value);
+    if (ANY_SHA.test(value)) return !SYNTHETIC.sha.test(value);
     if (key === 'project' && system === 'spur') return !/^recorded-project-\d+$/.test(value);
     if (key === 'login') return value !== STAND.login && !/^recorded-user-\d+$/.test(value);
     if (key === 'key' && system === 'jira') return !new RegExp(`^${STAND.key}-\\d+$`).test(value);
@@ -904,6 +949,9 @@ export function scan(recording: unknown, needles: Needles, system: System): Hit 
     } catch {
       url = undefined;
     }
+    const jiraIssue = /^\/rest\/api\/3\/issue\/(\d+)$/.exec(url?.pathname ?? '')?.[1];
+    if (url?.origin === new URL(STAND.jiraBase).origin && jiraIssue !== undefined)
+      return !SYNTHETIC.jiraId.test(jiraIssue);
     if (url?.host === 'github.com')
       return !/^\/(stand-org\/(board|service)|recorded-org\/recorded-repo-\d+)(\/|$)/.test(
         url.pathname,

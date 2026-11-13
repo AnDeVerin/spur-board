@@ -617,10 +617,10 @@ describe('record:fakes', () => {
       'customfield_10020',
     ]);
     const [ticket] = (search?.response.body as { issues: Raw[] }).issues;
+    expect(ticket?.['id']).toMatch(/^99\d{5}$/);
     expect(ticket).toMatchObject({
-      id: '20001',
       key: 'STAND-3',
-      self: 'https://jira.stand.invalid/rest/api/3/issue/20001',
+      self: `https://jira.stand.invalid/rest/api/3/issue/${String(ticket?.['id'])}`,
       fields: {
         assignee: {
           accountId: expect.stringMatching(/^recorded-account-\d+$/) as unknown,
@@ -677,13 +677,81 @@ describe('record:fakes', () => {
     expect(existsSync(result.outDir)).toBe(false);
   });
 
-  it('refuses a live slug inside a kept id', async () => {
+  it('replaces live node ids, commit SHAs and Jira ids with synthetic ones', async () => {
     const fixture = { ...defaultFixture(), issueNodeId: `I_${BOARD}` };
     const result = await run(liveConfig(), fixture);
-    expect(result.code).toBe(1);
-    expect(result.errors).toContain('node_id');
-    expect(result.errors).toContain('rule 1');
-    expect(existsSync(result.outDir)).toBe(false);
+    expect(result.errors).toBe('');
+    expect(result.code).toBe(0);
+    for (const text of result.texts())
+      for (const live of ['kwDOfixture', 'a'.repeat(40), 'I_acme', '20001'])
+        expect(text).not.toContain(live);
+
+    const [, details] = exchanges(result.read('github:stand:stand-org/board'));
+    const pr = (details?.response.body as { data: { pr0: { pullRequest: Raw } } }).data.pr0
+      .pullRequest;
+    const sha = /^0{30}\d{10}$/;
+    expect(pr['id']).toMatch(/^recorded-node-\d+$/);
+    expect(pr['headRefOid']).toMatch(sha);
+    const [review] = (pr['reviews'] as { nodes: Raw[] }).nodes;
+    const [comment] = (pr['comments'] as { nodes: Raw[] }).nodes;
+    expect(review?.['id']).toMatch(/^recorded-node-\d+$/);
+    expect(comment?.['id']).toMatch(/^recorded-node-\d+$/);
+    expect(new Set([pr['id'], review?.['id'], comment?.['id']]).size).toBe(3);
+    // The same live value keeps one placeholder: the review's commit is the head commit, and the
+    // PR's node id in the Issues listing is the one GraphQL answered.
+    expect(review?.['commit']).toEqual({ oid: pr['headRefOid'] });
+    const [issues] = exchanges(result.read('github-issues:stand:stand-org/board'));
+    const [issue, prItem] = issues?.response.body as Raw[];
+    expect(issue?.['node_id']).toMatch(/^recorded-node-\d+$/);
+    expect(prItem?.['node_id']).toBe(pr['id']);
+
+    const [statuses] = exchanges(result.read('jira:stand-jira'));
+    const [type] = statuses?.response.body as { id: string; statuses: { id: string }[] }[];
+    for (const id of [type?.id, ...(type?.statuses ?? []).map((status) => status.id)])
+      expect(id).toMatch(/^99\d{5}$/);
+  });
+
+  it('refuses a live id or commit SHA where only a synthetic one may stand', () => {
+    const needles = needlesOf(configSchema.parse(liveConfig()), SECRETS);
+    const body = (node: Raw) => ({
+      exchanges: [{ response: { body: { data: { pr0: { pullRequest: node } } } } }],
+    });
+    const at = '$.exchanges[0].response.body.data.pr0.pullRequest';
+    const shape = 'rule 4 (shape)';
+    expect(scan(body({ id: 'PR_kwDOlive' }), needles, 'github-pr')).toEqual({
+      path: `${at}.id`,
+      rule: shape,
+    });
+    expect(scan(body({ headRefOid: 'b'.repeat(40) }), needles, 'github-pr')).toEqual({
+      path: `${at}.headRefOid`,
+      rule: shape,
+    });
+    expect(scan(body({ sha: 'c'.repeat(40) }), needles, 'github-pr')).toEqual({
+      path: `${at}.sha`,
+      rule: shape,
+    });
+    expect(scan({ body: [{ node_id: 'I_kwDOlive' }] }, needles, 'github-issues')).toEqual({
+      path: '$.body[0].node_id',
+      rule: shape,
+    });
+    expect(scan({ issues: [{ id: '20001' }] }, needles, 'jira')).toEqual({
+      path: '$.issues[0].id',
+      rule: shape,
+    });
+    expect(
+      scan(
+        { issues: [{ self: 'https://jira.stand.invalid/rest/api/3/issue/20001' }] },
+        needles,
+        'jira',
+      ),
+    ).toEqual({ path: '$.issues[0].self', rule: shape });
+    expect(
+      scan(
+        body({ id: 'recorded-node-1', headRefOid: '1'.padStart(40, '0') }),
+        needles,
+        'github-pr',
+      ),
+    ).toBeUndefined();
   });
 
   it('refuses a secret inside the GraphQL query text', () => {
