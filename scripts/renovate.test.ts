@@ -35,15 +35,12 @@ const NOT_SHIPPED: Record<string, { reason: string; importers: string[] }> = {
   },
 };
 
-const readJson = (path: string): unknown => JSON.parse(readFileSync(join(ROOT, path), 'utf8'));
+const read = (path: string): string => readFileSync(join(ROOT, path), 'utf8');
+const readJson = (path: string): unknown => JSON.parse(read(path));
 
 const renovate = readJson('renovate.json') as { packageRules: Rule[] };
 const catalog = Object.keys(
-  (
-    parse(readFileSync(join(ROOT, 'pnpm-workspace.yaml'), 'utf8')) as {
-      catalog: Record<string, string>;
-    }
-  ).catalog,
+  (parse(read('pnpm-workspace.yaml')) as { catalog: Record<string, string> }).catalog,
 );
 
 const releaseConfig = require('../release.config.cjs') as {
@@ -120,13 +117,13 @@ function resolve(dep: Dep): { groupName?: string; semanticCommitType?: string } 
 
 // Packages tsdown bundles into the published binary: cli itself and the `../<dir>/src/` entries.
 function rootDirs(): string[] {
-  const config = readFileSync(join(ROOT, 'packages/cli/tsdown.config.ts'), 'utf8');
+  const config = read('packages/cli/tsdown.config.ts');
   const entries = [...config.matchAll(/'\.\.\/([\w-]+)\/src\//g)].map((match) => match[1] ?? '');
   expect(entries.length).toBeGreaterThan(0);
   return ['cli', ...entries];
 }
 
-function closure(): { dirs: string[]; thirdParty: Set<string> } {
+function closure(): { dirs: Set<string>; thirdParty: Set<string> } {
   const seen = new Set<string>();
   const thirdParty = new Set<string>();
   const queue = rootDirs();
@@ -151,7 +148,7 @@ function closure(): { dirs: string[]; thirdParty: Set<string> } {
     // ship too; its third-party devDependencies do not.
     if (dir === 'cli') follow(manifest.devDependencies, false);
   }
-  return { dirs: [...seen].sort(), thirdParty };
+  return { dirs: seen, thirdParty };
 }
 
 function shippedSet(): string[] {
@@ -159,8 +156,8 @@ function shippedSet(): string[] {
   return [...thirdParty].filter((name) => !(name in NOT_SHIPPED)).sort();
 }
 
-function sourceFiles(dirs: string[]): string[] {
-  return dirs.flatMap((dir) => {
+function sourceFiles(dirs: Set<string>): string[] {
+  return [...dirs].flatMap((dir) => {
     const src = join(ROOT, 'packages', dir, 'src');
     if (!existsSync(src)) return [];
     return readdirSync(src, { recursive: true, encoding: 'utf8' })
@@ -168,8 +165,6 @@ function sourceFiles(dirs: string[]): string[] {
       .map((file) => `packages/${dir}/src/${file.split('\\').join('/')}`);
   });
 }
-
-const runtimeRules = renovate.packageRules.filter((rule) => rule.groupName === RUNTIME_GROUP);
 
 describe('renovate.json', () => {
   it('reads the releasing commit types from release.config.cjs', () => {
@@ -202,6 +197,7 @@ describe('renovate.json', () => {
   });
 
   it('lists exactly the shipped third-party dependencies in the last rule', () => {
+    const runtimeRules = renovate.packageRules.filter((rule) => rule.groupName === RUNTIME_GROUP);
     expect(runtimeRules).toHaveLength(1);
     const rule = renovate.packageRules.at(-1);
     expect(rule).toBe(runtimeRules[0]);
@@ -229,7 +225,6 @@ describe('renovate.json', () => {
   it('keeps each NOT_SHIPPED entry true to its importers', () => {
     const { dirs, thirdParty } = closure();
     const files = sourceFiles(dirs);
-    const read = (file: string) => readFileSync(join(ROOT, file), 'utf8');
     for (const [name, { importers }] of Object.entries(NOT_SHIPPED)) {
       expect(thirdParty, name).toContain(name);
       const escaped = name.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
