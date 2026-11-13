@@ -17,6 +17,7 @@ import {
 const GRAPHQL_URL = 'https://api.github.com/graphql';
 const AGENT = 'stand-agent';
 const REVIEWER = 'stand-reviewer';
+const BOT = 'stand-bot';
 const SHA = /^[0-9a-f]{40,64}$/;
 
 // The request shapes the adapter may send, written out here on purpose: a change to an adapter
@@ -147,6 +148,9 @@ const target = {
   repo: z.string().regex(/^[^/\s]+\/[^/\s]+$/),
   number: z.int().positive(),
 };
+// An omitted author is `stand-bot` for a bot and `stand-reviewer` otherwise, so a bot entry never
+// shares the reviewer's login: the dispatcher drops every approval of a login with bot feedback.
+const feedbackAuthor = { author: z.string().min(1).optional(), bot: z.boolean().default(false) };
 const prControlSchema = z.discriminatedUnion('verb', [
   z.strictObject({ ...target, verb: z.literal('create'), seed: seedSchema.default({}) }),
   z.strictObject({ ...target, verb: z.literal('approve') }),
@@ -155,6 +159,13 @@ const prControlSchema = z.discriminatedUnion('verb', [
   z.strictObject({ ...target, verb: z.literal('merge') }),
   z.strictObject({ ...target, verb: z.literal('conflict') }),
   z.strictObject({ ...target, verb: z.literal('push'), sha: z.string().regex(SHA) }),
+  z.strictObject({ ...target, verb: z.literal('comment'), ...feedbackAuthor }),
+  z.strictObject({
+    ...target,
+    verb: z.literal('review'),
+    ...feedbackAuthor,
+    state: z.enum(['APPROVED', 'CHANGES_REQUESTED', 'COMMENTED']),
+  }),
 ]);
 const PR_VERBS = new Set<string>(prControlSchema.options.map((option) => option.shape.verb.value));
 type Verb = Exclude<z.output<typeof prControlSchema>, { verb: 'create' }>;
@@ -274,23 +285,36 @@ export function createGithubPrFake(options: {
       : { ...context, status: 'IN_PROGRESS', conclusion: null, startedAt: at, completedAt: null };
   }
 
+  type Author = NonNullable<Pr['comments'][number]['author']>;
+  function authorOf(command: { author?: string | undefined; bot: boolean }): Author {
+    return {
+      __typename: command.bot ? 'Bot' : 'User',
+      login: command.author ?? (command.bot ? BOT : REVIEWER),
+    };
+  }
+  /** Adds a review on the current head; a submitted review drops its author's request. */
+  function addReview(pr: Pr, author: Author, state: string, at: string): void {
+    pr.reviews = [
+      ...pr.reviews,
+      { author, state, commit: { oid: pr.headRefOid }, submittedAt: at },
+    ];
+    pr.reviewRequests = pr.reviewRequests.filter(
+      ({ requestedReviewer: reviewer }) =>
+        reviewer === null || !('login' in reviewer) || reviewer.login !== author.login,
+    );
+  }
+
   function apply(pr: Pr, command: Verb): void {
     const at = touch(pr);
     switch (command.verb) {
       case 'approve':
-        pr.reviews = [
-          ...pr.reviews,
-          {
-            author: { __typename: 'User', login: REVIEWER },
-            state: 'APPROVED',
-            commit: { oid: pr.headRefOid },
-            submittedAt: at,
-          },
-        ];
-        pr.reviewRequests = pr.reviewRequests.filter(
-          ({ requestedReviewer: reviewer }) =>
-            reviewer === null || !('login' in reviewer) || reviewer.login !== REVIEWER,
-        );
+        addReview(pr, { __typename: 'User', login: REVIEWER }, 'APPROVED', at);
+        break;
+      case 'review':
+        addReview(pr, authorOf(command), command.state, at);
+        break;
+      case 'comment':
+        pr.comments = [...pr.comments, { author: authorOf(command), createdAt: at }];
         break;
       case 'ci-red': {
         const anyRequired = pr.contexts.some((context) => context.isRequired);

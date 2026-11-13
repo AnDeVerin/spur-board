@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import {
   appendFileSync,
   chmodSync,
@@ -233,7 +234,7 @@ describe('scenario manifest', () => {
 });
 
 describe('scenarios', () => {
-  it('lists ten scenarios, each with a seed and a settled check', () => {
+  it('lists twenty scenarios, each with a seed and a settled check', () => {
     expect(scenarioNames()).toEqual([
       'empty',
       'columns-basic',
@@ -245,6 +246,16 @@ describe('scenarios', () => {
       'columns-basic-jira',
       'worker-killed-no-pr-jira',
       'source-blind-jira',
+      'dispatch-happy-path',
+      'dispatch-review-loop',
+      'dispatch-ci-red-after-submit',
+      'dispatch-conflict-in-review',
+      'dispatch-conflict-in-ready-to-merge',
+      'dispatch-reentry-same-head',
+      'dispatch-external-comment',
+      'dispatch-dead-executor',
+      'dispatch-source-blind',
+      'dispatch-cycle-limit',
     ]);
     for (const scenario of SCENARIOS) {
       expect(typeof scenario.seed, scenario.name).toBe('function');
@@ -744,6 +755,376 @@ describe('each scenario', () => {
       expect.objectContaining({ name: 'stand-tester', status: 'approved' }),
     );
   }, 60_000);
+});
+
+describe('dispatcher scenarios', () => {
+  const ISSUE = 'stand-org/board#1';
+  const A = 'a'.repeat(40);
+  const B = 'b'.repeat(40);
+  const C = 'c'.repeat(40);
+  const TIMEOUT = 90_000;
+
+  interface TurnView {
+    id: string;
+    task: string;
+    column: string;
+    addressee: string;
+    reason: string;
+    head: string | null;
+    taken: { by: string } | null;
+    handed: { kind: string; id: string }[];
+  }
+  interface Inbox {
+    turns: TurnView[];
+  }
+
+  /** One operation under `x-board-session: <session>`, through the public API. */
+  async function sessionOp<T>(
+    session: string,
+    id: string,
+    input: object = {},
+    key?: string,
+  ): Promise<T> {
+    const response = await fetch(`${current().daemonUrl}/v1/ops/${id}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-board-session': session },
+      body: JSON.stringify({ input, ...(key === undefined ? {} : { key }) }),
+    });
+    const body = (await response.json()) as { value: T };
+    expect(response.status, JSON.stringify(body)).toBe(200);
+    return body.value;
+  }
+  const as = (role: 'worker' | 'orchestrator') => current().roles[role];
+  const github = (verb: string, args: object = {}) =>
+    ok(current(), '/fake', {
+      system: 'github',
+      verb,
+      args: verb === 'fail' ? args : { repo: 'stand-org/board', number: 1, ...args },
+    });
+  const spur = (verb: string, args: object) =>
+    ok(current(), '/fake', { system: 'spur', verb, args });
+  const poll = () => ok(current(), '/poll');
+
+  /** The session's open turn on the flow task, if any. */
+  const turnOf = async (session: string): Promise<TurnView | undefined> =>
+    (await sessionOp<Inbox>(session, 'inbox.get')).turns.find(({ task }) => task === ISSUE);
+  async function mustTurn(session: string): Promise<TurnView> {
+    const turn = await turnOf(session);
+    if (turn === undefined) throw new Error(`no turn for ${session}`);
+    return turn;
+  }
+  const ack = (session: string, turn: string) =>
+    sessionOp(session, 'inbox.ack', { entries: [{ id: turn }] }, randomUUID());
+  const submit = (session: string, turn: string, sha: string) =>
+    sessionOp<{ task: { column: string } }>(session, 'task.submit', { turn, sha }, randomUUID());
+  const column = async () =>
+    (await status(current())).tasks.find(({ key }) => key === ISSUE)?.column;
+
+  async function withStore<T>(
+    read: (store: ReturnType<typeof openStore>) => Promise<T>,
+  ): Promise<T> {
+    const store = openStore(join(current().home, 'board.sqlite'));
+    try {
+      return await read(store);
+    } finally {
+      await store.close();
+    }
+  }
+  /** Every `task_moved` payload, oldest first. */
+  const moves = () =>
+    withStore(async (store) =>
+      (
+        await store.db
+          .selectFrom('event')
+          .select('payload')
+          .where('kind', '=', 'task_moved')
+          .orderBy('id')
+          .execute()
+      ).map(
+        ({ payload }) =>
+          JSON.parse(payload) as { from: string; to: string; reason: string; gate?: string[] },
+      ),
+    );
+  const fromTo = async () => (await moves()).map(({ from, to, reason }) => [from, to, reason]);
+  const turnRow = (id: number) =>
+    withStore((store) =>
+      store.db.selectFrom('turn').selectAll().where('id', '=', id).executeTakeFirstOrThrow(),
+    );
+  const sessionLink = (session: string) =>
+    withStore((store) =>
+      store.db
+        .selectFrom('link')
+        .select(['role', 'banned'])
+        .where('entity', '=', 'session')
+        .where('session_id', '=', session)
+        .executeTakeFirst(),
+    );
+  const itemKeys = async () => (await status(current())).items.map(({ key }) => key);
+
+  it(
+    'dispatch-happy-path: merge moves the task to Done with a wrap-up turn',
+    async () => {
+      await up();
+      const { scenario } = await seed('dispatch-happy-path');
+      const config = YAML.parse(configText(current())) as {
+        projects: { id: string; dispatcher?: { mode: string } }[];
+      };
+      expect(config.projects.map(({ id, dispatcher }) => [id, dispatcher?.mode])).toEqual([
+        ['stand', 'on'],
+        ['stand-jira', undefined],
+      ]);
+      expect(configText(current())).toContain(
+        "# Scenario dispatch-happy-path sets the stand project's columns and dispatcher here.\n",
+      );
+      expect(await fromTo()).toEqual([
+        ['todo', 'dev', 'gate_passed'],
+        ['dev', 'review', 'gate_passed'],
+        ['review', 'ready-to-merge', 'gate_passed'],
+      ]);
+      const item = scenario.items?.['turn'];
+      expect(await itemKeys()).toContain(item);
+
+      await github('merge');
+      await poll();
+      expect(await column()).toBe('done');
+      expect(await mustTurn(as('worker'))).toMatchObject({
+        column: 'done',
+        reason: 'done: wrap up',
+      });
+      expect(await itemKeys()).not.toContain(item);
+      expect((await fromTo()).at(-1)).toEqual(['ready-to-merge', 'done', 'merged']);
+    },
+    TIMEOUT,
+  );
+
+  it(
+    'dispatch-review-loop: a new head goes back to Review and on to Ready to Merge',
+    async () => {
+      await up();
+      await seed('dispatch-review-loop');
+      const dev = await mustTurn(as('worker'));
+      await ack(as('worker'), dev.id);
+      await github('push', { sha: B });
+      await github('ci-green');
+      expect((await submit(as('worker'), dev.id, B)).task.column).toBe('review');
+      const review = await mustTurn(as('orchestrator'));
+      expect(review).toMatchObject({
+        column: 'review',
+        reason: 'review: no_review_on_head',
+        head: B,
+      });
+      await ack(as('orchestrator'), review.id);
+      expect((await submit(as('orchestrator'), review.id, B)).task.column).toBe('ready-to-merge');
+    },
+    TIMEOUT,
+  );
+
+  it(
+    'dispatch-ci-red-after-submit: the red checks turn, then a green new head passes Dev',
+    async () => {
+      await up();
+      await seed('dispatch-ci-red-after-submit');
+      expect((await moves()).filter(({ from }) => from === 'dev')).toEqual([]);
+      expect(await turnRow(1)).toMatchObject({ column: 'dev', closed_reason: 'submitted' });
+      const red = await mustTurn(as('worker'));
+      expect(red).toMatchObject({ reason: 'dev: checks_red', taken: null });
+      await ack(as('worker'), red.id);
+      await github('push', { sha: C });
+      await github('ci-green');
+      expect((await submit(as('worker'), red.id, C)).task.column).toBe('review');
+    },
+    TIMEOUT,
+  );
+
+  it(
+    "dispatch-conflict-in-review: the conductor's submit sends the task to Dev",
+    async () => {
+      await up();
+      await seed('dispatch-conflict-in-review');
+      const review = await mustTurn(as('orchestrator'));
+      expect((await submit(as('orchestrator'), review.id, A)).task.column).toBe('dev');
+      expect((await moves()).at(-1)).toEqual({
+        from: 'review',
+        to: 'dev',
+        reason: 'gate_broken',
+        gate: ['conflict'],
+      });
+      expect(await mustTurn(as('worker'))).toMatchObject({
+        column: 'dev',
+        reason: 'dev: conflict, no_submit_on_head',
+      });
+    },
+    TIMEOUT,
+  );
+
+  it(
+    'dispatch-conflict-in-ready-to-merge: a new head passes Dev into a new Review turn',
+    async () => {
+      await up();
+      await seed('dispatch-conflict-in-ready-to-merge');
+      expect((await moves()).at(-1)).toEqual({
+        from: 'ready-to-merge',
+        to: 'dev',
+        reason: 'gate_broken',
+        gate: ['conflict'],
+      });
+      const dev = await mustTurn(as('worker'));
+      await ack(as('worker'), dev.id);
+      await github('push', { sha: B });
+      await github('ci-green');
+      expect((await submit(as('worker'), dev.id, B)).task.column).toBe('review');
+      expect(await mustTurn(as('orchestrator'))).toMatchObject({
+        column: 'review',
+        reason: 'review: no_review_on_head',
+        head: B,
+        taken: null,
+      });
+    },
+    TIMEOUT,
+  );
+
+  it(
+    'dispatch-reentry-same-head: a submit on the reviewed head passes Review without a turn',
+    async () => {
+      await up();
+      await seed('dispatch-reentry-same-head');
+      const before = (await moves()).length;
+      const dev = await mustTurn(as('worker'));
+      await ack(as('worker'), dev.id);
+      expect((await submit(as('worker'), dev.id, A)).task.column).toBe('ready-to-merge');
+      expect((await fromTo()).slice(before)).toEqual([
+        ['dev', 'review', 'gate_passed'],
+        ['review', 'ready-to-merge', 'gate_passed'],
+      ]);
+      const columns = await withStore((store) =>
+        store.db.selectFrom('turn').select('column').orderBy('id').execute(),
+      );
+      // Dev, Review, Ready to Merge, the re-entry's Dev, then Ready to Merge again: no second Review.
+      expect(columns.map((row) => row.column)).toEqual([
+        'dev',
+        'review',
+        'ready-to-merge',
+        'dev',
+        'ready-to-merge',
+      ]);
+    },
+    TIMEOUT,
+  );
+
+  it(
+    'dispatch-external-comment: the after-submit turn hands only the external feedback',
+    async () => {
+      await up();
+      await seed('dispatch-external-comment');
+      const dev = await mustTurn(as('worker'));
+      expect(await submit(as('worker'), dev.id, A)).toMatchObject({ task: { column: 'dev' } });
+      const handing = await mustTurn(as('worker'));
+      expect(handing.reason).toBe('dev: external_comments');
+      expect(handing.handed).toHaveLength(2);
+      expect(handing.handed).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ kind: 'comment', id: 'IC_1_150' }),
+          expect.objectContaining({ kind: 'review', id: 'PRR_1_0' }),
+        ]),
+      );
+      await ack(as('worker'), handing.id);
+      expect((await submit(as('worker'), handing.id, A)).task.column).toBe('review');
+    },
+    TIMEOUT,
+  );
+
+  it(
+    'dispatch-dead-executor: an operator relink reroutes the turn to a new worker',
+    async () => {
+      await up();
+      const { scenario } = await seed('dispatch-dead-executor');
+      const item = scenario.items?.['turn'] ?? '';
+      const id = Number(item.replace('turn:', ''));
+      expect(await turnRow(id)).toMatchObject({ role: 'operator', closed_at: null });
+
+      const next = 'stand-worker-2';
+      await spur('session', {
+        id: next,
+        project: 'stand-worker',
+        status: 'running',
+        state: 'working',
+      });
+      await poll();
+      await vi.waitFor(
+        async () => {
+          const live = await withStore((store) =>
+            store.db
+              .selectFrom('session_snapshot')
+              .select('ended_at')
+              .where('id', '=', next)
+              .executeTakeFirst(),
+          );
+          expect(live).toEqual({ ended_at: null });
+        },
+        { timeout: 10_000, interval: 200 },
+      );
+      const relink = { mode: 'session', task: ISSUE, reason: 'The worker was killed.' };
+      await op(current(), 'link.remove', { ...relink, session: as('worker') });
+      await op(current(), 'link.add', { ...relink, session: next });
+      expect(await sessionLink(as('worker'))).toEqual({ role: 'worker', banned: 1 });
+      expect(await sessionLink(next)).toEqual({ role: 'worker', banned: 0 });
+      await vi.waitFor(
+        async () => {
+          await poll();
+          expect(await itemKeys()).not.toContain(item);
+        },
+        { timeout: 30_000, interval: 500 },
+      );
+      expect(await turnRow(id)).toMatchObject({ closed_reason: 'rerouted' });
+      const { turns } = await sessionOp<Inbox>(next, 'inbox.get');
+      expect(turns).toEqual([
+        expect.objectContaining({
+          task: ISSUE,
+          column: 'dev',
+          addressee: 'worker',
+          reason: 'dev: no_submit_on_head',
+          taken: null,
+        }),
+      ]);
+    },
+    TIMEOUT,
+  );
+
+  it(
+    'dispatch-source-blind: the Dev turn opens once GitHub answers again',
+    async () => {
+      await up();
+      await seed('dispatch-source-blind');
+      expect(await turnOf(as('worker'))).toBeUndefined();
+      await github('fail', { mode: 'clear' });
+      await poll();
+      expect(await mustTurn(as('worker'))).toMatchObject({
+        column: 'dev',
+        reason: 'dev: no_submit_on_head',
+      });
+    },
+    TIMEOUT,
+  );
+
+  it(
+    'dispatch-cycle-limit: closing the limit item opens the Dev turn',
+    async () => {
+      await up();
+      const { scenario } = await seed('dispatch-cycle-limit');
+      const key = scenario.items?.['limit'];
+      expect(key).toMatch(/^cycle-limit:\d+:review$/);
+      const item = (await status(current())).items.find((candidate) => candidate.key === key) as
+        { id: string } | undefined;
+      if (item === undefined) throw new Error(`no item ${String(key)}`);
+      await op(current(), 'item.close', { item: item.id });
+      await poll();
+      expect(await mustTurn(as('worker'))).toMatchObject({
+        column: 'dev',
+        reason: 'dev: no_submit_on_head',
+      });
+    },
+    TIMEOUT,
+  );
 });
 
 /** `definition` with a seed that counts its calls. */
