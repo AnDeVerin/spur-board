@@ -21,7 +21,7 @@ import type { Row } from '../store/schema.ts';
 import { emit, projectForSource, taskPr, type Trx } from './board-utils.ts';
 import { linkedSession } from './doorbells.ts';
 import { raiseCycleLimit } from './fromYou.ts';
-import { closeTurns, isNewer, openTurn, turnFeedbackCursors } from './turns.ts';
+import { closeTurns, isNewer, openTurn, turnFeedbackCursors, turnHanded } from './turns.ts';
 
 // The dispatcher applies the pure cascade of `domain/dispatch.ts` inside its caller's
 // transaction. It reads no clock and does no IO: `at` and the complete-poll map come from the
@@ -512,13 +512,27 @@ async function applyOn(
   const turn = result.turn;
   if (turn === null) return;
   if (result.voids !== undefined) await voidColumns(trx, current.id, [result.voids], at);
-  const rerouted = turn.kind === 'reroute' ? read.unclosed?.reason : undefined;
-  if (turn.kind === 'reroute')
-    await closeTurns(trx, { taskId: current.id, reason: 'rerouted', at });
+  const replaced = turn.kind === 'reroute' ? read.unclosed : undefined;
+  if (replaced !== undefined) await closeTurns(trx, { taskId: current.id, reason: 'rerouted', at });
+  // A reroute carries the feedback the replaced turn handed over; the cursor already counts it.
+  const carried = replaced === undefined ? [] : turnHanded(replaced);
+  const handed = [
+    ...carried,
+    ...read.handed.filter(
+      (entry) =>
+        !carried.some(
+          (old) =>
+            old.repo.toLowerCase() === entry.repo.toLowerCase() &&
+            old.number === entry.number &&
+            old.kind === entry.kind &&
+            old.id === entry.id,
+        ),
+    ),
+  ];
   await openTurn(trx, {
     task: current,
-    reason: turnReason(turn, rerouted),
-    handed: current.column === 'dev' ? read.handed : [],
+    reason: turnReason(turn, replaced?.reason),
+    handed: current.column === 'dev' ? handed : [],
     at,
     config,
   });

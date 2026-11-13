@@ -800,14 +800,36 @@ describe('turns', () => {
   });
 
   it('reroutes an untaken operator turn to a worker that links', async () => {
+    const comment = (id: string, minute: number) => ({
+      kind: 'comment' as const,
+      id,
+      author: { login: EXTERNAL, type: 'user' as const },
+      postedAt: at(minute),
+    });
+    const handed = (id: string, minute: number) => ({
+      repo: 'o/r',
+      number: 7,
+      kind: 'comment',
+      id,
+      postedAt: at(minute),
+    });
     const ctx = await started({}, 'none');
-    await ctx.pr();
+    await ctx.pr({ feedback: [comment('c-1', 1)] });
     expect((await ctx.task()).column).toBe('dev');
-    expect(await ctx.openTurn()).toEqual(turnOf('dev', 'operator', 'dev: no_submit_on_head'));
+    const operatorTurn = await ctx.openTurn();
+    expect(operatorTurn).toEqual(
+      turnOf('dev', 'operator', 'dev: external_comments, no_submit_on_head'),
+    );
+    expect(JSON.parse(operatorTurn?.handed ?? '[]')).toEqual([handed('c-1', 1)]);
+    await ctx.pr({ feedback: [comment('c-1', 1), comment('c-2', 2)] });
 
     await ctx.spur('live');
     expect((await ctx.turns())[0]).toMatchObject({ id: 1, closed_reason: 'rerouted' });
-    expect(await ctx.openTurn()).toEqual(turnOf('dev', 'worker', 'dev: no_submit_on_head'));
+    const workerTurn = await ctx.openTurn();
+    expect(workerTurn).toEqual(
+      turnOf('dev', 'worker', 'dev: external_comments, no_submit_on_head'),
+    );
+    expect(JSON.parse(workerTurn?.handed ?? '[]')).toEqual([handed('c-1', 1), handed('c-2', 2)]);
     expect(
       await ctx.store.db.selectFrom('operator_item').select(['item_key', 'cleared_at']).execute(),
     ).toEqual([{ item_key: 'turn:1', cleared_at: expect.any(String) as unknown }]);
