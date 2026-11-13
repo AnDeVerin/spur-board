@@ -73,6 +73,7 @@ const adapterDefaults: Pick<Config, 'adapters' | 'sources' | 'github' | 'health'
   adapters: {
     spur: { intervalMs: 15_000, baseUrl: 'http://127.0.0.1:4310' },
     github: { intervalMs: 60_000 },
+    githubIssues: { intervalMs: 120_000 },
     jira: { intervalMs: 120_000 },
   },
   sources: { authRetryMs: 900_000, goneAfterPolls: 3 },
@@ -478,6 +479,12 @@ describe('invalid configs', () => {
       'projects[0].tracker.projectKeys[0]',
     ],
     [
+      'zero GitHub Issues interval',
+      validConfig({}, { adapters: { githubIssues: { intervalMs: 0 } } }),
+      'Too small: expected number to be >=1',
+      'adapters.githubIssues.intervalMs',
+    ],
+    [
       'zero gone-after polls',
       validConfig({}, { sources: { goneAfterPolls: 0 } }),
       'Too small: expected number to be >=1',
@@ -651,6 +658,7 @@ describe('JSON Schema', () => {
       .sort();
     expect(msPaths).toEqual([
       '.adapters.github.intervalMs',
+      '.adapters.githubIssues.intervalMs',
       '.adapters.jira.intervalMs',
       '.adapters.spur.intervalMs',
       '.doorbells.firstRetryMs',
