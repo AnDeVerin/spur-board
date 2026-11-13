@@ -256,7 +256,7 @@ const context = (prs = [ref], cursor?: string) => ({
 });
 
 describe('GitHub PR batch', () => {
-  it('pins the initial query and asks for rateLimit, discovery and aliases together', () => {
+  it('pins the discovery and detail queries', () => {
     const query = discoveryQuery();
     expect(createHash('sha256').update(query).digest('hex')).toBe(
       '284d2507ec8443328149d3ce5a183b4f60c443a95a960735b9a1ce898c9770a7',
