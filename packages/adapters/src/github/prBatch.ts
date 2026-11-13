@@ -282,15 +282,18 @@ function feedbackAuthor(wire: ActorWire): PrFeedback['author'] {
     ? null
     : { login: wire.login, type: wire.__typename === 'Bot' ? 'bot' : 'user' };
 }
-// Every comment and submitted review once, oldest first; equal times fall back to the id.
+// Every comment and submitted review once, oldest first; equal times fall back to the id. Held
+// comments from an earlier poll come first, so a comment read again replaces its held entry.
 function feedbackOf(
   reviews: readonly ReviewWire[],
   comments: readonly CommentWire[],
+  held: readonly PrFeedback[],
 ): PrFeedback[] {
   const entries = new Map<string, PrFeedback>();
   const add = (entry: PrFeedback): void => {
     entries.set(`${entry.kind}:${entry.id}`, entry);
   };
+  for (const entry of held) if (entry.kind === 'comment') add(entry);
   for (const node of comments)
     add({
       kind: 'comment',
@@ -421,12 +424,16 @@ function reviewer(wire: ReviewerWire): { kind: ReviewerKind; id: string } {
       return assertNever(wire);
   }
 }
-/** `feedbackComplete` says whether the comments in `value` reach back to the cursor or start. */
+/**
+ * `feedbackComplete` says whether the comments in `value`, with the `held` comments an earlier
+ * poll read, reach back to the cursor or start.
+ */
 export function normalizePr(
   repo: string,
   value: unknown,
   rule: KeyRule,
   feedbackComplete: boolean,
+  held: readonly PrFeedback[] = [],
 ): PrFacts {
   const wire = parseWire(prWire, value, 'Malformed GitHub PR response');
   const checks = latestChecks(wire.statusCheckRollup?.contexts.nodes ?? []);
@@ -466,7 +473,7 @@ export function normalizePr(
     ticketKeys: prKeys(rule, title, headBranch, closingRefs(wire.closingIssuesReferences)),
     updatedAt: wire.updatedAt,
     ...(state === 'merged' && wire.mergedAt !== null ? { mergedAt: wire.mergedAt } : {}),
-    feedback: feedbackOf(wire.reviews.nodes, wire.comments.nodes),
+    feedback: feedbackOf(wire.reviews.nodes, wire.comments.nodes, held),
     feedbackComplete,
   };
   const parsed = prFactsSchema.safeParse(facts);

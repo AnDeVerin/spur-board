@@ -1084,6 +1084,30 @@ describe('GitHub request timeout', () => {
   });
 });
 
+/** Comment `i` of a long history, one second apart, as the wire and as a held feedback entry. */
+const historyAt = (i: number) => new Date(Date.parse(time) + i * 1000).toISOString();
+const historyNodes = (from: number, to: number) =>
+  Array.from({ length: to - from }, (_, i) => ({
+    id: `IC_${String(from + i)}`,
+    author: { __typename: 'User', login: 'alice' },
+    createdAt: historyAt(from + i),
+  }));
+const heldHistory = (resume: string | null, from: number, to: number) => ({
+  ref,
+  resume: resume === null ? null : sourceCursorSchema.parse(resume),
+  feedback: Array.from({ length: to - from }, (_, i) => ({
+    kind: 'comment' as const,
+    id: `IC_${String(from + i)}`,
+    author: { login: 'alice', type: 'user' as const },
+    postedAt: historyAt(from + i),
+  })),
+});
+const historyIds = (batch: { items: { kind: string; facts?: unknown }[] }) =>
+  prFactsSchema
+    .parse(batch.items[0]?.facts)
+    .feedback?.filter((entry) => entry.kind === 'comment')
+    .map((entry) => entry.id);
+
 describe('GitHub on-demand PR', () => {
   const signal = () => new AbortController().signal;
   function pollPr(fetcher: typeof fetch, now?: () => number) {
@@ -1129,6 +1153,43 @@ describe('GitHub on-demand PR', () => {
     await expect(pollPr(fetcher)(ref, { signal: controller.signal })).rejects.toThrow(
       'GitHub poll aborted',
     );
+  });
+
+  const commentsPage = (nodes: Json[], startCursor: string | null = null) =>
+    response({ repository: { pullRequest: { comments: back(nodes, startCursor) } } });
+  const withComments = (nodes: Json[], startCursor: string) =>
+    response({ pr0: { pullRequest: { ...wire(), comments: back(nodes, startCursor) } } });
+
+  it('merges the held history within 3 comment pages and states no continuation', async () => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(withComments(historyNodes(320, 400), 'p9'))
+      .mockResolvedValueOnce(commentsPage(historyNodes(280, 320), 'p8'))
+      .mockResolvedValueOnce(commentsPage(historyNodes(0, 100)))
+      .mockRejectedValue(new Error('unexpected request'));
+    const batch = await pollPr(fetcher)(ref, {
+      signal: signal(),
+      continuations: [heldHistory('p1', 100, 300)],
+    });
+    expect(fetcher).toHaveBeenCalledTimes(3);
+    expect(historyIds(batch)).toEqual(historyNodes(0, 400).map((node) => node.id));
+    expect(batch.items[0]?.facts).toMatchObject({ feedbackComplete: true });
+    expect(batch.items[0]).not.toHaveProperty('continuation');
+    expect(batchSchema.parse(batch)).toEqual(batch);
+  });
+
+  it('states no continuation for a PR past the page budget without a held history', async () => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(withComments(historyNodes(200, 300), 'p2'))
+      .mockResolvedValueOnce(commentsPage(historyNodes(100, 200), 'p1'))
+      .mockResolvedValueOnce(commentsPage(historyNodes(0, 100), 'p0'))
+      .mockRejectedValue(new Error('unexpected request'));
+    const batch = await pollPr(fetcher)(ref, { signal: signal() });
+    expect(fetcher).toHaveBeenCalledTimes(3);
+    expect(historyIds(batch)).toHaveLength(300);
+    expect(batch.items[0]?.facts).toMatchObject({ feedbackComplete: false });
+    expect(batch.items[0]).not.toHaveProperty('continuation');
   });
 
   it('rejects a lone malformed PR naming the field', async () => {
@@ -1837,6 +1898,208 @@ describe('PR feedback', () => {
     expect(factsOf(batch).feedbackComplete).toBe(false);
     expect(commentIds(batch)).toHaveLength(300);
     expect(batch.budget?.remaining).toBe(4000);
+    expect(batch.items[0]).toMatchObject({ continuation: { resume: 'p0' } });
+  });
+
+  describe('comment history continuation', () => {
+    const entry = (i: number) => ({
+      kind: 'comment' as const,
+      id: `IC_${String(i)}`,
+      author: { login: 'alice', type: 'user' as const },
+      postedAt: postedAt(i),
+    });
+    const entries = (from: number, to: number) =>
+      Array.from({ length: to - from }, (_, i) => entry(from + i));
+    const heldAs = (resume: string | null, feedback: ReturnType<typeof entry>[]) => ({
+      ref,
+      resume: resume === null ? null : sourceCursorSchema.parse(resume),
+      feedback,
+    });
+    /** A regular poll context holding `feedback` with `resume`, plus any feedback cursor. */
+    const holding = (
+      resume: string | null,
+      feedback: ReturnType<typeof entry>[],
+      feedbackCursors: { ref: typeof ref; id: string; postedAt: string }[] = [],
+    ) => ({
+      ...withCursors(feedbackCursors),
+      continuations: [heldAs(resume, feedback)],
+    });
+    const ids = (from: number, to: number) => range(from, to).map((node) => node.id);
+    const pages = (...answers: Response[]) => {
+      const fetcher = vi.fn<typeof fetch>();
+      for (const answer of answers) fetcher.mockResolvedValueOnce(answer);
+      return fetcher.mockImplementation(() => Promise.reject(new Error('unexpected request')));
+    };
+
+    it('continues from the held resume and completes at the start of the PR', async () => {
+      const fetcher = pages(
+        initial(prWith(back(range(250, 350), 'p2'))),
+        historyPage(back(range(0, 50))),
+      );
+      const batch = await adapter(fetcher).poll(holding('p0', entries(50, 350)));
+      expect(fetcher).toHaveBeenCalledTimes(2);
+      expect(variables(fetcher, 1)).toMatchObject({ before: 'p0' });
+      expect(commentIds(batch)).toEqual(ids(0, 350));
+      expect(factsOf(batch).feedbackComplete).toBe(true);
+      expect(batch.items[0]).toMatchObject({ continuation: { resume: null } });
+    });
+
+    it('reads at most 3 comment pages per poll while it continues a history', async () => {
+      const fetcher = pages(
+        initial(prWith(back(range(550, 650), 'p5'))),
+        historyPage(back(range(200, 300), 'p2')),
+        historyPage(back(range(100, 200), 'p1')),
+      );
+      const batch = await adapter(fetcher).poll(holding('p3', entries(300, 600)));
+      expect(fetcher).toHaveBeenCalledTimes(3);
+      expect(variables(fetcher, 1)).toMatchObject({ before: 'p3' });
+      expect(variables(fetcher, 2)).toMatchObject({ before: 'p2' });
+      expect(commentIds(batch)).toEqual(ids(100, 650));
+      expect(factsOf(batch).feedbackComplete).toBe(false);
+      expect(batch.items[0]).toMatchObject({ continuation: { resume: 'p1' } });
+    });
+
+    it('stays complete from the held history and adds new comments', async () => {
+      const fetcher = pages(initial(prWith(back(range(250, 310), 'p2'))));
+      const batch = await adapter(fetcher).poll(holding(null, entries(0, 300)));
+      expect(fetcher).toHaveBeenCalledTimes(1);
+      expect(commentIds(batch)).toEqual(ids(0, 310));
+      expect(factsOf(batch).feedbackComplete).toBe(true);
+      expect(batch.items[0]).toMatchObject({ continuation: { resume: null } });
+    });
+
+    it('drops the held history once the first pages reach the cursor', async () => {
+      const fetcher = pages(initial(prWith(back(range(300, 350), 'p3'))));
+      const batch = await adapter(fetcher).poll(
+        holding('p0', entries(0, 300), [{ ref, id: 'IC_320', postedAt: postedAt(320) }]),
+      );
+      expect(fetcher).toHaveBeenCalledTimes(1);
+      expect(commentIds(batch)).toEqual(ids(300, 350));
+      expect(factsOf(batch).feedbackComplete).toBe(true);
+      expect(batch.items[0]).toMatchObject({ continuation: null });
+    });
+
+    it('restarts from the newest comments when they no longer reach the held history', async () => {
+      const fetcher = pages(
+        initial(prWith(back(range(400, 500), 'p3'))),
+        historyPage(back(range(300, 400), 'p2')),
+        historyPage(back(range(200, 300), 'p1')),
+      );
+      const batch = await adapter(fetcher).poll(holding('p0', entries(0, 100)));
+      expect(fetcher).toHaveBeenCalledTimes(3);
+      expect(commentIds(batch)).toEqual(ids(200, 500));
+      expect(factsOf(batch).feedbackComplete).toBe(false);
+      expect(batch.items[0]).toMatchObject({ continuation: { resume: 'p1' } });
+    });
+
+    it('reads past the held history when the cursor moved back before it', async () => {
+      const cursor = [{ ref, id: 'IC_50', postedAt: postedAt(50) }];
+      const fetcher = pages(
+        initial(prWith(back(range(250, 320), 'p9'))),
+        historyPage(back(range(100, 200), 'p0')),
+        historyPage(back(range(40, 100), 'pz')),
+      );
+      const batch = await adapter(fetcher).poll(holding('p1', entries(200, 300), cursor));
+      expect(fetcher).toHaveBeenCalledTimes(3);
+      expect(variables(fetcher, 1)).toMatchObject({ before: 'p1' });
+      expect(variables(fetcher, 2)).toMatchObject({ before: 'p0' });
+      expect(commentIds(batch)).toEqual(ids(40, 320));
+      expect(factsOf(batch).feedbackComplete).toBe(true);
+      expect(batch.items[0]).toMatchObject({ continuation: { resume: 'pz' } });
+    });
+
+    it('never completes when the cursor moved back below the held history and the budget runs out', async () => {
+      const cursor = [{ ref, id: 'IC_50', postedAt: postedAt(50) }];
+      const fetcher = pages(
+        initial(prWith(back(range(300, 400), 'p5'))),
+        historyPage(back(range(250, 300), 'p4')),
+        historyPage(back(range(100, 200), 'p0')),
+      );
+      const batch = await adapter(fetcher).poll(holding('p1', entries(200, 300), cursor));
+      expect(fetcher).toHaveBeenCalledTimes(3);
+      expect(variables(fetcher, 2)).toMatchObject({ before: 'p1' });
+      expect(commentIds(batch)).toEqual(ids(100, 400));
+      expect(factsOf(batch).feedbackComplete).toBe(false);
+      expect(batch.items[0]).toMatchObject({ continuation: { resume: 'p0' } });
+    });
+
+    it('drops a held comment the newest pages no longer list', async () => {
+      const gone = { ...entry(280), id: 'IC_gone' };
+      const fetcher = pages(initial(prWith(back(range(250, 320), 'p2'))));
+      const batch = await adapter(fetcher).poll(holding(null, [...entries(0, 300), gone]));
+      expect(commentIds(batch)).toEqual(ids(0, 320));
+      expect(factsOf(batch).feedbackComplete).toBe(true);
+    });
+
+    it.each<[string, () => Response]>([
+      [
+        'carries a GraphQL error',
+        () =>
+          response({ repository: { pullRequest: { comments: null } } }, [
+            {
+              message: 'Something went wrong',
+              type: 'INTERNAL',
+              path: ['repository', 'pullRequest', 'comments'],
+            },
+          ]),
+      ],
+      [
+        'is malformed',
+        () => historyPage({ nodes: 'x', pageInfo: { hasPreviousPage: false, startCursor: null } }),
+      ],
+      [
+        'has an older page but no start position',
+        () => historyPage(back(range(0, 100), null, true)),
+      ],
+      ['repeats the held start position', () => historyPage(back(range(0, 100), 'p0'))],
+      ['is newer than the held history without overlap', () => historyPage(back(range(400, 450)))],
+    ])('drops the held history when a resume page %s', async (_name, page) => {
+      const fetcher = vi
+        .fn<typeof fetch>()
+        .mockResolvedValueOnce(initial(prWith(back(range(250, 320), 'p9'))))
+        .mockImplementationOnce(() => Promise.resolve(page()));
+      const batch = await adapter(fetcher).poll(holding('p0', entries(100, 300)));
+      expect(fetcher).toHaveBeenCalledTimes(2);
+      expect(batch.complete).toBe(true);
+      expect(batch.entities).toEqual([{ ref, status: 'ok' }]);
+      expect(factsOf(batch).feedbackComplete).toBe(false);
+      expect(batch.items[0]).toMatchObject({ continuation: null });
+    });
+
+    it('keeps the held history unstated when a resume page answers HTTP 500', async () => {
+      const fetcher = pages(
+        initial(prWith(back(range(250, 320), 'p9'))),
+        new Response('unavailable', { status: 500 }),
+      );
+      const batch = await adapter(fetcher).poll(holding('p0', entries(100, 300)));
+      expect(fetcher).toHaveBeenCalledTimes(2);
+      expect(batch.complete).toBe(true);
+      expect(factsOf(batch).feedbackComplete).toBe(false);
+      expect(commentIds(batch)).toEqual(ids(100, 320));
+      expect(batch.items[0]).not.toHaveProperty('continuation');
+    });
+
+    it.each<[string, Json, () => ReturnType<typeof context>]>([
+      ['has no start position', back(range(100, 200), null, true), () => context()],
+      ['repeats a start position', back(range(100, 200), 'p1'), () => context()],
+      [
+        'has no start position, with a held history',
+        back(range(100, 200), null, true),
+        () => holding('p-old', entries(0, 50)),
+      ],
+      [
+        'repeats a start position, with a held history',
+        back(range(100, 200), 'p1'),
+        () => holding('p-old', entries(0, 50)),
+      ],
+    ])('states nothing when the oldest head page %s', async (_name, oldest, ctx) => {
+      const fetcher = pages(initial(prWith(back(range(200, 300), 'p1'))), historyPage(oldest));
+      const batch = await adapter(fetcher).poll(ctx());
+      expect(fetcher).toHaveBeenCalledTimes(2);
+      expect(commentIds(batch)).toEqual(ids(100, 300));
+      expect(factsOf(batch).feedbackComplete).toBe(false);
+      expect(batch.items[0]).not.toHaveProperty('continuation');
+    });
   });
 });
 
@@ -2319,6 +2582,35 @@ describe('PR index cache', () => {
     expect(run.details()).toEqual([]);
     await run.poll(undefined, at('IC_2'));
     expect(run.details()).toEqual([7]);
+  });
+  it('reads in full again when the held history changes', async () => {
+    const run = scenario();
+    const holding = (resume: string | null) => ({
+      continuations: [heldHistory(resume, 0, 10)].map((held) => ({ ...held, ref: refOf(7) })),
+    });
+    await run.poll(undefined, holding(null));
+    await run.poll(undefined, holding(null));
+    expect(run.details()).toEqual([]);
+    await run.poll(undefined, holding('p0'));
+    expect(run.details()).toEqual([7]);
+  });
+  it('re-emits a complete merged history from the cache without a continuation', async () => {
+    const run = scenario();
+    run.state.detail = (n) =>
+      n === 7 ? { ...merged(n), comments: back(historyNodes(250, 320), 'p9') } : wire(n);
+    const held = {
+      continuations: [{ ...heldHistory(null, 0, 300), ref: refOf(7) }],
+    };
+    const first = await run.poll(undefined, held);
+    expect(run.details()).toEqual([7, 8]);
+    expect(first.items.find((item) => factsFor(first, 7) === item.facts)).toMatchObject({
+      continuation: { resume: null },
+    });
+    expect(factsFor(first, 7)).toMatchObject({ feedbackComplete: true });
+    const second = await run.poll(undefined, held);
+    expect(run.details()).toEqual([]);
+    expect(factsFor(second, 7)).toEqual(factsFor(first, 7));
+    for (const item of second.items) expect(item).not.toHaveProperty('continuation');
   });
   it('reads in full again when the cached feedback was incomplete', async () => {
     const run = scenario();

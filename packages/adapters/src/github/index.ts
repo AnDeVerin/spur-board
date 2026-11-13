@@ -6,6 +6,7 @@ import {
   type PollContext,
   type PrEntityRef,
   type PrFacts,
+  type PrFeedback,
   type SourceCursor,
   sourceCursorSchema,
 } from '@spur-board/contracts';
@@ -61,6 +62,7 @@ const commentsRootWire = z.object({ pullRequest: z.object({ comments: backPaging
 type Paging = z.output<typeof pagingWire>;
 type BackPaging = z.output<typeof backPagingWire>;
 type FeedbackCursor = NonNullable<PollContext['feedbackCursors']>[number];
+type Held = NonNullable<PollContext['continuations']>[number];
 // Comment pages per PR per poll, the first one included.
 const FEEDBACK_PAGES = 3;
 // Aliases per request: the light index read, and the full detail read.
@@ -119,7 +121,7 @@ export function githubSources(config: Config, options: GithubOptions): GithubSou
               cache,
             }),
           pollPr: (ref, ctx) =>
-            pollOnePr({ id, repo, keys, client, now: options.now, ref, signal: ctx.signal, cache }),
+            pollOnePr({ id, repo, keys, client, now: options.now, ref, ctx, cache }),
         },
       });
     }
@@ -234,57 +236,138 @@ async function fullPr(
   }
   return { status: 'ok', pr };
 }
-function reachesCursor(nodes: BackPaging['nodes'], cursor: FeedbackCursor | undefined): boolean {
+const at = (time: string): number => Date.parse(time);
+function reachesCursor(
+  nodes: readonly { id: string; createdAt: string }[],
+  cursor: FeedbackCursor | undefined,
+): boolean {
   if (cursor === undefined) return false;
-  const postedAt = Date.parse(cursor.postedAt);
-  return nodes.some((node) => node.id === cursor.id || Date.parse(node.createdAt) < postedAt);
+  const postedAt = at(cursor.postedAt);
+  return nodes.some((node) => node.id === cursor.id || at(node.createdAt) < postedAt);
+}
+const asNode = (entry: PrFeedback): { id: string; createdAt: string } => ({
+  id: entry.id,
+  createdAt: entry.postedAt,
+});
+/** What core is asked to hold for a PR (A10); undefined says nothing. */
+type Continuation = { resume: SourceCursor | null } | null;
+interface Feedback {
+  /** Comments read in this poll, oldest first. */
+  nodes: BackPaging['nodes'];
+  /** Held comments of an earlier poll that join the comments read now. */
+  held: PrFeedback[];
+  complete: boolean;
+  continuation: Continuation | undefined;
+}
+/** Reads one page of comments before `before`; undefined on a GraphQL error. */
+async function commentPage(
+  scope: PrScope,
+  number: number,
+  before: string,
+  budget: (value: NonNullable<Batch['budget']>) => void,
+): Promise<BackPaging | AdapterError | undefined> {
+  const response = await scope.client.query(
+    pageQuery('comments'),
+    { owner: scope.owner, repo: scope.name, number, before },
+    scope.signal,
+  );
+  budget(response.budget);
+  rejectUnscoped(response.errors, ['repository']);
+  if (response.errors.length > 0) return undefined;
+  return content(
+    () =>
+      parseWire(commentsRootWire, response.data.repository, MALFORMED, ['data', 'repository'])
+        .pullRequest.comments,
+  );
 }
 /**
  * Reads comments back from `first` to `cursor`, or to the start of the PR, within
- * `FEEDBACK_PAGES`. A transient failure keeps the comments read so far as incomplete; every
- * other failure, and any failure after an abort, rejects the poll.
+ * `FEEDBACK_PAGES` for both phases. Phase 1 pages back from the newest comment until it reaches
+ * the cursor or the start, or joins the newest `held` comment; phase 2 then reads further back
+ * from the held `resume`. A transient failure keeps the comments read so far as incomplete;
+ * every other failure, and any failure after an abort, rejects the poll.
  */
 async function readFeedback(
-  client: GithubClient,
-  first: BackPaging,
-  owner: string,
-  name: string,
+  scope: PrScope,
   number: number,
+  first: BackPaging,
   cursor: FeedbackCursor | undefined,
-  signal: AbortSignal,
+  held: Held | undefined,
   budget: (value: NonNullable<Batch['budget']>) => void,
-): Promise<{ nodes: BackPaging['nodes']; complete: boolean }> {
+): Promise<Feedback> {
   let nodes = first.nodes;
-  let page = first;
-  const seen = new Set<string>();
+  let kept: PrFeedback[] = [];
+  const result = (complete: boolean, continuation?: Continuation): Feedback => ({
+    nodes,
+    held: kept,
+    complete,
+    continuation: scope.states ? continuation : undefined,
+  });
+  const heldComments = held?.feedback.filter((entry) => entry.kind === 'comment') ?? [];
+  const newest = heldComments.reduce<PrFeedback | undefined>(
+    (found, entry) =>
+      found === undefined || at(entry.postedAt) > at(found.postedAt) ? entry : found,
+    undefined,
+  );
+  const joins = (page: BackPaging): boolean =>
+    newest !== undefined &&
+    page.nodes.some((node) => node.id === newest.id || at(node.createdAt) < at(newest.postedAt));
+  let pages = 1;
   try {
-    for (
-      let pages = 1;
-      page.pageInfo.hasPreviousPage && !reachesCursor(page.nodes, cursor);
-      pages += 1
-    ) {
+    // Phase 1: the newest comments, until they reach the cursor or start or join the held ones.
+    const seen = new Set<string>();
+    for (let page = first; ; pages += 1) {
+      if (!page.pageInfo.hasPreviousPage || reachesCursor(page.nodes, cursor))
+        return result(true, held === undefined ? undefined : null);
+      if (joins(page)) break;
       const before = page.pageInfo.startCursor;
-      if (!before || seen.has(before) || pages >= FEEDBACK_PAGES) return { nodes, complete: false };
+      if (!before || seen.has(before)) return result(false);
+      // The newest comments no longer reach the held ones: hold a new history from here.
+      if (pages >= FEEDBACK_PAGES)
+        return result(false, { resume: sourceCursorSchema.parse(before) });
       seen.add(before);
-      const response = await client.query(
-        pageQuery('comments'),
-        { owner, repo: name, number, before },
-        signal,
-      );
-      budget(response.budget);
-      rejectUnscoped(response.errors, ['repository']);
-      if (response.errors.length > 0) return { nodes, complete: false };
-      page = parseWire(commentsRootWire, response.data.repository, MALFORMED, [
-        'data',
-        'repository',
-      ]).pullRequest.comments;
+      const next = await commentPage(scope, number, before, budget);
+      if (next === undefined || next instanceof AdapterError) return result(false);
+      page = next;
       nodes = [...page.nodes, ...nodes];
     }
-    return { nodes, complete: true };
+    if (held === undefined) return result(false);
+    // A held comment newer than the oldest one read now and not listed again was deleted.
+    const listed = new Set(nodes.map((node) => node.id));
+    const oldestRead = Math.min(...nodes.map((node) => at(node.createdAt)));
+    kept = heldComments.filter(
+      (entry) => !listed.has(entry.id) && at(entry.postedAt) <= oldestRead,
+    );
+    const reached = (): boolean =>
+      reachesCursor(nodes, cursor) || reachesCursor(kept.map(asNode), cursor);
+    // Phase 2: further back from where the held history stopped.
+    let resume = held.resume;
+    const resumed = new Set<string>();
+    for (; resume !== null && !reached() && pages < FEEDBACK_PAGES; pages += 1) {
+      resumed.add(resume);
+      const page = await commentPage(scope, number, resume, budget);
+      if (page === undefined || page instanceof AdapterError) return result(false, null);
+      const run = [...nodes, ...kept.map(asNode)];
+      const ids = new Set(run.map((node) => node.id));
+      const oldest = Math.min(...run.map((node) => at(node.createdAt)));
+      const latest = page.nodes.reduce<BackPaging['nodes'][number] | undefined>(
+        (found, node) =>
+          found === undefined || at(node.createdAt) > at(found.createdAt) ? node : found,
+        undefined,
+      );
+      // A page that neither overlaps the history nor ends before it does not continue it.
+      if (latest !== undefined && !ids.has(latest.id) && at(latest.createdAt) > oldest)
+        return result(false, null);
+      nodes = [...page.nodes, ...nodes];
+      const start = page.pageInfo.startCursor;
+      if (!page.pageInfo.hasPreviousPage) resume = null;
+      else if (!start || resumed.has(start)) return result(false, null);
+      else resume = sourceCursorSchema.parse(start);
+    }
+    return result(resume === null || reached(), { resume });
   } catch (error) {
-    if (signal.aborted) throw error;
-    if (error instanceof AdapterError && error.kind === 'transient')
-      return { nodes, complete: false };
+    if (scope.signal.aborted) throw error;
+    if (error instanceof AdapterError && error.kind === 'transient') return result(false);
     throw error;
   }
 }
@@ -310,6 +393,9 @@ interface PrScope {
   keys: KeyRule;
   signal: AbortSignal;
   feedbackCursors?: PollContext['feedbackCursors'];
+  continuations?: PollContext['continuations'];
+  /** Whether items state a continuation (A10): true for `poll`, false for `pollPr` (A9). */
+  states: boolean;
 }
 function malformed(acc: Accumulator, error: AdapterError, ref?: PrEntityRef): void {
   acc.parseError ??= error;
@@ -370,35 +456,34 @@ async function processPr(
     malformed(acc, full.error, ref);
     return undefined;
   }
-  const cursor = feedbackCursor(scope.feedbackCursors, scope.repo, number);
   const feedback = await readFeedback(
-    scope.client,
-    full.pr.comments,
-    scope.owner,
-    scope.name,
+    scope,
     number,
-    cursor,
-    scope.signal,
+    full.pr.comments,
+    entryFor(scope.feedbackCursors, scope.repo, number),
+    entryFor(scope.continuations, scope.repo, number),
     report,
   );
   const pr = { ...full.pr, comments: { ...full.pr.comments, nodes: feedback.nodes } };
   const facts = content(() =>
-    normalizePr(ref?.repo ?? scope.repo, pr, scope.keys, feedback.complete),
+    normalizePr(ref?.repo ?? scope.repo, pr, scope.keys, feedback.complete, feedback.held),
   );
   if (facts instanceof AdapterError) {
     malformed(acc, facts, ref);
     return undefined;
   }
-  acc.items.push({ kind: 'pr', facts });
+  const { continuation } = feedback;
+  acc.items.push({ kind: 'pr', facts, ...(continuation === undefined ? {} : { continuation }) });
   if (ref) acc.entities.push({ ref, status: 'ok' });
   return facts;
 }
-function feedbackCursor(
-  cursors: PollContext['feedbackCursors'],
+/** The entry of one PR in a per-PR list of the poll context. */
+function entryFor<T extends { ref: PrEntityRef }>(
+  entries: readonly T[] | undefined,
   repo: string,
   number: number,
-): FeedbackCursor | undefined {
-  return cursors?.find(
+): T | undefined {
+  return entries?.find(
     (entry) => entry.ref.number === number && entry.ref.repo.toLowerCase() === repo.toLowerCase(),
   );
 }
@@ -605,8 +690,12 @@ async function pollRepository({
   if (!discovery.ok) acc.complete = false;
   const { found } = discovery;
   const entries = await readIndex(request, acc, numbers);
+  // A changed feedback cursor or held history forces a full read.
   const cursorKey = (number: number): string =>
-    JSON.stringify(feedbackCursor(ctx.feedbackCursors, repo, number) ?? 'none');
+    JSON.stringify([
+      entryFor(ctx.feedbackCursors, repo, number) ?? 'none',
+      entryFor(ctx.continuations, repo, number) ?? 'none',
+    ]);
   const changed: number[] = [];
   for (const number of numbers) {
     const facts = reusable(cache.get(number), entries.get(number), cursorKey(number), now());
@@ -628,6 +717,8 @@ async function pollRepository({
     keys,
     signal: ctx.signal,
     ...(ctx.feedbackCursors === undefined ? {} : { feedbackCursors: ctx.feedbackCursors }),
+    ...(ctx.continuations === undefined ? {} : { continuations: ctx.continuations }),
+    states: true,
   };
   let discoveredOk = true;
   // A chunk given up, deferred for budget or never sent: its PRs are unread, not missing.
@@ -701,21 +792,14 @@ interface PrArgs {
   client: GithubClient;
   now: () => number;
   ref: PrEntityRef;
-  signal: AbortSignal;
+  ctx: Parameters<NonNullable<Adapter['pollPr']>>[1];
   cache: Map<number, CachedPr>;
 }
-// Reads one requested PR without discovery (A9): never complete, no cursor. It drops the PR's
-// cached facts, so the next poll cannot re-emit facts older than these.
-async function pollOnePr({
-  id,
-  repo,
-  keys,
-  client,
-  now,
-  ref,
-  signal,
-  cache,
-}: PrArgs): Promise<Batch> {
+// Reads one requested PR without discovery (A9): never complete, no cursor, no continuation; it
+// merges the held history but leaves it to the next poll to state. It drops the PR's cached
+// facts, so the next poll cannot re-emit facts older than these.
+async function pollOnePr({ id, repo, keys, client, now, ref, ctx, cache }: PrArgs): Promise<Batch> {
+  const { signal } = ctx;
   const observedAt = new Date(now()).toISOString();
   const [owner, name] = repo.split('/');
   if (!owner || !name) throw new AdapterError('config', 'Invalid repository');
@@ -727,7 +811,17 @@ async function pollOnePr({
   );
   rejectUnscoped(response.errors, ['pr0']);
   const acc = accumulator(false, response.budget);
-  const scope: PrScope = { client, repo, owner, name, keys, signal };
+  const scope: PrScope = {
+    client,
+    repo,
+    owner,
+    name,
+    keys,
+    signal,
+    ...(ctx.feedbackCursors === undefined ? {} : { feedbackCursors: ctx.feedbackCursors }),
+    ...(ctx.continuations === undefined ? {} : { continuations: ctx.continuations }),
+    states: false,
+  };
   await processPr(
     scope,
     acc,
