@@ -214,8 +214,10 @@ async function skip(
 }
 
 /**
- * The journal is the comment's edit cursor: a deletion, or an edit at or after this one, was
- * already applied. Times compare in milliseconds, since `at` precision varies.
+ * The journal is the comment's edit cursor: a deletion, or a later edit, was already applied.
+ * Times compare in milliseconds, since `at` precision varies. Distinct edits can share a
+ * millisecond, so an edit at the same millisecond counts as applied only when the comment
+ * already holds its text.
  */
 async function alreadyApplied(trx: Trx, event: MessageEvent): Promise<boolean> {
   if (event.kind !== 'message_edited' && event.kind !== 'message_deleted') return false;
@@ -231,7 +233,10 @@ async function alreadyApplied(trx: Trx, event: MessageEvent): Promise<boolean> {
   if (rows.some((row) => row.kind === 'comment_deleted')) return true;
   if (event.kind === 'message_deleted') return false;
   const editedAt = Date.parse(event.at);
-  return rows.some((row) => Date.parse(row.at) >= editedAt);
+  return rows.some((row) => {
+    const rowAt = Date.parse(row.at);
+    return rowAt > editedAt || (rowAt === editedAt && comment.text === event.text);
+  });
 }
 
 async function linkedComment(trx: Trx, event: MessageEvent): Promise<Row<'comment'> | undefined> {
