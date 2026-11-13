@@ -165,6 +165,7 @@ async function run(
     }
     // The removed session no longer holds its worker turns: `quietTurns` skips them, and an unsent
     // reminder is acked here so `ringStillCurrent` drops a ring already queued to the live session.
+    // Restoring the link re-arms that reminder (`registerTurnReminder`).
     if (input.mode === 'session')
       await trx
         .updateTable('notification')

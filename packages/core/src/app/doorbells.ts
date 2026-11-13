@@ -156,8 +156,18 @@ export const turnReminderKey = (turnId: number, session: string, takenAt: string
 const isTurnKind = (kind: Notification['kind']) => kind === 'turn' || kind === 'turn_reminder';
 
 /**
+ * Whether a reminder was cancelled before it was ever sent, as a link removal does: it counts as
+ * no reminder for its take, so a restored link reminds the holder again.
+ */
+export const reminderCancelledUnsent = (
+  n: Pick<Notification, 'acked_at' | 'rings' | 'exhausted_at'>,
+): boolean => n.acked_at !== null && n.rings === 0 && n.exhausted_at === null;
+
+/**
  * Register the single reminder to the session holding a quiet turn. The key names the holder and
- * its take, so each ownership episode gets its own reminder and no episode gets a second.
+ * its take, so each ownership episode gets its own reminder and no episode gets a second. A
+ * reminder of the take cancelled unsent is replaced by a fresh one: its row gets a new id, so the
+ * new ring does not reuse the outbox key of a ring the sender already killed.
  */
 export async function registerTurnReminder(
   trx: Trx,
@@ -166,6 +176,13 @@ export async function registerTurnReminder(
   at: Date,
 ): Promise<void> {
   if (turn.acked_at === null) throw new Error(`turn ${String(turn.id)} is not taken`);
+  await trx
+    .deleteFrom('notification')
+    .where('source_key', '=', turnReminderKey(turn.id, session, turn.acked_at))
+    .where('acked_at', 'is not', null)
+    .where('rings', '=', 0)
+    .where('exhausted_at', 'is', null)
+    .execute();
   await trx
     .insertInto('notification')
     .values({

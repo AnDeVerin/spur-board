@@ -2440,6 +2440,53 @@ describe('turns', () => {
     ]);
   });
 
+  it("re-arms a worker's reminder when its removed link is restored", async () => {
+    const link = { mode: 'session', task: KEY, session: 'worker-1', reason: 'Relink.' } as const;
+    const relink = (ctx: Board, op: 'add' | 'remove') =>
+      op === 'add'
+        ? ctx.apply(createLinkMutations(ctx.config).add, link, 'operator')
+        : ctx.apply(createLinkMutations(ctx.config).remove, link, 'operator');
+
+    const ctx = await setup({ config: policyBoard('none') });
+    await takenByWorker(ctx);
+    const taken = ctx.now().toISOString();
+    await health(ctx, 'worker-1', 'web', 'waiting', ctx.now());
+    ctx.advance(IDLE);
+    await remind(ctx);
+    await ctx.ring();
+    await relink(ctx, 'remove');
+    await ctx.sender.tick();
+    expect(ctx.sent).toHaveLength(1);
+
+    await relink(ctx, 'add');
+    ctx.advance(IDLE);
+    await remind(ctx);
+    await step(ctx);
+    ctx.advance(IDLE);
+    await remind(ctx);
+    await step(ctx);
+
+    expect(ctx.sent.slice(1)).toEqual([
+      {
+        session: 'worker-1',
+        text: expect.stringMatching(
+          /^.+ turn T1 is still open: check board inbox \(N\d+-1\)$/,
+        ) as unknown,
+      },
+    ]);
+    expect(await reminders(ctx)).toEqual([
+      expect.objectContaining({
+        source_key: `turn:1:reminder:worker-1:${taken}`,
+        rings: 1,
+        acked_at: new Date(ctx.now().getTime() - IDLE).toISOString(),
+      }),
+    ]);
+    await scanTransaction(ctx.store, ctx.config, async (trx) => {
+      await reconcileItems(trx, ctx.config, ctx.now().getTime(), true);
+    });
+    expect(await itemKinds(ctx)).toContainEqual({ kind: 'anomaly', item_key: 'stuck-turn:1' });
+  });
+
   it('defers a queued reminder while its holder has an open question and sends it after a fresh quiet period', async () => {
     const ctx = await setup({ config: policyBoard('none') });
     await takenByWorker(ctx);
