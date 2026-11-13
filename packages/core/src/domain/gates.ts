@@ -268,13 +268,13 @@ const CONDITION_OF = {
 /** Reasons that stop Dev's evaluation: the rest of its conditions are not checked. */
 const STOPS_DEV: ReadonlySet<GateReason> = new Set(['no_pr', 'pr_closed']);
 
-export interface ConditionExplanation {
+interface ConditionExplanation {
   condition: GateCondition;
   state: GateConditionState;
   reason: GateReason | null;
 }
 
-export interface GateExplanation {
+interface GateExplanation {
   column: ColumnId;
   enabled: boolean;
   /** Whether the column's own exit conditions pass. */
