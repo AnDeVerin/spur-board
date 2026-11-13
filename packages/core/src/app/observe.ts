@@ -199,8 +199,9 @@ async function moveOpenWork(trx: Trx, from: number, to: number): Promise<void> {
 }
 
 /**
- * A ticket reopened after a merge: the task's PR links so far stay in its history, and only links
- * past the floor decide its state from now on. Nothing without a merged PR link past the floor.
+ * A ticket reopened after a merge: the task's PR links that are not open stay in its history, and
+ * only links past the floor decide its state from now on. The floor never drops. Nothing without a
+ * merged PR link past the floor.
  */
 async function setReopenFloor(trx: Trx, taskId: number): Promise<void> {
   const links = await trx
@@ -211,13 +212,16 @@ async function setReopenFloor(trx: Trx, taskId: number): Promise<void> {
         .on(sql<boolean>`lower(pr_snapshot.repo) = lower(link.repo)`)
         .onRef('pr_snapshot.number', '=', 'link.number'),
     )
-    .select(['link.id', 'link.banned', 'pr_snapshot.state'])
+    .select(['link.id', 'link.banned', 'link.pr_open', 'pr_snapshot.state'])
     .where('link.task_id', '=', taskId)
     .where('link.entity', '=', 'pr')
     .where(pastReopenFloor)
     .execute();
   if (!links.some((link) => link.banned === 0 && link.state === 'merged')) return;
-  const floor = Math.max(...links.map((link) => link.id));
+  // An open link is follow-up work: the floor never covers it, or its merge would not count.
+  const floor = Math.max(
+    ...links.filter((link) => link.pr_open !== 1 || link.state === 'merged').map((link) => link.id),
+  );
   await trx
     .updateTable('task')
     .set((eb) => ({

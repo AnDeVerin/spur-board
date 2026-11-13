@@ -19,6 +19,7 @@ import {
   tickBoard,
   type Store,
 } from '../../src/index.ts';
+import { taskPr } from '../../src/app/board-utils.ts';
 import { createLinkMutations } from '../../src/app/links.ts';
 import { scanTransaction } from '../../src/app/secrets.ts';
 import { createBlockMutations } from '../../src/app/blocks.ts';
@@ -2859,6 +2860,20 @@ describe('anomaly blocks', () => {
       await ticket(b, 'closed');
       await ticket(b, 'open');
       expect((await task(b)).terminal_at).toBeNull();
+    });
+
+    it('keeps a follow-up PR open before the reopen above the floor, so its merge is terminal', async () => {
+      const b = await board();
+      await ticket(b, 'open');
+      await prs(b, [pr(7, 'merged')]);
+      await ticket(b, 'closed');
+      await prs(b, [pr(7, 'merged'), pr(8, 'open')]);
+      await ticket(b, 'open');
+      expect((await task(b)).reopen_link_floor).toBe(await linkId(b, 7));
+
+      await prs(b, [pr(7, 'merged'), pr(8, 'merged')]);
+      expect((await task(b)).terminal_at).toBe(iso());
+      expect(await taskPr(b.store.db, (await task(b)).id)).toMatchObject({ number: 8 });
     });
 
     it('keeps a merged task without a floor terminal', async () => {
