@@ -893,6 +893,34 @@ Example: {}",
                       ],
                       "description": "Pull request linked to the session, or null.",
                     },
+                    "queuedRings": {
+                      "description": "Board rings still waiting in the session queue, undelivered. Only board rings are listed, never other queued text; absent when none.",
+                      "items": {
+                        "additionalProperties": false,
+                        "description": "One board ring waiting in the session queue.",
+                        "properties": {
+                          "notification": {
+                            "description": "Board notification the queued ring belongs to.",
+                            "exclusiveMinimum": 0,
+                            "maximum": 9007199254740991,
+                            "type": "integer",
+                          },
+                          "ring": {
+                            "description": "Ring number within that notification series.",
+                            "exclusiveMinimum": 0,
+                            "maximum": 9007199254740991,
+                            "type": "integer",
+                          },
+                        },
+                        "required": [
+                          "notification",
+                          "ring",
+                        ],
+                        "type": "object",
+                      },
+                      "minItems": 1,
+                      "type": "array",
+                    },
                     "spurProject": {
                       "description": "Spur project the session belongs to.",
                       "pattern": "^[A-Za-z0-9._-]+$",
@@ -1655,6 +1683,34 @@ Example: {}",
                   },
                 ],
                 "description": "Pull request linked to the session, or null.",
+              },
+              "queuedRings": {
+                "description": "Board rings still waiting in the session queue, undelivered. Only board rings are listed, never other queued text; absent when none.",
+                "items": {
+                  "additionalProperties": false,
+                  "description": "One board ring waiting in the session queue.",
+                  "properties": {
+                    "notification": {
+                      "description": "Board notification the queued ring belongs to.",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991,
+                      "type": "integer",
+                    },
+                    "ring": {
+                      "description": "Ring number within that notification series.",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991,
+                      "type": "integer",
+                    },
+                  },
+                  "required": [
+                    "notification",
+                    "ring",
+                  ],
+                  "type": "object",
+                },
+                "minItems": 1,
+                "type": "array",
               },
               "spurProject": {
                 "description": "Spur project the session belongs to.",
