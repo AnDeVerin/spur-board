@@ -7,7 +7,7 @@
   `packages/contracts/test/gateway/schemas.test.ts` for gateway kinds. A changed expected value is
   a Changed checks entry (`gitflow`).
 - Run `pnpm typecheck` and handle every exhaustive switch (`assertNever`).
-- A list config uses: run `pnpm gen:config-schema`.
+- A list config uses: run `pnpm gen` and commit every file it changes.
 - A new `COLUMNS` entry also changes `ADDRESSEE_ROLES`, the config JSON Schema, and the default
   board of every project that omits `columns`: update the default-board test in
   `packages/contracts/test/config.test.ts` and say so in the PR Description. With

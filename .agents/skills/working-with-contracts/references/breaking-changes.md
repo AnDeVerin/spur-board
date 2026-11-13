@@ -42,5 +42,5 @@
   everything stored or addressed uses the id (config `columns`, the journal, addressee roles).
   `COLUMNS[].name` is display text.
 - A rename also follows the "Add an enum value" steps: update the pin (the changed expected value
-  goes under Changed checks), run `pnpm gen:config-schema` when config uses the list, and handle
-  every exhaustive switch.
+  goes under Changed checks), run `pnpm gen` and commit every file it changes when config uses
+  the list, and handle every exhaustive switch.

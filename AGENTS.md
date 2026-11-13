@@ -63,7 +63,9 @@ A map of the repo for agents and contributors. The rules live in the files and s
   to `origin/main`, agents pass the handoff's `origin/main` SHA.
 - `pnpm ci:status [PR]` - the latest CI state of a PR's head commit, by job and step.
 - `pnpm format` - prettier over the repo.
-- `pnpm gen` - regenerate the config schema, operation snapshot and product skill command section.
+- `pnpm gen` - regenerate the config schema, the operation snapshot, the product skill `SKILL.md`
+  and command pages, `docs/cli.md`, `docs/configuration.md` and `docs/errors.md`; commit every
+  file it changes.
 - `pnpm agents:sync [--check]` - generate `.claude/agents/`, `.codex/agents/`, the `.claude/skills`
   link and the skills and roles table from `.agents/`; `--check` reports drift without writing.
 - `pnpm lint:agents` - check agent files against `skill-writer` and run `agents:sync --check`; the

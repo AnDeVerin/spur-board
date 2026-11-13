@@ -62,9 +62,9 @@ here are in `packages/contracts/test/ops.test.ts`.
 
 ## Snapshot
 
-- Run `pnpm gen:ops-snapshot` and commit `packages/contracts/ops.snapshot.json`. The snapshot test
-  fails with `ops.snapshot.json is stale: run pnpm gen:ops-snapshot` otherwise. Never edit it by
-  hand.
+- Run `pnpm gen` and commit every file it changes; step 6 of `adding-an-operation` lists them.
+- `describe('snapshot')` in `packages/contracts/test/ops.test.ts` fails when
+  `packages/contracts/ops.snapshot.json` is stale. Never edit it by hand.
 - Its `version` is the sha256 of the rest of the file; there is no runtime version constant.
   The `schema.get` example uses a placeholder version.
 

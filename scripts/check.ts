@@ -208,6 +208,13 @@ function bin(tool: string): string {
   return join(root, 'node_modules/.bin', tool);
 }
 
+/** Tests that compare files written by `pnpm gen` with contracts and cli; no package owns them. */
+const GENERATED_FILE_TESTS = [
+  'scripts/gen-docs.test.ts',
+  'packages/skills/test/skill-sync.test.ts',
+];
+const GENERATED_FILE_SOURCES = ['packages/contracts', 'packages/cli'];
+
 export function buildSteps(plan: Plan, prePush: boolean, workers = 2): Step[] {
   const noFiles = { skip: 'no files to check' };
   const noPackages = { skip: 'no affected packages' };
@@ -215,6 +222,10 @@ export function buildSteps(plan: Plan, prePush: boolean, workers = 2): Step[] {
   const startupTest = 'packages/cli/test/startup.test.ts';
   const checkStartup =
     !prePush && (plan.mode === 'full' || plan.packageDirs.includes('packages/cli'));
+  const checkGenerated =
+    !prePush &&
+    plan.mode === 'changed' &&
+    GENERATED_FILE_SOURCES.some((dir) => plan.packageDirs.includes(dir));
   const testCommands: Command[] = [
     {
       cmd: bin('vitest'),
@@ -226,6 +237,7 @@ export function buildSteps(plan: Plan, prePush: boolean, workers = 2): Step[] {
         'unit',
         ...(!prePush ? ['--project', 'integration', '--project', 'process'] : []),
         ...(plan.mode === 'full' ? [] : plan.packageDirs.map((dir) => `${dir}/`)),
+        ...(checkGenerated ? GENERATED_FILE_TESTS : []),
       ],
     },
     ...(checkStartup

@@ -81,5 +81,5 @@ Read references/breaking-changes.md for the user-visible break and rename rules.
 
 ## Checks
 
-- `pnpm check`, plus `pnpm gen:config-schema` when config changed.
-- `pnpm gen:ops-snapshot` when an operation, error code or ID schema changed.
+- After a config, operation, error code, enum or ID schema change, run `pnpm gen`, commit every
+  file it changes, then run `pnpm check`.
