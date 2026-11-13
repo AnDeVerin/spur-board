@@ -6,8 +6,6 @@ export const TOKEN_REQUEST_LIMITS = { name: 64, folder: 1024, host: 253 } as con
 /** Control, format and line or paragraph separator characters: they can disguise a prompt. */
 const PLAIN_TEXT = /^[^\p{Cc}\p{Cf}\p{Zl}\p{Zp}]*$/u;
 
-const tokenHashSchema = z.string().regex(/^[0-9a-f]{64}$/);
-
 /** The body of `POST /v1/tokens/requests`: what the operator is asked to approve in Slack. */
 export const tokenRequestSchema = z.strictObject({
   name: z
@@ -22,7 +20,7 @@ export const tokenRequestSchema = z.strictObject({
     .regex(PLAIN_TEXT)
     .refine((value) => value.trim() !== ''),
   host: z.string().min(1).max(TOKEN_REQUEST_LIMITS.host).regex(PLAIN_TEXT),
-  hash: tokenHashSchema,
+  hash: z.string().regex(/^[0-9a-f]{64}$/),
 });
 
 /**
