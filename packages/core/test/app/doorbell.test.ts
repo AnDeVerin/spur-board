@@ -1295,7 +1295,7 @@ async function queueRings(
  * lifecycle columns itself.
  */
 async function observeHealth(ctx: Board, id: string, health: string, project = 'web') {
-  const facts = {
+  const facts = sessionFactsSchema.parse({
     id,
     spurProject: project,
     branch: null,
@@ -1307,7 +1307,7 @@ async function observeHealth(ctx: Board, id: string, health: string, project = '
     lastActivityAt: null,
     endedAt: null,
     endReason: null,
-  } as const;
+  });
   await setSession(ctx, id, { detail: toJson(sessionFactsSchema, facts) });
   await createObservationCore({
     store: ctx.store,
