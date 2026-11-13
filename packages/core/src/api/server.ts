@@ -20,6 +20,8 @@ export type { OperationRegistry } from '../app/operations.ts';
 export interface ApiOptions extends IdentityPorts {
   readonly port: number;
   readonly ready: () => boolean;
+  /** Whether the daemon is shutting down; read only when `ready()` is false. Absent: starting. */
+  readonly stopping?: () => boolean;
   readonly clock: { now(): number };
   readonly registry: OperationRegistry;
   readonly afterOperation?: (response: ServerResponse) => void | Promise<void>;
@@ -109,6 +111,10 @@ export async function createApiServer(options: ApiOptions): Promise<FastifyInsta
   let doctorInFlight: Promise<DoctorReport> | null = null;
   let doctorCached: DoctorReport | null = null;
   let doctorNextProbeAt = 0;
+  const notReady = (): CommandError =>
+    options.stopping?.() === true
+      ? new CommandError('stopping', 'Wait until the daemon is running again.')
+      : new CommandError('starting', 'Wait until the daemon is ready.');
 
   app.addHook('onRequest', async (request, reply) => {
     reply.header('x-request-id', request.id);
@@ -166,12 +172,12 @@ export async function createApiServer(options: ApiOptions): Promise<FastifyInsta
   });
 
   app.get('/v1/schema', async (_request, reply) => {
-    if (!options.ready()) throw new CommandError('starting', 'Wait until the daemon is ready.');
+    if (!options.ready()) throw notReady();
     return reply.send(snapshot);
   });
 
   app.get('/v1/doctor', async (_request, reply) => {
-    if (!options.ready()) throw new CommandError('starting', 'Wait until the daemon is ready.');
+    if (!options.ready()) throw notReady();
     if (options.doctor === undefined) throw new CommandError('not_found', 'Doctor is unavailable.');
     if (doctorInFlight !== null) return reply.send(await doctorInFlight);
     if (options.clock.now() < doctorNextProbeAt) {
@@ -189,14 +195,14 @@ export async function createApiServer(options: ApiOptions): Promise<FastifyInsta
   });
 
   app.get('/v1/health', async (_request, reply) => {
-    if (!options.ready()) throw new CommandError('starting', 'Wait until the daemon is ready.');
+    if (!options.ready()) throw notReady();
     if (options.firstPollDone === undefined)
       throw new CommandError('not_found', 'Health is unavailable.');
     return reply.send({ firstPollDone: await options.firstPollDone() });
   });
 
   app.post('/v1/tokens/requests', async (request, reply) => {
-    if (!options.ready()) throw new CommandError('starting', 'Wait until the daemon is ready.');
+    if (!options.ready()) throw notReady();
     const parsed = tokenRequestSchema.safeParse(request.body);
     if (!parsed.success)
       throw new CommandError('usage', 'Provide a name, folder, host and token hash.');
@@ -213,7 +219,7 @@ export async function createApiServer(options: ApiOptions): Promise<FastifyInsta
 
   /** The hash travels in the body because request logs record the URL. */
   app.post('/v1/tokens/status', async (request, reply) => {
-    if (!options.ready()) throw new CommandError('starting', 'Wait until the daemon is ready.');
+    if (!options.ready()) throw notReady();
     const parsed = tokenStatusSchema.safeParse(request.body);
     if (!parsed.success) throw new CommandError('usage', 'Provide a SHA-256 token hash.');
     const status = await tokenStatusByHash(
@@ -230,7 +236,7 @@ export async function createApiServer(options: ApiOptions): Promise<FastifyInsta
     '/v1/ops/:id',
     {
       onRequest: async (request) => {
-        if (!options.ready()) throw new CommandError('starting', 'Wait until the daemon is ready.');
+        if (!options.ready()) throw notReady();
         const sessionHeader = request.headers['x-board-session'];
         if (Array.isArray(sessionHeader)) {
           throw new CommandError('forbidden', 'Use one session identity header.');

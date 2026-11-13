@@ -85,6 +85,7 @@ async function server(
   options: {
     port?: number;
     ready?: () => boolean;
+    stopping?: ApiOptions['stopping'];
     registry?: OperationRegistry;
     logRequest?: ApiOptions['logRequest'];
     logError?: ApiOptions['logError'];
@@ -98,6 +99,7 @@ async function server(
     config,
     port: options.port ?? 4311,
     ready: options.ready ?? (() => true),
+    ...(options.stopping === undefined ? {} : { stopping: options.stopping }),
     clock: options.clock ?? { now: () => Date.parse('2026-11-04T08:00:00.000Z') },
     lookupSession: () => Promise.resolve({ project: 'worker', status: 'running' }),
     verifyToken: () => Promise.resolve({ name: 'test' }),
@@ -293,6 +295,54 @@ describe('catalog HTTP API', () => {
       ]) {
         const response = await app.inject(request);
         expectProblem(response, 'starting', 'Wait until the daemon is ready.');
+      }
+      expect(logError).not.toHaveBeenCalled();
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('answers stopping on every guarded route during shutdown and starting before it', async () => {
+    const logError = vi.fn();
+    let stopping = true;
+    const app = await server(newStore(), {
+      ready: () => false,
+      stopping: () => stopping,
+      logError,
+      doctor: () => Promise.resolve({ version: '1.2.3', checks: [] }),
+      firstPollDone: () => Promise.resolve(true),
+    });
+    const hash = 'a'.repeat(64);
+    const json = { host, 'content-type': 'application/json' };
+    const requests = [
+      { method: 'GET' as const, url: '/v1/schema', headers: { host } },
+      { method: 'GET' as const, url: '/v1/doctor', headers: { host } },
+      { method: 'GET' as const, url: '/v1/health', headers: { host } },
+      {
+        method: 'POST' as const,
+        url: '/v1/tokens/requests',
+        headers: json,
+        payload: JSON.stringify({ name: 'desk', folder: 'workspace/desk', host: 'local', hash }),
+      },
+      {
+        method: 'POST' as const,
+        url: '/v1/tokens/status',
+        headers: json,
+        payload: JSON.stringify({ hash }),
+      },
+      post({ task: 'PROJ-123' }),
+    ];
+    try {
+      for (const request of requests) {
+        const response = await app.inject(request);
+        expectProblem(response, 'stopping', 'Wait until the daemon is running again.');
+        expect(response.json()).toMatchObject({
+          message: 'The daemon is stopping; nothing was applied.',
+        });
+      }
+      stopping = false;
+      for (const request of requests) {
+        expectProblem(await app.inject(request), 'starting', 'Wait until the daemon is ready.');
       }
       expect(logError).not.toHaveBeenCalled();
     } finally {

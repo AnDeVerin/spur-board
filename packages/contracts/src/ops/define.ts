@@ -115,6 +115,7 @@ const COMMON_ERRORS: readonly ServerErrorCode[] = [
   'forbidden',
   'identity_unavailable',
   'starting',
+  'stopping',
   'not_implemented',
 ];
 const MUTATION_ERRORS: readonly ServerErrorCode[] = ['idempotency_key_mismatch'];

@@ -65,6 +65,7 @@ export function createHttpModule(
         config: ctx.config,
         port: ctx.config.http.port,
         ready: () => ctx.state() === 'ready',
+        stopping: () => ctx.state() === 'stopping',
         clock: ctx.clock,
         lookupSession: (id) =>
           ctx.logCall('spur.session.lookup', () =>
