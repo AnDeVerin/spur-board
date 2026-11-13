@@ -97,6 +97,41 @@ describe('daemon address', () => {
     ).toThrow();
   });
 
+  it.each([
+    'http://192.0.2.1:4777',
+    'http://example.com',
+    'http://localhost.:4777',
+    'http://127.0.0.1.example.com',
+  ])('refuses plain http to the non-loopback address %s', (input) => {
+    const host = new URL(input).hostname;
+    let thrown: unknown;
+    try {
+      resolveDaemonAddress({ BOARD_DAEMON_URL: input });
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toMatchObject({
+      code: 'config',
+      context: { environmentVariable: 'BOARD_DAEMON_URL' },
+      hint: expect.stringMatching(/BOARD_DAEMON_URL.*loopback/) as unknown,
+    });
+    expect((thrown as { context: unknown }).context).toEqual({
+      environmentVariable: 'BOARD_DAEMON_URL',
+    });
+    expect((thrown as { hint: string }).hint).not.toContain(host);
+  });
+
+  it.each([
+    'http://localhost:4777',
+    'http://127.0.0.1:4777',
+    'http://127.1.2.3:4777',
+    'http://[::1]:4777',
+    'https://board.example',
+    'https://192.0.2.1:4777',
+  ])('accepts the address %s', (input) => {
+    expect(resolveDaemonAddress({ BOARD_DAEMON_URL: input }).href).toBe(new URL(input).href);
+  });
+
   it('requires an explicit address when the configured port is runtime-assigned', () => {
     const paths = setup();
     const location = join(paths.home, 'board');
