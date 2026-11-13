@@ -48,14 +48,12 @@ rule names another. A PR changing a practice named here updates this skill.
 ## Failures, backoff and budget
 
 - One attempt per request (A6): no retry, no sleep. Reject the poll with an `AdapterError` of the
-  matching kind.
+  matching kind. The one exception, GitHub PR chunk halving: `references/github-responses.md`.
 - Map a failed HTTP response with `classifyHttpFailure` in `packages/adapters/src/runner/http.ts`:
   429, or 403 with a rate-limit sign, is `throttled` with `retryAt`; other 401 and 403 are `auth`;
   the rest is `transient`.
 - `nextDelay` in `packages/adapters/src/runner/policy.ts` waits `authRetryMs` after `auth` or
   `config`, until `retryAt` after `throttled`, and backs off exponentially otherwise.
-- GraphQL errors in a 200 response: `GithubClient.query` maps rate limiting to a synthetic 429
-  and `INSUFFICIENT_SCOPES` to `auth`.
 - Report the budget in `Batch.budget`: GraphQL selects `rateLimit { remaining resetAt }` or the
   poll fails; Issues reads `x-ratelimit-remaining`/`-reset`, omitting bad ones. `budgetPause`
   pauses each bucket below `github.reserveRemaining`.

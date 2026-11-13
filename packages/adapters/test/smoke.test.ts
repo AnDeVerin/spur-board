@@ -100,6 +100,8 @@ function fixture(
       graphQueries.push({ repo: body.variables.repo, query: body.query });
       const isWidgets = body.variables.repo === 'widgets';
       const isDetail = body.query.includes('query PrDetails');
+      // Only PR 7 exists; the index and a read of any other number find nothing.
+      const names7 = body.query.includes('pullRequest(number: 7)');
       if (isWidgets && !isDetail && options.githubRepositoryNotFound) {
         return Promise.resolve(
           Response.json({
@@ -168,7 +170,11 @@ function fixture(
           data: {
             rateLimit: { remaining: 4321, resetAt: '2026-01-03T00:00:00.000Z' },
             ...(isDetail
-              ? { pr0: { pullRequest: { ...pr, title: options.secretInFacts ?? pr.title } } }
+              ? {
+                  pr0: names7
+                    ? { pullRequest: { ...pr, title: options.secretInFacts ?? pr.title } }
+                    : null,
+                }
               : {
                   repository: {
                     pullRequests: connection(

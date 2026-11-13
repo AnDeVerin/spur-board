@@ -1,7 +1,12 @@
 import { sourceCursorSchema, type PrFacts } from '@spur-board/contracts';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import * as client from '../../adapters/src/github/client.ts';
-import { detailQuery, initialQuery, pageQuery } from '../../adapters/src/github/client.ts';
+import {
+  detailQuery,
+  discoveryQuery,
+  indexQuery,
+  pageQuery,
+} from '../../adapters/src/github/client.ts';
 import type { Fakes } from '../src/fakes/fetch.ts';
 import { isKnownShape } from '../src/fakes/github-pr.ts';
 import {
@@ -14,6 +19,7 @@ import {
   pollRepo,
   postQuery,
   pr,
+  repoSource,
   SERVICE,
   violations,
 } from './fake-helpers.ts';
@@ -61,16 +67,31 @@ describe('adapter queries', () => {
       Object.keys(client)
         .filter((name) => name.endsWith('Query'))
         .sort(),
-    ).toEqual(['detailQuery', 'initialQuery', 'pageQuery']);
+    ).toEqual(['detailQuery', 'discoveryQuery', 'indexQuery', 'pageQuery']);
   });
 
-  it.each(booleans.flatMap((bootstrap) => booleans.map((closing) => [bootstrap, closing])))(
-    'knows PrBatch for bootstrap %s, closing %s',
-    (bootstrap, closing) => {
-      for (const numbers of [[], ...numberSets])
-        expect(isKnownShape(initialQuery(numbers, bootstrap, closing))).toBe(true);
-    },
-  );
+  it.each(booleans)('knows PrBatch for bootstrap %s', (bootstrap) => {
+    expect(isKnownShape(discoveryQuery(bootstrap))).toBe(true);
+  });
+
+  it('knows PrIndex', () => {
+    for (const numbers of numberSets) expect(isKnownShape(indexQuery(numbers))).toBe(true);
+  });
+
+  it('refuses an aliased PrBatch with one violation', async () => {
+    // The combined discovery and detail request the adapter sent before discovery split off.
+    const combined = discoveryQuery().replace(
+      /\s+}$/,
+      ` ${detailQuery([1]).slice(detailQuery([1]).indexOf('pr0:'), -2)} }`,
+    );
+    expect(combined).toContain('query PrBatch');
+    expect(combined).toContain('pr0: repository');
+    expect(isKnownShape(combined)).toBe(false);
+    const response = await postQuery(fakeFetch(fakes), combined);
+    expect(response.ok).toBe(false);
+    expect(violations(fakes)).toHaveLength(1);
+    fakes.reset();
+  });
 
   it.each(booleans)('knows PrDetails for closing %s', (closing) => {
     for (const numbers of numberSets)
@@ -86,7 +107,7 @@ describe('adapter queries', () => {
 });
 
 describe('matching', () => {
-  const batch = initialQuery([1, 2]);
+  const batch = detailQuery([1, 2]);
   const page = pageQuery('reviews');
   const pageVars = { owner: 'stand-org', repo: 'board', number: 1, after: 'fake:reviews:1' };
 
@@ -147,17 +168,19 @@ describe('matching', () => {
   });
 
   it('accepts selections and arguments in another order', async () => {
-    const reordered = initialQuery([1])
-      .replace('id number url', 'url number id')
+    const reordered = discoveryQuery(false)
       .replaceAll('(owner: $owner, name: $repo)', '(name: $repo, owner: $owner)')
       .replace('$owner: String!, $repo: String!', '$repo: String!, $owner: String!')
       .replace(
         'first: 100, states: [OPEN, MERGED], orderBy: {field: UPDATED_AT, direction: DESC}',
         'orderBy: {direction: DESC, field: UPDATED_AT}, states: [OPEN, MERGED], first: 100',
       );
-    expect(reordered).not.toBe(initialQuery([1]));
-    const response = await postQuery(fakeFetch(fakes), reordered);
-    expect(response.status).toBe(200);
+    expect(reordered).not.toBe(discoveryQuery(false));
+    expect((await postQuery(fakeFetch(fakes), reordered)).status).toBe(200);
+    created(1);
+    const fields = detailQuery([1]).replace('id number url', 'url number id');
+    expect(fields).not.toBe(detailQuery([1]));
+    expect((await postQuery(fakeFetch(fakes), fields)).status).toBe(200);
   });
 });
 
@@ -273,7 +296,7 @@ describe('wire facts', () => {
   });
 
   it('answers a missing aliased PR with null and a NOT_FOUND error at its path', async () => {
-    const response = await postQuery(fakeFetch(fakes), initialQuery([999]));
+    const response = await postQuery(fakeFetch(fakes), detailQuery([999]));
     expect(response.status).toBe(200);
     const body = (await response.json()) as {
       data: Record<string, unknown>;
@@ -315,7 +338,7 @@ describe('wire facts', () => {
         { number: 7, repository: { nameWithOwner: 'Stand-Org/Board' } },
       ],
     });
-    const response = await postQuery(fakeFetch(fakes), initialQuery([1], false, true));
+    const response = await postQuery(fakeFetch(fakes), detailQuery([1], true));
     const body = (await response.json()) as {
       data: { pr0: { pullRequest: { closingIssuesReferences: unknown } } };
     };
@@ -329,7 +352,7 @@ describe('wire facts', () => {
 
   it('finds a repository under another letter case', async () => {
     created(1);
-    const response = await postQuery(fakeFetch(fakes), initialQuery([1]), {
+    const response = await postQuery(fakeFetch(fakes), detailQuery([1]), {
       owner: 'Stand-Org',
       repo: 'BOARD',
     });
@@ -439,7 +462,7 @@ describe('pagination', () => {
     created(2, { updatedAt: '2026-01-01T00:00:00.003Z', state: 'MERGED' });
     created(3, { updatedAt: '2026-01-01T00:00:00.002Z' });
     const read = async (bootstrap: boolean): Promise<number[]> => {
-      const response = await postQuery(fakeFetch(fakes), initialQuery([], bootstrap));
+      const response = await postQuery(fakeFetch(fakes), discoveryQuery(bootstrap));
       const body = (await response.json()) as {
         data: { repository: { pullRequests: { nodes: { number: number }[] } } };
       };
@@ -599,5 +622,48 @@ describe('state and restore', () => {
     expect(after.items.filter(({ kind }) => kind === 'pr')).toHaveLength(2);
     expect(pr(restored, 1, 'merge').status).toBe(200);
     expect(violations(restored)).toEqual([]);
+  });
+});
+
+describe('linked PR volume', () => {
+  it('polls 100 linked PRs in bounded chunks and reuses the unchanged ones', async () => {
+    const numbers = Array.from({ length: 100 }, (_, i) => i + 1);
+    for (const number of numbers.slice(0, 95)) created(number, { state: 'MERGED' });
+    for (const number of numbers.slice(95)) {
+      created(number);
+      expect(pr(fakes, number, 'ci-green').status).toBe(200);
+    }
+    const aliases = new Map<string, number[]>();
+    const inner = fakeFetch(fakes);
+    const counting: typeof fetch = (input, init) => {
+      const query = (JSON.parse(init?.body as string) as { query: string }).query;
+      const operation = /^query (\w+)/.exec(query)?.[1] ?? '';
+      aliases.set(operation, [
+        ...(aliases.get(operation) ?? []),
+        query.match(/pr\d+: repository/g)?.length ?? 0,
+      ]);
+      return inner(input, init);
+    };
+    const source = repoSource(fakes, BOARD, () => NOW, counting);
+    const refs = numbers.map((number) => ({ kind: 'pr' as const, repo: BOARD, number }));
+    const context = pollContext({
+      observe: { prs: refs, tickets: [], sessions: [] },
+      cursor: sourceCursorSchema.parse(new Date(NOW).toISOString()),
+    });
+    const batch = await source.poll(context);
+    expect(batch.complete).toBe(true);
+    expect(batch.entities).toHaveLength(100);
+    expect(batch.entities.every((entity) => entity.status === 'ok')).toBe(true);
+    expect(batch.items).toHaveLength(100);
+    expect(aliases.get('PrIndex')).toEqual([50, 50]);
+    expect(aliases.get('PrDetails')).toHaveLength(10);
+    expect(Math.max(...(aliases.get('PrDetails') ?? []))).toBeLessThanOrEqual(10);
+    aliases.clear();
+    const again = await source.poll(context);
+    expect(again.complete).toBe(true);
+    expect(again.entities.every((entity) => entity.status === 'ok')).toBe(true);
+    expect(again.items).toEqual(batch.items);
+    expect(aliases.get('PrIndex')).toEqual([50, 50]);
+    expect(aliases.has('PrDetails')).toBe(false);
   });
 });

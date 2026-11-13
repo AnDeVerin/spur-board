@@ -36,8 +36,9 @@ const contextNodes = (number: string): string =>
   `nodes { ... on CheckRun { __typename name status conclusion startedAt completedAt checkSuite { createdAt } isRequired(pullRequestNumber: ${number}) } ... on StatusContext { __typename context state createdAt isRequired(pullRequestNumber: ${number}) } }`;
 const prAlias = (closing: boolean): string =>
   `pr0: repository(owner: $owner, name: $repo) { pullRequest(number: 1) { id number url title updatedAt mergedAt state isDraft mergeable mergeStateStatus author { login } headRefName headRefOid statusCheckRollup { contexts(first: 100) { ${contextNodes('1')} ${PAGE_INFO} } } reviews(first: 100) { nodes { ${REVIEW_FIELDS} } ${PAGE_INFO} } comments(last: 100) { ${COMMENT_FIELDS} } reviewThreads(first: 100) { nodes { isResolved } ${PAGE_INFO} } reviewRequests(first: 100) { nodes { ${REVIEWER_FIELDS} } ${PAGE_INFO} }${closing ? ` closingIssuesReferences(first: 100) { ${CLOSING_FIELDS} }` : ''} } }`;
-const prBatch = (states: string, baseline: string, aliases: string): string =>
-  `query PrBatch($owner: String!, $repo: String!) { ${RATE_LIMIT} repository(owner: $owner, name: $repo) { pullRequests(first: 100, states: [${states}], ${ORDER}) { ${DISCOVERY_FIELDS} }${baseline} } ${aliases} }`;
+const prBatch = (states: string, baseline: string): string =>
+  `query PrBatch($owner: String!, $repo: String!) { ${RATE_LIMIT} repository(owner: $owner, name: $repo) { pullRequests(first: 100, states: [${states}], ${ORDER}) { ${DISCOVERY_FIELDS} }${baseline} } }`;
+const PR_INDEX = `query PrIndex($owner: String!, $repo: String!) { ${RATE_LIMIT} pr0: repository(owner: $owner, name: $repo) { pullRequest(number: 1) { number updatedAt state isDraft mergeable mergeStateStatus headRefOid statusCheckRollup { state contexts(first: 100) { totalCount nodes { ... on CheckRun { __typename name status conclusion completedAt } ... on StatusContext { __typename context state } } } } reviews(first: 100) { totalCount nodes { id state } } reviewThreads(first: 100) { totalCount nodes { isResolved } } reviewRequests(first: 100) { totalCount nodes { ${REVIEWER_FIELDS} } } comments(last: 1) { totalCount nodes { id } } } } }`;
 const prDetails = (closing: boolean): string =>
   `query PrDetails($owner: String!, $repo: String!) { ${RATE_LIMIT} ${prAlias(closing)} }`;
 const prPage = (field: string, cursor = 'after'): string =>
@@ -46,12 +47,9 @@ const discoveryPage = (states: string): string =>
   `query DiscoveryPage($owner: String!, $repo: String!, $after: String!) { ${RATE_LIMIT} repository(owner: $owner, name: $repo) { pullRequests(first: 100, after: $after, states: [${states}], ${ORDER}) { ${DISCOVERY_FIELDS} } } }`;
 const BASELINE = ` mergedBaseline: pullRequests(first: 1, states: [MERGED], ${ORDER}) { nodes { updatedAt } }`;
 const KNOWN_DOCUMENTS = [
-  prBatch('OPEN, MERGED', '', ''),
-  prBatch('OPEN, MERGED', '', prAlias(false)),
-  prBatch('OPEN, MERGED', '', prAlias(true)),
-  prBatch('OPEN', BASELINE, ''),
-  prBatch('OPEN', BASELINE, prAlias(false)),
-  prBatch('OPEN', BASELINE, prAlias(true)),
+  prBatch('OPEN, MERGED', ''),
+  prBatch('OPEN', BASELINE),
+  PR_INDEX,
   prDetails(false),
   prDetails(true),
   prPage(`reviews(first: 100, after: $after) { nodes { ${REVIEW_FIELDS} } ${PAGE_INFO} }`),
@@ -183,6 +181,7 @@ function page(connection: string, items: readonly Wire[], args: Args): WireObjec
   const end = offset + Number(args['first']);
   const nodes = items.slice(offset, end);
   return {
+    totalCount: items.length,
     nodes,
     pageInfo: {
       hasNextPage: end < items.length,
@@ -203,6 +202,7 @@ function pageBack(connection: string, items: readonly Wire[], args: Args): WireO
   const start = Math.max(0, end - Number(args['last']));
   const nodes = items.slice(start, end);
   return {
+    totalCount: items.length,
     nodes,
     pageInfo: {
       hasPreviousPage: start > 0,
@@ -347,6 +347,25 @@ export function createGithubPrFake(options: {
     }
   }
 
+  /** GitHub's combined state: any failure wins, then anything still running. */
+  function rollupState(contexts: readonly Context[]): string {
+    const failed = contexts.some((context) =>
+      context.__typename === 'StatusContext'
+        ? context.state === 'FAILURE' || context.state === 'ERROR'
+        : context.status === 'COMPLETED' &&
+          ['FAILURE', 'TIMED_OUT', 'CANCELLED', 'STARTUP_FAILURE', 'ACTION_REQUIRED'].includes(
+            context.conclusion ?? '',
+          ),
+    );
+    if (failed) return 'FAILURE';
+    const running = contexts.some((context) =>
+      context.__typename === 'StatusContext'
+        ? context.state === 'PENDING' || context.state === 'EXPECTED'
+        : context.status !== 'COMPLETED',
+    );
+    return running ? 'PENDING' : 'SUCCESS';
+  }
+
   function prView(pr: Pr): WireObject {
     const { closingIssuesReferences: closing, contexts } = pr;
     const n = String(pr.number);
@@ -369,7 +388,10 @@ export function createGithubPrFake(options: {
       statusCheckRollup:
         contexts.length === 0
           ? null
-          : { contexts: (args: Args) => page('contexts', contexts, args) },
+          : {
+              state: rollupState(contexts),
+              contexts: (args: Args) => page('contexts', contexts, args),
+            },
       reviews: (args: Args) => page('reviews', reviews, args),
       comments: (args: Args) => pageBack('comments', comments, args),
       reviewThreads: (args: Args) => page('reviewThreads', pr.reviewThreads, args),

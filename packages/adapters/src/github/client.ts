@@ -71,28 +71,34 @@ const prFields = (
  reviewThreads(first: 100) { nodes { isResolved } pageInfo { hasNextPage endCursor } }
  reviewRequests(first: 100) { nodes { ${REVIEWER_FIELDS} } pageInfo { hasNextPage endCursor } }${closing ? `\n closingIssuesReferences(first: 100) { ${CLOSING_FIELDS} }` : ''}`;
 const DISCOVERY_FIELDS = `nodes { number updatedAt author { login } state } pageInfo { hasNextPage endCursor }`;
+// The fields the index compares to tell whether a PR changed since its last full read. Each
+// check is listed without `isRequired`, the costly field: GitHub's SUCCESS rollup also covers
+// skipped checks, so only the checks themselves show a skipped required check that reran.
+const INDEX_CONTEXTS =
+  'contexts(first: 100) { totalCount nodes { ... on CheckRun { __typename name status conclusion completedAt } ... on StatusContext { __typename context state } } }';
+const INDEX_FIELDS = `number updatedAt state isDraft mergeable mergeStateStatus headRefOid statusCheckRollup { state ${INDEX_CONTEXTS} } reviews(first: 100) { totalCount nodes { id state } } reviewThreads(first: 100) { totalCount nodes { isResolved } } reviewRequests(first: 100) { totalCount nodes { ${REVIEWER_FIELDS} } } comments(last: 1) { totalCount nodes { id } }`;
 // Alias numbers are literals, so a request can contain an arbitrary set of requested PRs.
-function aliases(numbers: readonly number[], closing = false): string {
+function aliases(numbers: readonly number[], fields: (number: number) => string): string {
   return numbers
     .map(
       (number, i) =>
-        `pr${String(i)}: repository(owner: $owner, name: $repo) { pullRequest(number: ${String(number)}) { ${prFields(number, closing)} } }`,
+        `pr${String(i)}: repository(owner: $owner, name: $repo) { pullRequest(number: ${String(number)}) { ${fields(number)} } }`,
     )
     .join('\n');
 }
-export function initialQuery(
-  numbers: readonly number[],
-  bootstrap = false,
-  closing = false,
-): string {
+// Discovery has no aliases; the trailing double space keeps the recorded request text.
+export function discoveryQuery(bootstrap = false): string {
   const states = bootstrap ? 'OPEN' : 'OPEN, MERGED';
   const baseline = bootstrap
     ? ' mergedBaseline: pullRequests(first: 1, states: [MERGED], orderBy: {field: UPDATED_AT, direction: DESC}) { nodes { updatedAt } }'
     : '';
-  return `query PrBatch($owner: String!, $repo: String!) { rateLimit { remaining resetAt } repository(owner: $owner, name: $repo) { pullRequests(first: 100, states: [${states}], orderBy: {field: UPDATED_AT, direction: DESC}) { ${DISCOVERY_FIELDS} }${baseline} } ${aliases(numbers, closing)} }`;
+  return `query PrBatch($owner: String!, $repo: String!) { rateLimit { remaining resetAt } repository(owner: $owner, name: $repo) { pullRequests(first: 100, states: [${states}], orderBy: {field: UPDATED_AT, direction: DESC}) { ${DISCOVERY_FIELDS} }${baseline} }  }`;
+}
+export function indexQuery(numbers: readonly number[]): string {
+  return `query PrIndex($owner: String!, $repo: String!) { rateLimit { remaining resetAt } ${aliases(numbers, () => INDEX_FIELDS)} }`;
 }
 export function detailQuery(numbers: readonly number[], closing = false): string {
-  return `query PrDetails($owner: String!, $repo: String!) { rateLimit { remaining resetAt } ${aliases(numbers, closing)} }`;
+  return `query PrDetails($owner: String!, $repo: String!) { rateLimit { remaining resetAt } ${aliases(numbers, (number) => prFields(number, closing))} }`;
 }
 export function pageQuery(
   connection:
