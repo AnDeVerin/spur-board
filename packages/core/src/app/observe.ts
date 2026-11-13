@@ -30,8 +30,8 @@ import {
 import { enqueueLiveAfterFirstPoll } from './doctor.ts';
 import { reconcileMembership } from './membership-rules.ts';
 import { reconcileItems } from './fromYou.ts';
-import { dispatchJournaled, dispatchSource } from './dispatch.ts';
-import { closeTurns, turnFeedbackCursors } from './turns.ts';
+import { dispatchJournaled, dispatchSource, pollFeedbackCursors } from './dispatch.ts';
+import { closeTurns } from './turns.ts';
 
 function refKey(ref: EntityRef): string {
   switch (ref.kind) {
@@ -944,7 +944,7 @@ export function createObservationCore(deps: {
         .where('source', '=', source)
         .execute();
       const requested = [...new Map(prs.map((ref) => [refKey(ref), ref])).values()];
-      const feedbackCursors = await turnFeedbackCursors(store.db, requested);
+      const feedbackCursors = await pollFeedbackCursors(store.db, config, requested);
       return {
         observe: {
           prs: requested,

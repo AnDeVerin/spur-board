@@ -334,9 +334,7 @@ async function unhandledFeedback(
       ),
   );
   if (mode === 'shadow') {
-    const workerColumns = project.columns
-      .filter((column) => column.id === 'dev' || column.orchestrator === 'none')
-      .map((column) => column.id);
+    const workerColumns = shadowWorkerColumns(project);
     const submitted =
       workerColumns.length === 0
         ? []
@@ -357,6 +355,72 @@ async function unhandledFeedback(
   return entries
     .filter((entry) => cursor === undefined || isNewer(entry, cursor))
     .map((entry) => handedOf(pr, entry));
+}
+
+/** In shadow, the columns whose submission handles the external feedback posted before it. */
+function shadowWorkerColumns(project: Project): ColumnId[] {
+  return project.columns
+    .filter((column) => column.id === 'dev' || column.orchestrator === 'none')
+    .map((column) => column.id);
+}
+
+type FeedbackCursor = Awaited<ReturnType<typeof turnFeedbackCursors>>[number];
+
+/**
+ * Per requested PR, the feedback cursor for the GitHub poll: the newest entry a turn handed over
+ * or, for a task of a shadow project, the newer time-only cursor at its newest shadow-handling
+ * submission, the cutoff of `unhandledFeedback`. No real entry has the empty id, so the adapter
+ * reads back to the first comment older than that time.
+ */
+export async function pollFeedbackCursors(
+  db: Trx,
+  config: Config,
+  prs: readonly FeedbackCursor['ref'][],
+): Promise<FeedbackCursor[]> {
+  const cursors = await turnFeedbackCursors(db, prs);
+  const shadow = config.projects.filter((project) => project.dispatcher.mode === 'shadow');
+  if (prs.length === 0 || shadow.length === 0) return cursors;
+  const rows = await db
+    .selectFrom('submission')
+    .innerJoin('task', 'task.id', 'submission.task_id')
+    .innerJoin('link', 'link.task_id', 'submission.task_id')
+    .select([
+      'link.repo',
+      'link.number',
+      'task.project',
+      'submission.column',
+      'submission.submitted_at',
+    ])
+    .where('link.entity', '=', 'pr')
+    .where('link.banned', '=', 0)
+    .where(
+      'task.project',
+      'in',
+      shadow.map((project) => project.id),
+    )
+    .where(
+      sql<string>`lower(link.repo)`,
+      'in',
+      prs.map((pr) => pr.repo.toLowerCase()),
+    )
+    .execute();
+  const columns = new Map(shadow.map((project) => [project.id, shadowWorkerColumns(project)]));
+  const merged = [];
+  for (const ref of prs) {
+    let best = cursors.find(
+      (cursor) =>
+        cursor.ref.number === ref.number &&
+        cursor.ref.repo.toLowerCase() === ref.repo.toLowerCase(),
+    );
+    for (const row of rows) {
+      if (row.repo?.toLowerCase() !== ref.repo.toLowerCase() || row.number !== ref.number) continue;
+      if (!(columns.get(row.project) ?? []).includes(row.column)) continue;
+      const cursor = { ref, id: '', postedAt: row.submitted_at };
+      if (best === undefined || isNewer(cursor, best)) best = cursor;
+    }
+    if (best !== undefined) merged.push(best);
+  }
+  return merged;
 }
 
 function handedOf(pr: PrFacts, entry: NonNullable<PrFacts['feedback']>[number]): Handed {

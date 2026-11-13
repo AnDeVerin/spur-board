@@ -192,8 +192,9 @@ export interface PollContext {
   /** Persisted consecutive misses for requested PRs and tickets; loaded after a restart. */
   missCounts?: readonly { ref: PrEntityRef | TicketEntityRef; count: number }[] | undefined;
   /**
-   * Per requested PR, the newest comment or review already handed over: the adapter reads
-   * feedback back to it instead of to the start of the PR. Absent for a PR, no limit.
+   * Per requested PR, the newest comment or review already handed over, or a time with an id no
+   * entry has: the adapter reads feedback back to it instead of to the start of the PR. Absent
+   * for a PR, no limit.
    */
   feedbackCursors?: readonly { ref: PrEntityRef; id: string; postedAt: string }[] | undefined;
   /** Aborted when core stops the poll (A7). */

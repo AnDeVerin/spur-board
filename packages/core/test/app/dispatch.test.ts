@@ -358,6 +358,8 @@ function board(options: Options = {}) {
         ).map((table) => store.db.selectFrom(table).selectAll().execute()),
       );
     },
+    /** The poll context core gives the GitHub adapter. */
+    context: () => core.context(GITHUB),
     inbox: (actor: ActorId) => query(registry['inbox.get'], {}, actor),
     history: () => query(registry['task.history'], { task: KEY }, 'operator'),
   };
@@ -730,6 +732,29 @@ describe('shadow mode', () => {
       to: 'review',
       reason: 'gate_passed',
     });
+  });
+  it('reads GitHub feedback back only to the newest Dev submit', async () => {
+    const ctx = await started({ mode: 'shadow' });
+    await ctx.pr({
+      feedback: [
+        {
+          kind: 'comment',
+          id: 'c-1',
+          author: { login: EXTERNAL, type: 'user' },
+          postedAt: at(1),
+        },
+      ],
+    });
+    expect('feedbackCursors' in (await ctx.context())).toBe(false);
+
+    await ctx.submit(WORKER, KEY, A);
+    const submitted = ctx.at();
+    await ctx.submit(REV, KEY, A);
+    expect((await ctx.context()).feedbackCursors).toEqual([
+      { ref: { kind: 'pr', repo: 'o/r', number: 7 }, id: '', postedAt: submitted },
+    ]);
+    ctx.restart({ mode: 'on' });
+    expect('feedbackCursors' in (await ctx.context())).toBe(false);
   });
 });
 

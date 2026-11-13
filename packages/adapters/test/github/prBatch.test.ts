@@ -1572,6 +1572,8 @@ describe('PR feedback', () => {
   it.each([
     ['an id on page 2', { ref, id: 'IC_15', postedAt: postedAt(0) }],
     ['a time only', { ref, id: 'IC_gone', postedAt: postedAt(15) }],
+    // The time-only cursor core derives from a shadow submit.
+    ['a submit time', { ref, id: '', postedAt: postedAt(15) }],
     [
       'a repo in another letter case',
       { ref: { ...ref, repo: 'Demo/Widgets' }, id: 'IC_15', postedAt: postedAt(15) },
