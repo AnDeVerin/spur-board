@@ -117,6 +117,17 @@ function sessionFact(id: string, links: Record<string, string> = {}, ended = fal
   };
 }
 
+/** A complete GitHub poll that starts now, so a missing PR counts from this moment. */
+async function pollGithub(core: ReturnType<typeof setup>['core']) {
+  const observedAt = new Date(now).toISOString();
+  await core.observe('github:board:o/r', {
+    batch: { source: 'github:board:o/r', observedAt, complete: true, items: [], entities: [] },
+    effectiveComplete: true,
+    state: { lastCompleteAt: observedAt, gone: [] },
+    outcomes: [],
+  });
+}
+
 describe('accepted observation', () => {
   it('adds an unseen key immediately and binds stable facts on the next batch', async () => {
     const { store, core, apply, mutations } = setup();
@@ -960,6 +971,7 @@ describe('accepted observation', () => {
       state: { lastCompleteAt: later, gone: [] },
       outcomes: [],
     });
+    await pollGithub(core);
     const status = () => getStatus({ store, config, clock, completeSince: core.completeSince });
     expect((await status()).items.some((item) => item.key.endsWith(':worker_completed'))).toBe(
       true,
@@ -1061,6 +1073,7 @@ describe('accepted observation', () => {
             lifecycle: reason === 'kill' ? 'killed' : 'completed',
           },
         ]);
+      await pollGithub(core);
       const items = await store.db
         .selectFrom('operator_item')
         .selectAll()
@@ -1118,6 +1131,7 @@ describe('accepted observation', () => {
       .executeTakeFirstOrThrow();
     now += 1_000;
     await observeSpur(core, [sessionFact('worker-1', workerLink, true)]);
+    await pollGithub(core);
     now += 1_000;
     await tickBoard({ store, config, clock, completeSince: core.completeSince });
     const blocks = await store.db
@@ -1201,6 +1215,7 @@ describe('accepted observation', () => {
     await observeSpur(core, [
       { ...sessionFact('worker-1', workerLink, true), endReason: 'kill', lifecycle: 'killed' },
     ]);
+    await pollGithub(core);
     const items = await store.db
       .selectFrom('operator_item')
       .selectAll()
@@ -1252,6 +1267,7 @@ describe('accepted observation', () => {
       state: { lastCompleteAt: later, gone: [] },
       outcomes: [],
     });
+    await pollGithub(core);
     const items = () =>
       store.db
         .selectFrom('operator_item')

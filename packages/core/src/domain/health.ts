@@ -11,6 +11,12 @@ export interface SessionHealthSubject extends Pick<
 export interface TaskPrState {
   hasOpenPr: boolean;
   hasMergedPr: boolean;
+  /**
+   * Start of the oldest last complete poll over the task's PR sources, in Unix milliseconds;
+   * null while any of them is blind or has never completed a poll. A "no PR" fact counts only
+   * from a poll that began at or after the moment it is judged against.
+   */
+  prCompleteAt: number | null;
   /** Session ids holding an open worker turn of the task. */
   turnSessions?: readonly string[];
 }
@@ -65,8 +71,9 @@ export interface SessionHealthInput {
 export interface SessionHealthResult {
   flags: readonly SessionHealthFlag[];
   /**
-   * Ended-worker flags that wait only on a complete Spur observation: an open item for one
-   * stays and none is raised.
+   * Flags that wait on a complete Spur observation, or on a complete poll of the task's PR
+   * sources since the worker ended or began waiting: an open item for one stays and none is
+   * raised.
    */
   held: readonly SessionHealthFlag[];
   statuses: readonly SessionHealthStatus[];
@@ -160,7 +167,9 @@ export function evaluateSessionHealth(input: SessionHealthInput): SessionHealthR
           sessionId: session.id,
           kind: ENDED_WORKER_KINDS[session.endReason],
         };
-        (spur.observationComplete ? flags : held).push(flag);
+        (spur.observationComplete && prsPolledSince(task, session.endedAt) ? flags : held).push(
+          flag,
+        );
       }
       continue;
     }
@@ -173,6 +182,7 @@ export function evaluateSessionHealth(input: SessionHealthInput): SessionHealthR
 
     const heldMs = now - Date.parse(session.healthSince);
     let kind: SessionHealthFlagKind | null = null;
+    let fresh = true;
     if (session.health === 'error' && episode === null && heldMs >= config.errorAfterMs) {
       kind = session.role === 'worker' ? 'stuck_worker' : 'stuck_orchestrator';
     } else if (session.health === 'needs_input' && heldMs >= config.needsInputAfterMs) {
@@ -185,8 +195,10 @@ export function evaluateSessionHealth(input: SessionHealthInput): SessionHealthR
       heldMs >= config.idleInDevAfterMs
     ) {
       kind = 'worker_idle';
+      fresh = prsPolledSince(task, session.healthSince);
     }
-    if (kind !== null) flags.push({ taskId: session.taskId, sessionId: session.id, kind });
+    if (kind !== null)
+      (fresh ? flags : held).push({ taskId: session.taskId, sessionId: session.id, kind });
   }
 
   return {
@@ -196,4 +208,9 @@ export function evaluateSessionHealth(input: SessionHealthInput): SessionHealthR
     hostLoad: episode === null ? null : { kind: 'host_under_load' },
     episode,
   };
+}
+
+/** Whether every PR source of the task completed a poll that began at or after `since`. */
+function prsPolledSince(task: TaskPrState, since: string): boolean {
+  return task.prCompleteAt !== null && task.prCompleteAt >= Date.parse(since);
 }
