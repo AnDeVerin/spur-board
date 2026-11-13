@@ -368,6 +368,66 @@ describe('CLI exit classes and mutation keys', () => {
     }
   });
 
+  it('refuses plain http to a non-loopback BOARD_DAEMON_URL before sending, without echoing it', async () => {
+    const refused = 'http://192.0.2.1:4777/?k=SECRET-Q';
+    const run = async (args: string[], runEnv: NodeJS.ProcessEnv) => {
+      const sent: string[] = [];
+      const output = capture();
+      expect(
+        await runCli(args, {
+          env: runEnv,
+          io: output.io,
+          sendOperation(op) {
+            sent.push(op.id);
+            return Promise.resolve(OPERATIONS[0].examples[0].output);
+          },
+        }),
+      ).toBe(4);
+      expect(sent).toEqual([]);
+      expect(output.stderr).not.toContain('192.0.2.1');
+      expect(output.stderr).not.toContain('SECRET');
+      return output.stderr;
+    };
+    for (const runEnv of [
+      { BOARD_DAEMON_URL: refused, BOARD_TOKEN: 'SECRET-T' },
+      { BOARD_DAEMON_URL: refused, SPUR_SESSION: 'SECRET-S' },
+    ]) {
+      const { error } = errorEnvelopeSchema.parse(
+        JSON.parse(await run(['status', '--json'], runEnv)),
+      );
+      expect(error.code).toBe('config');
+      expect(error.context).toEqual({ environmentVariable: 'BOARD_DAEMON_URL' });
+      expect(error.hint).toContain('BOARD_DAEMON_URL');
+      expect(error.hint).toContain('loopback');
+    }
+    expect(await run(['status'], { BOARD_DAEMON_URL: refused, BOARD_TOKEN: 'SECRET-T' })).toContain(
+      'loopback',
+    );
+
+    const userinfo = errorEnvelopeSchema.parse(
+      JSON.parse(
+        await run(['status', '--json'], {
+          BOARD_DAEMON_URL: 'http://u:SECRET-P@192.0.2.1:4777',
+          BOARD_TOKEN: 'SECRET-T',
+        }),
+      ),
+    ).error;
+    expect(userinfo.code).toBe('config');
+    expect(userinfo.context).toEqual({ environmentVariable: 'BOARD_DAEMON_URL' });
+
+    const into = boardHome();
+    const enrollment = capture();
+    expect(
+      await runCli(['token', 'create', '--name', 'n', '--into', into, '--json'], {
+        env: { BOARD_DAEMON_URL: refused },
+        io: enrollment.io,
+      }),
+    ).toBe(4);
+    expect(errorEnvelopeSchema.parse(JSON.parse(enrollment.stderr)).error.code).toBe('config');
+    expect(enrollment.stderr).not.toContain('192.0.2.1');
+    expect(existsSync(join(into, '.spur-board'))).toBe(false);
+  });
+
   it('names the identity an operator-only or agent-only command needs', async () => {
     const run = async (args: string[]) => {
       const output = capture();
