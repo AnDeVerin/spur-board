@@ -407,29 +407,52 @@ function expectDelivered(result: Awaited<ReturnType<typeof pollOnce>>): void {
 
 // Shape comparison ------------------------------------------------------------------------------
 
-type Shape = Map<string, Set<string>>;
+interface Shape {
+  /** The value types seen at each path. */
+  types: Map<string, Set<string>>;
+  /** How many objects stood at each object path, and of them how many held each child path. */
+  objects: Map<string, number>;
+  held: Map<string, { parent: string; count: number }>;
+}
 
-function shapeOf(value: Json, path = '', out: Shape = new Map()): Shape {
+function shapeOf(
+  value: Json,
+  path = '',
+  out: Shape = { types: new Map(), objects: new Map(), held: new Map() },
+): Shape {
   const type = value === null ? 'null' : Array.isArray(value) ? 'array' : typeof value;
-  const types = out.get(path) ?? new Set<string>();
+  const types = out.types.get(path) ?? new Set<string>();
   types.add(type);
-  out.set(path, types);
+  out.types.set(path, types);
   if (Array.isArray(value)) for (const item of value) shapeOf(item, `${path}[]`, out);
   else if (isObject(value)) {
     const typename = typeof value['__typename'] === 'string' ? `<${value['__typename']}>` : '';
+    const parent = `${path}${typename}`;
+    out.objects.set(parent, (out.objects.get(parent) ?? 0) + 1);
     for (const [key, item] of Object.entries(value)) {
       // Each alias holds one PR detail: `pr0`, `pr1` and so on share one shape.
       const name = /^pr\d+$/.test(key) ? 'pr*' : key;
-      shapeOf(item, `${path}${typename}${path === '' && typename === '' ? '' : '.'}${name}`, out);
+      const child = `${parent}${path === '' && typename === '' ? '' : '.'}${name}`;
+      const held = out.held.get(child) ?? { parent, count: 0 };
+      held.count += 1;
+      out.held.set(child, held);
+      shapeOf(item, child, out);
     }
   }
   return out;
 }
 
+/** Whether every object at the path's parent holds the path. */
+function always(shape: Shape, path: string): boolean {
+  const held = shape.held.get(path);
+  return held === undefined || held.count === shape.objects.get(held.parent);
+}
+
 /**
  * The paths where `fake` differs from `recorded` by type: a key or type the fake emits that the
- * recording lacks, a recorded key the fake lacks, or a fake null or empty list over a recorded
- * value. A recorded null matches any fake value. Values are never compared.
+ * recording lacks, a recorded key the fake lacks, a key every recorded object holds that some
+ * fake object lacks, or a fake null where the recording is never null. A recorded null matches
+ * any fake value. Values are never compared.
  */
 function shapeDiff(recorded: Json, fake: Json, omitted: readonly string[]): string[] {
   const left = shapeOf(recorded);
@@ -440,11 +463,11 @@ function shapeDiff(recorded: Json, fake: Json, omitted: readonly string[]): stri
         path === prefix || (/^[.[<]/.test(path.slice(prefix.length)) && path.startsWith(prefix)),
     );
   const diffs: string[] = [];
-  for (const path of new Set([...left.keys(), ...right.keys()])) {
+  for (const path of new Set([...left.types.keys(), ...right.types.keys()])) {
     if (isOmitted(path)) continue;
     const shown = path === '' ? '(root)' : path;
-    const want = left.get(path);
-    const got = right.get(path);
+    const want = left.types.get(path);
+    const got = right.types.get(path);
     if (want === undefined) {
       diffs.push(`${shown}: the fake emits ${[...(got ?? [])].join('|')}, the recording has none`);
       continue;
@@ -453,10 +476,13 @@ function shapeDiff(recorded: Json, fake: Json, omitted: readonly string[]): stri
       diffs.push(`${shown}: the recording has ${[...want].join('|')}, the fake has none`);
       continue;
     }
+    if (always(left, path) && !always(right, path))
+      diffs.push(`${shown}: some fake objects lack it, every recorded one has it`);
     const wanted = [...want].filter((type) => type !== 'null');
     const given = [...got].filter((type) => type !== 'null');
     if (wanted.length === 0) continue;
-    if (given.length === 0) diffs.push(`${shown}: the fake has null over ${wanted.join('|')}`);
+    if (got.has('null') && !want.has('null'))
+      diffs.push(`${shown}: the fake has null over ${wanted.join('|')}`);
     const extra = given.filter((type) => !wanted.includes(type));
     if (extra.length > 0)
       diffs.push(`${shown}: the fake emits ${extra.join('|')} over ${wanted.join('|')}`);
@@ -591,6 +617,21 @@ describe('stand fakes against the recorded live responses', () => {
     expect(shapeDiff(spur.exchange.response.body, renamed, ['[].slots'])).toEqual([
       '[].lastActivityAt: the recording has string, the fake has none',
       '[].lastActiveAt: the fake emits string, the recording has none',
+    ]);
+    // One element going wrong while the others keep the key is a difference too.
+    const sessions = spur.body as JsonObject[];
+    expect(sessions.length).toBeGreaterThan(2);
+    const withoutKey = sessions.map((session, i) =>
+      i === 0 ? without(session, ['lastActivityAt']) : session,
+    );
+    expect(shapeDiff(spur.exchange.response.body, withoutKey, ['[].slots'])).toEqual([
+      '[].lastActivityAt: some fake objects lack it, every recorded one has it',
+    ]);
+    const withNull = sessions.map((session, i) =>
+      i === 1 ? { ...session, lastActivityAt: null } : session,
+    );
+    expect(shapeDiff(spur.exchange.response.body, withNull, ['[].slots'])).toEqual([
+      '[].lastActivityAt: the fake has null over string',
     ]);
 
     const issues = answer('github-issues:stand:stand-org/board', '/repos/stand-org/board/issues');
