@@ -27,6 +27,7 @@
     "package:pack": "node scripts/package.ts pack",
     "package:check": "node scripts/package.ts check",
     "package:smoke": "node scripts/package-smoke.ts",
+    "record:fakes": "node packages/stand/src/record.ts",
     "smoke:live": "node scripts/smoke-live.ts",
     "stand": "node packages/stand/src/cli.ts",
     "upgrade:smoke": "node scripts/upgrade-smoke.ts",

@@ -1,0 +1,283 @@
+{
+  "source": "spur",
+  "recordedAt": "2026-11-13T04:01:31.066Z",
+  "observe": {
+    "prs": [],
+    "tickets": [],
+    "sessions": [
+      {
+        "kind": "session",
+        "id": "stand-missing-session"
+      }
+    ]
+  },
+  "exchanges": [
+    {
+      "request": {
+        "method": "GET",
+        "url": "http://spur.stand.invalid/sessions",
+        "headers": {},
+        "body": null
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8",
+          "x-spur-lifecycle-instance-id": "recorded-instance-1"
+        },
+        "body": [
+          {
+            "branch": "recorded-branch-5",
+            "id": "recorded-session-1",
+            "lastActivityAt": "2026-11-13T03:58:55.036Z",
+            "project": "recorded-project-1",
+            "slots": {
+              "links": [
+                {
+                  "label": "board-worker",
+                  "url": "https://github.com/stand-org/board/issues/244"
+                },
+                {
+                  "label": "tracker",
+                  "url": "https://github.com/stand-org/board/issues/244"
+                }
+              ]
+            },
+            "state": "working",
+            "status": "running"
+          },
+          {
+            "branch": "recorded-branch-6",
+            "id": "recorded-session-2",
+            "lastActivityAt": "2026-11-13T03:51:46.958Z",
+            "project": "recorded-project-1",
+            "slots": {
+              "links": [
+                {
+                  "label": "board-worker",
+                  "url": "https://github.com/stand-org/board/issues/323"
+                }
+              ]
+            },
+            "state": "working",
+            "status": "running"
+          },
+          {
+            "branch": "recorded-branch-4",
+            "id": "recorded-session-3",
+            "lastActivityAt": "2026-11-13T03:56:27.866Z",
+            "project": "recorded-project-1",
+            "slots": {
+              "links": [
+                {
+                  "label": "board-worker",
+                  "url": "https://github.com/stand-org/board/issues/292"
+                },
+                {
+                  "label": "tracker",
+                  "url": "https://github.com/stand-org/board/issues/292"
+                },
+                {
+                  "label": "pr",
+                  "url": "https://github.com/stand-org/board/pull/376"
+                }
+              ]
+            },
+            "state": "working",
+            "status": "running"
+          },
+          {
+            "branch": "recorded-branch-7",
+            "id": "recorded-session-4",
+            "lastActivityAt": "2026-11-12T19:07:03.907Z",
+            "project": "recorded-project-2",
+            "slots": {
+              "links": [
+                {
+                  "label": "board-worker",
+                  "url": "https://jira.stand.invalid/browse/STAND-15"
+                },
+                {
+                  "label": "tracker",
+                  "url": "https://jira.stand.invalid/browse/STAND-15"
+                },
+                {
+                  "label": "pr",
+                  "url": "https://github.com/stand-org/service/pull/4521"
+                }
+              ]
+            },
+            "state": "stopped",
+            "status": "stopped",
+            "stopReason": "manual_pause"
+          },
+          {
+            "branch": "recorded-branch-8",
+            "id": "recorded-session-5",
+            "lastActivityAt": "2026-11-12T19:07:30.690Z",
+            "project": "recorded-project-2",
+            "slots": {
+              "links": [
+                {
+                  "label": "board-worker",
+                  "url": "https://jira.stand.invalid/browse/STAND-1"
+                },
+                {
+                  "label": "tracker",
+                  "url": "https://jira.stand.invalid/browse/STAND-1"
+                },
+                {
+                  "label": "pr",
+                  "url": "https://github.com/stand-org/service/pull/4520"
+                }
+              ]
+            },
+            "state": "stopped",
+            "status": "stopped",
+            "stopReason": "manual_pause"
+          },
+          {
+            "branch": "recorded-branch-9",
+            "id": "recorded-session-6",
+            "lastActivityAt": "2026-11-13T03:16:03.007Z",
+            "project": "recorded-project-2",
+            "slots": {
+              "links": [
+                {
+                  "label": "board-worker",
+                  "url": "https://jira.stand.invalid/browse/STAND-5"
+                },
+                {
+                  "label": "tracker",
+                  "url": "https://jira.stand.invalid/browse/STAND-5"
+                },
+                {
+                  "label": "pr",
+                  "url": "https://github.com/stand-org/service/pull/4522"
+                }
+              ]
+            },
+            "state": "waiting",
+            "status": "running"
+          },
+          {
+            "branch": "recorded-branch-10",
+            "id": "recorded-session-7",
+            "lastActivityAt": "2026-11-13T03:49:55.450Z",
+            "project": "recorded-project-3",
+            "slots": {
+              "links": []
+            },
+            "state": "waiting",
+            "status": "running"
+          },
+          {
+            "branch": "recorded-branch-11",
+            "id": "recorded-session-8",
+            "lastActivityAt": "2026-11-12T19:07:24.829Z",
+            "project": "recorded-project-2",
+            "slots": {
+              "links": []
+            },
+            "state": "stopped",
+            "status": "stopped",
+            "stopReason": "manual_pause"
+          },
+          {
+            "branch": "recorded-branch-12",
+            "id": "recorded-session-9",
+            "lastActivityAt": "2026-11-12T21:36:55.742Z",
+            "project": "recorded-project-2",
+            "slots": {
+              "links": []
+            },
+            "state": "stopped",
+            "status": "stopped",
+            "stopReason": "manual_pause"
+          },
+          {
+            "branch": "recorded-branch-13",
+            "id": "recorded-session-10",
+            "lastActivityAt": "2026-11-12T22:53:54.911Z",
+            "project": "recorded-project-2",
+            "slots": {
+              "links": []
+            },
+            "state": "waiting",
+            "status": "running"
+          },
+          {
+            "branch": "recorded-branch-10",
+            "id": "recorded-session-11",
+            "lastActivityAt": "2026-11-13T04:00:08.059Z",
+            "project": "recorded-project-4",
+            "slots": {
+              "links": []
+            },
+            "state": "waiting",
+            "status": "running",
+            "stopReason": "manual_pause"
+          },
+          {
+            "branch": "recorded-branch-10",
+            "id": "recorded-session-12",
+            "lastActivityAt": "2026-11-13T04:00:10.209Z",
+            "project": "recorded-project-5",
+            "slots": {
+              "links": [
+                {
+                  "label": "tracker",
+                  "url": "https://recorded.invalid/link-1"
+                }
+              ]
+            },
+            "state": "waiting",
+            "status": "running",
+            "stopReason": "manual_pause"
+          },
+          {
+            "branch": "recorded-branch-14",
+            "id": "recorded-session-13",
+            "lastActivityAt": "2026-11-12T21:30:28.945Z",
+            "project": "recorded-project-2",
+            "slots": {
+              "links": []
+            },
+            "state": "stopped",
+            "status": "stopped",
+            "stopReason": "manual_pause"
+          },
+          {
+            "branch": "recorded-branch-15",
+            "id": "recorded-session-14",
+            "lastActivityAt": "2026-09-27T20:34:37.908Z",
+            "project": "recorded-project-6",
+            "retainInList": true,
+            "slots": {
+              "links": []
+            },
+            "state": "stopped",
+            "status": "completed"
+          }
+        ]
+      }
+    },
+    {
+      "request": {
+        "method": "GET",
+        "url": "http://spur.stand.invalid/sessions/stand-missing-session",
+        "headers": {},
+        "body": null
+      },
+      "response": {
+        "status": 404,
+        "headers": {
+          "content-type": "application/json; charset=utf-8"
+        },
+        "body": {
+          "error": "recorded-text-1"
+        }
+      }
+    }
+  ]
+}

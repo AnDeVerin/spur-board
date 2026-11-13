@@ -82,7 +82,7 @@ rule names another. A PR changing a practice named here updates this skill.
 
 - No shared contract suite runs every adapter against the port.
 - The fakes live in `packages/adapters/src/testing.ts`, not next to the port in contracts.
-- No recorded responses; a PR adding them names their refresh command here.
+- Recordings: `packages/stand/recordings/`; refresh with `pnpm record:fakes` after a request change.
 
 ## Checks
 
