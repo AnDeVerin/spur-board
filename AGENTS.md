@@ -32,9 +32,10 @@ A map of the repo for agents and contributors. The rules live in the files and s
   in-process daemon on a temp home with dummy secrets, the fake Slack API, the network guard and a
   control endpoint (`wait`, `poll`, `reset`, `seed`, `clock`, `fake`, `violations`). An in-memory
   fake Spur and the fakes in `src/fakes/` answer the real adapters through one in-process `fetch`;
-  the named scenarios `seed` and `up --scenario` set up live in `src/scenarios/`. Production
-  packages never import it; the boundary lint is in `eslint.config.js`. Skills: `qa-stand`,
-  `qa-seed` and `qa-report`; sidecar example in `docs/qa-stand.md`.
+  the named scenarios `seed` and `up --scenario` set up live in `src/scenarios/`; `recordings/`
+  holds the live responses the fakes are checked against. Production packages never import it;
+  the boundary lint is in `eslint.config.js`. Skills: `qa-stand`, `qa-seed` and `qa-report`;
+  sidecar example in `docs/qa-stand.md`.
 - `packages/testkit` - the shared Vitest harness: environment scrub and network guard. Skill:
   `testing-and-ci`.
 - `scripts/` - repo tooling, run as `node scripts/<name>.ts` through the pnpm scripts below. Check
@@ -77,6 +78,9 @@ A map of the repo for agents and contributors. The rules live in the files and s
 - `pnpm stand up|down|status|logs|board|mcp|wait|poll|reset|seed|clock|fake|violations` - run a stand under `$TMPDIR`;
   `pnpm stand` prints the commands. `up` refuses real external credentials in the environment,
   the live board's home and port 4777.
+- `pnpm record:fakes [--check]` - record one read-only poll of the live GitHub, Jira and Spur
+  into `packages/stand/recordings/`, scrubbed, and print the git diff; maintainer's machine only,
+  with the live board's config and secrets. `--check` rescans the committed files offline.
 - `pnpm upgrade:smoke [tarball]` - test migration from the previous published version when present.
 - `pnpm update:smoke [tarball]` - run `board update` and `board rollback` on a global install
   through a loopback registry and a fake `systemctl`; needs npm, `flock` and the npm registry.

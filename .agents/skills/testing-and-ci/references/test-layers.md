@@ -41,6 +41,9 @@ Pick the lowest layer that can fail for the bug you guard against. Projects are 
   their one log together with the fake Slack API's unknown methods. A GitHub GraphQL query
   change must update `KNOWN_DOCUMENTS` in `packages/stand/src/fakes/github-pr.ts`, and a GitHub
   Issues REST call change the routes and query rules in `packages/stand/src/fakes/github-issues.ts`.
+  `packages/stand/test/recordings.test.ts` checks the fakes against the live responses in
+  `packages/stand/recordings/`; a GitHub, Jira or Spur request change also needs
+  `pnpm record:fakes` on the maintainer's machine.
 - Builders: there is no shared test-data builder yet. Inline the data while one test needs it;
   when a second test needs the same shape, move a builder into `packages/<x>/test/`.
 
