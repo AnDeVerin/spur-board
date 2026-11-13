@@ -33,8 +33,8 @@ here are in `packages/contracts/test/ops.test.ts`.
   `forbidden`, including a block-type mismatch inside a rule.
 - `preconditions.blockTypes` is the state check: a block of another type gives
   `wrong_block_type`. List `wrong_block_type` only on an operation with preconditions.
-- List only the operation's own errors. `usage`, `forbidden`, `identity_unavailable`, `starting`
-  and `not_implemented` (and `idempotency_key_mismatch` for a mutation) are added for you
+- List only the operation's own errors. `usage`, `forbidden`, `identity_unavailable`, `starting`,
+  `stopping` and `not_implemented` (and `idempotency_key_mismatch` for a mutation) are added for you
   (`COMMON_ERRORS` in `packages/contracts/src/ops/define.ts`). Only codes with an HTTP status;
   client-side codes never appear.
 - Adding or changing an error code, hint or exit code: read `handling-errors`.

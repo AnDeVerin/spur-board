@@ -75,7 +75,7 @@ Pick the lowest layer that can fail for the bug you guard against. Projects are 
   `packages/cli/test/skills.test.ts`.
 - One existing wait is known debt, not a pattern: `packages/daemon/test/main.test.ts`
   (`describe('daemon process',`) sleeps 100 ms after SIGTERM and then asserts a positive state
-  (the 503 `starting` reply). Do not copy it; a new test waits on an event or a log line.
+  (the 503 `stopping` reply). Do not copy it; a new test waits on an event or a log line.
 
 ## Harness guarantees
 
