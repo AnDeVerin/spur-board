@@ -3770,8 +3770,8 @@ Choose a unique idempotencyKey for each action; reuse it on retries.",
       "idempotentHint": false,
       "readOnlyHint": true,
     },
-    "description": "List named operator tokens and their current status.
-Use when: Inspect named operator tokens and their current status.
+    "description": "List named operator tokens with their status and when each was created, approved and last used.
+Use when: Inspect named operator tokens, their status, and when each was approved and last used.
 When not to use: Use token_revoke to disable a token.
 Example: {}",
     "execution": undefined,
@@ -3792,10 +3792,42 @@ Example: {}",
           "items": {
             "additionalProperties": false,
             "properties": {
+              "approvedAt": {
+                "anyOf": [
+                  {
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                    "type": "string",
+                  },
+                  {
+                    "type": "null",
+                  },
+                ],
+                "description": "When the token was approved, ISO 8601 UTC; null when it never was, or was revoked before approval times were kept.",
+              },
+              "createdAt": {
+                "description": "When the token was requested, ISO 8601 UTC.",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                "type": "string",
+              },
               "folder": {
                 "description": "Folder where the token file was created.",
                 "minLength": 1,
                 "type": "string",
+              },
+              "lastUsedAt": {
+                "anyOf": [
+                  {
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                    "type": "string",
+                  },
+                  {
+                    "type": "null",
+                  },
+                ],
+                "description": "When a call last authenticated with the token, ISO 8601 UTC, recorded at most once every 5 minutes; null before the first call.",
               },
               "name": {
                 "description": "Unique name of the operator token.",
@@ -3818,6 +3850,9 @@ Example: {}",
               "name",
               "folder",
               "status",
+              "createdAt",
+              "approvedAt",
+              "lastUsedAt",
             ],
             "type": "object",
           },

@@ -297,7 +297,7 @@ Operation errors: `usage` (exit 2: Run `board schema` to see the expected input 
 
 ### `board token list`
 
-List named operator tokens and their current status.
+List named operator tokens with their status and when each was created, approved and last used.
 
 Arguments: none.
 

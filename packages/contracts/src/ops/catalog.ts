@@ -609,9 +609,11 @@ export const OPERATIONS = [
   defineOperation({
     id: 'token.list',
     kind: 'query',
-    description: 'List named operator tokens and their current status.',
+    description:
+      'List named operator tokens with their status and when each was created, approved and last used.',
     mcp: {
-      whenToUse: 'Inspect named operator tokens and their current status.',
+      whenToUse:
+        'Inspect named operator tokens, their status, and when each was approved and last used.',
       whenNotToUse: 'Use token_revoke to disable a token.',
     },
     input: z.strictObject({}),
@@ -622,6 +624,19 @@ export const OPERATIONS = [
             name: tokenName,
             folder: z.string().min(1).describe('Folder where the token file was created.'),
             status: tokenStatus,
+            createdAt: z.iso.datetime().describe('When the token was requested, ISO 8601 UTC.'),
+            approvedAt: z.iso
+              .datetime()
+              .nullable()
+              .describe(
+                'When the token was approved, ISO 8601 UTC; null when it never was, or was revoked before approval times were kept.',
+              ),
+            lastUsedAt: z.iso
+              .datetime()
+              .nullable()
+              .describe(
+                'When a call last authenticated with the token, ISO 8601 UTC, recorded at most once every 5 minutes; null before the first call.',
+              ),
           }),
         )
         .describe('Named tokens in creation order.'),
@@ -634,7 +649,18 @@ export const OPERATIONS = [
       {
         summary: 'List operator tokens',
         input: {},
-        output: { tokens: [{ name: 'desk', folder: 'workspace/desk', status: 'approved' }] },
+        output: {
+          tokens: [
+            {
+              name: 'desk',
+              folder: 'workspace/desk',
+              status: 'approved',
+              createdAt: '2026-11-04T10:00:00.000Z',
+              approvedAt: '2026-11-04T10:02:00.000Z',
+              lastUsedAt: '2026-11-05T09:30:00.000Z',
+            },
+          ],
+        },
       },
     ],
   }),

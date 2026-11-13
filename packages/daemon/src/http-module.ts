@@ -71,7 +71,10 @@ export function createHttpModule(
           ctx.logCall('spur.session.lookup', () =>
             lookupLiveSession(ctx.config.adapters.spur.baseUrl, id, options.fetcher),
           ),
-        verifyToken: (token) => verifyOperatorToken(ctx.store, token),
+        verifyToken: (token) =>
+          verifyOperatorToken(ctx.store, token, new Date(ctx.clock.now()), (err) => {
+            ctx.log.warn({ err }, 'token use not recorded');
+          }),
         registry: options.registry ?? {},
         ...(options.afterOperation === undefined ? {} : { afterOperation: options.afterOperation }),
         doctor:
