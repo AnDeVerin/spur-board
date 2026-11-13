@@ -1,6 +1,5 @@
 import {
   parseActorId,
-  prFactsSchema,
   sessionFactsSchema,
   ticketFactsSchema,
   type ColumnId,
@@ -215,7 +214,6 @@ export async function reconcileItems(
       'pr_snapshot.state',
       'pr_snapshot.source',
       'pr_snapshot.observed_at',
-      'pr_snapshot.detail',
     ])
     .where('link.entity', '=', 'pr')
     .where('link.banned', '=', 0)
@@ -254,10 +252,6 @@ export async function reconcileItems(
     const first = closed[0];
     if (first === undefined) continue;
     const refs = closed.map((pr) => pr.ref);
-    // Each closure episode gets its own revision: a reopen and close again moves updatedAt.
-    const episodes = closed.map((pr) =>
-      pr.detail === null ? pr.ref : `${pr.ref}@${parseJson(prFactsSchema, pr.detail).updatedAt}`,
-    );
     candidates.push({
       key: `pr-closed:${String(task.id)}`,
       kind: 'anomaly',
@@ -266,7 +260,7 @@ export async function reconcileItems(
       factAt: first.observed_at,
       source: first.source,
       priority: 4,
-      revision: episodes.join(','),
+      revision: refs.join(','),
     });
   }
   const tickets = await trx
@@ -322,7 +316,7 @@ export async function reconcileItems(
       factAt: updatedAt,
       source: ticket.source,
       priority: 4,
-      revision: updatedAt,
+      revision: 'closed',
     });
   }
   const previousEpisode = await trx
@@ -454,6 +448,16 @@ export async function reconcileItems(
   for (const item of existing) {
     if (!seen.has(item.item_key)) await clearReconciled(trx, item, new Date(now));
   }
+  // A closure ends when its PR or ticket stops being closed; the next closure raises anew.
+  const closures = await trx
+    .selectFrom('dismissal')
+    .select('item_key')
+    .where((eb) =>
+      eb.or([eb('item_key', 'like', 'pr-closed:%'), eb('item_key', 'like', 'ticket-closed:%')]),
+    )
+    .execute();
+  const ended = closures.map((row) => row.item_key).filter((key) => !seen.has(key));
+  if (ended.length > 0) await trx.deleteFrom('dismissal').where('item_key', 'in', ended).execute();
   for (const candidate of ordered) {
     const hash = fingerprint(candidate);
     const old = existing.find((item) => item.item_key === candidate.key);

@@ -2162,6 +2162,24 @@ describe('anomaly blocks', () => {
     ]);
   });
 
+  it('keeps a dismissed PR-closed block quiet when the closed PR is edited', async () => {
+    const b = await board();
+    await prs(b, [pr(7, 'closed')]);
+    const [block] = (await surface(b)).blocks;
+    if (block === undefined) throw new Error('Missing closed-PR block');
+    now += 1_000;
+    await b.apply(
+      createBlockMutations(config).unblock,
+      { mode: 'reason', block: `B${String(block.id)}`, reason: 'Abandoned on purpose.' },
+      'operator',
+    );
+    now += 1_000;
+    await prs(b, [{ ...pr(7, 'closed'), title: 'o/r#9 work, renamed', updatedAt: iso() }]);
+    await tick(b);
+    expect(await openLedger(b)).toEqual([]);
+    expect((await surface(b)).blocks).toHaveLength(1);
+  });
+
   it('opens a block for a ticket closed while work is live, not for one closed by its merge', async () => {
     async function closedTicket(prFacts: PrFacts[]) {
       const b = await board();
@@ -2258,6 +2276,62 @@ describe('anomaly blocks', () => {
       expect.objectContaining({ state: 'unblocked', outcome: 'withdrawn', unblocked_by: 'system' }),
     ]);
     expect(state.items.map((item) => item.cleared_at)).toEqual([iso()]);
+  });
+
+  it('keeps a dismissed ticket-closed block quiet when the closed ticket is edited, and re-arms it after a reopen', async () => {
+    const b = await board();
+    const ref = (await b.core.context(source)).observe.tickets[0];
+    if (ref === undefined) throw new Error('Missing ticket request');
+    const ticket = (status: string) =>
+      b.core.observe(source, {
+        batch: {
+          source,
+          observedAt: iso(),
+          complete: true,
+          items: [{ kind: 'ticket', facts: { ...fact(), status, updatedAt: iso() } }],
+          entities: [{ ref, status: 'ok' }],
+        },
+        effectiveComplete: true,
+        state: { lastCompleteAt: iso(), gone: [] },
+        outcomes: [],
+      });
+    await ticket('open');
+    await spur(b, [session('worker-1', 'working')]);
+    now += 1_000;
+    await ticket('closed');
+    now += 1_000;
+    await prs(b, []);
+    const [block] = (await surface(b)).blocks;
+    if (block === undefined) throw new Error('Missing ticket-closed block');
+    now += 1_000;
+    await b.apply(
+      createBlockMutations(config).unblock,
+      { mode: 'reason', block: `B${String(block.id)}`, reason: 'Closed on purpose.' },
+      'operator',
+    );
+
+    now += 1_000;
+    await ticket('closed');
+    now += 1_000;
+    await prs(b, []);
+    await tick(b);
+    expect(await openLedger(b)).toEqual([]);
+    expect((await surface(b)).blocks).toHaveLength(1);
+
+    now += 1_000;
+    await ticket('open');
+    now += 1_000;
+    await prs(b, []);
+    expect(await openLedger(b)).toEqual([]);
+    now += 1_000;
+    await ticket('closed');
+    now += 1_000;
+    await prs(b, []);
+    expect(await openLedger(b)).toEqual(['ticket-closed']);
+    expect((await surface(b)).blocks.map((entry) => [entry.state, entry.unblocked_by])).toEqual([
+      ['unblocked', 'operator'],
+      ['open', null],
+    ]);
   });
 
   it('skips the filter item for a done Jira ticket with live work and keeps it beside a merged PR', async () => {
