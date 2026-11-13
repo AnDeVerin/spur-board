@@ -335,16 +335,26 @@ function durationMs(fallback: number, description: string) {
   return z.int().min(1).default(fallback).describe(`${description} in milliseconds.`);
 }
 
+const MAX_POLL_INTERVAL_MS = 86_400_000;
+
+/** Time between two polls, at most one day. */
+function pollIntervalMs(fallback: number) {
+  return z
+    .int()
+    .min(1)
+    .max(MAX_POLL_INTERVAL_MS, 'Poll interval must be at most 86400000 ms (one day)')
+    .default(fallback)
+    .describe('Time between two polls in milliseconds.');
+}
+
 /** How often one adapter polls its source. */
 function adapterSection(intervalMs: number) {
-  return z
-    .strictObject({ intervalMs: durationMs(intervalMs, 'Time between two polls') })
-    .prefault({});
+  return z.strictObject({ intervalMs: pollIntervalMs(intervalMs) }).prefault({});
 }
 
 const spurAdapterSection = z
   .strictObject({
-    intervalMs: durationMs(15_000, 'Time between two polls'),
+    intervalMs: pollIntervalMs(15_000),
     baseUrl: z
       .url({ protocol: /^https?$/ })
       .default('http://127.0.0.1:4310')
