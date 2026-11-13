@@ -527,6 +527,18 @@ describe('each scenario', () => {
       message.text.includes('Which version should the client target?'),
     );
     if (question === undefined) throw new Error('the question was not posted');
+    const workerHealth = (state: 'working' | 'waiting') =>
+      ok(current(), '/fake', {
+        system: 'spur',
+        verb: 'session',
+        args: { id: manifest.roles.worker, state },
+      });
+    const workerSends = async () =>
+      (await inspect(current())).sends.filter(({ session }) => session === manifest.roles.worker)
+        .length;
+    // While the worker is observed working, the answer's ring is held.
+    await workerHealth('working');
+    await ok(current(), '/poll');
     await ok(current(), '/fake/slack/click', {
       message: question.n,
       button: 'answer',
@@ -538,7 +550,13 @@ describe('each scenario', () => {
       },
       { timeout: 10_000 },
     );
-    // The doorbell may be queued on a later tick than the answer, so outbox-drained alone could
+    await ok(current(), '/poll');
+    await ok(current(), '/wait', { condition: 'outbox-drained', timeoutMs: 10_000 });
+    expect(await workerSends()).toBe(0);
+    // Once the worker waits, the next poll lets the ring go.
+    await workerHealth('waiting');
+    await ok(current(), '/poll');
+    // The doorbell may be queued on a later tick than the poll, so outbox-drained alone could
     // pass before it exists: wait for the send itself.
     await vi.waitFor(
       async () => {
@@ -549,9 +567,6 @@ describe('each scenario', () => {
       { timeout: 20_000, interval: 100 },
     );
     // Ring 2 is due firstRetryMs (2 min) after ring 1: a poll does not bring it, a shift does.
-    const workerSends = async () =>
-      (await inspect(current())).sends.filter(({ session }) => session === manifest.roles.worker)
-        .length;
     await ok(current(), '/poll');
     expect(await workerSends()).toBe(1);
     const shifted = await standCli(['clock', '+3m', '--home', manifest.home]);

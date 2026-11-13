@@ -38,6 +38,8 @@ verbs and scenario names; this card keeps the rules and traps.
 - `fake spur session` takes `--status` from `SESSION_STATUSES` (default `running`) and `--state`
   from `SESSION_HEALTH_STATES` (default `working`), both in `packages/contracts/src/facts.ts`.
   The fake stores any string; the board reports other values as unknown.
+- A session at `--state working` (the default) holds the board's rings to it; `--state waiting`
+  then `pnpm stand poll` lets them go (`packages/core/src/app/doorbells.ts`).
 - `fake spur session <id> --queue hold` keeps later sends in the session's Spur queue, as a busy
   session does, so the board holds the next ring; `--queue deliver` empties it. Run
   `pnpm stand poll` after either so the board reads the queue.

@@ -7,6 +7,7 @@ import {
   type AddresseeRole,
   type Config,
   type EventPayload,
+  type SessionFacts,
 } from '@spur-board/contracts';
 import { sql, type Kysely } from 'kysely';
 import { parseAddressee } from '../domain/blocks/blocks.ts';
@@ -758,7 +759,9 @@ export async function reconcileDoorbells(trx: Trx, at: Date, config: Config): Pr
       }
       continue;
     }
-    if (session.state === 'working') continue;
+    // A recipient observed mid-turn is not rung until it stops. A blind Spur leaves its last
+    // health in the snapshot, so a stored `working` holds nothing then.
+    if (recipientBusy(session) && !(await spurBlind(trx))) continue;
     let rings = n.rings;
     let lastOutbox = n.last_outbox_id;
     if (session.id !== n.recipient_session) {
@@ -865,23 +868,33 @@ function ringPauses(config: Config): readonly number[] {
   ];
 }
 
+/** The session's last observed Spur facts, or null when its detail does not parse. */
+function observedFacts(session: Session): SessionFacts | null {
+  let detail: unknown;
+  try {
+    detail = JSON.parse(session.detail);
+  } catch {
+    return null;
+  }
+  const fact = sessionFactsSchema.safeParse(detail);
+  return fact.success ? fact.data : null;
+}
+
+/**
+ * Whether the session was last observed mid-turn. Only an observed `working` health counts: any
+ * other health, or a detail that does not parse, is rung.
+ */
+function recipientBusy(session: Session): boolean {
+  return observedFacts(session)?.health === 'working';
+}
+
 /**
  * Whether the session's facts list a ring of this series, up to `rings`, still in its Spur queue.
  * A detail that does not parse, or one without a queue, holds nothing.
  */
 function earlierRingQueued(session: Session, notificationId: number, rings: number): boolean {
-  let detail: unknown;
-  try {
-    detail = JSON.parse(session.detail);
-  } catch {
-    return false;
-  }
-  const fact = sessionFactsSchema.safeParse(detail);
-  return (
-    fact.success &&
-    (fact.data.queuedRings ?? []).some(
-      (queued) => queued.notification === notificationId && queued.ring <= rings,
-    )
+  return (observedFacts(session)?.queuedRings ?? []).some(
+    (queued) => queued.notification === notificationId && queued.ring <= rings,
   );
 }
 
@@ -963,7 +976,7 @@ export async function ringStillCurrent(
     return 'dead';
   const session = await selectNotificationRecipient(trx, n, config);
   if (session?.id !== sessionId) return 'dead';
-  return session.state === 'working' ? 'defer' : 'send';
+  return recipientBusy(session) && !(await spurBlind(trx)) ? 'defer' : 'send';
 }
 
 /**

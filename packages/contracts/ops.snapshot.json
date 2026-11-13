@@ -1,5 +1,5 @@
 {
-  "version": "92638de38113767d2b448217636eff3d98054ee7236d134ae33bccb7c4c711af",
+  "version": "5cd80911fc9f0f672d5b51e56ee2bc87c6d7e5f358b19527fead85517dfe6af0",
   "grants": [
     "operator",
     "project-agent",
@@ -1227,6 +1227,25 @@
                   "type": "string",
                   "enum": ["active", "out_of_filter", "archived"],
                   "description": "Whether the task is on the board, outside the tracker filter, or archived."
+                },
+                "shadowColumn": {
+                  "description": "Column the dispatcher works from in shadow mode: where the board would have the task. Present only while the project dispatcher is in shadow mode.",
+                  "type": "string",
+                  "enum": [
+                    "todo",
+                    "ready-for-dev",
+                    "dev",
+                    "review",
+                    "product-review",
+                    "external-review",
+                    "qa",
+                    "ready-to-merge",
+                    "done"
+                  ]
+                },
+                "shadowDiffers": {
+                  "description": "Whether shadowColumn differs from column. Present only while the project dispatcher is in shadow mode.",
+                  "type": "boolean"
                 },
                 "state": {
                   "type": "string",
