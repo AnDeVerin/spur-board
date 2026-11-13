@@ -179,7 +179,7 @@ function isReadQuery(body: string | undefined): boolean {
   }
 }
 
-/** Which allowlisted read a request is, or undefined. */
+/** Whether a request is one of the allowlisted reads. */
 function allowed(live: Live, url: URL, method: string, body: string | undefined): boolean {
   if (url.search !== '' && url.origin !== GITHUB_API) return false;
   if (url.origin === live.spurBase.origin && url.pathname.startsWith(live.spurBase.pathname)) {
@@ -218,7 +218,7 @@ function allowed(live: Live, url: URL, method: string, body: string | undefined)
 export function createReadGuard(
   live: Live,
   transport: typeof fetch,
-  refused: string[] = [],
+  refused: string[],
 ): typeof fetch {
   return (input, init) => {
     const { url, method, body } = requestParts(input, init);
@@ -320,10 +320,9 @@ class Scrubber {
   private readonly repos: Map<string, string>;
   private readonly logins: Set<string>;
   private readonly key: string;
-  readonly jiraHost: string;
+  private readonly jiraHost: string;
   /** The live Jira sprint field id, once `/field` answered. */
   sprintField: string | undefined;
-  sprintCustomId: number | undefined;
 
   constructor(live: Live) {
     this.live = live;
@@ -586,8 +585,6 @@ class Scrubber {
     if (sprint === undefined || typeof sprint['id'] !== 'string')
       throw new Refusal('The Jira fake expects a sprint field, and the live Jira has none.');
     this.sprintField = sprint['id'];
-    const customId = isObject(sprint['schema']) ? sprint['schema']['customId'] : undefined;
-    this.sprintCustomId = typeof customId === 'number' ? customId : undefined;
     const wanted = new Set([
       'summary',
       'status',
@@ -1021,9 +1018,9 @@ function draftResponse(scrubber: Scrubber, system: System, raw: RawExchange, at:
   return scrubber.jiraIssue(body, path);
 }
 
-function draftHeaders(headers: Headers, kept: readonly string[]): Record<string, Draft> {
+function draftHeaders(headers: Headers): Record<string, Draft> {
   const out: Record<string, Draft> = {};
-  for (const name of kept) {
+  for (const name of KEPT_HEADERS) {
     const value = headers.get(name);
     if (value === null) continue;
     out[name] = name === 'x-spur-lifecycle-instance-id' ? new Pending('instance', value) : value;
@@ -1053,7 +1050,7 @@ const hasDetailNode = (recording: Recording): boolean =>
     );
   });
 
-export interface RecordOptions {
+interface RecordOptions {
   paths: Paths;
   fetch: typeof fetch;
   outDir: string;
@@ -1184,7 +1181,7 @@ async function recordOrRefuse(
     // The answer first: the field list sets the sprint field the search request is mapped with.
     const response: Draft = {
       status: exchange.status,
-      headers: draftHeaders(exchange.responseHeaders, KEPT_HEADERS),
+      headers: draftHeaders(exchange.responseHeaders),
       body: draftResponse(scrubber, system, exchange, at),
     };
     const request: Json = {
@@ -1251,7 +1248,7 @@ function checkAll(recordings: ReadonlyMap<string, Recording>, needles: Needles):
 }
 
 /** `--check`: the same scan, offline, over the committed files. Returns the exit code. */
-export function checkRecordings(options: {
+function checkRecordings(options: {
   paths: Paths;
   outDir: string;
   writeErr: (text: string) => void;
