@@ -646,12 +646,13 @@ async function pollRepository({
       continue;
     }
     const segments = await sendChunk(request, chunk, (sent) => detailQuery(sent, closing));
+    // Every segment was answered before any PR pages, so their budgets come first, in order.
+    for (const { response } of segments) if (response !== undefined) acc.budget = response.budget;
     for (const { numbers: sent, response } of segments) {
       if (response === undefined) {
         unread(sent);
         continue;
       }
-      acc.budget = response.budget;
       rejectUnscoped(response.errors, aliasesOf(sent));
       for (const [i, number] of sent.entries()) {
         const alias = `pr${String(i)}`;

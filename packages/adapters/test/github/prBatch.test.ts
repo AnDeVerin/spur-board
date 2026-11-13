@@ -1964,6 +1964,40 @@ describe('PR poll chunks', () => {
     expect(batch.complete).toBe(false);
     expect(numbersSent(fetcher, 'PrDetails')).toEqual([[7, 8], [7], [8]]);
   });
+  it('keeps the budget of the newest request after a halved chunk', async () => {
+    const numbers = Array.from({ length: 11 }, (_, i) => i + 1);
+    const remaining = (value: number) => ({
+      rateLimit: { remaining: value, resetAt: '2026-01-03T00:00:00.000Z' },
+    });
+    let failed = false;
+    const fetcher = byOperation((operation, sent) => {
+      if (operation === 'PrBatch') return discoveryAnswer();
+      if (operation === 'PrIndex') return response(aliased(sent, (n) => indexPr(n)));
+      // The first half's PR pages its reviews after both halves were read.
+      if (operation === 'PrPage')
+        return response({ repository: { pullRequest: { reviews: conn([]) } }, ...remaining(99) });
+      if (!failed) {
+        failed = true;
+        return failure();
+      }
+      return response({
+        ...aliased(sent, (n) => {
+          const pr = wire(n);
+          if (n === 1) pr.reviews.pageInfo = { hasNextPage: true, endCursor: 'review-next' };
+          return { pullRequest: pr };
+        }),
+        ...remaining(sent.includes(1) ? 102 : 101),
+      });
+    });
+    const configured = config();
+    configured.github.reserveRemaining = 100;
+    const batch = await adapter(fetcher, configured).poll(context(numbers.map(refOf), cursor));
+    expect(numbersSent(fetcher, 'PrDetails').map((sent) => sent.length)).toEqual([10, 5, 5]);
+    expect(batch.budget?.remaining).toBe(99);
+    expect(batch.entities.at(-1)).toEqual({ ref: refOf(11), status: 'no_access' });
+    expect(batch.entities.filter((entity) => entity.status === 'ok')).toHaveLength(10);
+    expect(batch.complete).toBe(false);
+  });
   it('applies details when discovery returns 502', async () => {
     const fetcher = byOperation((operation, numbers) => {
       if (operation === 'PrBatch') return failure();
