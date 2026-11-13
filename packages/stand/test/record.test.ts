@@ -487,6 +487,12 @@ describe('record:fakes', () => {
           (projects(config)[1] as Raw)['link'] = { sources: ['branch'] };
         },
       ],
+      [
+        'the same operatorGithubLogin',
+        (config) => {
+          (projects(config)[1] as Raw)['operatorGithubLogin'] = 'acme-other-person';
+        },
+      ],
     ];
     for (const [message, change] of shapes) {
       const config = liveConfig();

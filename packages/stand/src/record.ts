@@ -141,6 +141,13 @@ export function narrow(config: Config): Live {
     throw new Refusal('The Jira project and the github-issues project must use different repos.');
   if (!isDefaultLink(issuesProject) || !isDefaultLink(jiraProject))
     throw new Refusal('A project with a link block changes the query shape; remove it to record.');
+  // The scrub maps every login to one stand login, so a PR polling skips in one project would
+  // be discovered there on replay and ask for details nothing recorded.
+  if (
+    issuesProject.operatorGithubLogin.toLowerCase() !==
+    jiraProject.operatorGithubLogin.toLowerCase()
+  )
+    throw new Refusal('Both projects must have the same operatorGithubLogin.');
   return {
     config: {
       ...config,
