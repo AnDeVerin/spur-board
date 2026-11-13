@@ -1,6 +1,11 @@
 import { CHECK_STATES, COLUMN_IDS, configSchema, type ColumnId } from '@spur-board/contracts';
 import { describe, expect, it } from 'vitest';
-import { countCycles, evaluateGate, type TaskGateFacts } from '../../src/domain/gates.ts';
+import {
+  countCycles,
+  evaluateGate,
+  explainGates,
+  type TaskGateFacts,
+} from '../../src/domain/gates.ts';
 
 type Board = Parameters<typeof evaluateGate>[2]['columns'];
 type Mark = TaskGateFacts['marks'][number];
@@ -454,10 +459,52 @@ describe('check verdict', () => {
   });
 });
 
-describe('repositories without CI', () => {
-  const noChecks = { requiredChecks: [], checks: [] };
-  const waived = { checksWaivedBy: 'reposWithoutCi' } as const;
+const noChecks = { requiredChecks: [], checks: [] };
+const waived = { checksWaivedBy: 'reposWithoutCi' } as const;
+/** The reposWithoutCi marker cases, evaluated with `o/r` listed. */
+const markerCases: [string, ColumnId, TaskGateFacts, Board, Expected][] = [
+  ['(a) dev passes', 'dev', ready({ pr: noChecks }), ORCH, { ok: true, ...waived }],
+  [
+    '(b) broken right of dev',
+    'review',
+    ready({ pr: noChecks }),
+    ORCH,
+    { ...broken('review', 'no_review_on_head'), ...waived },
+  ],
+  [
+    '(c1) broken at dev without a submit',
+    'dev',
+    ready({ pr: noChecks, marks: [] }),
+    ORCH,
+    { ...broken('dev', 'no_submit_on_head'), ...waived },
+  ],
+  [
+    '(c2) broken at dev as a draft',
+    'dev',
+    ready({ pr: { ...noChecks, draft: true } }),
+    ORCH,
+    { ...broken('dev', 'pr_draft'), ...waived },
+  ],
+  ['(d) asked left of dev', 'ready-for-dev', ready({ pr: noChecks }), ORCH, ok],
+  ['(e) merged', 'done', ready({ pr: { ...noChecks, state: 'merged' } }), ORCH, ok],
+  [
+    '(f) closed',
+    'dev',
+    ready({ pr: { ...noChecks, state: 'closed' } }),
+    ORCH,
+    broken('dev', 'pr_closed'),
+  ],
+  ['(g) no PR', 'dev', ready({ pr: null, marks: [] }), ORCH, broken('dev', 'no_pr')],
+  [
+    '(h) dev disabled',
+    'review',
+    ready({ pr: noChecks }),
+    disable(ORCH, 'dev'),
+    broken('review', 'no_review_on_head'),
+  ],
+];
 
+describe('repositories without CI', () => {
   it.each<[string, readonly string[], Check[], Check[], Expected]>([
     ['no key, no checks', [], [], [], broken('dev', 'checks_pending')],
     ['key for another repo, no checks', ['o/other'], [], [], broken('dev', 'checks_pending')],
@@ -479,48 +526,119 @@ describe('repositories without CI', () => {
     );
   });
 
-  it.each<[string, ColumnId, TaskGateFacts, Board, Expected]>([
-    ['(a) dev passes', 'dev', ready({ pr: noChecks }), ORCH, { ok: true, ...waived }],
-    [
-      '(b) broken right of dev',
-      'review',
-      ready({ pr: noChecks }),
-      ORCH,
-      { ...broken('review', 'no_review_on_head'), ...waived },
-    ],
-    [
-      '(c1) broken at dev without a submit',
-      'dev',
-      ready({ pr: noChecks, marks: [] }),
-      ORCH,
-      { ...broken('dev', 'no_submit_on_head'), ...waived },
-    ],
-    [
-      '(c2) broken at dev as a draft',
-      'dev',
-      ready({ pr: { ...noChecks, draft: true } }),
-      ORCH,
-      { ...broken('dev', 'pr_draft'), ...waived },
-    ],
-    ['(d) asked left of dev', 'ready-for-dev', ready({ pr: noChecks }), ORCH, ok],
-    ['(e) merged', 'done', ready({ pr: { ...noChecks, state: 'merged' } }), ORCH, ok],
-    [
-      '(f) closed',
-      'dev',
-      ready({ pr: { ...noChecks, state: 'closed' } }),
-      ORCH,
-      broken('dev', 'pr_closed'),
-    ],
-    ['(g) no PR', 'dev', ready({ pr: null, marks: [] }), ORCH, broken('dev', 'no_pr')],
-    [
-      '(h) dev disabled',
-      'review',
-      ready({ pr: noChecks }),
-      disable(ORCH, 'dev'),
-      broken('review', 'no_review_on_head'),
-    ],
-  ])('marker %s', (_name, column, facts, board, expected) => {
+  it.each(markerCases)('marker %s', (_name, column, facts, board, expected) => {
     expect(gate(column, facts, board, ['o/r'])).toEqual(expected);
+  });
+});
+
+describe('explainGates', () => {
+  const explain = (facts: TaskGateFacts, board: Board, reposWithoutCi: readonly string[] = []) =>
+    explainGates(facts, { columns: board, reposWithoutCi });
+  const blockedIn = (expected: Expected) => (expected.ok ? null : expected.column);
+
+  it('agrees with evaluateGate at every column for every gate case', () => {
+    for (const [name, , facts, board] of gateCases) {
+      const { gates, checksWaivedBy } = explain(facts, board);
+      expect(gates.map((entry) => entry.column)).toEqual(COLUMN_IDS);
+      for (const entry of gates) {
+        expect(entry.blockedIn, `${name} at ${entry.column}`).toBe(
+          blockedIn(gate(entry.column, facts, board)),
+        );
+        expect(entry.enabled).toBe(board.find((c) => c.id === entry.column)?.enabled === true);
+      }
+      expect(checksWaivedBy, name).toBe(gate('done', facts, board).checksWaivedBy ?? null);
+    }
+  });
+
+  it("names each column's own failing and waiting conditions with their reasons", () => {
+    const facts = ready({
+      pr: { draft: true, requiredChecks: [check('pending')], mergeable: 'conflicting' },
+      commentHistory: 'incomplete',
+      unhandledExternalComments: 1,
+      marks: [],
+    });
+    const [, , dev, review] = explain(facts, ORCH).gates;
+    expect(dev).toEqual({
+      column: 'dev',
+      enabled: true,
+      ok: false,
+      blockedIn: 'dev',
+      conditions: [
+        { condition: 'pr_open', state: 'met', reason: null },
+        { condition: 'not_draft', state: 'failed', reason: 'pr_draft' },
+        { condition: 'checks_green', state: 'waiting', reason: 'checks_pending' },
+        { condition: 'no_conflict', state: 'failed', reason: 'conflict' },
+        {
+          condition: 'external_comments_handled',
+          state: 'failed',
+          reason: 'external_comments',
+        },
+        {
+          condition: 'comment_history_read',
+          state: 'waiting',
+          reason: 'comment_history_incomplete',
+        },
+        { condition: 'submit_on_head', state: 'failed', reason: 'no_submit_on_head' },
+      ],
+    });
+    expect(review).toEqual({
+      column: 'review',
+      enabled: true,
+      ok: false,
+      blockedIn: 'dev',
+      conditions: [{ condition: 'review_on_head', state: 'failed', reason: 'no_review_on_head' }],
+    });
+  });
+
+  it('marks Dev conditions unchecked without a PR', () => {
+    for (const [pr, reason] of [
+      [null, 'no_pr'],
+      [{ state: 'closed' }, 'pr_closed'],
+    ] as const) {
+      const dev = explain(ready({ pr, marks: [] }), ORCH).gates.find((g) => g.column === 'dev');
+      expect(dev?.conditions).toEqual([
+        { condition: 'pr_open', state: 'failed', reason },
+        ...[
+          'not_draft',
+          'checks_green',
+          'no_conflict',
+          'external_comments_handled',
+          'comment_history_read',
+          'submit_on_head',
+        ].map((condition) => ({ condition, state: 'unchecked', reason: null })),
+      ]);
+    }
+  });
+
+  it('passes every column with every condition met under a merged PR', () => {
+    // No review mark and no approval: the raw column conditions would fail.
+    const facts = ready({ pr: { state: 'merged', requiredChecks: [], checks: [] }, marks: [] });
+    const { gates, checksWaivedBy } = explain(facts, ORCH, ['o/r']);
+    expect(checksWaivedBy).toBeNull();
+    expect(gates).toHaveLength(COLUMN_IDS.length);
+    for (const entry of gates) {
+      expect(entry).toMatchObject({ ok: true, blockedIn: null });
+      for (const condition of entry.conditions)
+        expect(condition).toMatchObject({ state: 'met', reason: null });
+    }
+    expect(gates.flatMap((entry) => entry.conditions).length).toBeGreaterThan(0);
+  });
+
+  it('names reposWithoutCi exactly where evaluateGate marks it', () => {
+    for (const [name, , facts, board, expected] of markerCases) {
+      const explained = explain(facts, board, ['o/r']);
+      expect(explained.checksWaivedBy, name).toBe(
+        evaluateGate('done', facts, { columns: board, reposWithoutCi: ['o/r'] }).checksWaivedBy ??
+          null,
+      );
+      const dev = explained.gates.find((entry) => entry.column === 'dev');
+      if (expected.checksWaivedBy !== undefined) {
+        expect(explained.checksWaivedBy, name).toBe('reposWithoutCi');
+        expect(dev?.conditions.find((c) => c.condition === 'checks_green')?.state, name).toBe(
+          'met',
+        );
+      }
+    }
   });
 });
 

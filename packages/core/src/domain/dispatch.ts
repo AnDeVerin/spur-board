@@ -1,4 +1,10 @@
-import { COLUMN_IDS, type ColumnId, type GateReason, type MoveReason } from '@spur-board/contracts';
+import {
+  COLUMN_IDS,
+  type ColumnId,
+  type GateReason,
+  type MoveReason,
+  type TaskHold,
+} from '@spur-board/contracts';
 import {
   evaluateGate,
   HOLD_ONLY,
@@ -91,6 +97,28 @@ function dropSubmits(marks: readonly GateMark[], to: ColumnId): GateMark[] {
   return marks.filter((mark) => mark.kind === 'mark' || indexOf(mark.column) < indexOf(to));
 }
 
+/** Whether work on the task started: it has an open PR, or a live worker and no reopen. */
+function workStarted(input: DispatchInput): boolean {
+  const workerLive = input.liveWorker && !input.spurBlind;
+  return input.openPr || (!input.reopened && workerLive);
+}
+
+/**
+ * What holds the dispatcher on the task now: a blind GitHub stops it, a blind Spur defers a
+ * worker's turn, an active cycle-limit item stops every turn and move right, and To Do and Ready
+ * for Dev wait for the work to start. The last is judged at the task's column, while `dispatch`
+ * judges it at each column the cascade reaches.
+ */
+export function dispatchHolds(input: DispatchInput): TaskHold[] {
+  const holds: TaskHold[] = [];
+  if (input.githubBlind) holds.push('github_blind');
+  if (input.spurBlind) holds.push('spur_blind');
+  if (input.cycleHeld) holds.push('cycle_limit');
+  if ((input.column === 'todo' || input.column === 'ready-for-dev') && !workStarted(input))
+    holds.push('work_not_started');
+  return holds;
+}
+
 /**
  * Runs the dispatcher cascade from the task's column: each step moves the task or ends with at
  * most one turn for its column. A turn whose executor is the worker (a column with orchestrator
@@ -101,7 +129,7 @@ export function dispatch(input: DispatchInput): DispatchResult {
   if (input.githubBlind) return { moves, turn: null };
   const { project, reopened, cycleHeld } = input;
   const workerLive = input.liveWorker && !input.spurBlind;
-  const workStarted = input.openPr || (!reopened && workerLive);
+  const started = workStarted(input);
   let { column, facts, turn } = input;
   const move = (to: ColumnId, reason: MoveReason, gate?: GateReason[]) => {
     moves.push({ from: column, to, reason, ...(gate === undefined ? {} : { gate }) });
@@ -146,7 +174,7 @@ export function dispatch(input: DispatchInput): DispatchResult {
     }
     const gate = evaluateGate(column, facts, project);
     if (gate.ok) {
-      if ((column === 'todo' || column === 'ready-for-dev') && !workStarted) return result(null);
+      if ((column === 'todo' || column === 'ready-for-dev') && !started) return result(null);
       const next = nextColumn(project, column);
       if (cycleHeld || next === undefined || next === 'done') return result(null);
       move(next, 'gate_passed');

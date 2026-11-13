@@ -64,6 +64,38 @@ export type SessionEndReason = (typeof SESSION_END_REASONS)[number];
 export const DISPATCHER_MODES = ['shadow', 'on'] as const;
 export type DispatcherMode = (typeof DISPATCHER_MODES)[number];
 
+/** The exit conditions of the column gates, as `board task --why` names them. */
+export const GATE_CONDITIONS = [
+  'pr_open',
+  'not_draft',
+  'checks_green',
+  'no_conflict',
+  'external_comments_handled',
+  'comment_history_read',
+  'submit_on_head',
+  'review_on_head',
+  'approved',
+  'merged',
+] as const;
+export type GateCondition = (typeof GATE_CONDITIONS)[number];
+
+/**
+ * The state of one gate condition: `waiting` fails only on a fact not known yet, `unchecked` was
+ * not evaluated because an earlier condition of the column failed first.
+ */
+export const GATE_CONDITION_STATES = ['met', 'failed', 'waiting', 'unchecked'] as const;
+export type GateConditionState = (typeof GATE_CONDITION_STATES)[number];
+
+/** What holds the dispatcher from acting on a task. */
+export const TASK_HOLDS = [
+  'pr_snapshot_missing',
+  'github_blind',
+  'spur_blind',
+  'cycle_limit',
+  'work_not_started',
+] as const;
+export type TaskHold = (typeof TASK_HOLDS)[number];
+
 /** Who caused a journal event. */
 export const ACTORS = ['operator', 'agent', 'system'] as const;
 export type Actor = (typeof ACTORS)[number];

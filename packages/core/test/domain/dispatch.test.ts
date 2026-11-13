@@ -1,6 +1,6 @@
 import { COLUMN_IDS, type ColumnId, type GateReason } from '@spur-board/contracts';
 import { describe, expect, it } from 'vitest';
-import { dispatch, returnCauses, turnReason } from '../../src/domain/dispatch.ts';
+import { dispatch, dispatchHolds, returnCauses, turnReason } from '../../src/domain/dispatch.ts';
 import type { TaskGateFacts } from '../../src/domain/gates.ts';
 
 type Input = Parameters<typeof dispatch>[0];
@@ -441,6 +441,39 @@ describe('dispatch', () => {
       );
       expect(moves.filter((move) => move.to === 'done')).toEqual([]);
     }
+  });
+});
+
+describe('dispatchHolds', () => {
+  it.each<[string, Changes, ReturnType<typeof dispatchHolds>]>([
+    ['nothing holds a task in Dev', {}, []],
+    ['a blind GitHub', { githubBlind: true }, ['github_blind']],
+    ['a blind Spur', { spurBlind: true }, ['spur_blind']],
+    ['a cycle-limit item', { cycleHeld: true }, ['cycle_limit']],
+    ['To Do with an open PR', { column: 'todo' }, []],
+    ['To Do with a live worker only', { column: 'todo', openPr: false }, []],
+    [
+      'To Do with no PR and no worker',
+      { column: 'todo', openPr: false, liveWorker: false },
+      ['work_not_started'],
+    ],
+    [
+      'Ready for Dev with a live worker while Spur is blind',
+      { column: 'ready-for-dev', openPr: false, spurBlind: true },
+      ['spur_blind', 'work_not_started'],
+    ],
+    [
+      'To Do with a live worker after a reopen',
+      { column: 'todo', openPr: false, reopened: true },
+      ['work_not_started'],
+    ],
+    ['Dev with no PR and no worker', { openPr: false, liveWorker: false }, []],
+  ])('%s', (_name, changes, expected) => {
+    const held = input(changes);
+    expect(dispatchHolds(held)).toEqual(expected);
+    // A not-started task in To Do or Ready for Dev makes no move and opens no turn.
+    if (expected.includes('work_not_started') && !held.githubBlind)
+      expect(dispatch(held)).toEqual({ moves: [], turn: null });
   });
 });
 

@@ -9,12 +9,15 @@ import {
   COLUMNS,
   COLUMN_IDS,
   DISPATCHER_MODES,
+  GATE_CONDITIONS,
+  GATE_CONDITION_STATES,
   LINK_SOURCES,
   MEMBERSHIPS,
   PR_LINK_STATES,
   REQUIRED_COLUMN_IDS,
   SESSION_END_REASONS,
   SESSION_LINK_ROLES,
+  TASK_HOLDS,
 } from '../src/index.ts';
 
 it('lists the built-in columns from To Do to Done, with ids and display names', () => {
@@ -102,4 +105,30 @@ it('lists actors', () => {
 
 it('lists dispatcher modes', () => {
   expect(DISPATCHER_MODES).toEqual(['shadow', 'on']);
+});
+
+it('lists gate conditions and their states', () => {
+  expect(GATE_CONDITIONS).toEqual([
+    'pr_open',
+    'not_draft',
+    'checks_green',
+    'no_conflict',
+    'external_comments_handled',
+    'comment_history_read',
+    'submit_on_head',
+    'review_on_head',
+    'approved',
+    'merged',
+  ]);
+  expect(GATE_CONDITION_STATES).toEqual(['met', 'failed', 'waiting', 'unchecked']);
+});
+
+it('lists task holds', () => {
+  expect(TASK_HOLDS).toEqual([
+    'pr_snapshot_missing',
+    'github_blind',
+    'spur_blind',
+    'cycle_limit',
+    'work_not_started',
+  ]);
 });
