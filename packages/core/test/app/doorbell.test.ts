@@ -1,7 +1,14 @@
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { configSchema, type ActorId, type ColumnId, type Config } from '@spur-board/contracts';
+import {
+  configSchema,
+  parseRingMarker,
+  sessionFactsSchema,
+  type ActorId,
+  type ColumnId,
+  type Config,
+} from '@spur-board/contracts';
 import { createFakeGateway } from '@spur-board/gateway-testkit';
 import { afterEach, describe, expect, it } from 'vitest';
 import { sql } from 'kysely';
@@ -13,6 +20,7 @@ import {
   openStore,
   reconcileDueDoorbells,
   tickBoard,
+  toJson,
   type Store,
 } from '../../src/index.ts';
 import {
@@ -978,6 +986,130 @@ describe('role addressed doorbells', () => {
   });
 });
 
+describe('rings held in the Spur queue', () => {
+  /** The notification and ring the first sent ring carries. */
+  function firstRing(ctx: Board) {
+    const marker = parseRingMarker(ctx.sent[0]?.text ?? '');
+    if (marker === null) throw new Error('no ring sent');
+    return marker;
+  }
+
+  function items(ctx: Board) {
+    return ctx.store.db.selectFrom('operator_item').selectAll().orderBy('id').execute();
+  }
+
+  function doorbellRows(ctx: Board) {
+    return ctx.store.db.selectFrom('outbox').selectAll().where('kind', '=', 'doorbell').execute();
+  }
+
+  it('holds ring 2 while ring 1 waits in the Spur queue', async () => {
+    const ctx = await setup();
+    await workerBlock(ctx.store);
+    await step(ctx);
+    await queueRings(ctx, [{ notification: firstRing(ctx).notification, ring: 1 }]);
+    for (const pause of [120_000, 300_000, 899_999]) {
+      ctx.advance(pause);
+      await step(ctx);
+    }
+    expect(ctx.sent).toHaveLength(1);
+    expect(await doorbellRows(ctx)).toHaveLength(1);
+    expect(await notices(ctx)).toEqual([expect.objectContaining({ rings: 1, exhausted_at: null })]);
+    expect(await items(ctx)).toEqual([]);
+  });
+
+  it.each([600_000, 1_319_999])(
+    'rings again on schedule once the queued ring is delivered at +%i ms',
+    async (drained) => {
+      const ctx = await setup();
+      await workerBlock(ctx.store);
+      await step(ctx);
+      const { notification } = firstRing(ctx);
+      await queueRings(ctx, [{ notification, ring: 1 }]);
+      ctx.advance(120_000);
+      await step(ctx);
+      ctx.advance(drained - 120_000);
+      await step(ctx);
+      expect(ctx.sent).toHaveLength(1);
+      await queueRings(ctx, []);
+      await step(ctx);
+      expect(ctx.sent).toHaveLength(2);
+      expect(ctx.sent[1]?.text).toMatch(/-2\)$/);
+      ctx.advance(299_999);
+      await step(ctx);
+      expect(ctx.sent).toHaveLength(2);
+      ctx.advance(1);
+      await step(ctx);
+      expect(ctx.sent).toHaveLength(3);
+      ctx.advance(899_999);
+      await step(ctx);
+      expect(await items(ctx)).toEqual([]);
+      ctx.advance(1);
+      await step(ctx);
+      expect(await items(ctx)).toEqual([
+        expect.objectContaining({
+          kind: 'worker_not_reading',
+          raised_at: new Date(START + drained + 1_200_000).toISOString(),
+        }),
+      ]);
+      expect(ctx.sent).toHaveLength(3);
+    },
+  );
+
+  it.each([1, 2])(
+    'ends the series at the usual time while ring %i waits in the Spur queue',
+    async (stuck) => {
+      const ctx = await setup();
+      const blockId = await workerBlock(ctx.store);
+      await step(ctx);
+      if (stuck === 2) {
+        ctx.advance(120_000);
+        await step(ctx);
+      }
+      expect(ctx.sent).toHaveLength(stuck);
+      await queueRings(ctx, [{ notification: firstRing(ctx).notification, ring: stuck }]);
+      ctx.advance(1_319_999 - (stuck === 2 ? 120_000 : 0));
+      await step(ctx);
+      expect(await items(ctx)).toEqual([]);
+      ctx.advance(1);
+      await step(ctx);
+      expect(await items(ctx)).toEqual([
+        expect.objectContaining({
+          kind: 'worker_not_reading',
+          text: `worker worker-1 is not reading block ${blockId} on ${KEY}`,
+          raised_at: new Date(START + 1_320_000).toISOString(),
+        }),
+      ]);
+      expect(await journalled(ctx, 'doorbell_undelivered')).toEqual([
+        expect.objectContaining({ payload: { doorbell: 'N1', reason: 'unanswered' } }),
+      ]);
+      expect(ctx.sent).toHaveLength(stuck);
+    },
+  );
+
+  it('never holds a first ring', async () => {
+    const ctx = await setup();
+    await workerBlock(ctx.store);
+    await queueRings(ctx, [{ notification: 1, ring: 1 }]);
+    await step(ctx);
+    expect(ctx.sent).toHaveLength(1);
+    expect(ctx.sent[0]?.text).toMatch(/\(N1-1\)$/);
+  });
+
+  it('holds only an earlier ring of the same series', async () => {
+    const ctx = await setup();
+    await workerBlock(ctx.store);
+    await step(ctx);
+    const { notification } = firstRing(ctx);
+    await queueRings(ctx, [
+      { notification: notification + 1, ring: 1 },
+      { notification, ring: 2 },
+    ]);
+    ctx.advance(120_000);
+    await step(ctx);
+    expect(ctx.sent).toHaveLength(2);
+  });
+});
+
 /** One board project with a `qa` orchestrator on `dev`, a `cur` curator and an `ops` operator. */
 function policyBoard(devOrchestrator = 'qa'): Config {
   return configSchema.parse({
@@ -1067,6 +1199,29 @@ async function setSession(
   await ctx.store.transaction(async (trx) => {
     await trx.updateTable('session_snapshot').set(values).where('id', '=', id).execute();
   });
+}
+
+/** Stores idle facts for a session whose Spur queue holds `rings`; none leaves the key out. */
+async function queueRings(
+  ctx: Board,
+  rings: { notification: number; ring: number }[],
+  id = 'worker-1',
+): Promise<void> {
+  const facts = {
+    id,
+    spurProject: 'web',
+    branch: null,
+    pr: null,
+    links: {},
+    lifecycle: 'running',
+    health: 'waiting',
+    healthSince: new Date(START).toISOString(),
+    lastActivityAt: null,
+    endedAt: null,
+    endReason: null,
+    ...(rings.length > 0 ? { queuedRings: rings } : {}),
+  } as const;
+  await setSession(ctx, id, { detail: toJson(sessionFactsSchema, facts) });
 }
 
 /** Runs the doorbell job, then one sender tick. */
@@ -1810,6 +1965,29 @@ describe('turns', () => {
     ctx.advance(900_000);
     await step(ctx);
   }
+
+  it('ends a turn series on time while its ring waits in the Spur queue', async () => {
+    const ctx = await setup({ config: policyBoard('none') });
+    await open(ctx);
+    await step(ctx);
+    expect(ctx.sent[0]?.text).toBe(`${KEY} turn T1: check board inbox (N1-1)`);
+    await queueRings(ctx, [{ notification: 1, ring: 1 }]);
+    for (const pause of [120_000, 300_000, 899_999]) {
+      ctx.advance(pause);
+      await step(ctx);
+    }
+    expect(await items(ctx)).toEqual([]);
+    ctx.advance(1);
+    await step(ctx);
+    expect(ctx.sent).toHaveLength(1);
+    expect(await items(ctx)).toEqual([
+      expect.objectContaining({
+        kind: 'worker_not_reading',
+        text: `worker worker-1 is not reading turn T1 on ${KEY}`,
+        raised_at: new Date(START + 1_320_000).toISOString(),
+      }),
+    ]);
+  });
 
   it.each([
     {
