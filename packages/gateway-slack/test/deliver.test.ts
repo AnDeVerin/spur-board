@@ -505,7 +505,7 @@ describe('rendering and surface', () => {
     });
     expect(delivered.status).toBe('delivered');
     const posts = fake.requests().filter((entry) => entry.method === 'chat.postMessage');
-    expect(posts.map((entry) => JSON.parse(entry.params.blocks ?? 'null'))).toEqual([
+    expect(posts.map((entry): unknown => JSON.parse(entry.params.blocks ?? 'null'))).toEqual([
       [
         {
           type: 'section',
