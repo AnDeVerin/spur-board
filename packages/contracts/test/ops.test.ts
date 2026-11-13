@@ -219,6 +219,79 @@ describe('catalog', () => {
     }
   });
 
+  it('bounds every string and array in every input', () => {
+    const unbounded: string[] = [];
+    const visit = (node: unknown, path: string): void => {
+      if (Array.isArray(node)) {
+        node.forEach((child, index) => {
+          visit(child, `${path}[${String(index)}]`);
+        });
+        return;
+      }
+      if (!isObject(node)) return;
+      const types = [node['type']].flat();
+      const fixed = 'enum' in node || 'const' in node;
+      if (types.includes('string') && !fixed && typeof node['maxLength'] !== 'number') {
+        unbounded.push(`${path} string`);
+      }
+      if (types.includes('array') && typeof node['maxItems'] !== 'number') {
+        unbounded.push(`${path} array`);
+      }
+      for (const [key, child] of Object.entries(node)) visit(child, `${path}.${key}`);
+    };
+    for (const { op, input } of schemas) visit(input, op.id);
+    expect(unbounded).toEqual([]);
+  });
+
+  it('refuses an over-long comment and too many inbox acks with usage', () => {
+    const add = OPERATIONS.find((op) => op.id === 'comment.add');
+    const comment = (text: string) => add?.input.safeParse({ task: 'PROJ-123', text });
+    expect(comment('x'.repeat(20_000))?.success).toBe(true);
+    const long = comment('x'.repeat(20_001));
+    expect(long?.success).toBe(false);
+    if (long?.error !== undefined) expect(errorCodeOf(long.error)).toBe('usage');
+
+    const ack = OPERATIONS.find((op) => op.id === 'inbox.ack');
+    const entries = (count: number) =>
+      Array.from({ length: count }, (_, index) => ({ id: `C${String(index + 1)}`, revision: 1 }));
+    expect(ack?.input.safeParse({ entries: entries(100) }).success).toBe(true);
+    const many = ack?.input.safeParse({ entries: entries(101) });
+    expect(many?.success).toBe(false);
+    if (many?.error !== undefined) expect(errorCodeOf(many.error)).toBe('usage');
+  });
+
+  it('lets token.revoke take any name the pre-#242 enrollment could store', () => {
+    const revoke = OPERATIONS.find((op) => op.id === 'token.revoke');
+    expect(revoke?.input.safeParse({ name: 'x'.repeat(257) }).success).toBe(true);
+    expect(revoke?.input.safeParse({ name: 'old desk' }).success).toBe(true);
+    const revokeJson = schemas.find(({ op }) => op.id === 'token.revoke')?.input;
+    const nameJson = isObject(revokeJson?.['properties']) ? revokeJson['properties']['name'] : {};
+    expect(isObject(nameJson) && nameJson['maxLength']).toBe(1_048_576);
+  });
+
+  it('caps task keys at 300 characters in inputs only', () => {
+    const key300 = `P${'A'.repeat(297)}-1`;
+    const key301 = `P${'A'.repeat(298)}-1`;
+    expect(key300).toHaveLength(300);
+    const get = OPERATIONS.find((op) => op.id === 'task.get');
+    const link = OPERATIONS.find((op) => op.id === 'link.add');
+    expect(get?.input.safeParse({ task: key300 }).success).toBe(true);
+    const long = get?.input.safeParse({ task: key301 });
+    expect(long?.success).toBe(false);
+    if (long?.error !== undefined) expect(errorCodeOf(long.error)).toBe('usage');
+
+    const getOutput = get?.examples[0]?.output as { task: { key: string } } | undefined;
+    const linkOutput = link?.examples[0]?.output as { task: string } | undefined;
+    if (getOutput === undefined || linkOutput === undefined) throw new Error('no examples');
+    expect(
+      get?.output.safeParse({ ...getOutput, task: { ...getOutput.task, key: key301 } }).error,
+    ).toBeUndefined();
+    expect(link?.output.safeParse({ ...linkOutput, task: key301 }).error).toBeUndefined();
+    const linkJson = schemas.find(({ op }) => op.id === 'link.add')?.output;
+    const taskJson = isObject(linkJson?.['properties']) ? linkJson['properties']['task'] : {};
+    expect(isObject(taskJson) && 'maxLength' in taskJson).toBe(false);
+  });
+
   it('has opaque payloads only at the two named schema.get fields', () => {
     const opaque = schemas.flatMap(({ op, input, output }) => [
       ...walk(input).opaque.map((path) => `${op.id} input${path}`),

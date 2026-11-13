@@ -35,10 +35,10 @@ export {
 export {
   requestToken,
   expirePendingTokens,
+  purgeEndedTokenRequests,
   verifyOperatorToken,
   tokenListQuery,
   tokenRevokeMutation,
-  type TokenRequest,
 } from './app/tokens.ts';
 export { createBlockMutations } from './app/blocks.ts';
 export { createMembershipMutations } from './app/membership.ts';

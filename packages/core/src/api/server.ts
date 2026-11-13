@@ -6,6 +6,7 @@ import {
   errorCodeOf,
   renderHttpProblem,
   successEnvelopeSchema,
+  tokenRequestSchema,
   type ServerErrorCode,
 } from '@spur-board/contracts';
 import Fastify, { type FastifyInstance } from 'fastify';
@@ -71,16 +72,7 @@ const doctorReportSchema = z.strictObject({
     .max(30),
 });
 
-const tokenHash = z.string().regex(/^[0-9a-f]{64}$/);
-
-const tokenRequestSchema = z.strictObject({
-  name: z.string().min(1),
-  folder: z.string().min(1),
-  host: z.string().min(1),
-  hash: tokenHash,
-});
-
-const tokenStatusSchema = z.strictObject({ hash: tokenHash });
+const tokenStatusSchema = z.strictObject({ hash: tokenRequestSchema.shape.hash });
 
 function header(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? undefined : value;
@@ -203,13 +195,10 @@ export async function createApiServer(options: ApiOptions): Promise<FastifyInsta
 
   app.post('/v1/tokens/requests', async (request, reply) => {
     if (!options.ready()) throw notReady();
-    const parsed = tokenRequestSchema.safeParse(request.body);
-    if (!parsed.success)
-      throw new CommandError('usage', 'Provide a name, folder, host and token hash.');
     const result = await requestToken(
       options.store,
       options.config,
-      parsed.data,
+      request.body,
       new Date(options.clock.now()),
     );
     return reply.send(

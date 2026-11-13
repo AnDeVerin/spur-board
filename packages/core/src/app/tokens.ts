@@ -1,6 +1,13 @@
 import { scanTransaction } from './secrets.ts';
 import { createHash } from 'node:crypto';
-import { RESERVED_PROJECT, type Config, type EventKind } from '@spur-board/contracts';
+import {
+  RESERVED_PROJECT,
+  TOKEN_REQUEST_LIMITS,
+  requestHashOf,
+  tokenRequestSchema,
+  type Config,
+  type EventKind,
+} from '@spur-board/contracts';
 import type { Kysely } from 'kysely';
 import type { OperatorTokenStatus, Row, Tables } from '../store/schema.ts';
 import type { Store } from '../store/store.ts';
@@ -12,6 +19,9 @@ import type { Query } from './queries.ts';
 type Trx = Kysely<Tables>;
 const REQUEST_LIFETIME_MS = 15 * 60 * 1000;
 const MAX_PENDING_REQUESTS = 10;
+/** Days an expired or denied request stays after its decision before the daily purge drops it. */
+const TOKEN_REQUEST_RETENTION_DAYS = 7;
+const DAY_MS = 86_400_000;
 
 function effectiveStatus(row: Row<'operator_token'>, at: Date): OperatorTokenStatus {
   return row.status === 'pending' && row.expires_at <= at.toISOString() ? 'expired' : row.status;
@@ -69,27 +79,31 @@ export async function expireTokenOfItem(trx: Trx, itemId: number, at: Date): Pro
   if (row !== undefined) await expireToken(trx, row, at);
 }
 
-export interface TokenRequest {
-  name: string;
-  folder: string;
-  host: string;
-  hash: string;
-}
+/** Fixed per-field text: the hint never echoes the value or an unknown key. */
+const REQUEST_FIELD_HINTS: Record<string, string> = {
+  name: `Fix \`name\`: use 1-${String(TOKEN_REQUEST_LIMITS.name)} characters, each a letter, digit, ".", "_" or "-".`,
+  folder: `Fix \`folder\`: use 1-${String(TOKEN_REQUEST_LIMITS.folder)} characters, not only spaces, with no control or format characters.`,
+  host: `Fix \`host\`: use 1-${String(TOKEN_REQUEST_LIMITS.host)} characters with no control or format characters.`,
+  hash: 'Fix `hash`: send the 64-character lowercase hex SHA-256 of the token.',
+};
 
 /** Register a hash and its approval item together. The raw file secret never reaches this app. */
 export async function requestToken(
   store: Store,
   config: Config,
-  input: TokenRequest,
+  body: unknown,
   at: Date,
 ): Promise<{ name: string; status: 'pending'; expiresAt: string }> {
-  if (
-    !/^[0-9a-f]{64}$/.test(input.hash) ||
-    input.name.trim() === '' ||
-    input.folder.trim() === ''
-  ) {
-    throw new CommandError('usage', 'Provide a name, folder and SHA-256 token hash.');
+  const parsed = tokenRequestSchema.safeParse(body);
+  if (!parsed.success) {
+    const field = parsed.error.issues[0]?.path[0];
+    throw new CommandError(
+      'usage',
+      (typeof field === 'string' ? REQUEST_FIELD_HINTS[field] : undefined) ??
+        'Send a JSON object with only name, folder, host and hash.',
+    );
   }
+  const input = parsed.data;
   const expiresAt = new Date(at.getTime() + REQUEST_LIFETIME_MS).toISOString();
   return scanTransaction(store, config, async (trx) => {
     const existing = await trx
@@ -120,7 +134,7 @@ export async function requestToken(
     const item = await raiseItem(trx, {
       itemKey: `token:${input.name}`,
       kind: 'token_request',
-      text: `Approve operator token ${input.name} for ${input.folder} on ${input.host}, requested ${at.toISOString()}?`,
+      text: `Approve operator token ${input.name} (request ${requestHashOf(input.hash)}) for ${input.folder} on ${input.host}, requested ${at.toISOString()}?`,
       url: '',
       taskId: null,
       blockId: null,
@@ -198,6 +212,22 @@ export async function expirePendingTokens(store: Store, config: Config, at: Date
       .execute();
     for (const row of rows) await expireToken(trx, row, at);
     return rows.length;
+  });
+}
+
+/**
+ * Deletes expired and denied requests decided more than the retention period before `at`; a row
+ * exactly at the cutoff stays. Approved, revoked and pending rows and every approval item stay.
+ */
+export async function purgeEndedTokenRequests(store: Store, at: Date): Promise<number> {
+  const cutoff = new Date(at.getTime() - TOKEN_REQUEST_RETENTION_DAYS * DAY_MS).toISOString();
+  return store.transaction(async (trx) => {
+    const deleted = await trx
+      .deleteFrom('operator_token')
+      .where('status', 'in', ['expired', 'denied'])
+      .where('decided_at', '<', cutoff)
+      .executeTakeFirst();
+    return Number(deleted.numDeletedRows);
   });
 }
 
