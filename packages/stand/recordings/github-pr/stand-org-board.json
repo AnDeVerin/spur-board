@@ -1,0 +1,1200 @@
+{
+  "source": "github:stand:stand-org/board",
+  "recordedAt": "2026-11-13T00:46:01.210Z",
+  "observe": {
+    "prs": [],
+    "tickets": [],
+    "sessions": []
+  },
+  "exchanges": [
+    {
+      "request": {
+        "method": "POST",
+        "url": "https://api.github.com/graphql",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "content-type": "application/json"
+        },
+        "body": {
+          "query": "query PrBatch($owner: String!, $repo: String!) { rateLimit { remaining resetAt } repository(owner: $owner, name: $repo) { pullRequests(first: 100, states: [OPEN], orderBy: {field: UPDATED_AT, direction: DESC}) { nodes { number updatedAt author { login } state } pageInfo { hasNextPage endCursor } } mergedBaseline: pullRequests(first: 1, states: [MERGED], orderBy: {field: UPDATED_AT, direction: DESC}) { nodes { updatedAt } } }  }",
+          "variables": {
+            "owner": "stand-org",
+            "repo": "board"
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8"
+        },
+        "body": {
+          "data": {
+            "rateLimit": {
+              "remaining": 4950,
+              "resetAt": "2026-11-13T01:37:54Z"
+            },
+            "repository": {
+              "mergedBaseline": {
+                "nodes": [
+                  {
+                    "updatedAt": "2026-11-13T00:25:31Z"
+                  }
+                ]
+              },
+              "pullRequests": {
+                "nodes": [
+                  {
+                    "author": {
+                      "login": "stand-agent"
+                    },
+                    "number": 369,
+                    "state": "OPEN",
+                    "updatedAt": "2026-11-13T00:43:28Z"
+                  }
+                ],
+                "pageInfo": {
+                  "endCursor": "recorded-cursor-14",
+                  "hasNextPage": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "method": "POST",
+        "url": "https://api.github.com/graphql",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "content-type": "application/json"
+        },
+        "body": {
+          "query": "query PrDetails($owner: String!, $repo: String!) { rateLimit { remaining resetAt } pr0: repository(owner: $owner, name: $repo) { pullRequest(number: 369) { id number url title updatedAt state isDraft mergeable mergeStateStatus\n author { login } headRefName headRefOid\n statusCheckRollup { contexts(first: 100) { nodes {\n ... on CheckRun { __typename name status conclusion startedAt completedAt checkSuite { createdAt } isRequired(pullRequestNumber: 369) }\n ... on StatusContext { __typename context state createdAt isRequired(pullRequestNumber: 369) }\n } pageInfo { hasNextPage endCursor } } }\n reviews(first: 100) { nodes { id author { __typename login } state commit { oid } submittedAt } pageInfo { hasNextPage endCursor } }\n comments(last: 100) { nodes { id author { __typename login } createdAt } pageInfo { hasPreviousPage startCursor } }\n reviewThreads(first: 100) { nodes { isResolved } pageInfo { hasNextPage endCursor } }\n reviewRequests(first: 100) { nodes { requestedReviewer { __typename ... on Bot { login } ... on Mannequin { login } ... on User { login } ... on Team { slug } ... on EnterpriseTeam { slug } } asCodeOwner } pageInfo { hasNextPage endCursor } }\n closingIssuesReferences(first: 100) { nodes { number repository { nameWithOwner } } pageInfo { hasNextPage endCursor } } } } }",
+          "variables": {
+            "owner": "stand-org",
+            "repo": "board"
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8"
+        },
+        "body": {
+          "data": {
+            "pr0": {
+              "pullRequest": {
+                "author": {
+                  "login": "stand-agent"
+                },
+                "closingIssuesReferences": {
+                  "nodes": [
+                    {
+                      "number": 325,
+                      "repository": {
+                        "nameWithOwner": "stand-org/board"
+                      }
+                    }
+                  ],
+                  "pageInfo": {
+                    "endCursor": "recorded-cursor-15",
+                    "hasNextPage": false
+                  }
+                },
+                "comments": {
+                  "nodes": [
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "createdAt": "2026-11-12T22:48:25Z",
+                      "id": "IC_kwDOVeRUYM8AAAABl5Sgsw"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "createdAt": "2026-11-12T23:03:29Z",
+                      "id": "IC_kwDOVeRUYM8AAAABl5mTMA"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "createdAt": "2026-11-12T23:13:18Z",
+                      "id": "IC_kwDOVeRUYM8AAAABl5z_rw"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "createdAt": "2026-11-12T23:35:55Z",
+                      "id": "IC_kwDOVeRUYM8AAAABl6TaBQ"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "createdAt": "2026-11-12T23:49:46Z",
+                      "id": "IC_kwDOVeRUYM8AAAABl6iZLA"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "createdAt": "2026-11-13T00:00:37Z",
+                      "id": "IC_kwDOVeRUYM8AAAABl6tpoQ"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "createdAt": "2026-11-13T00:11:11Z",
+                      "id": "IC_kwDOVeRUYM8AAAABl65NCg"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "createdAt": "2026-11-13T00:22:20Z",
+                      "id": "IC_kwDOVeRUYM8AAAABl7FO6Q"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "createdAt": "2026-11-13T00:37:41Z",
+                      "id": "IC_kwDOVeRUYM8AAAABl7U-wA"
+                    }
+                  ],
+                  "pageInfo": {
+                    "hasPreviousPage": false,
+                    "startCursor": "recorded-cursor-16"
+                  }
+                },
+                "headRefName": "recorded-branch-4",
+                "headRefOid": "1c40f0f7490c5320b99b7d437724f3e415c27e6b",
+                "id": "PR_kwDOVeRUYM8AAAABOxaw2Q",
+                "isDraft": false,
+                "mergeStateStatus": "BLOCKED",
+                "mergeable": "MERGEABLE",
+                "number": 369,
+                "reviewRequests": {
+                  "nodes": [],
+                  "pageInfo": {
+                    "endCursor": null,
+                    "hasNextPage": false
+                  }
+                },
+                "reviewThreads": {
+                  "nodes": [
+                    {
+                      "isResolved": true
+                    },
+                    {
+                      "isResolved": true
+                    },
+                    {
+                      "isResolved": true
+                    },
+                    {
+                      "isResolved": true
+                    },
+                    {
+                      "isResolved": true
+                    },
+                    {
+                      "isResolved": true
+                    },
+                    {
+                      "isResolved": true
+                    },
+                    {
+                      "isResolved": true
+                    },
+                    {
+                      "isResolved": true
+                    },
+                    {
+                      "isResolved": true
+                    },
+                    {
+                      "isResolved": true
+                    },
+                    {
+                      "isResolved": true
+                    },
+                    {
+                      "isResolved": true
+                    },
+                    {
+                      "isResolved": false
+                    },
+                    {
+                      "isResolved": false
+                    }
+                  ],
+                  "pageInfo": {
+                    "endCursor": "recorded-cursor-17",
+                    "hasNextPage": false
+                  }
+                },
+                "reviews": {
+                  "nodes": [
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "recorded-user-6"
+                      },
+                      "commit": {
+                        "oid": "dfcece89de504a4e2a8752ebc0bb65cd3e5d28b1"
+                      },
+                      "id": "PRR_kwDOVeRUYM8AAAABXqhecA",
+                      "state": "CHANGES_REQUESTED",
+                      "submittedAt": "2026-11-12T22:35:16Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "commit": {
+                        "oid": "dfcece89de504a4e2a8752ebc0bb65cd3e5d28b1"
+                      },
+                      "id": "PRR_kwDOVeRUYM8AAAABXqiUDw",
+                      "state": "COMMENTED",
+                      "submittedAt": "2026-11-12T22:36:31Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "commit": {
+                        "oid": "dfcece89de504a4e2a8752ebc0bb65cd3e5d28b1"
+                      },
+                      "id": "PRR_kwDOVeRUYM8AAAABXqkPmQ",
+                      "state": "COMMENTED",
+                      "submittedAt": "2026-11-12T22:39:37Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "commit": {
+                        "oid": "92f4b8318f46d1a64dcbbaffc52f5c4f60415e29"
+                      },
+                      "id": "PRR_kwDOVeRUYM8AAAABXqphZA",
+                      "state": "COMMENTED",
+                      "submittedAt": "2026-11-12T22:48:19Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "commit": {
+                        "oid": "92f4b8318f46d1a64dcbbaffc52f5c4f60415e29"
+                      },
+                      "id": "PRR_kwDOVeRUYM8AAAABXqpjVg",
+                      "state": "COMMENTED",
+                      "submittedAt": "2026-11-12T22:48:22Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "commit": {
+                        "oid": "92f4b8318f46d1a64dcbbaffc52f5c4f60415e29"
+                      },
+                      "id": "PRR_kwDOVeRUYM8AAAABXqrFFQ",
+                      "state": "COMMENTED",
+                      "submittedAt": "2026-11-12T22:50:45Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "commit": {
+                        "oid": "92f4b8318f46d1a64dcbbaffc52f5c4f60415e29"
+                      },
+                      "id": "PRR_kwDOVeRUYM8AAAABXqrGSQ",
+                      "state": "COMMENTED",
+                      "submittedAt": "2026-11-12T22:50:47Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "recorded-user-6"
+                      },
+                      "commit": {
+                        "oid": "92f4b8318f46d1a64dcbbaffc52f5c4f60415e29"
+                      },
+                      "id": "PRR_kwDOVeRUYM8AAAABXqrvuw",
+                      "state": "CHANGES_REQUESTED",
+                      "submittedAt": "2026-11-12T22:51:51Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "commit": {
+                        "oid": "92f4b8318f46d1a64dcbbaffc52f5c4f60415e29"
+                      },
+                      "id": "PRR_kwDOVeRUYM8AAAABXquIkg",
+                      "state": "COMMENTED",
+                      "submittedAt": "2026-11-12T22:55:42Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "commit": {
+                        "oid": "b4d12920cdd5958afd47e43516c327bdc6936436"
+                      },
+                      "id": "PRR_kwDOVeRUYM8AAAABXqy_RQ",
+                      "state": "COMMENTED",
+                      "submittedAt": "2026-11-12T23:03:26Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "recorded-user-6"
+                      },
+                      "commit": {
+                        "oid": "4d52ff1c36799d117daf496e9115379964a7582a"
+                      },
+                      "id": "PRR_kwDOVeRUYM8AAAABXq0XoA",
+                      "state": "APPROVED",
+                      "submittedAt": "2026-11-12T23:05:39Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "commit": {
+                        "oid": "b4d12920cdd5958afd47e43516c327bdc6936436"
+                      },
+                      "id": "PRR_kwDOVeRUYM8AAAABXq3S_g",
+                      "state": "COMMENTED",
+                      "submittedAt": "2026-11-12T23:10:06Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "commit": {
+                        "oid": "b4d12920cdd5958afd47e43516c327bdc6936436"
+                      },
+                      "id": "PRR_kwDOVeRUYM8AAAABXq8Igw",
+                      "state": "COMMENTED",
+                      "submittedAt": "2026-11-12T23:16:33Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "recorded-user-6"
+                      },
+                      "commit": {
+                        "oid": "4d52ff1c36799d117daf496e9115379964a7582a"
+                      },
+                      "id": "PRR_kwDOVeRUYM8AAAABXrL4oA",
+                      "state": "CHANGES_REQUESTED",
+                      "submittedAt": "2026-11-12T23:38:12Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "commit": {
+                        "oid": "4d52ff1c36799d117daf496e9115379964a7582a"
+                      },
+                      "id": "PRR_kwDOVeRUYM8AAAABXrNpUg",
+                      "state": "COMMENTED",
+                      "submittedAt": "2026-11-12T23:40:43Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "commit": {
+                        "oid": "2920cb8d4251bece104b075c7799f2c8a70a97a9"
+                      },
+                      "id": "PRR_kwDOVeRUYM8AAAABXrTnMw",
+                      "state": "COMMENTED",
+                      "submittedAt": "2026-11-12T23:49:43Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "commit": {
+                        "oid": "2920cb8d4251bece104b075c7799f2c8a70a97a9"
+                      },
+                      "id": "PRR_kwDOVeRUYM8AAAABXrUViQ",
+                      "state": "COMMENTED",
+                      "submittedAt": "2026-11-12T23:50:50Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "commit": {
+                        "oid": "2920cb8d4251bece104b075c7799f2c8a70a97a9"
+                      },
+                      "id": "PRR_kwDOVeRUYM8AAAABXrVJZA",
+                      "state": "COMMENTED",
+                      "submittedAt": "2026-11-12T23:52:05Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "commit": {
+                        "oid": "2920cb8d4251bece104b075c7799f2c8a70a97a9"
+                      },
+                      "id": "PRR_kwDOVeRUYM8AAAABXrVJ8Q",
+                      "state": "COMMENTED",
+                      "submittedAt": "2026-11-12T23:52:06Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "recorded-user-6"
+                      },
+                      "commit": {
+                        "oid": "2920cb8d4251bece104b075c7799f2c8a70a97a9"
+                      },
+                      "id": "PRR_kwDOVeRUYM8AAAABXrVafw",
+                      "state": "CHANGES_REQUESTED",
+                      "submittedAt": "2026-11-12T23:52:30Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "commit": {
+                        "oid": "2920cb8d4251bece104b075c7799f2c8a70a97a9"
+                      },
+                      "id": "PRR_kwDOVeRUYM8AAAABXrWxsQ",
+                      "state": "COMMENTED",
+                      "submittedAt": "2026-11-12T23:54:35Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "commit": {
+                        "oid": "5a68f8e9aecefa2df00b0f6feba66ba2a1925dea"
+                      },
+                      "id": "PRR_kwDOVeRUYM8AAAABXrawqA",
+                      "state": "COMMENTED",
+                      "submittedAt": "2026-11-13T00:00:34Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "commit": {
+                        "oid": "5a68f8e9aecefa2df00b0f6feba66ba2a1925dea"
+                      },
+                      "id": "PRR_kwDOVeRUYM8AAAABXrbh1g",
+                      "state": "COMMENTED",
+                      "submittedAt": "2026-11-13T00:01:44Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "commit": {
+                        "oid": "5a68f8e9aecefa2df00b0f6feba66ba2a1925dea"
+                      },
+                      "id": "PRR_kwDOVeRUYM8AAAABXrcYow",
+                      "state": "COMMENTED",
+                      "submittedAt": "2026-11-13T00:03:00Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "commit": {
+                        "oid": "5a68f8e9aecefa2df00b0f6feba66ba2a1925dea"
+                      },
+                      "id": "PRR_kwDOVeRUYM8AAAABXrcZVg",
+                      "state": "COMMENTED",
+                      "submittedAt": "2026-11-13T00:03:01Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "recorded-user-6"
+                      },
+                      "commit": {
+                        "oid": "5a68f8e9aecefa2df00b0f6feba66ba2a1925dea"
+                      },
+                      "id": "PRR_kwDOVeRUYM8AAAABXrcpNg",
+                      "state": "CHANGES_REQUESTED",
+                      "submittedAt": "2026-11-13T00:03:22Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "commit": {
+                        "oid": "5a68f8e9aecefa2df00b0f6feba66ba2a1925dea"
+                      },
+                      "id": "PRR_kwDOVeRUYM8AAAABXrdtwg",
+                      "state": "COMMENTED",
+                      "submittedAt": "2026-11-13T00:05:08Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "commit": {
+                        "oid": "7daf4fa4ea13a0a3dff32124140900ad29893082"
+                      },
+                      "id": "PRR_kwDOVeRUYM8AAAABXrgquQ",
+                      "state": "COMMENTED",
+                      "submittedAt": "2026-11-13T00:11:08Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "commit": {
+                        "oid": "7daf4fa4ea13a0a3dff32124140900ad29893082"
+                      },
+                      "id": "PRR_kwDOVeRUYM8AAAABXrhJQA",
+                      "state": "COMMENTED",
+                      "submittedAt": "2026-11-13T00:12:07Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "commit": {
+                        "oid": "7daf4fa4ea13a0a3dff32124140900ad29893082"
+                      },
+                      "id": "PRR_kwDOVeRUYM8AAAABXrhssw",
+                      "state": "COMMENTED",
+                      "submittedAt": "2026-11-13T00:13:16Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "commit": {
+                        "oid": "7daf4fa4ea13a0a3dff32124140900ad29893082"
+                      },
+                      "id": "PRR_kwDOVeRUYM8AAAABXrhtRg",
+                      "state": "COMMENTED",
+                      "submittedAt": "2026-11-13T00:13:17Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "recorded-user-6"
+                      },
+                      "commit": {
+                        "oid": "7daf4fa4ea13a0a3dff32124140900ad29893082"
+                      },
+                      "id": "PRR_kwDOVeRUYM8AAAABXriYJg",
+                      "state": "CHANGES_REQUESTED",
+                      "submittedAt": "2026-11-13T00:14:38Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "commit": {
+                        "oid": "7daf4fa4ea13a0a3dff32124140900ad29893082"
+                      },
+                      "id": "PRR_kwDOVeRUYM8AAAABXrkQ-w",
+                      "state": "COMMENTED",
+                      "submittedAt": "2026-11-13T00:18:06Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "commit": {
+                        "oid": "cf527d9130a0bba311ac1d3185ff647790c38341"
+                      },
+                      "id": "PRR_kwDOVeRUYM8AAAABXrmU1w",
+                      "state": "COMMENTED",
+                      "submittedAt": "2026-11-13T00:22:17Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "commit": {
+                        "oid": "cf527d9130a0bba311ac1d3185ff647790c38341"
+                      },
+                      "id": "PRR_kwDOVeRUYM8AAAABXrmzvg",
+                      "state": "COMMENTED",
+                      "submittedAt": "2026-11-13T00:23:17Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "commit": {
+                        "oid": "cf527d9130a0bba311ac1d3185ff647790c38341"
+                      },
+                      "id": "PRR_kwDOVeRUYM8AAAABXrnXng",
+                      "state": "COMMENTED",
+                      "submittedAt": "2026-11-13T00:24:20Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "commit": {
+                        "oid": "cf527d9130a0bba311ac1d3185ff647790c38341"
+                      },
+                      "id": "PRR_kwDOVeRUYM8AAAABXrnYHA",
+                      "state": "COMMENTED",
+                      "submittedAt": "2026-11-13T00:24:21Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "recorded-user-6"
+                      },
+                      "commit": {
+                        "oid": "cf527d9130a0bba311ac1d3185ff647790c38341"
+                      },
+                      "id": "PRR_kwDOVeRUYM8AAAABXrn5mQ",
+                      "state": "CHANGES_REQUESTED",
+                      "submittedAt": "2026-11-13T00:25:26Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "commit": {
+                        "oid": "cf527d9130a0bba311ac1d3185ff647790c38341"
+                      },
+                      "id": "PRR_kwDOVeRUYM8AAAABXroEyw",
+                      "state": "COMMENTED",
+                      "submittedAt": "2026-11-13T00:25:47Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "commit": {
+                        "oid": "cf527d9130a0bba311ac1d3185ff647790c38341"
+                      },
+                      "id": "PRR_kwDOVeRUYM8AAAABXro5jQ",
+                      "state": "COMMENTED",
+                      "submittedAt": "2026-11-13T00:27:36Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "commit": {
+                        "oid": "1c40f0f7490c5320b99b7d437724f3e415c27e6b"
+                      },
+                      "id": "PRR_kwDOVeRUYM8AAAABXrtlmQ",
+                      "state": "COMMENTED",
+                      "submittedAt": "2026-11-13T00:37:38Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "commit": {
+                        "oid": "1c40f0f7490c5320b99b7d437724f3e415c27e6b"
+                      },
+                      "id": "PRR_kwDOVeRUYM8AAAABXruJHg",
+                      "state": "COMMENTED",
+                      "submittedAt": "2026-11-13T00:38:50Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "commit": {
+                        "oid": "1c40f0f7490c5320b99b7d437724f3e415c27e6b"
+                      },
+                      "id": "PRR_kwDOVeRUYM8AAAABXruV4A",
+                      "state": "COMMENTED",
+                      "submittedAt": "2026-11-13T00:39:15Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "commit": {
+                        "oid": "1c40f0f7490c5320b99b7d437724f3e415c27e6b"
+                      },
+                      "id": "PRR_kwDOVeRUYM8AAAABXruWNQ",
+                      "state": "COMMENTED",
+                      "submittedAt": "2026-11-13T00:39:16Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "recorded-user-6"
+                      },
+                      "commit": {
+                        "oid": "1c40f0f7490c5320b99b7d437724f3e415c27e6b"
+                      },
+                      "id": "PRR_kwDOVeRUYM8AAAABXru1Pg",
+                      "state": "CHANGES_REQUESTED",
+                      "submittedAt": "2026-11-13T00:40:12Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "commit": {
+                        "oid": "1c40f0f7490c5320b99b7d437724f3e415c27e6b"
+                      },
+                      "id": "PRR_kwDOVeRUYM8AAAABXrwgWg",
+                      "state": "COMMENTED",
+                      "submittedAt": "2026-11-13T00:43:27Z"
+                    }
+                  ],
+                  "pageInfo": {
+                    "endCursor": "recorded-cursor-18",
+                    "hasNextPage": false
+                  }
+                },
+                "state": "OPEN",
+                "statusCheckRollup": {
+                  "contexts": {
+                    "nodes": [
+                      {
+                        "__typename": "CheckRun",
+                        "checkSuite": {
+                          "createdAt": "2026-11-13T00:37:29Z"
+                        },
+                        "completedAt": "2026-11-13T00:37:43Z",
+                        "conclusion": "CANCELLED",
+                        "isRequired": false,
+                        "name": "check-1",
+                        "startedAt": "2026-11-13T00:37:32Z",
+                        "status": "COMPLETED"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "checkSuite": {
+                          "createdAt": "2026-11-13T00:37:26Z"
+                        },
+                        "completedAt": "2026-11-13T00:38:04Z",
+                        "conclusion": "SUCCESS",
+                        "isRequired": false,
+                        "name": "check-15",
+                        "startedAt": "2026-11-13T00:37:30Z",
+                        "status": "COMPLETED"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "checkSuite": {
+                          "createdAt": "2026-11-13T00:37:40Z"
+                        },
+                        "completedAt": "2026-11-13T00:38:23Z",
+                        "conclusion": "SUCCESS",
+                        "isRequired": false,
+                        "name": "check-1",
+                        "startedAt": "2026-11-13T00:38:07Z",
+                        "status": "COMPLETED"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "checkSuite": {
+                          "createdAt": "2026-11-13T00:37:26Z"
+                        },
+                        "completedAt": "2026-11-13T00:38:40Z",
+                        "conclusion": "SUCCESS",
+                        "isRequired": false,
+                        "name": "check-16",
+                        "startedAt": "2026-11-13T00:37:30Z",
+                        "status": "COMPLETED"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "checkSuite": {
+                          "createdAt": "2026-11-13T00:37:29Z"
+                        },
+                        "completedAt": "2026-11-13T00:37:35Z",
+                        "conclusion": "SUCCESS",
+                        "isRequired": false,
+                        "name": "check-17",
+                        "startedAt": "2026-11-13T00:37:32Z",
+                        "status": "COMPLETED"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "checkSuite": {
+                          "createdAt": "2026-11-13T00:37:40Z"
+                        },
+                        "completedAt": "2026-11-13T00:38:09Z",
+                        "conclusion": "SUCCESS",
+                        "isRequired": false,
+                        "name": "check-17",
+                        "startedAt": "2026-11-13T00:38:06Z",
+                        "status": "COMPLETED"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "checkSuite": {
+                          "createdAt": "2026-11-13T00:37:29Z"
+                        },
+                        "completedAt": "2026-11-13T00:37:43Z",
+                        "conclusion": "CANCELLED",
+                        "isRequired": false,
+                        "name": "check-18",
+                        "startedAt": "2026-11-13T00:37:32Z",
+                        "status": "COMPLETED"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "checkSuite": {
+                          "createdAt": "2026-11-13T00:37:40Z"
+                        },
+                        "completedAt": "2026-11-13T00:38:21Z",
+                        "conclusion": "SUCCESS",
+                        "isRequired": false,
+                        "name": "check-18",
+                        "startedAt": "2026-11-13T00:38:06Z",
+                        "status": "COMPLETED"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "checkSuite": {
+                          "createdAt": "2026-11-13T00:37:29Z"
+                        },
+                        "completedAt": "2026-11-13T00:37:44Z",
+                        "conclusion": "CANCELLED",
+                        "isRequired": false,
+                        "name": "check-19",
+                        "startedAt": "2026-11-13T00:37:32Z",
+                        "status": "COMPLETED"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "checkSuite": {
+                          "createdAt": "2026-11-13T00:37:40Z"
+                        },
+                        "completedAt": "2026-11-13T00:38:23Z",
+                        "conclusion": "SUCCESS",
+                        "isRequired": false,
+                        "name": "check-19",
+                        "startedAt": "2026-11-13T00:38:06Z",
+                        "status": "COMPLETED"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "checkSuite": {
+                          "createdAt": "2026-11-13T00:37:29Z"
+                        },
+                        "completedAt": "2026-11-13T00:37:45Z",
+                        "conclusion": "CANCELLED",
+                        "isRequired": false,
+                        "name": "check-20",
+                        "startedAt": "2026-11-13T00:37:32Z",
+                        "status": "COMPLETED"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "checkSuite": {
+                          "createdAt": "2026-11-13T00:37:40Z"
+                        },
+                        "completedAt": "2026-11-13T00:39:28Z",
+                        "conclusion": "SUCCESS",
+                        "isRequired": false,
+                        "name": "check-20",
+                        "startedAt": "2026-11-13T00:38:06Z",
+                        "status": "COMPLETED"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "checkSuite": {
+                          "createdAt": "2026-11-13T00:37:29Z"
+                        },
+                        "completedAt": "2026-11-13T00:37:43Z",
+                        "conclusion": "CANCELLED",
+                        "isRequired": false,
+                        "name": "check-21",
+                        "startedAt": "2026-11-13T00:37:32Z",
+                        "status": "COMPLETED"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "checkSuite": {
+                          "createdAt": "2026-11-13T00:37:40Z"
+                        },
+                        "completedAt": "2026-11-13T00:40:47Z",
+                        "conclusion": "SUCCESS",
+                        "isRequired": false,
+                        "name": "check-21",
+                        "startedAt": "2026-11-13T00:38:07Z",
+                        "status": "COMPLETED"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "checkSuite": {
+                          "createdAt": "2026-11-13T00:37:29Z"
+                        },
+                        "completedAt": "2026-11-13T00:37:43Z",
+                        "conclusion": "CANCELLED",
+                        "isRequired": false,
+                        "name": "check-22",
+                        "startedAt": "2026-11-13T00:37:32Z",
+                        "status": "COMPLETED"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "checkSuite": {
+                          "createdAt": "2026-11-13T00:37:40Z"
+                        },
+                        "completedAt": "2026-11-13T00:40:47Z",
+                        "conclusion": "SUCCESS",
+                        "isRequired": false,
+                        "name": "check-22",
+                        "startedAt": "2026-11-13T00:38:07Z",
+                        "status": "COMPLETED"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "checkSuite": {
+                          "createdAt": "2026-11-13T00:37:29Z"
+                        },
+                        "completedAt": "2026-11-13T00:37:42Z",
+                        "conclusion": "CANCELLED",
+                        "isRequired": false,
+                        "name": "check-23",
+                        "startedAt": "2026-11-13T00:37:32Z",
+                        "status": "COMPLETED"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "checkSuite": {
+                          "createdAt": "2026-11-13T00:37:40Z"
+                        },
+                        "completedAt": "2026-11-13T00:39:12Z",
+                        "conclusion": "SUCCESS",
+                        "isRequired": false,
+                        "name": "check-23",
+                        "startedAt": "2026-11-13T00:38:07Z",
+                        "status": "COMPLETED"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "checkSuite": {
+                          "createdAt": "2026-11-13T00:37:29Z"
+                        },
+                        "completedAt": "2026-11-13T00:37:43Z",
+                        "conclusion": "CANCELLED",
+                        "isRequired": false,
+                        "name": "check-24",
+                        "startedAt": "2026-11-13T00:37:31Z",
+                        "status": "COMPLETED"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "checkSuite": {
+                          "createdAt": "2026-11-13T00:37:40Z"
+                        },
+                        "completedAt": "2026-11-13T00:39:24Z",
+                        "conclusion": "SUCCESS",
+                        "isRequired": false,
+                        "name": "check-24",
+                        "startedAt": "2026-11-13T00:38:07Z",
+                        "status": "COMPLETED"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "checkSuite": {
+                          "createdAt": "2026-11-13T00:37:29Z"
+                        },
+                        "completedAt": "2026-11-13T00:37:44Z",
+                        "conclusion": "CANCELLED",
+                        "isRequired": false,
+                        "name": "check-25",
+                        "startedAt": "2026-11-13T00:37:44Z",
+                        "status": "COMPLETED"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "checkSuite": {
+                          "createdAt": "2026-11-13T00:37:40Z"
+                        },
+                        "completedAt": "2026-11-13T00:38:24Z",
+                        "conclusion": "SKIPPED",
+                        "isRequired": false,
+                        "name": "check-25",
+                        "startedAt": "2026-11-13T00:38:24Z",
+                        "status": "COMPLETED"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "checkSuite": {
+                          "createdAt": "2026-11-13T00:37:29Z"
+                        },
+                        "completedAt": "2026-11-13T00:37:44Z",
+                        "conclusion": "CANCELLED",
+                        "isRequired": false,
+                        "name": "check-26",
+                        "startedAt": "2026-11-13T00:37:44Z",
+                        "status": "COMPLETED"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "checkSuite": {
+                          "createdAt": "2026-11-13T00:37:40Z"
+                        },
+                        "completedAt": "2026-11-13T00:39:34Z",
+                        "conclusion": "SUCCESS",
+                        "isRequired": false,
+                        "name": "check-27",
+                        "startedAt": "2026-11-13T00:38:26Z",
+                        "status": "COMPLETED"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "checkSuite": {
+                          "createdAt": "2026-11-13T00:37:40Z"
+                        },
+                        "completedAt": "2026-11-13T00:39:19Z",
+                        "conclusion": "SUCCESS",
+                        "isRequired": false,
+                        "name": "check-28",
+                        "startedAt": "2026-11-13T00:38:26Z",
+                        "status": "COMPLETED"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "checkSuite": {
+                          "createdAt": "2026-11-13T00:37:29Z"
+                        },
+                        "completedAt": "2026-11-13T00:38:03Z",
+                        "conclusion": "FAILURE",
+                        "isRequired": true,
+                        "name": "check-29",
+                        "startedAt": "2026-11-13T00:37:48Z",
+                        "status": "COMPLETED"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "checkSuite": {
+                          "createdAt": "2026-11-13T00:37:40Z"
+                        },
+                        "completedAt": "2026-11-13T00:41:04Z",
+                        "conclusion": "SUCCESS",
+                        "isRequired": true,
+                        "name": "check-29",
+                        "startedAt": "2026-11-13T00:40:50Z",
+                        "status": "COMPLETED"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "checkSuite": {
+                          "createdAt": "2026-11-13T00:37:29Z"
+                        },
+                        "completedAt": "2026-11-13T00:38:03Z",
+                        "conclusion": "CANCELLED",
+                        "isRequired": false,
+                        "name": "check-30",
+                        "startedAt": "2026-11-13T00:38:04Z",
+                        "status": "COMPLETED"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "checkSuite": {
+                          "createdAt": "2026-11-13T00:37:40Z"
+                        },
+                        "completedAt": "2026-11-13T00:41:04Z",
+                        "conclusion": "SKIPPED",
+                        "isRequired": false,
+                        "name": "check-30",
+                        "startedAt": "2026-11-13T00:41:05Z",
+                        "status": "COMPLETED"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "checkSuite": {
+                          "createdAt": "2026-11-13T00:37:54Z"
+                        },
+                        "completedAt": "2026-11-13T00:37:57Z",
+                        "conclusion": "SUCCESS",
+                        "isRequired": false,
+                        "name": "check-31",
+                        "startedAt": "2026-11-13T00:37:54Z",
+                        "status": "COMPLETED"
+                      }
+                    ],
+                    "pageInfo": {
+                      "endCursor": "recorded-cursor-19",
+                      "hasNextPage": false
+                    }
+                  }
+                },
+                "title": "Recorded title 1",
+                "updatedAt": "2026-11-13T00:43:28Z",
+                "url": "https://github.com/stand-org/board/pull/369"
+              }
+            },
+            "rateLimit": {
+              "remaining": 4694,
+              "resetAt": "2026-11-13T01:31:23Z"
+            }
+          }
+        }
+      }
+    }
+  ]
+}
