@@ -303,18 +303,23 @@ export async function quietTurns(trx: Trx) {
   return quiet;
 }
 
+/** Whether Spur is blind, so a holder's health is unknown. */
+async function spurBlind(trx: Trx): Promise<boolean> {
+  const spur = await trx
+    .selectFrom('source_state')
+    .select('blind_reason')
+    .where('source', '=', 'spur')
+    .executeTakeFirst();
+  return spur !== undefined && spur.blind_reason !== null;
+}
+
 /**
  * Registers one reminder per take to the holder of each turn quiet for `stuckTurnAfterMs`;
  * `takeTurn` drops the unsent reminder of an earlier take. Nothing while Spur is blind, since the holder's health
  * is then unknown.
  */
 export async function remindStuckTurns(trx: Trx, config: Config, at: Date): Promise<void> {
-  const spur = await trx
-    .selectFrom('source_state')
-    .select('blind_reason')
-    .where('source', '=', 'spur')
-    .executeTakeFirst();
-  if (spur !== undefined && spur.blind_reason !== null) return;
+  if (await spurBlind(trx)) return;
   for (const { turn, sessionId, ended, quietSince, reminder } of await quietTurns(trx)) {
     if (ended || quietSince === null || reminder !== undefined) continue;
     if (at.getTime() < Date.parse(quietSince) + stuckTurnAfterMs(config)) continue;
@@ -326,7 +331,8 @@ export async function remindStuckTurns(trx: Trx, config: Config, at: Date): Prom
  * Whether a queued ring may go out at `at`. A turn reminder goes out only under the rule
  * `remindStuckTurns` registers it by: its holder's current take is quiet for `stuckTurnAfterMs`.
  * Otherwise the sender defers it, so a question opened after it was queued holds it until the
- * question closes and a fresh quiet period passes. Every other ring is due.
+ * question closes and a fresh quiet period passes, and blind Spur holds it until Spur reports again.
+ * Every other ring is due.
  */
 export async function ringDue(
   trx: Trx,
@@ -340,6 +346,7 @@ export async function ringDue(
     .where('id', '=', notificationId)
     .executeTakeFirst();
   if (n?.kind !== 'turn_reminder') return true;
+  if (await spurBlind(trx)) return false;
   const quiet = (await quietTurns(trx)).find((entry) => entry.reminder?.id === notificationId);
   return (
     quiet !== undefined &&

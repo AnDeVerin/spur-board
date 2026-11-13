@@ -8,6 +8,7 @@ import { sql } from 'kysely';
 import {
   createApply,
   createBlockMutations,
+  createObservationCore,
   createSender,
   openStore,
   reconcileDueDoorbells,
@@ -2652,5 +2653,42 @@ describe('turns', () => {
     await remind(ctx);
     await step(ctx);
     expect(ctx.sent).toHaveLength(2);
+  });
+
+  it('defers a queued reminder while Spur is blind and sends it once Spur reports again', async () => {
+    const ctx = await setup({ config: policyBoard('none') });
+    const core = createObservationCore({
+      store: ctx.store,
+      config: ctx.config,
+      clock: { now: () => ctx.now().getTime() },
+    });
+    await takenByWorker(ctx);
+    await health(ctx, 'worker-1', 'web', 'waiting', ctx.now());
+    ctx.advance(IDLE);
+    await remind(ctx);
+    await ctx.ring();
+    expect(await reminders(ctx)).toHaveLength(1);
+    await core.reportSourceState('spur', {
+      blind: { reason: 'auth', message: 'Access rejected' },
+      gone: [],
+    });
+
+    await ctx.sender.tick();
+    ctx.advance(IDLE * 2);
+    await step(ctx);
+    expect(ctx.sent).toHaveLength(1);
+    expect(await reminders(ctx)).toEqual([
+      expect.objectContaining({ rings: 0, acked_at: null, exhausted_at: null }),
+    ]);
+
+    await core.reportSourceState('spur', { lastCompleteAt: ctx.now().toISOString(), gone: [] });
+    ctx.advance(1000);
+    await step(ctx);
+    expect(ctx.sent.slice(1)).toEqual([
+      { session: 'worker-1', text: `${KEY} turn T1 is still open: check board inbox (N2-1)` },
+    ]);
+    expect(await reminders(ctx)).toEqual([
+      expect.objectContaining({ rings: 1, acked_at: ctx.now().toISOString() }),
+    ]);
   });
 });
