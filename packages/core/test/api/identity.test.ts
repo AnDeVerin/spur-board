@@ -106,6 +106,88 @@ describe('API identity', () => {
     }
   });
 
+  describe('token request bounds', () => {
+    const valid = {
+      name: 'desk',
+      folder: 'workspace/desk',
+      host: 'local',
+      hash: createHash('sha256').update('bounds').digest('hex'),
+    };
+    async function post(body: unknown) {
+      const store = await storeWithSession();
+      const app = await createApiServer({
+        store,
+        config,
+        port: 4311,
+        ready: () => true,
+        clock: { now: () => Date.parse('2026-11-04T10:00:00.000Z') },
+        lookupSession: vi.fn(),
+        verifyToken: (token) => verifyOperatorToken(store, token),
+        registry: {},
+        logRequest: vi.fn(),
+      });
+      try {
+        const response = await app.inject({
+          method: 'POST',
+          url: '/v1/tokens/requests',
+          headers: { host: '127.0.0.1:4311', 'content-type': 'application/json' },
+          payload: JSON.stringify(body),
+        });
+        const rows = {
+          tokens: await store.db.selectFrom('operator_token').select('id').execute(),
+          items: await store.db.selectFrom('operator_item').select('id').execute(),
+        };
+        return { response, rows };
+      } finally {
+        await app.close();
+      }
+    }
+
+    it.each([
+      ['name', 'over 64 characters', 'n'.repeat(65), '64'],
+      ['name', 'with a space', 'my desk', '64'],
+      ['folder', 'over 1024 characters', 'f'.repeat(1025), '1024'],
+      ['folder', 'with a line feed', 'workspace\ndesk', '1024'],
+      ['folder', 'of only spaces', '   ', '1024'],
+      ['host', 'over 253 characters', 'h'.repeat(254), '253'],
+      ['host', 'with a right-to-left override', 'local\u202Ehost', '253'],
+    ])(
+      'refuses a %s %s with a usage hint naming the field and its limit',
+      async (field, _label, value, limit) => {
+        const { response, rows } = await post({ ...valid, [field]: value });
+        expect(response.statusCode).toBe(400);
+        const body = response.json<{ code: string; hint: string }>();
+        expect(body.code).toBe('usage');
+        expect(body.hint).toContain(`\`${field}\``);
+        expect(body.hint).toContain(limit);
+        expect(response.body).not.toContain(value);
+        expect(rows).toEqual({ tokens: [], items: [] });
+      },
+    );
+
+    it('refuses an unknown key without naming it', async () => {
+      const { response, rows } = await post({ ...valid, zzsecret: 1 });
+      expect(response.statusCode).toBe(400);
+      expect(response.json()).toMatchObject({
+        code: 'usage',
+        hint: 'Send a JSON object with only name, folder, host and hash.',
+      });
+      expect(response.body).not.toContain('zzsecret');
+      expect(rows).toEqual({ tokens: [], items: [] });
+    });
+
+    it('accepts every field at its limit', async () => {
+      const { response, rows } = await post({
+        ...valid,
+        name: 'n'.repeat(64),
+        folder: 'f'.repeat(1024),
+        host: 'h'.repeat(253),
+      });
+      expect(response.statusCode).toBe(200);
+      expect(rows.tokens).toHaveLength(1);
+    });
+  });
+
   it('reports a token state by hash without a credential and writes nothing', async () => {
     const store = await storeWithSession();
     let now = Date.parse('2026-11-04T10:00:00.000Z');
