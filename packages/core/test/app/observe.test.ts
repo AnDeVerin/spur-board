@@ -1037,6 +1037,7 @@ describe('accepted observation', () => {
       itemKind: 'anomaly',
       lines: 0,
       blocks: 1,
+      row: 'ended (completed)',
     },
     {
       reason: 'kill',
@@ -1045,6 +1046,7 @@ describe('accepted observation', () => {
       itemKind: 'worker_ended',
       lines: 0,
       blocks: 0,
+      row: 'ended (killed)',
     },
     {
       reason: 'vanished',
@@ -1053,10 +1055,11 @@ describe('accepted observation', () => {
       itemKind: 'board_observation',
       lines: 1,
       blocks: 0,
+      row: 'ended (vanished)',
     },
   ] as const)(
     'names a $reason worker end in the item and posts $lines feed lines',
-    async ({ reason, kind, text, itemKind, lines, blocks }) => {
+    async ({ reason, kind, text, itemKind, lines, blocks, row }) => {
       const { store, core, apply, mutations } = setup();
       await apply(mutations.add, { task: 'o/r#9' }, 'operator');
       await observeSpur(core, [sessionFact('worker-1', workerLink)]);
@@ -1103,6 +1106,54 @@ describe('accepted observation', () => {
           .where('payload', 'like', `%"I${String(items[0]?.id)}"%`)
           .execute(),
       ).toHaveLength(1);
+      const status = await getStatus({ store, config, clock, completeSince: core.completeSince });
+      expect(status.tasks[0]?.state.split('; ').at(-1)).toBe(`sessions 1 ${row}`);
+    },
+  );
+
+  it.each([
+    {
+      signal: 'a listed killed lifecycle',
+      polls: [[{ lifecycle: 'killed' }]],
+      row: 'ended (killed)',
+    },
+    {
+      signal: 'absence from a complete poll',
+      polls: [[{}], []],
+      row: 'ended (gone)',
+    },
+    {
+      signal: 'a listed stopped lifecycle',
+      polls: [
+        [{ lifecycle: 'stopped', health: 'stopped' }],
+        [{ lifecycle: 'stopped', health: 'stopped' }],
+      ],
+      row: 'stopped',
+    },
+    {
+      signal: 'a listed paused lifecycle',
+      polls: [[{ lifecycle: 'paused', health: 'stopped' }]],
+      row: 'stopped',
+    },
+  ] as const satisfies readonly {
+    signal: string;
+    polls: readonly (readonly Partial<SessionFacts>[])[];
+    row: string;
+  }[])(
+    'counts a linked session by what the board knows of its end: $signal',
+    async ({ polls, row }) => {
+      const { store, core, apply, mutations } = setup();
+      await apply(mutations.add, { task: 'o/r#9' }, 'operator');
+      for (const poll of polls) {
+        await observeSpur(
+          core,
+          poll.map((patch) => ({ ...sessionFact('worker-1', workerLink), ...patch })),
+        );
+        now += 1_000;
+      }
+      const status = await getStatus({ store, config, clock, completeSince: core.completeSince });
+      expect(status.tasks[0]?.sessionCount).toBe(1);
+      expect(status.tasks[0]?.state.split('; ').at(-1)).toBe(`sessions 1 ${row}`);
     },
   );
 

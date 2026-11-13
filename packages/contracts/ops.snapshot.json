@@ -1,5 +1,5 @@
 {
-  "version": "5cd80911fc9f0f672d5b51e56ee2bc87c6d7e5f358b19527fead85517dfe6af0",
+  "version": "43de88a368d1d24f46500cbfbc3c249820eb2700cdffafa1349a59239c8451dc",
   "grants": [
     "operator",
     "project-agent",
@@ -1250,7 +1250,7 @@
                 "state": {
                   "type": "string",
                   "minLength": 1,
-                  "description": "One line: ticket status, pull request states and session health counts, joined by \"; \"."
+                  "description": "One line: ticket status, pull request states and session counts by health, an ended session counted as `ended (<reason>)`, joined by \"; \"."
                 },
                 "prCount": {
                   "type": "integer",

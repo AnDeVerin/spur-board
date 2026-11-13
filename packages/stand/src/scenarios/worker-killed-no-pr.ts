@@ -4,9 +4,8 @@ import type { Board, Scenario, ScenarioFakes } from './index.ts';
 const SESSION = 'stand-killed';
 
 /**
- * A worker linked to ticket 1 of `project` is killed with no PR (#272). The task row is not
- * asserted: the scenario reproduces the shape, not the fix. The session lives in Spur project
- * stand-worker either way.
+ * A worker linked to ticket 1 of `project` is killed with no PR (#272); its task row reads
+ * `sessions 1 ended (killed)`. The session lives in Spur project stand-worker either way.
  */
 function workerKilledScenario(options: {
   name: string;
