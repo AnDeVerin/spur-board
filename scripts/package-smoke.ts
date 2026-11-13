@@ -11,7 +11,7 @@ import {
 import { createServer, type Server } from 'node:http';
 import { type AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { packPackage } from './package.ts';
 import { handshake } from './package-smoke-mcp.ts';
 
@@ -91,18 +91,20 @@ export function credentialFreeEnv(base: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   return env;
 }
 
+/**
+ * Installs a registry spec or a local `.tgz`. A tarball path is made absolute first: npm reads a
+ * relative `dir/file.tgz` as the GitHub shorthand `owner/repo`.
+ */
 export function installPackage(packageRef: string, prefix: string): string {
   mkdirSync(prefix, { recursive: true });
-  const result = spawnSync(
-    'npm',
-    ['install', '--prefix', prefix, packageRef, '--no-audit', '--no-fund'],
-    {
-      encoding: 'utf8',
-      timeout: 120_000,
-      stdio: ['ignore', 'pipe', 'pipe'],
-      env: credentialFreeEnv(process.env),
-    },
-  );
+  const ref =
+    packageRef.endsWith('.tgz') && !packageRef.includes('://') ? resolve(packageRef) : packageRef;
+  const result = spawnSync('npm', ['install', '--prefix', prefix, ref, '--no-audit', '--no-fund'], {
+    encoding: 'utf8',
+    timeout: 120_000,
+    stdio: ['ignore', 'pipe', 'pipe'],
+    env: credentialFreeEnv(process.env),
+  });
   if (result.status !== 0)
     throw new Error(`Tarball install failed: ${result.stderr || result.stdout}`);
   return join(prefix, 'node_modules/.bin/board');

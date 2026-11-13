@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { OPERATIONS } from '../packages/contracts/src/index.ts';
 import { verifyTools } from './package-smoke-mcp.ts';
@@ -303,5 +303,38 @@ describe('credential-free spawn env', () => {
       ),
     ).rejects.toThrow('non-JSON-RPC');
     expect(dumped()).toContain('BOARD_TOKEN=');
+  });
+});
+
+describe('installPackage tarball argument', () => {
+  let root = '';
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it.each([
+    ['release-artifacts/spur-board-0.1.0.tgz', resolve('release-artifacts/spur-board-0.1.0.tgz')],
+    ['spur-board@0.1.0', 'spur-board@0.1.0'],
+  ])('passes %s to npm install as %s', (packageRef, expected) => {
+    root = mkdtempSync(join(tmpdir(), 'board-install-ref-'));
+    const bin = join(root, 'bin');
+    mkdirSync(bin);
+    writeFileSync(join(bin, 'npm'), `#!/bin/sh\nprintf '%s\\n' "$@" > "$NPM_ARGS_DUMP"\n`, {
+      mode: 0o755,
+    });
+    vi.stubEnv('NPM_ARGS_DUMP', join(root, 'args'));
+    vi.stubEnv('PATH', `${bin}:${process.env['PATH'] ?? ''}`);
+    installPackage(packageRef, join(root, 'prefix'));
+    const args = readFileSync(join(root, 'args'), 'utf8').trimEnd().split('\n');
+    expect(args).toEqual([
+      'install',
+      '--prefix',
+      join(root, 'prefix'),
+      expected,
+      '--no-audit',
+      '--no-fund',
+    ]);
   });
 });
