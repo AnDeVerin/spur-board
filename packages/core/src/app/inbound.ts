@@ -915,6 +915,8 @@ export function createInbound(input: {
       ];
     }
     for await (const event of gateway.recover({ conversations, since, signal: stopping.signal })) {
+      // A gateway may still yield history it loaded before the abort; leave it unapplied.
+      if (stopped()) return;
       // A slice never starts a scan from inside the chain.
       if (event.kind === 'connection') continue;
       await applyEvent(event);

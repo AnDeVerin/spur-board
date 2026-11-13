@@ -1958,6 +1958,42 @@ describe('inbound apply', () => {
     expect(signals).toHaveLength(1);
   });
 
+  it('applies no buffered recovered event after stop', async () => {
+    const { store, gateway } = await setup();
+    let yielded = 0;
+    const inbound = recoveringInbound(store, gateway, (request) => {
+      const signal = request.signal;
+      if (signal === undefined) throw new Error('Expected a recovery signal');
+      return (async function* () {
+        // Like a gateway yielding history it loaded before the abort, without checking it.
+        yielded += 1;
+        yield message({ conversation: 'thread-1', root: 'root-1', key: 'first', ref: 'first' });
+        await abortOf(signal);
+        yielded += 1;
+        yield message({
+          conversation: 'thread-1',
+          root: 'root-1',
+          key: 'second',
+          ref: 'second',
+          text: 'Later',
+        });
+      })();
+    });
+    const scanning = inbound.recover();
+    await settleUntil(() => yielded === 1);
+    await inbound.stop();
+    await scanning;
+    expect(yielded).toBe(2);
+    expect(
+      await store.db
+        .selectFrom('comment')
+        .select('text')
+        .where('conversation_ref', '=', 'thread-1')
+        .orderBy('id')
+        .execute(),
+    ).toEqual([{ text: 'Yes' }]);
+  });
+
   it('raises a gap for an unread conversation when a live event arrives after stop', async () => {
     const { store, gateway } = await setup();
     await addSecondConversation(store, gateway.kind);
