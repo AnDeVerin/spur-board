@@ -87,6 +87,18 @@ function matchesFilter(issue: IssueWire, tracker: Tracker): boolean {
   return issue.milestone?.title === tracker.milestone;
 }
 
+/** The REST `core` budget from GitHub's rate-limit headers; undefined when either is invalid. */
+function restBudget(headers: Headers): Batch['budget'] {
+  const remaining = headers.get('x-ratelimit-remaining');
+  const reset = headers.get('x-ratelimit-reset');
+  if (remaining === null || reset === null) return undefined;
+  if (!/^\d+$/.test(remaining) || !/^\d+$/.test(reset)) return undefined;
+  const count = Number(remaining);
+  const resetAt = new Date(Number(reset) * 1000);
+  if (!Number.isSafeInteger(count) || Number.isNaN(resetAt.getTime())) return undefined;
+  return { remaining: count, resetAt: resetAt.toISOString() };
+}
+
 /**
  * Lists open filter issues, or every open issue when neither label nor milestone is set, and
  * resolves requested tickets missing from that listing.
@@ -115,6 +127,7 @@ export function createGithubIssuesAdapter(options: GithubIssuesOptions): Adapter
       } catch {
         throw new AdapterError('transient', 'GitHub issue request failed');
       }
+      budget = restBudget(response.headers) ?? budget;
       if (!response.ok) {
         const failure = classifyHttpFailure(
           { status: response.status, headers: response.headers, body: await response.text() },
@@ -134,6 +147,8 @@ export function createGithubIssuesAdapter(options: GithubIssuesOptions): Adapter
   }
 
   let repositoryId: number | undefined;
+  /** The budget of the current poll's last response that carried one. */
+  let budget: Batch['budget'];
 
   /** Rejects a next link outside this repository before any request goes to it. */
   async function checkNext(next: string, signal: AbortSignal): Promise<void> {
@@ -214,6 +229,7 @@ export function createGithubIssuesAdapter(options: GithubIssuesOptions): Adapter
     id: options.id,
     intervalMs: options.intervalMs,
     async poll(ctx): Promise<Batch> {
+      budget = undefined;
       const observedAt = new Date(options.now()).toISOString();
       const milestone = await milestoneNumber(ctx.signal);
       const filter = new URL(`${root}/issues`);
@@ -294,6 +310,7 @@ export function createGithubIssuesAdapter(options: GithubIssuesOptions): Adapter
         complete,
         items: [...facts.values()].map((item) => ({ kind: 'ticket', facts: item })),
         entities,
+        ...(budget === undefined ? {} : { budget }),
       };
     },
   };

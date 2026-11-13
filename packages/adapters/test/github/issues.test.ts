@@ -533,6 +533,50 @@ describe('GitHub Issues source', () => {
     expect(batch.entities).toEqual([{ ref, status: 'not_found' }]);
     expect(batch.items).toEqual([]);
   });
+
+  it('reports the REST budget of the last response', async () => {
+    const next = 'https://api.github.com/repos/acme/board/issues?page=2';
+    const reset = '1767225600';
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        Response.json([issue(1)], {
+          headers: {
+            link: `<${next}>; rel="next"`,
+            'x-ratelimit-remaining': '4999',
+            'x-ratelimit-reset': reset,
+          },
+        }),
+      )
+      .mockResolvedValueOnce(
+        Response.json([issue(2)], {
+          headers: { 'x-ratelimit-remaining': '4998', 'x-ratelimit-reset': reset },
+        }),
+      )
+      .mockResolvedValueOnce(Response.json([]));
+    const adapter = labelAdapter(fetcher);
+    const batch = await adapter.poll(context());
+    expect(batch.budget).toEqual({ remaining: 4998, resetAt: '2026-01-01T00:00:00.000Z' });
+    expect(batchSchema.parse(batch)).toEqual(batch);
+    expect((await adapter.poll(context())).budget).toBeUndefined();
+  });
+
+  it.each([
+    ['no rate-limit headers', {}],
+    [
+      'a non-numeric remaining',
+      { 'x-ratelimit-remaining': 'many', 'x-ratelimit-reset': '1767225600' },
+    ],
+    ['a non-numeric reset', { 'x-ratelimit-remaining': '4999', 'x-ratelimit-reset': 'soon' }],
+  ])('omits the budget without valid rate-limit headers: %s', async (_name, headers) => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(Response.json([issue(1)], { headers }));
+    const batch = await labelAdapter(fetcher).poll(context());
+    expect(batch.complete).toBe(true);
+    expect(batch).not.toHaveProperty('budget');
+    expect(batchSchema.safeParse(batch).success).toBe(true);
+  });
 });
 
 describe('GitHub Issues request timeout', () => {
