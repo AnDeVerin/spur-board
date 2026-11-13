@@ -15,6 +15,7 @@ import {
 import { sql, type Kysely } from 'kysely';
 import type { Store } from '../store/store.ts';
 import type { Row, Tables } from '../store/schema.ts';
+import { insertConversation } from './conversations.ts';
 import { recordRingDelivery, ringStillCurrent, ringTask, ringUndelivered } from './doorbells.ts';
 import { expireTokenOfItem } from './tokens.ts';
 import { ringDue } from './turns.ts';
@@ -114,6 +115,9 @@ function commentOf(body: OutboxBody): number | null {
     case 'conversation.reply':
     case 'conversation.close':
       return body.payload.commentId;
+    case 'feed.line':
+    case 'feed.line.edit':
+    case 'doorbell':
     default:
       return null;
   }
@@ -770,34 +774,16 @@ export function createSender(options: SenderOptions): Sender {
           .execute();
         if (body.kind === 'conversation.open' || body.kind === 'feed.line') {
           const isBlock = body.kind === 'conversation.open';
-          const closedBlock = isBlock
-            ? await trx
-                .selectFrom('block')
-                .select(['task_id', 'state', 'unblocked_at', 'created_at'])
-                .where('id', '=', body.payload.blockId)
-                .executeTakeFirstOrThrow()
-            : undefined;
           // The block's own task: a key merge may have moved it after this row was claimed.
-          const taskId = closedBlock?.task_id ?? body.payload.taskId ?? null;
-          await trx
-            .insertInto('conversation')
-            .values({
-              ref: conversation,
-              gateway: gatewayKind,
-              space: KIND_SPACE[body.kind],
-              task_id: taskId,
-              block_id: isBlock ? body.payload.blockId : null,
-              purpose: isBlock ? 'block' : 'feed_line',
-              state: closedBlock?.state === 'unblocked' ? 'closed' : 'open',
-              root_message_ref: outcome.message,
-              after_message_ref: null,
-              // The block predates any answer posted while an uncertain open awaited registration.
-              created_at: closedBlock?.created_at ?? nowIso,
-              closed_at:
-                closedBlock?.state === 'unblocked' ? (closedBlock.unblocked_at ?? nowIso) : null,
-            })
-            .onConflict((oc) => oc.columns(['gateway', 'ref']).doNothing())
-            .execute();
+          await insertConversation(trx, {
+            gateway: gatewayKind,
+            ref: conversation,
+            rootMessage: outcome.message,
+            at: nowIso,
+            ...(isBlock
+              ? { blockId: body.payload.blockId }
+              : { taskId: body.payload.taskId ?? null }),
+          });
           if (isBlock) {
             const explicit = await trx
               .selectFrom('outbox')

@@ -1,11 +1,20 @@
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { configSchema, type ActorId, type Gateway } from '@spur-board/contracts';
+import {
+  configSchema,
+  conversationRefSchema,
+  messageRefSchema,
+  userIdSchema,
+  type ActorId,
+  type Gateway,
+} from '@spur-board/contracts';
 import { createFakeGateway } from '@spur-board/gateway-testkit';
+import { sql } from 'kysely';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   createApply,
+  createInbound,
   createObservationCore,
   createOperationRegistry,
   createQuery,
@@ -790,6 +799,61 @@ describe('task archive', () => {
     expect(
       await ctx.store.db.selectFrom('conversation').select(['task_id', 'purpose']).execute(),
     ).toEqual([{ task_id: 1, purpose: 'block' }]);
+  });
+
+  it('registers a later thread of a delivered open on the surviving task after a merge', async () => {
+    const ctx = setup();
+    await ctx.poll(tracker, true, 'open', 'o/r#8');
+    await ctx.apply(ctx.ops.add, { task: KEY }, 'operator');
+    await liveWorker(ctx.store);
+    const asked = await ctx.apply(ctx.ops.ask, { task: KEY, text: 'Which version?' }, worker);
+    await ctx.drain();
+    const open = await ctx.store.db
+      .selectFrom('outbox')
+      .select(['dedupe_key', sql<number>`json_extract(payload, '$.taskId')`.as('taskId')])
+      .where('kind', '=', 'conversation.open')
+      .executeTakeFirstOrThrow();
+    now += 1_000;
+    await ctx.poll(tracker, true, 'open', KEY);
+    // The delivered row keeps the archived task: a merge rewrites only open outbox rows.
+    expect(
+      await ctx.store.db
+        .selectFrom('outbox')
+        .select(sql<number>`json_extract(payload, '$.taskId')`.as('taskId'))
+        .where('dedupe_key', '=', open.dedupe_key)
+        .executeTakeFirstOrThrow(),
+    ).toEqual({ taskId: 2 });
+
+    const inbound = createInbound({
+      store: ctx.store,
+      gateway: ctx.observed.gateway,
+      config,
+      clock,
+    });
+    await inbound.sink({
+      kind: 'message',
+      dedupeKey: 'late-reply',
+      conversation: conversationRefSchema.parse('thread-late'),
+      message: messageRefSchema.parse('late-reply-1'),
+      rootMessage: messageRefSchema.parse('late-root'),
+      sourceUrl: 'https://example.test/thread/late',
+      author: userIdSchema.parse('operator'),
+      text: 'Use v2.',
+      at: new Date(now).toISOString(),
+      originKey: open.dedupe_key,
+    });
+
+    const conversations = await ctx.store.db
+      .selectFrom('conversation')
+      .select(['ref', 'task_id', 'block_id'])
+      .orderBy('ref')
+      .execute();
+    expect(conversations.map((row) => row.task_id)).toEqual(conversations.map(() => 1));
+    expect(conversations).toContainEqual({
+      ref: 'thread-late',
+      task_id: 1,
+      block_id: Number(asked.block.id.slice(1)),
+    });
   });
 
   it('Done archive clears open blocks', async () => {
