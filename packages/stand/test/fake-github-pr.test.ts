@@ -172,8 +172,8 @@ describe('matching', () => {
       .replaceAll('(owner: $owner, name: $repo)', '(name: $repo, owner: $owner)')
       .replace('$owner: String!, $repo: String!', '$repo: String!, $owner: String!')
       .replace(
-        'first: 100, states: [OPEN, MERGED], orderBy: {field: UPDATED_AT, direction: DESC}',
-        'orderBy: {direction: DESC, field: UPDATED_AT}, states: [OPEN, MERGED], first: 100',
+        'first: 100, states: [OPEN, MERGED, CLOSED], orderBy: {field: UPDATED_AT, direction: DESC}',
+        'orderBy: {direction: DESC, field: UPDATED_AT}, states: [OPEN, MERGED, CLOSED], first: 100',
       );
     expect(reordered).not.toBe(discoveryQuery(false));
     expect((await postQuery(fakeFetch(fakes), reordered)).status).toBe(200);
@@ -293,6 +293,17 @@ describe('wire facts', () => {
       mergeState: 'unknown',
       mergedAt: new Date(NOW).toISOString(),
     });
+  });
+
+  it('reports a PR closed without a merge once the cursor is past bootstrap', async () => {
+    created(6);
+    expect(pr(fakes, 6, 'close').status).toBe(200);
+    const cursor = sourceCursorSchema.parse('2025-01-01T00:00:00.000Z');
+    const batch = await pollRepo(fakes, BOARD, pollContext({ cursor }));
+    expect(batch.complete).toBe(true);
+    const facts = factsOf(batch, 6);
+    expect(facts.state).toBe('closed');
+    expect(facts).not.toHaveProperty('mergedAt');
   });
 
   it('answers a missing aliased PR with null and a NOT_FOUND error at its path', async () => {
@@ -589,6 +600,16 @@ describe('feedback verbs', () => {
   ])('answers 409 to %s on a merged PR', (verb, extra) => {
     created(1);
     expect(pr(fakes, 1, 'merge').status).toBe(200);
+    expect(pr(fakes, 1, verb, extra).status).toBe(409);
+  });
+
+  it.each<[string, Record<string, unknown>]>([
+    ['comment', {}],
+    ['merge', {}],
+    ['close', {}],
+  ])('answers 409 to %s on a closed PR', (verb, extra) => {
+    created(1);
+    expect(pr(fakes, 1, 'close').status).toBe(200);
     expect(pr(fakes, 1, verb, extra).status).toBe(409);
   });
 

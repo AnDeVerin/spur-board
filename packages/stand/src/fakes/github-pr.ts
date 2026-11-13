@@ -47,7 +47,7 @@ const discoveryPage = (states: string): string =>
   `query DiscoveryPage($owner: String!, $repo: String!, $after: String!) { ${RATE_LIMIT} repository(owner: $owner, name: $repo) { pullRequests(first: 100, after: $after, states: [${states}], ${ORDER}) { ${DISCOVERY_FIELDS} } } }`;
 const BASELINE = ` mergedBaseline: pullRequests(first: 1, states: [MERGED], ${ORDER}) { nodes { updatedAt } }`;
 const KNOWN_DOCUMENTS = [
-  prBatch('OPEN, MERGED', ''),
+  prBatch('OPEN, MERGED, CLOSED', ''),
   prBatch('OPEN', BASELINE),
   PR_INDEX,
   prDetails(false),
@@ -60,7 +60,7 @@ const KNOWN_DOCUMENTS = [
   ),
   prPage(`closingIssuesReferences(first: 100, after: $after) { ${CLOSING_FIELDS} }`),
   prPage(`comments(last: 100, before: $before) { ${COMMENT_FIELDS} }`, 'before'),
-  discoveryPage('OPEN, MERGED'),
+  discoveryPage('OPEN, MERGED, CLOSED'),
   discoveryPage('OPEN'),
 ];
 const KNOWN_SHAPES = new Set(KNOWN_DOCUMENTS.map(canonicalizeQuery));
@@ -155,6 +155,7 @@ const prControlSchema = z.discriminatedUnion('verb', [
   z.strictObject({ ...target, verb: z.literal('ci-red') }),
   z.strictObject({ ...target, verb: z.literal('ci-green') }),
   z.strictObject({ ...target, verb: z.literal('merge') }),
+  z.strictObject({ ...target, verb: z.literal('close') }),
   z.strictObject({ ...target, verb: z.literal('conflict') }),
   z.strictObject({ ...target, verb: z.literal('push'), sha: z.string().regex(SHA) }),
   z.strictObject({ ...target, verb: z.literal('comment'), ...feedbackAuthor }),
@@ -343,6 +344,9 @@ export function createGithubPrFake(options: {
         pr.mergedAt = at;
         pr.mergeable = 'UNKNOWN';
         pr.mergeStateStatus = 'UNKNOWN';
+        break;
+      case 'close':
+        pr.state = 'CLOSED';
         break;
     }
   }

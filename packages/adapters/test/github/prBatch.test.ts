@@ -259,11 +259,13 @@ describe('GitHub PR batch', () => {
   it('pins the discovery and detail queries', () => {
     const query = discoveryQuery();
     expect(createHash('sha256').update(query).digest('hex')).toBe(
-      '284d2507ec8443328149d3ce5a183b4f60c443a95a960735b9a1ce898c9770a7',
+      'be8f5037ce78c40af8655a1a6942dc6fa0aaad89098a45e779fa6f1a2600a0d0',
     );
     expect(query).toContain('rateLimit { remaining resetAt }');
     expect(query).toContain('pullRequests(first: 100');
     expect(query).not.toContain('pr0: repository');
+    expect(query).toContain('states: [OPEN, MERGED, CLOSED]');
+    expect(pageQuery('pullRequests')).toContain('states: [OPEN, MERGED, CLOSED]');
     const details = detailQuery([7]);
     expect(details).toContain('rateLimit { remaining resetAt }');
     expect(details).toContain('pr0: repository');
