@@ -332,7 +332,7 @@ Arguments: none.
 
 Flags:
 
-`--name <name>` — Unique token name.
+`--name <name>` — Unique token name: 1-64 letters, digits, ".", "_" or "-".
 `--into <dir>` — Existing folder to hold the token file.
 `--json` — Print JSON output or a JSON error.
 

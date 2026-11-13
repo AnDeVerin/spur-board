@@ -12,7 +12,7 @@ import {
 import { hostname, homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { Command, CommanderError, type CommandUnknownOpts } from '@commander-js/extra-typings';
-import { ERRORS, OPERATIONS, roleCanUseOperation } from '@spur-board/contracts';
+import { ERRORS, OPERATIONS, requestHashOf, roleCanUseOperation } from '@spur-board/contracts';
 import { z } from 'zod';
 import { fetchTokenStatus, requestOperation, requestTokenEnrollment } from './client.ts';
 import {
@@ -563,7 +563,10 @@ export function createProgram(options: CliOptions = {}): CommandUnknownOpts {
   }
   const create = commandFor(program, 'token create');
   create.description('Request approval for a new token in a chosen folder.');
-  create.requiredOption('--name <name>', 'Unique token name.');
+  create.requiredOption(
+    '--name <name>',
+    'Unique token name: 1-64 letters, digits, ".", "_" or "-".',
+  );
   create.requiredOption('--into <dir>', 'Existing folder to hold the token file.');
   create.option('--json', 'Print JSON output or a JSON error.');
   create.action(async (...parts: unknown[]) => {
@@ -664,16 +667,12 @@ export function createProgram(options: CliOptions = {}): CommandUnknownOpts {
         }
         throw exclusiveFailure();
       }
+      const hash = createHash('sha256').update(secret).digest('hex');
       try {
-        const result = await requestTokenEnrollment(
-          {
-            name,
-            folder,
-            host: hostname(),
-            hash: createHash('sha256').update(secret).digest('hex'),
-          },
-          config,
-        );
+        const result = {
+          ...(await requestTokenEnrollment({ name, folder, host: hostname(), hash }, config)),
+          requestHash: requestHashOf(hash),
+        };
         io.stdout(`${json || !io.isTTY ? JSON.stringify(result) : formatHuman(result)}\n`);
       } catch (error) {
         if (error instanceof CliError && error.code === 'outcome_unknown') {
@@ -747,7 +746,7 @@ async function replaceStaleToken(file: string, token: string, config: ClientConf
       );
     case 'unknown':
       throw refuse(
-        `This daemon does not know the token in ${file}; it may belong to another board. Check BOARD_DAEMON_URL (or http.port in config.yaml) first; if it names this board, delete the file and run again.`,
+        `This daemon does not know the token in ${file}; it may belong to another board, or its request ended over 7 days ago and was deleted. Check BOARD_DAEMON_URL (or http.port in config.yaml) first; if it names this board, delete the file and run again.`,
       );
   }
 }

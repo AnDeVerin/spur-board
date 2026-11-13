@@ -145,7 +145,8 @@ an operator session outside Spur, choose a folder and request a named token ther
 board token create --name <name> --into <folder>
 ```
 
-Approve the request in Slack before using the token. The CLI looks for the folder's
+Approve the request in Slack before using the token; the Slack prompt shows the same
+`requestHash` the command printed, so approve only a request whose hash matches. The CLI looks for the folder's
 `.spur-board/token` while walking upward from the current directory, stopping at the root of
 the git worktree, or at home outside git. Home itself is never searched, so when home is the
 worktree root, choose a subfolder.
