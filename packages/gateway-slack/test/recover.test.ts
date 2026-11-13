@@ -4,7 +4,7 @@ import {
   type RecoverRequest,
   type RichText,
 } from '@spur-board/contracts';
-import type { WebClient } from '@slack/web-api';
+import { WebAPIRateLimitedError, type WebClient } from '@slack/web-api';
 import { describe, expect, it, vi } from 'vitest';
 import { createSlackGateway } from '../src/index.ts';
 import { recoverThreads } from '../src/recover.ts';
@@ -267,6 +267,22 @@ describe('Slack thread recovery', () => {
       await gateway.stop();
       await fake.close();
     }
+  });
+
+  it('charges zero-second retries against the read budget and ends in a gap', async () => {
+    let calls = 0;
+    const client = {
+      conversations: {
+        replies: () => {
+          calls += 1;
+          return Promise.reject(new WebAPIRateLimitedError(0));
+        },
+      },
+    };
+    const recovered = await recoverWith(client, new AbortController().signal);
+    expect(recovered).toEqual([expect.objectContaining({ kind: 'gap' })]);
+    // Ten retries at the minimum charge spend the 10 s budget; the eleventh failure gaps.
+    expect(calls).toBe(11);
   });
 
   it('abandons an in-flight thread read on abort', async () => {

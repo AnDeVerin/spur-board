@@ -36,6 +36,9 @@ function inInterval(ts: string | undefined, from: number, until: number): boolea
 /** Total time one thread read may spend waiting on rate limits before it becomes a `gap`. */
 const READ_WAIT_BUDGET_MS = 10_000;
 
+/** Least budget one retry costs, so a `Retry-After: 0` cannot retry forever. */
+const MIN_RETRY_CHARGE_MS = 1000;
+
 const ABORTED = Symbol('aborted');
 
 /**
@@ -60,7 +63,8 @@ function untilAborted<T>(
 }
 
 /**
- * Waits out rate limits within `READ_WAIT_BUDGET_MS`; a wait past what remains throws
+ * Waits out rate limits within `READ_WAIT_BUDGET_MS`, each retry costing at least
+ * `MIN_RETRY_CHARGE_MS`; a wait past what remains throws
  * `IncompleteHistoryError` without sleeping. Returns `ABORTED` once `signal` aborts.
  */
 async function readThread(
@@ -78,9 +82,10 @@ async function readThread(
       const result = apiFailure(error);
       if (result.status !== 'retry' || result.uncertain) throw error;
       const wait = result.afterMs ?? 1000;
-      if (wait > budget)
+      const charge = Math.max(wait, MIN_RETRY_CHARGE_MS);
+      if (charge > budget)
         throw new IncompleteHistoryError('rate limit wait exceeds the read budget');
-      budget -= wait;
+      budget -= charge;
       // The wait rejects only on abort, which the next turn of the loop returns on.
       await delay(wait, undefined, { signal }).catch(() => undefined);
     }
