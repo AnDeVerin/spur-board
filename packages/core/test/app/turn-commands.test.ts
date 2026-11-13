@@ -507,6 +507,22 @@ describe('task.submit', () => {
       ]);
     });
 
+    it('submits a shadow task by its short repo#N key', async () => {
+      const ctx = await setup();
+      ctx.commits(B);
+
+      await expect(ctx.submit(REV_1, B, 'submit-1', 'r#9')).resolves.toMatchObject({
+        task: { key: 'o/r#9', column: 'review' },
+        turn: null,
+        sha: B,
+      });
+
+      expect(
+        await ctx.store.db.selectFrom('submission').select(['column', 'commit_sha']).execute(),
+      ).toEqual([{ column: 'review', commit_sha: B }]);
+      expect(ctx.calls).toHaveLength(1);
+    });
+
     it('refuses a session that does not execute the column', async () => {
       const ctx = await setup();
       ctx.commits(B);

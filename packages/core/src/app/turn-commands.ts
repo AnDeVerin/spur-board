@@ -16,6 +16,7 @@ import { authorizationTarget, blockView, openBlock } from './blocks.ts';
 import { emit, taskPr, taskView } from './board-utils.ts';
 import { CommandError, type CommandContext, type Mutation } from './commands.ts';
 import { dispatchTasks, moveLeft } from './dispatch.ts';
+import { canonicalKey } from './membership.ts';
 import { closeTurns } from './turns.ts';
 
 type Trx = Kysely<Tables>;
@@ -68,11 +69,16 @@ async function turnVisitTarget(db: Trx, id: string): Promise<readonly ResolvedTa
 }
 
 /**
- * The task a submit names by its key. A key is taken only while the task's project dispatcher
- * is in shadow mode; otherwise `wrong_id_kind`.
+ * The task a submit names by its key, a short `repo#N` form read as `task.get` reads it. A key is
+ * taken only while the task's project dispatcher is in shadow mode; otherwise `wrong_id_kind`.
  */
 async function shadowTask(db: Trx, key: string, config: Config): Promise<Task | undefined> {
-  const task = await db.selectFrom('task').selectAll().where('key', '=', key).executeTakeFirst();
+  const parsed = parseRef(key, 'task');
+  const stored =
+    parsed.ok && parsed.value.kind === 'task' && parsed.value.form === 'github-short'
+      ? canonicalKey(config, key).key
+      : key;
+  const task = await db.selectFrom('task').selectAll().where('key', '=', stored).executeTakeFirst();
   if (task === undefined) return undefined;
   const project = config.projects.find((entry) => entry.id === task.project);
   if (project?.dispatcher.mode !== 'shadow') {
