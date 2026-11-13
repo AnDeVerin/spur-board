@@ -293,6 +293,7 @@ describe('board doctor', () => {
       'sessions.codex_skill',
       'sessions.stale',
       'http.port',
+      'database.private',
       'daemon.available',
       ...remoteIds,
       'versions',
@@ -698,6 +699,37 @@ describe('board doctor', () => {
       blocking: true,
       fix,
     });
+  });
+
+  it.each([
+    ['group or others can read it', () => ({ mode: 0o644 }), 'fail'],
+    ['it is owner-only', () => ({ mode: 0o600 }), 'pass'],
+    [
+      'it is missing',
+      () => {
+        throw new Error('missing');
+      },
+      'pass',
+    ],
+  ])('checks board.sqlite is private when %s', async (_, info, status) => {
+    const fake = ports({
+      secretFile: (path) =>
+        path === '/board/board.sqlite'
+          ? { path, isFile: true, ...info() }
+          : { path, isFile: true, mode: 0o600 },
+    });
+    const value = await run(['doctor', '--json'], fake);
+    expect(value.checks.find((entry) => entry.id === 'database.private')).toEqual(
+      status === 'fail'
+        ? {
+            id: 'database.private',
+            status: 'fail',
+            blocking: true,
+            fix: 'Set board.sqlite mode to 0600 with chmod 600; the daemon also sets it when it starts.',
+          }
+        : { id: 'database.private', status: 'pass', blocking: false, fix: null },
+    );
+    expect(value.exitCode).toBe(status === 'fail' ? 1 : 0);
   });
 
   it('names the missing Slack app token in local fallback', async () => {

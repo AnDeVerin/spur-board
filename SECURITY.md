@@ -73,9 +73,16 @@ File access depends on the modes below:
   `board.lock` in the data directory `$XDG_DATA_HOME/spur-board` (default
   `~/.local/share/spur-board`). With `BOARD_HOME`, all four files live in that one directory.
 - The daemon creates the data directory (or `BOARD_HOME`) as `0700` when it does not exist, with
-  the lock file `board.lock` as `0600`. It never creates the config directory, does not change
-  the mode of a directory that already exists, and does not set the mode of `board.sqlite` or
-  `config.yaml`: those follow the umask and the directory they are in. Keep both the config and
-  the data directory (or `BOARD_HOME`) private.
+  the lock file `board.lock` as `0600`. It never creates the config directory and does not change
+  the mode of a directory that already exists. Keep both the config and the data directory (or
+  `BOARD_HOME`) private.
+- Each time the daemon starts it sets `board.sqlite`, its `-wal` and `-shm` files and its
+  migration backups (`board.sqlite.v<n>.<time>.bak`) to `0600`, whatever the umask, and refuses to
+  start when it cannot. It writes every database copy as `0600` and keeps only the newest 5
+  migration backups. `board doctor` fails `database.private` when group or others can access
+  `board.sqlite`.
+- The user unit that `board service install` and `board update` write sets `UMask=0077`, so the
+  files the service creates are owner-only. The daemon does not set the mode of `config.yaml`: it
+  follows the umask and the directory it is in.
 
 For the contribution flow, see [CONTRIBUTING.md](CONTRIBUTING.md).
