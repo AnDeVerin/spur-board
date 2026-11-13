@@ -83,11 +83,13 @@ export function createFakeCore(options: FakeCoreOptions = {}): FakeCore {
   };
 }
 
+type PollPrContext = Pick<PollContext, 'signal' | 'feedbackCursors' | 'continuations'>;
+
 export interface FakeAdapter extends Adapter {
   /** Every context `poll` was called with, in order. */
   readonly contexts: PollContext[];
-  /** Every ref and signal `pollPr` was called with, in order. */
-  readonly prRequests: { ref: PrEntityRef; signal: AbortSignal }[];
+  /** Every ref, signal, feedback cursor and held history `pollPr` was called with, in order. */
+  readonly prRequests: ({ ref: PrEntityRef } & PollPrContext)[];
 }
 
 export function createFakeAdapter(options: {
@@ -95,7 +97,7 @@ export function createFakeAdapter(options: {
   intervalMs: number;
   poll: (ctx: PollContext) => Promise<Batch>;
   /** Answers on-demand PR polls; without it the adapter has no `pollPr`. */
-  pollPr?: (ref: PrEntityRef, ctx: Pick<PollContext, 'signal'>) => Promise<Batch>;
+  pollPr?: (ref: PrEntityRef, ctx: PollPrContext) => Promise<Batch>;
 }): FakeAdapter {
   const contexts: PollContext[] = [];
   const prRequests: FakeAdapter['prRequests'] = [];
@@ -112,8 +114,8 @@ export function createFakeAdapter(options: {
     ...(pollPr === undefined
       ? {}
       : {
-          pollPr(ref: PrEntityRef, ctx: Pick<PollContext, 'signal'>) {
-            prRequests.push({ ref, signal: ctx.signal });
+          pollPr(ref: PrEntityRef, ctx: PollPrContext) {
+            prRequests.push({ ref, ...ctx });
             return pollPr(ref, ctx);
           },
         }),
