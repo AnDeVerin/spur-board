@@ -24,7 +24,7 @@ import {
 import { parseJson, toJson } from '../store/json.ts';
 import type { Row } from '../store/schema.ts';
 import { closeBlockIfOpen, openSystemBlock } from './blocks.ts';
-import { taskUrl, ticketDone, type Trx } from './board-utils.ts';
+import { pastReopenFloor, taskUrl, ticketDone, type Trx } from './board-utils.ts';
 import { clearItem, raiseItem } from './feed.ts';
 import type { RaiseItemInput } from './item-raise.ts';
 import { quietTurns, stuckTurnAfterMs } from './turns.ts';
@@ -202,6 +202,7 @@ export async function reconcileItems(
   );
   const prs = await trx
     .selectFrom('link')
+    .innerJoin('task', 'task.id', 'link.task_id')
     .leftJoin('pr_snapshot', (join) =>
       join
         .on(sql<boolean>`lower(pr_snapshot.repo) = lower(link.repo)`)
@@ -217,6 +218,7 @@ export async function reconcileItems(
     ])
     .where('link.entity', '=', 'pr')
     .where('link.banned', '=', 0)
+    .where(pastReopenFloor)
     .execute();
   const taskPrs: Record<
     string,

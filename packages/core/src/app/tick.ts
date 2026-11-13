@@ -2,6 +2,7 @@ import { scanTransaction } from './secrets.ts';
 import type { Config } from '@spur-board/contracts';
 import type { Store } from '../store/store.ts';
 import { archiveTask } from './archive.ts';
+import { dispatchJournaled } from './dispatch.ts';
 import { reconcileItems } from './fromYou.ts';
 import { remindStuckTurns } from './turns.ts';
 import { lastLocalSlot } from '../domain/slot.ts';
@@ -56,6 +57,7 @@ export async function tickBoard(deps: {
         .execute();
       await archiveTask(trx, { task, reason: 'done', actor: 'system', at });
     }
+    await dispatchJournaled(trx, { config, at: new Date(now), complete: completeSince });
     await remindStuckTurns(trx, config, new Date(now));
     await reconcileItems(trx, config, now, completeSince.has('spur'));
   });

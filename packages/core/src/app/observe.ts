@@ -20,6 +20,7 @@ import { parseJson, toJson } from '../store/json.ts';
 import type { Store } from '../store/store.ts';
 import {
   emit,
+  pastReopenFloor,
   projectForKey,
   projectForSource,
   ticketDone,
@@ -29,6 +30,7 @@ import {
 import { enqueueLiveAfterFirstPoll } from './doctor.ts';
 import { reconcileMembership } from './membership-rules.ts';
 import { reconcileItems } from './fromYou.ts';
+import { dispatchJournaled, dispatchSource } from './dispatch.ts';
 import { closeTurns, turnFeedbackCursors } from './turns.ts';
 
 function refKey(ref: EntityRef): string {
@@ -69,6 +71,7 @@ async function updateTerminal(
     .executeTakeFirst();
   const linked = await trx
     .selectFrom('link')
+    .innerJoin('task', 'task.id', 'link.task_id')
     .innerJoin('pr_snapshot', (join) =>
       join
         .on(sql<boolean>`lower(pr_snapshot.repo) = lower(link.repo)`)
@@ -78,6 +81,7 @@ async function updateTerminal(
     .where('link.task_id', '=', taskId)
     .where('link.entity', '=', 'pr')
     .where('link.banned', '=', 0)
+    .where(pastReopenFloor)
     .execute();
   const hasOpen = linked.some((pr) => pr.state === 'open');
   const merged = linked.some((pr) => pr.state === 'merged');
@@ -102,6 +106,15 @@ async function updateTerminal(
     })
     .where('id', '=', taskId)
     .execute();
+}
+
+async function blindReason(trx: Trx, source: string): Promise<string | null> {
+  const row = await trx
+    .selectFrom('source_state')
+    .select('blind_reason')
+    .where('source', '=', source)
+    .executeTakeFirst();
+  return row?.blind_reason ?? null;
 }
 
 async function sourceState(
@@ -182,6 +195,35 @@ async function moveOpenWork(trx: Trx, from: number, to: number): Promise<void> {
           : [eb(sql<string>`json_extract(payload, '$.itemKey')`, 'in', itemKeys)]),
       ]),
     )
+    .execute();
+}
+
+/**
+ * A ticket reopened after a merge: the task's PR links so far stay in its history, and only links
+ * past the floor decide its state from now on. Nothing without a merged PR link past the floor.
+ */
+async function setReopenFloor(trx: Trx, taskId: number): Promise<void> {
+  const links = await trx
+    .selectFrom('link')
+    .innerJoin('task', 'task.id', 'link.task_id')
+    .leftJoin('pr_snapshot', (join) =>
+      join
+        .on(sql<boolean>`lower(pr_snapshot.repo) = lower(link.repo)`)
+        .onRef('pr_snapshot.number', '=', 'link.number'),
+    )
+    .select(['link.id', 'link.banned', 'pr_snapshot.state'])
+    .where('link.task_id', '=', taskId)
+    .where('link.entity', '=', 'pr')
+    .where(pastReopenFloor)
+    .execute();
+  if (!links.some((link) => link.banned === 0 && link.state === 'merged')) return;
+  const floor = Math.max(...links.map((link) => link.id));
+  await trx
+    .updateTable('task')
+    .set((eb) => ({
+      reopen_link_floor: sql<number>`max(${floor}, coalesce(${eb.ref('reopen_link_floor')}, 0))`,
+    }))
+    .where('id', '=', taskId)
     .execute();
 }
 
@@ -312,11 +354,18 @@ async function ticket(
         }),
       )
       .execute();
-    if (previousFact?.status !== fact.status)
+    if (previousFact?.status !== fact.status) {
       await emit(trx, 'ticket_status_changed', project.id, task.id, at, {
         from: previousFact?.status ?? null,
         to: fact.status,
       });
+      if (
+        previousFact !== null &&
+        ticketDone(project, previousFact.status) &&
+        !ticketDone(project, fact.status)
+      )
+        await setReopenFloor(trx, task.id);
+    }
     await emit(trx, 'ticket_facts_changed', project.id, task.id, at, { facts: fact });
     await trx.updateTable('task').set({ last_change_at: at }).where('id', '=', task.id).execute();
   } else {
@@ -912,6 +961,7 @@ export function createObservationCore(deps: {
       // Read once: every scan pass must build the same gateway strings (`scanTransaction`).
       const now = clock.now();
       await scanTransaction(store, config, async (trx) => {
+        const wasBlind = await blindReason(trx, source);
         await sourceState(trx, source, observation.state, batch.observedAt, batch.cursor);
         for (const outcome of observation.outcomes) {
           const answer = batch.entities.find(
@@ -1095,6 +1145,15 @@ export function createObservationCore(deps: {
         for (const task of activeTasks)
           await updateTerminal(trx, config, task.id, batch.observedAt, currentComplete, blind);
         await reconcileMembership(trx, config, currentComplete, batch.observedAt);
+        const dispatchContext = {
+          config,
+          at: new Date(batch.observedAt),
+          complete: currentComplete,
+        };
+        const recovered = wasBlind !== null && observation.state.blind === undefined;
+        if ((observation.effectiveComplete && !completeSince.has(source)) || recovered)
+          await dispatchSource(trx, source, dispatchContext);
+        await dispatchJournaled(trx, dispatchContext);
         await reconcileItems(trx, config, now, currentComplete.has('spur'));
         if (deps.productVersion !== undefined)
           await enqueueLiveAfterFirstPoll(trx, {
@@ -1110,7 +1169,10 @@ export function createObservationCore(deps: {
     reportSourceState(source, state) {
       const now = clock.now();
       return scanTransaction(store, config, async (trx) => {
+        const wasBlind = await blindReason(trx, source);
         await sourceState(trx, source, state);
+        if (wasBlind !== null && state.blind === undefined)
+          await dispatchSource(trx, source, { config, at: new Date(now), complete: completeSince });
         await reconcileItems(trx, config, now, completeSince.has('spur'));
       });
     },

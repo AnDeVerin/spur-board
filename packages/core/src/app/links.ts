@@ -3,7 +3,7 @@ import { prFactsSchema, sessionFactsSchema } from '@spur-board/contracts';
 import { sql, type Selectable } from 'kysely';
 import { parseJson } from '../store/json.ts';
 import type { LinkTable } from '../store/schema.ts';
-import { emit, projectForKey, type Trx } from './board-utils.ts';
+import { emit, pastReopenFloor, projectForKey, type Trx } from './board-utils.ts';
 import { taskTarget } from './blocks.ts';
 import { CommandError, type Mutation } from './commands.ts';
 import { canonicalKey } from './membership.ts';
@@ -98,6 +98,7 @@ async function sessionRole(trx: Trx, taskId: number): Promise<'worker' | 'other'
 async function prConflict(trx: Trx, taskId: number, repo: string, number: number, open: boolean) {
   const links = await trx
     .selectFrom('link')
+    .innerJoin('task', 'task.id', 'link.task_id')
     .leftJoin('pr_snapshot', (join) =>
       join
         .on(sql<boolean>`lower(pr_snapshot.repo) = lower(link.repo)`)
@@ -107,6 +108,7 @@ async function prConflict(trx: Trx, taskId: number, repo: string, number: number
     .where('link.task_id', '=', taskId)
     .where('link.entity', '=', 'pr')
     .where('link.banned', '=', 0)
+    .where(pastReopenFloor)
     .execute();
   for (const link of links) {
     if (link.repo?.toLowerCase() === repo && link.number === number) continue;

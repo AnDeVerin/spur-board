@@ -13,7 +13,7 @@ import { z } from 'zod';
 import { parseAddressee } from '../domain/blocks/blocks.ts';
 import { parseJson, toJson } from '../store/json.ts';
 import type { Row, Tables } from '../store/schema.ts';
-import { taskUrl } from './board-utils.ts';
+import { taskPr, taskUrl } from './board-utils.ts';
 import { CommandError } from './commands.ts';
 import {
   acknowledgeNotification,
@@ -98,6 +98,16 @@ export async function openTurn(
   const hasLiveWorker =
     orchestrator === 'none' && (await linkedSession(trx, task.id, 'worker')) !== undefined;
   const role = turnExecutor(task.column, orchestrator, hasLiveWorker);
+  const pr = await taskPr(trx, task.id);
+  const snapshot =
+    pr === null
+      ? undefined
+      : await trx
+          .selectFrom('pr_snapshot')
+          .select('head_sha')
+          .where(sql<boolean>`lower(repo) = ${pr.repo.toLowerCase()}`)
+          .where('number', '=', pr.number)
+          .executeTakeFirst();
   const last = await trx
     .selectFrom('turn')
     .select((eb) => eb.fn.max('seq').as('seq'))
@@ -120,6 +130,7 @@ export async function openTurn(
       closed_at: null,
       closed_reason: null,
       created_at: at.toISOString(),
+      head_sha: snapshot?.head_sha.toLowerCase() ?? null,
     })
     .returningAll()
     .executeTakeFirstOrThrow();
@@ -184,7 +195,7 @@ export async function takeTurn(
  */
 export async function closeTurns(
   trx: Trx,
-  input: { taskId: number; reason: 'moved' | 'archived' | 'submitted'; at: Date },
+  input: { taskId: number; reason: 'moved' | 'archived' | 'submitted' | 'rerouted'; at: Date },
 ): Promise<void> {
   const { taskId, reason, at } = input;
   const closed = await trx
@@ -357,7 +368,10 @@ export async function ringDue(
 }
 
 /** Whether `left` is newer than `right` by `postedAt` instant, then by id. Compared, not subtracted. */
-function isNewer(left: Handed, right: Handed): boolean {
+export function isNewer(
+  left: Pick<Handed, 'postedAt' | 'id'>,
+  right: Pick<Handed, 'postedAt' | 'id'>,
+): boolean {
   const a = Date.parse(left.postedAt);
   const b = Date.parse(right.postedAt);
   return a !== b ? a > b : left.id > right.id;
