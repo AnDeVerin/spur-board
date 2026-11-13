@@ -2138,6 +2138,30 @@ describe('anomaly blocks', () => {
     expect(await openLedger(b)).toEqual(['pr-closed']);
   });
 
+  it('re-arms a dismissed PR-closed block when the same PR is reopened and closed again', async () => {
+    const b = await board();
+    await prs(b, [pr(7, 'closed')]);
+    const [block] = (await surface(b)).blocks;
+    if (block === undefined) throw new Error('Missing closed-PR block');
+    now += 1_000;
+    await b.apply(
+      createBlockMutations(config).unblock,
+      { mode: 'reason', block: `B${String(block.id)}`, reason: 'Abandoned on purpose.' },
+      'operator',
+    );
+    now += 1_000;
+    await prs(b, [{ ...pr(7, 'open'), updatedAt: iso() }]);
+    expect(await openLedger(b)).toEqual([]);
+    now += 1_000;
+    await prs(b, [{ ...pr(7, 'closed'), updatedAt: iso() }]);
+    expect(await openLedger(b)).toEqual(['pr-closed']);
+    const { blocks } = await surface(b);
+    expect(blocks.map((entry) => [entry.state, entry.unblocked_by])).toEqual([
+      ['unblocked', 'operator'],
+      ['open', null],
+    ]);
+  });
+
   it('opens a block for a ticket closed while work is live, not for one closed by its merge', async () => {
     async function closedTicket(prFacts: PrFacts[]) {
       const b = await board();

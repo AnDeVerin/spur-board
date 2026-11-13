@@ -1,5 +1,6 @@
 import {
   parseActorId,
+  prFactsSchema,
   sessionFactsSchema,
   ticketFactsSchema,
   type ColumnId,
@@ -214,6 +215,7 @@ export async function reconcileItems(
       'pr_snapshot.state',
       'pr_snapshot.source',
       'pr_snapshot.observed_at',
+      'pr_snapshot.detail',
     ])
     .where('link.entity', '=', 'pr')
     .where('link.banned', '=', 0)
@@ -252,6 +254,10 @@ export async function reconcileItems(
     const first = closed[0];
     if (first === undefined) continue;
     const refs = closed.map((pr) => pr.ref);
+    // Each closure episode gets its own revision: a reopen and close again moves updatedAt.
+    const episodes = closed.map((pr) =>
+      pr.detail === null ? pr.ref : `${pr.ref}@${parseJson(prFactsSchema, pr.detail).updatedAt}`,
+    );
     candidates.push({
       key: `pr-closed:${String(task.id)}`,
       kind: 'anomaly',
@@ -260,7 +266,7 @@ export async function reconcileItems(
       factAt: first.observed_at,
       source: first.source,
       priority: 4,
-      revision: refs.join(','),
+      revision: episodes.join(','),
     });
   }
   const tickets = await trx
