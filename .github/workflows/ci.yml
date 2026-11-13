@@ -242,6 +242,13 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - id: candidate
         run: node scripts/release-candidate.ts release-artifacts >> "$GITHUB_OUTPUT"
+      - name: Show the release candidate
+        env:
+          RELEASE_CANDIDATE_VERSION: ${{ steps.candidate.outputs.version }}
+          RELEASE_CANDIDATE_SHA256: ${{ steps.candidate.outputs.sha256 }}
+        run: |
+          echo "release candidate ${RELEASE_CANDIDATE_VERSION} sha256 ${RELEASE_CANDIDATE_SHA256}"
+          echo "Release candidate \`${RELEASE_CANDIDATE_VERSION}\` sha256 \`${RELEASE_CANDIDATE_SHA256}\`" >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-candidate
