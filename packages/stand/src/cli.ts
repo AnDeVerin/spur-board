@@ -101,6 +101,10 @@ const USAGE = `Usage: pnpm stand <command>
   fake github pr <n> <verb> [--repo owner/name]
                                   create [--seed '<json>'], approve, ci-red, ci-green, merge,
                                   conflict or push <sha>; --repo defaults to ${DEFAULT_FAKE_REPO}
+  fake github pr <n> comment [--author login] [--bot]
+  fake github pr <n> review <approved|changes-requested|commented> [--author login] [--bot]
+                                  add a comment, or a review on the head, at the stand clock;
+                                  the author defaults to stand-reviewer, or stand-bot with --bot
   fake github issue <n> <verb> [--repo owner/name]
                                   open [--title t] (create, or reopen a closed issue), close,
                                   label [name...] (replaces the labels; none clears them) or
@@ -140,7 +144,22 @@ function parseClockArgs(args: string[]): { shiftMs: number; home: string | undef
   return { shiftMs, home: values.home };
 }
 
-const FAKE_PR_VERBS = ['create', 'approve', 'ci-red', 'ci-green', 'merge', 'conflict', 'push'];
+const FAKE_PR_VERBS = [
+  'create',
+  'approve',
+  'ci-red',
+  'ci-green',
+  'merge',
+  'conflict',
+  'push',
+  'comment',
+  'review',
+];
+const REVIEW_STATES = new Map([
+  ['approved', 'APPROVED'],
+  ['changes-requested', 'CHANGES_REQUESTED'],
+  ['commented', 'COMMENTED'],
+]);
 const FAKE_ISSUE_VERBS = ['open', 'close', 'label', 'milestone'];
 
 const out = (text: string): void => {
@@ -510,7 +529,12 @@ function seedOf(text: string): unknown {
 
 function prBody(
   args: readonly string[],
-  values: { repo?: string | undefined; seed?: string | undefined },
+  values: {
+    repo?: string | undefined;
+    seed?: string | undefined;
+    author?: string | undefined;
+    bot?: boolean | undefined;
+  },
 ): Record<string, unknown> {
   const [number, verb, value, ...extra] = args;
   if (number === undefined || !/^[1-9]\d*$/.test(number))
@@ -518,17 +542,33 @@ function prBody(
   if (verb === undefined) throw new UsageError('pr needs a verb');
   if (!FAKE_PR_VERBS.includes(verb))
     throw new UsageError(`pr verb must be one of ${FAKE_PR_VERBS.join(', ')}`);
-  if (extra.length > 0 || (verb === 'push') !== (value !== undefined))
-    throw new UsageError(verb === 'push' ? 'push needs one sha' : `${verb} takes no value`);
+  const takesValue = verb === 'push' || verb === 'review';
+  if (extra.length > 0 || takesValue !== (value !== undefined))
+    throw new UsageError(
+      verb === 'push'
+        ? 'push needs one sha'
+        : verb === 'review'
+          ? `review needs one state: ${[...REVIEW_STATES.keys()].join(', ')}`
+          : `${verb} takes no value`,
+    );
+  const state = verb === 'review' && value !== undefined ? REVIEW_STATES.get(value) : undefined;
+  if (verb === 'review' && state === undefined)
+    throw new UsageError(`review state must be one of ${[...REVIEW_STATES.keys()].join(', ')}`);
   if (values.seed !== undefined && verb !== 'create')
     throw new UsageError('--seed goes only with create');
+  const feedback = verb === 'comment' || verb === 'review';
+  if (!feedback && (values.author !== undefined || values.bot !== undefined))
+    throw new UsageError('--author and --bot go only with comment or review');
   return {
     system: 'github',
     verb,
     args: {
       repo: values.repo ?? DEFAULT_FAKE_REPO,
       number: Number(number),
-      ...(value === undefined ? {} : { sha: value }),
+      ...(verb === 'push' ? { sha: value } : {}),
+      ...(state === undefined ? {} : { state }),
+      ...(values.author === undefined ? {} : { author: values.author }),
+      ...(values.bot === true ? { bot: true } : {}),
       ...(values.seed === undefined ? {} : { seed: seedOf(values.seed) }),
     },
   };
@@ -587,6 +627,8 @@ export function fakeBody(
     seed?: string | undefined;
     title?: string | undefined;
     status?: string | undefined;
+    author?: string | undefined;
+    bot?: boolean | undefined;
   },
 ): Record<string, unknown> {
   const [first, kind, ...rest] = positionals;
@@ -597,6 +639,8 @@ export function fakeBody(
     throw new UsageError('--repo goes only with fake github pr or issue');
   if (!pr && values.seed !== undefined)
     throw new UsageError('--seed goes only with fake github pr');
+  if (!pr && (values.author !== undefined || values.bot !== undefined))
+    throw new UsageError('--author and --bot go only with fake github pr');
   if (!issue && !jiraIssue && values.title !== undefined)
     throw new UsageError('--title goes only with fake github issue or fake jira issue');
   if (!jiraIssue && values.status !== undefined)
@@ -679,6 +723,8 @@ async function main(argv: string[]): Promise<number> {
           seed: { type: 'string' },
           title: { type: 'string' },
           status: { type: 'string' },
+          author: { type: 'string' },
+          bot: { type: 'boolean' },
         },
       });
       const body = fakeBody(positionals, values);

@@ -467,6 +467,121 @@ describe('updatedAt', () => {
   });
 });
 
+describe('feedback verbs', () => {
+  const iso = (ms: number): string => new Date(ms).toISOString();
+  const updatedAt = (result: { body: unknown }): number =>
+    Date.parse((result.body as { updatedAt: string }).updatedAt);
+
+  it('adds comments and reviews on the head that reach PrFacts.feedback', async () => {
+    let now = NOW;
+    fakes = githubFakes(() => now);
+    created(1, { headRefOid: SHA });
+    const steps: [string, Record<string, unknown>][] = [
+      ['comment', {}],
+      ['comment', { bot: true }],
+      ['comment', { author: 'carol', bot: true }],
+      ['review', { state: 'CHANGES_REQUESTED' }],
+      ['review', { state: 'COMMENTED', bot: true }],
+      ['review', { state: 'APPROVED', author: 'dave' }],
+    ];
+    let last = NOW;
+    for (const [verb, extra] of steps) {
+      now += 1_000;
+      const result = pr(fakes, 1, verb, extra);
+      expect(result.status).toBe(200);
+      expect(updatedAt(result)).toBeGreaterThan(last);
+      last = updatedAt(result);
+    }
+    const ref = { kind: 'pr' as const, repo: BOARD, number: 1 };
+    const batch = await pollRepo(
+      fakes,
+      BOARD,
+      pollContext({ observe: { prs: [ref], tickets: [], sessions: [] } }),
+      () => now,
+    );
+    const facts = factsOf(batch, 1);
+    const at = (step: number) => iso(NOW + step * 1_000);
+    expect(facts.feedback).toEqual(
+      expect.arrayContaining([
+        {
+          kind: 'comment',
+          id: 'IC_1_0',
+          author: { login: 'stand-reviewer', type: 'user' },
+          postedAt: at(1),
+        },
+        {
+          kind: 'comment',
+          id: 'IC_1_1',
+          author: { login: 'stand-bot', type: 'bot' },
+          postedAt: at(2),
+        },
+        { kind: 'comment', id: 'IC_1_2', author: { login: 'carol', type: 'bot' }, postedAt: at(3) },
+        {
+          kind: 'review',
+          id: 'PRR_1_0',
+          author: { login: 'stand-reviewer', type: 'user' },
+          postedAt: at(4),
+          state: 'changes_requested',
+        },
+        {
+          kind: 'review',
+          id: 'PRR_1_1',
+          author: { login: 'stand-bot', type: 'bot' },
+          postedAt: at(5),
+          state: 'commented',
+        },
+        {
+          kind: 'review',
+          id: 'PRR_1_2',
+          author: { login: 'dave', type: 'user' },
+          postedAt: at(6),
+          state: 'approved',
+        },
+      ]),
+    );
+    expect(facts.feedback).toHaveLength(6);
+    expect(facts.reviews).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ reviewer: 'stand-reviewer', commitSha: SHA }),
+        expect.objectContaining({ reviewer: 'dave', commitSha: SHA }),
+      ]),
+    );
+    expect(facts.reviewRequests).toEqual([]);
+  });
+
+  it.each<[string, string, Record<string, unknown>]>([
+    ['an empty author', 'comment', { author: '' }],
+    ['a non-boolean bot', 'comment', { bot: 'yes' }],
+    ['a missing review state', 'review', {}],
+    ['an unknown review state', 'review', { state: 'DISMISSED' }],
+    ['an unknown field', 'comment', { body: 'hi' }],
+  ])('answers 400 to %s', (_name, verb, extra) => {
+    created(1);
+    expect(pr(fakes, 1, verb, extra).status).toBe(400);
+  });
+
+  it.each<[string, Record<string, unknown>]>([
+    ['comment', {}],
+    ['review', { state: 'APPROVED' }],
+  ])('answers 409 to %s on a merged PR', (verb, extra) => {
+    created(1);
+    expect(pr(fakes, 1, 'merge').status).toBe(200);
+    expect(pr(fakes, 1, verb, extra).status).toBe(409);
+  });
+
+  it('keeps the new entries through state and restore', async () => {
+    created(1);
+    expect(pr(fakes, 1, 'comment').status).toBe(200);
+    expect(pr(fakes, 1, 'review', { state: 'COMMENTED', bot: true }).status).toBe(200);
+    const before = factsOf(await pollRepo(fakes, BOARD), 1);
+    const restored = githubFakes();
+    restored.restore(fakes.state());
+    expect(factsOf(await pollRepo(restored, BOARD), 1).feedback).toEqual(before.feedback);
+    expect(before.feedback).toHaveLength(2);
+    expect(violations(restored)).toEqual([]);
+  });
+});
+
 describe('state and restore', () => {
   it('gives a fresh fake the same pull requests, unaffected by later changes', async () => {
     created(1, { title: 'Seeded' });
