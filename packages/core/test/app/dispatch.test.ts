@@ -1380,6 +1380,35 @@ describe('design flows 2.5 and 2.10', () => {
     ]);
   });
 
+  it('hands over no comment from an incomplete history, then all of them once it is complete', async () => {
+    const ctx = await inDev();
+    const comment = (id: string, minute: number) => ({
+      kind: 'comment' as const,
+      id,
+      author: { login: EXTERNAL, type: 'user' as const },
+      postedAt: at(minute),
+    });
+    // The comment pages broke off: only the newest comment was read.
+    await ctx.pr({ feedback: [comment('c-2', 21)], feedbackComplete: false });
+    await ctx.submit(WORKER, 'T1', A);
+    const gap = await ctx.openTurn();
+    expect(gap).toEqual(
+      turnOf('dev', 'worker', 'dev: external_comments, comment_history_incomplete'),
+    );
+    expect(gap?.handed).toBe('[]');
+    expect('feedbackCursors' in (await ctx.context())).toBe(false);
+
+    await ctx.pr({ feedback: [comment('c-1', 20), comment('c-2', 21)], feedbackComplete: true });
+    await ctx.ack(WORKER, gap?.id ?? '');
+    await ctx.submit(WORKER, gap?.id ?? '', A);
+    const turn = await ctx.openTurn();
+    expect(turn).toEqual(turnOf('dev', 'worker', 'dev: external_comments'));
+    expect(JSON.parse(turn?.handed ?? '[]')).toEqual([
+      { repo: 'o/r', number: 7, kind: 'comment', id: 'c-1', postedAt: at(20) },
+      { repo: 'o/r', number: 7, kind: 'comment', id: 'c-2', postedAt: at(21) },
+    ]);
+  });
+
   it('a turned Dev submit does not handle a comment posted before it', async () => {
     const ctx = await inDev();
     const posted = ctx.at();

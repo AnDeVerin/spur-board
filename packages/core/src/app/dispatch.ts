@@ -496,7 +496,10 @@ async function readInput(
       ? { kind: 'mark', column: row.column, headSha }
       : { kind: 'submit', column: row.column, headSha };
   });
-  const handed = pr === null ? [] : await unhandledFeedback(trx, task, project, pr);
+  const unhandled = pr === null ? [] : await unhandledFeedback(trx, task, project, pr);
+  // A turn hands over no feedback from an incomplete history: its entries would move the cursor
+  // past the unread older ones, and the next poll would stop before them.
+  const handed = pr?.feedbackComplete === true ? unhandled : [];
   const column = mode === 'shadow' ? (task.shadow_column ?? task.column) : task.column;
   const last =
     mode === 'shadow'
@@ -526,7 +529,7 @@ async function readInput(
         pr,
         externalReviewApproved: pr !== null && externalApproval(pr, project.operatorGithubLogin),
         commentHistory: pr?.feedbackComplete === true ? 'complete' : 'incomplete',
-        unhandledExternalComments: handed.length,
+        unhandledExternalComments: unhandled.length,
         marks,
       },
       reopened:
