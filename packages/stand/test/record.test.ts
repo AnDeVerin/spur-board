@@ -19,6 +19,7 @@ import {
   record,
   RECORDING_FILES,
   scan,
+  scanRecordings,
 } from '../src/record.ts';
 
 const NOW = Date.parse('2026-03-04T05:06:07.000Z');
@@ -163,6 +164,10 @@ interface Fixture {
   spurLinks: { label: string; url: string }[];
   /** The Spur 404 body for the probe session. */
   probeBody?: Raw;
+  /** The Jira search answer's tickets, in order. */
+  tickets?: { key: string; status: string }[];
+  /** The live name of the Jira summary field. */
+  summaryName?: string;
 }
 
 function defaultFixture(): Fixture {
@@ -292,7 +297,7 @@ function syntheticLive(fixture: Fixture = defaultFixture()) {
           json([
             {
               id: 'summary',
-              name: 'Summary',
+              name: fixture.summaryName ?? 'Summary',
               custom: false,
               schema: { type: 'string', system: 'summary' },
             },
@@ -311,27 +316,25 @@ function syntheticLive(fixture: Fixture = defaultFixture()) {
         );
       return Promise.resolve(
         json({
-          issues: [
-            {
-              id: '20001',
-              key: 'ACMEX-3',
-              self: `${JIRA}/rest/api/3/issue/20001`,
-              expand: 'acme',
-              fields: {
-                summary: 'Acme summary',
-                status: { name: 'Queued', self: `${JIRA}/rest/api/3/status/1` },
-                assignee: {
-                  accountId: '5b-acme-id',
-                  displayName: 'Jane Doe',
-                  emailAddress: SECRETS.JIRA_EMAIL,
-                },
-                labels: ['team-blue'],
-                updated: '2026-03-04T00:00:00.000+0000',
-                customfield_12345: [{ id: 1, name: 'Acme Sprint 4', state: 'active', boardId: 9 }],
-                customfield_99: 'acme secret',
+          issues: (fixture.tickets ?? [{ key: 'ACMEX-3', status: 'Queued' }]).map((ticket, i) => ({
+            id: String(20_001 + i),
+            key: ticket.key,
+            self: `${JIRA}/rest/api/3/issue/${String(20_001 + i)}`,
+            expand: 'acme',
+            fields: {
+              summary: 'Acme summary',
+              status: { name: ticket.status, self: `${JIRA}/rest/api/3/status/1` },
+              assignee: {
+                accountId: '5b-acme-id',
+                displayName: 'Jane Doe',
+                emailAddress: SECRETS.JIRA_EMAIL,
               },
+              labels: ['team-blue'],
+              updated: '2026-03-04T00:00:00.000+0000',
+              customfield_12345: [{ id: 1, name: 'Acme Sprint 4', state: 'active', boardId: 9 }],
+              customfield_99: 'acme secret',
             },
-          ],
+          })),
           isLast: true,
         }),
       );
@@ -593,7 +596,7 @@ describe('record:fakes', () => {
       slots: {
         links: [
           { label: 'pr', url: 'https://github.com/stand-org/board/pull/7' },
-          { label: 'tracker', url: 'https://jira.stand.invalid/browse/STAND-3' },
+          { label: 'tracker', url: 'https://jira.stand.invalid/browse/STAND-1' },
           {
             label: 'docs',
             url: expect.stringMatching(/^https:\/\/recorded\.invalid\/link-\d+$/) as unknown,
@@ -605,7 +608,7 @@ describe('record:fakes', () => {
     expect(session?.['branch']).toBe(pr['headRefName']);
 
     const jira = result.read('jira:stand-jira');
-    expect(jira['tracker']).toEqual({ doneStatuses: ['Shipped'], readyStatuses: ['Queued'] });
+    expect(jira['tracker']).toEqual({ doneStatuses: ['Done'], readyStatuses: ['Ready for Dev'] });
     const [statuses, fields, search] = exchanges(jira);
     expect(statuses?.request.url).toBe(
       'https://jira.stand.invalid/rest/api/3/project/STAND/statuses',
@@ -626,7 +629,7 @@ describe('record:fakes', () => {
     const [ticket] = (search?.response.body as { issues: Raw[] }).issues;
     expect(ticket?.['id']).toMatch(/^99\d{5}$/);
     expect(ticket).toMatchObject({
-      key: 'STAND-3',
+      key: 'STAND-1',
       self: `https://jira.stand.invalid/rest/api/3/issue/${String(ticket?.['id'])}`,
       fields: {
         assignee: {
@@ -664,11 +667,11 @@ describe('record:fakes', () => {
   });
 
   it('refuses output that still holds a live value', async () => {
-    const fixture = { ...defaultFixture(), statuses: ['Queued', 'Shipped', 'Acme-Real review'] };
+    const fixture = { ...defaultFixture(), summaryName: 'Acme-Real summary' };
     const result = await run(liveConfig(), fixture);
     expect(result.code).toBe(1);
     expect(result.errors).toContain('jira/stand-jira.json');
-    expect(result.errors).toContain('exchanges[0].response.body[0].statuses[2].name');
+    expect(result.errors).toContain('exchanges[1].response.body[0].name');
     expect(result.errors).toContain('rule 2');
     expect(result.errors).not.toMatch(/acme/i);
     expect(existsSync(result.outDir)).toBe(false);
@@ -789,11 +792,118 @@ describe('record:fakes', () => {
   });
 
   it('refuses a short live name as a whole kept value', async () => {
-    const fixture = { ...defaultFixture(), statuses: ['Queued', 'Shipped', 'OID'] };
+    const fixture = { ...defaultFixture(), summaryName: 'OID' };
     const result = await run(liveConfig(['oid', 'acme-dev']), fixture);
     expect(result.code).toBe(1);
-    expect(result.errors).toContain('exchanges[0].response.body[0].statuses[2].name');
+    expect(result.errors).toContain('exchanges[1].response.body[0].name');
     expect(result.errors).toContain('rule 3');
     expect(existsSync(result.outDir)).toBe(false);
+  });
+
+  it('maps live Jira status names and key numbers to stand ones', async () => {
+    const config = liveConfig();
+    Object.assign(projects(config)[0]?.['tracker'] as Raw, {
+      doneStatuses: ['Shipped', 'Closed'],
+      readyStatuses: ['Queued'],
+    });
+    const live = ['Triage', 'Queued', 'Coding', 'Shipped', 'Closed', 'Peer check', 'Acme gate'];
+    const fixture = {
+      ...defaultFixture(),
+      statuses: live,
+      tickets: [
+        { key: 'ACMEX-41', status: 'Peer check' },
+        { key: 'ACMEX-3', status: 'Acme gate' },
+      ],
+    };
+    const result = await run(config, fixture);
+    expect(result.errors).toBe('');
+    expect(result.code).toBe(0);
+    const jira = result.read('jira:stand-jira');
+    expect(jira['tracker']).toEqual({ doneStatuses: ['Done'], readyStatuses: ['Ready for Dev'] });
+    const [statuses, , search] = exchanges(jira);
+    const [type] = statuses?.response.body as { statuses: { name: string }[] }[];
+    expect(type?.statuses.map(({ name }) => name)).toEqual([
+      'To Do',
+      'Ready for Dev',
+      'In Progress',
+      'Done',
+      'Done',
+      'In Review',
+      'Status 1',
+    ]);
+    const tickets = (search?.response.body as { issues: Raw[] }).issues;
+    expect(tickets.map((ticket) => ticket['key'])).toEqual(['STAND-1', 'STAND-2']);
+    expect(tickets.map((ticket) => (ticket['fields'] as { status: Raw }).status)).toEqual([
+      { name: 'In Review' },
+      { name: 'Status 1' },
+    ]);
+    // The Spur link names the live ACMEX-3, the second key the Jira answer holds.
+    const [spurList] = exchanges(result.read('spur'));
+    const [session] = spurList?.response.body as { slots: { links: Raw[] } }[];
+    expect(session?.slots.links[1]).toEqual({
+      label: 'tracker',
+      url: 'https://jira.stand.invalid/browse/STAND-2',
+    });
+    const text = result.texts().join('\n');
+    for (const name of live) expect(text).not.toContain(`"${name}"`);
+    for (const key of ['STAND-3', 'STAND-41', 'ACMEX']) expect(text).not.toContain(key);
+  });
+
+  it('refuses a Jira status name or key outside the stand set', () => {
+    const needles = needlesOf(configSchema.parse(liveConfig()), SECRETS);
+    const shape = 'rule 4 (shape)';
+    const statuses = (name: string) => ({
+      exchanges: [{ response: { body: [{ statuses: [{ name: 'Done' }, { name }] }] } }],
+    });
+    expect(scan(statuses('Shipped'), needles, 'jira')).toEqual({
+      path: '$.exchanges[0].response.body[0].statuses[1].name',
+      rule: shape,
+    });
+    expect(scan(statuses('Status 2'), needles, 'jira')).toBeUndefined();
+    expect(scan(statuses('In Review'), needles, 'jira')).toBeUndefined();
+    expect(
+      scan(
+        {
+          exchanges: [{ response: { body: { issues: [{ fields: { status: { name: 'QA' } } }] } } }],
+        },
+        needles,
+        'jira',
+      ),
+    ).toEqual({ path: '$.exchanges[0].response.body.issues[0].fields.status.name', rule: shape });
+    expect(
+      scan({ tracker: { doneStatuses: ['Done'], readyStatuses: ['Queued'] } }, needles, 'jira'),
+    ).toEqual({ path: '$.tracker.readyStatuses[0]', rule: shape });
+
+    const jira = (keys: string[]) =>
+      new Map<string, unknown>([
+        [
+          'jira:stand-jira',
+          { exchanges: [{ response: { body: { issues: keys.map((key) => ({ key })) } } }] },
+        ],
+      ]);
+    expect(scanRecordings(jira(['STAND-2', 'STAND-1', 'STAND-2']), needles)).toBeUndefined();
+    expect(scanRecordings(jira(['STAND-1', 'STAND-41']), needles)).toEqual({
+      file: 'jira/stand-jira.json',
+      path: '$.exchanges[0].response.body.issues[1].key',
+      rule: shape,
+    });
+    expect(scanRecordings(jira(['STAND-1', 'ACMEX-2']), needles)).toMatchObject({
+      path: '$.exchanges[0].response.body.issues[1].key',
+    });
+    // A key in a link of another system counts towards the same 1..N.
+    const spur = {
+      exchanges: [
+        {
+          response: {
+            body: [{ slots: { links: [{ url: 'https://jira.stand.invalid/browse/STAND-7' }] } }],
+          },
+        },
+      ],
+    };
+    expect(scanRecordings(new Map([...jira(['STAND-1']), ['spur', spur]]), needles)).toEqual({
+      file: 'spur/sessions.json',
+      path: '$.exchanges[0].response.body[0].slots.links[0].url',
+      rule: shape,
+    });
   });
 });

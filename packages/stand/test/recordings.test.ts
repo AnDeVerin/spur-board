@@ -203,10 +203,9 @@ function prPlan(recording: Recording): PrPlan {
   return plan;
 }
 
-function jiraStatus(status: Json | undefined, tracker: Recording['tracker']): string {
+/** The recorder writes the fake's status names, or `Status <n>` past them: those start at To Do. */
+function jiraStatus(status: Json | undefined): string {
   const name = text(status);
-  if (tracker?.doneStatuses.includes(name) === true) return 'Done';
-  if (tracker?.readyStatuses.includes(name) === true) return 'Ready for Dev';
   return (JIRA_STATUSES as readonly string[]).includes(name) ? name : 'To Do';
 }
 
@@ -309,7 +308,7 @@ function seededFakes() {
             {
               key: ticket['key'] ?? null,
               title: at(ticket, 'fields', 'summary') ?? null,
-              status: jiraStatus(at(ticket, 'fields', 'status', 'name'), recording.tracker),
+              status: jiraStatus(at(ticket, 'fields', 'status', 'name')),
             },
             text(ticket['key']),
           );

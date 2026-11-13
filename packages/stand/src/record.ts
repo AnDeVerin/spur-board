@@ -13,7 +13,7 @@ import { configSchema, DEFAULT_LINK, type Config } from '@spur-board/contracts';
 import { loadConfig, resolvePaths, type Paths } from '@spur-board/daemon/in-process';
 import { Kind, parse, type OperationDefinitionNode, type SelectionSetNode } from 'graphql';
 import { z } from 'zod';
-import { SPRINT_FIELD } from './fakes/jira.ts';
+import { SPRINT_FIELD, STATUSES } from './fakes/jira.ts';
 import { standConfig } from './stand.ts';
 
 type Env = Readonly<Record<string, string | undefined>>;
@@ -53,7 +53,14 @@ const STAND = {
   key: standJira.tracker.projectKeys[0] ?? '',
   login: standIssues.operatorGithubLogin,
   spurBase: stand.adapters.spur.baseUrl,
+  done: standJira.tracker.doneStatuses[0] ?? '',
+  ready: standJira.tracker.readyStatuses[0] ?? '',
 };
+/** The fake's statuses a live status with no done or ready role takes, in first-seen order. */
+const OTHER_STATUSES = STATUSES.filter((name) => name !== STAND.done && name !== STAND.ready);
+/** A status name a recording may hold: the fake's, or the generic one past them. */
+const isStandStatus = (name: string): boolean =>
+  (STATUSES as readonly string[]).includes(name) || /^Status \d+$/.test(name);
 
 /** The five files, by stand source id. */
 export const RECORDING_FILES: Readonly<Record<string, string>> = {
@@ -312,6 +319,7 @@ const CATEGORIES = {
   team: (n: number) => `recorded-team-${String(n)}`,
   type: (n: number) => `recorded-type-${String(n)}`,
   instance: (n: number) => `recorded-instance-${String(n)}`,
+  jiraKey: (n: number) => `${STAND.key}-${String(n)}`,
   repo: (n: number) => `recorded-org/recorded-repo-${String(n)}`,
   link: (n: number) => `https://recorded.invalid/link-${String(n)}`,
   cursor: (n: number) => `recorded-cursor-${String(n)}`,
@@ -345,6 +353,8 @@ class Scrubber {
   private readonly logins: Set<string>;
   private readonly key: string;
   private readonly jiraHost: string;
+  /** Live Jira status name -> stand name, numbered in the order the answers show them. */
+  private readonly statuses = new Map<string, string>();
   /** The live Jira sprint field id, once `/field` answered. */
   sprintField: string | undefined;
 
@@ -377,12 +387,39 @@ class Scrubber {
     return this.text(value, path, (key) => this.standKey(key, path));
   }
 
-  /** `<LIVEKEY>-<n>` as `STAND-<n>`; a key of any other project is refused. */
-  standKey(key: string, path: string): string {
+  /**
+   * `<LIVEKEY>-<n>` as a pending `STAND-<i>`, numbered first-seen with the other placeholders, so
+   * no live issue number is written; `wrap` puts it into a URL. A key of another project is refused.
+   */
+  standKey(key: string, path: string, wrap?: (standKey: string) => string): Pending {
     const match = /^([A-Za-z][A-Za-z0-9_]*)-([1-9]\d*)$/.exec(key);
     if (match?.[1] !== this.key)
       throw new Refusal(`A Jira key at ${path} is outside the configured project key.`);
-    return `${STAND.key}-${match[2] ?? ''}`;
+    return new Pending('jiraKey', match[2] ?? '', wrap);
+  }
+
+  /**
+   * A live Jira status as a stand one: a done status as the stand's done, a ready one as its
+   * ready, any other as the fake's next unused status, then `Status <n>`. One name, one mapping.
+   */
+  standStatus(name: string): string {
+    let mapped = this.statuses.get(name);
+    if (mapped === undefined) {
+      if (this.live.jira.doneStatuses.includes(name)) mapped = STAND.done;
+      else if (this.live.jira.readyStatuses.includes(name)) mapped = STAND.ready;
+      else {
+        const used = [...this.statuses.values()].filter(
+          (value) => value !== STAND.done && value !== STAND.ready,
+        ).length;
+        mapped = OTHER_STATUSES[used] ?? `Status ${String(used - OTHER_STATUSES.length + 1)}`;
+      }
+      this.statuses.set(name, mapped);
+    }
+    return mapped;
+  }
+
+  status(value: unknown, path: string): Draft {
+    return this.text(value, path, (name) => this.standStatus(name));
   }
 
   url(value: unknown, path: string): Draft {
@@ -406,7 +443,8 @@ class Scrubber {
       }
       if (url.host === this.jiraHost && url.search === '' && url.hash === '') {
         const browse = /^\/browse\/([A-Za-z][A-Za-z0-9_]*-[1-9]\d*)$/.exec(url.pathname)?.[1];
-        if (browse !== undefined) return `${STAND.jiraBase}/browse/${this.standKey(browse, path)}`;
+        if (browse !== undefined)
+          return this.standKey(browse, path, (key) => `${STAND.jiraBase}/browse/${key}`);
         const issue = /^\/rest\/api\/3\/issue\/([1-9]\d*)$/.exec(url.pathname)?.[1];
         if (issue !== undefined)
           return new Pending('jiraId', issue, (p) => `${STAND.jiraBase}/rest/api/3/issue/${p}`);
@@ -445,22 +483,26 @@ class Scrubber {
 
   // Requests ----------------------------------------------------------------------------------
 
-  requestUrl(system: System, url: URL): string {
+  requestUrl(system: System, url: URL): Draft {
     if (system === 'spur')
       return new URL(
         url.pathname.slice(this.live.spurBase.pathname.length) + url.search,
         `${STAND.spurBase.replace(/\/$/, '')}/`,
       ).href;
     if (system === 'jira') {
-      const path = url.pathname
-        .replace(
-          /^\/rest\/api\/3\/project\/[^/]+\/statuses$/,
-          `/rest/api/3/project/${STAND.key}/statuses`,
-        )
-        .replace(
-          /^\/rest\/api\/3\/issue\/([A-Za-z][A-Za-z0-9_]*-[1-9]\d*)$/,
-          (_all, key: string) => `/rest/api/3/issue/${this.standKey(key, 'request.url')}`,
+      const key = /^\/rest\/api\/3\/issue\/([A-Za-z][A-Za-z0-9_]*-[1-9]\d*)$/.exec(
+        url.pathname,
+      )?.[1];
+      if (key !== undefined)
+        return this.standKey(
+          key,
+          'request.url',
+          (standKey) => `${STAND.jiraBase}/rest/api/3/issue/${standKey}${url.search}`,
         );
+      const path = url.pathname.replace(
+        /^\/rest\/api\/3\/project\/[^/]+\/statuses$/,
+        `/rest/api/3/project/${STAND.key}/statuses`,
+      );
       return `${STAND.jiraBase}${path}${url.search}`;
     }
     if (system === 'github-issues') {
@@ -592,7 +634,7 @@ class Scrubber {
               return isObject(status)
                 ? {
                     id: this.placeholder('jiraId')(status['id'], `${where}.id`),
-                    name: this.scalar(status['name'], `${where}.name`),
+                    name: this.status(status['name'], `${where}.name`),
                   }
                 : this.scalar(status, where);
             })
@@ -663,7 +705,7 @@ class Scrubber {
       projected['summary'] = this.placeholder('title')(fields['summary'], `${at}.summary`);
     const status = fields['status'];
     if (isObject(status))
-      projected['status'] = { name: this.scalar(status['name'], `${at}.status.name`) };
+      projected['status'] = { name: this.status(status['name'], `${at}.status.name`) };
     else if ('status' in fields) projected['status'] = this.scalar(status, `${at}.status`);
     const assignee = fields['assignee'];
     if (isObject(assignee)) {
@@ -932,8 +974,30 @@ interface Hit {
   rule: string;
 }
 
-/** The first leak in `recording` by the four rules, or undefined. Never returns the value. */
-export function scan(recording: unknown, needles: Needles, system: System): Hit | undefined {
+const SHAPE = 'rule 4 (shape)';
+/** Where a Jira status name stands: the statuses answer, an issue's status, the tracker lists. */
+const STATUS_PATH =
+  /(\.statuses\[\d+\]\.name|\.fields\.status\.name|^\$\.tracker\.(doneStatuses|readyStatuses)\[\d+\])$/;
+const STAND_KEY = new RegExp(`^${STAND.key}-(\\d+)$`);
+/** A Jira issue reference in a stand Jira URL: `/browse/<key>` or `/rest/api/3/issue/<id or key>`. */
+const JIRA_REF = /^\/(browse|rest\/api\/3\/issue)\/([^/]+)$/;
+
+/** A Jira key the scan saw, for the 1..N check across all recordings of a run. */
+interface KeySeen {
+  n: number;
+  path: string;
+}
+
+/**
+ * The first leak in `recording` by the four rules, or undefined. Never returns the value. Every
+ * stand Jira key it passes goes into `keys`.
+ */
+export function scan(
+  recording: unknown,
+  needles: Needles,
+  system: System,
+  keys: KeySeen[] = [],
+): Hit | undefined {
   const words = needles.words.map(
     (needle) => new RegExp(`(?<![a-z0-9])${escapeRegex(needle)}(?![a-z0-9])`, 'i'),
   );
@@ -944,22 +1008,35 @@ export function scan(recording: unknown, needles: Needles, system: System): Hit 
   const rule2 = (text: string): boolean => words.some((word) => word.test(text));
   const rule3 = (text: string): boolean => needles.shorts.includes(text.toLowerCase());
 
-  function rule4(key: string, value: string): boolean {
+  /** Whether `text` is not a stand Jira key; a stand key is kept for the 1..N check. */
+  function notStandKey(text: string, path: string): boolean {
+    const n = STAND_KEY.exec(text)?.[1];
+    if (n === undefined) return true;
+    keys.push({ n: Number(n), path });
+    return false;
+  }
+
+  function rule4(key: string, value: string, path: string): boolean {
     const id = syntheticId(system, key);
     if (id !== undefined) return !id(value);
     if (ANY_SHA.test(value)) return !SYNTHETIC.sha.test(value);
     if (key === 'project' && system === 'spur') return !/^recorded-project-\d+$/.test(value);
     if (key === 'login') return value !== STAND.login && !/^recorded-user-\d+$/.test(value);
-    if (key === 'key' && system === 'jira') return !new RegExp(`^${STAND.key}-\\d+$`).test(value);
+    if (key === 'key' && system === 'jira') return notStandKey(value, path);
+    if (system === 'jira' && STATUS_PATH.test(path)) return !isStandStatus(value);
     let url: URL | undefined;
     try {
       url = /^https?:\/\//i.test(value) ? new URL(value) : undefined;
     } catch {
       url = undefined;
     }
-    const jiraIssue = /^\/rest\/api\/3\/issue\/(\d+)$/.exec(url?.pathname ?? '')?.[1];
-    if (url?.origin === new URL(STAND.jiraBase).origin && jiraIssue !== undefined)
-      return !SYNTHETIC.jiraId.test(jiraIssue);
+    const jiraRef =
+      url?.origin === new URL(STAND.jiraBase).origin ? JIRA_REF.exec(url.pathname) : null;
+    if (jiraRef !== null) {
+      const [, kind, ref = ''] = jiraRef;
+      if (kind !== 'browse' && /^\d+$/.test(ref)) return !SYNTHETIC.jiraId.test(ref);
+      return notStandKey(ref, path);
+    }
     if (url?.host === 'github.com')
       return !/^\/(stand-org\/(board|service)|recorded-org\/recorded-repo-\d+)(\/|$)/.test(
         url.pathname,
@@ -974,7 +1051,7 @@ export function scan(recording: unknown, needles: Needles, system: System): Hit 
       if (rule1(text)) return { path: at, rule: 'rule 1 (substring)' };
       if (!opaque && !isQuery && rule2(text)) return { path: at, rule: 'rule 2 (word)' };
       if (asValue && rule3(text)) return { path: at, rule: 'rule 3 (whole value)' };
-      if (asValue && rule4(key, text)) return { path: at, rule: 'rule 4 (shape)' };
+      if (asValue && rule4(key, text, at)) return { path: at, rule: SHAPE };
       return undefined;
     };
     if (typeof value === 'string') return check(value, true, path);
@@ -1096,7 +1173,7 @@ function requestHeaders(headers: Headers): Record<string, string> {
 
 interface DraftRecording {
   source: string;
-  exchanges: { request: Json; response: Draft }[];
+  exchanges: { request: Draft; response: Draft }[];
 }
 
 const hasDetailNode = (recording: Recording): boolean =>
@@ -1246,7 +1323,7 @@ async function recordOrRefuse(
       headers: draftHeaders(exchange.responseHeaders),
       body: draftResponse(scrubber, system, exchange, at),
     };
-    const request: Json = {
+    const request: Draft = {
       method: exchange.method,
       url: scrubber.requestUrl(system, exchange.url),
       headers: requestHeaders(exchange.headers),
@@ -1267,8 +1344,12 @@ async function recordOrRefuse(
       ...(source === `jira:${STAND.jiraId}`
         ? {
             tracker: {
-              doneStatuses: [...live.jira.doneStatuses],
-              readyStatuses: [...live.jira.readyStatuses],
+              doneStatuses: [
+                ...new Set(live.jira.doneStatuses.map((n) => scrubber.standStatus(n))),
+              ],
+              readyStatuses: [
+                ...new Set(live.jira.readyStatuses.map((n) => scrubber.standStatus(n))),
+              ],
             },
           }
         : {}),
@@ -1300,14 +1381,34 @@ export const systemOfSource = (source: string): System =>
         ? 'github-issues'
         : 'github-pr';
 
-function checkAll(recordings: ReadonlyMap<string, Recording>, needles: Needles): void {
+/**
+ * The first leak in a run's recordings, by source id, or undefined: `scan` over each, then rule 4
+ * over the Jira keys of all of them, which must number 1..N as the recorder numbers them.
+ */
+export function scanRecordings(
+  recordings: ReadonlyMap<string, unknown>,
+  needles: Needles,
+): (Hit & { file: string }) | undefined {
+  const keys: (KeySeen & { file: string })[] = [];
   for (const [source, recording] of recordings) {
-    const hit = scan(recording, needles, systemOfSource(source));
-    if (hit !== undefined)
-      throw new Refusal(
-        `${RECORDING_FILES[source] ?? source} holds a live value at ${hit.path} by ${hit.rule}.`,
-      );
+    const file = RECORDING_FILES[source] ?? source;
+    const seen: KeySeen[] = [];
+    const hit = scan(recording, needles, systemOfSource(source), seen);
+    if (hit !== undefined) return { file, ...hit };
+    keys.push(...seen.map((key) => ({ file, ...key })));
   }
+  // N distinct numbers all within 1..N are exactly 1..N.
+  const count = new Set(keys.map(({ n }) => n)).size;
+  const outside = keys.find(({ n }) => n < 1 || n > count);
+  return outside === undefined
+    ? undefined
+    : { file: outside.file, path: outside.path, rule: SHAPE };
+}
+
+function checkAll(recordings: ReadonlyMap<string, Recording>, needles: Needles): void {
+  const hit = scanRecordings(recordings, needles);
+  if (hit !== undefined)
+    throw new Refusal(`${hit.file} holds a live value at ${hit.path} by ${hit.rule}.`);
 }
 
 /** `--check`: the same scan, offline, over the committed files. Returns the exit code. */
