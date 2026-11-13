@@ -384,17 +384,18 @@ export function tokenAttentionLine(
   attention: TokenAttention,
   unusedAfterDays: number,
 ): string | null {
-  const groups = [
-    { label: 'no token file', names: attention.fileMissing },
-    { label: `unused for ${String(unusedAfterDays)}+ days`, names: attention.unused },
-  ];
   const total = attention.fileMissing.length + attention.unused.length;
   if (total === 0) return null;
   const head = `${String(total)} operator ${total === 1 ? 'token needs' : 'tokens need'} attention (revoke any that nothing uses with \`board token revoke <name>\`)`;
-  const printable = groups.map(({ label, names }) => ({
-    label,
-    names: names.filter((name) => tokenRequestSchema.shape.name.safeParse(name).success),
-  }));
+  const printableNames = (names: string[]) =>
+    names.filter((name) => tokenRequestSchema.shape.name.safeParse(name).success);
+  const printable = [
+    { label: 'no token file', names: printableNames(attention.fileMissing) },
+    {
+      label: `unused for ${String(unusedAfterDays)}+ days`,
+      names: printableNames(attention.unused),
+    },
+  ];
   const named = printable.reduce((n, group) => n + group.names.length, 0);
   for (let shown = named; shown > 0; shown -= 1) {
     let left = shown;
