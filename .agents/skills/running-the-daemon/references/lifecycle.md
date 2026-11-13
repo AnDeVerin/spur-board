@@ -31,7 +31,7 @@
   `describe('ready hooks')`).
 - `board-adapters` uses `startAdapters`; the runner owns per-source timers, backoff and aborts
   (`PollContext.signal`, A7 in `packages/contracts/src/adapters.ts`). Adapters never retry on
-  their own (A6). Register it with `stopStage: 'pollers'`; await `runner.stop()` on stop.
+  their own (A6), except the GitHub PR poll's chunk halving. Register it with `stopStage: 'pollers'`; await `runner.stop()` on stop.
 - A poller is a `createJob`. Register it with `stopStage: 'pollers'`.
 - Inbound recovers, then scans every five minutes; serialize scans and live events through core.
   Start the gateway with its sink only with `SLACK_APP_TOKEN`; otherwise log. Stop inbound
