@@ -995,10 +995,26 @@ describe('mode switch', () => {
     await ctx.tick();
     await ctx.github();
     expect((await ctx.task()).column).toBe('review');
+    const turn = await ctx.openTurn();
+    expect(turn).not.toBeNull();
+    const unackedTurnBells = () =>
+      ctx.store.db
+        .selectFrom('notification')
+        .select('id')
+        .where('kind', 'in', ['turn', 'turn_reminder'])
+        .where('acked_at', 'is', null)
+        .execute();
+    expect(await unackedTurnBells()).not.toEqual([]);
 
     ctx.restart({ mode: 'shadow' });
     await ctx.tick();
     expect(await ctx.task()).toMatchObject({ column: 'review', shadow_column: null });
+    // The turn left from `on` is closed with its ring, so it cannot move the real column.
+    expect(await ctx.openTurn()).toBeNull();
+    expect(
+      (await ctx.turns()).find((row) => `T${String(row.id)}` === turn?.id)?.closed_reason,
+    ).toBe('moved');
+    expect(await unackedTurnBells()).toEqual([]);
     expect((await ctx.events('dispatcher_mode_changed')).map((event) => event.payload)).toEqual([
       { from: 'shadow', to: 'on' },
       { from: 'on', to: 'shadow' },

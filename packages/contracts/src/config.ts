@@ -317,7 +317,7 @@ const projectSchema = z
       })
       .prefault({})
       .describe(
-        'How the board moves tasks between columns. The board records the mode it last ran with. The daemon reads the mode at start, so a change takes effect after a restart; a switch from shadow to on copies the shadow column of each task into its column, and a switch back to shadow starts the shadow column from the column again.',
+        'How the board moves tasks between columns. The board records the mode it last ran with. The daemon reads the mode at start, so a change takes effect after a restart; a switch from shadow to on copies the shadow column of each task into its column, and a switch back to shadow closes the open turns and starts the shadow column from the column again.',
       ),
   })
   .superRefine((project, ctx) => {

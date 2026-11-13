@@ -180,8 +180,9 @@ export async function moveLeft(
 
 /**
  * Applies a changed dispatcher mode of each project, as stored in `meta`. A first run only stores
- * the mode. A switch to `on` copies each task's shadow column into its column as a new visit;
- * either switch then clears the shadow column and journals `dispatcher_mode_changed`.
+ * the mode. A switch to `on` copies each task's shadow column into its column as a new visit; a
+ * switch to `shadow` closes the project's unclosed turns. Either switch then clears the shadow
+ * column and journals `dispatcher_mode_changed`.
  */
 async function syncModes(trx: Trx, config: Config, at: Date): Promise<void> {
   for (const project of config.projects) {
@@ -228,6 +229,19 @@ async function syncModes(trx: Trx, config: Config, at: Date): Promise<void> {
           reason: 'mode_changed',
         });
       }
+    } else {
+      // Shadow mode hands out no turns, so a turn left from `on` must not move the real column.
+      const open = await trx
+        .selectFrom('turn')
+        .innerJoin('task', 'task.id', 'turn.task_id')
+        .select('turn.task_id')
+        .distinct()
+        .where('task.project', '=', project.id)
+        .where('turn.closed_at', 'is', null)
+        .orderBy('turn.task_id')
+        .execute();
+      for (const { task_id } of open)
+        await closeTurns(trx, { taskId: task_id, reason: 'moved', at });
     }
     await trx
       .updateTable('task')
