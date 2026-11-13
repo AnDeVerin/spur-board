@@ -1,4 +1,13 @@
-import { cpSync, existsSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  cpSync,
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
@@ -285,6 +294,27 @@ describe('copyDatabase', () => {
       copyDatabase(source, join(dir, 'sub', '..', 'board.sqlite'));
     }).toThrow(/onto itself/);
     expect(read(source).rows).toEqual(['a']);
+    expect(partials(dir)).toEqual([]);
+  });
+
+  it('C8: writes the copy owner-only under umask 022 over a 0644 target', () => {
+    const dir = tempDir();
+    chmodSync(dir, 0o755);
+    const source = join(dir, 'board.sqlite');
+    walDatabase(source, ['a']);
+    const target = join(dir, 'copy.sqlite');
+    copyDatabase(source, target);
+    chmodSync(target, 0o644);
+
+    const previous = process.umask(0o022);
+    try {
+      copyDatabase(source, target);
+    } finally {
+      process.umask(previous);
+    }
+
+    expect(statSync(target).mode & 0o777).toBe(0o600);
+    expect(read(target).rows).toEqual(['a']);
     expect(partials(dir)).toEqual([]);
   });
 });

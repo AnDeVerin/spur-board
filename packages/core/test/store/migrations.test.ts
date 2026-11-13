@@ -1,5 +1,13 @@
 import { createHash } from 'node:crypto';
-import { mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -7,7 +15,13 @@ import Database from 'better-sqlite3';
 import { Kysely, SqliteDialect } from 'kysely';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { Tables } from '../../src/index.ts';
-import { migrate, migrationsDir, readMigrations, type Migration } from '../../src/store/migrate.ts';
+import {
+  KEEP_BACKUPS,
+  migrate,
+  migrationsDir,
+  readMigrations,
+  type Migration,
+} from '../../src/store/migrate.ts';
 import { openDatabase, openStore } from '../../src/store/store.ts';
 import { insertSampleRows, sampleRows, tableNames } from './sample-rows.ts';
 
@@ -134,6 +148,35 @@ function without(row: object, columns: string[]): Record<string, unknown> {
 
 function backups(dir: string): string[] {
   return readdirSync(dir).filter((name) => name.endsWith('.bak'));
+}
+
+/** Migration backups of `board.db`, exactly as `migrate` names them. */
+function boardBackups(dir: string): string[] {
+  return readdirSync(dir)
+    .filter((name) => /^board\.db\.v\d+\.\d{8}T\d{9}Z\.bak$/.test(name))
+    .sort();
+}
+
+/** `count` synthetic migrations after the real chain, each adding one table. */
+function steps(count: number): Migration[] {
+  return Array.from({ length: count }, (_, i) => ({
+    version: latest + 1 + i,
+    name: `${prefix(latest + 1 + i)}_step_${String(i)}`,
+    sql: `CREATE TABLE step_${String(i)} (id INTEGER PRIMARY KEY) STRICT;`,
+  }));
+}
+
+function mode(file: string): number {
+  return statSync(file).mode & 0o777;
+}
+
+function withUmask<T>(mask: number, fn: () => T): T {
+  const previous = process.umask(mask);
+  try {
+    return fn();
+  } finally {
+    process.umask(previous);
+  }
 }
 
 function sha256(bytes: Buffer): string {
@@ -574,6 +617,57 @@ describe('migrate', () => {
     const copy = new Database(join(dir, backups(dir)[0] ?? ''), { readonly: true });
     cleanup.push(() => copy.close());
     expect(copy.prepare('SELECT x FROM stray').pluck().all()).toEqual([1]);
+  });
+
+  it('keeps only the newest KEEP_BACKUPS backups after repeated upgrades', async () => {
+    const dir = tempDir();
+    chmodSync(dir, 0o755);
+    const { raw, db } = rawDb(join(dir, 'board.db'));
+    migrate(raw, real);
+    await insertSampleRows(db);
+    const decoys = [
+      'board.db.v1.20200101T000000000Z.bak.partial',
+      'other.db.v1.20200101T000000000Z.bak',
+      'board.db.v1.x.bak',
+    ];
+    for (const name of decoys) writeFileSync(join(dir, name), 'decoy');
+    const chain = steps(KEEP_BACKUPS + 2);
+
+    let last: string | null = null;
+    withUmask(0o022, () => {
+      for (let i = 1; i <= chain.length; i++) {
+        last = migrate(raw, [...real, ...chain.slice(0, i)]).backup;
+      }
+    });
+
+    const kept = boardBackups(dir);
+    const versions = kept
+      .map((name) => Number(/^board\.db\.v(\d+)\./.exec(name)?.[1]))
+      .sort((a, b) => a - b);
+    expect(versions).toEqual(
+      Array.from({ length: KEEP_BACKUPS }, (_, i) => latest + chain.length - KEEP_BACKUPS + i),
+    );
+    expect(last).not.toBeNull();
+    expect(kept.map((name) => join(dir, name))).toContain(last);
+    for (const name of kept) expect(mode(join(dir, name))).toBe(0o600);
+    for (const name of decoys) expect(existsSync(join(dir, name))).toBe(true);
+  });
+
+  it('never prunes the backup it just wrote when older backups carry later stamps', async () => {
+    const dir = tempDir();
+    const { raw, db } = rawDb(join(dir, 'board.db'));
+    migrate(raw, real);
+    await insertSampleRows(db);
+    const future = (k: number): string => `board.db.v1.2999010${String(k)}T000000000Z.bak`;
+    for (let k = 1; k <= KEEP_BACKUPS; k++) writeFileSync(join(dir, future(k)), 'old');
+
+    const result = migrate(raw, [...real, ...steps(1)]);
+
+    expect(result.backup).not.toBeNull();
+    expect(existsSync(result.backup ?? '')).toBe(true);
+    expect(boardBackups(dir)).toHaveLength(KEEP_BACKUPS);
+    expect(existsSync(join(dir, future(1)))).toBe(false);
+    for (let k = 2; k <= KEEP_BACKUPS; k++) expect(existsSync(join(dir, future(k)))).toBe(true);
   });
 
   it('rejects a gap or a misnamed migration file', () => {

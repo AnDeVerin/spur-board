@@ -1,4 +1,4 @@
-import { mkdtempSync } from 'node:fs';
+import { chmodSync, mkdtempSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { LINK_SOURCES, SESSION_LINK_ROLES } from '@spur-board/contracts';
@@ -7,6 +7,8 @@ import { sql, type Insertable } from 'kysely';
 import { afterEach, describe, expect, it } from 'vitest';
 import { z, ZodError } from 'zod';
 import { openStore, parseJson, toJson, type Store, type Tables } from '../../src/index.ts';
+import { migrate, migrationsDir, readMigrations } from '../../src/store/migrate.ts';
+import { openDatabase } from '../../src/store/store.ts';
 import { insertSampleRows, sampleRows, tableNames } from './sample-rows.ts';
 
 const open: Store[] = [];
@@ -27,7 +29,50 @@ async function pragma(store: Store, name: string): Promise<unknown> {
   return Object.values(rows[0] ?? {})[0];
 }
 
+function mode(file: string): number {
+  return statSync(file).mode & 0o777;
+}
+
 describe('openStore', () => {
+  it('keeps the database, its WAL and SHM files and its backups owner-only under umask 022 in a 0755 directory', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'core-store-'));
+    chmodSync(dir, 0o755);
+    const previous = process.umask(0o022);
+    try {
+      // A new file: SQLite would create it and its sidecars 0644 under this umask.
+      const fresh = join(dir, 'fresh.db');
+      const store = openStore(fresh);
+      await insertSampleRows(store.db);
+      // Before close: closing the last connection deletes -wal and -shm.
+      for (const file of [fresh, `${fresh}-wal`, `${fresh}-shm`]) expect(mode(file)).toBe(0o600);
+      await store.close();
+
+      // An existing database whose files are all 0644, held open so -wal and -shm stay.
+      const file = join(dir, 'board.db');
+      const raw = openDatabase(file);
+      try {
+        migrate(raw, readMigrations(migrationsDir));
+        raw.exec('CREATE TABLE extra (x INTEGER); INSERT INTO extra VALUES (1);');
+        const backup = join(dir, 'board.db.v1.20200101T000000000Z.bak');
+        writeFileSync(backup, 'old');
+        const all = [file, `${file}-wal`, `${file}-shm`, backup];
+        for (const path of all) chmodSync(path, 0o644);
+
+        const reopened = openStore(file);
+        try {
+          for (const path of all) expect(mode(path)).toBe(0o600);
+          await sql`SELECT 1`.execute(reopened.db);
+        } finally {
+          await reopened.close();
+        }
+      } finally {
+        raw.close();
+      }
+    } finally {
+      process.umask(previous);
+    }
+  });
+
   it('sets WAL, NORMAL sync, foreign keys and busy timeout on open', async () => {
     const { store } = freshStore();
     expect(await pragma(store, 'journal_mode')).toBe('wal');

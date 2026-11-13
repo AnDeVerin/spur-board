@@ -52,7 +52,7 @@ function checkpoint(file: string): void {
 /**
  * Copies a database into one self-contained file at `target`, with the source's rows, schema
  * and `user_version`. `source` is a path or an open connection. The copy is written with
- * `VACUUM INTO` to `<target>.partial` and synced. An existing target with a non-empty `-wal` is
+ * `VACUUM INTO` to `<target>.partial`, created at mode 0600, and synced. An existing target with a non-empty `-wal` is
  * then checkpointed, so its main file holds every committed row. The target is hard-linked to
  * `<target>.replaced-<uuid>`, its empty `-wal` and `-shm` are removed, the partial is renamed
  * over `target`, and only then is the link removed. A kill at any point leaves a complete
@@ -79,6 +79,8 @@ export function copyDatabase(
   let linked = false;
   try {
     rmSync(partial, { force: true });
+    // Created first so the copy is owner-only whatever the umask; VACUUM INTO keeps the mode.
+    closeSync(openSync(partial, 'wx', 0o600));
     db.prepare('VACUUM INTO ?').run(partial);
     fsyncFile(partial);
     step('partial');
