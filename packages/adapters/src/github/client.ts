@@ -86,11 +86,18 @@ function aliases(numbers: readonly number[], fields: (number: number) => string)
     )
     .join('\n');
 }
+// Bootstrap lists open PRs only, so no closed or merged history is read. Later polls also list
+// merged and closed PRs: a merge or a close moves `updatedAt`, so discovery returns the PR once
+// and its detail read brings the new state to core, linked or not (#221). The bootstrap baseline
+// reads the newest merged or closed PR's `updatedAt` only, so the first cursor sits past all the
+// history later polls can list; the alias keeps its name to match the recorded request text.
+const discoveryStates = (bootstrap: boolean): string =>
+  bootstrap ? 'OPEN' : 'OPEN, MERGED, CLOSED';
 // Discovery has no aliases; the trailing double space keeps the recorded request text.
 export function discoveryQuery(bootstrap = false): string {
-  const states = bootstrap ? 'OPEN' : 'OPEN, MERGED';
+  const states = discoveryStates(bootstrap);
   const baseline = bootstrap
-    ? ' mergedBaseline: pullRequests(first: 1, states: [MERGED], orderBy: {field: UPDATED_AT, direction: DESC}) { nodes { updatedAt } }'
+    ? ' mergedBaseline: pullRequests(first: 1, states: [MERGED, CLOSED], orderBy: {field: UPDATED_AT, direction: DESC}) { nodes { updatedAt } }'
     : '';
   return `query PrBatch($owner: String!, $repo: String!) { rateLimit { remaining resetAt } repository(owner: $owner, name: $repo) { pullRequests(first: 100, states: [${states}], orderBy: {field: UPDATED_AT, direction: DESC}) { ${DISCOVERY_FIELDS} }${baseline} }  }`;
 }
@@ -114,7 +121,7 @@ export function pageQuery(
   if (connection === 'comments')
     return `query PrPage($owner: String!, $repo: String!, $number: Int!, $before: String!) { rateLimit { remaining resetAt } repository(owner: $owner, name: $repo) { pullRequest(number: $number) { comments(last: 100, before: $before) { ${COMMENT_FIELDS} } } } }`;
   if (connection === 'pullRequests') {
-    const states = bootstrap ? 'OPEN' : 'OPEN, MERGED';
+    const states = discoveryStates(bootstrap);
     return `query DiscoveryPage($owner: String!, $repo: String!, $after: String!) { rateLimit { remaining resetAt } repository(owner: $owner, name: $repo) { pullRequests(first: 100, after: $after, states: [${states}], orderBy: {field: UPDATED_AT, direction: DESC}) { ${DISCOVERY_FIELDS} } } }`;
   }
   const field =

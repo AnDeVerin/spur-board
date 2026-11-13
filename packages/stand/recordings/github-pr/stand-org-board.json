@@ -16,7 +16,7 @@
           "content-type": "application/json"
         },
         "body": {
-          "query": "query PrBatch($owner: String!, $repo: String!) { rateLimit { remaining resetAt } repository(owner: $owner, name: $repo) { pullRequests(first: 100, states: [OPEN], orderBy: {field: UPDATED_AT, direction: DESC}) { nodes { number updatedAt author { login } state } pageInfo { hasNextPage endCursor } } mergedBaseline: pullRequests(first: 1, states: [MERGED], orderBy: {field: UPDATED_AT, direction: DESC}) { nodes { updatedAt } } }  }",
+          "query": "query PrBatch($owner: String!, $repo: String!) { rateLimit { remaining resetAt } repository(owner: $owner, name: $repo) { pullRequests(first: 100, states: [OPEN], orderBy: {field: UPDATED_AT, direction: DESC}) { nodes { number updatedAt author { login } state } pageInfo { hasNextPage endCursor } } mergedBaseline: pullRequests(first: 1, states: [MERGED, CLOSED], orderBy: {field: UPDATED_AT, direction: DESC}) { nodes { updatedAt } } }  }",
           "variables": {
             "owner": "stand-org",
             "repo": "board"

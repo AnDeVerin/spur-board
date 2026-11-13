@@ -1212,6 +1212,38 @@ describe('stand', () => {
       expect(items.filter(({ system }) => system === 'github')).toEqual([]);
     }, 60_000);
 
+    it('learns an unlinked PR closed without a merge and hides it 7 days later', async () => {
+      const manifest = await up();
+      const unlinked = async () => {
+        const status = await operatorStatus(manifest);
+        expect(status.code, status.stderr).toBe(0);
+        return JSON.parse(status.stdout) as {
+          unlinkedPrs: { number: number; state: string }[];
+          hiddenUnlinkedPrs: number;
+        };
+      };
+      expect((await pr(manifest, 31, 'create')).status).toBe(200);
+      expect((await polled(manifest, 31)).state).toBe('open');
+      expect((await unlinked()).unlinkedPrs).toContainEqual(
+        expect.objectContaining({ number: 31, state: 'open' }),
+      );
+
+      expect((await pr(manifest, 31, 'close')).status).toBe(200);
+      const poll = await control(manifest, '/poll');
+      expect(poll.status, JSON.stringify(poll.body)).toBe(200);
+      const { outcomes } = poll.body as { outcomes: { source: string; outcome: string }[] };
+      expect(outcomes).toContainEqual({ source: `github:stand:${REPO}`, outcome: 'delivered' });
+      expect((await snapshot(manifest, 31))?.state).toBe('closed');
+
+      const week = 8 * 24 * 60 * 60 * 1_000;
+      expect((await control(manifest, '/clock', { shiftMs: week })).status).toBe(200);
+      const later = await unlinked();
+      expect(later.unlinkedPrs.map(({ number }) => number)).not.toContain(31);
+      expect(later.hiddenUnlinkedPrs).toBe(1);
+      const log = await control(manifest, '/violations');
+      expect(log, JSON.stringify(log.body)).toMatchObject({ status: 200, body: { total: 0 } });
+    }, 60_000);
+
     it('drives the fake through the CLI, with --home on either side', async () => {
       const { home } = await up();
       const created = await standCli(['fake', '--home', home, 'github', 'pr', '7', 'create']);

@@ -113,6 +113,7 @@ describe('GitHub discovery', () => {
     expect(batch.complete).toBe(true);
     expect(batch.cursor).toBe(newer);
     expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(fetcher.mock.calls[0]?.[1]?.body as string).toContain('states: [OPEN, MERGED, CLOSED]');
   });
   it('continues through equal timestamps at the cursor', async () => {
     const fetcher = vi
@@ -137,7 +138,7 @@ describe('GitHub discovery', () => {
       expect(call[1]?.body as string).toContain('states: [OPEN]');
     }
     expect(fetcher.mock.calls[0]?.[1]?.body as string).toContain(
-      'mergedBaseline: pullRequests(first: 1, states: [MERGED]',
+      'mergedBaseline: pullRequests(first: 1, states: [MERGED, CLOSED]',
     );
   });
   it('uses GitHub timestamps when the poll host clock is ahead of a later merge', async () => {
@@ -182,6 +183,25 @@ describe('GitHub discovery', () => {
     expect(queries.map((query) => query.match(/: repository\(/g)?.length)).toEqual([
       10, 10, 10, 10, 10, 1,
     ]);
+  });
+  it('reads an own PR closed without a merge in the same detail chunk as other discovered PRs', async () => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        response({
+          repository: {
+            pullRequests: conn([node(1, newer), node(2, newer, 'operator', 'CLOSED')]),
+          },
+        }),
+      )
+      .mockResolvedValueOnce(response({ pr0: null, pr1: null }));
+    await adapter(fetcher).poll(context);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    const detail = (JSON.parse(fetcher.mock.calls[1]?.[1]?.body as string) as { query: string })
+      .query;
+    expect(detail.match(/: repository\(/g)?.length).toBe(2);
+    expect(detail).toContain('pullRequest(number: 1)');
+    expect(detail).toContain('pullRequest(number: 2)');
   });
   it('keeps the prior cursor when a newly discovered PR detail fails', async () => {
     const fetcher = vi
