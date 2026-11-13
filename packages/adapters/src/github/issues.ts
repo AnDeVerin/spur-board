@@ -96,7 +96,10 @@ function restBudget(headers: Headers): Batch['budget'] {
   const count = Number(remaining);
   const resetAt = new Date(Number(reset) * 1000);
   if (!Number.isSafeInteger(count) || Number.isNaN(resetAt.getTime())) return undefined;
-  return { remaining: count, resetAt: resetAt.toISOString() };
+  const iso = resetAt.toISOString();
+  // Past the year 9999 the ISO string gets an extended year, which batchSchema rejects.
+  if (!/^\d{4}-/.test(iso)) return undefined;
+  return { remaining: count, resetAt: iso };
 }
 
 /**

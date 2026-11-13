@@ -568,6 +568,10 @@ describe('GitHub Issues source', () => {
       { 'x-ratelimit-remaining': 'many', 'x-ratelimit-reset': '1767225600' },
     ],
     ['a non-numeric reset', { 'x-ratelimit-remaining': '4999', 'x-ratelimit-reset': 'soon' }],
+    [
+      'a reset past the year 9999',
+      { 'x-ratelimit-remaining': '4999', 'x-ratelimit-reset': '999999999999' },
+    ],
   ])('omits the budget without valid rate-limit headers: %s', async (_name, headers) => {
     const fetcher = vi
       .fn<typeof fetch>()
