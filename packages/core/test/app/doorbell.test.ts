@@ -1108,6 +1108,22 @@ describe('rings held in the Spur queue', () => {
     await step(ctx);
     expect(ctx.sent).toHaveLength(2);
   });
+
+  it('ignores a queue left in the snapshot while Spur is blind', async () => {
+    const ctx = await setup();
+    await workerBlock(ctx.store);
+    await step(ctx);
+    await queueRings(ctx, [{ notification: firstRing(ctx).notification, ring: 1 }]);
+    await ctx.store.transaction((trx) =>
+      trx
+        .insertInto('source_state')
+        .values({ ...sampleRows.source_state, source: 'spur', blind_reason: 'unavailable' })
+        .execute(),
+    );
+    ctx.advance(120_000);
+    await step(ctx);
+    expect(ctx.sent).toHaveLength(2);
+  });
 });
 
 /** One board project with a `qa` orchestrator on `dev`, a `cur` curator and an `ops` operator. */

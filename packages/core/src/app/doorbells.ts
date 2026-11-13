@@ -797,8 +797,9 @@ export async function reconcileDoorbells(trx: Trx, at: Date, config: Config): Pr
       continue;
     }
     // A ring still in the recipient's Spur queue was never read: hold the next one until the
-    // queue lets it go, and end the series when the window it would have rung in closes.
-    if (rings > 0 && earlierRingQueued(session, n.id, rings)) {
+    // queue lets it go, and end the series when the window it would have rung in closes. A blind
+    // Spur leaves the last queue in the snapshot, so it holds nothing and rings as before.
+    if (rings > 0 && earlierRingQueued(session, n.id, rings) && !(await spurBlind(trx))) {
       const pauses = ringPauses(config);
       const deadline =
         Date.parse(n.next_at) + pauses.slice(rings).reduce((sum, pause) => sum + pause, 0);
@@ -929,6 +930,16 @@ export async function recordRingDelivery(
     },
     at,
   );
+}
+
+/** True while the Spur source is blind: its stored session facts may no longer hold. */
+async function spurBlind(trx: Trx): Promise<boolean> {
+  const state = await trx
+    .selectFrom('source_state')
+    .select('blind_reason')
+    .where('source', '=', 'spur')
+    .executeTakeFirst();
+  return state !== undefined && state.blind_reason !== null;
 }
 
 /** Confirm that a queued ring still belongs to a live, idle, unread recipient. */
