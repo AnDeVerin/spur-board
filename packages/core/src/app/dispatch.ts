@@ -55,20 +55,34 @@ const uncounted = (reason: MoveReason | undefined) =>
   reason === 'ticket_reopened' || reason === 'mode_changed';
 
 /**
- * Sets `voided_at` on the unvoided submits of `to` and every column right of it. Review and
- * product-review marks are never voided.
+ * Sets `voided_at` on the unvoided submits of `columns`. Review and product-review marks are
+ * never voided.
  */
-async function voidSubmits(trx: Trx, taskId: number, to: ColumnId, at: Date): Promise<void> {
-  const columns = COLUMN_IDS.filter(
-    (column) => indexOf(column) >= indexOf(to) && !MARK_COLUMNS.includes(column),
-  );
+async function voidColumns(
+  trx: Trx,
+  taskId: number,
+  columns: readonly ColumnId[],
+  at: Date,
+): Promise<void> {
+  const voided = columns.filter((column) => !MARK_COLUMNS.includes(column));
+  if (voided.length === 0) return;
   await trx
     .updateTable('submission')
     .set({ voided_at: at.toISOString() })
     .where('task_id', '=', taskId)
     .where('voided_at', 'is', null)
-    .where('column', 'in', columns)
+    .where('column', 'in', voided)
     .execute();
+}
+
+/** Voids the submits of `to` and every column right of it, as a left move does. */
+async function voidSubmits(trx: Trx, taskId: number, to: ColumnId, at: Date): Promise<void> {
+  await voidColumns(
+    trx,
+    taskId,
+    COLUMN_IDS.filter((column) => indexOf(column) >= indexOf(to)),
+    at,
+  );
 }
 
 /** Whether the returns from `column` since its last limit reset reach the column's limit. */
@@ -497,6 +511,7 @@ async function applyOn(
   }
   const turn = result.turn;
   if (turn === null) return;
+  if (result.voids !== undefined) await voidColumns(trx, current.id, [result.voids], at);
   const rerouted = turn.kind === 'reroute' ? read.unclosed?.reason : undefined;
   if (turn.kind === 'reroute')
     await closeTurns(trx, { taskId: current.id, reason: 'rerouted', at });

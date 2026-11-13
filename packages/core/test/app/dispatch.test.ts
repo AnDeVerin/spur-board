@@ -1127,6 +1127,32 @@ describe('design flows 2.5 and 2.10', () => {
     ]);
   });
 
+  it('an after-submit turn that hands over an external comment needs its own submit', async () => {
+    const ctx = await inDev();
+    await ctx.pr({
+      feedback: [
+        {
+          kind: 'comment' as const,
+          id: 'c-1',
+          author: { login: EXTERNAL, type: 'user' as const },
+          postedAt: at(20),
+        },
+      ],
+    });
+    await ctx.submit(WORKER, 'T1', A);
+    expect(await ctx.openTurn()).toEqual(turnOf('dev', 'worker', 'dev: external_comments'));
+
+    await ctx.tick();
+    await ctx.github();
+    expect((await ctx.task()).column).toBe('dev');
+    expect(await ctx.openTurn()).toMatchObject({ id: 'T2' });
+
+    await ctx.ack(WORKER, 'T2');
+    await expect(ctx.submit(WORKER, 'T2', A)).resolves.toMatchObject({
+      task: { column: 'review' },
+    });
+  });
+
   it('an operator approval review is not an external comment', async () => {
     const ctx = await pastProductReview();
     expect((await ctx.task()).column).toBe('ready-to-merge');

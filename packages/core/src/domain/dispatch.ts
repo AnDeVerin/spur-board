@@ -62,6 +62,11 @@ interface DispatchTurn {
 interface DispatchResult {
   moves: DispatchMove[];
   turn: DispatchTurn | null;
+  /**
+   * The column whose submits the result voids, marks kept: set with an `after_submit` turn, so
+   * the submit before it cannot pass the gate past the work that turn hands over.
+   */
+  voids?: ColumnId;
 }
 
 /** No rule cycles, so a real cascade ends long before this; the bound is a guard. */
@@ -106,7 +111,10 @@ export function dispatch(input: DispatchInput): DispatchResult {
   const result = (next: DispatchTurn | null): DispatchResult => {
     const deferred =
       next !== null && input.spurBlind && orchestratorOf(project, next.column) === 'none';
-    return { moves, turn: cycleHeld || deferred ? null : next };
+    const opened = cycleHeld || deferred ? null : next;
+    return opened?.kind === 'after_submit'
+      ? { moves, turn: opened, voids: opened.column }
+      : { moves, turn: opened };
   };
 
   for (let step = 0; step < STEP_BOUND; step++) {

@@ -178,7 +178,17 @@ const cases: [string, Changes, Result][] = [
   [
     'new turn after submit',
     { pr: red, turn: { visit: 'submitted' } },
-    { moves: [], turn: turn('after_submit', 'dev', 'checks_red') },
+    { moves: [], turn: turn('after_submit', 'dev', 'checks_red'), voids: 'dev' },
+  ],
+  [
+    'an after-submit turn handing over an external comment voids the Dev submit',
+    { facts: { unhandledExternalComments: 1 }, turn: { visit: 'submitted' } },
+    { moves: [], turn: turn('after_submit', 'dev', 'external_comments'), voids: 'dev' },
+  ],
+  [
+    'with the Dev submit voided, the after-submit turn holds Dev until its own submit',
+    { facts: { marks: [] }, turn: { visit: 'unclosed' } },
+    nothing,
   ],
   [
     'no new turn after submit on hold-only reasons',
