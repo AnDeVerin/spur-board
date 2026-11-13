@@ -63,9 +63,15 @@ const EXAMPLES: Record<RefKind, string> = {
   task: 'PROJ-123, owner/repo#42 or repo#42',
 };
 
-function refSchema(kind: RefKind, description: string) {
-  return z
-    .string()
+/** A numbered ID is a letter and at most 15 digits, so never longer than 16 characters. */
+const NUMBERED_ID_MAX = 16;
+/** Longest task key an operation input takes. Stored and reported keys have no length cap. */
+const TASK_KEY_INPUT_MAX = 300;
+
+/** `max` goes on the base string before the refinement, so the JSON Schema keeps `pattern`. */
+function refSchema(kind: RefKind, description: string, max?: number) {
+  const base = z.string();
+  return (max === undefined ? base : base.max(max))
     .superRefine((value, ctx) => {
       const result = parseRef(value, kind);
       if (result.ok) return;
@@ -82,14 +88,31 @@ function refSchema(kind: RefKind, description: string) {
     .describe(description);
 }
 
-export const blockIdSchema = refSchema('block', 'Block ID: B followed by a number, e.g. B12.');
-export const commentIdSchema = refSchema('comment', 'Comment ID: C followed by a number, e.g. C3.');
-export const itemIdSchema = refSchema('item', 'Item ID: I followed by a number, e.g. I7.');
-export const turnIdSchema = refSchema('turn', 'Turn ID: T followed by a number, e.g. T4.');
-export const taskKeySchema = refSchema(
-  'task',
-  'Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42).',
+export const blockIdSchema = refSchema(
+  'block',
+  'Block ID: B followed by a number, e.g. B12.',
+  NUMBERED_ID_MAX,
 );
+export const commentIdSchema = refSchema(
+  'comment',
+  'Comment ID: C followed by a number, e.g. C3.',
+  NUMBERED_ID_MAX,
+);
+export const itemIdSchema = refSchema(
+  'item',
+  'Item ID: I followed by a number, e.g. I7.',
+  NUMBERED_ID_MAX,
+);
+export const turnIdSchema = refSchema(
+  'turn',
+  'Turn ID: T followed by a number, e.g. T4.',
+  NUMBERED_ID_MAX,
+);
+const TASK_KEY_DESCRIPTION =
+  'Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42).';
+export const taskKeySchema = refSchema('task', TASK_KEY_DESCRIPTION);
+/** The task key an operation input takes: `taskKeySchema` with a length cap. */
+export const taskKeyInputSchema = refSchema('task', TASK_KEY_DESCRIPTION, TASK_KEY_INPUT_MAX);
 
 /** The error code for a failed parse: `wrong_id_kind` when an ID of another kind was given. */
 export function errorCodeOf(error: z.ZodError): 'usage' | 'wrong_id_kind' {

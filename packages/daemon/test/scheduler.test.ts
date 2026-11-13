@@ -1,5 +1,5 @@
 import { join } from 'node:path';
-import { openStore, type Store } from '@spur-board/core';
+import { openStore, requestToken, type Store } from '@spur-board/core';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createDaemonModules } from '../src/composition.ts';
 import { loadConfig, resolvePaths } from '../src/config.ts';
@@ -326,6 +326,83 @@ describe('composed command retention', () => {
       await advance(DAY_MS);
       expect(await keys()).toEqual(['later']);
       expect(records.map((record) => record['msg'])).not.toContain('command purge failed');
+    } finally {
+      await store.close();
+    }
+  });
+});
+
+describe('composed token request retention', () => {
+  it('purges ended token requests at start and once a day until stopped', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const home = makeHome();
+    const store = openStore(join(home, 'board.sqlite'));
+    const { config } = loadConfig(resolvePaths({ BOARD_HOME: home }, home));
+    const records: Record<string, unknown>[] = [];
+    const log = createLogger(
+      {
+        write(line) {
+          records.push(JSON.parse(line) as Record<string, unknown>);
+        },
+      },
+      {},
+    );
+    let now = START;
+    const clock = { now: () => now };
+    const advance = async (ms: number): Promise<void> => {
+      now += ms;
+      await vi.advanceTimersByTimeAsync(ms);
+    };
+    const ctxFor = (name: string): ModuleContext<Store> => ({
+      config,
+      secrets: {},
+      store,
+      log: log.child({ module: name }),
+      clock,
+      logCall: (call, fn) => logCall(log, clock, call, fn),
+      state: () => 'ready',
+    });
+    const names = async (): Promise<string[]> =>
+      (await store.db.selectFrom('operator_token').select('name').orderBy('name').execute()).map(
+        (row) => row.name,
+      );
+    try {
+      const { entries } = createDaemonModules(ctxFor, {
+        spur: { send: () => Promise.resolve() },
+        tick: () => Promise.resolve(),
+        startAdapters: () => ({ stop: () => Promise.resolve() }),
+      });
+      const purge = entries.find((entry) => entry.name === 'token-requests');
+      expect(purge).toMatchObject({ name: 'token-requests', stopStage: 'final' });
+      if (purge === undefined) throw new Error('No token-requests entry');
+      // `old` is past the 7-day cutoff at start, `aging` one day later, `last` two days later.
+      const decided = { old: 7 * DAY_MS + 1, aging: 6 * DAY_MS + 1, last: 5 * DAY_MS + 1 };
+      for (const [index, [name, age]] of Object.entries(decided).entries()) {
+        await requestToken(
+          store,
+          config,
+          { name, folder: 'workspace', host: 'local', hash: String(index).repeat(64) },
+          new Date(START),
+        );
+        await store.db
+          .updateTable('operator_token')
+          .set({ status: 'denied', decided_at: new Date(START - age).toISOString() })
+          .where('name', '=', name)
+          .execute();
+      }
+
+      await purge.module.start(new AbortController().signal);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(await names()).toEqual(['aging', 'last']);
+      await advance(DAY_MS - 1);
+      expect(await names()).toEqual(['aging', 'last']);
+      await advance(1);
+      expect(await names()).toEqual(['last']);
+
+      await purge.module.stop();
+      await advance(DAY_MS);
+      expect(await names()).toEqual(['last']);
+      expect(records.map((record) => record['msg'])).not.toContain('token request purge failed');
     } finally {
       await store.close();
     }

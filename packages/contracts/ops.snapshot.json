@@ -1,5 +1,5 @@
 {
-  "version": "43de88a368d1d24f46500cbfbc3c249820eb2700cdffafa1349a59239c8451dc",
+  "version": "a6316b41f56dca87f0dcdabfadaf2512f812705d9ef3ec77888d286b0eb5f149",
   "grants": [
     "operator",
     "project-agent",
@@ -1002,7 +1002,8 @@
           "project": {
             "description": "Project to limit the answer to; absent means every project the caller may see.",
             "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "maxLength": 256
           },
           "detail": {
             "description": "Include full ticket, pull request and session facts and links; absent means compact rows.",
@@ -1022,6 +1023,7 @@
               "properties": {
                 "id": {
                   "type": "string",
+                  "maxLength": 16,
                   "pattern": "^I[1-9]\\d{0,14}$",
                   "description": "Item ID: I followed by a number, e.g. I7."
                 },
@@ -2645,6 +2647,7 @@
         "properties": {
           "task": {
             "type": "string",
+            "maxLength": 300,
             "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
             "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
           },
@@ -2734,6 +2737,7 @@
               "properties": {
                 "id": {
                   "type": "string",
+                  "maxLength": 16,
                   "pattern": "^B[1-9]\\d{0,14}$",
                   "description": "Block ID: B followed by a number, e.g. B12."
                 },
@@ -2854,6 +2858,7 @@
               "properties": {
                 "id": {
                   "type": "string",
+                  "maxLength": 16,
                   "pattern": "^C[1-9]\\d{0,14}$",
                   "description": "Comment ID: C followed by a number, e.g. C3."
                 },
@@ -2866,6 +2871,7 @@
                   "anyOf": [
                     {
                       "type": "string",
+                      "maxLength": 16,
                       "pattern": "^B[1-9]\\d{0,14}$",
                       "description": "Block ID: B followed by a number, e.g. B12."
                     },
@@ -3083,6 +3089,7 @@
                     "properties": {
                       "id": {
                         "type": "string",
+                        "maxLength": 16,
                         "pattern": "^T[1-9]\\d{0,14}$",
                         "description": "Turn ID: T followed by a number, e.g. T4."
                       },
@@ -3399,6 +3406,7 @@
         "properties": {
           "task": {
             "type": "string",
+            "maxLength": 300,
             "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
             "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
           }
@@ -3878,7 +3886,8 @@
           "project": {
             "description": "Project to limit the answer to; absent means every project the caller may see.",
             "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "maxLength": 256
           }
         },
         "additionalProperties": false
@@ -3894,6 +3903,7 @@
               "properties": {
                 "id": {
                   "type": "string",
+                  "maxLength": 16,
                   "pattern": "^C[1-9]\\d{0,14}$",
                   "description": "Comment ID: C followed by a number, e.g. C3."
                 },
@@ -3906,6 +3916,7 @@
                   "anyOf": [
                     {
                       "type": "string",
+                      "maxLength": 16,
                       "pattern": "^B[1-9]\\d{0,14}$",
                       "description": "Block ID: B followed by a number, e.g. B12."
                     },
@@ -3970,6 +3981,7 @@
               "properties": {
                 "id": {
                   "type": "string",
+                  "maxLength": 16,
                   "pattern": "^B[1-9]\\d{0,14}$",
                   "description": "Block ID: B followed by a number, e.g. B12."
                 },
@@ -4090,6 +4102,7 @@
               "properties": {
                 "id": {
                   "type": "string",
+                  "maxLength": 16,
                   "pattern": "^T[1-9]\\d{0,14}$",
                   "description": "Turn ID: T followed by a number, e.g. T4."
                 },
@@ -4289,6 +4302,7 @@
         "properties": {
           "entries": {
             "minItems": 1,
+            "maxItems": 100,
             "type": "array",
             "items": {
               "anyOf": [
@@ -4297,6 +4311,7 @@
                   "properties": {
                     "id": {
                       "type": "string",
+                      "maxLength": 16,
                       "pattern": "^C[1-9]\\d{0,14}$",
                       "description": "Comment ID: C followed by a number, e.g. C3."
                     },
@@ -4315,6 +4330,7 @@
                   "properties": {
                     "id": {
                       "type": "string",
+                      "maxLength": 16,
                       "pattern": "^B[1-9]\\d{0,14}$",
                       "description": "Block ID: B followed by a number, e.g. B12."
                     }
@@ -4327,6 +4343,7 @@
                   "properties": {
                     "id": {
                       "type": "string",
+                      "maxLength": 16,
                       "pattern": "^T[1-9]\\d{0,14}$",
                       "description": "Turn ID: T followed by a number, e.g. T4."
                     }
@@ -4352,16 +4369,19 @@
               "anyOf": [
                 {
                   "type": "string",
+                  "maxLength": 16,
                   "pattern": "^C[1-9]\\d{0,14}$",
                   "description": "Comment ID: C followed by a number, e.g. C3."
                 },
                 {
                   "type": "string",
+                  "maxLength": 16,
                   "pattern": "^B[1-9]\\d{0,14}$",
                   "description": "Block ID: B followed by a number, e.g. B12."
                 },
                 {
                   "type": "string",
+                  "maxLength": 16,
                   "pattern": "^T[1-9]\\d{0,14}$",
                   "description": "Turn ID: T followed by a number, e.g. T4."
                 }
@@ -4486,6 +4506,7 @@
           "name": {
             "type": "string",
             "minLength": 1,
+            "maxLength": 1048576,
             "description": "Unique name of the operator token."
           }
         },
@@ -4552,6 +4573,7 @@
         "properties": {
           "task": {
             "type": "string",
+            "maxLength": 300,
             "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
             "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
           }
@@ -4653,6 +4675,7 @@
         "properties": {
           "task": {
             "type": "string",
+            "maxLength": 300,
             "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
             "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
           }
@@ -4765,13 +4788,20 @@
               "mode": { "type": "string", "const": "pr", "description": "Link a pull request." },
               "task": {
                 "type": "string",
+                "maxLength": 300,
                 "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
                 "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
               },
-              "pr": { "type": "string", "format": "uri", "description": "Pull request URL." },
+              "pr": {
+                "type": "string",
+                "maxLength": 2048,
+                "format": "uri",
+                "description": "Pull request URL."
+              },
               "reason": {
                 "type": "string",
                 "minLength": 1,
+                "maxLength": 20000,
                 "description": "Why this link is being changed."
               }
             },
@@ -4788,13 +4818,20 @@
               },
               "task": {
                 "type": "string",
+                "maxLength": 300,
                 "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
                 "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
               },
-              "session": { "type": "string", "minLength": 1, "description": "Spur session ID." },
+              "session": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256,
+                "description": "Spur session ID."
+              },
               "reason": {
                 "type": "string",
                 "minLength": 1,
+                "maxLength": 20000,
                 "description": "Why this link is being changed."
               }
             },
@@ -4811,17 +4848,20 @@
               },
               "task": {
                 "type": "string",
+                "maxLength": 300,
                 "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
                 "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
               },
               "ticket": {
                 "type": "string",
+                "maxLength": 300,
                 "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
                 "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
               },
               "reason": {
                 "type": "string",
                 "minLength": 1,
+                "maxLength": 20000,
                 "description": "Why this link is being changed."
               }
             },
@@ -4906,13 +4946,20 @@
               "mode": { "type": "string", "const": "pr", "description": "Link a pull request." },
               "task": {
                 "type": "string",
+                "maxLength": 300,
                 "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
                 "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
               },
-              "pr": { "type": "string", "format": "uri", "description": "Pull request URL." },
+              "pr": {
+                "type": "string",
+                "maxLength": 2048,
+                "format": "uri",
+                "description": "Pull request URL."
+              },
               "reason": {
                 "type": "string",
                 "minLength": 1,
+                "maxLength": 20000,
                 "description": "Why this link is being changed."
               }
             },
@@ -4929,13 +4976,20 @@
               },
               "task": {
                 "type": "string",
+                "maxLength": 300,
                 "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
                 "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
               },
-              "session": { "type": "string", "minLength": 1, "description": "Spur session ID." },
+              "session": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256,
+                "description": "Spur session ID."
+              },
               "reason": {
                 "type": "string",
                 "minLength": 1,
+                "maxLength": 20000,
                 "description": "Why this link is being changed."
               }
             },
@@ -4952,17 +5006,20 @@
               },
               "task": {
                 "type": "string",
+                "maxLength": 300,
                 "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
                 "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
               },
               "ticket": {
                 "type": "string",
+                "maxLength": 300,
                 "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
                 "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
               },
               "reason": {
                 "type": "string",
                 "minLength": 1,
+                "maxLength": 20000,
                 "description": "Why this link is being changed."
               }
             },
@@ -5038,6 +5095,7 @@
         "properties": {
           "item": {
             "type": "string",
+            "maxLength": 16,
             "pattern": "^I[1-9]\\d{0,14}$",
             "description": "Item ID: I followed by a number, e.g. I7."
           }
@@ -5054,6 +5112,7 @@
             "properties": {
               "id": {
                 "type": "string",
+                "maxLength": 16,
                 "pattern": "^I[1-9]\\d{0,14}$",
                 "description": "Item ID: I followed by a number, e.g. I7."
               },
@@ -5134,6 +5193,7 @@
         "properties": {
           "item": {
             "type": "string",
+            "maxLength": 16,
             "pattern": "^I[1-9]\\d{0,14}$",
             "description": "Item ID: I followed by a number, e.g. I7."
           }
@@ -5150,6 +5210,7 @@
             "properties": {
               "id": {
                 "type": "string",
+                "maxLength": 16,
                 "pattern": "^I[1-9]\\d{0,14}$",
                 "description": "Item ID: I followed by a number, e.g. I7."
               },
@@ -5239,10 +5300,16 @@
         "properties": {
           "task": {
             "type": "string",
+            "maxLength": 300,
             "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
             "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
           },
-          "text": { "type": "string", "minLength": 1, "description": "The question." }
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 20000,
+            "description": "The question."
+          }
         },
         "required": ["task", "text"],
         "additionalProperties": false
@@ -5256,6 +5323,7 @@
             "properties": {
               "id": {
                 "type": "string",
+                "maxLength": 16,
                 "pattern": "^B[1-9]\\d{0,14}$",
                 "description": "Block ID: B followed by a number, e.g. B12."
               },
@@ -5424,15 +5492,22 @@
         "properties": {
           "task": {
             "type": "string",
+            "maxLength": 300,
             "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
             "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
           },
           "block": {
             "description": "Block conversation to join, if any.",
             "type": "string",
+            "maxLength": 16,
             "pattern": "^B[1-9]\\d{0,14}$"
           },
-          "text": { "type": "string", "minLength": 1, "description": "Comment text." }
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 20000,
+            "description": "Comment text."
+          }
         },
         "required": ["task", "text"],
         "additionalProperties": false
@@ -5446,6 +5521,7 @@
             "properties": {
               "id": {
                 "type": "string",
+                "maxLength": 16,
                 "pattern": "^C[1-9]\\d{0,14}$",
                 "description": "Comment ID: C followed by a number, e.g. C3."
               },
@@ -5458,6 +5534,7 @@
                 "anyOf": [
                   {
                     "type": "string",
+                    "maxLength": 16,
                     "pattern": "^B[1-9]\\d{0,14}$",
                     "description": "Block ID: B followed by a number, e.g. B12."
                   },
@@ -5575,10 +5652,16 @@
         "properties": {
           "comment": {
             "type": "string",
+            "maxLength": 16,
             "pattern": "^C[1-9]\\d{0,14}$",
             "description": "Comment ID: C followed by a number, e.g. C3."
           },
-          "text": { "type": "string", "minLength": 1, "description": "Replacement comment text." }
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 20000,
+            "description": "Replacement comment text."
+          }
         },
         "required": ["comment", "text"],
         "additionalProperties": false
@@ -5592,6 +5675,7 @@
             "properties": {
               "id": {
                 "type": "string",
+                "maxLength": 16,
                 "pattern": "^C[1-9]\\d{0,14}$",
                 "description": "Comment ID: C followed by a number, e.g. C3."
               },
@@ -5604,6 +5688,7 @@
                 "anyOf": [
                   {
                     "type": "string",
+                    "maxLength": 16,
                     "pattern": "^B[1-9]\\d{0,14}$",
                     "description": "Block ID: B followed by a number, e.g. B12."
                   },
@@ -5723,6 +5808,7 @@
         "properties": {
           "task": {
             "type": "string",
+            "maxLength": 300,
             "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
             "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
           },
@@ -5731,7 +5817,12 @@
             "enum": ["dependency", "external"],
             "description": "Block type."
           },
-          "reason": { "type": "string", "minLength": 1, "description": "What the task waits for." }
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 20000,
+            "description": "What the task waits for."
+          }
         },
         "required": ["task", "type", "reason"],
         "additionalProperties": false
@@ -5745,6 +5836,7 @@
             "properties": {
               "id": {
                 "type": "string",
+                "maxLength": 16,
                 "pattern": "^B[1-9]\\d{0,14}$",
                 "description": "Block ID: B followed by a number, e.g. B12."
               },
@@ -5937,13 +6029,15 @@
         "properties": {
           "block": {
             "type": "string",
+            "maxLength": 16,
             "pattern": "^B[1-9]\\d{0,14}$",
             "description": "Block ID: B followed by a number, e.g. B12."
           },
           "note": {
             "description": "Context for the next addressee, posted after the original text.",
             "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "maxLength": 20000
           }
         },
         "required": ["block"],
@@ -5958,6 +6052,7 @@
             "properties": {
               "id": {
                 "type": "string",
+                "maxLength": 16,
                 "pattern": "^B[1-9]\\d{0,14}$",
                 "description": "Block ID: B followed by a number, e.g. B12."
               },
@@ -6142,10 +6237,16 @@
         "properties": {
           "block": {
             "type": "string",
+            "maxLength": 16,
             "pattern": "^B[1-9]\\d{0,14}$",
             "description": "Block ID: B followed by a number, e.g. B12."
           },
-          "text": { "type": "string", "minLength": 1, "description": "The answer." }
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 20000,
+            "description": "The answer."
+          }
         },
         "required": ["block", "text"],
         "additionalProperties": false
@@ -6159,6 +6260,7 @@
             "properties": {
               "id": {
                 "type": "string",
+                "maxLength": 16,
                 "pattern": "^B[1-9]\\d{0,14}$",
                 "description": "Block ID: B followed by a number, e.g. B12."
               },
@@ -6275,6 +6377,7 @@
             "properties": {
               "id": {
                 "type": "string",
+                "maxLength": 16,
                 "pattern": "^C[1-9]\\d{0,14}$",
                 "description": "Comment ID: C followed by a number, e.g. C3."
               },
@@ -6287,6 +6390,7 @@
                 "anyOf": [
                   {
                     "type": "string",
+                    "maxLength": 16,
                     "pattern": "^B[1-9]\\d{0,14}$",
                     "description": "Block ID: B followed by a number, e.g. B12."
                   },
@@ -6465,12 +6569,14 @@
               },
               "block": {
                 "type": "string",
+                "maxLength": 16,
                 "pattern": "^B[1-9]\\d{0,14}$",
                 "description": "Block ID: B followed by a number, e.g. B12."
               },
               "ref": {
                 "type": "string",
                 "minLength": 1,
+                "maxLength": 2048,
                 "description": "What resolved the block, e.g. a commit SHA or a pull request."
               }
             },
@@ -6488,12 +6594,14 @@
               },
               "block": {
                 "type": "string",
+                "maxLength": 16,
                 "pattern": "^B[1-9]\\d{0,14}$",
                 "description": "Block ID: B followed by a number, e.g. B12."
               },
               "reason": {
                 "type": "string",
                 "minLength": 1,
+                "maxLength": 20000,
                 "description": "Why the block no longer applies."
               }
             },
@@ -6511,12 +6619,14 @@
               },
               "block": {
                 "type": "string",
+                "maxLength": 16,
                 "pattern": "^B[1-9]\\d{0,14}$",
                 "description": "Block ID: B followed by a number, e.g. B12."
               },
               "answer": {
                 "type": "string",
                 "minLength": 1,
+                "maxLength": 20000,
                 "description": "Why it is withdrawn, e.g. the answer received outside the board."
               }
             },
@@ -6535,6 +6645,7 @@
             "properties": {
               "id": {
                 "type": "string",
+                "maxLength": 16,
                 "pattern": "^B[1-9]\\d{0,14}$",
                 "description": "Block ID: B followed by a number, e.g. B12."
               },
@@ -6720,11 +6831,13 @@
             "anyOf": [
               {
                 "type": "string",
+                "maxLength": 16,
                 "pattern": "^T[1-9]\\d{0,14}$",
                 "description": "Turn ID: T followed by a number, e.g. T4."
               },
               {
                 "type": "string",
+                "maxLength": 300,
                 "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
                 "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
               }
@@ -6733,6 +6846,7 @@
           },
           "sha": {
             "type": "string",
+            "maxLength": 64,
             "pattern": "^[0-9a-f]{40,64}$",
             "description": "Full commit SHA at the head of the pull request, lowercase."
           }
@@ -6786,6 +6900,7 @@
             "anyOf": [
               {
                 "type": "string",
+                "maxLength": 16,
                 "pattern": "^T[1-9]\\d{0,14}$",
                 "description": "Turn ID: T followed by a number, e.g. T4."
               },
@@ -6867,12 +6982,14 @@
         "properties": {
           "turn": {
             "type": "string",
+            "maxLength": 16,
             "pattern": "^T[1-9]\\d{0,14}$",
             "description": "Turn ID: T followed by a number, e.g. T4."
           },
           "reason": {
             "type": "string",
             "minLength": 1,
+            "maxLength": 20000,
             "description": "What the worker must change, sent to the worker as a code block."
           }
         },
@@ -6926,6 +7043,7 @@
             "properties": {
               "id": {
                 "type": "string",
+                "maxLength": 16,
                 "pattern": "^B[1-9]\\d{0,14}$",
                 "description": "Block ID: B followed by a number, e.g. B12."
               },
@@ -7143,6 +7261,7 @@
               },
               "task": {
                 "type": "string",
+                "maxLength": 300,
                 "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
                 "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
               },
@@ -7163,6 +7282,7 @@
               "reason": {
                 "type": "string",
                 "minLength": 1,
+                "maxLength": 20000,
                 "description": "Why the column is corrected, kept in the journal."
               }
             },

@@ -11,8 +11,10 @@ import { raiseItem } from '../../src/app/feed.ts';
 import {
   decideTokenInTransaction,
   expirePendingTokens,
+  purgeEndedTokenRequests,
   requestToken,
   tokenListQuery,
+  tokenStatusByHash,
   tokenRevokeMutation,
   verifyOperatorToken,
 } from '../../src/app/tokens.ts';
@@ -25,6 +27,7 @@ const HASH = createHash('sha256').update(SECRET).digest('hex');
 const SECRET2 = 'example-second-token-value';
 const HASH2 = createHash('sha256').update(SECRET2).digest('hex');
 const TAKEN = 'Token name desk is taken; choose another name (see `board token list`).';
+const DAY_MS = 86_400_000;
 const stores: Store[] = [];
 
 afterEach(async () => {
@@ -113,6 +116,25 @@ describe('operator token lifecycle', () => {
       { kind: 'from_you_cleared', project: RESERVED_PROJECT },
       { kind: 'token_revoked', project: RESERVED_PROJECT },
     ]);
+  });
+
+  it('revokes an approved token whose legacy name is longer than enrollment now allows', async () => {
+    const store = setup();
+    await enroll(store);
+    const row = await store.db.selectFrom('operator_token').selectAll().executeTakeFirstOrThrow();
+    await scanTransaction(store, testConfig, (trx) =>
+      decideTokenInTransaction(trx, row.item_id, 'approve', AT),
+    );
+    const legacy = `old desk ${'x'.repeat(300)}`;
+    await store.db.updateTable('operator_token').set({ name: legacy }).execute();
+    expect(await verifyOperatorToken(store, SECRET)).toEqual({ name: legacy });
+
+    expect(
+      await scanTransaction(store, testConfig, (trx) =>
+        tokenRevokeMutation.run(trx, { name: legacy }, { actor: 'operator', at: AT.toISOString() }),
+      ),
+    ).toEqual({ name: legacy, status: 'revoked' });
+    expect(await verifyOperatorToken(store, SECRET)).toBeNull();
   });
 
   it('refuses a live duplicate name, denies the request, then reuses the denied name', async () => {
@@ -442,5 +464,116 @@ describe('operator token lifecycle', () => {
       name: 'desk-blocked',
       status: 'pending',
     });
+  });
+});
+
+describe('token request input', () => {
+  it('shows the short request hash in the approval prompt', async () => {
+    const store = setup();
+    await enroll(store);
+    const item = await store.db
+      .selectFrom('operator_item')
+      .select('text')
+      .executeTakeFirstOrThrow();
+    expect(item.text).toBe(
+      `Approve operator token desk (request ${HASH.slice(0, 10)}) for workspace/desk on local, requested ${AT.toISOString()}?`,
+    );
+  });
+
+  it('refuses a folder of only spaces with usage', async () => {
+    const store = setup();
+    await expect(
+      requestToken(
+        store,
+        testConfig,
+        { name: 'desk', folder: '  ', host: 'local', hash: HASH },
+        AT,
+      ),
+    ).rejects.toMatchObject({
+      code: 'usage',
+      hint: 'Fix `folder`: use 1-1024 characters, not only spaces, with no control or format characters.',
+    });
+    expect(await store.db.selectFrom('operator_token').select('id').execute()).toEqual([]);
+  });
+});
+
+describe('purgeEndedTokenRequests', () => {
+  const hashOf = (name: string) => createHash('sha256').update(name).digest('hex');
+  async function decide(store: Store, name: string, decision: 'approve' | 'deny', at: Date) {
+    const row = await store.db
+      .selectFrom('operator_token')
+      .select('item_id')
+      .where('name', '=', name)
+      .executeTakeFirstOrThrow();
+    await scanTransaction(store, testConfig, (trx) =>
+      decideTokenInTransaction(trx, row.item_id, decision, at),
+    );
+  }
+  const names = async (store: Store) =>
+    (await store.db.selectFrom('operator_token').select('name').orderBy('name').execute()).map(
+      (row) => row.name,
+    );
+
+  it('deletes only expired and denied requests decided more than 7 days ago', async () => {
+    const store = setup();
+    const now = new Date(AT.getTime() + 30 * DAY_MS);
+    const cutoff = new Date(now.getTime() - 7 * DAY_MS);
+    const before = (ms: number) => new Date(cutoff.getTime() - ms);
+    await enroll(store, 'approved', hashOf('approved'));
+    await decide(store, 'approved', 'approve', AT);
+    await enroll(store, 'revoked', hashOf('revoked'));
+    await decide(store, 'revoked', 'approve', AT);
+    await scanTransaction(store, testConfig, (trx) =>
+      tokenRevokeMutation.run(
+        trx,
+        { name: 'revoked' },
+        { actor: 'operator', at: AT.toISOString() },
+      ),
+    );
+    await enroll(store, 'denied', hashOf('denied'), before(60_001));
+    await decide(store, 'denied', 'deny', before(1));
+    await enroll(store, 'expired', hashOf('expired'), before(15 * 60 * 1000));
+    expect(await expirePendingTokens(store, testConfig, cutoff)).toBe(1);
+    await enroll(store, 'pending', hashOf('pending'), now);
+    const items = await store.db.selectFrom('operator_item').selectAll().orderBy('id').execute();
+
+    expect(await purgeEndedTokenRequests(store, now)).toBe(1);
+
+    expect(await names(store)).toEqual(['approved', 'expired', 'pending', 'revoked']);
+    expect(await store.db.selectFrom('operator_item').selectAll().orderBy('id').execute()).toEqual(
+      items,
+    );
+    expect(await tokenStatusByHash(store, hashOf('denied'), now)).toBe('unknown');
+    expect(await tokenStatusByHash(store, hashOf('expired'), now)).toBe('expired');
+    expect(await purgeEndedTokenRequests(store, now)).toBe(0);
+  });
+
+  it('answers a decision on a purged request with not_found and writes nothing', async () => {
+    const store = setup();
+    await enroll(store);
+    const row = await store.db
+      .selectFrom('operator_token')
+      .select('item_id')
+      .executeTakeFirstOrThrow();
+    await decide(store, 'desk', 'deny', AT);
+    const later = new Date(AT.getTime() + 7 * DAY_MS + 1);
+    expect(await purgeEndedTokenRequests(store, later)).toBe(1);
+
+    await expect(
+      scanTransaction(store, testConfig, (trx) =>
+        decideTokenInTransaction(trx, row.item_id, 'approve', later),
+      ),
+    ).rejects.toMatchObject({ code: 'not_found' });
+    expect(await names(store)).toEqual([]);
+    expect(
+      (
+        await store.db
+          .selectFrom('event')
+          .select('kind')
+          .where('kind', 'like', 'token_%')
+          .orderBy('id')
+          .execute()
+      ).map((event) => event.kind),
+    ).toEqual(['token_requested', 'token_denied']);
   });
 });

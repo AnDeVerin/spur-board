@@ -323,6 +323,7 @@ describe('fakeBody', () => {
     [['github', 'pr', '7', 'ci-red'], {}, pr('ci-red')],
     [['github', 'pr', '7', 'ci-green'], {}, pr('ci-green')],
     [['github', 'pr', '7', 'merge'], {}, pr('merge')],
+    [['github', 'pr', '7', 'close'], {}, pr('close')],
     [['github', 'pr', '7', 'conflict'], {}, pr('conflict')],
     [['github', 'pr', '7', 'push', SHA], {}, pr('push', { sha: SHA })],
     [['github', 'pr', '7', 'comment'], {}, pr('comment')],

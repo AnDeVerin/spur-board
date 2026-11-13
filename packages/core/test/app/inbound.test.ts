@@ -34,8 +34,9 @@ import {
   reconcileDueDoorbells,
 } from '../../src/index.ts';
 import { sampleRows } from '../store/sample-rows.ts';
-import { requestToken } from '../../src/app/tokens.ts';
+import { purgeEndedTokenRequests, requestToken } from '../../src/app/tokens.ts';
 
+const DAY_MS = 86_400_000;
 const now = Date.parse('2026-11-03T10:00:00.000Z');
 const DAY = 86_400_000;
 const at = new Date(now).toISOString();
@@ -295,6 +296,84 @@ describe('inbound apply', () => {
       { kind: 'token_approved', request_id: 'approved' },
     ]);
     expect(responses).toEqual(['not allowed', 'not allowed', 'desk: approved', 'desk: approved']);
+  });
+
+  it('answers a press on a purged token request with not found, records no failure and no command', async () => {
+    const { store, gateway } = await setup();
+    await requestToken(
+      store,
+      config,
+      { name: 'desk', folder: 'workspace/desk', host: 'local', hash: 'a'.repeat(64) },
+      new Date(now),
+    );
+    const row = await store.db
+      .selectFrom('operator_token')
+      .select('item_id')
+      .executeTakeFirstOrThrow();
+    let t = now;
+    const responses: string[] = [];
+    const inbound = createInbound({
+      store,
+      config,
+      clock: { now: () => t },
+      gateway: {
+        ...gateway,
+        respond(_interaction, body, options) {
+          expect(options.private).toBe(true);
+          responses.push(
+            body[0]?.kind === 'paragraph'
+              ? body[0].children.map((part) => (part.kind === 'text' ? part.text : '')).join('')
+              : '',
+          );
+          return Promise.resolve('sent' as const);
+        },
+      },
+    });
+    const action = (decision: 'approve' | 'deny', dedupeKey: string) => ({
+      kind: 'action' as const,
+      dedupeKey,
+      interaction: interactionRefSchema.parse(`interaction-${dedupeKey}`),
+      actionId: `token:${String(row.item_id)}:${decision}`,
+      author: userIdSchema.parse('operator'),
+      conversation: conversationRefSchema.parse('thread-1'),
+      message: messageRefSchema.parse('root-1'),
+      rootMessage: messageRefSchema.parse('root-1'),
+      sourceUrl: 'https://example.test/board',
+      sourceSpace: 'feed' as const,
+    });
+    await inbound.sink(action('deny', 'denied'));
+    expect(await store.db.selectFrom('operator_token').select('status').executeTakeFirst()).toEqual(
+      { status: 'denied' },
+    );
+    expect(await purgeEndedTokenRequests(store, new Date(now + 7 * DAY_MS + 1))).toBe(1);
+
+    t = now + 7 * DAY_MS + 2;
+    await inbound.sink(action('approve', 'stale'));
+
+    expect(responses.at(-1)).toBe('Token request was not found.');
+    expect(
+      await store.db
+        .selectFrom('operator_item')
+        .select('item_key')
+        .where('item_key', 'like', 'inbound:failure:%')
+        .execute(),
+    ).toEqual([]);
+    expect(
+      (await store.db.selectFrom('command').select('key').orderBy('key').execute()).map(
+        (command) => command.key,
+      ),
+    ).toEqual(['denied']);
+    expect(
+      (
+        await store.db
+          .selectFrom('event')
+          .select('kind')
+          .where('kind', 'like', 'token_%')
+          .orderBy('id')
+          .execute()
+      ).map((event) => event.kind),
+    ).toEqual(['token_requested', 'token_denied']);
+    expect(await store.db.selectFrom('operator_token').select('id').execute()).toEqual([]);
   });
 
   it('journals unknown conversations and privately denies non-operator commands and buttons', async () => {

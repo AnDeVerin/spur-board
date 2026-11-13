@@ -225,6 +225,9 @@ describe('catalog commands', () => {
     expect(received?.body.hash).toBe(createHash('sha256').update(secret).digest('hex'));
     expect(output.stdout).not.toContain(secret);
     expect(output.stdout).toContain('"status":"pending"');
+    expect(output.stdout).toContain(
+      `"requestHash":"${createHash('sha256').update(secret).digest('hex').slice(0, 10)}"`,
+    );
   });
 
   it('rejects creation in home, including a symlink to home', async () => {
@@ -368,6 +371,7 @@ describe('catalog commands', () => {
     expect(output.stdout + output.stderr).not.toContain(secret);
     expect(output.stderr).toContain(file);
     expect(output.stderr).toContain('BOARD_DAEMON_URL');
+    expect(output.stderr).toContain('or its request ended over 7 days ago and was deleted');
   });
 
   it('keeps a symlinked existing token without asking the daemon', async () => {
