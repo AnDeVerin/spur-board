@@ -55,7 +55,7 @@ const cycleKeyPrefix = (taskId: number) => `cycle-limit:${String(taskId)}:`;
  * Sets `voided_at` on the unvoided submits of `to` and every column right of it. Review and
  * product-review marks are never voided.
  */
-export async function voidSubmits(trx: Trx, taskId: number, to: ColumnId, at: Date): Promise<void> {
+async function voidSubmits(trx: Trx, taskId: number, to: ColumnId, at: Date): Promise<void> {
   const columns = COLUMN_IDS.filter(
     (column) => indexOf(column) >= indexOf(to) && !MARK_COLUMNS.includes(column),
   );
@@ -184,7 +184,7 @@ export async function moveLeft(
  * the mode. A switch to `on` copies each task's shadow column into its column as a new visit;
  * either switch then clears the shadow column and journals `dispatcher_mode_changed`.
  */
-export async function syncModes(trx: Trx, config: Config, at: Date): Promise<void> {
+async function syncModes(trx: Trx, config: Config, at: Date): Promise<void> {
   for (const project of config.projects) {
     const mode = project.dispatcher.mode;
     const row = await trx
