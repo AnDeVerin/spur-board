@@ -114,7 +114,7 @@ export function packageSmokeCommands(
   mode: 'full' | 'changed' | 'none',
   packageDirs: string[],
 ): Command[] {
-  return mode === 'full' || packageDirs.includes('packages/cli')
+  return mode === 'changed' && packageDirs.includes('packages/cli')
     ? [{ cmd: 'node', args: [PACKAGE_SMOKE_SCRIPT] }]
     : [];
 }

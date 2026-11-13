@@ -1,12 +1,14 @@
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { packPackage } from './package.ts';
-import { installPackage, smokeInstalled } from './package-smoke.ts';
-
-const packageManifest = fileURLToPath(new URL('../packages/cli/package.json', import.meta.url));
+import {
+  credentialFreeEnv,
+  installPackage,
+  installedVersion,
+  smokeInstalled,
+} from './package-smoke.ts';
 
 function parts(version: string): number[] {
   if (!/^\d+\.\d+\.\d+$/.test(version)) throw new Error(`Expected a stable version: ${version}`);
@@ -46,11 +48,11 @@ export function registryVersions(
 }
 
 export async function smokeUpgrade(tarball?: string): Promise<'skipped' | 'passed'> {
-  const manifest = JSON.parse(readFileSync(packageManifest, 'utf8')) as { version: string };
   const lookup = spawnSync('npm', ['view', 'spur-board', 'versions', '--json'], {
     encoding: 'utf8',
     timeout: 30_000,
     stdio: ['ignore', 'pipe', 'pipe'],
+    env: credentialFreeEnv(process.env),
   });
   const previous = registryVersions(lookup.status, lookup.stdout, lookup.stderr);
   if (previous === null) {
@@ -63,9 +65,11 @@ export async function smokeUpgrade(tarball?: string): Promise<'skipped' | 'passe
     const home = join(temporary, 'home');
     await smokeInstalled(previousBinary, home, previous, true);
     const candidate = tarball ?? packPackage(temporary);
-    const candidateBinary = installPackage(candidate, join(temporary, 'candidate'));
-    await smokeInstalled(candidateBinary, home, manifest.version);
-    process.stdout.write(`upgrade smoke: ${previous} to ${manifest.version} ok\n`);
+    const candidatePrefix = join(temporary, 'candidate');
+    const candidateBinary = installPackage(candidate, candidatePrefix);
+    const version = installedVersion(candidatePrefix);
+    await smokeInstalled(candidateBinary, home, version);
+    process.stdout.write(`upgrade smoke: ${previous} to ${version} ok\n`);
     return 'passed';
   } finally {
     rmSync(temporary, { recursive: true, force: true });

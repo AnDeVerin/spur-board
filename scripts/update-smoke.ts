@@ -28,27 +28,15 @@ import { dirname, join } from 'node:path';
 import { Readable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import { packPackage } from './package.ts';
-import { command } from './package-smoke.ts';
+import { command, credentialFreeEnv } from './package-smoke.ts';
 
 const NAME = 'spur-board';
 const SERVICE = 'spur-board.service';
 const fakeSystemctl = fileURLToPath(new URL('./update-smoke-systemctl.ts', import.meta.url));
 
-// The names the testkit harness scrubs, plus npm's own config, XDG dirs and agent homes.
-const SCRUB_PREFIXES = [
-  'SPUR_',
-  'BOARD_',
-  'SLACK_',
-  'JIRA_',
-  'GBRAIN_',
-  'ANTHROPIC_',
-  'OPENAI_',
-  'XDG_',
-  'NPM_CONFIG_',
-];
+// On top of the credential scrub: XDG dirs, proxies, the session bus and agent homes.
+const SCRUB_PREFIXES = ['XDG_'];
 const SCRUB_EXACT = new Set([
-  'GH_TOKEN',
-  'GITHUB_TOKEN',
   'HTTP_PROXY',
   'HTTPS_PROXY',
   'ALL_PROXY',
@@ -59,7 +47,6 @@ const SCRUB_EXACT = new Set([
   'CODEX_HOME',
   'CLAUDE_CONFIG_DIR',
 ]);
-const SCRUB_SUFFIXES = ['_API_KEY', '_TOKEN', '_SECRET', '_PASSWORD'];
 
 /** The stand's environment: every home, cache and config dir under `root`, the fake first. */
 export function standEnv(
@@ -69,13 +56,9 @@ export function standEnv(
   nodeDir: string = dirname(process.execPath),
 ): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {};
-  for (const [name, value] of Object.entries(base)) {
+  for (const [name, value] of Object.entries(credentialFreeEnv(base))) {
     const upper = name.toUpperCase();
-    if (
-      SCRUB_EXACT.has(upper) ||
-      SCRUB_PREFIXES.some((prefix) => upper.startsWith(prefix)) ||
-      SCRUB_SUFFIXES.some((suffix) => upper.endsWith(suffix))
-    ) {
+    if (SCRUB_EXACT.has(upper) || SCRUB_PREFIXES.some((prefix) => upper.startsWith(prefix))) {
       continue;
     }
     env[name] = value;

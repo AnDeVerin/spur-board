@@ -28,6 +28,11 @@
 - Release only after `ci-ok` succeeds on a main push. Grant `id-token: write` for trusted
   publishing and do not pass an npm token; `release.config.cjs` disables the npm plugin's direct
   publish (`.github/workflows/ci.yml`, `release.config.cjs`).
+- Smoke the release candidate outside `release`: `release-build` packs it at the dry-run version
+  with `contents: read` and no cache, `release-smoke` checks its sha256 and smokes it, and
+  `release` publishes only those bytes and fails closed on a version or sha256 mismatch. After
+  that failure re-run all jobs, not failed jobs: the old outputs are stale
+  (`scripts/release-package.ts`, `scripts/ci.test.ts`, `describe('release workflow isolation',`).
 - Keep Renovate on its weekly schedule with a seven-day minimum release age, no automerge and
   `chore(deps)` commits (`renovate.json`). Group catalog dependencies by `pnpm.catalog.default` or
   `pnpm.catalog.runtime`, not plain package dependency types (`pnpm-workspace.yaml`).

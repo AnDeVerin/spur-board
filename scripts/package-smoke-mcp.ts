@@ -23,11 +23,12 @@ export function verifyTools(tools: unknown, exactCatalog: boolean): number {
 export async function handshake(
   binary: string,
   expectedVersion: string,
-  exactCatalog = true,
+  exactCatalog: boolean,
+  env: NodeJS.ProcessEnv,
 ): Promise<number> {
   const child = spawn(binary, ['mcp'], {
     stdio: ['pipe', 'pipe', 'pipe'],
-    env: { ...process.env, BOARD_DAEMON_URL: '', BOARD_TOKEN: '', SPUR_SESSION: '' },
+    env: { ...env, BOARD_DAEMON_URL: '', BOARD_TOKEN: '', SPUR_SESSION: '' },
   });
   const messages: Record<string, unknown>[] = [];
   let pending = '';
