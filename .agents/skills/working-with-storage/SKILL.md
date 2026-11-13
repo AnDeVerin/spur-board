@@ -48,7 +48,7 @@ retry and actor rules.
   `user_version` is zero; only an empty `sqlite_schema` needs no backup
   (`packages/core/src/store/migrate.ts`).
 - Copy a database only through `copyDatabase` (`packages/core/src/store/copy.ts`): `VACUUM INTO`
-  a `.partial` sibling, checkpoint a target that has a non-empty `-wal` (it can hold committed
+  a `.partial` sibling created 0600, checkpoint a target that has a non-empty `-wal` (it can hold committed
   rows; a damaged target with a missing or empty WAL is not opened), hard-link the target aside,
   remove its empty `-wal` and `-shm`, rename, then remove the link. A kill at any step leaves a complete database
   at the target path; the caller creates the directory and holds the board lock
@@ -77,7 +77,8 @@ What the migration tests cover and how to add a case for a migration that moves 
 
 ## PRAGMAs and opening
 
-Read references/opening.md for connection settings, newer-database protection and openStore.
+Read references/opening.md for connection settings, file modes, backup pruning, newer-database
+protection and openStore.
 
 ## Changing these rules
 
