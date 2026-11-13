@@ -299,6 +299,22 @@ async function ringAuthor(
   });
 }
 
+/** One scan: its queued selections and the promise every caller waits on. */
+interface ScanState {
+  /** A selection has set `since`; later ones only move it earlier. */
+  selected: boolean;
+  /** A selection found no conversations: read once with an empty list. */
+  readEmpty: boolean;
+  /** The latest queued selection. */
+  selection: Promise<void>;
+  promise: Promise<void>;
+}
+
+function first(set: Set<string>): string | undefined {
+  for (const value of set) return value;
+  return undefined;
+}
+
 export function createInbound(input: {
   store: Store;
   gateway: Gateway;
@@ -313,9 +329,9 @@ export function createInbound(input: {
   const stopping = new AbortController();
   const stopped = () => stopping.signal.aborted;
   /** Conversations the current or stopped scan selected and has not read yet. */
-  let pending = new Set<string>();
+  const pending = new Set<string>();
   let since = new Date(clock.now());
-  let scan: { rerun: boolean; promise: Promise<void> } | undefined;
+  let scan: ScanState | undefined;
 
   async function sourceContext(trx: Trx, event: UserEvent, at: string) {
     if (!('conversation' in event)) return undefined;
@@ -917,44 +933,57 @@ export function createInbound(input: {
     if (!stopped()) pending.delete(ref);
   }
 
-  /** One slot per conversation, so live events run between slices. */
-  async function scanOnce(): Promise<void> {
-    const refs = await serial(async () => {
-      const selected = await conversationsForRecovery(
-        store.db,
-        gateway.kind,
-        new Date(clock.now()),
-      );
-      const refs = selected.rows.map((row) => row.ref);
-      since = selected.since;
-      pending = new Set(refs);
-      return refs;
-    });
-    if (refs.length === 0) {
-      await serial(() => readSlice(undefined));
-      return;
-    }
-    for (const ref of refs) {
-      if (stopped()) return;
-      await serial(() => sliceIfPending(ref));
+  /**
+   * Adds the selected conversations to `pending`. A selection merged into a running scan reads
+   * from the earliest `since` of its selections, so no selection's window shrinks.
+   */
+  async function select(state: ScanState): Promise<void> {
+    if (scan !== state) return;
+    const selected = await conversationsForRecovery(store.db, gateway.kind, new Date(clock.now()));
+    since = state.selected && since.getTime() < selected.since.getTime() ? since : selected.since;
+    state.selected = true;
+    for (const row of selected.rows) pending.add(row.ref);
+    if (selected.rows.length === 0) state.readEmpty = true;
+  }
+
+  /** One slot per conversation, so live events run between slices, until `pending` is empty. */
+  async function drain(state: ScanState): Promise<void> {
+    for (;;) {
+      const selection = state.selection;
+      await selection;
+      for (let ref = first(pending); ref !== undefined && !stopped(); ref = first(pending)) {
+        const next = ref;
+        await serial(() => sliceIfPending(next));
+      }
+      if (state.readEmpty && !stopped()) {
+        state.readEmpty = false;
+        await serial(() => readSlice(undefined));
+      }
+      if (stopped() || state.selection === selection) return;
     }
   }
 
-  /** A request during a scan reruns it once; every caller waits for the scan and its rerun. */
+  /**
+   * A request during a scan queues its selection at once, so later live events wait for it;
+   * every caller waits until the merged selections are read.
+   */
   function requestScan(): Promise<void> {
     if (stopped()) return Promise.resolve();
     if (scan !== undefined) {
-      scan.rerun = true;
+      queueSelection(scan);
       return scan.promise;
     }
-    const state = { rerun: true, promise: Promise.resolve() };
+    const state: ScanState = {
+      selected: false,
+      readEmpty: false,
+      selection: Promise.resolve(),
+      promise: Promise.resolve(),
+    };
     scan = state;
+    queueSelection(state);
     state.promise = (async () => {
       try {
-        while (state.rerun && !stopped()) {
-          state.rerun = false;
-          await scanOnce();
-        }
+        await drain(state);
       } catch (error) {
         pending.clear();
         throw error;
@@ -963,6 +992,14 @@ export function createInbound(input: {
       }
     })();
     return state.promise;
+  }
+
+  function queueSelection(state: ScanState): void {
+    // Chained, so the drain sees a failed earlier selection even after a later one is queued.
+    const queued = serial(() => select(state));
+    state.selection = state.selection.then(() => queued);
+    // The drain awaits it; a rejection must not surface before then.
+    state.selection.catch(() => undefined);
   }
 
   /** Before a live event: its conversation's unread history, or a gap once the scan stopped. */

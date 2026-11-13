@@ -1850,6 +1850,65 @@ describe('inbound apply', () => {
     expect(calls).toEqual(['thread-1', 'thread-2']);
   });
 
+  it('rereads an already read conversation before its live event after a second connection up', async () => {
+    const { store, gateway } = await setup();
+    await addSecondConversation(store, gateway.kind);
+    const gate = Promise.withResolvers<undefined>();
+    const calls: string[] = [];
+    const inbound = recoveringInbound(store, gateway, (request) => {
+      const conversation = request.conversations[0];
+      const ref = conversation?.ref ?? '';
+      calls.push(ref);
+      const reread = ref === 'thread-1' && calls.filter((call) => call === ref).length > 1;
+      return (async function* () {
+        if (ref === 'thread-2' && calls.length === 2) await gate.promise;
+        // Like Slack, a read after a cursor returns only later messages.
+        if (reread && conversation?.after === undefined) {
+          yield message({
+            conversation: 'thread-1',
+            root: 'root-1',
+            key: 'missed-1',
+            ref: 'missed-1',
+            text: 'Missed',
+          });
+        }
+      })();
+    });
+    const up = (key: string) => inbound.sink({ kind: 'connection', dedupeKey: key, state: 'up' });
+    const first = up('up-1');
+    let second: Promise<void> | undefined;
+    try {
+      await settleUntil(() => calls.length === 2);
+      second = up('up-2');
+      const sinking = inbound.sink(
+        message({
+          conversation: 'thread-1',
+          root: 'root-1',
+          key: 'live-1',
+          ref: 'live-1',
+          text: 'Live',
+        }),
+      );
+      gate.resolve(undefined);
+      await sinking;
+      await first;
+      await second;
+    } finally {
+      gate.resolve(undefined);
+    }
+    expect(
+      (
+        await store.db
+          .selectFrom('comment')
+          .select('text')
+          .where('block_id', '=', 1)
+          .orderBy('id')
+          .execute()
+      ).map((row) => row.text),
+    ).toEqual(['Missed', 'Live']);
+    expect(calls).toEqual(['thread-1', 'thread-2', 'thread-1', 'thread-2']);
+  });
+
   it('aborts the recovery signal on stop and scans nothing after', async () => {
     const { store, gateway } = await setup();
     const signals: AbortSignal[] = [];
