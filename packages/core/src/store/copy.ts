@@ -50,15 +50,15 @@ function checkpoint(file: string): void {
 }
 
 /**
- * Copies a database into one self-contained file at `target`, with the source's rows, schema
- * and `user_version`. `source` is a path or an open connection. The copy is written with
- * `VACUUM INTO` to `<target>.partial`, created at mode 0600, and synced. An existing target with a non-empty `-wal` is
- * then checkpointed, so its main file holds every committed row. The target is hard-linked to
- * `<target>.replaced-<uuid>`, its empty `-wal` and `-shm` are removed, the partial is renamed
- * over `target`, and only then is the link removed. A kill at any point leaves a complete
- * database at `target`, the old one or the new one. A failure before the rename leaves the
- * target as it is, with no `.partial` and no link. `step` is called after each step; tests use
- * it to stand in for a kill.
+ * Copies a database into one self-contained file at `target`, with the source's rows, schema and
+ * `user_version`. `source` is a path or an open connection. The copy is written with `VACUUM INTO`
+ * to `<target>.partial`, created at mode 0600, and synced. An existing target with a non-empty
+ * `-wal` is then checkpointed, so its main file holds every committed row. The target is
+ * hard-linked to `<target>.replaced-<uuid>`, its empty `-wal` and `-shm` are removed, the partial
+ * is renamed over `target`, and only then is the link removed. A kill at any point leaves a
+ * complete database at `target`, the old one or the new one. A failure before the rename leaves the
+ * target as it is, with no `.partial` and no link. `step` is called after each step; tests use it
+ * to stand in for a kill.
  *
  * Opens `target` only to checkpoint a non-empty `-wal`. Creates no directory, takes no lock and
  * checks no version: the caller creates the directory and holds the board lock or owns the

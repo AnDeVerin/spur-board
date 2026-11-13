@@ -9,9 +9,10 @@
 - Busy timeout 5000 ms, set on purpose in the `Database` constructor so a driver default cannot
   lower it.
 - Before `assertNotNewer`, `openStore` only creates a missing main file and sets the main file,
-  `-wal` and `-shm` to 0600; that changes no bytes and creates no sidecar. The WAL switch, any
-  write and backup pruning run after it, so a newer database stays byte for byte as it was
-  (`packages/core/test/store/migrations.test.ts`, `describe('migrate')`). The busy timeout is a connection setting and writes nothing.
+  `-wal` and `-shm` to 0600; that changes no bytes and creates no sidecar. The WAL switch, any write
+  and backup pruning run after it, so a newer database stays byte for byte as it was
+  (`packages/core/test/store/migrations.test.ts`, `describe('migrate')`). The busy timeout is a
+  connection setting and writes nothing.
 - `openStore` keeps the database, its `-wal` and `-shm` and its migration backups at mode 0600
   whatever the umask, so the data stays owner-only (`packages/core/test/store/store.test.ts`,
   `describe('openStore')`).
