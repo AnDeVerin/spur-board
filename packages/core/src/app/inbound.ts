@@ -1025,17 +1025,46 @@ export function createInbound(input: {
     state.selection.catch(() => undefined);
   }
 
-  /** Before a live event: its conversation's unread history, or a gap once the scan stopped. */
-  async function beforeLive(event: InboundEvent): Promise<void> {
-    const ref = 'conversation' in event ? event.conversation : undefined;
+  /** The conversation of the event an item stored for retry, if it has one. */
+  async function storedConversation(itemId: number): Promise<string | undefined> {
+    if (pending.size === 0) return undefined;
+    const item = await store.db
+      .selectFrom('operator_item')
+      .select('inbound_event_json')
+      .where('id', '=', itemId)
+      .executeTakeFirst();
+    if (item?.inbound_event_json == null) return undefined;
+    const stored = inboundEventSchema.safeParse(JSON.parse(item.inbound_event_json) as unknown);
+    return stored.success && 'conversation' in stored.data ? stored.data.conversation : undefined;
+  }
+
+  /** The item a feed Retry button re-applies, so its stored event's thread is read first. */
+  function retriedItem(event: InboundEvent): number | undefined {
+    if (event.kind !== 'action') return undefined;
+    const { id, item } = interactionOperation(event);
+    return id === 'item.retry' && item !== undefined ? Number(item.slice(1)) : undefined;
+  }
+
+  /** Reads `ref`'s unread history, or raises its gap once the scan stopped. */
+  async function readPending(ref: string | undefined): Promise<void> {
     if (ref === undefined || !pending.has(ref)) return;
     if (!stopped()) return sliceIfPending(ref);
     pending.delete(ref);
     await applyGap({
       kind: 'gap',
       dedupeKey: `inbound:stopped-scan:${randomUUID()}`,
-      conversation: ref,
+      conversation: conversationRefSchema.parse(ref),
     });
+  }
+
+  /**
+   * Before a live event: its conversation's unread history, and for a Retry button the stored
+   * event's, since re-applying that event can move its conversation's cursor.
+   */
+  async function beforeLive(event: InboundEvent): Promise<void> {
+    await readPending('conversation' in event ? event.conversation : undefined);
+    const itemId = retriedItem(event);
+    if (itemId !== undefined) await readPending(await storedConversation(itemId));
   }
 
   function serial<T>(work: () => Promise<T>): Promise<T> {
@@ -1065,6 +1094,7 @@ export function createInbound(input: {
     },
     retryStored(itemId) {
       return serial(async () => {
+        await readPending(await storedConversation(itemId));
         const at = new Date(clock.now()).toISOString();
         await scanTransaction(store, config, async (trx) => {
           await reapply(trx, itemId, at);

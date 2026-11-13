@@ -1981,6 +1981,68 @@ describe('inbound apply', () => {
     expect(signals).toHaveLength(1);
   });
 
+  it.each(['button', 'retryStored'] as const)(
+    "reads a retried reply's thread before re-applying it during a scan (%s)",
+    async (via) => {
+      const { store, gateway } = await setup();
+      await addSecondConversation(store, gateway.kind);
+      const stored = message({ conversation: 'thread-2', root: 'root-2', key: 'failed-2' });
+      const failure = await scanTransaction(store, config, async (trx) => {
+        const item = await raiseOperatorItem(trx, {
+          itemKey: 'inbound:failed-2',
+          kind: 'inbound_failure',
+          text: 'Slack message not processed',
+          url: '',
+          taskId: 1,
+          blockId: null,
+          at: new Date(now),
+        });
+        await trx
+          .updateTable('operator_item')
+          .set({ inbound_event_json: JSON.stringify(stored) })
+          .where('id', '=', item.id)
+          .execute();
+        return item.id;
+      });
+      const gate = Promise.withResolvers<undefined>();
+      const calls: string[] = [];
+      const inbound = recoveringInbound(store, gateway, (request) => {
+        const ref = request.conversations[0]?.ref ?? '';
+        calls.push(ref);
+        return (async function* () {
+          if (ref === 'thread-1') await gate.promise;
+        })();
+      });
+      const scanning = inbound.recover();
+      try {
+        await settleUntil(() => calls.includes('thread-1'));
+        const retrying =
+          via === 'button'
+            ? inbound.sink({
+                kind: 'action',
+                dedupeKey: 'retry-press',
+                interaction: interactionRefSchema.parse('interaction-retry'),
+                actionId: `item:${String(failure)}:retry`,
+                author: userIdSchema.parse('operator'),
+                conversation: conversationRefSchema.parse('feed-1'),
+                message: messageRefSchema.parse('feed-line-1'),
+                rootMessage: messageRefSchema.parse('feed-line-1'),
+                sourceUrl: 'https://example.test/feed',
+                sourceSpace: 'feed',
+              })
+            : inbound.retryStored(failure);
+        gate.resolve(undefined);
+        await retrying.catch(() => undefined);
+        // The stored reply's thread was read before the retry, not after it.
+        expect(calls).toEqual(['thread-1', 'thread-2']);
+        await scanning;
+      } finally {
+        gate.resolve(undefined);
+      }
+      expect(calls).toEqual(['thread-1', 'thread-2']);
+    },
+  );
+
   it('applies no buffered recovered event after stop', async () => {
     const { store, gateway } = await setup();
     let yielded = 0;
