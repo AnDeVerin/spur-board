@@ -382,7 +382,7 @@ export async function closeOpenBlock(
     actor: ctx.actor,
     at: new Date(ctx.at),
   });
-  await closeBlockNotification(trx, block.id, new Date(ctx.at));
+  await closeBlockNotification(trx, block.id, new Date(ctx.at), ctx.actor);
   const items = await trx
     .selectFrom('operator_item')
     .selectAll()
@@ -391,7 +391,7 @@ export async function closeOpenBlock(
     .where('cleared_at', 'is', null)
     .execute();
   for (const item of items) {
-    if (item.kind === 'post_blocked') await clearItem(trx, item.id, new Date(ctx.at));
+    if (item.kind === 'post_blocked') await clearItem(trx, item.id, new Date(ctx.at), ctx.actor);
     else if (
       ctx.actor !== 'system' &&
       outcome !== 'archived' &&
