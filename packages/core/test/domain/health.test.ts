@@ -8,7 +8,7 @@ import {
 
 const start = Date.parse('2026-01-01T00:00:00.000Z');
 const config = configSchema.shape.health.parse({});
-const noPr = { hasOpenPr: false, hasMergedPr: false };
+const noPr = { hasOpenPr: false, hasMergedPr: false, prCompleteAt: start };
 
 function session(
   id: string,
@@ -149,7 +149,7 @@ describe('evaluateSessionHealth', () => {
     const waiting = session('a', 'waiting', 1_800_000);
     const result = evaluate({
       sessions: [waiting],
-      tasks: { 'TASK-1': { hasOpenPr: true, hasMergedPr: false } },
+      tasks: { 'TASK-1': { ...noPr, hasOpenPr: true } },
     });
     expect(result.flags).toEqual([]);
   });
@@ -158,7 +158,7 @@ describe('evaluateSessionHealth', () => {
     expect(
       evaluate({
         sessions: [session('a', 'error', 91_000)],
-        tasks: { 'TASK-1': { hasOpenPr: true, hasMergedPr: false } },
+        tasks: { 'TASK-1': { ...noPr, hasOpenPr: true } },
       }).flags.map((flag) => flag.kind),
     ).toEqual(['stuck_worker']);
   });
@@ -325,13 +325,13 @@ describe('evaluateSessionHealth', () => {
       expect(
         evaluate({
           sessions: [worker],
-          tasks: { 'TASK-1': { hasOpenPr: true, hasMergedPr: false } },
+          tasks: { 'TASK-1': { ...noPr, hasOpenPr: true } },
         }).flags,
       ).toEqual([]);
       expect(
         evaluate({
           sessions: [worker],
-          tasks: { 'TASK-1': { hasOpenPr: false, hasMergedPr: true } },
+          tasks: { 'TASK-1': { ...noPr, hasMergedPr: true } },
         }).flags,
       ).toEqual([]);
       expect(evaluate({ sessions: [worker, session('new', 'working', 0)] }).flags).toEqual([]);
@@ -348,20 +348,67 @@ describe('evaluateSessionHealth', () => {
         evaluate({
           sessions: [worker],
           spur: incomplete,
-          tasks: { 'TASK-1': { hasOpenPr: true, hasMergedPr: false } },
+          tasks: { 'TASK-1': { ...noPr, hasOpenPr: true } },
         }).held,
       ).toEqual([]);
       expect(
         evaluate({
           sessions: [worker],
           spur: incomplete,
-          tasks: { 'TASK-1': { hasOpenPr: false, hasMergedPr: true } },
+          tasks: { 'TASK-1': { ...noPr, hasMergedPr: true } },
         }).held,
       ).toEqual([]);
       expect(
         evaluate({ sessions: [worker, session('new', 'working', 0)], spur: incomplete }).held,
       ).toEqual([]);
     }
+    const endedAt = start - 1_000;
+    for (const [reason, kind] of Object.entries(kinds) as [keyof typeof kinds, string][]) {
+      const worker = { ...ended, endReason: reason };
+      const at = (prCompleteAt: number | null) => {
+        const result = evaluate({
+          sessions: [worker],
+          tasks: { 'TASK-1': { ...noPr, prCompleteAt } },
+        });
+        return {
+          flags: result.flags.map((flag) => flag.kind),
+          held: result.held.map((flag) => flag.kind),
+        };
+      };
+      expect(at(null)).toEqual({ flags: [], held: [kind] });
+      expect(at(endedAt - 1)).toEqual({ flags: [], held: [kind] });
+      expect(at(endedAt)).toEqual({ flags: [kind], held: [] });
+      expect(
+        evaluate({
+          sessions: [worker],
+          tasks: { 'TASK-1': { ...noPr, hasOpenPr: true, prCompleteAt: null } },
+        }).held,
+      ).toEqual([]);
+    }
+  });
+
+  it('holds worker_idle until the PR sources completed a poll since it began waiting', () => {
+    const waiting = session('a', 'waiting', 1_800_000);
+    const since = start - 1_800_000;
+    const at = (prCompleteAt: number | null) => {
+      const result = evaluate({
+        sessions: [waiting],
+        tasks: { 'TASK-1': { ...noPr, prCompleteAt } },
+      });
+      return {
+        flags: result.flags.map((flag) => flag.kind),
+        held: result.held.map((flag) => flag.kind),
+      };
+    };
+    expect(at(null)).toEqual({ flags: [], held: ['worker_idle'] });
+    expect(at(since - 1)).toEqual({ flags: [], held: ['worker_idle'] });
+    expect(at(since)).toEqual({ flags: ['worker_idle'], held: [] });
+    expect(
+      evaluate({
+        sessions: [waiting],
+        tasks: { 'TASK-1': { ...noPr, hasOpenPr: true, prCompleteAt: null } },
+      }),
+    ).toMatchObject({ flags: [], held: [] });
   });
 
   describe('worker_lost', () => {
