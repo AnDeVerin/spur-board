@@ -162,7 +162,7 @@ const isTurnKind = (kind: Notification['kind']) => kind === 'turn' || kind === '
  * not known yet or the reminder may be out, and one reminder per take wins over a missed one.
  * Only rings the sender killed unsent leave it re-armable.
  */
-export async function reminderCancelledUnsent(
+async function reminderCancelledUnsent(
   trx: Trx,
   n: Pick<Notification, 'id' | 'acked_at' | 'rings' | 'exhausted_at'>,
 ): Promise<boolean> {
