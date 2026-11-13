@@ -100,10 +100,14 @@ function inline(value: RichTextInline): string {
   }
 }
 
-/** Trailing context blocks become context elements after the section, each cut to fit one. */
+/**
+ * Trailing context blocks become context elements after the section, each cut to fit one.
+ * Without other visible content they stay paragraphs, so the section keeps text.
+ */
 export function splitContext(body: RichText): { body: RichText; context: string[] } {
   let end = body.length;
   while (end > 0 && body[end - 1]?.kind === 'context') end--;
+  if (renderText(body.slice(0, end)).length === 0) return { body, context: [] };
   const context = body
     .slice(end)
     .map((block) => (block.kind === 'context' ? block.children.map(inline).join('') : ''))

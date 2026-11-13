@@ -529,6 +529,24 @@ describe('rendering and surface', () => {
     ]);
   });
 
+  it('renders a body of only context blocks as section text', async () => {
+    const { fake, gateway } = await setup();
+    const delivered = await gateway.deliver({
+      ...request('context-only'),
+      body: [{ kind: 'context', children: [{ kind: 'text', text: 'B1 · unblocked' }] }],
+    });
+    expect(delivered.status).toBe('delivered');
+    const posted = fake.requests().find((entry) => entry.method === 'chat.postMessage');
+    expect(posted?.params.text).toBe('B1 · unblocked');
+    expect(JSON.parse(posted?.params.blocks ?? 'null')).toEqual([
+      {
+        type: 'section',
+        block_id: 'spur:context-only',
+        text: { type: 'mrkdwn', text: 'B1 · unblocked' },
+      },
+    ]);
+  });
+
   it('renders italic per line inside underscores', () => {
     expect(
       renderText([{ kind: 'paragraph', children: [{ kind: 'italic', text: ' a<b \n\n  c ' }] }]),
