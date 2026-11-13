@@ -92,6 +92,15 @@ process or set `http.port` to a free port, then start the service again. Any spu
 this check, including one of another user or another `BOARD_HOME`. `board service install` runs
 the same check and stops with exit 4 before it writes the unit.
 
+### database.private
+
+Runs only without `--offline`. It reads the mode of `board.sqlite` in the data directory (or
+`BOARD_HOME`) and fails when group or others have any access to it. A missing database passes.
+The daemon sets `board.sqlite`, its `-wal` and `-shm` files and its migration backups to `0600`
+each time it starts, so this fails only when the mode was changed while it ran, or when the
+daemon has not started since an older version. Run `chmod 600` on the file, or restart the
+service.
+
 ### daemon.available
 
 Start or restart the user service, then rerun `board doctor --json`. If it still fails, check
