@@ -443,7 +443,12 @@ function isTimeZone(tz: string): boolean {
   }
 }
 
-/** A session belongs to one board project, so a Spur project can be listed under only one. */
+/**
+ * A Spur project can be listed under only one board project (#245). A session's actor is
+ * `agent:<spur project>/<session>`, with no board project in it; its roles are looked up by Spur
+ * project, and a curator ring picks a session by Spur project. The config is refused here rather
+ * than resolving roles per board project, so every session has one owning board project.
+ */
 function rejectSharedSpurProjects(
   items: readonly z.output<typeof projectSchema>[],
   ctx: z.RefinementCtx,
