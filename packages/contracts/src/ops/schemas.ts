@@ -276,7 +276,7 @@ export const statusTaskSchema = taskViewSchema
       .string()
       .min(1)
       .describe(
-        'One line: ticket status, pull request states and session health counts, joined by "; ".',
+        'One line: ticket status, pull request states and session counts by health, an ended session counted as `ended (<reason>)`, joined by "; ".',
       ),
     prCount: count('Number of effective pull request links.'),
     sessionCount: count('Number of effective session links.'),
