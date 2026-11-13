@@ -45,7 +45,7 @@ const prPage = (field: string, cursor = 'after'): string =>
   `query PrPage($owner: String!, $repo: String!, $number: Int!, $${cursor}: String!) { ${RATE_LIMIT} repository(owner: $owner, name: $repo) { pullRequest(number: $number) { ${field} } } }`;
 const discoveryPage = (states: string): string =>
   `query DiscoveryPage($owner: String!, $repo: String!, $after: String!) { ${RATE_LIMIT} repository(owner: $owner, name: $repo) { pullRequests(first: 100, after: $after, states: [${states}], ${ORDER}) { ${DISCOVERY_FIELDS} } } }`;
-const BASELINE = ` mergedBaseline: pullRequests(first: 1, states: [MERGED], ${ORDER}) { nodes { updatedAt } }`;
+const BASELINE = ` mergedBaseline: pullRequests(first: 1, states: [MERGED, CLOSED], ${ORDER}) { nodes { updatedAt } }`;
 const KNOWN_DOCUMENTS = [
   prBatch('OPEN, MERGED, CLOSED', ''),
   prBatch('OPEN', BASELINE),

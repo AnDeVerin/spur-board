@@ -306,6 +306,23 @@ describe('wire facts', () => {
     expect(facts).not.toHaveProperty('mergedAt');
   });
 
+  it('starts the bootstrap cursor at a closed PR newer than every open one', async () => {
+    created(1, { updatedAt: '2026-01-01T00:00:00.001Z' });
+    created(2, { updatedAt: '2026-01-01T00:00:00.003Z', state: 'CLOSED' });
+    const batch = await pollRepo(fakes, BOARD, pollContext());
+    expect(batch.complete).toBe(true);
+    expect(batch.cursor).toBe('2026-01-01T00:00:00.003Z');
+    expect(() => factsOf(batch, 2)).toThrow('PR 2 was not delivered');
+  });
+
+  it('starts the bootstrap cursor of a repository with only closed PRs at the newest', async () => {
+    created(3, { updatedAt: '2026-01-01T00:00:00.002Z', state: 'CLOSED' });
+    const batch = await pollRepo(fakes, BOARD, pollContext());
+    expect(batch.complete).toBe(true);
+    expect(batch.cursor).toBe('2026-01-01T00:00:00.002Z');
+    expect(batch.items).toEqual([]);
+  });
+
   it('answers a missing aliased PR with null and a NOT_FOUND error at its path', async () => {
     const response = await postQuery(fakeFetch(fakes), detailQuery([999]));
     expect(response.status).toBe(200);

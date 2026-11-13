@@ -138,7 +138,7 @@ describe('GitHub discovery', () => {
       expect(call[1]?.body as string).toContain('states: [OPEN]');
     }
     expect(fetcher.mock.calls[0]?.[1]?.body as string).toContain(
-      'mergedBaseline: pullRequests(first: 1, states: [MERGED]',
+      'mergedBaseline: pullRequests(first: 1, states: [MERGED, CLOSED]',
     );
   });
   it('uses GitHub timestamps when the poll host clock is ahead of a later merge', async () => {

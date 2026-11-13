@@ -271,9 +271,12 @@ describe('GitHub PR batch', () => {
     expect(details).toContain('pr0: repository');
     const bootstrapQuery = discoveryQuery(true);
     expect(createHash('sha256').update(bootstrapQuery).digest('hex')).toBe(
-      'b76634b2684ca242cfdc55a11849db1f7a1c189c65f3eacf8c707b1917091cc3',
+      'ddce343c8846e5ad05876f723f92c61b8253d327402b837fd854f1054ea9c8be',
     );
     expect(bootstrapQuery).toContain('states: [OPEN]');
+    expect(bootstrapQuery).toContain(
+      'mergedBaseline: pullRequests(first: 1, states: [MERGED, CLOSED]',
+    );
     expect(pageQuery('pullRequests', true)).toContain('states: [OPEN]');
     expect(details).not.toContain('closingIssuesReferences');
     expect(bootstrapQuery).not.toContain('closingIssuesReferences');
