@@ -294,6 +294,14 @@ function board(options: Options = {}) {
         `key-${String(++keys)}`,
       );
     },
+    archive: () => {
+      step();
+      return apply(registry['task.archive'], { task: KEY }, 'operator', `key-${String(++keys)}`);
+    },
+    add: () => {
+      step();
+      return apply(registry['task.add'], { task: KEY }, 'operator', `key-${String(++keys)}`);
+    },
     closeItem: (item: string) => {
       step();
       return apply(registry['item.close'], { item }, 'operator', `key-${String(++keys)}`);
@@ -830,6 +838,22 @@ describe('turns', () => {
 
     await ctx.ticket();
     expect((await ctx.task()).membership).toBe('active');
+    expect(await ctx.openTurn()).toMatchObject({ id: 'T3', column: 'review' });
+    expect((await ctx.turns())[2]).toMatchObject({ column: 'review', epoch, seq: 2 });
+  });
+
+  it('opens an entry turn on the next tick for a task re-added after its archive was consumed', async () => {
+    const ctx = await inReview();
+    const epoch = (await ctx.task()).column_epoch;
+    await ctx.archive();
+    await ctx.tick();
+    expect((await ctx.turns())[1]).toMatchObject({ id: 2, closed_reason: 'archived' });
+    await ctx.github();
+    await ctx.tick();
+
+    await ctx.add();
+    expect((await ctx.task()).membership).toBe('active');
+    await ctx.tick();
     expect(await ctx.openTurn()).toMatchObject({ id: 'T3', column: 'review' });
     expect((await ctx.turns())[2]).toMatchObject({ column: 'review', epoch, seq: 2 });
   });
