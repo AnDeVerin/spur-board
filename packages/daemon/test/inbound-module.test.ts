@@ -2,6 +2,7 @@ import { join } from 'node:path';
 import { openStore, type Store } from '@spur-board/core';
 import type { Gateway } from '@spur-board/contracts';
 import { createSlackGateway } from '@spur-board/gateway-slack';
+import { startFakeSlackApi } from '@spur-board/gateway-slack/testing';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { loadConfig, resolvePaths } from '../src/config.ts';
 import type { ModuleContext } from '../src/lifecycle.ts';
@@ -105,5 +106,68 @@ describe('inbound recovery scheduler', () => {
     release?.();
     await stopping;
     expect(stopped).toBe(true);
+  });
+
+  it('stops within the deadline while a scan sleeps on a rate limit', async () => {
+    const ctx = context();
+    const fake = await startFakeSlackApi();
+    try {
+      const gateway = createSlackGateway({
+        token: 'xoxb-test',
+        now: () => Date.now(),
+        channels: { orchestrators: 'C_ORCH', feed: 'C_FEED' },
+        apiUrl: fake.url,
+        requestTimeoutMs: 500,
+      });
+      const opened = await gateway.deliver({
+        key: 'module-root',
+        maybeSent: false,
+        target: { kind: 'open', space: 'orchestrators', title: 'question' },
+        persona: { name: 'test', role: 'board' },
+        body: [{ kind: 'paragraph', children: [{ kind: 'text', text: 'question' }] }],
+      });
+      if (opened.status !== 'delivered' || opened.conversation === undefined) {
+        throw new Error('fake conversation failed to open');
+      }
+      await ctx.store.transaction(async (trx) => {
+        await trx
+          .insertInto('conversation')
+          .values({
+            gateway: gateway.kind,
+            ref: opened.conversation ?? '',
+            space: 'orchestrators',
+            task_id: null,
+            block_id: null,
+            purpose: 'block',
+            state: 'open',
+            root_message_ref: opened.message,
+            after_message_ref: null,
+            created_at: new Date(Date.now() - 1000).toISOString(),
+            closed_at: null,
+          })
+          .execute();
+      });
+      // Cache the bot identity first: an armed fault answers the next request of any method.
+      for await (const event of gateway.recover({ conversations: [], since: new Date(0) })) {
+        throw new Error(`unexpected ${event.kind}`);
+      }
+      fake.respondNext(429, { ok: false, error: 'ratelimited' }, { 'Retry-After': '3' });
+      const replies = () =>
+        fake.requests().filter((request) => request.method === 'conversations.replies').length;
+      const before = replies();
+      const module = createInboundModule(ctx, gateway);
+      const controller = new AbortController();
+      await module.start(controller.signal);
+      await vi.waitFor(() => {
+        expect(replies()).toBe(before + 1);
+      });
+      controller.abort();
+      const stoppingAt = performance.now();
+      await module.stop();
+      expect(performance.now() - stoppingAt).toBeLessThan(1000);
+      expect(await ctx.store.db.selectFrom('operator_item').select('id').execute()).toEqual([]);
+    } finally {
+      await fake.close();
+    }
   });
 });

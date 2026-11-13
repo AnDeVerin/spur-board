@@ -3,6 +3,7 @@ import {
   clearItem as clearOperatorItem,
   raiseItem as raiseOperatorItem,
 } from '../../src/app/feed.ts';
+import { createHash } from 'node:crypto';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -16,6 +17,7 @@ import {
   messageRefSchema,
   userIdSchema,
   type ActorId,
+  type Gateway,
   type InboundEvent,
 } from '@spur-board/contracts';
 import { createFakeGateway } from '@spur-board/gateway-testkit';
@@ -26,6 +28,7 @@ import {
   enqueueConversationOpen,
   getOperatorItem,
   openStore,
+  purgeExpiredCommands,
   type OperationRegistry,
   type Store,
   reconcileDueDoorbells,
@@ -35,6 +38,7 @@ import { purgeEndedTokenRequests, requestToken } from '../../src/app/tokens.ts';
 
 const DAY_MS = 86_400_000;
 const now = Date.parse('2026-11-03T10:00:00.000Z');
+const DAY = 86_400_000;
 const at = new Date(now).toISOString();
 const config = configSchema.parse({
   projects: [
@@ -1745,7 +1749,522 @@ describe('inbound apply', () => {
     ]);
     expect(await reopened.db.selectFrom('comment').select('id').execute()).toHaveLength(1);
   });
+
+  it('applies a distinct edit in the same millisecond and skips its replay', async () => {
+    const { store, inbound } = await setup();
+    const edit = (key: string, text: string) => ({
+      ...message({ conversation: 'thread-1', root: 'root-1', key }),
+      kind: 'message_edited' as const,
+      text,
+      at: new Date(now + 1000).toISOString(),
+    });
+    const comment = () => store.db.selectFrom('comment').select(['text', 'revision']).execute();
+    await inbound.sink(message({ conversation: 'thread-1', root: 'root-1' }));
+    await inbound.sink(edit('edit-a', 'First edit'));
+    await inbound.sink(edit('edit-b', 'Second edit'));
+    expect(await comment()).toEqual([{ text: 'Second edit', revision: 3 }]);
+    await purgeExpiredCommands(store, { now: () => now + 8 * DAY }, 7);
+    await inbound.sink(edit('edit-b', 'Second edit'));
+    expect(await comment()).toEqual([{ text: 'Second edit', revision: 3 }]);
+    expect(await store.db.selectFrom('command').select('key').execute()).toEqual([]);
+  });
+
+  it('skips a replayed edit or deletion after its command key expired', async () => {
+    const { store, inbound } = await setup();
+    const purge = () => purgeExpiredCommands(store, { now: () => now + 8 * DAY }, 7);
+    const edit = (key: string, editedAt: string, text: string) => ({
+      ...message({ conversation: 'thread-1', root: 'root-1', key }),
+      kind: 'message_edited' as const,
+      text,
+      at: editedAt,
+    });
+    const deletion = {
+      kind: 'message_deleted' as const,
+      dedupeKey: 'd',
+      conversation: conversationRefSchema.parse('thread-1'),
+      message: messageRefSchema.parse('reply-1'),
+      rootMessage: messageRefSchema.parse('root-1'),
+      sourceUrl: 'https://example.test/thread/reply',
+    };
+    const e1 = edit('e1', new Date(now + 1000).toISOString(), 'First edit');
+    const e2 = edit('e2', new Date(now + 2000).toISOString(), 'Second edit');
+    const e3 = edit('e3', new Date(now + 3000).toISOString(), 'Third edit');
+    const snapshot = async () => ({
+      event: await store.db.selectFrom('event').selectAll().orderBy('id').execute(),
+      comment: await store.db
+        .selectFrom('comment')
+        .select(['id', 'text', 'revision'])
+        .orderBy('id')
+        .execute(),
+      operator_item: await store.db.selectFrom('operator_item').selectAll().orderBy('id').execute(),
+      notification: await store.db.selectFrom('notification').selectAll().orderBy('id').execute(),
+      outbox: await store.db.selectFrom('outbox').selectAll().orderBy('id').execute(),
+    });
+    const commands = () => store.db.selectFrom('command').select('key').execute();
+    const kinds = async (kind: string) =>
+      (await store.db.selectFrom('event').select('kind').where('kind', '=', kind).execute()).length;
+
+    await inbound.sink(message({ conversation: 'thread-1', root: 'root-1' }));
+    await inbound.sink(e1);
+    await inbound.sink(e2);
+    expect(await store.db.selectFrom('comment').select(['text', 'revision']).execute()).toEqual([
+      { text: 'Second edit', revision: 3 },
+    ]);
+
+    const applied = await snapshot();
+    await purge();
+    await inbound.sink(e2);
+    await inbound.sink({ ...e2, at: '2026-11-03T10:00:02Z' });
+    await inbound.sink(e1);
+    expect(await snapshot()).toEqual(applied);
+    expect(await commands()).toEqual([]);
+
+    await inbound.sink(e3);
+    expect(await store.db.selectFrom('comment').select(['text', 'revision']).execute()).toEqual([
+      { text: 'Third edit', revision: 4 },
+    ]);
+    expect(await kinds('comment_edited')).toBe(3);
+
+    await scanTransaction(store, config, (trx) =>
+      trx.updateTable('task').set({ membership: 'archived' }).where('id', '=', 1).execute(),
+    );
+    const archived = await snapshot();
+    await purge();
+    await inbound.sink(e3);
+    await inbound.sink(e1);
+    expect(await snapshot()).toEqual(archived);
+    expect(await kinds('inbound_failed')).toBe(0);
+
+    await inbound.sink(deletion);
+    expect(await kinds('comment_deleted')).toBe(1);
+
+    const deleted = await snapshot();
+    await purge();
+    await inbound.sink(deletion);
+    await inbound.sink(e3);
+    expect(await snapshot()).toEqual(deleted);
+    expect(await kinds('comment_deleted')).toBe(1);
+    expect(await commands()).toEqual([]);
+  });
+
+  it('applies a live event between recovery slices', async () => {
+    const { store, gateway } = await setup();
+    await addSecondConversation(store, gateway.kind);
+    const gates = new Map([
+      ['thread-1', Promise.withResolvers<undefined>()],
+      ['thread-2', Promise.withResolvers<undefined>()],
+    ]);
+    const release = (ref: string) => gates.get(ref)?.resolve(undefined);
+    const calls: string[] = [];
+    const inbound = recoveringInbound(store, gateway, (request) => {
+      const ref = request.conversations[0]?.ref ?? '';
+      calls.push(ref);
+      return (async function* () {
+        await gates.get(ref)?.promise;
+        yield* gateway.recover(request);
+      })();
+    });
+    let scanned = false;
+    const scanning = inbound.recover().then(() => {
+      scanned = true;
+    });
+    try {
+      await settleUntil(() => calls.includes('thread-1'));
+      let sunk = false;
+      const sinking = inbound
+        .sink(message({ conversation: 'thread-3', root: 'root-3', key: 'live-3' }))
+        .then(() => {
+          sunk = true;
+        });
+      release('thread-1');
+      await settleUntil(() => sunk);
+      await sinking;
+      expect(
+        await store.db
+          .selectFrom('event')
+          .select('kind')
+          .where('kind', '=', 'inbound_skipped')
+          .execute(),
+      ).toHaveLength(1);
+      expect(scanned).toBe(false);
+      await settleUntil(() => calls.length === 2);
+      expect(calls).toEqual(['thread-1', 'thread-2']);
+    } finally {
+      release('thread-1');
+      release('thread-2');
+      await scanning;
+    }
+  });
+
+  it("applies a conversation's recovered events before its live event", async () => {
+    const { store, gateway } = await setup();
+    await addSecondConversation(store, gateway.kind);
+    const gate = Promise.withResolvers<undefined>();
+    const calls: string[] = [];
+    const inbound = recoveringInbound(store, gateway, (request) => {
+      const ref = request.conversations[0]?.ref ?? '';
+      calls.push(ref);
+      return (async function* () {
+        if (ref === 'thread-1') await gate.promise;
+        if (ref === 'thread-2') {
+          yield message({
+            conversation: 'thread-2',
+            root: 'root-2',
+            key: 'missed-2',
+            ref: 'missed-2',
+            text: 'Missed',
+          });
+        }
+      })();
+    });
+    const scanning = inbound.recover();
+    try {
+      await settleUntil(() => calls.includes('thread-1'));
+      const sinking = inbound.sink(
+        message({
+          conversation: 'thread-2',
+          root: 'root-2',
+          key: 'live-2',
+          ref: 'live-2',
+          text: 'Live',
+        }),
+      );
+      gate.resolve(undefined);
+      await sinking;
+      await scanning;
+    } finally {
+      gate.resolve(undefined);
+    }
+    expect(
+      (
+        await store.db
+          .selectFrom('comment')
+          .select('text')
+          .where('block_id', '=', 2)
+          .orderBy('id')
+          .execute()
+      ).map((row) => row.text),
+    ).toEqual(['Missed', 'Live']);
+    expect(calls).toEqual(['thread-1', 'thread-2']);
+  });
+
+  it('rereads an already read conversation before its live event after a second connection up', async () => {
+    const { store, gateway } = await setup();
+    await addSecondConversation(store, gateway.kind);
+    const gate = Promise.withResolvers<undefined>();
+    const calls: string[] = [];
+    const inbound = recoveringInbound(store, gateway, (request) => {
+      const conversation = request.conversations[0];
+      const ref = conversation?.ref ?? '';
+      calls.push(ref);
+      const reread = ref === 'thread-1' && calls.filter((call) => call === ref).length > 1;
+      return (async function* () {
+        if (ref === 'thread-2' && calls.length === 2) await gate.promise;
+        // Like Slack, a read after a cursor returns only later messages.
+        if (reread && conversation?.after === undefined) {
+          yield message({
+            conversation: 'thread-1',
+            root: 'root-1',
+            key: 'missed-1',
+            ref: 'missed-1',
+            text: 'Missed',
+          });
+        }
+      })();
+    });
+    const up = (key: string) => inbound.sink({ kind: 'connection', dedupeKey: key, state: 'up' });
+    const first = up('up-1');
+    let second: Promise<void> | undefined;
+    try {
+      await settleUntil(() => calls.length === 2);
+      second = up('up-2');
+      const sinking = inbound.sink(
+        message({
+          conversation: 'thread-1',
+          root: 'root-1',
+          key: 'live-1',
+          ref: 'live-1',
+          text: 'Live',
+        }),
+      );
+      gate.resolve(undefined);
+      await sinking;
+      await first;
+      await second;
+    } finally {
+      gate.resolve(undefined);
+    }
+    expect(
+      (
+        await store.db
+          .selectFrom('comment')
+          .select('text')
+          .where('block_id', '=', 1)
+          .orderBy('id')
+          .execute()
+      ).map((row) => row.text),
+    ).toEqual(['Missed', 'Live']);
+    expect(calls).toEqual(['thread-1', 'thread-2', 'thread-1', 'thread-2']);
+  });
+
+  it('starts a new scan for a request made just after the last slice ends', async () => {
+    const { store, gateway } = await setup();
+    let calls = 0;
+    let delay = 0;
+    const seconds: Promise<void>[] = [];
+    const inbound = recoveringInbound(store, gateway, (request) => {
+      calls += 1;
+      const schedule = calls % 2 === 1;
+      return (async function* () {
+        yield* gateway.recover(request);
+        if (!schedule) return;
+        // Request again a set number of microtasks after the first scan's last read ends.
+        void (async () => {
+          for (let tick = 0; tick < delay; tick += 1) await Promise.resolve();
+          seconds.push(inbound.recover());
+        })();
+      })();
+    });
+    for (delay = 0; delay < 30; delay += 1) {
+      const before = calls;
+      await inbound.recover();
+      await settleUntil(() => seconds.length > delay);
+      await seconds[delay];
+      expect({ delay, calls: calls - before }).toEqual({ delay, calls: 2 });
+    }
+  });
+
+  it('aborts the recovery signal on stop and scans nothing after', async () => {
+    const { store, gateway } = await setup();
+    const signals: AbortSignal[] = [];
+    const inbound = recoveringInbound(store, gateway, (request) => {
+      const signal = request.signal;
+      if (signal === undefined) throw new Error('Expected a recovery signal');
+      signals.push(signal);
+      return (async function* () {
+        await abortOf(signal);
+        yield* gateway.recover({ conversations: [], since: new Date(now) });
+      })();
+    });
+    const scanning = inbound.recover();
+    await settleUntil(() => signals.length === 1);
+    await inbound.stop();
+    expect(signals[0]?.aborted).toBe(true);
+    await inbound.stop();
+    await scanning;
+    await inbound.recover();
+    expect(signals).toHaveLength(1);
+  });
+
+  it.each(['button', 'retryStored', 'retrying'] as const)(
+    "reads a retried reply's thread before re-applying it during a scan (%s)",
+    async (via) => {
+      const { store, gateway } = await setup();
+      await addSecondConversation(store, gateway.kind);
+      const stored = message({ conversation: 'thread-2', root: 'root-2', key: 'failed-2' });
+      const failure = await scanTransaction(store, config, async (trx) => {
+        const item = await raiseOperatorItem(trx, {
+          itemKey: 'inbound:failed-2',
+          kind: 'inbound_failure',
+          text: 'Slack message not processed',
+          url: '',
+          taskId: 1,
+          blockId: null,
+          at: new Date(now),
+        });
+        await trx
+          .updateTable('operator_item')
+          .set({ inbound_event_json: JSON.stringify(stored) })
+          .where('id', '=', item.id)
+          .execute();
+        return item.id;
+      });
+      const gate = Promise.withResolvers<undefined>();
+      const calls: string[] = [];
+      const inbound = recoveringInbound(store, gateway, (request) => {
+        const ref = request.conversations[0]?.ref ?? '';
+        calls.push(ref);
+        return (async function* () {
+          if (ref === 'thread-1') await gate.promise;
+        })();
+      });
+      const scanning = inbound.recover();
+      try {
+        await settleUntil(() => calls.includes('thread-1'));
+        const retrying =
+          via === 'button'
+            ? inbound.sink({
+                kind: 'action',
+                dedupeKey: 'retry-press',
+                interaction: interactionRefSchema.parse('interaction-retry'),
+                actionId: `item:${String(failure)}:retry`,
+                author: userIdSchema.parse('operator'),
+                conversation: conversationRefSchema.parse('feed-1'),
+                message: messageRefSchema.parse('feed-line-1'),
+                rootMessage: messageRefSchema.parse('feed-line-1'),
+                sourceUrl: 'https://example.test/feed',
+                sourceSpace: 'feed',
+              })
+            : via === 'retryStored'
+              ? inbound.retryStored(failure)
+              : inbound.retrying(`I${String(failure)}`, () => Promise.resolve());
+        gate.resolve(undefined);
+        await retrying.catch(() => undefined);
+        // The stored reply's thread was read before the retry, not after it.
+        expect(calls).toEqual(['thread-1', 'thread-2']);
+        await scanning;
+      } finally {
+        gate.resolve(undefined);
+      }
+      expect(calls).toEqual(['thread-1', 'thread-2']);
+    },
+  );
+
+  it('applies no buffered recovered event after stop', async () => {
+    const { store, gateway } = await setup();
+    let yielded = 0;
+    const inbound = recoveringInbound(store, gateway, (request) => {
+      const signal = request.signal;
+      if (signal === undefined) throw new Error('Expected a recovery signal');
+      return (async function* () {
+        // Like a gateway yielding history it loaded before the abort, without checking it.
+        yielded += 1;
+        yield message({ conversation: 'thread-1', root: 'root-1', key: 'first', ref: 'first' });
+        await abortOf(signal);
+        yielded += 1;
+        yield message({
+          conversation: 'thread-1',
+          root: 'root-1',
+          key: 'second',
+          ref: 'second',
+          text: 'Later',
+        });
+      })();
+    });
+    const scanning = inbound.recover();
+    await settleUntil(() => yielded === 1);
+    await inbound.stop();
+    await scanning;
+    expect(yielded).toBe(2);
+    expect(
+      await store.db
+        .selectFrom('comment')
+        .select('text')
+        .where('conversation_ref', '=', 'thread-1')
+        .orderBy('id')
+        .execute(),
+    ).toEqual([{ text: 'Yes' }]);
+  });
+
+  it('raises a gap for an unread conversation when a live event arrives after stop', async () => {
+    const { store, gateway } = await setup();
+    await addSecondConversation(store, gateway.kind);
+    const calls: string[] = [];
+    const inbound = recoveringInbound(store, gateway, (request) => {
+      const signal = request.signal;
+      if (signal === undefined) throw new Error('Expected a recovery signal');
+      calls.push(request.conversations[0]?.ref ?? '');
+      return (async function* () {
+        await abortOf(signal);
+        yield* gateway.recover({ conversations: [], since: new Date(now) });
+      })();
+    });
+    const scanning = inbound.recover();
+    await settleUntil(() => calls.includes('thread-1'));
+    await inbound.stop();
+    await scanning;
+    await inbound.sink(
+      message({ conversation: 'thread-2', root: 'root-2', key: 'live-2', ref: 'live-2' }),
+    );
+    expect(calls).toEqual(['thread-1']);
+    const scope = createHash('sha256')
+      .update(JSON.stringify([gateway.kind, 'thread-2']))
+      .digest('hex');
+    expect(
+      await store.db
+        .selectFrom('operator_item')
+        .select(['kind', 'item_key'])
+        .where('kind', '=', 'inbound_gap')
+        .execute(),
+    ).toEqual([{ kind: 'inbound_gap', item_key: `inbound:gap:${scope}` }]);
+    expect(
+      await store.db
+        .selectFrom('comment')
+        .select('text')
+        .where('conversation_ref', '=', 'thread-2')
+        .execute(),
+    ).toEqual([{ text: 'Yes' }]);
+  });
 });
+
+/** Block 2 on task 1 with its own open conversation, created after `thread-1`. */
+async function addSecondConversation(store: Store, gateway: string): Promise<void> {
+  const created = new Date(now + 1000).toISOString();
+  await scanTransaction(store, config, async (trx) => {
+    await trx
+      .insertInto('block')
+      .values({
+        task_id: 1,
+        type: 'needs_input',
+        reason: 'Which other way?',
+        author: 'system',
+        addressee_role: 'operator',
+        target_column: null,
+        state: 'open',
+        outcome: null,
+        outcome_reason: null,
+        repeat_of: null,
+        unblocked_by: null,
+        unblocked_at: null,
+        created_at: created,
+      })
+      .execute();
+    await trx
+      .insertInto('conversation')
+      .values({
+        gateway,
+        ref: 'thread-2',
+        space: 'orchestrators',
+        task_id: 1,
+        block_id: 2,
+        purpose: 'block',
+        state: 'open',
+        root_message_ref: 'root-2',
+        after_message_ref: null,
+        created_at: created,
+        closed_at: null,
+      })
+      .execute();
+  });
+}
+
+/** The test's inbound with `recover` replaced on its fake gateway. */
+function recoveringInbound(store: Store, gateway: Gateway, recover: Gateway['recover']) {
+  return createInbound({
+    store,
+    config,
+    clock: { now: () => now },
+    gateway: { ...gateway, recover },
+  });
+}
+
+/** Lets queued work run until `done` holds; throws instead of hanging when it never does. */
+async function settleUntil(done: () => boolean): Promise<void> {
+  for (let attempt = 0; attempt < 500; attempt += 1) {
+    if (done()) return;
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  }
+  throw new Error('Condition not reached');
+}
+
+function abortOf(signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    if (signal.aborted) resolve();
+    signal.addEventListener('abort', () => {
+      resolve();
+    });
+  });
+}
 
 describe('anomaly block', () => {
   it('closes an anomaly block on an operator reply without an author-unavailable item', async () => {

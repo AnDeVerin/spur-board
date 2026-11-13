@@ -64,8 +64,11 @@ A gateway adapts one chat platform to the `Gateway` port.
   loss (G13). Core runs `recover` on `up`.
 - `recover` works from its request alone (G10).
 - Yield `gap` whenever completeness cannot be proven (`recoverThreads` in
-  `packages/gateway-slack/src/recover.ts`). Copy its `gap` cases, not the rate-limit sleep in
-  `readThread`: that loop breaks G1 and is a known deviation.
+  `packages/gateway-slack/src/recover.ts`). Copy its `gap` cases, not the rate-limit wait in
+  `readThread`: that retry breaks G1 and is a known deviation. Its waits share a per-thread
+  budget; a wait past the budget becomes a `gap`.
+- Stop reading when `RecoverRequest.signal` aborts and yield no `gap` for it (G10); race a read
+  that cannot be cancelled against the abort, as `readThread` does.
 - Core turns a `gap` into a "repeat your answer" item (`applyGap` in
   `packages/core/src/app/inbound.ts`).
 

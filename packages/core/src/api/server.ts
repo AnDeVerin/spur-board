@@ -7,6 +7,7 @@ import {
   renderHttpProblem,
   successEnvelopeSchema,
   tokenRequestSchema,
+  type OperationId,
   type ServerErrorCode,
 } from '@spur-board/contracts';
 import Fastify, { type FastifyInstance } from 'fastify';
@@ -26,6 +27,8 @@ export interface ApiOptions extends IdentityPorts {
   readonly clock: { now(): number };
   readonly registry: OperationRegistry;
   readonly afterOperation?: (response: ServerResponse) => void | Promise<void>;
+  /** Wraps one operation's dispatch, e.g. to order `item.retry` behind inbound recovery. */
+  readonly runOperation?: <T>(id: OperationId, input: unknown, run: () => Promise<T>) => Promise<T>;
   readonly doctor?: () => Promise<DoctorReport>;
   /** Whether every non-blind source has completed a poll; read per request, with no probes. */
   readonly firstPollDone?: () => Promise<boolean>;
@@ -254,13 +257,11 @@ export async function createApiServer(options: ApiOptions): Promise<FastifyInsta
       if (!parsed.success) {
         throw new CommandError(errorCodeOf(parsed.error), 'Fix the operation input.');
       }
-      const result = await dispatchOperation(
-        options,
-        operation.id,
-        parsed.data,
-        caller.actor,
-        body.key,
-      );
+      const dispatch = () =>
+        dispatchOperation(options, operation.id, parsed.data, caller.actor, body.key);
+      const result = await (options.runOperation === undefined
+        ? dispatch()
+        : options.runOperation(operation.id, parsed.data, dispatch));
       await options.afterOperation?.(reply.raw);
       return reply.send(
         successEnvelopeSchema.parse({ ok: true, requestId: request.id, value: result }),

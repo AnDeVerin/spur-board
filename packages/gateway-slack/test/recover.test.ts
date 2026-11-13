@@ -4,8 +4,11 @@ import {
   type RecoverRequest,
   type RichText,
 } from '@spur-board/contracts';
+import { WebAPIRateLimitedError, type WebClient } from '@slack/web-api';
 import { describe, expect, it, vi } from 'vitest';
 import { createSlackGateway } from '../src/index.ts';
+import { recoverThreads } from '../src/recover.ts';
+import { conversationRef } from '../src/ref.ts';
 import { startFakeSlackApi } from '@spur-board/gateway-slack/testing';
 
 // The Socket Mode SDK waits five seconds before its first automatic reconnect.
@@ -18,6 +21,26 @@ async function collect(events: AsyncIterable<InboundEvent>): Promise<InboundEven
   const found: InboundEvent[] = [];
   for await (const event of events) found.push(event);
   return found;
+}
+
+function repliesCount(fake: { requests(): readonly { method: string }[] }): number {
+  return fake.requests().filter((request) => request.method === 'conversations.replies').length;
+}
+
+/** Recovers one thread through `client` directly, with the bot identity already resolved. */
+function recoverWith(client: unknown, signal: AbortSignal): Promise<InboundEvent[]> {
+  return collect(
+    recoverThreads(
+      client as WebClient,
+      {
+        conversations: [{ ref: conversationRef('C_ORCH', '1700000000.000100') }],
+        since: new Date(0),
+        signal,
+      },
+      () => Promise.resolve({ userId: 'U_BOT' }),
+      () => Date.now(),
+    ),
+  );
 }
 
 async function setup(pageSize = 100) {
@@ -194,6 +217,134 @@ describe('Slack thread recovery', () => {
       await gateway.stop();
       await fake.close();
     }
+  });
+
+  it('stops a rate-limited thread read on abort without a gap', async () => {
+    const { fake, gateway, conversation } = await setup();
+    const controller = new AbortController();
+    try {
+      await gateway.start(async () => {});
+      await fake.platform.rateLimitNext(3000);
+      const replies = () => repliesCount(fake);
+      const before = replies();
+      const recovering = collect(
+        gateway.recover({
+          conversations: [{ ref: conversation }],
+          since: new Date(0),
+          signal: controller.signal,
+        }),
+      );
+      await vi.waitFor(() => {
+        expect(replies()).toBe(before + 1);
+      });
+      const abortedAt = performance.now();
+      controller.abort();
+      const recovered = await recovering;
+      expect(performance.now() - abortedAt).toBeLessThan(1000);
+      expect(recovered.filter((event) => event.kind === 'gap')).toEqual([]);
+      expect(replies()).toBe(before + 1);
+    } finally {
+      await gateway.stop();
+      await fake.close();
+    }
+  });
+
+  it('yields a gap when Retry-After exceeds the read budget', async () => {
+    const { fake, gateway, conversation } = await setup();
+    try {
+      await gateway.start(async () => {});
+      await fake.platform.rateLimitNext(60_000);
+      const replies = () => repliesCount(fake);
+      const before = replies();
+      const startedAt = performance.now();
+      const recovered = await collect(
+        gateway.recover({ conversations: [{ ref: conversation }], since: new Date(0) }),
+      );
+      expect(performance.now() - startedAt).toBeLessThan(1000);
+      expect(recovered).toEqual([expect.objectContaining({ kind: 'gap', conversation })]);
+      expect(replies()).toBe(before + 1);
+    } finally {
+      await gateway.stop();
+      await fake.close();
+    }
+  });
+
+  it('charges zero-second retries against the read budget and ends in a gap', async () => {
+    let calls = 0;
+    const client = {
+      conversations: {
+        replies: () => {
+          calls += 1;
+          return Promise.reject(new WebAPIRateLimitedError(0));
+        },
+      },
+    };
+    const recovered = await recoverWith(client, new AbortController().signal);
+    expect(recovered).toEqual([expect.objectContaining({ kind: 'gap' })]);
+    // Ten retries at the minimum charge spend the 10 s budget; the eleventh failure gaps.
+    expect(calls).toBe(11);
+  });
+
+  it('abandons an in-flight thread read on abort', async () => {
+    const read = Promise.withResolvers<never>();
+    let calls = 0;
+    const client = {
+      conversations: {
+        replies: () => {
+          calls += 1;
+          return read.promise;
+        },
+      },
+    };
+    const controller = new AbortController();
+    const recovering = recoverWith(client, controller.signal);
+    await vi.waitFor(() => {
+      expect(calls).toBe(1);
+    });
+    controller.abort();
+    const timeout = Promise.withResolvers<'timeout'>();
+    const timer = setTimeout(() => {
+      timeout.resolve('timeout');
+    }, 1000);
+    try {
+      expect(await Promise.race([recovering, timeout.promise])).toEqual([]);
+    } finally {
+      clearTimeout(timer);
+    }
+    // The abandoned read settles later; its rejection must not surface as unhandled.
+    read.reject(new Error('late read failure'));
+    await new Promise((resolve) => setImmediate(resolve));
+  });
+
+  it('requests no further page of an abandoned thread read', async () => {
+    const firstPage = Promise.withResolvers<object>();
+    let calls = 0;
+    const client = {
+      conversations: {
+        replies: () => {
+          calls += 1;
+          return calls === 1
+            ? firstPage.promise
+            : Promise.resolve({ ok: true, messages: [], has_more: false });
+        },
+      },
+    };
+    const controller = new AbortController();
+    const recovering = recoverWith(client, controller.signal);
+    await vi.waitFor(() => {
+      expect(calls).toBe(1);
+    });
+    controller.abort();
+    expect(await recovering).toEqual([]);
+    firstPage.resolve({
+      ok: true,
+      messages: [{ ts: '1700000000.000100', text: 'root' }],
+      response_metadata: { next_cursor: 'page-2' },
+    });
+    for (let tick = 0; tick < 10; tick += 1) {
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+    expect(calls).toBe(1);
   });
 
   it('does not acknowledge a Socket Mode envelope while the sink is held', async () => {

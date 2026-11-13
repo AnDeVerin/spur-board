@@ -1,5 +1,5 @@
 import { scanTransaction } from './secrets.ts';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import {
   ERRORS,
   OPERATIONS,
@@ -16,6 +16,7 @@ import {
   type Gateway,
   type InboundEvent,
   type OperationId,
+  type RecoverRequest,
   type RichText,
 } from '@spur-board/contracts';
 import { sql, type Kysely } from 'kysely';
@@ -62,6 +63,12 @@ export interface Inbound {
   recover(): Promise<void>;
   stop(): Promise<void>;
   retryStored(itemId: number): Promise<void>;
+  /**
+   * Runs `run` in the inbound queue, after the conversation of the event item `item` (`I<n>`)
+   * stored for retry is read, so a retry from outside Slack cannot move a cursor the running
+   * scan has not read past yet.
+   */
+  retrying<T>(item: string, run: () => Promise<T>): Promise<T>;
   /**
    * Re-applies an item's stored event in the caller's transaction, without clearing the item.
    * A stored query needs nothing re-applied; an event that cannot be re-applied throws
@@ -212,6 +219,32 @@ async function skip(
   return { status: 'ignored' };
 }
 
+/**
+ * The journal is the comment's edit cursor: a deletion, or a later edit, was already applied.
+ * Times compare in milliseconds, since `at` precision varies. Distinct edits can share a
+ * millisecond, so an edit at the same millisecond counts as applied only when the comment
+ * already holds its text.
+ */
+async function alreadyApplied(trx: Trx, event: MessageEvent): Promise<boolean> {
+  if (event.kind !== 'message_edited' && event.kind !== 'message_deleted') return false;
+  const comment = await linkedComment(trx, event);
+  if (comment === undefined || comment.author !== 'operator') return false;
+  const rows = await trx
+    .selectFrom('event')
+    .select(['kind', 'at'])
+    .where('task_id', '=', comment.task_id)
+    .where('kind', 'in', ['comment_deleted', 'comment_edited'])
+    .where(sql<string>`json_extract(payload, '$.comment')`, '=', `C${String(comment.id)}`)
+    .execute();
+  if (rows.some((row) => row.kind === 'comment_deleted')) return true;
+  if (event.kind === 'message_deleted') return false;
+  const editedAt = Date.parse(event.at);
+  return rows.some((row) => {
+    const rowAt = Date.parse(row.at);
+    return rowAt > editedAt || (rowAt === editedAt && comment.text === event.text);
+  });
+}
+
 async function linkedComment(trx: Trx, event: MessageEvent): Promise<Row<'comment'> | undefined> {
   return trx
     .selectFrom('comment')
@@ -277,6 +310,22 @@ async function ringAuthor(
   });
 }
 
+/** One scan: its queued selections and the promise every caller waits on. */
+interface ScanState {
+  /** A selection has set `since`; later ones only move it earlier. */
+  selected: boolean;
+  /** A selection found no conversations: read once with an empty list. */
+  readEmpty: boolean;
+  /** The latest queued selection. */
+  selection: Promise<void>;
+  promise: Promise<void>;
+}
+
+function first(set: Set<string>): string | undefined {
+  for (const value of set) return value;
+  return undefined;
+}
+
 export function createInbound(input: {
   store: Store;
   gateway: Gateway;
@@ -288,6 +337,12 @@ export function createInbound(input: {
   const clock = input.clock ?? { now: () => Date.now() };
   const registry = input.registry ?? {};
   let running: Promise<void> = Promise.resolve();
+  const stopping = new AbortController();
+  const stopped = () => stopping.signal.aborted;
+  /** Conversations the current or stopped scan selected and has not read yet. */
+  const pending = new Set<string>();
+  let since = new Date(clock.now());
+  let scan: ScanState | undefined;
 
   async function sourceContext(trx: Trx, event: UserEvent, at: string) {
     if (!('conversation' in event)) return undefined;
@@ -316,7 +371,12 @@ export function createInbound(input: {
     return resolved?.conversation;
   }
 
-  async function processMessage(trx: Trx, event: MessageEvent, at: string): Promise<Result> {
+  async function processMessage(
+    trx: Trx,
+    event: MessageEvent,
+    at: string,
+  ): Promise<Result | undefined> {
+    if (await alreadyApplied(trx, event)) return undefined;
     const conversation = await sourceContext(trx, event, at);
     if (conversation?.block_id === null || conversation === undefined) {
       return skip(trx, {
@@ -483,7 +543,7 @@ export function createInbound(input: {
     });
   }
 
-  async function runUser(trx: Trx, event: UserEvent, at: string): Promise<Result> {
+  async function runUser(trx: Trx, event: UserEvent, at: string): Promise<Result | undefined> {
     if (
       event.kind === 'command' &&
       event.name !== undefined &&
@@ -840,46 +900,205 @@ export function createInbound(input: {
     });
   }
 
-  async function applyEvent(event: InboundEvent): Promise<void> {
-    if (event.kind === 'connection') {
-      if (event.state === 'up') await scan();
-      return;
-    }
+  async function applyEvent(event: Exclude<InboundEvent, { kind: 'connection' }>): Promise<void> {
     if (event.kind === 'gap') return applyGap(event);
     return applyUser(event);
   }
 
-  async function scan(): Promise<void> {
-    const selected = await conversationsForRecovery(store.db, gateway.kind, new Date(clock.now()));
-    const conversations = selected.rows.map((row) => ({
-      ref: conversationRefSchema.parse(row.ref),
-      ...(row.after_message_ref === null
-        ? {}
-        : { after: messageRefSchema.parse(row.after_message_ref) }),
-    }));
-    for await (const event of gateway.recover({ conversations, since: selected.since })) {
+  /** Reads one conversation, or none to let a history-less gateway report its gap. */
+  async function readSlice(ref: string | undefined): Promise<void> {
+    let conversations: RecoverRequest['conversations'] = [];
+    if (ref !== undefined) {
+      const row = await store.db
+        .selectFrom('conversation')
+        .select('after_message_ref')
+        .where('gateway', '=', gateway.kind)
+        .where('ref', '=', ref)
+        .executeTakeFirst();
+      if (row === undefined) return;
+      conversations = [
+        {
+          ref: conversationRefSchema.parse(ref),
+          ...(row.after_message_ref === null
+            ? {}
+            : { after: messageRefSchema.parse(row.after_message_ref) }),
+        },
+      ];
+    }
+    for await (const event of gateway.recover({ conversations, since, signal: stopping.signal })) {
+      // A gateway may still yield history it loaded before the abort; leave it unapplied.
+      if (stopped()) return;
+      // A slice never starts a scan from inside the chain.
+      if (event.kind === 'connection') continue;
       await applyEvent(event);
     }
   }
 
-  function serial(work: () => Promise<void>): Promise<void> {
+  /** Reads `ref` now when the scan has not read it yet; a stopped scan leaves it unread. */
+  async function sliceIfPending(ref: string): Promise<void> {
+    if (!pending.has(ref) || stopped()) return;
+    try {
+      await readSlice(ref);
+    } catch (error) {
+      pending.delete(ref);
+      throw error;
+    }
+    if (!stopped()) pending.delete(ref);
+  }
+
+  /**
+   * Adds the selected conversations to `pending`. A selection merged into a running scan reads
+   * from the earliest `since` of its selections, so no selection's window shrinks.
+   */
+  async function select(state: ScanState): Promise<void> {
+    if (scan !== state) return;
+    const selected = await conversationsForRecovery(store.db, gateway.kind, new Date(clock.now()));
+    since = state.selected && since.getTime() < selected.since.getTime() ? since : selected.since;
+    state.selected = true;
+    for (const row of selected.rows) pending.add(row.ref);
+    if (selected.rows.length === 0) state.readEmpty = true;
+  }
+
+  /**
+   * One slot per conversation, so live events run between slices, until `pending` is empty.
+   * The scan ends where this decides to stop, in the same microtask, so a later request starts
+   * a fresh scan instead of joining one that will not read again.
+   */
+  async function drain(state: ScanState): Promise<void> {
+    const end = () => {
+      if (scan === state) scan = undefined;
+    };
+    try {
+      for (;;) {
+        const selection = state.selection;
+        await selection;
+        for (let ref = first(pending); ref !== undefined && !stopped(); ref = first(pending)) {
+          const next = ref;
+          await serial(() => sliceIfPending(next));
+        }
+        if (state.readEmpty && !stopped()) {
+          state.readEmpty = false;
+          await serial(() => readSlice(undefined));
+        }
+        if (stopped() || state.selection === selection) {
+          end();
+          return;
+        }
+      }
+    } catch (error) {
+      end();
+      pending.clear();
+      throw error;
+    }
+  }
+
+  /**
+   * A request during a scan queues its selection at once, so later live events wait for it;
+   * every caller waits until the merged selections are read.
+   */
+  function requestScan(): Promise<void> {
+    if (stopped()) return Promise.resolve();
+    if (scan !== undefined) {
+      queueSelection(scan);
+      return scan.promise;
+    }
+    const state: ScanState = {
+      selected: false,
+      readEmpty: false,
+      selection: Promise.resolve(),
+      promise: Promise.resolve(),
+    };
+    scan = state;
+    queueSelection(state);
+    state.promise = drain(state);
+    return state.promise;
+  }
+
+  function queueSelection(state: ScanState): void {
+    // Chained, so the drain sees a failed earlier selection even after a later one is queued.
+    const queued = serial(() => select(state));
+    state.selection = state.selection.then(() => queued);
+    // The drain awaits it; a rejection must not surface before then.
+    state.selection.catch(() => undefined);
+  }
+
+  /** The conversation of the event an item stored for retry, if it has one. */
+  async function storedConversation(itemId: number): Promise<string | undefined> {
+    if (pending.size === 0) return undefined;
+    const item = await store.db
+      .selectFrom('operator_item')
+      .select('inbound_event_json')
+      .where('id', '=', itemId)
+      .executeTakeFirst();
+    if (item?.inbound_event_json == null) return undefined;
+    const stored = inboundEventSchema.safeParse(JSON.parse(item.inbound_event_json) as unknown);
+    return stored.success && 'conversation' in stored.data ? stored.data.conversation : undefined;
+  }
+
+  /** The item a feed Retry button re-applies, so its stored event's thread is read first. */
+  function retriedItem(event: InboundEvent): number | undefined {
+    if (event.kind !== 'action') return undefined;
+    const { id, item } = interactionOperation(event);
+    return id === 'item.retry' && item !== undefined ? Number(item.slice(1)) : undefined;
+  }
+
+  /** Reads `ref`'s unread history, or raises its gap once the scan stopped. */
+  async function readPending(ref: string | undefined): Promise<void> {
+    if (ref === undefined || !pending.has(ref)) return;
+    if (!stopped()) return sliceIfPending(ref);
+    pending.delete(ref);
+    await applyGap({
+      kind: 'gap',
+      dedupeKey: `inbound:stopped-scan:${randomUUID()}`,
+      conversation: conversationRefSchema.parse(ref),
+    });
+  }
+
+  /**
+   * Before a live event: its conversation's unread history, and for a Retry button the stored
+   * event's, since re-applying that event can move its conversation's cursor.
+   */
+  async function beforeLive(event: InboundEvent): Promise<void> {
+    await readPending('conversation' in event ? event.conversation : undefined);
+    const itemId = retriedItem(event);
+    if (itemId !== undefined) await readPending(await storedConversation(itemId));
+  }
+
+  function serial<T>(work: () => Promise<T>): Promise<T> {
     const next = running.then(work);
-    running = next.catch(() => undefined);
+    running = next.then(
+      () => undefined,
+      () => undefined,
+    );
     return next;
   }
 
   return {
     sink(event) {
-      return serial(() => applyEvent(event));
+      if (event.kind === 'connection') {
+        return event.state === 'up' ? requestScan() : Promise.resolve();
+      }
+      return serial(async () => {
+        await beforeLive(event);
+        await applyEvent(event);
+      });
     },
-    recover() {
-      return serial(scan);
+    recover: requestScan,
+    async stop() {
+      stopping.abort();
+      await scan?.promise.catch(() => undefined);
+      await running;
     },
-    stop() {
-      return running;
+    retrying(item, run) {
+      return serial(async () => {
+        const itemId = /^I[1-9]\d*$/.test(item) ? Number(item.slice(1)) : undefined;
+        if (itemId !== undefined) await readPending(await storedConversation(itemId));
+        return run();
+      });
     },
     retryStored(itemId) {
       return serial(async () => {
+        await readPending(await storedConversation(itemId));
         const at = new Date(clock.now()).toISOString();
         await scanTransaction(store, config, async (trx) => {
           await reapply(trx, itemId, at);

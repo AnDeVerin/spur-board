@@ -167,6 +167,11 @@ export function createDaemonModules(
     stopStage: 'final',
     module: createHttpModule(ctxFor('http'), {
       registry,
+      // A retry re-applies a stored Slack event, so it waits its turn behind inbound recovery.
+      runOperation: (id, input, run) =>
+        id === 'item.retry' && inbound !== undefined && isItemInput(input)
+          ? inbound.retrying(input.item, run)
+          : run(),
       firstPollDone: () => firstPollDone(board.store.db, board.config, core.completeSince),
       ...(ports.productVersion === undefined ? {} : { productVersion: ports.productVersion }),
       ...(ports.sessionFetcher === undefined ? {} : { fetcher: ports.sessionFetcher }),
@@ -176,4 +181,10 @@ export function createDaemonModules(
   });
   entries.push({ name: 'systemd', stopStage: 'pollers', module: createSystemdModule(notifier) });
   return { entries, inbound, outbox, tick: boardModules.tick };
+}
+
+function isItemInput(input: unknown): input is { item: string } {
+  return (
+    typeof input === 'object' && input !== null && 'item' in input && typeof input.item === 'string'
+  );
 }

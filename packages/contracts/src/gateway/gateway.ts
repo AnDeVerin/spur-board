@@ -73,6 +73,8 @@ export interface RecoverRequest {
   conversations: readonly { ref: ConversationRef; after?: MessageRef }[];
   /** Lower time bound for everything recovered. */
   since: Date;
+  /** Aborted when core stops; recover returns promptly without yielding a gap (G10). */
+  signal?: AbortSignal;
 }
 
 /**
@@ -124,7 +126,8 @@ export type RespondResult = 'sent' | 'dropped';
  *   edit gets a distinct one.
  * - G10: No gateway state: conversations, cursors and dedupe belong to core. `recover` works
  *   from its request alone. It yields every missed event it can still obtain; when some may be
- *   lost and cannot be returned, it yields `gap`.
+ *   lost and cannot be returned, it yields `gap`. When `signal` aborts, it stops reading and
+ *   returns without a `gap` for the conversations it did not read.
  * - G11: An inbound event is acknowledged to the platform only after `sink` resolves.
  * - G12: `capabilities` stay the same for the gateway's lifetime and match its behaviour (with
  *   `history: false`, `recover` yields `gap` when missed events cannot be returned). They never

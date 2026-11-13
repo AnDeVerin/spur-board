@@ -49,6 +49,7 @@ export function createHttpModule(
     fetcher?: typeof fetch;
     registry?: OperationRegistry;
     afterOperation?: (response: ServerResponse) => void | Promise<void>;
+    runOperation?: ApiOptions['runOperation'];
     onListening?: (address: string) => void;
     productVersion?: string;
     doctor?: ApiOptions['doctor'];
@@ -74,6 +75,7 @@ export function createHttpModule(
         verifyToken: (token) => verifyOperatorToken(ctx.store, token),
         registry: options.registry ?? {},
         ...(options.afterOperation === undefined ? {} : { afterOperation: options.afterOperation }),
+        ...(options.runOperation === undefined ? {} : { runOperation: options.runOperation }),
         doctor:
           options.doctor ??
           (() => runDaemonDoctor(ctx, options.productVersion ?? 'unknown', options.fetcher)),

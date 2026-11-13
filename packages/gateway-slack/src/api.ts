@@ -24,10 +24,13 @@ function messageTs(message: unknown): string | undefined {
     : undefined;
 }
 
-/** Read every page. An incomplete response is unknown, never an empty history. */
+/**
+ * Read every page. An incomplete response is unknown, never an empty history. Once `signal`
+ * aborts, no further page is requested.
+ */
 export async function readMessages(
   client: WebClient,
-  query: { channel: string; threadTs?: string; oldest?: string },
+  query: { channel: string; threadTs?: string; oldest?: string; signal?: AbortSignal | undefined },
 ): Promise<unknown[]> {
   const found: unknown[] = [];
   const seen = new Set<string>();
@@ -58,6 +61,7 @@ export async function readMessages(
       if (seen.has(key)) throw new IncompleteHistoryError('repeated cursor');
       seen.add(key);
       cursor = nextCursor;
+      if (query.signal?.aborted === true) throw new IncompleteHistoryError('read aborted');
       continue;
     }
     if (!page.has_more) return found;
@@ -68,6 +72,7 @@ export async function readMessages(
     seen.add(key);
     cursor = undefined;
     latest = lastTs;
+    if (query.signal?.aborted === true) throw new IncompleteHistoryError('read aborted');
   }
 }
 
