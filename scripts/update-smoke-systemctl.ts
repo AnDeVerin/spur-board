@@ -240,6 +240,7 @@ async function main(args: readonly string[]): Promise<number> {
     case 'disable':
       if (now) await stop();
       return 0;
+    case undefined:
     default:
       process.stderr.write(`fake systemctl: unsupported call: ${args.join(' ')}\n`);
       return 1;
