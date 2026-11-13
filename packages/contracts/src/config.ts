@@ -342,7 +342,7 @@ function pollIntervalMs(fallback: number) {
   return z
     .int()
     .min(1)
-    .max(MAX_POLL_INTERVAL_MS, `Poll interval must be at most ${MAX_POLL_INTERVAL_MS} ms (one day)`)
+    .max(MAX_POLL_INTERVAL_MS, 'Poll interval must be at most 86400000 ms (one day)')
     .default(fallback)
     .describe('Time between two polls in milliseconds.');
 }
