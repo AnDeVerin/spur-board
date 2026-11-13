@@ -491,6 +491,30 @@ describe('invalid configs', () => {
       'adapters.githubIssues.intervalMs',
     ],
     [
+      'poll interval above one day (spur)',
+      validConfig({}, { adapters: { spur: { intervalMs: 86_400_001 } } }),
+      'Poll interval must be at most 86400000 ms (one day)',
+      'adapters.spur.intervalMs',
+    ],
+    [
+      'poll interval above one day (github)',
+      validConfig({}, { adapters: { github: { intervalMs: 86_400_001 } } }),
+      'Poll interval must be at most 86400000 ms (one day)',
+      'adapters.github.intervalMs',
+    ],
+    [
+      'poll interval above one day (githubIssues)',
+      validConfig({}, { adapters: { githubIssues: { intervalMs: 86_400_001 } } }),
+      'Poll interval must be at most 86400000 ms (one day)',
+      'adapters.githubIssues.intervalMs',
+    ],
+    [
+      'poll interval above one day (jira)',
+      validConfig({}, { adapters: { jira: { intervalMs: 86_400_001 } } }),
+      'Poll interval must be at most 86400000 ms (one day)',
+      'adapters.jira.intervalMs',
+    ],
+    [
       'zero gone-after polls',
       validConfig({}, { sources: { goneAfterPolls: 0 } }),
       'Too small: expected number to be >=1',
@@ -655,6 +679,14 @@ describe('invalid configs', () => {
       },
       {},
     ],
+    ['poll interval of one day (spur)', {}, { adapters: { spur: { intervalMs: 86_400_000 } } }],
+    ['poll interval of one day (github)', {}, { adapters: { github: { intervalMs: 86_400_000 } } }],
+    [
+      'poll interval of one day (githubIssues)',
+      {},
+      { adapters: { githubIssues: { intervalMs: 86_400_000 } } },
+    ],
+    ['poll interval of one day (jira)', {}, { adapters: { jira: { intervalMs: 86_400_000 } } }],
   ])('accepts %s', (_name, project, root) => {
     expect(configSchema.safeParse(validConfig(project, root)).success).toBe(true);
   });

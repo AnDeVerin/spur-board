@@ -305,7 +305,7 @@
               "description": "Time between two polls in milliseconds.",
               "type": "integer",
               "minimum": 1,
-              "maximum": 9007199254740991
+              "maximum": 86400000
             },
             "baseUrl": {
               "default": "http://127.0.0.1:4310",
@@ -325,7 +325,7 @@
               "description": "Time between two polls in milliseconds.",
               "type": "integer",
               "minimum": 1,
-              "maximum": 9007199254740991
+              "maximum": 86400000
             }
           },
           "additionalProperties": false
@@ -339,7 +339,7 @@
               "description": "Time between two polls in milliseconds.",
               "type": "integer",
               "minimum": 1,
-              "maximum": 9007199254740991
+              "maximum": 86400000
             }
           },
           "additionalProperties": false
@@ -353,7 +353,7 @@
               "description": "Time between two polls in milliseconds.",
               "type": "integer",
               "minimum": 1,
-              "maximum": 9007199254740991
+              "maximum": 86400000
             }
           },
           "additionalProperties": false
