@@ -1671,6 +1671,36 @@ describe('inbound apply', () => {
     expect(await reopened.db.selectFrom('comment').select('id').execute()).toHaveLength(1);
   });
 
+  it('skips an edit applied before edit times kept microseconds, with or without its key', async () => {
+    const { store, inbound } = await setup();
+    const second = new Date(now + 1000).toISOString().replace(/\.\d{3}Z$/, '');
+    const legacy = {
+      ...message({ conversation: 'thread-1', root: 'root-1', key: 'edit-legacy' }),
+      kind: 'message_edited' as const,
+      text: 'Edited',
+      at: `${second}.000Z`,
+    };
+    const upgraded = { ...legacy, at: `${second}.000200Z` };
+    const state = async () => ({
+      comment: await store.db.selectFrom('comment').select(['text', 'revision']).execute(),
+      events: await store.db.selectFrom('event').select('kind').orderBy('id').execute(),
+      items: await store.db.selectFrom('operator_item').select('kind').execute(),
+    });
+    await inbound.sink(message({ conversation: 'thread-1', root: 'root-1' }));
+    await inbound.sink(legacy);
+    const applied = await state();
+    expect(applied.comment).toEqual([{ text: 'Edited', revision: 2 }]);
+    // The retained key now carries the same edit at microsecond precision.
+    await inbound.sink(upgraded);
+    expect(await state()).toEqual(applied);
+    await purgeExpiredCommands(store, { now: () => now + 8 * DAY }, 7);
+    await scanTransaction(store, config, (trx) =>
+      trx.updateTable('task').set({ membership: 'archived' }).where('id', '=', 1).execute(),
+    );
+    await inbound.sink(upgraded);
+    expect(await state()).toEqual(applied);
+  });
+
   it('orders distinct edits within one millisecond by their full source time', async () => {
     const { store, inbound } = await setup();
     const second = new Date(now + 1000).toISOString().replace(/\.\d{3}Z$/, '');

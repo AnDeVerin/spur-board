@@ -213,23 +213,34 @@ async function skip(
   return { status: 'ignored' };
 }
 
-/**
- * An ISO time as [milliseconds, sub-millisecond digits], so times of any precision compare at
- * the finest one either carries: a gateway may keep its platform's microseconds for edits.
- */
-function instant(at: string): [number, number] {
-  const fraction = /\.(\d+)/.exec(at)?.[1] ?? '';
-  return [Date.parse(at), Number(fraction.slice(3).padEnd(6, '0').slice(0, 6))];
+interface Instant {
+  ms: number;
+  /** Digits below the millisecond, scaled to microseconds; undefined when the time has none. */
+  micros: number | undefined;
 }
 
-function notBefore(a: [number, number], b: [number, number]): boolean {
-  return a[0] > b[0] || (a[0] === b[0] && a[1] >= b[1]);
+function instant(at: string): Instant {
+  const fraction = /\.(\d+)/.exec(at)?.[1] ?? '';
+  return {
+    ms: Date.parse(at),
+    micros: fraction.length > 3 ? Number(fraction.slice(3).padEnd(3, '0').slice(0, 3)) : undefined,
+  };
+}
+
+/**
+ * `a` is at or after `b`, compared at the precision both carry: microseconds when both have
+ * them, else milliseconds. A journal row written before edits kept microseconds therefore still
+ * covers a replay of its own edit.
+ */
+function notBefore(a: Instant, b: Instant): boolean {
+  if (a.ms !== b.ms || a.micros === undefined || b.micros === undefined) return a.ms >= b.ms;
+  return a.micros >= b.micros;
 }
 
 /**
  * The journal is the comment's edit cursor: a deletion, or an edit at or after this one, was
- * already applied. Times compare at full source precision, so distinct edits within one
- * millisecond keep their order.
+ * already applied. A gateway may keep its platform's microseconds for edits, so distinct edits
+ * within one millisecond keep their order.
  */
 async function alreadyApplied(trx: Trx, event: MessageEvent): Promise<boolean> {
   if (event.kind !== 'message_edited' && event.kind !== 'message_deleted') return false;
@@ -831,16 +842,20 @@ export function createInbound(input: {
         ? 'operator'
         : 'system';
     try {
-      const result = await scanTransaction(store, config, (trx) =>
-        replayOperation(trx, {
-          actor,
-          key: event.dedupeKey,
-          operation: operationId(event),
-          fingerprintInput: event,
-          output: resultSchema,
-          at,
-          run: () => runUser(trx, event, at),
-        }),
+      const result = await scanTransaction(store, config, async (trx) =>
+        // Before the key check: a retained key may hold the same edit at another time precision.
+        (event.kind === 'message_edited' || event.kind === 'message_deleted') &&
+        (await alreadyApplied(trx, event))
+          ? undefined
+          : replayOperation(trx, {
+              actor,
+              key: event.dedupeKey,
+              operation: operationId(event),
+              fingerprintInput: event,
+              output: resultSchema,
+              at,
+              run: () => runUser(trx, event, at),
+            }),
       );
       if (result?.response !== undefined && 'interaction' in event) {
         try {
