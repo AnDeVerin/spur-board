@@ -1504,6 +1504,27 @@ describe('task.move', () => {
     expect((await ctx.task()).left_moves).toBe(1);
   });
 
+  it('carries the feedback an untaken Dev turn handed over into the turn after a correction to Dev', async () => {
+    const handed = { repo: 'o/r', number: 7, kind: 'comment', id: 'c-1', postedAt: at(1) };
+    const ctx = await started({}, 'none');
+    await ctx.pr({
+      feedback: [
+        { kind: 'comment', id: 'c-1', author: { login: EXTERNAL, type: 'user' }, postedAt: at(1) },
+      ],
+    });
+    const untaken = await ctx.openTurn();
+    expect(untaken).toEqual(turnOf('dev', 'operator', 'dev: external_comments, no_submit_on_head'));
+    expect(JSON.parse(untaken?.handed ?? '[]')).toEqual([handed]);
+
+    const result = await ctx.move('dev');
+
+    expect(result.column).toBe('dev');
+    expect((await ctx.turns())[0]).toMatchObject({ id: 1, closed_reason: 'moved' });
+    const turn = await ctx.openTurn();
+    expect(turn).toMatchObject({ id: 'T2', column: 'dev' });
+    expect(JSON.parse(turn?.handed ?? '[]')).toEqual([handed]);
+  });
+
   it('settles a correction out of an unlinked Done to Review back in Dev with no_pr, uncounted', async () => {
     const ctx = await inDev({ cycleLimit: 1 });
     await ctx.pr({ state: 'merged' });

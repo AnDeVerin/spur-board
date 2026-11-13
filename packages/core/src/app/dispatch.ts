@@ -38,6 +38,8 @@ interface DispatchContext {
   at: Date;
   /** Since when each source has had an effectively complete poll in this process. */
   complete: ReadonlyMap<string, string>;
+  /** Per task, the feedback of untaken turns a correction closed, for its next turn to hand over. */
+  carried?: ReadonlyMap<number, readonly Handed[]>;
 }
 
 const CURSOR_KEY = 'dispatcher_cursor';
@@ -276,13 +278,14 @@ async function syncModes(trx: Trx, config: Config, at: Date): Promise<void> {
  * sets the column and bumps `column_epoch`, voids the submits of `to` and right of it, closes the
  * task's turns and journals `task_corrected`; in shadow mode it sets only the shadow column. It is
  * not a dispatcher move: no `task_moved`, no `left_moves` and no cycle count. The caller settles
- * the task with a dispatcher pass after it. `from` is the column the dispatcher worked from, and
- * `eventId` the id of the `task_corrected` event.
+ * the task with a dispatcher pass after it, given `carried`: the feedback the closed untaken turns
+ * handed over, which the feedback cursor already counts and no executor took. `from` is the column
+ * the dispatcher worked from, and `eventId` the id of the `task_corrected` event.
  */
 export async function correctColumn(
   trx: Trx,
   input: { taskId: number; to: ColumnId; at: Date; actor: ActorId; reason: string; config: Config },
-): Promise<{ from: ColumnId; eventId: number }> {
+): Promise<{ from: ColumnId; eventId: number; carried: Handed[] }> {
   const { taskId, to, at, actor, reason, config } = input;
   await syncModes(trx, config, at);
   const task = await trx
@@ -303,6 +306,15 @@ export async function correctColumn(
     .where('id', '=', task.id)
     .execute();
   await voidSubmits(trx, task.id, to, at);
+  const untaken = shadow
+    ? []
+    : await trx
+        .selectFrom('turn')
+        .select('handed')
+        .where('task_id', '=', task.id)
+        .where('closed_at', 'is', null)
+        .where('acked_at', 'is', null)
+        .execute();
   if (!shadow) await closeTurns(trx, { taskId: task.id, reason: 'moved', at });
   await emit(
     trx,
@@ -319,7 +331,7 @@ export async function correctColumn(
     .where('task_id', '=', task.id)
     .orderBy('id', 'desc')
     .executeTakeFirstOrThrow();
-  return { from, eventId: event.id };
+  return { from, eventId: event.id, carried: untaken.flatMap(turnHanded) };
 }
 
 /** A source has no fresh view while it reports blind or has had no complete poll since start. */
@@ -674,21 +686,22 @@ async function applyOn(
   if (result.voids !== undefined) await voidColumns(trx, current.id, [result.voids], at);
   const replaced = turn.kind === 'reroute' ? read.unclosed : undefined;
   if (replaced !== undefined) await closeTurns(trx, { taskId: current.id, reason: 'rerouted', at });
-  // A reroute carries the feedback the replaced turn handed over; the cursor already counts it.
-  const carried = replaced === undefined ? [] : turnHanded(replaced);
+  // A reroute carries the feedback the replaced turn handed over, and a correction that of the
+  // untaken turns it closed; the cursor already counts both.
   const handed = [
-    ...carried,
-    ...read.handed.filter(
-      (entry) =>
-        !carried.some(
-          (old) =>
-            old.repo.toLowerCase() === entry.repo.toLowerCase() &&
-            old.number === entry.number &&
-            old.kind === entry.kind &&
-            old.id === entry.id,
-        ),
-    ),
-  ];
+    ...(replaced === undefined ? [] : turnHanded(replaced)),
+    ...(ctx.carried?.get(current.id) ?? []),
+    ...read.handed,
+  ].filter(
+    (entry, index, all) =>
+      all.findIndex(
+        (old) =>
+          old.repo.toLowerCase() === entry.repo.toLowerCase() &&
+          old.number === entry.number &&
+          old.kind === entry.kind &&
+          old.id === entry.id,
+      ) === index,
+  );
   await openTurn(trx, {
     task: current,
     reason: turnReason(turn, replaced?.reason),
