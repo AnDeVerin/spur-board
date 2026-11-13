@@ -1,6 +1,6 @@
 {
   "source": "github:stand:stand-org/board",
-  "recordedAt": "2026-11-13T00:46:01.210Z",
+  "recordedAt": "2026-11-13T03:00:35.245Z",
   "observe": {
     "prs": [],
     "tickets": [],
@@ -31,14 +31,14 @@
         "body": {
           "data": {
             "rateLimit": {
-              "remaining": 4950,
-              "resetAt": "2026-11-13T01:37:54Z"
+              "remaining": 4388,
+              "resetAt": "2026-11-13T03:31:30Z"
             },
             "repository": {
               "mergedBaseline": {
                 "nodes": [
                   {
-                    "updatedAt": "2026-11-13T00:25:31Z"
+                    "updatedAt": "2026-11-13T02:59:37Z"
                   }
                 ]
               },
@@ -50,7 +50,15 @@
                     },
                     "number": 369,
                     "state": "OPEN",
-                    "updatedAt": "2026-11-13T00:43:28Z"
+                    "updatedAt": "2026-11-13T02:55:41Z"
+                  },
+                  {
+                    "author": {
+                      "login": "stand-agent"
+                    },
+                    "number": 376,
+                    "state": "OPEN",
+                    "updatedAt": "2026-11-13T02:39:14Z"
                   }
                 ],
                 "pageInfo": {
@@ -72,7 +80,7 @@
           "content-type": "application/json"
         },
         "body": {
-          "query": "query PrDetails($owner: String!, $repo: String!) { rateLimit { remaining resetAt } pr0: repository(owner: $owner, name: $repo) { pullRequest(number: 369) { id number url title updatedAt state isDraft mergeable mergeStateStatus\n author { login } headRefName headRefOid\n statusCheckRollup { contexts(first: 100) { nodes {\n ... on CheckRun { __typename name status conclusion startedAt completedAt checkSuite { createdAt } isRequired(pullRequestNumber: 369) }\n ... on StatusContext { __typename context state createdAt isRequired(pullRequestNumber: 369) }\n } pageInfo { hasNextPage endCursor } } }\n reviews(first: 100) { nodes { id author { __typename login } state commit { oid } submittedAt } pageInfo { hasNextPage endCursor } }\n comments(last: 100) { nodes { id author { __typename login } createdAt } pageInfo { hasPreviousPage startCursor } }\n reviewThreads(first: 100) { nodes { isResolved } pageInfo { hasNextPage endCursor } }\n reviewRequests(first: 100) { nodes { requestedReviewer { __typename ... on Bot { login } ... on Mannequin { login } ... on User { login } ... on Team { slug } ... on EnterpriseTeam { slug } } asCodeOwner } pageInfo { hasNextPage endCursor } }\n closingIssuesReferences(first: 100) { nodes { number repository { nameWithOwner } } pageInfo { hasNextPage endCursor } } } } }",
+          "query": "query PrDetails($owner: String!, $repo: String!) { rateLimit { remaining resetAt } pr0: repository(owner: $owner, name: $repo) { pullRequest(number: 369) { id number url title updatedAt state isDraft mergeable mergeStateStatus\n author { login } headRefName headRefOid\n statusCheckRollup { contexts(first: 100) { nodes {\n ... on CheckRun { __typename name status conclusion startedAt completedAt checkSuite { createdAt } isRequired(pullRequestNumber: 369) }\n ... on StatusContext { __typename context state createdAt isRequired(pullRequestNumber: 369) }\n } pageInfo { hasNextPage endCursor } } }\n reviews(first: 100) { nodes { id author { __typename login } state commit { oid } submittedAt } pageInfo { hasNextPage endCursor } }\n comments(last: 100) { nodes { id author { __typename login } createdAt } pageInfo { hasPreviousPage startCursor } }\n reviewThreads(first: 100) { nodes { isResolved } pageInfo { hasNextPage endCursor } }\n reviewRequests(first: 100) { nodes { requestedReviewer { __typename ... on Bot { login } ... on Mannequin { login } ... on User { login } ... on Team { slug } ... on EnterpriseTeam { slug } } asCodeOwner } pageInfo { hasNextPage endCursor } }\n closingIssuesReferences(first: 100) { nodes { number repository { nameWithOwner } } pageInfo { hasNextPage endCursor } } } }\npr1: repository(owner: $owner, name: $repo) { pullRequest(number: 376) { id number url title updatedAt state isDraft mergeable mergeStateStatus\n author { login } headRefName headRefOid\n statusCheckRollup { contexts(first: 100) { nodes {\n ... on CheckRun { __typename name status conclusion startedAt completedAt checkSuite { createdAt } isRequired(pullRequestNumber: 376) }\n ... on StatusContext { __typename context state createdAt isRequired(pullRequestNumber: 376) }\n } pageInfo { hasNextPage endCursor } } }\n reviews(first: 100) { nodes { id author { __typename login } state commit { oid } submittedAt } pageInfo { hasNextPage endCursor } }\n comments(last: 100) { nodes { id author { __typename login } createdAt } pageInfo { hasPreviousPage startCursor } }\n reviewThreads(first: 100) { nodes { isResolved } pageInfo { hasNextPage endCursor } }\n reviewRequests(first: 100) { nodes { requestedReviewer { __typename ... on Bot { login } ... on Mannequin { login } ... on User { login } ... on Team { slug } ... on EnterpriseTeam { slug } } asCodeOwner } pageInfo { hasNextPage endCursor } }\n closingIssuesReferences(first: 100) { nodes { number repository { nameWithOwner } } pageInfo { hasNextPage endCursor } } } } }",
           "variables": {
             "owner": "stand-org",
             "repo": "board"
@@ -113,7 +121,7 @@
                         "login": "stand-agent"
                       },
                       "createdAt": "2026-11-12T22:48:25Z",
-                      "id": "IC_kwDOVeRUYM8AAAABl5Sgsw"
+                      "id": "recorded-node-67"
                     },
                     {
                       "author": {
@@ -121,7 +129,7 @@
                         "login": "stand-agent"
                       },
                       "createdAt": "2026-11-12T23:03:29Z",
-                      "id": "IC_kwDOVeRUYM8AAAABl5mTMA"
+                      "id": "recorded-node-68"
                     },
                     {
                       "author": {
@@ -129,7 +137,7 @@
                         "login": "stand-agent"
                       },
                       "createdAt": "2026-11-12T23:13:18Z",
-                      "id": "IC_kwDOVeRUYM8AAAABl5z_rw"
+                      "id": "recorded-node-69"
                     },
                     {
                       "author": {
@@ -137,7 +145,7 @@
                         "login": "stand-agent"
                       },
                       "createdAt": "2026-11-12T23:35:55Z",
-                      "id": "IC_kwDOVeRUYM8AAAABl6TaBQ"
+                      "id": "recorded-node-70"
                     },
                     {
                       "author": {
@@ -145,7 +153,7 @@
                         "login": "stand-agent"
                       },
                       "createdAt": "2026-11-12T23:49:46Z",
-                      "id": "IC_kwDOVeRUYM8AAAABl6iZLA"
+                      "id": "recorded-node-71"
                     },
                     {
                       "author": {
@@ -153,7 +161,7 @@
                         "login": "stand-agent"
                       },
                       "createdAt": "2026-11-13T00:00:37Z",
-                      "id": "IC_kwDOVeRUYM8AAAABl6tpoQ"
+                      "id": "recorded-node-72"
                     },
                     {
                       "author": {
@@ -161,7 +169,7 @@
                         "login": "stand-agent"
                       },
                       "createdAt": "2026-11-13T00:11:11Z",
-                      "id": "IC_kwDOVeRUYM8AAAABl65NCg"
+                      "id": "recorded-node-73"
                     },
                     {
                       "author": {
@@ -169,7 +177,7 @@
                         "login": "stand-agent"
                       },
                       "createdAt": "2026-11-13T00:22:20Z",
-                      "id": "IC_kwDOVeRUYM8AAAABl7FO6Q"
+                      "id": "recorded-node-74"
                     },
                     {
                       "author": {
@@ -177,7 +185,39 @@
                         "login": "stand-agent"
                       },
                       "createdAt": "2026-11-13T00:37:41Z",
-                      "id": "IC_kwDOVeRUYM8AAAABl7U-wA"
+                      "id": "recorded-node-75"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "createdAt": "2026-11-13T00:54:51Z",
+                      "id": "recorded-node-76"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "createdAt": "2026-11-13T01:09:02Z",
+                      "id": "recorded-node-77"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "createdAt": "2026-11-13T01:26:47Z",
+                      "id": "recorded-node-78"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "createdAt": "2026-11-13T02:37:25Z",
+                      "id": "recorded-node-79"
                     }
                   ],
                   "pageInfo": {
@@ -186,8 +226,8 @@
                   }
                 },
                 "headRefName": "recorded-branch-4",
-                "headRefOid": "1c40f0f7490c5320b99b7d437724f3e415c27e6b",
-                "id": "PR_kwDOVeRUYM8AAAABOxaw2Q",
+                "headRefOid": "0000000000000000000000000000000000000007",
+                "id": "recorded-node-2",
                 "isDraft": false,
                 "mergeStateStatus": "BLOCKED",
                 "mergeable": "MERGEABLE",
@@ -241,7 +281,34 @@
                       "isResolved": true
                     },
                     {
-                      "isResolved": false
+                      "isResolved": true
+                    },
+                    {
+                      "isResolved": true
+                    },
+                    {
+                      "isResolved": true
+                    },
+                    {
+                      "isResolved": true
+                    },
+                    {
+                      "isResolved": true
+                    },
+                    {
+                      "isResolved": true
+                    },
+                    {
+                      "isResolved": true
+                    },
+                    {
+                      "isResolved": true
+                    },
+                    {
+                      "isResolved": true
+                    },
+                    {
+                      "isResolved": true
                     },
                     {
                       "isResolved": false
@@ -260,9 +327,9 @@
                         "login": "recorded-user-6"
                       },
                       "commit": {
-                        "oid": "dfcece89de504a4e2a8752ebc0bb65cd3e5d28b1"
+                        "oid": "0000000000000000000000000000000000000008"
                       },
-                      "id": "PRR_kwDOVeRUYM8AAAABXqhecA",
+                      "id": "recorded-node-80",
                       "state": "CHANGES_REQUESTED",
                       "submittedAt": "2026-11-12T22:35:16Z"
                     },
@@ -272,9 +339,9 @@
                         "login": "stand-agent"
                       },
                       "commit": {
-                        "oid": "dfcece89de504a4e2a8752ebc0bb65cd3e5d28b1"
+                        "oid": "0000000000000000000000000000000000000008"
                       },
-                      "id": "PRR_kwDOVeRUYM8AAAABXqiUDw",
+                      "id": "recorded-node-81",
                       "state": "COMMENTED",
                       "submittedAt": "2026-11-12T22:36:31Z"
                     },
@@ -284,9 +351,9 @@
                         "login": "stand-agent"
                       },
                       "commit": {
-                        "oid": "dfcece89de504a4e2a8752ebc0bb65cd3e5d28b1"
+                        "oid": "0000000000000000000000000000000000000008"
                       },
-                      "id": "PRR_kwDOVeRUYM8AAAABXqkPmQ",
+                      "id": "recorded-node-82",
                       "state": "COMMENTED",
                       "submittedAt": "2026-11-12T22:39:37Z"
                     },
@@ -296,9 +363,9 @@
                         "login": "stand-agent"
                       },
                       "commit": {
-                        "oid": "92f4b8318f46d1a64dcbbaffc52f5c4f60415e29"
+                        "oid": "0000000000000000000000000000000000000009"
                       },
-                      "id": "PRR_kwDOVeRUYM8AAAABXqphZA",
+                      "id": "recorded-node-83",
                       "state": "COMMENTED",
                       "submittedAt": "2026-11-12T22:48:19Z"
                     },
@@ -308,9 +375,9 @@
                         "login": "stand-agent"
                       },
                       "commit": {
-                        "oid": "92f4b8318f46d1a64dcbbaffc52f5c4f60415e29"
+                        "oid": "0000000000000000000000000000000000000009"
                       },
-                      "id": "PRR_kwDOVeRUYM8AAAABXqpjVg",
+                      "id": "recorded-node-84",
                       "state": "COMMENTED",
                       "submittedAt": "2026-11-12T22:48:22Z"
                     },
@@ -320,9 +387,9 @@
                         "login": "stand-agent"
                       },
                       "commit": {
-                        "oid": "92f4b8318f46d1a64dcbbaffc52f5c4f60415e29"
+                        "oid": "0000000000000000000000000000000000000009"
                       },
-                      "id": "PRR_kwDOVeRUYM8AAAABXqrFFQ",
+                      "id": "recorded-node-85",
                       "state": "COMMENTED",
                       "submittedAt": "2026-11-12T22:50:45Z"
                     },
@@ -332,9 +399,9 @@
                         "login": "stand-agent"
                       },
                       "commit": {
-                        "oid": "92f4b8318f46d1a64dcbbaffc52f5c4f60415e29"
+                        "oid": "0000000000000000000000000000000000000009"
                       },
-                      "id": "PRR_kwDOVeRUYM8AAAABXqrGSQ",
+                      "id": "recorded-node-86",
                       "state": "COMMENTED",
                       "submittedAt": "2026-11-12T22:50:47Z"
                     },
@@ -344,9 +411,9 @@
                         "login": "recorded-user-6"
                       },
                       "commit": {
-                        "oid": "92f4b8318f46d1a64dcbbaffc52f5c4f60415e29"
+                        "oid": "0000000000000000000000000000000000000009"
                       },
-                      "id": "PRR_kwDOVeRUYM8AAAABXqrvuw",
+                      "id": "recorded-node-87",
                       "state": "CHANGES_REQUESTED",
                       "submittedAt": "2026-11-12T22:51:51Z"
                     },
@@ -356,9 +423,9 @@
                         "login": "stand-agent"
                       },
                       "commit": {
-                        "oid": "92f4b8318f46d1a64dcbbaffc52f5c4f60415e29"
+                        "oid": "0000000000000000000000000000000000000009"
                       },
-                      "id": "PRR_kwDOVeRUYM8AAAABXquIkg",
+                      "id": "recorded-node-88",
                       "state": "COMMENTED",
                       "submittedAt": "2026-11-12T22:55:42Z"
                     },
@@ -368,9 +435,9 @@
                         "login": "stand-agent"
                       },
                       "commit": {
-                        "oid": "b4d12920cdd5958afd47e43516c327bdc6936436"
+                        "oid": "0000000000000000000000000000000000000010"
                       },
-                      "id": "PRR_kwDOVeRUYM8AAAABXqy_RQ",
+                      "id": "recorded-node-89",
                       "state": "COMMENTED",
                       "submittedAt": "2026-11-12T23:03:26Z"
                     },
@@ -380,9 +447,9 @@
                         "login": "recorded-user-6"
                       },
                       "commit": {
-                        "oid": "4d52ff1c36799d117daf496e9115379964a7582a"
+                        "oid": "0000000000000000000000000000000000000011"
                       },
-                      "id": "PRR_kwDOVeRUYM8AAAABXq0XoA",
+                      "id": "recorded-node-90",
                       "state": "APPROVED",
                       "submittedAt": "2026-11-12T23:05:39Z"
                     },
@@ -392,9 +459,9 @@
                         "login": "stand-agent"
                       },
                       "commit": {
-                        "oid": "b4d12920cdd5958afd47e43516c327bdc6936436"
+                        "oid": "0000000000000000000000000000000000000010"
                       },
-                      "id": "PRR_kwDOVeRUYM8AAAABXq3S_g",
+                      "id": "recorded-node-91",
                       "state": "COMMENTED",
                       "submittedAt": "2026-11-12T23:10:06Z"
                     },
@@ -404,9 +471,9 @@
                         "login": "stand-agent"
                       },
                       "commit": {
-                        "oid": "b4d12920cdd5958afd47e43516c327bdc6936436"
+                        "oid": "0000000000000000000000000000000000000010"
                       },
-                      "id": "PRR_kwDOVeRUYM8AAAABXq8Igw",
+                      "id": "recorded-node-92",
                       "state": "COMMENTED",
                       "submittedAt": "2026-11-12T23:16:33Z"
                     },
@@ -416,9 +483,9 @@
                         "login": "recorded-user-6"
                       },
                       "commit": {
-                        "oid": "4d52ff1c36799d117daf496e9115379964a7582a"
+                        "oid": "0000000000000000000000000000000000000011"
                       },
-                      "id": "PRR_kwDOVeRUYM8AAAABXrL4oA",
+                      "id": "recorded-node-93",
                       "state": "CHANGES_REQUESTED",
                       "submittedAt": "2026-11-12T23:38:12Z"
                     },
@@ -428,9 +495,9 @@
                         "login": "stand-agent"
                       },
                       "commit": {
-                        "oid": "4d52ff1c36799d117daf496e9115379964a7582a"
+                        "oid": "0000000000000000000000000000000000000011"
                       },
-                      "id": "PRR_kwDOVeRUYM8AAAABXrNpUg",
+                      "id": "recorded-node-94",
                       "state": "COMMENTED",
                       "submittedAt": "2026-11-12T23:40:43Z"
                     },
@@ -440,9 +507,9 @@
                         "login": "stand-agent"
                       },
                       "commit": {
-                        "oid": "2920cb8d4251bece104b075c7799f2c8a70a97a9"
+                        "oid": "0000000000000000000000000000000000000012"
                       },
-                      "id": "PRR_kwDOVeRUYM8AAAABXrTnMw",
+                      "id": "recorded-node-95",
                       "state": "COMMENTED",
                       "submittedAt": "2026-11-12T23:49:43Z"
                     },
@@ -452,9 +519,9 @@
                         "login": "stand-agent"
                       },
                       "commit": {
-                        "oid": "2920cb8d4251bece104b075c7799f2c8a70a97a9"
+                        "oid": "0000000000000000000000000000000000000012"
                       },
-                      "id": "PRR_kwDOVeRUYM8AAAABXrUViQ",
+                      "id": "recorded-node-96",
                       "state": "COMMENTED",
                       "submittedAt": "2026-11-12T23:50:50Z"
                     },
@@ -464,9 +531,9 @@
                         "login": "stand-agent"
                       },
                       "commit": {
-                        "oid": "2920cb8d4251bece104b075c7799f2c8a70a97a9"
+                        "oid": "0000000000000000000000000000000000000012"
                       },
-                      "id": "PRR_kwDOVeRUYM8AAAABXrVJZA",
+                      "id": "recorded-node-97",
                       "state": "COMMENTED",
                       "submittedAt": "2026-11-12T23:52:05Z"
                     },
@@ -476,9 +543,9 @@
                         "login": "stand-agent"
                       },
                       "commit": {
-                        "oid": "2920cb8d4251bece104b075c7799f2c8a70a97a9"
+                        "oid": "0000000000000000000000000000000000000012"
                       },
-                      "id": "PRR_kwDOVeRUYM8AAAABXrVJ8Q",
+                      "id": "recorded-node-98",
                       "state": "COMMENTED",
                       "submittedAt": "2026-11-12T23:52:06Z"
                     },
@@ -488,9 +555,9 @@
                         "login": "recorded-user-6"
                       },
                       "commit": {
-                        "oid": "2920cb8d4251bece104b075c7799f2c8a70a97a9"
+                        "oid": "0000000000000000000000000000000000000012"
                       },
-                      "id": "PRR_kwDOVeRUYM8AAAABXrVafw",
+                      "id": "recorded-node-99",
                       "state": "CHANGES_REQUESTED",
                       "submittedAt": "2026-11-12T23:52:30Z"
                     },
@@ -500,9 +567,9 @@
                         "login": "stand-agent"
                       },
                       "commit": {
-                        "oid": "2920cb8d4251bece104b075c7799f2c8a70a97a9"
+                        "oid": "0000000000000000000000000000000000000012"
                       },
-                      "id": "PRR_kwDOVeRUYM8AAAABXrWxsQ",
+                      "id": "recorded-node-100",
                       "state": "COMMENTED",
                       "submittedAt": "2026-11-12T23:54:35Z"
                     },
@@ -512,9 +579,9 @@
                         "login": "stand-agent"
                       },
                       "commit": {
-                        "oid": "5a68f8e9aecefa2df00b0f6feba66ba2a1925dea"
+                        "oid": "0000000000000000000000000000000000000013"
                       },
-                      "id": "PRR_kwDOVeRUYM8AAAABXrawqA",
+                      "id": "recorded-node-101",
                       "state": "COMMENTED",
                       "submittedAt": "2026-11-13T00:00:34Z"
                     },
@@ -524,9 +591,9 @@
                         "login": "stand-agent"
                       },
                       "commit": {
-                        "oid": "5a68f8e9aecefa2df00b0f6feba66ba2a1925dea"
+                        "oid": "0000000000000000000000000000000000000013"
                       },
-                      "id": "PRR_kwDOVeRUYM8AAAABXrbh1g",
+                      "id": "recorded-node-102",
                       "state": "COMMENTED",
                       "submittedAt": "2026-11-13T00:01:44Z"
                     },
@@ -536,9 +603,9 @@
                         "login": "stand-agent"
                       },
                       "commit": {
-                        "oid": "5a68f8e9aecefa2df00b0f6feba66ba2a1925dea"
+                        "oid": "0000000000000000000000000000000000000013"
                       },
-                      "id": "PRR_kwDOVeRUYM8AAAABXrcYow",
+                      "id": "recorded-node-103",
                       "state": "COMMENTED",
                       "submittedAt": "2026-11-13T00:03:00Z"
                     },
@@ -548,9 +615,9 @@
                         "login": "stand-agent"
                       },
                       "commit": {
-                        "oid": "5a68f8e9aecefa2df00b0f6feba66ba2a1925dea"
+                        "oid": "0000000000000000000000000000000000000013"
                       },
-                      "id": "PRR_kwDOVeRUYM8AAAABXrcZVg",
+                      "id": "recorded-node-104",
                       "state": "COMMENTED",
                       "submittedAt": "2026-11-13T00:03:01Z"
                     },
@@ -560,9 +627,9 @@
                         "login": "recorded-user-6"
                       },
                       "commit": {
-                        "oid": "5a68f8e9aecefa2df00b0f6feba66ba2a1925dea"
+                        "oid": "0000000000000000000000000000000000000013"
                       },
-                      "id": "PRR_kwDOVeRUYM8AAAABXrcpNg",
+                      "id": "recorded-node-105",
                       "state": "CHANGES_REQUESTED",
                       "submittedAt": "2026-11-13T00:03:22Z"
                     },
@@ -572,9 +639,9 @@
                         "login": "stand-agent"
                       },
                       "commit": {
-                        "oid": "5a68f8e9aecefa2df00b0f6feba66ba2a1925dea"
+                        "oid": "0000000000000000000000000000000000000013"
                       },
-                      "id": "PRR_kwDOVeRUYM8AAAABXrdtwg",
+                      "id": "recorded-node-106",
                       "state": "COMMENTED",
                       "submittedAt": "2026-11-13T00:05:08Z"
                     },
@@ -584,9 +651,9 @@
                         "login": "stand-agent"
                       },
                       "commit": {
-                        "oid": "7daf4fa4ea13a0a3dff32124140900ad29893082"
+                        "oid": "0000000000000000000000000000000000000014"
                       },
-                      "id": "PRR_kwDOVeRUYM8AAAABXrgquQ",
+                      "id": "recorded-node-107",
                       "state": "COMMENTED",
                       "submittedAt": "2026-11-13T00:11:08Z"
                     },
@@ -596,9 +663,9 @@
                         "login": "stand-agent"
                       },
                       "commit": {
-                        "oid": "7daf4fa4ea13a0a3dff32124140900ad29893082"
+                        "oid": "0000000000000000000000000000000000000014"
                       },
-                      "id": "PRR_kwDOVeRUYM8AAAABXrhJQA",
+                      "id": "recorded-node-108",
                       "state": "COMMENTED",
                       "submittedAt": "2026-11-13T00:12:07Z"
                     },
@@ -608,9 +675,9 @@
                         "login": "stand-agent"
                       },
                       "commit": {
-                        "oid": "7daf4fa4ea13a0a3dff32124140900ad29893082"
+                        "oid": "0000000000000000000000000000000000000014"
                       },
-                      "id": "PRR_kwDOVeRUYM8AAAABXrhssw",
+                      "id": "recorded-node-109",
                       "state": "COMMENTED",
                       "submittedAt": "2026-11-13T00:13:16Z"
                     },
@@ -620,9 +687,9 @@
                         "login": "stand-agent"
                       },
                       "commit": {
-                        "oid": "7daf4fa4ea13a0a3dff32124140900ad29893082"
+                        "oid": "0000000000000000000000000000000000000014"
                       },
-                      "id": "PRR_kwDOVeRUYM8AAAABXrhtRg",
+                      "id": "recorded-node-110",
                       "state": "COMMENTED",
                       "submittedAt": "2026-11-13T00:13:17Z"
                     },
@@ -632,9 +699,9 @@
                         "login": "recorded-user-6"
                       },
                       "commit": {
-                        "oid": "7daf4fa4ea13a0a3dff32124140900ad29893082"
+                        "oid": "0000000000000000000000000000000000000014"
                       },
-                      "id": "PRR_kwDOVeRUYM8AAAABXriYJg",
+                      "id": "recorded-node-111",
                       "state": "CHANGES_REQUESTED",
                       "submittedAt": "2026-11-13T00:14:38Z"
                     },
@@ -644,9 +711,9 @@
                         "login": "stand-agent"
                       },
                       "commit": {
-                        "oid": "7daf4fa4ea13a0a3dff32124140900ad29893082"
+                        "oid": "0000000000000000000000000000000000000014"
                       },
-                      "id": "PRR_kwDOVeRUYM8AAAABXrkQ-w",
+                      "id": "recorded-node-112",
                       "state": "COMMENTED",
                       "submittedAt": "2026-11-13T00:18:06Z"
                     },
@@ -656,9 +723,9 @@
                         "login": "stand-agent"
                       },
                       "commit": {
-                        "oid": "cf527d9130a0bba311ac1d3185ff647790c38341"
+                        "oid": "0000000000000000000000000000000000000015"
                       },
-                      "id": "PRR_kwDOVeRUYM8AAAABXrmU1w",
+                      "id": "recorded-node-113",
                       "state": "COMMENTED",
                       "submittedAt": "2026-11-13T00:22:17Z"
                     },
@@ -668,9 +735,9 @@
                         "login": "stand-agent"
                       },
                       "commit": {
-                        "oid": "cf527d9130a0bba311ac1d3185ff647790c38341"
+                        "oid": "0000000000000000000000000000000000000015"
                       },
-                      "id": "PRR_kwDOVeRUYM8AAAABXrmzvg",
+                      "id": "recorded-node-114",
                       "state": "COMMENTED",
                       "submittedAt": "2026-11-13T00:23:17Z"
                     },
@@ -680,9 +747,9 @@
                         "login": "stand-agent"
                       },
                       "commit": {
-                        "oid": "cf527d9130a0bba311ac1d3185ff647790c38341"
+                        "oid": "0000000000000000000000000000000000000015"
                       },
-                      "id": "PRR_kwDOVeRUYM8AAAABXrnXng",
+                      "id": "recorded-node-115",
                       "state": "COMMENTED",
                       "submittedAt": "2026-11-13T00:24:20Z"
                     },
@@ -692,9 +759,9 @@
                         "login": "stand-agent"
                       },
                       "commit": {
-                        "oid": "cf527d9130a0bba311ac1d3185ff647790c38341"
+                        "oid": "0000000000000000000000000000000000000015"
                       },
-                      "id": "PRR_kwDOVeRUYM8AAAABXrnYHA",
+                      "id": "recorded-node-116",
                       "state": "COMMENTED",
                       "submittedAt": "2026-11-13T00:24:21Z"
                     },
@@ -704,9 +771,9 @@
                         "login": "recorded-user-6"
                       },
                       "commit": {
-                        "oid": "cf527d9130a0bba311ac1d3185ff647790c38341"
+                        "oid": "0000000000000000000000000000000000000015"
                       },
-                      "id": "PRR_kwDOVeRUYM8AAAABXrn5mQ",
+                      "id": "recorded-node-117",
                       "state": "CHANGES_REQUESTED",
                       "submittedAt": "2026-11-13T00:25:26Z"
                     },
@@ -716,9 +783,9 @@
                         "login": "stand-agent"
                       },
                       "commit": {
-                        "oid": "cf527d9130a0bba311ac1d3185ff647790c38341"
+                        "oid": "0000000000000000000000000000000000000015"
                       },
-                      "id": "PRR_kwDOVeRUYM8AAAABXroEyw",
+                      "id": "recorded-node-118",
                       "state": "COMMENTED",
                       "submittedAt": "2026-11-13T00:25:47Z"
                     },
@@ -728,9 +795,9 @@
                         "login": "stand-agent"
                       },
                       "commit": {
-                        "oid": "cf527d9130a0bba311ac1d3185ff647790c38341"
+                        "oid": "0000000000000000000000000000000000000015"
                       },
-                      "id": "PRR_kwDOVeRUYM8AAAABXro5jQ",
+                      "id": "recorded-node-119",
                       "state": "COMMENTED",
                       "submittedAt": "2026-11-13T00:27:36Z"
                     },
@@ -740,9 +807,9 @@
                         "login": "stand-agent"
                       },
                       "commit": {
-                        "oid": "1c40f0f7490c5320b99b7d437724f3e415c27e6b"
+                        "oid": "0000000000000000000000000000000000000016"
                       },
-                      "id": "PRR_kwDOVeRUYM8AAAABXrtlmQ",
+                      "id": "recorded-node-120",
                       "state": "COMMENTED",
                       "submittedAt": "2026-11-13T00:37:38Z"
                     },
@@ -752,9 +819,9 @@
                         "login": "stand-agent"
                       },
                       "commit": {
-                        "oid": "1c40f0f7490c5320b99b7d437724f3e415c27e6b"
+                        "oid": "0000000000000000000000000000000000000016"
                       },
-                      "id": "PRR_kwDOVeRUYM8AAAABXruJHg",
+                      "id": "recorded-node-121",
                       "state": "COMMENTED",
                       "submittedAt": "2026-11-13T00:38:50Z"
                     },
@@ -764,9 +831,9 @@
                         "login": "stand-agent"
                       },
                       "commit": {
-                        "oid": "1c40f0f7490c5320b99b7d437724f3e415c27e6b"
+                        "oid": "0000000000000000000000000000000000000016"
                       },
-                      "id": "PRR_kwDOVeRUYM8AAAABXruV4A",
+                      "id": "recorded-node-122",
                       "state": "COMMENTED",
                       "submittedAt": "2026-11-13T00:39:15Z"
                     },
@@ -776,9 +843,9 @@
                         "login": "stand-agent"
                       },
                       "commit": {
-                        "oid": "1c40f0f7490c5320b99b7d437724f3e415c27e6b"
+                        "oid": "0000000000000000000000000000000000000016"
                       },
-                      "id": "PRR_kwDOVeRUYM8AAAABXruWNQ",
+                      "id": "recorded-node-123",
                       "state": "COMMENTED",
                       "submittedAt": "2026-11-13T00:39:16Z"
                     },
@@ -788,9 +855,9 @@
                         "login": "recorded-user-6"
                       },
                       "commit": {
-                        "oid": "1c40f0f7490c5320b99b7d437724f3e415c27e6b"
+                        "oid": "0000000000000000000000000000000000000016"
                       },
-                      "id": "PRR_kwDOVeRUYM8AAAABXru1Pg",
+                      "id": "recorded-node-124",
                       "state": "CHANGES_REQUESTED",
                       "submittedAt": "2026-11-13T00:40:12Z"
                     },
@@ -800,11 +867,335 @@
                         "login": "stand-agent"
                       },
                       "commit": {
-                        "oid": "1c40f0f7490c5320b99b7d437724f3e415c27e6b"
+                        "oid": "0000000000000000000000000000000000000016"
                       },
-                      "id": "PRR_kwDOVeRUYM8AAAABXrwgWg",
+                      "id": "recorded-node-125",
                       "state": "COMMENTED",
                       "submittedAt": "2026-11-13T00:43:27Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "commit": {
+                        "oid": "0000000000000000000000000000000000000017"
+                      },
+                      "id": "recorded-node-126",
+                      "state": "COMMENTED",
+                      "submittedAt": "2026-11-13T00:54:48Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "commit": {
+                        "oid": "0000000000000000000000000000000000000017"
+                      },
+                      "id": "recorded-node-127",
+                      "state": "COMMENTED",
+                      "submittedAt": "2026-11-13T00:56:00Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "commit": {
+                        "oid": "0000000000000000000000000000000000000017"
+                      },
+                      "id": "recorded-node-128",
+                      "state": "COMMENTED",
+                      "submittedAt": "2026-11-13T00:56:38Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "commit": {
+                        "oid": "0000000000000000000000000000000000000017"
+                      },
+                      "id": "recorded-node-129",
+                      "state": "COMMENTED",
+                      "submittedAt": "2026-11-13T00:56:39Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "recorded-user-6"
+                      },
+                      "commit": {
+                        "oid": "0000000000000000000000000000000000000017"
+                      },
+                      "id": "recorded-node-130",
+                      "state": "CHANGES_REQUESTED",
+                      "submittedAt": "2026-11-13T00:58:02Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "commit": {
+                        "oid": "0000000000000000000000000000000000000017"
+                      },
+                      "id": "recorded-node-131",
+                      "state": "COMMENTED",
+                      "submittedAt": "2026-11-13T01:01:01Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "commit": {
+                        "oid": "0000000000000000000000000000000000000018"
+                      },
+                      "id": "recorded-node-132",
+                      "state": "COMMENTED",
+                      "submittedAt": "2026-11-13T01:08:58Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "commit": {
+                        "oid": "0000000000000000000000000000000000000018"
+                      },
+                      "id": "recorded-node-133",
+                      "state": "COMMENTED",
+                      "submittedAt": "2026-11-13T01:10:21Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "commit": {
+                        "oid": "0000000000000000000000000000000000000018"
+                      },
+                      "id": "recorded-node-134",
+                      "state": "COMMENTED",
+                      "submittedAt": "2026-11-13T01:11:25Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "commit": {
+                        "oid": "0000000000000000000000000000000000000018"
+                      },
+                      "id": "recorded-node-135",
+                      "state": "COMMENTED",
+                      "submittedAt": "2026-11-13T01:11:26Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "recorded-user-6"
+                      },
+                      "commit": {
+                        "oid": "0000000000000000000000000000000000000018"
+                      },
+                      "id": "recorded-node-136",
+                      "state": "CHANGES_REQUESTED",
+                      "submittedAt": "2026-11-13T01:12:32Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "commit": {
+                        "oid": "0000000000000000000000000000000000000018"
+                      },
+                      "id": "recorded-node-137",
+                      "state": "COMMENTED",
+                      "submittedAt": "2026-11-13T01:14:41Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "commit": {
+                        "oid": "0000000000000000000000000000000000000019"
+                      },
+                      "id": "recorded-node-138",
+                      "state": "COMMENTED",
+                      "submittedAt": "2026-11-13T01:26:44Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "commit": {
+                        "oid": "0000000000000000000000000000000000000019"
+                      },
+                      "id": "recorded-node-139",
+                      "state": "COMMENTED",
+                      "submittedAt": "2026-11-13T01:27:44Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "commit": {
+                        "oid": "0000000000000000000000000000000000000019"
+                      },
+                      "id": "recorded-node-140",
+                      "state": "COMMENTED",
+                      "submittedAt": "2026-11-13T01:29:24Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "recorded-user-6"
+                      },
+                      "commit": {
+                        "oid": "0000000000000000000000000000000000000019"
+                      },
+                      "id": "recorded-node-141",
+                      "state": "CHANGES_REQUESTED",
+                      "submittedAt": "2026-11-13T01:31:32Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "commit": {
+                        "oid": "0000000000000000000000000000000000000019"
+                      },
+                      "id": "recorded-node-142",
+                      "state": "COMMENTED",
+                      "submittedAt": "2026-11-13T01:34:35Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "commit": {
+                        "oid": "0000000000000000000000000000000000000020"
+                      },
+                      "id": "recorded-node-143",
+                      "state": "COMMENTED",
+                      "submittedAt": "2026-11-13T02:37:17Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "commit": {
+                        "oid": "0000000000000000000000000000000000000020"
+                      },
+                      "id": "recorded-node-144",
+                      "state": "COMMENTED",
+                      "submittedAt": "2026-11-13T02:37:20Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "commit": {
+                        "oid": "0000000000000000000000000000000000000020"
+                      },
+                      "id": "recorded-node-145",
+                      "state": "COMMENTED",
+                      "submittedAt": "2026-11-13T02:37:22Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "commit": {
+                        "oid": "0000000000000000000000000000000000000020"
+                      },
+                      "id": "recorded-node-146",
+                      "state": "COMMENTED",
+                      "submittedAt": "2026-11-13T02:41:59Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "recorded-user-6"
+                      },
+                      "commit": {
+                        "oid": "0000000000000000000000000000000000000020"
+                      },
+                      "id": "recorded-node-147",
+                      "state": "DISMISSED",
+                      "submittedAt": "2026-11-13T02:42:02Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "commit": {
+                        "oid": "0000000000000000000000000000000000000020"
+                      },
+                      "id": "recorded-node-148",
+                      "state": "COMMENTED",
+                      "submittedAt": "2026-11-13T02:42:07Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "commit": {
+                        "oid": "0000000000000000000000000000000000000007"
+                      },
+                      "id": "recorded-node-149",
+                      "state": "COMMENTED",
+                      "submittedAt": "2026-11-13T02:51:43Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "commit": {
+                        "oid": "0000000000000000000000000000000000000007"
+                      },
+                      "id": "recorded-node-150",
+                      "state": "COMMENTED",
+                      "submittedAt": "2026-11-13T02:54:59Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "recorded-user-6"
+                      },
+                      "commit": {
+                        "oid": "0000000000000000000000000000000000000007"
+                      },
+                      "id": "recorded-node-151",
+                      "state": "APPROVED",
+                      "submittedAt": "2026-11-13T02:55:05Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "commit": {
+                        "oid": "0000000000000000000000000000000000000007"
+                      },
+                      "id": "recorded-node-152",
+                      "state": "COMMENTED",
+                      "submittedAt": "2026-11-13T02:55:40Z"
                     }
                   ],
                   "pageInfo": {
@@ -819,361 +1210,361 @@
                       {
                         "__typename": "CheckRun",
                         "checkSuite": {
-                          "createdAt": "2026-11-13T00:37:29Z"
+                          "createdAt": "2026-11-13T02:51:31Z"
                         },
-                        "completedAt": "2026-11-13T00:37:43Z",
+                        "completedAt": "2026-11-13T02:51:47Z",
                         "conclusion": "CANCELLED",
                         "isRequired": false,
                         "name": "check-1",
-                        "startedAt": "2026-11-13T00:37:32Z",
+                        "startedAt": "2026-11-13T02:51:34Z",
                         "status": "COMPLETED"
                       },
                       {
                         "__typename": "CheckRun",
                         "checkSuite": {
-                          "createdAt": "2026-11-13T00:37:26Z"
+                          "createdAt": "2026-11-13T02:51:28Z"
                         },
-                        "completedAt": "2026-11-13T00:38:04Z",
+                        "completedAt": "2026-11-13T02:52:08Z",
                         "conclusion": "SUCCESS",
                         "isRequired": false,
                         "name": "check-15",
-                        "startedAt": "2026-11-13T00:37:30Z",
+                        "startedAt": "2026-11-13T02:51:32Z",
                         "status": "COMPLETED"
                       },
                       {
                         "__typename": "CheckRun",
                         "checkSuite": {
-                          "createdAt": "2026-11-13T00:37:40Z"
+                          "createdAt": "2026-11-13T02:51:44Z"
                         },
-                        "completedAt": "2026-11-13T00:38:23Z",
+                        "completedAt": "2026-11-13T02:52:32Z",
                         "conclusion": "SUCCESS",
                         "isRequired": false,
                         "name": "check-1",
-                        "startedAt": "2026-11-13T00:38:07Z",
+                        "startedAt": "2026-11-13T02:52:16Z",
                         "status": "COMPLETED"
                       },
                       {
                         "__typename": "CheckRun",
                         "checkSuite": {
-                          "createdAt": "2026-11-13T00:37:26Z"
+                          "createdAt": "2026-11-13T02:51:28Z"
                         },
-                        "completedAt": "2026-11-13T00:38:40Z",
+                        "completedAt": "2026-11-13T02:52:30Z",
                         "conclusion": "SUCCESS",
                         "isRequired": false,
                         "name": "check-16",
-                        "startedAt": "2026-11-13T00:37:30Z",
+                        "startedAt": "2026-11-13T02:51:32Z",
                         "status": "COMPLETED"
                       },
                       {
                         "__typename": "CheckRun",
                         "checkSuite": {
-                          "createdAt": "2026-11-13T00:37:29Z"
+                          "createdAt": "2026-11-13T02:51:31Z"
                         },
-                        "completedAt": "2026-11-13T00:37:35Z",
+                        "completedAt": "2026-11-13T02:51:37Z",
                         "conclusion": "SUCCESS",
                         "isRequired": false,
                         "name": "check-17",
-                        "startedAt": "2026-11-13T00:37:32Z",
+                        "startedAt": "2026-11-13T02:51:34Z",
                         "status": "COMPLETED"
                       },
                       {
                         "__typename": "CheckRun",
                         "checkSuite": {
-                          "createdAt": "2026-11-13T00:37:40Z"
+                          "createdAt": "2026-11-13T02:51:44Z"
                         },
-                        "completedAt": "2026-11-13T00:38:09Z",
+                        "completedAt": "2026-11-13T02:52:20Z",
                         "conclusion": "SUCCESS",
                         "isRequired": false,
                         "name": "check-17",
-                        "startedAt": "2026-11-13T00:38:06Z",
+                        "startedAt": "2026-11-13T02:52:16Z",
                         "status": "COMPLETED"
                       },
                       {
                         "__typename": "CheckRun",
                         "checkSuite": {
-                          "createdAt": "2026-11-13T00:37:29Z"
+                          "createdAt": "2026-11-13T02:51:31Z"
                         },
-                        "completedAt": "2026-11-13T00:37:43Z",
+                        "completedAt": "2026-11-13T02:51:48Z",
                         "conclusion": "CANCELLED",
                         "isRequired": false,
                         "name": "check-18",
-                        "startedAt": "2026-11-13T00:37:32Z",
+                        "startedAt": "2026-11-13T02:51:34Z",
                         "status": "COMPLETED"
                       },
                       {
                         "__typename": "CheckRun",
                         "checkSuite": {
-                          "createdAt": "2026-11-13T00:37:40Z"
+                          "createdAt": "2026-11-13T02:51:44Z"
                         },
-                        "completedAt": "2026-11-13T00:38:21Z",
+                        "completedAt": "2026-11-13T02:52:30Z",
                         "conclusion": "SUCCESS",
                         "isRequired": false,
                         "name": "check-18",
-                        "startedAt": "2026-11-13T00:38:06Z",
+                        "startedAt": "2026-11-13T02:52:16Z",
                         "status": "COMPLETED"
                       },
                       {
                         "__typename": "CheckRun",
                         "checkSuite": {
-                          "createdAt": "2026-11-13T00:37:29Z"
+                          "createdAt": "2026-11-13T02:51:31Z"
                         },
-                        "completedAt": "2026-11-13T00:37:44Z",
+                        "completedAt": "2026-11-13T02:51:47Z",
                         "conclusion": "CANCELLED",
                         "isRequired": false,
                         "name": "check-19",
-                        "startedAt": "2026-11-13T00:37:32Z",
+                        "startedAt": "2026-11-13T02:51:34Z",
                         "status": "COMPLETED"
                       },
                       {
                         "__typename": "CheckRun",
                         "checkSuite": {
-                          "createdAt": "2026-11-13T00:37:40Z"
+                          "createdAt": "2026-11-13T02:51:44Z"
                         },
-                        "completedAt": "2026-11-13T00:38:23Z",
+                        "completedAt": "2026-11-13T02:52:41Z",
                         "conclusion": "SUCCESS",
                         "isRequired": false,
                         "name": "check-19",
-                        "startedAt": "2026-11-13T00:38:06Z",
+                        "startedAt": "2026-11-13T02:52:17Z",
                         "status": "COMPLETED"
                       },
                       {
                         "__typename": "CheckRun",
                         "checkSuite": {
-                          "createdAt": "2026-11-13T00:37:29Z"
+                          "createdAt": "2026-11-13T02:51:31Z"
                         },
-                        "completedAt": "2026-11-13T00:37:45Z",
+                        "completedAt": "2026-11-13T02:51:48Z",
                         "conclusion": "CANCELLED",
                         "isRequired": false,
                         "name": "check-20",
-                        "startedAt": "2026-11-13T00:37:32Z",
+                        "startedAt": "2026-11-13T02:51:34Z",
                         "status": "COMPLETED"
                       },
                       {
                         "__typename": "CheckRun",
                         "checkSuite": {
-                          "createdAt": "2026-11-13T00:37:40Z"
+                          "createdAt": "2026-11-13T02:51:44Z"
                         },
-                        "completedAt": "2026-11-13T00:39:28Z",
+                        "completedAt": "2026-11-13T02:53:31Z",
                         "conclusion": "SUCCESS",
                         "isRequired": false,
                         "name": "check-20",
-                        "startedAt": "2026-11-13T00:38:06Z",
+                        "startedAt": "2026-11-13T02:52:15Z",
                         "status": "COMPLETED"
                       },
                       {
                         "__typename": "CheckRun",
                         "checkSuite": {
-                          "createdAt": "2026-11-13T00:37:29Z"
+                          "createdAt": "2026-11-13T02:51:31Z"
                         },
-                        "completedAt": "2026-11-13T00:37:43Z",
+                        "completedAt": "2026-11-13T02:51:48Z",
                         "conclusion": "CANCELLED",
                         "isRequired": false,
                         "name": "check-21",
-                        "startedAt": "2026-11-13T00:37:32Z",
+                        "startedAt": "2026-11-13T02:51:35Z",
                         "status": "COMPLETED"
                       },
                       {
                         "__typename": "CheckRun",
                         "checkSuite": {
-                          "createdAt": "2026-11-13T00:37:40Z"
+                          "createdAt": "2026-11-13T02:51:44Z"
                         },
-                        "completedAt": "2026-11-13T00:40:47Z",
+                        "completedAt": "2026-11-13T02:54:08Z",
                         "conclusion": "SUCCESS",
                         "isRequired": false,
                         "name": "check-21",
-                        "startedAt": "2026-11-13T00:38:07Z",
+                        "startedAt": "2026-11-13T02:52:16Z",
                         "status": "COMPLETED"
                       },
                       {
                         "__typename": "CheckRun",
                         "checkSuite": {
-                          "createdAt": "2026-11-13T00:37:29Z"
+                          "createdAt": "2026-11-13T02:51:31Z"
                         },
-                        "completedAt": "2026-11-13T00:37:43Z",
+                        "completedAt": "2026-11-13T02:51:47Z",
                         "conclusion": "CANCELLED",
                         "isRequired": false,
                         "name": "check-22",
-                        "startedAt": "2026-11-13T00:37:32Z",
+                        "startedAt": "2026-11-13T02:51:34Z",
                         "status": "COMPLETED"
                       },
                       {
                         "__typename": "CheckRun",
                         "checkSuite": {
-                          "createdAt": "2026-11-13T00:37:40Z"
+                          "createdAt": "2026-11-13T02:51:44Z"
                         },
-                        "completedAt": "2026-11-13T00:40:47Z",
+                        "completedAt": "2026-11-13T02:54:53Z",
                         "conclusion": "SUCCESS",
                         "isRequired": false,
                         "name": "check-22",
-                        "startedAt": "2026-11-13T00:38:07Z",
+                        "startedAt": "2026-11-13T02:52:16Z",
                         "status": "COMPLETED"
                       },
                       {
                         "__typename": "CheckRun",
                         "checkSuite": {
-                          "createdAt": "2026-11-13T00:37:29Z"
+                          "createdAt": "2026-11-13T02:51:31Z"
                         },
-                        "completedAt": "2026-11-13T00:37:42Z",
+                        "completedAt": "2026-11-13T02:51:51Z",
                         "conclusion": "CANCELLED",
                         "isRequired": false,
                         "name": "check-23",
-                        "startedAt": "2026-11-13T00:37:32Z",
+                        "startedAt": "2026-11-13T02:51:34Z",
                         "status": "COMPLETED"
                       },
                       {
                         "__typename": "CheckRun",
                         "checkSuite": {
-                          "createdAt": "2026-11-13T00:37:40Z"
+                          "createdAt": "2026-11-13T02:51:44Z"
                         },
-                        "completedAt": "2026-11-13T00:39:12Z",
+                        "completedAt": "2026-11-13T02:53:32Z",
                         "conclusion": "SUCCESS",
                         "isRequired": false,
                         "name": "check-23",
-                        "startedAt": "2026-11-13T00:38:07Z",
+                        "startedAt": "2026-11-13T02:52:16Z",
                         "status": "COMPLETED"
                       },
                       {
                         "__typename": "CheckRun",
                         "checkSuite": {
-                          "createdAt": "2026-11-13T00:37:29Z"
+                          "createdAt": "2026-11-13T02:51:31Z"
                         },
-                        "completedAt": "2026-11-13T00:37:43Z",
+                        "completedAt": "2026-11-13T02:51:48Z",
                         "conclusion": "CANCELLED",
                         "isRequired": false,
                         "name": "check-24",
-                        "startedAt": "2026-11-13T00:37:31Z",
+                        "startedAt": "2026-11-13T02:51:34Z",
                         "status": "COMPLETED"
                       },
                       {
                         "__typename": "CheckRun",
                         "checkSuite": {
-                          "createdAt": "2026-11-13T00:37:40Z"
+                          "createdAt": "2026-11-13T02:51:44Z"
                         },
-                        "completedAt": "2026-11-13T00:39:24Z",
+                        "completedAt": "2026-11-13T02:53:35Z",
                         "conclusion": "SUCCESS",
                         "isRequired": false,
                         "name": "check-24",
-                        "startedAt": "2026-11-13T00:38:07Z",
+                        "startedAt": "2026-11-13T02:52:16Z",
                         "status": "COMPLETED"
                       },
                       {
                         "__typename": "CheckRun",
                         "checkSuite": {
-                          "createdAt": "2026-11-13T00:37:29Z"
+                          "createdAt": "2026-11-13T02:51:31Z"
                         },
-                        "completedAt": "2026-11-13T00:37:44Z",
+                        "completedAt": "2026-11-13T02:51:47Z",
                         "conclusion": "CANCELLED",
                         "isRequired": false,
                         "name": "check-25",
-                        "startedAt": "2026-11-13T00:37:44Z",
+                        "startedAt": "2026-11-13T02:51:48Z",
                         "status": "COMPLETED"
                       },
                       {
                         "__typename": "CheckRun",
                         "checkSuite": {
-                          "createdAt": "2026-11-13T00:37:40Z"
+                          "createdAt": "2026-11-13T02:51:44Z"
                         },
-                        "completedAt": "2026-11-13T00:38:24Z",
+                        "completedAt": "2026-11-13T02:52:32Z",
                         "conclusion": "SKIPPED",
                         "isRequired": false,
                         "name": "check-25",
-                        "startedAt": "2026-11-13T00:38:24Z",
+                        "startedAt": "2026-11-13T02:52:33Z",
                         "status": "COMPLETED"
                       },
                       {
                         "__typename": "CheckRun",
                         "checkSuite": {
-                          "createdAt": "2026-11-13T00:37:29Z"
+                          "createdAt": "2026-11-13T02:51:31Z"
                         },
-                        "completedAt": "2026-11-13T00:37:44Z",
+                        "completedAt": "2026-11-13T02:51:47Z",
                         "conclusion": "CANCELLED",
                         "isRequired": false,
                         "name": "check-26",
-                        "startedAt": "2026-11-13T00:37:44Z",
+                        "startedAt": "2026-11-13T02:51:48Z",
                         "status": "COMPLETED"
                       },
                       {
                         "__typename": "CheckRun",
                         "checkSuite": {
-                          "createdAt": "2026-11-13T00:37:40Z"
+                          "createdAt": "2026-11-13T02:51:44Z"
                         },
-                        "completedAt": "2026-11-13T00:39:34Z",
+                        "completedAt": "2026-11-13T02:53:32Z",
                         "conclusion": "SUCCESS",
                         "isRequired": false,
                         "name": "check-27",
-                        "startedAt": "2026-11-13T00:38:26Z",
+                        "startedAt": "2026-11-13T02:52:35Z",
                         "status": "COMPLETED"
                       },
                       {
                         "__typename": "CheckRun",
                         "checkSuite": {
-                          "createdAt": "2026-11-13T00:37:40Z"
+                          "createdAt": "2026-11-13T02:51:44Z"
                         },
-                        "completedAt": "2026-11-13T00:39:19Z",
+                        "completedAt": "2026-11-13T02:53:46Z",
                         "conclusion": "SUCCESS",
                         "isRequired": false,
                         "name": "check-28",
-                        "startedAt": "2026-11-13T00:38:26Z",
+                        "startedAt": "2026-11-13T02:52:35Z",
                         "status": "COMPLETED"
                       },
                       {
                         "__typename": "CheckRun",
                         "checkSuite": {
-                          "createdAt": "2026-11-13T00:37:29Z"
+                          "createdAt": "2026-11-13T02:51:31Z"
                         },
-                        "completedAt": "2026-11-13T00:38:03Z",
+                        "completedAt": "2026-11-13T02:52:13Z",
                         "conclusion": "FAILURE",
                         "isRequired": true,
                         "name": "check-29",
-                        "startedAt": "2026-11-13T00:37:48Z",
+                        "startedAt": "2026-11-13T02:51:54Z",
                         "status": "COMPLETED"
                       },
                       {
                         "__typename": "CheckRun",
                         "checkSuite": {
-                          "createdAt": "2026-11-13T00:37:40Z"
+                          "createdAt": "2026-11-13T02:51:44Z"
                         },
-                        "completedAt": "2026-11-13T00:41:04Z",
+                        "completedAt": "2026-11-13T02:55:12Z",
                         "conclusion": "SUCCESS",
                         "isRequired": true,
                         "name": "check-29",
-                        "startedAt": "2026-11-13T00:40:50Z",
+                        "startedAt": "2026-11-13T02:54:56Z",
                         "status": "COMPLETED"
                       },
                       {
                         "__typename": "CheckRun",
                         "checkSuite": {
-                          "createdAt": "2026-11-13T00:37:29Z"
+                          "createdAt": "2026-11-13T02:51:31Z"
                         },
-                        "completedAt": "2026-11-13T00:38:03Z",
+                        "completedAt": "2026-11-13T02:52:13Z",
                         "conclusion": "CANCELLED",
                         "isRequired": false,
                         "name": "check-30",
-                        "startedAt": "2026-11-13T00:38:04Z",
+                        "startedAt": "2026-11-13T02:52:13Z",
                         "status": "COMPLETED"
                       },
                       {
                         "__typename": "CheckRun",
                         "checkSuite": {
-                          "createdAt": "2026-11-13T00:37:40Z"
+                          "createdAt": "2026-11-13T02:51:44Z"
                         },
-                        "completedAt": "2026-11-13T00:41:04Z",
+                        "completedAt": "2026-11-13T02:55:12Z",
                         "conclusion": "SKIPPED",
                         "isRequired": false,
                         "name": "check-30",
-                        "startedAt": "2026-11-13T00:41:05Z",
+                        "startedAt": "2026-11-13T02:55:12Z",
                         "status": "COMPLETED"
                       },
                       {
                         "__typename": "CheckRun",
                         "checkSuite": {
-                          "createdAt": "2026-11-13T00:37:54Z"
+                          "createdAt": "2026-11-13T02:51:58Z"
                         },
-                        "completedAt": "2026-11-13T00:37:57Z",
+                        "completedAt": "2026-11-13T02:52:04Z",
                         "conclusion": "SUCCESS",
                         "isRequired": false,
                         "name": "check-31",
-                        "startedAt": "2026-11-13T00:37:54Z",
+                        "startedAt": "2026-11-13T02:51:58Z",
                         "status": "COMPLETED"
                       }
                     ],
@@ -1183,14 +1574,323 @@
                     }
                   }
                 },
-                "title": "Recorded title 1",
-                "updatedAt": "2026-11-13T00:43:28Z",
+                "title": "Recorded title 2",
+                "updatedAt": "2026-11-13T02:55:41Z",
                 "url": "https://github.com/stand-org/board/pull/369"
               }
             },
+            "pr1": {
+              "pullRequest": {
+                "author": {
+                  "login": "stand-agent"
+                },
+                "closingIssuesReferences": {
+                  "nodes": [
+                    {
+                      "number": 292,
+                      "repository": {
+                        "nameWithOwner": "stand-org/board"
+                      }
+                    }
+                  ],
+                  "pageInfo": {
+                    "endCursor": "recorded-cursor-15",
+                    "hasNextPage": false
+                  }
+                },
+                "comments": {
+                  "nodes": [],
+                  "pageInfo": {
+                    "hasPreviousPage": false,
+                    "startCursor": null
+                  }
+                },
+                "headRefName": "recorded-branch-5",
+                "headRefOid": "0000000000000000000000000000000000000021",
+                "id": "recorded-node-1",
+                "isDraft": false,
+                "mergeStateStatus": "BLOCKED",
+                "mergeable": "MERGEABLE",
+                "number": 376,
+                "reviewRequests": {
+                  "nodes": [],
+                  "pageInfo": {
+                    "endCursor": null,
+                    "hasNextPage": false
+                  }
+                },
+                "reviewThreads": {
+                  "nodes": [
+                    {
+                      "isResolved": false
+                    },
+                    {
+                      "isResolved": false
+                    },
+                    {
+                      "isResolved": false
+                    }
+                  ],
+                  "pageInfo": {
+                    "endCursor": "recorded-cursor-20",
+                    "hasNextPage": false
+                  }
+                },
+                "reviews": {
+                  "nodes": [
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "recorded-user-6"
+                      },
+                      "commit": {
+                        "oid": "0000000000000000000000000000000000000021"
+                      },
+                      "id": "recorded-node-153",
+                      "state": "APPROVED",
+                      "submittedAt": "2026-11-13T02:38:10Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "commit": {
+                        "oid": "0000000000000000000000000000000000000021"
+                      },
+                      "id": "recorded-node-154",
+                      "state": "COMMENTED",
+                      "submittedAt": "2026-11-13T02:39:14Z"
+                    }
+                  ],
+                  "pageInfo": {
+                    "endCursor": "recorded-cursor-21",
+                    "hasNextPage": false
+                  }
+                },
+                "state": "OPEN",
+                "statusCheckRollup": {
+                  "contexts": {
+                    "nodes": [
+                      {
+                        "__typename": "CheckRun",
+                        "checkSuite": {
+                          "createdAt": "2026-11-13T02:35:10Z"
+                        },
+                        "completedAt": "2026-11-13T02:35:50Z",
+                        "conclusion": "SUCCESS",
+                        "isRequired": false,
+                        "name": "check-15",
+                        "startedAt": "2026-11-13T02:35:14Z",
+                        "status": "COMPLETED"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "checkSuite": {
+                          "createdAt": "2026-11-13T02:35:12Z"
+                        },
+                        "completedAt": "2026-11-13T02:35:32Z",
+                        "conclusion": "SUCCESS",
+                        "isRequired": false,
+                        "name": "check-1",
+                        "startedAt": "2026-11-13T02:35:15Z",
+                        "status": "COMPLETED"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "checkSuite": {
+                          "createdAt": "2026-11-13T02:35:10Z"
+                        },
+                        "completedAt": "2026-11-13T02:36:12Z",
+                        "conclusion": "SUCCESS",
+                        "isRequired": false,
+                        "name": "check-16",
+                        "startedAt": "2026-11-13T02:35:14Z",
+                        "status": "COMPLETED"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "checkSuite": {
+                          "createdAt": "2026-11-13T02:35:12Z"
+                        },
+                        "completedAt": "2026-11-13T02:35:20Z",
+                        "conclusion": "SUCCESS",
+                        "isRequired": false,
+                        "name": "check-17",
+                        "startedAt": "2026-11-13T02:35:15Z",
+                        "status": "COMPLETED"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "checkSuite": {
+                          "createdAt": "2026-11-13T02:35:12Z"
+                        },
+                        "completedAt": "2026-11-13T02:35:28Z",
+                        "conclusion": "SUCCESS",
+                        "isRequired": false,
+                        "name": "check-18",
+                        "startedAt": "2026-11-13T02:35:15Z",
+                        "status": "COMPLETED"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "checkSuite": {
+                          "createdAt": "2026-11-13T02:35:12Z"
+                        },
+                        "completedAt": "2026-11-13T02:35:34Z",
+                        "conclusion": "SUCCESS",
+                        "isRequired": false,
+                        "name": "check-19",
+                        "startedAt": "2026-11-13T02:35:15Z",
+                        "status": "COMPLETED"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "checkSuite": {
+                          "createdAt": "2026-11-13T02:35:12Z"
+                        },
+                        "completedAt": "2026-11-13T02:36:54Z",
+                        "conclusion": "FAILURE",
+                        "isRequired": false,
+                        "name": "check-20",
+                        "startedAt": "2026-11-13T02:35:15Z",
+                        "status": "COMPLETED"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "checkSuite": {
+                          "createdAt": "2026-11-13T02:35:12Z"
+                        },
+                        "completedAt": "2026-11-13T02:37:46Z",
+                        "conclusion": "FAILURE",
+                        "isRequired": false,
+                        "name": "check-21",
+                        "startedAt": "2026-11-13T02:35:15Z",
+                        "status": "COMPLETED"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "checkSuite": {
+                          "createdAt": "2026-11-13T02:35:12Z"
+                        },
+                        "completedAt": "2026-11-13T02:37:23Z",
+                        "conclusion": "FAILURE",
+                        "isRequired": false,
+                        "name": "check-22",
+                        "startedAt": "2026-11-13T02:35:16Z",
+                        "status": "COMPLETED"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "checkSuite": {
+                          "createdAt": "2026-11-13T02:35:12Z"
+                        },
+                        "completedAt": "2026-11-13T02:36:15Z",
+                        "conclusion": "SUCCESS",
+                        "isRequired": false,
+                        "name": "check-23",
+                        "startedAt": "2026-11-13T02:35:15Z",
+                        "status": "COMPLETED"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "checkSuite": {
+                          "createdAt": "2026-11-13T02:35:12Z"
+                        },
+                        "completedAt": "2026-11-13T02:36:22Z",
+                        "conclusion": "SUCCESS",
+                        "isRequired": false,
+                        "name": "check-24",
+                        "startedAt": "2026-11-13T02:35:15Z",
+                        "status": "COMPLETED"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "checkSuite": {
+                          "createdAt": "2026-11-13T02:35:12Z"
+                        },
+                        "completedAt": "2026-11-13T02:35:32Z",
+                        "conclusion": "SKIPPED",
+                        "isRequired": false,
+                        "name": "check-25",
+                        "startedAt": "2026-11-13T02:35:32Z",
+                        "status": "COMPLETED"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "checkSuite": {
+                          "createdAt": "2026-11-13T02:35:12Z"
+                        },
+                        "completedAt": "2026-11-13T02:36:35Z",
+                        "conclusion": "SUCCESS",
+                        "isRequired": false,
+                        "name": "check-27",
+                        "startedAt": "2026-11-13T02:35:35Z",
+                        "status": "COMPLETED"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "checkSuite": {
+                          "createdAt": "2026-11-13T02:35:12Z"
+                        },
+                        "completedAt": "2026-11-13T02:36:32Z",
+                        "conclusion": "SUCCESS",
+                        "isRequired": false,
+                        "name": "check-28",
+                        "startedAt": "2026-11-13T02:35:35Z",
+                        "status": "COMPLETED"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "checkSuite": {
+                          "createdAt": "2026-11-13T02:35:12Z"
+                        },
+                        "completedAt": "2026-11-13T02:38:08Z",
+                        "conclusion": "FAILURE",
+                        "isRequired": true,
+                        "name": "check-29",
+                        "startedAt": "2026-11-13T02:37:51Z",
+                        "status": "COMPLETED"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "checkSuite": {
+                          "createdAt": "2026-11-13T02:35:12Z"
+                        },
+                        "completedAt": "2026-11-13T02:38:08Z",
+                        "conclusion": "SKIPPED",
+                        "isRequired": false,
+                        "name": "check-30",
+                        "startedAt": "2026-11-13T02:38:09Z",
+                        "status": "COMPLETED"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "checkSuite": {
+                          "createdAt": "2026-11-13T02:35:40Z"
+                        },
+                        "completedAt": "2026-11-13T02:35:45Z",
+                        "conclusion": "SUCCESS",
+                        "isRequired": false,
+                        "name": "check-31",
+                        "startedAt": "2026-11-13T02:35:40Z",
+                        "status": "COMPLETED"
+                      }
+                    ],
+                    "pageInfo": {
+                      "endCursor": "recorded-cursor-22",
+                      "hasNextPage": false
+                    }
+                  }
+                },
+                "title": "Recorded title 1",
+                "updatedAt": "2026-11-13T02:39:14Z",
+                "url": "https://github.com/stand-org/board/pull/376"
+              }
+            },
             "rateLimit": {
-              "remaining": 4694,
-              "resetAt": "2026-11-13T01:31:23Z"
+              "remaining": 4386,
+              "resetAt": "2026-11-13T03:31:30Z"
             }
           }
         }

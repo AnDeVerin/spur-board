@@ -1,6 +1,6 @@
 {
   "source": "jira:stand-jira",
-  "recordedAt": "2026-11-13T00:46:01.210Z",
+  "recordedAt": "2026-11-13T03:00:35.245Z",
   "observe": {
     "prs": [],
     "tickets": [],
@@ -34,275 +34,275 @@
         },
         "body": [
           {
-            "id": "10015",
+            "id": "9900001",
             "name": "recorded-type-1",
             "statuses": [
               {
-                "id": "10017",
+                "id": "9900002",
                 "name": "Backlog"
               },
               {
-                "id": "10019",
+                "id": "9900003",
                 "name": "Done"
               },
               {
-                "id": "10208",
+                "id": "9900004",
                 "name": "On Hold"
               },
               {
-                "id": "10027",
+                "id": "9900005",
                 "name": "Tested in PreProd"
               },
               {
-                "id": "10050",
+                "id": "9900006",
                 "name": "In Dev"
               },
               {
-                "id": "10274",
+                "id": "9900007",
                 "name": "Closed as Duplicate"
               },
               {
-                "id": "10023",
+                "id": "9900008",
                 "name": "IN PRE-PROD"
               },
               {
-                "id": "10022",
+                "id": "9900009",
                 "name": "In Review"
               },
               {
-                "id": "10018",
+                "id": "9900010",
                 "name": "In Progress"
               },
               {
-                "id": "10051",
+                "id": "9900011",
                 "name": "In Prod"
               },
               {
-                "id": "10021",
+                "id": "9900012",
                 "name": "CODE COMPLETE"
               },
               {
-                "id": "10020",
+                "id": "9900013",
                 "name": "Current Sprint"
               }
             ],
             "subtask": false
           },
           {
-            "id": "10016",
+            "id": "9900014",
             "name": "recorded-type-2",
             "statuses": [
               {
-                "id": "10017",
+                "id": "9900002",
                 "name": "Backlog"
               },
               {
-                "id": "10019",
+                "id": "9900003",
                 "name": "Done"
               },
               {
-                "id": "10208",
+                "id": "9900004",
                 "name": "On Hold"
               },
               {
-                "id": "10027",
+                "id": "9900005",
                 "name": "Tested in PreProd"
               },
               {
-                "id": "10050",
+                "id": "9900006",
                 "name": "In Dev"
               },
               {
-                "id": "10274",
+                "id": "9900007",
                 "name": "Closed as Duplicate"
               },
               {
-                "id": "10023",
+                "id": "9900008",
                 "name": "IN PRE-PROD"
               },
               {
-                "id": "10022",
+                "id": "9900009",
                 "name": "In Review"
               },
               {
-                "id": "10018",
+                "id": "9900010",
                 "name": "In Progress"
               },
               {
-                "id": "10051",
+                "id": "9900011",
                 "name": "In Prod"
               },
               {
-                "id": "10021",
+                "id": "9900012",
                 "name": "CODE COMPLETE"
               },
               {
-                "id": "10020",
+                "id": "9900013",
                 "name": "Current Sprint"
               }
             ],
             "subtask": false
           },
           {
-            "id": "10017",
+            "id": "9900002",
             "name": "recorded-type-3",
             "statuses": [
               {
-                "id": "10017",
+                "id": "9900002",
                 "name": "Backlog"
               },
               {
-                "id": "10019",
+                "id": "9900003",
                 "name": "Done"
               },
               {
-                "id": "10208",
+                "id": "9900004",
                 "name": "On Hold"
               },
               {
-                "id": "10027",
+                "id": "9900005",
                 "name": "Tested in PreProd"
               },
               {
-                "id": "10050",
+                "id": "9900006",
                 "name": "In Dev"
               },
               {
-                "id": "10274",
+                "id": "9900007",
                 "name": "Closed as Duplicate"
               },
               {
-                "id": "10023",
+                "id": "9900008",
                 "name": "IN PRE-PROD"
               },
               {
-                "id": "10022",
+                "id": "9900009",
                 "name": "In Review"
               },
               {
-                "id": "10018",
+                "id": "9900010",
                 "name": "In Progress"
               },
               {
-                "id": "10051",
+                "id": "9900011",
                 "name": "In Prod"
               },
               {
-                "id": "10021",
+                "id": "9900012",
                 "name": "CODE COMPLETE"
               },
               {
-                "id": "10020",
+                "id": "9900013",
                 "name": "Current Sprint"
               }
             ],
             "subtask": false
           },
           {
-            "id": "10018",
+            "id": "9900010",
             "name": "recorded-type-4",
             "statuses": [
               {
-                "id": "10017",
+                "id": "9900002",
                 "name": "Backlog"
               },
               {
-                "id": "10019",
+                "id": "9900003",
                 "name": "Done"
               },
               {
-                "id": "10208",
+                "id": "9900004",
                 "name": "On Hold"
               },
               {
-                "id": "10027",
+                "id": "9900005",
                 "name": "Tested in PreProd"
               },
               {
-                "id": "10050",
+                "id": "9900006",
                 "name": "In Dev"
               },
               {
-                "id": "10274",
+                "id": "9900007",
                 "name": "Closed as Duplicate"
               },
               {
-                "id": "10023",
+                "id": "9900008",
                 "name": "IN PRE-PROD"
               },
               {
-                "id": "10022",
+                "id": "9900009",
                 "name": "In Review"
               },
               {
-                "id": "10018",
+                "id": "9900010",
                 "name": "In Progress"
               },
               {
-                "id": "10051",
+                "id": "9900011",
                 "name": "In Prod"
               },
               {
-                "id": "10021",
+                "id": "9900012",
                 "name": "CODE COMPLETE"
               },
               {
-                "id": "10020",
+                "id": "9900013",
                 "name": "Current Sprint"
               }
             ],
             "subtask": false
           },
           {
-            "id": "10019",
+            "id": "9900003",
             "name": "recorded-type-5",
             "statuses": [
               {
-                "id": "10017",
+                "id": "9900002",
                 "name": "Backlog"
               },
               {
-                "id": "10019",
+                "id": "9900003",
                 "name": "Done"
               },
               {
-                "id": "10208",
+                "id": "9900004",
                 "name": "On Hold"
               },
               {
-                "id": "10027",
+                "id": "9900005",
                 "name": "Tested in PreProd"
               },
               {
-                "id": "10050",
+                "id": "9900006",
                 "name": "In Dev"
               },
               {
-                "id": "10274",
+                "id": "9900007",
                 "name": "Closed as Duplicate"
               },
               {
-                "id": "10023",
+                "id": "9900008",
                 "name": "IN PRE-PROD"
               },
               {
-                "id": "10022",
+                "id": "9900009",
                 "name": "In Review"
               },
               {
-                "id": "10018",
+                "id": "9900010",
                 "name": "In Progress"
               },
               {
-                "id": "10051",
+                "id": "9900011",
                 "name": "In Prod"
               },
               {
-                "id": "10021",
+                "id": "9900012",
                 "name": "CODE COMPLETE"
               },
               {
-                "id": "10020",
+                "id": "9900013",
                 "name": "Current Sprint"
               }
             ],
@@ -417,12 +417,12 @@
                 "status": {
                   "name": "In Review"
                 },
-                "summary": "Recorded title 39",
+                "summary": "Recorded title 38",
                 "updated": "2026-11-12T12:42:20.503-0500"
               },
-              "id": "46224",
+              "id": "9900015",
               "key": "STAND-5766",
-              "self": "https://jira.stand.invalid/rest/api/3/issue/46224"
+              "self": "https://jira.stand.invalid/rest/api/3/issue/9900015"
             },
             {
               "fields": {
@@ -440,12 +440,12 @@
                 "status": {
                   "name": "Backlog"
                 },
-                "summary": "Recorded title 40",
+                "summary": "Recorded title 39",
                 "updated": "2026-11-12T08:05:45.629-0500"
               },
-              "id": "46213",
+              "id": "9900016",
               "key": "STAND-5761",
-              "self": "https://jira.stand.invalid/rest/api/3/issue/46213"
+              "self": "https://jira.stand.invalid/rest/api/3/issue/9900016"
             },
             {
               "fields": {
@@ -463,12 +463,12 @@
                 "status": {
                   "name": "Tested in PreProd"
                 },
-                "summary": "Recorded title 41",
+                "summary": "Recorded title 40",
                 "updated": "2026-11-12T16:53:57.386-0500"
               },
-              "id": "46216",
+              "id": "9900017",
               "key": "STAND-5760",
-              "self": "https://jira.stand.invalid/rest/api/3/issue/46216"
+              "self": "https://jira.stand.invalid/rest/api/3/issue/9900017"
             },
             {
               "fields": {
@@ -486,12 +486,12 @@
                 "status": {
                   "name": "Backlog"
                 },
-                "summary": "Recorded title 42",
+                "summary": "Recorded title 41",
                 "updated": "2026-11-11T17:21:21.072-0500"
               },
-              "id": "46214",
+              "id": "9900018",
               "key": "STAND-5758",
-              "self": "https://jira.stand.invalid/rest/api/3/issue/46214"
+              "self": "https://jira.stand.invalid/rest/api/3/issue/9900018"
             },
             {
               "fields": {
@@ -509,12 +509,12 @@
                 "status": {
                   "name": "In Review"
                 },
-                "summary": "Recorded title 43",
+                "summary": "Recorded title 42",
                 "updated": "2026-11-12T17:45:55.202-0500"
               },
-              "id": "46208",
+              "id": "9900019",
               "key": "STAND-5757",
-              "self": "https://jira.stand.invalid/rest/api/3/issue/46208"
+              "self": "https://jira.stand.invalid/rest/api/3/issue/9900019"
             },
             {
               "fields": {
@@ -532,12 +532,12 @@
                 "status": {
                   "name": "Backlog"
                 },
-                "summary": "Recorded title 44",
+                "summary": "Recorded title 43",
                 "updated": "2026-11-11T06:47:30.063-0500"
               },
-              "id": "46083",
+              "id": "9900020",
               "key": "STAND-5755",
-              "self": "https://jira.stand.invalid/rest/api/3/issue/46083"
+              "self": "https://jira.stand.invalid/rest/api/3/issue/9900020"
             },
             {
               "fields": {
@@ -555,12 +555,35 @@
                 "status": {
                   "name": "Tested in PreProd"
                 },
-                "summary": "Recorded title 45",
+                "summary": "Recorded title 44",
                 "updated": "2026-11-12T16:53:54.872-0500"
               },
-              "id": "46202",
+              "id": "9900021",
               "key": "STAND-5754",
-              "self": "https://jira.stand.invalid/rest/api/3/issue/46202"
+              "self": "https://jira.stand.invalid/rest/api/3/issue/9900021"
+            },
+            {
+              "fields": {
+                "assignee": {
+                  "accountId": "recorded-account-1",
+                  "displayName": "recorded-user-7"
+                },
+                "customfield_10020": [
+                  {
+                    "name": "Recorded sprint 1",
+                    "state": "active"
+                  }
+                ],
+                "labels": [],
+                "status": {
+                  "name": "Done"
+                },
+                "summary": "Recorded title 45",
+                "updated": "2026-11-12T16:29:17.428-0500"
+              },
+              "id": "9900022",
+              "key": "STAND-5747",
+              "self": "https://jira.stand.invalid/rest/api/3/issue/9900022"
             },
             {
               "fields": {
@@ -579,11 +602,11 @@
                   "name": "Done"
                 },
                 "summary": "Recorded title 46",
-                "updated": "2026-11-12T16:29:17.428-0500"
+                "updated": "2026-11-12T05:28:17.938-0500"
               },
-              "id": "46195",
-              "key": "STAND-5747",
-              "self": "https://jira.stand.invalid/rest/api/3/issue/46195"
+              "id": "9900023",
+              "key": "STAND-5744",
+              "self": "https://jira.stand.invalid/rest/api/3/issue/9900023"
             },
             {
               "fields": {
@@ -602,11 +625,11 @@
                   "name": "Done"
                 },
                 "summary": "Recorded title 47",
-                "updated": "2026-11-12T05:28:17.938-0500"
+                "updated": "2026-11-11T08:15:00.112-0500"
               },
-              "id": "46184",
-              "key": "STAND-5744",
-              "self": "https://jira.stand.invalid/rest/api/3/issue/46184"
+              "id": "9900024",
+              "key": "STAND-5739",
+              "self": "https://jira.stand.invalid/rest/api/3/issue/9900024"
             },
             {
               "fields": {
@@ -625,11 +648,11 @@
                   "name": "Done"
                 },
                 "summary": "Recorded title 48",
-                "updated": "2026-11-11T08:15:00.112-0500"
+                "updated": "2026-11-11T08:14:58.849-0500"
               },
-              "id": "46179",
-              "key": "STAND-5739",
-              "self": "https://jira.stand.invalid/rest/api/3/issue/46179"
+              "id": "9900025",
+              "key": "STAND-5738",
+              "self": "https://jira.stand.invalid/rest/api/3/issue/9900025"
             },
             {
               "fields": {
@@ -648,34 +671,11 @@
                   "name": "Done"
                 },
                 "summary": "Recorded title 49",
-                "updated": "2026-11-11T08:14:58.849-0500"
-              },
-              "id": "46178",
-              "key": "STAND-5738",
-              "self": "https://jira.stand.invalid/rest/api/3/issue/46178"
-            },
-            {
-              "fields": {
-                "assignee": {
-                  "accountId": "recorded-account-1",
-                  "displayName": "recorded-user-7"
-                },
-                "customfield_10020": [
-                  {
-                    "name": "Recorded sprint 1",
-                    "state": "active"
-                  }
-                ],
-                "labels": [],
-                "status": {
-                  "name": "Done"
-                },
-                "summary": "Recorded title 50",
                 "updated": "2026-11-10T05:53:51.545-0500"
               },
-              "id": "46176",
+              "id": "9900026",
               "key": "STAND-5736",
-              "self": "https://jira.stand.invalid/rest/api/3/issue/46176"
+              "self": "https://jira.stand.invalid/rest/api/3/issue/9900026"
             },
             {
               "fields": {
@@ -693,12 +693,12 @@
                 "status": {
                   "name": "Backlog"
                 },
-                "summary": "Recorded title 51",
+                "summary": "Recorded title 50",
                 "updated": "2026-11-09T14:15:42.966-0500"
               },
-              "id": "46174",
+              "id": "9900027",
               "key": "STAND-5735",
-              "self": "https://jira.stand.invalid/rest/api/3/issue/46174"
+              "self": "https://jira.stand.invalid/rest/api/3/issue/9900027"
             },
             {
               "fields": {
@@ -716,12 +716,12 @@
                 "status": {
                   "name": "Done"
                 },
-                "summary": "Recorded title 52",
+                "summary": "Recorded title 51",
                 "updated": "2026-11-10T05:53:49.538-0500"
               },
-              "id": "46159",
+              "id": "9900028",
               "key": "STAND-5728",
-              "self": "https://jira.stand.invalid/rest/api/3/issue/46159"
+              "self": "https://jira.stand.invalid/rest/api/3/issue/9900028"
             },
             {
               "fields": {
@@ -739,12 +739,12 @@
                 "status": {
                   "name": "In Review"
                 },
-                "summary": "Recorded title 53",
+                "summary": "Recorded title 52",
                 "updated": "2026-11-12T13:10:14.049-0500"
               },
-              "id": "46157",
+              "id": "9900029",
               "key": "STAND-5727",
-              "self": "https://jira.stand.invalid/rest/api/3/issue/46157"
+              "self": "https://jira.stand.invalid/rest/api/3/issue/9900029"
             },
             {
               "fields": {
@@ -762,12 +762,12 @@
                 "status": {
                   "name": "Done"
                 },
-                "summary": "Recorded title 54",
+                "summary": "Recorded title 53",
                 "updated": "2026-11-11T08:14:59.467-0500"
               },
-              "id": "46123",
+              "id": "9900030",
               "key": "STAND-5725",
-              "self": "https://jira.stand.invalid/rest/api/3/issue/46123"
+              "self": "https://jira.stand.invalid/rest/api/3/issue/9900030"
             },
             {
               "fields": {
@@ -789,12 +789,39 @@
                 "status": {
                   "name": "Backlog"
                 },
-                "summary": "Recorded title 55",
+                "summary": "Recorded title 54",
                 "updated": "2026-11-09T12:19:32.757-0500"
               },
-              "id": "46121",
+              "id": "9900031",
               "key": "STAND-5724",
-              "self": "https://jira.stand.invalid/rest/api/3/issue/46121"
+              "self": "https://jira.stand.invalid/rest/api/3/issue/9900031"
+            },
+            {
+              "fields": {
+                "assignee": {
+                  "accountId": "recorded-account-1",
+                  "displayName": "recorded-user-7"
+                },
+                "customfield_10020": [
+                  {
+                    "name": "Recorded sprint 1",
+                    "state": "active"
+                  },
+                  {
+                    "name": "Recorded sprint 3",
+                    "state": "closed"
+                  }
+                ],
+                "labels": [],
+                "status": {
+                  "name": "Done"
+                },
+                "summary": "Recorded title 55",
+                "updated": "2026-11-09T08:52:43.567-0500"
+              },
+              "id": "9900032",
+              "key": "STAND-5723",
+              "self": "https://jira.stand.invalid/rest/api/3/issue/9900032"
             },
             {
               "fields": {
@@ -817,38 +844,11 @@
                   "name": "Done"
                 },
                 "summary": "Recorded title 56",
-                "updated": "2026-11-09T08:52:43.567-0500"
-              },
-              "id": "46120",
-              "key": "STAND-5723",
-              "self": "https://jira.stand.invalid/rest/api/3/issue/46120"
-            },
-            {
-              "fields": {
-                "assignee": {
-                  "accountId": "recorded-account-1",
-                  "displayName": "recorded-user-7"
-                },
-                "customfield_10020": [
-                  {
-                    "name": "Recorded sprint 1",
-                    "state": "active"
-                  },
-                  {
-                    "name": "Recorded sprint 3",
-                    "state": "closed"
-                  }
-                ],
-                "labels": [],
-                "status": {
-                  "name": "Done"
-                },
-                "summary": "Recorded title 57",
                 "updated": "2026-11-09T08:52:43.086-0500"
               },
-              "id": "46118",
+              "id": "9900033",
               "key": "STAND-5722",
-              "self": "https://jira.stand.invalid/rest/api/3/issue/46118"
+              "self": "https://jira.stand.invalid/rest/api/3/issue/9900033"
             },
             {
               "fields": {
@@ -866,12 +866,12 @@
                 "status": {
                   "name": "Tested in PreProd"
                 },
-                "summary": "Recorded title 58",
+                "summary": "Recorded title 57",
                 "updated": "2026-11-12T16:53:59.984-0500"
               },
-              "id": "46113",
+              "id": "9900034",
               "key": "STAND-5718",
-              "self": "https://jira.stand.invalid/rest/api/3/issue/46113"
+              "self": "https://jira.stand.invalid/rest/api/3/issue/9900034"
             },
             {
               "fields": {
@@ -893,12 +893,35 @@
                 "status": {
                   "name": "Done"
                 },
-                "summary": "Recorded title 59",
+                "summary": "Recorded title 58",
                 "updated": "2026-11-10T05:53:51.018-0500"
               },
-              "id": "46112",
+              "id": "9900035",
               "key": "STAND-5717",
-              "self": "https://jira.stand.invalid/rest/api/3/issue/46112"
+              "self": "https://jira.stand.invalid/rest/api/3/issue/9900035"
+            },
+            {
+              "fields": {
+                "assignee": {
+                  "accountId": "recorded-account-1",
+                  "displayName": "recorded-user-7"
+                },
+                "customfield_10020": [
+                  {
+                    "name": "Recorded sprint 1",
+                    "state": "active"
+                  }
+                ],
+                "labels": [],
+                "status": {
+                  "name": "Done"
+                },
+                "summary": "Recorded title 59",
+                "updated": "2026-11-10T05:55:38.923-0500"
+              },
+              "id": "9900036",
+              "key": "STAND-5715",
+              "self": "https://jira.stand.invalid/rest/api/3/issue/9900036"
             },
             {
               "fields": {
@@ -917,11 +940,11 @@
                   "name": "Done"
                 },
                 "summary": "Recorded title 60",
-                "updated": "2026-11-10T05:55:38.923-0500"
+                "updated": "2026-11-10T05:53:50.546-0500"
               },
-              "id": "46110",
-              "key": "STAND-5715",
-              "self": "https://jira.stand.invalid/rest/api/3/issue/46110"
+              "id": "9900037",
+              "key": "STAND-5713",
+              "self": "https://jira.stand.invalid/rest/api/3/issue/9900037"
             },
             {
               "fields": {
@@ -940,11 +963,11 @@
                   "name": "Done"
                 },
                 "summary": "Recorded title 61",
-                "updated": "2026-11-10T05:53:50.546-0500"
+                "updated": "2026-11-10T05:55:38.521-0500"
               },
-              "id": "46108",
-              "key": "STAND-5713",
-              "self": "https://jira.stand.invalid/rest/api/3/issue/46108"
+              "id": "9900038",
+              "key": "STAND-5712",
+              "self": "https://jira.stand.invalid/rest/api/3/issue/9900038"
             },
             {
               "fields": {
@@ -963,34 +986,11 @@
                   "name": "Done"
                 },
                 "summary": "Recorded title 62",
-                "updated": "2026-11-10T05:55:38.521-0500"
-              },
-              "id": "46107",
-              "key": "STAND-5712",
-              "self": "https://jira.stand.invalid/rest/api/3/issue/46107"
-            },
-            {
-              "fields": {
-                "assignee": {
-                  "accountId": "recorded-account-1",
-                  "displayName": "recorded-user-7"
-                },
-                "customfield_10020": [
-                  {
-                    "name": "Recorded sprint 1",
-                    "state": "active"
-                  }
-                ],
-                "labels": [],
-                "status": {
-                  "name": "Done"
-                },
-                "summary": "Recorded title 63",
                 "updated": "2026-11-12T05:28:16.832-0500"
               },
-              "id": "46106",
+              "id": "9900039",
               "key": "STAND-5711",
-              "self": "https://jira.stand.invalid/rest/api/3/issue/46106"
+              "self": "https://jira.stand.invalid/rest/api/3/issue/9900039"
             },
             {
               "fields": {
@@ -1012,12 +1012,35 @@
                 "status": {
                   "name": "Backlog"
                 },
-                "summary": "Recorded title 64",
+                "summary": "Recorded title 63",
                 "updated": "2026-11-09T06:13:33.941-0500"
               },
-              "id": "46104",
+              "id": "9900040",
               "key": "STAND-5709",
-              "self": "https://jira.stand.invalid/rest/api/3/issue/46104"
+              "self": "https://jira.stand.invalid/rest/api/3/issue/9900040"
+            },
+            {
+              "fields": {
+                "assignee": {
+                  "accountId": "recorded-account-1",
+                  "displayName": "recorded-user-7"
+                },
+                "customfield_10020": [
+                  {
+                    "name": "Recorded sprint 1",
+                    "state": "active"
+                  }
+                ],
+                "labels": [],
+                "status": {
+                  "name": "Done"
+                },
+                "summary": "Recorded title 64",
+                "updated": "2026-11-11T15:51:24.136-0500"
+              },
+              "id": "9900041",
+              "key": "STAND-5708",
+              "self": "https://jira.stand.invalid/rest/api/3/issue/9900041"
             },
             {
               "fields": {
@@ -1036,34 +1059,11 @@
                   "name": "Done"
                 },
                 "summary": "Recorded title 65",
-                "updated": "2026-11-11T15:51:24.136-0500"
-              },
-              "id": "46103",
-              "key": "STAND-5708",
-              "self": "https://jira.stand.invalid/rest/api/3/issue/46103"
-            },
-            {
-              "fields": {
-                "assignee": {
-                  "accountId": "recorded-account-1",
-                  "displayName": "recorded-user-7"
-                },
-                "customfield_10020": [
-                  {
-                    "name": "Recorded sprint 1",
-                    "state": "active"
-                  }
-                ],
-                "labels": [],
-                "status": {
-                  "name": "Done"
-                },
-                "summary": "Recorded title 66",
                 "updated": "2026-11-12T16:29:17.934-0500"
               },
-              "id": "46101",
+              "id": "9900042",
               "key": "STAND-5706",
-              "self": "https://jira.stand.invalid/rest/api/3/issue/46101"
+              "self": "https://jira.stand.invalid/rest/api/3/issue/9900042"
             },
             {
               "fields": {
@@ -1085,12 +1085,12 @@
                 "status": {
                   "name": "Done"
                 },
-                "summary": "Recorded title 67",
+                "summary": "Recorded title 66",
                 "updated": "2026-11-09T08:52:42.570-0500"
               },
-              "id": "46100",
+              "id": "9900043",
               "key": "STAND-5705",
-              "self": "https://jira.stand.invalid/rest/api/3/issue/46100"
+              "self": "https://jira.stand.invalid/rest/api/3/issue/9900043"
             },
             {
               "fields": {
@@ -1108,12 +1108,12 @@
                 "status": {
                   "name": "Backlog"
                 },
-                "summary": "Recorded title 68",
+                "summary": "Recorded title 67",
                 "updated": "2026-11-11T17:24:37.685-0500"
               },
-              "id": "46099",
+              "id": "9900044",
               "key": "STAND-5704",
-              "self": "https://jira.stand.invalid/rest/api/3/issue/46099"
+              "self": "https://jira.stand.invalid/rest/api/3/issue/9900044"
             },
             {
               "fields": {
@@ -1131,12 +1131,12 @@
                 "status": {
                   "name": "Tested in PreProd"
                 },
-                "summary": "Recorded title 69",
+                "summary": "Recorded title 68",
                 "updated": "2026-11-12T16:40:09.175-0500"
               },
-              "id": "46096",
+              "id": "9900045",
               "key": "STAND-5701",
-              "self": "https://jira.stand.invalid/rest/api/3/issue/46096"
+              "self": "https://jira.stand.invalid/rest/api/3/issue/9900045"
             },
             {
               "fields": {
@@ -1152,6 +1152,29 @@
                   {
                     "name": "Recorded sprint 3",
                     "state": "closed"
+                  }
+                ],
+                "labels": [],
+                "status": {
+                  "name": "Done"
+                },
+                "summary": "Recorded title 69",
+                "updated": "2026-11-09T08:52:42.027-0500"
+              },
+              "id": "9900046",
+              "key": "STAND-5700",
+              "self": "https://jira.stand.invalid/rest/api/3/issue/9900046"
+            },
+            {
+              "fields": {
+                "assignee": {
+                  "accountId": "recorded-account-1",
+                  "displayName": "recorded-user-7"
+                },
+                "customfield_10020": [
+                  {
+                    "name": "Recorded sprint 2",
+                    "state": "future"
                   }
                 ],
                 "labels": [],
@@ -1159,34 +1182,11 @@
                   "name": "Done"
                 },
                 "summary": "Recorded title 70",
-                "updated": "2026-11-09T08:52:42.027-0500"
-              },
-              "id": "46095",
-              "key": "STAND-5700",
-              "self": "https://jira.stand.invalid/rest/api/3/issue/46095"
-            },
-            {
-              "fields": {
-                "assignee": {
-                  "accountId": "recorded-account-1",
-                  "displayName": "recorded-user-7"
-                },
-                "customfield_10020": [
-                  {
-                    "name": "Recorded sprint 2",
-                    "state": "future"
-                  }
-                ],
-                "labels": [],
-                "status": {
-                  "name": "Done"
-                },
-                "summary": "Recorded title 71",
                 "updated": "2026-11-09T06:31:13.350-0500"
               },
-              "id": "46094",
+              "id": "9900047",
               "key": "STAND-5699",
-              "self": "https://jira.stand.invalid/rest/api/3/issue/46094"
+              "self": "https://jira.stand.invalid/rest/api/3/issue/9900047"
             },
             {
               "fields": {
@@ -1208,12 +1208,12 @@
                 "status": {
                   "name": "Done"
                 },
-                "summary": "Recorded title 72",
+                "summary": "Recorded title 71",
                 "updated": "2026-11-09T08:52:41.496-0500"
               },
-              "id": "46093",
+              "id": "9900048",
               "key": "STAND-5698",
-              "self": "https://jira.stand.invalid/rest/api/3/issue/46093"
+              "self": "https://jira.stand.invalid/rest/api/3/issue/9900048"
             },
             {
               "fields": {
@@ -1225,6 +1225,29 @@
                   {
                     "name": "Recorded sprint 2",
                     "state": "future"
+                  }
+                ],
+                "labels": [],
+                "status": {
+                  "name": "Backlog"
+                },
+                "summary": "Recorded title 72",
+                "updated": "2026-11-10T05:59:46.986-0500"
+              },
+              "id": "9900049",
+              "key": "STAND-5697",
+              "self": "https://jira.stand.invalid/rest/api/3/issue/9900049"
+            },
+            {
+              "fields": {
+                "assignee": {
+                  "accountId": "recorded-account-1",
+                  "displayName": "recorded-user-7"
+                },
+                "customfield_10020": [
+                  {
+                    "name": "Recorded sprint 1",
+                    "state": "active"
                   }
                 ],
                 "labels": [],
@@ -1232,34 +1255,11 @@
                   "name": "Backlog"
                 },
                 "summary": "Recorded title 73",
-                "updated": "2026-11-10T05:59:46.986-0500"
-              },
-              "id": "46092",
-              "key": "STAND-5697",
-              "self": "https://jira.stand.invalid/rest/api/3/issue/46092"
-            },
-            {
-              "fields": {
-                "assignee": {
-                  "accountId": "recorded-account-1",
-                  "displayName": "recorded-user-7"
-                },
-                "customfield_10020": [
-                  {
-                    "name": "Recorded sprint 1",
-                    "state": "active"
-                  }
-                ],
-                "labels": [],
-                "status": {
-                  "name": "Backlog"
-                },
-                "summary": "Recorded title 74",
                 "updated": "2026-11-09T16:11:28.727-0500"
               },
-              "id": "46091",
+              "id": "9900050",
               "key": "STAND-5696",
-              "self": "https://jira.stand.invalid/rest/api/3/issue/46091"
+              "self": "https://jira.stand.invalid/rest/api/3/issue/9900050"
             },
             {
               "fields": {
@@ -1277,12 +1277,12 @@
                 "status": {
                   "name": "Backlog"
                 },
-                "summary": "Recorded title 75",
+                "summary": "Recorded title 74",
                 "updated": "2026-11-06T06:16:26.913-0500"
               },
-              "id": "46090",
+              "id": "9900051",
               "key": "STAND-5695",
-              "self": "https://jira.stand.invalid/rest/api/3/issue/46090"
+              "self": "https://jira.stand.invalid/rest/api/3/issue/9900051"
             },
             {
               "fields": {
@@ -1300,12 +1300,39 @@
                 "status": {
                   "name": "Backlog"
                 },
-                "summary": "Recorded title 76",
+                "summary": "Recorded title 75",
                 "updated": "2026-11-06T06:16:24.941-0500"
               },
-              "id": "46089",
+              "id": "9900052",
               "key": "STAND-5694",
-              "self": "https://jira.stand.invalid/rest/api/3/issue/46089"
+              "self": "https://jira.stand.invalid/rest/api/3/issue/9900052"
+            },
+            {
+              "fields": {
+                "assignee": {
+                  "accountId": "recorded-account-1",
+                  "displayName": "recorded-user-7"
+                },
+                "customfield_10020": [
+                  {
+                    "name": "Recorded sprint 1",
+                    "state": "active"
+                  },
+                  {
+                    "name": "Recorded sprint 3",
+                    "state": "closed"
+                  }
+                ],
+                "labels": [],
+                "status": {
+                  "name": "Done"
+                },
+                "summary": "Recorded title 76",
+                "updated": "2026-11-09T08:52:40.918-0500"
+              },
+              "id": "9900053",
+              "key": "STAND-5693",
+              "self": "https://jira.stand.invalid/rest/api/3/issue/9900053"
             },
             {
               "fields": {
@@ -1328,11 +1355,11 @@
                   "name": "Done"
                 },
                 "summary": "Recorded title 77",
-                "updated": "2026-11-09T08:52:40.918-0500"
+                "updated": "2026-11-09T08:52:40.402-0500"
               },
-              "id": "46088",
-              "key": "STAND-5693",
-              "self": "https://jira.stand.invalid/rest/api/3/issue/46088"
+              "id": "9900054",
+              "key": "STAND-5691",
+              "self": "https://jira.stand.invalid/rest/api/3/issue/9900054"
             },
             {
               "fields": {
@@ -1355,11 +1382,11 @@
                   "name": "Done"
                 },
                 "summary": "Recorded title 78",
-                "updated": "2026-11-09T08:52:40.402-0500"
+                "updated": "2026-11-10T05:53:47.943-0500"
               },
-              "id": "46086",
-              "key": "STAND-5691",
-              "self": "https://jira.stand.invalid/rest/api/3/issue/46086"
+              "id": "9900055",
+              "key": "STAND-5690",
+              "self": "https://jira.stand.invalid/rest/api/3/issue/9900055"
             },
             {
               "fields": {
@@ -1371,10 +1398,6 @@
                   {
                     "name": "Recorded sprint 1",
                     "state": "active"
-                  },
-                  {
-                    "name": "Recorded sprint 3",
-                    "state": "closed"
                   }
                 ],
                 "labels": [],
@@ -1382,11 +1405,11 @@
                   "name": "Done"
                 },
                 "summary": "Recorded title 79",
-                "updated": "2026-11-10T05:53:47.943-0500"
+                "updated": "2026-11-11T08:15:00.707-0500"
               },
-              "id": "46079",
-              "key": "STAND-5690",
-              "self": "https://jira.stand.invalid/rest/api/3/issue/46079"
+              "id": "9900056",
+              "key": "STAND-5689",
+              "self": "https://jira.stand.invalid/rest/api/3/issue/9900056"
             },
             {
               "fields": {
@@ -1405,34 +1428,11 @@
                   "name": "Done"
                 },
                 "summary": "Recorded title 80",
-                "updated": "2026-11-11T08:15:00.707-0500"
-              },
-              "id": "46078",
-              "key": "STAND-5689",
-              "self": "https://jira.stand.invalid/rest/api/3/issue/46078"
-            },
-            {
-              "fields": {
-                "assignee": {
-                  "accountId": "recorded-account-1",
-                  "displayName": "recorded-user-7"
-                },
-                "customfield_10020": [
-                  {
-                    "name": "Recorded sprint 1",
-                    "state": "active"
-                  }
-                ],
-                "labels": [],
-                "status": {
-                  "name": "Done"
-                },
-                "summary": "Recorded title 81",
                 "updated": "2026-11-11T15:51:19.812-0500"
               },
-              "id": "46073",
+              "id": "9900057",
               "key": "STAND-5685",
-              "self": "https://jira.stand.invalid/rest/api/3/issue/46073"
+              "self": "https://jira.stand.invalid/rest/api/3/issue/9900057"
             },
             {
               "fields": {
@@ -1454,12 +1454,35 @@
                 "status": {
                   "name": "Done"
                 },
-                "summary": "Recorded title 82",
+                "summary": "Recorded title 81",
                 "updated": "2026-11-10T05:53:49.017-0500"
               },
-              "id": "46067",
+              "id": "9900058",
               "key": "STAND-5680",
-              "self": "https://jira.stand.invalid/rest/api/3/issue/46067"
+              "self": "https://jira.stand.invalid/rest/api/3/issue/9900058"
+            },
+            {
+              "fields": {
+                "assignee": {
+                  "accountId": "recorded-account-1",
+                  "displayName": "recorded-user-7"
+                },
+                "customfield_10020": [
+                  {
+                    "name": "Recorded sprint 2",
+                    "state": "future"
+                  }
+                ],
+                "labels": [],
+                "status": {
+                  "name": "Backlog"
+                },
+                "summary": "Recorded title 82",
+                "updated": "2026-11-11T17:24:36.565-0500"
+              },
+              "id": "9900059",
+              "key": "STAND-5679",
+              "self": "https://jira.stand.invalid/rest/api/3/issue/9900059"
             },
             {
               "fields": {
@@ -1478,34 +1501,11 @@
                   "name": "Backlog"
                 },
                 "summary": "Recorded title 83",
-                "updated": "2026-11-11T17:24:36.565-0500"
-              },
-              "id": "46066",
-              "key": "STAND-5679",
-              "self": "https://jira.stand.invalid/rest/api/3/issue/46066"
-            },
-            {
-              "fields": {
-                "assignee": {
-                  "accountId": "recorded-account-1",
-                  "displayName": "recorded-user-7"
-                },
-                "customfield_10020": [
-                  {
-                    "name": "Recorded sprint 2",
-                    "state": "future"
-                  }
-                ],
-                "labels": [],
-                "status": {
-                  "name": "Backlog"
-                },
-                "summary": "Recorded title 84",
                 "updated": "2026-11-11T17:24:36.246-0500"
               },
-              "id": "46063",
+              "id": "9900060",
               "key": "STAND-5676",
-              "self": "https://jira.stand.invalid/rest/api/3/issue/46063"
+              "self": "https://jira.stand.invalid/rest/api/3/issue/9900060"
             },
             {
               "fields": {
@@ -1527,12 +1527,12 @@
                 "status": {
                   "name": "Backlog"
                 },
-                "summary": "Recorded title 85",
+                "summary": "Recorded title 84",
                 "updated": "2026-11-11T17:24:35.904-0500"
               },
-              "id": "45941",
+              "id": "9900061",
               "key": "STAND-5634",
-              "self": "https://jira.stand.invalid/rest/api/3/issue/45941"
+              "self": "https://jira.stand.invalid/rest/api/3/issue/9900061"
             },
             {
               "fields": {
@@ -1554,12 +1554,43 @@
                 "status": {
                   "name": "Backlog"
                 },
-                "summary": "Recorded title 86",
+                "summary": "Recorded title 85",
                 "updated": "2026-11-10T17:59:15.043-0500"
               },
-              "id": "45989",
+              "id": "9900062",
               "key": "STAND-5628",
-              "self": "https://jira.stand.invalid/rest/api/3/issue/45989"
+              "self": "https://jira.stand.invalid/rest/api/3/issue/9900062"
+            },
+            {
+              "fields": {
+                "assignee": {
+                  "accountId": "recorded-account-1",
+                  "displayName": "recorded-user-7"
+                },
+                "customfield_10020": [
+                  {
+                    "name": "Recorded sprint 1",
+                    "state": "active"
+                  },
+                  {
+                    "name": "Recorded sprint 3",
+                    "state": "closed"
+                  },
+                  {
+                    "name": "Recorded sprint 5",
+                    "state": "closed"
+                  }
+                ],
+                "labels": [],
+                "status": {
+                  "name": "Done"
+                },
+                "summary": "Recorded title 86",
+                "updated": "2026-11-12T05:28:19.201-0500"
+              },
+              "id": "9900063",
+              "key": "STAND-5602",
+              "self": "https://jira.stand.invalid/rest/api/3/issue/9900063"
             },
             {
               "fields": {
@@ -1586,11 +1617,11 @@
                   "name": "Done"
                 },
                 "summary": "Recorded title 87",
-                "updated": "2026-11-12T05:28:19.201-0500"
+                "updated": "2026-11-10T05:53:48.496-0500"
               },
-              "id": "45958",
-              "key": "STAND-5602",
-              "self": "https://jira.stand.invalid/rest/api/3/issue/45958"
+              "id": "9900064",
+              "key": "STAND-5601",
+              "self": "https://jira.stand.invalid/rest/api/3/issue/9900064"
             },
             {
               "fields": {
@@ -1617,42 +1648,11 @@
                   "name": "Done"
                 },
                 "summary": "Recorded title 88",
-                "updated": "2026-11-10T05:53:48.496-0500"
-              },
-              "id": "45956",
-              "key": "STAND-5601",
-              "self": "https://jira.stand.invalid/rest/api/3/issue/45956"
-            },
-            {
-              "fields": {
-                "assignee": {
-                  "accountId": "recorded-account-1",
-                  "displayName": "recorded-user-7"
-                },
-                "customfield_10020": [
-                  {
-                    "name": "Recorded sprint 1",
-                    "state": "active"
-                  },
-                  {
-                    "name": "Recorded sprint 3",
-                    "state": "closed"
-                  },
-                  {
-                    "name": "Recorded sprint 5",
-                    "state": "closed"
-                  }
-                ],
-                "labels": [],
-                "status": {
-                  "name": "Done"
-                },
-                "summary": "Recorded title 89",
                 "updated": "2026-11-09T12:45:57.835-0500"
               },
-              "id": "45954",
+              "id": "9900065",
               "key": "STAND-5599",
-              "self": "https://jira.stand.invalid/rest/api/3/issue/45954"
+              "self": "https://jira.stand.invalid/rest/api/3/issue/9900065"
             },
             {
               "fields": {
@@ -1682,12 +1682,12 @@
                 "status": {
                   "name": "Done"
                 },
-                "summary": "Recorded title 90",
+                "summary": "Recorded title 89",
                 "updated": "2026-11-09T12:45:59.864-0500"
               },
-              "id": "45854",
+              "id": "9900066",
               "key": "STAND-5558",
-              "self": "https://jira.stand.invalid/rest/api/3/issue/45854"
+              "self": "https://jira.stand.invalid/rest/api/3/issue/9900066"
             },
             {
               "fields": {
@@ -1709,12 +1709,12 @@
                 "status": {
                   "name": "Done"
                 },
-                "summary": "Recorded title 91",
+                "summary": "Recorded title 90",
                 "updated": "2026-11-09T12:46:05.700-0500"
               },
-              "id": "45651",
+              "id": "9900067",
               "key": "STAND-5499",
-              "self": "https://jira.stand.invalid/rest/api/3/issue/45651"
+              "self": "https://jira.stand.invalid/rest/api/3/issue/9900067"
             },
             {
               "fields": {
@@ -1744,12 +1744,12 @@
                 "status": {
                   "name": "Backlog"
                 },
-                "summary": "Recorded title 92",
+                "summary": "Recorded title 91",
                 "updated": "2026-11-10T17:59:49.505-0500"
               },
-              "id": "45628",
+              "id": "9900068",
               "key": "STAND-5483",
-              "self": "https://jira.stand.invalid/rest/api/3/issue/45628"
+              "self": "https://jira.stand.invalid/rest/api/3/issue/9900068"
             },
             {
               "fields": {
@@ -1783,12 +1783,39 @@
                 "status": {
                   "name": "Backlog"
                 },
-                "summary": "Recorded title 93",
+                "summary": "Recorded title 92",
                 "updated": "2026-11-11T17:24:35.564-0500"
               },
-              "id": "45602",
+              "id": "9900069",
               "key": "STAND-5465",
-              "self": "https://jira.stand.invalid/rest/api/3/issue/45602"
+              "self": "https://jira.stand.invalid/rest/api/3/issue/9900069"
+            },
+            {
+              "fields": {
+                "assignee": {
+                  "accountId": "recorded-account-1",
+                  "displayName": "recorded-user-7"
+                },
+                "customfield_10020": [
+                  {
+                    "name": "Recorded sprint 1",
+                    "state": "active"
+                  },
+                  {
+                    "name": "Recorded sprint 3",
+                    "state": "closed"
+                  }
+                ],
+                "labels": [],
+                "status": {
+                  "name": "Done"
+                },
+                "summary": "Recorded title 93",
+                "updated": "2026-11-10T05:53:50.060-0500"
+              },
+              "id": "9900070",
+              "key": "STAND-5435",
+              "self": "https://jira.stand.invalid/rest/api/3/issue/9900070"
             },
             {
               "fields": {
@@ -1811,38 +1838,11 @@
                   "name": "Done"
                 },
                 "summary": "Recorded title 94",
-                "updated": "2026-11-10T05:53:50.060-0500"
-              },
-              "id": "45455",
-              "key": "STAND-5435",
-              "self": "https://jira.stand.invalid/rest/api/3/issue/45455"
-            },
-            {
-              "fields": {
-                "assignee": {
-                  "accountId": "recorded-account-1",
-                  "displayName": "recorded-user-7"
-                },
-                "customfield_10020": [
-                  {
-                    "name": "Recorded sprint 1",
-                    "state": "active"
-                  },
-                  {
-                    "name": "Recorded sprint 3",
-                    "state": "closed"
-                  }
-                ],
-                "labels": [],
-                "status": {
-                  "name": "Done"
-                },
-                "summary": "Recorded title 95",
                 "updated": "2026-11-09T12:46:04.109-0500"
               },
-              "id": "44390",
+              "id": "9900071",
               "key": "STAND-5149",
-              "self": "https://jira.stand.invalid/rest/api/3/issue/44390"
+              "self": "https://jira.stand.invalid/rest/api/3/issue/9900071"
             },
             {
               "fields": {
@@ -1868,12 +1868,35 @@
                 "status": {
                   "name": "Done"
                 },
-                "summary": "Recorded title 96",
+                "summary": "Recorded title 95",
                 "updated": "2026-11-09T12:46:02.028-0500"
               },
-              "id": "44383",
+              "id": "9900072",
               "key": "STAND-5145",
-              "self": "https://jira.stand.invalid/rest/api/3/issue/44383"
+              "self": "https://jira.stand.invalid/rest/api/3/issue/9900072"
+            },
+            {
+              "fields": {
+                "assignee": {
+                  "accountId": "recorded-account-1",
+                  "displayName": "recorded-user-7"
+                },
+                "customfield_10020": [
+                  {
+                    "name": "Recorded sprint 2",
+                    "state": "future"
+                  }
+                ],
+                "labels": [],
+                "status": {
+                  "name": "Backlog"
+                },
+                "summary": "Recorded title 96",
+                "updated": "2026-11-11T17:24:35.221-0500"
+              },
+              "id": "9900073",
+              "key": "STAND-4374",
+              "self": "https://jira.stand.invalid/rest/api/3/issue/9900073"
             },
             {
               "fields": {
@@ -1892,34 +1915,11 @@
                   "name": "Backlog"
                 },
                 "summary": "Recorded title 97",
-                "updated": "2026-11-11T17:24:35.221-0500"
-              },
-              "id": "31936",
-              "key": "STAND-4374",
-              "self": "https://jira.stand.invalid/rest/api/3/issue/31936"
-            },
-            {
-              "fields": {
-                "assignee": {
-                  "accountId": "recorded-account-1",
-                  "displayName": "recorded-user-7"
-                },
-                "customfield_10020": [
-                  {
-                    "name": "Recorded sprint 2",
-                    "state": "future"
-                  }
-                ],
-                "labels": [],
-                "status": {
-                  "name": "Backlog"
-                },
-                "summary": "Recorded title 98",
                 "updated": "2026-11-11T17:24:34.891-0500"
               },
-              "id": "24450",
+              "id": "9900074",
               "key": "STAND-3781",
-              "self": "https://jira.stand.invalid/rest/api/3/issue/24450"
+              "self": "https://jira.stand.invalid/rest/api/3/issue/9900074"
             }
           ]
         }

@@ -1,6 +1,6 @@
 {
   "source": "spur",
-  "recordedAt": "2026-11-13T00:46:01.210Z",
+  "recordedAt": "2026-11-13T03:00:35.245Z",
   "observe": {
     "prs": [],
     "tickets": [],
@@ -29,53 +29,21 @@
           {
             "branch": "recorded-branch-5",
             "id": "recorded-session-1",
-            "lastActivityAt": "2026-11-13T00:43:56.192Z",
-            "project": "recorded-project-1",
-            "slots": {
-              "links": [
-                {
-                  "label": "board-worker",
-                  "url": "https://github.com/stand-org/board/issues/243"
-                },
-                {
-                  "label": "tracker",
-                  "url": "https://github.com/stand-org/board/issues/243"
-                }
-              ]
-            },
-            "state": "working",
-            "status": "running"
-          },
-          {
-            "branch": "recorded-branch-6",
-            "id": "recorded-session-2",
-            "lastActivityAt": "2026-11-13T00:39:06.175Z",
-            "project": "recorded-project-1",
-            "slots": {
-              "links": [
-                {
-                  "label": "board-worker",
-                  "url": "https://github.com/stand-org/board/issues/241"
-                },
-                {
-                  "label": "tracker",
-                  "url": "https://github.com/stand-org/board/issues/241"
-                }
-              ]
-            },
-            "state": "working",
-            "status": "running"
-          },
-          {
-            "branch": "recorded-branch-7",
-            "id": "recorded-session-3",
-            "lastActivityAt": "2026-11-13T00:41:03.358Z",
+            "lastActivityAt": "2026-11-13T02:56:26.302Z",
             "project": "recorded-project-1",
             "slots": {
               "links": [
                 {
                   "label": "board-worker",
                   "url": "https://github.com/stand-org/board/issues/292"
+                },
+                {
+                  "label": "tracker",
+                  "url": "https://github.com/stand-org/board/issues/292"
+                },
+                {
+                  "label": "pr",
+                  "url": "https://github.com/stand-org/board/pull/376"
                 }
               ]
             },
@@ -84,8 +52,8 @@
           },
           {
             "branch": "recorded-branch-4",
-            "id": "recorded-session-4",
-            "lastActivityAt": "2026-11-13T00:42:03.603Z",
+            "id": "recorded-session-2",
+            "lastActivityAt": "2026-11-13T02:56:17.253Z",
             "project": "recorded-project-1",
             "slots": {
               "links": [
@@ -107,8 +75,8 @@
             "status": "running"
           },
           {
-            "branch": "recorded-branch-8",
-            "id": "recorded-session-5",
+            "branch": "recorded-branch-6",
+            "id": "recorded-session-3",
             "lastActivityAt": "2026-11-12T19:07:03.907Z",
             "project": "recorded-project-2",
             "slots": {
@@ -132,8 +100,8 @@
             "stopReason": "manual_pause"
           },
           {
-            "branch": "recorded-branch-9",
-            "id": "recorded-session-6",
+            "branch": "recorded-branch-7",
+            "id": "recorded-session-4",
             "lastActivityAt": "2026-11-12T19:07:30.690Z",
             "project": "recorded-project-2",
             "slots": {
@@ -157,9 +125,9 @@
             "stopReason": "manual_pause"
           },
           {
-            "branch": "recorded-branch-10",
-            "id": "recorded-session-7",
-            "lastActivityAt": "2026-11-13T00:16:03.006Z",
+            "branch": "recorded-branch-8",
+            "id": "recorded-session-5",
+            "lastActivityAt": "2026-11-13T02:16:03.007Z",
             "project": "recorded-project-2",
             "slots": {
               "links": [
@@ -181,9 +149,9 @@
             "status": "running"
           },
           {
-            "branch": "recorded-branch-11",
-            "id": "recorded-session-8",
-            "lastActivityAt": "2026-11-13T00:14:13.625Z",
+            "branch": "recorded-branch-9",
+            "id": "recorded-session-6",
+            "lastActivityAt": "2026-11-13T02:53:47.412Z",
             "project": "recorded-project-3",
             "slots": {
               "links": []
@@ -192,8 +160,8 @@
             "status": "running"
           },
           {
-            "branch": "recorded-branch-12",
-            "id": "recorded-session-9",
+            "branch": "recorded-branch-10",
+            "id": "recorded-session-7",
             "lastActivityAt": "2026-11-12T19:07:24.829Z",
             "project": "recorded-project-2",
             "slots": {
@@ -204,8 +172,8 @@
             "stopReason": "manual_pause"
           },
           {
-            "branch": "recorded-branch-13",
-            "id": "recorded-session-10",
+            "branch": "recorded-branch-11",
+            "id": "recorded-session-8",
             "lastActivityAt": "2026-11-12T21:36:55.742Z",
             "project": "recorded-project-2",
             "slots": {
@@ -216,8 +184,8 @@
             "stopReason": "manual_pause"
           },
           {
-            "branch": "recorded-branch-14",
-            "id": "recorded-session-11",
+            "branch": "recorded-branch-12",
+            "id": "recorded-session-9",
             "lastActivityAt": "2026-11-12T22:53:54.911Z",
             "project": "recorded-project-2",
             "slots": {
@@ -227,9 +195,9 @@
             "status": "running"
           },
           {
-            "branch": "recorded-branch-11",
-            "id": "recorded-session-12",
-            "lastActivityAt": "2026-11-13T00:00:08.059Z",
+            "branch": "recorded-branch-9",
+            "id": "recorded-session-10",
+            "lastActivityAt": "2026-11-13T03:00:08.059Z",
             "project": "recorded-project-4",
             "slots": {
               "links": []
@@ -239,9 +207,9 @@
             "stopReason": "manual_pause"
           },
           {
-            "branch": "recorded-branch-11",
-            "id": "recorded-session-13",
-            "lastActivityAt": "2026-11-13T00:00:10.208Z",
+            "branch": "recorded-branch-9",
+            "id": "recorded-session-11",
+            "lastActivityAt": "2026-11-13T03:00:10.209Z",
             "project": "recorded-project-5",
             "slots": {
               "links": [
@@ -256,8 +224,8 @@
             "stopReason": "manual_pause"
           },
           {
-            "branch": "recorded-branch-15",
-            "id": "recorded-session-14",
+            "branch": "recorded-branch-13",
+            "id": "recorded-session-12",
             "lastActivityAt": "2026-11-12T21:30:28.945Z",
             "project": "recorded-project-2",
             "slots": {
@@ -268,8 +236,8 @@
             "stopReason": "manual_pause"
           },
           {
-            "branch": "recorded-branch-16",
-            "id": "recorded-session-15",
+            "branch": "recorded-branch-14",
+            "id": "recorded-session-13",
             "lastActivityAt": "2026-09-27T20:34:37.908Z",
             "project": "recorded-project-6",
             "retainInList": true,
