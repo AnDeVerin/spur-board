@@ -46,6 +46,8 @@ function config() {
     ],
     operator: { slack: 'U123' },
     digest: { tz: 'UTC' },
+    // The mocks report 90 requests left; no reserve, so detail reads are never deferred.
+    github: { reserveRemaining: 0 },
   });
 }
 function adapter(fetcher: typeof fetch, now: () => number = () => Date.now()): Adapter {
@@ -164,22 +166,22 @@ describe('GitHub discovery', () => {
   });
   it('chunks newly discovered PR details into bounded queries', async () => {
     const nodes = Array.from({ length: 51 }, (_, index) => node(index + 1, newer));
+    const nulls = (count: number) =>
+      response(
+        Object.fromEntries(Array.from({ length: count }, (_, i) => [`pr${String(i)}`, null])),
+      );
     const fetcher = vi
       .fn<typeof fetch>()
       .mockResolvedValueOnce(response({ repository: { pullRequests: conn(nodes) } }))
-      .mockResolvedValueOnce(
-        response(
-          Object.fromEntries(nodes.slice(0, 50).map((_, index) => [`pr${String(index)}`, null])),
-        ),
-      )
-      .mockResolvedValueOnce(response({ pr0: null }));
+      .mockImplementation(() => Promise.resolve(nulls(10)));
     await adapter(fetcher).poll(context);
-    expect(fetcher).toHaveBeenCalledTimes(3);
+    expect(fetcher).toHaveBeenCalledTimes(7);
     const queries = fetcher.mock.calls
       .slice(1)
       .map((call) => (JSON.parse(call[1]?.body as string) as { query: string }).query);
-    expect(queries[0]?.match(/: repository\(/g)).toHaveLength(50);
-    expect(queries[1]?.match(/: repository\(/g)).toHaveLength(1);
+    expect(queries.map((query) => query.match(/: repository\(/g)?.length)).toEqual([
+      10, 10, 10, 10, 10, 1,
+    ]);
   });
   it('keeps the prior cursor when a newly discovered PR detail fails', async () => {
     const fetcher = vi

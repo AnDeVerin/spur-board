@@ -209,20 +209,26 @@ export interface PollContext {
  *   tokens, response JSON, headers) reaches the batch or core. A request budget the source
  *   reports goes in `budget`, in source-neutral terms.
  * - A2: `observedAt` is the time the poll started, not when it finished.
- * - A3: `complete` is true only when the whole listing was read without errors. An incomplete
- *   batch still carries the facts it did observe. Core concludes anything from absence only
- *   after a complete batch.
+ * - A3: `complete` is true only when the whole listing was read without errors. A request the
+ *   adapter gave up on or deferred for budget also leaves it false. An incomplete batch still
+ *   carries the facts it did observe. Core concludes anything from absence only after a
+ *   complete batch.
  * - A4: `entities` holds exactly one entry for each ref in `PollContext.observe`. An `ok`
  *   entity has exactly one item with the same identity (a PR by repo and number, a ticket by
  *   tracker and id, a session by id); a `not_found` or `no_access` entity has none, so a missed
  *   fetch never reads as absence. A per-entity outcome does not clear `complete`. A requested
  *   session that answers 404 is reported as `not_found` with no item; it counts as resolved,
- *   and core records it as `vanished` at once, outside the gone-after-polls count.
+ *   and core records it as `vanished` at once, outside the gone-after-polls count. An `ok` item
+ *   may carry the facts of the adapter's own earlier read when a lighter read in this poll shows
+ *   the entity unchanged. A ref whose read failed or was deferred is `no_access` in an
+ *   incomplete batch.
  * - A5: The cursor is opaque to core. The adapter returns a new one or omits it, and it never
  *   moves backwards.
- * - A6: One attempt per request; the adapter does not retry on its own. A failure of the whole
- *   poll rejects with an `AdapterError` of the matching kind; core treats any other rejection
- *   as `transient`.
+ * - A6: One attempt per request; the adapter does not retry on its own, with one exception: it
+ *   may resend the entities of a request that failed `transient` (5xx, a cut-off body, a
+ *   timeout) as smaller requests, within a fixed per-poll limit. It never resends after
+ *   `throttled`, `auth`, `config` or an abort. A failure of the whole poll rejects with an
+ *   `AdapterError` of the matching kind; core treats any other rejection as `transient`.
  * - A7: The adapter honours `PollContext.signal` and returns no batch after it is aborted.
  * - A8: A pending ticket request has no stable id. Its `ok` item matches by tracker and key;
  *   the next observation binds the returned stable id. Known tickets still match by id.

@@ -54,7 +54,8 @@ interface Check {
 }
 const pass = (id: string): Check => ({ id, status: 'pass', blocking: false, fix: null });
 const blocking = (id: string): Check => ({ id, status: 'fail', blocking: true, fix: `fix ${id}` });
-const staleFix = 'Restart 1 session started before the last skill install: s1.';
+const staleFix =
+  'Ask 1 session started before the last skill install to re-read the spur-board skill (SKILL.md and references/): s1.';
 const baseChecks: Check[] = [
   pass('daemon.available'),
   { id: 'sessions.stale', status: 'warning', blocking: false, fix: staleFix },
@@ -547,7 +548,7 @@ describe('board update', () => {
       firstPoll: 'done',
       operator: [
         'Restart agent sessions that run `board mcp` so the MCP server loads the new catalog.',
-        `Stop and wake these Spur sessions so they load the new skill: ${staleFix}`,
+        staleFix,
       ],
     });
     expect(result.stderr).toContain('update: stop\n');
@@ -562,6 +563,17 @@ describe('board update', () => {
     expect(s.counts.doctor).toBe(2);
     expect(s.state().status).toBe('succeeded');
     expect(s.labels().filter((name) => name === 'stop')).toHaveLength(1);
+  });
+
+  it('U1h: gives only the board mcp line when no Spur session is stale', async () => {
+    const s = await stand();
+    s.behaviour.doctor = () => doctorResult([pass('daemon.available'), pass('sessions.stale')]);
+    const result = await s.run(['--json', 'update']);
+
+    expect(result.exit, result.stderr).toBe(0);
+    expect((JSON.parse(result.stdout) as { operator: string[] }).operator).toEqual([
+      'Restart agent sessions that run `board mcp` so the MCP server loads the new catalog.',
+    ]);
   });
 
   it('U1c: accepts a daemon environment with other entries and values holding =', async () => {
@@ -1538,8 +1550,15 @@ describe('board rollback', () => {
     ]);
     expect(callsAfter()[2]?.args).toEqual([s.bin, 'copy-database', s.backup, s.dbFile]);
     expect(tree(s.packageRoot)).toEqual(original);
-    const output = JSON.parse(result.stdout) as { database: string; lost: string };
+    const output = JSON.parse(result.stdout) as {
+      database: string;
+      lost: string;
+      operator: string[];
+    };
     expect(output).toMatchObject({ from: '1.1.0', to: '1.0.0', database: 'restored' });
+    expect(output.operator).toEqual([
+      'Restart agent sessions that run `board mcp` so the MCP server loads the new catalog.',
+    ]);
     expect(output.lost).toBe(
       `Board changes and journal events recorded after ${s.state().startedAt}.`,
     );

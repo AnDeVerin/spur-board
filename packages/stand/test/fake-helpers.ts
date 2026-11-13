@@ -1,4 +1,4 @@
-import { configSchema, type Batch, type PollContext } from '@spur-board/contracts';
+import { configSchema, type Adapter, type Batch, type PollContext } from '@spur-board/contracts';
 import { githubSources } from '../../adapters/src/github/index.ts';
 import { createFakes, type Fakes } from '../src/fakes/fetch.ts';
 import { createGithubIssuesFake } from '../src/fakes/github-issues.ts';
@@ -66,19 +66,29 @@ export function pollContext(overrides: Partial<PollContext> = {}): PollContext {
   };
 }
 
-/** Polls `repo` once through the real GitHub adapter and the stand's own config. */
+/** The real GitHub adapter for `repo` under the stand's own config, to poll more than once. */
+export function repoSource(
+  fakes: Fakes,
+  repo: string,
+  now: () => number = () => NOW,
+  fetcher: typeof fetch = fakeFetch(fakes),
+): Adapter {
+  const config = configSchema.parse(standConfig(0));
+  const source = githubSources(config, { token: 'dummy', now, fetch: fetcher }).find(
+    (candidate) => candidate.repo === repo,
+  );
+  if (source === undefined) throw new Error(`No source for ${repo}`);
+  return source.adapter;
+}
+
+/** Polls `repo` once through a fresh adapter, so nothing carries over from an earlier poll. */
 export function pollRepo(
   fakes: Fakes,
   repo: string,
   context: PollContext = pollContext(),
   now: () => number = () => NOW,
 ): Promise<Batch> {
-  const config = configSchema.parse(standConfig(0));
-  const source = githubSources(config, { token: 'dummy', now, fetch: fakeFetch(fakes) }).find(
-    (candidate) => candidate.repo === repo,
-  );
-  if (source === undefined) throw new Error(`No source for ${repo}`);
-  return source.adapter.poll(context);
+  return repoSource(fakes, repo, now).poll(context);
 }
 
 /** Sends one pull request verb and returns the result. */

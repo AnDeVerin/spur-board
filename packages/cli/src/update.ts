@@ -1030,9 +1030,7 @@ async function update(
     const stale = report.find((check) => check.id === 'sessions.stale');
     const operator = [
       MCP_LINE,
-      ...(stale?.status === 'warning' && stale.fix !== null
-        ? [`Stop and wake these Spur sessions so they load the new skill: ${stale.fix}`]
-        : []),
+      ...(stale?.status === 'warning' && stale.fix !== null ? [stale.fix] : []),
     ];
     return {
       from,

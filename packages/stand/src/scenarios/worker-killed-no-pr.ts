@@ -43,6 +43,8 @@ function workerKilledScenario(options: {
       await board.poll();
       await fakes.spur('session', { id: SESSION, status: 'killed', state: 'killed' });
       await board.poll();
+      // Sources poll concurrently; "no PR" counts only from a GitHub poll begun after the kill.
+      await board.poll();
       let key: string | undefined;
       await board.until('worker ended item raised', 10_000, async () => {
         key = await itemKey(board);

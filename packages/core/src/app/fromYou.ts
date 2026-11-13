@@ -1,5 +1,6 @@
 import {
   parseActorId,
+  prFactsSchema,
   sessionFactsSchema,
   ticketFactsSchema,
   type ColumnId,
@@ -11,6 +12,7 @@ import {
   evaluateSessionHealth,
   type SessionHealthFlag,
   type SessionHealthFlagKind,
+  type TaskPrState,
 } from '../domain/health.ts';
 import {
   BLOCK_ITEM_KINDS,
@@ -214,17 +216,23 @@ export async function reconcileItems(
       'pr_snapshot.state',
       'pr_snapshot.source',
       'pr_snapshot.observed_at',
+      'pr_snapshot.detail',
     ])
     .where('link.entity', '=', 'pr')
     .where('link.banned', '=', 0)
     .where(pastReopenFloor)
     .execute();
-  const taskPrs: Record<
-    string,
-    { hasOpenPr: boolean; hasMergedPr: boolean; turnSessions: string[] }
-  > = {};
+  const taskPrs: Record<string, TaskPrState & { turnSessions: string[] }> = {};
   for (const task of tasks)
-    taskPrs[String(task.id)] = { hasOpenPr: false, hasMergedPr: false, turnSessions: [] };
+    taskPrs[String(task.id)] = {
+      hasOpenPr: false,
+      hasMergedPr: false,
+      prCompleteAt: prCompleteAt(
+        config.projects.find((entry) => entry.id === task.project),
+        sourceById,
+      ),
+      turnSessions: [],
+    };
   for (const pr of prs) {
     const state = taskPrs[String(pr.task_id)];
     if (state === undefined) continue;
@@ -243,6 +251,7 @@ export async function reconcileItems(
     if (holder?.actor === 'agent')
       taskPrs[String(turn.task_id)]?.turnSessions.push(holder.actorRef.session);
   }
+  const heldKeys: string[] = [];
   for (const task of tasks) {
     const state = taskPrs[String(task.id)];
     if (state === undefined || state.hasOpenPr || state.hasMergedPr) continue;
@@ -252,10 +261,21 @@ export async function reconcileItems(
       .sort((left, right) => left.ref.localeCompare(right.ref));
     const first = closed[0];
     if (first === undefined) continue;
+    // A replacement PR counts only once every repo completed a poll since the last close.
+    const closedAt = Math.max(
+      ...closed.map((pr) =>
+        pr.detail === null ? NaN : Date.parse(parseJson(prFactsSchema, pr.detail).updatedAt),
+      ),
+    );
+    const key = `pr-closed:${String(task.id)}`;
+    if (state.prCompleteAt === null || !(state.prCompleteAt >= closedAt)) {
+      heldKeys.push(key);
+      continue;
+    }
     const refs = closed.map((pr) => pr.ref);
     // Projects sharing a repo overwrite the snapshot's source, so the task's own repo source names it.
     candidates.push({
-      key: `pr-closed:${String(task.id)}`,
+      key,
       kind: 'anomaly',
       taskId: task.id,
       summary: `${task.key}: linked pull request ${refs.join(', ')} closed without merge, no open PR`,
@@ -269,7 +289,6 @@ export async function reconcileItems(
     .selectFrom('ticket_snapshot')
     .select(['task_id', 'status', 'detail', 'source'])
     .execute();
-  const unpolledTickets: string[] = [];
   for (const task of tasks) {
     const state = taskPrs[String(task.id)];
     const project = config.projects.find((entry) => entry.id === task.project);
@@ -295,19 +314,12 @@ export async function reconcileItems(
     if (!closedWhileLive) continue;
     const { updatedAt } = parseJson(ticketFactsSchema, ticket.detail);
     // Wait for GitHub to report after the close, so a close by a merge is never taken for one.
-    const polled = project.repos.every((repo) => {
-      const repoSource = sourceById.get(`github:${project.id}:${repo.toLowerCase()}`);
-      return (
-        repoSource !== undefined &&
-        repoSource.blind_reason === null &&
-        repoSource.last_complete_at !== null &&
-        Date.parse(repoSource.last_complete_at) > Date.parse(updatedAt)
-      );
-    });
+    const polledAt = state.prCompleteAt;
+    const polled = polledAt !== null && polledAt > Date.parse(updatedAt);
     const key = `ticket-closed:${String(task.id)}`;
     // An open anomaly outlasts a blind or lagging GitHub; only observed facts end it.
     if (!polled) {
-      unpolledTickets.push(key);
+      heldKeys.push(key);
       continue;
     }
     candidates.push({
@@ -415,7 +427,7 @@ export async function reconcileItems(
     }
   }
   const ordered = orderItems(candidates);
-  const seen = new Set([...ordered.map((item) => item.key), ...unpolledTickets]);
+  const seen = new Set([...ordered.map((item) => item.key), ...heldKeys]);
   for (const flag of health.held) {
     const task = taskById.get(Number(flag.taskId));
     if (task !== undefined) seen.add(healthKey(task.id, flag));
@@ -501,6 +513,25 @@ export async function reconcileItems(
       await raiseAnomaly(trx, config, task, input);
     else await raiseItem(trx, { ...input, taskId: candidate.taskId, blockId: null });
   }
+}
+
+/**
+ * Start of the oldest last complete poll over the project's GitHub sources, or null while any is
+ * missing, blind or never complete: a replacement PR can be in any of the project's repos.
+ */
+function prCompleteAt(
+  project: Config['projects'][number] | undefined,
+  sourceById: ReadonlyMap<string, Row<'source_state'>>,
+): number | null {
+  if (project === undefined) return null;
+  let oldest = Infinity;
+  for (const repo of project.repos) {
+    const source = sourceById.get(`github:${project.id}:${repo.toLowerCase()}`);
+    if (source === undefined || source.blind_reason !== null || source.last_complete_at === null)
+      return null;
+    oldest = Math.min(oldest, Date.parse(source.last_complete_at));
+  }
+  return oldest;
 }
 
 /**

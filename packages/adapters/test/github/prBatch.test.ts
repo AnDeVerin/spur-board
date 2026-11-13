@@ -10,8 +10,15 @@ import {
   type Adapter,
 } from '@spur-board/contracts';
 import { describe, expect, it, vi } from 'vitest';
-import { detailQuery, initialQuery, pageQuery, type Json } from '../../src/github/client.ts';
+import {
+  detailQuery,
+  discoveryQuery,
+  indexQuery,
+  pageQuery,
+  type Json,
+} from '../../src/github/client.ts';
 import { githubSources } from '../../src/github/index.ts';
+import { CLOSED_REFRESH_MS, OPEN_REFRESH_MS } from '../../src/github/prIndex.ts';
 import { sampleLinkRules } from '../../src/github/linkSample.ts';
 import { normalizePr, ticketKeys, type KeyRule } from '../../src/github/prBatch.ts';
 
@@ -127,13 +134,80 @@ const response = (data: unknown, errors?: unknown[]) => {
     { status: 200 },
   );
 };
+const isAlias = (root: unknown): boolean => /^pr\d+$/.test(String(root));
+const operationOf = (query: string): string | undefined => /^query (\w+)/.exec(query)?.[1];
+function queryOf(init: RequestInit | undefined): string {
+  const body = init?.body;
+  if (typeof body !== 'string') throw new Error('Missing GraphQL body');
+  return (JSON.parse(body) as { query: string }).query;
+}
+/** Every query the adapter sent through `routed`, by the mock it wraps. */
+const sent = new WeakMap<typeof fetch, string[]>();
+type Combined = { data?: Record<string, unknown> | null; errors?: { path?: unknown[] }[] };
+/**
+ * Answers the split PR poll from a mock written for one combined `PrBatch` answer. Discovery
+ * takes the `repository` root and its errors; the index and the first `PrDetails` read take the
+ * `pr<i>` roots and their errors. The full PR wire lacks the index fields, so every requested
+ * PR is read in full. Any other request, or an answer with no `pr<i>` root, passes through.
+ */
+function routed(fetcher: typeof fetch): typeof fetch {
+  const queries: string[] = [];
+  sent.set(fetcher, queries);
+  let aliases: string | undefined;
+  return async (input, init) => {
+    const query = queryOf(init);
+    const operation = operationOf(query);
+    queries.push(query);
+    if (aliases !== undefined && (operation === 'PrIndex' || operation === 'PrDetails')) {
+      const body = aliases;
+      if (operation === 'PrDetails') aliases = undefined;
+      return new Response(body, { status: 200 });
+    }
+    const answer = await fetcher(input, init);
+    if (operation !== 'PrBatch' || !answer.ok) return answer;
+    let combined: Combined;
+    try {
+      combined = (await answer.clone().json()) as Combined;
+    } catch {
+      return answer;
+    }
+    const data = combined.data;
+    if (!data || !Object.keys(data).some(isAlias)) return answer;
+    const part = (alias: boolean): string => {
+      const errors = (combined.errors ?? []).filter((error) => isAlias(error.path?.[0]) === alias);
+      const roots = Object.entries(data).filter(
+        ([root]) => root === 'rateLimit' || isAlias(root) === alias,
+      );
+      return JSON.stringify({
+        data: Object.fromEntries(roots),
+        ...(errors.length > 0 ? { errors } : {}),
+      });
+    };
+    aliases = part(true);
+    return new Response(part(false), { status: 200, headers: answer.headers });
+  };
+}
+/** The queries sent through `routed`, optionally only those of one operation. */
+function sentQueries(fetcher: typeof fetch, operation?: string): string[] {
+  const queries = sent.get(fetcher) ?? [];
+  return operation === undefined
+    ? queries
+    : queries.filter((query) => operationOf(query) === operation);
+}
+const detailsSent = (fetcher: typeof fetch): string => {
+  const query = sentQueries(fetcher, 'PrDetails')[0];
+  if (query === undefined) throw new Error('No PrDetails request');
+  return query;
+};
 function adapter(
   fetcher: typeof fetch,
   configured = config(),
   index = 0,
   now: () => number = () => Date.now(),
 ): Adapter {
-  const source = githubSources(configured, { token: 'synthetic', now, fetch: fetcher })[index];
+  const source = githubSources(configured, { token: 'synthetic', now, fetch: routed(fetcher) })[
+    index
+  ];
   if (source === undefined) throw new Error('Missing GitHub source');
   return source.adapter;
 }
@@ -182,28 +256,31 @@ const context = (prs = [ref], cursor?: string) => ({
 });
 
 describe('GitHub PR batch', () => {
-  it('pins the initial query and asks for rateLimit, discovery and aliases together', () => {
-    const query = initialQuery([7]);
+  it('pins the discovery and detail queries', () => {
+    const query = discoveryQuery();
     expect(createHash('sha256').update(query).digest('hex')).toBe(
-      '57fea1516516618d75f8c0f2fab85653436cef2b3c4973f09bcf65542e34befa',
+      '284d2507ec8443328149d3ce5a183b4f60c443a95a960735b9a1ce898c9770a7',
     );
     expect(query).toContain('rateLimit { remaining resetAt }');
     expect(query).toContain('pullRequests(first: 100');
-    expect(query).toContain('pr0: repository');
-    const bootstrapQuery = initialQuery([7], true);
+    expect(query).not.toContain('pr0: repository');
+    const details = detailQuery([7]);
+    expect(details).toContain('rateLimit { remaining resetAt }');
+    expect(details).toContain('pr0: repository');
+    const bootstrapQuery = discoveryQuery(true);
     expect(createHash('sha256').update(bootstrapQuery).digest('hex')).toBe(
-      '7cbbf1aa22ade41e90490ffcd5b1cbadbb032b2ff47a51db6a27f7e127fe1b13',
+      'b76634b2684ca242cfdc55a11849db1f7a1c189c65f3eacf8c707b1917091cc3',
     );
     expect(bootstrapQuery).toContain('states: [OPEN]');
     expect(pageQuery('pullRequests', true)).toContain('states: [OPEN]');
-    expect(query).not.toContain('closingIssuesReferences');
+    expect(details).not.toContain('closingIssuesReferences');
     expect(bootstrapQuery).not.toContain('closingIssuesReferences');
-    const issuesQuery = initialQuery([7], true, true);
+    const issuesQuery = detailQuery([7], true);
     expect(createHash('sha256').update(issuesQuery).digest('hex')).toBe(
-      '7414f70904725a68c68d3c177eb5b4484c01049ffbd968ac13559e6fe3da404a',
+      '1297d9d60dfdb7f3831959c37e5423e5a920c1e105a78267823a0676e9c9cec1',
     );
     expect(issuesQuery).toContain('closingIssuesReferences(first: 100)');
-    for (const selection of [query, pageQuery('reviewRequests')]) {
+    for (const selection of [details, pageQuery('reviewRequests')]) {
       expect(selection).toContain('requestedReviewer { __typename');
       for (const fragment of [
         '... on Bot { login }',
@@ -271,7 +348,7 @@ describe('GitHub PR batch', () => {
     expect(
       normalizePr('demo/widgets', { ...wire(), state: 'MERGED' }, demoKeys, true),
     ).not.toHaveProperty('mergedAt');
-    expect(initialQuery([7])).toContain('updatedAt mergedAt state');
+    expect(detailQuery([7])).toContain('updatedAt mergedAt state');
   });
   it('keeps the latest review opinion after a comment-only review', () => {
     const pr = wire();
@@ -362,7 +439,7 @@ describe('GitHub PR batch', () => {
     expect(normalizePr('demo/widgets', head, demoKeys, true).requiredChecks).toEqual([
       { name: 'build', state: 'failure', completedAt: time },
     ]);
-    expect(initialQuery([7])).not.toContain('commits(first: 1)');
+    expect(detailQuery([7])).not.toContain('commits(first: 1)');
     expect(pageQuery('contexts')).not.toContain('commits(first: 1)');
     expect(pageQuery('contexts')).toContain(
       'statusCheckRollup { contexts(first: 100, after: $after)',
@@ -975,7 +1052,8 @@ describe('GitHub request timeout', () => {
   it('fails a request with no answer as timed out after 30 s', async () => {
     vi.useFakeTimers();
     try {
-      const poll = settle(adapter(hanging).poll(context()));
+      // No requested PR, so the lone discovery request is the poll.
+      const poll = settle(adapter(hanging).poll(context([])));
       await vi.advanceTimersByTimeAsync(29_999);
       expect(poll.settled).toBe(false);
       await vi.advanceTimersByTimeAsync(1);
@@ -1084,7 +1162,7 @@ describe('GitHub Issues PR keys', () => {
     const batch = await adapter(fetcher, issuesConfig()).poll(context());
     expect(batchSchema.parse(batch)).toEqual(batch);
     expect(keysOf(batch)).toEqual([['demo/widgets#12', 'demo/widgets#13']]);
-    expect(bodyQuery(fetcher)).toContain('closingIssuesReferences(first: 100)');
+    expect(detailsSent(fetcher)).toContain('closingIssuesReferences(first: 100)');
   });
   it('falls back to the branch pattern', async () => {
     const poll = async (branch: string, configured = issuesConfig()) =>
@@ -1123,7 +1201,7 @@ describe('GitHub Issues PR keys', () => {
     expect(
       await poll(titleFirst, issuesConfig(['demo/widgets'], { sources: ['title', 'branch'] })),
     ).toEqual([['demo/widgets#13']]);
-    expect(bodyQuery(titleFirst)).not.toContain('closingIssuesReferences');
+    expect(detailsSent(titleFirst)).not.toContain('closingIssuesReferences');
     const branchOnly = single(issuesPr('claude-12-x', conn([closingRef(13)])));
     expect(await poll(branchOnly, issuesConfig(['demo/widgets'], { sources: ['branch'] }))).toEqual(
       [['demo/widgets#12']],
@@ -1145,7 +1223,7 @@ describe('GitHub Issues PR keys', () => {
     );
     expect(batch.entities).toEqual([{ ref: apiRef, status: 'ok' }]);
     expect(keysOf(batch)).toEqual([[]]);
-    expect(bodyQuery(sibling)).not.toContain('closingIssuesReferences');
+    expect(detailsSent(sibling)).not.toContain('closingIssuesReferences');
   });
   it('links a Jira PR by projectKeys when link is unset', async () => {
     const fetcher = single(issuesPr('DEMO-42-widget', conn([closingRef(12)]), 7, 'fix: #13 x'));
@@ -1153,7 +1231,7 @@ describe('GitHub Issues PR keys', () => {
     expect(batch.complete).toBe(true);
     expect(batch.entities).toEqual([{ ref, status: 'ok' }]);
     expect(keysOf(batch)).toEqual([['DEMO-42']]);
-    expect(bodyQuery(fetcher)).toBe(initialQuery([7], true));
+    expect(sentQueries(fetcher)).toEqual([discoveryQuery(true), indexQuery([7]), detailQuery([7])]);
     const defaults = config(['demo/widgets'], {
       sources: [...DEFAULT_LINK.sources],
       branchPattern: DEFAULT_LINK.branchPattern,
@@ -1297,7 +1375,7 @@ describe('Jira PR keys', () => {
       config(['demo/widgets'], { sources: ['closing', 'title'] }),
     ).poll(context());
     expect(keysOf(batch)).toEqual([['DEMO-7']]);
-    expect(bodyQuery(fetcher)).not.toContain('closingIssuesReferences');
+    expect(detailsSent(fetcher)).not.toContain('closingIssuesReferences');
   });
 });
 
@@ -1528,10 +1606,10 @@ describe('PR feedback', () => {
     expect(facts.feedbackComplete).toBe(true);
     const external = (facts.feedback ?? []).filter((entry) => isExternalAuthor(entry, 'operator'));
     expect(external.map((entry) => entry.author?.login ?? null)).toEqual(['alice', 'old', null]);
-    expect(bodyQuery(fetcher)).toContain(
+    expect(detailsSent(fetcher)).toContain(
       'comments(last: 100) { nodes { id author { __typename login } createdAt }',
     );
-    expect(bodyQuery(fetcher)).not.toContain('body');
+    expect(detailsSent(fetcher)).not.toContain('body');
   });
 
   it('keeps the state of every review in feedback, not only the latest per reviewer', async () => {
@@ -1759,5 +1837,534 @@ describe('PR feedback', () => {
     expect(factsOf(batch).feedbackComplete).toBe(false);
     expect(commentIds(batch)).toHaveLength(300);
     expect(batch.budget?.remaining).toBe(4000);
+  });
+});
+
+const prNumbers = (query: string): number[] =>
+  [...query.matchAll(/pullRequest\(number: (\d+)\)/g)].map((match) => Number(match[1]));
+type Operation = 'PrBatch' | 'PrIndex' | 'PrDetails' | 'PrPage' | 'DiscoveryPage';
+/** A fetch that answers each request by its operation name and the PR numbers it names. */
+function byOperation(answer: (operation: Operation, numbers: number[]) => Response) {
+  return vi.fn<typeof fetch>((_input, init) => {
+    const query = queryOf(init);
+    return Promise.resolve(answer(operationOf(query) as Operation, prNumbers(query)));
+  });
+}
+/** The PR numbers of each request of one operation, in the order they were sent. */
+function numbersSent(fetcher: ReturnType<typeof byOperation>, operation: Operation): number[][] {
+  return fetcher.mock.calls
+    .map((call) => queryOf(call[1]))
+    .filter((query) => operationOf(query) === operation)
+    .map(prNumbers);
+}
+const aliased = (numbers: number[], value: (number: number) => unknown) =>
+  Object.fromEntries(numbers.map((number, i) => [`pr${String(i)}`, value(number)]));
+const discoveryAnswer = (nodes: Json[] = []) =>
+  response({ repository: { pullRequests: conn(nodes) } });
+const operatorNode = (number: number, updatedAt = '2026-01-03T00:00:00.000Z') => ({
+  number,
+  updatedAt,
+  author: { login: 'operator' },
+  state: 'OPEN',
+});
+const refOf = (number: number) => ({ ...ref, number });
+/** An index rollup: its state and each check by name and state, as the index reads them. */
+const rollup = (state: string, contexts: unknown[] = []) => ({
+  state,
+  contexts: { totalCount: contexts.length, nodes: contexts },
+});
+const indexCheck = (conclusion: string) => ({
+  __typename: 'CheckRun',
+  name: 'build',
+  status: 'COMPLETED',
+  conclusion,
+  completedAt: time,
+});
+function indexPr(number: number, overrides: Record<string, unknown> = {}) {
+  return {
+    pullRequest: {
+      number,
+      updatedAt: time,
+      state: 'OPEN',
+      isDraft: false,
+      mergeable: 'UNKNOWN',
+      mergeStateStatus: 'BLOCKED',
+      headRefOid: sha,
+      statusCheckRollup: rollup('SUCCESS'),
+      reviews: { totalCount: 1, nodes: [{ id: 'PRR_1', state: 'APPROVED' }] },
+      reviewThreads: { totalCount: 1, nodes: [{ isResolved: false }] },
+      reviewRequests: {
+        totalCount: 1,
+        nodes: [
+          { requestedReviewer: { __typename: 'User', login: 'reviewer' }, asCodeOwner: true },
+        ],
+      },
+      comments: { totalCount: 0, nodes: [] },
+      ...overrides,
+    },
+  };
+}
+const failure = (status = 502) => new Response('failure', { status });
+const okFacts = (batch: { items: { kind: string; facts?: unknown }[] }) =>
+  batch.items.map((item) => item.facts as { number: number; title: string });
+const factsFor = (batch: { items: { kind: string; facts?: unknown }[] }, number: number) =>
+  batch.items.find((item) => (item.facts as { number: number }).number === number)?.facts;
+
+describe('PR poll chunks', () => {
+  const cursor = '2026-01-01T00:00:00.000Z';
+  it('gives up only the PR whose chunk keeps failing', async () => {
+    const fetcher = byOperation((operation, numbers) => {
+      if (operation === 'PrBatch') return discoveryAnswer([operatorNode(9)]);
+      if (operation === 'PrIndex') return response(aliased(numbers, (n) => indexPr(n)));
+      if (numbers.includes(7)) return failure();
+      return response(aliased(numbers, (n) => ({ pullRequest: wire(n) })));
+    });
+    const ctx = context([refOf(7), refOf(8)], cursor);
+    const batch = await adapter(fetcher).poll(ctx);
+    expect(batchSchema.parse(batch)).toEqual(batch);
+    expect(batch.entities).toEqual([
+      { ref: refOf(7), status: 'no_access' },
+      { ref: refOf(8), status: 'ok' },
+    ]);
+    expect(okFacts(batch).map((facts) => facts.number)).toEqual([8, 9]);
+    expect(batch.cursor).toBe('2026-01-03T00:00:00.000Z');
+    expect(batch.complete).toBe(false);
+    expect(numbersSent(fetcher, 'PrDetails')).toEqual([[7, 8], [7], [8], [9]]);
+  });
+  it('halves a chunk after one 502', async () => {
+    const numbers = Array.from({ length: 10 }, (_, i) => i + 1);
+    let failed = false;
+    const fetcher = byOperation((operation, sent) => {
+      if (operation === 'PrBatch') return discoveryAnswer();
+      if (operation === 'PrIndex') return response(aliased(sent, (n) => indexPr(n)));
+      if (!failed) {
+        failed = true;
+        return failure();
+      }
+      return response(aliased(sent, (n) => ({ pullRequest: wire(n) })));
+    });
+    const batch = await adapter(fetcher).poll(context(numbers.map(refOf), cursor));
+    expect(numbersSent(fetcher, 'PrDetails').map((sent) => sent.length)).toEqual([10, 5, 5]);
+    expect(batch.entities.every((entity) => entity.status === 'ok')).toBe(true);
+    expect(batch.entities).toHaveLength(10);
+    expect(batch.complete).toBe(true);
+  });
+  it('treats a cut-off body like a 5xx', async () => {
+    const fetcher = byOperation((operation, numbers) => {
+      if (operation === 'PrBatch') return discoveryAnswer();
+      if (operation === 'PrIndex') return response(aliased(numbers, (n) => indexPr(n)));
+      if (numbers.includes(7)) return new Response('{"data":{"rateLimit"', { status: 200 });
+      return response(aliased(numbers, (n) => ({ pullRequest: wire(n) })));
+    });
+    const batch = await adapter(fetcher).poll(context([refOf(7), refOf(8)], cursor));
+    expect(batch.entities).toEqual([
+      { ref: refOf(7), status: 'no_access' },
+      { ref: refOf(8), status: 'ok' },
+    ]);
+    expect(batch.complete).toBe(false);
+    expect(numbersSent(fetcher, 'PrDetails')).toEqual([[7, 8], [7], [8]]);
+  });
+  it('keeps the budget of the newest request after a halved chunk', async () => {
+    const numbers = Array.from({ length: 11 }, (_, i) => i + 1);
+    const remaining = (value: number) => ({
+      rateLimit: { remaining: value, resetAt: '2026-01-03T00:00:00.000Z' },
+    });
+    let failed = false;
+    const fetcher = byOperation((operation, sent) => {
+      if (operation === 'PrBatch') return discoveryAnswer();
+      if (operation === 'PrIndex') return response(aliased(sent, (n) => indexPr(n)));
+      // The first half's PR pages its reviews after both halves were read.
+      if (operation === 'PrPage')
+        return response({ repository: { pullRequest: { reviews: conn([]) } }, ...remaining(99) });
+      if (!failed) {
+        failed = true;
+        return failure();
+      }
+      return response({
+        ...aliased(sent, (n) => {
+          const pr = wire(n);
+          if (n === 1) pr.reviews.pageInfo = { hasNextPage: true, endCursor: 'review-next' };
+          return { pullRequest: pr };
+        }),
+        ...remaining(sent.includes(1) ? 102 : 101),
+      });
+    });
+    const configured = config();
+    configured.github.reserveRemaining = 100;
+    const batch = await adapter(fetcher, configured).poll(context(numbers.map(refOf), cursor));
+    expect(numbersSent(fetcher, 'PrDetails').map((sent) => sent.length)).toEqual([10, 5, 5]);
+    expect(batch.budget?.remaining).toBe(99);
+    expect(batch.entities.at(-1)).toEqual({ ref: refOf(11), status: 'no_access' });
+    expect(batch.entities.filter((entity) => entity.status === 'ok')).toHaveLength(10);
+    expect(batch.complete).toBe(false);
+  });
+  it('applies details when discovery returns 502', async () => {
+    const fetcher = byOperation((operation, numbers) => {
+      if (operation === 'PrBatch') return failure();
+      if (operation === 'PrIndex') return response(aliased(numbers, (n) => indexPr(n)));
+      return response(aliased(numbers, (n) => ({ pullRequest: wire(n) })));
+    });
+    const ctx = context([refOf(7)], cursor);
+    const batch = await adapter(fetcher).poll(ctx);
+    expect(batch.entities).toEqual([{ ref: refOf(7), status: 'ok' }]);
+    expect(okFacts(batch).map((facts) => facts.number)).toEqual([7]);
+    expect(batch.complete).toBe(false);
+    expect(batch.cursor).toBe(ctx.cursor);
+  });
+  it('rejects a lone discovery 502', async () => {
+    const fetcher = byOperation(() => failure());
+    await expect(adapter(fetcher).poll(context([], cursor))).rejects.toMatchObject({
+      kind: 'transient',
+      message: 'HTTP 502',
+    });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+  it('reads every PR in full after an unscoped index error, without rejecting', async () => {
+    const fetcher = byOperation((operation, numbers) => {
+      if (operation === 'PrBatch') return discoveryAnswer();
+      if (operation === 'PrIndex')
+        return response(
+          aliased(numbers, () => null),
+          [{ message: 'Field does not exist' }],
+        );
+      return response(aliased(numbers, (n) => ({ pullRequest: wire(n) })));
+    });
+    const batch = await adapter(fetcher).poll(context([refOf(7)], cursor));
+    expect(batch.entities).toEqual([{ ref: refOf(7), status: 'ok' }]);
+    expect(batch.complete).toBe(true);
+    expect(numbersSent(fetcher, 'PrDetails')).toEqual([[7]]);
+  });
+  it('stops after MAX_FAILED_REQUESTS', async () => {
+    const numbers = Array.from({ length: 51 }, (_, i) => i + 1);
+    let indexDown = false;
+    const fetcher = byOperation((operation, sent) => {
+      if (operation === 'PrBatch') return discoveryAnswer(indexDown ? [operatorNode(99)] : []);
+      if (operation === 'PrIndex')
+        return indexDown
+          ? failure()
+          : response(aliased(sent, (n) => indexPr(n, { state: 'MERGED' })));
+      return response(
+        aliased(sent, (n) => ({ pullRequest: { ...wire(n), state: 'MERGED', mergedAt: time } })),
+      );
+    });
+    const source = adapter(fetcher);
+    const first = await source.poll(context(numbers.map(refOf), cursor));
+    expect(first.entities.every((entity) => entity.status === 'ok')).toBe(true);
+    indexDown = true;
+    fetcher.mockClear();
+    const ctx = context(numbers.map(refOf), cursor);
+    const batch = await source.poll(ctx);
+    const failed = await Promise.all(
+      fetcher.mock.results.map(async (result) =>
+        result.type === 'return' ? !(await result.value).ok : false,
+      ),
+    );
+    expect(failed.filter(Boolean)).toHaveLength(8);
+    // Discovery, then eight failed index requests and nothing after them.
+    expect(failed).toEqual([false, ...Array<boolean>(8).fill(true)]);
+    expect(numbersSent(fetcher, 'PrIndex').map((sent) => sent.length)).toEqual([
+      50, 25, 13, 7, 4, 2, 1, 1,
+    ]);
+    expect(batch.entities).toHaveLength(51);
+    expect(batch.entities.every((entity) => entity.status === 'no_access')).toBe(true);
+    expect(batch.items).toEqual([]);
+    expect(batch.cursor).toBe(ctx.cursor);
+    expect(batch.complete).toBe(false);
+  });
+  it('rejects with the first transient error when every request fails', async () => {
+    let calls = 0;
+    const fetcher = byOperation(() => failure(calls++ === 0 ? 503 : 502));
+    await expect(adapter(fetcher).poll(context([refOf(7)], cursor))).rejects.toMatchObject({
+      kind: 'transient',
+      message: 'HTTP 503',
+    });
+    expect(fetcher).toHaveBeenCalledTimes(3);
+  });
+  it('rejects a throttled chunk without resending', async () => {
+    const numbers = Array.from({ length: 10 }, (_, i) => i + 1);
+    const fetcher = byOperation((operation, sent) => {
+      if (operation === 'PrBatch') return discoveryAnswer();
+      if (operation === 'PrIndex') return response(aliased(sent, (n) => indexPr(n)));
+      return failure(429);
+    });
+    await expect(adapter(fetcher).poll(context(numbers.map(refOf), cursor))).rejects.toMatchObject({
+      kind: 'throttled',
+    });
+    expect(numbersSent(fetcher, 'PrDetails')).toHaveLength(1);
+  });
+  it('rejects after abort during halving', async () => {
+    const numbers = Array.from({ length: 10 }, (_, i) => i + 1);
+    const controller = new AbortController();
+    let details = 0;
+    const fetcher = byOperation((operation, sent) => {
+      if (operation === 'PrBatch') return discoveryAnswer();
+      if (operation === 'PrIndex') return response(aliased(sent, (n) => indexPr(n)));
+      details += 1;
+      if (details === 2) controller.abort(new Error('stop'));
+      return failure();
+    });
+    const ctx = { ...context(numbers.map(refOf), cursor), signal: controller.signal };
+    await expect(adapter(fetcher).poll(ctx)).rejects.toThrow();
+    expect(numbersSent(fetcher, 'PrDetails').map((sent) => sent.length)).toEqual([10, 5]);
+  });
+});
+
+describe('PR index cache', () => {
+  const cursor = '2026-01-01T00:00:00.000Z';
+  const merged = (number: number) => ({ ...wire(number), state: 'MERGED', mergedAt: time });
+  /**
+   * One source polled again and again: `index` and `detail` give this poll's answers, and
+   * `detailCalls` counts the PRs read in full since the last `reset`.
+   */
+  function scenario() {
+    let t = Date.parse('2026-01-02T00:00:00.000Z');
+    const state = {
+      index: (n: number): unknown => indexPr(n, n === 7 ? { state: 'MERGED' } : {}),
+      detail: (n: number): unknown => (n === 7 ? merged(n) : wire(n)),
+      indexStatus: 200,
+      remaining: 4321,
+    };
+    const fetcher = byOperation((operation, numbers) => {
+      if (operation === 'PrBatch') return discoveryAnswer();
+      if (operation === 'PrIndex') {
+        if (state.indexStatus !== 200) return failure(state.indexStatus);
+        return response({
+          ...aliased(numbers, state.index),
+          rateLimit: { remaining: state.remaining, resetAt: '2026-01-03T00:00:00.000Z' },
+        });
+      }
+      if (operation === 'PrPage') return failure();
+      return response(aliased(numbers, (n) => ({ pullRequest: state.detail(n) })));
+    });
+    const source = adapter(fetcher, config(), 0, () => t);
+    return {
+      state,
+      source,
+      advance: (ms: number) => {
+        t += ms;
+      },
+      poll: (prs = [refOf(7), refOf(8)], extra: object = {}) => {
+        fetcher.mockClear();
+        return source.poll({ ...context(prs, cursor), ...extra });
+      },
+      details: () => numbersSent(fetcher, 'PrDetails').flat(),
+      indexes: () => numbersSent(fetcher, 'PrIndex').flat(),
+    };
+  }
+
+  it('re-emits an unchanged merged PR and an open PR with a green rollup', async () => {
+    const run = scenario();
+    const first = await run.poll();
+    expect(run.details()).toEqual([7, 8]);
+    const second = await run.poll();
+    expect(run.indexes()).toEqual([7, 8]);
+    expect(run.details()).toEqual([]);
+    expect(batchSchema.parse(second)).toEqual(second);
+    expect(second.entities).toEqual([
+      { ref: refOf(7), status: 'ok' },
+      { ref: refOf(8), status: 'ok' },
+    ]);
+    expect(factsFor(second, 7)).toEqual(factsFor(first, 7));
+    expect(factsFor(second, 8)).toEqual(factsFor(first, 8));
+    expect(second.complete).toBe(true);
+  });
+  it.each([
+    ['updatedAt', { updatedAt: '2026-01-05T00:00:00.000Z' }],
+    ['head', { headRefOid: 'b'.repeat(40) }],
+    ['review state', { reviews: { totalCount: 1, nodes: [{ id: 'PRR_1', state: 'DISMISSED' }] } }],
+    ['resolved thread', { reviewThreads: { totalCount: 1, nodes: [{ isResolved: true }] } }],
+    ['comment count', { comments: { totalCount: 1, nodes: [{ id: 'IC_1' }] } }],
+  ])('reads a PR in full again when its index %s changes', async (_name, change) => {
+    const run = scenario();
+    await run.poll();
+    run.state.index = (n) => indexPr(n, n === 7 ? { state: 'MERGED', ...change } : {});
+    await run.poll();
+    expect(run.details()).toEqual([7]);
+  });
+  it.each(['PENDING', 'EXPECTED', 'ERROR', 'SOMETHING_NEW'])(
+    'reads an open PR in full again while its rollup is %s',
+    async (state) => {
+      const run = scenario();
+      run.state.index = (n) => indexPr(n, { statusCheckRollup: rollup(state) });
+      await run.poll([refOf(8)]);
+      await run.poll([refOf(8)]);
+      expect(run.details()).toEqual([8]);
+    },
+  );
+  it('reads a failed open PR in full and reports a check that finished since', async () => {
+    const run = scenario();
+    run.state.index = (n) => indexPr(n, { statusCheckRollup: rollup('FAILURE') });
+    await run.poll([refOf(8)]);
+    const finished = wire(8);
+    finished.statusCheckRollup.contexts.nodes = [
+      {
+        __typename: 'CheckRun',
+        name: 'build',
+        status: 'COMPLETED',
+        conclusion: 'FAILURE',
+        completedAt: '2026-01-04T00:00:00.000Z',
+        isRequired: true,
+      },
+    ];
+    run.state.detail = () => finished;
+    const second = await run.poll([refOf(8)]);
+    expect(run.details()).toEqual([8]);
+    expect((factsFor(second, 8) as { requiredChecks: unknown }).requiredChecks).toEqual([
+      { name: 'build', state: 'failure', completedAt: '2026-01-04T00:00:00.000Z' },
+    ]);
+  });
+  it('reads in full again when a skipped required check reruns under a SUCCESS rollup', async () => {
+    const run = scenario();
+    const skipped = wire(8);
+    skipped.statusCheckRollup.contexts.nodes = [
+      { ...indexCheck('SKIPPED'), completedAt: '2026-01-01T00:00:00.000Z', isRequired: true },
+    ];
+    run.state.index = (n) =>
+      indexPr(n, { statusCheckRollup: rollup('SUCCESS', [indexCheck('SKIPPED')]) });
+    run.state.detail = () => skipped;
+    const first = await run.poll([refOf(8)]);
+    expect((factsFor(first, 8) as { requiredChecks: unknown }).requiredChecks).toEqual([
+      { name: 'build', state: 'skipped', completedAt: '2026-01-01T00:00:00.000Z' },
+    ]);
+    const passed = wire(8);
+    passed.statusCheckRollup.contexts.nodes = [
+      { ...indexCheck('SUCCESS'), completedAt: '2026-01-01T00:00:00.000Z', isRequired: true },
+    ];
+    run.state.index = (n) =>
+      indexPr(n, { statusCheckRollup: rollup('SUCCESS', [indexCheck('SUCCESS')]) });
+    run.state.detail = () => passed;
+    const second = await run.poll([refOf(8)]);
+    expect(run.details()).toEqual([8]);
+    expect((factsFor(second, 8) as { requiredChecks: unknown }).requiredChecks).toEqual([
+      { name: 'build', state: 'success', completedAt: '2026-01-01T00:00:00.000Z' },
+    ]);
+  });
+  it('reads an open PR in full again while a check is skipped, which could become required unseen', async () => {
+    const run = scenario();
+    run.state.index = (n) =>
+      indexPr(n, { statusCheckRollup: rollup('SUCCESS', [indexCheck('SKIPPED')]) });
+    await run.poll([refOf(8)]);
+    await run.poll([refOf(8)]);
+    expect(run.details()).toEqual([8]);
+  });
+  it('re-emits an open PR whose checks are all neutral or successful', async () => {
+    const run = scenario();
+    run.state.index = (n) =>
+      indexPr(n, {
+        statusCheckRollup: rollup('SUCCESS', [
+          indexCheck('NEUTRAL'),
+          { ...indexCheck('SUCCESS'), name: 'lint' },
+          { __typename: 'StatusContext', context: 'ci/legacy', state: 'SUCCESS' },
+        ]),
+      });
+    await run.poll([refOf(8)]);
+    await run.poll([refOf(8)]);
+    expect(run.details()).toEqual([]);
+  });
+  it('reads an open PR in full again when the index lists only part of its checks', async () => {
+    const run = scenario();
+    run.state.index = (n) =>
+      indexPr(n, {
+        statusCheckRollup: {
+          ...rollup('SUCCESS', [indexCheck('SUCCESS')]),
+          contexts: { totalCount: 101, nodes: [indexCheck('SUCCESS')] },
+        },
+      });
+    await run.poll([refOf(8)]);
+    await run.poll([refOf(8)]);
+    expect(run.details()).toEqual([8]);
+  });
+  it.each([
+    ['reviews', { totalCount: 101, nodes: [{ id: 'PRR_1', state: 'APPROVED' }] }],
+    ['reviewThreads', { totalCount: 101, nodes: [{ isResolved: false }] }],
+    [
+      'reviewRequests',
+      {
+        totalCount: 101,
+        nodes: [
+          { requestedReviewer: { __typename: 'User', login: 'reviewer' }, asCodeOwner: true },
+        ],
+      },
+    ],
+  ])('reads a PR in full again when the index lists only part of its %s', async (field, conn) => {
+    const run = scenario();
+    run.state.index = (n) => indexPr(n, { ...(n === 7 ? { state: 'MERGED' } : {}), [field]: conn });
+    await run.poll();
+    await run.poll();
+    expect(run.details()).toEqual([7, 8]);
+  });
+  it('reads in full again after the open and the closed refresh', async () => {
+    const run = scenario();
+    await run.poll();
+    run.advance(OPEN_REFRESH_MS - 1);
+    await run.poll();
+    expect(run.details()).toEqual([]);
+    run.advance(1);
+    await run.poll();
+    expect(run.details()).toEqual([8]);
+    run.advance(CLOSED_REFRESH_MS - OPEN_REFRESH_MS - 1);
+    await run.poll([refOf(7)]);
+    expect(run.details()).toEqual([]);
+    run.advance(1);
+    await run.poll([refOf(7)]);
+    expect(run.details()).toEqual([7]);
+  });
+  it('reads in full again when the feedback cursor moves', async () => {
+    const run = scenario();
+    const at = (id: string) => ({
+      feedbackCursors: [{ ref: refOf(7), id, postedAt: '2026-01-01T00:00:00.000Z' }],
+    });
+    await run.poll(undefined, at('IC_1'));
+    await run.poll(undefined, at('IC_1'));
+    expect(run.details()).toEqual([]);
+    await run.poll(undefined, at('IC_2'));
+    expect(run.details()).toEqual([7]);
+  });
+  it('reads in full again when the cached feedback was incomplete', async () => {
+    const run = scenario();
+    run.state.detail = (n) => ({ ...merged(n), comments: back([], 'older') });
+    const first = await run.poll([refOf(7)]);
+    expect((factsFor(first, 7) as { feedbackComplete: boolean }).feedbackComplete).toBe(false);
+    await run.poll([refOf(7)]);
+    expect(run.details()).toEqual([7]);
+  });
+  it('reads in full again after pollPr read the PR', async () => {
+    const run = scenario();
+    await run.poll();
+    await run.source.pollPr?.(refOf(7), { signal: new AbortController().signal });
+    await run.poll();
+    expect(run.details()).toEqual([7]);
+  });
+  it('drops the cache entry when a full read has no fingerprint from its poll', async () => {
+    const run = scenario();
+    const titled = (title: string) => () => ({ ...merged(7), title });
+    run.state.detail = titled('first');
+    await run.poll([refOf(7)]);
+    run.state.indexStatus = 502;
+    run.state.detail = titled('second');
+    const second = await run.poll([refOf(7)]);
+    expect(run.details()).toEqual([7]);
+    expect(second.entities).toEqual([{ ref: refOf(7), status: 'ok' }]);
+    run.state.indexStatus = 200;
+    run.state.detail = titled('third');
+    const third = await run.poll([refOf(7)]);
+    expect(run.details()).toEqual([7]);
+    expect((factsFor(third, 7) as { title: string }).title).toBe('third');
+  });
+  it('defers details below the reserve and keeps the index', async () => {
+    const run = scenario();
+    await run.poll();
+    run.state.remaining = 500;
+    run.state.index = (n) =>
+      indexPr(n, n === 7 ? { state: 'MERGED' } : { updatedAt: '2026-01-05T00:00:00.000Z' });
+    const batch = await run.poll();
+    expect(run.indexes()).toEqual([7, 8]);
+    expect(run.details()).toEqual([]);
+    expect(batch.entities).toEqual([
+      { ref: refOf(7), status: 'ok' },
+      { ref: refOf(8), status: 'no_access' },
+    ]);
+    expect(batch.complete).toBe(false);
+    expect(batch.budget?.remaining).toBe(500);
   });
 });
