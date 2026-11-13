@@ -648,6 +648,40 @@ Example:
 }
 ```
 
+## stopping
+
+The daemon is stopping; nothing was applied.
+
+HTTP: 503  
+Exit code: 3  
+Hint: Wait until the daemon is running again, then retry the command with its existing idempotency key if it has one; if it stays stopped, ask in your own session.  
+Recovery: Wait until the daemon is running again, then retry the command with its existing idempotency key if it has one; if it stays stopped, ask in your own session.  
+Side effects: none  
+Retry: maximum 3; After the daemon is running again; wait briefly between retries.
+
+Example:
+
+```json
+{
+  "ok": false,
+  "requestId": "req-example-123",
+  "error": {
+    "code": "stopping",
+    "requestId": "req-example-123",
+    "message": "The daemon is stopping; nothing was applied.",
+    "hint": "Wait until the daemon is running again, then retry the command with its existing idempotency key if it has one; if it stays stopped, ask in your own session.",
+    "docs": "docs/errors.md#stopping",
+    "recovery": {
+      "action": "Wait until the daemon is running again, then retry the command with its existing idempotency key if it has one; if it stays stopped, ask in your own session.",
+      "sideEffects": "none",
+      "maxRetries": 3,
+      "retryTiming": "After the daemon is running again; wait briefly between retries."
+    },
+    "context": {}
+  }
+}
+```
+
 ## github_unavailable
 
 GitHub did not confirm the pull request head; nothing was applied.

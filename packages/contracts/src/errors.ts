@@ -235,6 +235,16 @@ export const ERRORS = {
       'After the daemon is ready; wait briefly between retries.',
     ),
   }),
+  stopping: spec('stopping', {
+    status: 503,
+    exit: EXIT_CODES.notApplied,
+    message: 'The daemon is stopping; nothing was applied.',
+    hint: 'Wait until the daemon is running again, then retry the command with its existing idempotency key if it has one; if it stays stopped, ask in your own session.',
+    recovery: retry(
+      'Wait until the daemon is running again, then retry the command with its existing idempotency key if it has one; if it stays stopped, ask in your own session.',
+      'After the daemon is running again; wait briefly between retries.',
+    ),
+  }),
   github_unavailable: spec('github_unavailable', {
     status: 503,
     exit: EXIT_CODES.notApplied,

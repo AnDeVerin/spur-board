@@ -588,6 +588,7 @@ describe('CLI against the real HTTP API', () => {
           .execute();
       });
       let ready = true;
+      let stopping = false;
       const statuses: number[] = [];
       const statusGet: Query<'status.get'> = {
         id: 'status.get',
@@ -634,6 +635,7 @@ describe('CLI against the real HTTP API', () => {
         config,
         port: 0,
         ready: () => ready,
+        stopping: () => stopping,
         clock,
         lookupSession: () => Promise.resolve({ project: 'worker', status: 'running' as const }),
         verifyToken: () => Promise.resolve(null),
@@ -727,7 +729,20 @@ describe('CLI against the real HTTP API', () => {
         ok: false,
         error: { code: 'daemon_unavailable', recovery: { sideEffects: 'none' } },
       });
-      expect(statuses).toEqual([200, 200, 200, 200, 200, 200, 200, 503]);
+
+      stopping = true;
+      const shutdown = capture();
+      expect(await runCli(['status', '--json'], { clientConfig, io: shutdown.io })).toBe(3);
+      expect(shutdown.stdout).toBe('');
+      expect(errorEnvelopeSchema.parse(JSON.parse(shutdown.stderr))).toMatchObject({
+        ok: false,
+        error: {
+          code: 'stopping',
+          message: 'The daemon is stopping; nothing was applied.',
+          recovery: { sideEffects: 'none' },
+        },
+      });
+      expect(statuses).toEqual([200, 200, 200, 200, 200, 200, 200, 503, 503]);
     } finally {
       try {
         await app?.close();

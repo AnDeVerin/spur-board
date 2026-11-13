@@ -38,8 +38,8 @@ three failed ticks in a row also stop the pings and trigger a restart.
 
 ## 2. Daemon crashed or stopped
 
-**Symptom.** Agent commands exit 3: `daemon_unavailable` while the daemon is down, or
-`starting` while it comes back. Agents then ask in their own session and repeat `board ask`
+**Symptom.** Agent commands exit 3: `daemon_unavailable` while the daemon is down or still
+starting, or `stopping` while it shuts down. Agents then ask in their own session and repeat `board ask`
 later with the same text and key. `board doctor` fails `daemon.available`.
 
 **Check.**
