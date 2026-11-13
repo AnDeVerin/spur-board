@@ -14,6 +14,7 @@ export function createInboundModule(
   sink(event: InboundEvent): Promise<void>;
   awaitRecovery(): Promise<void>;
   reapply: Inbound['reapply'];
+  retrying: Inbound['retrying'];
 } {
   const inbound = createInbound({
     store: ctx.store,
@@ -33,6 +34,7 @@ export function createInboundModule(
   return {
     sink: (event) => inbound.sink(event),
     reapply: inbound.reapply,
+    retrying: (item, run) => inbound.retrying(item, run),
     awaitRecovery: () => recovery.settled(),
     start: (signal) => recovery.start(signal),
     async stop() {

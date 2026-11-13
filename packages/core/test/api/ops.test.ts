@@ -92,6 +92,7 @@ async function server(
     doctor?: ApiOptions['doctor'];
     firstPollDone?: ApiOptions['firstPollDone'];
     clock?: ApiOptions['clock'];
+    runOperation?: ApiOptions['runOperation'];
   } = {},
 ) {
   return createApiServer({
@@ -108,6 +109,7 @@ async function server(
     ...(options.firstPollDone === undefined ? {} : { firstPollDone: options.firstPollDone }),
     logRequest: options.logRequest ?? vi.fn(),
     ...(options.logError === undefined ? {} : { logError: options.logError }),
+    ...(options.runOperation === undefined ? {} : { runOperation: options.runOperation }),
   });
 }
 
@@ -427,6 +429,35 @@ describe('catalog HTTP API', () => {
         status: 404,
       });
       expect(response.json()).toMatchObject({ requestId: response.headers['x-request-id'] });
+    } finally {
+      await app.close();
+    }
+  });
+
+  it('dispatches each operation inside runOperation with its id and parsed input', async () => {
+    const order: string[] = [];
+    const handler: Query<'status.get'> = {
+      id: 'status.get',
+      resolveTargets() {
+        return Promise.resolve([boardTarget]);
+      },
+      run() {
+        order.push('run');
+        return Promise.reject(new CommandError('not_found', 'The requested board was not found.'));
+      },
+    };
+    const runOperation: NonNullable<ApiOptions['runOperation']> = async (id, input, run) => {
+      order.push(`before ${id} ${JSON.stringify(input)}`);
+      try {
+        return await run();
+      } finally {
+        order.push('after');
+      }
+    };
+    const app = await server(newStore(), { registry: { 'status.get': handler }, runOperation });
+    try {
+      expect((await app.inject(post({}, 'status.get'))).statusCode).toBe(404);
+      expect(order).toEqual(['before status.get {}', 'run', 'after']);
     } finally {
       await app.close();
     }

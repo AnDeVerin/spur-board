@@ -2011,7 +2011,7 @@ describe('inbound apply', () => {
     expect(signals).toHaveLength(1);
   });
 
-  it.each(['button', 'retryStored'] as const)(
+  it.each(['button', 'retryStored', 'retrying'] as const)(
     "reads a retried reply's thread before re-applying it during a scan (%s)",
     async (via) => {
       const { store, gateway } = await setup();
@@ -2060,7 +2060,9 @@ describe('inbound apply', () => {
                 sourceUrl: 'https://example.test/feed',
                 sourceSpace: 'feed',
               })
-            : inbound.retryStored(failure);
+            : via === 'retryStored'
+              ? inbound.retryStored(failure)
+              : inbound.retrying(`I${String(failure)}`, () => Promise.resolve());
         gate.resolve(undefined);
         await retrying.catch(() => undefined);
         // The stored reply's thread was read before the retry, not after it.

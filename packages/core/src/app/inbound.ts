@@ -64,6 +64,12 @@ export interface Inbound {
   stop(): Promise<void>;
   retryStored(itemId: number): Promise<void>;
   /**
+   * Runs `run` in the inbound queue, after the conversation of the event item `item` (`I<n>`)
+   * stored for retry is read, so a retry from outside Slack cannot move a cursor the running
+   * scan has not read past yet.
+   */
+  retrying<T>(item: string, run: () => Promise<T>): Promise<T>;
+  /**
    * Re-applies an item's stored event in the caller's transaction, without clearing the item.
    * A stored query needs nothing re-applied; an event that cannot be re-applied throws
    * `retry_not_applicable`.
@@ -1106,6 +1112,13 @@ export function createInbound(input: {
       stopping.abort();
       await scan?.promise.catch(() => undefined);
       await running;
+    },
+    retrying(item, run) {
+      return serial(async () => {
+        const itemId = /^I[1-9]\d*$/.test(item) ? Number(item.slice(1)) : undefined;
+        if (itemId !== undefined) await readPending(await storedConversation(itemId));
+        return run();
+      });
     },
     retryStored(itemId) {
       return serial(async () => {
