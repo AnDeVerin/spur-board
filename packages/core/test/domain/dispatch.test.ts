@@ -218,6 +218,11 @@ const cases: [string, Changes, Result][] = [
     { moves: [reopened], turn: null },
   ],
   [
+    'a reopen that hid the PR merged before it goes from Dev to To Do',
+    { reopened: true, pr: null, openPr: false, turn: { visit: 'unclosed', open: true } },
+    { moves: [{ from: 'dev', to: 'todo', reason: 'ticket_reopened' }], turn: null },
+  ],
+  [
     'a reopened task drops its stale Dev submit and stops at Dev on the same head',
     { column: 'done', reopened: true },
     {

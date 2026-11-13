@@ -125,6 +125,11 @@ export interface LinkTable {
   pr_open: Flag | null;
   /** When a ticket reopen after a merge hid this closed or merged PR link; null while it counts. */
   reopen_hidden_at: string | null;
+  /**
+   * When the ticket reopened while this PR link was not yet seen merged; a later merged
+   * observation with `updatedAt` before it hides the link. Null otherwise.
+   */
+  reopen_pending_at: string | null;
 }
 
 /** A column executor's finished turn at a head commit. No unique key per epoch. */

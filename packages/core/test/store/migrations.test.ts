@@ -385,7 +385,11 @@ describe('migrate', () => {
         'archive_slot_at',
       ]),
     );
-    insertRaw(raw, 'link', without(sampleRows.link, ['ticket_key', 'pr_open', 'reopen_hidden_at']));
+    insertRaw(
+      raw,
+      'link',
+      without(sampleRows.link, ['ticket_key', 'pr_open', 'reopen_hidden_at', 'reopen_pending_at']),
+    );
     migrate(raw, real);
     expect(raw.prepare('SELECT id, tracker_id, key, manual_include FROM task').all()).toEqual([
       { id: 1, tracker_id: '101', key: 'o/r#101', manual_include: 0 },
@@ -402,7 +406,11 @@ describe('migrate', () => {
     migrate(raw, real.slice(0, 9));
     insertRaw(raw, 'task', sampleRows.task);
     insertRaw(raw, 'pr_snapshot', { ...sampleRows.pr_snapshot, state: 'closed' });
-    insertRaw(raw, 'link', without(sampleRows.link, ['ticket_key', 'pr_open', 'reopen_hidden_at']));
+    insertRaw(
+      raw,
+      'link',
+      without(sampleRows.link, ['ticket_key', 'pr_open', 'reopen_hidden_at', 'reopen_pending_at']),
+    );
 
     migrate(raw, real);
 
@@ -757,7 +765,7 @@ describe('migration pins', () => {
       '6522f14d6984e4c0af5b1330b5bc7acacee97906e59d20a08f0437fe551d7c46',
     '0012_turn.sql': '181f5fbcc24e1af558471ceaecf76589c314f26813742b057ed84c68f4ea9a8d',
     '0013_turn_reminder.sql': '5843346871e99e0de1fd655f0402fb162dab583318a24c0baf51c7504b71053b',
-    '0014_dispatcher.sql': '4bcaa8cf6b7c402d348c378f38467dd681e2ca527824f10db1bea0080326e287',
+    '0014_dispatcher.sql': '77e8752c86cbbb01dc3beb2721675e73fb75bb3513d0bf7d19f3b30ea76605ba',
   };
 
   interface MigrationFile {

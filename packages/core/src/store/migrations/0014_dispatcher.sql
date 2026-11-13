@@ -5,9 +5,13 @@
 -- `submission.pr_number` are the PR whose fresh head the submit was checked against (NULL for
 -- submits recorded before this migration, which count as handling feedback on no PR);
 -- `link.reopen_hidden_at` is when the task's ticket reopened after a merge while this PR link
--- was closed or merged, so the link no longer decides the task (NULL while it counts).
+-- was closed or merged, so the link no longer decides the task (NULL while it counts);
+-- `link.reopen_pending_at` is when the ticket reopened while this PR link was not yet seen
+-- merged, so a merge the board observes later but GitHub made by then still hides it (NULL once
+-- the link is seen merged or closed, and when no reopen waits).
 ALTER TABLE turn ADD COLUMN head_sha TEXT;
 ALTER TABLE submission ADD COLUMN voided_at TEXT;
 ALTER TABLE submission ADD COLUMN pr_repo TEXT;
 ALTER TABLE submission ADD COLUMN pr_number INTEGER;
 ALTER TABLE link ADD COLUMN reopen_hidden_at TEXT;
+ALTER TABLE link ADD COLUMN reopen_pending_at TEXT;

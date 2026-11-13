@@ -133,6 +133,11 @@ export function dispatch(input: DispatchInput): DispatchResult {
       move('done', 'merged');
       continue;
     }
+    // The reopen hid the task's only PR, merged before it but seen merged later: To Do, as from Done.
+    if (reopened && facts.pr === null && column !== 'todo') {
+      move('todo', 'ticket_reopened');
+      continue;
+    }
     const gate = evaluateGate(column, facts, project);
     if (gate.ok) {
       if ((column === 'todo' || column === 'ready-for-dev') && !workStarted) return result(null);

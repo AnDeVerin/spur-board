@@ -97,6 +97,7 @@ export const sampleRows: SampleRows = {
     ticket_key: null,
     pr_open: 1,
     reopen_hidden_at: null,
+    reopen_pending_at: null,
   },
   submission: {
     id: 1,

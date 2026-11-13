@@ -198,11 +198,76 @@ async function moveOpenWork(trx: Trx, from: number, to: number): Promise<void> {
 }
 
 /**
+ * A ticket reopened: the task's PR links not seen merged or closed yet wait for their merge
+ * (`reopen_pending_at`, read by `applyPendingReopen`), since GitHub may have merged one before the
+ * reopen while the board still holds an open snapshot. Then `hideMergedLinks` runs.
+ */
+async function setReopenFloor(trx: Trx, taskId: number, at: string): Promise<void> {
+  const unseen = await trx
+    .selectFrom('link')
+    .leftJoin('pr_snapshot', (join) =>
+      join
+        .on(sql<boolean>`lower(pr_snapshot.repo) = lower(link.repo)`)
+        .onRef('pr_snapshot.number', '=', 'link.number'),
+    )
+    .select('link.id')
+    .where('link.task_id', '=', taskId)
+    .where('link.entity', '=', 'pr')
+    .where('link.banned', '=', 0)
+    .where((eb) =>
+      eb.or([eb('pr_snapshot.state', 'is', null), eb('pr_snapshot.state', '=', 'open')]),
+    )
+    .execute();
+  if (unseen.length > 0) {
+    await trx
+      .updateTable('link')
+      .set({ reopen_pending_at: at })
+      .where(
+        'id',
+        'in',
+        unseen.map((link) => link.id),
+      )
+      .execute();
+  }
+  await hideMergedLinks(trx, taskId, at);
+}
+
+/**
+ * A PR link seen merged or closed after a reopen stops waiting. Its merge counts as made before
+ * the reopen when the PR's `updatedAt`, never earlier than the merge, is before the time the board
+ * observed the reopen; a tie counts the merge. Then the reopen hides the task's merged and closed
+ * links (`hideMergedLinks`).
+ */
+async function applyPendingReopen(trx: Trx, fact: PrFacts, at: string): Promise<void> {
+  if (fact.state === 'open') return;
+  const pending = await trx
+    .selectFrom('link')
+    .select(['id', 'task_id', 'reopen_pending_at'])
+    .where('entity', '=', 'pr')
+    .where(sql<boolean>`lower(repo) = ${fact.repo.toLowerCase()}`)
+    .where('number', '=', fact.number)
+    .where('reopen_pending_at', 'is not', null)
+    .execute();
+  for (const link of pending) {
+    await trx
+      .updateTable('link')
+      .set({ reopen_pending_at: null })
+      .where('id', '=', link.id)
+      .execute();
+    if (
+      fact.state === 'merged' &&
+      Date.parse(fact.updatedAt) < Date.parse(link.reopen_pending_at ?? '')
+    )
+      await hideMergedLinks(trx, link.task_id, at);
+  }
+}
+
+/**
  * A ticket reopened after a merge: the task's PR links that are closed or merged now are hidden
  * at `at`. They stay in its history, and only the other links decide its state from now on. A
  * hidden link stays hidden. Nothing without a merged PR link that still counts.
  */
-async function setReopenFloor(trx: Trx, taskId: number, at: string): Promise<void> {
+async function hideMergedLinks(trx: Trx, taskId: number, at: string): Promise<void> {
   const links = await trx
     .selectFrom('link')
     .leftJoin('pr_snapshot', (join) =>
@@ -546,6 +611,7 @@ async function pr(
       await trx.updateTable('link').set({ pr_open: 1 }).where('id', '=', link.id).execute();
     }
   }
+  await applyPendingReopen(trx, fact, at);
   if (!changed) return;
   const links = await trx
     .selectFrom('link')

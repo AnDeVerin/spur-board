@@ -629,6 +629,35 @@ describe('flow tables', () => {
       expect.objectContaining({ column: 'dev', role: 'worker', head_sha: C }),
     );
   });
+
+  it('a reopen seen before the merge is observed still sends the task to To Do', async () => {
+    const ctx = await inDev();
+    // GitHub merged #7 before the ticket closed and reopened; the board sees the merge last.
+    const merged = ctx.at();
+    await ctx.ticket('closed');
+    await ctx.ticket('open');
+    expect((await ctx.task()).column).toBe('dev');
+    await ctx.pr({ state: 'merged', updatedAt: merged });
+    expect(await ctx.task()).toMatchObject({ column: 'todo' });
+    expect((await ctx.moves()).at(-1)).toEqual({
+      from: 'dev',
+      to: 'todo',
+      reason: 'ticket_reopened',
+    });
+    expect(await ctx.openTurn()).toBeNull();
+  });
+
+  it('a merge after the reopen still counts', async () => {
+    const ctx = await inDev();
+    await ctx.ticket('closed');
+    await ctx.ticket('open');
+    // Merged 30 s after the reopen was observed.
+    await ctx.pr({
+      state: 'merged',
+      updatedAt: new Date(Date.parse(ctx.at()) + 30_000).toISOString(),
+    });
+    expect((await ctx.task()).column).toBe('done');
+  });
 });
 
 /** The reviewers marked head A, so the task sits in the column after Product Review. */
