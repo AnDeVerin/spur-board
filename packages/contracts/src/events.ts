@@ -34,6 +34,7 @@ export const EVENT_KINDS = [
   'task_submitted',
   'task_moved',
   'task_shadow_moved',
+  'task_corrected',
   'dispatcher_mode_changed',
   'block_opened',
   'block_escalated',
@@ -164,6 +165,12 @@ export const eventPayloadSchemas = {
     to: z.enum(COLUMN_IDS),
     reason: z.enum(MOVE_REASONS),
     gate: z.array(z.enum(GATE_REASONS)).optional(),
+  }),
+  task_corrected: z.looseObject({
+    from: z.enum(COLUMN_IDS),
+    to: z.enum(COLUMN_IDS),
+    reason: S,
+    shadow: z.boolean(),
   }),
   dispatcher_mode_changed: z.looseObject({
     from: z.enum(DISPATCHER_MODES),

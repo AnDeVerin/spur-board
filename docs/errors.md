@@ -410,6 +410,40 @@ Example:
 }
 ```
 
+## move_not_allowed
+
+The task cannot be corrected to that column.
+
+HTTP: 409  
+Exit code: 1  
+Hint: Read why with `board task <KEY> --why`; pick an enabled column, and unlink a merged pull request with `board unlink` first.  
+Recovery: Read why the task is where it is; pick an enabled column, and unlink a merged pull request first.  
+Side effects: none  
+Retry: maximum 0; After fixing the cause.
+
+Example:
+
+```json
+{
+  "ok": false,
+  "requestId": "req-example-123",
+  "error": {
+    "code": "move_not_allowed",
+    "requestId": "req-example-123",
+    "message": "The task cannot be corrected to that column.",
+    "hint": "Read why with `board task <KEY> --why`; pick an enabled column, and unlink a merged pull request with `board unlink` first.",
+    "docs": "docs/errors.md#move_not_allowed",
+    "recovery": {
+      "action": "Read why the task is where it is; pick an enabled column, and unlink a merged pull request first.",
+      "sideEffects": "none",
+      "maxRetries": 0,
+      "retryTiming": "After fixing the cause."
+    },
+    "context": {}
+  }
+}
+```
+
 ## task_archived
 
 The task is archived, so it cannot change.

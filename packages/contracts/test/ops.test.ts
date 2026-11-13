@@ -91,6 +91,16 @@ describe('catalog', () => {
     }
   });
 
+  it('task.move binds --correct and excludes Done', () => {
+    const operation = OPERATIONS.find((entry) => entry.id === 'task.move');
+    if (operation === undefined) throw new Error('Missing task.move');
+    const input = { mode: 'correct', task: 'PROJ-123', column: 'dev', reason: 'Wrong PR.' };
+    expect(operation.input.safeParse(input).success).toBe(true);
+    expect(operation.input.safeParse({ ...input, column: 'done' }).success).toBe(false);
+    expect(operation.cli.args).toEqual(['task', 'column']);
+    expect(operation.cli.modes).toEqual([{ mode: 'correct', flag: '--correct', value: null }]);
+  });
+
   it('shows a separate ticket link in task detail without changing the task view', () => {
     const operation = OPERATIONS.find((entry) => entry.id === 'task.get');
     if (operation === undefined) throw new Error('Missing task.get');
@@ -239,7 +249,7 @@ describe('catalog', () => {
   it('binds every op to CLI and MCP, and Slack only on the exceptions list', () => {
     const slackExceptions = {
       'status.get': { kind: 'slash-command', usage: '/board status' },
-      'task.get': { kind: 'slash-command', usage: '/board task <KEY>' },
+      'task.get': { kind: 'slash-command', usage: '/board task <KEY> [why]' },
       'task.history': { kind: 'slash-command', usage: '/board task <KEY> history' },
       'item.retry': { kind: 'button', label: 'Retry' },
       'item.close': { kind: 'button', label: 'Close' },
@@ -390,6 +400,7 @@ describe('grants', () => {
       null,
       [...archived, 'turn_closed', 'not_turn_taker', 'return_not_allowed'],
     ],
+    ['task.move', 'mutation', [operator], null, [...archived, 'move_not_allowed']],
   ];
 
   it('declares the six grants', () => {
@@ -403,7 +414,7 @@ describe('grants', () => {
     ]);
   });
 
-  it('pins the 23 operations with kinds, grants, preconditions and errors', () => {
+  it('pins the 24 operations with kinds, grants, preconditions and errors', () => {
     const order = Object.keys(ERRORS);
     expect(
       OPERATIONS.map((op) => [op.id, op.kind, op.grants, op.preconditions, op.errors]),
@@ -423,7 +434,7 @@ describe('grants', () => {
         return [opId, kind, grants, preconditions, errors];
       }),
     );
-    expect(OPERATIONS).toHaveLength(23);
+    expect(OPERATIONS).toHaveLength(24);
   });
 
   it('names a branch of the input discriminator in every grant mode', () => {

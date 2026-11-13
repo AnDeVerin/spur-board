@@ -881,6 +881,8 @@ describe('inbound apply', () => {
 
   it('renders task comments as quotes and dated history as private English text', async () => {
     const { store, gateway } = await setup();
+    const [plain, explained] = OPERATIONS[1].examples;
+    if (explained === undefined) throw new Error('Missing the task.get why example');
     const replies: {
       body: Parameters<typeof gateway.respond>[1];
       private: boolean;
@@ -894,7 +896,7 @@ describe('inbound apply', () => {
       'task.get': {
         id: 'task.get',
         resolveTargets: () => Promise.resolve([target]),
-        run: () => Promise.resolve(OPERATIONS[1].examples[0].output),
+        run: (_trx, input) => Promise.resolve((input.why === true ? explained : plain).output),
       },
       'task.history': {
         id: 'task.history',
@@ -915,25 +917,29 @@ describe('inbound apply', () => {
         },
       },
     });
-    for (const [id, text] of [
-      ['task.get', 'task PROJ-123'],
-      ['task.history', 'task PROJ-123 history'],
+    for (const [id, text, input, key] of [
+      ['task.get', 'task PROJ-123', { task: 'PROJ-123' }, 'get'],
+      ['task.history', 'task PROJ-123 history', { task: 'PROJ-123' }, 'history'],
+      ['task.get', 'task PROJ-123 why', { task: 'PROJ-123', why: true }, 'why'],
     ] as const) {
       await inbound.sink({
         kind: 'command',
-        dedupeKey: id,
-        interaction: interactionRefSchema.parse(id),
+        dedupeKey: key,
+        interaction: interactionRefSchema.parse(key),
         author: userIdSchema.parse('operator'),
         text,
-        command: { kind: 'query', id, input: { task: 'PROJ-123' } },
+        command: { kind: 'query', id, input },
         sourceUrl: 'https://example.test/command',
       });
     }
-    expect(replies.map((reply) => reply.private)).toEqual([true, true]);
+    expect(replies.map((reply) => reply.private)).toEqual([true, true, true]);
     expect(replies.map((reply) => reply.cliHint)).toEqual([
       'board task PROJ-123',
       'board task history PROJ-123',
+      'board task PROJ-123 --why',
     ]);
+    expect(JSON.stringify(replies[2]?.body)).toContain('Task PROJ-123 is in review.');
+    expect(JSON.stringify(replies[2]?.body)).toContain('review_on_head failed (no_review_on_head)');
     expect(replies[0]?.body).toContainEqual({
       kind: 'quote',
       children: [{ kind: 'text', text: 'Target v2.' }],

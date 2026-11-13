@@ -446,6 +446,9 @@ describe('CLI exit classes and mutation keys', () => {
     expect(operator.hint).toContain('`board token list` needs operator identity');
     expect(operator.hint).toContain('project whose spurProjects role is operator');
     expect(operator.hint).toContain('`board token create --name <name> --into <folder>`');
+    const move = await run(['move', 'o/r#9', 'dev', '--correct', '--reason', 'x']);
+    expect(move.code).toBe('identity_missing');
+    expect(move.hint).toContain('`board move --correct` needs operator identity');
     const agent = await run(['ask', 'PROJ-123', 'Question?']);
     expect(agent.code).toBe('identity_missing');
     expect(agent.hint).toContain('`board ask` needs an agent identity');

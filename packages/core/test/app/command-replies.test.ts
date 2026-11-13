@@ -67,6 +67,149 @@ describe('commandReply', () => {
     expect(JSON.stringify(history.body)).toContain('Added to Dev.');
   });
 
+  it('renders the why explanation with failing conditions first and the passing gates', () => {
+    const operation = OPERATIONS.find((entry) => entry.id === 'task.get');
+    if (!operation) throw new Error('Missing task.get');
+    const explained = operation.examples[1];
+    if (explained === undefined) throw new Error('Missing the why example');
+    const example = operation.output.parse(explained.output);
+    if (example.why === undefined) throw new Error('Missing the why example');
+    const correction = ['<!chan', 'nel> wrong PR'].join('');
+    const reply = commandReply(
+      'task.get',
+      {
+        ...example,
+        blocks: [
+          { ...operation.examples[0].output.blocks[0], reason: 'Which API version?' },
+          {
+            ...operation.examples[0].output.blocks[0],
+            id: 'B13',
+            state: 'unblocked',
+            reason: 'Old question.',
+          },
+        ],
+        why: {
+          ...example.why,
+          holds: ['spur_blind'],
+          moves: [
+            ...example.why.moves,
+            {
+              at: '2026-01-05T09:31:00.000Z',
+              kind: 'task_corrected',
+              actor: 'operator',
+              from: 'review',
+              to: 'dev',
+              reason: 'corrected',
+              gate: [],
+              text: correction,
+            },
+            {
+              at: '2026-01-05T09:31:00.000Z',
+              kind: 'task_moved',
+              actor: 'agent:rev/rev-1',
+              from: 'review',
+              to: 'dev',
+              reason: 'returned',
+              gate: [],
+              text: 'B13',
+            },
+          ],
+        },
+      },
+      { task: 'PROJ-123', why: true },
+    );
+    expect(reply.cliHint).toBe('board task PROJ-123 --why');
+    const text = (value: string) => ({
+      kind: 'paragraph',
+      children: [{ kind: 'text', text: value }],
+    });
+    const quoted = (value: string) => ({
+      kind: 'quote',
+      children: [{ kind: 'text', text: value }],
+    });
+    expect(reply.body).toEqual([
+      text('Task PROJ-123 is in review.'),
+      text('Held: spur_blind.'),
+      text('review: review_on_head failed (no_review_on_head)'),
+      text('Gates passing: todo, dev, done.'),
+      text('The review gate is blocked at review.'),
+      text('Turn T4 (review, orchestrator:review): taken by agent:rev/rev-1.'),
+      text('Open block B12 (needs_input):'),
+      quoted('Which API version?'),
+      text('2026-01-05T09:30:00.000Z: dev to review (gate_passed)'),
+      text('2026-01-05T09:31:00.000Z: review to dev (corrected)'),
+      quoted(correction),
+      text('2026-01-05T09:31:00.000Z: review to dev (returned B13)'),
+    ]);
+  });
+
+  it('lists every condition of a failing gate, so a task with no PR shows unchecked Dev checks', () => {
+    const operation = OPERATIONS.find((entry) => entry.id === 'task.get');
+    if (!operation) throw new Error('Missing task.get');
+    const explained = operation.examples[1];
+    if (explained === undefined) throw new Error('Missing the why example');
+    const example = operation.output.parse(explained.output);
+    if (example.why === undefined) throw new Error('Missing the why example');
+    const unchecked = (condition: 'not_draft' | 'checks_green' | 'no_conflict') => ({
+      condition,
+      state: 'unchecked' as const,
+      reason: null,
+    });
+    const reply = commandReply(
+      'task.get',
+      {
+        ...example,
+        blocks: [],
+        why: {
+          ...example.why,
+          column: 'dev',
+          turn: null,
+          moves: [],
+          gates: [
+            { column: 'todo', enabled: true, ok: true, blockedIn: null, conditions: [] },
+            {
+              column: 'dev',
+              enabled: true,
+              ok: false,
+              blockedIn: 'dev',
+              conditions: [
+                unchecked('not_draft'),
+                { condition: 'pr_open', state: 'failed', reason: 'no_pr' },
+                { condition: 'comment_history_read', state: 'met', reason: null },
+                unchecked('checks_green'),
+                { condition: 'submit_on_head', state: 'waiting', reason: 'checks_pending' },
+                unchecked('no_conflict'),
+              ],
+            },
+            {
+              column: 'review',
+              enabled: false,
+              ok: false,
+              blockedIn: 'dev',
+              conditions: [
+                { condition: 'review_on_head', state: 'failed', reason: 'no_review_on_head' },
+              ],
+            },
+          ],
+        },
+      },
+      { task: 'PROJ-123', why: true },
+    );
+    const text = (value: string) => ({
+      kind: 'paragraph',
+      children: [{ kind: 'text', text: value }],
+    });
+    expect(reply.body).toEqual([
+      text('Task PROJ-123 is in dev.'),
+      text(
+        'dev: pr_open failed (no_pr), submit_on_head waiting (checks_pending), not_draft unchecked, checks_green unchecked, no_conflict unchecked, comment_history_read met',
+      ),
+      text('Gates passing: todo.'),
+      text('The dev gate is blocked at dev.'),
+      text('No open turn.'),
+    ]);
+  });
+
   it('puts status items right after the header, ahead of every task line', () => {
     const operation = OPERATIONS.find((entry) => entry.id === 'status.get');
     if (!operation) throw new Error('Missing status.get');

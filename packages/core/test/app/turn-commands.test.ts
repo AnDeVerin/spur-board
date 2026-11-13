@@ -16,6 +16,7 @@ import {
   createApply,
   createObservationCore,
   createOperationRegistry,
+  createQuery,
   openStore,
   type Store,
 } from '../../src/index.ts';
@@ -256,6 +257,7 @@ async function setup(
     ...(options.noPoller === true ? {} : { prPoller: () => pollPr }),
   });
   const apply = createApply({ store, clock, config });
+  const query = createQuery({ store, clock, config });
 
   async function tables() {
     return Promise.all(TABLES.map((table) => store.db.selectFrom(table).selectAll().execute()));
@@ -308,6 +310,30 @@ async function setup(
       createApply({ store, clock, config })(registry['task.submit'], { turn, sha }, actor, key),
     return: (actor: ActorId, key: string, turn = 'T1') =>
       apply(registry['task.return'], { turn, reason: 'Handle the empty list.' }, actor, key),
+    move: (column: Exclude<ColumnId, 'done'>, actor: ActorId = 'operator', key = 'move-1') =>
+      apply(
+        registry['task.move'],
+        { mode: 'correct', task: 'o/r#9', column, reason: 'The board moved it wrongly.' },
+        actor,
+        key,
+      ),
+    unlinkPr: () =>
+      apply(
+        registry['link.remove'],
+        {
+          mode: 'pr',
+          task: 'o/r#9',
+          pr: 'https://github.com/o/r/pull/7',
+          reason: 'Merged for another ticket.',
+        },
+        'operator',
+        'unlink-1',
+      ),
+    why: async (actor: ActorId = 'operator') => {
+      const result = await query(registry['task.get'], { task: 'o/r#9', why: true }, actor);
+      if (result.why === undefined) throw new Error('task.get returned no why');
+      return result.why;
+    },
     events: async () =>
       (await store.db.selectFrom('event').select(['kind', 'payload']).orderBy('id').execute()).map(
         (row) => ({ kind: row.kind, payload: JSON.parse(row.payload) as unknown }),
@@ -782,6 +808,213 @@ describe('task.return', () => {
     await expect(ctx.return(QA_1, 'return-1')).rejects.toMatchObject({ code: 'forbidden' });
 
     expect((await ctx.events()).slice(before.length).map((event) => event.kind)).toEqual([
+      'operation_denied',
+    ]);
+    expect(withoutEvents(await ctx.tables())).toEqual(withoutEvents(unchanged));
+  });
+});
+
+describe('task.get why', () => {
+  const green = { name: 'ci', state: 'success' as const, completedAt: AT };
+  const ready = { requiredChecks: [green], feedback: [], feedbackComplete: true };
+
+  it('explains a Review task with an open turn and the last moves', async () => {
+    const ctx = await taken({ mode: 'on', complete: true, pr: ready });
+    await ctx.submitted('dev', A, WORKER_1);
+
+    const before = await ctx.why();
+    expect(before).toMatchObject({
+      column: 'review',
+      dispatcher: 'on',
+      holds: [],
+      checksWaivedBy: null,
+      turn: { id: 'T1', column: 'review', taken: { by: REV_1 } },
+      moves: [],
+    });
+    expect(before.gates.find((gate) => gate.column === 'review')).toEqual({
+      column: 'review',
+      enabled: true,
+      ok: false,
+      blockedIn: 'review',
+      conditions: [{ condition: 'review_on_head', state: 'failed', reason: 'no_review_on_head' }],
+    });
+    expect(before.gates.find((gate) => gate.column === 'product-review')).toMatchObject({
+      enabled: false,
+    });
+
+    await ctx.return(REV_1, 'return-1');
+    const after = await ctx.why();
+    expect(after.column).toBe('dev');
+    expect(after.moves.at(-1)).toEqual({
+      at: AT,
+      kind: 'task_moved',
+      actor: REV_1,
+      from: 'review',
+      to: 'dev',
+      reason: 'returned',
+      gate: [],
+      text: 'B1',
+    });
+    expect(after.turn).toMatchObject({ column: 'dev', addressee: 'worker', taken: null });
+  });
+
+  it('uses the shadow column in shadow mode', async () => {
+    const ctx = await setup({ mode: 'shadow', complete: true, pr: ready });
+    await ctx.store.db.updateTable('task').set({ shadow_column: 'qa' }).execute();
+
+    const why = await ctx.why();
+
+    expect(why).toMatchObject({ column: 'qa', dispatcher: 'shadow', turn: null });
+    expect((await ctx.task()).column).toBe('review');
+  });
+
+  it('reports a missing PR snapshot as a hold', async () => {
+    const ctx = await setup({ mode: 'on', complete: true });
+    await ctx.store.db.deleteFrom('pr_snapshot').execute();
+    const before = await ctx.tables();
+
+    const why = await ctx.why();
+
+    expect(why.holds).toContain('pr_snapshot_missing');
+    expect(why.gates).toEqual([]);
+    expect(why.checksWaivedBy).toBeNull();
+    expect(await ctx.tables()).toEqual(before);
+  });
+
+  it('leaves why out without the flag', async () => {
+    const ctx = await setup();
+    const query = createQuery({
+      store: ctx.store,
+      clock: { now: () => Date.parse(AT) },
+      config: ctx.config,
+    });
+    const registry = createOperationRegistry({
+      config: ctx.config,
+      clock: { now: () => Date.parse(AT) },
+      completeSince: new Map(),
+    });
+    expect(await query(registry['task.get'], { task: 'o/r#9' }, 'operator')).not.toHaveProperty(
+      'why',
+    );
+  });
+});
+
+describe('task.move', () => {
+  it('corrects a wrong Done after the merged PR is unlinked', async () => {
+    const ctx = await setup({
+      column: 'done',
+      mode: 'on',
+      complete: true,
+      pr: { state: 'merged' },
+    });
+    await ctx.openTurn();
+    await ctx.submitted('dev', A, WORKER_1);
+    await ctx.submitted('review', A, REV_1);
+    await ctx.submitted('qa', A, QA_1);
+    await ctx.unlinkPr();
+    const epoch = (await ctx.task()).column_epoch;
+    const seen = (await ctx.events()).length;
+
+    const result = await ctx.move('dev');
+
+    expect(result).toEqual({
+      task: { key: 'o/r#9', project: 'proj', column: 'dev', membership: 'active' },
+      from: 'done',
+      to: 'dev',
+      column: 'dev',
+      settled: [],
+    });
+    expect(await ctx.task()).toMatchObject({
+      column: 'dev',
+      column_epoch: epoch + 1,
+      left_moves: 0,
+      last_change_at: AT,
+    });
+    expect(
+      await ctx.store.db
+        .selectFrom('turn')
+        .select(['column', 'closed_reason'])
+        .orderBy('id')
+        .execute(),
+    ).toEqual([
+      { column: 'done', closed_reason: 'corrected' },
+      { column: 'dev', closed_reason: null },
+    ]);
+    expect(
+      await ctx.store.db
+        .selectFrom('submission')
+        .select(['column', 'voided_at'])
+        .orderBy('id')
+        .execute(),
+    ).toEqual([
+      { column: 'dev', voided_at: AT },
+      { column: 'review', voided_at: null },
+      { column: 'qa', voided_at: AT },
+    ]);
+    const events = (await ctx.events()).slice(seen);
+    expect(events[0]).toEqual({
+      kind: 'task_corrected',
+      payload: { from: 'done', to: 'dev', reason: 'The board moved it wrongly.', shadow: false },
+    });
+    expect(events.map((event) => event.kind)).not.toContain('task_moved');
+  });
+
+  it('writes only the shadow column in shadow mode', async () => {
+    const ctx = await setup({ mode: 'shadow', complete: true });
+    const before = await ctx.task();
+
+    const result = await ctx.move('dev');
+
+    expect(result).toMatchObject({ from: 'review', to: 'dev', column: 'dev', settled: [] });
+    expect(await ctx.task()).toMatchObject({
+      column: 'review',
+      shadow_column: 'dev',
+      column_epoch: before.column_epoch,
+    });
+    expect((await ctx.events()).at(-1)).toEqual({
+      kind: 'task_corrected',
+      payload: { from: 'review', to: 'dev', reason: 'The board moved it wrongly.', shadow: true },
+    });
+  });
+
+  it('refuses while a merged PR is the active PR', async () => {
+    const ctx = await setup({
+      column: 'done',
+      mode: 'on',
+      complete: true,
+      pr: { state: 'merged' },
+    });
+    const before = await ctx.tables();
+
+    const refused = ctx.move('dev');
+
+    await expect(refused).rejects.toMatchObject({ code: 'move_not_allowed' });
+    await expect(refused).rejects.toHaveProperty('hint', expect.stringContaining('board unlink'));
+    expect(await ctx.tables()).toEqual(before);
+  });
+
+  it('refuses a column the project does not enable', async () => {
+    const ctx = await setup({ mode: 'on', complete: true });
+    const before = await ctx.tables();
+
+    await expect(ctx.move('product-review')).rejects.toMatchObject({
+      code: 'move_not_allowed',
+      hint: expect.stringContaining('review, qa') as unknown,
+    });
+    expect(await ctx.tables()).toEqual(before);
+  });
+
+  it('denies a worker with the operator-only hint and no change', async () => {
+    const ctx = await setup({ mode: 'on', complete: true });
+    const seen = (await ctx.events()).length;
+    const unchanged = await ctx.tables();
+
+    await expect(ctx.move('dev', WORKER_1)).rejects.toMatchObject({
+      code: 'forbidden',
+      hint: 'Allowed role: operator.',
+    });
+
+    expect((await ctx.events()).slice(seen).map((event) => event.kind)).toEqual([
       'operation_denied',
     ]);
     expect(withoutEvents(await ctx.tables())).toEqual(withoutEvents(unchanged));

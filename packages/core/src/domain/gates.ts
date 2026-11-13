@@ -4,6 +4,8 @@ import {
   type CheckState,
   type ColumnId,
   type Config,
+  type GateCondition,
+  type GateConditionState,
   type GateReason,
   type PrFacts,
 } from '@spur-board/contracts';
@@ -223,6 +225,92 @@ export function evaluateGate(
     if (first !== undefined) return { ok: false, column: id, reasons: [first, ...rest], ...marker };
   }
   return { ok: true, ...marker };
+}
+
+/** The exit conditions of each column, in the order the gates report their reasons. */
+const COLUMN_CONDITIONS = {
+  todo: [],
+  'ready-for-dev': [],
+  dev: [
+    'pr_open',
+    'not_draft',
+    'checks_green',
+    'no_conflict',
+    'external_comments_handled',
+    'comment_history_read',
+    'submit_on_head',
+  ],
+  review: ['review_on_head'],
+  'product-review': ['review_on_head'],
+  'external-review': ['approved'],
+  qa: ['submit_on_head'],
+  'ready-to-merge': ['merged'],
+  done: [],
+} as const satisfies Record<ColumnId, readonly GateCondition[]>;
+
+/** The condition each gate reason fails. */
+const CONDITION_OF = {
+  no_pr: 'pr_open',
+  pr_closed: 'pr_open',
+  pr_draft: 'not_draft',
+  checks_red: 'checks_green',
+  checks_pending: 'checks_green',
+  conflict: 'no_conflict',
+  mergeable_unknown: 'no_conflict',
+  external_comments: 'external_comments_handled',
+  comment_history_incomplete: 'comment_history_read',
+  no_submit_on_head: 'submit_on_head',
+  no_review_on_head: 'review_on_head',
+  not_approved: 'approved',
+  not_merged: 'merged',
+} as const satisfies Record<GateReason, GateCondition>;
+
+/** Reasons that stop Dev's evaluation: the rest of its conditions are not checked. */
+const STOPS_DEV: ReadonlySet<GateReason> = new Set(['no_pr', 'pr_closed']);
+
+interface ConditionExplanation {
+  condition: GateCondition;
+  state: GateConditionState;
+  reason: GateReason | null;
+}
+
+interface GateExplanation {
+  column: ColumnId;
+  enabled: boolean;
+  /** Whether the column's own exit conditions pass. */
+  ok: boolean;
+  /** The column `evaluateGate(column)` fails at, or null when it passes. */
+  blockedIn: ColumnId | null;
+  conditions: ConditionExplanation[];
+}
+
+/**
+ * Every column's own exit conditions with their state, and where its cumulative gate blocks, as
+ * `evaluateGate` decides it for each column. A merged pull request passes every column and every
+ * condition. `checksWaivedBy` is the marker `evaluateGate('done')` carries, or null.
+ */
+export function explainGates(
+  facts: TaskGateFacts,
+  project: GateProject,
+): { gates: GateExplanation[]; checksWaivedBy: ChecksWaiver | null } {
+  const merged = facts.pr?.state === 'merged';
+  const waived = noCiWaives(facts.pr, project);
+  let blockedIn: ColumnId | null = null;
+  let checksWaivedBy: ChecksWaiver | null = null;
+  const gates = COLUMN_IDS.map((column): GateExplanation => {
+    const enabled = project.columns.find((c) => c.id === column)?.enabled === true;
+    const reasons = merged ? [] : columnCondition(column, facts, project.columns, waived);
+    if (enabled && !merged && column === 'dev' && waived) checksWaivedBy = 'reposWithoutCi';
+    if (enabled && blockedIn === null && reasons.length > 0) blockedIn = column;
+    const stopped = reasons.some((reason) => STOPS_DEV.has(reason));
+    const conditions = COLUMN_CONDITIONS[column].map((condition): ConditionExplanation => {
+      const reason = reasons.find((r) => CONDITION_OF[r] === condition) ?? null;
+      if (reason === null) return { condition, state: stopped ? 'unchecked' : 'met', reason: null };
+      return { condition, state: HOLD_ONLY.has(reason) ? 'waiting' : 'failed', reason };
+    });
+    return { column, enabled, ok: reasons.length === 0, blockedIn, conditions };
+  });
+  return { gates, checksWaivedBy };
 }
 
 export type ReturnCause =

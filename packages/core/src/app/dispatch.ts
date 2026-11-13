@@ -21,7 +21,15 @@ import type { Row } from '../store/schema.ts';
 import { emit, projectForSource, taskPr, type Trx } from './board-utils.ts';
 import { linkedSession } from './doorbells.ts';
 import { raiseCycleLimit } from './fromYou.ts';
-import { closeTurns, isNewer, openTurn, turnFeedbackCursors, turnHanded } from './turns.ts';
+import {
+  closeTurns,
+  isNewer,
+  openTurn,
+  recalledFeedback,
+  sameHanded,
+  turnFeedbackCursors,
+  turnHanded,
+} from './turns.ts';
 
 // The dispatcher applies the pure cascade of `domain/dispatch.ts` inside its caller's
 // transaction. It reads no clock and does no IO: `at` and the complete-poll map come from the
@@ -270,8 +278,62 @@ async function syncModes(trx: Trx, config: Config, at: Date): Promise<void> {
   }
 }
 
+/**
+ * The operator's correction of a task's column to `to`, as a new visit of `to`. It first applies
+ * a pending dispatcher mode switch, so the switch cannot overwrite the correction. In `on` mode it
+ * sets the column and bumps `column_epoch`, voids the submits of `to` and right of it, closes the
+ * task's turns as `corrected` and journals `task_corrected`; in shadow mode it sets only the shadow
+ * column. The feedback a closed untaken turn handed over counts as unhandled again
+ * (`turnFeedbackCursors`), so the next Dev turn hands it over, whenever it opens. It is
+ * not a dispatcher move: no `task_moved`, no `left_moves` and no cycle count. The caller settles
+ * the task with a dispatcher pass after it. `from` is the column the dispatcher worked from, and
+ * `eventId` the id of the `task_corrected` event.
+ */
+export async function correctColumn(
+  trx: Trx,
+  input: { taskId: number; to: ColumnId; at: Date; actor: ActorId; reason: string; config: Config },
+): Promise<{ from: ColumnId; eventId: number }> {
+  const { taskId, to, at, actor, reason, config } = input;
+  await syncModes(trx, config, at);
+  const task = await trx
+    .selectFrom('task')
+    .selectAll()
+    .where('id', '=', taskId)
+    .executeTakeFirstOrThrow();
+  const shadow =
+    config.projects.find((project) => project.id === task.project)?.dispatcher.mode === 'shadow';
+  const from = task.shadow_column ?? task.column;
+  await trx
+    .updateTable('task')
+    .set(
+      shadow
+        ? { shadow_column: to, last_change_at: at.toISOString() }
+        : { column: to, column_epoch: task.column_epoch + 1, last_change_at: at.toISOString() },
+    )
+    .where('id', '=', task.id)
+    .execute();
+  await voidSubmits(trx, task.id, to, at);
+  if (!shadow) await closeTurns(trx, { taskId: task.id, reason: 'corrected', at });
+  await emit(
+    trx,
+    'task_corrected',
+    task.project,
+    task.id,
+    at.toISOString(),
+    { from, to, reason, shadow },
+    actor,
+  );
+  const event = await trx
+    .selectFrom('event')
+    .select('id')
+    .where('task_id', '=', task.id)
+    .orderBy('id', 'desc')
+    .executeTakeFirstOrThrow();
+  return { from, eventId: event.id };
+}
+
 /** A source has no fresh view while it reports blind or has had no complete poll since start. */
-async function blindSources(trx: Trx, complete: ReadonlyMap<string, string>) {
+export async function blindSources(trx: Trx, complete: ReadonlyMap<string, string>) {
   const states = await trx.selectFrom('source_state').select(['source', 'blind_reason']).execute();
   const blind = new Set(
     states.filter((state) => state.blind_reason !== null).map((state) => state.source),
@@ -307,8 +369,10 @@ function externalApproval(pr: PrFacts, agentLogin: string): boolean {
 /**
  * The external feedback nobody handled yet. An approval review is not a comment: an entry is one
  * by its own state, or, in a snapshot written before entries had one, when it matches the
- * reviewer's latest approval. An entry is handled once a turn handed it over, or an older one, or
- * once a handling submission (`handlingSubmits`) on this PR was made at or after it.
+ * reviewer's latest approval. An entry is handled once a turn handed it over, or an older one,
+ * unless a correction or a reroute closed that turn untaken, or once a handling submission
+ * (`handlingSubmits`) on this PR was made at or after it. The entries such an untaken turn handed
+ * over come from the turn when a later poll dropped them from the snapshot (`recalledFeedback`).
  */
 async function unhandledFeedback(
   trx: Trx,
@@ -335,15 +399,19 @@ async function unhandledFeedback(
     submittedOn(row, pr),
   );
   const newest = Math.max(...submitted.map((row) => Date.parse(row.submitted_at)));
-  const [cursor] = await turnFeedbackCursors(trx, [
-    { kind: 'pr', repo: pr.repo, number: pr.number },
-  ]);
-  return entries
-    .filter(
-      (entry) =>
-        !(Date.parse(entry.postedAt) <= newest) && (cursor === undefined || isNewer(entry, cursor)),
-    )
-    .map((entry) => handedOf(pr, entry));
+  const [cursor] = await turnFeedbackCursors(
+    trx,
+    [{ kind: 'pr', repo: pr.repo, number: pr.number }],
+    'handled',
+  );
+  const fromSnapshot = entries.map((entry) => handedOf(pr, entry));
+  const recalled = (
+    await recalledFeedback(trx, { kind: 'pr', repo: pr.repo, number: pr.number })
+  ).filter((entry) => !fromSnapshot.some((old) => sameHanded(old, entry)));
+  return [...recalled, ...fromSnapshot].filter(
+    (entry) =>
+      !(Date.parse(entry.postedAt) <= newest) && (cursor === undefined || isNewer(entry, cursor)),
+  );
 }
 
 /**
@@ -412,7 +480,7 @@ export async function pollFeedbackCursors(
   config: Config,
   prs: readonly FeedbackCursor['ref'][],
 ): Promise<FeedbackCursor[]> {
-  const cursors = await turnFeedbackCursors(db, prs);
+  const cursors = await turnFeedbackCursors(db, prs, 'polled');
   if (prs.length === 0) return cursors;
   const links = await db
     .selectFrom('link')
@@ -461,8 +529,11 @@ function handedOf(pr: PrFacts, entry: NonNullable<PrFacts['feedback']>[number]):
   };
 }
 
-/** The dispatcher input of one task, or null when a stored snapshot is missing or unreadable. */
-async function readInput(
+/**
+ * The dispatcher input of one task, or null when a stored snapshot is missing or unreadable. It
+ * only reads.
+ */
+export async function readInput(
   trx: Trx,
   task: Task,
   project: Project,
@@ -623,16 +694,7 @@ async function applyOn(
   const carried = replaced === undefined ? [] : turnHanded(replaced);
   const handed = [
     ...carried,
-    ...read.handed.filter(
-      (entry) =>
-        !carried.some(
-          (old) =>
-            old.repo.toLowerCase() === entry.repo.toLowerCase() &&
-            old.number === entry.number &&
-            old.kind === entry.kind &&
-            old.id === entry.id,
-        ),
-    ),
+    ...read.handed.filter((entry) => !carried.some((old) => sameHanded(old, entry))),
   ];
   await openTurn(trx, {
     task: current,

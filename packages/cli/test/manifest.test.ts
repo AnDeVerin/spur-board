@@ -38,7 +38,7 @@ function assertManifest(text: string, appName: string, command: string): void {
   expect(manifest.display_information.name).toBe(appName);
   expect(manifest.features.bot_user.display_name).toBe(appName);
   expect(manifest.features.slash_commands[0]?.command).toBe(command);
-  expect(manifest.features.slash_commands[0]?.usage_hint).toBe('[task <KEY> [history]]');
+  expect(manifest.features.slash_commands[0]?.usage_hint).toBe('[task <KEY> [why|history]]');
   expect(manifest.oauth_config.scopes.bot).toEqual(expectedScopes);
   expect(manifest.settings.event_subscriptions.bot_events).toEqual([
     'message.groups',
@@ -81,7 +81,7 @@ describe('slack manifest', () => {
         slash_commands:
           - command: /board
             description: Show board tasks and command help
-            usage_hint: "[task <KEY> [history]]"
+            usage_hint: "[task <KEY> [why|history]]"
             should_escape: false
       oauth_config:
         scopes:
@@ -121,7 +121,7 @@ describe('slack manifest', () => {
         slash_commands:
           - command: /board-me
             description: Show board tasks and command help
-            usage_hint: "[task <KEY> [history]]"
+            usage_hint: "[task <KEY> [why|history]]"
             should_escape: false
       oauth_config:
         scopes:

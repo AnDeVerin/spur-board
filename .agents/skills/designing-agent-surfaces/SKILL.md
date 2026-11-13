@@ -21,8 +21,9 @@ that changes these rules updates this skill in the same PR.
   should pick instead (the guidance test under `describe('catalog')` checks the form).
 - `outputSchema` is the operation's `output`; the handler returns the result as
   `structuredContent`. Change the catalog output, not the tool.
-- Only `status.get` has a detailed mode: compact rows by default, `detail` adds full facts and
-  links. Its default size budget is pinned in `packages/core/test/app/registry.test.ts`.
+- Two operations have a detailed mode, off by default: `status.get` `detail` adds full facts and
+  links to compact rows, and `task.get` `why` adds the gates, holds, open turn and last moves.
+  The `status.get` default size budget is pinned in `packages/core/test/app/registry.test.ts`.
 - No operation has a limit, cursor or pagination; the unlinked rows of `status.get` have no
   count cap, but finished rows older than 7 days are left out and counted in its
   `hiddenUnlinkedPrs` and `hiddenUnlinkedSessions` (`packages/core/src/app/status.ts`). A new

@@ -5,8 +5,13 @@ import {
   BLOCK_STATES,
   BLOCK_TYPES,
   COLUMN_IDS,
+  DISPATCHER_MODES,
+  GATE_CONDITIONS,
+  GATE_CONDITION_STATES,
   MEMBERSHIPS,
+  TASK_HOLDS,
 } from '../enums.ts';
+import { GATE_REASONS, MOVE_REASONS } from '../events.ts';
 import {
   actorIdSchema,
   blockIdSchema,
@@ -125,6 +130,96 @@ export const turnViewSchema = z
       .describe('Who took the turn and when; null until it is taken.'),
   })
   .describe('A turn: the executor of a column is asked to act on a task.');
+
+/** One column move from the journal: a dispatcher move, a return to Dev or a correction. */
+export const moveViewSchema = z
+  .strictObject({
+    at: z.iso.datetime().describe('When the task moved, ISO 8601 UTC.'),
+    kind: z
+      .enum(['task_moved', 'task_shadow_moved', 'task_corrected'])
+      .describe(
+        'task_moved moves the column, task_shadow_moved only the shadow column, task_corrected is an operator correction.',
+      ),
+    actor: actorIdSchema,
+    from: z.enum(COLUMN_IDS).describe('Column the task left.'),
+    to: z.enum(COLUMN_IDS).describe('Column the task entered.'),
+    reason: z
+      .enum([...MOVE_REASONS, 'returned', 'corrected'])
+      .describe(
+        'Why it moved: a dispatcher reason, returned (a column executor returned it to Dev) or corrected (the operator corrected the column).',
+      ),
+    gate: z
+      .array(z.enum(GATE_REASONS))
+      .describe('The failing gate reasons of a gate_broken move; empty otherwise.'),
+    text: z
+      .string()
+      .nullable()
+      .describe(
+        'The block a return opened, or the reason the operator gave for a correction; null otherwise.',
+      ),
+  })
+  .describe('A column move of a task.');
+
+const gateConditionSchema = z
+  .strictObject({
+    condition: z.enum(GATE_CONDITIONS).describe('Exit condition of the column.'),
+    state: z
+      .enum(GATE_CONDITION_STATES)
+      .describe(
+        'met; failed; waiting (fails on a fact not known yet); unchecked (an earlier condition failed first).',
+      ),
+    reason: z
+      .enum(GATE_REASONS)
+      .nullable()
+      .describe('The gate reason a failed or waiting condition reports; null otherwise.'),
+  })
+  .describe('One exit condition of a column and its state.');
+
+/** Why a task is where it is, from the dispatcher's point of view. */
+export const taskWhySchema = z
+  .strictObject({
+    column: z
+      .enum(COLUMN_IDS)
+      .describe('Column the dispatcher works from: the shadow column in shadow mode.'),
+    dispatcher: z
+      .enum(DISPATCHER_MODES)
+      .nullable()
+      .describe("The project's dispatcher mode; null when the project is not configured."),
+    holds: z
+      .array(z.enum(TASK_HOLDS))
+      .describe('What holds the dispatcher from acting on the task; empty when nothing does.'),
+    gates: z
+      .array(
+        z
+          .strictObject({
+            column: z.enum(COLUMN_IDS).describe('Board column.'),
+            enabled: z.boolean().describe('Whether the column is enabled in the project.'),
+            ok: z.boolean().describe("Whether the column's own exit conditions pass."),
+            blockedIn: z
+              .enum(COLUMN_IDS)
+              .nullable()
+              .describe(
+                'Leftmost enabled column at or left of this one whose exit conditions fail; null when the cumulative gate passes.',
+              ),
+            conditions: z
+              .array(gateConditionSchema)
+              .describe("The column's exit conditions, empty for a column without any."),
+          })
+          .describe('The gate of one column.'),
+      )
+      .describe(
+        'The gate of every column, To Do to Done; empty when the pull request facts are missing.',
+      ),
+    checksWaivedBy: z
+      .literal('reposWithoutCi')
+      .nullable()
+      .describe(
+        "The config key that passed Dev's check condition for a repo without checks; null otherwise.",
+      ),
+    turn: turnViewSchema.nullable().describe('The open turn of the task; null when none is open.'),
+    moves: z.array(moveViewSchema).describe('The last 5 column moves, oldest first.'),
+  })
+  .describe('Why the task is in its column and what the dispatcher waits for.');
 
 export const itemViewSchema = z
   .strictObject({

@@ -1,28 +1,32 @@
 import {
   EVENT_KINDS,
   eventPayloadSchemas,
-  encodeActorId,
   parseActorId,
   parseRef,
   type ActorId,
   type Config,
   type EventKind,
 } from '@spur-board/contracts';
-import type { Kysely } from 'kysely';
-import { z } from 'zod';
-import { parseJson } from '../store/json.ts';
-import type { Tables } from '../store/schema.ts';
+import type { Kysely, Selectable } from 'kysely';
+import { dispatchHolds } from '../domain/dispatch.ts';
+import { explainGates } from '../domain/gates.ts';
+import type { Tables, TaskTable, TurnTable } from '../store/schema.ts';
 import { authorize, type ResolvedTarget } from './authorize.ts';
 import { authorizationTarget, blockView, commentView, taskTarget } from './blocks.ts';
-import { linkView, taskView } from './board-utils.ts';
+import { eventActor, linkView, moveViews, taskView } from './board-utils.ts';
 import { CommandError } from './commands.ts';
+import { blindSources, readInput } from './dispatch.ts';
 import { notificationAddressedTo } from './doorbells.ts';
 import { canonicalKey } from './membership.ts';
 import type { Query } from './queries.ts';
 import { turnHanded, turnNotification } from './turns.ts';
 
 type Trx = Kysely<Tables>;
-const actorRefSchema = z.strictObject({ project: z.string().min(1), session: z.string().min(1) });
+type Task = Selectable<TaskTable>;
+type Turn = Selectable<TurnTable>;
+
+/** How many of the last moves `task.get --why` shows. */
+const WHY_MOVES = 5;
 
 const EVENT_SUMMARIES = {
   head_moved: 'Pull request head moved',
@@ -43,6 +47,7 @@ const EVENT_SUMMARIES = {
   task_submitted: 'Turn submitted',
   task_moved: 'Task moved',
   task_shadow_moved: 'Shadow move',
+  task_corrected: 'Column corrected by the operator',
   dispatcher_mode_changed: 'Dispatcher mode changed',
   block_opened: 'Block opened',
   block_escalated: 'Block escalated',
@@ -123,13 +128,76 @@ async function taskByKey(trx: Trx, key: string) {
   return task;
 }
 
-export function createTaskQueries(config: Config) {
+function turnView(turn: Turn, key: string) {
+  return {
+    id: `T${String(turn.id)}`,
+    task: key,
+    column: turn.column,
+    addressee: turn.role,
+    reason: turn.reason,
+    handed: turnHanded(turn),
+    head: turn.head_sha,
+    at: turn.created_at,
+    taken:
+      turn.acked_by === null || turn.acked_at === null
+        ? null
+        : { by: turn.acked_by, at: turn.acked_at },
+  };
+}
+
+export function createTaskQueries(deps: {
+  config: Config;
+  completeSince: ReadonlyMap<string, string>;
+}) {
+  const { config, completeSince } = deps;
   const taskKey = (key: string) => {
     const parsed = parseRef(key, 'task');
     return parsed.ok && parsed.value.kind === 'task' && parsed.value.form === 'github-short'
       ? canonicalKey(config, key).key
       : key;
   };
+  /**
+   * Why the task is where it is, read as the next dispatcher pass will see it: from the column it
+   * works from (the shadow column, which only shadow mode sets) and with the configured mode. It
+   * only reads; a pending mode switch is left to the dispatcher.
+   */
+  async function why(trx: Trx, task: Task) {
+    const column = task.shadow_column ?? task.column;
+    const open = await trx
+      .selectFrom('turn')
+      .selectAll()
+      .where('task_id', '=', task.id)
+      .where('closed_at', 'is', null)
+      .orderBy('id', 'desc')
+      .executeTakeFirst();
+    const shared = {
+      column,
+      turn: open === undefined ? null : turnView(open, task.key),
+      moves: await moveViews(trx, task.id, { limit: WHY_MOVES }),
+    };
+    const project = config.projects.find((entry) => entry.id === task.project);
+    if (project === undefined)
+      return { ...shared, dispatcher: null, holds: [], gates: [], checksWaivedBy: null };
+    const mode = project.dispatcher.mode;
+    const read = await readInput(
+      trx,
+      { ...task, column },
+      project,
+      mode,
+      await blindSources(trx, completeSince),
+    );
+    if (read === null) {
+      return {
+        ...shared,
+        dispatcher: mode,
+        holds: ['pr_snapshot_missing' as const],
+        gates: [],
+        checksWaivedBy: null,
+      };
+    }
+    const { gates, checksWaivedBy } = explainGates(read.input.facts, read.input.project);
+    return { ...shared, dispatcher: mode, holds: dispatchHolds(read.input), gates, checksWaivedBy };
+  }
   const get: Query<'task.get'> = {
     id: 'task.get',
     resolveTargets: (trx, input) => taskTarget(trx, taskKey(input.task)),
@@ -156,6 +224,7 @@ export function createTaskQueries(config: Config) {
         links: links.map(linkView),
         blocks: blocks.map((block) => blockView(block, task)),
         comments: comments.map((comment) => commentView(comment, task)),
+        ...(input.why === true ? { why: await why(trx, task) } : {}),
       };
     },
   };
@@ -173,13 +242,11 @@ export function createTaskQueries(config: Config) {
       const events = rows.flatMap((row) => {
         const kind = EVENT_KINDS.find((candidate) => candidate === row.kind);
         if (kind === undefined) return [];
-        const actorRef =
-          row.actor_ref === null ? undefined : parseJson(actorRefSchema, row.actor_ref);
         return [
           {
             at: row.at,
             kind,
-            actor: encodeActorId({ actor: row.actor, actorRef }),
+            actor: eventActor(row),
             summary: linkSummary(kind, row.payload) ?? EVENT_SUMMARIES[kind],
           },
         ];
@@ -218,20 +285,7 @@ export function createTaskQueries(config: Config) {
         )
           continue;
       }
-      turns.push({
-        id: `T${String(turn.id)}`,
-        task: turn.key,
-        column: turn.column,
-        addressee: turn.role,
-        reason: turn.reason,
-        handed: turnHanded(turn),
-        head: turn.head_sha,
-        at: turn.created_at,
-        taken:
-          turn.acked_by === null || turn.acked_at === null
-            ? null
-            : { by: turn.acked_by, at: turn.acked_at },
-      });
+      turns.push(turnView(turn, turn.key));
     }
     return turns;
   }

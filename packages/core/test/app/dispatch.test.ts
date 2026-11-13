@@ -6,6 +6,7 @@ import {
   eventPayloadSchemas,
   ok,
   type ActorId,
+  type ColumnId,
   type EventKind,
   type PrFacts,
   type PrPoller,
@@ -53,15 +54,21 @@ type Options = {
   cycleLimit?: number;
   externalReview?: boolean;
   devOrchestrator?: string;
+  /** The task's project left the config: the only project tracks another repo. */
+  projectRemoved?: boolean;
 };
 
 function boardConfig(options: Options = {}) {
   return configSchema.parse({
     projects: [
       {
-        id: 'proj',
-        tracker: { type: 'github-issues', repo: 'o/r', label: 'board' },
-        repos: ['o/r'],
+        id: options.projectRemoved === true ? 'other' : 'proj',
+        tracker: {
+          type: 'github-issues',
+          repo: options.projectRemoved === true ? 'o/other' : 'o/r',
+          label: 'board',
+        },
+        repos: [options.projectRemoved === true ? 'o/other' : 'o/r'],
         operatorGithubLogin: 'agent-bot',
         spurProjects: [
           { name: 'worker', role: 'worker' },
@@ -311,6 +318,35 @@ function board(options: Options = {}) {
     archive: () => {
       step();
       return apply(registry['task.archive'], { task: KEY }, 'operator', `key-${String(++keys)}`);
+    },
+    /** The operator corrects the task's column. */
+    move: (column: Exclude<ColumnId, 'done'>, reason = 'The board put it in the wrong column.') => {
+      step();
+      return apply(
+        registry['task.move'],
+        { mode: 'correct', task: KEY, column, reason },
+        'operator',
+        `key-${String(++keys)}`,
+      );
+    },
+    unlinkPr: (number = 7) => {
+      step();
+      return apply(
+        registry['link.remove'],
+        {
+          mode: 'pr',
+          task: KEY,
+          pr: `https://github.com/o/r/pull/${String(number)}`,
+          reason: 'Merged for another ticket.',
+        },
+        'operator',
+        `key-${String(++keys)}`,
+      );
+    },
+    why: async () => {
+      const result = await query(registry['task.get'], { task: KEY, why: true }, 'operator');
+      if (result.why === undefined) throw new Error('task.get returned no why');
+      return result.why;
     },
     add: () => {
       step();
@@ -1386,6 +1422,325 @@ describe('mode switch', () => {
     await ctx.github();
     await ctx.submit(REV, KEY, A);
     expect(await ctx.task()).toMatchObject({ column: 'review', shadow_column: 'product-review' });
+  });
+});
+
+describe('task.move', () => {
+  const cycleItems = (ctx: Board) =>
+    ctx.store.db
+      .selectFrom('operator_item')
+      .select(['item_key', 'cleared_at'])
+      .where('kind', '=', 'cycle_limit')
+      .execute();
+  const mode = (ctx: Board) =>
+    ctx.store.db
+      .selectFrom('meta')
+      .select('value')
+      .where('key', '=', 'dispatcher_mode:proj')
+      .executeTakeFirst();
+  /** The kinds journaled from `task_corrected` on. */
+  const fromCorrection = async (ctx: Board) => {
+    const events = await ctx.events();
+    return events.slice(events.findIndex((event) => event.kind === 'task_corrected'));
+  };
+  /** In shadow mode, the task in To Do with its shadow column in Review after a shadow submit. */
+  async function shadowInReview(): Promise<Board> {
+    const ctx = await started({ mode: 'shadow' });
+    await ctx.pr();
+    await ctx.submit(WORKER, KEY, A);
+    expect(await ctx.task()).toMatchObject({ column: 'todo', shadow_column: 'review' });
+    return ctx;
+  }
+
+  it('explains from the shadow column a pending switch to on will copy, and writes nothing', async () => {
+    const ctx = await shadowInReview();
+    ctx.restart({ mode: 'on' });
+    const before = await ctx.snapshot();
+
+    const why = await ctx.why();
+
+    expect(why).toMatchObject({ column: 'review', dispatcher: 'on' });
+    expect(await ctx.snapshot()).toEqual(before);
+    expect(await mode(ctx)).toEqual({ value: '"shadow"' });
+  });
+
+  it("settles a correction past a broken Dev back in Dev and counts it toward Review's limit", async () => {
+    const ctx = await inDev({ cycleLimit: 1 });
+    await ctx.pr({
+      feedback: [
+        { kind: 'comment', id: 'c-1', author: { login: EXTERNAL, type: 'user' }, postedAt: at(5) },
+      ],
+      feedbackComplete: true,
+    });
+
+    const result = await ctx.move('review');
+
+    expect(result.column).toBe('dev');
+    expect(result.settled).toEqual([
+      expect.objectContaining({
+        kind: 'task_moved',
+        from: 'review',
+        to: 'dev',
+        reason: 'gate_broken',
+        gate: expect.arrayContaining(['external_comments']) as unknown,
+      }),
+    ]);
+    const [corrected, bounced] = await fromCorrection(ctx);
+    expect(corrected).toEqual({
+      kind: 'task_corrected',
+      payload: {
+        from: 'dev',
+        to: 'review',
+        reason: 'The board put it in the wrong column.',
+        shadow: false,
+      },
+    });
+    expect(bounced).toMatchObject({
+      kind: 'task_moved',
+      payload: { from: 'review', to: 'dev', reason: 'gate_broken' },
+    });
+    expect(await cycleItems(ctx)).toEqual([{ item_key: 'cycle-limit:1:review', cleared_at: null }]);
+    expect(await ctx.openTurn()).toBeNull();
+    expect((await ctx.task()).left_moves).toBe(1);
+  });
+
+  it('carries the feedback an untaken Dev turn handed over into the turn after a correction to Dev', async () => {
+    const handed = { repo: 'o/r', number: 7, kind: 'comment', id: 'c-1', postedAt: at(1) };
+    const ctx = await started({}, 'none');
+    await ctx.pr({
+      feedback: [
+        { kind: 'comment', id: 'c-1', author: { login: EXTERNAL, type: 'user' }, postedAt: at(1) },
+      ],
+    });
+    const untaken = await ctx.openTurn();
+    expect(untaken).toEqual(turnOf('dev', 'operator', 'dev: external_comments, no_submit_on_head'));
+    expect(JSON.parse(untaken?.handed ?? '[]')).toEqual([handed]);
+
+    const result = await ctx.move('dev');
+
+    expect(result.column).toBe('dev');
+    expect((await ctx.turns())[0]).toMatchObject({ id: 1, closed_reason: 'corrected' });
+    const turn = await ctx.openTurn();
+    expect(turn).toMatchObject({ id: 'T2', column: 'dev' });
+    expect(JSON.parse(turn?.handed ?? '[]')).toEqual([handed]);
+  });
+
+  describe('feedback of the untaken turns a correction closes', () => {
+    const handed = { repo: 'o/r', number: 7, kind: 'comment', id: 'c-1', postedAt: at(1) };
+    /** No live worker: the operator's untaken Dev turn T1 hands over comment c-1. */
+    async function untakenWithComment(): Promise<Board> {
+      const ctx = await started({}, 'none');
+      await ctx.pr({
+        feedback: [
+          {
+            kind: 'comment',
+            id: 'c-1',
+            author: { login: EXTERNAL, type: 'user' },
+            postedAt: at(1),
+          },
+        ],
+      });
+      expect(JSON.parse((await ctx.openTurn())?.handed ?? '[]')).toEqual([handed]);
+      return ctx;
+    }
+
+    it('hands it over in the Dev turn opened once GitHub sees again', async () => {
+      const ctx = await untakenWithComment();
+      await ctx.blind(GITHUB, true);
+
+      await ctx.move('dev');
+      expect((await ctx.turns())[0]).toMatchObject({ id: 1, closed_reason: 'corrected' });
+      expect(await ctx.openTurn()).toBeNull();
+      // The poll cursor still counts the closed turn: the snapshot keeps c-1 either way.
+      expect((await ctx.context()).feedbackCursors).toEqual([
+        { ref: { kind: 'pr', repo: 'o/r', number: 7 }, id: 'c-1', postedAt: at(1) },
+      ]);
+
+      await ctx.blind(GITHUB, false);
+      const turn = await ctx.openTurn();
+      expect(turn).toMatchObject({ id: 'T2', column: 'dev' });
+      expect(JSON.parse(turn?.handed ?? '[]')).toEqual([handed]);
+    });
+
+    it('hands it over in the Dev turn after a correction to Review bounces left', async () => {
+      const ctx = await untakenWithComment();
+
+      const result = await ctx.move('review');
+
+      expect(result).toMatchObject({ column: 'dev', settled: [{ from: 'review', to: 'dev' }] });
+      const turn = await ctx.openTurn();
+      expect(turn).toMatchObject({ id: 'T2', column: 'dev' });
+      expect(JSON.parse(turn?.handed ?? '[]')).toEqual([handed]);
+    });
+
+    it('hands it over in the worker turn deferred while Spur is blind, past a reroute', async () => {
+      const ctx = await untakenWithComment();
+      await ctx.spur('live');
+      expect((await ctx.turns())[0]).toMatchObject({ id: 1, closed_reason: 'rerouted' });
+      expect(await ctx.openTurn()).toMatchObject({ id: 'T2', role: 'worker' });
+      await ctx.blind('spur', true);
+
+      await ctx.move('dev');
+      expect((await ctx.turns())[1]).toMatchObject({ id: 2, closed_reason: 'corrected' });
+      expect(await ctx.openTurn()).toBeNull();
+
+      await ctx.blind('spur', false);
+      const turn = await ctx.openTurn();
+      expect(turn).toMatchObject({ id: 'T3', column: 'dev', role: 'worker' });
+      expect(JSON.parse(turn?.handed ?? '[]')).toEqual([handed]);
+    });
+
+    it('hands it over from the closed turn after a poll dropped it from the snapshot', async () => {
+      const ctx = await untakenWithComment();
+      // A poll past more than 100 newer comments stops at the turn's c-1 and keeps only the
+      // newest 100: c-1 is gone from the snapshot, and the poll cursor never pages back to it.
+      await ctx.pr({ feedback: [] });
+      expect(await ctx.openTurn()).toMatchObject({ id: 'T1' });
+
+      await ctx.move('dev');
+
+      expect((await ctx.turns())[0]).toMatchObject({ id: 1, closed_reason: 'corrected' });
+      const turn = await ctx.openTurn();
+      expect(turn).toEqual(turnOf('dev', 'operator', 'dev: external_comments, no_submit_on_head'));
+      expect(JSON.parse(turn?.handed ?? '[]')).toEqual([handed]);
+    });
+
+    it('drops it from a closed untaken turn once a later taken turn handed it over', async () => {
+      const ctx = await untakenWithComment();
+      await ctx.spur('live');
+      await ctx.ack(WORKER, 'T2');
+      await ctx.pr({ feedback: [] });
+
+      await ctx.move('dev');
+
+      expect((await ctx.turns()).map((turn) => turn.closed_reason)).toEqual([
+        'rerouted',
+        'corrected',
+        null,
+      ]);
+      const turn = await ctx.openTurn();
+      expect(turn).toEqual(turnOf('dev', 'worker', 'dev: no_submit_on_head'));
+      expect(JSON.parse(turn?.handed ?? '[]')).toEqual([]);
+    });
+
+    it('counts it handled when the closed turn was taken', async () => {
+      const ctx = await untakenWithComment();
+      await ctx.spur('live');
+      await ctx.ack(WORKER, 'T2');
+
+      await ctx.move('dev');
+
+      expect((await ctx.turns())[1]).toMatchObject({ id: 2, closed_reason: 'corrected' });
+      const turn = await ctx.openTurn();
+      expect(turn).toEqual(turnOf('dev', 'worker', 'dev: no_submit_on_head'));
+      expect(JSON.parse(turn?.handed ?? '[]')).toEqual([]);
+    });
+  });
+
+  it('settles a correction out of an unlinked Done to Review back in Dev with no_pr, uncounted', async () => {
+    const ctx = await inDev({ cycleLimit: 1 });
+    await ctx.pr({ state: 'merged' });
+    expect((await ctx.task()).column).toBe('done');
+    await ctx.unlinkPr();
+    expect((await ctx.task()).column).toBe('done');
+
+    const result = await ctx.move('review');
+
+    expect(result).toMatchObject({ from: 'done', to: 'review', column: 'dev' });
+    expect(
+      result.settled.map(({ from, to, reason, gate }) => ({ from, to, reason, gate })),
+    ).toEqual([{ from: 'review', to: 'dev', reason: 'gate_broken', gate: ['no_pr'] }]);
+    expect(await cycleItems(ctx)).toEqual([]);
+    expect(await ctx.openTurn()).toEqual(turnOf('dev', 'worker', 'dev: no_pr'));
+  });
+
+  it('settles a shadow correction with task_shadow_moved and no count', async () => {
+    const ctx = await started({ mode: 'shadow', cycleLimit: 1 });
+
+    const result = await ctx.move('review');
+
+    expect(result).toMatchObject({ to: 'review', column: 'dev', task: { column: 'todo' } });
+    expect(await ctx.task()).toMatchObject({ column: 'todo', shadow_column: 'dev' });
+    expect((await fromCorrection(ctx)).slice(0, 2)).toEqual([
+      {
+        kind: 'task_corrected',
+        payload: {
+          from: 'dev',
+          to: 'review',
+          reason: 'The board put it in the wrong column.',
+          shadow: true,
+        },
+      },
+      {
+        kind: 'task_shadow_moved',
+        payload: { from: 'review', to: 'dev', reason: 'gate_broken', gate: ['no_pr'] },
+      },
+    ]);
+    expect(await cycleItems(ctx)).toEqual([]);
+  });
+
+  it('refuses a correction for a task whose project left the config, and writes nothing', async () => {
+    const ctx = await inReview();
+    ctx.restart({ projectRemoved: true });
+    const before = await ctx.snapshot();
+
+    await expect(ctx.move('dev')).rejects.toMatchObject({ code: 'move_not_allowed' });
+
+    expect(await ctx.snapshot()).toEqual(before);
+  });
+
+  it('explains a task whose project left the config with no dispatcher, holds or gates', async () => {
+    const ctx = await inReview();
+    ctx.restart({ projectRemoved: true });
+
+    expect(await ctx.why()).toMatchObject({
+      column: 'review',
+      dispatcher: null,
+      holds: [],
+      gates: [],
+      checksWaivedBy: null,
+    });
+  });
+
+  it('keeps a correction made before the first pass after a switch to on', async () => {
+    const ctx = await shadowInReview();
+    ctx.restart({ mode: 'on' });
+
+    await ctx.move('dev');
+
+    expect(await ctx.task()).toMatchObject({ column: 'dev', shadow_column: null });
+    const events = (await ctx.events()).filter((event) =>
+      ['task_moved', 'dispatcher_mode_changed', 'task_corrected'].includes(event.kind),
+    );
+    expect(events).toEqual([
+      { kind: 'task_moved', payload: { from: 'todo', to: 'review', reason: 'mode_changed' } },
+      { kind: 'dispatcher_mode_changed', payload: { from: 'shadow', to: 'on' } },
+      {
+        kind: 'task_corrected',
+        payload: {
+          from: 'review',
+          to: 'dev',
+          reason: 'The board put it in the wrong column.',
+          shadow: false,
+        },
+      },
+    ]);
+  });
+
+  it('keeps a correction made before the first pass after a switch to shadow', async () => {
+    const ctx = await inReview();
+    ctx.restart({ mode: 'shadow' });
+
+    await ctx.move('dev');
+
+    expect(await ctx.task()).toMatchObject({ column: 'review', shadow_column: 'dev' });
+    const kinds = (await ctx.events()).map((event) => event.kind);
+    expect(kinds.indexOf('task_corrected')).toBeGreaterThan(
+      kinds.indexOf('dispatcher_mode_changed'),
+    );
+    expect((await ctx.events('task_corrected')).map((event) => event.payload)).toEqual([
+      { from: 'review', to: 'dev', reason: 'The board put it in the wrong column.', shadow: true },
+    ]);
   });
 });
 

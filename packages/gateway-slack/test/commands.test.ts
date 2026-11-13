@@ -71,6 +71,11 @@ describe('Slack board commands', () => {
       id: 'task.get',
       input: { task: 'PROJ-123' },
     });
+    expect(parseCommand('task PROJ-123 why', '/board')).toEqual({
+      kind: 'query',
+      id: 'task.get',
+      input: { task: 'PROJ-123', why: true },
+    });
     expect(parseCommand('task PROJ-123 history', '/board')).toEqual({
       kind: 'query',
       id: 'task.history',
@@ -80,12 +85,14 @@ describe('Slack board commands', () => {
 
   it('derives usage and parsing from the same bindings for a configured name', () => {
     const usage = commandUsage('/ops');
-    expect(usage).toBe('Usage:\n/ops status\n/ops task <KEY>\n/ops task <KEY> history');
+    expect(usage).toBe('Usage:\n/ops status\n/ops task <KEY> [why]\n/ops task <KEY> history');
     for (const input of [
       'unknown',
       'task',
       'task bad-key',
       'task PROJ-123 extra',
+      'task PROJ-123 why extra',
+      'task why',
       'link PROJ-123 --pr https://example.test/pull/7',
       'unlink PROJ-123 --session web-7',
     ]) {

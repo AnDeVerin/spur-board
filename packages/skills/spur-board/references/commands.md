@@ -16,7 +16,7 @@ Other errors: `not_found`.
 
 Purpose: Show a task with its links, blocks and comments.
 Arguments: `<task>`.
-Flags: `--json`.
+Flags: `--why`, `--json`.
 Use when: Inspect one task now.
 Avoid when: Use `board task history <task>` for past events.
 Example: `board task PROJ-123` — Show one task.

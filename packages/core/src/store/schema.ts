@@ -169,7 +169,7 @@ export interface TurnTable {
   acked_at: string | null;
   closed_at: string | null;
   /** Free text in the store, so a later reason (a submit) needs no migration. */
-  closed_reason: 'moved' | 'archived' | 'submitted' | 'rerouted' | null;
+  closed_reason: 'moved' | 'archived' | 'submitted' | 'rerouted' | 'corrected' | null;
   created_at: string;
   /** Head commit of the task's PR when the turn opened, lowercase; null without a PR. */
   head_sha: string | null;
