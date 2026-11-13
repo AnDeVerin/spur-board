@@ -1,4 +1,4 @@
-import { OPERATIONS, type RichText } from '@spur-board/contracts';
+import { OPERATIONS, type GateConditionState, type RichText } from '@spur-board/contracts';
 import type { z } from 'zod';
 
 function line(text: string): RichText[number] {
@@ -11,9 +11,16 @@ function quote(text: string): RichText[number] {
 
 type TaskGet = z.output<Extract<(typeof OPERATIONS)[number], { id: 'task.get' }>['output']>;
 
+/** Failed and waiting conditions lead a column's line; unchecked and met follow. */
+const STATE_ORDER = { failed: 0, waiting: 0, unchecked: 1, met: 2 } satisfies Record<
+  GateConditionState,
+  number
+>;
+
 /**
- * The why reply: the column and holds, each enabled column whose own conditions fail, the
- * waiver, the open turn, the open blocks and the last moves. Agent and operator text is quoted.
+ * The why reply: the column and holds, every condition of each enabled column whose own gate
+ * fails, the enabled columns whose gate passes, the waiver, the open turn, the open blocks and the
+ * last moves. Agent and operator text is quoted.
  */
 function whyLines(
   key: string,
@@ -27,6 +34,7 @@ function whyLines(
         ? ' (shadow)'
         : '';
   const here = why.gates.find((gate) => gate.column === why.column);
+  const passing = why.gates.filter((gate) => gate.enabled && gate.ok).map((gate) => gate.column);
   const turn = why.turn;
   return [
     line(`Task ${key} is in ${why.column}${mode}.`),
@@ -36,14 +44,15 @@ function whyLines(
       .map((gate) =>
         line(
           `${gate.column}: ${gate.conditions
-            .filter((condition) => condition.state === 'failed' || condition.state === 'waiting')
+            .toSorted((a, b) => STATE_ORDER[a.state] - STATE_ORDER[b.state])
             .map(
               (condition) =>
-                `${condition.condition} ${condition.state} (${condition.reason ?? 'unknown'})`,
+                `${condition.condition} ${condition.state}${condition.reason === null ? '' : ` (${condition.reason})`}`,
             )
             .join(', ')}`,
         ),
       ),
+    ...(passing.length === 0 ? [] : [line(`Gates passing: ${passing.join(', ')}.`)]),
     ...(here === undefined
       ? []
       : [
