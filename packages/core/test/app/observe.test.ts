@@ -2818,4 +2818,81 @@ describe('anomaly blocks', () => {
     expect(await openLedger(b)).toEqual([]);
     expect((await surface(b)).items.map((item) => item.cleared_at !== null)).toEqual([true]);
   });
+  describe('reopen floor', () => {
+    const ticket = (b: Board, status: string) =>
+      poll(b, source, [{ kind: 'ticket', facts: { ...fact(), inFilter: true, status } }]);
+    const task = (b: Board) => b.store.db.selectFrom('task').selectAll().executeTakeFirstOrThrow();
+    async function linkId(b: Board, number: number) {
+      const row = await b.store.db
+        .selectFrom('link')
+        .select('id')
+        .where('entity', '=', 'pr')
+        .where('number', '=', number)
+        .executeTakeFirstOrThrow();
+      return row.id;
+    }
+    /** PR #7 merged, then the ticket closed and reopened. */
+    async function reopened(b: Board) {
+      await ticket(b, 'open');
+      await prs(b, [pr(7, 'merged')]);
+      await ticket(b, 'closed');
+      await ticket(b, 'open');
+    }
+
+    it('sets the reopen floor when a ticket reopens after a merge', async () => {
+      const b = await board();
+      await ticket(b, 'open');
+      await prs(b, [pr(7, 'merged')]);
+      await ticket(b, 'closed');
+      expect((await task(b)).reopen_link_floor).toBeNull();
+
+      await ticket(b, 'open');
+      expect((await task(b)).reopen_link_floor).toBe(await linkId(b, 7));
+    });
+
+    it('keeps a reopened task with only its old merged PR out of terminal', async () => {
+      const b = await board();
+      await ticket(b, 'open');
+      await prs(b, [pr(7, 'merged')]);
+      expect((await task(b)).terminal_at).not.toBeNull();
+
+      await ticket(b, 'closed');
+      await ticket(b, 'open');
+      expect((await task(b)).terminal_at).toBeNull();
+    });
+
+    it('keeps a merged task without a floor terminal', async () => {
+      const b = await board();
+      await ticket(b, 'open');
+      await prs(b, [pr(7, 'merged')]);
+      await ticket(b, 'open');
+      expect(await task(b)).toMatchObject({ reopen_link_floor: null, terminal_at: iso() });
+    });
+
+    it('opens the pr-closed operator block for a reopened task whose new PR closed unmerged', async () => {
+      const b = await board();
+      await reopened(b);
+      await prs(b, [pr(7, 'merged'), pr(8, 'open')]);
+      expect(await openLedger(b)).toEqual([]);
+
+      await prs(b, [pr(7, 'merged'), pr(8, 'closed')]);
+      expect(await openLedger(b)).toEqual(['pr-closed']);
+      expect((await surface(b)).blocks[0]?.reason).toBe(
+        'linked pull request o/r#8 closed without merge, no open PR',
+      );
+    });
+
+    it('flags a worker that ended on a reopened task with only its old merged PR', async () => {
+      const b = await board();
+      await reopened(b);
+      await spur(b, [sessionFact('worker-1', link, true)]);
+      expect(await openLedger(b)).toEqual(['health:worker-1:worker_completed']);
+
+      const merged = await board();
+      await ticket(merged, 'open');
+      await prs(merged, [pr(7, 'merged')]);
+      await spur(merged, [sessionFact('worker-1', link, true)]);
+      expect(await openLedger(merged)).toEqual([]);
+    });
+  });
 });
