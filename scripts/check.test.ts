@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
   buildSteps,
@@ -251,6 +251,66 @@ describe('ordinary and full process selection', () => {
       );
       expect(tests.commands[1]?.args).toContain('startup');
     }
+  });
+
+  const generatedFileTests = [
+    'scripts/gen-docs.test.ts',
+    'packages/skills/test/skill-sync.test.ts',
+  ];
+  const contractsDirs = ['packages/cli', 'packages/contracts', 'packages/daemon'];
+
+  function firstTestArgs(changedPaths: string[], prePush: boolean, dirs = contractsDirs) {
+    const plan = selectPlan({
+      full: false,
+      prePush,
+      base,
+      changed: changedPaths.map((path) => ({ path, deleted: false })),
+      packageDirs: dirs,
+    });
+    if ('error' in plan) throw new Error(plan.error);
+    const tests = buildSteps(plan, prePush).find((step) => step.name === 'test');
+    if (!tests || !('commands' in tests)) throw new Error('missing test commands');
+    return { plan, args: tests.commands[0]?.args ?? [] };
+  }
+
+  it('runs the generated-file tests for a contracts-only change', () => {
+    const { plan, args } = firstTestArgs(['packages/contracts/src/config.ts'], false);
+    expect(plan.packageDirs).toEqual(['packages/contracts']);
+    expect(args).toEqual([
+      'run',
+      '--passWithNoTests',
+      '--project',
+      'unit',
+      '--project',
+      'integration',
+      '--project',
+      'process',
+      'packages/contracts/',
+      ...generatedFileTests,
+    ]);
+  });
+
+  it('lists each generated-file test once when cli and contracts are affected', () => {
+    const { plan, args } = firstTestArgs(
+      ['packages/contracts/src/config.ts', 'packages/cli/src/cli.ts'],
+      false,
+    );
+    expect(plan.packageDirs).toEqual(['packages/cli', 'packages/contracts']);
+    for (const file of generatedFileTests) {
+      expect(args.filter((arg) => arg === file)).toHaveLength(1);
+    }
+  });
+
+  it('leaves the generated-file tests out of the pre-push run', () => {
+    const { args } = firstTestArgs(['packages/contracts/src/config.ts'], true);
+    for (const file of generatedFileTests) expect(args).not.toContain(file);
+  });
+
+  it('names only generated-file tests that exist', () => {
+    const { args } = firstTestArgs(['packages/contracts/src/config.ts'], false);
+    const files = args.filter((arg) => arg.endsWith('.test.ts'));
+    expect(files).not.toHaveLength(0);
+    for (const file of files) expect(existsSync(new URL(`../${file}`, import.meta.url))).toBe(true);
   });
 });
 
