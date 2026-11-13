@@ -6,6 +6,7 @@ import {
   blockIdSchema,
   commentIdSchema,
   itemIdSchema,
+  taskKeyInputSchema,
   taskKeySchema,
   turnIdSchema,
 } from '../ids.ts';
@@ -30,31 +31,44 @@ import {
 } from './schemas.ts';
 import { SPACE_IDS } from '../gateway/schemas.ts';
 
+/** Longest free text an input takes: comments, questions, answers and reasons. */
+const TEXT_MAX = 20_000;
+/** Longest project, session or token name an input takes. */
+const NAME_MAX = 256;
+/** Longest pull request URL or unblock reference an input takes. */
+const REF_MAX = 2048;
+/** Most entries one `inbox.ack` call acknowledges. */
+const ACK_ENTRIES_MAX = 100;
+
 const project = z
   .string()
   .min(1)
+  .max(NAME_MAX)
   .optional()
   .describe('Project to limit the answer to; absent means every project the caller may see.');
-const text = (what: string) => z.string().min(1).describe(what);
-const target = text('Pull request, session, or ticket linked to the task.');
+const text = (what: string, max: number) => z.string().min(1).max(max).describe(what);
+const target = z.string().min(1).describe('Pull request, session, or ticket linked to the task.');
 const linkInput = z.discriminatedUnion('mode', [
   z.strictObject({
     mode: z.literal('pr').describe('Link a pull request.'),
-    task: taskKeySchema,
-    pr: z.url({ protocol: /^https?$/ }).describe('Pull request URL.'),
-    reason: text('Why this link is being changed.'),
+    task: taskKeyInputSchema,
+    pr: z
+      .url({ protocol: /^https?$/ })
+      .max(REF_MAX)
+      .describe('Pull request URL.'),
+    reason: text('Why this link is being changed.', TEXT_MAX),
   }),
   z.strictObject({
     mode: z.literal('session').describe('Link a spur session.'),
-    task: taskKeySchema,
-    session: text('Spur session ID.'),
-    reason: text('Why this link is being changed.'),
+    task: taskKeyInputSchema,
+    session: text('Spur session ID.', NAME_MAX),
+    reason: text('Why this link is being changed.', TEXT_MAX),
   }),
   z.strictObject({
     mode: z.literal('ticket').describe('Link an additional tracker ticket.'),
-    task: taskKeySchema,
-    ticket: taskKeySchema,
-    reason: text('Why this link is being changed.'),
+    task: taskKeyInputSchema,
+    ticket: taskKeyInputSchema,
+    reason: text('Why this link is being changed.', TEXT_MAX),
   }),
 ]);
 const linkModes = [
@@ -204,7 +218,7 @@ const operatorOnly = [{ grant: 'operator' }] as const;
 const tokenStatus = z
   .enum(['pending', 'approved', 'denied', 'expired', 'revoked'])
   .describe('Current token state.');
-const tokenName = text('Unique name of the operator token.');
+const tokenName = z.string().min(1).describe('Unique name of the operator token.');
 
 /** The M1 operations. CLI, MCP and the daemon route are generated from this list. */
 export const OPERATIONS = [
@@ -350,7 +364,7 @@ export const OPERATIONS = [
     description: 'Show a task with its links, blocks and comments.',
     mcp: { whenToUse: 'Inspect one task now.', whenNotToUse: 'Use task_history for past events.' },
     input: z.strictObject({
-      task: taskKeySchema,
+      task: taskKeyInputSchema,
       why: z
         .boolean()
         .optional()
@@ -419,7 +433,7 @@ export const OPERATIONS = [
       whenToUse: 'Trace changes to one task.',
       whenNotToUse: 'Use task_get for current state.',
     },
-    input: z.strictObject({ task: taskKeySchema }),
+    input: z.strictObject({ task: taskKeyInputSchema }),
     output: z.strictObject({
       task: taskViewSchema,
       events: z
@@ -560,6 +574,7 @@ export const OPERATIONS = [
           ]),
         )
         .min(1)
+        .max(ACK_ENTRIES_MAX)
         .describe('Comment revisions, blocks and turns to acknowledge.'),
     }),
     output: z.strictObject({
@@ -603,7 +618,7 @@ export const OPERATIONS = [
         .array(
           z.strictObject({
             name: tokenName,
-            folder: text('Folder where the token file was created.'),
+            folder: z.string().min(1).describe('Folder where the token file was created.'),
             status: tokenStatus,
           }),
         )
@@ -629,7 +644,7 @@ export const OPERATIONS = [
       whenToUse: 'Disable a named operator token immediately.',
       whenNotToUse: 'Use token_list to inspect tokens without changing them.',
     },
-    input: z.strictObject({ name: tokenName }),
+    input: z.strictObject({ name: tokenName.max(NAME_MAX) }),
     output: z.strictObject({ name: tokenName, status: tokenStatus }),
     grants: operatorOnly,
     errors: ['not_found'],
@@ -651,7 +666,7 @@ export const OPERATIONS = [
       whenToUse: 'Add a task to the board.',
       whenNotToUse: 'Use task_get if it already exists.',
     },
-    input: z.strictObject({ task: taskKeySchema }),
+    input: z.strictObject({ task: taskKeyInputSchema }),
     output: taskOutput,
     grants: operatorOnly,
     errors: ['wrong_id_kind', 'not_found'],
@@ -667,7 +682,7 @@ export const OPERATIONS = [
       whenToUse: 'Remove a task from active view.',
       whenNotToUse: 'Use task_get to inspect its current state.',
     },
-    input: z.strictObject({ task: taskKeySchema }),
+    input: z.strictObject({ task: taskKeyInputSchema }),
     output: taskOutput,
     grants: operatorOnly,
     errors: ['wrong_id_kind', 'not_found', 'task_archived'],
@@ -778,7 +793,7 @@ export const OPERATIONS = [
       whenNotToUse: 'Use comment_add for a nonblocking note.',
       destructive: false,
     },
-    input: z.strictObject({ task: taskKeySchema, text: text('The question.') }),
+    input: z.strictObject({ task: taskKeyInputSchema, text: text('The question.', TEXT_MAX) }),
     output: blockOutput,
     grants: [{ grant: 'project-agent' }],
     errors: ['wrong_id_kind', 'not_found', 'task_archived'],
@@ -802,9 +817,9 @@ export const OPERATIONS = [
       destructive: false,
     },
     input: z.strictObject({
-      task: taskKeySchema,
+      task: taskKeyInputSchema,
       block: blockIdSchema.optional().describe('Block conversation to join, if any.'),
-      text: text('Comment text.'),
+      text: text('Comment text.', TEXT_MAX),
     }),
     output: z.strictObject({ comment: commentSchema }),
     grants: [{ grant: 'project-agent' }, { grant: 'operator' }],
@@ -829,7 +844,7 @@ export const OPERATIONS = [
     },
     input: z.strictObject({
       comment: commentIdSchema,
-      text: text('Replacement comment text.'),
+      text: text('Replacement comment text.', TEXT_MAX),
     }),
     output: z.strictObject({ comment: commentSchema }),
     grants: [{ grant: 'project-agent' }, { grant: 'operator' }],
@@ -854,9 +869,9 @@ export const OPERATIONS = [
       destructive: false,
     },
     input: z.strictObject({
-      task: taskKeySchema,
+      task: taskKeyInputSchema,
       type: z.enum(BLOCK_TYPES).extract(['dependency', 'external']).describe('Block type.'),
-      reason: text('What the task waits for.'),
+      reason: text('What the task waits for.', TEXT_MAX),
     }),
     output: blockOutput,
     grants: [{ grant: 'column-orchestrator' }, { grant: 'operator' }],
@@ -892,6 +907,7 @@ export const OPERATIONS = [
       note: z
         .string()
         .min(1)
+        .max(TEXT_MAX)
         .optional()
         .describe('Context for the next addressee, posted after the original text.'),
     }),
@@ -921,7 +937,7 @@ export const OPERATIONS = [
       whenToUse: 'Answer an open question.',
       whenNotToUse: 'Use block_unblock to close without an answer.',
     },
-    input: z.strictObject({ block: blockIdSchema, text: text('The answer.') }),
+    input: z.strictObject({ block: blockIdSchema, text: text('The answer.', TEXT_MAX) }),
     output: z.strictObject({ block: blockViewSchema, comment: commentSchema }),
     grants: [{ grant: 'block-addressee' }, { grant: 'operator' }],
     preconditions: { blockTypes: ['needs_input'] },
@@ -958,14 +974,17 @@ export const OPERATIONS = [
         .strictObject({
           mode: z.literal('done').describe('The blocking work is done.'),
           block: blockIdSchema,
-          ref: text('What resolved the block, e.g. a commit SHA or a pull request.').optional(),
+          ref: text(
+            'What resolved the block, e.g. a commit SHA or a pull request.',
+            REF_MAX,
+          ).optional(),
         })
         .describe('Unblock because the work is done.'),
       z
         .strictObject({
           mode: z.literal('reason').describe('Unblock with an explanation.'),
           block: blockIdSchema,
-          reason: text('Why the block no longer applies.'),
+          reason: text('Why the block no longer applies.', TEXT_MAX),
         })
         .describe('Unblock with a reason.'),
       z
@@ -974,7 +993,10 @@ export const OPERATIONS = [
             .literal('withdraw')
             .describe('The author takes their own question back (needs_input only).'),
           block: blockIdSchema,
-          answer: text('Why it is withdrawn, e.g. the answer received outside the board.'),
+          answer: text(
+            'Why it is withdrawn, e.g. the answer received outside the board.',
+            TEXT_MAX,
+          ),
         })
         .describe('Withdraw the block.'),
     ]),
@@ -1054,11 +1076,13 @@ export const OPERATIONS = [
     },
     input: z.strictObject({
       turn: z
-        .union([turnIdSchema, taskKeySchema])
+        .union([turnIdSchema, taskKeyInputSchema])
         .describe(
           'Turn ID you took (T4); while the project dispatcher is in shadow mode, the task key instead.',
         ),
-      sha: commitShaSchema.describe('Full commit SHA at the head of the pull request, lowercase.'),
+      sha: commitShaSchema
+        .max(64)
+        .describe('Full commit SHA at the head of the pull request, lowercase.'),
     }),
     output: z.strictObject({
       task: taskViewSchema,
@@ -1103,7 +1127,7 @@ export const OPERATIONS = [
     },
     input: z.strictObject({
       turn: turnIdSchema,
-      reason: text('What the worker must change, sent to the worker as a code block.'),
+      reason: text('What the worker must change, sent to the worker as a code block.', TEXT_MAX),
     }),
     output: z.strictObject({ task: taskViewSchema, block: blockViewSchema }),
     grants: [{ grant: 'task-worker' }, { grant: 'column-orchestrator' }],
@@ -1146,12 +1170,12 @@ export const OPERATIONS = [
     input: z.discriminatedUnion('mode', [
       z.strictObject({
         mode: z.literal('correct').describe('Correct a wrong column by hand.'),
-        task: taskKeySchema,
+        task: taskKeyInputSchema,
         column: z
           .enum(COLUMN_IDS)
           .exclude(['done'])
           .describe('Enabled column to put the task in; Done is reached only from the facts.'),
-        reason: text('Why the column is corrected, kept in the journal.'),
+        reason: text('Why the column is corrected, kept in the journal.', TEXT_MAX),
       }),
     ]),
     output: z.strictObject({
