@@ -82,7 +82,10 @@ async function readThread(
   for (;;) {
     if (aborted()) return ABORTED;
     try {
-      return await untilAborted(readMessages(client, { channel, threadTs }), signal);
+      return await untilAborted(
+        readMessages(client, { channel, threadTs, ...(signal === undefined ? {} : { signal }) }),
+        signal,
+      );
     } catch (error) {
       const result = apiFailure(error);
       if (result.status !== 'retry' || result.uncertain) throw error;

@@ -293,6 +293,48 @@ describe('Slack thread recovery', () => {
     await new Promise((resolve) => setImmediate(resolve));
   });
 
+  it('requests no further page of an abandoned thread read', async () => {
+    const firstPage = Promise.withResolvers<object>();
+    let calls = 0;
+    const client = {
+      conversations: {
+        replies: () => {
+          calls += 1;
+          return calls === 1
+            ? firstPage.promise
+            : Promise.resolve({ ok: true, messages: [], has_more: false });
+        },
+      },
+    } as unknown as WebClient;
+    const controller = new AbortController();
+    const recovering = collect(
+      recoverThreads(
+        client,
+        {
+          conversations: [{ ref: conversationRef('C_ORCH', '1700000000.000100') }],
+          since: new Date(0),
+          signal: controller.signal,
+        },
+        () => Promise.resolve({ userId: 'U_BOT' }),
+        () => Date.now(),
+      ),
+    );
+    await vi.waitFor(() => {
+      expect(calls).toBe(1);
+    });
+    controller.abort();
+    expect(await recovering).toEqual([]);
+    firstPage.resolve({
+      ok: true,
+      messages: [{ ts: '1700000000.000100', text: 'root' }],
+      response_metadata: { next_cursor: 'page-2' },
+    });
+    for (let tick = 0; tick < 10; tick += 1) {
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+    expect(calls).toBe(1);
+  });
+
   it('does not acknowledge a Socket Mode envelope while the sink is held', async () => {
     const { fake, gateway, conversation } = await setup();
     const entered = Promise.withResolvers<undefined>();
