@@ -2239,6 +2239,28 @@ describe('PR index cache', () => {
       { name: 'build', state: 'success', completedAt: '2026-01-01T00:00:00.000Z' },
     ]);
   });
+  it('reads an open PR in full again while a check is skipped, which could become required unseen', async () => {
+    const run = scenario();
+    run.state.index = (n) =>
+      indexPr(n, { statusCheckRollup: rollup('SUCCESS', [indexCheck('SKIPPED')]) });
+    await run.poll([refOf(8)]);
+    await run.poll([refOf(8)]);
+    expect(run.details()).toEqual([8]);
+  });
+  it('re-emits an open PR whose checks are all neutral or successful', async () => {
+    const run = scenario();
+    run.state.index = (n) =>
+      indexPr(n, {
+        statusCheckRollup: rollup('SUCCESS', [
+          indexCheck('NEUTRAL'),
+          { ...indexCheck('SUCCESS'), name: 'lint' },
+          { __typename: 'StatusContext', context: 'ci/legacy', state: 'SUCCESS' },
+        ]),
+      });
+    await run.poll([refOf(8)]);
+    await run.poll([refOf(8)]);
+    expect(run.details()).toEqual([]);
+  });
   it('reads an open PR in full again when the index lists only part of its checks', async () => {
     const run = scenario();
     run.state.index = (n) =>
