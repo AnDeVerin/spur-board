@@ -68,15 +68,17 @@ const BACKUP_SUFFIX = /^(\d+)\.(\d{8}T\d{9}Z)\.bak$/;
  * Keeps the newest `KEEP_BACKUPS` migration backups of `file` (`<name>.v<n>.<stamp>.bak` beside
  * it, by stamp, then version) at mode 0600 and removes the rest. `protect`, when it is one of
  * them, is always kept and counts toward the limit: the clock can step back, so the backup just
- * written may not carry the newest stamp. Any other file name is left alone.
+ * written may not carry the newest stamp. Anything else is left alone: other names, and
+ * directories or symlinks with a backup name. Removing an old backup is best effort, so a
+ * backup that cannot be deleted stays until a later prune; a failed chmod still throws.
  */
 export function pruneBackups(file: string, protect?: string): void {
   const dir = dirname(file);
   const prefix = `${basename(file)}.v`;
   const shielded = protect === undefined ? undefined : normalize(protect);
-  const candidates = readdirSync(dir)
-    .filter((name) => name.startsWith(prefix))
-    .flatMap((name) => {
+  const candidates = readdirSync(dir, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name.startsWith(prefix))
+    .flatMap(({ name }) => {
       const match = BACKUP_SUFFIX.exec(name.slice(prefix.length));
       if (match?.[1] === undefined || match[2] === undefined) return [];
       return [{ path: join(dir, name), version: Number(match[1]), stamp: match[2] }];
@@ -88,8 +90,16 @@ export function pruneBackups(file: string, protect?: string): void {
   ];
   ordered.forEach((backup, index) => {
     if (index < KEEP_BACKUPS) chmodSync(backup.path, 0o600);
-    else rmSync(backup.path, { force: true });
+    else removeQuietly(backup.path);
   });
+}
+
+function removeQuietly(path: string): void {
+  try {
+    rmSync(path, { force: true });
+  } catch {
+    // An old backup that cannot be removed (EPERM, EACCES) must not stop the store opening.
+  }
 }
 
 /**

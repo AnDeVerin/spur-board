@@ -4,8 +4,11 @@ import {
   existsSync,
   mkdtempSync,
   readFileSync,
+  mkdirSync,
   readdirSync,
+  readlinkSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -19,6 +22,7 @@ import {
   KEEP_BACKUPS,
   migrate,
   migrationsDir,
+  pruneBackups,
   readMigrations,
   type Migration,
 } from '../../src/store/migrate.ts';
@@ -668,6 +672,49 @@ describe('migrate', () => {
     expect(boardBackups(dir)).toHaveLength(KEEP_BACKUPS);
     expect(existsSync(join(dir, future(1)))).toBe(false);
     for (let k = 2; k <= KEEP_BACKUPS; k++) expect(existsSync(join(dir, future(k)))).toBe(true);
+  });
+
+  it('leaves a directory and a symlink with a backup name untouched', () => {
+    const dir = tempDir();
+    const outside = tempDir();
+    const target = join(outside, 'target');
+    writeFileSync(target, 'not a backup');
+    chmodSync(target, 0o644);
+    const folder = join(dir, 'board.db.v1.29990101T000000000Z.bak');
+    mkdirSync(folder, { mode: 0o755 });
+    chmodSync(folder, 0o755);
+    const link = join(dir, 'board.db.v1.29990102T000000000Z.bak');
+    symlinkSync(target, link);
+    const stamp = (k: number): string => `board.db.v1.2020010${String(k)}T000000000Z.bak`;
+    for (let k = 1; k <= KEEP_BACKUPS; k++) writeFileSync(join(dir, stamp(k)), 'old');
+
+    pruneBackups(join(dir, 'board.db'));
+
+    expect(statSync(folder).isDirectory()).toBe(true);
+    expect(mode(folder)).toBe(0o755);
+    expect(readlinkSync(link)).toBe(target);
+    expect(mode(target)).toBe(0o644);
+    for (let k = 1; k <= KEEP_BACKUPS; k++) expect(mode(join(dir, stamp(k)))).toBe(0o600);
+  });
+
+  it('keeps going when an old backup cannot be removed', () => {
+    const dir = tempDir();
+    const stamp = (k: number): string => `board.db.v1.2020010${String(k)}T000000000Z.bak`;
+    for (let k = 1; k <= KEEP_BACKUPS + 1; k++) {
+      writeFileSync(join(dir, stamp(k)), 'old');
+      chmodSync(join(dir, stamp(k)), 0o644);
+    }
+    chmodSync(dir, 0o555);
+    try {
+      expect(() => {
+        pruneBackups(join(dir, 'board.db'));
+      }).not.toThrow();
+    } finally {
+      chmodSync(dir, 0o700);
+    }
+
+    expect(existsSync(join(dir, stamp(1)))).toBe(true);
+    for (let k = 2; k <= KEEP_BACKUPS + 1; k++) expect(mode(join(dir, stamp(k)))).toBe(0o600);
   });
 
   it('rejects a gap or a misnamed migration file', () => {
