@@ -2905,6 +2905,23 @@ describe('anomaly blocks', () => {
       expect(await taskPr(b.store.db, (await task(b)).id)).toMatchObject({ number: 8 });
     });
 
+    it('counts a hidden PR again once it reopens, so its later merge is terminal', async () => {
+      const b = await board();
+      await ticket(b, 'open');
+      await prs(b, [pr(7, 'merged'), pr(9, 'open')]);
+      await prs(b, [pr(7, 'merged'), pr(9, 'closed')]);
+      await ticket(b, 'closed');
+      await ticket(b, 'open');
+      expect(await hidden(b)).toEqual([7, 9]);
+
+      await prs(b, [pr(7, 'merged'), pr(9, 'open')]);
+      expect(await hidden(b)).toEqual([7]);
+
+      await prs(b, [pr(7, 'merged'), pr(9, 'merged')]);
+      expect((await task(b)).terminal_at).toBe(iso());
+      expect(await taskPr(b.store.db, (await task(b)).id)).toMatchObject({ number: 9 });
+    });
+
     it('keeps a merged task without a floor terminal', async () => {
       const b = await board();
       await ticket(b, 'open');

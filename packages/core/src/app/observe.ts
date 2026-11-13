@@ -493,6 +493,19 @@ async function pr(
     .where(sql<boolean>`lower(repo) = ${fact.repo.toLowerCase()}`)
     .where('number', '=', fact.number)
     .execute();
+  if (fact.state === 'open' && linkedPrs.length > 0) {
+    // A reopened PR counts again: its later merge or close must not fall back under the floor.
+    await trx
+      .updateTable('link')
+      .set({ reopen_hidden_at: null })
+      .where(
+        'id',
+        'in',
+        linkedPrs.map((link) => link.id),
+      )
+      .where('reopen_hidden_at', 'is not', null)
+      .execute();
+  }
   for (const link of linkedPrs) {
     if (fact.state !== 'open' || link.banned === 1) {
       await trx
