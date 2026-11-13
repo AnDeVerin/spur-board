@@ -4,6 +4,7 @@ import {
   type CheckState,
   type ColumnId,
   type Config,
+  type GateReason,
   type PrFacts,
 } from '@spur-board/contracts';
 
@@ -11,7 +12,7 @@ import {
  * A submit or a mark, each bound to the head commit it was given on. A mark lasts for its head
  * whatever the visit; a submit lasts for one visit of its column.
  */
-type GateMark =
+export type GateMark =
   | { kind: 'submit'; column: ColumnId; headSha: string }
   | { kind: 'mark'; column: 'review' | 'product-review'; headSha: string };
 
@@ -42,25 +43,20 @@ type GateColumn = Pick<
 >;
 
 /** What the gates read about the task's project: its board and its repos without CI. */
-type GateProject = {
+export type GateProject = {
   columns: readonly GateColumn[];
   reposWithoutCi: readonly string[];
 };
 
-type GateReason =
-  | 'no_pr'
-  | 'pr_closed'
-  | 'pr_draft'
-  | 'checks_red'
-  | 'checks_pending'
-  | 'conflict'
-  | 'mergeable_unknown'
-  | 'external_comments'
-  | 'comment_history_incomplete'
-  | 'no_submit_on_head'
-  | 'no_review_on_head'
-  | 'not_approved'
-  | 'not_merged';
+/**
+ * The hold-only reasons: a fact is not known yet, and waiting resolves it. See `GateResult` for
+ * the caller rule.
+ */
+export const HOLD_ONLY: ReadonlySet<GateReason> = new Set([
+  'mergeable_unknown',
+  'checks_pending',
+  'comment_history_incomplete',
+]);
 
 /**
  * The gate result: ok, or the leftmost enabled column whose exit condition fails, with every
@@ -229,7 +225,7 @@ export function evaluateGate(
   return { ok: true, ...marker };
 }
 
-type ReturnCause =
+export type ReturnCause =
   'executor' | 'changes_requested' | 'external_comments' | 'conflict' | 'checks_red' | 'draft';
 
 /** A return counts toward the column's cycle limit when one of its causes counts. */
@@ -246,7 +242,7 @@ const COUNTED = {
  * A task's return to Dev from `column`, with its causes, or the operator resetting the cycle
  * count of `column`.
  */
-type CycleEvent =
+export type CycleEvent =
   | { kind: 'return'; column: ColumnId; causes: readonly [ReturnCause, ...ReturnCause[]] }
   | { kind: 'limit_reset'; column: ColumnId };
 
