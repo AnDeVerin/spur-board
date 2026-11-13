@@ -1868,6 +1868,18 @@ const operatorNode = (number: number, updatedAt = '2026-01-03T00:00:00.000Z') =>
   state: 'OPEN',
 });
 const refOf = (number: number) => ({ ...ref, number });
+/** An index rollup: its state and each check by name and state, as the index reads them. */
+const rollup = (state: string, contexts: unknown[] = []) => ({
+  state,
+  contexts: { totalCount: contexts.length, nodes: contexts },
+});
+const indexCheck = (conclusion: string) => ({
+  __typename: 'CheckRun',
+  name: 'build',
+  status: 'COMPLETED',
+  conclusion,
+  completedAt: time,
+});
 function indexPr(number: number, overrides: Record<string, unknown> = {}) {
   return {
     pullRequest: {
@@ -1878,7 +1890,7 @@ function indexPr(number: number, overrides: Record<string, unknown> = {}) {
       mergeable: 'UNKNOWN',
       mergeStateStatus: 'BLOCKED',
       headRefOid: sha,
-      statusCheckRollup: { state: 'SUCCESS' },
+      statusCheckRollup: rollup('SUCCESS'),
       reviews: { totalCount: 1, nodes: [{ id: 'PRR_1', state: 'APPROVED' }] },
       reviewThreads: { totalCount: 1, nodes: [{ isResolved: false }] },
       reviewRequests: {
@@ -2137,9 +2149,9 @@ describe('PR index cache', () => {
   });
   it.each(['PENDING', 'EXPECTED', 'ERROR', 'SOMETHING_NEW'])(
     'reads an open PR in full again while its rollup is %s',
-    async (rollup) => {
+    async (state) => {
       const run = scenario();
-      run.state.index = (n) => indexPr(n, { statusCheckRollup: { state: rollup } });
+      run.state.index = (n) => indexPr(n, { statusCheckRollup: rollup(state) });
       await run.poll([refOf(8)]);
       await run.poll([refOf(8)]);
       expect(run.details()).toEqual([8]);
@@ -2147,7 +2159,7 @@ describe('PR index cache', () => {
   );
   it('reads a failed open PR in full and reports a check that finished since', async () => {
     const run = scenario();
-    run.state.index = (n) => indexPr(n, { statusCheckRollup: { state: 'FAILURE' } });
+    run.state.index = (n) => indexPr(n, { statusCheckRollup: rollup('FAILURE') });
     await run.poll([refOf(8)]);
     const finished = wire(8);
     finished.statusCheckRollup.contexts.nodes = [
@@ -2166,6 +2178,45 @@ describe('PR index cache', () => {
     expect((factsFor(second, 8) as { requiredChecks: unknown }).requiredChecks).toEqual([
       { name: 'build', state: 'failure', completedAt: '2026-01-04T00:00:00.000Z' },
     ]);
+  });
+  it('reads in full again when a skipped required check reruns under a SUCCESS rollup', async () => {
+    const run = scenario();
+    const skipped = wire(8);
+    skipped.statusCheckRollup.contexts.nodes = [
+      { ...indexCheck('SKIPPED'), completedAt: '2026-01-01T00:00:00.000Z', isRequired: true },
+    ];
+    run.state.index = (n) =>
+      indexPr(n, { statusCheckRollup: rollup('SUCCESS', [indexCheck('SKIPPED')]) });
+    run.state.detail = () => skipped;
+    const first = await run.poll([refOf(8)]);
+    expect((factsFor(first, 8) as { requiredChecks: unknown }).requiredChecks).toEqual([
+      { name: 'build', state: 'skipped', completedAt: '2026-01-01T00:00:00.000Z' },
+    ]);
+    const passed = wire(8);
+    passed.statusCheckRollup.contexts.nodes = [
+      { ...indexCheck('SUCCESS'), completedAt: '2026-01-01T00:00:00.000Z', isRequired: true },
+    ];
+    run.state.index = (n) =>
+      indexPr(n, { statusCheckRollup: rollup('SUCCESS', [indexCheck('SUCCESS')]) });
+    run.state.detail = () => passed;
+    const second = await run.poll([refOf(8)]);
+    expect(run.details()).toEqual([8]);
+    expect((factsFor(second, 8) as { requiredChecks: unknown }).requiredChecks).toEqual([
+      { name: 'build', state: 'success', completedAt: '2026-01-01T00:00:00.000Z' },
+    ]);
+  });
+  it('reads an open PR in full again when the index lists only part of its checks', async () => {
+    const run = scenario();
+    run.state.index = (n) =>
+      indexPr(n, {
+        statusCheckRollup: {
+          ...rollup('SUCCESS', [indexCheck('SUCCESS')]),
+          contexts: { totalCount: 101, nodes: [indexCheck('SUCCESS')] },
+        },
+      });
+    await run.poll([refOf(8)]);
+    await run.poll([refOf(8)]);
+    expect(run.details()).toEqual([8]);
   });
   it('reads in full again after the open and the closed refresh', async () => {
     const run = scenario();

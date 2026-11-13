@@ -19,7 +19,29 @@ const indexAliasWire = z.object({
     mergeable: z.string(),
     mergeStateStatus: z.string(),
     headRefOid: z.string(),
-    statusCheckRollup: z.object({ state: z.string() }).nullable(),
+    // Each check by name and state: a SUCCESS rollup also covers skipped checks, which core
+    // judges red when required.
+    statusCheckRollup: z
+      .object({
+        state: z.string(),
+        contexts: counted(
+          z.union([
+            z.object({
+              __typename: z.literal('CheckRun'),
+              name: z.string(),
+              status: z.string(),
+              conclusion: z.string().nullable(),
+              completedAt: z.string().nullable(),
+            }),
+            z.object({
+              __typename: z.literal('StatusContext'),
+              context: z.string(),
+              state: z.string(),
+            }),
+          ]),
+        ),
+      })
+      .nullable(),
     reviews: counted(z.object({ id: z.string(), state: z.string() })),
     reviewThreads: counted(z.object({ isResolved: z.boolean() })),
     reviewRequests: counted(
@@ -43,6 +65,8 @@ export interface IndexEntry {
   fingerprint: string;
   open: boolean;
   rollup: string | null;
+  /** Whether every check on head is in the index; past the first page one could change unseen. */
+  allChecks: boolean;
 }
 /** The facts of a PR's last full read, with the index fingerprint of the same poll. */
 export interface CachedPr {
@@ -62,13 +86,16 @@ export function indexEntry(alias: unknown): IndexEntry | undefined {
     fingerprint: JSON.stringify(pr),
     open: pr.state !== 'MERGED' && pr.state !== 'CLOSED',
     rollup: pr.statusCheckRollup?.state ?? null,
+    allChecks:
+      pr.statusCheckRollup === null ||
+      pr.statusCheckRollup.contexts.nodes.length >= pr.statusCheckRollup.contexts.totalCount,
   };
 }
 
 /**
  * The cached facts when the index shows the PR unchanged since its last full read. An open PR
- * is reused only with no rollup or a `SUCCESS` one: a rollup that stays failed or pending can
- * hide a check that finished since.
+ * is reused only with no rollup or a `SUCCESS` one, and only when the index lists all its checks:
+ * a rollup that stays failed or pending can hide a check that finished since.
  */
 export function reusable(
   cached: CachedPr | undefined,
@@ -80,6 +107,7 @@ export function reusable(
   if (cached.fingerprint !== entry.fingerprint || cached.cursorKey !== cursorKey) return undefined;
   if (!cached.facts.feedbackComplete) return undefined;
   if (now - cached.readAt >= (entry.open ? OPEN_REFRESH_MS : CLOSED_REFRESH_MS)) return undefined;
-  if (entry.open && entry.rollup !== null && entry.rollup !== 'SUCCESS') return undefined;
+  if (entry.open && ((entry.rollup !== null && entry.rollup !== 'SUCCESS') || !entry.allChecks))
+    return undefined;
   return cached.facts;
 }
