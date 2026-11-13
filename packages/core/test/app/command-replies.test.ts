@@ -67,6 +67,78 @@ describe('commandReply', () => {
     expect(JSON.stringify(history.body)).toContain('Added to Dev.');
   });
 
+  it('marks the shadow column only on task lines where it differs', () => {
+    const operation = OPERATIONS.find((entry) => entry.id === 'status.get');
+    if (!operation) throw new Error('Missing status.get');
+    const example = operation.examples[0].output;
+    const [row] = example.tasks;
+    if (row === undefined) throw new Error('Missing the status example row');
+    const reply = commandReply(
+      'status.get',
+      {
+        ...example,
+        tasks: [
+          { ...row, key: 'o/r#9', column: 'todo', shadowColumn: 'review', shadowDiffers: true },
+          { ...row, key: 'o/r#10', column: 'dev', shadowColumn: 'dev', shadowDiffers: false },
+          { ...row, key: 'o/r#11', column: 'review' },
+        ],
+      },
+      {},
+    );
+    const paragraph = (text: string) => ({ kind: 'paragraph', children: [{ kind: 'text', text }] });
+    expect(reply.body.slice(1, 4)).toEqual([
+      paragraph('o/r#9: todo, shadow review (active)'),
+      paragraph('o/r#10: dev (active)'),
+      paragraph('o/r#11: review (active)'),
+    ]);
+  });
+
+  it('renders the status reply without shadow marks when rows have no shadow fields', () => {
+    const operation = OPERATIONS.find((entry) => entry.id === 'status.get');
+    if (!operation) throw new Error('Missing status.get');
+    expect(commandReply('status.get', operation.examples[0].output, {}).body)
+      .toMatchInlineSnapshot(`
+        [
+          {
+            "children": [
+              {
+                "kind": "text",
+                "text": "Board status: 1 tasks, 0 items needing attention.",
+              },
+            ],
+            "kind": "paragraph",
+          },
+          {
+            "children": [
+              {
+                "kind": "text",
+                "text": "PROJ-123: dev (active)",
+              },
+            ],
+            "kind": "paragraph",
+          },
+          {
+            "children": [
+              {
+                "kind": "text",
+                "text": "Unlinked: 0 pull requests, 0 sessions.",
+              },
+            ],
+            "kind": "paragraph",
+          },
+          {
+            "children": [
+              {
+                "kind": "text",
+                "text": "Sources are warming up.",
+              },
+            ],
+            "kind": "paragraph",
+          },
+        ]
+      `);
+  });
+
   it('renders the why explanation with failing conditions first and the passing gates', () => {
     const operation = OPERATIONS.find((entry) => entry.id === 'task.get');
     if (!operation) throw new Error('Missing task.get');

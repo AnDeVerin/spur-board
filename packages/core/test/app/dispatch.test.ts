@@ -412,6 +412,13 @@ function board(options: Options = {}) {
     context: () => core.context(GITHUB),
     inbox: (actor: ActorId) => query(registry['inbox.get'], {}, actor),
     history: () => query(registry['task.history'], { task: KEY }, 'operator'),
+    /** The task's `status.get` row. */
+    async status() {
+      const { tasks } = await query(registry['status.get'], {}, 'operator');
+      const [row] = tasks;
+      if (row === undefined || tasks.length !== 1) throw new Error('status.get returned no row');
+      return row;
+    },
   };
   return ctx;
 }
@@ -840,6 +847,43 @@ describe('shadow mode', () => {
       { column: 'product-review', epoch: 0, author: COORD },
     ]);
     expect((await ctx.events('task_submitted'))[0]?.payload).toEqual({ column: 'dev', sha: A });
+  });
+
+  it('status shows the shadow column next to the column on every row', async () => {
+    const ctx = board({ mode: 'shadow' });
+    await ctx.ticket();
+    await ctx.github();
+    await ctx.spur('none');
+    expect(await ctx.task()).toMatchObject({ column: 'todo', shadow_column: null });
+    expect(await ctx.status()).toEqual({
+      key: KEY,
+      project: 'proj',
+      column: 'todo',
+      membership: 'active',
+      shadowColumn: 'todo',
+      shadowDiffers: false,
+      state: 'ticket open',
+      prCount: 0,
+      sessionCount: 0,
+      openBlocks: 0,
+    });
+
+    await ctx.spur('live');
+    await ctx.pr();
+    await ctx.submit(WORKER, KEY, A);
+    expect(await ctx.task()).toMatchObject({ column: 'todo', shadow_column: 'review' });
+    expect(await ctx.status()).toEqual({
+      key: KEY,
+      project: 'proj',
+      column: 'todo',
+      membership: 'active',
+      shadowColumn: 'review',
+      shadowDiffers: true,
+      state: 'ticket open; PRs 1 open; sessions 1 working',
+      prCount: 1,
+      sessionCount: 1,
+      openBlocks: 0,
+    });
   });
 
   it('a shadow left move voids the Dev submit', async () => {
@@ -1274,6 +1318,42 @@ describe('cycle limit', () => {
 });
 
 describe('mode switch', () => {
+  it('status rows of an on project carry no shadow fields, a pending switch included', async () => {
+    const on = await started({ mode: 'on' });
+    const row = await on.status();
+    expect(Object.keys(row)).toEqual([
+      'key',
+      'project',
+      'column',
+      'membership',
+      'state',
+      'prCount',
+      'sessionCount',
+      'openBlocks',
+    ]);
+    expect(row).toEqual({
+      key: KEY,
+      project: 'proj',
+      column: 'dev',
+      membership: 'active',
+      state: 'ticket open; sessions 1 working',
+      prCount: 0,
+      sessionCount: 1,
+      openBlocks: 0,
+    });
+
+    const ctx = await started({ mode: 'shadow' });
+    await ctx.pr();
+    await ctx.submit(WORKER, KEY, A);
+    expect(await ctx.task()).toMatchObject({ column: 'todo', shadow_column: 'review' });
+    ctx.restart({ mode: 'on' });
+    const pending = await ctx.status();
+    expect(pending).not.toHaveProperty('shadowColumn');
+    expect(pending).not.toHaveProperty('shadowDiffers');
+    expect(pending).toMatchObject({ column: 'todo' });
+    expect(await ctx.task()).toMatchObject({ column: 'todo', shadow_column: 'review' });
+  });
+
   it('copies the shadow column on a switch to on and records the mode', async () => {
     const ctx = await started({ mode: 'shadow' });
     const mode = () =>

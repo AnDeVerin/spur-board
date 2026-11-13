@@ -414,7 +414,8 @@ it('keeps the default status for 100 tasks under the budget and lists every item
   const query = createQuery({ store, config, clock });
 
   const result = await query(status, {}, 'operator');
-  // Measured 2026-11-08: 20,530 chars for this fixture; the full detail is 129,112.
+  // Measured 2026-11-13: 24,879 chars for this fixture with the shadow fields; the full detail
+  // was 129,112 on 2026-11-08.
   expect(JSON.stringify(result).length).toBeLessThan(30_000);
   expect(Object.keys(result)[0]).toBe('items');
   expect(result.items.map((item) => item.key)).toEqual(
@@ -428,6 +429,8 @@ it('keeps the default status for 100 tasks under the budget and lists every item
     'prCount',
     'project',
     'sessionCount',
+    'shadowColumn',
+    'shadowDiffers',
     'state',
   ];
   expect(result.tasks).toHaveLength(100);
@@ -438,6 +441,8 @@ it('keeps the default status for 100 tasks under the budget and lists every item
     project: 'first',
     column: 'dev',
     membership: 'active',
+    shadowColumn: 'dev',
+    shadowDiffers: false,
     state: 'ticket In Progress; PRs 1 open; sessions 1 working',
     prCount: 1,
     sessionCount: 1,
