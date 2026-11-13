@@ -29,7 +29,7 @@ interface DispatchInput {
   column: ColumnId;
   project: GateProject;
   facts: TaskGateFacts;
-  /** The task has a reopen floor: its ticket reopened after a merge. */
+  /** The task has a PR link hidden by a reopen: its ticket reopened after a merge. */
   reopened: boolean;
   /** The task has an open PR link past its reopen floor. */
   openPr: boolean;

@@ -60,8 +60,6 @@ export interface TaskTable {
   last_change_at: string | null;
   terminal_at: string | null;
   archive_slot_at: string | null;
-  /** Largest PR link id when the ticket reopened after a merge; only links above it decide. */
-  reopen_link_floor: number | null;
 }
 
 export interface PrSnapshotTable {
@@ -125,6 +123,8 @@ export interface LinkTable {
   created_at: string;
   ticket_key: string | null;
   pr_open: Flag | null;
+  /** When a ticket reopen after a merge hid this closed or merged PR link; null while it counts. */
+  reopen_hidden_at: string | null;
 }
 
 /** A column executor's finished turn at a head commit. No unique key per epoch. */

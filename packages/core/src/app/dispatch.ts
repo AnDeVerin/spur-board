@@ -433,7 +433,13 @@ async function readInput(
         unhandledExternalComments: handed.length,
         marks,
       },
-      reopened: task.reopen_link_floor !== null,
+      reopened:
+        (await trx
+          .selectFrom('link')
+          .select('id')
+          .where('task_id', '=', task.id)
+          .where('reopen_hidden_at', 'is not', null)
+          .executeTakeFirst()) !== undefined,
       openPr: link?.open === true,
       githubBlind,
       spurBlind: blind('spur'),

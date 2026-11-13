@@ -319,9 +319,12 @@ describe('manual task links', () => {
     await observe(tracker, { kind: 'ticket', facts: { ...ticketFact(), status: 'closed' } });
     await observe(tracker, { kind: 'ticket', facts: ticketFact() });
     expect(
-      (await store.db.selectFrom('task').select('reopen_link_floor').executeTakeFirstOrThrow())
-        .reopen_link_floor,
-    ).not.toBeNull();
+      await store.db
+        .selectFrom('link')
+        .select('number')
+        .where('reopen_hidden_at', 'is not', null)
+        .execute(),
+    ).toEqual([{ number: 7 }]);
 
     await call(
       'link.add',

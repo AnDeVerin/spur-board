@@ -98,7 +98,6 @@ async function sessionRole(trx: Trx, taskId: number): Promise<'worker' | 'other'
 async function prConflict(trx: Trx, taskId: number, repo: string, number: number, open: boolean) {
   const links = await trx
     .selectFrom('link')
-    .innerJoin('task', 'task.id', 'link.task_id')
     .leftJoin('pr_snapshot', (join) =>
       join
         .on(sql<boolean>`lower(pr_snapshot.repo) = lower(link.repo)`)

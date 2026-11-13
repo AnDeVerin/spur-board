@@ -2823,14 +2823,16 @@ describe('anomaly blocks', () => {
     const ticket = (b: Board, status: string) =>
       poll(b, source, [{ kind: 'ticket', facts: { ...fact(), inFilter: true, status } }]);
     const task = (b: Board) => b.store.db.selectFrom('task').selectAll().executeTakeFirstOrThrow();
-    async function linkId(b: Board, number: number) {
-      const row = await b.store.db
+    /** The numbers of the PR links a reopen hid, in link id order. */
+    async function hidden(b: Board) {
+      const rows = await b.store.db
         .selectFrom('link')
-        .select('id')
+        .select('number')
         .where('entity', '=', 'pr')
-        .where('number', '=', number)
-        .executeTakeFirstOrThrow();
-      return row.id;
+        .where('reopen_hidden_at', 'is not', null)
+        .orderBy('id')
+        .execute();
+      return rows.map((row) => row.number);
     }
     /** PR #7 merged, then the ticket closed and reopened. */
     async function reopened(b: Board) {
@@ -2845,10 +2847,10 @@ describe('anomaly blocks', () => {
       await ticket(b, 'open');
       await prs(b, [pr(7, 'merged')]);
       await ticket(b, 'closed');
-      expect((await task(b)).reopen_link_floor).toBeNull();
+      expect(await hidden(b)).toEqual([]);
 
       await ticket(b, 'open');
-      expect((await task(b)).reopen_link_floor).toBe(await linkId(b, 7));
+      expect(await hidden(b)).toEqual([7]);
     });
 
     it('keeps a reopened task with only its old merged PR out of terminal', async () => {
@@ -2869,9 +2871,36 @@ describe('anomaly blocks', () => {
       await ticket(b, 'closed');
       await prs(b, [pr(7, 'merged'), pr(8, 'open')]);
       await ticket(b, 'open');
-      expect((await task(b)).reopen_link_floor).toBe(await linkId(b, 7));
+      expect(await hidden(b)).toEqual([7]);
 
       await prs(b, [pr(7, 'merged'), pr(8, 'merged')]);
+      expect((await task(b)).terminal_at).toBe(iso());
+      expect(await taskPr(b.store.db, (await task(b)).id)).toMatchObject({ number: 8 });
+    });
+
+    it('keeps a follow-up PR open at the reopen counting when a later link was closed', async () => {
+      const b = await board();
+      await ticket(b, 'open');
+      await prs(b, [pr(7, 'merged')]);
+      await ticket(b, 'closed');
+      await prs(b, [pr(7, 'merged'), pr(8, 'open')]);
+      await prs(b, [pr(7, 'merged'), pr(8, 'open'), pr(9, 'open')]);
+      await prs(b, [pr(7, 'merged'), pr(8, 'open'), pr(9, 'closed')]);
+      expect(
+        (
+          await b.store.db
+            .selectFrom('link')
+            .select('number')
+            .where('entity', '=', 'pr')
+            .orderBy('id')
+            .execute()
+        ).map((row) => row.number),
+      ).toEqual([7, 8, 9]);
+      await ticket(b, 'open');
+      expect(await hidden(b)).toEqual([7, 9]);
+      expect((await task(b)).terminal_at).toBeNull();
+
+      await prs(b, [pr(7, 'merged'), pr(8, 'merged'), pr(9, 'closed')]);
       expect((await task(b)).terminal_at).toBe(iso());
       expect(await taskPr(b.store.db, (await task(b)).id)).toMatchObject({ number: 8 });
     });
@@ -2881,7 +2910,8 @@ describe('anomaly blocks', () => {
       await ticket(b, 'open');
       await prs(b, [pr(7, 'merged')]);
       await ticket(b, 'open');
-      expect(await task(b)).toMatchObject({ reopen_link_floor: null, terminal_at: iso() });
+      expect((await task(b)).terminal_at).toBe(iso());
+      expect(await hidden(b)).toEqual([]);
     });
 
     it('opens the pr-closed operator block for a reopened task whose new PR closed unmerged', async () => {

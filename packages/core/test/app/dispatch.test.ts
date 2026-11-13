@@ -571,8 +571,14 @@ describe('flow tables', () => {
     await ctx.ticket('closed');
     await ctx.ticket('open');
     const task = await ctx.task();
-    // Link 1 is the worker's session link, link 2 the merged PR.
-    expect(task).toMatchObject({ column: 'todo', reopen_link_floor: 2 });
+    expect(task).toMatchObject({ column: 'todo' });
+    expect(
+      await ctx.store.db
+        .selectFrom('link')
+        .select('number')
+        .where('reopen_hidden_at', 'is not', null)
+        .execute(),
+    ).toEqual([{ number: 7 }]);
     expect((await ctx.moves()).at(-1)).toEqual({
       from: 'done',
       to: 'todo',

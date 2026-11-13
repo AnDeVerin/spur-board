@@ -31,11 +31,11 @@ export function ticketDone(project: Config['projects'][number], status: string):
 }
 
 /**
- * Whether a PR link counts past the task's reopen floor: an open link, a task without a floor,
- * or a link newer than the floor. For a query that joins `link` and `task`. Written so a task
- * without a floor keeps every link: the negated form is NULL there and would drop them.
+ * Whether a PR link counts past the task's reopen floor: an open link, or a link not hidden by a
+ * reopen. For a query over `link`. Written so a link without a marker counts: the negated form
+ * is NULL there and would drop it.
  */
-export const pastReopenFloor = sql<boolean>`(link.pr_open = 1 OR task.reopen_link_floor IS NULL OR link.id > task.reopen_link_floor)`;
+export const pastReopenFloor = sql<boolean>`(link.pr_open = 1 OR link.reopen_hidden_at IS NULL)`;
 
 /**
  * The task's PR: the open active unbanned link past the reopen floor, else the newest active
@@ -47,7 +47,6 @@ export async function taskPr(
 ): Promise<{ repo: string; number: number; open: boolean } | null> {
   const link = await db
     .selectFrom('link')
-    .innerJoin('task', 'task.id', 'link.task_id')
     .select(['link.repo', 'link.number', 'link.pr_open'])
     .where('link.task_id', '=', taskId)
     .where('link.entity', '=', 'pr')

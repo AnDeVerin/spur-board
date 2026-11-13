@@ -44,7 +44,6 @@ export const sampleRows: SampleRows = {
     last_change_at: at,
     terminal_at: null,
     archive_slot_at: null,
-    reopen_link_floor: null,
   },
   pr_snapshot: {
     repo: 'x/y',
@@ -97,6 +96,7 @@ export const sampleRows: SampleRows = {
     created_at: at,
     ticket_key: null,
     pr_open: 1,
+    reopen_hidden_at: null,
   },
   submission: {
     id: 1,

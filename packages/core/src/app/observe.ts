@@ -71,7 +71,6 @@ async function updateTerminal(
     .executeTakeFirst();
   const linked = await trx
     .selectFrom('link')
-    .innerJoin('task', 'task.id', 'link.task_id')
     .innerJoin('pr_snapshot', (join) =>
       join
         .on(sql<boolean>`lower(pr_snapshot.repo) = lower(link.repo)`)
@@ -199,14 +198,13 @@ async function moveOpenWork(trx: Trx, from: number, to: number): Promise<void> {
 }
 
 /**
- * A ticket reopened after a merge: the task's PR links that are not open stay in its history, and
- * only links past the floor decide its state from now on. The floor never drops. Nothing without a
- * merged PR link past the floor.
+ * A ticket reopened after a merge: the task's PR links that are closed or merged now are hidden
+ * at `at`. They stay in its history, and only the other links decide its state from now on. A
+ * hidden link stays hidden. Nothing without a merged PR link that still counts.
  */
-async function setReopenFloor(trx: Trx, taskId: number): Promise<void> {
+async function setReopenFloor(trx: Trx, taskId: number, at: string): Promise<void> {
   const links = await trx
     .selectFrom('link')
-    .innerJoin('task', 'task.id', 'link.task_id')
     .leftJoin('pr_snapshot', (join) =>
       join
         .on(sql<boolean>`lower(pr_snapshot.repo) = lower(link.repo)`)
@@ -218,17 +216,11 @@ async function setReopenFloor(trx: Trx, taskId: number): Promise<void> {
     .where(pastReopenFloor)
     .execute();
   if (!links.some((link) => link.banned === 0 && link.state === 'merged')) return;
-  // An open link is follow-up work: the floor never covers it, or its merge would not count.
-  const floor = Math.max(
-    ...links.filter((link) => link.pr_open !== 1 || link.state === 'merged').map((link) => link.id),
-  );
-  await trx
-    .updateTable('task')
-    .set((eb) => ({
-      reopen_link_floor: sql<number>`max(${floor}, coalesce(${eb.ref('reopen_link_floor')}, 0))`,
-    }))
-    .where('id', '=', taskId)
-    .execute();
+  // An open link is follow-up work: it is never hidden, so its later merge counts.
+  const hidden = links
+    .filter((link) => link.pr_open !== 1 || link.state === 'merged')
+    .map((link) => link.id);
+  await trx.updateTable('link').set({ reopen_hidden_at: at }).where('id', 'in', hidden).execute();
 }
 
 async function ticket(
@@ -368,7 +360,7 @@ async function ticket(
         ticketDone(project, previousFact.status) &&
         !ticketDone(project, fact.status)
       )
-        await setReopenFloor(trx, task.id);
+        await setReopenFloor(trx, task.id, at);
     }
     await emit(trx, 'ticket_facts_changed', project.id, task.id, at, { facts: fact });
     await trx.updateTable('task').set({ last_change_at: at }).where('id', '=', task.id).execute();
