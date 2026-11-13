@@ -471,6 +471,64 @@ describe('rendering and surface', () => {
     ]);
   });
 
+  it('renders a context element on an edit', async () => {
+    const { fake, gateway } = await setup();
+    const opened = await gateway.deliver(request('edit-context'));
+    if (opened.status !== 'delivered') throw new Error('open failed');
+    const edited = await gateway.deliver({
+      ...request('edit-context-edit', 'Answered'),
+      target: { kind: 'edit', message: opened.message },
+      body: [
+        ...body('Answered'),
+        { kind: 'context', children: [{ kind: 'text', text: 'B1 · unblocked' }] },
+      ],
+    });
+    expect(edited.status).toBe('delivered');
+    const update = fake.requests().find((entry) => entry.method === 'chat.update');
+    expect(update?.params.text).toBe('Answered');
+    expect(JSON.parse(update?.params.blocks ?? 'null')).toEqual([
+      {
+        type: 'section',
+        block_id: 'spur:edit-context-edit',
+        text: { type: 'mrkdwn', text: 'Answered' },
+      },
+      { type: 'context', elements: [{ type: 'mrkdwn', text: 'B1 · unblocked' }] },
+    ]);
+  });
+
+  it('puts the context element on the first part of a multipart post only', async () => {
+    const { fake, gateway } = await setup();
+    const long = 'x'.repeat(MAX_PART_TEXT + 100);
+    const delivered = await gateway.deliver({
+      ...request('multi-context'),
+      body: [...body(long), { kind: 'context', children: [{ kind: 'text', text: 'B1' }] }],
+    });
+    expect(delivered.status).toBe('delivered');
+    const posts = fake.requests().filter((entry) => entry.method === 'chat.postMessage');
+    expect(posts.map((entry) => JSON.parse(entry.params.blocks ?? 'null'))).toEqual([
+      [
+        {
+          type: 'section',
+          block_id: 'spur:multi-context%231',
+          text: { type: 'mrkdwn', text: long.slice(0, MAX_PART_TEXT) },
+        },
+        { type: 'context', elements: [{ type: 'mrkdwn', text: 'B1' }] },
+        {
+          type: 'context',
+          block_id: 'spur-origin:multi-context',
+          elements: [{ type: 'plain_text', text: '​' }],
+        },
+      ],
+      [
+        {
+          type: 'section',
+          block_id: 'spur:multi-context%232',
+          text: { type: 'mrkdwn', text: long.slice(MAX_PART_TEXT) },
+        },
+      ],
+    ]);
+  });
+
   it('renders italic per line inside underscores', () => {
     expect(
       renderText([{ kind: 'paragraph', children: [{ kind: 'italic', text: ' a<b \n\n  c ' }] }]),
