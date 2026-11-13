@@ -753,8 +753,11 @@ describe('shadow mode', () => {
     expect((await ctx.context()).feedbackCursors).toEqual([
       { ref: { kind: 'pr', repo: 'o/r', number: 7 }, id: '', postedAt: submitted },
     ]);
+    // The shadow submits keep their cutoff after a switch to on: they had no turn.
     ctx.restart({ mode: 'on' });
-    expect('feedbackCursors' in (await ctx.context())).toBe(false);
+    expect((await ctx.context()).feedbackCursors).toEqual([
+      { ref: { kind: 'pr', repo: 'o/r', number: 7 }, id: '', postedAt: submitted },
+    ]);
   });
 });
 
@@ -1093,6 +1096,37 @@ describe('mode switch', () => {
     );
   });
 
+  it('keeps feedback a shadow submit handled after a switch to on', async () => {
+    const ctx = await started({ mode: 'shadow' });
+    await ctx.pr({
+      feedback: [
+        {
+          kind: 'comment',
+          id: 'c-1',
+          author: { login: EXTERNAL, type: 'user' },
+          postedAt: at(1),
+        },
+      ],
+    });
+    await ctx.submit(WORKER, KEY, A);
+    const submitted = ctx.at();
+    expect((await ctx.task()).shadow_column).toBe('review');
+
+    ctx.restart({ mode: 'on' });
+    await ctx.tick();
+    await ctx.github();
+    await ctx.tick();
+    expect(await ctx.task()).toMatchObject({ column: 'review', column_epoch: 1, left_moves: 0 });
+    expect(await ctx.moves()).toEqual([{ from: 'todo', to: 'review', reason: 'mode_changed' }]);
+    expect(await ctx.store.db.selectFrom('submission').select('voided_at').execute()).toEqual([
+      { voided_at: null },
+    ]);
+    expect(await ctx.openTurn()).toMatchObject({ column: 'review', handed: '[]' });
+    expect((await ctx.context()).feedbackCursors).toEqual([
+      { ref: { kind: 'pr', repo: 'o/r', number: 7 }, id: '', postedAt: submitted },
+    ]);
+  });
+
   it('clears the shadow column on a switch back to shadow', async () => {
     const ctx = await started({ mode: 'shadow' });
     await ctx.pr();
@@ -1269,6 +1303,27 @@ describe('design flows 2.5 and 2.10', () => {
     expect(turn).toEqual(turnOf('dev', 'worker', 'dev: external_comments'));
     expect(JSON.parse(turn?.handed ?? '[]')).toEqual([
       { repo: 'o/r', number: 7, kind: 'comment', id: 'c-1', postedAt: at(20) },
+    ]);
+  });
+
+  it('a turned Dev submit does not handle a comment posted before it', async () => {
+    const ctx = await inDev();
+    const posted = ctx.at();
+    await ctx.pr({
+      feedback: [
+        {
+          kind: 'comment' as const,
+          id: 'c-1',
+          author: { login: EXTERNAL, type: 'user' as const },
+          postedAt: posted,
+        },
+      ],
+    });
+    await ctx.submit(WORKER, 'T1', A);
+    expect(await ctx.openTurn()).toEqual(turnOf('dev', 'worker', 'dev: external_comments'));
+    // The cursor is the handed comment, not a time-only cutoff at the turned submit.
+    expect((await ctx.context()).feedbackCursors).toEqual([
+      { ref: { kind: 'pr', repo: 'o/r', number: 7 }, id: 'c-1', postedAt: posted },
     ]);
   });
 
