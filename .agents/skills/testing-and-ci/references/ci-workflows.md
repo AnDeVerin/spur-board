@@ -33,9 +33,13 @@
   `release` publishes only those bytes and fails closed on a version or sha256 mismatch. After
   that failure re-run all jobs, not failed jobs: the old outputs are stale
   (`scripts/release-package.ts`, `scripts/ci.test.ts`, `describe('release workflow isolation',`).
-- Keep Renovate on its weekly schedule with a seven-day minimum release age, no automerge and
-  `chore(deps)` commits (`renovate.json`). Group catalog dependencies by `pnpm.catalog.default` or
-  `pnpm.catalog.runtime`, not plain package dependency types (`pnpm-workspace.yaml`).
+- Keep Renovate on its weekly schedule with a seven-day minimum release age and no automerge.
+  The runtime group commits as `fix(deps)`, so it releases; everything else commits as
+  `chore(deps)` (`renovate.json`, `release.config.cjs`).
+- Renovate tags every catalog entry `pnpm.catalog.default`, so the last packageRule names the
+  third-party dependencies the published package installs or inlines. A dependency only a
+  `./testing` export uses, like ws, stays out. Add a new runtime dependency there;
+  `scripts/renovate.test.ts` (`describe('renovate.json',`) fails until you do.
 - Keep `@types/node` on the major of the oldest Node in `engines.node`. Change its
   `allowedVersions` rule and catalog range with `engines.node` (`renovate.json`,
   `pnpm-workspace.yaml`, `package.json`, `packages/cli/package.json`).

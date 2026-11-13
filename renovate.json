@@ -13,10 +13,6 @@
       "groupName": "dev dependencies"
     },
     {
-      "matchDepTypes": ["dependencies", "pnpm.catalog.runtime"],
-      "groupName": "runtime dependencies"
-    },
-    {
       "matchManagers": ["github-actions"],
       "groupName": "github actions"
     },
@@ -40,6 +36,32 @@
     {
       "matchPackageNames": ["*"],
       "semanticCommitType": "chore"
+    },
+    {
+      "description": [
+        "Renovate tags every catalog entry pnpm.catalog.default, so the runtime group names the third-party dependencies the published spur-board package installs or inlines.",
+        "fix(deps) releases them. scripts/renovate.test.ts checks this list against the shipped closure. Keep this rule last so it wins over the dev group and the chore type."
+      ],
+      "matchManagers": ["npm"],
+      "matchDepTypes": ["pnpm.catalog.default"],
+      "matchPackageNames": [
+        "@commander-js/extra-typings",
+        "@modelcontextprotocol/server",
+        "@secretlint/core",
+        "@secretlint/profiler",
+        "@secretlint/secretlint-rule-preset-recommend",
+        "@slack/socket-mode",
+        "@slack/web-api",
+        "better-sqlite3",
+        "commander",
+        "fastify",
+        "kysely",
+        "pino",
+        "yaml",
+        "zod"
+      ],
+      "groupName": "runtime dependencies",
+      "semanticCommitType": "fix"
     }
   ]
 }
