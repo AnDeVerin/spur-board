@@ -2410,6 +2410,190 @@ describe('anomaly blocks', () => {
     expect(state.items.map((item) => item.cleared_at)).toEqual([iso()]);
   });
 
+  const blindGithub = (b: Board) =>
+    b.core.reportSourceState(github, {
+      lastCompleteAt: iso(),
+      blind: { reason: 'stale', message: 'GitHub stopped answering' },
+      gone: [],
+    });
+
+  it.each([
+    {
+      reason: 'complete',
+      kind: 'worker_completed',
+      text: 'o/r#9: worker ended (completed), no PR (worker-1)',
+      ledger: ['health:worker-1:worker_completed'],
+    },
+    {
+      reason: 'kill',
+      kind: 'worker_killed',
+      text: 'o/r#9: worker ended (killed), no PR (worker-1)',
+      ledger: [],
+    },
+    {
+      reason: 'vanished',
+      kind: 'worker_vanished',
+      text: 'o/r#9: worker vanished, no PR (worker-1)',
+      ledger: [],
+    },
+  ] as const)(
+    'holds a $reason worker-end item while GitHub has no complete poll since the end, then decides on the first one',
+    async ({ reason, kind, text, ledger }) => {
+      const healthItems = async (b: Board) =>
+        (
+          await b.store.db
+            .selectFrom('operator_item')
+            .selectAll()
+            .where('item_key', 'like', 'health:%')
+            .execute()
+        ).map((item) => [item.item_key.split(':').at(-1), item.text, item.cleared_at]);
+      const raised = async (b: Board) =>
+        (
+          await b.store.db
+            .selectFrom('event')
+            .select('id')
+            .where('kind', '=', 'from_you_raised')
+            .execute()
+        ).length;
+      /** A board whose GitHub completed a poll before the worker ends, then `before` runs. */
+      async function ended(before: (b: Board) => Promise<void>) {
+        const b = await board();
+        await spur(b, [session('worker-1', 'working')]);
+        await prs(b, []);
+        now += 1_000;
+        await before(b);
+        now += 1_000;
+        if (reason === 'vanished')
+          await b.core.observe('spur', {
+            batch: {
+              source: 'spur',
+              observedAt: iso(),
+              complete: true,
+              items: [],
+              entities: [{ ref: { kind: 'session', id: 'worker-1' }, status: 'not_found' }],
+            },
+            effectiveComplete: true,
+            state: { lastCompleteAt: iso(), gone: [] },
+            outcomes: [],
+          });
+        else
+          await spur(b, [
+            {
+              ...sessionFact('worker-1', link, true),
+              endedAt: iso(),
+              endReason: reason,
+              lifecycle: reason === 'kill' ? 'killed' : 'completed',
+            },
+          ]);
+        return { b, raisedBefore: await raised(b), endedAt: now };
+      }
+      async function quiet(b: Board, raisedBefore: number) {
+        expect(await healthItems(b)).toEqual([]);
+        expect(await openLedger(b)).toEqual([]);
+        expect((await surface(b)).lines).toBe(0);
+        expect(await raised(b)).toBe(raisedBefore);
+        now += 1_000;
+        await tick(b);
+        expect(await healthItems(b)).toEqual([]);
+        expect(await openLedger(b)).toEqual([]);
+        expect((await surface(b)).lines).toBe(0);
+        expect(await raised(b)).toBe(raisedBefore);
+      }
+
+      const blind = await ended(blindGithub);
+      await quiet(blind.b, blind.raisedBefore);
+      now += 1_000;
+      await prs(blind.b, [pr(7, 'open')]);
+      await quiet(blind.b, blind.raisedBefore);
+
+      const lagging = await ended(async () => {});
+      await quiet(lagging.b, lagging.raisedBefore);
+      now += 1_000;
+      await prs(lagging.b, [], new Date(lagging.endedAt - 1).toISOString());
+      await quiet(lagging.b, lagging.raisedBefore);
+      now += 1_000;
+      await prs(lagging.b, [pr(7, 'merged')]);
+      await quiet(lagging.b, lagging.raisedBefore);
+
+      const none = await ended(blindGithub);
+      await quiet(none.b, none.raisedBefore);
+      now += 1_000;
+      await prs(none.b, []);
+      expect(await healthItems(none.b)).toEqual([[kind, text, null]]);
+      expect(await openLedger(none.b)).toEqual(ledger);
+      expect(await raised(none.b)).toBe(none.raisedBefore + 1);
+      now += 1_000;
+      await tick(none.b);
+      expect(await healthItems(none.b)).toEqual([[kind, text, null]]);
+      expect(await openLedger(none.b)).toEqual(ledger);
+    },
+  );
+
+  it('holds a PR-closed block until every repo completed a poll since the close, and drops it for a replacement', async () => {
+    const closedPr = (): PrFacts => ({ ...pr(7, 'closed'), updatedAt: iso() });
+    const reason = 'linked pull request o/r#7 closed without merge, no open PR';
+
+    const one = await board();
+    const closed = closedPr();
+    await prs(one, [closed], new Date(now - 1).toISOString());
+    expect(await openLedger(one)).toEqual([]);
+    now += 1_000;
+    await blindGithub(one);
+    await tick(one);
+    expect(await openLedger(one)).toEqual([]);
+    now += 1_000;
+    await prs(one, [closed]);
+    expect(await openLedger(one)).toEqual(['pr-closed']);
+    expect((await surface(one)).blocks.map((block) => block.reason)).toEqual([reason]);
+
+    const twoRepos = configSchema.parse({
+      ...config,
+      projects: config.projects.map((project) => ({ ...project, repos: ['o/r', 'o/s'] })),
+    });
+    const two = await board(twoRepos);
+    await poll(two, 'github:board:o/s', []);
+    now += 1_000;
+    const late = closedPr();
+    await prs(two, [late]);
+    expect(await openLedger(two)).toEqual([]);
+    now += 1_000;
+    await prs(two, [late]);
+    await tick(two);
+    expect(await openLedger(two)).toEqual([]);
+    now += 1_000;
+    await poll(two, 'github:board:o/s', []);
+    expect(await openLedger(two)).toEqual(['pr-closed']);
+    expect((await surface(two)).blocks.map((block) => block.reason)).toEqual([reason]);
+
+    const replaced = await board();
+    const gone = closedPr();
+    await prs(replaced, [gone], new Date(now - 1).toISOString());
+    now += 1_000;
+    await prs(replaced, [gone, pr(8, 'open')]);
+    await tick(replaced);
+    expect(await openLedger(replaced)).toEqual([]);
+    expect((await surface(replaced)).blocks).toEqual([]);
+  });
+
+  it('keeps an open worker-completed block and a PR-closed block while GitHub turns blind', async () => {
+    const b = await board();
+    await spur(b, [session('worker-1', 'working')]);
+    now += 1_000;
+    await spur(b, [{ ...sessionFact('worker-1', link, true), endedAt: iso() }]);
+    now += 1_000;
+    await prs(b, [pr(7, 'closed')]);
+    const open = ['health:worker-1:worker_completed', 'pr-closed'];
+    expect((await openLedger(b)).sort()).toEqual(open);
+    now += 1_000;
+    await blindGithub(b);
+    now += 1_000;
+    await tick(b);
+    const state = await surface(b);
+    expect((await openLedger(b)).sort()).toEqual(open);
+    expect(state.items.map((item) => item.cleared_at)).toEqual([null, null]);
+    expect([state.opens, state.closes]).toEqual([2, 0]);
+  });
+
   it('keeps a dismissed ticket-closed block quiet when the closed ticket is edited, and re-arms it after a reopen', async () => {
     const b = await board();
     const ref = (await b.core.context(source)).observe.tickets[0];
