@@ -658,6 +658,32 @@ describe('flow tables', () => {
     });
     expect((await ctx.task()).column).toBe('done');
   });
+
+  it('a late pre-reopen merge hides only its own PR, not a follow-up merged after the reopen', async () => {
+    const ctx = await inDev();
+    // GitHub merged #7 before the ticket closed and reopened; the board sees that merge last.
+    const merged = ctx.at();
+    await ctx.ticket('closed');
+    await ctx.ticket('open');
+    const after = new Date(Date.parse(ctx.at()) + 30_000).toISOString();
+    // Follow-up #8 is first seen merged after the reopen, so it links active and counts.
+    await ctx.pr({
+      number: 8,
+      url: 'https://github.com/o/r/pull/8',
+      headSha: C,
+      state: 'merged',
+      updatedAt: after,
+    });
+    await ctx.pr({ number: 7, state: 'merged', updatedAt: merged });
+    expect(
+      await ctx.store.db
+        .selectFrom('link')
+        .select('number')
+        .where('reopen_hidden_at', 'is not', null)
+        .execute(),
+    ).toEqual([{ number: 7 }]);
+    expect((await ctx.task()).column).toBe('done');
+  });
 });
 
 /** The reviewers marked head A, so the task sits in the column after Product Review. */

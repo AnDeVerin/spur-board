@@ -235,30 +235,28 @@ async function setReopenFloor(trx: Trx, taskId: number, at: string): Promise<voi
 /**
  * A PR link seen merged or closed after a reopen stops waiting. Its merge counts as made before
  * the reopen when the PR's `updatedAt`, never earlier than the merge, is before the time the board
- * observed the reopen; a tie counts the merge. Then the reopen hides the task's merged and closed
- * links (`hideMergedLinks`).
+ * observed the reopen; a tie counts the merge. Then the reopen hides this link only: another link
+ * of the task that already counts, such as a follow-up merged after the reopen, keeps counting.
  */
 async function applyPendingReopen(trx: Trx, fact: PrFacts, at: string): Promise<void> {
   if (fact.state === 'open') return;
   const pending = await trx
     .selectFrom('link')
-    .select(['id', 'task_id', 'reopen_pending_at'])
+    .select(['id', 'reopen_pending_at'])
     .where('entity', '=', 'pr')
     .where(sql<boolean>`lower(repo) = ${fact.repo.toLowerCase()}`)
     .where('number', '=', fact.number)
     .where('reopen_pending_at', 'is not', null)
     .execute();
   for (const link of pending) {
+    const before =
+      fact.state === 'merged' &&
+      Date.parse(fact.updatedAt) < Date.parse(link.reopen_pending_at ?? '');
     await trx
       .updateTable('link')
-      .set({ reopen_pending_at: null })
+      .set({ reopen_pending_at: null, ...(before ? { reopen_hidden_at: at } : {}) })
       .where('id', '=', link.id)
       .execute();
-    if (
-      fact.state === 'merged' &&
-      Date.parse(fact.updatedAt) < Date.parse(link.reopen_pending_at ?? '')
-    )
-      await hideMergedLinks(trx, link.task_id, at);
   }
 }
 
