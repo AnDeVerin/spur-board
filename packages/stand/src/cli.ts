@@ -102,7 +102,8 @@ const USAGE = `Usage: pnpm stand <command>
                                   server-error [status] or clear; lasts until clear or reset
   fake github pr <n> <verb> [--repo owner/name]
                                   create [--seed '<json>'], approve, ci-red, ci-green, merge,
-                                  conflict or push <sha>; --repo defaults to ${DEFAULT_FAKE_REPO}
+                                  close, conflict or push <sha>; close shuts it without a merge;
+                                  --repo defaults to ${DEFAULT_FAKE_REPO}
   fake github pr <n> comment [--author login] [--bot]
   fake github pr <n> review <approved|changes-requested|commented> [--author login] [--bot]
                                   add a comment, or a review on the head, at the stand clock;
@@ -152,6 +153,7 @@ const FAKE_PR_VERBS = [
   'ci-red',
   'ci-green',
   'merge',
+  'close',
   'conflict',
   'push',
   'comment',

@@ -259,19 +259,24 @@ describe('GitHub PR batch', () => {
   it('pins the discovery and detail queries', () => {
     const query = discoveryQuery();
     expect(createHash('sha256').update(query).digest('hex')).toBe(
-      '284d2507ec8443328149d3ce5a183b4f60c443a95a960735b9a1ce898c9770a7',
+      'be8f5037ce78c40af8655a1a6942dc6fa0aaad89098a45e779fa6f1a2600a0d0',
     );
     expect(query).toContain('rateLimit { remaining resetAt }');
     expect(query).toContain('pullRequests(first: 100');
     expect(query).not.toContain('pr0: repository');
+    expect(query).toContain('states: [OPEN, MERGED, CLOSED]');
+    expect(pageQuery('pullRequests')).toContain('states: [OPEN, MERGED, CLOSED]');
     const details = detailQuery([7]);
     expect(details).toContain('rateLimit { remaining resetAt }');
     expect(details).toContain('pr0: repository');
     const bootstrapQuery = discoveryQuery(true);
     expect(createHash('sha256').update(bootstrapQuery).digest('hex')).toBe(
-      'b76634b2684ca242cfdc55a11849db1f7a1c189c65f3eacf8c707b1917091cc3',
+      'ddce343c8846e5ad05876f723f92c61b8253d327402b837fd854f1054ea9c8be',
     );
     expect(bootstrapQuery).toContain('states: [OPEN]');
+    expect(bootstrapQuery).toContain(
+      'mergedBaseline: pullRequests(first: 1, states: [MERGED, CLOSED]',
+    );
     expect(pageQuery('pullRequests', true)).toContain('states: [OPEN]');
     expect(details).not.toContain('closingIssuesReferences');
     expect(bootstrapQuery).not.toContain('closingIssuesReferences');
