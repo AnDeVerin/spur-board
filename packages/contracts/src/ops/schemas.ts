@@ -260,6 +260,18 @@ const count = (what: string) => z.int().min(0).describe(what);
 
 export const statusTaskSchema = taskViewSchema
   .extend({
+    shadowColumn: z
+      .enum(COLUMN_IDS)
+      .optional()
+      .describe(
+        'Column the dispatcher works from in shadow mode: where the board would have the task. Present only while the project dispatcher is in shadow mode.',
+      ),
+    shadowDiffers: z
+      .boolean()
+      .optional()
+      .describe(
+        'Whether shadowColumn differs from column. Present only while the project dispatcher is in shadow mode.',
+      ),
     state: z
       .string()
       .min(1)

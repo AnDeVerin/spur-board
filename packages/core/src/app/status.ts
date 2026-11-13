@@ -139,7 +139,8 @@ export async function getStatus(
       }
     }
     const ticketFacts = ticket === undefined ? null : parseJson(ticketFactsSchema, ticket.detail);
-    const trackerRepo = issuesRepo(config.projects.find((entry) => entry.id === task.project));
+    const project = config.projects.find((entry) => entry.id === task.project);
+    const trackerRepo = issuesRepo(project);
     const linkHints: string[] = [];
     for (const session of sessions) {
       const pr = session.pr;
@@ -170,6 +171,12 @@ export async function getStatus(
       project: task.project,
       column: task.column,
       membership: task.membership,
+      ...(project?.dispatcher.mode === 'shadow'
+        ? {
+            shadowColumn: task.shadow_column ?? task.column,
+            shadowDiffers: (task.shadow_column ?? task.column) !== task.column,
+          }
+        : {}),
       state: taskState(ticketFacts, prs, sessions),
       prCount: links.filter((link) => link.entity === 'pr').length,
       sessionCount: links.filter((link) => link.entity === 'session').length,

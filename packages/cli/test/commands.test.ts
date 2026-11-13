@@ -817,6 +817,26 @@ describe('catalog commands', () => {
     expect(output.stdout).not.toContain('requestId');
   });
 
+  it('prints the shadow column and whether it differs in board status human output', async () => {
+    const status = OPERATIONS.find((op) => op.id === 'status.get');
+    if (!status) throw new Error('Missing status operation.');
+    const example = status.examples[0].output;
+    const url = await fakeServer(() => ({
+      ...example,
+      tasks: example.tasks.map((task) => ({
+        ...task,
+        column: 'todo',
+        shadowColumn: 'review',
+        shadowDiffers: true,
+      })),
+    }));
+    const output = capture(true);
+    expect(await runCli(['status'], { env: env(url), io: output.io })).toBe(0);
+    expect(output.stdout).toContain(
+      '    column: todo\n    membership: active\n    shadowColumn: review\n    shadowDiffers: true\n',
+    );
+  });
+
   it('prints board status in human format without shadow fields when the row has none', async () => {
     const status = OPERATIONS.find((op) => op.id === 'status.get');
     if (!status) throw new Error('Missing status operation.');

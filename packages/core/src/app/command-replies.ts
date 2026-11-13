@@ -102,7 +102,11 @@ export function commandReply(
         ),
         // Items first: a long Slack reply is cut from the tail, so task lines drop before items.
         ...status.items.map((item) => line(`${item.key}: ${item.summary}`)),
-        ...status.tasks.map((task) => line(`${task.key}: ${task.column} (${task.membership})`)),
+        ...status.tasks.map((task) =>
+          line(
+            `${task.key}: ${task.column}${task.shadowDiffers === true ? `, shadow ${String(task.shadowColumn)}` : ''} (${task.membership})`,
+          ),
+        ),
         line(
           `Unlinked: ${String(status.unlinkedPrs.length)} pull requests, ${String(status.unlinkedSessions.length)} sessions${
             status.hiddenUnlinkedPrs + status.hiddenUnlinkedSessions === 0
