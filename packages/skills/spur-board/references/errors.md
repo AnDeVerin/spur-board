@@ -7,6 +7,7 @@
 - `not_implemented`: Ask the operator to update the daemon to a build with this operation.
 - `identity_unavailable`: Ask in your own session, then retry the same command later with its existing idempotency key if it has one.
 - `starting`: Wait until the daemon is ready, then retry the command with its existing idempotency key if it has one.
+- `stopping`: Wait until the daemon is running again, then retry the command with its existing idempotency key if it has one; if it stays stopped, ask in your own session.
 
 ## Other error hints
 

@@ -590,7 +590,10 @@ describe('daemon process', () => {
       expect(child.exitCode).toBeNull();
       const duringStop = await fetch(`http://127.0.0.1:${String(httpPort(home))}/v1/schema`);
       expect(duringStop.status).toBe(503);
-      expect(await duringStop.json()).toMatchObject({ code: 'starting' });
+      expect(await duringStop.json()).toMatchObject({
+        code: 'stopping',
+        message: 'The daemon is stopping; nothing was applied.',
+      });
       hold.release();
       const [code, signal] = (await exited) as [number | null, string | null];
       expect({ code, signal }).toEqual({ code: 0, signal: null });

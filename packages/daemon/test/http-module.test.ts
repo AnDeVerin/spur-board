@@ -1035,7 +1035,7 @@ describe('HTTP module', () => {
     }
   });
 
-  it('serves starting until ready, logs request IDs, and closes its listener', async () => {
+  it('serves starting until ready and stopping after, logs request IDs, and closes its listener', async () => {
     const home = makeHome();
     const store = openStore(join(home, 'board.sqlite'));
     stores.push(store);
@@ -1070,6 +1070,13 @@ describe('HTTP module', () => {
       const ready = await fetch(url);
       expect(ready.status).toBe(200);
       expect(await ready.json()).toHaveProperty('version');
+      state = 'stopping';
+      const stopping = await fetch(url);
+      expect(stopping.status).toBe(503);
+      expect(await stopping.json()).toMatchObject({
+        code: 'stopping',
+        message: 'The daemon is stopping; nothing was applied.',
+      });
       const requestId = ready.headers.get('x-request-id');
       expect(requestId).toMatch(/^[0-9a-f-]{36}$/);
       expect(records).toContainEqual(

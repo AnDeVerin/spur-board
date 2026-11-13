@@ -425,6 +425,7 @@ describe('grants', () => {
           'forbidden',
           'identity_unavailable',
           'starting',
+          'stopping',
           'not_implemented',
         ];
         if (kind === 'mutation') common.push('idempotency_key_mismatch');

@@ -1,5 +1,5 @@
 {
-  "version": "344c1c39a19b627fb09279a21cf353bd83051837b22230f1c07165aa8bf714f9",
+  "version": "92638de38113767d2b448217636eff3d98054ee7236d134ae33bccb7c4c711af",
   "grants": [
     "operator",
     "project-agent",
@@ -568,6 +568,35 @@
         "additionalProperties": false
       }
     },
+    "stopping": {
+      "status": 503,
+      "exit": 3,
+      "message": "The daemon is stopping; nothing was applied.",
+      "hint": "Wait until the daemon is running again, then retry the command with its existing idempotency key if it has one; if it stays stopped, ask in your own session.",
+      "recovery": {
+        "action": "Wait until the daemon is running again, then retry the command with its existing idempotency key if it has one; if it stays stopped, ask in your own session.",
+        "sideEffects": "none",
+        "maxRetries": 3,
+        "retryTiming": "After the daemon is running again; wait briefly between retries."
+      },
+      "docs": "docs/errors.md#stopping",
+      "context": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "clientVersion": { "type": "string" },
+          "serverVersion": { "type": "string" },
+          "configPath": { "type": "string" },
+          "environmentVariable": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+          "idempotencyKey": { "type": "string", "minLength": 1 },
+          "causeLabel": {
+            "type": "string",
+            "enum": ["storage_unavailable", "transport_unavailable", "internal_failure"]
+          }
+        },
+        "additionalProperties": false
+      }
+    },
     "github_unavailable": {
       "status": 503,
       "exit": 3,
@@ -892,7 +921,8 @@
         "not_found",
         "not_implemented",
         "identity_unavailable",
-        "starting"
+        "starting",
+        "stopping"
       ],
       "cli": { "command": "status", "args": [], "modes": null, "key": null },
       "mcp": {
@@ -2395,7 +2425,8 @@
         "not_found",
         "not_implemented",
         "identity_unavailable",
-        "starting"
+        "starting",
+        "stopping"
       ],
       "cli": { "command": "task", "args": ["task"], "modes": null, "key": null },
       "mcp": {
@@ -3309,7 +3340,8 @@
         "not_found",
         "not_implemented",
         "identity_unavailable",
-        "starting"
+        "starting",
+        "stopping"
       ],
       "cli": { "command": "task history", "args": ["task"], "modes": null, "key": null },
       "mcp": {
@@ -3483,7 +3515,14 @@
       "description": "Describe the operations: inputs, outputs, errors and bindings.",
       "grants": "any",
       "preconditions": null,
-      "errors": ["usage", "forbidden", "not_implemented", "identity_unavailable", "starting"],
+      "errors": [
+        "usage",
+        "forbidden",
+        "not_implemented",
+        "identity_unavailable",
+        "starting",
+        "stopping"
+      ],
       "cli": { "command": "schema", "args": [], "modes": null, "key": null },
       "mcp": {
         "name": "schema_get",
@@ -3743,7 +3782,8 @@
         "not_found",
         "not_implemented",
         "identity_unavailable",
-        "starting"
+        "starting",
+        "stopping"
       ],
       "cli": { "command": "inbox", "args": [], "modes": null, "key": null },
       "mcp": {
@@ -4195,7 +4235,8 @@
         "stale_comment_revision",
         "idempotency_key_mismatch",
         "identity_unavailable",
-        "starting"
+        "starting",
+        "stopping"
       ],
       "cli": { "command": "inbox ack", "args": ["entries"], "modes": null, "key": "--key" },
       "mcp": {
@@ -4320,7 +4361,14 @@
       "description": "List named operator tokens and their current status.",
       "grants": [{ "grant": "operator" }],
       "preconditions": null,
-      "errors": ["usage", "forbidden", "not_implemented", "identity_unavailable", "starting"],
+      "errors": [
+        "usage",
+        "forbidden",
+        "not_implemented",
+        "identity_unavailable",
+        "starting",
+        "stopping"
+      ],
       "cli": { "command": "token list", "args": [], "modes": null, "key": null },
       "mcp": {
         "name": "token_list",
@@ -4393,7 +4441,8 @@
         "not_implemented",
         "idempotency_key_mismatch",
         "identity_unavailable",
-        "starting"
+        "starting",
+        "stopping"
       ],
       "cli": { "command": "token revoke", "args": ["name"], "modes": null, "key": "--key" },
       "mcp": {
@@ -4457,7 +4506,8 @@
         "not_implemented",
         "idempotency_key_mismatch",
         "identity_unavailable",
-        "starting"
+        "starting",
+        "stopping"
       ],
       "cli": { "command": "task add", "args": ["task"], "modes": null, "key": "--key" },
       "mcp": {
@@ -4552,7 +4602,8 @@
         "task_archived",
         "idempotency_key_mismatch",
         "identity_unavailable",
-        "starting"
+        "starting",
+        "stopping"
       ],
       "cli": { "command": "task archive", "args": ["task"], "modes": null, "key": "--key" },
       "mcp": {
@@ -4653,7 +4704,8 @@
         "link_conflict",
         "idempotency_key_mismatch",
         "identity_unavailable",
-        "starting"
+        "starting",
+        "stopping"
       ],
       "cli": {
         "command": "link",
@@ -4793,7 +4845,8 @@
         "task_archived",
         "idempotency_key_mismatch",
         "identity_unavailable",
-        "starting"
+        "starting",
+        "stopping"
       ],
       "cli": {
         "command": "unlink",
@@ -4934,7 +4987,8 @@
         "retry_not_applicable",
         "idempotency_key_mismatch",
         "identity_unavailable",
-        "starting"
+        "starting",
+        "stopping"
       ],
       "cli": { "command": "item retry", "args": ["item"], "modes": null, "key": "--key" },
       "mcp": {
@@ -5029,7 +5083,8 @@
         "not_implemented",
         "idempotency_key_mismatch",
         "identity_unavailable",
-        "starting"
+        "starting",
+        "stopping"
       ],
       "cli": { "command": "item close", "args": ["item"], "modes": null, "key": "--key" },
       "mcp": {
@@ -5125,7 +5180,8 @@
         "task_archived",
         "idempotency_key_mismatch",
         "identity_unavailable",
-        "starting"
+        "starting",
+        "stopping"
       ],
       "cli": { "command": "ask", "args": ["task", "text"], "modes": null, "key": "--key" },
       "mcp": {
@@ -5312,7 +5368,8 @@
         "task_archived",
         "idempotency_key_mismatch",
         "identity_unavailable",
-        "starting"
+        "starting",
+        "stopping"
       ],
       "cli": { "command": "comment", "args": ["task", "text"], "modes": null, "key": "--key" },
       "mcp": {
@@ -5457,7 +5514,8 @@
         "task_archived",
         "idempotency_key_mismatch",
         "identity_unavailable",
-        "starting"
+        "starting",
+        "stopping"
       ],
       "cli": {
         "command": "comment edit",
@@ -5602,7 +5660,8 @@
         "task_archived",
         "idempotency_key_mismatch",
         "identity_unavailable",
-        "starting"
+        "starting",
+        "stopping"
       ],
       "cli": { "command": "block", "args": ["task"], "modes": null, "key": "--key" },
       "mcp": {
@@ -5799,7 +5858,8 @@
         "task_archived",
         "idempotency_key_mismatch",
         "identity_unavailable",
-        "starting"
+        "starting",
+        "stopping"
       ],
       "cli": { "command": "escalate", "args": ["block"], "modes": null, "key": "--key" },
       "mcp": {
@@ -6012,7 +6072,8 @@
         "task_archived",
         "idempotency_key_mismatch",
         "identity_unavailable",
-        "starting"
+        "starting",
+        "stopping"
       ],
       "cli": { "command": "answer", "args": ["block", "text"], "modes": null, "key": "--key" },
       "mcp": {
@@ -6289,7 +6350,8 @@
         "task_archived",
         "idempotency_key_mismatch",
         "identity_unavailable",
-        "starting"
+        "starting",
+        "stopping"
       ],
       "cli": {
         "command": "unblock",
@@ -6589,6 +6651,7 @@
         "idempotency_key_mismatch",
         "identity_unavailable",
         "starting",
+        "stopping",
         "github_unavailable"
       ],
       "cli": { "command": "submit", "args": ["turn", "sha"], "modes": null, "key": "--key" },
@@ -6739,7 +6802,8 @@
         "task_archived",
         "idempotency_key_mismatch",
         "identity_unavailable",
-        "starting"
+        "starting",
+        "stopping"
       ],
       "cli": { "command": "return", "args": ["turn", "reason"], "modes": null, "key": "--key" },
       "mcp": {
@@ -6975,7 +7039,8 @@
         "task_archived",
         "idempotency_key_mismatch",
         "identity_unavailable",
-        "starting"
+        "starting",
+        "stopping"
       ],
       "cli": {
         "command": "move",

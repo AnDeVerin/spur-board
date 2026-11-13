@@ -30,7 +30,7 @@ describe('error catalog', () => {
     });
   });
 
-  it('pins the 28 codes in order, with HTTP status and exit code', () => {
+  it('pins the 29 codes in order, with HTTP status and exit code', () => {
     const table = Object.entries(ERRORS).map(([code, { status, exit }]) => [code, status, exit]);
     expect(table).toEqual([
       ['usage', 400, 2],
@@ -52,6 +52,7 @@ describe('error catalog', () => {
       ['idempotency_key_mismatch', 409, 1],
       ['identity_unavailable', 503, 3],
       ['starting', 503, 3],
+      ['stopping', 503, 3],
       ['github_unavailable', 503, 3],
       ['version_mismatch', 409, 3],
       ['daemon_unavailable', null, 3],
@@ -160,6 +161,18 @@ describe('error catalog', () => {
     expect(ERRORS.starting.recovery.sideEffects).toBe('none');
     expect(ERRORS.starting.hint).toContain('daemon is ready');
     expect(renderHttpProblem({ code: 'starting', requestId: 'req-start' }).status).toBe(503);
+  });
+
+  it('marks shutdown as not applied with a stopping message', () => {
+    expect(ERRORS.stopping.status).toBe(503);
+    expect(ERRORS.stopping.exit).toBe(EXIT_CODES.notApplied);
+    expect(ERRORS.stopping.message).toBe('The daemon is stopping; nothing was applied.');
+    expect(ERRORS.stopping.recovery.sideEffects).toBe('none');
+    expect(ERRORS.stopping.hint).toContain('daemon is running again');
+    expect(renderHttpProblem({ code: 'stopping', requestId: 'req-stop' }).body).toMatchObject({
+      code: 'stopping',
+      message: 'The daemon is stopping; nothing was applied.',
+    });
   });
 
   it('marks an unavailable operation as refused without side effects or retries', () => {
