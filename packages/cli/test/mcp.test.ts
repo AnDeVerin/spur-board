@@ -217,6 +217,21 @@ describe('board mcp', () => {
     });
   });
 
+  it('refuses a tool call to a plain-http non-loopback BOARD_DAEMON_URL', async () => {
+    await withClient(
+      { BOARD_DAEMON_URL: 'http://192.0.2.1:4777', BOARD_TOKEN: 'token' },
+      async (client) => {
+        const result = await client.callTool({ name: 'status_get', arguments: {} });
+        expect(result.isError).toBe(true);
+        expect(result.structuredContent).toMatchObject({
+          code: 'config',
+          context: { environmentVariable: 'BOARD_DAEMON_URL' },
+        });
+        expect(JSON.stringify(result)).not.toContain('192.0.2.1');
+      },
+    );
+  });
+
   it('uses session identity and rejects an agent mutation without a key before HTTP', async () => {
     const daemon = await fakeDaemon((_request, response) => {
       response.writeHead(200, { 'content-type': 'application/json' });
