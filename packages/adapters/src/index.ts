@@ -64,6 +64,7 @@ export function startAdapters(
       });
     } else {
       const id = `github-issues:${project.id}:${project.tracker.repo.toLowerCase()}`;
+      const intervalMs = config.adapters.githubIssues.intervalMs;
       entries.push({
         adapter: githubToken
           ? createGithubIssuesAdapter({
@@ -71,10 +72,11 @@ export function startAdapters(
               tracker: project.tracker,
               token: githubToken,
               now: options.now,
-              intervalMs: config.adapters.github.intervalMs,
+              intervalMs,
               ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
             })
-          : blindSource(id, config.adapters.github.intervalMs, 'GitHub credential is missing'),
+          : blindSource(id, intervalMs, 'GitHub credential is missing'),
+        reserveRemaining: config.github.reserveRemaining,
       });
     }
   }

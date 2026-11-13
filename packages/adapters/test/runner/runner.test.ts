@@ -626,6 +626,93 @@ describe('budget', () => {
     expect(atReserve.starts).toEqual([0, I]);
     expect(noReserve.starts).toEqual([0, I]);
   });
+
+  /** One GitHub Issues project with one PR repo, through startAdapters on a routed fetch. */
+  function startGithubBoard(issuesRemaining: string) {
+    const config = configSchema.parse({
+      projects: [
+        {
+          id: 'board',
+          tracker: { type: 'github-issues', repo: 'acme/board' },
+          repos: ['acme/web'],
+          operatorGithubLogin: 'octocat',
+        },
+      ],
+      operator: { slack: 'U0000000000' },
+      digest: { tz: 'UTC' },
+    });
+    const times = { issues: new Set<number>(), graphql: new Set<number>() };
+    const fetch = vi.fn<typeof globalThis.fetch>((input) => {
+      const url = new URL(input instanceof Request ? input.url : input);
+      if (url.href.startsWith('https://api.github.com/repos/acme/board/issues')) {
+        times.issues.add(elapsed());
+        return Promise.resolve(
+          Response.json([], {
+            headers: {
+              'x-ratelimit-remaining': issuesRemaining,
+              'x-ratelimit-reset': String((T0 + 600_000) / 1000),
+            },
+          }),
+        );
+      }
+      if (url.href === 'https://api.github.com/graphql') {
+        times.graphql.add(elapsed());
+        return Promise.resolve(
+          Response.json({
+            data: {
+              rateLimit: { remaining: 4000, resetAt: at(3_600_000) },
+              repository: {
+                mergedBaseline: { nodes: [] },
+                pullRequests: { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } },
+              },
+            },
+          }),
+        );
+      }
+      if (url.pathname.endsWith('/sessions')) return Promise.resolve(Response.json([]));
+      return Promise.resolve(new Response('', { status: 404 }));
+    });
+    const core = createFakeCore();
+    runners.push(
+      entry.startAdapters(config, core, {
+        secrets: { GITHUB_TOKEN: 'synthetic' },
+        fetch,
+        now: () => Date.now(),
+      }),
+    );
+    const issuesSource = 'github-issues:board:acme/board';
+    return {
+      issues: () => [...times.issues],
+      graphql: () => [...times.graphql],
+      issuesReports: () => core.reports.filter((report) => report.source === issuesSource),
+      issuesStates: () => core.states.filter((report) => report.source === issuesSource),
+    };
+  }
+
+  it('holds the GitHub Issues source below the reserve while the PR source keeps polling', async () => {
+    random(0);
+    const board = startGithubBoard('999');
+    await advanceTo(360_000);
+    expect(board.issuesReports().filter((report) => report.state.blind)).toEqual([]);
+    await advanceTo(360_001);
+    expect(board.issuesReports().at(-1)?.state.blind?.reason).toBe('stale');
+    await advanceTo(599_999);
+    expect(board.issues()).toEqual([0]);
+    expect(board.graphql()).toEqual(Array.from({ length: 10 }, (_, n) => n * I));
+    await advanceTo(600_000);
+    expect(board.issues()).toEqual([0, 600_000]);
+    expect(board.issuesStates().at(-1)?.state.blind).toBeUndefined();
+  });
+
+  it('polls the GitHub Issues source every adapters.githubIssues.intervalMs above the reserve', async () => {
+    random(0);
+    const board = startGithubBoard('4000');
+    await advanceTo(120_000);
+    expect(board.issues()).toEqual([0, 120_000]);
+    expect(board.graphql()).toEqual([0, I, 2 * I]);
+    await advanceTo(360_001);
+    expect(board.issuesReports().filter((report) => report.state.blind)).toEqual([]);
+  });
 });
 
 describe('auth and config errors', () => {

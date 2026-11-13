@@ -448,6 +448,7 @@ export const configSchema = z.strictObject({
     .strictObject({
       spur: spurAdapterSection,
       github: adapterSection(60_000),
+      githubIssues: adapterSection(120_000),
       jira: adapterSection(120_000),
     })
     .prefault({}),

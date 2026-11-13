@@ -146,6 +146,7 @@ export function standConfig(
     adapters: {
       spur: { baseUrl: spurBaseUrl, intervalMs: 2_000 },
       github: { intervalMs: 5_000 },
+      githubIssues: { intervalMs: 5_000 },
       jira: { intervalMs: 5_000 },
     },
     sources: { authRetryMs: 10_000 },

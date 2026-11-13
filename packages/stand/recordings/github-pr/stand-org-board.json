@@ -1,0 +1,671 @@
+{
+  "source": "github:stand:stand-org/board",
+  "recordedAt": "2026-11-13T04:01:31.066Z",
+  "observe": {
+    "prs": [],
+    "tickets": [],
+    "sessions": []
+  },
+  "exchanges": [
+    {
+      "request": {
+        "method": "POST",
+        "url": "https://api.github.com/graphql",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "content-type": "application/json"
+        },
+        "body": {
+          "query": "query PrBatch($owner: String!, $repo: String!) { rateLimit { remaining resetAt } repository(owner: $owner, name: $repo) { pullRequests(first: 100, states: [OPEN], orderBy: {field: UPDATED_AT, direction: DESC}) { nodes { number updatedAt author { login } state } pageInfo { hasNextPage endCursor } } mergedBaseline: pullRequests(first: 1, states: [MERGED], orderBy: {field: UPDATED_AT, direction: DESC}) { nodes { updatedAt } } }  }",
+          "variables": {
+            "owner": "stand-org",
+            "repo": "board"
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8"
+        },
+        "body": {
+          "data": {
+            "rateLimit": {
+              "remaining": 4387,
+              "resetAt": "2026-11-13T04:31:30Z"
+            },
+            "repository": {
+              "mergedBaseline": {
+                "nodes": [
+                  {
+                    "updatedAt": "2026-11-13T03:44:17Z"
+                  }
+                ]
+              },
+              "pullRequests": {
+                "nodes": [
+                  {
+                    "author": {
+                      "login": "stand-agent"
+                    },
+                    "number": 376,
+                    "state": "OPEN",
+                    "updatedAt": "2026-11-13T03:58:46Z"
+                  }
+                ],
+                "pageInfo": {
+                  "endCursor": "recorded-cursor-14",
+                  "hasNextPage": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "request": {
+        "method": "POST",
+        "url": "https://api.github.com/graphql",
+        "headers": {
+          "accept": "application/vnd.github+json",
+          "content-type": "application/json"
+        },
+        "body": {
+          "query": "query PrDetails($owner: String!, $repo: String!) { rateLimit { remaining resetAt } pr0: repository(owner: $owner, name: $repo) { pullRequest(number: 376) { id number url title updatedAt state isDraft mergeable mergeStateStatus\n author { login } headRefName headRefOid\n statusCheckRollup { contexts(first: 100) { nodes {\n ... on CheckRun { __typename name status conclusion startedAt completedAt checkSuite { createdAt } isRequired(pullRequestNumber: 376) }\n ... on StatusContext { __typename context state createdAt isRequired(pullRequestNumber: 376) }\n } pageInfo { hasNextPage endCursor } } }\n reviews(first: 100) { nodes { id author { __typename login } state commit { oid } submittedAt } pageInfo { hasNextPage endCursor } }\n comments(last: 100) { nodes { id author { __typename login } createdAt } pageInfo { hasPreviousPage startCursor } }\n reviewThreads(first: 100) { nodes { isResolved } pageInfo { hasNextPage endCursor } }\n reviewRequests(first: 100) { nodes { requestedReviewer { __typename ... on Bot { login } ... on Mannequin { login } ... on User { login } ... on Team { slug } ... on EnterpriseTeam { slug } } asCodeOwner } pageInfo { hasNextPage endCursor } }\n closingIssuesReferences(first: 100) { nodes { number repository { nameWithOwner } } pageInfo { hasNextPage endCursor } } } } }",
+          "variables": {
+            "owner": "stand-org",
+            "repo": "board"
+          }
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "application/json; charset=utf-8"
+        },
+        "body": {
+          "data": {
+            "pr0": {
+              "pullRequest": {
+                "author": {
+                  "login": "stand-agent"
+                },
+                "closingIssuesReferences": {
+                  "nodes": [
+                    {
+                      "number": 292,
+                      "repository": {
+                        "nameWithOwner": "stand-org/board"
+                      }
+                    }
+                  ],
+                  "pageInfo": {
+                    "endCursor": "recorded-cursor-15",
+                    "hasNextPage": false
+                  }
+                },
+                "comments": {
+                  "nodes": [
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "createdAt": "2026-11-13T03:38:33Z",
+                      "id": "recorded-node-64"
+                    }
+                  ],
+                  "pageInfo": {
+                    "hasPreviousPage": false,
+                    "startCursor": "recorded-cursor-16"
+                  }
+                },
+                "headRefName": "recorded-branch-4",
+                "headRefOid": "0000000000000000000000000000000000000007",
+                "id": "recorded-node-1",
+                "isDraft": false,
+                "mergeStateStatus": "BLOCKED",
+                "mergeable": "MERGEABLE",
+                "number": 376,
+                "reviewRequests": {
+                  "nodes": [],
+                  "pageInfo": {
+                    "endCursor": null,
+                    "hasNextPage": false
+                  }
+                },
+                "reviewThreads": {
+                  "nodes": [
+                    {
+                      "isResolved": true
+                    },
+                    {
+                      "isResolved": true
+                    },
+                    {
+                      "isResolved": true
+                    },
+                    {
+                      "isResolved": true
+                    },
+                    {
+                      "isResolved": true
+                    },
+                    {
+                      "isResolved": true
+                    },
+                    {
+                      "isResolved": false
+                    },
+                    {
+                      "isResolved": false
+                    }
+                  ],
+                  "pageInfo": {
+                    "endCursor": "recorded-cursor-17",
+                    "hasNextPage": false
+                  }
+                },
+                "reviews": {
+                  "nodes": [
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "recorded-user-6"
+                      },
+                      "commit": {
+                        "oid": "0000000000000000000000000000000000000008"
+                      },
+                      "id": "recorded-node-65",
+                      "state": "DISMISSED",
+                      "submittedAt": "2026-11-13T02:38:10Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "commit": {
+                        "oid": "0000000000000000000000000000000000000008"
+                      },
+                      "id": "recorded-node-66",
+                      "state": "COMMENTED",
+                      "submittedAt": "2026-11-13T02:39:14Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "commit": {
+                        "oid": "0000000000000000000000000000000000000009"
+                      },
+                      "id": "recorded-node-67",
+                      "state": "COMMENTED",
+                      "submittedAt": "2026-11-13T03:15:00Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "commit": {
+                        "oid": "0000000000000000000000000000000000000009"
+                      },
+                      "id": "recorded-node-68",
+                      "state": "COMMENTED",
+                      "submittedAt": "2026-11-13T03:15:03Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "commit": {
+                        "oid": "0000000000000000000000000000000000000009"
+                      },
+                      "id": "recorded-node-69",
+                      "state": "COMMENTED",
+                      "submittedAt": "2026-11-13T03:15:06Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "recorded-user-6"
+                      },
+                      "commit": {
+                        "oid": "0000000000000000000000000000000000000009"
+                      },
+                      "id": "recorded-node-70",
+                      "state": "CHANGES_REQUESTED",
+                      "submittedAt": "2026-11-13T03:17:24Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "commit": {
+                        "oid": "0000000000000000000000000000000000000009"
+                      },
+                      "id": "recorded-node-71",
+                      "state": "COMMENTED",
+                      "submittedAt": "2026-11-13T03:18:34Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "commit": {
+                        "oid": "0000000000000000000000000000000000000009"
+                      },
+                      "id": "recorded-node-72",
+                      "state": "COMMENTED",
+                      "submittedAt": "2026-11-13T03:18:36Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "commit": {
+                        "oid": "0000000000000000000000000000000000000009"
+                      },
+                      "id": "recorded-node-73",
+                      "state": "COMMENTED",
+                      "submittedAt": "2026-11-13T03:18:37Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "commit": {
+                        "oid": "0000000000000000000000000000000000000009"
+                      },
+                      "id": "recorded-node-74",
+                      "state": "COMMENTED",
+                      "submittedAt": "2026-11-13T03:18:39Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "commit": {
+                        "oid": "0000000000000000000000000000000000000009"
+                      },
+                      "id": "recorded-node-75",
+                      "state": "COMMENTED",
+                      "submittedAt": "2026-11-13T03:21:31Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "recorded-user-6"
+                      },
+                      "commit": {
+                        "oid": "0000000000000000000000000000000000000010"
+                      },
+                      "id": "recorded-node-76",
+                      "state": "CHANGES_REQUESTED",
+                      "submittedAt": "2026-11-13T03:41:17Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "commit": {
+                        "oid": "0000000000000000000000000000000000000010"
+                      },
+                      "id": "recorded-node-77",
+                      "state": "COMMENTED",
+                      "submittedAt": "2026-11-13T03:45:52Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "commit": {
+                        "oid": "0000000000000000000000000000000000000007"
+                      },
+                      "id": "recorded-node-78",
+                      "state": "COMMENTED",
+                      "submittedAt": "2026-11-13T03:45:55Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "commit": {
+                        "oid": "0000000000000000000000000000000000000007"
+                      },
+                      "id": "recorded-node-79",
+                      "state": "COMMENTED",
+                      "submittedAt": "2026-11-13T03:47:26Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "commit": {
+                        "oid": "0000000000000000000000000000000000000007"
+                      },
+                      "id": "recorded-node-80",
+                      "state": "COMMENTED",
+                      "submittedAt": "2026-11-13T03:48:00Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "commit": {
+                        "oid": "0000000000000000000000000000000000000007"
+                      },
+                      "id": "recorded-node-81",
+                      "state": "COMMENTED",
+                      "submittedAt": "2026-11-13T03:48:01Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "recorded-user-6"
+                      },
+                      "commit": {
+                        "oid": "0000000000000000000000000000000000000007"
+                      },
+                      "id": "recorded-node-82",
+                      "state": "APPROVED",
+                      "submittedAt": "2026-11-13T03:48:41Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "commit": {
+                        "oid": "0000000000000000000000000000000000000007"
+                      },
+                      "id": "recorded-node-83",
+                      "state": "COMMENTED",
+                      "submittedAt": "2026-11-13T03:55:45Z"
+                    },
+                    {
+                      "author": {
+                        "__typename": "User",
+                        "login": "stand-agent"
+                      },
+                      "commit": {
+                        "oid": "0000000000000000000000000000000000000007"
+                      },
+                      "id": "recorded-node-84",
+                      "state": "COMMENTED",
+                      "submittedAt": "2026-11-13T03:58:46Z"
+                    }
+                  ],
+                  "pageInfo": {
+                    "endCursor": "recorded-cursor-18",
+                    "hasNextPage": false
+                  }
+                },
+                "state": "OPEN",
+                "statusCheckRollup": {
+                  "contexts": {
+                    "nodes": [
+                      {
+                        "__typename": "CheckRun",
+                        "checkSuite": {
+                          "createdAt": "2026-11-13T03:45:54Z"
+                        },
+                        "completedAt": "2026-11-13T03:46:40Z",
+                        "conclusion": "SUCCESS",
+                        "isRequired": false,
+                        "name": "check-15",
+                        "startedAt": "2026-11-13T03:45:58Z",
+                        "status": "COMPLETED"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "checkSuite": {
+                          "createdAt": "2026-11-13T03:45:58Z"
+                        },
+                        "completedAt": "2026-11-13T03:46:20Z",
+                        "conclusion": "SUCCESS",
+                        "isRequired": false,
+                        "name": "check-1",
+                        "startedAt": "2026-11-13T03:46:01Z",
+                        "status": "COMPLETED"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "checkSuite": {
+                          "createdAt": "2026-11-13T03:45:54Z"
+                        },
+                        "completedAt": "2026-11-13T03:47:09Z",
+                        "conclusion": "SUCCESS",
+                        "isRequired": false,
+                        "name": "check-16",
+                        "startedAt": "2026-11-13T03:45:58Z",
+                        "status": "COMPLETED"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "checkSuite": {
+                          "createdAt": "2026-11-13T03:45:58Z"
+                        },
+                        "completedAt": "2026-11-13T03:46:03Z",
+                        "conclusion": "SUCCESS",
+                        "isRequired": false,
+                        "name": "check-17",
+                        "startedAt": "2026-11-13T03:46:01Z",
+                        "status": "COMPLETED"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "checkSuite": {
+                          "createdAt": "2026-11-13T03:45:58Z"
+                        },
+                        "completedAt": "2026-11-13T03:46:17Z",
+                        "conclusion": "SUCCESS",
+                        "isRequired": false,
+                        "name": "check-18",
+                        "startedAt": "2026-11-13T03:46:01Z",
+                        "status": "COMPLETED"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "checkSuite": {
+                          "createdAt": "2026-11-13T03:45:58Z"
+                        },
+                        "completedAt": "2026-11-13T03:46:18Z",
+                        "conclusion": "SUCCESS",
+                        "isRequired": false,
+                        "name": "check-19",
+                        "startedAt": "2026-11-13T03:46:01Z",
+                        "status": "COMPLETED"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "checkSuite": {
+                          "createdAt": "2026-11-13T03:45:58Z"
+                        },
+                        "completedAt": "2026-11-13T03:47:45Z",
+                        "conclusion": "SUCCESS",
+                        "isRequired": false,
+                        "name": "check-20",
+                        "startedAt": "2026-11-13T03:46:01Z",
+                        "status": "COMPLETED"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "checkSuite": {
+                          "createdAt": "2026-11-13T03:45:58Z"
+                        },
+                        "completedAt": "2026-11-13T03:48:24Z",
+                        "conclusion": "SUCCESS",
+                        "isRequired": false,
+                        "name": "check-21",
+                        "startedAt": "2026-11-13T03:46:01Z",
+                        "status": "COMPLETED"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "checkSuite": {
+                          "createdAt": "2026-11-13T03:45:58Z"
+                        },
+                        "completedAt": "2026-11-13T03:48:06Z",
+                        "conclusion": "SUCCESS",
+                        "isRequired": false,
+                        "name": "check-22",
+                        "startedAt": "2026-11-13T03:46:01Z",
+                        "status": "COMPLETED"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "checkSuite": {
+                          "createdAt": "2026-11-13T03:45:58Z"
+                        },
+                        "completedAt": "2026-11-13T03:47:03Z",
+                        "conclusion": "SUCCESS",
+                        "isRequired": false,
+                        "name": "check-23",
+                        "startedAt": "2026-11-13T03:46:01Z",
+                        "status": "COMPLETED"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "checkSuite": {
+                          "createdAt": "2026-11-13T03:45:58Z"
+                        },
+                        "completedAt": "2026-11-13T03:47:16Z",
+                        "conclusion": "SUCCESS",
+                        "isRequired": false,
+                        "name": "check-24",
+                        "startedAt": "2026-11-13T03:46:01Z",
+                        "status": "COMPLETED"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "checkSuite": {
+                          "createdAt": "2026-11-13T03:45:58Z"
+                        },
+                        "completedAt": "2026-11-13T03:45:58Z",
+                        "conclusion": "SKIPPED",
+                        "isRequired": false,
+                        "name": "check-25",
+                        "startedAt": "2026-11-13T03:45:59Z",
+                        "status": "COMPLETED"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "checkSuite": {
+                          "createdAt": "2026-11-13T03:45:58Z"
+                        },
+                        "completedAt": "2026-11-13T03:46:20Z",
+                        "conclusion": "SKIPPED",
+                        "isRequired": false,
+                        "name": "check-26",
+                        "startedAt": "2026-11-13T03:46:20Z",
+                        "status": "COMPLETED"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "checkSuite": {
+                          "createdAt": "2026-11-13T03:45:58Z"
+                        },
+                        "completedAt": "2026-11-13T03:47:22Z",
+                        "conclusion": "SUCCESS",
+                        "isRequired": false,
+                        "name": "check-27",
+                        "startedAt": "2026-11-13T03:46:22Z",
+                        "status": "COMPLETED"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "checkSuite": {
+                          "createdAt": "2026-11-13T03:45:58Z"
+                        },
+                        "completedAt": "2026-11-13T03:47:36Z",
+                        "conclusion": "SUCCESS",
+                        "isRequired": false,
+                        "name": "check-28",
+                        "startedAt": "2026-11-13T03:46:23Z",
+                        "status": "COMPLETED"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "checkSuite": {
+                          "createdAt": "2026-11-13T03:45:58Z"
+                        },
+                        "completedAt": "2026-11-13T03:45:58Z",
+                        "conclusion": "SKIPPED",
+                        "isRequired": false,
+                        "name": "check-29",
+                        "startedAt": "2026-11-13T03:45:59Z",
+                        "status": "COMPLETED"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "checkSuite": {
+                          "createdAt": "2026-11-13T03:45:58Z"
+                        },
+                        "completedAt": "2026-11-13T03:48:45Z",
+                        "conclusion": "SUCCESS",
+                        "isRequired": true,
+                        "name": "check-30",
+                        "startedAt": "2026-11-13T03:48:27Z",
+                        "status": "COMPLETED"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "checkSuite": {
+                          "createdAt": "2026-11-13T03:45:58Z"
+                        },
+                        "completedAt": "2026-11-13T03:48:46Z",
+                        "conclusion": "SKIPPED",
+                        "isRequired": false,
+                        "name": "check-31",
+                        "startedAt": "2026-11-13T03:48:46Z",
+                        "status": "COMPLETED"
+                      },
+                      {
+                        "__typename": "CheckRun",
+                        "checkSuite": {
+                          "createdAt": "2026-11-13T03:46:29Z"
+                        },
+                        "completedAt": "2026-11-13T03:46:33Z",
+                        "conclusion": "SUCCESS",
+                        "isRequired": false,
+                        "name": "check-32",
+                        "startedAt": "2026-11-13T03:46:29Z",
+                        "status": "COMPLETED"
+                      }
+                    ],
+                    "pageInfo": {
+                      "endCursor": "recorded-cursor-19",
+                      "hasNextPage": false
+                    }
+                  }
+                },
+                "title": "Recorded title 1",
+                "updatedAt": "2026-11-13T03:58:46Z",
+                "url": "https://github.com/stand-org/board/pull/376"
+              }
+            },
+            "rateLimit": {
+              "remaining": 4385,
+              "resetAt": "2026-11-13T04:31:30Z"
+            }
+          }
+        }
+      }
+    }
+  ]
+}

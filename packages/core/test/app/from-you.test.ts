@@ -34,7 +34,7 @@ const config = configSchema.parse({
   ],
   operator: { slack: 'operator' },
   digest: { tz: 'UTC' },
-  adapters: { github: { intervalMs: 60_000 } },
+  adapters: { github: { intervalMs: 60_000 }, githubIssues: { intervalMs: 90_000 } },
 });
 const source = 'github-issues:board:o/r';
 const stores: Store[] = [];
@@ -75,7 +75,7 @@ it('marks a fact stale only after the strict multiplier boundary, and while blin
     state: { lastCompleteAt: at, gone: [] },
     outcomes: [{ ref, misses: 3, gone: true }],
   });
-  now += 180_000;
+  now += 270_000;
   expect((await status()).items[0]?.unconfirmed).toBe(false);
   now += 1;
   expect((await status()).items[0]?.unconfirmed).toBe(true);
