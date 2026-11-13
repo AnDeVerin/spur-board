@@ -237,18 +237,24 @@ async function fullPr(
   return { status: 'ok', pr };
 }
 const at = (time: string): number => Date.parse(time);
+type CommentNode = { id: string; createdAt: string };
+/** Whether `nodes` hold the `cursor` entry or one strictly older than it. */
 function reachesCursor(
-  nodes: readonly { id: string; createdAt: string }[],
-  cursor: FeedbackCursor | undefined,
+  nodes: readonly CommentNode[],
+  cursor: { id: string; postedAt: string } | undefined,
 ): boolean {
   if (cursor === undefined) return false;
   const postedAt = at(cursor.postedAt);
   return nodes.some((node) => node.id === cursor.id || at(node.createdAt) < postedAt);
 }
-const asNode = (entry: PrFeedback): { id: string; createdAt: string } => ({
-  id: entry.id,
-  createdAt: entry.postedAt,
-});
+const asNode = (entry: PrFeedback): CommentNode => ({ id: entry.id, createdAt: entry.postedAt });
+/** The newest of `items` by `time`; the first one on a tie. */
+function newestOf<T>(items: readonly T[], time: (item: T) => string): T | undefined {
+  return items.reduce<T | undefined>(
+    (found, item) => (found === undefined || at(time(item)) > at(time(found)) ? item : found),
+    undefined,
+  );
+}
 /** What core is asked to hold for a PR (A10); undefined says nothing. */
 type Continuation = { resume: SourceCursor | null } | null;
 interface Feedback {
@@ -259,13 +265,13 @@ interface Feedback {
   complete: boolean;
   continuation: Continuation | undefined;
 }
-/** Reads one page of comments before `before`; undefined on a GraphQL error. */
+/** Reads one page of comments before `before`; undefined on a GraphQL error or a bad page. */
 async function commentPage(
   scope: PrScope,
   number: number,
   before: string,
   budget: (value: NonNullable<Batch['budget']>) => void,
-): Promise<BackPaging | AdapterError | undefined> {
+): Promise<BackPaging | undefined> {
   const response = await scope.client.query(
     pageQuery('comments'),
     { owner: scope.owner, repo: scope.name, number, before },
@@ -274,11 +280,12 @@ async function commentPage(
   budget(response.budget);
   rejectUnscoped(response.errors, ['repository']);
   if (response.errors.length > 0) return undefined;
-  return content(
+  const page = content(
     () =>
       parseWire(commentsRootWire, response.data.repository, MALFORMED, ['data', 'repository'])
         .pullRequest.comments,
   );
+  return page instanceof AdapterError ? undefined : page;
 }
 /**
  * Reads comments back from `first` to `cursor`, or to the start of the PR, within
@@ -304,14 +311,7 @@ async function readFeedback(
     continuation: scope.states ? continuation : undefined,
   });
   const heldComments = held?.feedback.filter((entry) => entry.kind === 'comment') ?? [];
-  const newest = heldComments.reduce<PrFeedback | undefined>(
-    (found, entry) =>
-      found === undefined || at(entry.postedAt) > at(found.postedAt) ? entry : found,
-    undefined,
-  );
-  const joins = (page: BackPaging): boolean =>
-    newest !== undefined &&
-    page.nodes.some((node) => node.id === newest.id || at(node.createdAt) < at(newest.postedAt));
+  const newest = newestOf(heldComments, (entry) => entry.postedAt);
   let pages = 1;
   try {
     // Phase 1: the newest comments, until they reach the cursor or start or join the held ones.
@@ -319,7 +319,7 @@ async function readFeedback(
     for (let page = first; ; pages += 1) {
       if (!page.pageInfo.hasPreviousPage || reachesCursor(page.nodes, cursor))
         return result(true, held === undefined ? undefined : null);
-      if (joins(page)) break;
+      if (reachesCursor(page.nodes, newest)) break;
       const before = page.pageInfo.startCursor;
       if (!before || seen.has(before)) return result(false);
       // The newest comments no longer reach the held ones: hold a new history from here.
@@ -327,7 +327,7 @@ async function readFeedback(
         return result(false, { resume: sourceCursorSchema.parse(before) });
       seen.add(before);
       const next = await commentPage(scope, number, before, budget);
-      if (next === undefined || next instanceof AdapterError) return result(false);
+      if (next === undefined) return result(false);
       page = next;
       nodes = [...page.nodes, ...nodes];
     }
@@ -338,23 +338,19 @@ async function readFeedback(
     kept = heldComments.filter(
       (entry) => !listed.has(entry.id) && at(entry.postedAt) <= oldestRead,
     );
-    const reached = (): boolean =>
-      reachesCursor(nodes, cursor) || reachesCursor(kept.map(asNode), cursor);
+    const history = (): CommentNode[] => [...nodes, ...kept.map(asNode)];
+    const reached = (): boolean => reachesCursor(history(), cursor);
     // Phase 2: further back from where the held history stopped.
     let resume = held.resume;
     const resumed = new Set<string>();
     for (; resume !== null && !reached() && pages < FEEDBACK_PAGES; pages += 1) {
       resumed.add(resume);
       const page = await commentPage(scope, number, resume, budget);
-      if (page === undefined || page instanceof AdapterError) return result(false, null);
-      const run = [...nodes, ...kept.map(asNode)];
+      if (page === undefined) return result(false, null);
+      const run = history();
       const ids = new Set(run.map((node) => node.id));
       const oldest = Math.min(...run.map((node) => at(node.createdAt)));
-      const latest = page.nodes.reduce<BackPaging['nodes'][number] | undefined>(
-        (found, node) =>
-          found === undefined || at(node.createdAt) > at(found.createdAt) ? node : found,
-        undefined,
-      );
+      const latest = newestOf(page.nodes, (node) => node.createdAt);
       // A page that neither overlaps the history nor ends before it does not continue it.
       if (latest !== undefined && !ids.has(latest.id) && at(latest.createdAt) > oldest)
         return result(false, null);
