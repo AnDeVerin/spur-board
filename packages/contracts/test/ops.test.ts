@@ -260,6 +260,15 @@ describe('catalog', () => {
     if (many?.error !== undefined) expect(errorCodeOf(many.error)).toBe('usage');
   });
 
+  it('lets token.revoke take any name the pre-#242 enrollment could store', () => {
+    const revoke = OPERATIONS.find((op) => op.id === 'token.revoke');
+    expect(revoke?.input.safeParse({ name: 'x'.repeat(257) }).success).toBe(true);
+    expect(revoke?.input.safeParse({ name: 'old desk' }).success).toBe(true);
+    const revokeJson = schemas.find(({ op }) => op.id === 'token.revoke')?.input;
+    const nameJson = isObject(revokeJson?.['properties']) ? revokeJson['properties']['name'] : {};
+    expect(isObject(nameJson) && nameJson['maxLength']).toBe(1_048_576);
+  });
+
   it('caps task keys at 300 characters in inputs only', () => {
     const key300 = `P${'A'.repeat(297)}-1`;
     const key301 = `P${'A'.repeat(298)}-1`;

@@ -118,6 +118,25 @@ describe('operator token lifecycle', () => {
     ]);
   });
 
+  it('revokes an approved token whose legacy name is longer than enrollment now allows', async () => {
+    const store = setup();
+    await enroll(store);
+    const row = await store.db.selectFrom('operator_token').selectAll().executeTakeFirstOrThrow();
+    await scanTransaction(store, testConfig, (trx) =>
+      decideTokenInTransaction(trx, row.item_id, 'approve', AT),
+    );
+    const legacy = `old desk ${'x'.repeat(300)}`;
+    await store.db.updateTable('operator_token').set({ name: legacy }).execute();
+    expect(await verifyOperatorToken(store, SECRET)).toEqual({ name: legacy });
+
+    expect(
+      await scanTransaction(store, testConfig, (trx) =>
+        tokenRevokeMutation.run(trx, { name: legacy }, { actor: 'operator', at: AT.toISOString() }),
+      ),
+    ).toEqual({ name: legacy, status: 'revoked' });
+    expect(await verifyOperatorToken(store, SECRET)).toBeNull();
+  });
+
   it('refuses a live duplicate name, denies the request, then reuses the denied name', async () => {
     const store = setup();
     await enroll(store);

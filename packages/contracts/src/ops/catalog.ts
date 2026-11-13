@@ -35,6 +35,8 @@ import { SPACE_IDS } from '../gateway/schemas.ts';
 const TEXT_MAX = 20_000;
 /** Longest project, session or token name an input takes. */
 const NAME_MAX = 256;
+/** Names were limited only by the old 1 MiB request body before #242, so revoke must accept any of them. */
+const LEGACY_TOKEN_NAME_MAX = 1_048_576;
 /** Longest pull request URL or unblock reference an input takes. */
 const REF_MAX = 2048;
 /** Most entries one `inbox.ack` call acknowledges. */
@@ -644,7 +646,7 @@ export const OPERATIONS = [
       whenToUse: 'Disable a named operator token immediately.',
       whenNotToUse: 'Use token_list to inspect tokens without changing them.',
     },
-    input: z.strictObject({ name: tokenName.max(NAME_MAX) }),
+    input: z.strictObject({ name: tokenName.max(LEGACY_TOKEN_NAME_MAX) }),
     output: z.strictObject({ name: tokenName, status: tokenStatus }),
     grants: operatorOnly,
     errors: ['not_found'],

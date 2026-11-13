@@ -1,5 +1,5 @@
 {
-  "version": "4f14f96684292214e6ee99335f1b66b826a1c7297e50af367f48de0866d9dff6",
+  "version": "a6316b41f56dca87f0dcdabfadaf2512f812705d9ef3ec77888d286b0eb5f149",
   "grants": [
     "operator",
     "project-agent",
@@ -4506,7 +4506,7 @@
           "name": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 256,
+            "maxLength": 1048576,
             "description": "Unique name of the operator token."
           }
         },
