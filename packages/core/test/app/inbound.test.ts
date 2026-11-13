@@ -17,6 +17,7 @@ import {
   messageRefSchema,
   userIdSchema,
   type ActorId,
+  type Gateway,
   type InboundEvent,
 } from '@spur-board/contracts';
 import { createFakeGateway } from '@spur-board/gateway-testkit';
@@ -1757,21 +1758,13 @@ describe('inbound apply', () => {
     ]);
     const release = (ref: string) => gates.get(ref)?.resolve(undefined);
     const calls: string[] = [];
-    const inbound = createInbound({
-      store,
-      config,
-      clock: { now: () => now },
-      gateway: {
-        ...gateway,
-        recover(request) {
-          const ref = request.conversations[0]?.ref ?? '';
-          calls.push(ref);
-          return (async function* () {
-            await gates.get(ref)?.promise;
-            yield* gateway.recover(request);
-          })();
-        },
-      },
+    const inbound = recoveringInbound(store, gateway, (request) => {
+      const ref = request.conversations[0]?.ref ?? '';
+      calls.push(ref);
+      return (async function* () {
+        await gates.get(ref)?.promise;
+        yield* gateway.recover(request);
+      })();
     });
     let scanned = false;
     const scanning = inbound.recover().then(() => {
@@ -1810,29 +1803,21 @@ describe('inbound apply', () => {
     await addSecondConversation(store, gateway.kind);
     const gate = Promise.withResolvers<undefined>();
     const calls: string[] = [];
-    const inbound = createInbound({
-      store,
-      config,
-      clock: { now: () => now },
-      gateway: {
-        ...gateway,
-        recover(request) {
-          const ref = request.conversations[0]?.ref ?? '';
-          calls.push(ref);
-          return (async function* () {
-            if (ref === 'thread-1') await gate.promise;
-            if (ref === 'thread-2') {
-              yield message({
-                conversation: 'thread-2',
-                root: 'root-2',
-                key: 'missed-2',
-                ref: 'missed-2',
-                text: 'Missed',
-              });
-            }
-          })();
-        },
-      },
+    const inbound = recoveringInbound(store, gateway, (request) => {
+      const ref = request.conversations[0]?.ref ?? '';
+      calls.push(ref);
+      return (async function* () {
+        if (ref === 'thread-1') await gate.promise;
+        if (ref === 'thread-2') {
+          yield message({
+            conversation: 'thread-2',
+            root: 'root-2',
+            key: 'missed-2',
+            ref: 'missed-2',
+            text: 'Missed',
+          });
+        }
+      })();
     });
     const scanning = inbound.recover();
     try {
@@ -1868,22 +1853,14 @@ describe('inbound apply', () => {
   it('aborts the recovery signal on stop and scans nothing after', async () => {
     const { store, gateway } = await setup();
     const signals: AbortSignal[] = [];
-    const inbound = createInbound({
-      store,
-      config,
-      clock: { now: () => now },
-      gateway: {
-        ...gateway,
-        recover(request) {
-          const signal = request.signal;
-          if (signal === undefined) throw new Error('Expected a recovery signal');
-          signals.push(signal);
-          return (async function* () {
-            await abortOf(signal);
-            yield* gateway.recover({ conversations: [], since: new Date(now) });
-          })();
-        },
-      },
+    const inbound = recoveringInbound(store, gateway, (request) => {
+      const signal = request.signal;
+      if (signal === undefined) throw new Error('Expected a recovery signal');
+      signals.push(signal);
+      return (async function* () {
+        await abortOf(signal);
+        yield* gateway.recover({ conversations: [], since: new Date(now) });
+      })();
     });
     const scanning = inbound.recover();
     await settleUntil(() => signals.length === 1);
@@ -1899,22 +1876,14 @@ describe('inbound apply', () => {
     const { store, gateway } = await setup();
     await addSecondConversation(store, gateway.kind);
     const calls: string[] = [];
-    const inbound = createInbound({
-      store,
-      config,
-      clock: { now: () => now },
-      gateway: {
-        ...gateway,
-        recover(request) {
-          const signal = request.signal;
-          if (signal === undefined) throw new Error('Expected a recovery signal');
-          calls.push(request.conversations[0]?.ref ?? '');
-          return (async function* () {
-            await abortOf(signal);
-            yield* gateway.recover({ conversations: [], since: new Date(now) });
-          })();
-        },
-      },
+    const inbound = recoveringInbound(store, gateway, (request) => {
+      const signal = request.signal;
+      if (signal === undefined) throw new Error('Expected a recovery signal');
+      calls.push(request.conversations[0]?.ref ?? '');
+      return (async function* () {
+        await abortOf(signal);
+        yield* gateway.recover({ conversations: [], since: new Date(now) });
+      })();
     });
     const scanning = inbound.recover();
     await settleUntil(() => calls.includes('thread-1'));
@@ -1982,6 +1951,16 @@ async function addSecondConversation(store: Store, gateway: string): Promise<voi
         closed_at: null,
       })
       .execute();
+  });
+}
+
+/** The test's inbound with `recover` replaced on its fake gateway. */
+function recoveringInbound(store: Store, gateway: Gateway, recover: Gateway['recover']) {
+  return createInbound({
+    store,
+    config,
+    clock: { now: () => now },
+    gateway: { ...gateway, recover },
   });
 }
 

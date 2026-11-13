@@ -16,6 +16,7 @@ import {
   type Gateway,
   type InboundEvent,
   type OperationId,
+  type RecoverRequest,
   type RichText,
 } from '@spur-board/contracts';
 import { sql, type Kysely } from 'kysely';
@@ -879,29 +880,25 @@ export function createInbound(input: {
 
   /** Reads one conversation, or none to let a history-less gateway report its gap. */
   async function readSlice(ref: string | undefined): Promise<void> {
-    const row =
-      ref === undefined
-        ? undefined
-        : await store.db
-            .selectFrom('conversation')
-            .select(['ref', 'after_message_ref'])
-            .where('gateway', '=', gateway.kind)
-            .where('ref', '=', ref)
-            .executeTakeFirst();
-    if (ref !== undefined && row === undefined) return;
-    const conversations =
-      row === undefined
-        ? []
-        : [
-            {
-              ref: conversationRefSchema.parse(row.ref),
-              ...(row.after_message_ref === null
-                ? {}
-                : { after: messageRefSchema.parse(row.after_message_ref) }),
-            },
-          ];
-    const request = { conversations, since, signal: stopping.signal };
-    for await (const event of gateway.recover(request)) {
+    let conversations: RecoverRequest['conversations'] = [];
+    if (ref !== undefined) {
+      const row = await store.db
+        .selectFrom('conversation')
+        .select('after_message_ref')
+        .where('gateway', '=', gateway.kind)
+        .where('ref', '=', ref)
+        .executeTakeFirst();
+      if (row === undefined) return;
+      conversations = [
+        {
+          ref: conversationRefSchema.parse(ref),
+          ...(row.after_message_ref === null
+            ? {}
+            : { after: messageRefSchema.parse(row.after_message_ref) }),
+        },
+      ];
+    }
+    for await (const event of gateway.recover({ conversations, since, signal: stopping.signal })) {
       // A slice never starts a scan from inside the chain.
       if (event.kind === 'connection') continue;
       await applyEvent(event);
@@ -928,9 +925,10 @@ export function createInbound(input: {
         gateway.kind,
         new Date(clock.now()),
       );
+      const refs = selected.rows.map((row) => row.ref);
       since = selected.since;
-      pending = new Set(selected.rows.map((row) => row.ref));
-      return selected.rows.map((row) => row.ref);
+      pending = new Set(refs);
+      return refs;
     });
     if (refs.length === 0) {
       await serial(() => readSlice(undefined));
