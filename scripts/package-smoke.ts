@@ -60,16 +60,61 @@ export function command(
   });
 }
 
+// The names the testkit harness scrubs, plus the CI runner's tokens and npm's own config.
+const SCRUB_PREFIXES = [
+  'ACTIONS_',
+  'GITHUB_',
+  'NPM_CONFIG_',
+  'SPUR_',
+  'BOARD_',
+  'SLACK_',
+  'JIRA_',
+  'GBRAIN_',
+  'ANTHROPIC_',
+  'OPENAI_',
+];
+const SCRUB_SUFFIXES = ['_API_KEY', '_TOKEN', '_SECRET', '_PASSWORD'];
+
+/** `base` without credential-shaped names, so installed packages cannot read runner tokens. */
+export function credentialFreeEnv(base: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {};
+  for (const [name, value] of Object.entries(base)) {
+    const upper = name.toUpperCase();
+    if (
+      upper === 'GH_TOKEN' ||
+      SCRUB_PREFIXES.some((prefix) => upper.startsWith(prefix)) ||
+      SCRUB_SUFFIXES.some((suffix) => upper.endsWith(suffix))
+    ) {
+      continue;
+    }
+    env[name] = value;
+  }
+  return env;
+}
+
 export function installPackage(packageRef: string, prefix: string): string {
   mkdirSync(prefix, { recursive: true });
   const result = spawnSync(
     'npm',
     ['install', '--prefix', prefix, packageRef, '--no-audit', '--no-fund'],
-    { encoding: 'utf8', timeout: 120_000, stdio: ['ignore', 'pipe', 'pipe'] },
+    {
+      encoding: 'utf8',
+      timeout: 120_000,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: credentialFreeEnv(process.env),
+    },
   );
   if (result.status !== 0)
     throw new Error(`Tarball install failed: ${result.stderr || result.stdout}`);
   return join(prefix, 'node_modules/.bin/board');
+}
+
+/** The version of `spur-board` installed under `prefix`. */
+export function installedVersion(prefix: string): string {
+  const manifest = JSON.parse(
+    readFileSync(join(prefix, 'node_modules/spur-board/package.json'), 'utf8'),
+  ) as { version: string };
+  return manifest.version;
 }
 
 async function fakeSessionApi(): Promise<{ server: Server; port: number }> {
@@ -346,7 +391,12 @@ export const smokeSteps: readonly SmokeStep[] = [
     name: 'mcp',
     baseline: true,
     async run(ctx) {
-      await handshake(ctx.binary, ctx.expectedVersion, ctx.baselineOnly !== true);
+      await handshake(
+        ctx.binary,
+        ctx.expectedVersion,
+        ctx.baselineOnly !== true,
+        credentialFreeEnv(process.env),
+      );
     },
   },
   {
@@ -452,7 +502,7 @@ export async function smokeInstalled(
       packageRoot: dirname(dirname(realpathSync(binary))),
       baselineOnly,
       env: {
-        ...process.env,
+        ...credentialFreeEnv(process.env),
         HOME: home,
         BOARD_HOME: home,
         XDG_CONFIG_HOME: join(home, '.config'),
@@ -484,10 +534,7 @@ export async function smokePackage(tarball?: string): Promise<void> {
     const packed = tarball ?? packPackage(temporary);
     const prefix = join(temporary, 'install');
     const binary = installPackage(packed, prefix);
-    const manifest = JSON.parse(
-      readFileSync(join(prefix, 'node_modules/spur-board/package.json'), 'utf8'),
-    ) as { version: string };
-    await smokeInstalled(binary, join(temporary, 'home'), manifest.version);
+    await smokeInstalled(binary, join(temporary, 'home'), installedVersion(prefix));
   } finally {
     rmSync(temporary, { recursive: true, force: true });
   }
