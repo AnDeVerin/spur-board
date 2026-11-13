@@ -97,7 +97,8 @@ Every test runs through the root config, so all of these hold:
 - `pnpm check` (changed mode): format and lint on changed files; types and the `unit`,
   `integration` and `process` projects for changed packages plus their dependents
   (`withDependents`, `buildSteps` in `scripts/check.ts`). `startup` and package smoke run only when
-  `packages/cli` is affected, `stand` only when `packages/stand` is.
+  `packages/cli` is affected, `stand` only when `packages/stand` is. `scripts/gen-docs.test.ts`
+  and `packages/skills/test/skill-sync.test.ts` also run when contracts or cli is affected.
 - A change to a file in `GLOBAL_FILES` or `GLOBAL_DIRS` (`scripts/check-plan.ts`), or to a
   root `tsconfig*.json`, switches to full mode; a package's own `tsconfig.json` does not.
 - `pnpm run check --pre-push` (the pre-push hook): changed-file format and lint, types and `unit`
