@@ -1,21 +1,14 @@
 {
   "source": "jira:stand-jira",
-  "recordedAt": "2026-11-13T03:00:35.245Z",
+  "recordedAt": "2026-11-13T04:01:31.066Z",
   "observe": {
     "prs": [],
     "tickets": [],
     "sessions": []
   },
   "tracker": {
-    "doneStatuses": [
-      "In Dev",
-      "IN PRE-PROD",
-      "Tested in PreProd",
-      "In Prod",
-      "Done",
-      "Closed as Duplicate"
-    ],
-    "readyStatuses": ["Current Sprint"]
+    "doneStatuses": ["Done"],
+    "readyStatuses": ["Ready for Dev"]
   },
   "exchanges": [
     {
@@ -39,7 +32,7 @@
             "statuses": [
               {
                 "id": "9900002",
-                "name": "Backlog"
+                "name": "To Do"
               },
               {
                 "id": "9900003",
@@ -47,23 +40,23 @@
               },
               {
                 "id": "9900004",
-                "name": "On Hold"
+                "name": "In Progress"
               },
               {
                 "id": "9900005",
-                "name": "Tested in PreProd"
+                "name": "Done"
               },
               {
                 "id": "9900006",
-                "name": "In Dev"
+                "name": "Done"
               },
               {
                 "id": "9900007",
-                "name": "Closed as Duplicate"
+                "name": "Done"
               },
               {
                 "id": "9900008",
-                "name": "IN PRE-PROD"
+                "name": "Done"
               },
               {
                 "id": "9900009",
@@ -71,19 +64,19 @@
               },
               {
                 "id": "9900010",
-                "name": "In Progress"
+                "name": "Status 1"
               },
               {
                 "id": "9900011",
-                "name": "In Prod"
+                "name": "Done"
               },
               {
                 "id": "9900012",
-                "name": "CODE COMPLETE"
+                "name": "Status 2"
               },
               {
                 "id": "9900013",
-                "name": "Current Sprint"
+                "name": "Ready for Dev"
               }
             ],
             "subtask": false
@@ -94,7 +87,7 @@
             "statuses": [
               {
                 "id": "9900002",
-                "name": "Backlog"
+                "name": "To Do"
               },
               {
                 "id": "9900003",
@@ -102,23 +95,23 @@
               },
               {
                 "id": "9900004",
-                "name": "On Hold"
+                "name": "In Progress"
               },
               {
                 "id": "9900005",
-                "name": "Tested in PreProd"
+                "name": "Done"
               },
               {
                 "id": "9900006",
-                "name": "In Dev"
+                "name": "Done"
               },
               {
                 "id": "9900007",
-                "name": "Closed as Duplicate"
+                "name": "Done"
               },
               {
                 "id": "9900008",
-                "name": "IN PRE-PROD"
+                "name": "Done"
               },
               {
                 "id": "9900009",
@@ -126,19 +119,19 @@
               },
               {
                 "id": "9900010",
-                "name": "In Progress"
+                "name": "Status 1"
               },
               {
                 "id": "9900011",
-                "name": "In Prod"
+                "name": "Done"
               },
               {
                 "id": "9900012",
-                "name": "CODE COMPLETE"
+                "name": "Status 2"
               },
               {
                 "id": "9900013",
-                "name": "Current Sprint"
+                "name": "Ready for Dev"
               }
             ],
             "subtask": false
@@ -149,7 +142,7 @@
             "statuses": [
               {
                 "id": "9900002",
-                "name": "Backlog"
+                "name": "To Do"
               },
               {
                 "id": "9900003",
@@ -157,23 +150,23 @@
               },
               {
                 "id": "9900004",
-                "name": "On Hold"
+                "name": "In Progress"
               },
               {
                 "id": "9900005",
-                "name": "Tested in PreProd"
+                "name": "Done"
               },
               {
                 "id": "9900006",
-                "name": "In Dev"
+                "name": "Done"
               },
               {
                 "id": "9900007",
-                "name": "Closed as Duplicate"
+                "name": "Done"
               },
               {
                 "id": "9900008",
-                "name": "IN PRE-PROD"
+                "name": "Done"
               },
               {
                 "id": "9900009",
@@ -181,19 +174,19 @@
               },
               {
                 "id": "9900010",
-                "name": "In Progress"
+                "name": "Status 1"
               },
               {
                 "id": "9900011",
-                "name": "In Prod"
+                "name": "Done"
               },
               {
                 "id": "9900012",
-                "name": "CODE COMPLETE"
+                "name": "Status 2"
               },
               {
                 "id": "9900013",
-                "name": "Current Sprint"
+                "name": "Ready for Dev"
               }
             ],
             "subtask": false
@@ -204,7 +197,7 @@
             "statuses": [
               {
                 "id": "9900002",
-                "name": "Backlog"
+                "name": "To Do"
               },
               {
                 "id": "9900003",
@@ -212,23 +205,23 @@
               },
               {
                 "id": "9900004",
-                "name": "On Hold"
+                "name": "In Progress"
               },
               {
                 "id": "9900005",
-                "name": "Tested in PreProd"
+                "name": "Done"
               },
               {
                 "id": "9900006",
-                "name": "In Dev"
+                "name": "Done"
               },
               {
                 "id": "9900007",
-                "name": "Closed as Duplicate"
+                "name": "Done"
               },
               {
                 "id": "9900008",
-                "name": "IN PRE-PROD"
+                "name": "Done"
               },
               {
                 "id": "9900009",
@@ -236,19 +229,19 @@
               },
               {
                 "id": "9900010",
-                "name": "In Progress"
+                "name": "Status 1"
               },
               {
                 "id": "9900011",
-                "name": "In Prod"
+                "name": "Done"
               },
               {
                 "id": "9900012",
-                "name": "CODE COMPLETE"
+                "name": "Status 2"
               },
               {
                 "id": "9900013",
-                "name": "Current Sprint"
+                "name": "Ready for Dev"
               }
             ],
             "subtask": false
@@ -259,7 +252,7 @@
             "statuses": [
               {
                 "id": "9900002",
-                "name": "Backlog"
+                "name": "To Do"
               },
               {
                 "id": "9900003",
@@ -267,23 +260,23 @@
               },
               {
                 "id": "9900004",
-                "name": "On Hold"
+                "name": "In Progress"
               },
               {
                 "id": "9900005",
-                "name": "Tested in PreProd"
+                "name": "Done"
               },
               {
                 "id": "9900006",
-                "name": "In Dev"
+                "name": "Done"
               },
               {
                 "id": "9900007",
-                "name": "Closed as Duplicate"
+                "name": "Done"
               },
               {
                 "id": "9900008",
-                "name": "IN PRE-PROD"
+                "name": "Done"
               },
               {
                 "id": "9900009",
@@ -291,19 +284,19 @@
               },
               {
                 "id": "9900010",
-                "name": "In Progress"
+                "name": "Status 1"
               },
               {
                 "id": "9900011",
-                "name": "In Prod"
+                "name": "Done"
               },
               {
                 "id": "9900012",
-                "name": "CODE COMPLETE"
+                "name": "Status 2"
               },
               {
                 "id": "9900013",
-                "name": "Current Sprint"
+                "name": "Ready for Dev"
               }
             ],
             "subtask": true
@@ -417,11 +410,11 @@
                 "status": {
                   "name": "In Review"
                 },
-                "summary": "Recorded title 38",
+                "summary": "Recorded title 35",
                 "updated": "2026-11-12T12:42:20.503-0500"
               },
               "id": "9900015",
-              "key": "STAND-5766",
+              "key": "STAND-1",
               "self": "https://jira.stand.invalid/rest/api/3/issue/9900015"
             },
             {
@@ -438,13 +431,13 @@
                 ],
                 "labels": [],
                 "status": {
-                  "name": "Backlog"
+                  "name": "To Do"
                 },
-                "summary": "Recorded title 39",
+                "summary": "Recorded title 36",
                 "updated": "2026-11-12T08:05:45.629-0500"
               },
               "id": "9900016",
-              "key": "STAND-5761",
+              "key": "STAND-2",
               "self": "https://jira.stand.invalid/rest/api/3/issue/9900016"
             },
             {
@@ -461,13 +454,13 @@
                 ],
                 "labels": [],
                 "status": {
-                  "name": "Tested in PreProd"
+                  "name": "Done"
                 },
-                "summary": "Recorded title 40",
+                "summary": "Recorded title 37",
                 "updated": "2026-11-12T16:53:57.386-0500"
               },
               "id": "9900017",
-              "key": "STAND-5760",
+              "key": "STAND-3",
               "self": "https://jira.stand.invalid/rest/api/3/issue/9900017"
             },
             {
@@ -484,13 +477,13 @@
                 ],
                 "labels": [],
                 "status": {
-                  "name": "Backlog"
+                  "name": "To Do"
                 },
-                "summary": "Recorded title 41",
+                "summary": "Recorded title 38",
                 "updated": "2026-11-11T17:21:21.072-0500"
               },
               "id": "9900018",
-              "key": "STAND-5758",
+              "key": "STAND-4",
               "self": "https://jira.stand.invalid/rest/api/3/issue/9900018"
             },
             {
@@ -509,11 +502,11 @@
                 "status": {
                   "name": "In Review"
                 },
-                "summary": "Recorded title 42",
+                "summary": "Recorded title 39",
                 "updated": "2026-11-12T17:45:55.202-0500"
               },
               "id": "9900019",
-              "key": "STAND-5757",
+              "key": "STAND-5",
               "self": "https://jira.stand.invalid/rest/api/3/issue/9900019"
             },
             {
@@ -530,13 +523,13 @@
                 ],
                 "labels": [],
                 "status": {
-                  "name": "Backlog"
+                  "name": "To Do"
                 },
-                "summary": "Recorded title 43",
+                "summary": "Recorded title 40",
                 "updated": "2026-11-11T06:47:30.063-0500"
               },
               "id": "9900020",
-              "key": "STAND-5755",
+              "key": "STAND-6",
               "self": "https://jira.stand.invalid/rest/api/3/issue/9900020"
             },
             {
@@ -553,13 +546,13 @@
                 ],
                 "labels": [],
                 "status": {
-                  "name": "Tested in PreProd"
+                  "name": "Done"
                 },
-                "summary": "Recorded title 44",
+                "summary": "Recorded title 41",
                 "updated": "2026-11-12T16:53:54.872-0500"
               },
               "id": "9900021",
-              "key": "STAND-5754",
+              "key": "STAND-7",
               "self": "https://jira.stand.invalid/rest/api/3/issue/9900021"
             },
             {
@@ -578,11 +571,11 @@
                 "status": {
                   "name": "Done"
                 },
-                "summary": "Recorded title 45",
+                "summary": "Recorded title 42",
                 "updated": "2026-11-12T16:29:17.428-0500"
               },
               "id": "9900022",
-              "key": "STAND-5747",
+              "key": "STAND-8",
               "self": "https://jira.stand.invalid/rest/api/3/issue/9900022"
             },
             {
@@ -601,11 +594,11 @@
                 "status": {
                   "name": "Done"
                 },
-                "summary": "Recorded title 46",
+                "summary": "Recorded title 43",
                 "updated": "2026-11-12T05:28:17.938-0500"
               },
               "id": "9900023",
-              "key": "STAND-5744",
+              "key": "STAND-9",
               "self": "https://jira.stand.invalid/rest/api/3/issue/9900023"
             },
             {
@@ -624,11 +617,11 @@
                 "status": {
                   "name": "Done"
                 },
-                "summary": "Recorded title 47",
+                "summary": "Recorded title 44",
                 "updated": "2026-11-11T08:15:00.112-0500"
               },
               "id": "9900024",
-              "key": "STAND-5739",
+              "key": "STAND-10",
               "self": "https://jira.stand.invalid/rest/api/3/issue/9900024"
             },
             {
@@ -647,11 +640,11 @@
                 "status": {
                   "name": "Done"
                 },
-                "summary": "Recorded title 48",
+                "summary": "Recorded title 45",
                 "updated": "2026-11-11T08:14:58.849-0500"
               },
               "id": "9900025",
-              "key": "STAND-5738",
+              "key": "STAND-11",
               "self": "https://jira.stand.invalid/rest/api/3/issue/9900025"
             },
             {
@@ -670,11 +663,11 @@
                 "status": {
                   "name": "Done"
                 },
-                "summary": "Recorded title 49",
+                "summary": "Recorded title 46",
                 "updated": "2026-11-10T05:53:51.545-0500"
               },
               "id": "9900026",
-              "key": "STAND-5736",
+              "key": "STAND-12",
               "self": "https://jira.stand.invalid/rest/api/3/issue/9900026"
             },
             {
@@ -691,13 +684,13 @@
                 ],
                 "labels": [],
                 "status": {
-                  "name": "Backlog"
+                  "name": "To Do"
                 },
-                "summary": "Recorded title 50",
+                "summary": "Recorded title 47",
                 "updated": "2026-11-09T14:15:42.966-0500"
               },
               "id": "9900027",
-              "key": "STAND-5735",
+              "key": "STAND-13",
               "self": "https://jira.stand.invalid/rest/api/3/issue/9900027"
             },
             {
@@ -716,11 +709,11 @@
                 "status": {
                   "name": "Done"
                 },
-                "summary": "Recorded title 51",
+                "summary": "Recorded title 48",
                 "updated": "2026-11-10T05:53:49.538-0500"
               },
               "id": "9900028",
-              "key": "STAND-5728",
+              "key": "STAND-14",
               "self": "https://jira.stand.invalid/rest/api/3/issue/9900028"
             },
             {
@@ -739,11 +732,11 @@
                 "status": {
                   "name": "In Review"
                 },
-                "summary": "Recorded title 52",
+                "summary": "Recorded title 49",
                 "updated": "2026-11-12T13:10:14.049-0500"
               },
               "id": "9900029",
-              "key": "STAND-5727",
+              "key": "STAND-15",
               "self": "https://jira.stand.invalid/rest/api/3/issue/9900029"
             },
             {
@@ -762,11 +755,11 @@
                 "status": {
                   "name": "Done"
                 },
-                "summary": "Recorded title 53",
+                "summary": "Recorded title 50",
                 "updated": "2026-11-11T08:14:59.467-0500"
               },
               "id": "9900030",
-              "key": "STAND-5725",
+              "key": "STAND-16",
               "self": "https://jira.stand.invalid/rest/api/3/issue/9900030"
             },
             {
@@ -787,13 +780,13 @@
                 ],
                 "labels": [],
                 "status": {
-                  "name": "Backlog"
+                  "name": "To Do"
                 },
-                "summary": "Recorded title 54",
+                "summary": "Recorded title 51",
                 "updated": "2026-11-09T12:19:32.757-0500"
               },
               "id": "9900031",
-              "key": "STAND-5724",
+              "key": "STAND-17",
               "self": "https://jira.stand.invalid/rest/api/3/issue/9900031"
             },
             {
@@ -816,11 +809,11 @@
                 "status": {
                   "name": "Done"
                 },
-                "summary": "Recorded title 55",
+                "summary": "Recorded title 52",
                 "updated": "2026-11-09T08:52:43.567-0500"
               },
               "id": "9900032",
-              "key": "STAND-5723",
+              "key": "STAND-18",
               "self": "https://jira.stand.invalid/rest/api/3/issue/9900032"
             },
             {
@@ -843,11 +836,11 @@
                 "status": {
                   "name": "Done"
                 },
-                "summary": "Recorded title 56",
+                "summary": "Recorded title 53",
                 "updated": "2026-11-09T08:52:43.086-0500"
               },
               "id": "9900033",
-              "key": "STAND-5722",
+              "key": "STAND-19",
               "self": "https://jira.stand.invalid/rest/api/3/issue/9900033"
             },
             {
@@ -864,13 +857,13 @@
                 ],
                 "labels": [],
                 "status": {
-                  "name": "Tested in PreProd"
+                  "name": "Done"
                 },
-                "summary": "Recorded title 57",
+                "summary": "Recorded title 54",
                 "updated": "2026-11-12T16:53:59.984-0500"
               },
               "id": "9900034",
-              "key": "STAND-5718",
+              "key": "STAND-20",
               "self": "https://jira.stand.invalid/rest/api/3/issue/9900034"
             },
             {
@@ -893,11 +886,11 @@
                 "status": {
                   "name": "Done"
                 },
-                "summary": "Recorded title 58",
+                "summary": "Recorded title 55",
                 "updated": "2026-11-10T05:53:51.018-0500"
               },
               "id": "9900035",
-              "key": "STAND-5717",
+              "key": "STAND-21",
               "self": "https://jira.stand.invalid/rest/api/3/issue/9900035"
             },
             {
@@ -916,11 +909,11 @@
                 "status": {
                   "name": "Done"
                 },
-                "summary": "Recorded title 59",
+                "summary": "Recorded title 56",
                 "updated": "2026-11-10T05:55:38.923-0500"
               },
               "id": "9900036",
-              "key": "STAND-5715",
+              "key": "STAND-22",
               "self": "https://jira.stand.invalid/rest/api/3/issue/9900036"
             },
             {
@@ -939,11 +932,11 @@
                 "status": {
                   "name": "Done"
                 },
-                "summary": "Recorded title 60",
+                "summary": "Recorded title 57",
                 "updated": "2026-11-10T05:53:50.546-0500"
               },
               "id": "9900037",
-              "key": "STAND-5713",
+              "key": "STAND-23",
               "self": "https://jira.stand.invalid/rest/api/3/issue/9900037"
             },
             {
@@ -962,11 +955,11 @@
                 "status": {
                   "name": "Done"
                 },
-                "summary": "Recorded title 61",
+                "summary": "Recorded title 58",
                 "updated": "2026-11-10T05:55:38.521-0500"
               },
               "id": "9900038",
-              "key": "STAND-5712",
+              "key": "STAND-24",
               "self": "https://jira.stand.invalid/rest/api/3/issue/9900038"
             },
             {
@@ -985,11 +978,11 @@
                 "status": {
                   "name": "Done"
                 },
-                "summary": "Recorded title 62",
+                "summary": "Recorded title 59",
                 "updated": "2026-11-12T05:28:16.832-0500"
               },
               "id": "9900039",
-              "key": "STAND-5711",
+              "key": "STAND-25",
               "self": "https://jira.stand.invalid/rest/api/3/issue/9900039"
             },
             {
@@ -1010,13 +1003,13 @@
                 ],
                 "labels": [],
                 "status": {
-                  "name": "Backlog"
+                  "name": "To Do"
                 },
-                "summary": "Recorded title 63",
+                "summary": "Recorded title 60",
                 "updated": "2026-11-09T06:13:33.941-0500"
               },
               "id": "9900040",
-              "key": "STAND-5709",
+              "key": "STAND-26",
               "self": "https://jira.stand.invalid/rest/api/3/issue/9900040"
             },
             {
@@ -1035,11 +1028,11 @@
                 "status": {
                   "name": "Done"
                 },
-                "summary": "Recorded title 64",
+                "summary": "Recorded title 61",
                 "updated": "2026-11-11T15:51:24.136-0500"
               },
               "id": "9900041",
-              "key": "STAND-5708",
+              "key": "STAND-27",
               "self": "https://jira.stand.invalid/rest/api/3/issue/9900041"
             },
             {
@@ -1058,11 +1051,11 @@
                 "status": {
                   "name": "Done"
                 },
-                "summary": "Recorded title 65",
+                "summary": "Recorded title 62",
                 "updated": "2026-11-12T16:29:17.934-0500"
               },
               "id": "9900042",
-              "key": "STAND-5706",
+              "key": "STAND-28",
               "self": "https://jira.stand.invalid/rest/api/3/issue/9900042"
             },
             {
@@ -1085,11 +1078,11 @@
                 "status": {
                   "name": "Done"
                 },
-                "summary": "Recorded title 66",
+                "summary": "Recorded title 63",
                 "updated": "2026-11-09T08:52:42.570-0500"
               },
               "id": "9900043",
-              "key": "STAND-5705",
+              "key": "STAND-29",
               "self": "https://jira.stand.invalid/rest/api/3/issue/9900043"
             },
             {
@@ -1106,13 +1099,13 @@
                 ],
                 "labels": [],
                 "status": {
-                  "name": "Backlog"
+                  "name": "To Do"
                 },
-                "summary": "Recorded title 67",
+                "summary": "Recorded title 64",
                 "updated": "2026-11-11T17:24:37.685-0500"
               },
               "id": "9900044",
-              "key": "STAND-5704",
+              "key": "STAND-30",
               "self": "https://jira.stand.invalid/rest/api/3/issue/9900044"
             },
             {
@@ -1129,13 +1122,13 @@
                 ],
                 "labels": [],
                 "status": {
-                  "name": "Tested in PreProd"
+                  "name": "Done"
                 },
-                "summary": "Recorded title 68",
+                "summary": "Recorded title 65",
                 "updated": "2026-11-12T16:40:09.175-0500"
               },
               "id": "9900045",
-              "key": "STAND-5701",
+              "key": "STAND-31",
               "self": "https://jira.stand.invalid/rest/api/3/issue/9900045"
             },
             {
@@ -1158,11 +1151,11 @@
                 "status": {
                   "name": "Done"
                 },
-                "summary": "Recorded title 69",
+                "summary": "Recorded title 66",
                 "updated": "2026-11-09T08:52:42.027-0500"
               },
               "id": "9900046",
-              "key": "STAND-5700",
+              "key": "STAND-32",
               "self": "https://jira.stand.invalid/rest/api/3/issue/9900046"
             },
             {
@@ -1181,11 +1174,11 @@
                 "status": {
                   "name": "Done"
                 },
-                "summary": "Recorded title 70",
+                "summary": "Recorded title 67",
                 "updated": "2026-11-09T06:31:13.350-0500"
               },
               "id": "9900047",
-              "key": "STAND-5699",
+              "key": "STAND-33",
               "self": "https://jira.stand.invalid/rest/api/3/issue/9900047"
             },
             {
@@ -1208,11 +1201,11 @@
                 "status": {
                   "name": "Done"
                 },
-                "summary": "Recorded title 71",
+                "summary": "Recorded title 68",
                 "updated": "2026-11-09T08:52:41.496-0500"
               },
               "id": "9900048",
-              "key": "STAND-5698",
+              "key": "STAND-34",
               "self": "https://jira.stand.invalid/rest/api/3/issue/9900048"
             },
             {
@@ -1229,13 +1222,13 @@
                 ],
                 "labels": [],
                 "status": {
-                  "name": "Backlog"
+                  "name": "To Do"
                 },
-                "summary": "Recorded title 72",
+                "summary": "Recorded title 69",
                 "updated": "2026-11-10T05:59:46.986-0500"
               },
               "id": "9900049",
-              "key": "STAND-5697",
+              "key": "STAND-35",
               "self": "https://jira.stand.invalid/rest/api/3/issue/9900049"
             },
             {
@@ -1252,13 +1245,13 @@
                 ],
                 "labels": [],
                 "status": {
-                  "name": "Backlog"
+                  "name": "To Do"
                 },
-                "summary": "Recorded title 73",
+                "summary": "Recorded title 70",
                 "updated": "2026-11-09T16:11:28.727-0500"
               },
               "id": "9900050",
-              "key": "STAND-5696",
+              "key": "STAND-36",
               "self": "https://jira.stand.invalid/rest/api/3/issue/9900050"
             },
             {
@@ -1275,13 +1268,13 @@
                 ],
                 "labels": [],
                 "status": {
-                  "name": "Backlog"
+                  "name": "To Do"
                 },
-                "summary": "Recorded title 74",
+                "summary": "Recorded title 71",
                 "updated": "2026-11-06T06:16:26.913-0500"
               },
               "id": "9900051",
-              "key": "STAND-5695",
+              "key": "STAND-37",
               "self": "https://jira.stand.invalid/rest/api/3/issue/9900051"
             },
             {
@@ -1298,13 +1291,13 @@
                 ],
                 "labels": [],
                 "status": {
-                  "name": "Backlog"
+                  "name": "To Do"
                 },
-                "summary": "Recorded title 75",
+                "summary": "Recorded title 72",
                 "updated": "2026-11-06T06:16:24.941-0500"
               },
               "id": "9900052",
-              "key": "STAND-5694",
+              "key": "STAND-38",
               "self": "https://jira.stand.invalid/rest/api/3/issue/9900052"
             },
             {
@@ -1327,11 +1320,11 @@
                 "status": {
                   "name": "Done"
                 },
-                "summary": "Recorded title 76",
+                "summary": "Recorded title 73",
                 "updated": "2026-11-09T08:52:40.918-0500"
               },
               "id": "9900053",
-              "key": "STAND-5693",
+              "key": "STAND-39",
               "self": "https://jira.stand.invalid/rest/api/3/issue/9900053"
             },
             {
@@ -1354,11 +1347,11 @@
                 "status": {
                   "name": "Done"
                 },
-                "summary": "Recorded title 77",
+                "summary": "Recorded title 74",
                 "updated": "2026-11-09T08:52:40.402-0500"
               },
               "id": "9900054",
-              "key": "STAND-5691",
+              "key": "STAND-40",
               "self": "https://jira.stand.invalid/rest/api/3/issue/9900054"
             },
             {
@@ -1381,11 +1374,11 @@
                 "status": {
                   "name": "Done"
                 },
-                "summary": "Recorded title 78",
+                "summary": "Recorded title 75",
                 "updated": "2026-11-10T05:53:47.943-0500"
               },
               "id": "9900055",
-              "key": "STAND-5690",
+              "key": "STAND-41",
               "self": "https://jira.stand.invalid/rest/api/3/issue/9900055"
             },
             {
@@ -1404,11 +1397,11 @@
                 "status": {
                   "name": "Done"
                 },
-                "summary": "Recorded title 79",
+                "summary": "Recorded title 76",
                 "updated": "2026-11-11T08:15:00.707-0500"
               },
               "id": "9900056",
-              "key": "STAND-5689",
+              "key": "STAND-42",
               "self": "https://jira.stand.invalid/rest/api/3/issue/9900056"
             },
             {
@@ -1427,11 +1420,11 @@
                 "status": {
                   "name": "Done"
                 },
-                "summary": "Recorded title 80",
+                "summary": "Recorded title 77",
                 "updated": "2026-11-11T15:51:19.812-0500"
               },
               "id": "9900057",
-              "key": "STAND-5685",
+              "key": "STAND-43",
               "self": "https://jira.stand.invalid/rest/api/3/issue/9900057"
             },
             {
@@ -1454,11 +1447,11 @@
                 "status": {
                   "name": "Done"
                 },
-                "summary": "Recorded title 81",
+                "summary": "Recorded title 78",
                 "updated": "2026-11-10T05:53:49.017-0500"
               },
               "id": "9900058",
-              "key": "STAND-5680",
+              "key": "STAND-44",
               "self": "https://jira.stand.invalid/rest/api/3/issue/9900058"
             },
             {
@@ -1475,13 +1468,13 @@
                 ],
                 "labels": [],
                 "status": {
-                  "name": "Backlog"
+                  "name": "To Do"
                 },
-                "summary": "Recorded title 82",
+                "summary": "Recorded title 79",
                 "updated": "2026-11-11T17:24:36.565-0500"
               },
               "id": "9900059",
-              "key": "STAND-5679",
+              "key": "STAND-45",
               "self": "https://jira.stand.invalid/rest/api/3/issue/9900059"
             },
             {
@@ -1498,13 +1491,13 @@
                 ],
                 "labels": [],
                 "status": {
-                  "name": "Backlog"
+                  "name": "To Do"
                 },
-                "summary": "Recorded title 83",
+                "summary": "Recorded title 80",
                 "updated": "2026-11-11T17:24:36.246-0500"
               },
               "id": "9900060",
-              "key": "STAND-5676",
+              "key": "STAND-46",
               "self": "https://jira.stand.invalid/rest/api/3/issue/9900060"
             },
             {
@@ -1525,13 +1518,13 @@
                 ],
                 "labels": [],
                 "status": {
-                  "name": "Backlog"
+                  "name": "To Do"
                 },
-                "summary": "Recorded title 84",
+                "summary": "Recorded title 81",
                 "updated": "2026-11-11T17:24:35.904-0500"
               },
               "id": "9900061",
-              "key": "STAND-5634",
+              "key": "STAND-47",
               "self": "https://jira.stand.invalid/rest/api/3/issue/9900061"
             },
             {
@@ -1552,13 +1545,13 @@
                 ],
                 "labels": [],
                 "status": {
-                  "name": "Backlog"
+                  "name": "To Do"
                 },
-                "summary": "Recorded title 85",
+                "summary": "Recorded title 82",
                 "updated": "2026-11-10T17:59:15.043-0500"
               },
               "id": "9900062",
-              "key": "STAND-5628",
+              "key": "STAND-48",
               "self": "https://jira.stand.invalid/rest/api/3/issue/9900062"
             },
             {
@@ -1585,11 +1578,11 @@
                 "status": {
                   "name": "Done"
                 },
-                "summary": "Recorded title 86",
+                "summary": "Recorded title 83",
                 "updated": "2026-11-12T05:28:19.201-0500"
               },
               "id": "9900063",
-              "key": "STAND-5602",
+              "key": "STAND-49",
               "self": "https://jira.stand.invalid/rest/api/3/issue/9900063"
             },
             {
@@ -1616,11 +1609,11 @@
                 "status": {
                   "name": "Done"
                 },
-                "summary": "Recorded title 87",
+                "summary": "Recorded title 84",
                 "updated": "2026-11-10T05:53:48.496-0500"
               },
               "id": "9900064",
-              "key": "STAND-5601",
+              "key": "STAND-50",
               "self": "https://jira.stand.invalid/rest/api/3/issue/9900064"
             },
             {
@@ -1647,11 +1640,11 @@
                 "status": {
                   "name": "Done"
                 },
-                "summary": "Recorded title 88",
+                "summary": "Recorded title 85",
                 "updated": "2026-11-09T12:45:57.835-0500"
               },
               "id": "9900065",
-              "key": "STAND-5599",
+              "key": "STAND-51",
               "self": "https://jira.stand.invalid/rest/api/3/issue/9900065"
             },
             {
@@ -1682,11 +1675,11 @@
                 "status": {
                   "name": "Done"
                 },
-                "summary": "Recorded title 89",
+                "summary": "Recorded title 86",
                 "updated": "2026-11-09T12:45:59.864-0500"
               },
               "id": "9900066",
-              "key": "STAND-5558",
+              "key": "STAND-52",
               "self": "https://jira.stand.invalid/rest/api/3/issue/9900066"
             },
             {
@@ -1709,11 +1702,11 @@
                 "status": {
                   "name": "Done"
                 },
-                "summary": "Recorded title 90",
+                "summary": "Recorded title 87",
                 "updated": "2026-11-09T12:46:05.700-0500"
               },
               "id": "9900067",
-              "key": "STAND-5499",
+              "key": "STAND-53",
               "self": "https://jira.stand.invalid/rest/api/3/issue/9900067"
             },
             {
@@ -1742,13 +1735,13 @@
                 ],
                 "labels": [],
                 "status": {
-                  "name": "Backlog"
+                  "name": "To Do"
                 },
-                "summary": "Recorded title 91",
+                "summary": "Recorded title 88",
                 "updated": "2026-11-10T17:59:49.505-0500"
               },
               "id": "9900068",
-              "key": "STAND-5483",
+              "key": "STAND-54",
               "self": "https://jira.stand.invalid/rest/api/3/issue/9900068"
             },
             {
@@ -1781,13 +1774,13 @@
                 ],
                 "labels": [],
                 "status": {
-                  "name": "Backlog"
+                  "name": "To Do"
                 },
-                "summary": "Recorded title 92",
+                "summary": "Recorded title 89",
                 "updated": "2026-11-11T17:24:35.564-0500"
               },
               "id": "9900069",
-              "key": "STAND-5465",
+              "key": "STAND-55",
               "self": "https://jira.stand.invalid/rest/api/3/issue/9900069"
             },
             {
@@ -1810,11 +1803,11 @@
                 "status": {
                   "name": "Done"
                 },
-                "summary": "Recorded title 93",
+                "summary": "Recorded title 90",
                 "updated": "2026-11-10T05:53:50.060-0500"
               },
               "id": "9900070",
-              "key": "STAND-5435",
+              "key": "STAND-56",
               "self": "https://jira.stand.invalid/rest/api/3/issue/9900070"
             },
             {
@@ -1837,11 +1830,11 @@
                 "status": {
                   "name": "Done"
                 },
-                "summary": "Recorded title 94",
+                "summary": "Recorded title 91",
                 "updated": "2026-11-09T12:46:04.109-0500"
               },
               "id": "9900071",
-              "key": "STAND-5149",
+              "key": "STAND-57",
               "self": "https://jira.stand.invalid/rest/api/3/issue/9900071"
             },
             {
@@ -1868,11 +1861,11 @@
                 "status": {
                   "name": "Done"
                 },
-                "summary": "Recorded title 95",
+                "summary": "Recorded title 92",
                 "updated": "2026-11-09T12:46:02.028-0500"
               },
               "id": "9900072",
-              "key": "STAND-5145",
+              "key": "STAND-58",
               "self": "https://jira.stand.invalid/rest/api/3/issue/9900072"
             },
             {
@@ -1889,13 +1882,13 @@
                 ],
                 "labels": [],
                 "status": {
-                  "name": "Backlog"
+                  "name": "To Do"
                 },
-                "summary": "Recorded title 96",
+                "summary": "Recorded title 93",
                 "updated": "2026-11-11T17:24:35.221-0500"
               },
               "id": "9900073",
-              "key": "STAND-4374",
+              "key": "STAND-59",
               "self": "https://jira.stand.invalid/rest/api/3/issue/9900073"
             },
             {
@@ -1912,13 +1905,13 @@
                 ],
                 "labels": [],
                 "status": {
-                  "name": "Backlog"
+                  "name": "To Do"
                 },
-                "summary": "Recorded title 97",
+                "summary": "Recorded title 94",
                 "updated": "2026-11-11T17:24:34.891-0500"
               },
               "id": "9900074",
-              "key": "STAND-3781",
+              "key": "STAND-60",
               "self": "https://jira.stand.invalid/rest/api/3/issue/9900074"
             }
           ]
