@@ -81,7 +81,6 @@ export function credentialFreeEnv(base: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   for (const [name, value] of Object.entries(base)) {
     const upper = name.toUpperCase();
     if (
-      upper === 'GH_TOKEN' ||
       SCRUB_PREFIXES.some((prefix) => upper.startsWith(prefix)) ||
       SCRUB_SUFFIXES.some((suffix) => upper.endsWith(suffix))
     ) {

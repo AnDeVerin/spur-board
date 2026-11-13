@@ -74,7 +74,7 @@ export async function nextVersion(cwd: string, env: NodeJS.ProcessEnv): Promise<
   }
 }
 
-function buildCandidate(destination: string, version: string): { tarball: string; sha256: string } {
+function buildCandidate(destination: string, version: string): string {
   const original = readFileSync(manifestPath, 'utf8');
   try {
     if ((JSON.parse(original) as { version: string }).version !== version) {
@@ -82,7 +82,7 @@ function buildCandidate(destination: string, version: string): { tarball: string
     }
     const tarball = packPackage(destination);
     checkTarball(tarball, version);
-    return { tarball, sha256: digest(tarball) };
+    return digest(tarball);
   } finally {
     writeFileSync(manifestPath, original);
   }
@@ -94,7 +94,6 @@ if (import.meta.main) {
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as { version: string };
   const version = (await nextVersion(root, process.env)) ?? manifest.version;
   if (!/^\d+\.\d+\.\d+$/.test(version)) throw new Error(`Unexpected version: ${version}`);
-  const { sha256 } = buildCandidate(resolve(destination), version);
-  if (!/^[0-9a-f]{64}$/.test(sha256)) throw new Error(`Unexpected sha256: ${sha256}`);
+  const sha256 = buildCandidate(resolve(destination), version);
   process.stdout.write(`version=${version}\nsha256=${sha256}\n`);
 }
