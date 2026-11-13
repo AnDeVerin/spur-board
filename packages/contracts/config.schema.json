@@ -8,33 +8,60 @@
       "items": {
         "type": "object",
         "properties": {
-          "id": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]*$",
+            "description": "Board project id: lowercase letters, digits and dashes, unique, not _board. It names the project on its tasks, in the journal and in its source ids such as jira:<id> and github:<id>:<repo>."
+          },
           "tracker": {
             "oneOf": [
               {
                 "type": "object",
                 "properties": {
-                  "type": { "type": "string", "const": "jira" },
+                  "type": {
+                    "type": "string",
+                    "const": "jira",
+                    "description": "jira: tasks come from the Jira issues jql returns, read with JIRA_EMAIL and JIRA_API_TOKEN from secrets.env."
+                  },
                   "baseUrl": {
                     "type": "string",
                     "format": "uri",
                     "description": "Jira site URL. https:, or http: only on a loopback host."
                   },
-                  "jql": { "type": "string", "minLength": 1 },
+                  "jql": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Jira search whose issues become tasks in To Do. A task whose issue leaves the result is flagged out of filter while it has an open PR or a live session, and is archived otherwise; a task added or removed by hand is left alone."
+                  },
                   "doneStatuses": {
                     "minItems": 1,
                     "type": "array",
-                    "items": { "type": "string", "minLength": 1 }
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "A Jira status name, spelled exactly as in Jira."
+                    },
+                    "description": "Jira statuses that mean done. A task whose issue is in one of them and that has no open PR is archived on the next archive.doneWeekday, once every repo has a complete poll since its last change. Each name must exist in every projectKeys project, or the Jira poll fails with a config error."
                   },
                   "readyStatuses": {
                     "minItems": 1,
                     "type": "array",
-                    "items": { "type": "string", "minLength": 1 }
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "A Jira status name, spelled exactly as in Jira."
+                    },
+                    "description": "Jira statuses that mean ready for development. The board checks only that each name exists in every projectKeys project; the Jira poll fails with a config error otherwise."
                   },
                   "projectKeys": {
                     "default": [],
+                    "description": "Keys of this board project's Jira projects, such as PROJ. A PR names its task by one of these keys, and doneStatuses and readyStatuses are checked in each of these projects. A task key such as PROJ-12 belongs to the one board project whose list holds its prefix; an empty list takes every Jira key, and a key that several projects take belongs to none. The Jira poll fails with a config error while the list is empty.",
                     "type": "array",
-                    "items": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$" }
+                    "items": {
+                      "type": "string",
+                      "pattern": "^[A-Z][A-Z0-9_]*$",
+                      "description": "A Jira project key in capitals, such as PROJ."
+                    }
                   }
                 },
                 "required": ["type", "baseUrl", "jql", "doneStatuses", "readyStatuses"],
@@ -43,8 +70,16 @@
               {
                 "type": "object",
                 "properties": {
-                  "type": { "type": "string", "const": "github-issues" },
-                  "repo": { "type": "string", "pattern": "^[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+$" },
+                  "type": {
+                    "type": "string",
+                    "const": "github-issues",
+                    "description": "github-issues: tasks come from the open issues of tracker.repo, narrowed by label or milestone when set, read with GITHUB_TOKEN."
+                  },
+                  "repo": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+$",
+                    "description": "Repository as owner/name whose open issues become tasks. PRs link to its issues only in this repository, so list it in repos too."
+                  },
                   "label": {
                     "type": "string",
                     "minLength": 1,
@@ -64,13 +99,22 @@
           "repos": {
             "minItems": 1,
             "type": "array",
-            "items": { "type": "string", "pattern": "^[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+$" }
+            "items": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+$",
+              "description": "A repository as owner/name."
+            },
+            "description": "GitHub repositories as owner/name whose PRs the board polls for this project, one source each. A done task is archived only after every listed repository has a complete poll since its last change."
           },
           "reposWithoutCi": {
             "default": [],
             "description": "Repos from repos that run no CI checks, in any letter case. In a listed repo, a PR whose check list on head is empty passes the Dev gate check condition instead of waiting in Dev. A list of only skipped checks still waits, and red or pending checks still count. A listed repo whose branch protection requires checks that have not reported yet also passes, so list only repos that run no checks. Without this key, a PR with no checks waits in Dev.",
             "type": "array",
-            "items": { "type": "string", "pattern": "^[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+$" }
+            "items": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+$",
+              "description": "A repository from repos as owner/name, in any letter case."
+            }
           },
           "link": {
             "description": "How a project links a PR to its task. A github-issues project reads an issue number from PRs in tracker.repo; a Jira project reads an issue key with one of tracker.projectKeys from PRs in repos. Left at the defaults, a Jira project links every tracker.projectKeys key (such as PROJ-12, any letter case) in the PR title or head branch. Set the sources and patterns to the branch and PR title naming rules of the repos. The board does not enforce those rules; the repo enforces them through its CI title check and its agents' skills. board doctor compares these rules with recent PRs by operatorGithubLogin.",
@@ -82,7 +126,11 @@
                 "description": "Where a PR names its task, in priority order; the first source that yields an issue number wins (for a Jira project, an issue key). closing: issues in tracker.repo the PR closes (Closes #12 in the body, or linked in the sidebar), for PRs to the default branch only; a Jira project skips it. branch: branchPattern on the head branch. title: titlePattern on the PR title.",
                 "minItems": 1,
                 "type": "array",
-                "items": { "type": "string", "enum": ["closing", "branch", "title"] }
+                "items": {
+                  "type": "string",
+                  "enum": ["closing", "branch", "title"],
+                  "description": "One place a PR can name its task: closing, branch or title."
+                }
               },
               "branchPattern": {
                 "default": "^[A-Za-z]+-([1-9][0-9]*)",
@@ -106,6 +154,7 @@
           },
           "spurProjects": {
             "default": [],
+            "description": "Spur projects whose sessions work on this board project, each with a role; at most one curator. Board commands from a session whose Spur project is in no spurProjects list are refused.",
             "type": "array",
             "items": {
               "type": "object",
@@ -142,6 +191,7 @@
               { "id": "ready-to-merge", "enabled": true, "orchestrator": "none", "cycleLimit": 10 },
               { "id": "done", "enabled": true, "orchestrator": "none", "cycleLimit": 10 }
             ],
+            "description": "The project's board columns in canonical order. todo, dev and done must be present and enabled. A column left out or disabled is skipped. Without this key, all nine columns are enabled with orchestrator none.",
             "type": "array",
             "items": {
               "type": "object",
@@ -158,10 +208,20 @@
                     "qa",
                     "ready-to-merge",
                     "done"
-                  ]
+                  ],
+                  "description": "The built-in column this entry configures."
                 },
-                "enabled": { "default": true, "type": "boolean" },
-                "orchestrator": { "default": "none", "type": "string", "minLength": 1 },
+                "enabled": {
+                  "default": true,
+                  "description": "false skips the column: tasks move past it and its exit condition is not checked. todo, dev and done cannot be disabled.",
+                  "type": "boolean"
+                },
+                "orchestrator": {
+                  "default": "none",
+                  "description": "Who takes the column's turns. none: the task's live worker session, else the operator. operator: the operator, who also gets the questions asked in the column. Otherwise the name of a spurProjects entry whose sessions orchestrate the column and get the questions others ask in it.",
+                  "type": "string",
+                  "minLength": 1
+                },
                 "cycleLimit": {
                   "default": 10,
                   "description": "How many times a task may return to Dev from this column before the board stops it for the operator. Returns by the column executor, changes requested and external comments count; a conflict, red CI and a draft do not.",
@@ -191,11 +251,18 @@
         },
         "required": ["id", "tracker", "repos", "operatorGithubLogin"],
         "additionalProperties": false
-      }
+      },
+      "description": "Board projects, at least one. Each reads tasks from one tracker and PRs from its repos. A Spur project can be listed under only one board project."
     },
     "operator": {
       "type": "object",
-      "properties": { "slack": { "type": "string", "minLength": 1 } },
+      "properties": {
+        "slack": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Slack user ID of the operator, such as U0123456789. Slack commands, button presses and messages from anyone else are denied. A feed line the operator resolves names this user."
+        }
+      },
       "required": ["slack"],
       "additionalProperties": false
     },
@@ -203,15 +270,37 @@
       "default": {},
       "type": "object",
       "properties": {
-        "appName": { "default": "spur-board", "type": "string", "minLength": 1 },
-        "command": { "default": "/board", "type": "string", "pattern": "^\\/[a-z0-9_-]+$" },
-        "appId": { "type": "string", "pattern": "^A[A-Z0-9]+$" },
+        "appName": {
+          "default": "spur-board",
+          "description": "Slack app and bot display name that board slack manifest writes when --app-name is not given.",
+          "type": "string",
+          "minLength": 1
+        },
+        "command": {
+          "default": "/board",
+          "description": "Slash command with its leading slash. The board acts only on this command, and board slack manifest writes it when --command is not given. When slack.channels is set and SLACK_APP_CONFIG_TOKEN and slack.appId are present, board doctor compares it with the installed app.",
+          "type": "string",
+          "pattern": "^\\/[a-z0-9_-]+$"
+        },
+        "appId": {
+          "description": "Slack app ID, such as A0123456789. When slack.channels is set and SLACK_APP_CONFIG_TOKEN is present, board doctor reads this app's manifest to check the installed slash command against slack.command.",
+          "type": "string",
+          "pattern": "^A[A-Z0-9]+$"
+        },
         "channels": {
           "default": {},
           "type": "object",
           "properties": {
-            "orchestrators": { "type": "string", "minLength": 1 },
-            "feed": { "type": "string", "minLength": 1 }
+            "orchestrators": {
+              "description": "Slack channel ID, such as C0123456789, where the board opens a thread for each block addressed to the operator by someone else. Once either channel is set, the daemon does not start without the other channel and SLACK_BOT_TOKEN, and without SLACK_APP_TOKEN it reads nothing from Slack.",
+              "type": "string",
+              "minLength": 1
+            },
+            "feed": {
+              "description": "Slack channel ID where the board posts a line for each operator item, each curator answer and each newly installed version, and where the operator presses their buttons. Set it together with orchestrators.",
+              "type": "string",
+              "minLength": 1
+            }
           },
           "additionalProperties": false
         }
@@ -222,7 +311,12 @@
       "default": {},
       "type": "object",
       "properties": {
-        "staleMultiplier": { "default": 3, "type": "number", "minimum": 1 },
+        "staleMultiplier": {
+          "default": 3,
+          "description": "A source with no complete poll for this many of its poll intervals turns blind stale. board status marks that source, and an operator item whose fact is older than that, as stale.",
+          "type": "number",
+          "minimum": 1
+        },
         "blockOpenMs": {
           "default": 86400000,
           "description": "How long a block may stay open before an item is raised in milliseconds.",
@@ -239,6 +333,7 @@
       "properties": {
         "doneWeekday": {
           "default": "saturday",
+          "description": "Weekday whose local midnight, in digest.tz, is the weekly archive slot: tasks done before it are archived then, once their repos have a complete poll since their last change. A slot missed while the daemon was down is applied on the next tick.",
           "type": "string",
           "enum": ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
         }
@@ -247,7 +342,12 @@
     },
     "digest": {
       "type": "object",
-      "properties": { "tz": { "type": "string" } },
+      "properties": {
+        "tz": {
+          "type": "string",
+          "description": "IANA time zone, such as Europe/Berlin, for the archive.doneWeekday slot and the times shown in resolved feed lines."
+        }
+      },
       "required": ["tz"],
       "additionalProperties": false
     },
@@ -257,6 +357,7 @@
       "properties": {
         "retentionDays": {
           "default": 7,
+          "description": "Days the board keeps each caller's mutation --key with its input and result. In that time the same caller and key with the same input returns the stored result, and with a different input the call is refused. A daily job deletes older keys.",
           "type": "integer",
           "minimum": 1,
           "maximum": 9007199254740991
