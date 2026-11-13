@@ -270,8 +270,61 @@ async function syncModes(trx: Trx, config: Config, at: Date): Promise<void> {
   }
 }
 
+/**
+ * The operator's correction of a task's column to `to`, as a new visit of `to`. It first applies
+ * a pending dispatcher mode switch, so the switch cannot overwrite the correction. In `on` mode it
+ * sets the column and bumps `column_epoch`, voids the submits of `to` and right of it, closes the
+ * task's turns and journals `task_corrected`; in shadow mode it sets only the shadow column. It is
+ * not a dispatcher move: no `task_moved`, no `left_moves` and no cycle count. The caller settles
+ * the task with a dispatcher pass after it. `from` is the column the dispatcher worked from, and
+ * `eventId` the id of the `task_corrected` event.
+ */
+export async function correctColumn(
+  trx: Trx,
+  input: { taskId: number; to: ColumnId; at: Date; actor: ActorId; reason: string; config: Config },
+): Promise<{ task: Task; from: ColumnId; eventId: number }> {
+  const { taskId, to, at, actor, reason, config } = input;
+  await syncModes(trx, config, at);
+  const task = await trx
+    .selectFrom('task')
+    .selectAll()
+    .where('id', '=', taskId)
+    .executeTakeFirstOrThrow();
+  const shadow =
+    config.projects.find((project) => project.id === task.project)?.dispatcher.mode === 'shadow';
+  const from = task.shadow_column ?? task.column;
+  const corrected = await trx
+    .updateTable('task')
+    .set(
+      shadow
+        ? { shadow_column: to, last_change_at: at.toISOString() }
+        : { column: to, column_epoch: task.column_epoch + 1, last_change_at: at.toISOString() },
+    )
+    .where('id', '=', task.id)
+    .returningAll()
+    .executeTakeFirstOrThrow();
+  await voidSubmits(trx, task.id, to, at);
+  if (!shadow) await closeTurns(trx, { taskId: task.id, reason: 'moved', at });
+  await emit(
+    trx,
+    'task_corrected',
+    task.project,
+    task.id,
+    at.toISOString(),
+    { from, to, reason, shadow },
+    actor,
+  );
+  const event = await trx
+    .selectFrom('event')
+    .select('id')
+    .where('task_id', '=', task.id)
+    .orderBy('id', 'desc')
+    .executeTakeFirstOrThrow();
+  return { task: corrected, from, eventId: event.id };
+}
+
 /** A source has no fresh view while it reports blind or has had no complete poll since start. */
-async function blindSources(trx: Trx, complete: ReadonlyMap<string, string>) {
+export async function blindSources(trx: Trx, complete: ReadonlyMap<string, string>) {
   const states = await trx.selectFrom('source_state').select(['source', 'blind_reason']).execute();
   const blind = new Set(
     states.filter((state) => state.blind_reason !== null).map((state) => state.source),
@@ -461,8 +514,11 @@ function handedOf(pr: PrFacts, entry: NonNullable<PrFacts['feedback']>[number]):
   };
 }
 
-/** The dispatcher input of one task, or null when a stored snapshot is missing or unreadable. */
-async function readInput(
+/**
+ * The dispatcher input of one task, or null when a stored snapshot is missing or unreadable. It
+ * only reads.
+ */
+export async function readInput(
   trx: Trx,
   task: Task,
   project: Project,

@@ -1,5 +1,5 @@
 {
-  "version": "242ed6651317fd090aa0f0488436c4fd717efb88d8ab4b449c553d717156b65a",
+  "version": "e121604f549d9c71de7e06eb55fc42eb1a5b4ecd54a1d2c1598a1ea9c628b66c",
   "grants": [
     "operator",
     "project-agent",
@@ -348,6 +348,35 @@
         "retryTiming": "After fixing the cause."
       },
       "docs": "docs/errors.md#return_not_allowed",
+      "context": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "clientVersion": { "type": "string" },
+          "serverVersion": { "type": "string" },
+          "configPath": { "type": "string" },
+          "environmentVariable": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+          "idempotencyKey": { "type": "string", "minLength": 1 },
+          "causeLabel": {
+            "type": "string",
+            "enum": ["storage_unavailable", "transport_unavailable", "internal_failure"]
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "move_not_allowed": {
+      "status": 409,
+      "exit": 1,
+      "message": "The task cannot be corrected to that column.",
+      "hint": "Read why with `board task <KEY> --why`; pick an enabled column, and unlink a merged pull request with `board unlink` first.",
+      "recovery": {
+        "action": "Read why the task is where it is; pick an enabled column, and unlink a merged pull request first.",
+        "sideEffects": "none",
+        "maxRetries": 0,
+        "retryTiming": "After fixing the cause."
+      },
+      "docs": "docs/errors.md#move_not_allowed",
       "context": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
@@ -2326,7 +2355,7 @@
         "whenNotToUse": "Use task_history for past events.",
         "destructive": false
       },
-      "slack": { "kind": "slash-command", "usage": "/board task <KEY>" },
+      "slack": { "kind": "slash-command", "usage": "/board task <KEY> [why]" },
       "examples": [
         {
           "summary": "Show one task",
@@ -2369,6 +2398,145 @@
               }
             ]
           }
+        },
+        {
+          "summary": "Explain why a task waits in Review",
+          "input": { "task": "PROJ-123", "why": true },
+          "output": {
+            "task": {
+              "key": "PROJ-123",
+              "project": "web",
+              "column": "review",
+              "membership": "active"
+            },
+            "links": [],
+            "blocks": [],
+            "comments": [],
+            "why": {
+              "column": "review",
+              "dispatcher": "on",
+              "holds": [],
+              "gates": [
+                {
+                  "column": "todo",
+                  "enabled": true,
+                  "ok": true,
+                  "blockedIn": null,
+                  "conditions": []
+                },
+                {
+                  "column": "ready-for-dev",
+                  "enabled": false,
+                  "ok": true,
+                  "blockedIn": null,
+                  "conditions": []
+                },
+                {
+                  "column": "dev",
+                  "enabled": true,
+                  "ok": true,
+                  "blockedIn": null,
+                  "conditions": [
+                    { "condition": "pr_open", "state": "met", "reason": null },
+                    { "condition": "not_draft", "state": "met", "reason": null },
+                    { "condition": "checks_green", "state": "met", "reason": null },
+                    { "condition": "no_conflict", "state": "met", "reason": null },
+                    { "condition": "external_comments_handled", "state": "met", "reason": null },
+                    { "condition": "comment_history_read", "state": "met", "reason": null },
+                    { "condition": "submit_on_head", "state": "met", "reason": null }
+                  ]
+                },
+                {
+                  "column": "review",
+                  "enabled": true,
+                  "ok": false,
+                  "blockedIn": "review",
+                  "conditions": [
+                    {
+                      "condition": "review_on_head",
+                      "state": "failed",
+                      "reason": "no_review_on_head"
+                    }
+                  ]
+                },
+                {
+                  "column": "product-review",
+                  "enabled": false,
+                  "ok": false,
+                  "blockedIn": "review",
+                  "conditions": [
+                    {
+                      "condition": "review_on_head",
+                      "state": "failed",
+                      "reason": "no_review_on_head"
+                    }
+                  ]
+                },
+                {
+                  "column": "external-review",
+                  "enabled": false,
+                  "ok": false,
+                  "blockedIn": "review",
+                  "conditions": [
+                    { "condition": "approved", "state": "failed", "reason": "not_approved" }
+                  ]
+                },
+                {
+                  "column": "qa",
+                  "enabled": false,
+                  "ok": false,
+                  "blockedIn": "review",
+                  "conditions": [
+                    {
+                      "condition": "submit_on_head",
+                      "state": "failed",
+                      "reason": "no_submit_on_head"
+                    }
+                  ]
+                },
+                {
+                  "column": "ready-to-merge",
+                  "enabled": false,
+                  "ok": false,
+                  "blockedIn": "review",
+                  "conditions": [
+                    { "condition": "merged", "state": "failed", "reason": "not_merged" }
+                  ]
+                },
+                {
+                  "column": "done",
+                  "enabled": true,
+                  "ok": true,
+                  "blockedIn": "review",
+                  "conditions": []
+                }
+              ],
+              "checksWaivedBy": null,
+              "turn": {
+                "id": "T4",
+                "task": "PROJ-123",
+                "column": "review",
+                "addressee": "orchestrator:review",
+                "reason": "The pull request is ready for review.",
+                "head": "9f2c4e1b7a3d5c8e0f1a2b3c4d5e6f708192a3b4",
+                "at": "2026-01-05T09:30:00.000Z",
+                "taken": { "by": "agent:rev/rev-1", "at": "2026-01-05T09:30:00.000Z" },
+                "handed": []
+              },
+              "moves": [
+                {
+                  "at": "2026-01-05T09:30:00.000Z",
+                  "kind": "task_moved",
+                  "actor": "system",
+                  "from": "dev",
+                  "to": "review",
+                  "reason": "gate_passed",
+                  "gate": [],
+                  "text": null
+                }
+              ]
+            }
+          }
         }
       ],
       "input": {
@@ -2379,6 +2547,10 @@
             "type": "string",
             "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
             "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
+          },
+          "why": {
+            "description": "Explain why the task is in its column: gates, holds, the open turn and the last moves; absent means no explanation.",
+            "type": "boolean"
           }
         },
         "required": ["task"],
@@ -2650,6 +2822,424 @@
               "description": "A comment on a task."
             },
             "description": "Comments on the task, oldest first."
+          },
+          "why": {
+            "description": "Present only with why.",
+            "type": "object",
+            "properties": {
+              "column": {
+                "type": "string",
+                "enum": [
+                  "todo",
+                  "ready-for-dev",
+                  "dev",
+                  "review",
+                  "product-review",
+                  "external-review",
+                  "qa",
+                  "ready-to-merge",
+                  "done"
+                ],
+                "description": "Column the dispatcher works from: the shadow column in shadow mode."
+              },
+              "dispatcher": {
+                "anyOf": [{ "type": "string", "enum": ["shadow", "on"] }, { "type": "null" }],
+                "description": "The project's dispatcher mode; null when the project is not configured."
+              },
+              "holds": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "pr_snapshot_missing",
+                    "github_blind",
+                    "spur_blind",
+                    "cycle_limit",
+                    "work_not_started"
+                  ]
+                },
+                "description": "What holds the dispatcher from acting on the task; empty when nothing does."
+              },
+              "gates": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "column": {
+                      "type": "string",
+                      "enum": [
+                        "todo",
+                        "ready-for-dev",
+                        "dev",
+                        "review",
+                        "product-review",
+                        "external-review",
+                        "qa",
+                        "ready-to-merge",
+                        "done"
+                      ],
+                      "description": "Board column."
+                    },
+                    "enabled": {
+                      "type": "boolean",
+                      "description": "Whether the column is enabled in the project."
+                    },
+                    "ok": {
+                      "type": "boolean",
+                      "description": "Whether the column's own exit conditions pass."
+                    },
+                    "blockedIn": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "todo",
+                            "ready-for-dev",
+                            "dev",
+                            "review",
+                            "product-review",
+                            "external-review",
+                            "qa",
+                            "ready-to-merge",
+                            "done"
+                          ]
+                        },
+                        { "type": "null" }
+                      ],
+                      "description": "Leftmost enabled column at or left of this one whose exit conditions fail; null when the cumulative gate passes."
+                    },
+                    "conditions": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "condition": {
+                            "type": "string",
+                            "enum": [
+                              "pr_open",
+                              "not_draft",
+                              "checks_green",
+                              "no_conflict",
+                              "external_comments_handled",
+                              "comment_history_read",
+                              "submit_on_head",
+                              "review_on_head",
+                              "approved",
+                              "merged"
+                            ],
+                            "description": "Exit condition of the column."
+                          },
+                          "state": {
+                            "type": "string",
+                            "enum": ["met", "failed", "waiting", "unchecked"],
+                            "description": "met; failed; waiting (fails on a fact not known yet); unchecked (an earlier condition failed first)."
+                          },
+                          "reason": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "no_pr",
+                                  "pr_closed",
+                                  "pr_draft",
+                                  "checks_red",
+                                  "checks_pending",
+                                  "conflict",
+                                  "mergeable_unknown",
+                                  "external_comments",
+                                  "comment_history_incomplete",
+                                  "no_submit_on_head",
+                                  "no_review_on_head",
+                                  "not_approved",
+                                  "not_merged"
+                                ]
+                              },
+                              { "type": "null" }
+                            ],
+                            "description": "The gate reason a failed or waiting condition reports; null otherwise."
+                          }
+                        },
+                        "required": ["condition", "state", "reason"],
+                        "additionalProperties": false,
+                        "description": "One exit condition of a column and its state."
+                      },
+                      "description": "The column's exit conditions, empty for a column without any."
+                    }
+                  },
+                  "required": ["column", "enabled", "ok", "blockedIn", "conditions"],
+                  "additionalProperties": false,
+                  "description": "The gate of one column."
+                },
+                "description": "The gate of every column, To Do to Done; empty when the pull request facts are missing."
+              },
+              "checksWaivedBy": {
+                "anyOf": [{ "type": "string", "const": "reposWithoutCi" }, { "type": "null" }],
+                "description": "The config key that passed Dev's check condition for a repo without checks; null otherwise."
+              },
+              "turn": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "pattern": "^T[1-9]\\d{0,14}$",
+                        "description": "Turn ID: T followed by a number, e.g. T4."
+                      },
+                      "task": {
+                        "type": "string",
+                        "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
+                        "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
+                      },
+                      "column": {
+                        "type": "string",
+                        "enum": [
+                          "todo",
+                          "ready-for-dev",
+                          "dev",
+                          "review",
+                          "product-review",
+                          "external-review",
+                          "qa",
+                          "ready-to-merge",
+                          "done"
+                        ],
+                        "description": "Board column the turn belongs to."
+                      },
+                      "addressee": {
+                        "type": "string",
+                        "enum": [
+                          "operator",
+                          "curator",
+                          "orchestrator:todo",
+                          "orchestrator:ready-for-dev",
+                          "orchestrator:dev",
+                          "orchestrator:review",
+                          "orchestrator:product-review",
+                          "orchestrator:external-review",
+                          "orchestrator:qa",
+                          "orchestrator:ready-to-merge",
+                          "orchestrator:done",
+                          "worker"
+                        ],
+                        "description": "Who executes the turn."
+                      },
+                      "reason": {
+                        "type": "string",
+                        "description": "Why the turn was handed to the executor."
+                      },
+                      "handed": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "repo": {
+                              "type": "string",
+                              "pattern": "^[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+$",
+                              "description": "Repository as owner/name."
+                            },
+                            "number": {
+                              "type": "integer",
+                              "minimum": 1,
+                              "maximum": 9007199254740991,
+                              "description": "Pull request number in the repository."
+                            },
+                            "kind": {
+                              "type": "string",
+                              "enum": ["comment", "review"],
+                              "description": "Whether this is a comment or a submitted review."
+                            },
+                            "id": {
+                              "type": "string",
+                              "minLength": 1,
+                              "description": "Stable id of the comment or review in the source."
+                            },
+                            "postedAt": {
+                              "type": "string",
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                              "description": "When the comment was posted or the review submitted, ISO 8601 UTC."
+                            }
+                          },
+                          "required": ["repo", "number", "kind", "id", "postedAt"],
+                          "additionalProperties": false,
+                          "description": "Pull request feedback handed over with a turn."
+                        },
+                        "description": "Pull request feedback handed over with the turn."
+                      },
+                      "head": {
+                        "anyOf": [
+                          { "type": "string", "pattern": "^[0-9a-f]{40,64}$" },
+                          { "type": "null" }
+                        ],
+                        "description": "Head commit of the task's pull request when the turn was opened; null when the task had no pull request."
+                      },
+                      "at": {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                        "description": "When the turn was opened, ISO 8601 UTC."
+                      },
+                      "taken": {
+                        "anyOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "by": {
+                                "anyOf": [
+                                  { "type": "string", "const": "operator" },
+                                  { "type": "string", "const": "system" },
+                                  {
+                                    "type": "string",
+                                    "pattern": "^agent:[A-Za-z0-9._-]+\\/[A-Za-z0-9._-]+$"
+                                  }
+                                ],
+                                "description": "Actor: operator, system, or agent:<project>/<session>."
+                              },
+                              "at": {
+                                "type": "string",
+                                "format": "date-time",
+                                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                                "description": "When the turn was taken, ISO 8601 UTC."
+                              }
+                            },
+                            "required": ["by", "at"],
+                            "additionalProperties": false
+                          },
+                          { "type": "null" }
+                        ],
+                        "description": "Who took the turn and when; null until it is taken."
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "task",
+                      "column",
+                      "addressee",
+                      "reason",
+                      "handed",
+                      "head",
+                      "at",
+                      "taken"
+                    ],
+                    "additionalProperties": false,
+                    "description": "A turn: the executor of a column is asked to act on a task."
+                  },
+                  { "type": "null" }
+                ],
+                "description": "The open turn of the task; null when none is open."
+              },
+              "moves": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "at": {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                      "description": "When the task moved, ISO 8601 UTC."
+                    },
+                    "kind": {
+                      "type": "string",
+                      "enum": ["task_moved", "task_shadow_moved", "task_corrected"],
+                      "description": "task_moved moves the column, task_shadow_moved only the shadow column, task_corrected is an operator correction."
+                    },
+                    "actor": {
+                      "anyOf": [
+                        { "type": "string", "const": "operator" },
+                        { "type": "string", "const": "system" },
+                        { "type": "string", "pattern": "^agent:[A-Za-z0-9._-]+\\/[A-Za-z0-9._-]+$" }
+                      ],
+                      "description": "Actor: operator, system, or agent:<project>/<session>."
+                    },
+                    "from": {
+                      "type": "string",
+                      "enum": [
+                        "todo",
+                        "ready-for-dev",
+                        "dev",
+                        "review",
+                        "product-review",
+                        "external-review",
+                        "qa",
+                        "ready-to-merge",
+                        "done"
+                      ],
+                      "description": "Column the task left."
+                    },
+                    "to": {
+                      "type": "string",
+                      "enum": [
+                        "todo",
+                        "ready-for-dev",
+                        "dev",
+                        "review",
+                        "product-review",
+                        "external-review",
+                        "qa",
+                        "ready-to-merge",
+                        "done"
+                      ],
+                      "description": "Column the task entered."
+                    },
+                    "reason": {
+                      "type": "string",
+                      "enum": [
+                        "gate_passed",
+                        "gate_broken",
+                        "merged",
+                        "ticket_reopened",
+                        "mode_changed",
+                        "returned",
+                        "corrected"
+                      ],
+                      "description": "Why it moved: a dispatcher reason, returned (a column executor returned it to Dev) or corrected (the operator corrected the column)."
+                    },
+                    "gate": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "enum": [
+                          "no_pr",
+                          "pr_closed",
+                          "pr_draft",
+                          "checks_red",
+                          "checks_pending",
+                          "conflict",
+                          "mergeable_unknown",
+                          "external_comments",
+                          "comment_history_incomplete",
+                          "no_submit_on_head",
+                          "no_review_on_head",
+                          "not_approved",
+                          "not_merged"
+                        ]
+                      },
+                      "description": "The failing gate reasons of a gate_broken move; empty otherwise."
+                    },
+                    "text": {
+                      "description": "The block a return opened, or the reason the operator gave for a correction; null otherwise.",
+                      "type": ["string", "null"]
+                    }
+                  },
+                  "required": ["at", "kind", "actor", "from", "to", "reason", "gate", "text"],
+                  "additionalProperties": false,
+                  "description": "A column move of a task."
+                },
+                "description": "The last 5 column moves, oldest first."
+              }
+            },
+            "required": [
+              "column",
+              "dispatcher",
+              "holds",
+              "gates",
+              "checksWaivedBy",
+              "turn",
+              "moves"
+            ],
+            "additionalProperties": false
           }
         },
         "required": ["task", "links", "blocks", "comments"],
@@ -2789,6 +3379,7 @@
                     "task_submitted",
                     "task_moved",
                     "task_shadow_moved",
+                    "task_corrected",
                     "dispatcher_mode_changed",
                     "block_opened",
                     "block_escalated",
@@ -6315,6 +6906,326 @@
           }
         },
         "required": ["task", "block"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "task.move",
+      "kind": "mutation",
+      "description": "Correct the column of a task by hand; the gates then settle the task from that column at once.",
+      "grants": [{ "grant": "operator" }],
+      "preconditions": null,
+      "errors": [
+        "usage",
+        "wrong_id_kind",
+        "forbidden",
+        "not_found",
+        "not_implemented",
+        "move_not_allowed",
+        "task_archived",
+        "idempotency_key_mismatch",
+        "identity_unavailable",
+        "starting"
+      ],
+      "cli": {
+        "command": "move",
+        "args": ["task", "column"],
+        "modes": [{ "mode": "correct", "flag": "--correct", "value": null }],
+        "key": "--key"
+      },
+      "mcp": {
+        "name": "task_move",
+        "key": "idempotencyKey",
+        "whenToUse": "Put a task the board moved wrongly into the right column, Done excluded; the reply names the column it settled in.",
+        "whenNotToUse": "Use task_get with why to read why the task is where it is.",
+        "destructive": true
+      },
+      "slack": null,
+      "examples": [
+        {
+          "summary": "Correct a task the board put in Done by mistake",
+          "input": {
+            "mode": "correct",
+            "task": "PROJ-123",
+            "column": "dev",
+            "reason": "The linked pull request belongs to another ticket."
+          },
+          "output": {
+            "task": {
+              "key": "PROJ-123",
+              "project": "web",
+              "column": "dev",
+              "membership": "active"
+            },
+            "from": "done",
+            "to": "dev",
+            "column": "dev",
+            "settled": []
+          }
+        },
+        {
+          "summary": "Correct a task into Review while its Dev gate is broken",
+          "input": {
+            "mode": "correct",
+            "task": "PROJ-123",
+            "column": "review",
+            "reason": "The review was done outside the board."
+          },
+          "output": {
+            "task": {
+              "key": "PROJ-123",
+              "project": "web",
+              "column": "dev",
+              "membership": "active"
+            },
+            "from": "dev",
+            "to": "review",
+            "column": "dev",
+            "settled": [
+              {
+                "at": "2026-01-05T09:30:00.000Z",
+                "kind": "task_moved",
+                "actor": "system",
+                "from": "review",
+                "to": "dev",
+                "reason": "gate_broken",
+                "gate": ["external_comments"],
+                "text": null
+              }
+            ]
+          }
+        }
+      ],
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "mode": {
+                "type": "string",
+                "const": "correct",
+                "description": "Correct a wrong column by hand."
+              },
+              "task": {
+                "type": "string",
+                "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
+                "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
+              },
+              "column": {
+                "type": "string",
+                "enum": [
+                  "todo",
+                  "ready-for-dev",
+                  "dev",
+                  "review",
+                  "product-review",
+                  "external-review",
+                  "qa",
+                  "ready-to-merge"
+                ],
+                "description": "Enabled column to put the task in; Done is reached only from the facts."
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Why the column is corrected, kept in the journal."
+              }
+            },
+            "required": ["mode", "task", "column", "reason"],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "task": {
+            "type": "object",
+            "properties": {
+              "key": {
+                "type": "string",
+                "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
+                "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
+              },
+              "project": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Project the task belongs to."
+              },
+              "column": {
+                "type": "string",
+                "enum": [
+                  "todo",
+                  "ready-for-dev",
+                  "dev",
+                  "review",
+                  "product-review",
+                  "external-review",
+                  "qa",
+                  "ready-to-merge",
+                  "done"
+                ],
+                "description": "Board column the task is in."
+              },
+              "membership": {
+                "type": "string",
+                "enum": ["active", "out_of_filter", "archived"],
+                "description": "Whether the task is on the board, outside the tracker filter, or archived."
+              }
+            },
+            "required": ["key", "project", "column", "membership"],
+            "additionalProperties": false,
+            "description": "A task on the board."
+          },
+          "from": {
+            "type": "string",
+            "enum": [
+              "todo",
+              "ready-for-dev",
+              "dev",
+              "review",
+              "product-review",
+              "external-review",
+              "qa",
+              "ready-to-merge",
+              "done"
+            ],
+            "description": "Column the dispatcher worked from before the correction."
+          },
+          "to": {
+            "type": "string",
+            "enum": [
+              "todo",
+              "ready-for-dev",
+              "dev",
+              "review",
+              "product-review",
+              "external-review",
+              "qa",
+              "ready-to-merge",
+              "done"
+            ],
+            "description": "Column the correction put the task in."
+          },
+          "column": {
+            "type": "string",
+            "enum": [
+              "todo",
+              "ready-for-dev",
+              "dev",
+              "review",
+              "product-review",
+              "external-review",
+              "qa",
+              "ready-to-merge",
+              "done"
+            ],
+            "description": "Column the gates settled the task in; the shadow column while the dispatcher is in shadow mode."
+          },
+          "settled": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "at": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                  "description": "When the task moved, ISO 8601 UTC."
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": ["task_moved", "task_shadow_moved", "task_corrected"],
+                  "description": "task_moved moves the column, task_shadow_moved only the shadow column, task_corrected is an operator correction."
+                },
+                "actor": {
+                  "anyOf": [
+                    { "type": "string", "const": "operator" },
+                    { "type": "string", "const": "system" },
+                    { "type": "string", "pattern": "^agent:[A-Za-z0-9._-]+\\/[A-Za-z0-9._-]+$" }
+                  ],
+                  "description": "Actor: operator, system, or agent:<project>/<session>."
+                },
+                "from": {
+                  "type": "string",
+                  "enum": [
+                    "todo",
+                    "ready-for-dev",
+                    "dev",
+                    "review",
+                    "product-review",
+                    "external-review",
+                    "qa",
+                    "ready-to-merge",
+                    "done"
+                  ],
+                  "description": "Column the task left."
+                },
+                "to": {
+                  "type": "string",
+                  "enum": [
+                    "todo",
+                    "ready-for-dev",
+                    "dev",
+                    "review",
+                    "product-review",
+                    "external-review",
+                    "qa",
+                    "ready-to-merge",
+                    "done"
+                  ],
+                  "description": "Column the task entered."
+                },
+                "reason": {
+                  "type": "string",
+                  "enum": [
+                    "gate_passed",
+                    "gate_broken",
+                    "merged",
+                    "ticket_reopened",
+                    "mode_changed",
+                    "returned",
+                    "corrected"
+                  ],
+                  "description": "Why it moved: a dispatcher reason, returned (a column executor returned it to Dev) or corrected (the operator corrected the column)."
+                },
+                "gate": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "enum": [
+                      "no_pr",
+                      "pr_closed",
+                      "pr_draft",
+                      "checks_red",
+                      "checks_pending",
+                      "conflict",
+                      "mergeable_unknown",
+                      "external_comments",
+                      "comment_history_incomplete",
+                      "no_submit_on_head",
+                      "no_review_on_head",
+                      "not_approved",
+                      "not_merged"
+                    ]
+                  },
+                  "description": "The failing gate reasons of a gate_broken move; empty otherwise."
+                },
+                "text": {
+                  "description": "The block a return opened, or the reason the operator gave for a correction; null otherwise.",
+                  "type": ["string", "null"]
+                }
+              },
+              "required": ["at", "kind", "actor", "from", "to", "reason", "gate", "text"],
+              "additionalProperties": false,
+              "description": "A column move of a task."
+            },
+            "description": "The dispatcher moves from the corrected column, oldest first."
+          }
+        },
+        "required": ["task", "from", "to", "column", "settled"],
         "additionalProperties": false
       }
     }

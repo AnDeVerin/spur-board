@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { BLOCK_TYPES } from '../enums.ts';
+import { BLOCK_TYPES, COLUMN_IDS } from '../enums.ts';
 import { EVENT_KINDS } from '../events.ts';
 import {
   actorIdSchema,
@@ -17,6 +17,7 @@ import {
   commentSchema,
   itemViewSchema,
   linkViewSchema,
+  moveViewSchema,
   schemaGetOutputSchema,
   sourceViewSchema,
   statusItemSchema,
@@ -24,6 +25,7 @@ import {
   statusUnlinkedPrSchema,
   statusUnlinkedSessionSchema,
   taskViewSchema,
+  taskWhySchema,
   turnViewSchema,
 } from './schemas.ts';
 import { SPACE_IDS } from '../gateway/schemas.ts';
@@ -120,6 +122,77 @@ const handedReview = {
 } as const;
 const submittedSha = '9f2c4e1b7a3d5c8e0f1a2b3c4d5e6f708192a3b4';
 const item = { id: 'I7', task: 'PROJ-123', at, summary: 'Deploy of PROJ-123 failed.' } as const;
+
+type GateView = z.input<typeof taskWhySchema>['gates'][number];
+type ConditionView = GateView['conditions'][number];
+const met = (condition: ConditionView['condition']): ConditionView => ({
+  condition,
+  state: 'met',
+  reason: null,
+});
+const failed = (
+  condition: ConditionView['condition'],
+  reason: NonNullable<ConditionView['reason']>,
+): ConditionView => ({ condition, state: 'failed', reason });
+/**
+ * The gates of a task in Review on a project with To Do, Dev, Review and Done enabled: Dev passes,
+ * Review waits for its review on head.
+ */
+const reviewGates: GateView[] = [
+  { column: 'todo', enabled: true, ok: true, blockedIn: null, conditions: [] },
+  { column: 'ready-for-dev', enabled: false, ok: true, blockedIn: null, conditions: [] },
+  {
+    column: 'dev',
+    enabled: true,
+    ok: true,
+    blockedIn: null,
+    conditions: [
+      met('pr_open'),
+      met('not_draft'),
+      met('checks_green'),
+      met('no_conflict'),
+      met('external_comments_handled'),
+      met('comment_history_read'),
+      met('submit_on_head'),
+    ],
+  },
+  {
+    column: 'review',
+    enabled: true,
+    ok: false,
+    blockedIn: 'review',
+    conditions: [failed('review_on_head', 'no_review_on_head')],
+  },
+  {
+    column: 'product-review',
+    enabled: false,
+    ok: false,
+    blockedIn: 'review',
+    conditions: [failed('review_on_head', 'no_review_on_head')],
+  },
+  {
+    column: 'external-review',
+    enabled: false,
+    ok: false,
+    blockedIn: 'review',
+    conditions: [failed('approved', 'not_approved')],
+  },
+  {
+    column: 'qa',
+    enabled: false,
+    ok: false,
+    blockedIn: 'review',
+    conditions: [failed('submit_on_head', 'no_submit_on_head')],
+  },
+  {
+    column: 'ready-to-merge',
+    enabled: false,
+    ok: false,
+    blockedIn: 'review',
+    conditions: [failed('merged', 'not_merged')],
+  },
+  { column: 'done', enabled: true, ok: true, blockedIn: 'review', conditions: [] },
+];
 
 const taskOutput = z.strictObject({ task: taskViewSchema });
 const blockOutput = z.strictObject({ block: blockViewSchema });
@@ -276,22 +349,65 @@ export const OPERATIONS = [
     kind: 'query',
     description: 'Show a task with its links, blocks and comments.',
     mcp: { whenToUse: 'Inspect one task now.', whenNotToUse: 'Use task_history for past events.' },
-    input: z.strictObject({ task: taskKeySchema }),
+    input: z.strictObject({
+      task: taskKeySchema,
+      why: z
+        .boolean()
+        .optional()
+        .describe(
+          'Explain why the task is in its column: gates, holds, the open turn and the last moves; absent means no explanation.',
+        ),
+    }),
     output: z.strictObject({
       task: taskViewSchema,
       links: z.array(linkViewSchema).describe('Effective pull request, session, and ticket links.'),
       blocks: z.array(blockViewSchema).describe('Blocks on the task, open and unblocked.'),
       comments: z.array(commentSchema).describe('Comments on the task, oldest first.'),
+      why: taskWhySchema.optional().describe('Present only with why.'),
     }),
     grants: operatorOrProjectAgent,
     errors: ['wrong_id_kind', 'not_found'],
     cli: { command: 'task', args: ['task'] },
-    slack: { kind: 'slash-command', usage: '/board task <KEY>' },
+    slack: { kind: 'slash-command', usage: '/board task <KEY> [why]' },
     examples: [
       {
         summary: 'Show one task',
         input: { task: 'PROJ-123' },
         output: { task, links: [], blocks: [question], comments: [comment] },
+      },
+      {
+        summary: 'Explain why a task waits in Review',
+        input: { task: 'PROJ-123', why: true },
+        output: {
+          task: { ...task, column: 'review' },
+          links: [],
+          blocks: [],
+          comments: [],
+          why: {
+            column: 'review',
+            dispatcher: 'on',
+            holds: [],
+            gates: reviewGates,
+            checksWaivedBy: null,
+            turn: {
+              ...reviewTurn,
+              handed: [],
+              taken: { by: 'agent:rev/rev-1', at },
+            },
+            moves: [
+              {
+                at,
+                kind: 'task_moved',
+                actor: 'system',
+                from: 'dev',
+                to: 'review',
+                reason: 'gate_passed',
+                gate: [],
+                text: null,
+              },
+            ],
+          },
+        },
       },
     ],
   }),
@@ -1013,6 +1129,88 @@ export const OPERATIONS = [
             author: 'agent:rev/rev-1',
             reason: 'Handle the empty list in the parser.',
           },
+        },
+      },
+    ],
+  }),
+  defineOperation({
+    id: 'task.move',
+    kind: 'mutation',
+    description:
+      'Correct the column of a task by hand; the gates then settle the task from that column at once.',
+    mcp: {
+      whenToUse:
+        'Put a task the board moved wrongly into the right column, Done excluded; the reply names the column it settled in.',
+      whenNotToUse: 'Use task_get with why to read why the task is where it is.',
+    },
+    input: z.discriminatedUnion('mode', [
+      z.strictObject({
+        mode: z.literal('correct').describe('Correct a wrong column by hand.'),
+        task: taskKeySchema,
+        column: z
+          .enum(COLUMN_IDS)
+          .exclude(['done'])
+          .describe('Enabled column to put the task in; Done is reached only from the facts.'),
+        reason: text('Why the column is corrected, kept in the journal.'),
+      }),
+    ]),
+    output: z.strictObject({
+      task: taskViewSchema,
+      from: z.enum(COLUMN_IDS).describe('Column the dispatcher worked from before the correction.'),
+      to: z.enum(COLUMN_IDS).describe('Column the correction put the task in.'),
+      column: z
+        .enum(COLUMN_IDS)
+        .describe(
+          'Column the gates settled the task in; the shadow column while the dispatcher is in shadow mode.',
+        ),
+      settled: z
+        .array(moveViewSchema)
+        .describe('The dispatcher moves from the corrected column, oldest first.'),
+    }),
+    grants: operatorOnly,
+    errors: ['wrong_id_kind', 'not_found', 'task_archived', 'move_not_allowed'],
+    cli: {
+      command: 'move',
+      args: ['task', 'column'],
+      modes: [{ mode: 'correct', flag: '--correct', value: null }],
+    },
+    slack: null,
+    examples: [
+      {
+        summary: 'Correct a task the board put in Done by mistake',
+        input: {
+          mode: 'correct',
+          task: 'PROJ-123',
+          column: 'dev',
+          reason: 'The linked pull request belongs to another ticket.',
+        },
+        output: { task, from: 'done', to: 'dev', column: 'dev', settled: [] },
+      },
+      {
+        summary: 'Correct a task into Review while its Dev gate is broken',
+        input: {
+          mode: 'correct',
+          task: 'PROJ-123',
+          column: 'review',
+          reason: 'The review was done outside the board.',
+        },
+        output: {
+          task,
+          from: 'dev',
+          to: 'review',
+          column: 'dev',
+          settled: [
+            {
+              at,
+              kind: 'task_moved',
+              actor: 'system',
+              from: 'review',
+              to: 'dev',
+              reason: 'gate_broken',
+              gate: ['external_comments'],
+              text: null,
+            },
+          ],
         },
       },
     ],

@@ -72,7 +72,7 @@ export function renderSlackManifest(options: SlackManifestOptions = {}): string 
           {
             command,
             description: 'Show board tasks and command help',
-            usage_hint: '[task <KEY> [history]]',
+            usage_hint: '[task <KEY> [why|history]]',
             should_escape: false,
           },
         ],

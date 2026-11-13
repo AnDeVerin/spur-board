@@ -45,6 +45,7 @@ describe('error catalog', () => {
       ['not_turn_taker', 409, 1],
       ['head_mismatch', 409, 1],
       ['return_not_allowed', 409, 1],
+      ['move_not_allowed', 409, 1],
       ['task_archived', 409, 1],
       ['link_conflict', 409, 1],
       ['retry_not_applicable', 409, 1],

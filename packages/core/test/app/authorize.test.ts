@@ -97,6 +97,7 @@ const allowed = {
   'block.unblock': ['worker', 'addressee'],
   'task.submit': ['worker', 'orchestrator', 'addressee'],
   'task.return': ['worker', 'orchestrator', 'addressee'],
+  'task.move': ['operator'],
 } satisfies Record<MutationId, readonly ActorLabel[]>;
 
 const block: NonNullable<AuthorizationTarget['block']> = {
@@ -437,6 +438,8 @@ describe('authorize catalog grants', () => {
       'note',
       'turn',
       'sha',
+      'why',
+      'column',
     ];
     const keys = new Set<string>();
     for (const entry of OPERATIONS) {

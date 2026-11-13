@@ -12,10 +12,10 @@ import { sql, type Kysely, type Selectable } from 'kysely';
 import type { Tables, TaskTable, TurnTable } from '../store/schema.ts';
 import type { ResolvedTarget } from './authorize.ts';
 import { queueBlockOpen } from './block-thread.ts';
-import { authorizationTarget, blockView, openBlock } from './blocks.ts';
-import { emit, taskPr, taskView } from './board-utils.ts';
+import { authorizationTarget, blockView, openBlock, taskTarget } from './blocks.ts';
+import { emit, moveViews, taskPr, taskView } from './board-utils.ts';
 import { CommandError, type CommandContext, type Mutation } from './commands.ts';
-import { dispatchTasks, moveLeft } from './dispatch.ts';
+import { correctColumn, dispatchTasks, moveLeft } from './dispatch.ts';
 import { canonicalKey } from './membership.ts';
 import { closeTurns } from './turns.ts';
 
@@ -275,7 +275,10 @@ async function insertSubmission(
     .execute();
 }
 
-/** The executor's submit and return of a turn it took, and the turnless shadow submit. */
+/**
+ * The executor's submit and return of a turn it took, the turnless shadow submit, and the
+ * operator's column correction.
+ */
 export function createTurnMutations(deps: {
   config: Config;
   /** Read at call time: the adapter runner starts after the registry and may be absent. */
@@ -394,5 +397,74 @@ export function createTurnMutations(deps: {
       return { task: taskView(moved), block: blockView(block, moved) };
     },
   };
-  return { submit, return: ret };
+  /**
+   * The operator's correction of a task's column. Refused for a column the project does not
+   * enable, and while a merged pull request is the task's active one: the gates would put the task
+   * back in Done at once. The gates then settle the task in the same transaction.
+   */
+  const move: Mutation<'task.move'> = {
+    id: 'task.move',
+    resolveTargets: (trx, input) => taskTarget(trx, canonicalKey(config, input.task).key),
+    async run(trx, input, ctx) {
+      const key = canonicalKey(config, input.task).key;
+      const task = await trx
+        .selectFrom('task')
+        .selectAll()
+        .where('key', '=', key)
+        .executeTakeFirst();
+      if (task === undefined) throw new CommandError('not_found', 'Check the task key.');
+      if (task.membership === 'archived') {
+        throw new CommandError('task_archived', 'Add the task again before changing it.');
+      }
+      const project = config.projects.find((entry) => entry.id === task.project);
+      if (project === undefined) {
+        throw new CommandError(
+          'move_not_allowed',
+          `Project ${task.project} is not in the config; add it before correcting its tasks.`,
+        );
+      }
+      if (!project.columns.some((column) => column.id === input.column && column.enabled)) {
+        throw new CommandError(
+          'move_not_allowed',
+          `Column ${input.column} is not enabled in project ${project.id}; pick one of ${project.columns
+            .filter((column) => column.enabled && column.id !== 'done')
+            .map((column) => column.id)
+            .join(', ')}.`,
+        );
+      }
+      const pr = await taskPr(trx, task.id);
+      if (pr !== null) {
+        const snapshot = await trx
+          .selectFrom('pr_snapshot')
+          .select('state')
+          .where(sql<boolean>`lower(repo) = ${pr.repo.toLowerCase()}`)
+          .where('number', '=', pr.number)
+          .executeTakeFirst();
+        if (snapshot?.state === 'merged') {
+          const label = `${pr.repo}#${String(pr.number)}`;
+          throw new CommandError(
+            'move_not_allowed',
+            `Merged pull request ${label} keeps the task in Done; unlink it first with \`board unlink ${task.key} --pr https://github.com/${pr.repo}/pull/${String(pr.number)} --reason <text>\`.`,
+          );
+        }
+      }
+      const corrected = await correctColumn(trx, {
+        taskId: task.id,
+        to: input.column,
+        at: new Date(ctx.at),
+        actor: ctx.actor,
+        reason: input.reason,
+        config,
+      });
+      const settled = await dispatched(trx, task.id, ctx.at);
+      return {
+        task: taskView(settled),
+        from: corrected.from,
+        to: input.column,
+        column: settled.shadow_column ?? settled.column,
+        settled: await moveViews(trx, task.id, { after: corrected.eventId }),
+      };
+    },
+  };
+  return { submit, return: ret, move };
 }

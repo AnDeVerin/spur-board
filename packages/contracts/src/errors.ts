@@ -178,6 +178,15 @@ export const ERRORS = {
     hint: 'In Dev, ask with `board ask` instead.',
     recovery: noRetry('In Dev, ask with a block instead of returning the task.'),
   }),
+  move_not_allowed: spec('move_not_allowed', {
+    status: 409,
+    exit: EXIT_CODES.refused,
+    message: 'The task cannot be corrected to that column.',
+    hint: 'Read why with `board task <KEY> --why`; pick an enabled column, and unlink a merged pull request with `board unlink` first.',
+    recovery: noRetry(
+      'Read why the task is where it is; pick an enabled column, and unlink a merged pull request first.',
+    ),
+  }),
   task_archived: spec('task_archived', {
     status: 409,
     exit: EXIT_CODES.refused,

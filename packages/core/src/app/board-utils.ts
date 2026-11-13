@@ -1,17 +1,22 @@
 import {
   EVENT_VERSION,
+  encodeActorId,
   eventPayloadSchemas,
   parseActorId,
   parseRef,
   type ActorId,
+  type ColumnId,
   type Config,
   type EventKind,
   type EventPayload,
+  type GateReason,
+  type MoveReason,
 } from '@spur-board/contracts';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { sql, type Kysely, type Selectable } from 'kysely';
-import { toJson } from '../store/json.ts';
-import type { LinkTable, Tables, TaskTable } from '../store/schema.ts';
+import { z } from 'zod';
+import { parseJson, toJson } from '../store/json.ts';
+import type { EventTable, LinkTable, Tables, TaskTable } from '../store/schema.ts';
 
 export type Trx = Kysely<Tables>;
 type Task = Selectable<TaskTable>;
@@ -149,6 +154,78 @@ export async function emit<K extends EventKind>(
       request_id: commandKeys.getStore() ?? null,
     })
     .execute();
+}
+
+const actorRefSchema = z.strictObject({ project: z.string().min(1), session: z.string().min(1) });
+
+/** The actor ID of a journal row. */
+export function eventActor(row: Pick<Selectable<EventTable>, 'actor' | 'actor_ref'>): ActorId {
+  const actorRef = row.actor_ref === null ? undefined : parseJson(actorRefSchema, row.actor_ref);
+  return encodeActorId({ actor: row.actor, actorRef });
+}
+
+const MOVE_KINDS = ['task_moved', 'task_shadow_moved', 'task_corrected'] as const;
+
+/** One column move as `task.get --why` and `task.move` show it. */
+interface MoveView {
+  at: string;
+  kind: (typeof MOVE_KINDS)[number];
+  actor: ActorId;
+  from: ColumnId;
+  to: ColumnId;
+  reason: MoveReason | 'returned' | 'corrected';
+  gate: GateReason[];
+  text: string | null;
+}
+
+function moveView(row: Selectable<EventTable>): MoveView | null {
+  const base = { at: row.at, actor: eventActor(row) };
+  const payload: unknown = JSON.parse(row.payload);
+  if (row.kind === 'task_corrected') {
+    const parsed = eventPayloadSchemas.task_corrected.safeParse(payload);
+    if (!parsed.success) return null;
+    const { from, to, reason } = parsed.data;
+    return { ...base, kind: row.kind, from, to, reason: 'corrected', gate: [], text: reason };
+  }
+  if (row.kind === 'task_shadow_moved') {
+    const parsed = eventPayloadSchemas.task_shadow_moved.safeParse(payload);
+    if (!parsed.success) return null;
+    const { from, to, reason, gate } = parsed.data;
+    return { ...base, kind: row.kind, from, to, reason, gate: gate ?? [], text: null };
+  }
+  const parsed = eventPayloadSchemas.task_moved.safeParse(payload);
+  if (!parsed.success) return null;
+  const { from, to, reason, gate, block } = parsed.data;
+  // `task.return` journals its move with the block it opened and no dispatcher reason.
+  if (reason === undefined) {
+    return block === undefined
+      ? null
+      : { ...base, kind: 'task_moved', from, to, reason: 'returned', gate: [], text: block };
+  }
+  return { ...base, kind: 'task_moved', from, to, reason, gate: gate ?? [], text: null };
+}
+
+/**
+ * The task's column moves, oldest first: all of them, those journaled after event `after`, or
+ * the newest `limit`.
+ */
+export async function moveViews(
+  db: Trx,
+  taskId: number,
+  options: { after?: number; limit?: number } = {},
+): Promise<MoveView[]> {
+  const { after, limit } = options;
+  let query = db
+    .selectFrom('event')
+    .selectAll()
+    .where('task_id', '=', taskId)
+    .where('kind', 'in', MOVE_KINDS);
+  if (after !== undefined) query = query.where('id', '>', after);
+  const rows =
+    limit === undefined
+      ? await query.orderBy('id').execute()
+      : (await query.orderBy('id', 'desc').limit(limit).execute()).reverse();
+  return rows.flatMap((row) => moveView(row) ?? []);
 }
 
 export function taskView(task: Task) {

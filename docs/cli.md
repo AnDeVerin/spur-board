@@ -199,6 +199,7 @@ Arguments: `<task>`.
 
 Flags:
 
+`--why` — Explain why the task is in its column: gates, holds, the open turn and the last moves; absent means no explanation.
 `--json` — Print JSON output or a JSON error.
 
 Example: `board task PROJ-123`
@@ -548,6 +549,23 @@ Flags:
 Example: `board return T4 "Handle the empty list in the parser." --key return-PROJ-123-example-1432`
 
 Operation errors: `usage` (exit 2: Run `board schema` to see the expected input and fix the arguments.); `wrong_id_kind` (exit 2: Pass the ID kind the operation expects, e.g. B<n> for a block or a task key for a task.); `forbidden` (exit 1: Check which role may run the operation in `board schema`, or ask the operator.); `not_found` (exit 1: Check the ID with `board status` or `board task <KEY>`.); `not_implemented` (exit 1: Ask the operator to update the daemon to a build with this operation.); `turn_closed` (exit 1: Read your open turns with `board inbox` and act only on a turn listed there.); `not_turn_taker` (exit 1: Take the turn with `board inbox ack` first; only the session that took it can submit or return it.); `return_not_allowed` (exit 1: In Dev, ask with `board ask` instead.); `task_archived` (exit 1: Ask an operator to add the task to the board again if work continues.); `idempotency_key_mismatch` (exit 1: Use a new key for a new command, or repeat the earlier input with the same key.); `identity_unavailable` (exit 3: Ask in your own session, then retry the same command later with its existing idempotency key if it has one.); `starting` (exit 3: Wait until the daemon is ready, then retry the command with its existing idempotency key if it has one.).
+
+### `board move`
+
+Correct the column of a task by hand; the gates then settle the task from that column at once.
+
+Arguments: `<task> <column>`.
+
+Flags:
+
+`--reason <value>` — Why the column is corrected, kept in the journal.
+`--correct` — Correct a wrong column by hand.
+`--key <key>` — Idempotency key for this action.
+`--json` — Print JSON output or a JSON error.
+
+Example: `board move PROJ-123 dev --correct --reason "The linked pull request belongs to another ticket." --key move-PROJ-123-example-1432`
+
+Operation errors: `usage` (exit 2: Run `board schema` to see the expected input and fix the arguments.); `wrong_id_kind` (exit 2: Pass the ID kind the operation expects, e.g. B<n> for a block or a task key for a task.); `forbidden` (exit 1: Check which role may run the operation in `board schema`, or ask the operator.); `not_found` (exit 1: Check the ID with `board status` or `board task <KEY>`.); `not_implemented` (exit 1: Ask the operator to update the daemon to a build with this operation.); `move_not_allowed` (exit 1: Read why with `board task <KEY> --why`; pick an enabled column, and unlink a merged pull request with `board unlink` first.); `task_archived` (exit 1: Ask an operator to add the task to the board again if work continues.); `idempotency_key_mismatch` (exit 1: Use a new key for a new command, or repeat the earlier input with the same key.); `identity_unavailable` (exit 3: Ask in your own session, then retry the same command later with its existing idempotency key if it has one.); `starting` (exit 3: Wait until the daemon is ready, then retry the command with its existing idempotency key if it has one.).
 
 ### `board --version`
 

@@ -588,6 +588,8 @@ describe('catalog commands', () => {
       ['escalate', 'B12', '--note', 'Owner is away', '--key', 'escalate-1'],
       ['submit', 'T4', '9f2c4e1b7a3d5c8e0f1a2b3c4d5e6f708192a3b4', '--key', 'submit-1'],
       ['return', 'T4', 'Handle the empty list', '--key', 'return-1'],
+      ['task', 'PROJ-123', '--why'],
+      ['move', 'PROJ-123', 'dev', '--correct', '--reason', 'Wrong PR', '--key', 'move-1'],
     ];
     for (const command of commands) {
       const output = capture();
@@ -617,6 +619,11 @@ describe('catalog commands', () => {
       { id: 'block.escalate', input: { block: 'B12', note: 'Owner is away' } },
       { id: 'task.submit', input: { turn: 'T4', sha: '9f2c4e1b7a3d5c8e0f1a2b3c4d5e6f708192a3b4' } },
       { id: 'task.return', input: { turn: 'T4', reason: 'Handle the empty list' } },
+      { id: 'task.get', input: { task: 'PROJ-123', why: true } },
+      {
+        id: 'task.move',
+        input: { mode: 'correct', task: 'PROJ-123', column: 'dev', reason: 'Wrong PR' },
+      },
     ]);
   });
 

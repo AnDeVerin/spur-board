@@ -27,9 +27,14 @@ export function parseCommand(text: string, commandName: string): Command {
   const parts = text.trim().split(/\s+/).filter(Boolean);
   if (parts.length === 0) return { kind: 'query', id: 'status.get', input: {} };
   for (const { operation, usage: form } of descriptors(commandName)) {
-    const pattern = form.slice(commandName.length).trim().split(/\s+/);
-    if (pattern.length !== parts.length) continue;
-    const input: Record<string, string> = {};
+    const pieces = form.slice(commandName.length).trim().split(/\s+/);
+    // A trailing `[word]` is an optional literal that sets the input field `word` to true.
+    const optional = /^\[(\w+)\]$/.exec(pieces.at(-1) ?? '')?.[1];
+    const pattern = optional === undefined ? pieces : pieces.slice(0, -1);
+    const flagged = optional !== undefined && parts.length === pattern.length + 1;
+    if (flagged ? parts.at(-1) !== optional : pattern.length !== parts.length) continue;
+    const input: Record<string, string | boolean> = {};
+    if (flagged) input[optional] = true;
     const matches = pattern.every((piece, index) => {
       const value = parts[index];
       if (value === undefined) return false;
