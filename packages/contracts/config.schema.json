@@ -15,7 +15,11 @@
                 "type": "object",
                 "properties": {
                   "type": { "type": "string", "const": "jira" },
-                  "baseUrl": { "type": "string", "format": "uri" },
+                  "baseUrl": {
+                    "type": "string",
+                    "format": "uri",
+                    "description": "Jira site URL. https:, or http: only on a loopback host."
+                  },
                   "jql": { "type": "string", "minLength": 1 },
                   "doneStatuses": {
                     "minItems": 1,

@@ -259,6 +259,12 @@ describe('invalid configs', () => {
       'slack.appId',
     ],
     [
+      'plain-http Jira URL on a remote host',
+      validConfig({ tracker: { ...jiraTracker, baseUrl: 'http://jira.example.com' } }),
+      'http: is allowed only on a loopback host',
+      'projects[0].tracker.baseUrl',
+    ],
+    [
       'nonpositive block threshold',
       validConfig({}, { thresholds: { blockOpenMs: 0 } }),
       'Too small',
@@ -561,6 +567,17 @@ describe('invalid configs', () => {
     expect(result.error?.issues[0]?.message).toContain('"_board" is reserved');
   });
 
+  it('rejects a non-http Jira URL with one issue', () => {
+    const result = configSchema.safeParse(
+      validConfig({ tracker: { ...jiraTracker, baseUrl: 'file:///x' } }),
+    );
+    expect(result.success).toBe(false);
+    expect(result.error?.issues).toHaveLength(1);
+    expect(result.error?.issues[0]?.path).toEqual(['projects', 0, 'tracker', 'baseUrl']);
+    expect(result.error?.issues[0]?.message).toContain('Invalid URL');
+    expect(result.error?.issues[0]?.message).not.toContain('loopback');
+  });
+
   it('rejects an unknown root key without a path', () => {
     const error = errorFor(validConfig({}, { bogus: 1 }));
     expect(error).toContain('Unrecognized key: "bogus"');
@@ -571,6 +588,17 @@ describe('invalid configs', () => {
     ['a project with id board', { id: 'board' }, {}],
     ['time zone UTC', {}, { digest: { tz: 'UTC' } }],
     ['Jira project keys', { tracker: { ...jiraTracker, projectKeys: ['PROJ'] } }, {}],
+    [
+      'plain-http Jira on localhost',
+      { tracker: { ...jiraTracker, baseUrl: 'http://localhost:8080' } },
+      {},
+    ],
+    [
+      'plain-http Jira on 127.0.0.1',
+      { tracker: { ...jiraTracker, baseUrl: 'http://127.0.0.1:8080' } },
+      {},
+    ],
+    ['plain-http Jira on [::1]', { tracker: { ...jiraTracker, baseUrl: 'http://[::1]:8080' } }, {}],
     ['github-issues with only a label', { tracker: { ...githubTracker, label: 'board' } }, {}],
     ['github-issues with only a milestone', { tracker: { ...githubTracker, milestone: 'v1' } }, {}],
     ['github-issues with neither label nor milestone', { tracker: githubTracker }, {}],

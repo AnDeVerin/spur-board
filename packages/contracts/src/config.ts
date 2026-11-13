@@ -54,9 +54,36 @@ function rejectDuplicates<T>(
   });
 }
 
+const LOOPBACK_IPV4 = /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/;
+
+/**
+ * False for an `http:` URL whose host is not loopback: such a URL would carry credentials in
+ * clear text. Loopback is `localhost`, 127.0.0.0/8 or `[::1]` after WHATWG normalization; no DNS.
+ */
+export function plainHttpAllowed(url: URL): boolean {
+  if (url.protocol !== 'http:') return true;
+  const host = url.hostname;
+  return host === 'localhost' || host === '[::1]' || LOOPBACK_IPV4.test(host);
+}
+
 const jiraTracker = z.strictObject({
   type: z.literal('jira'),
-  baseUrl: z.url({ protocol: /^https?$/ }),
+  baseUrl: z
+    .url({ protocol: /^https?$/ })
+    .refine(
+      (value) => {
+        try {
+          return plainHttpAllowed(new URL(value));
+        } catch {
+          return true;
+        }
+      },
+      {
+        error:
+          'Use https: for the Jira URL; http: is allowed only on a loopback host (localhost, 127.0.0.0/8, ::1) because it receives your Jira credentials',
+      },
+    )
+    .describe('Jira site URL. https:, or http: only on a loopback host.'),
   jql: nonEmpty,
   doneStatuses: z.array(nonEmpty).min(1),
   readyStatuses: z.array(nonEmpty).min(1),
@@ -529,7 +556,8 @@ export const SECRET_ENV_KEYS = [
   {
     name: 'SLACK_API_URL',
     requiredWhen: 'optional',
-    purpose: 'Override the Slack API URL for local testing.',
+    purpose:
+      'Override the Slack API URL for local testing. https:, or http: only on a loopback host.',
   },
 ] as const;
 
