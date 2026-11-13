@@ -4,8 +4,10 @@ const REDACTED = '[Redacted]';
 // Shorter values are too likely to match ordinary text.
 const MIN_SECRET_LENGTH = 8;
 // Keys whose values are credentials, matched at any depth and in any casing:
-// (proxy-)authorization, (set-)cookie, and token or any key ending in it (accessToken, bot_token).
-const CREDENTIAL_KEY = /^(?:proxy-)?authorization$|^(?:set-)?cookie$|token$/i;
+// (proxy-)authorization, (set-)cookie, and any key ending in token, password, secret or
+// api key (accessToken, bot_token, client_secret, X-Api-Key, apiKey).
+const CREDENTIAL_KEY =
+  /^(?:proxy-)?authorization$|^(?:set-)?cookie$|token$|password$|secret$|api[-_]?key$/i;
 
 /** A copy of `value` with every credential key's value replaced, at any depth. */
 function censorKeys(value: unknown): unknown {

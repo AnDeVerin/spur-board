@@ -1,4 +1,5 @@
 import type { Config, ConnectionState, Gateway } from '@spur-board/contracts';
+import { plainHttpAllowed } from '@spur-board/contracts';
 import {
   createSender,
   expirePendingTokens,
@@ -58,6 +59,10 @@ export function slackSettings(
     }
     if (url.protocol !== 'http:' && url.protocol !== 'https:')
       throw new ConfigError('SLACK_API_URL must be an HTTP(S) URL');
+    if (!plainHttpAllowed(url))
+      throw new ConfigError(
+        'SLACK_API_URL must use https:; http: is allowed only on a loopback host (localhost, 127.0.0.0/8, ::1) because it receives the Slack bot token',
+      );
   }
   return {
     token,

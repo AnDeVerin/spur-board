@@ -6,7 +6,7 @@ import { createFakeGateway } from '@spur-board/gateway-testkit';
 import pino from 'pino';
 import { describe, expect, it, vi } from 'vitest';
 import { startFakeSlackApi } from '@spur-board/gateway-slack/testing';
-import { loadConfig, resolvePaths } from '../src/config.ts';
+import { ConfigError, loadConfig, resolvePaths } from '../src/config.ts';
 import type { ModuleContext } from '../src/lifecycle.ts';
 import { createLogger, logCall } from '../src/logger.ts';
 import { createOutboxModule, slackSettings } from '../src/outbox-module.ts';
@@ -78,6 +78,30 @@ describe('outbox scheduler', () => {
         },
       )?.command,
     ).toBe('/ops');
+  });
+  it('refuses SLACK_API_URL over plain http to a non-loopback host', () => {
+    const loaded = loadConfig(resolvePaths({ BOARD_HOME: makeHome() }, ''));
+    const config = {
+      ...loaded.config,
+      slack: {
+        ...loaded.config.slack,
+        channels: { orchestrators: 'C000000001', feed: 'C000000002' },
+      },
+    };
+    const settings = (apiUrl: string) =>
+      slackSettings(config, { SLACK_BOT_TOKEN: 'xoxb-test', SLACK_API_URL: apiUrl });
+    expect(() => settings('http://slack.example.test/api/')).toThrow(ConfigError);
+    expect(() => settings('http://slack.example.test/api/')).toThrow(
+      'SLACK_API_URL must use https:',
+    );
+    for (const apiUrl of [
+      'http://127.0.0.1:1/api/',
+      'http://localhost/api/',
+      'http://[::1]:9/api/',
+      'https://slack.example.test/api/',
+    ]) {
+      expect(settings(apiUrl)?.apiUrl).toBe(apiUrl);
+    }
   });
   it('logs one failed tick and schedules a later successful tick', async () => {
     const home = makeHome();
