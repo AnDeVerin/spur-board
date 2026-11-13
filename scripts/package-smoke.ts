@@ -421,6 +421,9 @@ export const smokeSteps: readonly SmokeStep[] = [
       if (!unit.includes(`ExecStart="${process.execPath}" "${daemonEntry}"\n`)) {
         throw new Error('Packed service unit does not start the installed daemon entry.');
       }
+      if (!unit.includes('\nUMask=0077\n')) {
+        throw new Error('Packed service unit does not set UMask=0077.');
+      }
     },
   },
   {

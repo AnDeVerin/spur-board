@@ -448,6 +448,7 @@ describe('service', () => {
       Restart=on-failure
       RestartSec=5s
       TimeoutStopSec=15s
+      UMask=0077
 
       [Install]
       WantedBy=default.target

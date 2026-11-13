@@ -3,7 +3,8 @@
  *
  * The daemon notifies systemd by spawning `systemd-notify`, so the notifying process is a child
  * of the main PID: the unit needs `NotifyAccess=all`. `WATCHDOG_MS` is three board ticks, so a
- * single slow or failed tick does not restart the daemon.
+ * single slow or failed tick does not restart the daemon. `UMask=0077` makes every file the daemon
+ * creates owner-only.
  */
 
 export const BOARD_TICK_MS = 60_000;
@@ -17,4 +18,5 @@ export const SYSTEMD_SERVICE_SETTINGS: readonly string[] = [
   'Restart=on-failure',
   'RestartSec=5s',
   'TimeoutStopSec=15s',
+  'UMask=0077',
 ];
