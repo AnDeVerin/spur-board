@@ -90,7 +90,9 @@ const USAGE = `Usage: pnpm stand <command>
                                   press a button on outbox message n as the operator. The button
                                   answer takes --text: a thread reply, as Slack has no such button
   fake spur session <id> [--state s] [--status s] [--project p] [--branch b] [--retain]
-                                  create or update a session in the fake Spur
+                    [--queue hold|deliver]
+                                  create or update a session in the fake Spur; --queue hold keeps
+                                  later sends in its Spur queue, --queue deliver empties it
   fake spur restart               change the Spur instance id
   fake spur fail <delay|refuse|hang|5xx> [--route list|detail|send|all] [--ms n] [--status 5xx]
                                   fail a route until clear; delay needs --ms (1-60000)
