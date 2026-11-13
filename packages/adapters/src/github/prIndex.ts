@@ -65,8 +65,11 @@ export interface IndexEntry {
   fingerprint: string;
   open: boolean;
   rollup: string | null;
-  /** Whether every check on head is in the index; past the first page one could change unseen. */
-  allChecks: boolean;
+  /**
+   * Whether every check, review, review thread and review request is in the index; past the
+   * first page one could change unseen, while the full read pages them all.
+   */
+  complete: boolean;
 }
 /** The facts of a PR's last full read, with the index fingerprint of the same poll. */
 export interface CachedPr {
@@ -82,20 +85,25 @@ export function indexEntry(alias: unknown): IndexEntry | undefined {
   const parsed = indexAliasWire.safeParse(alias);
   if (!parsed.success) return undefined;
   const pr = parsed.data.pullRequest;
+  const whole = (conn: { totalCount: number; nodes: unknown[] }) =>
+    conn.nodes.length >= conn.totalCount;
   return {
     fingerprint: JSON.stringify(pr),
     open: pr.state !== 'MERGED' && pr.state !== 'CLOSED',
     rollup: pr.statusCheckRollup?.state ?? null,
-    allChecks:
-      pr.statusCheckRollup === null ||
-      pr.statusCheckRollup.contexts.nodes.length >= pr.statusCheckRollup.contexts.totalCount,
+    complete:
+      (pr.statusCheckRollup === null || whole(pr.statusCheckRollup.contexts)) &&
+      whole(pr.reviews) &&
+      whole(pr.reviewThreads) &&
+      whole(pr.reviewRequests),
   };
 }
 
 /**
- * The cached facts when the index shows the PR unchanged since its last full read. An open PR
- * is reused only with no rollup or a `SUCCESS` one, and only when the index lists all its checks:
- * a rollup that stays failed or pending can hide a check that finished since.
+ * The cached facts when the index shows the PR unchanged since its last full read and lists
+ * every check, review, review thread and review request. An open PR is reused only with no
+ * rollup or a `SUCCESS` one: a rollup that stays failed or pending can hide a check that
+ * finished since.
  */
 export function reusable(
   cached: CachedPr | undefined,
@@ -105,9 +113,8 @@ export function reusable(
 ): PrFacts | undefined {
   if (cached === undefined || entry === undefined) return undefined;
   if (cached.fingerprint !== entry.fingerprint || cached.cursorKey !== cursorKey) return undefined;
-  if (!cached.facts.feedbackComplete) return undefined;
+  if (!cached.facts.feedbackComplete || !entry.complete) return undefined;
   if (now - cached.readAt >= (entry.open ? OPEN_REFRESH_MS : CLOSED_REFRESH_MS)) return undefined;
-  if (entry.open && ((entry.rollup !== null && entry.rollup !== 'SUCCESS') || !entry.allChecks))
-    return undefined;
+  if (entry.open && entry.rollup !== null && entry.rollup !== 'SUCCESS') return undefined;
   return cached.facts;
 }

@@ -2252,6 +2252,25 @@ describe('PR index cache', () => {
     await run.poll([refOf(8)]);
     expect(run.details()).toEqual([8]);
   });
+  it.each([
+    ['reviews', { totalCount: 101, nodes: [{ id: 'PRR_1', state: 'APPROVED' }] }],
+    ['reviewThreads', { totalCount: 101, nodes: [{ isResolved: false }] }],
+    [
+      'reviewRequests',
+      {
+        totalCount: 101,
+        nodes: [
+          { requestedReviewer: { __typename: 'User', login: 'reviewer' }, asCodeOwner: true },
+        ],
+      },
+    ],
+  ])('reads a PR in full again when the index lists only part of its %s', async (field, conn) => {
+    const run = scenario();
+    run.state.index = (n) => indexPr(n, { ...(n === 7 ? { state: 'MERGED' } : {}), [field]: conn });
+    await run.poll();
+    await run.poll();
+    expect(run.details()).toEqual([7, 8]);
+  });
   it('reads in full again after the open and the closed refresh', async () => {
     const run = scenario();
     await run.poll();
