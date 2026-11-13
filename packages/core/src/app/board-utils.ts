@@ -206,25 +206,23 @@ function moveView(row: Selectable<EventTable>): MoveView | null {
 }
 
 /**
- * The task's column moves, oldest first: all of them, those journaled after event `after`, or
- * the newest `limit`.
+ * The task's column moves, oldest first: those journaled after event `after`, or the newest
+ * `limit`.
  */
 export async function moveViews(
   db: Trx,
   taskId: number,
-  options: { after?: number; limit?: number } = {},
+  options: { after: number } | { limit: number },
 ): Promise<MoveView[]> {
-  const { after, limit } = options;
-  let query = db
+  const query = db
     .selectFrom('event')
     .selectAll()
     .where('task_id', '=', taskId)
     .where('kind', 'in', MOVE_KINDS);
-  if (after !== undefined) query = query.where('id', '>', after);
   const rows =
-    limit === undefined
-      ? await query.orderBy('id').execute()
-      : (await query.orderBy('id', 'desc').limit(limit).execute()).reverse();
+    'after' in options
+      ? await query.where('id', '>', options.after).orderBy('id').execute()
+      : (await query.orderBy('id', 'desc').limit(options.limit).execute()).reverse();
   return rows.flatMap((row) => moveView(row) ?? []);
 }
 

@@ -282,7 +282,7 @@ async function syncModes(trx: Trx, config: Config, at: Date): Promise<void> {
 export async function correctColumn(
   trx: Trx,
   input: { taskId: number; to: ColumnId; at: Date; actor: ActorId; reason: string; config: Config },
-): Promise<{ task: Task; from: ColumnId; eventId: number }> {
+): Promise<{ from: ColumnId; eventId: number }> {
   const { taskId, to, at, actor, reason, config } = input;
   await syncModes(trx, config, at);
   const task = await trx
@@ -293,7 +293,7 @@ export async function correctColumn(
   const shadow =
     config.projects.find((project) => project.id === task.project)?.dispatcher.mode === 'shadow';
   const from = task.shadow_column ?? task.column;
-  const corrected = await trx
+  await trx
     .updateTable('task')
     .set(
       shadow
@@ -301,8 +301,7 @@ export async function correctColumn(
         : { column: to, column_epoch: task.column_epoch + 1, last_change_at: at.toISOString() },
     )
     .where('id', '=', task.id)
-    .returningAll()
-    .executeTakeFirstOrThrow();
+    .execute();
   await voidSubmits(trx, task.id, to, at);
   if (!shadow) await closeTurns(trx, { taskId: task.id, reason: 'moved', at });
   await emit(
@@ -320,7 +319,7 @@ export async function correctColumn(
     .where('task_id', '=', task.id)
     .orderBy('id', 'desc')
     .executeTakeFirstOrThrow();
-  return { task: corrected, from, eventId: event.id };
+  return { from, eventId: event.id };
 }
 
 /** A source has no fresh view while it reports blind or has had no complete poll since start. */

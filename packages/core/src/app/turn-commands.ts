@@ -461,7 +461,7 @@ export function createTurnMutations(deps: {
         task: taskView(settled),
         from: corrected.from,
         to: input.column,
-        column: settled.shadow_column ?? settled.column,
+        column: shadowColumn(settled),
         settled: await moveViews(trx, task.id, { after: corrected.eventId }),
       };
     },
