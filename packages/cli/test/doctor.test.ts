@@ -784,9 +784,11 @@ describe('board doctor', () => {
       status: 'warning',
       blocking: false,
     });
-    expect(value.checks.find((entry) => entry.id === 'sessions.stale')?.fix).toBe(
-      'Restart 1 session started before the last skill install: old; verify sessions whose start time is unavailable.',
+    const fix = value.checks.find((entry) => entry.id === 'sessions.stale')?.fix;
+    expect(fix).toBe(
+      'Ask 1 session started before the last skill install to re-read the spur-board skill (SKILL.md and references/): old. Claude Code reads it from ~/.claude/skills/spur-board, Codex from ~/.codex/skills/spur-board ($CODEX_HOME/skills/spur-board when set). No restart is needed; doctor keeps listing a session after it re-reads.',
     );
+    expect(fix).not.toMatch(/restart(?! is needed)/i);
   });
 
   it('lists each stale session once and counts distinct sessions', async () => {
@@ -801,8 +803,61 @@ describe('board doctor', () => {
       sessions: () => [...Array.from({ length: 12 }, () => entry('busy')), entry('quiet')],
     });
     const value = await run(['doctor', '--json'], fake);
-    expect(value.checks.find((check) => check.id === 'sessions.stale')?.fix).toBe(
-      'Restart 2 sessions started before the last skill install: busy, quiet; verify sessions whose start time is unavailable.',
+    const fix = value.checks.find((check) => check.id === 'sessions.stale')?.fix;
+    expect(fix).toBe(
+      'Ask 2 sessions started before the last skill install to re-read the spur-board skill (SKILL.md and references/): busy, quiet. Claude Code reads it from ~/.claude/skills/spur-board, Codex from ~/.codex/skills/spur-board ($CODEX_HOME/skills/spur-board when set). No restart is needed; doctor keeps listing a session after it re-reads.',
+    );
+    expect(fix).not.toMatch(/restart(?! is needed)/i);
+  });
+
+  const oldStart = Date.parse('2026-11-03T10:00:00.000Z');
+  const session = (id: string, project: string | undefined, startAt: number | undefined) => ({
+    id,
+    ...(project === undefined ? {} : { project }),
+    path: '/usr/bin',
+    codexHome: '/codex',
+    ...(startAt === undefined ? {} : { startAt }),
+  });
+
+  it('lists only stale sessions of a configured Spur project', async () => {
+    const fake = ports({
+      sessions: () => [
+        session('other', 'maintenance', oldStart),
+        session('nameless', undefined, oldStart),
+        session('old', 'worker', oldStart),
+      ],
+    });
+    const value = await run(['doctor', '--json'], fake);
+    const check = value.checks.find((entry) => entry.id === 'sessions.stale');
+    expect(check?.status).toBe('warning');
+    expect(check?.fix).toBe(
+      'Ask 1 session started before the last skill install to re-read the spur-board skill (SKILL.md and references/): old. Claude Code reads it from ~/.claude/skills/spur-board, Codex from ~/.codex/skills/spur-board ($CODEX_HOME/skills/spur-board when set). No restart is needed; doctor keeps listing a session after it re-reads.',
+    );
+  });
+
+  it('passes when only sessions outside the configured projects are old or undated', async () => {
+    const fake = ports({
+      sessions: () => [
+        session('other', 'maintenance', oldStart),
+        session('undated', undefined, undefined),
+      ],
+    });
+    const value = await run(['doctor', '--json'], fake);
+    expect(value.checks.find((entry) => entry.id === 'sessions.stale')).toMatchObject({
+      status: 'pass',
+      fix: null,
+    });
+  });
+
+  it('asks connected sessions without a start time to re-read the skill', async () => {
+    const fake = ports({
+      sessions: () => [session('undated', 'worker', undefined)],
+    });
+    const value = await run(['doctor', '--json'], fake);
+    const check = value.checks.find((entry) => entry.id === 'sessions.stale');
+    expect(check?.status).toBe('warning');
+    expect(check?.fix).toBe(
+      'Ask sessions started before the last skill install to re-read the spur-board skill (SKILL.md and references/). Claude Code reads it from ~/.claude/skills/spur-board, Codex from ~/.codex/skills/spur-board ($CODEX_HOME/skills/spur-board when set). No restart is needed; doctor keeps listing a session after it re-reads. Ask connected sessions whose start time is unavailable to re-read it too.',
     );
   });
 });
