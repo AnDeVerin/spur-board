@@ -34,7 +34,8 @@
   their own (A6), except the GitHub PR poll's chunk halving. Register it with
   `stopStage: 'pollers'`; await `runner.stop()` on stop.
 - A poller is a `createJob`. Register it with `stopStage: 'pollers'`.
-- Inbound recovers, then scans every five minutes; serialize scans and live events through core.
+- Inbound recovers, then scans every five minutes; core reads one conversation per slot, live
+  events run between slots, and inbound stop aborts the scan before the recovery job is awaited.
   Start the gateway with its sink only with `SLACK_APP_TOKEN`; otherwise log. Stop inbound
   before outbox, then stop the gateway and await the sink before store close.
 - The gateway sink also routes `connection` events to the outbox module, isolated from inbound:
