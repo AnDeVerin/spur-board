@@ -5,6 +5,7 @@ import {
   createObservationCore,
   createOperationRegistry,
   firstPollDone,
+  purgeEndedTokenRequests,
   purgeExpiredCommands,
   tickBoard,
   type SpurPort,
@@ -81,6 +82,7 @@ export function createDaemonModules(
     ...(ports.systemd ?? { env: {}, pid: 0 }),
   });
   const commands = ctxFor('commands');
+  const tokenRequests = ctxFor('token-requests');
   const entries: ModuleEntry[] = [
     {
       name: 'commands',
@@ -97,6 +99,20 @@ export function createDaemonModules(
         first: 'await',
         onError: (err) => {
           commands.log.error({ err }, 'command purge failed');
+        },
+      }),
+    },
+    {
+      name: 'token-requests',
+      stopStage: 'final',
+      // Starts without delaying the daemon; every failed purge is logged.
+      module: createJob({
+        run: () =>
+          purgeEndedTokenRequests(tokenRequests.store, new Date(tokenRequests.clock.now())),
+        intervalMs: DAY_MS,
+        first: 'background',
+        onError: (err) => {
+          tokenRequests.log.error({ err }, 'token request purge failed');
         },
       }),
     },
