@@ -230,16 +230,15 @@ export async function reconcileItems(
     if (pr.state === 'open') state.hasOpenPr = true;
     if (pr.state === 'merged') state.hasMergedPr = true;
   }
-  const workerTurns = await trx
+  const takenTurns = await trx
     .selectFrom('turn')
-    .select(['task_id', 'acked_by'])
-    .where('role', '=', 'worker')
+    .select(['id', 'task_id', 'role', 'acked_by'])
     .where('closed_at', 'is', null)
     .where('acked_at', 'is not', null)
     .execute();
-  for (const turn of workerTurns) {
+  for (const turn of takenTurns) {
     const holder = turn.acked_by === null ? null : parseActorId(turn.acked_by);
-    if (holder?.actor === 'agent')
+    if (turn.role === 'worker' && holder?.actor === 'agent')
       taskPrs[String(turn.task_id)]?.turnSessions.push(holder.actorRef.session);
   }
   for (const task of tasks) {
@@ -439,10 +438,11 @@ export async function reconcileItems(
             }),
           ),
   );
+  const spurHeld = spurBlind ? await blindHeldKeys(trx, subjects, takenTurns) : new Set();
   for (const item of existing) {
     if (item.kind !== ('anomaly' satisfies ItemKind)) continue;
     // Spur-derived blocks wait out a blind Spur, and error blocks a host-load episode.
-    if ((spurBlind && item.source === 'spur') || stillInError.has(item.item_key))
+    if ((item.source === 'spur' && spurHeld.has(item.item_key)) || stillInError.has(item.item_key))
       seen.add(item.item_key);
   }
   for (const item of existing) {
@@ -550,6 +550,41 @@ export async function raiseCycleLimit(
     url: taskUrl(task, config),
     at,
   });
+}
+
+/**
+ * The Spur-derived anomaly keys a blind Spur holds open: a health flag of a session still linked
+ * to its task, and a stuck open turn unless the operator removed its worker holder's link. An
+ * orchestrator turn is addressed through the column config, so a link removal does not end it.
+ */
+async function blindHeldKeys(
+  trx: Trx,
+  subjects: readonly { taskId: string; id: string }[],
+  turns: readonly Pick<Row<'turn'>, 'id' | 'task_id' | 'role' | 'acked_by'>[],
+): Promise<Set<string>> {
+  const removed = await trx
+    .selectFrom('link')
+    .select(['task_id', 'session_id'])
+    .where('entity', '=', 'session')
+    .where('banned', '=', 1)
+    .execute();
+  const unlinked = new Set(
+    removed.map((link) => `${String(link.task_id)}:${link.session_id ?? ''}`),
+  );
+  const held = new Set<string>();
+  for (const subject of subjects)
+    for (const kind of ANOMALY_FLAGS)
+      held.add(
+        healthKey(Number(subject.taskId), { taskId: subject.taskId, sessionId: subject.id, kind }),
+      );
+  for (const turn of turns) {
+    const holder = turn.acked_by === null ? null : parseActorId(turn.acked_by);
+    const owner =
+      holder?.actor === 'agent' ? `${String(turn.task_id)}:${holder.actorRef.session}` : null;
+    if (turn.role === 'worker' && owner !== null && unlinked.has(owner)) continue;
+    held.add(`stuck-turn:${String(turn.id)}`);
+  }
+  return held;
 }
 
 function healthKey(taskId: number, flag: SessionHealthFlag): string {

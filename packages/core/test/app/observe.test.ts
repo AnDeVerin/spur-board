@@ -2651,4 +2651,65 @@ describe('anomaly blocks', () => {
     expect((await openLedger(b)).sort()).toEqual(held);
     expect((await surface(b)).closes).toBe(0);
   });
+
+  it("withdraws a session's anomaly block when its link is removed while Spur is blind", async () => {
+    const b = await board();
+    await spur(b, [session('worker-1', 'error')]);
+    now += IDLE;
+    await tick(b);
+    expect(await openLedger(b)).toEqual(['health:worker-1:stuck_worker']);
+    now += 1_000;
+    await b.core.reportSourceState('spur', {
+      lastCompleteAt: iso(),
+      blind: { reason: 'stale', message: 'Spur stopped answering' },
+      gone: [],
+    });
+    await b.apply(
+      createLinkMutations(b.config).remove,
+      { mode: 'session', task: 'o/r#9', session: 'worker-1', reason: 'Wrong task.' },
+      'operator',
+    );
+    await tick(b);
+    const { blocks, items } = await surface(b);
+    expect(blocks.map((block) => [block.state, block.outcome, block.unblocked_by])).toEqual([
+      ['unblocked', 'withdrawn', 'system'],
+    ]);
+    expect(items.map((item) => item.cleared_at !== null)).toEqual([true]);
+  });
+
+  it("withdraws a stuck-turn block when its holder's link is removed while Spur is blind", async () => {
+    const b = await board();
+    await spur(b, [session('worker-1', 'waiting')]);
+    const turn = await heldTurn(b);
+    now += IDLE;
+    await tick(b);
+    const { reminder, outboxId } = await sendReminder(b);
+    await scanTransaction(b.store, b.config, (trx) =>
+      ringUndelivered(trx, {
+        notificationId: reminder.id,
+        outboxId,
+        dedupeKey: 'unused',
+        session: 'worker-1',
+        reason: 'rejected',
+        at: new Date(now),
+        config: b.config,
+      }),
+    );
+    await tick(b);
+    expect(await openLedger(b)).toEqual([`stuck-turn:${String(turn.id)}`]);
+    now += 1_000;
+    await b.core.reportSourceState('spur', {
+      lastCompleteAt: iso(),
+      blind: { reason: 'stale', message: 'Spur stopped answering' },
+      gone: [],
+    });
+    await b.apply(
+      createLinkMutations(b.config).remove,
+      { mode: 'session', task: 'o/r#9', session: 'worker-1', reason: 'Wrong task.' },
+      'operator',
+    );
+    await tick(b);
+    expect(await openLedger(b)).toEqual([]);
+    expect((await surface(b)).items.map((item) => item.cleared_at !== null)).toEqual([true]);
+  });
 });
