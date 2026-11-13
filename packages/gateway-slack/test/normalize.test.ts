@@ -143,6 +143,23 @@ describe('Slack inbound normalization', () => {
     });
   });
 
+  it('keeps the microseconds of an edit time so edits within one millisecond stay ordered', () => {
+    const message = { ts: '1760000005.000006', thread_ts: root.ts, user: 'U_OPERATOR' };
+    const edited = (text: string, ts: string) =>
+      normalizeMessage(
+        'C_ONE',
+        { subtype: 'message_changed', message: { ...message, text, edited: { ts } } },
+        context,
+      )[0];
+    expect(edited('first', '1760000006.000100')).toMatchObject({
+      kind: 'message_edited',
+      at: '2025-10-09T08:53:26.000100Z',
+    });
+    expect(edited('second', '1760000006.000200')).toMatchObject({
+      at: '2025-10-09T08:53:26.000200Z',
+    });
+  });
+
   it('maps equivalent live and history messages to equal events', () => {
     const live = {
       type: 'message',

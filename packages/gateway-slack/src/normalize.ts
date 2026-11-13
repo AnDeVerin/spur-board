@@ -29,6 +29,18 @@ function iso(ts: string): string | undefined {
   return Number.isFinite(at.getTime()) ? at.toISOString() : undefined;
 }
 
+/**
+ * An edit's time at the full precision of its Slack ts (microseconds), so core can order two
+ * edits made within one millisecond.
+ */
+function preciseIso(ts: string): string | undefined {
+  const [seconds = '', fraction = ''] = ts.split('.');
+  if (!/^\d+$/.test(seconds) || !/^\d*$/.test(fraction)) return undefined;
+  const at = new Date(Number(seconds) * 1000);
+  if (!Number.isFinite(at.getTime())) return undefined;
+  return at.toISOString().replace(/\.\d{3}Z$/, `.${fraction.padEnd(6, '0').slice(0, 6)}Z`);
+}
+
 function sourceUrl(channel: string, ts?: string): string {
   const channelUrl = `https://app.slack.com/archives/${encodeURIComponent(channel)}`;
   return ts === undefined ? channelUrl : `${channelUrl}/p${ts.replace('.', '')}`;
@@ -151,7 +163,7 @@ export function normalizeMessage(
   if (base === null || body === undefined) return [];
   const edited = record(message.edited);
   const editedTs = string(edited?.ts);
-  const editAt = editedTs === undefined ? undefined : iso(editedTs);
+  const editAt = editedTs === undefined ? undefined : preciseIso(editedTs);
   const eventBase = {
     conversation: conversationRef(channel, base.threadTs),
     message: messageRef(channel, base.ts, base.threadTs),
