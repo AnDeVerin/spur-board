@@ -169,9 +169,6 @@ export function createDaemonModules(
 
 function isItemInput(input: unknown): input is { item: string } {
   return (
-    typeof input === 'object' &&
-    input !== null &&
-    'item' in input &&
-    typeof (input as { item: unknown }).item === 'string'
+    typeof input === 'object' && input !== null && 'item' in input && typeof input.item === 'string'
   );
 }
