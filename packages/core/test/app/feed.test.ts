@@ -262,7 +262,12 @@ describe('operator item feed', () => {
   it('gives every item kind a policy', () => {
     expectTypeOf<keyof typeof ITEM_POLICY>().toEqualTypeOf<ItemKind>();
     expectTypeOf<RaiseItemInput['kind']>().toEqualTypeOf<ItemKind>();
-    expect(RECONCILED_KINDS).toEqual(['post_failed', 'board_observation', 'worker_ended']);
+    expect(RECONCILED_KINDS).toEqual([
+      'post_failed',
+      'board_observation',
+      'worker_ended',
+      'anomaly',
+    ]);
     expect(Object.keys(ITEM_POLICY).every(isItemKind)).toBe(true);
     expect(isItemKind('manual')).toBe(false);
     expect(isItemKind('toString')).toBe(false);

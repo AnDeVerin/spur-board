@@ -15,6 +15,7 @@ import {
   tickBoard,
   type Store,
 } from '../../src/index.ts';
+import { openSystemBlock } from '../../src/app/blocks.ts';
 import { reconcileDoorbells } from '../../src/app/doorbells.ts';
 import { raiseItem } from '../../src/app/feed.ts';
 import { scanTransaction } from '../../src/app/secrets.ts';
@@ -826,5 +827,45 @@ describe('task archive', () => {
     expect(await events(ctx.store, 'block_unblocked')).toEqual([
       { actor: 'system', payload: { block: external.block.id, outcome: 'archived' } },
     ]);
+  });
+});
+
+describe('anomaly block', () => {
+  it('archive closes an anomaly block as archived without a dismissal', async () => {
+    const ctx = setup();
+    await ctx.poll(tracker, true);
+    const ledger = await scanTransaction(ctx.store, config, async (trx) => {
+      const task = await trx.selectFrom('task').selectAll().executeTakeFirstOrThrow();
+      const at = new Date(now).toISOString();
+      const block = await openSystemBlock(trx, { task, reason: 'PR closed', at, config });
+      return raiseItem(trx, {
+        itemKey: `pr-closed:${String(task.id)}`,
+        kind: 'anomaly',
+        text: `${KEY}: PR closed`,
+        url: 'https://github.com/o/r/issues/9',
+        taskId: task.id,
+        blockId: block.id,
+        at: new Date(now),
+        fingerprint: 'closed-pr',
+      });
+    });
+    now += 1_000;
+    await ctx.apply(ctx.ops.archive, { task: KEY }, 'operator');
+    expect(
+      await ctx.store.db
+        .selectFrom('block')
+        .select(['id', 'state', 'outcome', 'unblocked_by'])
+        .execute(),
+    ).toEqual([
+      { id: ledger.block_id, state: 'unblocked', outcome: 'archived', unblocked_by: 'operator' },
+    ]);
+    expect(
+      await ctx.store.db
+        .selectFrom('operator_item')
+        .select('cleared_at')
+        .where('id', '=', ledger.id)
+        .executeTakeFirstOrThrow(),
+    ).toEqual({ cleared_at: new Date(now).toISOString() });
+    expect(await ctx.store.db.selectFrom('dismissal').selectAll().execute()).toEqual([]);
   });
 });

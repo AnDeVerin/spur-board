@@ -11,6 +11,8 @@ export interface SessionHealthSubject extends Pick<
 export interface TaskPrState {
   hasOpenPr: boolean;
   hasMergedPr: boolean;
+  /** Session ids holding an open worker turn of the task. */
+  turnSessions?: readonly string[];
 }
 
 export interface HostLoadEpisode {
@@ -25,7 +27,8 @@ export type SessionHealthFlagKind =
   | 'worker_idle'
   | 'worker_completed'
   | 'worker_killed'
-  | 'worker_vanished';
+  | 'worker_vanished'
+  | 'worker_lost';
 
 const ENDED_WORKER_KINDS = {
   complete: 'worker_completed',
@@ -62,7 +65,7 @@ export interface SessionHealthInput {
 export interface SessionHealthResult {
   flags: readonly SessionHealthFlag[];
   /**
-   * Vanished-worker flags that wait only on a complete Spur observation: an open item for one
+   * Ended-worker flags that wait only on a complete Spur observation: an open item for one
    * stays and none is raised.
    */
   held: readonly SessionHealthFlag[];
@@ -127,6 +130,21 @@ export function evaluateSessionHealth(input: SessionHealthInput): SessionHealthR
 
     const task = tasks[session.taskId];
     if (session.endedAt !== null) {
+      // A worker killed or gone while it holds an open turn is lost whatever its PRs are.
+      if (
+        session.role === 'worker' &&
+        (session.endReason === 'kill' || session.endReason === 'vanished') &&
+        task?.turnSessions?.includes(session.id) === true &&
+        !liveWorkerTasks.has(session.taskId)
+      ) {
+        const flag: SessionHealthFlag = {
+          taskId: session.taskId,
+          sessionId: session.id,
+          kind: 'worker_lost',
+        };
+        (spur.observationComplete ? flags : held).push(flag);
+        continue;
+      }
       if (
         session.role === 'worker' &&
         (session.endReason === 'complete' ||

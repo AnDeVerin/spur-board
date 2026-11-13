@@ -398,7 +398,7 @@
         },
         "idleInDevAfterMs": {
           "default": 1800000,
-          "description": "How long a worker session without an open PR waits at its prompt before it is flagged in milliseconds.",
+          "description": "How long a worker session without an open PR, or the executor of a taken turn, waits at its prompt before it is flagged in milliseconds.",
           "type": "integer",
           "minimum": 1,
           "maximum": 9007199254740991

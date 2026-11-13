@@ -364,6 +364,51 @@ describe('evaluateSessionHealth', () => {
     }
   });
 
+  describe('worker_lost', () => {
+    const lost = (endReason: 'kill' | 'vanished' | 'complete') =>
+      session('a', 'stale', 0, { endedAt: new Date(start - 1_000).toISOString(), endReason });
+    const holding = (pr: Partial<typeof noPr> = {}) => ({
+      'TASK-1': { ...noPr, ...pr, turnSessions: ['a'] },
+    });
+
+    it('flags worker_lost for a killed or vanished worker holding an open turn, even with an open PR', () => {
+      for (const reason of ['kill', 'vanished'] as const) {
+        const kinds = (tasks: SessionHealthInput['tasks'], sessions = [lost(reason)]) =>
+          evaluate({ sessions, tasks }).flags.map((flag) => flag.kind);
+        expect(kinds(holding())).toEqual(['worker_lost']);
+        expect(kinds(holding({ hasOpenPr: true }))).toEqual(['worker_lost']);
+        expect(kinds(holding({ hasMergedPr: true }))).toEqual(['worker_lost']);
+        expect(kinds({ 'TASK-1': { ...noPr, hasOpenPr: true, turnSessions: ['other'] } })).toEqual(
+          [],
+        );
+        expect(kinds(holding(), [lost(reason), session('new', 'working', 0)])).toEqual([]);
+      }
+      expect(
+        evaluate({ sessions: [lost('complete')], tasks: holding() }).flags.map((flag) => flag.kind),
+      ).toEqual(['worker_completed']);
+      expect(
+        evaluate({ sessions: [lost('kill')], tasks: holding({ hasOpenPr: true }) }).flags,
+      ).toEqual([{ taskId: 'TASK-1', sessionId: 'a', kind: 'worker_lost' }]);
+    });
+
+    it('holds worker_lost while the Spur observation is incomplete', () => {
+      const result = evaluate({
+        sessions: [lost('vanished')],
+        tasks: holding({ hasOpenPr: true }),
+        spur: { blind: false, observationComplete: false },
+      });
+      expect(result.flags).toEqual([]);
+      expect(result.held).toEqual([{ taskId: 'TASK-1', sessionId: 'a', kind: 'worker_lost' }]);
+      expect(
+        evaluate({
+          sessions: [lost('vanished')],
+          tasks: holding(),
+          spur: { blind: true, observationComplete: false },
+        }).held,
+      ).toEqual([]);
+    });
+  });
+
   it('suppresses every session output while Spur is blind', () => {
     const result = evaluate({
       sessions: [

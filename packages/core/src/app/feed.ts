@@ -8,6 +8,7 @@ import {
 } from '@spur-board/contracts';
 import type { Kysely } from 'kysely';
 import type { Row, Tables } from '../store/schema.ts';
+import { fingerprint } from '../domain/fromYou.ts';
 import { TASKLESS_FEED_KEY, journal, raiseItemWith, type RaiseItemInput } from './item-raise.ts';
 import { enqueueFeedEdit, enqueueFeedLine, type FeedEditPayload } from './outbox.ts';
 
@@ -70,6 +71,38 @@ export async function clearItem(
     by: actor,
     at,
   });
+}
+
+/**
+ * Dismiss an item as `actor`: record its fingerprint, so `reconcileItems` raises it again only
+ * when the fingerprint changes, then clear it. An item raised before fingerprints were stored is
+ * fingerprinted from its key, text and source.
+ */
+export async function dismissItem(
+  trx: Trx,
+  item: Row<'operator_item'>,
+  actor: ActorId,
+  at: Date,
+): Promise<void> {
+  const hash =
+    item.fingerprint ??
+    fingerprint({ key: item.item_key, summary: item.text, source: item.source, revision: null });
+  const dismissedAt = at.toISOString();
+  await trx
+    .insertInto('dismissal')
+    .values({
+      item_key: item.item_key,
+      fingerprint: hash,
+      dismissed_by: actor,
+      dismissed_at: dismissedAt,
+    })
+    .onConflict((oc) =>
+      oc
+        .column('item_key')
+        .doUpdateSet({ fingerprint: hash, dismissed_by: actor, dismissed_at: dismissedAt }),
+    )
+    .execute();
+  await clearItem(trx, item.id, at, actor);
 }
 
 function resolvedLine(by: ActorId, at: string, config: Config): RichTextInline[] {

@@ -1,4 +1,6 @@
 import {
+  parseActorId,
+  sessionFactsSchema,
   turnHandedSchema,
   type ActorId,
   type AddresseeRole,
@@ -15,10 +17,13 @@ import { taskUrl } from './board-utils.ts';
 import { CommandError } from './commands.ts';
 import {
   acknowledgeNotification,
+  cancelledRingState,
   closeTurnNotification,
   linkedSession,
   notificationAddressedTo,
   registerTurnNotification,
+  registerTurnReminder,
+  turnReminderKey,
 } from './doorbells.ts';
 import { clearItem, raiseItem } from './feed.ts';
 
@@ -138,6 +143,8 @@ export async function openTurn(
  * Takes a turn for `actor`. False for a missing, closed, operator or taken worker turn. An
  * untaken turn needs its unread notification addressed to the actor; a taken orchestrator turn
  * may be taken over by whoever its notification is now addressed to. Others get `forbidden`.
+ * Every take starts a new ownership episode: an unsent reminder of an earlier one is acked, so
+ * `ringStillCurrent` drops its ring.
  */
 export async function takeTurn(
   trx: Trx,
@@ -159,6 +166,14 @@ export async function takeTurn(
     .updateTable('turn')
     .set({ acked_by: actor, acked_at: at.toISOString() })
     .where('id', '=', turnId)
+    .execute();
+  await trx
+    .updateTable('notification')
+    .set({ acked_at: at.toISOString() })
+    .where('turn_id', '=', turnId)
+    .where('kind', '=', 'turn_reminder')
+    .where('acked_at', 'is', null)
+    .where('exhausted_at', 'is', null)
     .execute();
   return true;
 }
@@ -189,6 +204,156 @@ export async function closeTurns(
       .executeTakeFirst();
     if (item !== undefined) await clearItem(trx, item.id, at);
   }
+}
+
+/** How long the holder of a taken turn may sit quiet before it is reminded, then flagged. */
+export function stuckTurnAfterMs(config: Config): number {
+  return config.health.idleInDevAfterMs;
+}
+
+/**
+ * Since when a holder session sits idle: from its end, or from when it began `waiting` at its
+ * prompt. Null for any other health, an unknown one, or a detail that does not parse.
+ */
+function idleSince(session: Row<'session_snapshot'>): string | null {
+  if (session.ended_at !== null) return session.ended_at;
+  let detail: unknown;
+  try {
+    detail = JSON.parse(session.detail);
+  } catch {
+    return null;
+  }
+  const fact = sessionFactsSchema.safeParse(detail);
+  return fact.success && fact.data.health === 'waiting' ? fact.data.healthSince : null;
+}
+
+/** The latest of ISO instants, compared as instants. */
+function latest(values: readonly string[]): string {
+  return new Date(Math.max(...values.map((value) => Date.parse(value)))).toISOString();
+}
+
+/**
+ * Every taken, unclosed agent turn with its holder's session id, whether that session ended, and
+ * the reminder of the current holder's current take, so an earlier episode's reminder never counts
+ * and one cancelled unsent counts as none. `delivered` is whether that reminder reached the holder
+ * or may have: a ring killed after an uncertain send counts, so the one-ring limit hides no stuck
+ * turn.
+ * `quietSince` is when the holder last had something to do: the take, the start of its idle
+ * spell, or the close of its last question on the task. Null while the holder works, has an open
+ * question on the task, or has no readable snapshot. A worker turn whose holder's session link
+ * the operator removed is left out: the holder no longer works the task. An orchestrator turn is
+ * addressed through the column config, so a link removal does not end its hold.
+ */
+export async function quietTurns(trx: Trx) {
+  const turns = await trx
+    .selectFrom('turn')
+    .selectAll()
+    .where('closed_at', 'is', null)
+    .where('acked_at', 'is not', null)
+    .where('role', '!=', 'operator')
+    .orderBy('id')
+    .execute();
+  const removed = await trx
+    .selectFrom('link')
+    .select(['task_id', 'session_id'])
+    .where('entity', '=', 'session')
+    .where('banned', '=', 1)
+    .execute();
+  const unlinked = new Set(
+    removed.map((link) => `${String(link.task_id)}:${link.session_id ?? ''}`),
+  );
+  const quiet = [];
+  for (const turn of turns) {
+    if (turn.acked_by === null || turn.acked_at === null) continue;
+    const holder = parseActorId(turn.acked_by);
+    if (holder?.actor !== 'agent') continue;
+    const sessionId = holder.actorRef.session;
+    if (turn.role === 'worker' && unlinked.has(`${String(turn.task_id)}:${sessionId}`)) continue;
+    const session = await trx
+      .selectFrom('session_snapshot')
+      .selectAll()
+      .where('id', '=', sessionId)
+      .executeTakeFirst();
+    const idle = session === undefined ? null : idleSince(session);
+    const blocks = await trx
+      .selectFrom('block')
+      .select(['state', 'unblocked_at'])
+      .where('task_id', '=', turn.task_id)
+      .where('author', '=', turn.acked_by)
+      .execute();
+    const asking = blocks.some((block) => block.state === 'open');
+    const unblocked = blocks.flatMap((block) =>
+      block.unblocked_at === null ? [] : [block.unblocked_at],
+    );
+    const row = await trx
+      .selectFrom('notification')
+      .selectAll()
+      .where('source_key', '=', turnReminderKey(turn.id, sessionId, turn.acked_at))
+      .executeTakeFirst();
+    const cancelled = row === undefined ? null : await cancelledRingState(trx, row);
+    quiet.push({
+      turn,
+      sessionId,
+      ended: session !== undefined && session.ended_at !== null,
+      quietSince: idle === null || asking ? null : latest([turn.acked_at, idle, ...unblocked]),
+      reminder: cancelled === 'unsent' ? undefined : row,
+      delivered: row !== undefined && (row.rings >= 1 || cancelled === 'maybe_out'),
+    });
+  }
+  return quiet;
+}
+
+/** Whether Spur is blind, so a holder's health is unknown. */
+async function spurBlind(trx: Trx): Promise<boolean> {
+  const spur = await trx
+    .selectFrom('source_state')
+    .select('blind_reason')
+    .where('source', '=', 'spur')
+    .executeTakeFirst();
+  return spur !== undefined && spur.blind_reason !== null;
+}
+
+/**
+ * Registers one reminder per take to the holder of each turn quiet for `stuckTurnAfterMs`;
+ * `takeTurn` drops the unsent reminder of an earlier take. Nothing while Spur is blind, since the holder's health
+ * is then unknown.
+ */
+export async function remindStuckTurns(trx: Trx, config: Config, at: Date): Promise<void> {
+  if (await spurBlind(trx)) return;
+  for (const { turn, sessionId, ended, quietSince, reminder } of await quietTurns(trx)) {
+    if (ended || quietSince === null || reminder !== undefined) continue;
+    if (at.getTime() < Date.parse(quietSince) + stuckTurnAfterMs(config)) continue;
+    await registerTurnReminder(trx, turn, sessionId, at);
+  }
+}
+
+/**
+ * Whether a queued ring may go out at `at`. A turn reminder goes out only under the rule
+ * `remindStuckTurns` registers it by: its holder's current take is quiet for `stuckTurnAfterMs`.
+ * Otherwise the sender defers it, so a question opened after it was queued holds it until the
+ * question closes and a fresh quiet period passes, and blind Spur holds it until Spur reports again.
+ * Every other ring is due.
+ */
+export async function ringDue(
+  trx: Trx,
+  notificationId: number,
+  config: Config,
+  at: Date,
+): Promise<boolean> {
+  const n = await trx
+    .selectFrom('notification')
+    .select('kind')
+    .where('id', '=', notificationId)
+    .executeTakeFirst();
+  if (n?.kind !== 'turn_reminder') return true;
+  if (await spurBlind(trx)) return false;
+  const quiet = (await quietTurns(trx)).find((entry) => entry.reminder?.id === notificationId);
+  return (
+    quiet !== undefined &&
+    !quiet.ended &&
+    quiet.quietSince !== null &&
+    at.getTime() >= Date.parse(quiet.quietSince) + stuckTurnAfterMs(config)
+  );
 }
 
 /** Whether `left` is newer than `right` by `postedAt` instant, then by id. Compared, not subtracted. */

@@ -1,5 +1,8 @@
 import { scanTransaction } from '../../src/app/secrets.ts';
-import { clearItem as clearOperatorItem } from '../../src/app/feed.ts';
+import {
+  clearItem as clearOperatorItem,
+  raiseItem as raiseOperatorItem,
+} from '../../src/app/feed.ts';
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -1656,5 +1659,42 @@ describe('inbound apply', () => {
       { text: 'Updated answer', revision: 2 },
     ]);
     expect(await reopened.db.selectFrom('comment').select('id').execute()).toHaveLength(1);
+  });
+});
+
+describe('anomaly block', () => {
+  it('closes an anomaly block on an operator reply without an author-unavailable item', async () => {
+    const { store, inbound } = await setup();
+    const ledger = await scanTransaction(store, config, (trx) =>
+      raiseOperatorItem(trx, {
+        itemKey: 'pr-closed:1',
+        kind: 'anomaly',
+        text: 'o/r#101: PR closed',
+        url: 'https://github.com/o/r/issues/101',
+        taskId: 1,
+        blockId: 1,
+        at: new Date(now),
+        fingerprint: 'closed-pr',
+      }),
+    );
+    await inbound.sink(message({ conversation: 'thread-1', root: 'root-1', text: 'Dropped it' }));
+    expect(
+      await store.db
+        .selectFrom('block')
+        .select(['state', 'outcome', 'unblocked_by'])
+        .executeTakeFirstOrThrow(),
+    ).toEqual({ state: 'unblocked', outcome: 'done', unblocked_by: 'operator' });
+    expect(
+      await store.db.selectFrom('operator_item').select(['id', 'kind', 'cleared_at']).execute(),
+    ).toEqual([{ id: ledger.id, kind: 'anomaly', cleared_at: at }]);
+    expect(
+      await store.db.selectFrom('dismissal').select(['item_key', 'fingerprint']).execute(),
+    ).toEqual([{ item_key: 'pr-closed:1', fingerprint: 'closed-pr' }]);
+    expect(
+      await store.db.selectFrom('outbox').select('kind').where('kind', '=', 'feed.line').execute(),
+    ).toEqual([]);
+    expect(
+      (await store.db.selectFrom('event').select('kind').execute()).map((row) => row.kind),
+    ).not.toContain('doorbell_undelivered');
   });
 });

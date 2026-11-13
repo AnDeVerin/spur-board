@@ -466,7 +466,7 @@ export const configSchema = z.strictObject({
       ),
       idleInDevAfterMs: durationMs(
         1_800_000,
-        'How long a worker session without an open PR waits at its prompt before it is flagged',
+        'How long a worker session without an open PR, or the executor of a taken turn, waits at its prompt before it is flagged',
       ),
       flipSmoothingMs: durationMs(
         30_000,

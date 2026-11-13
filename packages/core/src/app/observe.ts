@@ -18,7 +18,14 @@ import { z } from 'zod';
 import { sql } from 'kysely';
 import { parseJson, toJson } from '../store/json.ts';
 import type { Store } from '../store/store.ts';
-import { emit, projectForKey, projectForSource, trackerSource, type Trx } from './board-utils.ts';
+import {
+  emit,
+  projectForKey,
+  projectForSource,
+  ticketDone,
+  trackerSource,
+  type Trx,
+} from './board-utils.ts';
 import { enqueueLiveAfterFirstPoll } from './doctor.ts';
 import { reconcileMembership } from './membership-rules.ts';
 import { reconcileItems } from './fromYou.ts';
@@ -74,11 +81,7 @@ async function updateTerminal(
     .execute();
   const hasOpen = linked.some((pr) => pr.state === 'open');
   const merged = linked.some((pr) => pr.state === 'merged');
-  const doneTicket =
-    ticket !== undefined &&
-    (project.tracker.type === 'jira'
-      ? project.tracker.doneStatuses.includes(ticket.status)
-      : ticket.status === 'closed');
+  const doneTicket = ticket !== undefined && ticketDone(project, ticket.status);
   const githubComplete = project.repos.every((repo) => {
     const source = `github:${project.id}:${repo.toLowerCase()}`;
     const complete = completeSince.get(source);

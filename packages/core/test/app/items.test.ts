@@ -17,7 +17,9 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { runCli, type CliIo } from '../../../cli/src/cli.ts';
 import { fingerprint, type ItemKind } from '../../src/domain/fromYou.ts';
 import { registerBlockNotification } from '../../src/app/doorbells.ts';
+import { openSystemBlock } from '../../src/app/blocks.ts';
 import { raiseItem } from '../../src/app/feed.ts';
+import { raiseCycleLimit } from '../../src/app/fromYou.ts';
 import { dispatchOperation } from '../../src/app/operations.ts';
 import {
   createApiServer,
@@ -991,5 +993,69 @@ describe('item.retry and item.close', () => {
     expect(pressKey).toEqual(expect.any(String));
     expect(pressKey).not.toBe('k');
     expect(cleared.map((event) => event.request_id)).toEqual([pressKey, 'k']);
+  });
+});
+
+describe('ledger item', () => {
+  it('closes the block of a ledger item', async () => {
+    const ctx = await setup();
+    const at = new Date(START).toISOString();
+    const seeded = await scanTransaction(ctx.store, config, async (trx) => {
+      const task = await trx.selectFrom('task').selectAll().executeTakeFirstOrThrow();
+      const anomalyBlock = await openSystemBlock(trx, { task, reason: 'PR closed', at, config });
+      const anomaly = await raiseItem(trx, {
+        itemKey: 'pr-closed:1',
+        kind: 'anomaly',
+        text: `${KEY}: PR closed`,
+        url: 'https://example.test/item',
+        taskId: task.id,
+        blockId: anomalyBlock.id,
+        at: new Date(START),
+        fingerprint: 'closed-pr',
+      });
+      const limit = await raiseCycleLimit(trx, {
+        task,
+        column: 'dev',
+        at: new Date(START),
+        config,
+      });
+      return { anomaly, limit };
+    });
+    ctx.advance(1_000);
+    const closedAt = new Date(ctx.clock.now()).toISOString();
+    for (const ledger of [seeded.anomaly, seeded.limit]) {
+      expect(await ctx.close(`I${String(ledger.id)}`)).toMatchObject({
+        item: { id: `I${String(ledger.id)}` },
+      });
+      expect((await item(ctx, ledger.id)).cleared_at).toBe(closedAt);
+    }
+    expect(
+      await ctx.store.db
+        .selectFrom('block')
+        .select(['id', 'state', 'outcome', 'outcome_reason', 'unblocked_by'])
+        .orderBy('id')
+        .execute(),
+    ).toEqual(
+      [seeded.anomaly, seeded.limit].map((ledger) => ({
+        id: ledger.block_id,
+        state: 'unblocked',
+        outcome: 'reason',
+        outcome_reason: `closed as item I${String(ledger.id)}`,
+        unblocked_by: 'operator',
+      })),
+    );
+    expect(
+      (await rows(ctx, 'dismissal')).map((row) => [
+        row.item_key,
+        row.fingerprint,
+        row.dismissed_by,
+      ]),
+    ).toEqual([
+      ['pr-closed:1', 'closed-pr', 'operator'],
+      ['cycle-limit:1:dev', expect.any(String), 'operator'],
+    ]);
+    expect(
+      (await rows(ctx, 'outbox')).filter((row) => row.kind === 'conversation.close'),
+    ).toHaveLength(2);
   });
 });

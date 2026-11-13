@@ -4,12 +4,15 @@ import { join } from 'node:path';
 import { configSchema, type ActorId, type ColumnId, type Config } from '@spur-board/contracts';
 import { createFakeGateway } from '@spur-board/gateway-testkit';
 import { afterEach, describe, expect, it } from 'vitest';
+import { sql } from 'kysely';
 import {
   createApply,
   createBlockMutations,
+  createObservationCore,
   createSender,
   openStore,
   reconcileDueDoorbells,
+  tickBoard,
   type Store,
 } from '../../src/index.ts';
 import {
@@ -23,7 +26,15 @@ import { scanTransaction } from '../../src/app/secrets.ts';
 import { SpurRejectedError } from '../../src/app/sender.ts';
 import { sampleRows } from '../store/sample-rows.ts';
 import { archiveTask } from '../../src/app/archive.ts';
-import { closeTurns, isTurnOpen, openTurn, turnExecutor } from '../../src/app/turns.ts';
+import { createLinkMutations } from '../../src/app/links.ts';
+import {
+  closeTurns,
+  isTurnOpen,
+  openTurn,
+  quietTurns,
+  remindStuckTurns,
+  turnExecutor,
+} from '../../src/app/turns.ts';
 
 const KEY = 'o/r#101';
 const START = Date.parse('2026-11-03T10:00:00.000Z');
@@ -1051,7 +1062,7 @@ async function addLink(ctx: Board, id: number, session: string, role: 'worker' |
 async function setSession(
   ctx: Board,
   id: string,
-  values: { ended_at?: string; state?: string; absent_since?: string },
+  values: { ended_at?: string; state?: string; absent_since?: string; detail?: string },
 ) {
   await ctx.store.transaction(async (trx) => {
     await trx.updateTable('session_snapshot').set(values).where('id', '=', id).execute();
@@ -2065,6 +2076,302 @@ describe('turns', () => {
     ).rejects.toThrow(/UNIQUE constraint failed/);
   });
 
+  const IDLE = config.health.idleInDevAfterMs;
+
+  /** Stores Spur facts for a session in `health` since `since`. */
+  function health(ctx: Board, id: string, project: string, value: string, since: Date) {
+    return setSession(ctx, id, {
+      detail: JSON.stringify({
+        id,
+        spurProject: project,
+        branch: null,
+        pr: null,
+        links: {},
+        lifecycle: 'running',
+        health: value,
+        healthSince: since.toISOString(),
+        lastActivityAt: null,
+        endedAt: null,
+        endReason: null,
+      }),
+    });
+  }
+
+  /** Opens the worker's turn, rings it once and lets worker-1 take it at the current time. */
+  async function takenByWorker(ctx: Board) {
+    await open(ctx);
+    await step(ctx);
+    await ctx.apply(ctx.ops.ack, T1, worker, 'ack-worker');
+  }
+
+  function remind(ctx: Board) {
+    return scanTransaction(ctx.store, ctx.config, (trx) =>
+      remindStuckTurns(trx, ctx.config, ctx.now()),
+    );
+  }
+
+  async function reminders(ctx: Board) {
+    return (await notices(ctx)).filter((notice) => notice.kind === 'turn_reminder');
+  }
+
+  async function question(ctx: Board, author: ActorId) {
+    return ctx.store.transaction((trx) =>
+      trx
+        .insertInto('block')
+        .values({
+          task_id: 1,
+          type: 'needs_input',
+          reason: 'Which API?',
+          author,
+          addressee_role: 'operator',
+          target_column: null,
+          state: 'open',
+          outcome: null,
+          outcome_reason: null,
+          repeat_of: null,
+          unblocked_by: null,
+          unblocked_at: null,
+          created_at: ctx.now().toISOString(),
+        })
+        .returning('id')
+        .executeTakeFirstOrThrow(),
+    );
+  }
+
+  it('rings one reminder for a quiet taken turn', async () => {
+    const ctx = await setup({ config: policyBoard('none') });
+    await takenByWorker(ctx);
+    const taken = ctx.now().toISOString();
+    await health(ctx, 'worker-1', 'web', 'waiting', ctx.now());
+    const tick = () =>
+      tickBoard({
+        store: ctx.store,
+        config: ctx.config,
+        clock: { now: () => ctx.now().getTime() },
+        completeSince: new Map(),
+      });
+    ctx.advance(IDLE - 1);
+    await tick();
+    expect(await reminders(ctx)).toEqual([]);
+
+    ctx.advance(1);
+    await tick();
+    await step(ctx);
+
+    expect(await reminders(ctx)).toEqual([
+      expect.objectContaining({
+        source_key: `turn:1:reminder:worker-1:${taken}`,
+        role: 'worker',
+        turn_id: 1,
+        block_id: null,
+        author_session: 'worker-1',
+        rings: 1,
+        acked_at: ctx.now().toISOString(),
+      }),
+    ]);
+    expect(ctx.sent.slice(1)).toEqual([
+      { session: 'worker-1', text: `${KEY} turn T1 is still open: check board inbox (N2-1)` },
+    ]);
+    for (let round = 0; round < 4; round += 1) {
+      ctx.advance(IDLE);
+      await tick();
+      await step(ctx);
+    }
+    expect(ctx.sent).toHaveLength(2);
+    expect(await reminders(ctx)).toHaveLength(1);
+    expect((await itemKinds(ctx)).map((item) => item.kind)).not.toContain('worker_not_reading');
+  });
+
+  it('skips the reminder while the executor has an open question', async () => {
+    const ctx = await setup({ config: policyBoard('none') });
+    await takenByWorker(ctx);
+    await health(ctx, 'worker-1', 'web', 'waiting', ctx.now());
+    await question(ctx, worker);
+    await question(ctx, 'agent:web/worker-2');
+    ctx.advance(IDLE * 3);
+
+    await remind(ctx);
+
+    expect(await reminders(ctx)).toEqual([]);
+    expect(await ctx.store.transaction((trx) => quietTurns(trx))).toEqual([
+      expect.objectContaining({ sessionId: 'worker-1', quietSince: null }),
+    ]);
+  });
+
+  it('skips the reminder while Spur is blind', async () => {
+    const ctx = await setup({ config: policyBoard('none') });
+    await takenByWorker(ctx);
+    await health(ctx, 'worker-1', 'web', 'waiting', ctx.now());
+    await ctx.store.transaction((trx) =>
+      trx
+        .insertInto('source_state')
+        .values({ ...sampleRows.source_state, source: 'spur', blind_reason: 'unavailable' })
+        .execute(),
+    );
+    ctx.advance(IDLE * 3);
+
+    await remind(ctx);
+    expect(await reminders(ctx)).toEqual([]);
+
+    await ctx.store.transaction((trx) =>
+      trx.updateTable('source_state').set({ blind_reason: null }).execute(),
+    );
+    await remind(ctx);
+    expect(await reminders(ctx)).toHaveLength(1);
+  });
+
+  it('skips the reminder while the executor is working and starts the clock when it waits', async () => {
+    const ctx = await setup({ config: policyBoard('none') });
+    await takenByWorker(ctx);
+    await health(ctx, 'worker-1', 'web', 'working', ctx.now());
+    ctx.advance(IDLE * 3);
+    await remind(ctx);
+    expect(await reminders(ctx)).toEqual([]);
+
+    const waits = ctx.now();
+    await health(ctx, 'worker-1', 'web', 'waiting', waits);
+    ctx.advance(IDLE - 1);
+    await remind(ctx);
+    expect(await reminders(ctx)).toEqual([]);
+    expect(await ctx.store.transaction((trx) => quietTurns(trx))).toEqual([
+      expect.objectContaining({ quietSince: waits.toISOString(), reminder: undefined }),
+    ]);
+
+    ctx.advance(1);
+    await remind(ctx);
+    expect(await reminders(ctx)).toEqual([
+      expect.objectContaining({ created_at: ctx.now().toISOString() }),
+    ]);
+  });
+
+  it("restarts the clock when the executor's question closes", async () => {
+    const ctx = await setup({ config: policyBoard('none') });
+    await takenByWorker(ctx);
+    await health(ctx, 'worker-1', 'web', 'waiting', ctx.now());
+    const { id } = await question(ctx, worker);
+    ctx.advance(IDLE * 3);
+    await remind(ctx);
+    expect(await reminders(ctx)).toEqual([]);
+
+    await ctx.store.transaction((trx) =>
+      trx
+        .updateTable('block')
+        .set({
+          state: 'unblocked',
+          outcome: 'done',
+          unblocked_by: 'operator',
+          unblocked_at: ctx.now().toISOString(),
+        })
+        .where('id', '=', id)
+        .execute(),
+    );
+    ctx.advance(IDLE - 1);
+    await remind(ctx);
+    expect(await reminders(ctx)).toEqual([]);
+
+    ctx.advance(1);
+    await remind(ctx);
+    expect(await reminders(ctx)).toHaveLength(1);
+  });
+
+  it("reminds the orchestrator that takes over a reminded turn, whose take drops the old holder's ring", async () => {
+    const ctx = await setup({ config: policyBoard() });
+    await addSession(ctx, 'qa-1', 'qa');
+    await open(ctx);
+    await step(ctx);
+    await ctx.apply(ctx.ops.ack, T1, 'agent:qa/qa-1', 'ack-qa-1');
+    const firstTake = ctx.now().toISOString();
+    await health(ctx, 'qa-1', 'qa', 'waiting', ctx.now());
+    ctx.advance(IDLE);
+    await remind(ctx);
+    await ctx.ring();
+    expect(await reminders(ctx)).toEqual([
+      expect.objectContaining({
+        source_key: `turn:1:reminder:qa-1:${firstTake}`,
+        recipient_session: 'qa-1',
+      }),
+    ]);
+
+    await addSession(ctx, 'qa-2', 'qa');
+    ctx.advance(1000);
+    await ctx.apply(ctx.ops.ack, T1, 'agent:qa/qa-2', 'ack-qa-2');
+    const takeOver = ctx.now().toISOString();
+    await health(ctx, 'qa-2', 'qa', 'waiting', ctx.now());
+    // No tick runs between the take-over and the send: the take itself drops the queued ring.
+    await ctx.sender.tick();
+
+    expect(sessionsRung(ctx)).toEqual(['qa-1']);
+    expect(await reminders(ctx)).toEqual([
+      expect.objectContaining({ author_session: 'qa-1', acked_at: ctx.now().toISOString() }),
+    ]);
+    expect(await ctx.store.transaction((trx) => quietTurns(trx))).toEqual([
+      expect.objectContaining({ sessionId: 'qa-2', reminder: undefined }),
+    ]);
+
+    ctx.advance(IDLE - 1);
+    await remind(ctx);
+    expect(await reminders(ctx)).toHaveLength(1);
+    ctx.advance(1);
+    await remind(ctx);
+    await step(ctx);
+    ctx.advance(IDLE);
+    await remind(ctx);
+    await step(ctx);
+
+    expect(sessionsRung(ctx)).toEqual(['qa-1', 'qa-2']);
+    expect((await reminders(ctx)).map((notice) => notice.source_key)).toEqual([
+      `turn:1:reminder:qa-1:${firstTake}`,
+      `turn:1:reminder:qa-2:${takeOver}`,
+    ]);
+  });
+
+  it('reminds an orchestrator again when it retakes a turn it lost', async () => {
+    const ctx = await setup({ config: policyBoard() });
+    await addSession(ctx, 'qa-1', 'qa');
+    await addSession(ctx, 'qa-2', 'qa');
+    await open(ctx);
+    await step(ctx);
+    await ctx.apply(ctx.ops.ack, T1, 'agent:qa/qa-1', 'ack-qa-1');
+    await health(ctx, 'qa-1', 'qa', 'waiting', ctx.now());
+    ctx.advance(IDLE);
+    await remind(ctx);
+    expect(await reminders(ctx)).toEqual([
+      expect.objectContaining({ author_session: 'qa-1', rings: 0, acked_at: null }),
+    ]);
+
+    ctx.advance(1000);
+    await ctx.apply(ctx.ops.ack, T1, 'agent:qa/qa-2', 'ack-qa-2');
+    ctx.advance(1000);
+    await ctx.apply(ctx.ops.ack, T1, 'agent:qa/qa-1', 'ack-qa-1-again');
+    const retaken = ctx.now().toISOString();
+    await health(ctx, 'qa-1', 'qa', 'waiting', ctx.now());
+    const rung = sessionsRung(ctx).length;
+    ctx.advance(IDLE);
+    await remind(ctx);
+    await step(ctx);
+
+    expect(sessionsRung(ctx).slice(rung)).toEqual(['qa-1']);
+    const episode = `turn:1:reminder:qa-1:${retaken}`;
+    expect(await reminders(ctx)).toEqual([
+      expect.objectContaining({ author_session: 'qa-1', rings: 0 }),
+      expect.objectContaining({ source_key: episode, rings: 1, acked_at: ctx.now().toISOString() }),
+    ]);
+    expect(await ctx.store.transaction((trx) => quietTurns(trx))).toEqual([
+      expect.objectContaining({
+        sessionId: 'qa-1',
+        reminder: expect.objectContaining({ source_key: episode }) as unknown,
+      }),
+    ]);
+
+    ctx.advance(IDLE);
+    await health(ctx, 'worker-1', 'web', 'working', ctx.now());
+    await health(ctx, 'qa-2', 'qa', 'working', ctx.now());
+    await scanTransaction(ctx.store, ctx.config, async (trx) => {
+      await reconcileItems(trx, ctx.config, ctx.now().getTime(), true);
+    });
+    expect(await itemKinds(ctx)).toContainEqual({ kind: 'anomaly', item_key: 'stuck-turn:1' });
+  });
+
   it('picks the executor', () => {
     expect(turnExecutor('dev', 'qa', false)).toBe('orchestrator:dev');
     expect(turnExecutor('dev', 'operator', true)).toBe('operator');
@@ -2099,5 +2406,289 @@ describe('turns', () => {
     ctx.advance(2_000_000);
     await step(ctx);
     expect(ctx.sent).toHaveLength(1);
+  });
+
+  it('skips the reminder for a worker whose link was removed', async () => {
+    const unlink = (ctx: Board) =>
+      ctx.apply(
+        createLinkMutations(ctx.config).remove,
+        { mode: 'session', task: KEY, session: 'worker-1', reason: 'Wrong task.' },
+        'operator',
+      );
+
+    const quiet = await setup({ config: policyBoard('none') });
+    await takenByWorker(quiet);
+    await health(quiet, 'worker-1', 'web', 'waiting', quiet.now());
+    await unlink(quiet);
+    quiet.advance(IDLE * 3);
+    await remind(quiet);
+    expect(await reminders(quiet)).toEqual([]);
+    expect(await quiet.store.transaction((trx) => quietTurns(trx))).toEqual([]);
+
+    const queued = await setup({ config: policyBoard('none') });
+    await takenByWorker(queued);
+    await health(queued, 'worker-1', 'web', 'waiting', queued.now());
+    queued.advance(IDLE);
+    await remind(queued);
+    await queued.ring();
+    expect(await reminders(queued)).toEqual([
+      expect.objectContaining({ recipient_session: 'worker-1', acked_at: null }),
+    ]);
+    await unlink(queued);
+    await queued.sender.tick();
+    expect(queued.sent).toHaveLength(1);
+    expect(await reminders(queued)).toEqual([
+      expect.objectContaining({ acked_at: queued.now().toISOString() }),
+    ]);
+  });
+
+  it("re-arms a worker's reminder when its removed link is restored", async () => {
+    const link = { mode: 'session', task: KEY, session: 'worker-1', reason: 'Relink.' } as const;
+    const relink = (ctx: Board, op: 'add' | 'remove') =>
+      op === 'add'
+        ? ctx.apply(createLinkMutations(ctx.config).add, link, 'operator')
+        : ctx.apply(createLinkMutations(ctx.config).remove, link, 'operator');
+
+    const ctx = await setup({ config: policyBoard('none') });
+    await takenByWorker(ctx);
+    const taken = ctx.now().toISOString();
+    await health(ctx, 'worker-1', 'web', 'waiting', ctx.now());
+    ctx.advance(IDLE);
+    await remind(ctx);
+    await ctx.ring();
+    await relink(ctx, 'remove');
+    await ctx.sender.tick();
+    expect(ctx.sent).toHaveLength(1);
+
+    await relink(ctx, 'add');
+    ctx.advance(IDLE);
+    await remind(ctx);
+    await step(ctx);
+    ctx.advance(IDLE);
+    await remind(ctx);
+    await step(ctx);
+
+    expect(ctx.sent.slice(1)).toEqual([
+      {
+        session: 'worker-1',
+        text: expect.stringMatching(
+          /^.+ turn T1 is still open: check board inbox \(N\d+-1\)$/,
+        ) as unknown,
+      },
+    ]);
+    expect(await reminders(ctx)).toEqual([
+      expect.objectContaining({
+        source_key: `turn:1:reminder:worker-1:${taken}`,
+        rings: 1,
+        acked_at: new Date(ctx.now().getTime() - IDLE).toISOString(),
+      }),
+    ]);
+    await scanTransaction(ctx.store, ctx.config, async (trx) => {
+      await reconcileItems(trx, ctx.config, ctx.now().getTime(), true);
+    });
+    expect(await itemKinds(ctx)).toContainEqual({ kind: 'anomaly', item_key: 'stuck-turn:1' });
+  });
+
+  it('does not send a second reminder when a link is removed during an in-flight delivery and restored', async () => {
+    const link = { mode: 'session', task: KEY, session: 'worker-1', reason: 'Relink.' } as const;
+    const ctx = await setup({ config: policyBoard('none') });
+    await takenByWorker(ctx);
+    await health(ctx, 'worker-1', 'web', 'waiting', ctx.now());
+    ctx.advance(IDLE);
+    await remind(ctx);
+    await ctx.ring();
+    ctx.beforeSend(async () => {
+      await ctx.apply(createLinkMutations(ctx.config).remove, link, 'operator');
+    });
+    await ctx.sender.tick();
+    expect(ctx.sent).toHaveLength(2);
+
+    await ctx.apply(createLinkMutations(ctx.config).add, link, 'operator');
+    ctx.advance(IDLE);
+    await remind(ctx);
+    await step(ctx);
+    ctx.advance(IDLE);
+    await remind(ctx);
+    await step(ctx);
+
+    expect(ctx.sent.slice(1)).toEqual([
+      {
+        session: 'worker-1',
+        text: expect.stringMatching(
+          /^.+ turn T1 is still open: check board inbox \(N\d+-1\)$/,
+        ) as unknown,
+      },
+    ]);
+    expect(await reminders(ctx)).toEqual([expect.objectContaining({ rings: 1 })]);
+  });
+
+  it('does not send a second reminder when a link is removed and restored during an in-flight delivery', async () => {
+    const link = { mode: 'session', task: KEY, session: 'worker-1', reason: 'Relink.' } as const;
+    const ctx = await setup({ config: policyBoard('none') });
+    await takenByWorker(ctx);
+    await health(ctx, 'worker-1', 'web', 'waiting', ctx.now());
+    ctx.advance(IDLE);
+    await remind(ctx);
+    await ctx.ring();
+    ctx.beforeSend(async () => {
+      await ctx.apply(createLinkMutations(ctx.config).remove, link, 'operator');
+      await ctx.apply(createLinkMutations(ctx.config).add, link, 'operator');
+      ctx.advance(IDLE);
+      await remind(ctx);
+      await ctx.ring();
+    });
+    await ctx.sender.tick();
+    expect(ctx.sent).toHaveLength(2);
+
+    ctx.advance(IDLE);
+    await remind(ctx);
+    await step(ctx);
+    ctx.advance(IDLE);
+    await remind(ctx);
+    await step(ctx);
+
+    expect(ctx.sent).toHaveLength(2);
+    expect(await reminders(ctx)).toEqual([expect.objectContaining({ rings: 1 })]);
+  });
+
+  it('escalates a stuck turn after an uncertain reminder that a relink cancelled', async () => {
+    const link = { mode: 'session', task: KEY, session: 'worker-1', reason: 'Relink.' } as const;
+    const reconcile = () =>
+      scanTransaction(ctx.store, ctx.config, async (trx) => {
+        await reconcileItems(trx, ctx.config, ctx.now().getTime(), true);
+      });
+    const stuck = async () =>
+      (await itemKinds(ctx)).filter((item) => item.item_key === 'stuck-turn:1');
+    const ctx = await setup({ config: policyBoard('none') });
+    await takenByWorker(ctx);
+    await health(ctx, 'worker-1', 'web', 'waiting', ctx.now());
+    ctx.advance(IDLE);
+    await remind(ctx);
+    await ctx.ring();
+    ctx.failNext(new Error('spur send timed out'));
+    await ctx.sender.tick();
+    expect(ctx.sent).toHaveLength(1);
+
+    await ctx.apply(createLinkMutations(ctx.config).remove, link, 'operator');
+    const removedAt = ctx.now().getTime();
+    await ctx.apply(createLinkMutations(ctx.config).add, link, 'operator');
+    ctx.advance(60_000);
+    await ctx.sender.tick();
+    const [reminder] = await reminders(ctx);
+    const rows = await ctx.store.db
+      .selectFrom('outbox')
+      .select(['state', 'uncertain'])
+      .where('kind', '=', 'doorbell')
+      .where(sql<number>`json_extract(payload, '$.notificationId')`, '=', reminder?.id ?? -1)
+      .execute();
+    expect(rows).toEqual([{ state: 'dead', uncertain: 1 }]);
+    expect(await reminders(ctx)).toEqual([
+      expect.objectContaining({
+        rings: 0,
+        exhausted_at: null,
+        acked_at: expect.any(String) as unknown,
+      }),
+    ]);
+
+    ctx.advance(removedAt + IDLE - 1 - ctx.now().getTime());
+    await reconcile();
+    expect(await stuck()).toEqual([]);
+    ctx.advance(1);
+    await reconcile();
+    await remind(ctx);
+    await step(ctx);
+    ctx.advance(IDLE);
+    await reconcile();
+    await remind(ctx);
+    await step(ctx);
+
+    expect(await stuck()).toEqual([{ kind: 'anomaly', item_key: 'stuck-turn:1' }]);
+    expect(ctx.sent).toHaveLength(1);
+    expect(await reminders(ctx)).toHaveLength(1);
+  });
+
+  it('defers a queued reminder while its holder has an open question and sends it after a fresh quiet period', async () => {
+    const ctx = await setup({ config: policyBoard('none') });
+    await takenByWorker(ctx);
+    await health(ctx, 'worker-1', 'web', 'waiting', ctx.now());
+    ctx.advance(IDLE);
+    await remind(ctx);
+    await ctx.ring();
+    const { id } = await question(ctx, worker);
+
+    await ctx.sender.tick();
+    ctx.advance(IDLE * 2);
+    await step(ctx);
+    expect(ctx.sent).toHaveLength(1);
+    expect(await reminders(ctx)).toEqual([
+      expect.objectContaining({ rings: 0, acked_at: null, exhausted_at: null }),
+    ]);
+
+    await ctx.store.transaction((trx) =>
+      trx
+        .updateTable('block')
+        .set({
+          state: 'unblocked',
+          outcome: 'done',
+          unblocked_by: 'operator',
+          unblocked_at: ctx.now().toISOString(),
+        })
+        .where('id', '=', id)
+        .execute(),
+    );
+    // The sender defers a ring for a second, so this retry falls due exactly at the threshold.
+    ctx.advance(IDLE - 1000);
+    await step(ctx);
+    expect(ctx.sent).toHaveLength(1);
+
+    ctx.advance(1000);
+    await step(ctx);
+    expect(ctx.sent.slice(1)).toEqual([
+      { session: 'worker-1', text: `${KEY} turn T1 is still open: check board inbox (N2-1)` },
+    ]);
+    expect(await reminders(ctx)).toEqual([
+      expect.objectContaining({ rings: 1, acked_at: ctx.now().toISOString() }),
+    ]);
+    ctx.advance(IDLE * 2);
+    await remind(ctx);
+    await step(ctx);
+    expect(ctx.sent).toHaveLength(2);
+  });
+
+  it('defers a queued reminder while Spur is blind and sends it once Spur reports again', async () => {
+    const ctx = await setup({ config: policyBoard('none') });
+    const core = createObservationCore({
+      store: ctx.store,
+      config: ctx.config,
+      clock: { now: () => ctx.now().getTime() },
+    });
+    await takenByWorker(ctx);
+    await health(ctx, 'worker-1', 'web', 'waiting', ctx.now());
+    ctx.advance(IDLE);
+    await remind(ctx);
+    await ctx.ring();
+    expect(await reminders(ctx)).toHaveLength(1);
+    await core.reportSourceState('spur', {
+      blind: { reason: 'auth', message: 'Access rejected' },
+      gone: [],
+    });
+
+    await ctx.sender.tick();
+    ctx.advance(IDLE * 2);
+    await step(ctx);
+    expect(ctx.sent).toHaveLength(1);
+    expect(await reminders(ctx)).toEqual([
+      expect.objectContaining({ rings: 0, acked_at: null, exhausted_at: null }),
+    ]);
+
+    await core.reportSourceState('spur', { lastCompleteAt: ctx.now().toISOString(), gone: [] });
+    ctx.advance(1000);
+    await step(ctx);
+    expect(ctx.sent.slice(1)).toEqual([
+      { session: 'worker-1', text: `${KEY} turn T1 is still open: check board inbox (N2-1)` },
+    ]);
+    expect(await reminders(ctx)).toEqual([
+      expect.objectContaining({ rings: 1, acked_at: ctx.now().toISOString() }),
+    ]);
   });
 });

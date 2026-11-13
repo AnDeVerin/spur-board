@@ -13,7 +13,8 @@ import {
   openStore,
   type Store,
 } from '../../src/index.ts';
-import { editInboundComment } from '../../src/app/blocks.ts';
+import { closeOpenBlock, editInboundComment, openSystemBlock } from '../../src/app/blocks.ts';
+import { raiseItem } from '../../src/app/feed.ts';
 import { reconcileItems } from '../../src/app/fromYou.ts';
 import { scanTransaction } from '../../src/app/secrets.ts';
 import { sampleRows } from '../store/sample-rows.ts';
@@ -1516,4 +1517,79 @@ describe('edit of an acknowledged comment', () => {
       ]);
     },
   );
+});
+
+describe('ledger block', () => {
+  /** A system block to the operator with its anomaly item, as `reconcileItems` raises one. */
+  async function ledger(store: Store, key: string) {
+    return scanTransaction(store, config, async (trx) => {
+      const task = await trx.selectFrom('task').selectAll().executeTakeFirstOrThrow();
+      const at = new Date(NOW).toISOString();
+      const block = await openSystemBlock(trx, { task, reason: 'PR closed', at, config });
+      const item = await raiseItem(trx, {
+        itemKey: key,
+        kind: 'anomaly',
+        text: `${KEY}: PR closed`,
+        url: 'https://github.com/o/r/issues/101',
+        taskId: task.id,
+        blockId: block.id,
+        at: new Date(NOW),
+        fingerprint: `fingerprint-${key}`,
+        source: 'github:proj:o/r',
+      });
+      return { task, block, item };
+    });
+  }
+  const cleared = (store: Store, id: number) =>
+    store.db
+      .selectFrom('operator_item')
+      .select('cleared_at')
+      .where('id', '=', id)
+      .executeTakeFirstOrThrow();
+
+  it('writes a dismissal when the operator unblocks a ledger block, none on a system close', async () => {
+    const { store, apply } = await seeded();
+    const byOperator = await ledger(store, 'pr-closed:1');
+    expect(byOperator.block).toMatchObject({
+      author: 'system',
+      addressee_role: 'operator',
+      type: 'needs_input',
+    });
+    await apply(
+      ops.unblock,
+      { mode: 'reason', block: `B${String(byOperator.block.id)}`, reason: 'Abandoned.' },
+      'operator',
+    );
+    expect(await cleared(store, byOperator.item.id)).toEqual({
+      cleared_at: new Date(NOW).toISOString(),
+    });
+    expect(await store.db.selectFrom('dismissal').selectAll().execute()).toEqual([
+      {
+        item_key: 'pr-closed:1',
+        fingerprint: 'fingerprint-pr-closed:1',
+        dismissed_by: 'operator',
+        dismissed_at: new Date(NOW).toISOString(),
+      },
+    ]);
+
+    const bySystem = await ledger(store, 'ticket-closed:1');
+    await scanTransaction(store, config, (trx) =>
+      closeOpenBlock(
+        trx,
+        bySystem.task,
+        bySystem.block,
+        { actor: 'system', at: new Date(NOW).toISOString() },
+        'withdrawn',
+        'condition ended',
+      ),
+    );
+    expect(await cleared(store, bySystem.item.id)).toEqual({
+      cleared_at: new Date(NOW).toISOString(),
+    });
+    expect(
+      (await store.db.selectFrom('dismissal').select('item_key').execute()).map(
+        (row) => row.item_key,
+      ),
+    ).toEqual(['pr-closed:1']);
+  });
 });

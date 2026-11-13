@@ -25,6 +25,7 @@ import {
   conversationsForRecovery,
   resolveBlockConversation,
 } from '../domain/conversations.ts';
+import { BLOCK_ITEM_KINDS } from '../domain/fromYou.ts';
 import { toJson } from '../store/json.ts';
 import type { Row, Tables } from '../store/schema.ts';
 import type { Store } from '../store/store.ts';
@@ -233,6 +234,14 @@ async function ringAuthor(
     config: Config;
   },
 ): Promise<void> {
+  // A ledger block asks for the operator's action, not an answer: its author is the board.
+  const ledger = await trx
+    .selectFrom('operator_item')
+    .select('id')
+    .where('block_id', '=', input.block.id)
+    .where('kind', 'in', BLOCK_ITEM_KINDS)
+    .executeTakeFirst();
+  if (ledger !== undefined) return;
   const key = `doorbell:comment:${String(input.comment.id)}:revision:${String(input.comment.revision)}`;
   const parsed = parseActorId(input.block.author);
   if (parsed?.actor === 'agent') {

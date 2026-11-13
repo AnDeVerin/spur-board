@@ -1,10 +1,11 @@
 import { assertNever } from '@spur-board/contracts';
 import type { Kysely } from 'kysely';
-import { fingerprint, isItemKind, ITEM_POLICY } from '../domain/fromYou.ts';
+import { isItemKind, ITEM_POLICY } from '../domain/fromYou.ts';
 import type { Row, Tables } from '../store/schema.ts';
+import { closeBlockIfOpen } from './blocks.ts';
 import { CommandError, type Mutation } from './commands.ts';
 import { restartNotification, ringTask } from './doorbells.ts';
-import { clearItem } from './feed.ts';
+import { clearItem, dismissItem } from './feed.ts';
 import { requeuePostFailed, retryTransport } from './sender.ts';
 
 type Trx = Kysely<Tables>;
@@ -145,30 +146,6 @@ export function createItemMutations(deps: { reapplyInbound?: () => ReapplyInboun
       async run(trx, input, ctx) {
         const { item, task } = await loadItem(trx, input.item);
         if (item.cleared_at === null) {
-          const hash =
-            item.fingerprint ??
-            fingerprint({
-              key: item.item_key,
-              summary: item.text,
-              source: item.source,
-              revision: null,
-            });
-          await trx
-            .insertInto('dismissal')
-            .values({
-              item_key: item.item_key,
-              fingerprint: hash,
-              dismissed_by: ctx.actor,
-              dismissed_at: ctx.at,
-            })
-            .onConflict((oc) =>
-              oc.column('item_key').doUpdateSet({
-                fingerprint: hash,
-                dismissed_by: ctx.actor,
-                dismissed_at: ctx.at,
-              }),
-            )
-            .execute();
           if (item.kind === 'post_failed') {
             // A closed failed post stays unsent: neither `recover()` nor a retry may resend it.
             await trx
@@ -178,7 +155,12 @@ export function createItemMutations(deps: { reapplyInbound?: () => ReapplyInboun
               .where('state', '=', 'post_failed')
               .execute();
           }
-          await clearItem(trx, item.id, new Date(ctx.at), ctx.actor);
+          await dismissItem(trx, item, ctx.actor, new Date(ctx.at));
+          // A ledger item's block closes with it, as the actor that closed the item.
+          if (item.block_id !== null && isItemKind(item.kind) && ITEM_POLICY[item.kind].block) {
+            const reason = `closed as item I${String(item.id)}`;
+            await closeBlockIfOpen(trx, item.block_id, ctx, 'reason', reason);
+          }
         }
         return view(item, task);
       },

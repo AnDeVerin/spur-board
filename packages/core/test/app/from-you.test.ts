@@ -3,9 +3,10 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { RESERVED_PROJECT, configSchema } from '@spur-board/contracts';
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import {
   createApply,
+  createBlockMutations,
   createMembershipMutations,
   createObservationCore,
   getStatus,
@@ -16,6 +17,7 @@ import {
 } from '../../src/index.ts';
 import { sampleRows } from '../store/sample-rows.ts';
 import { raiseItem } from '../../src/app/feed.ts';
+import { raiseCycleLimit } from '../../src/app/fromYou.ts';
 import { enqueueFeedLine } from '../../src/app/outbox.ts';
 
 const base = Date.parse('2026-11-04T12:00:00.000Z');
@@ -621,4 +623,79 @@ it('re-raises a pre-upgrade delivery item under post_failed', async () => {
       .where('kind', '=', 'feed.line.edit')
       .execute(),
   ).toEqual([{ parent_outbox_id: oldLine }]);
+});
+
+describe('cycle limit', () => {
+  it('raiseCycleLimit opens one block until the operator resets it', async () => {
+    const { store } = setup();
+    const apply = createApply({ store, config, clock });
+    await apply(createMembershipMutations(config).add, { task: 'o/r#9' }, 'operator');
+    const task = await store.db.selectFrom('task').selectAll().executeTakeFirstOrThrow();
+    const raise = () =>
+      scanTransaction(store, config, (trx) =>
+        raiseCycleLimit(trx, { task, column: task.column, at: new Date(now), config }),
+      );
+    const counts = async () => ({
+      blocks: (
+        await store.db.selectFrom('block').select(['id', 'author', 'addressee_role']).execute()
+      ).map((block) => [block.author, block.addressee_role]),
+      active: (
+        await store.db
+          .selectFrom('operator_item')
+          .select('kind')
+          .where('cleared_at', 'is', null)
+          .execute()
+      ).map((item) => item.kind),
+      opens: (
+        await store.db
+          .selectFrom('outbox')
+          .select('id')
+          .where('kind', '=', 'conversation.open')
+          .execute()
+      ).length,
+      lines: (
+        await store.db.selectFrom('outbox').select('id').where('kind', '=', 'feed.line').execute()
+      ).length,
+    });
+    const first = await raise();
+    const once = {
+      blocks: [['system', 'operator']],
+      active: ['cycle_limit'],
+      opens: 1,
+      lines: 0,
+    };
+    expect(await counts()).toEqual(once);
+    expect(first.item_key).toBe(`cycle-limit:${String(task.id)}:${task.column}`);
+    const block = await store.db.selectFrom('block').selectAll().executeTakeFirstOrThrow();
+    expect(first.block_id).toBe(block.id);
+    expect(block.type).toBe('needs_input');
+    now += 1_000;
+    expect((await raise()).id).toBe(first.id);
+    expect(await counts()).toEqual(once);
+
+    now += 1_000;
+    await apply(
+      createBlockMutations(config).unblock,
+      { mode: 'reason', block: `B${String(block.id)}`, reason: 'Reset.' },
+      'operator',
+    );
+    expect((await counts()).active).toEqual([]);
+    now += 1_000;
+    const second = await raise();
+    expect(second.id).not.toBe(first.id);
+    expect(second.raise_no).toBe(2);
+    expect(second.block_id).not.toBe(block.id);
+    expect(
+      await store.db.selectFrom('block').select('state').where('id', '=', block.id).execute(),
+    ).toEqual([{ state: 'unblocked' }]);
+    expect(await counts()).toEqual({
+      blocks: [
+        ['system', 'operator'],
+        ['system', 'operator'],
+      ],
+      active: ['cycle_limit'],
+      opens: 2,
+      lines: 0,
+    });
+  });
 });
