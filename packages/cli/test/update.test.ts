@@ -468,6 +468,23 @@ function addMigration(s: Stand) {
 }
 
 describe('board update', () => {
+  it('U0: update and rollback refuse a plain-http non-loopback BOARD_DAEMON_URL before the lock', async () => {
+    const s = await stand();
+    s.env['BOARD_DAEMON_URL'] = 'http://192.0.2.1:4777';
+    for (const args of [
+      ['--json', 'update'],
+      ['--json', 'rollback', '--yes'],
+    ]) {
+      const result = await s.run(args);
+      expect(result.exit, result.stderr).toBe(4);
+      expect(errorOf(result.stderr).code).toBe('config');
+      expect(errorOf(result.stderr).hint).toContain('loopback');
+      expect(result.stderr).not.toContain('192.0.2.1');
+    }
+    expect(s.labels()).toEqual([]);
+    expect(existsSync(s.updateDir)).toBe(false);
+  });
+
   it('U1: runs preflight, snapshot, stop, lock wait, backup, install and checks, in order', async () => {
     const s = await stand();
     const original = tree(s.packageRoot);

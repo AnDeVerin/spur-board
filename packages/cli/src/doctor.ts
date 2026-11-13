@@ -13,7 +13,7 @@ import { parseEnv } from 'node:util';
 import { configSchema, requiredSecretKeys, type Config } from '@spur-board/contracts';
 import YAML from 'yaml';
 import { z } from 'zod';
-import { configFile, resolveDaemonAddress } from './config.ts';
+import { configFile, dataDirectory, resolveDaemonAddress } from './config.ts';
 import { bindLoopback, checkHttpPort } from './port.ts';
 
 export interface DoctorCheck {
@@ -158,6 +158,22 @@ function unitFile(env: NodeJS.ProcessEnv, home: string): string {
     'systemd',
     'user',
     'spur-board.service',
+  );
+}
+
+/** Fails when group or others can access `board.sqlite`; a missing database passes. */
+function databasePrivate(path: string, ports: DoctorPorts): DoctorCheck {
+  let mode: number;
+  try {
+    // Not a secret file, but it needs the same resolve and stat.
+    mode = ports.secretFile(path).mode;
+  } catch {
+    return result('database.private', true, '');
+  }
+  return result(
+    'database.private',
+    (mode & 0o077) === 0,
+    'Set board.sqlite mode to 0600 with chmod 600; the daemon also sets it when it starts.',
   );
 }
 
@@ -600,6 +616,7 @@ export async function runDoctor(
     run: (command, args) => Promise.resolve(ports.run(command, args)),
   });
   checks.push(result('http.port', portFix === null, portFix ?? ''));
+  checks.push(databasePrivate(join(dataDirectory(env, home), 'board.sqlite'), ports));
 
   let remote: { version: string; checks: DoctorCheck[] } | null = null;
   try {

@@ -15,10 +15,10 @@
     "@slack/socket-mode": "catalog:",
     "@slack/web-api": "catalog:",
     "@spur-board/contracts": "workspace:*",
-    "ws": "8.21.3"
+    "ws": "catalog:"
   },
   "devDependencies": {
     "@spur-board/gateway-testkit": "workspace:*",
-    "@types/ws": "8.18.2"
+    "@types/ws": "catalog:"
   }
 }

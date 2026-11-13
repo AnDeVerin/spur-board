@@ -1,4 +1,5 @@
-import { readFileSync, readdirSync } from 'node:fs';
+import { chmodSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { basename, dirname, join, normalize } from 'node:path';
 import type BetterSqlite3 from 'better-sqlite3';
 import { copyDatabase } from './copy.ts';
 
@@ -58,6 +59,48 @@ function backupPath(file: string, from: number): string {
   return `${file}.v${String(from)}.${stamp}.bak`;
 }
 
+/** How many migration backups of a database `pruneBackups` keeps. */
+export const KEEP_BACKUPS = 5;
+
+const BACKUP_SUFFIX = /^(\d+)\.(\d{8}T\d{9}Z)\.bak$/;
+
+/**
+ * Keeps the newest `KEEP_BACKUPS` migration backups of `file` (`<name>.v<n>.<stamp>.bak` beside
+ * it, by stamp, then version) at mode 0600 and removes the rest. `protect`, when it is one of
+ * them, is always kept and counts toward the limit: the clock can step back, so the backup just
+ * written may not carry the newest stamp. Anything else is left alone: other names, and
+ * directories or symlinks with a backup name. Every backup is set to 0600 first, and a failed
+ * chmod throws. Removing an old backup is best effort: one that cannot be deleted stays,
+ * owner-only, until a later prune.
+ */
+export function pruneBackups(file: string, protect?: string): void {
+  const dir = dirname(file);
+  const prefix = `${basename(file)}.v`;
+  const shielded = protect === undefined ? undefined : normalize(protect);
+  const candidates = readdirSync(dir, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name.startsWith(prefix))
+    .flatMap(({ name }) => {
+      const match = BACKUP_SUFFIX.exec(name.slice(prefix.length));
+      if (match?.[1] === undefined || match[2] === undefined) return [];
+      return [{ path: join(dir, name), version: Number(match[1]), stamp: match[2] }];
+    })
+    .sort((a, b) => (a.stamp === b.stamp ? b.version - a.version : a.stamp < b.stamp ? 1 : -1));
+  const ordered = [
+    ...candidates.filter((backup) => backup.path === shielded),
+    ...candidates.filter((backup) => backup.path !== shielded),
+  ];
+  for (const backup of ordered) chmodSync(backup.path, 0o600);
+  for (const backup of ordered.slice(KEEP_BACKUPS)) removeQuietly(backup.path);
+}
+
+function removeQuietly(path: string): void {
+  try {
+    rmSync(path, { force: true });
+  } catch {
+    // An old backup that cannot be removed (EPERM, EACCES) must not stop the store opening.
+  }
+}
+
 /**
  * Reads `user_version` and throws if it is above `target`. Only reads, so it is safe to call
  * before any PRAGMA that could rewrite the file.
@@ -97,6 +140,7 @@ export function migrate(
   if (!empty) {
     backup = backupPath(db.name, from);
     copyDatabase(db, backup);
+    pruneBackups(db.name, backup);
   }
   const kept = `database kept at v${String(from)}${backup === null ? '' : `, backup at ${backup}`}`;
 

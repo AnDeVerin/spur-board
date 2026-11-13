@@ -1,9 +1,11 @@
+import { chmodSync, closeSync, fchmodSync, openSync } from 'node:fs';
 import Database from 'better-sqlite3';
 import { Kysely, SqliteDialect, sql } from 'kysely';
 import {
   assertNotNewer,
   migrate,
   migrationsDir,
+  pruneBackups,
   readMigrations,
   type MigrationResult,
 } from './migrate.ts';
@@ -28,6 +30,27 @@ function connect(file: string): Database.Database {
   return new Database(file, { timeout: 5000 });
 }
 
+/**
+ * Creates `file` if it is missing and sets it and any existing `-wal` and `-shm` to 0600,
+ * whatever the umask. Changes no bytes, so it is safe before `assertNotNewer`. Throws if a mode
+ * cannot be set, e.g. a file owned by another user.
+ */
+function makePrivate(file: string): void {
+  const fd = openSync(file, 'a', 0o600);
+  try {
+    fchmodSync(fd, 0o600);
+  } finally {
+    closeSync(fd);
+  }
+  for (const sidecar of [`${file}-wal`, `${file}-shm`]) {
+    try {
+      chmodSync(sidecar, 0o600);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
+  }
+}
+
 /** WAL, NORMAL sync and foreign keys on. Switching to WAL rewrites the file header. */
 function configure(database: Database.Database): void {
   database.pragma('journal_mode = WAL');
@@ -48,17 +71,20 @@ export function openDatabase(file: string): Database.Database {
 }
 
 /**
- * Opens `file` and applies pending migrations. A database newer than the code is refused
- * before the WAL switch, so its file is left byte for byte as it was. Throws, with the file
- * closed, if anything fails.
+ * Opens `file` and applies pending migrations. The file, its `-wal` and `-shm` and its migration
+ * backups are kept at mode 0600, and only the newest `KEEP_BACKUPS` backups are kept. A database
+ * newer than the code is refused before the WAL switch, so its file is left byte for byte as it
+ * was; only its mode may change. Throws, with the file closed, if anything fails.
  */
 export function openStore(file: string): Store {
   const migrations = readMigrations(migrationsDir);
+  makePrivate(file);
   const database = connect(file);
   let migration: MigrationResult;
   try {
     assertNotNewer(database, migrations.length);
     configure(database);
+    pruneBackups(file);
     migration = migrate(database, migrations);
   } catch (error) {
     database.close();

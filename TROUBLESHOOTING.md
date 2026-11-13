@@ -92,6 +92,15 @@ process or set `http.port` to a free port, then start the service again. Any spu
 this check, including one of another user or another `BOARD_HOME`. `board service install` runs
 the same check and stops with exit 4 before it writes the unit.
 
+### database.private
+
+Runs only without `--offline`. It reads the mode of `board.sqlite` in the data directory (or
+`BOARD_HOME`) and fails when group or others have any access to it. A missing database passes.
+The daemon sets `board.sqlite`, its `-wal` and `-shm` files and its migration backups to `0600`
+each time it starts, so this fails only when the mode was changed while it ran, or when the
+daemon has not started since an older version. Run `chmod 600` on the file, or restart the
+service.
+
 ### daemon.available
 
 Start or restart the user service, then rerun `board doctor --json`. If it still fails, check
@@ -207,8 +216,8 @@ Keep the Spur project under exactly one Board project in the Board's `config.yam
   same action with its existing idempotency key.
 - **4 — configuration:** `config` means a config field, private secret key, or environment
   variable is wrong: correct the named one and retry after validation. An empty `BOARD_TOKEN`
-  override fails with `config`. `BOARD_DAEMON_URL` must be a valid HTTP(S) address when set; an
-  empty value fails. Without `BOARD_DAEMON_URL`, a missing, malformed or invalid `config.yaml`
+  override fails with `config`. `BOARD_DAEMON_URL` must be a valid HTTP(S) address when set, and `http:` only on
+  a loopback host; an empty value fails. Without `BOARD_DAEMON_URL`, a missing, malformed or invalid `config.yaml`
   fails with `config` and nothing is sent: set the variable, or fix the file and its `http.port`.
   Use `board doctor --offline` to check `config.yaml` while the service is
   down. `identity_missing` means there is no Spur session, `BOARD_TOKEN` is unset, and the CLI

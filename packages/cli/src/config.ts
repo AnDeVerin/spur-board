@@ -10,7 +10,7 @@ import {
 } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { configSchema } from '@spur-board/contracts';
+import { configSchema, plainHttpAllowed } from '@spur-board/contracts';
 import YAML from 'yaml';
 import { CliError } from './exit-codes.ts';
 
@@ -95,6 +95,15 @@ export function resolveDaemonAddress(
   }
   if (!['http:', 'https:'].includes(address.protocol) || address.username || address.password) {
     throw new CliError('config', { environmentVariable: 'BOARD_DAEMON_URL' });
+  }
+  if (!plainHttpAllowed(address)) {
+    // The token or session goes in a header, so plain http may reach only this machine.
+    throw new CliError(
+      'config',
+      { environmentVariable: 'BOARD_DAEMON_URL' },
+      undefined,
+      'Set BOARD_DAEMON_URL to an https: address, or use http: only on a loopback host (localhost, 127.0.0.0/8, [::1]); over plain http to any other host the token or session would travel in clear text.',
+    );
   }
 
   return address;
