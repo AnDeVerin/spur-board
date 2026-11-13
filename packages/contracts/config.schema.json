@@ -169,6 +169,20 @@
               "required": ["id"],
               "additionalProperties": false
             }
+          },
+          "dispatcher": {
+            "description": "How the board moves tasks between columns. The board records the mode it last ran with. The daemon reads the mode at start, so a change takes effect after a restart; a switch from shadow to on copies the shadow column of each task into its column, and a switch back to shadow starts the shadow column from the column again.",
+            "default": {},
+            "type": "object",
+            "properties": {
+              "mode": {
+                "default": "shadow",
+                "description": "shadow: the board evaluates the column gates and records where each task would go in its shadow column, and opens no turn, doorbell or block; the column executor submits with the task key. on: the board moves the task between columns, hands the column executor a turn and raises the cycle-limit block.",
+                "type": "string",
+                "enum": ["shadow", "on"]
+              }
+            },
+            "additionalProperties": false
           }
         },
         "required": ["id", "tracker", "repos", "operatorGithubLogin"],

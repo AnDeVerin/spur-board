@@ -8,6 +8,7 @@ import {
   BLOCK_TYPES,
   COLUMNS,
   COLUMN_IDS,
+  DISPATCHER_MODES,
   LINK_SOURCES,
   MEMBERSHIPS,
   PR_LINK_STATES,
@@ -97,4 +98,8 @@ it('lists session end reasons', () => {
 
 it('lists actors', () => {
   expect(ACTORS).toEqual(['operator', 'agent', 'system']);
+});
+
+it('lists dispatcher modes', () => {
+  expect(DISPATCHER_MODES).toEqual(['shadow', 'on']);
 });

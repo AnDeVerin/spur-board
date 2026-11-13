@@ -17,6 +17,7 @@ import {
 } from '../ids.ts';
 import {
   FEEDBACK_KINDS,
+  commitShaSchema,
   prFactsSchema,
   prRefSchema,
   sessionFactsSchema,
@@ -109,6 +110,11 @@ export const turnViewSchema = z
     addressee: z.enum(ADDRESSEE_ROLES).describe('Who executes the turn.'),
     reason: z.string().describe('Why the turn was handed to the executor.'),
     handed: z.array(turnHandedSchema).describe('Pull request feedback handed over with the turn.'),
+    head: commitShaSchema
+      .nullable()
+      .describe(
+        "Head commit of the task's pull request when the turn was opened; null when the task had no pull request.",
+      ),
     at: z.iso.datetime().describe('When the turn was opened, ISO 8601 UTC.'),
     taken: z
       .strictObject({

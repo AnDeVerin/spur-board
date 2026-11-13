@@ -1,4 +1,11 @@
-import type { ColumnId, Config, PollPrError, PollPrResult, PrPoller } from '@spur-board/contracts';
+import {
+  parseRef,
+  type ColumnId,
+  type Config,
+  type PollPrError,
+  type PollPrResult,
+  type PrPoller,
+} from '@spur-board/contracts';
 import { sql, type Kysely, type Selectable } from 'kysely';
 import type { BlockTable, Tables, TaskTable, TurnTable } from '../store/schema.ts';
 import type { ResolvedTarget } from './authorize.ts';
@@ -50,6 +57,12 @@ async function taskById(db: Trx, id: number): Promise<Task> {
 
 /** Authorizes against the turn's own column, so a late call on an old turn is `turn_closed`. */
 async function turnVisitTarget(db: Trx, id: string): Promise<readonly ResolvedTarget[]> {
+  if (!parseRef(id, 'turn').ok) {
+    throw new CommandError(
+      'wrong_id_kind',
+      'Submit the turn ID from `board inbox`; a task key is taken only while the project dispatcher is in shadow mode.',
+    );
+  }
   const turn = await turnById(db, id);
   if (turn === undefined) return [{ kind: 'missing', id }];
   const task = await taskById(db, turn.task_id);

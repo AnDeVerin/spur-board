@@ -55,6 +55,7 @@ describe('openStore', () => {
       'author',
       'submitted_at',
       'note',
+      'voided_at',
     ]);
   });
 

@@ -107,6 +107,7 @@ const reviewTurn = {
   column: 'review',
   addressee: 'orchestrator:review',
   reason: 'The pull request is ready for review.',
+  head: '9f2c4e1b7a3d5c8e0f1a2b3c4d5e6f708192a3b4',
   at,
   taken: null,
 } as const;
@@ -931,16 +932,23 @@ export const OPERATIONS = [
     description:
       "Submit the commit at the head of the task's pull request for a turn this session took; the turn closes.",
     mcp: {
-      whenToUse: 'Hand in the work of a turn you took, at the pull request head.',
+      whenToUse:
+        'Hand in the work of a turn you took, at the pull request head. While the project dispatcher is in shadow mode no turn opens: the column executor submits with the task key.',
       whenNotToUse: 'Use task_return to send the task back to Dev instead.',
     },
     input: z.strictObject({
-      turn: turnIdSchema,
+      turn: z
+        .union([turnIdSchema, taskKeySchema])
+        .describe(
+          'Turn ID you took (T4); while the project dispatcher is in shadow mode, the task key instead.',
+        ),
       sha: commitShaSchema.describe('Full commit SHA at the head of the pull request, lowercase.'),
     }),
     output: z.strictObject({
       task: taskViewSchema,
-      turn: turnIdSchema,
+      turn: turnIdSchema
+        .nullable()
+        .describe('The closed turn; null for a submit by task key in shadow mode.'),
       sha: commitShaSchema.describe('The submitted commit SHA.'),
     }),
     grants: [{ grant: 'task-worker' }, { grant: 'column-orchestrator' }],
@@ -960,6 +968,11 @@ export const OPERATIONS = [
         summary: 'Submit the pull request head for a review turn',
         input: { turn: 'T4', sha: submittedSha },
         output: { task: { ...task, column: 'review' }, turn: 'T4', sha: submittedSha },
+      },
+      {
+        summary: 'Submit the pull request head by task key while the dispatcher is in shadow mode',
+        input: { turn: 'PROJ-123', sha: submittedSha },
+        output: { task: { ...task, column: 'review' }, turn: null, sha: submittedSha },
       },
     ],
   }),

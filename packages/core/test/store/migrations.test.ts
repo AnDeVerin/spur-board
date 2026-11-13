@@ -256,6 +256,7 @@ describe('migrate', () => {
         'last_change_at',
         'terminal_at',
         'archive_slot_at',
+        'reopen_link_floor',
       ]),
     );
     insertRaw(raw, 'block', sampleRows.block);
@@ -336,6 +337,7 @@ describe('migrate', () => {
         'last_change_at',
         'terminal_at',
         'archive_slot_at',
+        'reopen_link_floor',
       ]),
     );
     insertRaw(raw, 'link', without(sampleRows.link, ['ticket_key', 'pr_open']));
@@ -353,7 +355,7 @@ describe('migrate', () => {
     const dir = tempDir();
     const { raw } = rawDb(join(dir, 'board.db'));
     migrate(raw, real.slice(0, 9));
-    insertRaw(raw, 'task', sampleRows.task);
+    insertRaw(raw, 'task', without(sampleRows.task, ['reopen_link_floor']));
     insertRaw(raw, 'pr_snapshot', { ...sampleRows.pr_snapshot, state: 'closed' });
     insertRaw(raw, 'link', without(sampleRows.link, ['ticket_key', 'pr_open']));
 
@@ -415,6 +417,7 @@ describe('migrate', () => {
         'last_change_at',
         'terminal_at',
         'archive_slot_at',
+        'reopen_link_floor',
       ]),
     );
     insertRaw(
@@ -457,7 +460,7 @@ describe('migrate', () => {
     const dir = tempDir();
     const { raw } = rawDb(join(dir, 'board.db'));
     migrate(raw, real.slice(0, 11));
-    insertRaw(raw, 'task', sampleRows.task);
+    insertRaw(raw, 'task', without(sampleRows.task, ['reopen_link_floor']));
     insertRaw(raw, 'block', sampleRows.block);
     const old = without(
       { ...sampleRows.notification, author_session: null, last_outbox_id: null },
@@ -500,9 +503,13 @@ describe('migrate', () => {
     const dir = tempDir();
     const { raw } = rawDb(join(dir, 'board.db'));
     migrate(raw, real.slice(0, 12));
-    insertRaw(raw, 'task', sampleRows.task);
+    insertRaw(raw, 'task', without(sampleRows.task, ['reopen_link_floor']));
     insertRaw(raw, 'block', sampleRows.block);
-    insertRaw(raw, 'turn', { ...sampleRows.turn, closed_at: null, closed_reason: null });
+    insertRaw(raw, 'turn', {
+      ...without(sampleRows.turn, ['head_sha']),
+      closed_at: null,
+      closed_reason: null,
+    });
     const block = { ...sampleRows.notification, author_session: null, last_outbox_id: null };
     const turn = { ...block, id: 7, source_key: 'turn:1:worker', kind: 'turn', block_id: null };
     insertRaw(raw, 'notification', block);
@@ -611,6 +618,7 @@ describe('migration pins', () => {
       '6522f14d6984e4c0af5b1330b5bc7acacee97906e59d20a08f0437fe551d7c46',
     '0012_turn.sql': '181f5fbcc24e1af558471ceaecf76589c314f26813742b057ed84c68f4ea9a8d',
     '0013_turn_reminder.sql': '5843346871e99e0de1fd655f0402fb162dab583318a24c0baf51c7504b71053b',
+    '0014_dispatcher.sql': '6622e4c1f1ca0205648df108a9bff612da62cd4138a3f6c223310a0127090b48',
   };
 
   interface MigrationFile {

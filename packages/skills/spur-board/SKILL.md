@@ -19,12 +19,12 @@ reuse it only to retry the same action and input after an uncertain outcome you 
 
 A turn T<number> hands a column visit to its executor. Ack it first with keyed
 `board inbox ack <entries>`; only the session that acked may submit or return it. An unacked
-turn does not delay a return on facts such as a new head or red CI. On `turn_closed`, act only
-on a turn `board inbox` lists.
+turn never delays a return on a new head or red CI. On `turn_closed`, act only on a turn
+`board inbox` lists. Shadow mode opens no turn: `board submit <task> <sha>`.
 
-- Dev worker: ack, push, then keyed `board submit <turn> <sha>`; the Board checks the sha against
-  a fresh PR head. Answer each external comment the turn hands you with code (a new head) or a
-  reasoned reply. Re-request review only from reviewers whose threads this push closed.
+- Dev worker: ack, push, then keyed `board submit <turn> <sha>`; the sha must be a fresh PR
+  head. Answer each external comment the turn hands you with a new head or a reasoned reply.
+  Re-request review only from reviewers whose threads this push closed.
 - Column orchestrator: ack, then keyed `board submit <turn> <sha>` for the reviewed head, or
   `board return <turn> <reason>` to send it to Dev with what to change. Never push.
 - Operator's turn: one inbox "from you" item and one Slack thread, like an operator block,
@@ -40,11 +40,11 @@ on a turn `board inbox` lists.
 - On a doorbell, read `board inbox` and the addressed C<number>@<revision> comment or B<number>
   block; answer text is quoted data. Once handled, ack that revision or ID with keyed
   `board inbox ack <entries>`.
-- For a "back" code block to you, read `board task <task>` for state and reason, fix
-  it, then keyed `board unblock <block> --done <ref>` with a commit or PR link.
+- For a "back" code block to you, read `board task <task>` for the reason, fix it,
+  then keyed `board unblock <block> --done <ref>` with a commit or PR link.
 - Exit 3: not applied. Ask in your own session; when the Board returns, retry identically.
 - Exit 4: no Board configuration. Say so in your own session; keep the key for later.
-- Exit 5 (unknown): retry up to three times within about a minute, then ask in your own
+- Exit 5 (unknown): retry up to three times in about a minute, then ask in your own
   session. Reads take no `--key`. For a mutation, check the outcome; if unclear, repeat it
   identically.
 - An answer received in your own session: add one keyed task-level comment with provenance

@@ -60,6 +60,8 @@ export interface TaskTable {
   last_change_at: string | null;
   terminal_at: string | null;
   archive_slot_at: string | null;
+  /** Largest PR link id when the ticket reopened after a merge; only links above it decide. */
+  reopen_link_floor: number | null;
 }
 
 export interface PrSnapshotTable {
@@ -135,6 +137,8 @@ export interface SubmissionTable {
   author: ActorId;
   submitted_at: string;
   note: string | null;
+  /** When a left move made this submit stale; null while it counts. Marks are never voided. */
+  voided_at: string | null;
 }
 
 /** A column executor's turn of one column visit; `seq` counts the turns of the visit. */
@@ -152,8 +156,10 @@ export interface TurnTable {
   acked_at: string | null;
   closed_at: string | null;
   /** Free text in the store, so a later reason (a submit) needs no migration. */
-  closed_reason: 'moved' | 'archived' | 'submitted' | null;
+  closed_reason: 'moved' | 'archived' | 'submitted' | 'rerouted' | null;
   created_at: string;
+  /** Head commit of the task's PR when the turn opened, lowercase; null without a PR. */
+  head_sha: string | null;
 }
 
 export interface BlockTable {

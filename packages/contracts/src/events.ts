@@ -6,6 +6,7 @@ import {
   BLOCK_OUTCOMES,
   BLOCK_TYPES,
   COLUMN_IDS,
+  DISPATCHER_MODES,
   LINK_SOURCES,
   PR_LINK_STATES,
   SESSION_END_REASONS,
@@ -32,6 +33,8 @@ export const EVENT_KINDS = [
   'task_archived',
   'task_submitted',
   'task_moved',
+  'task_shadow_moved',
+  'dispatcher_mode_changed',
   'block_opened',
   'block_escalated',
   'block_unblocked',
@@ -56,6 +59,34 @@ export const EVENT_KINDS = [
   'token_revoked',
 ] as const;
 export type EventKind = (typeof EVENT_KINDS)[number];
+
+/** Why a column gate fails, in the order the gates report them. */
+export const GATE_REASONS = [
+  'no_pr',
+  'pr_closed',
+  'pr_draft',
+  'checks_red',
+  'checks_pending',
+  'conflict',
+  'mergeable_unknown',
+  'external_comments',
+  'comment_history_incomplete',
+  'no_submit_on_head',
+  'no_review_on_head',
+  'not_approved',
+  'not_merged',
+] as const;
+export type GateReason = (typeof GATE_REASONS)[number];
+
+/** Why the dispatcher moved a task. */
+export const MOVE_REASONS = [
+  'gate_passed',
+  'gate_broken',
+  'merged',
+  'ticket_reopened',
+  'mode_changed',
+] as const;
+export type MoveReason = (typeof MOVE_REASONS)[number];
 
 /** Version written to `v` by the current code. */
 export const EVENT_VERSION = 1;
@@ -119,12 +150,24 @@ export const eventPayloadSchemas = {
   ]),
   task_added: z.looseObject({ column: z.enum(COLUMN_IDS) }),
   task_archived: z.looseObject({ reason: z.enum(ARCHIVE_REASONS) }),
-  task_submitted: z.looseObject({ turn: S, column: z.enum(COLUMN_IDS), sha: S }),
+  task_submitted: z.looseObject({ turn: S.optional(), column: z.enum(COLUMN_IDS), sha: S }),
   task_moved: z.looseObject({
     from: z.enum(COLUMN_IDS),
     to: z.enum(COLUMN_IDS),
     turn: S.optional(),
     block: S.optional(),
+    reason: z.enum(MOVE_REASONS).optional(),
+    gate: z.array(z.enum(GATE_REASONS)).optional(),
+  }),
+  task_shadow_moved: z.looseObject({
+    from: z.enum(COLUMN_IDS),
+    to: z.enum(COLUMN_IDS),
+    reason: z.enum(MOVE_REASONS),
+    gate: z.array(z.enum(GATE_REASONS)).optional(),
+  }),
+  dispatcher_mode_changed: z.looseObject({
+    from: z.enum(DISPATCHER_MODES),
+    to: z.enum(DISPATCHER_MODES),
   }),
   block_opened: z.looseObject({ block: S, type: z.enum(BLOCK_TYPES), addressee: role }),
   block_escalated: z.looseObject({ block: S, from: role, to: role, reason: S.optional() }),

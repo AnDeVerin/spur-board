@@ -164,6 +164,13 @@ describe('fixtures', () => {
     expect(config.projects[0]?.reposWithoutCi).toEqual([]);
   });
 
+  it('runs the dispatcher in shadow mode by default and accepts on', () => {
+    expect(configSchema.parse(validConfig()).projects[0]?.dispatcher).toEqual({ mode: 'shadow' });
+    expect(
+      configSchema.parse(validConfig({ dispatcher: { mode: 'on' } })).projects[0]?.dispatcher,
+    ).toEqual({ mode: 'on' });
+  });
+
   it('accepts a repo without CI from repos, in any letter case', () => {
     const config = configSchema.parse(
       validConfig({
@@ -375,6 +382,12 @@ describe('invalid configs', () => {
       }),
       'Invalid input: expected int, received number',
       'projects[0].columns[2].cycleLimit',
+    ],
+    [
+      'an unknown dispatcher mode',
+      validConfig({ dispatcher: { mode: 'off' } }),
+      'Invalid option: expected one of "shadow"|"on"',
+      'projects[0].dispatcher.mode',
     ],
     [
       'a repo without CI not in repos',
