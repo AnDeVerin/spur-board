@@ -72,37 +72,89 @@ export function originKeyFromBlocks(blocks: unknown): string | undefined {
   return markerFromBlocks(blocks);
 }
 
-function escapeText(value: string): string {
-  return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+declare const mrkdwnBrand: unique symbol;
+/** Slack mrkdwn whose outside text went through `escapeText`; only this module makes one. */
+export type Mrkdwn = string & { readonly [mrkdwnBrand]: true };
+
+/** The single `&<>` escaper: every piece of outside text reaches mrkdwn through it. */
+function escapeText(value: string): Mrkdwn {
+  return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;') as Mrkdwn;
+}
+
+/** Board markup: the literal parts are board source, every value is already `Mrkdwn`. */
+function markup(parts: TemplateStringsArray, ...values: readonly Mrkdwn[]): Mrkdwn {
+  return parts.reduce((out, part, index) => `${out}${values[index - 1] ?? ''}${part}`) as Mrkdwn;
+}
+
+function joined(values: readonly Mrkdwn[], separator: '' | '\n' | '\n\n'): Mrkdwn {
+  return values.join(separator) as Mrkdwn;
+}
+
+/** Splitting on a newline never cuts an entity, so each line stays escaped. */
+function lines(value: Mrkdwn): Mrkdwn[] {
+  return value.split('\n') as Mrkdwn[];
+}
+
+const lookalikes = { '*': '∗', _: 'ˍ', '~': '∼' } as const;
+type Mark = keyof typeof lookalikes;
+const urlRun = /https?:\/\/\S+/g;
+const wordChar = /[\p{L}\p{N}]/u;
+
+/**
+ * Swaps a `*`, `_` or `~` in outside text for a lookalike unless a letter or digit sits on both
+ * sides of it (the node's start and end count as boundaries), so Slack cannot format it; `own`
+ * is the span's mark and is always swapped. Marks inside `https?://` runs stay so Slack still
+ * links the URL. Neighbours are read from the original text: `ˍ` is a letter (Lm). A mark at a
+ * word edge changes copied bytes: `__init__` shows `ˍˍinitˍˍ`, `/srv/_config.yml` shows
+ * `/srv/ˍconfig.yml`.
+ */
+function neutralize(text: string, own?: Mark): string {
+  const urls = [...text.matchAll(urlRun)].map(
+    (match) => [match.index, match.index + match[0].length] as const,
+  );
+  return text.replace(/[*_~]/g, (found: string, index: number) => {
+    const mark = found as Mark;
+    if (mark === own) return lookalikes[mark];
+    if (urls.some(([start, end]) => start <= index && index < end)) return mark;
+    const before = text[index - 1];
+    const after = text[index + 1];
+    const inWord =
+      before !== undefined && after !== undefined && wordChar.test(before) && wordChar.test(after);
+    return inWord ? mark : lookalikes[mark];
+  });
 }
 
 /** Slack applies `~` and `_` only within one line and not across edge spaces. */
-function perLine(text: string, mark: string): string {
-  return text
-    .split('\n')
-    .map((line) => {
+function perLine(text: string, wrap: (line: Mrkdwn) => Mrkdwn): Mrkdwn {
+  return joined(
+    text.split('\n').map((line) => {
       const value = line.trim();
-      return value.length === 0 ? '' : `${mark}${escapeText(value)}${mark}`;
-    })
-    .join('\n');
+      return value.length === 0 ? escapeText('') : wrap(escapeText(value));
+    }),
+    '\n',
+  );
 }
 
-function inline(value: RichTextInline): string {
+const userId = /^[A-Za-z0-9_]+$/;
+
+function inline(value: RichTextInline): Mrkdwn {
   switch (value.kind) {
     case 'text':
-      return escapeText(value.text);
+      return escapeText(neutralize(value.text));
     case 'emphasis':
-      return `*${escapeText(value.text)}*`;
+      return markup`*${escapeText(neutralize(value.text, '*'))}*`;
     case 'code':
-      return `\`${value.text.replaceAll('`', '´')}\``;
+      return markup`\`${escapeText(value.text.replaceAll('`', '´'))}\``;
     case 'strike':
-      return perLine(value.text.replaceAll('~', '∼'), '~');
+      return perLine(neutralize(value.text, '~'), (line) => markup`~${line}~`);
     case 'italic':
-      return perLine(value.text.replaceAll('_', 'ˍ'), '_');
+      return perLine(neutralize(value.text, '_'), (line) => markup`_${line}_`);
     case 'link':
-      return `<${value.url.replace(/[<>|]/g, '')}|${escapeText(value.text).replaceAll('|', '¦')}>`;
+      return markup`<${escapeText(value.url.replace(/[<>|]/g, ''))}|${escapeText(neutralize(value.text).replaceAll('|', '¦'))}>`;
     case 'mention':
-      return `<@${value.user}>`;
+      return userId.test(value.user)
+        ? markup`<@${escapeText(value.user)}>`
+        : escapeText(neutralize(`@${value.user}`));
   }
 }
 
@@ -112,40 +164,44 @@ function inline(value: RichTextInline): string {
  * without other visible content, they stay paragraphs, so the section text carries every
  * character.
  */
-export function splitContext(body: RichText): { body: RichText; context: string[] } {
+export function splitContext(body: RichText): { body: RichText; context: Mrkdwn[] } {
   let end = body.length;
   while (end > 0 && body[end - 1]?.kind === 'context') end--;
   if (renderText(body.slice(0, end)).length === 0) return { body, context: [] };
   const context = body
     .slice(end)
-    .map((block) => (block.kind === 'context' ? block.children.map(inline).join('') : ''))
+    .map((block) =>
+      block.kind === 'context' ? joined(block.children.map(inline), '') : escapeText(''),
+    )
     .filter((text) => text.length > 0);
   const bounded = [
     ...context.slice(0, MAX_CONTEXT_ELEMENTS - 1),
     ...(context.length >= MAX_CONTEXT_ELEMENTS
-      ? [context.slice(MAX_CONTEXT_ELEMENTS - 1).join('\n')]
+      ? [joined(context.slice(MAX_CONTEXT_ELEMENTS - 1), '\n')]
       : []),
   ];
   if (bounded.some((text) => text.length > MAX_PART_TEXT)) return { body, context: [] };
   return { body: body.slice(0, end), context: bounded };
 }
 
-export function renderText(body: RichText): string {
-  return body
-    .map((block) => {
-      if (block.kind === 'code_block') {
-        return `\`\`\`\n${block.text.replaceAll('```', "'''")}\n\`\`\``;
-      }
-      const value = block.children.map(inline).join('');
-      return block.kind === 'quote'
-        ? value
-            .split('\n')
-            .map((line) => `> ${line}`)
-            .join('\n')
-        : value;
-    })
-    .filter((value) => value.length > 0)
-    .join('\n\n');
+export function renderText(body: RichText): Mrkdwn {
+  return joined(
+    body
+      .map((block) => {
+        if (block.kind === 'code_block') {
+          return markup`\`\`\`\n${escapeText(block.text.replaceAll('```', "'''"))}\n\`\`\``;
+        }
+        const value = joined(block.children.map(inline), '');
+        return block.kind === 'quote'
+          ? joined(
+              lines(value).map((line) => markup`> ${line}`),
+              '\n',
+            )
+          : value;
+      })
+      .filter((value) => value.length > 0),
+    '\n\n',
+  );
 }
 
 function literal(value: RichTextInline): string {
@@ -202,16 +258,19 @@ export function renderResponse(body: RichText, cliHint?: string) {
       return block.kind === 'quote' ? `Quote: ${value}` : value;
     })
     .join('\n\n');
+  // The fallback shows only in notifications and previews; Slack decodes its entities there.
+  const escaped = escapeText(fallback);
   const limit = MAX_PART_TEXT - (truncated ? suffix.length : 0);
-  const text = `${fallback.length <= limit ? fallback : (splitText(fallback, limit)?.[0] ?? '')}${truncated ? suffix : ''}`;
+  const text = `${escaped.length <= limit ? escaped : (splitText(escaped, limit)?.[0] ?? '')}${truncated ? suffix : ''}`;
   return { text, blocks: [{ type: 'rich_text' as const, elements }] };
 }
 
 /** Prefer a paragraph or word boundary; never cut a Slack entity or angle-bracket token. */
-export function splitText(text: string, max = MAX_PART_TEXT): string[] | null {
+export function splitText<T extends string>(text: T, max = MAX_PART_TEXT): T[] | null {
   if (text.length === 0) return [];
-  const parts: string[] = [];
-  let remaining = text;
+  // Cuts fall outside entities and tokens, so each part keeps the escaping of `text`.
+  const parts: T[] = [];
+  let remaining: string = text;
   while (remaining.length > max) {
     const paragraph = remaining.lastIndexOf('\n\n', max);
     const space = remaining.lastIndexOf(' ', max);
@@ -226,10 +285,10 @@ export function splitText(text: string, max = MAX_PART_TEXT): string[] | null {
       }
     }
     if (cut === 0 || remaining.slice(0, cut).trimEnd().length === 0) return null;
-    parts.push(remaining.slice(0, cut).trimEnd());
+    parts.push(remaining.slice(0, cut).trimEnd() as T);
     remaining = remaining.slice(cut).trimStart();
   }
-  if (remaining.length > 0) parts.push(remaining);
+  if (remaining.length > 0) parts.push(remaining as T);
   return parts;
 }
 
@@ -249,11 +308,11 @@ function plain(text: string, max: number) {
 }
 
 export function messageBlocks(
-  text: string,
+  text: Mrkdwn,
   marker: string,
   actions: readonly Action[] = [],
   originKey?: string,
-  context: readonly string[] = [],
+  context: readonly Mrkdwn[] = [],
 ) {
   type SectionBlock = {
     type: 'section';
