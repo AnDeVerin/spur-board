@@ -233,6 +233,21 @@ describe('fixtures', () => {
     ).toEqual(['curator-a', 'curator-b']);
   });
 
+  it('accepts a curator display name and icon', () => {
+    const config = configSchema.parse(
+      validConfig({
+        spurProjects: [
+          { name: 'worker-a', role: 'worker' },
+          { name: 'cur', role: 'curator', displayName: 'Cur Bot', icon: ':owl:' },
+        ],
+      }),
+    );
+    expect(config.projects[0]?.spurProjects).toEqual([
+      { name: 'worker-a', role: 'worker' },
+      { name: 'cur', role: 'curator', displayName: 'Cur Bot', icon: ':owl:' },
+    ]);
+  });
+
   it('accepts an explicit HTTP port', () => {
     expect(configSchema.parse(validConfig({}, { http: { port: 4312 } })).http.port).toBe(4312);
     expect(configSchema.parse(validConfig({}, { http: { port: 0 } })).http.port).toBe(0);
@@ -491,6 +506,18 @@ describe('invalid configs', () => {
       }),
       'Second curator "curator-b": "curator-a" is already the curator of this board project',
       'projects[0].spurProjects[1].role',
+    ],
+    [
+      'display name on a worker',
+      validConfig({ spurProjects: [{ name: 'worker-a', role: 'worker', displayName: 'Worker' }] }),
+      'displayName and icon apply only to a curator',
+      'projects[0].spurProjects[0].displayName',
+    ],
+    [
+      'icon that is not an emoji shortcode',
+      validConfig({ spurProjects: [{ name: 'cur', role: 'curator', icon: 'owl' }] }),
+      'Expected an emoji shortcode such as :owl:',
+      'projects[0].spurProjects[0].icon',
     ],
     [
       'unknown time zone',

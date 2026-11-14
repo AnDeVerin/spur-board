@@ -117,7 +117,7 @@ Other errors: `wrong_id_kind`, `not_found`, `block_not_open`, `task_archived`, `
 
 Purpose: Answer a question block; the answer becomes a comment and the block closes.
 Arguments: `<block>`, `<text>`.
-Flags: `--key <key>`, `--json`.
+Flags: `--note <value>`, `--key <key>`, `--json`.
 Use when: Answer an open question.
 Avoid when: Use `board unblock <block>` to close without an answer.
 Example: `board answer B12 "Target v2." --key answer-PROJ-123-question-1432` — Answer a question.

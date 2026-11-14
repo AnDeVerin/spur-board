@@ -195,6 +195,19 @@ const spurProject = z.strictObject({
     .describe(
       "worker: sessions of this Spur project may link to this project's tasks through their PR or branch. operator: sessions act as the operator. curator: sessions answer the questions no column orchestrator takes and escalate the rest to the operator; a board project has at most one.",
     ),
+  displayName: nonEmpty
+    .max(80)
+    .optional()
+    .describe(
+      "The name a curator's answer lines in the feed are posted under. Defaults to the Spur project name. Only for a curator.",
+    ),
+  icon: z
+    .string()
+    .regex(/^:[a-z0-9_+'-]+:$/, 'Expected an emoji shortcode such as :owl:')
+    .optional()
+    .describe(
+      "The emoji shortcode, such as :owl:, shown on a curator's answer lines in the feed instead of the curator icon. Only for a curator.",
+    ),
 });
 
 const DEFAULT_CYCLE_LIMIT = 10;
@@ -336,7 +349,17 @@ const projectSchema = z
         rejectDuplicates(items, 'name', 'spur project name', ctx);
         let curator: string | undefined;
         items.forEach((item, i) => {
-          if (item.role !== 'curator') return;
+          if (item.role !== 'curator') {
+            for (const field of ['displayName', 'icon'] as const) {
+              if (item[field] === undefined) continue;
+              ctx.addIssue({
+                code: 'custom',
+                path: [i, field],
+                message: 'displayName and icon apply only to a curator',
+              });
+            }
+            return;
+          }
           if (curator !== undefined) {
             ctx.addIssue({
               code: 'custom',
