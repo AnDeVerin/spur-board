@@ -74,6 +74,7 @@ export {
 export {
   JIRA_PROJECT_KEY,
   REF_KINDS,
+  REF_NUMBER,
   actorIdSchema,
   blockIdSchema,
   commentIdSchema,

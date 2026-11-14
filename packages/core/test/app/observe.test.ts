@@ -286,7 +286,7 @@ describe('accepted observation', () => {
     ).toHaveLength(2);
   });
 
-  it('links a Jira /browse/ session link and skips one whose key starts with a digit', async () => {
+  it('links a Jira /browse/ session link and skips one whose key starts with a digit or has over 15 digits', async () => {
     const jira = configSchema.parse({
       projects: [
         {
@@ -329,6 +329,18 @@ describe('accepted observation', () => {
           url: browse('WEBDEV-1'),
         },
       },
+      {
+        kind: 'ticket',
+        facts: {
+          ...fact('WEBDEV-123456789012345'),
+          trackerId: 'jira:web',
+          id: '10002',
+          status: 'In Progress',
+          labels: [],
+          inFilter: true,
+          url: browse('WEBDEV-123456789012345'),
+        },
+      },
     ]);
     await observe('spur', [
       {
@@ -338,7 +350,18 @@ describe('accepted observation', () => {
           'board-other': browse('WEBDEV-1'),
         }),
       },
+      {
+        kind: 'session',
+        facts: sessionFact('other-2', {
+          'board-worker': browse('WEBDEV-1234567890123456'),
+          'board-other': browse('WEBDEV-1'),
+        }),
+      },
       { kind: 'session', facts: sessionFact('worker-1', { 'board-worker': browse('WEBDEV-1') }) },
+      {
+        kind: 'session',
+        facts: sessionFact('worker-2', { 'board-worker': browse('WEBDEV-123456789012345') }),
+      },
     ]);
     expect(
       await store.db
@@ -349,7 +372,9 @@ describe('accepted observation', () => {
         .execute(),
     ).toEqual([
       { session_id: 'other-1', role: 'other', source: 'spawn_link' },
+      { session_id: 'other-2', role: 'other', source: 'spawn_link' },
       { session_id: 'worker-1', role: 'worker', source: 'spawn_link' },
+      { session_id: 'worker-2', role: 'worker', source: 'spawn_link' },
     ]);
   });
 

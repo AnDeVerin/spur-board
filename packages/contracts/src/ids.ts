@@ -12,22 +12,23 @@ export type TypedRef =
 
 /**
  * Number in an ID or a task key: at most 15 digits, so it always converts to a safe integer
- * and two different IDs never share one number. A longer number is `usage`.
+ * and two different IDs never share one number. A longer number is `usage`. It is the shared
+ * grammar for every Jira key pattern.
  */
-const N = '[1-9]\\d{0,14}';
+export const REF_NUMBER = '[1-9]\\d{0,14}';
 /** Regex source of a Jira project key prefix, as in `PROJ-12`, in either letter case. */
 export const JIRA_PROJECT_KEY = '[A-Za-z][A-Za-z0-9_]*';
 const TASK_FORMS = [
-  { form: 'jira', source: `${JIRA_PROJECT_KEY}-${N}` },
-  { form: 'github', source: `[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#${N}` },
-  { form: 'github-short', source: `[A-Za-z0-9._-]+#${N}` },
+  { form: 'jira', source: `${JIRA_PROJECT_KEY}-${REF_NUMBER}` },
+  { form: 'github', source: `[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#${REF_NUMBER}` },
+  { form: 'github-short', source: `[A-Za-z0-9._-]+#${REF_NUMBER}` },
 ] as const;
 
 const PATTERNS: Record<RefKind, string> = {
-  block: `^B${N}$`,
-  comment: `^C${N}$`,
-  item: `^I${N}$`,
-  turn: `^T${N}$`,
+  block: `^B${REF_NUMBER}$`,
+  comment: `^C${REF_NUMBER}$`,
+  item: `^I${REF_NUMBER}$`,
+  turn: `^T${REF_NUMBER}$`,
   task: `^(?:${TASK_FORMS.map((t) => t.source).join('|')})$`,
 };
 const NUMBERED_KINDS = ['block', 'comment', 'item', 'turn'] as const;
