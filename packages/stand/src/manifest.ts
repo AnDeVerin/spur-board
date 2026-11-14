@@ -34,7 +34,11 @@ export const standManifest = z.strictObject({
   controlUrl: z.url(),
   controlToken: z.string().min(1),
   tokenPath: z.string().min(1),
-  roles: z.strictObject({ worker: z.string().min(1), orchestrator: z.string().min(1) }),
+  roles: z.strictObject({
+    worker: z.string().min(1),
+    orchestrator: z.string().min(1),
+    curator: z.string().min(1),
+  }),
   /**
    * The scenario whose seed resolved, with what it named: items by key, Slack messages by their
    * outbox number, and `direct` the notes of each write made outside the public API.

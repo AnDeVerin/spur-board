@@ -172,7 +172,7 @@ async function outbox(manifest: StandManifest): Promise<OutboxMessage[]> {
 
 interface Inspected {
   instanceId: string;
-  sessions: { id: string; stopReason?: string; retainInList?: true }[];
+  sessions: { id: string; status: string; stopReason?: string; retainInList?: true }[];
   requests: { method: string; path: string }[];
   sends: { session: string; message: string }[];
 }
@@ -234,11 +234,14 @@ describe('scenario manifest', () => {
 });
 
 describe('scenarios', () => {
-  it('lists twenty-one scenarios, each with a seed and a settled check', () => {
+  it('lists twenty-five scenarios, each with a seed and a settled check', () => {
     expect(scenarioNames()).toEqual([
       'empty',
       'columns-basic',
       'question-to-operator',
+      'question-to-curator',
+      'curator-escalation',
+      'curator-absent',
       'worker-killed-no-pr',
       'spur-source-silent',
       'source-blind',
@@ -256,6 +259,7 @@ describe('scenarios', () => {
       'dispatch-dead-executor',
       'dispatch-source-blind',
       'dispatch-cycle-limit',
+      'dispatch-course-check',
       'dispatch-long-comment-history',
     ]);
     for (const scenario of SCENARIOS) {
@@ -777,6 +781,180 @@ describe('each scenario', () => {
   }, 60_000);
 });
 
+describe('curator scenarios', () => {
+  const QUESTION = 'Which version should the client target?';
+  const NOTE = 'The API owner decides this; I cannot.';
+
+  interface SlackMessage extends OutboxMessage {
+    conversation: string;
+    root: boolean;
+  }
+  interface BlockView {
+    id: string;
+    state: string;
+    addressee: string;
+    outcome: string | null;
+  }
+  interface HistoryEvent {
+    kind: string;
+    actor: string;
+    summary: string;
+  }
+
+  const slack = async (): Promise<SlackMessage[]> =>
+    ((await ok(current(), '/fake/slack/outbox')) as { messages: SlackMessage[] }).messages;
+  const channelOf = (message: SlackMessage): string =>
+    (JSON.parse(message.conversation) as { channel: string }).channel;
+  const blockOf = async (task: string, id: string): Promise<BlockView | undefined> =>
+    (await op<{ blocks: BlockView[] }>(current(), 'task.get', { task })).blocks.find(
+      (block) => block.id === id,
+    );
+  const history = async (task: string): Promise<HistoryEvent[]> =>
+    (await op<{ events: HistoryEvent[] }>(current(), 'task.history', { task })).events;
+  /** The fake Spur sends to `session` that name block `id`. */
+  const sendsNaming = async (session: string, id: string): Promise<string[]> =>
+    (await inspect(current())).sends
+      .filter((send) => send.session === session && send.message.includes(`block ${id}:`))
+      .map(({ message }) => message);
+  const asCurator = (manifest: StandManifest, args: string[]) =>
+    standCli(['board', '--home', manifest.home, '--as', 'curator', ...args]);
+  /** The seeded task and block, failing when the seed named neither. */
+  function question(scenario: Entities): { task: string; id: string } {
+    const task = scenario.tasks?.['question'];
+    const id = scenario.blocks?.['question'];
+    if (task === undefined || id === undefined) throw new Error('the seed named no question');
+    return { task, id };
+  }
+
+  it('question-to-curator: the curator reads its inbox, answers, and the worker is rung', async () => {
+    const manifest = await up();
+    const { scenario } = await seed('question-to-curator');
+    const { task, id } = question(scenario);
+    expect(configText(current())).toContain(
+      "# Scenario question-to-curator sets the stand project's Spur projects here.\n",
+    );
+    const config = YAML.parse(configText(current())) as {
+      projects: { id: string; spurProjects?: { name: string; role: string }[] }[];
+    };
+    expect(config.projects.find((project) => project.id === 'stand')?.spurProjects).toContainEqual({
+      name: 'stand-curator',
+      role: 'curator',
+    });
+    expect(manifest.roles.curator).toMatch(/^stand-curator-[0-9a-f]{24}$/);
+    expect(await blockOf(task, id)).toMatchObject({ state: 'open', addressee: 'curator' });
+    expect((await slack()).filter((message) => channelOf(message) === 'C0STANDORCH')).toEqual([]);
+    await vi.waitFor(
+      async () => {
+        expect(await sendsNaming(manifest.roles.curator, id)).not.toEqual([]);
+      },
+      { timeout: 20_000, interval: 100 },
+    );
+
+    const inbox = await asCurator(manifest, ['inbox', '--json']);
+    expect(inbox.code, inbox.stderr).toBe(0);
+    expect(
+      (JSON.parse(inbox.stdout) as { blocks: { id: string }[] }).blocks.map((block) => block.id),
+    ).toContain(id);
+    const answered = await asCurator(manifest, ['answer', id, 'Use v2.']);
+    expect(answered.code, answered.stderr).toBe(0);
+    expect(await blockOf(task, id)).toMatchObject({ state: 'unblocked', outcome: 'done' });
+
+    await ok(current(), '/poll');
+    await vi.waitFor(
+      async () => {
+        expect(await sendsNaming(manifest.roles.worker, id)).not.toEqual([]);
+      },
+      { timeout: 20_000, interval: 100 },
+    );
+    await ok(current(), '/wait', { condition: 'outbox-drained', timeoutMs: 10_000 });
+    const feed = (await slack()).filter(
+      (message) => channelOf(message) === 'C0STANDFEED' && message.text.includes('Use v2.'),
+    );
+    expect(feed).toEqual([expect.objectContaining({ root: true, actions: [] })]);
+  }, 60_000);
+
+  it('question-to-curator: an unread ring series moves the block to the operator', async () => {
+    const manifest = await up();
+    const { scenario } = await seed('question-to-curator');
+    const { task, id } = question(scenario);
+    const curatorSends = async () => (await sendsNaming(manifest.roles.curator, id)).length;
+    expect(await curatorSends()).toBe(1);
+    const shift = async (by: string) => {
+      const shifted = await standCli(['clock', by, '--home', manifest.home]);
+      expect(shifted.code, shifted.stderr).toBe(0);
+      await ok(current(), '/poll');
+    };
+    await shift('+3m');
+    await vi.waitFor(
+      async () => {
+        expect(await curatorSends()).toBe(2);
+      },
+      { timeout: 10_000, interval: 100 },
+    );
+    await shift('+6m');
+    await vi.waitFor(
+      async () => {
+        expect(await curatorSends()).toBe(3);
+      },
+      { timeout: 10_000, interval: 100 },
+    );
+    await shift('+16m');
+    await vi.waitFor(
+      async () => {
+        expect(await blockOf(task, id)).toMatchObject({ state: 'open', addressee: 'operator' });
+      },
+      { timeout: 10_000, interval: 100 },
+    );
+    expect(await history(task)).toContainEqual(
+      expect.objectContaining({ kind: 'block_escalated', actor: 'system' }),
+    );
+    expect(await curatorSends()).toBe(3);
+  }, 60_000);
+
+  it('curator-escalation: the operator gets the question and the curator note in one thread', async () => {
+    const manifest = await up();
+    const { scenario } = await seed('curator-escalation');
+    const { task, id } = question(scenario);
+    expect(await blockOf(task, id)).toMatchObject({ state: 'open', addressee: 'operator' });
+    const orchestrators = (await slack()).filter((message) => channelOf(message) === 'C0STANDORCH');
+    const root = orchestrators.find((message) => message.root && message.text.includes(QUESTION));
+    if (root === undefined) throw new Error('no root message holds the question');
+    expect(orchestrators).toContainEqual(
+      expect.objectContaining({
+        conversation: root.conversation,
+        root: false,
+        text: expect.stringContaining(NOTE) as unknown,
+      }),
+    );
+    // The note is posted with `ringsAuthor: false`: the worker hears nothing of the escalation.
+    await ok(current(), '/poll');
+    await ok(current(), '/wait', { condition: 'outbox-drained', timeoutMs: 10_000 });
+    expect(await sendsNaming(manifest.roles.worker, id)).toEqual([]);
+  }, 60_000);
+
+  it('curator-absent: with no live curator session the board passes the question on', async () => {
+    const manifest = await up();
+    const { scenario } = await seed('curator-absent');
+    const { task, id } = question(scenario);
+    expect(
+      (await inspect(current())).sessions.find((session) => session.id === manifest.roles.curator),
+    ).toMatchObject({ status: 'killed' });
+    expect(await blockOf(task, id)).toMatchObject({ state: 'open', addressee: 'operator' });
+    expect(
+      (await slack()).filter(
+        (message) =>
+          channelOf(message) === 'C0STANDORCH' && message.root && message.text.includes(QUESTION),
+      ),
+    ).toHaveLength(1);
+    const events = await history(task);
+    expect(events).toContainEqual(
+      expect.objectContaining({ kind: 'block_escalated', actor: 'system' }),
+    );
+    expect(events.map(({ kind }) => kind)).not.toContain('doorbell_rung');
+    expect(await sendsNaming(manifest.roles.curator, id)).toEqual([]);
+  }, 60_000);
+});
+
 describe('dispatcher scenarios', () => {
   const ISSUE = 'stand-org/board#1';
   const A = 'a'.repeat(40);
@@ -814,7 +992,7 @@ describe('dispatcher scenarios', () => {
     expect(response.status, JSON.stringify(body)).toBe(200);
     return body.value;
   }
-  const as = (role: 'worker' | 'orchestrator') => current().roles[role];
+  const as = (role: 'worker' | 'orchestrator' | 'curator') => current().roles[role];
   const github = (verb: string, args: object = {}) =>
     ok(current(), '/fake', {
       system: 'github',
@@ -1199,6 +1377,37 @@ describe('dispatcher scenarios', () => {
         column: 'dev',
         reason: 'dev: no_submit_on_head',
       });
+    },
+    TIMEOUT,
+  );
+
+  it(
+    "dispatch-course-check: the curator's answer opens the Dev turn with the note",
+    async () => {
+      await up();
+      const { scenario } = await seed('dispatch-course-check');
+      expect(configText(current())).toContain(
+        "# Scenario dispatch-course-check sets the stand project's Spur projects here.\n",
+      );
+      const block = scenario.blocks?.['course'];
+      const key = scenario.items?.['course'];
+      expect(key).toMatch(/^course-check:\d+:review$/);
+      if (block === undefined) throw new Error('no course block');
+      const note = 'Keep the parser as it is and finish the empty-list case.';
+      await sessionOp(as('curator'), 'block.answer', { block, text: note }, randomUUID());
+      await poll();
+      expect(await mustTurn(as('worker'))).toMatchObject({
+        column: 'dev',
+        reason: 'dev: no_submit_on_head',
+      });
+      const { comments } = await sessionOp<{ comments: { block: string | null; text: string }[] }>(
+        as('worker'),
+        'inbox.get',
+      );
+      expect(comments).toEqual(
+        expect.arrayContaining([expect.objectContaining({ block: null, text: note })]),
+      );
+      expect((await status(current())).items.map((item) => item.key)).not.toContain(key);
     },
     TIMEOUT,
   );

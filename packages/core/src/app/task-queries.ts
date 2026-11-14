@@ -91,6 +91,19 @@ function linkSummary(kind: EventKind, payloadText: string): string | null {
   }
 }
 
+/** The summary of a shadow move that reached its column's course check. */
+function shadowSummary(kind: EventKind, payloadText: string): string | null {
+  if (kind !== 'task_shadow_moved') return null;
+  try {
+    const payload = eventPayloadSchemas[kind].safeParse(JSON.parse(payloadText));
+    return payload.success && payload.data.courseCheck === true
+      ? 'Shadow move with a course check'
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 function projectTarget(project: string): ResolvedTarget {
   return { kind: 'found', value: { project, task: null, block: null, workers: [] } };
 }
@@ -247,7 +260,10 @@ export function createTaskQueries(deps: {
             at: row.at,
             kind,
             actor: eventActor(row),
-            summary: linkSummary(kind, row.payload) ?? EVENT_SUMMARIES[kind],
+            summary:
+              linkSummary(kind, row.payload) ??
+              shadowSummary(kind, row.payload) ??
+              EVENT_SUMMARIES[kind],
           },
         ];
       });

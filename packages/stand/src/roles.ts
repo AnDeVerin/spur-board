@@ -4,7 +4,7 @@ import type { StandManifest } from './manifest.ts';
 
 type Env = Readonly<Record<string, string | undefined>>;
 
-export const ROLES = ['operator', 'worker', 'orchestrator'] as const;
+export const ROLES = ['operator', 'worker', 'orchestrator', 'curator'] as const;
 export type StandRole = (typeof ROLES)[number];
 
 /** The source CLI entry point, run with `process.execPath`. */
@@ -48,8 +48,8 @@ export function standEnv(base: Env): Record<string, string> {
 
 /**
  * The environment of a board CLI call as `role` against the stand. The operator carries the
- * stand's token and no session; a worker or orchestrator carries a session id, which outranks a
- * token in the CLI.
+ * stand's token and no session; a worker, orchestrator or curator carries a session id, which
+ * outranks a token in the CLI.
  */
 export function roleEnv(
   manifest: StandManifest,

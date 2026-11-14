@@ -3,6 +3,15 @@ import type { ScenarioFakes, Settled } from './index.ts';
 
 const STAND_REPO = 'stand-org/board';
 
+/**
+ * The Spur projects of the stand project in the stand's base config. A scenario that sets
+ * `stand.spurProjects` replaces the list, so it starts from this one.
+ */
+export const STAND_SPUR_PROJECTS = [
+  { name: 'stand-worker', role: 'worker' },
+  { name: 'stand-qa', role: 'worker' },
+] as const;
+
 /** The open GitHub issue `number` of the stand project, as the board stores its task key. */
 export const issueKey = (number: number): string => `${STAND_REPO}#${String(number)}`;
 

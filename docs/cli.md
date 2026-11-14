@@ -42,7 +42,7 @@ Exit codes: see the table above; setup errors are reported by the CLI.
 
 ### `board skills install`
 
-Install bundled skills for Claude Code and Codex.
+Install bundled skills for Claude Code and Codex, and ask running sessions to re-read them after a version change.
 
 Arguments: none.
 

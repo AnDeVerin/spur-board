@@ -13,6 +13,7 @@ import {
   type SessionFacts,
   type TicketFacts,
 } from '@spur-board/contracts';
+import { sql } from 'kysely';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   createApply,
@@ -24,6 +25,7 @@ import {
   type Store,
 } from '../../src/index.ts';
 import { archiveTask } from '../../src/app/archive.ts';
+import { editInboundComment, recordInboundBlockMessage } from '../../src/app/blocks.ts';
 import { scanTransaction } from '../../src/app/secrets.ts';
 
 // The dispatcher end to end through the observation core, the registry and the tick, on an
@@ -39,6 +41,7 @@ const GITHUB = 'github:proj:o/r';
 const WORKER: ActorId = 'agent:worker/worker-1';
 const REV: ActorId = 'agent:rev/rev-1';
 const COORD: ActorId = 'agent:coord/coord-1';
+const CUR: ActorId = 'agent:cur/cur-1';
 const EXTERNAL = 'reviewer';
 const ROW_TABLES = [
   'turn',
@@ -52,6 +55,10 @@ const ROW_TABLES = [
 type Options = {
   mode?: 'on' | 'shadow';
   cycleLimit?: number;
+  /** Review's course check; the default applies when unset. */
+  courseCheck?: number;
+  /** Adds the curator project `cur` with a live session `cur-1`. */
+  curator?: boolean;
   externalReview?: boolean;
   devOrchestrator?: string;
   /** The task's project left the config: the only project tracks another repo. */
@@ -74,6 +81,7 @@ function boardConfig(options: Options = {}) {
           { name: 'worker', role: 'worker' },
           { name: 'rev', role: 'worker' },
           { name: 'coord', role: 'worker' },
+          ...(options.curator === true ? [{ name: 'cur', role: 'curator' }] : []),
         ],
         columns: [
           { id: 'todo' },
@@ -83,7 +91,12 @@ function boardConfig(options: Options = {}) {
               ? {}
               : { orchestrator: options.devOrchestrator }),
           },
-          { id: 'review', orchestrator: 'rev', cycleLimit: options.cycleLimit ?? 10 },
+          {
+            id: 'review',
+            orchestrator: 'rev',
+            cycleLimit: options.cycleLimit ?? 10,
+            ...(options.courseCheck === undefined ? {} : { courseCheck: options.courseCheck }),
+          },
           { id: 'product-review', orchestrator: 'coord' },
           ...(options.externalReview === true ? [{ id: 'external-review' }] : []),
           { id: 'ready-to-merge', orchestrator: 'operator' },
@@ -261,6 +274,9 @@ function board(options: Options = {}) {
               ]),
           { kind: 'session' as const, facts: sessionFacts('rev-1', 'rev') },
           { kind: 'session' as const, facts: sessionFacts('coord-1', 'coord') },
+          ...(options.curator === true
+            ? [{ kind: 'session' as const, facts: sessionFacts('cur-1', 'cur') }]
+            : []),
         ],
         complete,
       ),
@@ -351,6 +367,67 @@ function board(options: Options = {}) {
     add: () => {
       step();
       return apply(registry['task.add'], { task: KEY }, 'operator', `key-${String(++keys)}`);
+    },
+    answer: (actor: ActorId, block: string, text: string) => {
+      step();
+      return apply(registry['block.answer'], { block, text }, actor, `key-${String(++keys)}`);
+    },
+    unblock: (actor: ActorId, block: string, reason: string) => {
+      step();
+      return apply(
+        registry['block.unblock'],
+        { mode: 'reason', block, reason },
+        actor,
+        `key-${String(++keys)}`,
+      );
+    },
+    escalate: (actor: ActorId, block: string) => {
+      step();
+      return apply(registry['block.escalate'], { block }, actor, `key-${String(++keys)}`);
+    },
+    /** The operator's message in the block's Slack thread, as the inbound applier records it. */
+    reply: (block: string, text: string) => {
+      const at = step();
+      return scanTransaction(store, config, (trx) =>
+        recordInboundBlockMessage(trx, {
+          blockId: Number(block.slice(1)),
+          text,
+          conversationRef: 'C-thread',
+          messageRef: `m-${String(++keys)}`,
+          at,
+          config,
+        }),
+      );
+    },
+    /** The operator's edit of a Slack message, as the inbound applier records it. */
+    editReply: (comment: number, text: string) => {
+      const at = step();
+      return scanTransaction(store, config, async (trx) =>
+        editInboundComment(trx, {
+          comment: await trx
+            .selectFrom('comment')
+            .selectAll()
+            .where('id', '=', comment)
+            .executeTakeFirstOrThrow(),
+          text,
+          at,
+          actor: 'operator',
+          config,
+        }),
+      );
+    },
+    editComment: (actor: ActorId, comment: string, text: string) => {
+      step();
+      return apply(registry['comment.edit'], { comment, text }, actor, `key-${String(++keys)}`);
+    },
+    ackComment: (actor: ActorId, comment: string, revision: number) => {
+      step();
+      return apply(
+        registry['inbox.ack'],
+        { entries: [{ id: comment, revision }] },
+        actor,
+        `key-${String(++keys)}`,
+      );
     },
     closeItem: (item: string) => {
       step();
@@ -886,6 +963,47 @@ describe('shadow mode', () => {
     });
   });
 
+  it('records a course check on the counted shadow return without a block', async () => {
+    const ctx = await started({ mode: 'shadow', courseCheck: 2 });
+    await ctx.pr();
+    await ctx.submit(WORKER, KEY, A);
+    // A conflict return does not count.
+    await ctx.pr({ mergeable: 'conflicting' });
+    await ctx.pr({ mergeable: 'mergeable' });
+    await ctx.submit(WORKER, KEY, A);
+    expect((await ctx.task()).shadow_column).toBe('review');
+    const comment = (id: string) => ({
+      kind: 'comment' as const,
+      id,
+      author: { login: EXTERNAL, type: 'user' as const },
+      postedAt: new Date(Date.parse(ctx.at()) + 30_000).toISOString(),
+    });
+    const first = comment('c-1');
+    await ctx.pr({ feedback: [first] });
+    expect((await ctx.task()).shadow_column).toBe('dev');
+    await ctx.submit(WORKER, KEY, A);
+    expect((await ctx.task()).shadow_column).toBe('review');
+    await ctx.pr({ feedback: [first, comment('c-2')] });
+    expect((await ctx.task()).shadow_column).toBe('dev');
+
+    const returns = (await ctx.events('task_shadow_moved'))
+      .map((event) => event.payload)
+      .filter((payload) => payload.to === 'dev' && payload.from === 'review');
+    expect(returns).toEqual([
+      expect.objectContaining({ gate: ['conflict'] }),
+      expect.not.objectContaining({ courseCheck: true }),
+      expect.objectContaining({ gate: ['external_comments'], courseCheck: true }),
+    ]);
+    expect(returns[0]).not.toHaveProperty('courseCheck');
+    expect(returns[1]).toMatchObject({ gate: ['external_comments'] });
+    expect(await ctx.count('block')).toBe(0);
+    expect(await ctx.count('operator_item')).toBe(0);
+    const { events } = await ctx.history();
+    expect(
+      events.filter((event) => event.summary === 'Shadow move with a course check'),
+    ).toHaveLength(1);
+  });
+
   it('a shadow left move voids the Dev submit', async () => {
     const ctx = await started({ mode: 'shadow' });
     await ctx.pr();
@@ -1225,39 +1343,40 @@ describe('blindness', () => {
   });
 });
 
+/** The reviewer takes its turn and returns the task. */
+async function cycle(ctx: Board) {
+  const review = await ctx.openTurn();
+  await ctx.ack(REV, review?.id ?? '');
+  await ctx.ret(REV, review?.id ?? '');
+}
+
+/** The worker takes its Dev turn, pushes `head` and submits it. */
+async function resubmit(ctx: Board, head: string) {
+  const dev = await ctx.openTurn();
+  await ctx.ack(WORKER, dev?.id ?? '');
+  await ctx.pr({ headSha: head });
+  await ctx.submit(WORKER, dev?.id ?? '', head);
+}
+
+const itemsOf = (ctx: Board, kind: 'cycle_limit' | 'course_check') =>
+  ctx.store.db
+    .selectFrom('operator_item')
+    .select(['id', 'item_key', 'cleared_at', 'block_id'])
+    .where('kind', '=', kind)
+    .orderBy('id')
+    .execute();
+
 describe('cycle limit', () => {
-  const cycleItems = (ctx: Board) =>
-    ctx.store.db
-      .selectFrom('operator_item')
-      .select(['id', 'item_key', 'cleared_at', 'block_id'])
-      .where('kind', '=', 'cycle_limit')
-      .orderBy('id')
-      .execute();
-
-  /** The reviewer takes its turn and returns the task. */
-  async function cycle(ctx: Board) {
-    const review = await ctx.openTurn();
-    await ctx.ack(REV, review?.id ?? '');
-    await ctx.ret(REV, review?.id ?? '');
-  }
-
-  /** The worker takes its Dev turn, pushes `head` and submits it. */
-  async function resubmit(ctx: Board, head: string) {
-    const dev = await ctx.openTurn();
-    await ctx.ack(WORKER, dev?.id ?? '');
-    await ctx.pr({ headSha: head });
-    await ctx.submit(WORKER, dev?.id ?? '', head);
-  }
-
   it('raises one operator block per limit, holds the task and resets on its close', async () => {
-    const ctx = await inReview({ cycleLimit: 2 });
+    // Four counted returns: the course check is off so only the cycle limit stops the task.
+    const ctx = await inReview({ cycleLimit: 2, courseCheck: 0 });
     await cycle(ctx);
-    expect(await cycleItems(ctx)).toEqual([]);
+    expect(await itemsOf(ctx, 'cycle_limit')).toEqual([]);
     await resubmit(ctx, B);
     await cycle(ctx);
 
-    const [item] = await cycleItems(ctx);
-    expect(await cycleItems(ctx)).toEqual([
+    const [item] = await itemsOf(ctx, 'cycle_limit');
+    expect(await itemsOf(ctx, 'cycle_limit')).toEqual([
       {
         id: expect.any(Number) as unknown,
         item_key: 'cycle-limit:1:review',
@@ -1286,10 +1405,10 @@ describe('cycle limit', () => {
 
     await resubmit(ctx, C);
     await cycle(ctx);
-    expect(await cycleItems(ctx)).toHaveLength(1);
+    expect(await itemsOf(ctx, 'cycle_limit')).toHaveLength(1);
     await resubmit(ctx, A);
     await cycle(ctx);
-    expect(await cycleItems(ctx)).toEqual([
+    expect(await itemsOf(ctx, 'cycle_limit')).toEqual([
       expect.objectContaining({ cleared_at: expect.any(String) as unknown }),
       expect.objectContaining({ cleared_at: null }),
     ]);
@@ -1312,10 +1431,291 @@ describe('cycle limit', () => {
     await ctx.pr({ draft: true });
     expect((await ctx.task()).column).toBe('dev');
     expect((await ctx.moves()).filter((move) => move.reason === 'gate_broken')).toHaveLength(3);
-    expect(await cycleItems(ctx)).toEqual([]);
+    expect(await itemsOf(ctx, 'cycle_limit')).toEqual([]);
     expect(await ctx.openTurn()).toMatchObject({ column: 'dev' });
   });
 });
+
+describe('course check', () => {
+  const NOTE = 'Split the parser change out and finish the empty-list case first.';
+
+  /** Three counted returns from Review, the worker resubmitting B and then `third`. */
+  async function threeReturns(ctx: Board, third = C) {
+    await cycle(ctx);
+    await resubmit(ctx, B);
+    await cycle(ctx);
+    await resubmit(ctx, third);
+    await cycle(ctx);
+  }
+
+  /** The block of the task's one active course-check item. */
+  async function courseBlock(ctx: Board) {
+    const items = (await itemsOf(ctx, 'course_check')).filter((item) => item.cleared_at === null);
+    expect(items).toHaveLength(1);
+    return ctx.store.db
+      .selectFrom('block')
+      .selectAll()
+      .where('id', '=', items[0]?.block_id ?? 0)
+      .executeTakeFirstOrThrow();
+  }
+
+  it('asks the curator on the third counted return instead of a Dev turn', async () => {
+    const ctx = await inReview({ curator: true });
+    await cycle(ctx);
+    await resubmit(ctx, B);
+    await cycle(ctx);
+    await resubmit(ctx, C);
+    expect(await itemsOf(ctx, 'course_check')).toEqual([]);
+    await cycle(ctx);
+
+    expect(await itemsOf(ctx, 'course_check')).toEqual([
+      {
+        id: expect.any(Number) as unknown,
+        item_key: 'course-check:1:review',
+        cleared_at: null,
+        block_id: expect.any(Number) as unknown,
+      },
+    ]);
+    expect(await itemsOf(ctx, 'cycle_limit')).toEqual([]);
+    const block = await courseBlock(ctx);
+    expect(block).toMatchObject({
+      type: 'needs_input',
+      author: 'system',
+      addressee_role: 'curator',
+      state: 'open',
+    });
+    expect(block.reason).toContain('course check: 3 returns to Dev from review');
+    expect(block.reason).toContain('by rev/rev-1 on');
+    expect(block.reason).toContain('on aaaaaaa: Handle the empty list.');
+    expect(block.reason).toContain('PR: https://github.com/o/r/pull/7');
+    expect(block.reason).toContain('Issue: https://github.com/o/r/issues/9');
+    expect((await ctx.task()).column).toBe('dev');
+    expect(await ctx.openTurn()).toBeNull();
+    expect((await ctx.why()).holds).toContain('cycle_limit');
+
+    // The hold lasts across ticks and new heads; a repeated return opens no second block.
+    await ctx.pr({ headSha: A });
+    await ctx.tick();
+    expect(await ctx.openTurn()).toBeNull();
+    expect(await itemsOf(ctx, 'course_check')).toHaveLength(1);
+  });
+
+  it('lists a changes-requested reviewer with the short commit', async () => {
+    const ctx = await inReview({ curator: true });
+    await cycle(ctx);
+    await resubmit(ctx, C);
+    await cycle(ctx);
+    await resubmit(ctx, B);
+    await ctx.pr({
+      reviews: [
+        { reviewer: EXTERNAL, state: 'changes_requested', commitSha: B, submittedAt: at(0) },
+        { reviewer: 'someone', state: 'approved', commitSha: B, submittedAt: at(0) },
+      ],
+      reviewThreads: [{ resolved: false }, { resolved: true }],
+    });
+    await cycle(ctx);
+
+    const { reason } = await courseBlock(ctx);
+    expect(reason).toContain('- reviewer requested changes on bbbbbbb (current head)');
+    expect(reason).not.toContain('someone');
+    expect(reason).toContain('Unresolved review threads: 1');
+  });
+
+  it('the curator answer resumes Dev with the note and resets only the course count', async () => {
+    const ctx = await inReview({ curator: true });
+    await threeReturns(ctx);
+    const block = await courseBlock(ctx);
+
+    await ctx.answer(CUR, `B${String(block.id)}`, NOTE);
+    expect(await ctx.openTurn()).toBeNull();
+    await ctx.tick();
+    expect(await ctx.openTurn()).toEqual(turnOf('dev', 'worker', 'dev: no_submit_on_head'));
+    const { comments } = await ctx.inbox(WORKER);
+    expect(comments).toEqual(
+      expect.arrayContaining([expect.objectContaining({ block: null, text: NOTE, author: CUR })]),
+    );
+    expect((await itemsOf(ctx, 'course_check'))[0]?.cleared_at).toEqual(expect.any(String));
+
+    const active = async () =>
+      (await itemsOf(ctx, 'course_check')).map((item) => item.cleared_at === null);
+    await resubmit(ctx, A);
+    await cycle(ctx);
+    expect(await active()).toEqual([false]);
+    await resubmit(ctx, B);
+    await cycle(ctx);
+    expect(await active()).toEqual([false]);
+    await resubmit(ctx, C);
+    await cycle(ctx);
+    expect(await active()).toEqual([false, true]);
+    expect(await itemsOf(ctx, 'cycle_limit')).toEqual([]);
+  });
+
+  it('cycleLimit keeps counting after a curator answer', async () => {
+    const ctx = await inReview({ curator: true, cycleLimit: 4, courseCheck: 3 });
+    await threeReturns(ctx);
+    const block = await courseBlock(ctx);
+    await ctx.answer(CUR, `B${String(block.id)}`, NOTE);
+    await ctx.tick();
+    await resubmit(ctx, A);
+    await cycle(ctx);
+
+    const [limit] = await itemsOf(ctx, 'cycle_limit');
+    expect(limit).toMatchObject({ item_key: 'cycle-limit:1:review', cleared_at: null });
+    expect(
+      await ctx.store.db
+        .selectFrom('block')
+        .select(['addressee_role', 'author'])
+        .where('id', '=', limit?.block_id ?? 0)
+        .executeTakeFirst(),
+    ).toEqual({ addressee_role: 'operator', author: 'system' });
+    expect((await itemsOf(ctx, 'course_check')).map((item) => item.cleared_at === null)).toEqual([
+      false,
+    ]);
+    expect(await ctx.openTurn()).toBeNull();
+  });
+
+  it('cycleLimit wins when both are reached', async () => {
+    const ctx = await inReview({ curator: true, cycleLimit: 3, courseCheck: 3 });
+    await threeReturns(ctx);
+    expect(await itemsOf(ctx, 'cycle_limit')).toHaveLength(1);
+    expect(await itemsOf(ctx, 'course_check')).toEqual([]);
+    expect(await ctx.openTurn()).toBeNull();
+  });
+
+  it('a cycle-limit clear does not reset the course count', async () => {
+    const ctx = await inReview({ curator: true, cycleLimit: 2, courseCheck: 3 });
+    await cycle(ctx);
+    await resubmit(ctx, B);
+    await cycle(ctx);
+    const [limit] = await itemsOf(ctx, 'cycle_limit');
+    expect(await itemsOf(ctx, 'course_check')).toEqual([]);
+    await ctx.closeItem(`I${String(limit?.id)}`);
+    await ctx.tick();
+    await resubmit(ctx, C);
+    await cycle(ctx);
+
+    expect((await itemsOf(ctx, 'cycle_limit')).map((item) => item.cleared_at === null)).toEqual([
+      false,
+    ]);
+    expect(await itemsOf(ctx, 'course_check')).toEqual([
+      expect.objectContaining({ item_key: 'course-check:1:review', cleared_at: null }),
+    ]);
+    expect(await ctx.openTurn()).toBeNull();
+  });
+
+  it('courseCheck 0 turns the check off', async () => {
+    const ctx = await inReview({ curator: true, courseCheck: 0 });
+    for (const head of [B, C, A, B]) {
+      await cycle(ctx);
+      expect(await ctx.openTurn()).toEqual(turnOf('dev', 'worker', 'dev: no_submit_on_head'));
+      await resubmit(ctx, head);
+    }
+    expect((await ctx.moves()).filter((move) => move.to === 'dev' && move.block)).toHaveLength(4);
+    expect(await itemsOf(ctx, 'course_check')).toEqual([]);
+  });
+
+  it('without a curator the operator gets the block and its thread reply resumes Dev', async () => {
+    const ctx = await inReview();
+    await threeReturns(ctx);
+    const block = await courseBlock(ctx);
+    expect(block.addressee_role).toBe('operator');
+    expect(await opens(ctx, block.id)).toBe(1);
+
+    await ctx.reply(`B${String(block.id)}`, NOTE);
+    expect((await itemsOf(ctx, 'course_check'))[0]?.cleared_at).toEqual(expect.any(String));
+    await ctx.tick();
+    expect(await ctx.openTurn()).toEqual(turnOf('dev', 'worker', 'dev: no_submit_on_head'));
+    expect((await ctx.inbox(WORKER)).comments).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ block: null, text: NOTE, author: 'operator' }),
+      ]),
+    );
+  });
+
+  it('the curator closing the course block with a reason resumes Dev with the reason', async () => {
+    const ctx = await inReview({ curator: true });
+    await threeReturns(ctx);
+    const block = await courseBlock(ctx);
+    const reason = 'The course is fine: the reviewer asks for the same fix each time.';
+
+    await ctx.unblock(CUR, `B${String(block.id)}`, reason);
+    expect((await itemsOf(ctx, 'course_check'))[0]?.cleared_at).toEqual(expect.any(String));
+    await ctx.tick();
+    expect(await ctx.openTurn()).toEqual(turnOf('dev', 'worker', 'dev: no_submit_on_head'));
+    const notes = (await ctx.inbox(WORKER)).comments.filter((comment) => comment.block === null);
+    expect(notes).toEqual([expect.objectContaining({ text: reason, author: CUR })]);
+  });
+
+  it('the curator escalates the course block to the operator, whose reply resumes Dev', async () => {
+    const ctx = await inReview({ curator: true });
+    await threeReturns(ctx);
+    const block = await courseBlock(ctx);
+    expect(await opens(ctx, block.id)).toBe(0);
+
+    await ctx.escalate(CUR, `B${String(block.id)}`);
+    expect(await courseBlock(ctx)).toMatchObject({ addressee_role: 'operator', state: 'open' });
+    expect(await opens(ctx, block.id)).toBe(1);
+    await ctx.tick();
+    expect(await ctx.openTurn()).toBeNull();
+    expect((await itemsOf(ctx, 'course_check'))[0]?.cleared_at).toBeNull();
+
+    await ctx.reply(`B${String(block.id)}`, NOTE);
+    await ctx.tick();
+    expect(await ctx.openTurn()).toEqual(turnOf('dev', 'worker', 'dev: no_submit_on_head'));
+    const notes = (await ctx.inbox(WORKER)).comments.filter((comment) => comment.block === null);
+    expect(notes).toEqual([expect.objectContaining({ text: NOTE, author: 'operator' })]);
+    expect((await itemsOf(ctx, 'course_check'))[0]?.cleared_at).toEqual(expect.any(String));
+  });
+
+  it('an edit of the operator Slack answer reaches the forwarded note', async () => {
+    const ctx = await inReview();
+    await threeReturns(ctx);
+    const block = await courseBlock(ctx);
+    await ctx.reply(`B${String(block.id)}`, NOTE);
+    const answer = await ctx.store.db
+      .selectFrom('comment')
+      .select('id')
+      .where('block_id', '=', block.id)
+      .where('author', '=', 'operator')
+      .executeTakeFirstOrThrow();
+    const corrected = `${NOTE} Accept the slow path as a known limit.`;
+
+    await ctx.editReply(answer.id, corrected);
+    await ctx.tick();
+    const notes = (await ctx.inbox(WORKER)).comments.filter((comment) => comment.block === null);
+    expect(notes).toEqual([expect.objectContaining({ text: corrected, author: 'operator' })]);
+  });
+
+  it('a curator comment.edit of its answer reaches the forwarded note, even once acked', async () => {
+    const ctx = await inReview({ curator: true });
+    await threeReturns(ctx);
+    const block = await courseBlock(ctx);
+    const { comment } = await ctx.answer(CUR, `B${String(block.id)}`, NOTE);
+    await ctx.tick();
+    const [note] = (await ctx.inbox(WORKER)).comments.filter((entry) => entry.block === null);
+    expect(note).toEqual(expect.objectContaining({ text: NOTE, author: CUR }));
+    await ctx.ackComment(WORKER, note?.id ?? '', note?.revision ?? 1);
+    expect((await ctx.inbox(WORKER)).comments.filter((entry) => entry.block === null)).toEqual([]);
+
+    const corrected = `${NOTE} Accept the slow path as a known limit.`;
+    await ctx.editComment(CUR, comment.id, corrected);
+    const notes = (await ctx.inbox(WORKER)).comments.filter((entry) => entry.block === null);
+    expect(notes).toEqual([
+      expect.objectContaining({ id: note?.id, text: corrected, author: CUR }),
+    ]);
+  });
+});
+
+/** The `conversation.open` outbox rows of block `blockId`. */
+async function opens(ctx: Board, blockId: number): Promise<number> {
+  const rows = await ctx.store.db
+    .selectFrom('outbox')
+    .select('id')
+    .where('kind', '=', 'conversation.open')
+    .where(sql<boolean>`json_extract(payload, '$.blockId') = ${blockId}`)
+    .execute();
+  return rows.length;
+}
 
 describe('mode switch', () => {
   it('status rows of an on project carry no shadow fields, a pending switch included', async () => {

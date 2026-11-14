@@ -4,6 +4,7 @@ import {
   eventPayloadSchemas,
   parseActorId,
   parseRef,
+  prFactsSchema,
   type ActorId,
   type ColumnId,
   type Config,
@@ -11,6 +12,7 @@ import {
   type EventPayload,
   type GateReason,
   type MoveReason,
+  type PrFacts,
 } from '@spur-board/contracts';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { sql, type Kysely, type Selectable } from 'kysely';
@@ -66,6 +68,17 @@ export async function taskPr(
   return link?.repo == null || link.number === null
     ? null
     : { repo: link.repo, number: link.number, open: link.pr_open === 1 };
+}
+
+/** A PR snapshot's facts, or null when the detail is missing or unreadable. */
+export function parsePr(detail: string | undefined): PrFacts | null {
+  if (detail === undefined) return null;
+  try {
+    const parsed = prFactsSchema.safeParse(JSON.parse(detail));
+    return parsed.success ? parsed.data : null;
+  } catch {
+    return null;
+  }
 }
 
 /** The project whose tracker or repo source wrote an observation. */

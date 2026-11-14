@@ -264,3 +264,20 @@ export function fetchTokenStatus(
     decode: (response, raw) => decodeResponse(tokenStatusOutput, response, raw),
   });
 }
+
+const skillReloadOutput = z.strictObject({ version: z.string(), queued: z.int().min(0) });
+
+/** Asks the daemon to message live sessions about `version`; sends no identity header. */
+export function requestSkillReload(
+  version: string,
+  config: ClientConfig,
+): Promise<z.output<typeof skillReloadOutput>> {
+  return send({
+    method: 'POST',
+    path: '/v1/skills/reload',
+    body: { version },
+    config,
+    anonymous: true,
+    decode: (response, raw) => decodeResponse(skillReloadOutput, response, raw),
+  });
+}

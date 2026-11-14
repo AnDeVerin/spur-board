@@ -686,8 +686,8 @@ describe('stand', () => {
     const first = await up();
     const other = await startStand({ root, port: 0, env: {}, osHome });
     try {
-      for (const role of ['worker', 'orchestrator'] as const) {
-        expect(first.roles[role]).toMatch(/^stand-(worker|qa)-[0-9a-f]{24}$/);
+      for (const role of ['worker', 'orchestrator', 'curator'] as const) {
+        expect(first.roles[role]).toMatch(/^stand-(worker|qa|curator)-[0-9a-f]{24}$/);
         expect(other.manifest().roles[role]).not.toBe(first.roles[role]);
       }
     } finally {

@@ -118,13 +118,13 @@ describe('fixtures', () => {
     expect(project?.tracker.type === 'jira' && project.tracker.projectKeys).toEqual([]);
     expect(project?.spurProjects).toEqual([{ name: 'qa-bot', role: 'worker' }]);
     expect(project?.columns).toEqual([
-      { id: 'todo', enabled: true, orchestrator: 'none', cycleLimit: 10 },
-      { id: 'ready-for-dev', enabled: true, orchestrator: 'none', cycleLimit: 10 },
-      { id: 'dev', enabled: true, orchestrator: 'none', cycleLimit: 10 },
-      { id: 'review', enabled: true, orchestrator: 'none', cycleLimit: 10 },
-      { id: 'qa', enabled: true, orchestrator: 'qa-bot', cycleLimit: 10 },
-      { id: 'ready-to-merge', enabled: true, orchestrator: 'none', cycleLimit: 10 },
-      { id: 'done', enabled: true, orchestrator: 'none', cycleLimit: 10 },
+      { id: 'todo', enabled: true, orchestrator: 'none', cycleLimit: 10, courseCheck: 3 },
+      { id: 'ready-for-dev', enabled: true, orchestrator: 'none', cycleLimit: 10, courseCheck: 3 },
+      { id: 'dev', enabled: true, orchestrator: 'none', cycleLimit: 10, courseCheck: 3 },
+      { id: 'review', enabled: true, orchestrator: 'none', cycleLimit: 10, courseCheck: 3 },
+      { id: 'qa', enabled: true, orchestrator: 'qa-bot', cycleLimit: 10, courseCheck: 3 },
+      { id: 'ready-to-merge', enabled: true, orchestrator: 'none', cycleLimit: 10, courseCheck: 3 },
+      { id: 'done', enabled: true, orchestrator: 'none', cycleLimit: 10, courseCheck: 3 },
     ]);
   });
 
@@ -152,18 +152,33 @@ describe('fixtures', () => {
   it('gives a project without columns all nine columns, enabled, orchestrator none', () => {
     const config = configSchema.parse(validConfig());
     expect(config.projects[0]?.columns).toEqual([
-      { id: 'todo', enabled: true, orchestrator: 'none', cycleLimit: 10 },
-      { id: 'ready-for-dev', enabled: true, orchestrator: 'none', cycleLimit: 10 },
-      { id: 'dev', enabled: true, orchestrator: 'none', cycleLimit: 10 },
-      { id: 'review', enabled: true, orchestrator: 'none', cycleLimit: 10 },
-      { id: 'product-review', enabled: true, orchestrator: 'none', cycleLimit: 10 },
-      { id: 'external-review', enabled: true, orchestrator: 'none', cycleLimit: 10 },
-      { id: 'qa', enabled: true, orchestrator: 'none', cycleLimit: 10 },
-      { id: 'ready-to-merge', enabled: true, orchestrator: 'none', cycleLimit: 10 },
-      { id: 'done', enabled: true, orchestrator: 'none', cycleLimit: 10 },
+      { id: 'todo', enabled: true, orchestrator: 'none', cycleLimit: 10, courseCheck: 3 },
+      { id: 'ready-for-dev', enabled: true, orchestrator: 'none', cycleLimit: 10, courseCheck: 3 },
+      { id: 'dev', enabled: true, orchestrator: 'none', cycleLimit: 10, courseCheck: 3 },
+      { id: 'review', enabled: true, orchestrator: 'none', cycleLimit: 10, courseCheck: 3 },
+      { id: 'product-review', enabled: true, orchestrator: 'none', cycleLimit: 10, courseCheck: 3 },
+      {
+        id: 'external-review',
+        enabled: true,
+        orchestrator: 'none',
+        cycleLimit: 10,
+        courseCheck: 3,
+      },
+      { id: 'qa', enabled: true, orchestrator: 'none', cycleLimit: 10, courseCheck: 3 },
+      { id: 'ready-to-merge', enabled: true, orchestrator: 'none', cycleLimit: 10, courseCheck: 3 },
+      { id: 'done', enabled: true, orchestrator: 'none', cycleLimit: 10, courseCheck: 3 },
     ]);
     expect(config.projects[0]?.spurProjects).toEqual([]);
     expect(config.projects[0]?.reposWithoutCi).toEqual([]);
+  });
+
+  it('accepts courseCheck 0, which turns the course check off', () => {
+    const config = configSchema.parse(
+      validConfig({
+        columns: [...columns('todo', 'dev'), { id: 'review', courseCheck: 0 }, ...columns('done')],
+      }),
+    );
+    expect(config.projects[0]?.columns.find((c) => c.id === 'review')?.courseCheck).toBe(0);
   });
 
   it('runs the dispatcher in shadow mode by default and accepts on', () => {
@@ -417,6 +432,26 @@ describe('invalid configs', () => {
       }),
       'Invalid input: expected int, received number',
       'projects[0].columns[2].cycleLimit',
+    ],
+    [
+      'negative column course check',
+      validConfig({
+        columns: [...columns('todo', 'dev'), { id: 'review', courseCheck: -1 }, ...columns('done')],
+      }),
+      'Too small: expected number to be >=0',
+      'projects[0].columns[2].courseCheck',
+    ],
+    [
+      'fractional column course check',
+      validConfig({
+        columns: [
+          ...columns('todo', 'dev'),
+          { id: 'review', courseCheck: 1.5 },
+          ...columns('done'),
+        ],
+      }),
+      'Invalid input: expected int, received number',
+      'projects[0].columns[2].courseCheck',
     ],
     [
       'an unknown dispatcher mode',

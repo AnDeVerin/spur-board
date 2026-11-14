@@ -39,6 +39,8 @@ export async function createE2eHarness(
   options: {
     /** Replaces the default runner, which polls nothing and has no `pollPr`. */
     startAdapters?: typeof realStartAdapters;
+    /** The version the daemon reports it runs; skill reload needs one. */
+    productVersion?: string;
   } = {},
 ) {
   const home = mkdtempSync(join(tmpdir(), 'board-e2e-'));
@@ -183,6 +185,7 @@ export async function createE2eHarness(
           },
         },
         tick: () => Promise.resolve(),
+        ...(options.productVersion === undefined ? {} : { productVersion: options.productVersion }),
         startAdapters: options.startAdapters ?? (() => ({ stop: () => Promise.resolve() })),
         sessionFetcher: () => Promise.reject(new Error('unexpected live session lookup')),
         afterOperation: (response: ServerResponse) => {
@@ -275,6 +278,10 @@ export async function createE2eHarness(
     get store(): Store {
       if (store === undefined) throw new Error('Store is not open');
       return store;
+    },
+    get address(): string {
+      if (address === undefined) throw new Error('Daemon has not bound HTTP');
+      return address;
     },
     taskKey: TASK_KEY,
     dbFile: paths.dbFile,

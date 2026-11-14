@@ -165,6 +165,7 @@ export const eventPayloadSchemas = {
     to: z.enum(COLUMN_IDS),
     reason: z.enum(MOVE_REASONS),
     gate: z.array(z.enum(GATE_REASONS)).optional(),
+    courseCheck: z.literal(true).optional(),
   }),
   task_corrected: z.looseObject({
     from: z.enum(COLUMN_IDS),
@@ -183,7 +184,12 @@ export const eventPayloadSchemas = {
     outcome: z.enum(BLOCK_OUTCOMES),
     reason: S.optional(),
   }),
-  comment_added: z.looseObject({ comment: S, addressee: role }),
+  comment_added: z.looseObject({
+    comment: S,
+    addressee: role,
+    /** The comment this one copies; an edit of that comment is applied to the copy too. */
+    forwardedFrom: S.optional(),
+  }),
   comment_edited: z.looseObject({ comment: S, revision: N, clarification: z.boolean() }),
   comment_deleted: z.looseObject({ comment: S }),
   comment_acked: z.looseObject({ comment: S, revision: N.optional() }),
