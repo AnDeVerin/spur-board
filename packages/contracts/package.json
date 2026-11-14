@@ -13,7 +13,6 @@
     "zod": "catalog:"
   },
   "devDependencies": {
-    "@spur-board/testkit": "workspace:*",
     "yaml": "catalog:"
   }
 }

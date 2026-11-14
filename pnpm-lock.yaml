@@ -415,9 +415,6 @@ importers:
         specifier: 'catalog:'
         version: 4.6.7
     devDependencies:
-      '@spur-board/testkit':
-        specifier: workspace:*
-        version: link:../testkit
       yaml:
         specifier: 'catalog:'
         version: 2.9.1

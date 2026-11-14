@@ -294,33 +294,47 @@ describe('error representations', () => {
     ).toBe(fixture);
   });
 
-  it('keeps secrets out and common fields equal across four forms', () => {
+  it('keeps common fields equal across four forms', () => {
+    const input = {
+      code: 'identity_unavailable' as const,
+      requestId: 'req-77',
+      context: { environmentVariable: 'SPUR_SESSION' },
+    };
+    const http = renderHttpProblem(input).body;
+    const mcp = renderMcpError(input).structuredContent;
+    const json = renderJsonError(input).error;
+    const stderr = renderStderrError(input);
+    for (const value of [http, mcp, json]) {
+      expect(value.code).toBe('identity_unavailable');
+      expect(value.hint).toBe(ERRORS.identity_unavailable.hint);
+      expect(value.requestId).toBe('req-77');
+    }
+    expect(stderr).toContain('error: identity_unavailable:');
+    expect(stderr).toContain(`fix: ${ERRORS.identity_unavailable.hint}`);
+    expect(stderr).toContain('side effects: none (the command was not applied)');
+    expect(stderr).toContain('docs: docs/errors.md#identity_unavailable');
+    expect(stderr).toContain('requestId: req-77');
+  });
+
+  it('refuses context outside the named, non-secret fields', () => {
     const secret = 'fake-secret-do-not-print-789';
-    process.env.SPUR_TEST_SECRET = secret;
-    try {
-      const input = {
-        code: 'identity_unavailable' as const,
-        requestId: 'req-77',
-        context: { environmentVariable: 'SPUR_TEST_SECRET' },
-      };
-      const http = renderHttpProblem(input).body;
-      const mcp = renderMcpError(input).structuredContent;
-      const json = renderJsonError(input).error;
-      const stderr = renderStderrError(input);
-      for (const value of [http, mcp, json, stderr])
-        expect(JSON.stringify(value)).not.toContain(secret);
-      for (const value of [http, mcp, json]) {
-        expect(value.code).toBe('identity_unavailable');
-        expect(value.hint).toBe(ERRORS.identity_unavailable.hint);
-        expect(value.requestId).toBe('req-77');
+    const inputs = [
+      ['environmentVariable', { environmentVariable: secret }],
+      ['token', { token: secret }],
+    ] as const;
+    const renderers = [renderHttpProblem, renderMcpError, renderJsonError, renderStderrError];
+    for (const [key, context] of inputs) {
+      for (const render of renderers) {
+        const input = { code: 'identity_unavailable', requestId: 'req-78', context };
+        let thrown: unknown;
+        try {
+          Reflect.apply(render, null, [input]);
+        } catch (error) {
+          thrown = error;
+        }
+        expect(thrown, `${render.name} accepted ${key}`).toBeInstanceOf(Error);
+        expect((thrown as Error).message).not.toContain(secret);
       }
-      expect(stderr).toContain('error: identity_unavailable:');
-      expect(stderr).toContain(`fix: ${ERRORS.identity_unavailable.hint}`);
-      expect(stderr).toContain('side effects: none (the command was not applied)');
-      expect(stderr).toContain('docs: docs/errors.md#identity_unavailable');
-      expect(stderr).toContain('requestId: req-77');
-    } finally {
-      delete process.env.SPUR_TEST_SECRET;
     }
   });
 
