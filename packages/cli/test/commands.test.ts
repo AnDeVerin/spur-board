@@ -590,6 +590,7 @@ describe('catalog commands', () => {
       ['block', 'PROJ-123', '--type', 'dependency', '--reason', 'Waiting', '--key', 'block-1'],
       ['unblock', 'B12', '--withdraw', 'No longer needed', '--key', 'unblock-1'],
       ['escalate', 'B12', '--note', 'Owner is away', '--key', 'escalate-1'],
+      ['answer', 'B12', 'Target v2.', '--note', 'Checked the release plan.', '--key', 'answer-1'],
       ['submit', 'T4', '9f2c4e1b7a3d5c8e0f1a2b3c4d5e6f708192a3b4', '--key', 'submit-1'],
       ['return', 'T4', 'Handle the empty list', '--key', 'return-1'],
       ['task', 'PROJ-123', '--why'],
@@ -621,6 +622,10 @@ describe('catalog commands', () => {
         input: { block: 'B12', mode: 'withdraw', answer: 'No longer needed' },
       },
       { id: 'block.escalate', input: { block: 'B12', note: 'Owner is away' } },
+      {
+        id: 'block.answer',
+        input: { block: 'B12', text: 'Target v2.', note: 'Checked the release plan.' },
+      },
       { id: 'task.submit', input: { turn: 'T4', sha: '9f2c4e1b7a3d5c8e0f1a2b3c4d5e6f708192a3b4' } },
       { id: 'task.return', input: { turn: 'T4', reason: 'Handle the empty list' } },
       { id: 'task.get', input: { task: 'PROJ-123', why: true } },

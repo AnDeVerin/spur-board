@@ -965,7 +965,18 @@ export const OPERATIONS = [
       whenToUse: 'Answer an open question.',
       whenNotToUse: 'Use block_unblock to close without an answer.',
     },
-    input: z.strictObject({ block: blockIdSchema, text: text('The answer.', TEXT_MAX) }),
+    input: z.strictObject({
+      block: blockIdSchema,
+      text: text('The answer.', TEXT_MAX),
+      note: z
+        .string()
+        .min(1)
+        .max(TEXT_MAX)
+        .optional()
+        .describe(
+          'Your own comment on the answer, kept apart from it: stored as a second comment and shown on the curator feed line.',
+        ),
+    }),
     output: z.strictObject({ block: blockViewSchema, comment: commentSchema }),
     grants: [{ grant: 'block-addressee' }, { grant: 'operator' }],
     preconditions: { blockTypes: ['needs_input'] },
@@ -976,6 +987,20 @@ export const OPERATIONS = [
       {
         summary: 'Answer a question',
         input: { block: 'B12', text: 'Target v2.' },
+        output: {
+          block: {
+            ...question,
+            state: 'unblocked',
+            outcome: 'done',
+            unblockedBy: 'operator',
+            unblockedAt: at,
+          },
+          comment,
+        },
+      },
+      {
+        summary: 'Answer a question with a note',
+        input: { block: 'B12', text: 'Target v2.', note: 'Checked the release plan.' },
         output: {
           block: {
             ...question,

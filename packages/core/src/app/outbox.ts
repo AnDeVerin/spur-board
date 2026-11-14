@@ -49,7 +49,11 @@ export const KIND_PRIORITY = {
   doorbell: 0,
 } as const satisfies Record<OutboxKind, number>;
 
-const persona = z.strictObject({ name: z.string().min(1), role: z.enum(PERSONA_ROLES) });
+const persona = z.strictObject({
+  name: z.string().min(1),
+  role: z.enum(PERSONA_ROLES),
+  icon: z.string().min(1).optional(),
+});
 const id = z.int().positive();
 
 const closePayload = z.strictObject({
@@ -94,11 +98,24 @@ const feedEditPayload = feedLineEditPayload.extend({
   actions: z.array(actionPayload).optional(),
 });
 export type FeedEditPayload = z.output<typeof feedEditPayload>;
+/** A curator answer's question and answer, shortened; a row without it renders `text`. */
+const exchange = z.strictObject({
+  block: z.string().min(1),
+  taskTitle: z.string().min(1).optional(),
+  question: z.string(),
+  answer: z.string(),
+  note: z.string().min(1).optional(),
+  askedBy: z.string().min(1),
+  answeredBy: z.string().min(1),
+  outcome: z.literal('unblocked'),
+});
 const feedLineWithLinkPayload = feedLinePayload.extend({
   itemId: id.optional(),
   url: z.url().optional(),
   actions: z.array(actionPayload).optional(),
+  exchange: exchange.optional(),
 });
+type FeedLinePayload = z.output<typeof feedLineWithLinkPayload>;
 const doorbellPayload = z.strictObject({
   session: z.string().min(1),
   text: z.string(),
@@ -132,6 +149,55 @@ export function renderBody(key: string, text: string): RichText {
   return [
     { kind: 'paragraph', children: [{ kind: 'text', text: key }] },
     { kind: 'quote', children: [{ kind: 'text', text }] },
+  ];
+}
+
+/**
+ * A curator answer line: the task link and title, the question, the answer, the note, then the
+ * block, who asked, who answered and the outcome as muted details.
+ */
+export function exchangeBody(
+  payload: Pick<FeedLinePayload, 'key' | 'url'> & { exchange: z.output<typeof exchange> },
+): RichText {
+  const { exchange: line } = payload;
+  return [
+    {
+      kind: 'paragraph',
+      children: [
+        payload.url === undefined
+          ? { kind: 'text', text: payload.key }
+          : { kind: 'link', url: payload.url, text: payload.key },
+        ...(line.taskTitle === undefined
+          ? []
+          : [{ kind: 'text' as const, text: ` ${line.taskTitle}` }]),
+      ],
+    },
+    {
+      kind: 'paragraph',
+      children: [
+        { kind: 'emphasis', text: 'Question:' },
+        { kind: 'text', text: ` ${line.question}` },
+      ],
+    },
+    {
+      kind: 'paragraph',
+      children: [
+        { kind: 'emphasis', text: 'Answer:' },
+        { kind: 'text', text: ` ${line.answer}` },
+      ],
+    },
+    ...(line.note === undefined
+      ? []
+      : [{ kind: 'paragraph' as const, children: [{ kind: 'italic' as const, text: line.note }] }]),
+    {
+      kind: 'context',
+      children: [
+        {
+          kind: 'text',
+          text: `${line.block} · asked by ${line.askedBy} · answered by ${line.answeredBy} · ${line.outcome}`,
+        },
+      ],
+    },
   ];
 }
 
@@ -292,6 +358,8 @@ export async function enqueueBoardFeedLine(
 
 const QUESTION_CHARS = 120;
 const ANSWER_CHARS = 200;
+const NOTE_CHARS = 200;
+const TITLE_CHARS = 80;
 
 /** Collapses whitespace and cuts by code points to `limit`, ending a cut text with `…`. */
 function shorten(text: string, limit: number): string {
@@ -311,23 +379,41 @@ export async function enqueueCuratorAnswerLine(
     asker: string;
     question: string;
     answer: string;
-    curator: string;
+    note?: string | undefined;
+    taskTitle?: string | undefined;
+    persona: Persona;
+    /** `project/session` of the curator session that answered. */
+    answeredBy: string;
     at: Date;
   },
 ): Promise<void> {
   const block = `B${String(input.blockId)}`;
   const itemKey = `curator-answer:comment:${String(input.commentId)}`;
+  const note = input.note === undefined ? '' : shorten(input.note, NOTE_CHARS);
+  const taskTitle = input.taskTitle === undefined ? '' : shorten(input.taskTitle, TITLE_CHARS);
+  const question = shorten(input.question, QUESTION_CHARS);
+  const answer = shorten(input.answer, ANSWER_CHARS);
   await insertOutbox(trx, {
     kind: 'feed.line',
     dedupeKey: `feed.line:${itemKey}`,
     payload: {
       key: input.key,
-      text: `${block} · ${input.asker} asked: ${shorten(input.question, QUESTION_CHARS)} → curator answered: ${shorten(input.answer, ANSWER_CHARS)}`,
+      text: `${block} · ${input.asker} asked: ${question} → curator answered: ${answer}`,
       title: `${input.key} ${block} answered by curator`,
-      persona: { name: input.curator, role: 'curator' },
+      persona: input.persona,
       itemKey,
       taskId: input.taskId,
       ...(input.url === '' ? {} : { url: input.url }),
+      exchange: {
+        block,
+        ...(taskTitle === '' ? {} : { taskTitle }),
+        question,
+        answer,
+        ...(note === '' ? {} : { note }),
+        askedBy: input.asker,
+        answeredBy: input.answeredBy,
+        outcome: 'unblocked',
+      },
     },
     parent: null,
     at: input.at,

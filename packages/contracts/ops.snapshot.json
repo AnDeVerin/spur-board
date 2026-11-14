@@ -1,5 +1,5 @@
 {
-  "version": "a8dc0b337a7172deda49c2776e64bc455d8db6af819cbd097ce1d273b5147ea3",
+  "version": "daeab9ac95c6d076d0c65ac22c4345597e02fbfece9b133318aa96874d659d04",
   "grants": [
     "operator",
     "project-agent",
@@ -6266,6 +6266,37 @@
               "untrusted": true
             }
           }
+        },
+        {
+          "summary": "Answer a question with a note",
+          "input": { "block": "B12", "text": "Target v2.", "note": "Checked the release plan." },
+          "output": {
+            "block": {
+              "id": "B12",
+              "task": "PROJ-123",
+              "type": "needs_input",
+              "state": "unblocked",
+              "author": "agent:web/web-7",
+              "addressee": "operator",
+              "reason": "Which API version should the client target?",
+              "at": "2026-01-05T09:30:00.000Z",
+              "outcome": "done",
+              "outcomeReason": null,
+              "unblockedBy": "operator",
+              "unblockedAt": "2026-01-05T09:30:00.000Z"
+            },
+            "comment": {
+              "id": "C3",
+              "task": "PROJ-123",
+              "block": "B12",
+              "author": "operator",
+              "at": "2026-01-05T09:30:00.000Z",
+              "text": "Target v2.",
+              "revision": 1,
+              "ackedRevision": null,
+              "untrusted": true
+            }
+          }
         }
       ],
       "input": {
@@ -6283,6 +6314,12 @@
             "minLength": 1,
             "maxLength": 20000,
             "description": "The answer."
+          },
+          "note": {
+            "description": "Your own comment on the answer, kept apart from it: stored as a second comment and shown on the curator feed line.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 20000
           }
         },
         "required": ["block", "text"],

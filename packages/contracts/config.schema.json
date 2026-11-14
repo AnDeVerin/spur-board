@@ -168,6 +168,17 @@
                   "type": "string",
                   "enum": ["worker", "operator", "curator"],
                   "description": "worker: sessions of this Spur project may link to this project's tasks through their PR or branch. operator: sessions act as the operator. curator: sessions answer the questions no column orchestrator takes and escalate the rest to the operator; a board project has at most one."
+                },
+                "displayName": {
+                  "description": "The name a curator's answer lines in the feed are posted under. Defaults to the Spur project name. Only for a curator.",
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 80
+                },
+                "icon": {
+                  "description": "The emoji shortcode, such as :owl:, shown on a curator's answer lines in the feed instead of the curator icon. Only for a curator.",
+                  "type": "string",
+                  "pattern": "^:[a-z0-9_+'-]+:$"
                 }
               },
               "required": ["name", "role"],

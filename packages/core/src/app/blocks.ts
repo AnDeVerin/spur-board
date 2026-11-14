@@ -1,6 +1,7 @@
 import {
   eventPayloadSchemas,
   parseActorId,
+  ticketFactsSchema,
   type ActorId,
   type AddresseeRole,
   type Config,
@@ -369,8 +370,9 @@ export async function openSystemBlock(
 
 /**
  * Copies the answer to a course check to the task as a comment without a block, so the worker
- * reads it in its inbox: the close reason, else the closing actor's newest comment on the block.
- * A copied comment is named in the copy's `comment_added`, so its edits reach the copy.
+ * reads it in its inbox: the close reason, else `answer`, else the closing actor's newest comment
+ * on the block. A copied comment is named in the copy's `comment_added`, so its edits reach the
+ * copy.
  */
 async function forwardCourseNote(
   trx: Trx,
@@ -378,18 +380,21 @@ async function forwardCourseNote(
   block: Block,
   ctx: CommandContext,
   reason: string | null,
+  given: Comment | undefined,
 ): Promise<void> {
   if (reason !== null) {
     await insertComment(trx, task, null, reason, ctx, 'worker');
     return;
   }
-  const answer = await trx
-    .selectFrom('comment')
-    .select(['id', 'text'])
-    .where('block_id', '=', block.id)
-    .where('author', '=', ctx.actor)
-    .orderBy('id', 'desc')
-    .executeTakeFirst();
+  const answer =
+    given ??
+    (await trx
+      .selectFrom('comment')
+      .select(['id', 'text'])
+      .where('block_id', '=', block.id)
+      .where('author', '=', ctx.actor)
+      .orderBy('id', 'desc')
+      .executeTakeFirst());
   if (answer === undefined) return;
   await insertComment(trx, task, null, answer.text, ctx, 'worker', undefined, answer.id);
 }
@@ -437,7 +442,8 @@ async function reviseComment(
  * Unblocks one block with its journal entry, thread close, doorbell close and item clears. An
  * operator or agent close of a reconciled ledger block dismisses its item, so the condition
  * raises again only once it changes; a `system` or archive close only clears it. An answer or a
- * close with a reason to a course check also goes to the worker as a task comment.
+ * close with a reason to a course check also goes to the worker as a task comment; `answer` names
+ * the answer when the closing actor also left a note after it.
  */
 export async function closeOpenBlock(
   trx: Trx,
@@ -446,6 +452,7 @@ export async function closeOpenBlock(
   ctx: CommandContext,
   outcome: 'done' | 'reason' | 'withdrawn' | 'archived',
   outcomeReason: string | null,
+  answer?: Comment,
 ): Promise<Block> {
   const updated = await trx
     .updateTable('block')
@@ -483,7 +490,14 @@ export async function closeOpenBlock(
     (outcome === 'done' || outcome === 'reason') &&
     items.some((item) => item.kind === ('course_check' satisfies ItemKind))
   )
-    await forwardCourseNote(trx, task, block, ctx, outcome === 'reason' ? outcomeReason : null);
+    await forwardCourseNote(
+      trx,
+      task,
+      block,
+      ctx,
+      outcome === 'reason' ? outcomeReason : null,
+      answer,
+    );
   for (const item of items) {
     if (item.kind === 'post_blocked') await clearItem(trx, item.id, new Date(ctx.at), ctx.actor);
     else if (
@@ -616,12 +630,31 @@ export async function editInboundComment(
   return updated;
 }
 
+/** The task's tracker title, or undefined when no readable snapshot has one; never throws. */
+async function ticketTitle(trx: Trx, task: Task): Promise<string | undefined> {
+  const row = await trx
+    .selectFrom('ticket_snapshot')
+    .select('detail')
+    .where('task_id', '=', task.id)
+    .executeTakeFirst();
+  if (row === undefined) return undefined;
+  let detail: unknown;
+  try {
+    detail = JSON.parse(row.detail);
+  } catch {
+    return undefined;
+  }
+  const facts = ticketFactsSchema.safeParse(detail);
+  return facts.success ? facts.data.title : undefined;
+}
+
 /** Posts a curator's answer to the feed; an operator answer is already on the board. */
 async function queueCuratorAnswerLine(
   trx: Trx,
   task: Task,
   block: Block,
   answer: Comment,
+  note: string | undefined,
   ctx: CommandContext,
   config: Config,
 ): Promise<void> {
@@ -637,6 +670,10 @@ async function queueCuratorAnswerLine(
     .where('id', '<', answer.id)
     .orderBy('id')
     .executeTakeFirst();
+  const { project, session } = curator.actorRef;
+  const entry = config.projects
+    .find((p) => p.id === task.project)
+    ?.spurProjects.find((s) => s.role === 'curator' && s.name === project);
   await enqueueCuratorAnswerLine(trx, {
     taskId: task.id,
     key: task.key,
@@ -649,7 +686,14 @@ async function queueCuratorAnswerLine(
         : block.author,
     question: question?.text ?? block.reason,
     answer: answer.text,
-    curator: curator.actorRef.project,
+    note,
+    taskTitle: await ticketTitle(trx, task),
+    persona: {
+      name: entry?.displayName ?? project,
+      role: 'curator',
+      ...(entry?.icon === undefined ? {} : { icon: entry.icon }),
+    },
+    answeredBy: `${project}/${session}`,
     at: new Date(ctx.at),
   });
 }
@@ -748,17 +792,14 @@ export function createBlockMutations(config: Config) {
       rule(() => {
         answerBlock(current(block));
       });
-      const comment = await addComment(
-        trx,
-        task,
-        block,
-        input.text,
-        ctx,
-        authorRole(config, task, block.author),
-        config,
-      );
-      const updated = await closeOpenBlock(trx, task, block, ctx, 'done', null);
-      await queueCuratorAnswerLine(trx, task, block, comment, ctx, config);
+      const role = authorRole(config, task, block.author);
+      const comment = await addComment(trx, task, block, input.text, ctx, role, config);
+      // Before the close, so a note on a threaded block is a reply that rings nobody.
+      if (input.note !== undefined) {
+        await addComment(trx, task, block, input.note, ctx, role, config, { ringsAuthor: false });
+      }
+      const updated = await closeOpenBlock(trx, task, block, ctx, 'done', null, comment);
+      await queueCuratorAnswerLine(trx, task, block, comment, input.note, ctx, config);
       return { block: blockView(updated, task), comment: commentView(comment, task) };
     },
   };

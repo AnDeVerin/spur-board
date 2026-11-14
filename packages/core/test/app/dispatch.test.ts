@@ -368,9 +368,14 @@ function board(options: Options = {}) {
       step();
       return apply(registry['task.add'], { task: KEY }, 'operator', `key-${String(++keys)}`);
     },
-    answer: (actor: ActorId, block: string, text: string) => {
+    answer: (actor: ActorId, block: string, text: string, note?: string) => {
       step();
-      return apply(registry['block.answer'], { block, text }, actor, `key-${String(++keys)}`);
+      return apply(
+        registry['block.answer'],
+        { block, text, ...(note === undefined ? {} : { note }) },
+        actor,
+        `key-${String(++keys)}`,
+      );
     },
     unblock: (actor: ActorId, block: string, reason: string) => {
       step();
@@ -1548,6 +1553,16 @@ describe('course check', () => {
     await cycle(ctx);
     expect(await active()).toEqual([false, true]);
     expect(await itemsOf(ctx, 'cycle_limit')).toEqual([]);
+  });
+
+  it('a curator answer with a note forwards the answer, not the note', async () => {
+    const ctx = await inReview({ curator: true });
+    await threeReturns(ctx);
+    const block = await courseBlock(ctx);
+
+    await ctx.answer(CUR, `B${String(block.id)}`, NOTE, 'Asked the operator first.');
+    const forwarded = (await ctx.inbox(WORKER)).comments.filter((c) => c.block === null);
+    expect(forwarded).toEqual([expect.objectContaining({ text: NOTE, author: CUR })]);
   });
 
   it('cycleLimit keeps counting after a curator answer', async () => {

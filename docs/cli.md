@@ -495,6 +495,7 @@ Arguments: `<block> <text>`.
 
 Flags:
 
+`--note <value>` — Your own comment on the answer, kept apart from it: stored as a second comment and shown on the curator feed line.
 `--key <key>` — Idempotency key for this action.
 `--json` — Print JSON output or a JSON error.
 
