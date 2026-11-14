@@ -361,8 +361,8 @@ const courseBlocks = (eb: ExpressionBuilder<Tables, 'notification'>) =>
 /**
  * Whether a worker notification is held by a course check on its task. Two holds apply: while a
  * `course_check` item is active, and, once it clears with a note, until the note's first ring is
- * delivered, so the note rings first. A course note is a worker `answer` notification on a course
- * check's block. Other roles and `cycle_limit` items hold no ring.
+ * delivered to any session, so the note rings first. A course note is a worker `answer`
+ * notification on a course check's block. Other roles and `cycle_limit` items hold no ring.
  */
 function courseHold(eb: ExpressionBuilder<Tables, 'notification'>) {
   return eb.and([
@@ -393,7 +393,30 @@ function courseHold(eb: ExpressionBuilder<Tables, 'notification'>) {
             .where('note.block_id', 'in', courseBlocks(eb))
             .where('note.rings', '=', 0)
             .where('note.acked_at', 'is', null)
-            .where('note.exhausted_at', 'is', null),
+            .where('note.exhausted_at', 'is', null)
+            // A handover resets `rings`; a ring once delivered to any session keeps the gate open.
+            // The key range `doorbell:<id>:` reads the unique `dedupe_key` index; `+` keeps the
+            // planner off the `state` index, whose `done` rows only grow.
+            .where((inner) =>
+              inner.not(
+                inner.exists(
+                  inner
+                    .selectFrom('outbox')
+                    .select('outbox.id')
+                    .where(sql<string>`+outbox.state`, '=', 'done')
+                    .where(
+                      'outbox.dedupe_key',
+                      '>',
+                      sql<string>`'doorbell:' || ${sql.ref('note.id')} || ':'`,
+                    )
+                    .where(
+                      'outbox.dedupe_key',
+                      '<',
+                      sql<string>`'doorbell:' || ${sql.ref('note.id')} || ';'`,
+                    ),
+                ),
+              ),
+            ),
         ),
       ]),
     ]),

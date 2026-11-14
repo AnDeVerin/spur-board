@@ -2264,6 +2264,54 @@ describe('course-check hold', () => {
     expect(await inboxComments(ctx, 'agent:web/worker-2')).toEqual([note]);
   });
 
+  /** Links `session` as the task's only worker: bans every other worker session link. */
+  async function relink(ctx: Board, session: string): Promise<void> {
+    await ctx.store.transaction(async (trx) => {
+      await trx
+        .updateTable('link')
+        .set({ banned: 1 })
+        .where('task_id', '=', 1)
+        .where('role', '=', 'worker')
+        .execute();
+      await trx
+        .insertInto('link')
+        .values({
+          ...sampleRows.link,
+          id: session === 'worker-1' ? 1 : 9,
+          task_id: 1,
+          entity: 'session',
+          repo: null,
+          number: null,
+          pr_state: null,
+          session_id: session,
+          role: 'worker',
+        })
+        .onConflict((oc) => oc.column('id').doUpdateSet({ banned: 0 }))
+        .execute();
+    });
+  }
+
+  it('releases the held rings when the note returns to a worker it already rang', async () => {
+    const RETRY = config.doorbells.firstRetryMs;
+    const ctx = await board();
+    const course = await raiseCourse(ctx);
+    await steps(ctx, 2);
+    await ctx.apply(ctx.ops.answer, { block: course.block, text: NOTE }, CURATOR, 'answer');
+    await steps(ctx, 2);
+    expect(ringBlocks(ctx)).toEqual([course.block]);
+    await addSession(ctx, 'worker-2', 'web');
+    await relink(ctx, 'worker-2');
+    await steps(ctx, 1, RETRY);
+    await steps(ctx, 2);
+    expect(sessionsRung(ctx)).toEqual(['cur-1', 'worker-1', 'worker-2']);
+    await relink(ctx, 'worker-1');
+    await steps(ctx, 1, RETRY);
+    await steps(ctx, 2);
+    const block = await workerBlock(ctx.store);
+    await steps(ctx, 4);
+    expect(ringBlocks(ctx)).toEqual([course.block, block]);
+  });
+
   it('keeps the release order when the worker acks the note before its ring', async () => {
     const ctx = await board();
     const { queued, course, late } = await held(ctx);
