@@ -24,7 +24,12 @@ An exception to the SKILL.md rule "A missing or denied requested entity gets `no
 `pollRepository` in `packages/adapters/src/github/index.ts`; tests `describe('PR poll chunks')`
 and `describe('PR index cache')` in `packages/adapters/test/github/prBatch.test.ts`.
 
-- Order: discovery, its own request; the index (`indexQuery`, 50 aliases) of every requested PR
+- Suppress persisted merged PRs before constructing aliases, including discovery cursor ties.
+- Defer persisted closed PRs until core requests a state-only recheck; select identity and state,
+  answer in `prProbes`, and leave facts, history, freshness and misses alone when still closed.
+  OPEN discovery bypasses deferral for every known closed PR, regardless of author; a nonclosed
+  or unknown probe state requires a full read in the same poll. Failed reads stay due.
+- Order: discovery, its own request; due state probes; the index (`indexQuery`, 50 aliases) of every requested PR
   and of each discovered one the cache holds; full reads (`detailQuery`, 10 aliases, requested
   PRs in their own chunks first) of the PRs the index shows changed and of discovered ones the
   cache does not hold.
@@ -46,7 +51,7 @@ and `describe('PR index cache')` in `packages/adapters/test/github/prBatch.test.
 - Per-instance adapter state is allowed: the Spur adapter (`createSpurAdapter`) and the PR cache
   in the `githubSources` closure, keyed by number, holding the PRs requested in the last poll and
   those the last successful discovery listed; a failed discovery drops none. It lives in memory.
-- A discovered PR core does not request, also each one at the cursor tie after a restart, gets
+- A discovered PR core does not request, unless persisted terminal policy suppresses it, gets
   two full reads (the first with a `null` fingerprint, the second indexed), then one index alias
   per poll while discovery lists it, plus a full read whenever the index rules out reuse, such
   as an open PR with a non-green rollup.
@@ -71,5 +76,13 @@ and `describe('PR index cache')` in `packages/adapters/test/github/prBatch.test.
 
 ## Budget
 
-- GraphQL selects `rateLimit { remaining resetAt }` or the poll fails.
+- PR queries select `rateLimit { cost remaining resetAt }`; a missing cost is allowed and never
+  inferred from remaining-budget changes. Keep the latest remaining/reset independently.
+- Capture valid reported cost before GraphQL classification and PR parsing; sum it once per
+  attempt in `Batch.usage`, or attach it to `AdapterError.usage` when the attempt rejects.
+- The runner persists successful batch usage with the observation and failed usage with a source
+  report, even when state text is unchanged; never report a committed batch's cost twice.
+- Core persists reported samples and exposes the sum in `(now - 1h, now]` as `pointsLastHour` for
+  PR sources, including after restart. Tests: `state probes and reported source cost` in
+  `packages/adapters/test/runner/runner.test.ts`.
 - Issues reads `x-ratelimit-remaining`/`-reset` and omits bad ones.
