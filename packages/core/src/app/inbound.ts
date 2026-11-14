@@ -27,7 +27,7 @@ import {
   resolveBlockConversation,
 } from './conversations.ts';
 import { BLOCK_ITEM_KINDS } from '../domain/fromYou.ts';
-import { parseJson, toJson } from '../store/json.ts';
+import { parseJson, toJson, warnSkippedOnce, type SkippedRow } from '../store/json.ts';
 import type { Row } from '../store/schema.ts';
 import type { Store } from '../store/store.ts';
 import { emit, withCommandKey, type Trx } from './board-utils.ts';
@@ -337,8 +337,11 @@ export function createInbound(input: {
   config: Config;
   clock?: { now(): number };
   registry?: OperationRegistry;
+  /** Logs a stored JSON row a lenient read skipped; called once per row. */
+  warn?: (fields: SkippedRow, message: string) => void;
 }): Inbound {
   const { store, gateway, config } = input;
+  const warnSkipped = warnSkippedOnce(input.warn);
   const clock = input.clock ?? { now: () => Date.now() };
   const registry = input.registry ?? {};
   let running: Promise<void> = Promise.resolve();
@@ -357,6 +360,7 @@ export function createInbound(input: {
       ...(event.originKey === undefined ? {} : { originKey: event.originKey }),
       rootMessage: event.rootMessage,
       at,
+      warnSkipped,
     });
     if (resolved?.registered && resolved.conversation.state === 'closed') {
       const block = await trx
@@ -910,7 +914,7 @@ export function createInbound(input: {
           ? undefined
           : await trx
               .selectFrom('outbox')
-              .select('external_ref')
+              .select(['id', 'external_ref'])
               .where('kind', '=', 'conversation.open')
               .where('state', '=', 'done')
               .where(
@@ -920,10 +924,13 @@ export function createInbound(input: {
               )
               .orderBy('id', 'desc')
               .executeTakeFirst();
-      const ref =
+      const parsed =
         opened?.external_ref === null || opened?.external_ref === undefined
           ? undefined
-          : deliveredRefSchema.safeParse(JSON.parse(opened.external_ref)).data;
+          : deliveredRefSchema.safeParse(JSON.parse(opened.external_ref));
+      if (opened !== undefined && parsed?.success === false)
+        warnSkipped('outbox', 'external_ref', opened.id, parsed.error);
+      const ref = parsed?.data;
       const scope = createHash('sha256')
         .update(JSON.stringify([gateway.kind, event.conversation ?? null]))
         .digest('hex');

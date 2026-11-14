@@ -24,7 +24,13 @@ import {
 } from '@spur-board/contracts';
 import { z } from 'zod';
 import { sql } from 'kysely';
-import { parseJson, toJson } from '../store/json.ts';
+import {
+  parseJson,
+  toJson,
+  warnSkippedOnce,
+  type SkippedRow,
+  type WarnSkipped,
+} from '../store/json.ts';
 import type { Store } from '../store/store.ts';
 import {
   emit,
@@ -1009,6 +1015,8 @@ export function createObservationCore(deps: {
   config: Config;
   clock: { now(): number };
   productVersion?: string;
+  /** Logs a stored JSON row a lenient read skipped; core calls it once per row. */
+  warn?: (fields: SkippedRow, message: string) => void;
 }): AdapterCore & {
   notice(kind: 'unknown_state' | 'unknown_status', value: string): Promise<void>;
   /**
@@ -1017,11 +1025,15 @@ export function createObservationCore(deps: {
    * terminal and archive checks wait for a fresh complete poll after every restart.
    */
   completeSince: Map<string, string>;
+  /** Reports a skipped malformed row; pass it to `tickBoard` so both share one dedupe set. */
+  warnSkipped: WarnSkipped;
 } {
   const { store, config, clock } = deps;
   const completeSince = new Map<string, string>();
+  const warnSkipped = warnSkippedOnce(deps.warn);
   return {
     completeSince,
+    warnSkipped,
     async context(source) {
       const state = await store.db
         .selectFrom('source_state')
@@ -1317,7 +1329,7 @@ export function createObservationCore(deps: {
           .execute();
         for (const task of activeTasks)
           await updateTerminal(trx, config, task.id, batch.observedAt, currentComplete, blind);
-        await reconcileMembership(trx, config, currentComplete, batch.observedAt);
+        await reconcileMembership(trx, config, currentComplete, batch.observedAt, warnSkipped);
         const dispatchContext = {
           config,
           at: new Date(batch.observedAt),
@@ -1327,7 +1339,7 @@ export function createObservationCore(deps: {
         if ((observation.effectiveComplete && !completeSince.has(source)) || recovered)
           await dispatchSource(trx, source, dispatchContext);
         await dispatchJournaled(trx, dispatchContext);
-        await reconcileItems(trx, config, now, currentComplete.has('spur'));
+        await reconcileItems(trx, config, now, currentComplete.has('spur'), warnSkipped);
         if (deps.productVersion !== undefined)
           await enqueueLiveAfterFirstPoll(trx, {
             config,
@@ -1346,7 +1358,7 @@ export function createObservationCore(deps: {
         await sourceState(trx, source, state);
         if (wasBlind !== null && state.blind === undefined)
           await dispatchSource(trx, source, { config, at: new Date(now), complete: completeSince });
-        await reconcileItems(trx, config, now, completeSince.has('spur'));
+        await reconcileItems(trx, config, now, completeSince.has('spur'), warnSkipped);
       });
     },
     notice(kind, value) {

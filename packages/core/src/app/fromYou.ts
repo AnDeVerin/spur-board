@@ -25,7 +25,7 @@ import {
   type ItemCandidate,
   type ItemKind,
 } from '../domain/fromYou.ts';
-import { parseJson, toJson } from '../store/json.ts';
+import { parseJson, toJson, type WarnSkipped } from '../store/json.ts';
 import type { Row } from '../store/schema.ts';
 import { closeBlockIfOpen, openSystemBlock } from './blocks.ts';
 import { pastReopenFloor, taskUrl, ticketDone, type Trx } from './board-utils.ts';
@@ -57,6 +57,7 @@ export async function reconcileItems(
   config: Config,
   now: number,
   spurComplete: boolean,
+  warnSkipped?: WarnSkipped,
 ): Promise<void> {
   const candidates: ItemCandidate[] = [];
   const sources = await trx.selectFrom('source_state').selectAll().execute();
@@ -86,7 +87,10 @@ export async function reconcileItems(
     // A linked PR or ticket raises an item only once the runner counts it gone.
     if (miss.gone !== 1) continue;
     const parsed = entityRefSchema.safeParse(JSON.parse(miss.ref));
-    if (!parsed.success) continue;
+    if (!parsed.success) {
+      warnSkipped?.('source_miss', 'ref', `${miss.source} ${miss.ref_key}`, parsed.error);
+      continue;
+    }
     const ref = parsed.data;
     if (ref.kind === 'pr') {
       const links = await trx

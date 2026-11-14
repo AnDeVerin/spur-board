@@ -7,6 +7,7 @@ import {
 import { outboxBodySchema } from './outbox.ts';
 import type { Row } from '../store/schema.ts';
 import type { Trx } from './board-utils.ts';
+import type { WarnSkipped } from '../store/json.ts';
 
 type Conversation = Row<'conversation'>;
 
@@ -78,6 +79,7 @@ export async function resolveBlockConversation(
     originKey?: string;
     rootMessage: MessageRef;
     at: string;
+    warnSkipped?: WarnSkipped;
   },
 ): Promise<{ conversation: Conversation; registered: boolean } | undefined> {
   const existing = await trx
@@ -91,14 +93,18 @@ export async function resolveBlockConversation(
   if (input.originKey === undefined) return undefined;
   const opened = await trx
     .selectFrom('outbox')
-    .select(['payload'])
+    .select(['id', 'payload'])
     .where('kind', '=', 'conversation.open')
     .where('dedupe_key', '=', input.originKey)
     .executeTakeFirst();
   if (opened === undefined) return undefined;
   const payload: unknown = JSON.parse(opened.payload);
   const parsed = outboxBodySchema.safeParse({ kind: 'conversation.open', payload });
-  if (!parsed.success || parsed.data.kind !== 'conversation.open') return undefined;
+  if (!parsed.success) {
+    input.warnSkipped?.('outbox', 'payload', opened.id, parsed.error);
+    return undefined;
+  }
+  if (parsed.data.kind !== 'conversation.open') return undefined;
   const row = await insertConversation(trx, {
     gateway: input.gateway,
     ref: input.ref,

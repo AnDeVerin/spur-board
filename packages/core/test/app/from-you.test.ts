@@ -3,7 +3,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { RESERVED_PROJECT, configSchema } from '@spur-board/contracts';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   createApply,
   createBlockMutations,
@@ -38,10 +38,15 @@ const config = configSchema.parse({
 });
 const source = 'github-issues:board:o/r';
 const stores: Store[] = [];
-function setup() {
+function setup(warn?: Parameters<typeof createObservationCore>[0]['warn']) {
   const store = openStore(join(mkdtempSync(join(tmpdir(), 'board-items-')), 'board.db'));
   stores.push(store);
-  const core = createObservationCore({ store, config, clock });
+  const core = createObservationCore({
+    store,
+    config,
+    clock,
+    ...(warn === undefined ? {} : { warn }),
+  });
   return {
     store,
     core,
@@ -573,6 +578,45 @@ it('skips a source miss of another shape and keeps the tick committed', async ()
   await tickBoard({ store, config, clock, completeSince: core.completeSince });
   expect(await store.db.selectFrom('operator_item').select(['item_key', 'kind']).execute()).toEqual(
     [{ item_key: 'delivery:1', kind: 'post_failed' }],
+  );
+});
+
+it('warns once about a skipped source miss across ticks and keeps them committed', async () => {
+  const warn = vi.fn();
+  const { store, core } = setup(warn);
+  await scanTransaction(store, config, async (trx) => {
+    await trx.insertInto('source_state').values(sampleRows.source_state).execute();
+    await trx
+      .insertInto('source_miss')
+      .values({ ...sampleRows.source_miss, ref: '{"kind":"pr","repo":"x/y"}', gone: 1 })
+      .execute();
+    await trx
+      .insertInto('outbox')
+      .values({ ...sampleRows.outbox, kind: 'conversation.reply', state: 'post_failed' })
+      .execute();
+  });
+  for (let tick = 0; tick < 2; tick++) {
+    now += 1_000;
+    await tickBoard({
+      store,
+      config,
+      clock,
+      completeSince: core.completeSince,
+      warnSkipped: core.warnSkipped,
+    });
+  }
+  expect(await store.db.selectFrom('operator_item').select(['item_key', 'kind']).execute()).toEqual(
+    [{ item_key: 'delivery:1', kind: 'post_failed' }],
+  );
+  expect(warn).toHaveBeenCalledTimes(1);
+  expect(warn).toHaveBeenCalledWith(
+    {
+      table: 'source_miss',
+      column: 'ref',
+      row: 'github pr:x/y#7',
+      issues: [expect.objectContaining({ path: 'number' })],
+    },
+    expect.any(String),
   );
 });
 

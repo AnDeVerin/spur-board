@@ -81,7 +81,10 @@ afterEach(async () => {
   for (const store of stores.splice(0)) await store.close();
 });
 
-async function setup(author: ActorId = 'system') {
+async function setup(
+  author: ActorId = 'system',
+  warn?: Parameters<typeof createInbound>[0]['warn'],
+) {
   const file = join(mkdtempSync(join(tmpdir(), 'core-inbound-')), 'board.db');
   const store = openStore(file);
   stores.push(store);
@@ -144,7 +147,13 @@ async function setup(author: ActorId = 'system') {
     gateway,
     conversation,
     root,
-    inbound: createInbound({ store, gateway, config, clock: { now: () => now } }),
+    inbound: createInbound({
+      store,
+      gateway,
+      config,
+      clock: { now: () => now },
+      ...(warn === undefined ? {} : { warn }),
+    }),
   };
 }
 
@@ -1410,9 +1419,10 @@ describe('inbound apply', () => {
   });
 
   it('leaves a gap item without a url when the delivered root ref has another shape', async () => {
-    const { store, inbound, root } = await setup();
+    const warn = vi.fn();
+    const { store, inbound, root } = await setup('system', warn);
     const conversation = conversationRefSchema.parse('thread-1');
-    await store.db
+    const opened = await store.db
       .insertInto('outbox')
       .values({
         ...sampleRows.outbox,
@@ -1422,11 +1432,53 @@ describe('inbound apply', () => {
         state: 'done',
         external_ref: JSON.stringify({ conversation, message: root }),
       })
-      .execute();
+      .returning('id')
+      .executeTakeFirstOrThrow();
     await inbound.sink({ kind: 'gap', dedupeKey: 'gap-no-permalink', conversation });
     expect(await store.db.selectFrom('operator_item').select(['kind', 'url']).execute()).toEqual([
       { kind: 'inbound_gap', url: '' },
     ]);
+    await inbound.sink({ kind: 'gap', dedupeKey: 'gap-no-permalink-2', conversation });
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith(
+      {
+        table: 'outbox',
+        column: 'external_ref',
+        row: String(opened.id),
+        issues: [expect.objectContaining({ path: 'permalink' })],
+      },
+      expect.any(String),
+    );
+  });
+
+  it('registers no thread for an originKey whose open payload has another shape', async () => {
+    const warn = vi.fn();
+    const { store, inbound } = await setup('system', warn);
+    const opened = await store.db
+      .insertInto('outbox')
+      .values({
+        ...sampleRows.outbox,
+        id: undefined,
+        kind: 'conversation.open',
+        dedupe_key: 'conversation.open:1',
+        payload: '{}',
+      })
+      .returning('id')
+      .executeTakeFirstOrThrow();
+    const second = message({ conversation: 'thread-2', root: 'root-2', key: 'second-thread' });
+    await inbound.sink({ ...second, originKey: 'conversation.open:1' });
+    expect(
+      await store.db
+        .selectFrom('conversation')
+        .select('ref')
+        .where('ref', '=', 'thread-2')
+        .execute(),
+    ).toEqual([]);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith(
+      expect.objectContaining({ table: 'outbox', column: 'payload', row: String(opened.id) }),
+      expect.any(String),
+    );
   });
 
   it('registers a content-free worker answer notification for a live author', async () => {
