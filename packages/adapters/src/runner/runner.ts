@@ -525,6 +525,8 @@ function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: nu
       const attempt = () =>
         run(async () => {
           let retry = false;
+          // A function, so the read sees the flag the callback set during the await.
+          const transient = () => retry;
           const result = await demandTurn(
             ref,
             abort,
@@ -539,7 +541,7 @@ function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: nu
           if (result === undefined) return;
           const waitMs = DEMAND_RETRY_WAITS_MS[attempts];
           attempts += 1;
-          if (retry && waitMs !== undefined && !settled && now() + waitMs < deadlineMs) {
+          if (transient() && waitMs !== undefined && !settled && now() + waitMs < deadlineMs) {
             retryTimer = setTimeout(() => {
               retryTimer = undefined;
               void attempt();
