@@ -202,9 +202,12 @@ export function exchangeBody(
 
 /**
  * A distinct semantic ring. Transport retries reuse this row and its text. A restarted series
- * (`series` > 0), a ring after the task was archived (`archives` > 0) and a ring after a move
- * killed an earlier one (`moves` > 0) get their own keys, so a cancelled ring does not block its
- * replacement; unsuffixed keys stay as before.
+ * (`series` > 0) and a ring after the task was archived (`archives` > 0) get their own keys.
+ * Every ring of a key whose earlier rows all finished (a move or archive killed them, or a
+ * handover reset the series after they were delivered) takes the next handover generation
+ * `:h<n>`, `n` being how many rows the key has, so a finished ring never blocks its successor.
+ * A row of the key still waiting in the outbox is returned instead. Unsuffixed keys stay as
+ * before.
  */
 export async function enqueueDoorbell(
   trx: Trx,
@@ -216,17 +219,29 @@ export async function enqueueDoorbell(
     at: Date;
     series?: number;
     archives?: number;
-    moves?: number;
   },
 ): Promise<number> {
   const series = input.series ?? 0;
   const archives = input.archives ?? 0;
-  const moves = input.moves ?? 0;
+  const base = `doorbell:${String(input.notificationId)}:${input.session}:${String(input.ring)}${
+    series > 0 ? `:s${String(series)}` : ''
+  }${archives > 0 ? `:a${String(archives)}` : ''}`;
+  // The key and its generations `<base>:h<n>`: a range of the unique `dedupe_key` index.
+  const rows = await trx
+    .selectFrom('outbox')
+    .select(['id', 'state'])
+    .where((eb) =>
+      eb.or([
+        eb('dedupe_key', '=', base),
+        eb.and([eb('dedupe_key', '>', `${base}:h`), eb('dedupe_key', '<', `${base}:i`)]),
+      ]),
+    )
+    .execute();
+  const waiting = rows.find((row) => row.state === 'pending' || row.state === 'in_flight');
+  if (waiting !== undefined) return waiting.id;
   const row = await insertOutbox(trx, {
     kind: 'doorbell',
-    dedupeKey: `doorbell:${String(input.notificationId)}:${input.session}:${String(input.ring)}${
-      series > 0 ? `:s${String(series)}` : ''
-    }${archives > 0 ? `:a${String(archives)}` : ''}${moves > 0 ? `:m${String(moves)}` : ''}`,
+    dedupeKey: rows.length > 0 ? `${base}:h${String(rows.length)}` : base,
     payload: {
       notificationId: input.notificationId,
       ring: input.ring,
@@ -238,6 +253,33 @@ export async function enqueueDoorbell(
   });
   if (row.id === null) throw new Error('Doorbell cannot be blocked by gateway scan');
   return row.id;
+}
+
+/**
+ * Moves the doorbell rows of the worker's notifications on task `taskId`, other than `exceptId`,
+ * that wait in the outbox to the front, in outbox id order, ahead of rings reconcile enqueues
+ * next. A row in retry backoff (`attempts > 0`) keeps its wait.
+ */
+export async function promoteWorkerDoorbells(
+  trx: Trx,
+  taskId: number,
+  at: Date,
+  exceptId?: number,
+): Promise<void> {
+  let others = trx
+    .selectFrom('notification')
+    .select('id')
+    .where('task_id', '=', taskId)
+    .where('role', '=', 'worker');
+  if (exceptId !== undefined) others = others.where('id', '!=', exceptId);
+  await trx
+    .updateTable('outbox')
+    .set({ next_at: at.toISOString() })
+    .where('kind', '=', 'doorbell')
+    .where('state', '=', 'pending')
+    .where('attempts', '=', 0)
+    .where(sql<number>`json_extract(payload, '$.notificationId')`, 'in', others)
+    .execute();
 }
 
 /** The key holds no install time, so a session gets at most one reload message per version. */

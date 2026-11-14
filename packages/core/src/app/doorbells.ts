@@ -9,15 +9,15 @@ import {
   type EventPayload,
   type SessionFacts,
 } from '@spur-board/contracts';
-import { sql } from 'kysely';
+import { sql, type ExpressionBuilder } from 'kysely';
 import { parseAddressee } from '../domain/blocks/blocks.ts';
-import type { Row } from '../store/schema.ts';
+import type { Row, Tables } from '../store/schema.ts';
 import { curatorProject } from './authorize.ts';
 import { queueBlockOpen } from './block-thread.ts';
 import { emit, taskUrl, type Trx } from './board-utils.ts';
 import { CommandError, type CommandContext } from './commands.ts';
 import { clearItem, raiseItem } from './feed.ts';
-import { enqueueDoorbell } from './outbox.ts';
+import { enqueueDoorbell, promoteWorkerDoorbells } from './outbox.ts';
 import { scanTransaction } from './secrets.ts';
 import type { Store } from '../store/store.ts';
 
@@ -39,6 +39,7 @@ type DoorbellEvent =
       actor: ActorId;
     }
   | { kind: 'block_removed'; block: Block }
+  | { kind: 'course_note'; block: Block; comment: Pick<Row<'comment'>, 'id' | 'revision'> }
   | { kind: 'block_closed_by_addressee' }
   | { kind: 'task_comment' };
 
@@ -82,6 +83,9 @@ export async function applyDoorbellPolicy(trx: Trx, event: DoorbellEvent, at: Da
       return;
     case 'block_removed':
       await registerRemovedNotification(trx, event.block, at);
+      return;
+    case 'course_note':
+      await registerCourseNoteNotification(trx, event, at);
       return;
     case 'block_closed_by_addressee':
     case 'task_comment':
@@ -312,6 +316,111 @@ async function registerAnswerNotification(
     })
     .onConflict((oc) => oc.column('source_key').doNothing())
     .execute();
+}
+
+/**
+ * Register the worker's ring for a course note: the curator's answer to a course check, copied to
+ * the task. It names the course block, and until its first ring is delivered the worker's other
+ * rings on the task stay held (`courseHold`), so the worker reads the decision first.
+ */
+async function registerCourseNoteNotification(
+  trx: Trx,
+  input: Extract<DoorbellEvent, { kind: 'course_note' }>,
+  at: Date,
+): Promise<void> {
+  await trx
+    .insertInto('notification')
+    .values({
+      source_key: `course-note:${String(input.comment.id)}`,
+      kind: 'answer',
+      task_id: input.block.task_id,
+      block_id: input.block.id,
+      comment_id: input.comment.id,
+      revision: input.comment.revision,
+      role: 'worker',
+      author_session: null,
+      recipient_session: null,
+      next_at: at.toISOString(),
+      last_outbox_id: null,
+      acked_at: null,
+      exhausted_at: null,
+      created_at: at.toISOString(),
+    })
+    .onConflict((oc) => oc.column('source_key').doNothing())
+    .execute();
+}
+
+/** Course-check items of any state, as subquery rows of their block ids. */
+const courseBlocks = (eb: ExpressionBuilder<Tables, 'notification'>) =>
+  eb
+    .selectFrom('operator_item')
+    .select('operator_item.block_id')
+    .where('operator_item.kind', '=', 'course_check')
+    .where('operator_item.block_id', 'is not', null);
+
+/**
+ * Whether a worker notification is held by a course check on its task. Two holds apply: while a
+ * `course_check` item is active, and, once it clears with a note, until the note's first ring is
+ * delivered to any session, so the note rings first. A course note is a worker `answer`
+ * notification on a course check's block. Other roles and `cycle_limit` items hold no ring.
+ */
+function courseHold(eb: ExpressionBuilder<Tables, 'notification'>) {
+  return eb.and([
+    eb('notification.role', '=', 'worker'),
+    eb.or([
+      eb.exists(
+        eb
+          .selectFrom('operator_item')
+          .select('operator_item.id')
+          .where('operator_item.kind', '=', 'course_check')
+          .whereRef('operator_item.task_id', '=', 'notification.task_id')
+          .where('operator_item.cleared_at', 'is', null),
+      ),
+      eb.and([
+        eb.not(
+          eb.and([
+            eb('notification.kind', '=', 'answer'),
+            eb('notification.block_id', 'in', courseBlocks(eb)),
+          ]),
+        ),
+        eb.exists(
+          eb
+            .selectFrom('notification as note')
+            .select('note.id')
+            .whereRef('note.task_id', '=', 'notification.task_id')
+            .where('note.role', '=', 'worker')
+            .where('note.kind', '=', 'answer')
+            .where('note.block_id', 'in', courseBlocks(eb))
+            .where('note.rings', '=', 0)
+            .where('note.acked_at', 'is', null)
+            .where('note.exhausted_at', 'is', null)
+            // A handover resets `rings`; a ring once delivered to any session keeps the gate open.
+            // The key range `doorbell:<id>:` reads the unique `dedupe_key` index; `+` keeps the
+            // planner off the `state` index, whose `done` rows only grow.
+            .where((inner) =>
+              inner.not(
+                inner.exists(
+                  inner
+                    .selectFrom('outbox')
+                    .select('outbox.id')
+                    .where(sql<string>`+outbox.state`, '=', 'done')
+                    .where(
+                      'outbox.dedupe_key',
+                      '>',
+                      sql<string>`'doorbell:' || ${sql.ref('note.id')} || ':'`,
+                    )
+                    .where(
+                      'outbox.dedupe_key',
+                      '<',
+                      sql<string>`'doorbell:' || ${sql.ref('note.id')} || ';'`,
+                    ),
+                ),
+              ),
+            ),
+        ),
+      ]),
+    ]),
+  ]);
 }
 
 /**
@@ -577,6 +686,7 @@ async function endNotification(
     .set({ exhausted_at: at.toISOString() })
     .where('id', '=', n.id)
     .execute();
+  if (n.rings === 0) await releaseAfterCourseNote(trx, n, at);
   const addressee = parseAddressee(n.role);
   if (n.kind === 'block' && addressee.kind === 'curator') {
     const block = await trx
@@ -708,7 +818,10 @@ async function ringText(trx: Trx, n: Notification, task: Task, ring: number): Pr
   return `${task.key} block B${String(blockId)} was removed by ${block.unblocked_by ?? 'system'}; see board task ${task.key} ${suffix}`;
 }
 
-/** Notifications reconcile looks at: unacked, not exhausted, due, on a task not archived. */
+/**
+ * Notifications reconcile looks at: unacked, not exhausted, due, on a task not archived, and not
+ * held by a course check (`courseHold`).
+ */
 function dueNotifications(db: Trx, at: Date) {
   // Archive cancels unsent rings (`archiveTask`); ringing again before `task.add` would undo that.
   return db
@@ -717,7 +830,8 @@ function dueNotifications(db: Trx, at: Date) {
     .where('task.membership', '!=', 'archived')
     .where('notification.acked_at', 'is', null)
     .where('notification.exhausted_at', 'is', null)
-    .where('notification.next_at', '<=', at.toISOString());
+    .where('notification.next_at', '<=', at.toISOString())
+    .where((eb) => eb.not(courseHold(eb)));
 }
 
 /**
@@ -828,16 +942,6 @@ export async function reconcileDoorbells(trx: Trx, at: Date, config: Config): Pr
       .where('task_id', '=', n.task_id)
       .where('kind', '=', 'task_archived')
       .executeTakeFirst();
-    // A ring killed by a move keeps its key; the next one to that session needs a new key.
-    const killed = keepsRings
-      ? await trx
-          .selectFrom('outbox')
-          .select((eb) => eb.fn.countAll<number>().as('count'))
-          .where('kind', '=', 'doorbell')
-          .where('state', '=', 'dead')
-          .where(sql<number>`json_extract(payload, '$.notificationId')`, '=', n.id)
-          .executeTakeFirst()
-      : undefined;
     const ring = rings + 1;
     const text = await ringText(trx, n, task, ring);
     const outboxId = await enqueueDoorbell(trx, {
@@ -848,7 +952,6 @@ export async function reconcileDoorbells(trx: Trx, at: Date, config: Config): Pr
       at,
       series: raised?.series ?? 0,
       archives: archived?.count ?? 0,
-      moves: killed?.count ?? 0,
     });
     await trx
       .updateTable('notification')
@@ -931,6 +1034,7 @@ export async function recordRingDelivery(
     })
     .where('id', '=', notificationId)
     .execute();
+  if (ring === 1) await releaseAfterCourseNote(trx, n, at);
   await journal(
     trx,
     n,
@@ -942,6 +1046,25 @@ export async function recordRingDelivery(
     },
     at,
   );
+}
+
+/**
+ * Once a course note no longer holds (`courseHold`): its first ring delivered, or read or ended
+ * before it rang. Moves the worker's other rings on the task that waited in the outbox to the
+ * front (`promoteWorkerDoorbells`); `clearItem` does the same for a course check that clears
+ * without a note.
+ */
+async function releaseAfterCourseNote(trx: Trx, n: Notification, at: Date): Promise<void> {
+  const note = await trx
+    .selectFrom('notification')
+    .select('id')
+    .where('id', '=', n.id)
+    .where('role', '=', 'worker')
+    .where('kind', '=', 'answer')
+    .where((eb) => eb('block_id', 'in', courseBlocks(eb)))
+    .executeTakeFirst();
+  if (note === undefined) return;
+  await promoteWorkerDoorbells(trx, n.task_id, at, n.id);
 }
 
 /** True while the Spur source is blind: its stored session facts may no longer hold. */
@@ -975,6 +1098,14 @@ export async function ringStillCurrent(
     return 'dead';
   const session = await selectNotificationRecipient(trx, n, config);
   if (session?.id !== sessionId) return 'dead';
+  // A held ring waits in the outbox, keeping its key and its place for the release.
+  const held = await trx
+    .selectFrom('notification')
+    .select('id')
+    .where('id', '=', n.id)
+    .where(courseHold)
+    .executeTakeFirst();
+  if (held !== undefined) return 'defer';
   return recipientBusy(session) && !(await spurBlind(trx)) ? 'defer' : 'send';
 }
 
@@ -1030,6 +1161,7 @@ export async function acknowledgeNotification(
       .set({ acked_at: input.at.toISOString() })
       .where('id', '=', notice.id)
       .execute();
+    if (notice.rings === 0) await releaseAfterCourseNote(trx, notice, input.at);
     await journal(trx, notice, 'doorbell_read', { doorbell: `N${String(notice.id)}` }, input.at);
     const item = await trx
       .selectFrom('operator_item')

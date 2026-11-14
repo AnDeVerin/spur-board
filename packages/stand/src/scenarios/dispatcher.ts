@@ -510,9 +510,19 @@ const openBlocks = async (board: Board) =>
     ({ state }) => state === 'open',
   );
 
+/** The fake Spur sends to `session` whose text includes `text`. */
+async function sendsTo(fakes: ScenarioFakes, session: string, text: string): Promise<string[]> {
+  const { sends } = (await fakes.spur('inspect')) as {
+    sends: { session: string; message: string }[];
+  };
+  return sends
+    .filter((send) => send.session === session && send.message.includes(text))
+    .map(({ message }) => message);
+}
+
 export const dispatchCourseCheck: Scenario = {
   name: 'dispatch-course-check',
-  summary: `Review's course check is 1 and stand-curator is the curator: the conductor's return holds ${ISSUE} in Dev on a curator block, with no turn.`,
+  summary: `Review's course check is 1 and stand-curator is the curator: the conductor's return holds ${ISSUE} in Dev on a curator block, rung to the curator; the waiting worker gets no turn and no ring.`,
   config: flow({ courseCheck: 1 }, [
     ...STAND_SPUR_PROJECTS,
     { name: 'stand-curator', role: 'curator' },
@@ -536,6 +546,15 @@ export const dispatchCourseCheck: Scenario = {
       key = (await courseItem(board))?.key;
       return course !== undefined && key !== undefined;
     });
+    // Both wait, so only the course check holds the worker's rings.
+    await fakes.spur('session', { id: board.roles.worker, state: 'waiting' });
+    await fakes.spur('session', { id: board.roles.curator, state: 'waiting' });
+    await board.poll();
+    await board.until('curator rung', STEP_MS, async () => {
+      const rung = await sendsTo(fakes, board.roles.curator, `block ${course ?? ''}:`);
+      return rung.length > 0;
+    });
+    await board.wait('outbox-drained');
     return entities(board, {
       ...(course === undefined
         ? {}
@@ -543,8 +562,15 @@ export const dispatchCourseCheck: Scenario = {
       ...(key === undefined ? {} : { items: { course: key } }),
     });
   },
-  async settled({ board, entities: named }) {
+  async settled({ board, fakes, entities: named }) {
     const problems = await check(board, { column: 'dev' });
+    const course = named.blocks?.['course'] ?? '';
+    // The seed waits for the curator's ring: a restore-reset starts the fake Spur's sends empty.
+    const rung = await sendsTo(fakes, board.roles.worker, `${ISSUE} `);
+    if (rung.length > 0) problems.push(`the worker was rung: ${rung.join('; ')}`);
+    const { why } = await board.call('operator', 'task.get', { task: ISSUE, why: true });
+    if (why?.heldBy?.includes(course) !== true)
+      problems.push(`heldBy is ${why?.heldBy?.join(', ') ?? 'absent'}, not ${course}`);
     const item = await courseItem(board);
     if (item === undefined || item.key !== named.items?.['course'])
       problems.push(`no item ${named.items?.['course'] ?? 'course-check'}`);

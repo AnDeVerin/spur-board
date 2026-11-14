@@ -1,5 +1,5 @@
 {
-  "version": "8f1875328fa5fc2a8a33f66565bf29d627bbf245128ccbf3af279fdf201cc4e9",
+  "version": "df9036c19bcf3180f4b019052c6f3b582f9f0e978375b978142d2dff07bfe593",
   "grants": [
     "operator",
     "project-agent",
@@ -3281,6 +3281,17 @@
                   ]
                 },
                 "description": "What holds the dispatcher from acting on the task; empty when nothing does."
+              },
+              "heldBy": {
+                "description": "Blocks of the open cycle-limit or course-check items holding the task; absent when none does.",
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "maxLength": 16,
+                  "pattern": "^B[1-9]\\d{0,14}$",
+                  "description": "Block ID: B followed by a number, e.g. B12."
+                }
               },
               "gates": {
                 "type": "array",
