@@ -1,6 +1,3 @@
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import {
   configSchema,
   eventPayloadSchemas,
@@ -20,13 +17,13 @@ import {
   createObservationCore,
   createOperationRegistry,
   createQuery,
-  openStore,
   tickBoard,
   type Store,
 } from '../../src/index.ts';
 import { archiveTask } from '../../src/app/archive.ts';
 import { editInboundComment, recordInboundBlockMessage } from '../../src/app/blocks.ts';
 import { scanTransaction } from '../../src/app/secrets.ts';
+import { openTempStore } from '../support/store.ts';
 
 // The dispatcher end to end through the observation core, the registry and the tick, on an
 // sb-like board: review by `rev`, product review by `coord`, ready to merge by the operator.
@@ -186,7 +183,7 @@ function board(options: Options = {}) {
   let config = boardConfig(options);
   let now = BASE;
   const clock = { now: () => now };
-  const store = openStore(join(mkdtempSync(join(tmpdir(), 'board-dispatch-')), 'board.db'));
+  const store = openTempStore('board-dispatch-').store;
   stores.push(store);
   let core = createObservationCore({ store, config, clock });
   let current: PrFacts | null = null;

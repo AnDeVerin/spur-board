@@ -58,18 +58,6 @@ function configure(database: Database.Database): void {
   database.pragma('foreign_keys = ON');
 }
 
-/** Opens `file` with WAL, NORMAL sync, foreign keys on and a 5000 ms busy timeout. */
-export function openDatabase(file: string): Database.Database {
-  const database = connect(file);
-  try {
-    configure(database);
-  } catch (error) {
-    database.close();
-    throw error;
-  }
-  return database;
-}
-
 /**
  * Opens `file` and applies pending migrations. The file, its `-wal` and `-shm` and its migration
  * backups are kept at mode 0600, and only the newest `KEEP_BACKUPS` backups are kept. A database

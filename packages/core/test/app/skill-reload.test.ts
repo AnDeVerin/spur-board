@@ -1,12 +1,10 @@
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { configSchema } from '@spur-board/contracts';
 import { afterEach, describe, expect, it } from 'vitest';
-import { createSender, openStore, type Store } from '../../src/index.ts';
+import { createSender, type Store } from '../../src/index.ts';
 import { SpurRejectedError } from '../../src/app/sender.ts';
 import { requestSkillReload, skillReloads } from '../../src/app/skill-reload.ts';
 import { sampleRows } from '../store/sample-rows.ts';
+import { openTempStore } from '../support/store.ts';
 
 const AT = new Date('2026-11-04T09:00:01.000Z');
 const TEXT =
@@ -34,7 +32,7 @@ afterEach(async () => {
 });
 
 async function setup() {
-  const store = openStore(join(mkdtempSync(join(tmpdir(), 'core-skill-reload-')), 'board.db'));
+  const store = openTempStore('core-skill-reload-').store;
   stores.push(store);
   const ended = AT.toISOString();
   await store.transaction(async (trx) => {

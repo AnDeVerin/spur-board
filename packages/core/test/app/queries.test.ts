@@ -1,17 +1,9 @@
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { EVENT_KINDS, OPERATIONS, configSchema } from '@spur-board/contracts';
 import { afterEach, describe, expect, it } from 'vitest';
-import {
-  createApply,
-  createOperationRegistry,
-  createQuery,
-  openStore,
-  type Store,
-} from '../../src/index.ts';
+import { createApply, createOperationRegistry, createQuery, type Store } from '../../src/index.ts';
 import { scanTransaction } from '../../src/app/secrets.ts';
 import { closeTurns, openTurn } from '../../src/app/turns.ts';
+import { openTempStore } from '../support/store.ts';
 
 const KEY = 'o/r#101';
 const OTHER_KEY = 'x/y#202';
@@ -60,7 +52,7 @@ function required<T>(value: T | undefined): T {
 }
 
 async function seeded() {
-  const store = openStore(join(mkdtempSync(join(tmpdir(), 'board-queries-')), 'board.db'));
+  const store = openTempStore('board-queries-').store;
   stores.push(store);
   await store.transaction(async (trx) => {
     for (const [id, project, key] of [

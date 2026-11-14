@@ -1,7 +1,4 @@
 import { scanTransaction } from '../../src/app/secrets.ts';
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { RESERVED_PROJECT, configSchema } from '@spur-board/contracts';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
@@ -10,7 +7,6 @@ import {
   createMembershipMutations,
   createObservationCore,
   getStatus,
-  openStore,
   OUTBOX_KINDS,
   tickBoard,
   type Store,
@@ -19,6 +15,7 @@ import { sampleRows } from '../store/sample-rows.ts';
 import { raiseItem } from '../../src/app/feed.ts';
 import { raiseCycleLimit } from '../../src/app/fromYou.ts';
 import { enqueueFeedLine } from '../../src/app/outbox.ts';
+import { openTempStore } from '../support/store.ts';
 
 const base = Date.parse('2026-11-04T12:00:00.000Z');
 let now = base;
@@ -39,7 +36,7 @@ const config = configSchema.parse({
 const source = 'github-issues:board:o/r';
 const stores: Store[] = [];
 function setup() {
-  const store = openStore(join(mkdtempSync(join(tmpdir(), 'board-items-')), 'board.db'));
+  const store = openTempStore('board-items-').store;
   stores.push(store);
   const core = createObservationCore({ store, config, clock });
   return {
@@ -453,7 +450,7 @@ it('clears a Jira authentication item on the first good poll', async () => {
     operator: { slack: 'operator' },
     digest: { tz: 'UTC' },
   });
-  const store = openStore(join(mkdtempSync(join(tmpdir(), 'board-jira-auth-')), 'board.db'));
+  const store = openTempStore('board-jira-auth-').store;
   stores.push(store);
   const core = createObservationCore({ store, config: jiraConfig, clock });
   await core.reportSourceState('jira:jira-board', {

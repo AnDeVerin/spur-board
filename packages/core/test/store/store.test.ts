@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { z, ZodError } from 'zod';
 import { openStore, parseJson, toJson, type Store, type Tables } from '../../src/index.ts';
 import { migrate, migrationsDir, readMigrations } from '../../src/store/migrate.ts';
-import { openDatabase } from '../../src/store/store.ts';
+import { rawDatabase } from '../support/store.ts';
 import { insertSampleRows, sampleRows, tableNames } from './sample-rows.ts';
 
 const open: Store[] = [];
@@ -49,7 +49,7 @@ describe('openStore', () => {
 
       // An existing database whose files are all 0644, held open so -wal and -shm stay.
       const file = join(dir, 'board.db');
-      const raw = openDatabase(file);
+      const raw = rawDatabase(file);
       try {
         migrate(raw, readMigrations(migrationsDir));
         raw.exec('CREATE TABLE extra (x INTEGER); INSERT INTO extra VALUES (1);');

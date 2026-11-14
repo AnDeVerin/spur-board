@@ -1,6 +1,3 @@
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import {
   COLUMN_IDS,
   OPERATIONS,
@@ -18,13 +15,13 @@ import {
   authorize,
   createApply,
   createQuery,
-  openStore,
   type AuthorizationTarget,
   type Mutation,
   type Query,
   type Store,
 } from '../../src/index.ts';
 import { sampleRows } from '../store/sample-rows.ts';
+import { openTempStore } from '../support/store.ts';
 
 const config = configSchema.parse({
   projects: [
@@ -467,7 +464,7 @@ function track(store: Store): Store {
   return store;
 }
 async function seeded(): Promise<Store> {
-  const store = track(openStore(join(mkdtempSync(join(tmpdir(), 'core-authorize-')), 'board.db')));
+  const store = track(openTempStore('core-authorize-').store);
   await store.transaction(async (trx) => {
     await trx
       .insertInto('task')

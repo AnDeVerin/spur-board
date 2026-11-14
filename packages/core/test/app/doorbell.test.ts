@@ -1,6 +1,3 @@
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import {
   configSchema,
   parseRingMarker,
@@ -17,7 +14,6 @@ import {
   createBlockMutations,
   createObservationCore,
   createSender,
-  openStore,
   reconcileDueDoorbells,
   tickBoard,
   toJson,
@@ -43,6 +39,7 @@ import {
   remindStuckTurns,
   turnExecutor,
 } from '../../src/app/turns.ts';
+import { openTempStore } from '../support/store.ts';
 
 const KEY = 'o/r#101';
 const START = Date.parse('2026-11-03T10:00:00.000Z');
@@ -77,7 +74,7 @@ async function setup(
     column?: ColumnId;
   } = {},
 ) {
-  const store = openStore(join(mkdtempSync(join(tmpdir(), 'core-doorbell-')), 'board.db'));
+  const store = openTempStore('core-doorbell-').store;
   stores.push(store);
   let now = START;
   let failNext: Error | undefined;

@@ -1,14 +1,10 @@
 import { scanTransaction } from '../../src/app/secrets.ts';
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { configSchema, type Config } from '@spur-board/contracts';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   authorize,
   createApiServer,
   identify,
-  openStore,
   requestToken,
   tokenListQuery,
   tokenRevokeMutation,
@@ -17,6 +13,7 @@ import {
 } from '../../src/index.ts';
 import { decideTokenInTransaction } from '../../src/app/tokens.ts';
 import { sampleRows } from '../store/sample-rows.ts';
+import { openTempStore } from '../support/store.ts';
 
 const config = configSchema.parse({
   projects: [
@@ -37,7 +34,7 @@ const config = configSchema.parse({
 
 const stores: Store[] = [];
 async function storeWithSession(status?: 'active' | 'ended' | 'completed' | 'killed') {
-  const store = openStore(join(mkdtempSync(join(tmpdir(), 'board-api-identity-')), 'board.db'));
+  const store = openTempStore('board-api-identity-').store;
   stores.push(store);
   if (status !== undefined) {
     await scanTransaction(store, config, async (trx) => {

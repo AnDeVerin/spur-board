@@ -1,6 +1,3 @@
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import {
   configSchema,
   OPERATIONS,
@@ -17,7 +14,6 @@ import {
   createMembershipMutations,
   createObservationCore,
   getStatus,
-  openStore,
   tickBoard,
   type Store,
 } from '../../src/index.ts';
@@ -31,6 +27,7 @@ import {
   ringUndelivered,
 } from '../../src/app/doorbells.ts';
 import { closeTurns, openTurn } from '../../src/app/turns.ts';
+import { openTempStore } from '../support/store.ts';
 
 const at = '2026-11-04T12:00:00.000Z';
 let now = Date.parse(at);
@@ -52,7 +49,7 @@ const config = configSchema.parse({
 const source = 'github-issues:board:o/r';
 const stores: Store[] = [];
 function setup(testConfig = config) {
-  const store = openStore(join(mkdtempSync(join(tmpdir(), 'board-observe-')), 'board.db'));
+  const store = openTempStore('board-observe-').store;
   stores.push(store);
   return {
     store,
@@ -2089,7 +2086,7 @@ describe('a clock that moves during the transaction', () => {
   // The real clock moves between scan passes; an item cleared with a fresh time on each pass
   // would never pass the gateway scan and the whole transaction would fail.
   function movingSetup() {
-    const store = openStore(join(mkdtempSync(join(tmpdir(), 'board-observe-')), 'board.db'));
+    const store = openTempStore('board-observe-').store;
     stores.push(store);
     let ms = Date.parse(at);
     const moving = { now: () => (ms += 7) };

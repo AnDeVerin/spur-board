@@ -1,8 +1,6 @@
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { purgeExpiredCommands, openStore, type Store } from '../../src/index.ts';
+import { purgeExpiredCommands, type Store } from '../../src/index.ts';
+import { openTempStore } from '../support/store.ts';
 
 const DAY_MS = 86_400_000;
 const START = Date.parse('2026-11-03T10:00:00.000Z');
@@ -10,7 +8,7 @@ const START = Date.parse('2026-11-03T10:00:00.000Z');
 const open: Store[] = [];
 
 function freshStore(): Store {
-  const store = openStore(join(mkdtempSync(join(tmpdir(), 'core-retention-')), 'board.db'));
+  const store = openTempStore('core-retention-').store;
   open.push(store);
   return store;
 }

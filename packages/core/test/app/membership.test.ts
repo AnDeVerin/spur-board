@@ -1,16 +1,13 @@
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { configSchema, type TicketFacts } from '@spur-board/contracts';
 import { afterEach, expect, it } from 'vitest';
 import {
   createApply,
   createMembershipMutations,
   createObservationCore,
-  openStore,
   tickBoard,
   type Store,
 } from '../../src/index.ts';
+import { openTempStore } from '../support/store.ts';
 
 const base = Date.parse('2026-11-04T12:00:00.000Z');
 let now = base;
@@ -31,7 +28,7 @@ const source = 'github-issues:board:o/r';
 const github = 'github:board:o/r';
 const stores: Store[] = [];
 function setup(boardConfig = config) {
-  const store = openStore(join(mkdtempSync(join(tmpdir(), 'board-membership-')), 'board.db'));
+  const store = openTempStore('board-membership-').store;
   stores.push(store);
   return { store, core: createObservationCore({ store, config: boardConfig, clock }) };
 }

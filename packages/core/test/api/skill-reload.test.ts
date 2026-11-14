@@ -1,11 +1,9 @@
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { configSchema, renderHttpProblem, type ServerErrorCode } from '@spur-board/contracts';
 import type { FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createApiServer, openStore, type ApiOptions, type Store } from '../../src/index.ts';
+import { createApiServer, type ApiOptions, type Store } from '../../src/index.ts';
 import { sampleRows } from '../store/sample-rows.ts';
+import { openTempStore } from '../support/store.ts';
 
 const NOW = Date.parse('2026-11-04T09:00:01.000Z');
 const host = '127.0.0.1:4311';
@@ -41,7 +39,7 @@ function expectProblem(response: InjectResponse, code: ServerErrorCode, hint: st
 async function server(
   options: { productVersion?: string; logRequest?: ApiOptions['logRequest'] } = {},
 ) {
-  const store = openStore(join(mkdtempSync(join(tmpdir(), 'board-api-reload-')), 'board.db'));
+  const store = openTempStore('board-api-reload-').store;
   stores.push(store);
   await store.transaction(async (trx) => {
     for (const id of ['alpha', 'beta', 'gamma']) {

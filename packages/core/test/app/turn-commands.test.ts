@@ -1,6 +1,3 @@
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import {
   configSchema,
   err,
@@ -17,11 +14,11 @@ import {
   createObservationCore,
   createOperationRegistry,
   createQuery,
-  openStore,
   type Store,
 } from '../../src/index.ts';
 import { scanTransaction } from '../../src/app/secrets.ts';
 import { closeTurns, openTurn } from '../../src/app/turns.ts';
+import { openTempStore } from '../support/store.ts';
 
 const AT = '2026-11-04T08:00:00.000Z';
 const A = 'a'.repeat(40);
@@ -122,7 +119,7 @@ async function setup(
 ) {
   const config = board(options.reviewOrchestrator, options.mode);
   const clock = { now: () => Date.parse(AT) };
-  const store = openStore(join(mkdtempSync(join(tmpdir(), 'board-turn-')), 'board.db'));
+  const store = openTempStore('board-turn-').store;
   stores.push(store);
   await store.transaction(async (trx) => {
     await trx

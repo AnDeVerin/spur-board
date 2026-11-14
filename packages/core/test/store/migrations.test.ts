@@ -28,7 +28,8 @@ import {
   readMigrations,
   type Migration,
 } from '../../src/store/migrate.ts';
-import { openDatabase, openStore } from '../../src/store/store.ts';
+import { openStore } from '../../src/store/store.ts';
+import { rawDatabase } from '../support/store.ts';
 import { insertSampleRows, sampleRows, tableNames } from './sample-rows.ts';
 
 const INDEXES: Record<string, { table: string; columns: string[]; partialUnique: boolean }> = {
@@ -115,7 +116,7 @@ function tempDir(): string {
 
 /** A raw connection with the store PRAGMAs, plus a Kysely view of it. Closed after the test. */
 function rawDb(file: string): { raw: Database.Database; db: Kysely<Tables> } {
-  const raw = openDatabase(file);
+  const raw = rawDatabase(file);
   const db = new Kysely<Tables>({ dialect: new SqliteDialect({ database: raw }) });
   cleanup.push(() => db.destroy());
   return { raw, db };

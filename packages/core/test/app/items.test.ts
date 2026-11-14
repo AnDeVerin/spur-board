@@ -1,7 +1,4 @@
 import { scanTransaction } from '../../src/app/secrets.ts';
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import {
   configSchema,
   conversationRefSchema,
@@ -29,7 +26,6 @@ import {
   createOperationRegistry,
   createSender,
   listenApiServer,
-  openStore,
   requestToken,
   tickBoard,
   type Inbound,
@@ -37,6 +33,7 @@ import {
   reconcileDueDoorbells,
 } from '../../src/index.ts';
 import { sampleRows } from '../store/sample-rows.ts';
+import { openTempStore } from '../support/store.ts';
 
 const START = Date.parse('2026-11-03T10:00:00.000Z');
 const KEY = 'o/r#101';
@@ -62,7 +59,7 @@ afterEach(async () => {
 });
 
 async function setup(options: { inbound?: boolean; worker?: boolean } = {}) {
-  const store = openStore(join(mkdtempSync(join(tmpdir(), 'core-items-')), 'board.db'));
+  const store = openTempStore('core-items-').store;
   stores.push(store);
   let now = START;
   const clock = { now: () => now };

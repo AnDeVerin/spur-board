@@ -1,13 +1,10 @@
 import { scanTransaction } from '../../src/app/secrets.ts';
 import { RESERVED_PROJECT } from '@spur-board/contracts';
 import { createHash } from 'node:crypto';
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { createFakeGateway } from '@spur-board/gateway-testkit';
 import { sql } from 'kysely';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createSender, openStore, type Store } from '../../src/index.ts';
+import { createSender, type Store } from '../../src/index.ts';
 import { capPoints, raiseItem, tokenCardBody } from '../../src/app/feed.ts';
 import {
   decideTokenInTransaction,
@@ -25,6 +22,7 @@ import {
 import { observeGateway } from '../support/observe.ts';
 import { renderedLength } from '../support/rendered.ts';
 import { testConfig } from '../support/config.ts';
+import { openTempStore } from '../support/store.ts';
 
 const AT = new Date('2026-11-04T10:00:00.000Z');
 const SECRET = 'example-private-token-value';
@@ -40,7 +38,7 @@ afterEach(async () => {
 });
 
 function setup(): Store {
-  const store = openStore(join(mkdtempSync(join(tmpdir(), 'core-token-')), 'board.db'));
+  const store = openTempStore('core-token-').store;
   stores.push(store);
   return store;
 }
@@ -299,8 +297,7 @@ describe('operator token lifecycle', () => {
   });
 
   it('expires a request at send time instead of posting its approval after expiry', async () => {
-    const file = join(mkdtempSync(join(tmpdir(), 'core-token-')), 'board.db');
-    const store = openStore(file);
+    const { store, file } = openTempStore('core-token-');
     stores.push(store);
     await enroll(store);
     await scanTransaction(store, testConfig, (trx) =>
@@ -355,8 +352,7 @@ describe('operator token lifecycle', () => {
   it('expires a request at send time under a clock that moves on every read', async () => {
     // The expiry time lands in the edit payload, a gateway string: read inside the scan
     // transaction, it would change on every replay and abort the tick.
-    const file = join(mkdtempSync(join(tmpdir(), 'core-token-')), 'board.db');
-    const store = openStore(file);
+    const { store, file } = openTempStore('core-token-');
     stores.push(store);
     await enroll(store);
     await scanTransaction(store, testConfig, (trx) =>
@@ -403,8 +399,7 @@ describe('operator token lifecycle', () => {
   });
 
   it('expires a request that lapses while its send waits for the write lock', async () => {
-    const file = join(mkdtempSync(join(tmpdir(), 'core-token-')), 'board.db');
-    const store = openStore(file);
+    const { store, file } = openTempStore('core-token-');
     stores.push(store);
     await enroll(store);
     // The clock reads one ms before expiry until the send-start transaction holds the lock.
@@ -823,8 +818,7 @@ describe('purgeEndedTokenRequests', () => {
 
 describe('token card', () => {
   async function delivered(name = 'desk') {
-    const file = join(mkdtempSync(join(tmpdir(), 'core-token-')), 'board.db');
-    const store = openStore(file);
+    const { store, file } = openTempStore('core-token-');
     stores.push(store);
     await enroll(store, name);
     const fake = createFakeGateway({ profile: 'slack-like' });

@@ -1,18 +1,15 @@
 import { scanTransaction } from '../../src/app/secrets.ts';
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { OPERATIONS, configSchema, roleCanUseOperation } from '@spur-board/contracts';
 import { afterEach, expect, expectTypeOf, it } from 'vitest';
 import {
   createObservationCore,
   createOperationRegistry,
   createQuery,
-  openStore,
   type Store,
 } from '../../src/index.ts';
 import { raiseItem } from '../../src/app/feed.ts';
 import type { OperationHandlers } from '../../src/app/operations.ts';
+import { openTempStore } from '../support/store.ts';
 
 const config = configSchema.parse({
   projects: [
@@ -49,7 +46,7 @@ it('registers one handler with a matching id for every catalog operation', () =>
 });
 
 it('registers status and limits an agent to its configured project', async () => {
-  const store = openStore(join(mkdtempSync(join(tmpdir(), 'board-registry-')), 'board.db'));
+  const store = openTempStore('board-registry-').store;
   stores.push(store);
   await scanTransaction(store, config, async (trx) => {
     for (const [project, key] of [
@@ -118,7 +115,7 @@ it('registers status and limits an agent to its configured project', async () =>
 
 it('keeps board-wide items from a project agent on a one-project board', async () => {
   const oneProject = configSchema.parse({ ...config, projects: [config.projects[0]] });
-  const store = openStore(join(mkdtempSync(join(tmpdir(), 'board-registry-')), 'board.db'));
+  const store = openTempStore('board-registry-').store;
   stores.push(store);
   await scanTransaction(store, config, async (trx) => {
     await raiseItem(trx, {
@@ -141,7 +138,7 @@ it('keeps board-wide items from a project agent on a one-project board', async (
 });
 
 it('reports transport state per gateway and keeps the health item board-wide', async () => {
-  const store = openStore(join(mkdtempSync(join(tmpdir(), 'board-registry-')), 'board.db'));
+  const store = openTempStore('board-registry-').store;
   stores.push(store);
   const since = '2026-11-04T07:50:00.000Z';
   await scanTransaction(store, config, async (trx) => {
@@ -197,7 +194,7 @@ it('reports transport state per gateway and keeps the health item board-wide', a
 });
 
 it('keeps the default status for 100 tasks under the budget and lists every item', async () => {
-  const store = openStore(join(mkdtempSync(join(tmpdir(), 'board-registry-')), 'board.db'));
+  const store = openTempStore('board-registry-').store;
   stores.push(store);
   const at = new Date(clock.now()).toISOString();
   const sha = (n: number) => n.toString(16).padStart(40, 'a');
@@ -681,7 +678,7 @@ async function seedUnlinkedAges(store: Store, confirmedAbsent: boolean) {
 }
 
 it('hides unlinked PRs and sessions finished over 7 days ago and counts them', async () => {
-  const store = openStore(join(mkdtempSync(join(tmpdir(), 'board-registry-')), 'board.db'));
+  const store = openTempStore('board-registry-').store;
   stores.push(store);
   const status = await seedUnlinkedAges(store, true);
   const listedSessions = ['ended-6d', 'ended-7d', 'gone-6d', 'gone-7d', 'gone-late', 'live-old'];
@@ -700,7 +697,7 @@ it('hides unlinked PRs and sessions finished over 7 days ago and counts them', a
 });
 
 it('hides no session as gone from the list until a complete Spur poll omits it', async () => {
-  const store = openStore(join(mkdtempSync(join(tmpdir(), 'board-registry-')), 'board.db'));
+  const store = openTempStore('board-registry-').store;
   stores.push(store);
   const status = await seedUnlinkedAges(store, false);
   const result = await status({ project: 'first' });

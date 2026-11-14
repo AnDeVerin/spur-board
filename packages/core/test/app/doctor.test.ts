@@ -1,13 +1,11 @@
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { configSchema, type SessionFacts } from '@spur-board/contracts';
 import { afterEach, describe, expect, it } from 'vitest';
 import { curatorSessions, enqueueLiveAfterFirstPoll, firstPollDone } from '../../src/app/doctor.ts';
 import { raiseItem } from '../../src/app/feed.ts';
 import { scanTransaction } from '../../src/app/secrets.ts';
 import type { ItemKind } from '../../src/domain/fromYou.ts';
-import { createObservationCore, getStatus, openStore, type Store } from '../../src/index.ts';
+import { createObservationCore, getStatus, type Store } from '../../src/index.ts';
+import { openTempStore } from '../support/store.ts';
 
 const at = '2026-11-04T12:00:00.000Z';
 const config = configSchema.parse({
@@ -27,7 +25,7 @@ const sources = ['github-issues:board:o/r', 'github:board:o/r', 'spur'] as const
 const stores: Store[] = [];
 
 function setup() {
-  const store = openStore(join(mkdtempSync(join(tmpdir(), 'board-doctor-')), 'board.db'));
+  const store = openTempStore('board-doctor-').store;
   stores.push(store);
   const core = (productVersion: string) =>
     createObservationCore({ store, config, clock: { now: () => Date.parse(at) }, productVersion });
@@ -250,7 +248,7 @@ const curatorConfig = configSchema.parse({
 });
 
 function curatorSetup() {
-  const store = openStore(join(mkdtempSync(join(tmpdir(), 'board-curators-')), 'board.db'));
+  const store = openTempStore('board-curators-').store;
   stores.push(store);
   const core = createObservationCore({
     store,

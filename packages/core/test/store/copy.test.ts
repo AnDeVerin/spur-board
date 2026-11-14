@@ -13,7 +13,7 @@ import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import { afterEach, describe, expect, it } from 'vitest';
 import { copyDatabase } from '../../src/index.ts';
-import { openDatabase } from '../../src/store/store.ts';
+import { rawDatabase } from '../support/store.ts';
 
 const open: Database.Database[] = [];
 
@@ -27,7 +27,7 @@ function tempDir(): string {
 
 /** A WAL database at `file` with table `item` holding `rows`, kept open until the test ends. */
 function walDatabase(file: string, rows: string[], userVersion = 7): Database.Database {
-  const db = openDatabase(file);
+  const db = rawDatabase(file);
   open.push(db);
   db.pragma('wal_autocheckpoint = 0');
   db.exec('CREATE TABLE item (id INTEGER PRIMARY KEY, name TEXT NOT NULL)');

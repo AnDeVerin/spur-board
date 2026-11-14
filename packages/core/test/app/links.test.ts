@@ -1,6 +1,3 @@
-import { mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import {
   configSchema,
   type ActorId,
@@ -14,10 +11,10 @@ import {
   createObservationCore,
   createOperationRegistry,
   getStatus,
-  openStore,
   type Store,
 } from '../../src/index.ts';
 import { dispatchOperation } from '../../src/app/operations.ts';
+import { openTempStore } from '../support/store.ts';
 
 const at = '2026-11-05T00:00:00.000Z';
 const clock = { now: () => Date.parse(at) };
@@ -112,7 +109,7 @@ function ticketFact(): TicketFacts {
 }
 
 async function setup(config = defaultConfig) {
-  const store = openStore(join(mkdtempSync(join(tmpdir(), 'board-links-')), 'board.db'));
+  const store = openTempStore('board-links-').store;
   stores.push(store);
   const registry = createOperationRegistry({ config, clock, completeSince: new Map() });
   const core = createObservationCore({ store, config, clock });
