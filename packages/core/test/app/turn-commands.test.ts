@@ -1080,6 +1080,7 @@ describe('task.get why', () => {
     expect(before.gates.find((gate) => gate.column === 'product-review')).toMatchObject({
       enabled: false,
     });
+    expect(before).not.toHaveProperty('waiting');
 
     await ctx.return(REV_1, 'return-1');
     const after = await ctx.why();
@@ -1113,6 +1114,31 @@ describe('task.get why', () => {
       state: 'waiting',
       reason: 'comment_history_incomplete',
     });
+    expect(why.waiting).toEqual([
+      {
+        reason: 'comment_history_incomplete',
+        head: A,
+        text: `waiting for the board to read the full PR comment history on ${A}`,
+      },
+    ]);
+  });
+
+  it('names the CI run the task waits for while Dev checks are pending', async () => {
+    const pending = { name: 'ci', state: 'pending' as const, completedAt: null };
+    const ctx = await setup({
+      column: 'dev',
+      mode: 'on',
+      complete: true,
+      pr: { ...ready, requiredChecks: [pending] },
+    });
+    const before = await ctx.tables();
+
+    const why = await ctx.why();
+
+    expect(why.waiting).toEqual([
+      { reason: 'checks_pending', head: A, text: `waiting for CI on ${A}` },
+    ]);
+    expect(await ctx.tables()).toEqual(before);
   });
 
   it('uses the shadow column in shadow mode', async () => {

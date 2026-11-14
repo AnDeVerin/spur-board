@@ -20,9 +20,9 @@ action and input after an uncertain outcome you checked.
 ## Turns
 
 A turn T<number> hands a column visit to its executor. Ack it first with keyed
-`board inbox ack <entries>`; only the session that acked may submit or return it. An unacked
-turn delays no return. On `turn_closed`, act only on a turn `board inbox` lists. Shadow mode
-opens no turn: `board submit <task> <sha>`.
+`board inbox ack <entries>`; only the session that acked may submit or return it. A new head
+closes a turn outside Dev. An unacked turn delays no return. On `turn_closed`, act only on a
+turn `board inbox` lists. Shadow mode opens no turn: `board submit <task> <sha>`.
 
 - Dev worker: ack, push, then keyed `board submit <turn> <sha>`; the sha must be a fresh PR
   head. Answer each external comment the turn hands you with a new head or a reasoned reply.
@@ -36,7 +36,7 @@ opens no turn: `board submit <task> <sha>`.
 
 - If `board task <task>` lists no worker link for your session, run
   `spur slots --session "$SPUR_SESSION" --link board-worker=<issue URL>` or ask the operator for
-  `board link`. Task `o/r#12` has URL `https://github.com/o/r/issues/12`.
+  `board link`.
 - Blocking question: keyed `board ask <task> <text>`; keep its B<number> and wait for the
   doorbell. Nonblocking update: keyed `board comment <task> <text>`.
 - On a doorbell, read `board inbox` and the addressed C<number>@<revision> comment or B<number>

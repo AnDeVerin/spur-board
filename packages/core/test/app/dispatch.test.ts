@@ -17,6 +17,7 @@ import {
   createObservationCore,
   createOperationRegistry,
   createQuery,
+  reconcileDueDoorbells,
   tickBoard,
   type Store,
 } from '../../src/index.ts';
@@ -54,6 +55,8 @@ type Options = {
   cycleLimit?: number;
   /** Review's course check; the default applies when unset. */
   courseCheck?: number;
+  /** Review's `courseCheckTo`; unset by default. */
+  courseCheckTo?: string;
   /** Adds the curator project `cur` with a live session `cur-1`. */
   curator?: boolean;
   externalReview?: boolean;
@@ -98,6 +101,9 @@ function boardConfig(options: Options = {}) {
             orchestrator: 'rev',
             cycleLimit: options.cycleLimit ?? 10,
             ...(options.courseCheck === undefined ? {} : { courseCheck: options.courseCheck }),
+            ...(options.courseCheckTo === undefined
+              ? {}
+              : { courseCheckTo: options.courseCheckTo }),
           },
           { id: 'product-review', orchestrator: 'coord' },
           ...(options.externalReview === true ? [{ id: 'external-review' }] : []),
@@ -258,8 +264,15 @@ function board(options: Options = {}) {
       ),
     /** A complete poll of the project repo `repo` that finds no PR. */
     repo: (repo: string, complete = true) => observe(`github:proj:${repo}`, [], complete),
-    /** A complete Spur poll: the reviewers always, the worker while `worker` is not `none`. */
-    spur: (worker: 'live' | 'ended' | 'none' | 'unlinked' = 'live', complete = true) =>
+    /**
+     * A complete Spur poll: the reviewers always, the worker while `worker` is not `none`; the
+     * session ids in `gone` are left out.
+     */
+    spur: (
+      worker: 'live' | 'ended' | 'none' | 'unlinked' = 'live',
+      complete = true,
+      gone: readonly string[] = [],
+    ) =>
       observe(
         'spur',
         [
@@ -281,7 +294,7 @@ function board(options: Options = {}) {
           ...(options.curator === true
             ? [{ kind: 'session' as const, facts: sessionFacts('cur-1', 'cur') }]
             : []),
-        ],
+        ].filter((item) => !gone.includes(item.facts.id)),
         complete,
       ),
     blind: (source: string, blind: boolean) => {
@@ -294,6 +307,11 @@ function board(options: Options = {}) {
     tick: () => {
       step();
       return tickBoard({ store, config, clock, completeSince: core.completeSince });
+    },
+    /** The daemon's doorbell reconcile, which the tick does not run. */
+    ring: () => {
+      step();
+      return reconcileDueDoorbells(store, config, new Date(now));
     },
     ack: (actor: ActorId, turn: string) => {
       step();
@@ -2007,6 +2025,88 @@ describe('course check', () => {
       expect.objectContaining({ id: note?.id, text: corrected, author: CUR }),
     ]);
   });
+
+  it('courseCheckTo the column orchestrator asks it, and its answer resumes Dev', async () => {
+    const ctx = await inReview({ curator: true, courseCheckTo: 'rev' });
+    await threeReturns(ctx);
+    const block = await courseBlock(ctx);
+    expect(block.addressee_role).toBe('orchestrator:review');
+    expect(await opens(ctx, block.id)).toBe(0);
+
+    await ctx.answer(REV, `B${String(block.id)}`, NOTE);
+    expect((await itemsOf(ctx, 'course_check'))[0]?.cleared_at).toEqual(expect.any(String));
+    await ctx.tick();
+    expect(await ctx.openTurn()).toEqual(turnOf('dev', 'worker', 'dev: no_submit_on_head'));
+    const notes = (await ctx.inbox(WORKER)).comments.filter((comment) => comment.block === null);
+    expect(notes).toEqual([expect.objectContaining({ text: NOTE, author: REV })]);
+  });
+
+  it('courseCheckTo operator asks the operator even with a curator', async () => {
+    const ctx = await inReview({ curator: true, courseCheckTo: 'operator' });
+    await threeReturns(ctx);
+    const block = await courseBlock(ctx);
+    expect(block.addressee_role).toBe('operator');
+    expect(await opens(ctx, block.id)).toBe(1);
+  });
+
+  it('courseCheckTo the orchestrator of another column asks that column', async () => {
+    const ctx = await inReview({ curator: true, courseCheckTo: 'coord' });
+    await threeReturns(ctx);
+    const block = await courseBlock(ctx);
+    expect(block.addressee_role).toBe('orchestrator:product-review');
+
+    await expect(ctx.answer(CUR, `B${String(block.id)}`, NOTE)).rejects.toMatchObject({
+      code: 'forbidden',
+    });
+    await ctx.answer(COORD, `B${String(block.id)}`, NOTE);
+    expect((await itemsOf(ctx, 'course_check'))[0]?.cleared_at).toEqual(expect.any(String));
+  });
+
+  it('with courseCheckTo set the cycle-limit block still goes to the operator', async () => {
+    const ctx = await inReview({ courseCheckTo: 'rev', cycleLimit: 3, courseCheck: 3 });
+    await threeReturns(ctx);
+    const [limit] = await itemsOf(ctx, 'cycle_limit');
+    expect(
+      await ctx.store.db
+        .selectFrom('block')
+        .select('addressee_role')
+        .where('id', '=', limit?.block_id ?? 0)
+        .executeTakeFirst(),
+    ).toEqual({ addressee_role: 'operator' });
+    expect(await itemsOf(ctx, 'course_check')).toEqual([]);
+  });
+
+  it('an orchestrator course block moves to the operator once its session is gone', async () => {
+    const ctx = await inReview({ curator: true, courseCheckTo: 'coord' });
+    await threeReturns(ctx);
+    const block = await courseBlock(ctx);
+    const ref = `B${String(block.id)}`;
+    expect(block.addressee_role).toBe('orchestrator:product-review');
+
+    // A live but busy conductor is not rung, and the block waits for it.
+    await ctx.ring();
+    expect((await courseBlock(ctx)).addressee_role).toBe('orchestrator:product-review');
+    expect(await ctx.events('block_escalated')).toEqual([]);
+
+    await ctx.spur('live', true, ['coord-1']);
+    await ctx.ring();
+    expect((await courseBlock(ctx)).addressee_role).toBe('operator');
+    expect((await ctx.events('block_escalated')).map((event) => event.payload)).toEqual([
+      {
+        block: ref,
+        from: 'orchestrator:product-review',
+        to: 'operator',
+        reason: 'no live orchestrator session',
+      },
+    ]);
+    expect(await opens(ctx, block.id)).toBe(1);
+    expect((await itemsOf(ctx, 'course_check'))[0]?.cleared_at).toBeNull();
+
+    await ctx.reply(ref, NOTE);
+    expect((await itemsOf(ctx, 'course_check'))[0]?.cleared_at).toEqual(expect.any(String));
+    await ctx.tick();
+    expect(await ctx.openTurn()).toEqual(turnOf('dev', 'worker', 'dev: no_submit_on_head'));
+  });
 });
 
 /** The `conversation.open` outbox rows of block `blockId`. */
@@ -2656,15 +2756,124 @@ describe('design flows 2.5 and 2.10', () => {
     expect((await ctx.moves()).at(-1)).toMatchObject({ gate: ['pr_draft'] });
   });
 
-  it('a force-push in Review with the conductor turn open waits, then goes to Dev', async () => {
+  it('a force-push in Review closes the taken conductor turn and goes to Dev at once', async () => {
     const ctx = await inReview();
     await ctx.ack(REV, 'T2');
     await ctx.pr({ headSha: B });
-    expect((await ctx.task()).column).toBe('review');
-    await ctx.submit(REV, 'T2', B);
     expect((await ctx.task()).column).toBe('dev');
-    expect((await ctx.moves()).at(-1)).toMatchObject({ gate: ['no_submit_on_head'] });
+    expect((await ctx.turns())[1]).toMatchObject({
+      id: 2,
+      column: 'review',
+      closed_reason: 'moved',
+    });
+    expect((await ctx.moves()).at(-1)).toMatchObject({
+      from: 'review',
+      to: 'dev',
+      reason: 'gate_broken',
+      gate: ['no_submit_on_head'],
+    });
     expect(await ctx.openTurn()).toEqual(turnOf('dev', 'worker', 'dev: no_submit_on_head'));
+  });
+
+  it('red CI on a new head in Product Review closes the taken turn and goes to Dev', async () => {
+    const ctx = await inReview();
+    await ctx.ack(REV, 'T2');
+    await ctx.submit(REV, 'T2', A);
+    await ctx.ack(COORD, 'T3');
+    await ctx.pr({
+      headSha: B,
+      requiredChecks: [{ name: 'ci', state: 'failure', completedAt: null }],
+    });
+    expect((await ctx.task()).column).toBe('dev');
+    expect((await ctx.turns())[2]).toMatchObject({
+      id: 3,
+      column: 'product-review',
+      closed_reason: 'moved',
+    });
+    expect((await ctx.moves()).at(-1)).toMatchObject({
+      from: 'product-review',
+      to: 'dev',
+      reason: 'gate_broken',
+      gate: ['checks_red', 'no_submit_on_head'],
+    });
+    expect(await ctx.openTurn()).toEqual(
+      turnOf('dev', 'worker', 'dev: checks_red, no_submit_on_head'),
+    );
+  });
+
+  it('a head back to an earlier commit needs fresh Review and Product Review marks', async () => {
+    const ctx = await inReview();
+    await ctx.ack(REV, 'T2');
+    await ctx.submit(REV, 'T2', A);
+    await ctx.ack(COORD, 'T3');
+    await ctx.submit(COORD, 'T3', A);
+    expect((await ctx.task()).column).toBe('ready-to-merge');
+    await ctx.pr({ headSha: B });
+    expect((await ctx.task()).column).toBe('dev');
+    await ctx.pr({ headSha: A });
+    const dev = await ctx.openTurn();
+    expect(dev).toEqual(turnOf('dev', 'worker', 'dev: no_submit_on_head'));
+    await ctx.ack(WORKER, dev?.id ?? '');
+
+    await expect(ctx.submit(WORKER, dev?.id ?? '', A)).resolves.toMatchObject({
+      task: { column: 'review' },
+    });
+    expect(await ctx.openTurn()).toEqual(
+      expect.objectContaining({
+        column: 'review',
+        role: 'orchestrator:review',
+        reason: 'review: no_review_on_head',
+        head_sha: A,
+      }),
+    );
+    expect(
+      await ctx.store.db
+        .selectFrom('submission')
+        .select(['column', 'commit_sha'])
+        .where('voided_at', 'is not', null)
+        .where('column', 'in', ['review', 'product-review'])
+        .orderBy('id')
+        .execute(),
+    ).toEqual([
+      { column: 'review', commit_sha: A },
+      { column: 'product-review', commit_sha: A },
+    ]);
+  });
+
+  it('only a new head of its own PR voids a mark', async () => {
+    const ctx = await inReview();
+    await ctx.ack(REV, 'T2');
+    await ctx.submit(REV, 'T2', A);
+    const task = await ctx.task();
+    await ctx.store.db
+      .insertInto('submission')
+      .values({
+        task_id: task.id,
+        column: 'review',
+        epoch: 0,
+        commit_sha: A,
+        author: REV,
+        submitted_at: ctx.at(),
+        note: null,
+        pr_repo: 'o/r',
+        pr_number: 8,
+      })
+      .execute();
+    const voided = () =>
+      ctx.store.db
+        .selectFrom('submission')
+        .select(['column', 'pr_number'])
+        .where('voided_at', 'is not', null)
+        .orderBy('id')
+        .execute();
+    await ctx.github();
+    expect(await voided()).toEqual([]);
+
+    await ctx.pr({ headSha: B });
+    expect(await voided()).toEqual([
+      { column: 'dev', pr_number: 7 },
+      { column: 'review', pr_number: 7 },
+    ]);
   });
 
   it('a PR closed without merge sends the task to Dev with no turn', async () => {

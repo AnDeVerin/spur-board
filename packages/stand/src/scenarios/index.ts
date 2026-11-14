@@ -14,6 +14,7 @@ import type { z } from 'zod';
 import type { RouteResult } from '../control.ts';
 import type { StandManifest } from '../manifest.ts';
 import { columnsBasic, columnsBasicJira } from './columns-basic.ts';
+import { dispatchCourseCheck, dispatchCourseCheckTo } from './course-check.ts';
 import {
   curatorAbsent,
   curatorEscalation,
@@ -24,7 +25,6 @@ import {
   dispatchConflictInReadyToMerge,
   dispatchConflictInReview,
   dispatchCiRedAfterSubmit,
-  dispatchCourseCheck,
   dispatchCycleLimit,
   dispatchDeadExecutor,
   dispatchExternalComment,
@@ -36,6 +36,12 @@ import {
 } from './dispatcher.ts';
 import { dispatchCloseAfterMerge, dispatchSplitPr } from './split-pr.ts';
 import { empty } from './empty.ts';
+import {
+  dispatchCiPendingAfterSubmit,
+  dispatchCiRedNewHeadInProductReview,
+  dispatchNewHeadInReadyToMerge,
+  dispatchRingClosedTurn,
+} from './new-head.ts';
 import { questionToOperator } from './question-to-operator.ts';
 import { sourceBlind, sourceBlindJira } from './source-blind.ts';
 import { spurSourceSilent } from './spur-source-silent.ts';
@@ -161,7 +167,12 @@ export const SCENARIOS: readonly Scenario[] = [
   dispatchSourceBlind,
   dispatchCycleLimit,
   dispatchCourseCheck,
+  dispatchCourseCheckTo,
   dispatchLongCommentHistory,
+  dispatchCiPendingAfterSubmit,
+  dispatchNewHeadInReadyToMerge,
+  dispatchCiRedNewHeadInProductReview,
+  dispatchRingClosedTurn,
   dispatchTurnView,
 ];
 

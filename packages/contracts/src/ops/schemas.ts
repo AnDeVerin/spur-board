@@ -254,6 +254,19 @@ export const taskWhySchema = z
       ),
     turn: turnViewSchema.nullable().describe('The open turn of the task; null when none is open.'),
     moves: z.array(moveViewSchema).describe('The last 5 column moves, oldest first.'),
+    waiting: z
+      .array(
+        z
+          .strictObject({
+            reason: z.enum(GATE_REASONS).describe('The gate reason that waits on the fact.'),
+            head: commitShaSchema.describe('Head commit of the pull request the fact is about.'),
+            text: z.string().describe('The fact in one line, e.g. waiting for CI on <sha>.'),
+          })
+          .describe('One fact the task waits for.'),
+      )
+      .min(1)
+      .optional()
+      .describe('Facts the task waits for that GitHub has not settled yet; absent when none.'),
   })
   .describe('Why the task is in its column and what the dispatcher waits for.');
 

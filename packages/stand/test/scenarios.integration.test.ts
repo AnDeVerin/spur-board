@@ -17,7 +17,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { COLUMN_IDS } from '@spur-board/contracts';
+import { COLUMN_IDS, type ColumnId } from '@spur-board/contracts';
 import { migrationsDir, openStore } from '@spur-board/core';
 import { sql } from 'kysely';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -234,7 +234,7 @@ describe('scenario manifest', () => {
 });
 
 describe('scenarios', () => {
-  it('lists twenty-nine scenarios, each with a seed and a settled check', () => {
+  it('lists thirty-four scenarios, each with a seed and a settled check', () => {
     expect(scenarioNames()).toEqual([
       'empty',
       'columns-basic',
@@ -263,7 +263,12 @@ describe('scenarios', () => {
       'dispatch-source-blind',
       'dispatch-cycle-limit',
       'dispatch-course-check',
+      'dispatch-course-check-to',
       'dispatch-long-comment-history',
+      'dispatch-ci-pending-after-submit',
+      'dispatch-new-head-in-ready-to-merge',
+      'dispatch-ci-red-new-head-in-product-review',
+      'dispatch-ring-closed-turn',
       'dispatch-turn-view',
     ]);
     for (const scenario of SCENARIOS) {
@@ -1106,6 +1111,11 @@ describe('dispatcher scenarios', () => {
         .executeTakeFirst(),
     );
   const itemKeys = async () => (await status(current())).items.map(({ key }) => key);
+  /** The turn rows of `column`, oldest first. */
+  const turnsIn = (column: ColumnId) =>
+    withStore((store) =>
+      store.db.selectFrom('turn').selectAll().where('column', '=', column).orderBy('id').execute(),
+    );
 
   it(
     'dispatch-happy-path: merge and the ticket close move the task to Done with a wrap-up turn',
@@ -1577,6 +1587,90 @@ describe('dispatcher scenarios', () => {
   );
 
   it(
+    'dispatch-ci-pending-after-submit: no Review turn and no ring while CI runs on the submitted head, then a Review turn on A',
+    async () => {
+      await up();
+      await seed('dispatch-ci-pending-after-submit');
+      expect((await turnsIn('dev')).map(({ closed_reason }) => closed_reason)).toContain(
+        'submitted',
+      );
+      const reviews = await turnsIn('review');
+      expect(reviews).toHaveLength(1);
+      expect(reviews[0]).toMatchObject({ head_sha: A });
+      expect(await mustTurn(as('orchestrator'))).toMatchObject({
+        reason: 'review: no_review_on_head',
+        head: A,
+      });
+    },
+    TIMEOUT,
+  );
+
+  it(
+    'dispatch-new-head-in-ready-to-merge: a new head closes the taken Ready to Merge turn and sends the task to Dev',
+    async () => {
+      await up();
+      await seed('dispatch-new-head-in-ready-to-merge');
+      expect(await fromTo()).toContainEqual(['ready-to-merge', 'dev', 'gate_broken']);
+      const [ready, ...more] = await turnsIn('ready-to-merge');
+      expect(more).toEqual([]);
+      expect(ready?.acked_at).not.toBeNull();
+      expect(ready).toMatchObject({ closed_reason: 'moved' });
+      const reviews = await turnsIn('review');
+      expect(reviews).toHaveLength(2);
+      expect(reviews[0]).toMatchObject({ head_sha: A, closed_reason: 'submitted' });
+      expect(reviews[1]).toMatchObject({ head_sha: B, closed_at: null });
+      expect(await mustTurn(as('orchestrator'))).toMatchObject({ head: B, taken: null });
+    },
+    TIMEOUT,
+  );
+
+  it(
+    'dispatch-ci-red-new-head-in-product-review: red CI on a new head closes the taken Product Review turn and sends the task to Dev',
+    async () => {
+      await up();
+      await seed('dispatch-ci-red-new-head-in-product-review');
+      const last = (await moves()).at(-1);
+      expect(last).toMatchObject({ from: 'product-review', to: 'dev', reason: 'gate_broken' });
+      expect(last?.gate).toEqual(expect.arrayContaining(['checks_red', 'no_submit_on_head']));
+      const [product, ...more] = await turnsIn('product-review');
+      expect(more).toEqual([]);
+      expect(product?.acked_at).not.toBeNull();
+      expect(product).toMatchObject({ closed_reason: 'moved' });
+      expect(await mustTurn(as('worker'))).toMatchObject({
+        reason: 'dev: checks_red, no_submit_on_head',
+        taken: null,
+      });
+    },
+    TIMEOUT,
+  );
+
+  it(
+    'dispatch-ring-closed-turn: the ring for a turn a new head closed dies as no longer current',
+    async () => {
+      await up();
+      await seed('dispatch-ring-closed-turn');
+      const [review, ...more] = await turnsIn('review');
+      expect(more).toEqual([]);
+      expect(review).toMatchObject({ closed_reason: 'moved' });
+      const rings = (
+        await withStore((store) =>
+          store.db.selectFrom('outbox').selectAll().where('kind', '=', 'doorbell').execute(),
+        )
+      ).filter(
+        ({ payload }) =>
+          (JSON.parse(payload) as { session?: string }).session === as('orchestrator'),
+      );
+      expect(rings).toHaveLength(1);
+      expect(rings[0]).toMatchObject({
+        state: 'dead',
+        last_error: 'notification no longer current',
+      });
+      expect((await fromTo()).at(-1)).toEqual(['review', 'dev', 'gate_broken']);
+    },
+    TIMEOUT,
+  );
+
+  it(
     'dispatch-dead-executor: an operator relink reroutes the turn to a new worker',
     async () => {
       await up();
@@ -1723,6 +1817,50 @@ describe('dispatcher scenarios', () => {
         expect.objectContaining({ block: null, text: note }),
       ]);
       expect(await why()).not.toHaveProperty('heldBy');
+      expect((await status(current())).items.map((item) => item.key)).not.toContain(key);
+    },
+    TIMEOUT,
+  );
+
+  it(
+    "dispatch-course-check-to: the conductor's answer rings the worker the note and resumes Dev",
+    async () => {
+      await up();
+      const { scenario } = await seed('dispatch-course-check-to');
+      const block = scenario.blocks?.['course'];
+      const code = scenario.blocks?.['code'];
+      const key = scenario.items?.['course'];
+      expect(key).toMatch(/^course-check:\d+:review$/);
+      if (block === undefined || code === undefined) throw new Error('no course or code block');
+      const sends = async (role: 'worker' | 'orchestrator' | 'curator', text: string) =>
+        (await inspect(current())).sends.filter(
+          ({ session, message }) => session === as(role) && message.includes(text),
+        );
+      const workerRings = async () =>
+        (await sends('worker', `${ISSUE} `)).map(
+          ({ message }) => /(?:block|turn) ([BT]\d+)[: ]/.exec(message)?.[1] ?? message,
+        );
+      const { blocks } = await op<{ blocks: { id: string; addressee: string }[] }>(
+        current(),
+        'task.get',
+        { task: ISSUE },
+      );
+      expect(blocks.find(({ id }) => id === block)?.addressee).toBe('orchestrator:review');
+      expect(await sends('orchestrator', `block ${block}:`)).not.toEqual([]);
+      expect(await sends('curator', `block ${block}:`)).toEqual([]);
+      expect(await workerRings()).toEqual([]);
+
+      const note = 'Keep the parser as it is and finish the empty-list case.';
+      await sessionOp(as('orchestrator'), 'block.answer', { block, text: note }, randomUUID());
+      await poll();
+      const turn = await mustTurn(as('worker'));
+      expect(turn).toMatchObject({ column: 'dev', reason: 'dev: no_submit_on_head' });
+      await vi.waitFor(
+        async () => {
+          expect(await workerRings()).toEqual([block, code, turn.id]);
+        },
+        { timeout: 20_000, interval: 100 },
+      );
       expect((await status(current())).items.map((item) => item.key)).not.toContain(key);
     },
     TIMEOUT,

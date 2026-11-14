@@ -668,9 +668,10 @@ export async function restartNotification(trx: Trx, sourceKey: string, at: Date)
 }
 
 /**
- * Ends a notification's ring series. A curator block moves to the operator; a removal, a turn
- * reminder or a ring with no session to name ends alone; anything else raises the operator item, whose Retry restarts
- * the series (`restartNotification`). Every end journals `doorbell_undelivered`.
+ * Ends a notification's ring series. A curator block, and a block that ended with no session
+ * (`noRecipientEnd`), move to the operator; a removal, a turn reminder or another ring with no
+ * session to name ends alone; anything else raises the operator item, whose Retry restarts the
+ * series (`restartNotification`). Every end journals `doorbell_undelivered`.
  */
 async function endNotification(
   trx: Trx,
@@ -687,7 +688,9 @@ async function endNotification(
   if (n.rings === 0) await releaseAfterCourseNote(trx, n, at);
   const addressee = parseAddressee(n.role);
   const { task } = subject;
-  if (n.kind === 'block' && addressee.kind === 'curator' && task !== null) {
+  // A block that ends with no recipient (`noRecipientEnd`) moves to the operator, as does a
+  // curator block whose rings ran out. A project block already addresses the operator.
+  if (n.kind === 'block' && task !== null && (addressee.kind === 'curator' || session === null)) {
     const block = await trx
       .selectFrom('block')
       .selectAll()
@@ -784,9 +787,11 @@ export async function ringUndelivered(
 
 /**
  * Why a notification with no recipient ends now, or null when it stays due for a next session. A
- * worker's answer on a project-level block goes only to the session that asked.
+ * curator block, and an orchestrator block of a course check, end with `session: null`, which
+ * `endNotification` turns into a move to the operator. A worker's answer on a project-level block
+ * goes only to the session that asked.
  */
-function noRecipientEnd(n: Notification): string | null {
+async function noRecipientEnd(trx: Trx, n: Notification): Promise<string | null> {
   if (
     n.kind === 'removed' ||
     n.kind === 'turn_reminder' ||
@@ -794,7 +799,16 @@ function noRecipientEnd(n: Notification): string | null {
     (n.kind === 'answer' && n.role === 'worker' && n.task_id === null)
   )
     return 'no live addressee';
-  return n.kind === 'block' && n.role === 'curator' ? 'no live curator session' : null;
+  if (n.kind !== 'block') return null;
+  if (n.role === 'curator') return 'no live curator session';
+  if (parseAddressee(n.role).kind !== 'orchestrator') return null;
+  const course = await trx
+    .selectFrom('operator_item')
+    .select('id')
+    .where('kind', '=', 'course_check')
+    .where('block_id', '=', noticeBlockId(n))
+    .executeTakeFirst();
+  return course === undefined ? null : 'no live orchestrator session';
 }
 
 /** A ring never carries comment or reason text: only where to look. */
@@ -857,7 +871,7 @@ export async function reconcileDoorbells(trx: Trx, at: Date, config: Config): Pr
     const session = await selectNotificationRecipient(trx, n, config);
     const keepsRings = resolvedByProject(n.role);
     if (session === undefined) {
-      const reason = noRecipientEnd(n);
+      const reason = await noRecipientEnd(trx, n);
       if (reason !== null) {
         await endNotification(trx, n, await rowSubject(trx, n), {
           session: null,
