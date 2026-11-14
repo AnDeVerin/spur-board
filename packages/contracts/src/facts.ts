@@ -192,6 +192,11 @@ export const prFactsSchema = z
       .describe(
         'When the pull request merged; absent while it is not merged and in facts stored by an earlier version.',
       ),
+    closedAt: at
+      .optional()
+      .describe(
+        'When the pull request closed without merge; absent while it is not closed and in facts stored by an earlier version.',
+      ),
     feedback: z
       .array(feedbackSchema)
       .optional()

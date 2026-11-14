@@ -304,6 +304,8 @@ describe('wire facts', () => {
     const facts = factsOf(batch, 6);
     expect(facts.state).toBe('closed');
     expect(facts).not.toHaveProperty('mergedAt');
+    expect(facts.closedAt).toBeDefined();
+    expect(facts.closedAt).toBe(facts.updatedAt);
   });
 
   it('starts the bootstrap cursor at a closed PR newer than every open one', async () => {
