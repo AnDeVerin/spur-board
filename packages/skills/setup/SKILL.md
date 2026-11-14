@@ -36,7 +36,7 @@ Ask one question at a time, only when current state cannot answer it. Check befo
 
 ## 5. Finish
 
-- Run `board doctor --json`. For each failed check, inspect state, apply its `fix` with any needed consent, and repeat until green. Report warnings; have the operator stop and wake the sessions `sessions.stale` lists to stop and wake.
+- Run `board doctor --json`. For each failed check, inspect state, apply its `fix` with any needed consent, and repeat until green. Report warnings. In `sessions.stale`, the operator stops and wakes stale ones; rerun doctor for queued ones.
 - Wait for the feed's `spur-board is live` line after the first complete poll. If absent, inspect doctor checks and service logs and continue the fix loop. Confirm receipt without exposing a channel ID.
 
 ## Update
