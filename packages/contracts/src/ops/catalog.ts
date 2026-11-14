@@ -6,6 +6,7 @@ import {
   blockIdSchema,
   commentIdSchema,
   itemIdSchema,
+  ringIdSchema,
   taskKeyInputSchema,
   taskKeySchema,
   turnIdSchema,
@@ -598,9 +599,10 @@ export const OPERATIONS = [
     id: 'inbox.ack',
     kind: 'mutation',
     description:
-      'Mark comments, agent-addressed blocks or turns as read; acking a turn makes the caller its taker.',
+      'Mark comments, agent-addressed blocks, turns or doorbell rings as read; acking a turn makes the caller its taker.',
     mcp: {
-      whenToUse: 'Mark handled inbox items read.',
+      whenToUse:
+        'Mark handled inbox items or a ring ID like N18-1 read; an item handled before comes back under alreadyHandled.',
       whenNotToUse: 'Use inbox_get to inspect them first.',
     },
     input: z.strictObject({
@@ -613,16 +615,21 @@ export const OPERATIONS = [
             }),
             z.strictObject({ id: blockIdSchema }),
             z.strictObject({ id: turnIdSchema }),
+            z.strictObject({ id: ringIdSchema }),
           ]),
         )
         .min(1)
         .max(ACK_ENTRIES_MAX)
-        .describe('Comment revisions, blocks and turns to acknowledge.'),
+        .describe('Comment revisions, blocks, turns and ring IDs to acknowledge.'),
     }),
     output: z.strictObject({
       acked: z
-        .array(z.union([commentIdSchema, blockIdSchema, turnIdSchema]))
+        .array(z.union([commentIdSchema, blockIdSchema, turnIdSchema, ringIdSchema]))
         .describe('Entries now acknowledged.'),
+      alreadyHandled: z
+        .array(z.union([commentIdSchema, blockIdSchema, turnIdSchema, ringIdSchema]))
+        .optional()
+        .describe('Entries that were already handled; nothing new was acknowledged for them.'),
     }),
     grants: [{ grant: 'project-agent' }],
     errors: ['wrong_id_kind', 'not_found', 'stale_comment_revision'],
@@ -643,6 +650,16 @@ export const OPERATIONS = [
         summary: 'Take a turn',
         input: { entries: [{ id: 'T4' }] },
         output: { acked: ['T4'] },
+      },
+      {
+        summary: 'Acknowledge a doorbell by the ring ID at the end of its text',
+        input: { entries: [{ id: 'N18-1' }] },
+        output: { acked: ['N18-1'] },
+      },
+      {
+        summary: 'Acknowledge a block already closed by an answer',
+        input: { entries: [{ id: 'B14' }] },
+        output: { acked: ['B14'], alreadyHandled: ['B14'] },
       },
     ],
   }),

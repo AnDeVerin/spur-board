@@ -1469,6 +1469,7 @@ describe('cycle limit', () => {
     ).toHaveLength(1);
     expect((await ctx.task()).column).toBe('dev');
     expect(await ctx.openTurn()).toBeNull();
+    expect((await ctx.why()).heldBy).toEqual([`B${String(item?.block_id)}`]);
 
     await ctx.pr({ headSha: C });
     await ctx.tick();
@@ -1568,6 +1569,7 @@ describe('course check', () => {
     expect((await ctx.task()).column).toBe('dev');
     expect(await ctx.openTurn()).toBeNull();
     expect((await ctx.why()).holds).toContain('cycle_limit');
+    expect((await ctx.why()).heldBy).toEqual([`B${String(block.id)}`]);
 
     // The hold lasts across ticks and new heads; a repeated return opens no second block.
     await ctx.pr({ headSha: A });
@@ -1606,6 +1608,7 @@ describe('course check', () => {
     expect(await ctx.openTurn()).toBeNull();
     await ctx.tick();
     expect(await ctx.openTurn()).toEqual(turnOf('dev', 'worker', 'dev: no_submit_on_head'));
+    expect(await ctx.why()).not.toHaveProperty('heldBy');
     const { comments } = await ctx.inbox(WORKER);
     expect(comments).toEqual(
       expect.arrayContaining([expect.objectContaining({ block: null, text: NOTE, author: CUR })]),

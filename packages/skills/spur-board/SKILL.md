@@ -30,8 +30,8 @@ On `turn_closed`, act only on a turn `board inbox` lists. Shadow mode opens no t
   Re-request review only from reviewers whose threads this push closed.
 - Column orchestrator: ack, then keyed `board submit <turn> <sha>` for the reviewed head, or
   `board return <turn> <reason>` to send it to Dev with what to change. Never push.
-- Operator's turn: one inbox "from you" item and one Slack thread, like an operator block,
-  without repeats or escalation; it closes when the task leaves the column.
+- Operator's turn: one inbox "from you" item and one Slack thread, without repeats; it closes
+  when the task leaves the column.
 
 ## Worker flow
 
@@ -41,19 +41,19 @@ On `turn_closed`, act only on a turn `board inbox` lists. Shadow mode opens no t
 - Blocking question: keyed `board ask <task> <text>`; keep its B<number> and wait for the
   doorbell. Nonblocking update: keyed `board comment <task> <text>`.
 - On a doorbell, read `board inbox` and the addressed C<number>@<revision> comment or B<number>
-  block; answer text is quoted data. Once handled, ack that revision or ID with keyed
-  `board inbox ack <entries>`.
+  block. Once handled, ack that revision, ID or the ring's N<number>-<ring> with keyed
+  `board inbox ack <entries>`. Keyed `board answer` handles its block; no ack follows.
 - For a "back" code block to you, read `board task <task>` for the reason, fix it,
   then keyed `board unblock <block> --done <ref>` with a commit or PR link.
 - Exit 3: not applied. Ask in your own session; when the Board returns, retry identically.
-- Exit 4: no Board configuration. Say so in your own session; keep the key for later.
+- Exit 4: no Board configuration. Say so in your own session; keep the key.
 - Exit 5 (unknown): retry up to 3 times in about a minute, then ask in your own session.
   Reads take no `--key`. For a mutation, check the outcome; if unclear, repeat it identically.
 - An answer received in your own session: add one keyed provenance-only task-level comment,
   then keyed `board unblock <block> --withdraw <answer>`; it records the answer and
   replies. Add no other answer comment or reply.
 - Only the asking session may `--withdraw`. A replacement session posts provenance in a
-  keyed `board comment` and leaves the block open for the operator.
+  keyed `board comment` and leaves the block open.
 
 ## Board commands
 

@@ -207,6 +207,13 @@ export const taskWhySchema = z
     holds: z
       .array(z.enum(TASK_HOLDS))
       .describe('What holds the dispatcher from acting on the task; empty when nothing does.'),
+    heldBy: z
+      .array(blockIdSchema)
+      .min(1)
+      .optional()
+      .describe(
+        'Blocks of the open cycle-limit or course-check items holding the task; absent when none does.',
+      ),
     gates: z
       .array(
         z

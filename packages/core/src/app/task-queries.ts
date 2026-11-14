@@ -15,6 +15,7 @@ import { authorize, type ResolvedTarget } from './authorize.ts';
 import { authorizationTarget, blockView, commentView, taskTarget } from './blocks.ts';
 import { eventActor, linkView, moveViews, taskView, type Trx } from './board-utils.ts';
 import { CommandError } from './commands.ts';
+import { courseKeyPrefix, cycleKeyPrefix } from './course-check.ts';
 import { blindSources, readInput } from './dispatch.ts';
 import { notificationAddressedTo } from './doorbells.ts';
 import { canonicalKey } from './membership.ts';
@@ -242,14 +243,34 @@ export function createTaskQueries(deps: {
               head,
               text: `${WAITING_FOR[reason]} on ${head}`,
             }));
+    const holds = dispatchHolds(read.input);
+    const heldBy = holds.includes('cycle_limit') ? await holdBlocks(trx, task.id) : [];
     return {
       ...shared,
       dispatcher: mode,
-      holds: dispatchHolds(read.input),
+      holds,
+      ...(heldBy.length === 0 ? {} : { heldBy }),
       gates,
       checksWaivedBy,
       ...(waiting.length === 0 ? {} : { waiting }),
     };
+  }
+  /** The blocks of the active cycle-limit and course-check items that hold the task's turn. */
+  async function holdBlocks(trx: Trx, taskId: number): Promise<string[]> {
+    const items = await trx
+      .selectFrom('operator_item')
+      .select('block_id')
+      .where((eb) =>
+        eb.or([
+          eb('item_key', 'like', `${cycleKeyPrefix(taskId)}%`),
+          eb('item_key', 'like', `${courseKeyPrefix(taskId)}%`),
+        ]),
+      )
+      .where('cleared_at', 'is', null)
+      .where('block_id', 'is not', null)
+      .orderBy('id')
+      .execute();
+    return items.flatMap((item) => (item.block_id === null ? [] : [`B${String(item.block_id)}`]));
   }
   const get: Query<'task.get'> = {
     id: 'task.get',
@@ -365,6 +386,7 @@ export function createTaskQueries(deps: {
         .execute();
       const comments = [];
       const seen = new Set<number>();
+      const listed = new Set<number>();
       for (const notice of notices) {
         if (notice.comment_id === null || seen.has(notice.comment_id)) continue;
         const task = await trx
@@ -381,6 +403,7 @@ export function createTaskQueries(deps: {
           .where('id', '=', notice.comment_id)
           .executeTakeFirst();
         if (comment === undefined || comment.acked_revision === comment.revision) continue;
+        listed.add(comment.id);
         comments.push(commentView(comment, task));
       }
       const parsedActor = parseActorId(actor);
@@ -406,8 +429,11 @@ export function createTaskQueries(deps: {
             .execute();
           for (const comment of taskComments) {
             const task = tasksById.get(comment.task_id);
+            // A course note is also an answer notice: list it once, and to a linked worker its
+            // notice does not address (a worker linked after the note rang another).
             if (
               task === undefined ||
+              listed.has(comment.id) ||
               comment.author === actor ||
               comment.acked_revision === comment.revision
             )

@@ -587,6 +587,7 @@ describe('catalog commands', () => {
       ['inbox', 'ack', 'C3@2', 'C4@1', '--key', 'ack-1'],
       ['inbox', 'ack', 'B13', '--key', 'ack-block'],
       ['inbox', 'ack', 'T4', '--key', 'ack-turn'],
+      ['inbox', 'ack', 'N18-1', '--key', 'ack-ring'],
       ['block', 'PROJ-123', '--type', 'dependency', '--reason', 'Waiting', '--key', 'block-1'],
       ['unblock', 'B12', '--withdraw', 'No longer needed', '--key', 'unblock-1'],
       ['escalate', 'B12', '--note', 'Owner is away', '--key', 'escalate-1'],
@@ -617,6 +618,7 @@ describe('catalog commands', () => {
       },
       { id: 'inbox.ack', input: { entries: [{ id: 'B13' }] } },
       { id: 'inbox.ack', input: { entries: [{ id: 'T4' }] } },
+      { id: 'inbox.ack', input: { entries: [{ id: 'N18-1' }] } },
       { id: 'block.create', input: { task: 'PROJ-123', type: 'dependency', reason: 'Waiting' } },
       {
         id: 'block.unblock',
@@ -636,6 +638,19 @@ describe('catalog commands', () => {
         input: { mode: 'correct', task: 'PROJ-123', column: 'dev', reason: 'Wrong PR' },
       },
     ]);
+  });
+
+  it('prints an ack with already handled entries as a success', async () => {
+    const response = { acked: ['B13'], alreadyHandled: ['B13'] };
+    const url = await fakeServer(() => response);
+    const output = capture();
+    expect(
+      await runCli(['inbox', 'ack', 'B13', '--key', 'k', '--json'], {
+        env: env(url),
+        io: output.io,
+      }),
+    ).toBe(0);
+    expect(JSON.parse(output.stdout)).toEqual(response);
   });
 
   it('maps link and unlink target flags, reason, and idempotency keys', async () => {
