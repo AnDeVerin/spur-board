@@ -438,7 +438,13 @@ const projectSchema = z
       });
     });
     const curator = project.spurProjects.find((p) => p.role === 'curator')?.name;
-    const orchestrators = new Set(project.columns.map((column) => column.orchestrator));
+    // `none` and `operator` are orchestrator sentinels, not Spur projects: a project with one of
+    // those names orchestrates no column, so the check could never reach it.
+    const orchestrators = new Set(
+      project.columns
+        .map((column) => column.orchestrator)
+        .filter((name) => name !== 'none' && name !== 'operator'),
+    );
     project.columns.forEach(({ courseCheckTo }, j) => {
       if (courseCheckTo === undefined || courseCheckTo === 'operator') return;
       const known = spurNames.has(courseCheckTo);

@@ -466,6 +466,19 @@ describe('invalid configs', () => {
       'projects[0].columns[2].courseCheckTo',
     ],
     [
+      'courseCheckTo naming a project called none',
+      validConfig({
+        spurProjects: [{ name: 'none', role: 'worker' }],
+        columns: [
+          ...columns('todo', 'dev'),
+          { id: 'review', courseCheckTo: 'none' },
+          ...columns('done'),
+        ],
+      }),
+      'courseCheckTo "none" is not the curator and orchestrates no column: use operator, the curator or a column orchestrator',
+      'projects[0].columns[2].courseCheckTo',
+    ],
+    [
       'zero column cycle limit',
       validConfig({
         columns: [...columns('todo', 'dev'), { id: 'review', cycleLimit: 0 }, ...columns('done')],
