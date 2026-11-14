@@ -77,7 +77,12 @@ export async function orchestratorSessions(db: Trx, config: Config) {
         orchestrator: spur.name,
         session: (await bestProjectSession(db, spur.name))?.id ?? null,
         columns: project.columns
-          .filter((column) => column.orchestrator === spur.name)
+          .filter(
+            (column) =>
+              column.orchestrator !== 'none' &&
+              column.orchestrator !== 'operator' &&
+              column.orchestrator === spur.name,
+          )
           .map((column) => column.id),
       });
     }

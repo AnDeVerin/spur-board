@@ -389,6 +389,32 @@ describe('curator sessions', () => {
 });
 
 describe('orchestrator sessions', () => {
+  it.each(['none', 'operator'])(
+    'reports a live orchestrator named %s as unused when the executor is a literal',
+    async (name) => {
+      const config = configSchema.parse({
+        ...curatorConfig,
+        projects: curatorConfig.projects.slice(0, 1).map((project) => ({
+          ...project,
+          spurProjects: [{ name, role: 'orchestrator' }],
+          columns: [
+            { id: 'todo' },
+            { id: 'dev' },
+            { id: 'review', orchestrator: name },
+            { id: 'done' },
+          ],
+        })),
+      });
+      const store = openTempStore('board-literal-executor-').store;
+      stores.push(store);
+      const core = createObservationCore({ store, config, clock: { now: () => Date.parse(at) } });
+      await spurPoll(core, at, [{ ...curatorSession('literal-1'), spurProject: name }]);
+      expect(await orchestratorSessions(store.db, config)).toEqual([
+        { project: 'alpha', orchestrator: name, session: 'literal-1', columns: [] },
+      ]);
+    },
+  );
+
   it('lists multiple orchestrators and unused projects using the live doorbell selector', async () => {
     const config = configSchema.parse({
       ...curatorConfig,
