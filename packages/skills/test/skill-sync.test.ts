@@ -24,6 +24,14 @@ const runbookPath = fileURLToPath(new URL('../../../docs/runbook.md', import.met
 const setupReferencesPath = fileURLToPath(new URL('../setup/references/', import.meta.url));
 const binaryPath = fileURLToPath(new URL('../../cli/src/bin.mjs', import.meta.url));
 const referencesPath = fileURLToPath(new URL('../spur-board/references/', import.meta.url));
+const howBoardWorks = readFileSync(
+  new URL('../../../docs/how-board-works.md', import.meta.url),
+  'utf8',
+);
+const howBoardWorksReference = readFileSync(
+  new URL('../spur-board/references/how-board-works.md', import.meta.url),
+  'utf8',
+);
 const skill = readFileSync(skillPath, 'utf8');
 const setupSkill = readFileSync(setupSkillPath, 'utf8');
 const publicGuides = [readmePath, setupGuidePath, troubleshootingPath, runbookPath].map((path) =>
@@ -40,7 +48,7 @@ const referenceTexts = references.map((reference) =>
   readFileSync(new URL(`../spur-board/references/${reference.fileName}`, import.meta.url), 'utf8'),
 );
 const referenceText = referenceTexts.join('\n');
-const fullText = [skill, ...referenceTexts].join('\n');
+const fullText = [skill, ...referenceTexts, howBoardWorksReference].join('\n');
 const operations = [...OPERATIONS].sort(
   (left, right) => right.cli.command.split(' ').length - left.cli.command.split(' ').length,
 );
@@ -210,12 +218,20 @@ describe('product skill sync', () => {
     expect(references.map((reference) => reference.fileName)).toEqual(['commands.md', 'errors.md']);
     expect(references[0]?.content).toContain('[errors.md](errors.md)');
     expect(readdirSync(referencesPath).sort()).toEqual(
-      references.map((reference) => reference.fileName).sort(),
+      [...references.map((reference) => reference.fileName), 'how-board-works.md'].sort(),
     );
     for (const [index, reference] of references.entries()) {
       expect(referenceTexts[index]).toBe(reference.content);
       expect(Buffer.byteLength(reference.content)).toBeLessThanOrEqual(8192);
     }
+  });
+
+  it('ships the identical bounded manual guide and links it from the skill', () => {
+    expect(howBoardWorksReference).toBe(howBoardWorks);
+    expect(Buffer.byteLength(howBoardWorksReference)).toBeLessThanOrEqual(8192);
+    expect(skill).toContain('[how the Board works](references/how-board-works.md)');
+    expect(skill).toContain('untrusted: true');
+    expect(validateInvocations(howBoardWorks)).toEqual([]);
   });
 
   it.each(['worker', 'orchestrator'] as const)('indexes exactly the %s grants', (role) => {
