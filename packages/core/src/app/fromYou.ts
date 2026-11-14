@@ -85,7 +85,9 @@ export async function reconcileItems(
   for (const miss of misses) {
     // A linked PR or ticket raises an item only once the runner counts it gone.
     if (miss.gone !== 1) continue;
-    const ref = parseJson(entityRefSchema, miss.ref);
+    const parsed = entityRefSchema.safeParse(JSON.parse(miss.ref));
+    if (!parsed.success) continue;
+    const ref = parsed.data;
     if (ref.kind === 'pr') {
       const links = await trx
         .selectFrom('link')

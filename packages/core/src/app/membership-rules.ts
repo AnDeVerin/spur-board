@@ -1,6 +1,5 @@
 import { prSourceId, ticketFactsSchema, trackerSourceId, type Config } from '@spur-board/contracts';
 import { sql } from 'kysely';
-import { parseJson } from '../store/json.ts';
 import { archiveTask } from './archive.ts';
 import { emit, type Trx } from './board-utils.ts';
 
@@ -30,8 +29,16 @@ export async function reconcileMembership(
       .where('task_id', '=', task.id)
       .executeTakeFirst();
     if (ticket === undefined) continue;
-    const facts = parseJson(ticketFactsSchema, ticket.detail);
-    if (facts.inFilter) continue;
+    const detail: unknown = JSON.parse(ticket.detail);
+    const facts = ticketFactsSchema.safeParse(detail);
+    // A detail of another shape keeps the loose read: in the filter only when inFilter is true.
+    const inFilter = facts.success
+      ? facts.data.inFilter
+      : typeof detail === 'object' &&
+        detail !== null &&
+        'inFilter' in detail &&
+        detail.inFilter === true;
+    if (inFilter) continue;
     const links = await trx
       .selectFrom('link')
       .selectAll()

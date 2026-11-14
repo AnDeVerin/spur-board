@@ -923,7 +923,7 @@ export function createInbound(input: {
       const ref =
         opened?.external_ref === null || opened?.external_ref === undefined
           ? undefined
-          : parseJson(deliveredRefSchema, opened.external_ref);
+          : deliveredRefSchema.safeParse(JSON.parse(opened.external_ref)).data;
       const scope = createHash('sha256')
         .update(JSON.stringify([gateway.kind, event.conversation ?? null]))
         .digest('hex');

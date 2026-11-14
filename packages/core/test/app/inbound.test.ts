@@ -1409,6 +1409,26 @@ describe('inbound apply', () => {
     ]);
   });
 
+  it('leaves a gap item without a url when the delivered root ref has another shape', async () => {
+    const { store, inbound, root } = await setup();
+    const conversation = conversationRefSchema.parse('thread-1');
+    await store.db
+      .insertInto('outbox')
+      .values({
+        ...sampleRows.outbox,
+        id: undefined,
+        kind: 'conversation.open',
+        dedupe_key: 'conversation.open:1',
+        state: 'done',
+        external_ref: JSON.stringify({ conversation, message: root }),
+      })
+      .execute();
+    await inbound.sink({ kind: 'gap', dedupeKey: 'gap-no-permalink', conversation });
+    expect(await store.db.selectFrom('operator_item').select(['kind', 'url']).execute()).toEqual([
+      { kind: 'inbound_gap', url: '' },
+    ]);
+  });
+
   it('registers a content-free worker answer notification for a live author', async () => {
     const { store, inbound, gateway } = await setup('agent:proj/sess-1');
     await scanTransaction(store, config, (trx) =>
