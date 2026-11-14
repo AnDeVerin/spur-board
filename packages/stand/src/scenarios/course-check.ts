@@ -1,6 +1,6 @@
 // The course-check scenarios: Review's course check holds the task on a block to the curator, or
 // to the addressee its courseCheckTo names.
-import { settledUnless, STAND_SPUR_PROJECTS } from './helpers.ts';
+import { sendsTo, settledUnless, STAND_SPUR_PROJECTS } from './helpers.ts';
 import type { Board, Scenario, ScenarioFakes } from './index.ts';
 import {
   check,
@@ -23,16 +23,6 @@ const openBlocks = async (board: Board) =>
   (await board.call('operator', 'task.get', { task: ISSUE })).blocks.filter(
     ({ state }) => state === 'open',
   );
-
-/** The fake Spur sends to `session` whose text includes `text`. */
-async function sendsTo(fakes: ScenarioFakes, session: string, text: string): Promise<string[]> {
-  const { sends } = (await fakes.spur('inspect')) as {
-    sends: { session: string; message: string }[];
-  };
-  return sends
-    .filter((send) => send.session === session && send.message.includes(text))
-    .map(({ message }) => message);
-}
 
 /**
  * Review's course check is 1 and stand-curator is the curator; `to` is Review's courseCheckTo.

@@ -2,7 +2,7 @@
 // and each seed stops right after the dispatcher's first decision under test.
 import { randomUUID } from 'node:crypto';
 import { prSourceId } from '@spur-board/contracts';
-import { issueKey, openIssues, settledUnless } from './helpers.ts';
+import { issueKey, openIssues, sendsTo, settledUnless } from './helpers.ts';
 import type { Board, Scenario, ScenarioEntities, ScenarioFakes } from './index.ts';
 
 export const REPO = 'stand-org/board';

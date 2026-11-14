@@ -186,7 +186,7 @@ describe('fixtures', () => {
       const config = configSchema.parse(
         validConfig({
           spurProjects: [
-            { name: 'rev-bot', role: 'worker' },
+            { name: 'rev-bot', role: 'orchestrator' },
             { name: 'cur', role: 'curator' },
           ],
           columns: [

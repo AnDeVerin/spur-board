@@ -451,7 +451,7 @@ const projectSchema = z
     );
     project.columns.forEach(({ courseCheckTo }, j) => {
       if (courseCheckTo === undefined || courseCheckTo === 'operator') return;
-      const known = spurNames.has(courseCheckTo);
+      const known = project.spurProjects.some((spur) => spur.name === courseCheckTo);
       if (known && (courseCheckTo === curator || orchestrators.has(courseCheckTo))) return;
       const name = JSON.stringify(courseCheckTo);
       ctx.addIssue({
