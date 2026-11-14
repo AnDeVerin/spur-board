@@ -24,9 +24,12 @@ const MAX_PENDING_REQUESTS = 10;
 /** Days an expired or denied request stays after its decision before the daily purge drops it. */
 const TOKEN_REQUEST_RETENTION_DAYS = 7;
 const DAY_MS = 86_400_000;
-/** Code-point caps that keep a legacy name or folder from overflowing a card, line or button. */
-const CARD_NAME = 200;
-const CARD_FOLDER = 500;
+/**
+ * Code-point caps that keep a legacy name or folder from overflowing a card, line or button. A
+ * messenger may escape a point to five characters; a card of all-escaped points still fits 2900.
+ */
+const CARD_NAME = 64;
+const CARD_FOLDER = 400;
 const LIST_NAME = 64;
 const LIST_FOLDER = 120;
 const LABEL_NAME = 40;

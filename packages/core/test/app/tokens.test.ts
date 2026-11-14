@@ -8,7 +8,7 @@ import { createFakeGateway } from '@spur-board/gateway-testkit';
 import { sql } from 'kysely';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createSender, openStore, type Store } from '../../src/index.ts';
-import { capPoints, raiseItem } from '../../src/app/feed.ts';
+import { capPoints, raiseItem, tokenCardBody } from '../../src/app/feed.ts';
 import {
   decideTokenInTransaction,
   expirePendingTokens,
@@ -23,6 +23,7 @@ import {
   verifyOperatorToken,
 } from '../../src/app/tokens.ts';
 import { observeGateway } from '../support/observe.ts';
+import { renderedLength } from '../support/rendered.ts';
 import { testConfig } from '../support/config.ts';
 
 const AT = new Date('2026-11-04T10:00:00.000Z');
@@ -991,14 +992,14 @@ describe('token card', () => {
       tokenCard: { name: string; folder: string };
       actions: { label: string; confirm: string }[];
     };
-    expect(points(card.tokenCard.name)).toBe(200);
+    expect(points(card.tokenCard.name)).toBe(64);
     expect(card.tokenCard.name.endsWith('…')).toBe(true);
-    expect(points(card.tokenCard.folder)).toBe(500);
+    expect(points(card.tokenCard.folder)).toBe(400);
     expect(card.tokenCard.folder.endsWith('…')).toBe(true);
     expect(points(card.actions[0]?.confirm)).toBeLessThanOrEqual(300);
     const [line] = await rows('feed.line:token-revoked:%');
     expect(JSON.parse(line?.payload ?? '{}')).toMatchObject({
-      text: `token ${capPoints(legacy, 200)} revoked`,
+      text: `token ${capPoints(legacy, 64)} revoked`,
     });
     const list = JSON.parse((await rows('feed.line:token-list:%'))[0]?.payload ?? '{}') as {
       text: string;
@@ -1014,6 +1015,32 @@ describe('token card', () => {
     expect(edits.map((edit) => edit.state)).toEqual(['done', 'done']);
     for (const outbox of await store.db.selectFrom('outbox').select('dedupe_key').execute()) {
       expect(outbox.dedupe_key.length).toBeLessThanOrEqual(255);
+    }
+  });
+
+  it('keeps a card of an all-escaped legacy name and folder within one 2900-character part', async () => {
+    const { store, tick, approve, row, rows } = await delivered();
+    const legacy = '&'.repeat(70);
+    await store.db
+      .updateTable('operator_token')
+      .set({ name: legacy, folder: '&'.repeat(500) })
+      .execute();
+    await approve();
+    await tick();
+    await scanTransaction(store, testConfig, (trx) =>
+      tokenRevokeMutation.run(trx, { name: legacy }, { actor: 'operator', at: AT.toISOString() }),
+    );
+    const cards = await rows(`feed.line.edit:token-card:${String(row.item_id)}%`);
+    expect(cards).toHaveLength(2);
+    for (const card of cards) {
+      const { tokenCard } = JSON.parse(card.payload) as {
+        tokenCard: Parameters<typeof tokenCardBody>[0];
+      };
+      const points = Array.from(tokenCard.name).length + Array.from(tokenCard.folder).length;
+      const length = renderedLength(tokenCardBody(tokenCard, testConfig));
+      // Every capped point but the two cut marks escapes to five characters.
+      expect(length).toBeGreaterThanOrEqual(5 * (points - 2));
+      expect(length).toBeLessThanOrEqual(2900);
     }
   });
 });
