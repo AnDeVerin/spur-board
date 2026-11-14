@@ -135,6 +135,23 @@ export const batchSchema = z
         }),
       )
       .describe('One entry per entity core asked for (A4).'),
+    prProbes: z
+      .array(
+        z.strictObject({
+          ref: prRefSchema
+            .extend({ kind: z.literal('pr').describe('A pull request.') })
+            .describe('The rechecked PR.'),
+          status: z
+            .enum(['closed', 'refreshed', 'not_found', 'no_access'])
+            .describe('Unchanged closed state, full refresh, or failed lookup.'),
+        }),
+      )
+      .optional()
+      .describe('State-only PR rechecks, separate from normal entity coverage.'),
+    usage: z
+      .strictObject({ points: z.int().nonnegative().describe('Reported points consumed.') })
+      .optional()
+      .describe('Reported source points consumed by this attempt.'),
     budget: z
       .strictObject({
         remaining: z.int().min(0).describe('Requests or points the source still allows.'),
@@ -200,6 +217,10 @@ export interface PollContext {
     /** Sessions linked to board tasks. */
     sessions: readonly SessionEntityRef[];
   };
+  /** Known persisted terminal PRs: merged are final; closed are deferred unless discovered open. */
+  terminalPrs?: readonly { ref: PrEntityRef; state: 'merged' | 'closed' }[];
+  /** Due state-only checks. These do not participate in A4 or gone accounting. */
+  prRechecks?: readonly PrEntityRef[];
   /** The cursor the previous batch returned; absent on the first poll. */
   cursor?: SourceCursor | undefined;
   /** Persisted consecutive misses for requested PRs and tickets; loaded after a restart. */
@@ -260,6 +281,8 @@ export function trackerSourceId(
  *   may carry the facts of the adapter's own earlier read when a lighter read in this poll shows
  *   the entity unchanged. A ref whose read failed or was deferred is `no_access` in an
  *   incomplete batch.
+ *   State-only `prRechecks` are answered separately in `prProbes`; unchanged closed probes
+ *   carry no full item and never imply ordinary entity absence.
  * - A5: The cursor is opaque to core. The adapter returns a new one or omits it, and it never
  *   moves backwards.
  * - A6: One attempt per request; the adapter does not retry on its own, with one exception: it
@@ -325,13 +348,14 @@ export interface AdapterCore {
   /** Commits the accepted observation and its source state together. */
   observe(source: string, observation: AcceptedObservation): Promise<void>;
   /** Reports a source failure or stale deadline without a batch. */
-  reportSourceState(source: string, state: SourceState): Promise<void>;
+  reportSourceState(source: string, state: SourceState, usage?: Batch['usage']): Promise<void>;
 }
 
 /** A whole-poll failure (A6). `retryAt` is when the source allows the next attempt. */
 export class AdapterError extends Error {
   readonly kind: AdapterErrorKind;
   readonly retryAt?: Date | undefined;
+  usage?: Batch['usage'];
 
   constructor(
     kind: AdapterErrorKind,

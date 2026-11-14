@@ -46,7 +46,9 @@ export const sampleRows: SampleRows = {
     archive_slot_at: null,
     reopened_at: at,
   },
+  source_cost: { id: 1, source: 'github', at, points: 3 },
   pr_snapshot: {
+    closed_recheck_at: null,
     repo: 'x/y',
     number: 7,
     head_sha: 'a'.repeat(40),

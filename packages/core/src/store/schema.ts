@@ -67,6 +67,7 @@ export interface TaskTable {
 }
 
 export interface PrSnapshotTable {
+  closed_recheck_at: Generated<string | null>;
   repo: string;
   number: number;
   head_sha: string;
@@ -415,6 +416,7 @@ export interface Tables {
   dismissal: DismissalTable;
   meta: MetaTable;
   source_state: SourceStateTable;
+  source_cost: { id: Generated<number>; source: string; at: string; points: number };
   source_miss: SourceMissTable;
   pr_continuation: PrContinuationTable;
   transport_health: TransportHealthTable;

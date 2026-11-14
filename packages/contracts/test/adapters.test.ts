@@ -381,6 +381,22 @@ function filesUnder(dir: string): string[] {
   });
 }
 
+describe('state probes and usage', () => {
+  it('accepts unchanged closed probes without weakening normal entity coverage', () => {
+    const ref = { kind: 'pr', repo: 'acme/web', number: 42 };
+    expect(
+      batchSchema.safeParse(batch({ prProbes: [{ ref, status: 'closed' }], usage: { points: 3 } }))
+        .success,
+    ).toBe(true);
+    expect(
+      batchSchema.safeParse(
+        batch({ entities: [{ ref, status: 'ok' }], prProbes: [{ ref, status: 'closed' }] }),
+      ).success,
+    ).toBe(false);
+    expect(batchSchema.safeParse(batch({ usage: { points: -1 } })).success).toBe(false);
+  });
+});
+
 describe('no wire formats', () => {
   it('flags wire terms and leaves neutral words alone', () => {
     for (const term of ['X-RateLimit-Reset', 'pageInfo', 'startCursor', 'hasPreviousPage'])
