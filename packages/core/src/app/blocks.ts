@@ -1,4 +1,5 @@
 import {
+  eventPayloadSchemas,
   parseActorId,
   type ActorId,
   type AddresseeRole,
@@ -6,7 +7,7 @@ import {
   type EventKind,
   type EventPayload,
 } from '@spur-board/contracts';
-import type { Kysely, Selectable } from 'kysely';
+import { sql, type Kysely, type Selectable } from 'kysely';
 import type { BlockTable, CommentTable, Tables, TaskTable } from '../store/schema.ts';
 import { BLOCK_ITEM_KINDS, isItemKind, ITEM_POLICY, type ItemKind } from '../domain/fromYou.ts';
 import {
@@ -243,6 +244,7 @@ async function insertComment(
   ctx: CommandContext,
   addressee: AddresseeRole,
   source?: { conversationRef: string; messageRef: string },
+  forwardedFrom?: number,
 ): Promise<Comment> {
   const row = await trx
     .insertInto('comment')
@@ -260,7 +262,11 @@ async function insertComment(
     })
     .returningAll()
     .executeTakeFirstOrThrow();
-  await journal(trx, task, ctx, 'comment_added', { comment: commentId(row.id), addressee });
+  await journal(trx, task, ctx, 'comment_added', {
+    comment: commentId(row.id),
+    addressee,
+    ...(forwardedFrom === undefined ? {} : { forwardedFrom: commentId(forwardedFrom) }),
+  });
   return row;
 }
 
@@ -364,6 +370,7 @@ export async function openSystemBlock(
 /**
  * Copies the answer to a course check to the task as a comment without a block, so the worker
  * reads it in its inbox: the close reason, else the closing actor's newest comment on the block.
+ * A copied comment is named in the copy's `comment_added`, so its edits reach the copy.
  */
 async function forwardCourseNote(
   trx: Trx,
@@ -372,19 +379,58 @@ async function forwardCourseNote(
   ctx: CommandContext,
   reason: string | null,
 ): Promise<void> {
-  const text =
-    reason ??
-    (
-      await trx
-        .selectFrom('comment')
-        .select('text')
-        .where('block_id', '=', block.id)
-        .where('author', '=', ctx.actor)
-        .orderBy('id', 'desc')
-        .executeTakeFirst()
-    )?.text;
-  if (text === undefined) return;
-  await insertComment(trx, task, null, text, ctx, 'worker');
+  if (reason !== null) {
+    await insertComment(trx, task, null, reason, ctx, 'worker');
+    return;
+  }
+  const answer = await trx
+    .selectFrom('comment')
+    .select(['id', 'text'])
+    .where('block_id', '=', block.id)
+    .where('author', '=', ctx.actor)
+    .orderBy('id', 'desc')
+    .executeTakeFirst();
+  if (answer === undefined) return;
+  await insertComment(trx, task, null, answer.text, ctx, 'worker', undefined, answer.id);
+}
+
+/** The comments `forwardCourseNote` copied from comment `id`. */
+async function forwardedCopies(trx: Trx, id: number): Promise<Comment[]> {
+  const added = await trx
+    .selectFrom('event')
+    .select('payload')
+    .where('kind', '=', 'comment_added')
+    .where(sql<boolean>`json_extract(payload, '$.forwardedFrom') = ${commentId(id)}`)
+    .execute();
+  const ids = added.flatMap(({ payload }) => {
+    const parsed = eventPayloadSchemas.comment_added.safeParse(JSON.parse(payload));
+    return parsed.success ? [idNumber(parsed.data.comment)] : [];
+  });
+  if (ids.length === 0) return [];
+  return trx.selectFrom('comment').selectAll().where('id', 'in', ids).execute();
+}
+
+/** Writes an edit to one comment by the acknowledgment rule, with its `comment_edited`. */
+async function reviseComment(
+  trx: Trx,
+  task: Task,
+  comment: Comment,
+  text: string,
+  ctx: CommandContext,
+): Promise<{ updated: Comment; clarification: boolean }> {
+  const next = editComment(comment.revision, comment.acked_revision);
+  const updated = await trx
+    .updateTable('comment')
+    .set({ text, revision: next.revision })
+    .where('id', '=', comment.id)
+    .returningAll()
+    .executeTakeFirstOrThrow();
+  await journal(trx, task, ctx, 'comment_edited', {
+    comment: commentId(comment.id),
+    revision: next.revision,
+    clarification: next.clarification,
+  });
+  return { updated, clarification: next.clarification };
 }
 
 /**
@@ -537,18 +583,10 @@ export async function editInboundComment(
   if (input.comment.author !== input.actor) {
     throw new CommandError('forbidden', 'Only the comment author can edit it.');
   }
-  const next = editComment(input.comment.revision, input.comment.acked_revision);
-  const updated = await trx
-    .updateTable('comment')
-    .set({ text: input.text, revision: next.revision })
-    .where('id', '=', input.comment.id)
-    .returningAll()
-    .executeTakeFirstOrThrow();
-  await journal(trx, task, { actor: input.actor, at: input.at }, 'comment_edited', {
-    comment: commentId(input.comment.id),
-    revision: next.revision,
-    clarification: next.clarification,
-  });
+  const ctx: CommandContext = { actor: input.actor, at: input.at };
+  const { updated, clarification } = await reviseComment(trx, task, input.comment, input.text, ctx);
+  for (const copy of await forwardedCopies(trx, input.comment.id))
+    await reviseComment(trx, task, copy, input.text, ctx);
   // Only a comment that rang as an answer rings again; a note or a withdrawal never did.
   const answered = await trx
     .selectFrom('notification')
@@ -556,7 +594,7 @@ export async function editInboundComment(
     .where('kind', '=', 'answer')
     .where('comment_id', '=', updated.id)
     .executeTakeFirst();
-  if (next.clarification && updated.block_id !== null && answered !== undefined) {
+  if (clarification && updated.block_id !== null && answered !== undefined) {
     const block = await trx
       .selectFrom('block')
       .selectAll()

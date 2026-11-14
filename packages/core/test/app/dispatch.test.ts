@@ -25,7 +25,7 @@ import {
   type Store,
 } from '../../src/index.ts';
 import { archiveTask } from '../../src/app/archive.ts';
-import { recordInboundBlockMessage } from '../../src/app/blocks.ts';
+import { editInboundComment, recordInboundBlockMessage } from '../../src/app/blocks.ts';
 import { scanTransaction } from '../../src/app/secrets.ts';
 
 // The dispatcher end to end through the observation core, the registry and the tick, on an
@@ -397,6 +397,36 @@ function board(options: Options = {}) {
           at,
           config,
         }),
+      );
+    },
+    /** The operator's edit of a Slack message, as the inbound applier records it. */
+    editReply: (comment: number, text: string) => {
+      const at = step();
+      return scanTransaction(store, config, async (trx) =>
+        editInboundComment(trx, {
+          comment: await trx
+            .selectFrom('comment')
+            .selectAll()
+            .where('id', '=', comment)
+            .executeTakeFirstOrThrow(),
+          text,
+          at,
+          actor: 'operator',
+          config,
+        }),
+      );
+    },
+    editComment: (actor: ActorId, comment: string, text: string) => {
+      step();
+      return apply(registry['comment.edit'], { comment, text }, actor, `key-${String(++keys)}`);
+    },
+    ackComment: (actor: ActorId, comment: string, revision: number) => {
+      step();
+      return apply(
+        registry['inbox.ack'],
+        { entries: [{ id: comment, revision }] },
+        actor,
+        `key-${String(++keys)}`,
       );
     },
     closeItem: (item: string) => {
@@ -1635,6 +1665,44 @@ describe('course check', () => {
     const notes = (await ctx.inbox(WORKER)).comments.filter((comment) => comment.block === null);
     expect(notes).toEqual([expect.objectContaining({ text: NOTE, author: 'operator' })]);
     expect((await itemsOf(ctx, 'course_check'))[0]?.cleared_at).toEqual(expect.any(String));
+  });
+
+  it('an edit of the operator Slack answer reaches the forwarded note', async () => {
+    const ctx = await inReview();
+    await threeReturns(ctx);
+    const block = await courseBlock(ctx);
+    await ctx.reply(`B${String(block.id)}`, NOTE);
+    const answer = await ctx.store.db
+      .selectFrom('comment')
+      .select('id')
+      .where('block_id', '=', block.id)
+      .where('author', '=', 'operator')
+      .executeTakeFirstOrThrow();
+    const corrected = `${NOTE} Accept the slow path as a known limit.`;
+
+    await ctx.editReply(answer.id, corrected);
+    await ctx.tick();
+    const notes = (await ctx.inbox(WORKER)).comments.filter((comment) => comment.block === null);
+    expect(notes).toEqual([expect.objectContaining({ text: corrected, author: 'operator' })]);
+  });
+
+  it('a curator comment.edit of its answer reaches the forwarded note, even once acked', async () => {
+    const ctx = await inReview({ curator: true });
+    await threeReturns(ctx);
+    const block = await courseBlock(ctx);
+    const { comment } = await ctx.answer(CUR, `B${String(block.id)}`, NOTE);
+    await ctx.tick();
+    const [note] = (await ctx.inbox(WORKER)).comments.filter((entry) => entry.block === null);
+    expect(note).toEqual(expect.objectContaining({ text: NOTE, author: CUR }));
+    await ctx.ackComment(WORKER, note?.id ?? '', note?.revision ?? 1);
+    expect((await ctx.inbox(WORKER)).comments.filter((entry) => entry.block === null)).toEqual([]);
+
+    const corrected = `${NOTE} Accept the slow path as a known limit.`;
+    await ctx.editComment(CUR, comment.id, corrected);
+    const notes = (await ctx.inbox(WORKER)).comments.filter((entry) => entry.block === null);
+    expect(notes).toEqual([
+      expect.objectContaining({ id: note?.id, text: corrected, author: CUR }),
+    ]);
   });
 });
 
