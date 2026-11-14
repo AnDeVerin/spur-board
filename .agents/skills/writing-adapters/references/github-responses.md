@@ -48,8 +48,10 @@ and `describe('PR index cache')` in `packages/adapters/test/github/prBatch.test.
   written for this poll's discovery numbers, requested or not; after a successful discovery it
   keeps only the numbers discovery listed. A discovered PR not requested and not newer than its
   record is not read: its recorded facts go out again, with no `continuation`, so a batch core
-  did not accept loses nothing. It holds no cursor and adds no entity. It lives in memory: after
-  a restart each PR at the cursor tie is read once more. Tests: `describe('PR discovery reads')`.
+  did not accept loses nothing. It holds no cursor and adds no entity. `pollPr` deletes the PR's
+  record, as it does its cache entry, so the next discovery reads it in full. It lives in memory:
+  after a restart each PR at the cursor tie is read once more. Tests:
+  `describe('PR discovery reads')`.
 - Cache fingerprint: `JSON.stringify` of the parsed index alias (`prIndex.ts`). It lists each
   check's name and state without `isRequired`: a `SUCCESS` rollup also covers skipped checks,
   which core judges red when required. Re-emit the cached facts only when the fingerprint, the
