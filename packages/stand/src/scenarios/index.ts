@@ -18,22 +18,24 @@ import { curatorAbsent, curatorEscalation, questionToCurator } from './curator.t
 import {
   dispatchConflictInReadyToMerge,
   dispatchConflictInReview,
-  dispatchCiPendingAfterSubmit,
   dispatchCiRedAfterSubmit,
-  dispatchCiRedNewHeadInProductReview,
   dispatchCourseCheck,
   dispatchCycleLimit,
   dispatchDeadExecutor,
   dispatchExternalComment,
   dispatchHappyPath,
   dispatchLongCommentHistory,
-  dispatchNewHeadInReadyToMerge,
   dispatchReentrySameHead,
   dispatchReviewLoop,
-  dispatchRingClosedTurn,
   dispatchSourceBlind,
 } from './dispatcher.ts';
 import { empty } from './empty.ts';
+import {
+  dispatchCiPendingAfterSubmit,
+  dispatchCiRedNewHeadInProductReview,
+  dispatchNewHeadInReadyToMerge,
+  dispatchRingClosedTurn,
+} from './new-head.ts';
 import { questionToOperator } from './question-to-operator.ts';
 import { sourceBlind, sourceBlindJira } from './source-blind.ts';
 import { spurSourceSilent } from './spur-source-silent.ts';
