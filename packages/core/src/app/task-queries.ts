@@ -6,11 +6,10 @@ import {
   type ActorId,
   type Config,
   type EventKind,
-  type GateReason,
 } from '@spur-board/contracts';
 import type { Selectable } from 'kysely';
 import { dispatchHolds } from '../domain/dispatch.ts';
-import { evaluateGate, explainGates, HOLD_ONLY } from '../domain/gates.ts';
+import { evaluateGate, explainGates, HOLD_ONLY, type HoldOnlyReason } from '../domain/gates.ts';
 import type { TaskTable, TurnTable } from '../store/schema.ts';
 import { authorize, type ResolvedTarget } from './authorize.ts';
 import { authorizationTarget, blockView, commentView, taskTarget } from './blocks.ts';
@@ -30,7 +29,7 @@ type Turn = Selectable<TurnTable>;
 const WHY_MOVES = 5;
 
 /** The fact each hold-only gate reason waits for, as `--why` names it. */
-const WAITING_FOR: Partial<Record<GateReason, string>> = {
+const WAITING_FOR: Record<HoldOnlyReason, string> = {
   checks_pending: 'waiting for CI',
   mergeable_unknown: 'waiting for GitHub to compute mergeability',
   comment_history_incomplete: 'waiting for the board to read the full PR comment history',
@@ -237,11 +236,11 @@ export function createTaskQueries(deps: {
       gate.ok || head === undefined
         ? []
         : gate.reasons
-            .filter((reason) => HOLD_ONLY.has(reason))
+            .filter((reason): reason is HoldOnlyReason => HOLD_ONLY.has(reason))
             .map((reason) => ({
               reason,
               head,
-              text: `${WAITING_FOR[reason] ?? `waiting for ${reason}`} on ${head}`,
+              text: `${WAITING_FOR[reason]} on ${head}`,
             }));
     return {
       ...shared,
