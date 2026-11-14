@@ -200,6 +200,21 @@ export function splitText(text: string, max = MAX_PART_TEXT): string[] | null {
   return parts;
 }
 
+/** Cuts `text` to at most `max` UTF-16 units without splitting a code point; a cut ends in `…`. */
+function capText(text: string, max: number): string {
+  if (text.length <= max) return text;
+  let kept = '';
+  for (const point of text) {
+    if (kept.length + point.length + 1 > max) break;
+    kept += point;
+  }
+  return `${kept}…`;
+}
+
+function plain(text: string, max: number) {
+  return { type: 'plain_text' as const, text: capText(text, max) };
+}
+
 export function messageBlocks(
   text: string,
   marker: string,
@@ -211,9 +226,21 @@ export function messageBlocks(
     block_id: string;
     text: { type: 'mrkdwn'; text: string };
   };
+  type PlainText = { type: 'plain_text'; text: string };
   type ActionsBlock = {
     type: 'actions';
-    elements: { type: 'button'; action_id: string; text: { type: 'plain_text'; text: string } }[];
+    elements: {
+      type: 'button';
+      action_id: string;
+      text: PlainText;
+      confirm?: {
+        title: PlainText;
+        text: PlainText;
+        confirm: PlainText;
+        deny: PlainText;
+        style: 'danger';
+      };
+    }[];
   };
   type OriginBlock = {
     type: 'context';
@@ -238,7 +265,18 @@ export function messageBlocks(
       elements: actions.map((action) => ({
         type: 'button',
         action_id: action.id,
-        text: { type: 'plain_text', text: action.label },
+        text: plain(action.label, 75),
+        ...(action.confirm === undefined
+          ? {}
+          : {
+              confirm: {
+                title: plain(action.label, 100),
+                text: plain(action.confirm, 300),
+                confirm: plain(action.label, 30),
+                deny: plain('Cancel', 30),
+                style: 'danger' as const,
+              },
+            }),
       })),
     });
   }

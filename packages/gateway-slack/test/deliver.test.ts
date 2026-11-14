@@ -405,6 +405,84 @@ describe('rendering and surface', () => {
     expect(messages.find((m) => m.message === opened.message)?.actions).toEqual([]);
   });
 
+  it('renders a confirm dialog on a confirmed action', async () => {
+    const { fake, gateway } = await setup();
+    const label = `Revoke ${'d'.repeat(120)}`;
+    const opened = await gateway.deliver({
+      ...request('confirm-key'),
+      actions: [
+        { id: 'token:7:revoke', label, confirm: 'q'.repeat(400) },
+        { id: 'item:7:close', label: 'Close' },
+      ],
+    });
+    if (opened.status !== 'delivered') throw new Error('open failed');
+    await gateway.deliver({
+      ...request('confirm-key-edit'),
+      target: { kind: 'edit', message: opened.message },
+      actions: [{ id: 'token:7:revoke', label: 'Revoke', confirm: 'Revoke desk?' }],
+    });
+    type Button = {
+      action_id: string;
+      text: { text: string };
+      confirm?: {
+        title: { text: string };
+        text: { type: string; text: string };
+        confirm: { text: string };
+        deny: { text: string };
+        style: string;
+      };
+    };
+    const buttons = (method: string): Button[] => {
+      const call = fake.requests().find((entry) => entry.method === method);
+      const blocks = JSON.parse(call?.params.blocks ?? '[]') as {
+        type: string;
+        elements?: Button[];
+      }[];
+      return blocks.find((block) => block.type === 'actions')?.elements ?? [];
+    };
+    const [revoke, close] = buttons('chat.postMessage');
+    expect(revoke?.action_id).toBe('token:7:revoke');
+    expect(revoke?.text.text.length).toBeLessThanOrEqual(75);
+    expect(revoke?.confirm?.title.text.length).toBeLessThanOrEqual(100);
+    expect(revoke?.confirm?.title.text.startsWith('Revoke ddd')).toBe(true);
+    expect(revoke?.confirm?.text).toEqual({ type: 'plain_text', text: `${'q'.repeat(299)}…` });
+    expect(revoke?.confirm?.confirm.text.length).toBeLessThanOrEqual(30);
+    expect(revoke?.confirm?.confirm.text.endsWith('…')).toBe(true);
+    expect(revoke?.confirm?.deny.text).toBe('Cancel');
+    expect(revoke?.confirm?.style).toBe('danger');
+    expect(close).not.toHaveProperty('confirm');
+    expect(buttons('chat.update')).toEqual([
+      {
+        type: 'button',
+        action_id: 'token:7:revoke',
+        text: { type: 'plain_text', text: 'Revoke' },
+        confirm: {
+          title: { type: 'plain_text', text: 'Revoke' },
+          text: { type: 'plain_text', text: 'Revoke desk?' },
+          confirm: { type: 'plain_text', text: 'Revoke' },
+          deny: { type: 'plain_text', text: 'Cancel' },
+          style: 'danger',
+        },
+      },
+    ]);
+  });
+
+  it('shows the actions of an edit that carries them', async () => {
+    const { fake, gateway } = await setup();
+    const opened = await gateway.deliver(request('card-key'));
+    if (opened.status !== 'delivered') throw new Error('open failed');
+    const edited = await gateway.deliver({
+      ...request('card-key-edit'),
+      target: { kind: 'edit', message: opened.message },
+      actions: [{ id: 'token:7:revoke', label: 'Revoke' }],
+    });
+    expect(edited.status).toBe('delivered');
+    const update = fake.requests().find((entry) => entry.method === 'chat.update');
+    expect(JSON.stringify(JSON.parse(update?.params.blocks ?? 'null'))).toContain('"actions"');
+    const messages = await fake.platform.messages();
+    expect(messages.find((m) => m.message === opened.message)?.actions).toEqual(['token:7:revoke']);
+  });
+
   it('strikes each line apart, trims it and replaces a tilde inside', () => {
     expect(
       renderText([{ kind: 'quote', children: [{ kind: 'strike', text: ' a~b \n\n  c ' }] }]),

@@ -127,7 +127,7 @@ export interface VisibleMessage {
   repeat: boolean;
   /** The conversation's first message. */
   root: boolean;
-  /** Ids of the actions the message shows; empty when it shows none (G16). */
+  /** Ids of the actions the message shows, the last edit's when edited; empty for none (G16). */
   actions: readonly string[];
 }
 
@@ -337,6 +337,35 @@ const deliverTargets: ConformanceCase = {
       '✓ resolved',
     );
     expect(edited?.actions, 'G16: the edit removes the actions').toEqual([]);
+
+    delivered(
+      await h.deliver({
+        key: 'dt-edit-actions',
+        target: { kind: 'edit', message: reply.message },
+        body: text('with revoke'),
+        actions: [{ id: 'revoke', label: 'Revoke' }],
+      }),
+      'G6: an edit with actions returns delivered',
+    );
+    messages = await h.platform.messages();
+    expect(
+      messages.find((message) => message.message === reply.message)?.actions,
+      "G16: an edit shows the request's actions",
+    ).toEqual(['revoke']);
+
+    delivered(
+      await h.deliver({
+        key: 'dt-edit-clear',
+        target: { kind: 'edit', message: reply.message },
+        body: text('revoked'),
+      }),
+      'G6: an edit without actions returns delivered',
+    );
+    messages = await h.platform.messages();
+    expect(
+      messages.find((message) => message.message === reply.message)?.actions,
+      'G16: an edit without actions removes them',
+    ).toEqual([]);
 
     const closed = delivered(
       await h.deliver({

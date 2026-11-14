@@ -119,7 +119,7 @@ export function createDeliveryGateway(
             channel: addressed.channel,
             ts: addressed.ts,
             text: parts[0] ?? '',
-            blocks: messageBlocks(parts[0] ?? '', marker),
+            blocks: messageBlocks(parts[0] ?? '', marker, request.actions),
           });
           confirmed = true;
         }

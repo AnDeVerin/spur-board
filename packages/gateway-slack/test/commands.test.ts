@@ -59,7 +59,7 @@ describe('Slack board commands', () => {
     }
   });
 
-  it('maps the three catalog forms and the empty status alias', () => {
+  it('maps the four catalog forms and the empty status alias', () => {
     expect(parseCommand('', '/board')).toEqual({ kind: 'query', id: 'status.get', input: {} });
     expect(parseCommand('status', '/board')).toEqual({
       kind: 'query',
@@ -81,11 +81,19 @@ describe('Slack board commands', () => {
       id: 'task.history',
       input: { task: 'PROJ-123' },
     });
+    expect(parseCommand('tokens', '/board')).toEqual({
+      kind: 'query',
+      id: 'token.list',
+      input: {},
+    });
+    expect(parseCommand('tokens extra', '/board')).toMatchObject({ kind: 'usage' });
   });
 
   it('derives usage and parsing from the same bindings for a configured name', () => {
     const usage = commandUsage('/ops');
-    expect(usage).toBe('Usage:\n/ops status\n/ops task <KEY> [why]\n/ops task <KEY> history');
+    expect(usage).toBe(
+      'Usage:\n/ops status\n/ops task <KEY> [why]\n/ops task <KEY> history\n/ops tokens',
+    );
     for (const input of [
       'unknown',
       'task',
