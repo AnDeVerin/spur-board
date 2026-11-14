@@ -221,30 +221,37 @@ async function run(
         (spur) => spur.name === session.spurProject && spur.role === 'orchestrator',
       ),
     );
-  if (orchestrator && current?.role === 'worker') {
-    await trx.updateTable('link').set({ role: 'other' }).where('id', '=', current.id).execute();
-    await rerouteDemotedWorkerTurn(trx, {
+  if (
+    orchestrator &&
+    current !== undefined &&
+    (current.role === 'worker' || current.role === 'other')
+  ) {
+    const demoted = current.role === 'worker';
+    if (demoted)
+      await trx.updateTable('link').set({ role: 'other' }).where('id', '=', current.id).execute();
+    const rerouted = await rerouteDemotedWorkerTurn(trx, {
       taskId: task.id,
       sessionId: session.id,
       at: new Date(ctx.at),
       config,
     });
-    await emit(
-      trx,
-      'link_added',
-      task.project,
-      task.id,
-      ctx.at,
-      {
-        entity: 'session',
-        session: session.id,
-        role: 'other',
-        source: current.source,
-        facts: session,
-        reason: 'Configured orchestrator sessions cannot be task workers.',
-      },
-      ctx.actor,
-    );
+    if (demoted || rerouted)
+      await emit(
+        trx,
+        'link_added',
+        task.project,
+        task.id,
+        ctx.at,
+        {
+          entity: 'session',
+          session: session.id,
+          role: 'other',
+          source: current.source,
+          facts: session,
+          reason: 'Configured orchestrator sessions cannot be task workers.',
+        },
+        ctx.actor,
+      );
   }
 
   if (

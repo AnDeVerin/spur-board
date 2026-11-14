@@ -798,13 +798,21 @@ async function session(
       .where('role', '=', 'worker')
       .returning(['task_id', 'source'])
       .execute();
-    for (const link of demoted) {
-      await rerouteDemotedWorkerTurn(trx, {
+    const linked = await trx
+      .selectFrom('link')
+      .select(['task_id', 'source'])
+      .where('entity', '=', 'session')
+      .where('session_id', '=', fact.id)
+      .where('role', '=', 'other')
+      .execute();
+    for (const link of linked) {
+      const rerouted = await rerouteDemotedWorkerTurn(trx, {
         taskId: link.task_id,
         sessionId: fact.id,
         at: new Date(at),
         config,
       });
+      if (!rerouted && !demoted.some((entry) => entry.task_id === link.task_id)) continue;
       const task = await trx
         .selectFrom('task')
         .select('project')

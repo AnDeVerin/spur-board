@@ -1258,13 +1258,20 @@ async function workerNotificationAddressedTo(
   session: string,
   config: Config,
 ): Promise<boolean> {
+  // A turn grants work ownership, so a stale recipient cannot keep authority after demotion.
+  // Answers still follow their original author, including authors linked as other.
+  if (n.kind === 'turn' && (await sessionLink(trx, n.task_id, 'worker', session)) === undefined)
+    return false;
   if (n.recipient_session === null) {
     return (
       session === n.author_session ||
       (await sessionLink(trx, n.task_id, 'worker', session)) !== undefined
     );
   }
-  return (await liveSession(trx, n.recipient_session)) !== undefined
+  const recipientStillWorker =
+    n.kind !== 'turn' ||
+    (await sessionLink(trx, n.task_id, 'worker', n.recipient_session)) !== undefined;
+  return recipientStillWorker && (await liveSession(trx, n.recipient_session)) !== undefined
     ? session === n.recipient_session
     : (await selectNotificationRecipient(trx, n, config))?.id === session;
 }

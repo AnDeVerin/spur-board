@@ -2625,6 +2625,35 @@ describe('turns', () => {
     expect((await turns(ctx))[0]?.acked_by).toBe('agent:web/worker-2');
   });
 
+  it.each(['other', 'banned'] as const)(
+    'rejects a demoted turn recipient (%s link) and accepts the replacement before notification reconcile',
+    async (mode) => {
+      const ctx = await setup({ config: policyBoard('none'), replacement: true });
+      await open(ctx);
+      await step(ctx);
+      expect(sessionsRung(ctx)).toEqual(['worker-1']);
+      await expect(
+        ctx.apply(ctx.ops.ack, T1, 'agent:web/worker-2', 'ack-still-pinned'),
+      ).rejects.toMatchObject({ code: 'forbidden' });
+      await ctx.store.transaction((trx) =>
+        trx
+          .updateTable('link')
+          .set(mode === 'other' ? { role: 'other' } : { banned: 1 })
+          .where('session_id', '=', 'worker-1')
+          .execute(),
+      );
+      await expect(
+        ctx.apply(ctx.ops.ack, T1, 'agent:web/worker-1', 'ack-demoted'),
+      ).rejects.toMatchObject({ code: 'forbidden' });
+      expect((await turns(ctx))[0]?.acked_by).toBeNull();
+      await expect(
+        ctx.apply(ctx.ops.ack, T1, 'agent:web/worker-2', 'ack-replacement'),
+      ).resolves.toEqual({ acked: ['T1'] });
+      expect((await turns(ctx))[0]?.acked_by).toBe('agent:web/worker-2');
+      expect((await notices(ctx))[0]?.recipient_session).toBe('worker-1');
+    },
+  );
+
   it('lets a later orchestrator session take over a taken turn', async () => {
     const ctx = await setup({ config: policyBoard() });
     await addSession(ctx, 'qa-2', 'qa');

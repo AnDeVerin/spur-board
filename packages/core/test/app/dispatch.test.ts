@@ -21,7 +21,7 @@ import {
   tickBoard,
   type Store,
 } from '../../src/index.ts';
-import { registerTurnReminder } from '../../src/app/doorbells.ts';
+import { registerTurnReminder, ringStillCurrent } from '../../src/app/doorbells.ts';
 import { archiveTask } from '../../src/app/archive.ts';
 import { editInboundComment, recordInboundBlockMessage } from '../../src/app/blocks.ts';
 import { scanTransaction } from '../../src/app/secrets.ts';
@@ -565,10 +565,31 @@ async function inReview(options: Options = {}): Promise<Board> {
 }
 
 describe('orchestrator role transitions', () => {
-  it.each(['observation', 'manual'] as const)(
-    'releases a taken worker turn through %s and lets its replacement progress',
-    async (mode) => {
-      const ctx = await inDev({ workerRole: 'worker' });
+  it.each(
+    (['observation', 'manual'] as const).flatMap((mode) =>
+      (['taken', 'unread', 'unrung'] as const).flatMap((state) =>
+        [false, true].map((alreadyDemoted) => ({ mode, state, alreadyDemoted })),
+      ),
+    ),
+  )(
+    'releases a $state worker turn through $mode (already demoted: $alreadyDemoted) and lets its replacement progress',
+    async ({ mode, state, alreadyDemoted }) => {
+      const ctx =
+        state === 'taken'
+          ? await inDev({ workerRole: 'worker' })
+          : await started({ workerRole: 'worker' });
+      if (state !== 'taken') await ctx.pr();
+      if (state === 'unread') {
+        await ctx.session({ ...sessionFacts('worker-1', 'worker'), health: 'waiting' });
+        await ctx.ring();
+        expect(
+          await ctx.store.db
+            .selectFrom('notification')
+            .select('recipient_session')
+            .where('turn_id', '=', 1)
+            .executeTakeFirst(),
+        ).toEqual({ recipient_session: 'worker-1' });
+      }
       await ctx.linkSession('worker-1');
       const before = await ctx.store.db
         .selectFrom('link')
@@ -591,19 +612,26 @@ describe('orchestrator role transitions', () => {
           .where('id', '=', 1)
           .returningAll()
           .executeTakeFirstOrThrow();
-        await registerTurnReminder(trx, turn, 'worker-1', new Date(ctx.at()));
+        if (state === 'taken')
+          await registerTurnReminder(trx, turn, 'worker-1', new Date(ctx.at()));
       });
+      if (alreadyDemoted)
+        await ctx.store.transaction((trx) =>
+          trx.updateTable('link').set({ role: 'other' }).where('id', '=', before.id).execute(),
+        );
       ctx.restart({ workerRole: 'orchestrator' });
       if (mode === 'observation') await ctx.spur();
       else await ctx.linkSession('worker-1');
 
+      if (state !== 'taken')
+        await expect(ctx.ack(WORKER, 'T1')).rejects.toMatchObject({ code: 'not_found' });
       expect(
         await ctx.store.db
           .selectFrom('turn')
           .select(['acked_by', 'closed_reason'])
           .where('id', '=', 1)
           .executeTakeFirst(),
-      ).toEqual({ acked_by: WORKER, closed_reason: 'rerouted' });
+      ).toEqual({ acked_by: state === 'taken' ? WORKER : null, closed_reason: 'rerouted' });
       expect(
         await ctx.store.db
           .selectFrom('link')
@@ -616,12 +644,40 @@ describe('orchestrator role transitions', () => {
         .select(['kind', 'acked_at'])
         .where('turn_id', '=', 1)
         .execute();
-      expect(notices.map((notice) => notice.kind).sort()).toEqual(['turn', 'turn_reminder']);
+      expect(notices.map((notice) => notice.kind).sort()).toEqual(
+        state === 'taken' ? ['turn', 'turn_reminder'] : ['turn'],
+      );
       expect(notices.every((notice) => notice.acked_at !== null)).toBe(true);
       expect(await ctx.openTurn()).toMatchObject({
         role: 'operator',
         handed: JSON.stringify(handed),
       });
+      if (state === 'taken')
+        await expect(ctx.ack(WORKER, (await ctx.openTurn())?.id ?? '')).rejects.toMatchObject({
+          code: 'not_found',
+        });
+      const oldNotice = await ctx.store.db
+        .selectFrom('notification')
+        .select('id')
+        .where('turn_id', '=', 1)
+        .where('kind', '=', 'turn')
+        .executeTakeFirstOrThrow();
+      expect(
+        await ringStillCurrent(
+          ctx.store.db,
+          oldNotice.id,
+          'worker-1',
+          boardConfig({ workerRole: 'orchestrator' }),
+        ),
+      ).toBe('dead');
+      const stableTurns = await ctx.store.db.selectFrom('turn').selectAll().execute();
+      const stableNotices = await ctx.store.db.selectFrom('notification').selectAll().execute();
+      if (mode === 'observation') await ctx.spur();
+      else await ctx.linkSession('worker-1');
+      expect(await ctx.store.db.selectFrom('turn').selectAll().execute()).toEqual(stableTurns);
+      expect(await ctx.store.db.selectFrom('notification').selectAll().execute()).toEqual(
+        stableNotices,
+      );
 
       await ctx.ticket();
       await ctx.github();

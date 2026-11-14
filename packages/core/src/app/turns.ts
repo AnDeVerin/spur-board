@@ -216,11 +216,11 @@ export async function closeTurns(
   }
 }
 
-/** Releases a taken worker turn when its holder's session is demoted from worker. */
+/** Reroutes a worker turn whose holder or unread recipient was demoted from worker. */
 export async function rerouteDemotedWorkerTurn(
   trx: Trx,
   input: { taskId: number; sessionId: string; at: Date; config: Config },
-): Promise<void> {
+): Promise<boolean> {
   const { taskId, sessionId, at, config } = input;
   const turn = await trx
     .selectFrom('turn')
@@ -229,10 +229,19 @@ export async function rerouteDemotedWorkerTurn(
     .where('role', '=', 'worker')
     .where('closed_at', 'is', null)
     .executeTakeFirst();
-  const holder =
-    turn?.acked_by === null || turn?.acked_by === undefined ? null : parseActorId(turn.acked_by);
-  if (turn === undefined || holder?.actor !== 'agent' || holder.actorRef.session !== sessionId)
-    return;
+  if (turn === undefined) return false;
+  if (turn.acked_by !== null) {
+    const holder = parseActorId(turn.acked_by);
+    if (holder?.actor !== 'agent' || holder.actorRef.session !== sessionId) return false;
+  } else {
+    const notice = await turnNotification(trx, turn.id);
+    if (notice !== undefined && notice.recipient_session !== null) {
+      if (notice.recipient_session !== sessionId) return false;
+    } else if ((await linkedSession(trx, taskId, 'worker')) !== undefined) {
+      // An unrung turn can already be taken by the remaining worker.
+      return false;
+    }
+  }
   const task = await trx
     .selectFrom('task')
     .selectAll()
@@ -240,6 +249,7 @@ export async function rerouteDemotedWorkerTurn(
     .executeTakeFirstOrThrow();
   await closeTurns(trx, { taskId, reason: 'rerouted', at });
   await openTurn(trx, { task, reason: turn.reason, handed: turnHanded(turn), at, config });
+  return true;
 }
 
 /** How long the holder of a taken turn may sit quiet before it is reminded, then flagged. */
