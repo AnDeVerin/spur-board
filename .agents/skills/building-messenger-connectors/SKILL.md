@@ -78,6 +78,10 @@ A gateway adapts one chat platform to the `Gateway` port.
 
 - Read `references/outbound.md` before changing `deliver`: one attempt per call (G1), failure
   mapping (G2), steps and results (G4, G6), and the health items core raises.
+- Outside text reaches Slack mrkdwn only through `escapeText` and the `Mrkdwn` type in
+  `packages/gateway-slack/src/render.ts`; write board links and mentions around its output
+  (`packages/gateway-slack/test/source.test.ts`,
+  `packages/gateway-slack/test/render-escape.test.ts`).
 
 ## Platform differences
 

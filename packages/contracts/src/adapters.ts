@@ -383,7 +383,9 @@ export interface PrPoller {
    * resolves once core committed its observation; it never rejects. `source` is the id core
    * builds with `prSourceId`. The commit moves the source's `observed_at` but not its
    * last complete time. While a regular throttle wait runs it resolves `failed` with
-   * `adapterKind: 'throttled'` and `retryAt` without calling the source.
+   * `adapterKind: 'throttled'` and `retryAt` without calling the source. A `transient` failure
+   * of the source call is tried again, up to 3 attempts 1 s and 2 s apart, inside `timeoutMs`;
+   * nothing else is retried.
    */
   pollPr(source: string, ref: PrEntityRef, options: { timeoutMs: number }): Promise<PollPrResult>;
 }

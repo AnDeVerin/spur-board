@@ -1678,6 +1678,108 @@ describe('on-demand PR poll', () => {
     expect(failures).toMatchObject([{ step: 'poll', kind: 'unexpected' }]);
   });
 
+  describe('retry', () => {
+    const transient = () => Promise.reject(new AdapterError('transient', 'HTTP 502'));
+
+    it('tries a transient failure again after 1 s and 2 s and returns the answer', async () => {
+      let calls = 0;
+      const { core, adapter, runner, failures } = start(() => Promise.resolve(batch()), {
+        pollPr: () => {
+          calls += 1;
+          return calls < 3 ? transient() : Promise.resolve(demandOk());
+        },
+      });
+      await flush();
+      const call = request(runner, pr, { timeoutMs: 10_000 });
+      await flush();
+      expect(adapter.prRequests).toHaveLength(1);
+      await vi.advanceTimersByTimeAsync(999);
+      expect(adapter.prRequests).toHaveLength(1);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(adapter.prRequests).toHaveLength(2);
+      await vi.advanceTimersByTimeAsync(1_999);
+      expect(adapter.prRequests).toHaveLength(2);
+      expect(call.settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      await expect(call.result).resolves.toMatchObject({ ok: true, value: { status: 'ok' } });
+      expect(adapter.prRequests).toHaveLength(3);
+      expect(core.observed.filter((observed) => observed.batch.entities.length > 0)).toHaveLength(
+        1,
+      );
+      expect(failures).toMatchObject([
+        { step: 'poll', kind: 'transient' },
+        { step: 'poll', kind: 'transient' },
+      ]);
+    });
+
+    it('returns the third transient failure', async () => {
+      const { adapter, runner, failures } = start(() => Promise.resolve(batch()), {
+        pollPr: transient,
+      });
+      await flush();
+      const call = request(runner, pr, { timeoutMs: 10_000 });
+      await vi.advanceTimersByTimeAsync(3_000);
+      await expect(call.result).resolves.toEqual({
+        ok: false,
+        error: { kind: 'failed', adapterKind: 'transient', message: 'HTTP 502' },
+      });
+      expect(adapter.prRequests).toHaveLength(3);
+      expect(failures).toHaveLength(3);
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(adapter.prRequests).toHaveLength(3);
+    });
+
+    it('skips a wait that would end past timeoutMs and returns the failure', async () => {
+      const { adapter, runner } = start(() => Promise.resolve(batch()), { pollPr: transient });
+      await flush();
+      const call = request(runner, pr, { timeoutMs: 500 });
+      await flush();
+      expect(call.settled).toBe(true);
+      await expect(call.result).resolves.toMatchObject({
+        ok: false,
+        error: { kind: 'failed', adapterKind: 'transient' },
+      });
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(adapter.prRequests).toHaveLength(1);
+    });
+
+    it.each([
+      ['throttled', () => new AdapterError('throttled', 'slow down'), 'throttled'],
+      ['auth', () => new AdapterError('auth', 'bad token'), 'auth'],
+      ['a plain Error', () => new Error('boom'), 'unexpected'],
+    ])('does not retry %s', async (_, error, adapterKind) => {
+      const { adapter, runner } = start(() => Promise.resolve(batch()), {
+        pollPr: () => Promise.reject(error()),
+      });
+      await flush();
+      const call = request(runner, pr, { timeoutMs: 10_000 });
+      await flush();
+      expect(call.settled).toBe(true);
+      await expect(call.result).resolves.toMatchObject({
+        ok: false,
+        error: { kind: 'failed', adapterKind },
+      });
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(adapter.prRequests).toHaveLength(1);
+    });
+
+    it('stop during the wait resolves stopped and calls the source no more', async () => {
+      const { adapter, runner } = start(() => Promise.resolve(batch()), { pollPr: transient });
+      await flush();
+      const call = request(runner, pr, { timeoutMs: 10_000 });
+      await vi.advanceTimersByTimeAsync(500);
+      expect(adapter.prRequests).toHaveLength(1);
+      await runner.stop();
+      await expect(call.result).resolves.toEqual({
+        ok: false,
+        error: { kind: 'stopped', message: 'The adapter runner is stopping' },
+      });
+      expect(vi.getTimerCount()).toBe(0);
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(adapter.prRequests).toHaveLength(1);
+    });
+  });
+
   it.each([
     ['a cursor', demandOk({ cursor: sourceCursorSchema.parse('cursor-1') })],
     ['a continuation', demandOk({ items: [{ ...prItem, continuation: null }] })],

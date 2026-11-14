@@ -151,7 +151,13 @@ export const eventPayloadSchemas = {
   ]),
   task_added: z.looseObject({ column: z.enum(COLUMN_IDS) }),
   task_archived: z.looseObject({ reason: z.enum(ARCHIVE_REASONS) }),
-  task_submitted: z.looseObject({ turn: S.optional(), column: z.enum(COLUMN_IDS), sha: S }),
+  task_submitted: z.looseObject({
+    turn: S.optional(),
+    column: z.enum(COLUMN_IDS),
+    sha: S,
+    /** The head was confirmed by the board's newest poll; GitHub did not answer the submit. */
+    confirmedByPoll: z.literal(true).optional(),
+  }),
   task_moved: z.looseObject({
     from: z.enum(COLUMN_IDS),
     to: z.enum(COLUMN_IDS),

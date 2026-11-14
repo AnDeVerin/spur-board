@@ -7,6 +7,7 @@ import {
   markerFromBlocks,
   markerId,
   messageBlocks,
+  type Mrkdwn,
   originMarkerId,
   renderText,
   splitContext,
@@ -44,11 +45,11 @@ export function createDeliveryGateway(
   async function post(
     channel: string,
     threadTs: string | undefined,
-    text: string,
+    text: Mrkdwn,
     marker: string,
     request: DeliverRequest,
     first: boolean,
-    context: readonly string[],
+    context: readonly Mrkdwn[],
     originKey?: string,
   ): Promise<string> {
     const response = await client.chat.postMessage({
@@ -103,7 +104,8 @@ export function createDeliveryGateway(
         const addressed = parseRef(target.message);
         if (addressed === null) return failedMessage('invalid_message_ref');
         const marker = markers[0];
-        if (marker === null || marker === undefined || parts.length !== 1) {
+        const part = parts[0];
+        if (marker === null || marker === undefined || part === undefined || parts.length !== 1) {
           return failedMessage('edit_too_long');
         }
         if (request.maybeSent) {
@@ -118,8 +120,8 @@ export function createDeliveryGateway(
           await client.chat.update({
             channel: addressed.channel,
             ts: addressed.ts,
-            text: parts[0] ?? '',
-            blocks: messageBlocks(parts[0] ?? '', marker, request.actions, undefined, context),
+            text: part,
+            blocks: messageBlocks(part, marker, request.actions, undefined, context),
           });
           confirmed = true;
         }
@@ -167,7 +169,8 @@ export function createDeliveryGateway(
       for (let i = 0; i < parts.length; i++) {
         const key = keys[i];
         const marker = markers[i];
-        if (key === undefined || marker === null || marker === undefined) {
+        const part = parts[i];
+        if (key === undefined || part === undefined || marker === null || marker === undefined) {
           return failedMessage('invalid_marker');
         }
         const existing = request.maybeSent ? marked(prior, key) : undefined;
@@ -177,7 +180,7 @@ export function createDeliveryGateway(
           (await post(
             channel,
             threadTs,
-            parts[i] ?? '',
+            part,
             marker,
             request,
             i === 0,

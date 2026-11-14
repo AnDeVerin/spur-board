@@ -116,7 +116,7 @@ describe('Slack board commands', () => {
   it('renders quoted agent text without expanding a Slack mention', () => {
     expect(
       renderText([{ kind: 'quote', children: [{ kind: 'text', text: '<!channel> *bold*' }] }]),
-    ).toBe('> &lt;!channel&gt; *bold*');
+    ).toBe('> &lt;!channel&gt; ∗bold∗');
   });
 
   it('posts quoted data as literal rich text', async () => {
@@ -146,7 +146,9 @@ describe('Slack board commands', () => {
       ),
     ).toBe('sent');
     const posted = fake.requests().find((request) => request.method === 'chat.postEphemeral');
-    expect(posted?.params.text).toBe(`Block B12 (open, needs_input):\n\nQuote: ${quote}`);
+    expect(posted?.params.text).toBe(
+      'Block B12 (open, needs_input):\n\nQuote: &lt;!channel&gt; *bold* _italics_ https://example.test',
+    );
     expect(posted?.params.mrkdwn).toBe('false');
     expect(posted?.params.parse).toBe('none');
     expect(posted?.params.link_names).toBe('false');

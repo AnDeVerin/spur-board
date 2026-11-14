@@ -539,7 +539,7 @@ async function blockPost(
     {
       itemKey: `secret-post:${createHash('sha256').update(row.dedupeKey).digest('hex')}`,
       kind: 'post_blocked',
-      text: `text on ${safeKey} not sent: looks like a secret (${rule}), read \`board task ${safeKey}\``,
+      text: `text on ${safeKey} not sent: looks like a secret (${rule}), read board task ${safeKey}`,
       url: task === null ? '' : taskUrl(task, scanConfig()),
       taskId,
       blockId,
