@@ -291,10 +291,15 @@
                 },
                 "courseCheck": {
                   "default": 3,
-                  "description": "How many returns to Dev from this column, counted as for cycleLimit, before the board holds the task and asks the curator, or the operator when the project has no curator, to check its course. The answer resets the count and reaches the worker as a task comment. 0 turns the check off; cycleLimit is checked first.",
+                  "description": "How many returns to Dev from this column, counted as for cycleLimit, before the board holds the task and asks courseCheckTo (by default the curator, or the operator when the project has no curator) to check its course. The answer resets the count and reaches the worker as a task comment. 0 turns the check off; cycleLimit is checked first.",
                   "type": "integer",
                   "minimum": 0,
                   "maximum": 9007199254740991
+                },
+                "courseCheckTo": {
+                  "description": "Who answers this column's course check: operator, the curator's name, or the name of a column orchestrator. Without it, the curator, or the operator when the project has no curator. When the addressee has no live session the question moves to the operator; a conductor that is rung and does not answer keeps it, and the operator gets an item.",
+                  "type": "string",
+                  "minLength": 1
                 }
               },
               "required": ["id"],
