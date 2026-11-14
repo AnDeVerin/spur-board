@@ -32,6 +32,13 @@ body:
     validations:
       required: true
   - type: textarea
+    id: stand-scenario
+    attributes:
+      label: Stand scenario
+      description: Which stand scenario covers this, or why none is needed.
+    validations:
+      required: true
+  - type: textarea
     id: design-notes
     attributes:
       label: Design notes

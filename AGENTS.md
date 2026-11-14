@@ -80,6 +80,8 @@ A map of the repo for agents and contributors. The rules live in the files and s
 - `pnpm stand up|down|status|logs|board|mcp|wait|poll|reset|seed|clock|fake|violations` - run a stand under `$TMPDIR`;
   `pnpm stand` prints the commands. `up` refuses real external credentials in the environment,
   the live board's home and port 4777.
+- `pnpm stand:scenarios <name>...` - run the stand tests of the named scenarios only; an unknown
+  name or a name that ran no test fails (`packages/stand/src/run-scenarios.ts`).
 - `pnpm record:fakes [--check]` - record one read-only poll of the live GitHub, Jira and Spur
   into `packages/stand/recordings/`, scrubbed, and print the git diff; maintainer's machine only,
   with the live board's config and secrets. `--check` rescans the committed files offline.
@@ -197,7 +199,14 @@ variables expanded into commands, and the GitHub API through `curl`.
 - Exit codes: 0 pass, 1 failed, 2 usage or gh read error, 3 pending (including no ci run yet), 4
   cancelled.
 - A cancelled run is not a failure. A cancelled run with a newer run on the same commit is
-  superseded and does not count; editing the PR title or body starts such a newer run.
+  superseded and does not count.
+- An edit of the PR title or body runs `reuse`, `pr-title`, `guardrails` and `ci-ok`. When
+  `reuse` finds this PR's code run that tested the same merge commit, the code jobs skip and
+  `ci-ok` checks the new title and body plus that run's code jobs, not that run's `ci-ok`.
+  Otherwise the edit runs the code jobs itself. `ci:status` then reports the edit run, whose
+  `reuse` and `ci-ok` logs name the reused run. A red reused run keeps the edit red: after a
+  cancel or infrastructure failure, rerun the code run's failed jobs and then rerun the whole
+  edit run (not `--failed`); otherwise push a fix.
 - A red `ci-ok` follows the other jobs; read the job that failed.
 - Rerun (`gh run rerun <id> --failed`) only a cancelled run or an infrastructure failure.
 - Otherwise reproduce with the printed `repro:` command, fix, and push a new commit.
@@ -205,7 +214,8 @@ variables expanded into commands, and the GitHub API through `curl`.
 ## Issues
 
 Issue forms live in `.github/ISSUE_TEMPLATE/`: feature, bug and spike. Each has Context, Scope,
-Out of scope, Acceptance criteria, Design notes and Dependencies.
+Out of scope, Acceptance criteria, Design notes and Dependencies; feature and bug also have
+Stand scenario.
 
 ## Accepted risks
 
