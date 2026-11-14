@@ -177,24 +177,28 @@ export async function enqueueDoorbell(
   return row.id;
 }
 
+/** The key holds no install time, so a session gets at most one reload message per version. */
+export function skillReloadKey(version: string, session: string): string {
+  return `doorbell:skill-reload:${version}:${session}`;
+}
+
 /**
- * Asks one session to re-read the board skill after an install of `version`. The key holds no
- * install time, so a session gets at most one message per version; `queuedAt` lets a reader tell
- * a message older than the latest install.
+ * Asks one session to re-read the board skill after an install of `version`; `queuedAt` lets a
+ * reader tell a message older than the latest install. Returns whether this call inserted it.
  */
 export async function enqueueSkillReload(
   trx: Trx,
   input: { session: string; version: string; text: string; at: Date },
-): Promise<{ id: number; inserted: boolean }> {
+): Promise<boolean> {
   const row = await insertOutbox(trx, {
     kind: 'doorbell',
-    dedupeKey: `doorbell:skill-reload:${input.version}:${input.session}`,
+    dedupeKey: skillReloadKey(input.version, input.session),
     payload: { session: input.session, text: input.text, queuedAt: input.at.toISOString() },
     parent: null,
     at: input.at,
   });
   if (row.id === null) throw new Error('Doorbell cannot be blocked by gateway scan');
-  return { id: row.id, inserted: row.inserted };
+  return row.inserted;
 }
 
 /** The key includes the item raise, so a restart cannot add a second line. */

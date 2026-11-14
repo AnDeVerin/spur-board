@@ -3,7 +3,7 @@ import { z } from 'zod';
 import type { OutboxState } from '../store/schema.ts';
 import type { Store } from '../store/store.ts';
 import { FINISHED_STATES } from './doorbells.ts';
-import { enqueueSkillReload } from './outbox.ts';
+import { enqueueSkillReload, skillReloadKey } from './outbox.ts';
 
 /** An installed spur-board version: strict semver with an optional prerelease. */
 export const SKILL_VERSION = z
@@ -27,10 +27,6 @@ type SkillReloadState = 'delivered' | 'pending' | 'failed';
 /** The fixed message a live session gets after an install of `version`. */
 function skillReloadText(version: string): string {
   return `spur-board skill updated to ${version}. Before your next board command, read the spur-board skill file again: ~/.claude/skills/spur-board/SKILL.md (Claude Code) or $CODEX_HOME/skills/spur-board/SKILL.md, by default ~/.codex/skills/spur-board/SKILL.md (Codex).`;
-}
-
-function dedupeKey(version: string, session: string): string {
-  return `doorbell:skill-reload:${version}:${session}`;
 }
 
 /**
@@ -60,8 +56,7 @@ export async function requestSkillReload(
       .execute();
     let queued = 0;
     for (const session of sessions) {
-      const row = await enqueueSkillReload(trx, { session: session.id, version, text, at });
-      if (row.inserted) queued += 1;
+      if (await enqueueSkillReload(trx, { session: session.id, version, text, at })) queued += 1;
     }
     return { queued };
   });
@@ -86,7 +81,7 @@ export async function skillReloads(
   version: string,
   sessions: readonly string[],
 ): Promise<{ id: string; state: SkillReloadState; queuedAt: string | null }[]> {
-  const keys = new Map(sessions.map((session) => [dedupeKey(version, session), session]));
+  const keys = new Map(sessions.map((session) => [skillReloadKey(version, session), session]));
   if (keys.size === 0) return [];
   const rows = await db
     .selectFrom('outbox')

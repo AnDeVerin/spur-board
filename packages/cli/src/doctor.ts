@@ -688,20 +688,19 @@ export async function runDoctor(
       connected.filter((session) => session.startAt === undefined).map((session) => session.id),
     ),
   ];
+  const listed = [...new Set([...staleSessions, ...undatedSessions])];
   const reloads =
     newest === null
       ? new Map<string, ReloadState>()
       : await reloadStates(
-          [...staleSessions, ...undatedSessions],
+          listed,
           newest,
           () => resolveDaemonAddress(env, home, config.http.port),
           ports,
         );
   const unreached = staleSessions.filter((id) => reloads.get(id) === undefined);
   const unknownStarts = undatedSessions.some((id) => reloads.get(id) === undefined);
-  const pending = [...new Set([...staleSessions, ...undatedSessions])].filter(
-    (id) => reloads.get(id) === 'pending',
-  );
+  const pending = listed.filter((id) => reloads.get(id) === 'pending');
   const forVersion = newest === null ? '' : ` for ${newest.version}`;
   checks.push(
     unreached.length > 0 || unknownStarts || pending.length > 0
