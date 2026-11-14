@@ -181,6 +181,29 @@ describe('fixtures', () => {
     expect(config.projects[0]?.columns.find((c) => c.id === 'review')?.courseCheck).toBe(0);
   });
 
+  it('accepts courseCheckTo operator, the curator or a column orchestrator, and leaves it unset by default', () => {
+    const courseCheckTo = (value: string | undefined) => {
+      const config = configSchema.parse(
+        validConfig({
+          spurProjects: [
+            { name: 'rev-bot', role: 'worker' },
+            { name: 'cur', role: 'curator' },
+          ],
+          columns: [
+            ...columns('todo', 'dev'),
+            { id: 'review', orchestrator: 'rev-bot', courseCheckTo: value },
+            ...columns('done'),
+          ],
+        }),
+      );
+      return config.projects[0]?.columns.find((c) => c.id === 'review')?.courseCheckTo;
+    };
+    expect(courseCheckTo(undefined)).toBeUndefined();
+    expect(courseCheckTo('operator')).toBe('operator');
+    expect(courseCheckTo('cur')).toBe('cur');
+    expect(courseCheckTo('rev-bot')).toBe('rev-bot');
+  });
+
   it('runs the dispatcher in shadow mode by default and accepts on', () => {
     expect(configSchema.parse(validConfig()).projects[0]?.dispatcher).toEqual({ mode: 'shadow' });
     expect(
@@ -450,6 +473,44 @@ describe('invalid configs', () => {
       }),
       'Unknown orchestrator "ghost"',
       'projects[0].columns[2].orchestrator',
+    ],
+    [
+      'unknown courseCheckTo',
+      validConfig({
+        columns: [
+          ...columns('todo', 'dev'),
+          { id: 'review', courseCheckTo: 'ghost' },
+          ...columns('done'),
+        ],
+      }),
+      'Unknown courseCheckTo "ghost": use operator or a spurProjects name',
+      'projects[0].columns[2].courseCheckTo',
+    ],
+    [
+      'courseCheckTo that orchestrates nothing',
+      validConfig({
+        spurProjects: [{ name: 'qa-bot', role: 'worker' }],
+        columns: [
+          ...columns('todo', 'dev'),
+          { id: 'review', courseCheckTo: 'qa-bot' },
+          ...columns('done'),
+        ],
+      }),
+      'courseCheckTo "qa-bot" is not the curator and orchestrates no column: use operator, the curator or a column orchestrator',
+      'projects[0].columns[2].courseCheckTo',
+    ],
+    [
+      'courseCheckTo naming a project called none',
+      validConfig({
+        spurProjects: [{ name: 'none', role: 'worker' }],
+        columns: [
+          ...columns('todo', 'dev'),
+          { id: 'review', courseCheckTo: 'none' },
+          ...columns('done'),
+        ],
+      }),
+      'courseCheckTo "none" is not the curator and orchestrates no column: use operator, the curator or a column orchestrator',
+      'projects[0].columns[2].courseCheckTo',
     ],
     [
       'zero column cycle limit',

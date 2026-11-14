@@ -245,7 +245,12 @@ const columnConfig = z.strictObject({
     .min(0)
     .default(DEFAULT_COURSE_CHECK)
     .describe(
-      'How many returns to Dev from this column, counted as for cycleLimit, before the board holds the task and asks the curator, or the operator when the project has no curator, to check its course. The answer resets the count and reaches the worker as a task comment. 0 turns the check off; cycleLimit is checked first.',
+      'How many returns to Dev from this column, counted as for cycleLimit, before the board holds the task and asks courseCheckTo (by default the curator, or the operator when the project has no curator) to check its course. The answer resets the count and reaches the worker as a task comment. 0 turns the check off; cycleLimit is checked first.',
+    ),
+  courseCheckTo: nonEmpty
+    .optional()
+    .describe(
+      "Who answers this column's course check: operator, the curator's name, or the name of a column orchestrator. Without it, the curator, or the operator when the project has no curator. When the addressee has no live session the question moves to the operator; a conductor that is rung and does not answer keeps it, and the operator gets an item.",
     ),
 });
 
@@ -434,6 +439,27 @@ const projectSchema = z
         code: 'custom',
         path: ['columns', j, 'orchestrator'],
         message: `Unknown orchestrator ${JSON.stringify(orchestrator)}: use none, operator or a spurProjects name with role orchestrator or curator`,
+      });
+    });
+    const curator = project.spurProjects.find((p) => p.role === 'curator')?.name;
+    // `none` and `operator` are orchestrator sentinels, not Spur projects: a project with one of
+    // those names orchestrates no column, so the check could never reach it.
+    const orchestrators = new Set(
+      project.columns
+        .map((column) => column.orchestrator)
+        .filter((name) => name !== 'none' && name !== 'operator'),
+    );
+    project.columns.forEach(({ courseCheckTo }, j) => {
+      if (courseCheckTo === undefined || courseCheckTo === 'operator') return;
+      const known = spurNames.has(courseCheckTo);
+      if (known && (courseCheckTo === curator || orchestrators.has(courseCheckTo))) return;
+      const name = JSON.stringify(courseCheckTo);
+      ctx.addIssue({
+        code: 'custom',
+        path: ['columns', j, 'courseCheckTo'],
+        message: known
+          ? `courseCheckTo ${name} is not the curator and orchestrates no column: use operator, the curator or a column orchestrator`
+          : `Unknown courseCheckTo ${name}: use operator or a spurProjects name`,
       });
     });
   });

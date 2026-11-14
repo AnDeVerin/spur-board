@@ -2,21 +2,22 @@
 // and each seed stops right after the dispatcher's first decision under test.
 import { randomUUID } from 'node:crypto';
 import { prSourceId } from '@spur-board/contracts';
-import { issueKey, openIssues, settledUnless, STAND_SPUR_PROJECTS } from './helpers.ts';
+import { issueKey, openIssues, settledUnless } from './helpers.ts';
 import type { Board, Scenario, ScenarioEntities, ScenarioFakes } from './index.ts';
 
 export const REPO = 'stand-org/board';
 export const ISSUE = issueKey(1);
 export const PR = `${REPO}#1`;
 const A = 'a'.repeat(40);
-const STEP_MS = 15_000;
+export const STEP_MS = 15_000;
 
 /**
  * To Do, Dev, Review by the stand-qa conductor, Ready to Merge by the operator, Done. `review`
- * sets Review's cycle limit and course check, and `spurProjects` replaces the stand project's.
+ * sets Review's cycle limit, course check and its addressee, and `spurProjects` replaces the stand
+ * project's.
  */
 export const flow = (
-  review: { cycleLimit?: number; courseCheck?: number } = {},
+  review: { cycleLimit?: number; courseCheck?: number; courseCheckTo?: string } = {},
   spurProjects?: NonNullable<NonNullable<Scenario['config']>['stand']>['spurProjects'],
 ) => ({
   stand: {
@@ -58,7 +59,7 @@ async function column(board: Board): Promise<string | undefined> {
   return tasks.find(({ key }) => key === ISSUE)?.column;
 }
 
-async function items(board: Board) {
+export async function items(board: Board) {
   return (await board.call('operator', 'status.get', { project: 'stand' })).items;
 }
 
@@ -68,7 +69,7 @@ export const take = (board: Board, role: Agent, turn: string) =>
 export const submit = (board: Board, role: Agent, turn: string, sha: string) =>
   board.call(role, 'task.submit', { turn, sha }, randomUUID());
 
-const giveBack = (board: Board, turn: string) =>
+export const giveBack = (board: Board, turn: string) =>
   board.call(
     'orchestrator',
     'task.return',
@@ -469,88 +470,6 @@ export const dispatchCycleLimit: Scenario = {
     const { blocks } = await board.call('operator', 'task.get', { task: ISSUE });
     if (!blocks.some(({ state, addressee }) => state === 'open' && addressee === 'operator'))
       problems.push('no open operator block');
-    if ((await turnOf(board, 'worker')) !== undefined) problems.push('a worker turn');
-    return settledUnless(problems);
-  },
-};
-
-const courseItem = async (board: Board) =>
-  (await items(board)).find(({ key }) => /^course-check:\d+:review$/.test(key));
-
-/** The flow task's open blocks, as the operator sees them. */
-const openBlocks = async (board: Board) =>
-  (await board.call('operator', 'task.get', { task: ISSUE })).blocks.filter(
-    ({ state }) => state === 'open',
-  );
-
-/** The fake Spur sends to `session` whose text includes `text`. */
-async function sendsTo(fakes: ScenarioFakes, session: string, text: string): Promise<string[]> {
-  const { sends } = (await fakes.spur('inspect')) as {
-    sends: { session: string; message: string }[];
-  };
-  return sends
-    .filter((send) => send.session === session && send.message.includes(text))
-    .map(({ message }) => message);
-}
-
-export const dispatchCourseCheck: Scenario = {
-  name: 'dispatch-course-check',
-  summary: `Review's course check is 1 and stand-curator is the curator: the conductor's return holds ${ISSUE} in Dev on a curator block, rung to the curator; the waiting worker gets no turn and no ring.`,
-  config: flow({ courseCheck: 1 }, [
-    ...STAND_SPUR_PROJECTS,
-    { name: 'stand-curator', role: 'curator' },
-  ]),
-  async seed(board, fakes) {
-    const review = await toReview(board, fakes);
-    await take(board, 'orchestrator', review.id);
-    await giveBack(board, review.id);
-    let course: string | undefined;
-    let code: string | undefined;
-    let key: string | undefined;
-    await board.until('course-check block', STEP_MS, async () => {
-      const blocks = await openBlocks(board);
-      course = blocks.find(
-        (block) =>
-          block.type === 'needs_input' &&
-          block.author === 'system' &&
-          block.addressee === 'curator',
-      )?.id;
-      code = blocks.find((block) => block.type === 'code')?.id;
-      key = (await courseItem(board))?.key;
-      return course !== undefined && key !== undefined;
-    });
-    // Both wait, so only the course check holds the worker's rings.
-    await fakes.spur('session', { id: board.roles.worker, state: 'waiting' });
-    await fakes.spur('session', { id: board.roles.curator, state: 'waiting' });
-    await board.poll();
-    await board.until('curator rung', STEP_MS, async () => {
-      const rung = await sendsTo(fakes, board.roles.curator, `block ${course ?? ''}:`);
-      return rung.length > 0;
-    });
-    await board.wait('outbox-drained');
-    return entities(board, {
-      ...(course === undefined
-        ? {}
-        : { blocks: { course, ...(code === undefined ? {} : { code }) } }),
-      ...(key === undefined ? {} : { items: { course: key } }),
-    });
-  },
-  async settled({ board, fakes, entities: named }) {
-    const problems = await check(board, { column: 'dev' });
-    const course = named.blocks?.['course'] ?? '';
-    // The seed waits for the curator's ring: a restore-reset starts the fake Spur's sends empty.
-    const rung = await sendsTo(fakes, board.roles.worker, `${ISSUE} `);
-    if (rung.length > 0) problems.push(`the worker was rung: ${rung.join('; ')}`);
-    const { why } = await board.call('operator', 'task.get', { task: ISSUE, why: true });
-    if (why?.heldBy?.includes(course) !== true)
-      problems.push(`heldBy is ${why?.heldBy?.join(', ') ?? 'absent'}, not ${course}`);
-    const item = await courseItem(board);
-    if (item === undefined || item.key !== named.items?.['course'])
-      problems.push(`no item ${named.items?.['course'] ?? 'course-check'}`);
-    const block = (await openBlocks(board)).find(({ id }) => id === named.blocks?.['course']);
-    if (block?.addressee !== 'curator') problems.push('no open curator block');
-    for (const part of ['Handle the empty list.', '/pull/1', '/issues/1'])
-      if (block?.reason.includes(part) !== true) problems.push(`no ${part} in the block reason`);
     if ((await turnOf(board, 'worker')) !== undefined) problems.push('a worker turn');
     return settledUnless(problems);
   },
