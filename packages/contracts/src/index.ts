@@ -72,6 +72,7 @@ export {
   type ErrorInput,
 } from './error-renderers.ts';
 export {
+  JIRA_PROJECT_KEY,
   REF_KINDS,
   actorIdSchema,
   blockIdSchema,

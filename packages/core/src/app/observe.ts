@@ -1,5 +1,6 @@
 import { scanTransaction } from './secrets.ts';
 import {
+  JIRA_PROJECT_KEY,
   RESERVED_PROJECT,
   entityRefSchema,
   prFactsSchema,
@@ -705,6 +706,9 @@ function branchHasKey(branch: string, key: string): boolean {
   return false;
 }
 
+/** The Jira task key at the end of a session's `/browse/` link. */
+const BROWSE_KEY = new RegExp(`/browse/(${JIRA_PROJECT_KEY}-[1-9]\\d*)$`);
+
 async function session(
   trx: Trx,
   config: Config,
@@ -760,9 +764,7 @@ async function session(
   for (const label of ['board-worker', 'board-other'] as const) {
     const url = fact.links[label];
     if (url === undefined) continue;
-    const candidate =
-      /\/browse\/([A-Za-z][A-Za-z0-9_]*-[1-9]\d*)$/.exec(url)?.[1] ??
-      /\/issues\/([1-9]\d*)$/.exec(url)?.[1];
+    const candidate = BROWSE_KEY.exec(url)?.[1] ?? /\/issues\/([1-9]\d*)$/.exec(url)?.[1];
     key =
       candidate === undefined
         ? undefined
