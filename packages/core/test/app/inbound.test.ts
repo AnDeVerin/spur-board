@@ -2704,7 +2704,7 @@ describe('operator token revoke from the gateway', () => {
     expect(lines.slice(0, 20)).toEqual(
       Array.from({ length: 20 }, (_, i) => `t${String(i + 1)} (approved), workspace`),
     );
-    expect(lines[20]).toBe('1 more: `board token list`');
+    expect(lines[20]).toBe('1 more: board token list');
     expect(responses).toEqual(['Posted 21 operator tokens to the feed.']);
   });
 
@@ -2718,7 +2718,7 @@ describe('operator token revoke from the gateway', () => {
     expect(shown).toBeGreaterThan(0);
     expect(shown).toBeLessThan(20);
     expect(payload.actions).toHaveLength(shown);
-    expect(lines.at(-1)).toBe(`${String(20 - shown)} more: \`board token list\``);
+    expect(lines.at(-1)).toBe(`${String(20 - shown)} more: board token list`);
     expect(renderedLength(renderBody('spur-board', payload.text))).toBeLessThanOrEqual(2900);
     expect(responses).toEqual(['Posted 20 operator tokens to the feed.']);
   });
