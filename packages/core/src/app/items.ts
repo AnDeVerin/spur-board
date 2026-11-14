@@ -36,13 +36,13 @@ async function loadItem(
   return { item, task };
 }
 
-/** The task a `delivery:<outbox id>` item's row belongs to; the item itself has no task. */
 /** The ids a delivery payload may carry; each payload kind has its own full schema. */
 const deliveryPayloadSchema = z.object({
   taskId: z.unknown().optional(),
   notificationId: z.unknown().optional(),
 });
 
+/** The task a `delivery:<outbox id>` item's row belongs to; the item itself has no task. */
 async function deliveryTask(trx: Trx, item: Item): Promise<Row<'task'> | undefined> {
   if (item.kind !== 'post_failed') return undefined;
   const row = await trx
