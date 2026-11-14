@@ -11,7 +11,7 @@ import {
   type JsonSchemaType,
 } from '@modelcontextprotocol/server';
 import { AjvJsonSchemaValidator } from '@modelcontextprotocol/server/validators/ajv';
-import { ERRORS, OPERATIONS, renderHttpProblem } from '@spur-board/contracts';
+import { ERRORS, OPERATIONS, buildCatalogSnapshot, renderHttpProblem } from '@spur-board/contracts';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createMcpServer } from '../src/mcp.ts';
 import { loadClientConfig } from '../src/config.ts';
@@ -107,7 +107,13 @@ describe('board mcp', () => {
       expect(client.getServerVersion()?.version).toBe(manifest.version);
       const { tools } = await client.listTools();
       expect(tools.map((tool) => tool.name)).toEqual(OPERATIONS.map((op) => op.mcp.name));
-      expect(tools).toMatchSnapshot();
+      expect(tools.map(({ name, description }) => ({ name, description }))).toMatchSnapshot();
+      const catalog = await buildCatalogSnapshot(OPERATIONS);
+      const key = {
+        type: 'string',
+        minLength: 1,
+        description: 'Key to reuse when retrying this action.',
+      };
       for (const [index, tool] of tools.entries()) {
         const op = OPERATIONS[index];
         if (!op) throw new Error('tool without catalog operation');
@@ -120,7 +126,24 @@ describe('board mcp', () => {
         expect(tool.annotations?.readOnlyHint).toBe(op.kind === 'query');
         expect(tool.annotations?.idempotentHint).toBe(op.kind === 'mutation');
         expect(tool.annotations?.destructiveHint, op.id).toBe(op.mcp.destructive);
-        expect(tool.outputSchema).toBeDefined();
+        const entry = catalog.operations[index];
+        if (!entry) throw new Error('tool without catalog snapshot entry');
+        expect(tool.outputSchema, op.id).toEqual(entry.output);
+        const input = structuredClone(tool.inputSchema) as Record<string, unknown>;
+        if (op.kind === 'mutation') {
+          const schemas = Array.isArray(input['oneOf'])
+            ? (input['oneOf'] as Record<string, unknown>[])
+            : [input];
+          for (const schema of schemas) {
+            const properties = schema['properties'] as Record<string, unknown>;
+            expect(properties['idempotencyKey'], op.id).toEqual(key);
+            delete properties['idempotencyKey'];
+            const required = schema['required'] as string[] | undefined;
+            if (required?.includes('idempotencyKey'))
+              schema['required'] = required.filter((name) => name !== 'idempotencyKey');
+          }
+        }
+        expect(input, op.id).toEqual({ ...entry.input, type: 'object' });
       }
       const status = tools.find((tool) => tool.name === 'status_get');
       expect(status?.inputSchema.properties?.['detail']).toMatchObject({ type: 'boolean' });

@@ -3,7 +3,15 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { ERRORS, OPERATIONS, errorEnvelopeSchema, renderHttpProblem } from '@spur-board/contracts';
+import {
+  ERRORS,
+  OPERATIONS,
+  errorEnvelopeSchema,
+  renderHttpProblem,
+  type ErrorCode,
+  type ExitCode,
+  type ServerErrorCode,
+} from '@spur-board/contracts';
 import { runCli, type CliIo } from '../src/cli.ts';
 import type { ClientConfig } from '../src/config.ts';
 
@@ -54,6 +62,37 @@ function statusResponse(
     }),
   );
 }
+
+// What the CLI exits with and reports for each code the daemon answers with. Written out by hand
+// so a changed exit in ERRORS fails here instead of being read back from the catalog.
+// ServerErrorCode does not narrow at the type level (ErrorSpec types status as number | null), so
+// the test checks at runtime that the keys are exactly the codes with a status.
+const SERVER_EXITS = {
+  usage: { exit: 2, code: 'usage' },
+  wrong_id_kind: { exit: 2, code: 'wrong_id_kind' },
+  forbidden: { exit: 1, code: 'forbidden' },
+  not_found: { exit: 1, code: 'not_found' },
+  not_implemented: { exit: 1, code: 'not_implemented' },
+  block_not_open: { exit: 1, code: 'block_not_open' },
+  wrong_block_type: { exit: 1, code: 'wrong_block_type' },
+  stale_comment_revision: { exit: 1, code: 'stale_comment_revision' },
+  turn_closed: { exit: 1, code: 'turn_closed' },
+  not_turn_taker: { exit: 1, code: 'not_turn_taker' },
+  head_mismatch: { exit: 1, code: 'head_mismatch' },
+  return_not_allowed: { exit: 1, code: 'return_not_allowed' },
+  move_not_allowed: { exit: 1, code: 'move_not_allowed' },
+  task_archived: { exit: 1, code: 'task_archived' },
+  link_conflict: { exit: 1, code: 'link_conflict' },
+  retry_not_applicable: { exit: 1, code: 'retry_not_applicable' },
+  idempotency_key_mismatch: { exit: 1, code: 'idempotency_key_mismatch' },
+  identity_unavailable: { exit: 3, code: 'identity_unavailable' },
+  // The client reports a starting daemon as unavailable (problemError in client.ts).
+  starting: { exit: 3, code: 'daemon_unavailable' },
+  stopping: { exit: 3, code: 'stopping' },
+  github_unavailable: { exit: 3, code: 'github_unavailable' },
+  version_mismatch: { exit: 3, code: 'version_mismatch' },
+  unexpected: { exit: 5, code: 'unexpected' },
+} as const satisfies Partial<Record<ServerErrorCode, { exit: ExitCode; code: ErrorCode }>>;
 
 function capture(tty = false) {
   let stdout = '';
@@ -264,7 +303,14 @@ describe('CLI exit classes and mutation keys', () => {
   });
 
   it('maps catalog problem bodies to their exits and strict CLI errors', async () => {
-    for (const code of ['identity_unavailable', 'forbidden', 'usage'] as const) {
+    const serverCodes = Object.entries(ERRORS)
+      .filter(([, spec]) => spec.status !== null)
+      .map(([code]) => code);
+    expect(Object.keys(SERVER_EXITS).sort()).toEqual(serverCodes.sort());
+    for (const [code, expected] of Object.entries(SERVER_EXITS) as [
+      keyof typeof SERVER_EXITS,
+      (typeof SERVER_EXITS)[keyof typeof SERVER_EXITS],
+    ][]) {
       const problem = renderHttpProblem({ code, requestId: `req-${code}` });
       const { url } = await fakeServer((_request, response) => {
         response.writeHead(problem.status, { 'content-type': 'application/problem+json' });
@@ -272,11 +318,11 @@ describe('CLI exit classes and mutation keys', () => {
       });
       const output = capture();
       const exit = await runCli(['status', '--json'], { env: env(url), io: output.io });
-      expect(exit).toBe(code === 'identity_unavailable' ? 3 : code === 'usage' ? 2 : 1);
+      expect(exit, code).toBe(expected.exit);
       const rendered = errorEnvelopeSchema.parse(JSON.parse(output.stderr));
-      expect(rendered.requestId).toBe(`req-${code}`);
-      expect(rendered.error.code).toBe(code);
-      expect(output.stdout).toBe('');
+      expect(rendered.error.code, code).toBe(expected.code);
+      expect(rendered.requestId, code).toBe(`req-${code}`);
+      expect(output.stdout, code).toBe('');
     }
   });
 
