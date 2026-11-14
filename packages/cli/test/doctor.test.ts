@@ -679,6 +679,143 @@ describe('board doctor', () => {
     expect(human.errors()).not.toContain(secret);
   });
 
+  it('renders a daemon check with an unknown check id in JSON and human output', async () => {
+    const longFix = 'y'.repeat(400);
+    const fake = ports({
+      fetcher: (input) =>
+        Promise.resolve(
+          isSpurProjects(input)
+            ? Response.json([{ id: 'worker', path: '/main' }])
+            : Response.json({
+                version: '1.2.3',
+                checks: [
+                  ...remoteIds.map((id) => ({
+                    id,
+                    status: 'pass',
+                    blocking: false,
+                    fix: id === 'spur.api' ? longFix : null,
+                  })),
+                  {
+                    id: 'future.check',
+                    status: 'warning',
+                    blocking: false,
+                    fix: 'Do X\u001b[31m',
+                    detail: 1,
+                  },
+                ],
+              }),
+        ),
+    });
+    const value = await run(['doctor', '--json'], fake);
+    expect(value.exitCode).toBe(0);
+    expect(value.checks.find((check) => check.id === 'daemon.available')?.status).toBe('pass');
+    expect(value.checks.find((check) => check.id === 'future.check')).toEqual({
+      id: 'future.check',
+      status: 'warning',
+      blocking: false,
+      fix: 'Do X\u001b[31m',
+    });
+    expect(value.checks.find((check) => check.id === 'spur.api')?.fix).toBe(longFix);
+
+    const human = capture();
+    const humanExit = await runCli(['doctor'], {
+      io: human.io,
+      env: { BOARD_HOME: '/board', BOARD_DAEMON_URL: 'http://127.0.0.1:4311' },
+      home: '/home',
+      doctor: fake,
+    });
+    expect(humanExit).toBe(0);
+    expect(human.output()).toContain('WARNING future.check: Do X\\u001b[31m');
+    expect(human.output()).not.toContain('\u001b');
+  });
+
+  it('warns about a known check the daemon did not report', async () => {
+    const value = await run(
+      ['doctor', '--json'],
+      ports({
+        fetcher: (input) =>
+          Promise.resolve(
+            isSpurProjects(input)
+              ? Response.json([{ id: 'worker', path: '/main' }])
+              : Response.json({
+                  version: '1.2.3',
+                  checks: remoteIds
+                    .filter((id) => id !== 'spur.send')
+                    .map((id): DoctorCheck => ({ id, status: 'pass', blocking: false, fix: null })),
+                }),
+          ),
+      }),
+    );
+    expect(value.exitCode).toBe(0);
+    expect(value.checks.find((check) => check.id === 'daemon.available')?.status).toBe('pass');
+    expect(value.checks.filter((check) => check.id === 'spur.send')).toEqual([
+      {
+        id: 'spur.send',
+        status: 'warning',
+        blocking: false,
+        fix: 'The daemon did not report this check. Restart the user service so the daemon runs the installed version, then rerun board doctor.',
+      },
+    ]);
+  });
+
+  it('treats a report with an unknown status as unavailable', async () => {
+    const value = await run(
+      ['doctor', '--json'],
+      ports({
+        fetcher: (input) =>
+          Promise.resolve(
+            isSpurProjects(input)
+              ? Response.json([{ id: 'worker', path: '/main' }])
+              : Response.json({
+                  version: '1.2.3',
+                  checks: remoteIds.map((id) => ({
+                    id,
+                    status: id === 'spur.api' ? 'skipped' : 'pass',
+                    blocking: false,
+                    fix: null,
+                  })),
+                }),
+          ),
+      }),
+    );
+    expect(value.exitCode).toBe(1);
+    expect(value.checks.find((check) => check.id === 'daemon.available')?.status).toBe('fail');
+  });
+
+  it('drops a daemon check whose id the CLI checks itself', async () => {
+    const value = await run(
+      ['doctor', '--json'],
+      ports({
+        fetcher: (input) =>
+          Promise.resolve(
+            isSpurProjects(input)
+              ? Response.json([{ id: 'worker', path: '/main' }])
+              : Response.json({
+                  version: '1.2.3',
+                  checks: [
+                    ...remoteIds,
+                    'versions',
+                    'daemon.available',
+                    'http.port',
+                    'spur.api',
+                  ].map((id): DoctorCheck => ({
+                    id,
+                    status: 'fail',
+                    blocking: true,
+                    fix: `daemon ${id}`,
+                  })),
+                }),
+          ),
+      }),
+    );
+    const ids = value.checks.map((check) => check.id);
+    expect(ids.length).toBe(new Set(ids).size);
+    for (const id of ['versions', 'daemon.available', 'http.port']) {
+      expect(value.checks.find((check) => check.id === id)?.fix).not.toBe(`daemon ${id}`);
+    }
+    expect(value.checks.find((check) => check.id === 'spur.api')?.fix).toBe('daemon spur.api');
+  });
+
   it.each([
     [{ isFile: false, mode: 0o600 }, 'Make secrets.env a regular file with mode 0600.'],
     [{ isFile: true, mode: 0o644 }, 'Set secrets.env mode to 0600 with chmod 600.'],

@@ -3,10 +3,14 @@ import type { ServerResponse } from 'node:http';
 import {
   OPERATIONS,
   buildCatalogSnapshot,
+  doctorReportSchema,
   errorCodeOf,
   renderHttpProblem,
   successEnvelopeSchema,
+  tokenRequestResultSchema,
   tokenRequestSchema,
+  tokenRequestStatusSchema,
+  type DoctorReport,
   type OperationId,
   type ServerErrorCode,
 } from '@spur-board/contracts';
@@ -53,35 +57,6 @@ export interface ApiOptions extends IdentityPorts {
    */
   readonly logError?: (entry: { requestId: string; err: unknown }) => void;
 }
-
-interface DoctorCheck {
-  id: string;
-  status: 'pass' | 'fail' | 'warning';
-  blocking: boolean;
-  fix: string | null;
-}
-
-interface DoctorReport {
-  version: string;
-  checks: DoctorCheck[];
-}
-
-const doctorReportSchema = z.strictObject({
-  version: z.string().min(1).max(50),
-  checks: z
-    .array(
-      z.strictObject({
-        id: z
-          .string()
-          .regex(/^[a-z][a-z._]+$/)
-          .max(60),
-        status: z.enum(['pass', 'fail', 'warning']),
-        blocking: z.boolean(),
-        fix: z.string().max(300).nullable(),
-      }),
-    )
-    .max(30),
-});
 
 const tokenStatusSchema = z.strictObject({ hash: tokenRequestSchema.shape.hash });
 const skillReloadSchema = z.strictObject({ version: SKILL_VERSION });
@@ -215,7 +190,11 @@ export async function createApiServer(options: ApiOptions): Promise<FastifyInsta
       new Date(options.clock.now()),
     );
     return reply.send(
-      successEnvelopeSchema.parse({ ok: true, requestId: request.id, value: result }),
+      successEnvelopeSchema.parse({
+        ok: true,
+        requestId: request.id,
+        value: tokenRequestResultSchema.parse(result),
+      }),
     );
   });
 
@@ -230,7 +209,11 @@ export async function createApiServer(options: ApiOptions): Promise<FastifyInsta
       new Date(options.clock.now()),
     );
     return reply.send(
-      successEnvelopeSchema.parse({ ok: true, requestId: request.id, value: { status } }),
+      successEnvelopeSchema.parse({
+        ok: true,
+        requestId: request.id,
+        value: tokenRequestStatusSchema.parse({ status }),
+      }),
     );
   });
 

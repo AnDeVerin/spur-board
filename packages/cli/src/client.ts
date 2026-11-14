@@ -4,6 +4,8 @@ import {
   ERRORS,
   errorContextSchema,
   successEnvelopeSchema,
+  tokenRequestResultSchema,
+  tokenRequestStatusSchema,
   type Operation,
 } from '@spur-board/contracts';
 import type { ClientConfig } from './config.ts';
@@ -225,43 +227,33 @@ export function fetchCatalogVersion(
   });
 }
 
-const enrollmentOutput = z.strictObject({
-  name: z.string(),
-  status: z.literal('pending'),
-  expiresAt: z.iso.datetime(),
-});
-
 /** Bootstrap sends a hash and no authorization header. */
 export function requestTokenEnrollment(
   input: { name: string; folder: string; host: string; hash: string },
   config: ClientConfig,
-): Promise<z.output<typeof enrollmentOutput>> {
+): Promise<z.output<typeof tokenRequestResultSchema>> {
   return send({
     method: 'POST',
     path: '/v1/tokens/requests',
     body: input,
     config,
     anonymous: true,
-    decode: (response, raw) => decodeResponse(enrollmentOutput, response, raw),
+    decode: (response, raw) => decodeResponse(tokenRequestResultSchema, response, raw),
   });
 }
-
-const tokenStatusOutput = z.strictObject({
-  status: z.enum(['pending', 'approved', 'denied', 'expired', 'revoked', 'unknown']),
-});
 
 /** The daemon's state for a token hash; sends no authorization header. */
 export function fetchTokenStatus(
   hash: string,
   config: ClientConfig,
-): Promise<z.output<typeof tokenStatusOutput>> {
+): Promise<z.output<typeof tokenRequestStatusSchema>> {
   return send({
     method: 'POST',
     path: '/v1/tokens/status',
     body: { hash },
     config,
     anonymous: true,
-    decode: (response, raw) => decodeResponse(tokenStatusOutput, response, raw),
+    decode: (response, raw) => decodeResponse(tokenRequestStatusSchema, response, raw),
   });
 }
 

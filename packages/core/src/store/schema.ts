@@ -14,6 +14,7 @@ import type {
   SessionEndReason,
   SessionLinkRole,
   SpaceId,
+  TOKEN_STATUSES,
 } from '@spur-board/contracts';
 import type { Generated, Insertable, Selectable, Updateable } from 'kysely';
 
@@ -330,7 +331,7 @@ export interface OperatorItemTable {
   inbound_event_json: string | null;
 }
 
-export type OperatorTokenStatus = 'pending' | 'approved' | 'denied' | 'expired' | 'revoked';
+export type OperatorTokenStatus = (typeof TOKEN_STATUSES)[number];
 
 export interface OperatorTokenTable {
   id: Generated<number>;

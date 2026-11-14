@@ -100,6 +100,9 @@ export type TaskHold = (typeof TASK_HOLDS)[number];
 export const ACTORS = ['operator', 'agent', 'system'] as const;
 export type Actor = (typeof ACTORS)[number];
 
+/** The stored state of an operator token. */
+export const TOKEN_STATUSES = ['pending', 'approved', 'denied', 'expired', 'revoked'] as const;
+
 /** Bot OAuth scopes required by the generated Slack manifest and checked by doctor. */
 export const SLACK_BOT_SCOPES = [
   'chat:write',

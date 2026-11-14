@@ -4,12 +4,14 @@ import {
   RESERVED_PROJECT,
   TOKEN_REQUEST_LIMITS,
   requestHashOf,
+  tokenRequestResultSchema,
   tokenRequestSchema,
   type Action,
   type Config,
   type EventKind,
 } from '@spur-board/contracts';
 import type { Kysely } from 'kysely';
+import type { z } from 'zod';
 import type { OperatorTokenStatus, Row, Tables } from '../store/schema.ts';
 import type { Store } from '../store/store.ts';
 import { emit } from './board-utils.ts';
@@ -141,7 +143,7 @@ export async function requestToken(
   config: Config,
   body: unknown,
   at: Date,
-): Promise<{ name: string; status: 'pending'; expiresAt: string }> {
+): Promise<z.output<typeof tokenRequestResultSchema>> {
   const parsed = tokenRequestSchema.safeParse(body);
   if (!parsed.success) {
     const field = parsed.error.issues[0]?.path[0];

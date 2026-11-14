@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { TOKEN_STATUSES } from './enums.ts';
 
 /** Longest value each field of an operator token request takes, in characters. */
 export const TOKEN_REQUEST_LIMITS = { name: 64, folder: 1024, host: 253 } as const;
@@ -21,6 +22,18 @@ export const tokenRequestSchema = z.strictObject({
     .refine((value) => value.trim() !== ''),
   host: z.string().min(1).max(TOKEN_REQUEST_LIMITS.host).regex(PLAIN_TEXT),
   hash: z.string().regex(/^[0-9a-f]{64}$/),
+});
+
+/** The value `POST /v1/tokens/requests` answers with: the request waits for the operator. */
+export const tokenRequestResultSchema = z.strictObject({
+  name: z.string(),
+  status: z.literal('pending'),
+  expiresAt: z.iso.datetime(),
+});
+
+/** The value `POST /v1/tokens/status` answers with; `unknown` is a hash the board never saw. */
+export const tokenRequestStatusSchema = z.strictObject({
+  status: z.enum([...TOKEN_STATUSES, 'unknown']),
 });
 
 /**
