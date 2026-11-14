@@ -234,7 +234,7 @@ describe('scenario manifest', () => {
 });
 
 describe('scenarios', () => {
-  it('lists twenty-six scenarios, each with a seed and a settled check', () => {
+  it('lists twenty-seven scenarios, each with a seed and a settled check', () => {
     expect(scenarioNames()).toEqual([
       'empty',
       'columns-basic',
@@ -260,6 +260,7 @@ describe('scenarios', () => {
       'dispatch-source-blind',
       'dispatch-cycle-limit',
       'dispatch-course-check',
+      'dispatch-course-check-to',
       'dispatch-long-comment-history',
       'dispatch-turn-view',
     ]);
@@ -1616,6 +1617,50 @@ describe('dispatcher scenarios', () => {
         expect.objectContaining({ block: null, text: note }),
       ]);
       expect(await why()).not.toHaveProperty('heldBy');
+      expect((await status(current())).items.map((item) => item.key)).not.toContain(key);
+    },
+    TIMEOUT,
+  );
+
+  it(
+    "dispatch-course-check-to: the conductor's answer rings the worker the note and resumes Dev",
+    async () => {
+      await up();
+      const { scenario } = await seed('dispatch-course-check-to');
+      const block = scenario.blocks?.['course'];
+      const code = scenario.blocks?.['code'];
+      const key = scenario.items?.['course'];
+      expect(key).toMatch(/^course-check:\d+:review$/);
+      if (block === undefined || code === undefined) throw new Error('no course or code block');
+      const sends = async (role: 'worker' | 'orchestrator' | 'curator', text: string) =>
+        (await inspect(current())).sends.filter(
+          ({ session, message }) => session === as(role) && message.includes(text),
+        );
+      const workerRings = async () =>
+        (await sends('worker', `${ISSUE} `)).map(
+          ({ message }) => /(?:block|turn) ([BT]\d+)[: ]/.exec(message)?.[1] ?? message,
+        );
+      const { blocks } = await op<{ blocks: { id: string; addressee: string }[] }>(
+        current(),
+        'task.get',
+        { task: ISSUE },
+      );
+      expect(blocks.find(({ id }) => id === block)?.addressee).toBe('orchestrator:review');
+      expect(await sends('orchestrator', `block ${block}:`)).not.toEqual([]);
+      expect(await sends('curator', `block ${block}:`)).toEqual([]);
+      expect(await workerRings()).toEqual([]);
+
+      const note = 'Keep the parser as it is and finish the empty-list case.';
+      await sessionOp(as('orchestrator'), 'block.answer', { block, text: note }, randomUUID());
+      await poll();
+      const turn = await mustTurn(as('worker'));
+      expect(turn).toMatchObject({ column: 'dev', reason: 'dev: no_submit_on_head' });
+      await vi.waitFor(
+        async () => {
+          expect(await workerRings()).toEqual([block, code, turn.id]);
+        },
+        { timeout: 20_000, interval: 100 },
+      );
       expect((await status(current())).items.map((item) => item.key)).not.toContain(key);
     },
     TIMEOUT,

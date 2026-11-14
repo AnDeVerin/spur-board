@@ -20,6 +20,7 @@ import {
   dispatchConflictInReview,
   dispatchCiRedAfterSubmit,
   dispatchCourseCheck,
+  dispatchCourseCheckTo,
   dispatchCycleLimit,
   dispatchDeadExecutor,
   dispatchExternalComment,
@@ -152,6 +153,7 @@ export const SCENARIOS: readonly Scenario[] = [
   dispatchSourceBlind,
   dispatchCycleLimit,
   dispatchCourseCheck,
+  dispatchCourseCheckTo,
   dispatchLongCommentHistory,
   dispatchTurnView,
 ];

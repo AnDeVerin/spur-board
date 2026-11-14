@@ -13,10 +13,11 @@ const STEP_MS = 15_000;
 
 /**
  * To Do, Dev, Review by the stand-qa conductor, Ready to Merge by the operator, Done. `review`
- * sets Review's cycle limit and course check, and `spurProjects` replaces the stand project's.
+ * sets Review's cycle limit, course check and its addressee, and `spurProjects` replaces the stand
+ * project's.
  */
 export const flow = (
-  review: { cycleLimit?: number; courseCheck?: number } = {},
+  review: { cycleLimit?: number; courseCheck?: number; courseCheckTo?: string } = {},
   spurProjects?: NonNullable<NonNullable<Scenario['config']>['stand']>['spurProjects'],
 ) => ({
   stand: {
@@ -527,6 +528,65 @@ export const dispatchCourseCheck: Scenario = {
     if (block?.addressee !== 'curator') problems.push('no open curator block');
     for (const part of ['Handle the empty list.', '/pull/1', '/issues/1'])
       if (block?.reason.includes(part) !== true) problems.push(`no ${part} in the block reason`);
+    if ((await turnOf(board, 'worker')) !== undefined) problems.push('a worker turn');
+    return settledUnless(problems);
+  },
+};
+
+export const dispatchCourseCheckTo: Scenario = {
+  name: 'dispatch-course-check-to',
+  summary: `Review's course check is 1 with courseCheckTo stand-qa, and stand-curator is the curator: the conductor's return holds ${ISSUE} in Dev on a block to the Review conductor, rung to it and not to the curator; the waiting worker gets no turn and no ring.`,
+  config: flow({ courseCheck: 1, courseCheckTo: 'stand-qa' }, [
+    ...STAND_SPUR_PROJECTS,
+    { name: 'stand-curator', role: 'curator' },
+  ]),
+  async seed(board, fakes) {
+    const review = await toReview(board, fakes);
+    await take(board, 'orchestrator', review.id);
+    await giveBack(board, review.id);
+    let course: string | undefined;
+    let code: string | undefined;
+    let key: string | undefined;
+    await board.until('course-check block', STEP_MS, async () => {
+      const blocks = await openBlocks(board);
+      course = blocks.find(
+        (block) =>
+          block.type === 'needs_input' &&
+          block.author === 'system' &&
+          block.addressee === 'orchestrator:review',
+      )?.id;
+      code = blocks.find((block) => block.type === 'code')?.id;
+      key = (await courseItem(board))?.key;
+      return course !== undefined && key !== undefined;
+    });
+    // Both wait, so only the course check holds the worker's rings and the conductor is rung.
+    await fakes.spur('session', { id: board.roles.worker, state: 'waiting' });
+    await fakes.spur('session', { id: board.roles.orchestrator, state: 'waiting' });
+    await board.poll();
+    await board.until('conductor rung', STEP_MS, async () => {
+      const rung = await sendsTo(fakes, board.roles.orchestrator, `block ${course ?? ''}:`);
+      return rung.length > 0;
+    });
+    await board.wait('outbox-drained');
+    return entities(board, {
+      ...(course === undefined
+        ? {}
+        : { blocks: { course, ...(code === undefined ? {} : { code }) } }),
+      ...(key === undefined ? {} : { items: { course: key } }),
+    });
+  },
+  async settled({ board, fakes, entities: named }) {
+    const problems = await check(board, { column: 'dev' });
+    const course = named.blocks?.['course'] ?? '';
+    const rung = await sendsTo(fakes, board.roles.worker, `${ISSUE} `);
+    if (rung.length > 0) problems.push(`the worker was rung: ${rung.join('; ')}`);
+    const curator = await sendsTo(fakes, board.roles.curator, `block ${course}:`);
+    if (curator.length > 0) problems.push(`the curator was rung: ${curator.join('; ')}`);
+    const item = await courseItem(board);
+    if (item === undefined || item.key !== named.items?.['course'])
+      problems.push(`no item ${named.items?.['course'] ?? 'course-check'}`);
+    const block = (await openBlocks(board)).find(({ id }) => id === course);
+    if (block?.addressee !== 'orchestrator:review') problems.push('no open Review conductor block');
     if ((await turnOf(board, 'worker')) !== undefined) problems.push('a worker turn');
     return settledUnless(problems);
   },
