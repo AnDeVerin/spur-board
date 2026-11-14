@@ -25,6 +25,7 @@ import {
   projectForSource,
   taskMergedPr,
   taskPr,
+  ticketDone,
   type Trx,
 } from './board-utils.ts';
 import {
@@ -536,12 +537,25 @@ export async function readInput(
     pr = await readPr(link);
     if (pr === null) return null;
   }
-  // A follow-up PR closed unmerged with no PR open leaves the task's earlier merge to judge.
-  if (pr?.state === 'closed' && link?.open !== true) {
+  const readTicket = () =>
+    trx
+      .selectFrom('ticket_snapshot')
+      .select(['status', 'detail', 'observed_at'])
+      .where('task_id', '=', task.id)
+      .executeTakeFirst();
+  // An earlier merge decides when the chosen PR is not merged: a done ticket ends the task on
+  // it whatever its other PRs are, and a follow-up closed unmerged with none open leaves it to judge.
+  if (pr !== null && pr.state !== 'merged') {
     const merged = await taskMergedPr(trx, task.id);
     if (merged !== null) {
-      pr = await readPr(merged);
-      if (pr === null) return null;
+      const ticket = await readTicket();
+      if (
+        (pr.state === 'closed' && link?.open !== true) ||
+        (ticket !== undefined && ticketDone(project, ticket.status))
+      ) {
+        pr = await readPr(merged);
+        if (pr === null) return null;
+      }
     }
   }
   // A merged PR finishes the task only with its ticket done. A ticket seen open one tracker
@@ -549,11 +563,7 @@ export async function readInput(
   let mergedOpen: { repo: string; number: number } | undefined;
   let ticketUnconfirmed = false;
   if (pr?.state === 'merged') {
-    const ticket = await trx
-      .selectFrom('ticket_snapshot')
-      .select(['status', 'detail', 'observed_at'])
-      .where('task_id', '=', task.id)
-      .executeTakeFirst();
+    const ticket = await readTicket();
     const judged = mergedTicket(
       project,
       config,
