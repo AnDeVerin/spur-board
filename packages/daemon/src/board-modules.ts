@@ -31,6 +31,9 @@ export function createBoardModules(
       store: coreCtx.store,
       config: coreCtx.config,
       clock: coreCtx.clock,
+      warn: (fields, message) => {
+        coreCtx.log.warn(fields, message);
+      },
     });
   const tick = options.tick ?? tickBoard;
   const boardCore = createJob({
@@ -40,6 +43,7 @@ export function createBoardModules(
         config: coreCtx.config,
         clock: coreCtx.clock,
         completeSince: core.completeSince,
+        warnSkipped: core.warnSkipped,
       });
       options.onTick?.();
     },

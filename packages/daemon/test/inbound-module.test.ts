@@ -1,6 +1,6 @@
 import { join } from 'node:path';
 import { openStore, type Store } from '@spur-board/core';
-import type { Gateway } from '@spur-board/contracts';
+import { conversationRefSchema, type Gateway } from '@spur-board/contracts';
 import { createSlackGateway } from '@spur-board/gateway-slack';
 import { startFakeSlackApi } from '@spur-board/gateway-slack/testing';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -17,12 +17,19 @@ afterEach(async () => {
   for (const store of stores.splice(0)) await store.close();
 });
 
-function context(): ModuleContext<Store> {
+function context(lines?: string[]): ModuleContext<Store> {
   const home = makeHome();
   const store = openStore(join(home, 'board.sqlite'));
   stores.push(store);
   const loaded = loadConfig(resolvePaths({ BOARD_HOME: home }, home));
-  const log = createLogger({ write() {} }, {});
+  const log = createLogger(
+    {
+      write(line: string) {
+        lines?.push(line);
+      },
+    },
+    {},
+  );
   const clock = { now: () => Date.now() };
   return {
     ...loaded,
@@ -49,6 +56,57 @@ async function until(predicate: () => boolean): Promise<void> {
   }
   throw new Error('Expected recovery call');
 }
+
+describe('inbound warnings', () => {
+  it('logs a delivered ref of another shape once at warn', async () => {
+    const lines: string[] = [];
+    const ctx = context(lines);
+    const gateway = fakeGateway();
+    const at = new Date().toISOString();
+    await ctx.store.db
+      .insertInto('conversation')
+      .values({
+        gateway: gateway.kind,
+        ref: 'thread-1',
+        space: 'orchestrators',
+        task_id: null,
+        block_id: null,
+        purpose: 'block',
+        state: 'open',
+        root_message_ref: 'root-1',
+        after_message_ref: null,
+        created_at: at,
+        closed_at: null,
+      })
+      .execute();
+    await ctx.store.db
+      .insertInto('outbox')
+      .values({
+        kind: 'conversation.open',
+        dedupe_key: 'conversation.open:1',
+        payload: '{}',
+        state: 'done',
+        attempts: 1,
+        next_at: at,
+        last_error: null,
+        external_ref: JSON.stringify({ conversation: 'thread-1', message: 'root-1' }),
+        uncertain: 0,
+        parent_outbox_id: null,
+        first_attempt_at: at,
+        first_delivery_at: at,
+        attempt_started: 0,
+      })
+      .execute();
+    const module = createInboundModule(ctx, gateway);
+    const conversation = conversationRefSchema.parse('thread-1');
+    await module.sink({ kind: 'gap', dedupeKey: 'gap-1', conversation });
+    await module.sink({ kind: 'gap', dedupeKey: 'gap-2', conversation });
+    const records = lines.map((line) => JSON.parse(line) as Record<string, unknown>);
+    expect(records.filter((record) => record.table === 'outbox')).toEqual([
+      expect.objectContaining({ level: 40, table: 'outbox', column: 'external_ref', row: '1' }),
+    ]);
+  });
+});
 
 describe('inbound recovery scheduler', () => {
   it('scans at start and every five minutes without overlapping scans', async () => {

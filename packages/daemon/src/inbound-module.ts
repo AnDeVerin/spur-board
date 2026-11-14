@@ -22,6 +22,9 @@ export function createInboundModule(
     config: ctx.config,
     clock: ctx.clock,
     registry,
+    warn: (fields, message) => {
+      ctx.log.warn(fields, message);
+    },
   });
   const recovery = createJob({
     run: () => ctx.logCall('inbound.recover', () => inbound.recover()),
