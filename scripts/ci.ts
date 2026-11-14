@@ -2,10 +2,24 @@
 // skip `pnpm install`.
 //   node scripts/ci.ts changes [<base>]  - which kinds of files changed
 //   node scripts/ci.ts secrets-range     - the git log range the secret scan covers
-//   node scripts/ci.ts ok                - the ci-ok verdict over the needed jobs
+//   node scripts/ci.ts ok                - the ci-ok verdict over the needed jobs; on a PR edit
+//                                          also the code jobs of the run `reuse` chose
+//   node scripts/ci.ts timing            - test-versus-stand wall time to the job summary
+//   node scripts/ci.ts reuse             - on a PR edit, the code run that tested this merge
+//                                          commit, as the `code-run` output; empty on any doubt
 // Git runs in the current directory; pnpm runs scripts from the repository root.
 import { spawnSync } from 'node:child_process';
 import { appendFileSync, readFileSync } from 'node:fs';
+import {
+  type CodeRun,
+  CODE_JOBS,
+  fetchJobs,
+  fetchRuns,
+  isObject,
+  judgeCodeRun,
+  pickReusableRun,
+  standTiming,
+} from './ci-runs.ts';
 
 export interface Changes {
   github: boolean;
@@ -48,15 +62,27 @@ const PR_SKIPPED = new Set(['release-build', 'release-smoke']);
 
 /**
  * Passes only when every job succeeded. Accepted skips: `pr-title` and `guardrails` outside pull
- * requests, `release-build` and `release-smoke` on pull requests, `workflows` when
- * `github=false`, and PR package smoke when `package=false`.
+ * requests, `release-build` and `release-smoke` on pull requests, `reuse` outside PR edits,
+ * `workflows` when `github=false`, and PR package smoke when `package=false`. On a PR edit whose
+ * `reuse` succeeded with `codeRun.id` as its `code-run` output, the `CODE_JOBS` may skip and
+ * `codeRun`, the judged reused run, must pass.
  */
 export function decideCiOk(input: {
   needs: Record<string, NeededJob>;
   event: string;
   jobIds: string[];
+  action?: string | undefined;
+  codeRun?: CodeRun | null | undefined;
 }): Verdict {
-  const { needs, event, jobIds } = input;
+  const { needs, event, jobIds, action, codeRun } = input;
+  const edit = event === 'pull_request' && action === 'edited';
+  const reuse = needs['reuse'];
+  const reused =
+    edit &&
+    reuse?.result === 'success' &&
+    codeRun !== null &&
+    codeRun !== undefined &&
+    reuse.outputs?.['code-run'] === String(codeRun.id);
   const lines: string[] = [];
   let failures = 0;
   const report = (accepted: boolean, line: string) => {
@@ -70,9 +96,14 @@ export function decideCiOk(input: {
   const changes = needs['changes'];
   for (const [id, job] of Object.entries(needs)) {
     const result = typeof job.result === 'string' ? job.result : String(job.result);
+    if (reused && result === 'skipped' && CODE_JOBS.has(id)) {
+      report(true, `ci-ok: ${id} ${result}`);
+      continue;
+    }
     let accepted = result === 'success';
     if (result === 'skipped' && PR_ONLY.has(id)) accepted = event !== 'pull_request';
     if (result === 'skipped' && PR_SKIPPED.has(id)) accepted = event === 'pull_request';
+    if (result === 'skipped' && id === 'reuse') accepted = !edit;
     if (result === 'skipped' && id === 'workflows') {
       accepted = changes?.result === 'success' && changes.outputs?.['github'] === 'false';
     }
@@ -83,6 +114,10 @@ export function decideCiOk(input: {
         changes.outputs?.['package'] === 'false';
     }
     report(accepted, `ci-ok: ${id} ${result}`);
+  }
+  if (reused) {
+    lines.push(...codeRun.lines);
+    if (!codeRun.ok) failures += 1;
   }
   const ok = failures === 0;
   lines.push(ok ? 'ci-ok: PASS' : 'ci-ok: FAIL');
@@ -129,10 +164,6 @@ export function secretsLogOpts(input: {
   return FULL_HISTORY;
 }
 
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
 function git(args: string[]): { status: number; stdout: string } {
   const result = spawnSync('git', ['-c', 'core.quotePath=false', ...args], {
     encoding: 'utf8',
@@ -170,19 +201,34 @@ function changesCommand(base: string | undefined): number {
   return 0;
 }
 
-/** `before` and `after` from the push event payload; undefined when absent or unreadable. */
-function readPushEvent(): { before: string | undefined; after: string | undefined } {
+/** Fields of the event payload; each undefined when absent or unreadable. */
+function readEvent(): {
+  before: string | undefined;
+  after: string | undefined;
+  action: string | undefined;
+  headSha: string | undefined;
+  prNumber: number | undefined;
+} {
   let event: unknown;
   try {
     event = JSON.parse(readFileSync(process.env['GITHUB_EVENT_PATH'] ?? '', 'utf8'));
   } catch {
     event = null;
   }
-  const field = (key: string) => {
-    const value: unknown = isObject(event) ? event[key] : undefined;
+  const field = (...path: string[]) => {
+    let value: unknown = event;
+    for (const key of path) value = isObject(value) ? value[key] : undefined;
     return typeof value === 'string' ? value : undefined;
   };
-  return { before: field('before'), after: field('after') };
+  const pr = isObject(event) && isObject(event['pull_request']) ? event['pull_request'] : {};
+  const prNumber = pr['number'];
+  return {
+    prNumber: Number.isSafeInteger(prNumber) ? (prNumber as number) : undefined,
+    before: field('before'),
+    after: field('after'),
+    action: field('action'),
+    headSha: field('pull_request', 'head', 'sha'),
+  };
 }
 
 function commitCount(opts: string): number | null {
@@ -193,7 +239,7 @@ function commitCount(opts: string): number | null {
 function secretsRangeCommand(): number {
   const event = process.env['GITHUB_EVENT_NAME'] ?? '';
   const { before, after } =
-    event === 'push' ? readPushEvent() : { before: undefined, after: undefined };
+    event === 'push' ? readEvent() : { before: undefined, after: undefined };
   const beforeExists =
     before !== undefined &&
     SHA.test(before) &&
@@ -229,14 +275,103 @@ function okCommand(): number {
     console.log('ci-ok: NEEDS is not an object of jobs FAIL');
     return 1;
   }
+  const event = process.env['GITHUB_EVENT_NAME'] ?? '';
+  const { action } = readEvent();
+  let codeRun: CodeRun | null = null;
+  const reuse = (needs as Record<string, NeededJob>)['reuse'];
+  const reusedId = reuse?.result === 'success' ? reuse.outputs?.['code-run'] : undefined;
+  if (
+    event === 'pull_request' &&
+    action === 'edited' &&
+    reusedId !== undefined &&
+    reusedId !== ''
+  ) {
+    const run = currentRun();
+    const revision = process.env['GITHUB_SHA'] ?? '';
+    if (typeof reusedId !== 'string' || !/^[1-9]\d*$/.test(reusedId)) {
+      console.log(`ci-ok: reuse output code-run ${JSON.stringify(reusedId)} is not a run id FAIL`);
+      return 1;
+    }
+    if (run === null || !SHA.test(revision)) {
+      console.log('ci-ok: GITHUB_REPOSITORY, GITHUB_RUN_ID or GITHUB_SHA is missing FAIL');
+      return 1;
+    }
+    const id = Number(reusedId);
+    try {
+      codeRun = judgeCodeRun(id, fetchJobs(run.repo, id), revision);
+    } catch (error) {
+      console.log(`ci-ok: code run lookup failed: ${String(error)} FAIL`);
+      return 1;
+    }
+  }
   const workflow = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8');
   const verdict = decideCiOk({
     needs: needs as Record<string, NeededJob>,
-    event: process.env['GITHUB_EVENT_NAME'] ?? '',
+    event,
     jobIds: jobIdsFromWorkflow(workflow).filter((id) => id !== 'ci-ok' && id !== 'release'),
+    action,
+    codeRun,
   });
   for (const line of verdict.lines) console.log(line);
   return verdict.ok ? 0 : 1;
+}
+
+/** The repository and id of the current run from the runner environment; null when invalid. */
+function currentRun(): { repo: string; id: number } | null {
+  const repo = process.env['GITHUB_REPOSITORY'] ?? '';
+  const id = Number(process.env['GITHUB_RUN_ID'] ?? '');
+  if (!/^[\w.-]+\/[\w.-]+$/.test(repo) || !Number.isSafeInteger(id) || id <= 0) return null;
+  return { repo, id };
+}
+
+/** Always 0: on any doubt `code-run` stays empty, so the edit run runs the code jobs. */
+function reuseCommand(): number {
+  const fallback = (reason: string) => {
+    console.log(`reuse: ${reason}; running the code jobs`);
+    writeOutputs({ 'code-run': '' });
+    return 0;
+  };
+  const run = currentRun();
+  const revision = process.env['GITHUB_SHA'] ?? '';
+  const { prNumber, headSha } = readEvent();
+  if (run === null) return fallback('GITHUB_REPOSITORY or GITHUB_RUN_ID is missing');
+  if (!SHA.test(revision)) return fallback('GITHUB_SHA is missing');
+  if (prNumber === undefined || headSha === undefined || !SHA.test(headSha)) {
+    return fallback('the event has no pull request number or head sha');
+  }
+  let picked: ReturnType<typeof pickReusableRun>;
+  try {
+    picked = pickReusableRun(
+      fetchRuns(run.repo, headSha),
+      { runId: run.id, pr: prNumber, revision },
+      (id) => fetchJobs(run.repo, id),
+    );
+  } catch (error) {
+    return fallback(`code run lookup failed: ${String(error)}`);
+  }
+  for (const line of picked.lines) console.log(line);
+  writeOutputs({ 'code-run': picked.id === null ? '' : String(picked.id) });
+  return 0;
+}
+
+function timingCommand(): number {
+  const run = currentRun();
+  if (run === null) {
+    console.error('ci timing: GITHUB_REPOSITORY or GITHUB_RUN_ID is missing');
+    return 1;
+  }
+  let timing: ReturnType<typeof standTiming>;
+  try {
+    timing = standTiming(fetchJobs(run.repo, run.id));
+  } catch (error) {
+    console.error(`ci timing: ${String(error)}`);
+    return 1;
+  }
+  const file = process.env['GITHUB_STEP_SUMMARY'];
+  if (timing.summary !== null && file) appendFileSync(file, timing.summary);
+  else if (timing.summary !== null) process.stdout.write(timing.summary);
+  for (const warning of timing.warnings) console.log(warning);
+  return 0;
 }
 
 if (import.meta.main) {
@@ -245,8 +380,12 @@ if (import.meta.main) {
   if (command === 'changes') code = changesCommand(arg);
   else if (command === 'secrets-range') code = secretsRangeCommand();
   else if (command === 'ok') code = okCommand();
+  else if (command === 'timing') code = timingCommand();
+  else if (command === 'reuse') code = reuseCommand();
   else {
-    console.error('usage: node scripts/ci.ts changes [<base>] | secrets-range | ok');
+    console.error(
+      'usage: node scripts/ci.ts changes [<base>] | secrets-range | ok | timing | reuse',
+    );
     code = 2;
   }
   process.exitCode = code;

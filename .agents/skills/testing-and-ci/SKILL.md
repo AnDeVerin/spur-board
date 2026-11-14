@@ -7,8 +7,8 @@ description: Tests, fakes, clocks, flaky quarantine, checks and CI. Use when you
 
 ## Writing tests
 
-- Read `references/test-layers.md` for the layer to use, the existing fakes, clock seams, the
-  waits rule, harness guarantees, what runs locally and in CI, and flaky-test quarantine.
+- Read `references/test-layers.md` for the layer to use, stand scenarios, the existing fakes,
+  clock seams, the waits rule, harness guarantees, what runs where, and flaky-test quarantine.
 - Give the test a fake or a local server instead of `vi.mock` (`viMockBan`, `eslint.config.js`).
 - Code under test takes a `clock` or `now` seam; never assert on the real time.
 

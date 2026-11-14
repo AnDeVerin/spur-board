@@ -30,6 +30,7 @@
     "record:fakes": "node packages/stand/src/record.ts",
     "smoke:live": "node scripts/smoke-live.ts",
     "stand": "node packages/stand/src/cli.ts",
+    "stand:scenarios": "node packages/stand/src/run-scenarios.ts",
     "upgrade:smoke": "node scripts/upgrade-smoke.ts",
     "update:smoke": "node scripts/update-smoke.ts",
     "prepare": "node scripts/hooks.ts install",

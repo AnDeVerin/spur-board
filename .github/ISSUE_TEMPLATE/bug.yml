@@ -39,6 +39,13 @@ body:
     validations:
       required: true
   - type: textarea
+    id: stand-scenario
+    attributes:
+      label: Stand scenario
+      description: Which stand scenario reproduces this, or why none is needed. A bug seen on the live board is reproduced in a scenario first.
+    validations:
+      required: true
+  - type: textarea
     id: design-notes
     attributes:
       label: Design notes

@@ -8,6 +8,7 @@ import { parse } from 'yaml';
 import { classifyChanges, decideCiOk, jobIdsFromWorkflow, secretsLogOpts } from './ci.ts';
 
 const JOB_IDS = [
+  'reuse',
   'changes',
   'pr-title',
   'guardrails',
@@ -23,6 +24,7 @@ const JOB_IDS = [
 
 function allSuccess(): Record<string, { result: string; outputs?: Record<string, string> }> {
   return {
+    reuse: { result: 'skipped' },
     changes: { result: 'success', outputs: { github: 'true', package: 'true' } },
     'pr-title': { result: 'success' },
     guardrails: { result: 'success' },
