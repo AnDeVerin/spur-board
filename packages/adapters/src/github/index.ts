@@ -100,7 +100,10 @@ export function githubSources(config: Config, options: GithubOptions): GithubSou
       const client = new GithubClient(options.token, options.now, options.fetch);
       const keys = projectKeyRule(project.tracker, project.link, repo);
       // Per source: the facts of each requested or discovered PR's last full read, keyed by
-      // number. Kept in memory only: after a restart each PR at the cursor tie is read once more.
+      // number. Kept in memory only. A discovered PR core does not request, also each one at the
+      // cursor tie after a restart, gets two full reads (the first without a fingerprint, the
+      // second indexed), then one index alias per poll while listed, plus a full read whenever
+      // the index shows it changed or not reusable, e.g. open with a non-green rollup.
       const cache = new Map<number, CachedPr>();
       sources.push({
         repo,
