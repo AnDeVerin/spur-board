@@ -16,10 +16,17 @@ import { enqueueFeedEdit, enqueueFeedLine, type FeedEditPayload } from './outbox
 /** The struck summary is capped so the edit stays one message part. */
 const MAX_SUMMARY = 500;
 
-/** Counts code points, so the cut never splits a surrogate pair. */
-function capSummary(text: string): string {
+/**
+ * Cuts `text` to `max` code points, so the cut never splits a surrogate pair; a cut text ends
+ * with `…`.
+ */
+export function capPoints(text: string, max: number): string {
   const points = Array.from(text);
-  return points.length <= MAX_SUMMARY ? text : `${points.slice(0, MAX_SUMMARY - 1).join('')}…`;
+  return points.length <= max ? text : `${points.slice(0, max - 1).join('')}…`;
+}
+
+function capSummary(text: string): string {
+  return capPoints(text, MAX_SUMMARY);
 }
 
 type Trx = Kysely<Tables>;
@@ -31,13 +38,15 @@ export async function raiseItem(trx: Trx, input: RaiseItemInput): Promise<Row<'o
 
 /**
  * Clear an item once; the edit waits for its line and is cancelled with a stale pending line.
- * The journal names `actor`, `system` unless an actor's action cleared it.
+ * The journal names `actor`, `system` unless an actor's action cleared it. `writeEdit`, when
+ * given, writes the line's edit instead of the resolved one.
  */
 export async function clearItem(
   trx: Trx,
   itemId: number,
   at: Date,
   actor: ActorId = 'system',
+  writeEdit?: (item: Row<'operator_item'>, lineId: number) => Promise<unknown>,
 ): Promise<void> {
   const current = await trx
     .selectFrom('operator_item')
@@ -53,6 +62,10 @@ export async function clearItem(
     .executeTakeFirstOrThrow();
   await journal(trx, item, 'from_you_cleared', at, undefined, actor);
   if (item.line_outbox_id === null) return;
+  if (writeEdit !== undefined) {
+    await writeEdit(item, item.line_outbox_id);
+    return;
+  }
   const task =
     item.task_id === null
       ? null
@@ -106,22 +119,42 @@ export async function dismissItem(
   await clearItem(trx, item.id, at, actor);
 }
 
+/** `HH:MM`, or `YYYY-MM-DD HH:MM` with `date`, in the digest time zone. */
+function feedTime(at: string, config: Config, date = false): string {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: config.digest.tz,
+    ...(date ? { year: 'numeric', month: '2-digit', day: '2-digit' } : {}),
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(new Date(at));
+  const part = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((candidate) => candidate.type === type)?.value ?? '';
+  const time = `${part('hour')}:${part('minute')}`;
+  return date ? `${part('year')}-${part('month')}-${part('day')} ${time}` : time;
+}
+
+/** Who acted, for a non-system actor: an agent by its session, else the operator's mention. */
+function actorInline(
+  by: ActorId,
+  parsed: NonNullable<ReturnType<typeof parseActorId>>,
+  config: Config,
+): RichTextInline {
+  return parsed.actor === 'agent' && !isOperator(by, config)
+    ? { kind: 'text', text: `${parsed.actorRef.project}/${parsed.actorRef.session}` }
+    : { kind: 'mention', user: userIdSchema.parse(config.operator.slack) };
+}
+
 function resolvedLine(by: ActorId, at: string, config: Config): RichTextInline[] {
   const parsed = parseActorId(by);
   if (parsed === null || parsed.actor === 'system') {
     return [{ kind: 'text', text: '✓ Resolved: condition ended' }];
   }
-  const time = new Intl.DateTimeFormat('en-GB', {
-    timeZone: config.digest.tz,
-    hour: '2-digit',
-    minute: '2-digit',
-    hourCycle: 'h23',
-  }).format(new Date(at));
-  const who: RichTextInline =
-    parsed.actor === 'agent' && !isOperator(by, config)
-      ? { kind: 'text', text: `${parsed.actorRef.project}/${parsed.actorRef.session}` }
-      : { kind: 'mention', user: userIdSchema.parse(config.operator.slack) };
-  return [{ kind: 'text', text: '✓ Resolved by ' }, who, { kind: 'text', text: ` at ${time}` }];
+  return [
+    { kind: 'text', text: '✓ Resolved by ' },
+    actorInline(by, parsed, config),
+    { kind: 'text', text: ` at ${feedTime(at, config)}` },
+  ];
 }
 
 /** A cleared line: its key line, the struck summary and who resolved it when; no actions. */
@@ -139,5 +172,43 @@ export function resolvedFeedBody(
     },
     { kind: 'quote', children: [{ kind: 'strike', text }] },
     { kind: 'paragraph', children: resolvedLine(resolved.by, resolved.at, config) },
+  ];
+}
+
+/** An approved operator token's card: name, folder, created and approved times, who revoked it. */
+export function tokenCardBody(
+  card: NonNullable<FeedEditPayload['tokenCard']>,
+  config: Config,
+): RichText {
+  const body = [
+    { kind: 'paragraph', children: [{ kind: 'text', text: `Operator token ${card.name}` }] },
+    { kind: 'paragraph', children: [{ kind: 'text', text: `Folder: ${card.folder}` }] },
+    {
+      kind: 'paragraph',
+      children: [
+        {
+          kind: 'text',
+          text: `Created ${feedTime(card.createdAt, config, true)} · Approved ${feedTime(card.approvedAt, config, true)}`,
+        },
+      ],
+    },
+  ] satisfies RichText;
+  if (card.revoked === undefined) return body;
+  const { by, at } = card.revoked;
+  const parsed = parseActorId(by);
+  const time = feedTime(at, config);
+  return [
+    ...body,
+    {
+      kind: 'paragraph',
+      children:
+        parsed === null || parsed.actor === 'system'
+          ? [{ kind: 'text', text: `Revoked at ${time}` }]
+          : [
+              { kind: 'text', text: 'Revoked by ' },
+              actorInline(by, parsed, config),
+              { kind: 'text', text: ` at ${time}` },
+            ],
+    },
   ];
 }

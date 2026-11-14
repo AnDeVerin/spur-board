@@ -5,6 +5,7 @@ import {
   TOKEN_REQUEST_LIMITS,
   requestHashOf,
   tokenRequestSchema,
+  type Action,
   type Config,
   type EventKind,
 } from '@spur-board/contracts';
@@ -13,7 +14,8 @@ import type { OperatorTokenStatus, Row, Tables } from '../store/schema.ts';
 import type { Store } from '../store/store.ts';
 import { emit } from './board-utils.ts';
 import { CommandError, type Mutation } from './commands.ts';
-import { clearItem, raiseItem } from './feed.ts';
+import { capPoints, clearItem, raiseItem } from './feed.ts';
+import { enqueueBoardFeedLine, enqueueTokenCard, tokenCardKey } from './outbox.ts';
 import type { Query } from './queries.ts';
 
 type Trx = Kysely<Tables>;
@@ -22,6 +24,23 @@ const MAX_PENDING_REQUESTS = 10;
 /** Days an expired or denied request stays after its decision before the daily purge drops it. */
 const TOKEN_REQUEST_RETENTION_DAYS = 7;
 const DAY_MS = 86_400_000;
+/** Code-point caps that keep a legacy name or folder from overflowing a card, line or button. */
+const CARD_NAME = 200;
+const CARD_FOLDER = 500;
+const LIST_NAME = 64;
+const LIST_FOLDER = 120;
+const LABEL_NAME = 40;
+/** Tokens in one `/board tokens` line that get a Revoke button. */
+const LIST_BUTTONS = 20;
+
+/** The Revoke button of the token approved through item `itemId`, on its card or in a list. */
+function revokeAction(itemId: number, name: string, label: string): Action {
+  return {
+    id: `token:${String(itemId)}:revoke`,
+    label,
+    confirm: `Revoke operator token ${capPoints(name, CARD_NAME)}? Calls with it fail at once.`,
+  };
+}
 
 function effectiveStatus(row: Row<'operator_token'>, at: Date): OperatorTokenStatus {
   return row.status === 'pending' && row.expires_at <= at.toISOString() ? 'expired' : row.status;
@@ -188,8 +207,28 @@ export async function decideTokenInTransaction(
     .where('id', '=', row.id)
     .execute();
   await journalToken(trx, decision === 'approve' ? 'token_approved' : 'token_denied', row.name, at);
-  // Only the operator can decide a token request.
-  await clearItem(trx, row.item_id, at, 'operator');
+  // Only the operator can decide a token request; an approval turns the line into a card.
+  await clearItem(
+    trx,
+    row.item_id,
+    at,
+    'operator',
+    decision === 'approve'
+      ? (item, lineId) =>
+          enqueueTokenCard(trx, {
+            itemId: item.id,
+            parent: lineId,
+            card: {
+              name: capPoints(row.name, CARD_NAME),
+              folder: capPoints(row.folder, CARD_FOLDER),
+              createdAt: row.requested_at,
+              approvedAt: at.toISOString(),
+            },
+            actions: [revokeAction(item.id, row.name, 'Revoke')],
+            at,
+          })
+      : undefined,
+  );
   return { name: row.name, status: next };
 }
 
@@ -277,6 +316,37 @@ export function tokenListQuery(clock: { now(): number }): Query<'token.list'> {
   };
 }
 
+/**
+ * Posts one feed line listing the approved and unexpired pending tokens under `key`, so a replay
+ * of the same command posts none; the first ones get a Revoke button. Returns how many are
+ * listed and writes nothing for none.
+ */
+export async function postTokenList(trx: Trx, input: { key: string; at: Date }): Promise<number> {
+  const rows = (await trx.selectFrom('operator_token').selectAll().orderBy('id').execute())
+    .map((row) => ({ row, status: effectiveStatus(row, input.at) }))
+    .filter(({ status }) => status === 'approved' || status === 'pending');
+  if (rows.length === 0) return 0;
+  const lines = rows.map(
+    ({ row, status }) =>
+      `${capPoints(row.name, LIST_NAME)} (${status}), ${capPoints(row.folder, LIST_FOLDER)}`,
+  );
+  const hidden = rows.length - LIST_BUTTONS;
+  if (hidden > 0) lines.push(`${String(hidden)} more: \`board token list\``);
+  await enqueueBoardFeedLine(trx, {
+    dedupeKey: `feed.line:token-list:${input.key}`,
+    itemKey: `token-list:${input.key}`,
+    text: lines.join('\n'),
+    title: 'Operator tokens',
+    actions: rows
+      .slice(0, LIST_BUTTONS)
+      .map(({ row }) =>
+        revokeAction(row.item_id, row.name, `Revoke ${capPoints(row.name, LABEL_NAME)}`),
+      ),
+    at: input.at,
+  });
+  return rows.length;
+}
+
 export const tokenRevokeMutation: Mutation<'token.revoke'> = {
   id: 'token.revoke',
   resolveTargets: () => Promise.resolve([]),
@@ -296,6 +366,37 @@ export const tokenRevokeMutation: Mutation<'token.revoke'> = {
         .execute();
       await journalToken(trx, 'token_revoked', row.name, at);
       await clearItem(trx, row.item_id, at, ctx.actor);
+      const text = `token ${capPoints(row.name, CARD_NAME)} revoked`;
+      await enqueueBoardFeedLine(trx, {
+        dedupeKey: `feed.line:token-revoked:${String(row.id)}`,
+        itemKey: `token-revoked:${String(row.id)}`,
+        text,
+        title: text,
+        at,
+      });
+      const card =
+        row.status === 'approved'
+          ? await trx
+              .selectFrom('outbox')
+              .select(['id', 'state'])
+              .where('dedupe_key', '=', tokenCardKey(row.item_id))
+              .executeTakeFirst()
+          : undefined;
+      // A dead card edit was never shown: the revoked card would die with it.
+      if (card !== undefined && card.state !== 'dead' && row.decided_at !== null) {
+        await enqueueTokenCard(trx, {
+          itemId: row.item_id,
+          parent: card.id,
+          card: {
+            name: capPoints(row.name, CARD_NAME),
+            folder: capPoints(row.folder, CARD_FOLDER),
+            createdAt: row.requested_at,
+            approvedAt: row.decided_at,
+            revoked: { by: ctx.actor, at: ctx.at },
+          },
+          at,
+        });
+      }
     }
     return { name: row.name, status: 'revoked' };
   },

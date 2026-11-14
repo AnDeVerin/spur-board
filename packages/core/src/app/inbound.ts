@@ -42,7 +42,7 @@ import type { ReapplyInbound } from './items.ts';
 import { dispatchOperation, type OperationRegistry } from './operations.ts';
 import { enqueueConversationClose } from './outbox.ts';
 import { redactPrivateReply, redactSecretMatches } from './secrets.ts';
-import { decideTokenInTransaction } from './tokens.ts';
+import { decideTokenInTransaction, postTokenList, tokenRevokeMutation } from './tokens.ts';
 
 type Trx = Kysely<Tables>;
 type Item = Row<'operator_item'>;
@@ -56,6 +56,7 @@ const resultSchema = z.strictObject({
   response: z.string().optional(),
 });
 type Result = z.output<typeof resultSchema>;
+type TokenPress = { itemId: number; decision: 'approve' | 'deny' | 'revoke' };
 type ItemEntry = Extract<(typeof OPERATIONS)[number], { id: 'item.close' | 'item.retry' }>;
 
 export interface Inbound {
@@ -517,6 +518,14 @@ export function createInbound(input: {
     if (id === undefined) {
       throw new CommandError('retry_not_applicable', 'This interaction cannot be retried.');
     }
+    if (id === 'token.list') {
+      // The live gate: the configured operator's command; the list keeps the command's key.
+      if (event.kind !== 'command' || event.author !== config.operator.slack) {
+        throw new CommandError('retry_not_applicable', 'This interaction cannot be retried.');
+      }
+      await postTokenList(trx, { key: event.dedupeKey, at: new Date(at) });
+      return;
+    }
     if (id !== 'item.close' && id !== 'item.retry') return;
     const handler = registry[id];
     const entry = OPERATIONS.find((candidate): candidate is ItemEntry => candidate.id === id);
@@ -657,27 +666,22 @@ export function createInbound(input: {
     return { id, operationInput, ...(item === undefined ? {} : { item }) };
   }
 
-  function tokenAction(event: Extract<UserEvent, { kind: 'action' }>): {
-    itemId: number;
-    decision: 'approve' | 'deny';
-  } | null {
-    const match = /^token:([1-9]\d*):(approve|deny)$/.exec(event.actionId);
+  function tokenAction(event: Extract<UserEvent, { kind: 'action' }>): TokenPress | null {
+    const match = /^token:([1-9]\d*):(approve|deny|revoke)$/.exec(event.actionId);
     if (match === null) return null;
     const itemId = Number(match[1]);
     if (!Number.isSafeInteger(itemId)) return null;
     return {
       itemId,
-      decision: match[2] === 'approve' ? 'approve' : 'deny',
+      decision: match[2] === 'approve' ? 'approve' : match[2] === 'deny' ? 'deny' : 'revoke',
     };
   }
 
-  /** A token press decides once per dedupe key, live or replayed from its failure item. */
-  function decideToken(
-    trx: Trx,
-    key: string,
-    token: { itemId: number; decision: 'approve' | 'deny' },
-    at: string,
-  ) {
+  /**
+   * A token press decides once per dedupe key, live or replayed from its failure item. Revoke
+   * names the token of the item's current request and runs the one revoke path as the operator.
+   */
+  function decideToken(trx: Trx, key: string, token: TokenPress, at: string) {
     return replayOperation(trx, {
       actor: 'operator',
       key,
@@ -686,6 +690,20 @@ export function createInbound(input: {
       output: resultSchema,
       at,
       run: async () => {
+        if (token.decision === 'revoke') {
+          const row = await trx
+            .selectFrom('operator_token')
+            .select('name')
+            .where('item_id', '=', token.itemId)
+            .executeTakeFirst();
+          if (row === undefined) throw new CommandError('not_found', 'Token was not found.');
+          const revoked = await tokenRevokeMutation.run(
+            trx,
+            { name: row.name },
+            { actor: 'operator', at },
+          );
+          return { status: 'applied' as const, response: `${revoked.name}: ${revoked.status}` };
+        }
         const decided = await decideTokenInTransaction(
           trx,
           token.itemId,
@@ -762,25 +780,38 @@ export function createInbound(input: {
     else if (id === undefined) response = plain('not allowed');
     else {
       try {
-        const value = await dispatchOperation(
-          { store, clock, config, registry },
-          id,
-          operationInput,
-          'operator',
-          event.dedupeKey,
-        );
-        if (event.kind === 'command') {
-          const reply = commandReply(
-            id as 'status.get' | 'task.get' | 'task.history',
-            value,
-            operationInput,
+        if (id === 'token.list') {
+          // Posted to the feed: a private reply carries no buttons on every platform.
+          const listedAt = new Date(clock.now());
+          const listed = await scanTransaction(store, config, (trx) =>
+            postTokenList(trx, { key: event.dedupeKey, at: listedAt }),
           );
-          response = reply.body;
-          cliHint = reply.cliHint;
-        } else {
           response = plain(
-            id === 'item.close' ? `Closed ${item ?? ''}.` : `Retry started for ${item ?? ''}.`,
+            listed === 0
+              ? 'No active operator tokens.'
+              : `Posted ${String(listed)} operator tokens to the feed.`,
           );
+        } else {
+          const value = await dispatchOperation(
+            { store, clock, config, registry },
+            id,
+            operationInput,
+            'operator',
+            event.dedupeKey,
+          );
+          if (event.kind === 'command') {
+            const reply = commandReply(
+              id as 'status.get' | 'task.get' | 'task.history',
+              value,
+              operationInput,
+            );
+            response = reply.body;
+            cliHint = reply.cliHint;
+          } else {
+            response = plain(
+              id === 'item.close' ? `Closed ${item ?? ''}.` : `Retry started for ${item ?? ''}.`,
+            );
+          }
         }
       } catch (error) {
         if (!(error instanceof CommandError)) {
