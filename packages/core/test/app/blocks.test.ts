@@ -1061,8 +1061,52 @@ describe('curator delivery', () => {
         .execute()
     ).map((row) => ({
       dedupeKey: row.dedupe_key,
-      payload: JSON.parse(row.payload) as { text: string },
+      payload: JSON.parse(row.payload) as {
+        text: string;
+        exchange?: { question: string; answer: string };
+      },
     }));
+
+  /** Delivers every due row through the slack-like fake and returns what it was asked. */
+  const deliver = async (store: Store, file: string, board: Config) => {
+    const observed = observeGateway(createFakeGateway({ profile: 'slack-like' }), file);
+    const sender = createSender({
+      config: board,
+      store,
+      gateway: observed.gateway,
+      spur: { send: () => Promise.resolve() },
+      now: () => new Date(NOW),
+      spaceIntervalMs: 0,
+    });
+    await sender.tick();
+    return observed;
+  };
+  const taskLink = {
+    kind: 'paragraph',
+    children: [{ kind: 'link', url: 'https://github.com/o/r/issues/101', text: KEY }],
+  } as const;
+  const exchangeParagraphs = [
+    {
+      kind: 'paragraph',
+      children: [
+        { kind: 'emphasis', text: 'Question:' },
+        { kind: 'text', text: ' Q?' },
+      ],
+    },
+    {
+      kind: 'paragraph',
+      children: [
+        { kind: 'emphasis', text: 'Answer:' },
+        { kind: 'text', text: ' A.' },
+      ],
+    },
+  ] as const;
+  const exchangeContext = {
+    kind: 'context',
+    children: [
+      { kind: 'text', text: 'B1 · asked by web/worker-1 · answered by cur/cur-1 · unblocked' },
+    ],
+  } as const;
 
   it('answers at the curator with one feed line and no thread reply or close', async () => {
     const { store, file, apply, ops: curated } = await curatorBoard('qa', used);
@@ -1073,34 +1117,112 @@ describe('curator delivery', () => {
     ]);
     expect(await store.db.selectFrom('operator_item').select('id').execute()).toEqual([]);
 
-    const observed = observeGateway(createFakeGateway({ profile: 'slack-like' }), file);
-    const sender = createSender({
-      config: used,
-      store,
-      gateway: observed.gateway,
-      spur: { send: () => Promise.resolve() },
-      now: () => new Date(NOW),
-      spaceIntervalMs: 0,
-    });
-    await sender.tick();
+    const observed = await deliver(store, file, used);
     expect(observed.requests).toHaveLength(1);
-    expect(observed.requests[0]).toMatchObject({
-      target: { kind: 'open', space: 'feed' },
-      persona: { name: 'cur', role: 'curator' },
-    });
-    expect(observed.requests[0]?.body).toEqual([
-      {
-        kind: 'paragraph',
-        children: [{ kind: 'link', url: 'https://github.com/o/r/issues/101', text: KEY }],
-      },
-      {
-        kind: 'quote',
-        children: [{ kind: 'text', text: 'B1 · web/worker-1 asked: Q? → curator answered: A.' }],
-      },
-    ]);
+    expect(observed.requests[0]).toMatchObject({ target: { kind: 'open', space: 'feed' } });
+    expect(observed.requests[0]?.persona).toEqual({ name: 'cur', role: 'curator' });
+    expect(observed.requests[0]?.body).toEqual([taskLink, ...exchangeParagraphs, exchangeContext]);
     expect(observed.requests[0]?.actions).toBeUndefined();
     expect(observed.violations).toEqual([]);
   });
+
+  it('names the line after the configured curator display name and icon', async () => {
+    const named = configSchema.parse({
+      ...used,
+      projects: used.projects.map((project) => ({
+        ...project,
+        spurProjects: project.spurProjects.map((spur) =>
+          spur.role === 'curator' ? { ...spur, displayName: 'Cur Bot', icon: ':owl:' } : spur,
+        ),
+      })),
+    });
+    const { store, file, apply, ops: curated } = await curatorBoard('qa', named);
+    const { block } = await apply(curated.ask, { task: KEY, text: 'Q?' }, author, 'ask');
+    await apply(curated.answer, { block: block.id, text: 'A.' }, curator, 'answer');
+    const observed = await deliver(store, file, named);
+    expect(observed.requests).toHaveLength(1);
+    expect(observed.requests[0]?.persona).toEqual({
+      name: 'Cur Bot',
+      role: 'curator',
+      icon: ':owl:',
+    });
+    expect(observed.violations).toEqual([]);
+  });
+
+  it('shows the note apart from the answer and keeps it as a comment that rings nobody', async () => {
+    const { store, file, apply, ops: curated } = await curatorBoard('qa', used);
+    const { block } = await apply(curated.ask, { task: KEY, text: 'Q?' }, author, 'ask');
+    await apply(
+      curated.answer,
+      { block: block.id, text: 'A.', note: 'Checked.' },
+      curator,
+      'answer',
+    );
+    expect(await store.db.selectFrom('comment').select('text').orderBy('id').execute()).toEqual([
+      { text: 'Q?' },
+      { text: 'A.' },
+      { text: 'Checked.' },
+    ]);
+    expect(
+      await store.db.selectFrom('notification').select('id').where('kind', '=', 'answer').execute(),
+    ).toHaveLength(1);
+    expect(
+      (await events(store)).filter((event) => event.kind === 'comment_added').at(-1),
+    ).toMatchObject({ payload: { comment: 'C3' } });
+
+    const observed = await deliver(store, file, used);
+    expect(observed.requests).toHaveLength(1);
+    expect(observed.requests[0]?.body).toEqual([
+      taskLink,
+      ...exchangeParagraphs,
+      { kind: 'paragraph', children: [{ kind: 'italic', text: 'Checked.' }] },
+      exchangeContext,
+    ]);
+    expect(observed.violations).toEqual([]);
+  });
+
+  const ticketFacts = {
+    trackerId: 'github-issues:o/r',
+    id: 'I_101',
+    key: KEY,
+    title: 'Fix login',
+    status: 'open',
+    assignee: null,
+    sprint: null,
+    labels: [],
+    inFilter: true,
+    url: 'https://github.com/o/r/issues/101',
+    updatedAt: '2026-11-03T09:00:00.000Z',
+  };
+
+  it.each([
+    ['valid ticket facts', JSON.stringify(ticketFacts), [{ kind: 'text', text: ' Fix login' }]],
+    ['no snapshot', null, []],
+    ['empty detail', '{}', []],
+    ['a detail that is not JSON', 'not json', []],
+  ] as const)(
+    'shows the task title when the ticket snapshot has one (%s)',
+    async (_case, detail, title) => {
+      const { store, file, apply, ops: curated } = await curatorBoard('qa', used);
+      if (detail !== null) {
+        await store.transaction((trx) =>
+          trx
+            .insertInto('ticket_snapshot')
+            .values({ ...sampleRows.ticket_snapshot, detail })
+            .execute(),
+        );
+      }
+      const { block } = await apply(curated.ask, { task: KEY, text: 'Q?' }, author, 'ask');
+      const answered = await apply(curated.answer, { block: block.id, text: 'A.' }, curator, 'a');
+      expect(answered.block).toMatchObject({ state: 'unblocked', outcome: 'done' });
+      const observed = await deliver(store, file, used);
+      expect(observed.requests).toHaveLength(1);
+      expect(observed.requests[0]?.body[0]).toEqual({
+        ...taskLink,
+        children: [...taskLink.children, ...title],
+      });
+    },
+  );
 
   it('writes no second curator line on a replay', async () => {
     const { store, apply, ops: curated } = await curatorBoard('qa', used);
@@ -1126,6 +1248,10 @@ describe('curator delivery', () => {
     expect(line?.payload.text).toBe(
       `B1 · web/worker-1 asked: Why ${'q'.repeat(115)}… → curator answered: ${'a'.repeat(199)}…`,
     );
+    expect(line?.payload.exchange).toMatchObject({
+      question: `Why ${'q'.repeat(115)}…`,
+      answer: `${'a'.repeat(199)}…`,
+    });
     const comment = await store.db
       .selectFrom('comment')
       .select(['text', 'delivery_state'])
@@ -1288,6 +1414,34 @@ describe('escalation note', () => {
       kind: 'comment_added',
       payload: { comment: 'C2', addressee: 'operator' },
     });
+  });
+
+  it('posts an answer note as a second thread reply before the close', async () => {
+    const { store, apply, ops: curated } = await curatorBoard('qa', used);
+    const { block } = await apply(curated.ask, { task: KEY, text: 'Q?' }, author, 'ask');
+    await apply(curated.escalate, { block: block.id }, curator, 'esc');
+    await apply(
+      curated.answer,
+      { block: block.id, text: 'A.', note: 'Checked.' },
+      'operator',
+      'answer',
+    );
+    const rows = await outbox(store);
+    expect(rows.map((row) => row.kind)).toEqual([
+      'conversation.open',
+      'conversation.reply',
+      'conversation.reply',
+      'conversation.close',
+    ]);
+    expect(rows.map((row) => row.parent_outbox_id)).toEqual([
+      null,
+      rows[0]?.id,
+      rows[1]?.id,
+      rows[2]?.id,
+    ]);
+    expect(JSON.parse(rows[1]?.payload ?? '{}')).toMatchObject({ text: 'A.', commentId: 2 });
+    expect(JSON.parse(rows[2]?.payload ?? '{}')).toMatchObject({ text: 'Checked.', commentId: 3 });
+    expect(await answerRows(store)).toHaveLength(1);
   });
 
   it('keeps the reason at the head of a thread', async () => {

@@ -22,6 +22,7 @@ import { ringDue } from './turns.ts';
 import { clearItem, raiseItem, resolvedFeedBody } from './feed.ts';
 import {
   deliveredRefSchema,
+  exchangeBody,
   KIND_PRIORITY,
   KIND_SPACE,
   OUTBOX_KINDS,
@@ -683,15 +684,19 @@ export function createSender(options: SenderOptions): Sender {
         body:
           body.kind === 'feed.line.edit' && body.payload.resolved !== undefined
             ? resolvedFeedBody({ ...body.payload, resolved: body.payload.resolved }, options.config)
-            : c.body.kind === 'feed.line' && c.body.payload.url !== undefined
-              ? [
-                  {
-                    kind: 'paragraph',
-                    children: [{ kind: 'link', url: c.body.payload.url, text: c.body.payload.key }],
-                  },
-                  { kind: 'quote', children: [{ kind: 'text', text: c.body.payload.text }] },
-                ]
-              : renderBody(c.body.payload.key, c.body.payload.text),
+            : c.body.kind === 'feed.line' && c.body.payload.exchange !== undefined
+              ? exchangeBody({ ...c.body.payload, exchange: c.body.payload.exchange })
+              : c.body.kind === 'feed.line' && c.body.payload.url !== undefined
+                ? [
+                    {
+                      kind: 'paragraph',
+                      children: [
+                        { kind: 'link', url: c.body.payload.url, text: c.body.payload.key },
+                      ],
+                    },
+                    { kind: 'quote', children: [{ kind: 'text', text: c.body.payload.text }] },
+                  ]
+                : renderBody(c.body.payload.key, c.body.payload.text),
         ...(c.body.kind === 'feed.line' && c.body.payload.actions !== undefined
           ? { actions: c.body.payload.actions }
           : {}),

@@ -1,5 +1,6 @@
 import {
   parseActorId,
+  ticketFactsSchema,
   type ActorId,
   type AddresseeRole,
   type Config,
@@ -530,12 +531,31 @@ export async function editInboundComment(
   return updated;
 }
 
+/** The task's tracker title, or undefined when no readable snapshot has one; never throws. */
+async function ticketTitle(trx: Trx, task: Task): Promise<string | undefined> {
+  const row = await trx
+    .selectFrom('ticket_snapshot')
+    .select('detail')
+    .where('task_id', '=', task.id)
+    .executeTakeFirst();
+  if (row === undefined) return undefined;
+  let detail: unknown;
+  try {
+    detail = JSON.parse(row.detail);
+  } catch {
+    return undefined;
+  }
+  const facts = ticketFactsSchema.safeParse(detail);
+  return facts.success && facts.data.title.trim() !== '' ? facts.data.title : undefined;
+}
+
 /** Posts a curator's answer to the feed; an operator answer is already on the board. */
 async function queueCuratorAnswerLine(
   trx: Trx,
   task: Task,
   block: Block,
   answer: Comment,
+  note: string | undefined,
   ctx: CommandContext,
   config: Config,
 ): Promise<void> {
@@ -551,6 +571,10 @@ async function queueCuratorAnswerLine(
     .where('id', '<', answer.id)
     .orderBy('id')
     .executeTakeFirst();
+  const { project, session } = curator.actorRef;
+  const entry = config.projects
+    .find((p) => p.id === task.project)
+    ?.spurProjects.find((s) => s.role === 'curator' && s.name === project);
   await enqueueCuratorAnswerLine(trx, {
     taskId: task.id,
     key: task.key,
@@ -563,7 +587,14 @@ async function queueCuratorAnswerLine(
         : block.author,
     question: question?.text ?? block.reason,
     answer: answer.text,
-    curator: curator.actorRef.project,
+    note,
+    taskTitle: await ticketTitle(trx, task),
+    persona: {
+      name: entry?.displayName ?? project,
+      role: 'curator',
+      ...(entry?.icon === undefined ? {} : { icon: entry.icon }),
+    },
+    answeredBy: `${project}/${session}`,
     at: new Date(ctx.at),
   });
 }
@@ -671,8 +702,21 @@ export function createBlockMutations(config: Config) {
         authorRole(config, task, block.author),
         config,
       );
+      // Before the close, so a note on a threaded block is a reply that rings nobody.
+      if (input.note !== undefined) {
+        await addComment(
+          trx,
+          task,
+          block,
+          input.note,
+          ctx,
+          authorRole(config, task, block.author),
+          config,
+          { ringsAuthor: false },
+        );
+      }
       const updated = await closeOpenBlock(trx, task, block, ctx, 'done', null);
-      await queueCuratorAnswerLine(trx, task, block, comment, ctx, config);
+      await queueCuratorAnswerLine(trx, task, block, comment, input.note, ctx, config);
       return { block: blockView(updated, task), comment: commentView(comment, task) };
     },
   };
