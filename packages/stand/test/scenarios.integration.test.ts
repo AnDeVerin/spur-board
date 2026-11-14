@@ -1060,7 +1060,7 @@ describe('dispatcher scenarios', () => {
   const itemKeys = async () => (await status(current())).items.map(({ key }) => key);
 
   it(
-    'dispatch-happy-path: merge moves the task to Done with a wrap-up turn',
+    'dispatch-happy-path: merge and the ticket close move the task to Done with a wrap-up turn',
     async () => {
       await up();
       const { scenario } = await seed('dispatch-happy-path');
@@ -1083,6 +1083,7 @@ describe('dispatcher scenarios', () => {
       expect(await itemKeys()).toContain(item);
 
       await github('merge');
+      await github('issue-close');
       await poll();
       expect(await column()).toBe('done');
       expect(await mustTurn(as('worker'))).toMatchObject({

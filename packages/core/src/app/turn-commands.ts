@@ -451,7 +451,7 @@ export function createTurnMutations(deps: {
           const label = `${pr.repo}#${String(pr.number)}`;
           throw new CommandError(
             'move_not_allowed',
-            `Merged pull request ${label} keeps the task in Done; unlink it first with \`board unlink ${task.key} --pr https://github.com/${pr.repo}/pull/${String(pr.number)} --reason <text>\`.`,
+            `Merged pull request ${label} sets the task's column: Done once its ticket is done, Dev while it stays open; unlink it first with \`board unlink ${task.key} --pr https://github.com/${pr.repo}/pull/${String(pr.number)} --reason <text>\`.`,
           );
         }
       }

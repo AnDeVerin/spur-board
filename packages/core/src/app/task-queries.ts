@@ -3,6 +3,7 @@ import {
   eventPayloadSchemas,
   parseActorId,
   parseRef,
+  TASK_HOLDS,
   type ActorId,
   type Config,
   type EventKind,
@@ -197,6 +198,7 @@ export function createTaskQueries(deps: {
       project,
       mode,
       await blindSources(trx, completeSince),
+      config,
     );
     if (read === null) {
       return {
@@ -208,7 +210,11 @@ export function createTaskQueries(deps: {
       };
     }
     const { gates, checksWaivedBy } = explainGates(read.input.facts, read.input.project);
-    return { ...shared, dispatcher: mode, holds: dispatchHolds(read.input), gates, checksWaivedBy };
+    const holds = [
+      ...dispatchHolds(read.input),
+      ...(read.ticketUnconfirmed ? ['ticket_unconfirmed' as const] : []),
+    ].sort((left, right) => TASK_HOLDS.indexOf(left) - TASK_HOLDS.indexOf(right));
+    return { ...shared, dispatcher: mode, holds, gates, checksWaivedBy };
   }
   const get: Query<'task.get'> = {
     id: 'task.get',

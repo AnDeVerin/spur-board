@@ -6,6 +6,7 @@ import {
   parseRef,
   prFactsSchema,
   prSourceId,
+  ticketFactsSchema,
   trackerSourceId,
   type ActorId,
   type ColumnId,
@@ -31,6 +32,37 @@ export function ticketDone(project: Config['projects'][number], status: string):
   return project.tracker.type === 'jira'
     ? project.tracker.doneStatuses.includes(status)
     : status === 'closed';
+}
+
+/**
+ * How the ticket of a task stands after its PR merged at `mergedAt`: `done`; `open` once the
+ * tracker saw it open at least one tracker interval after the merge, in the filter or fetched by
+ * key for a hand-added task; else `unconfirmed`, since the close a merge triggers may not be
+ * polled yet and a ticket dropped from the filter keeps a stale status.
+ */
+export function mergedTicket(
+  project: Config['projects'][number],
+  config: Config,
+  ticket: { status: string; detail: string; observed_at: string } | undefined,
+  manualInclude: boolean,
+  mergedAt: string,
+): 'done' | 'open' | 'unconfirmed' {
+  if (ticket === undefined) return 'unconfirmed';
+  if (ticketDone(project, ticket.status)) return 'done';
+  let inFilter: boolean;
+  try {
+    const parsed = ticketFactsSchema.safeParse(JSON.parse(ticket.detail));
+    if (!parsed.success) return 'unconfirmed';
+    inFilter = parsed.data.inFilter;
+  } catch {
+    return 'unconfirmed';
+  }
+  const { intervalMs } =
+    project.tracker.type === 'jira' ? config.adapters.jira : config.adapters.githubIssues;
+  return (inFilter || manualInclude) &&
+    Date.parse(ticket.observed_at) >= Date.parse(mergedAt) + intervalMs
+    ? 'open'
+    : 'unconfirmed';
 }
 
 /**

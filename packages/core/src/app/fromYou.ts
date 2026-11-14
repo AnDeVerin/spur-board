@@ -28,7 +28,14 @@ import {
 import { parseJson, toJson, type WarnSkipped } from '../store/json.ts';
 import type { Row } from '../store/schema.ts';
 import { closeBlockIfOpen, openSystemBlock } from './blocks.ts';
-import { pastReopenFloor, taskUrl, ticketDone, type Trx } from './board-utils.ts';
+import {
+  mergedTicket,
+  parsePr,
+  pastReopenFloor,
+  taskUrl,
+  ticketDone,
+  type Trx,
+} from './board-utils.ts';
 import { clearItem, raiseItem } from './feed.ts';
 import type { RaiseItemInput } from './item-raise.ts';
 import { quietTurns, stuckTurnAfterMs } from './turns.ts';
@@ -235,11 +242,42 @@ export async function reconcileItems(
       ),
       turnSessions: [],
     };
+  const tickets = await trx
+    .selectFrom('ticket_snapshot')
+    .select(['task_id', 'status', 'detail', 'source', 'observed_at'])
+    .execute();
+  // Each task's newest merge time; null when no merged PR's detail is readable.
+  const mergedAt = new Map<number, string | null>();
   for (const pr of prs) {
     const state = taskPrs[String(pr.task_id)];
     if (state === undefined) continue;
     if (pr.state === 'open') state.hasOpenPr = true;
-    if (pr.state === 'merged') state.hasMergedPr = true;
+    if (pr.state !== 'merged') continue;
+    const facts = parsePr(pr.detail ?? undefined);
+    const at = facts === null ? null : (facts.mergedAt ?? facts.updatedAt);
+    const newest = mergedAt.get(pr.task_id) ?? null;
+    mergedAt.set(
+      pr.task_id,
+      newest !== null && (at === null || Date.parse(newest) > Date.parse(at)) ? newest : at,
+    );
+  }
+  for (const [taskId, at] of mergedAt) {
+    const state = taskPrs[String(taskId)];
+    const task = taskById.get(taskId);
+    const project = config.projects.find((entry) => entry.id === task?.project);
+    if (state === undefined || task === undefined) continue;
+    // A merged PR counts as finished work unless the ticket was seen open after it: a split task
+    // back in Dev is watched like any task without a PR.
+    state.hasMergedPr =
+      at === null ||
+      project === undefined ||
+      mergedTicket(
+        project,
+        config,
+        tickets.find((entry) => entry.task_id === taskId),
+        task.manual_include === 1,
+        at,
+      ) !== 'open';
   }
   const workerTurns = await trx
     .selectFrom('turn')
@@ -287,10 +325,6 @@ export async function reconcileItems(
       revision: refs.join(','),
     });
   }
-  const tickets = await trx
-    .selectFrom('ticket_snapshot')
-    .select(['task_id', 'status', 'detail', 'source'])
-    .execute();
   for (const task of tasks) {
     const state = taskPrs[String(task.id)];
     const project = config.projects.find((entry) => entry.id === task.project);

@@ -1,5 +1,5 @@
 {
-  "version": "daeab9ac95c6d076d0c65ac22c4345597e02fbfece9b133318aa96874d659d04",
+  "version": "55ddb91d48c6912d0204078ac74188ae348188fbf67eee7131f0405fdd68ce83",
   "grants": [
     "operator",
     "project-agent",
@@ -2960,6 +2960,7 @@
                     "pr_snapshot_missing",
                     "github_blind",
                     "spur_blind",
+                    "ticket_unconfirmed",
                     "cycle_limit",
                     "work_not_started"
                   ]
