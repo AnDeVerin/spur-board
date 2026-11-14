@@ -1,4 +1,5 @@
 import {
+  entityRefSchema,
   parseActorId,
   prFactsSchema,
   prSourceId,
@@ -84,14 +85,8 @@ export async function reconcileItems(
   for (const miss of misses) {
     // A linked PR or ticket raises an item only once the runner counts it gone.
     if (miss.gone !== 1) continue;
-    const ref = JSON.parse(miss.ref) as {
-      kind: string;
-      key?: string;
-      id?: string;
-      repo?: string;
-      number?: number;
-    };
-    if (ref.kind === 'pr' && ref.repo !== undefined && ref.number !== undefined) {
+    const ref = parseJson(entityRefSchema, miss.ref);
+    if (ref.kind === 'pr') {
       const links = await trx
         .selectFrom('link')
         .select('task_id')

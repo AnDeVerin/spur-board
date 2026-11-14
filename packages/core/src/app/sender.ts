@@ -100,10 +100,8 @@ type Outcome = DeliveryResult | { status: 'sent' } | { status: 'rejected' };
 
 function parseBody(row: Pick<OutboxRow, 'kind' | 'payload'>): OutboxBody | string {
   try {
-    const parsed = outboxBodySchema.safeParse({
-      kind: row.kind,
-      payload: JSON.parse(row.payload) as unknown,
-    });
+    const payload: unknown = JSON.parse(row.payload);
+    const parsed = outboxBodySchema.safeParse({ kind: row.kind, payload });
     return parsed.success ? parsed.data : `invalid payload: ${parsed.error.message}`;
   } catch (error) {
     return `invalid payload: ${String(error)}`;
