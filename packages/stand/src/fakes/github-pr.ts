@@ -31,7 +31,7 @@ const COMMENT_FIELDS =
   'nodes { id author { __typename login } createdAt } pageInfo { hasPreviousPage startCursor }';
 const CLOSING_FIELDS = `nodes { number repository { nameWithOwner } } ${PAGE_INFO}`;
 const DISCOVERY_FIELDS = `nodes { number updatedAt author { login } state } ${PAGE_INFO}`;
-const RATE_LIMIT = 'rateLimit { remaining resetAt }';
+const RATE_LIMIT = 'rateLimit { cost remaining resetAt }';
 const ORDER = 'orderBy: {field: UPDATED_AT, direction: DESC}';
 const contextNodes = (number: string): string =>
   `nodes { ... on CheckRun { __typename name status conclusion startedAt completedAt checkSuite { createdAt } isRequired(pullRequestNumber: ${number}) } ... on StatusContext { __typename context state createdAt isRequired(pullRequestNumber: ${number}) } }`;
@@ -51,6 +51,7 @@ const KNOWN_DOCUMENTS = [
   prBatch('OPEN, MERGED, CLOSED', ''),
   prBatch('OPEN', BASELINE),
   PR_INDEX,
+  `query PrStates($owner: String!, $repo: String!) { ${RATE_LIMIT} pr0: repository(owner: $owner, name: $repo) { pullRequest(number: 1) { number state } } }`,
   prDetails(false),
   prDetails(true),
   prPage(`reviews(first: 100, after: $after) { nodes { ${REVIEW_FIELDS} } ${PAGE_INFO} }`),
@@ -64,7 +65,13 @@ const KNOWN_DOCUMENTS = [
   discoveryPage('OPEN, MERGED, CLOSED'),
   discoveryPage('OPEN'),
 ];
-const KNOWN_SHAPES = new Set(KNOWN_DOCUMENTS.map(canonicalizeQuery));
+// Keep exact costless shapes for the committed live recordings; their absent cost is not inferred.
+const KNOWN_SHAPES = new Set(
+  KNOWN_DOCUMENTS.flatMap((query) => [
+    canonicalizeQuery(query),
+    canonicalizeQuery(query.replace('cost remaining', 'remaining')),
+  ]),
+);
 
 /** Whether a query text is one of the shapes this fake answers. */
 export function isKnownShape(query: string): boolean {
@@ -158,6 +165,7 @@ const prControlSchema = z.discriminatedUnion('verb', [
   z.strictObject({ ...target, verb: z.literal('ci-green') }),
   z.strictObject({ ...target, verb: z.literal('merge') }),
   z.strictObject({ ...target, verb: z.literal('close') }),
+  z.strictObject({ ...target, verb: z.literal('reopen') }),
   z.strictObject({ ...target, verb: z.literal('conflict') }),
   z.strictObject({ ...target, verb: z.literal('push'), sha: z.string().regex(SHA) }),
   z.strictObject({ ...target, verb: z.literal('comment'), ...feedbackAuthor }),
@@ -352,6 +360,10 @@ export function createGithubPrFake(options: {
         pr.mergeable = 'UNKNOWN';
         pr.mergeStateStatus = 'UNKNOWN';
         break;
+      case 'reopen':
+        pr.state = 'OPEN';
+        pr.closedAt = null;
+        break;
       case 'close':
         pr.state = 'CLOSED';
         pr.closedAt = at;
@@ -465,7 +477,7 @@ export function createGithubPrFake(options: {
       return { status: 200, body: { pr: name, updatedAt: pr.updatedAt } };
     }
     if (existing === undefined) return { status: 404, body: { error: `No pull request ${name}.` } };
-    if (existing.state !== 'OPEN')
+    if (command.verb === 'reopen' ? existing.state !== 'CLOSED' : existing.state !== 'OPEN')
       return { status: 409, body: { error: `Pull request ${name} is ${existing.state}.` } };
     apply(existing, command);
     return { status: 200, body: { pr: name, updatedAt: existing.updatedAt } };
@@ -482,8 +494,18 @@ export function createGithubPrFake(options: {
         throw new FakeViolation(
           `Unknown query shape ${operation.name?.value ?? '(unnamed)'}: if the adapter changed on purpose, update KNOWN_DOCUMENTS in packages/stand/src/fakes/github-pr.ts.`,
         );
+      // Synthetic operation costs make request savings measurable without claiming live pricing.
+      const operationName = operation.name?.value;
+      const points =
+        operationName === 'PrDetails'
+          ? 5
+          : operationName === 'PrPage'
+            ? 3
+            : operationName === 'PrIndex'
+              ? 2
+              : 1;
       const root: WireObject = {
-        rateLimit: { remaining: 5_000, resetAt: iso(now() + 3_600_000) },
+        rateLimit: { cost: points, remaining: 5_000, resetAt: iso(now() + 3_600_000) },
         repository: (args: Args) => repositoryView(args['owner'], args['name']),
       };
       const answer = () => {
@@ -492,7 +514,7 @@ export function createGithubPrFake(options: {
       };
       // A dry run, so a request the state cannot answer is logged before any failure applies.
       answer();
-      requests.record(operation, variables);
+      requests.record(operation, variables, points);
       return answer;
     },
     control,
