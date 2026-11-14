@@ -28,7 +28,7 @@ import {
   parseJson,
   toJson,
   warnSkippedOnce,
-  type SkippedRow,
+  type WarnSkippedRow,
   type WarnSkipped,
 } from '../store/json.ts';
 import type { Store } from '../store/store.ts';
@@ -1016,7 +1016,7 @@ export function createObservationCore(deps: {
   clock: { now(): number };
   productVersion?: string;
   /** Logs a stored JSON row a lenient read skipped; core calls it once per row. */
-  warn?: (fields: SkippedRow, message: string) => void;
+  warn?: WarnSkippedRow;
 }): AdapterCore & {
   notice(kind: 'unknown_state' | 'unknown_status', value: string): Promise<void>;
   /**

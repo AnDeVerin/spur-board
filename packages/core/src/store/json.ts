@@ -19,6 +19,12 @@ export interface SkippedRow {
   issues: { path: string; code: string }[];
 }
 
+/**
+ * Logs one skipped row. It returns `undefined`, not `void`, so an async function does not
+ * type-check here: its rejection would escape the reporter's catch.
+ */
+export type WarnSkippedRow = (fields: SkippedRow, message: string) => undefined;
+
 /** Reports a JSON column value of the wrong shape that a lenient read skipped. */
 export type WarnSkipped = (
   table: keyof Tables,
@@ -32,9 +38,7 @@ export type WarnSkipped = (
  * repeated ticks and transaction replays log one line. Without `warn` it reports nothing. A `warn`
  * that throws is swallowed, so reporting never fails the caller's transaction.
  */
-export function warnSkippedOnce(
-  warn: ((fields: SkippedRow, message: string) => void) | undefined,
-): WarnSkipped {
+export function warnSkippedOnce(warn: WarnSkippedRow | undefined): WarnSkipped {
   const seen = new Set<string>();
   return (table, column, row, error) => {
     if (warn === undefined) return;

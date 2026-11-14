@@ -4,12 +4,12 @@ import { join } from 'node:path';
 import { LINK_SOURCES, SESSION_LINK_ROLES } from '@spur-board/contracts';
 import Database from 'better-sqlite3';
 import { sql, type Insertable } from 'kysely';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, expectTypeOf, it, vi } from 'vitest';
 import { z, ZodError } from 'zod';
 import { openStore, parseJson, toJson, type Store, type Tables } from '../../src/index.ts';
 import { migrate, migrationsDir, readMigrations } from '../../src/store/migrate.ts';
 import { openDatabase } from '../../src/store/store.ts';
-import { warnSkippedOnce } from '../../src/store/json.ts';
+import { warnSkippedOnce, type SkippedRow } from '../../src/store/json.ts';
 import { insertSampleRows, sampleRows, tableNames } from './sample-rows.ts';
 
 const open: Store[] = [];
@@ -307,5 +307,12 @@ describe('JSON columns', () => {
     report('outbox', 'payload', 1, error);
     report('outbox', 'payload', 1, error);
     expect(warn).toHaveBeenCalledTimes(2);
+  });
+
+  it('warnSkippedOnce takes a synchronous warn only, so a rejection cannot escape its catch', () => {
+    type Warn = Parameters<typeof warnSkippedOnce>[0];
+    expectTypeOf<(fields: SkippedRow, message: string) => Promise<void>>().not.toExtend<Warn>();
+    expectTypeOf<(fields: SkippedRow, message: string) => void>().not.toExtend<Warn>();
+    expectTypeOf<(fields: SkippedRow, message: string) => undefined>().toExtend<Warn>();
   });
 });

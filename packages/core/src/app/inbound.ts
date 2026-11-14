@@ -27,7 +27,7 @@ import {
   resolveBlockConversation,
 } from './conversations.ts';
 import { BLOCK_ITEM_KINDS } from '../domain/fromYou.ts';
-import { parseJson, toJson, warnSkippedOnce, type SkippedRow } from '../store/json.ts';
+import { parseJson, toJson, warnSkippedOnce, type WarnSkippedRow } from '../store/json.ts';
 import type { Row } from '../store/schema.ts';
 import type { Store } from '../store/store.ts';
 import { emit, withCommandKey, type Trx } from './board-utils.ts';
@@ -338,7 +338,7 @@ export function createInbound(input: {
   clock?: { now(): number };
   registry?: OperationRegistry;
   /** Logs a stored JSON row a lenient read skipped; called once per row. */
-  warn?: (fields: SkippedRow, message: string) => void;
+  warn?: WarnSkippedRow;
 }): Inbound {
   const { store, gateway, config } = input;
   const warnSkipped = warnSkippedOnce(input.warn);
