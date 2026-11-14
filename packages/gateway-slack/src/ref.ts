@@ -4,12 +4,12 @@ import {
   type ConversationRef,
   type MessageRef,
 } from '@spur-board/contracts';
+import { z } from 'zod';
 
-export interface SlackRef {
-  channel: string;
-  ts: string;
-  threadTs: string;
-}
+// Each field accepts '' as before; unknown keys are stripped.
+const slackRefWire = z.object({ channel: z.string(), ts: z.string(), threadTs: z.string() });
+
+export type SlackRef = z.output<typeof slackRefWire>;
 
 export function conversationRef(channel: string, ts: string): ConversationRef {
   return conversationRefSchema.parse(JSON.stringify({ channel, ts, threadTs: ts }));
@@ -21,12 +21,7 @@ export function messageRef(channel: string, ts: string, threadTs: string): Messa
 
 export function parseRef(value: string): SlackRef | null {
   try {
-    const parsed: unknown = JSON.parse(value);
-    if (typeof parsed !== 'object' || parsed === null) return null;
-    if (!('channel' in parsed) || typeof parsed.channel !== 'string') return null;
-    if (!('ts' in parsed) || typeof parsed.ts !== 'string') return null;
-    if (!('threadTs' in parsed) || typeof parsed.threadTs !== 'string') return null;
-    return { channel: parsed.channel, ts: parsed.ts, threadTs: parsed.threadTs };
+    return slackRefWire.safeParse(JSON.parse(value)).data ?? null;
   } catch {
     return null;
   }

@@ -326,6 +326,11 @@ describe('wire walker ban', () => {
       'packages/daemon/src/x.ts',
       'export function string(v: unknown): string { return String(v); }',
     ],
+    ['packages/gateway-slack/src/x.ts', 'export const a = Array.isArray(globalThis);'],
+    [
+      'packages/gateway-slack/src/x.ts',
+      'export function string(v: unknown): string { return String(v); }',
+    ],
   ])(
     '%s: %s reports no-restricted-syntax',
     async (path, code) => {
@@ -337,6 +342,8 @@ describe('wire walker ban', () => {
   it.each([
     ['packages/daemon/src/logger.ts', 'export const a = Array.isArray(globalThis);'],
     ['packages/daemon/test/x.ts', 'export const a = Array.isArray(globalThis);'],
+    ['packages/gateway-slack/src/testing.ts', 'export const a = Array.isArray(globalThis);'],
+    ['packages/gateway-slack/test/x.ts', 'export const a = Array.isArray(globalThis);'],
   ])(
     '%s: %s passes',
     async (path, code) => {

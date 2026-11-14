@@ -199,8 +199,8 @@ const importTypeBan = {
   selector: 'TSImportType',
   message: 'Use a static import so the boundary lint can check it.',
 };
-// Adapter folders and daemon sources parse responses with zod wire schemas, never with
-// hand-written walkers.
+// Adapter folders, daemon sources and the Slack gateway parse responses with zod wire schemas,
+// never with hand-written walkers.
 const wireWalkerMessage = 'Parse responses with a zod wire schema (writing-adapters).';
 const wireWalkerNames = '/^(record|list|string|array|object|number|connectionNodes)$/';
 const wireWalkerBans = [
@@ -344,7 +344,13 @@ export default defineConfig(
     files: ['packages/gateway-slack/src/**/*.ts'],
     ignores: ['packages/gateway-slack/src/testing.ts'],
     rules: {
-      'no-restricted-syntax': ['error', sqliteImportBan, sqliteTypeImportBan, ...wallTimeBans],
+      'no-restricted-syntax': [
+        'error',
+        sqliteImportBan,
+        sqliteTypeImportBan,
+        ...wallTimeBans,
+        ...wireWalkerBans,
+      ],
     },
   },
   {

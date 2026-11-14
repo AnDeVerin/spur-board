@@ -6,6 +6,7 @@ import {
   type WebClientOptions,
 } from '@slack/web-api';
 import type { DeliveryResult } from '@spur-board/contracts';
+import { itemsOf, messageTs } from './wire.ts';
 
 export interface ApiConfig {
   token: string;
@@ -14,15 +15,6 @@ export interface ApiConfig {
 }
 
 export class IncompleteHistoryError extends Error {}
-
-function messageTs(message: unknown): string | undefined {
-  return typeof message === 'object' &&
-    message !== null &&
-    'ts' in message &&
-    typeof message.ts === 'string'
-    ? message.ts
-    : undefined;
-}
 
 /**
  * Read every page. An incomplete response is unknown, never an empty history. Once `signal`
@@ -53,8 +45,9 @@ export async function readMessages(
             ...(cursor === undefined ? {} : { cursor }),
             ...(latest === undefined ? {} : { latest }),
           });
-    if (!Array.isArray(page.messages)) throw new IncompleteHistoryError('missing messages');
-    found.push(...page.messages);
+    const messages = itemsOf(page.messages);
+    if (messages === null) throw new IncompleteHistoryError('missing messages');
+    found.push(...messages);
     const nextCursor = page.response_metadata?.next_cursor;
     if (nextCursor) {
       const key = `cursor:${nextCursor}`;
@@ -65,7 +58,7 @@ export async function readMessages(
       continue;
     }
     if (!page.has_more) return found;
-    const lastTs = messageTs(page.messages.at(-1));
+    const lastTs = messageTs(messages.at(-1));
     if (lastTs === undefined) throw new IncompleteHistoryError('missing pagination timestamp');
     const key = `latest:${lastTs}`;
     if (seen.has(key)) throw new IncompleteHistoryError('repeated page');
