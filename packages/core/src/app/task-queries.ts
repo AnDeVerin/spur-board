@@ -3,11 +3,13 @@ import {
   eventPayloadSchemas,
   parseActorId,
   parseRef,
+  PR_STATES,
+  TASK_HOLDS,
   type ActorId,
   type Config,
   type EventKind,
 } from '@spur-board/contracts';
-import type { Selectable } from 'kysely';
+import { sql, type Selectable } from 'kysely';
 import { dispatchHolds } from '../domain/dispatch.ts';
 import { explainGates } from '../domain/gates.ts';
 import type { TaskTable, TurnTable } from '../store/schema.ts';
@@ -209,6 +211,7 @@ export function createTaskQueries(deps: {
       project,
       mode,
       await blindSources(trx, completeSince),
+      config,
     );
     if (read === null) {
       return {
@@ -220,7 +223,10 @@ export function createTaskQueries(deps: {
       };
     }
     const { gates, checksWaivedBy } = explainGates(read.input.facts, read.input.project);
-    const holds = dispatchHolds(read.input);
+    const holds = [
+      ...dispatchHolds(read.input),
+      ...(read.ticketUnconfirmed ? ['ticket_unconfirmed' as const] : []),
+    ].sort((left, right) => TASK_HOLDS.indexOf(left) - TASK_HOLDS.indexOf(right));
     const heldBy = holds.includes('cycle_limit') ? await holdBlocks(trx, task.id) : [];
     return {
       ...shared,
@@ -263,17 +269,26 @@ export function createTaskQueries(deps: {
           .execute(),
         trx
           .selectFrom('link')
-          .selectAll()
-          .where('task_id', '=', task.id)
-          .where('banned', '=', 0)
-          .orderBy('id')
+          .leftJoin('pr_snapshot', (join) =>
+            join
+              .on(sql<boolean>`lower(pr_snapshot.repo) = lower(link.repo)`)
+              .onRef('pr_snapshot.number', '=', 'link.number'),
+          )
+          .selectAll('link')
+          .select('pr_snapshot.state')
+          .where('link.task_id', '=', task.id)
+          .where('link.banned', '=', 0)
+          .orderBy('link.id')
           .execute(),
       ]);
       const subject = taskSubject(task);
       return {
         task: taskView(task),
         ...(await taskTurns(trx, task, input.detail === true)),
-        links: links.map(linkView),
+        links: links.map(({ state, ...link }) => {
+          const observed = PR_STATES.find((value) => value === state);
+          return { ...linkView(link), ...(observed === undefined ? {} : { state: observed }) };
+        }),
         blocks: blocks.map((block) => blockView(block, subject)),
         comments: comments.map((comment) => commentView(comment, subject)),
         ...(input.why === true ? { why: await why(trx, task) } : {}),

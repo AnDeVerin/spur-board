@@ -47,6 +47,7 @@ function wire(number = 7) {
     title: 'DEMO-42 Add widget',
     updatedAt: time,
     mergedAt: null,
+    closedAt: null,
     state: 'OPEN',
     isDraft: false,
     mergeable: 'UNKNOWN',
@@ -282,7 +283,7 @@ describe('GitHub PR batch', () => {
     expect(bootstrapQuery).not.toContain('closingIssuesReferences');
     const issuesQuery = detailQuery([7], true);
     expect(createHash('sha256').update(issuesQuery).digest('hex')).toBe(
-      '1297d9d60dfdb7f3831959c37e5423e5a920c1e105a78267823a0676e9c9cec1',
+      '4c826ef66d705df20b70a831f36148e87e612a7fd71ee228613c6e2f1d66b024',
     );
     expect(issuesQuery).toContain('closingIssuesReferences(first: 100)');
     for (const selection of [details, pageQuery('reviewRequests')]) {
@@ -353,7 +354,30 @@ describe('GitHub PR batch', () => {
     expect(
       normalizePr('demo/widgets', { ...wire(), state: 'MERGED' }, demoKeys, true),
     ).not.toHaveProperty('mergedAt');
-    expect(detailQuery([7])).toContain('updatedAt mergedAt state');
+    expect(detailQuery([7])).toContain('updatedAt mergedAt closedAt state');
+  });
+  it('reads closedAt for a PR closed without merge only', () => {
+    const closed = '2026-01-02T00:00:00.000Z';
+    const edited = '2026-01-05T00:00:00.000Z';
+    const facts = normalizePr(
+      'demo/widgets',
+      { ...wire(), state: 'CLOSED', closedAt: closed, updatedAt: edited },
+      demoKeys,
+      true,
+    );
+    expect(facts).toMatchObject({ state: 'closed', closedAt: closed, updatedAt: edited });
+    expect(normalizePr('demo/widgets', wire(), demoKeys, true)).not.toHaveProperty('closedAt');
+    expect(
+      normalizePr(
+        'demo/widgets',
+        { ...wire(), state: 'MERGED', mergedAt: closed, closedAt: closed },
+        demoKeys,
+        true,
+      ),
+    ).not.toHaveProperty('closedAt');
+    expect(
+      normalizePr('demo/widgets', { ...wire(), state: 'CLOSED' }, demoKeys, true),
+    ).not.toHaveProperty('closedAt');
   });
   it('keeps the latest review opinion after a comment-only review', () => {
     const pr = wire();

@@ -234,7 +234,7 @@ describe('scenario manifest', () => {
 });
 
 describe('scenarios', () => {
-  it('lists twenty-seven scenarios, each with a seed and a settled check', () => {
+  it('lists twenty-nine scenarios, each with a seed and a settled check', () => {
     expect(scenarioNames()).toEqual([
       'empty',
       'columns-basic',
@@ -251,6 +251,8 @@ describe('scenarios', () => {
       'worker-killed-no-pr-jira',
       'source-blind-jira',
       'dispatch-happy-path',
+      'dispatch-split-pr',
+      'dispatch-close-after-merge',
       'dispatch-review-loop',
       'dispatch-ci-red-after-submit',
       'dispatch-conflict-in-review',
@@ -1106,7 +1108,7 @@ describe('dispatcher scenarios', () => {
   const itemKeys = async () => (await status(current())).items.map(({ key }) => key);
 
   it(
-    'dispatch-happy-path: merge moves the task to Done with a wrap-up turn',
+    'dispatch-happy-path: merge and the ticket close move the task to Done with a wrap-up turn',
     async () => {
       await up();
       const { scenario } = await seed('dispatch-happy-path');
@@ -1129,6 +1131,7 @@ describe('dispatcher scenarios', () => {
       expect(await itemKeys()).toContain(item);
 
       await github('merge');
+      await github('issue-close');
       await poll();
       expect(await column()).toBe('done');
       expect(await mustTurn(as('worker'))).toMatchObject({
@@ -1137,6 +1140,65 @@ describe('dispatcher scenarios', () => {
       });
       expect(await itemKeys()).not.toContain(item);
       expect((await fromTo()).at(-1)).toEqual(['ready-to-merge', 'done', 'merged']);
+    },
+    TIMEOUT,
+  );
+
+  it(
+    'dispatch-split-pr: a second PR merged with the issue closed moves the split task to Done',
+    async () => {
+      await up();
+      await seed('dispatch-split-pr');
+      expect(await column()).toBe('dev');
+      expect((await fromTo()).at(-1)).toEqual(['ready-to-merge', 'dev', 'gate_broken']);
+
+      await github('create', { number: 2, seed: { headRefName: 'stand-1-b', headRefOid: B } });
+      await github('ci-green', { number: 2 });
+      await poll();
+      expect(await column()).toBe('dev');
+      await github('merge', { number: 2 });
+      await github('issue-close');
+      await poll();
+      expect(await column()).toBe('done');
+      expect(await mustTurn(as('worker'))).toMatchObject({
+        column: 'done',
+        reason: 'done: wrap up',
+      });
+      expect((await fromTo()).slice(-2)).toEqual([
+        ['ready-to-merge', 'dev', 'gate_broken'],
+        ['dev', 'done', 'merged'],
+      ]);
+      const { links } = await op<{ links: { kind: string; ref: string; state?: string }[] }>(
+        current(),
+        'task.get',
+        { task: ISSUE },
+      );
+      expect(links.filter(({ kind }) => kind === 'pr')).toEqual([
+        expect.objectContaining({ ref: 'stand-org/board#1', state: 'merged' }),
+        expect.objectContaining({ ref: 'stand-org/board#2', state: 'merged' }),
+      ]);
+    },
+    TIMEOUT,
+  );
+
+  it(
+    'dispatch-close-after-merge: an issue closed one poll after the merge goes straight to Done',
+    async () => {
+      await up();
+      await seed('dispatch-close-after-merge');
+      expect(configText(current())).toContain(
+        '# Scenario dispatch-close-after-merge overrides thresholds and adapters here.',
+      );
+      const written = YAML.parse(configText(current())) as {
+        adapters: { githubIssues: { intervalMs: number } };
+      };
+      expect(written.adapters.githubIssues.intervalMs).toBe(60_000);
+      expect(await fromTo()).toEqual([
+        ['todo', 'dev', 'gate_passed'],
+        ['dev', 'review', 'gate_passed'],
+        ['review', 'ready-to-merge', 'gate_passed'],
+        ['ready-to-merge', 'done', 'merged'],
+      ]);
     },
     TIMEOUT,
   );

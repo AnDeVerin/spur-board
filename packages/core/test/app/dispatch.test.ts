@@ -60,6 +60,8 @@ type Options = {
   devOrchestrator?: string;
   /** The task's project left the config: the only project tracks another repo. */
   projectRemoved?: boolean;
+  /** The project also tracks the repo `o/b`. */
+  secondRepo?: boolean;
 };
 
 function boardConfig(options: Options = {}) {
@@ -72,7 +74,10 @@ function boardConfig(options: Options = {}) {
           repo: options.projectRemoved === true ? 'o/other' : 'o/r',
           label: 'board',
         },
-        repos: [options.projectRemoved === true ? 'o/other' : 'o/r'],
+        repos: [
+          options.projectRemoved === true ? 'o/other' : 'o/r',
+          ...(options.secondRepo === true ? ['o/b'] : []),
+        ],
         operatorGithubLogin: 'agent-bot',
         spurProjects: [
           { name: 'worker', role: 'worker' },
@@ -251,6 +256,8 @@ function board(options: Options = {}) {
         [...prs.values()].map((facts) => ({ kind: 'pr' as const, facts })),
         complete,
       ),
+    /** A complete poll of the project repo `repo` that finds no PR. */
+    repo: (repo: string, complete = true) => observe(`github:proj:${repo}`, [], complete),
     /** A complete Spur poll: the reviewers always, the worker while `worker` is not `none`. */
     spur: (worker: 'live' | 'ended' | 'none' | 'unlinked' = 'live', complete = true) =>
       observe(
@@ -582,6 +589,7 @@ describe('flow tables', () => {
     ).toEqual([{ kind: 'turn', cleared_at: null }]);
 
     await ctx.pr({ state: 'merged' });
+    await ctx.ticket('closed');
     expect((await ctx.task()).column).toBe('done');
     expect(await ctx.openTurn()).toEqual(turnOf('done', 'worker', 'done: wrap up'));
     expect(
@@ -701,6 +709,7 @@ describe('flow tables', () => {
   it('a merge from Dev while a worker turn is open', async () => {
     const ctx = await inDev();
     await ctx.pr({ state: 'merged' });
+    await ctx.ticket('closed');
     expect((await ctx.task()).column).toBe('done');
     const turns = await ctx.turns();
     expect(turns[0]).toMatchObject({ id: 1, column: 'dev', closed_reason: 'moved' });
@@ -725,8 +734,8 @@ describe('flow tables', () => {
   it('a reopened ticket goes to To Do and stays until a new PR opens above the floor', async () => {
     const ctx = await inDev();
     await ctx.pr({ state: 'merged' });
-    expect((await ctx.task()).column).toBe('done');
     await ctx.ticket('closed');
+    expect((await ctx.task()).column).toBe('done');
     await ctx.ticket('open');
     const task = await ctx.task();
     expect(task).toMatchObject({ column: 'todo' });
@@ -809,6 +818,7 @@ describe('flow tables', () => {
       state: 'merged',
       mergedAt: new Date(Date.parse(ctx.at()) + 30_000).toISOString(),
     });
+    await ctx.ticket('closed');
     expect((await ctx.task()).column).toBe('done');
   });
 
@@ -821,6 +831,7 @@ describe('flow tables', () => {
       state: 'merged',
       updatedAt: new Date(Date.parse(ctx.at()) + 30_000).toISOString(),
     });
+    await ctx.ticket('closed');
     expect((await ctx.task()).column).toBe('done');
   });
 
@@ -863,6 +874,7 @@ describe('flow tables', () => {
         .where('reopen_hidden_at', 'is not', null)
         .execute(),
     ).toEqual([{ number: 7 }]);
+    await ctx.ticket('closed');
     expect((await ctx.task()).column).toBe('done');
   });
 });
@@ -878,6 +890,206 @@ async function pastProductReview(options: Options = {}): Promise<Board> {
 }
 
 const at = (minute: number) => new Date(BASE + minute * 60_000).toISOString();
+
+describe('a merged PR and the ticket', () => {
+  const NOTE = 'dev: no_pr (PR o/r#7 merged, ticket still open)';
+  /** Merges PR #7 in the next step, with `mergedAt` at that step. */
+  const merge = (ctx: Board) =>
+    ctx.pr({ state: 'merged', mergedAt: new Date(Date.parse(ctx.at()) + 60_000).toISOString() });
+  const devMoves = async (ctx: Board) =>
+    (await ctx.moves()).filter((move) => move.to === 'dev').length;
+
+  it('goes back to Dev with a note naming the PR', async () => {
+    const ctx = await pastProductReview();
+    await merge(ctx);
+    expect((await ctx.task()).column).toBe('ready-to-merge');
+    // One tracker interval (two steps) after the merge, the open ticket is no longer a lag.
+    await ctx.ticket();
+    expect((await ctx.task()).column).toBe('ready-to-merge');
+    await ctx.ticket();
+    expect((await ctx.task()).column).toBe('dev');
+    expect((await ctx.moves()).at(-1)).toEqual({
+      from: 'ready-to-merge',
+      to: 'dev',
+      reason: 'gate_broken',
+      gate: ['no_pr'],
+    });
+    expect(await ctx.openTurn()).toEqual(turnOf('dev', 'worker', NOTE));
+    expect(
+      await ctx.store.db
+        .selectFrom('operator_item')
+        .select('item_key')
+        .where('kind', 'in', ['cycle_limit', 'course_check'])
+        .execute(),
+    ).toEqual([]);
+  });
+
+  it('a split task reaches Done on its second merge and shows both merged PRs', async () => {
+    const ctx = await pastProductReview();
+    await merge(ctx);
+    await ctx.ticket();
+    await ctx.ticket();
+    const note = await ctx.openTurn();
+    expect(note).toEqual(turnOf('dev', 'worker', NOTE));
+    await ctx.ack(WORKER, note?.id ?? '');
+    await ctx.pr({ number: 8, url: 'https://github.com/o/r/pull/8', headSha: C, state: 'open' });
+    expect((await ctx.task()).column).toBe('dev');
+    await ctx.pr({ number: 8, state: 'merged' });
+    await ctx.ticket('closed');
+    expect((await ctx.task()).column).toBe('done');
+    expect(await ctx.openTurn()).toEqual(turnOf('done', 'worker', 'done: wrap up'));
+    expect((await ctx.get()).links.filter((link) => link.kind === 'pr')).toEqual([
+      { kind: 'pr', ref: 'o/r#7', role: null, state: 'merged' },
+      { kind: 'pr', ref: 'o/r#8', role: null, state: 'merged' },
+    ]);
+  });
+
+  /** #7 merged with the ticket open, the task back in Dev, then follow-up #8 closed unmerged. */
+  const followUpClosed = async () => {
+    const ctx = await pastProductReview();
+    await merge(ctx);
+    await ctx.ticket();
+    await ctx.ticket();
+    const note = await ctx.openTurn();
+    expect(note).toEqual(turnOf('dev', 'worker', NOTE));
+    await ctx.ack(WORKER, note?.id ?? '');
+    await ctx.pr({ number: 8, url: 'https://github.com/o/r/pull/8', headSha: C, state: 'open' });
+    await ctx.pr({ number: 8, state: 'closed' });
+    return ctx;
+  };
+
+  it('a split task whose follow-up PR closed reaches Done on its earlier merge once the ticket closes', async () => {
+    const ctx = await followUpClosed();
+    expect((await ctx.task()).column).toBe('dev');
+    await ctx.ticket('closed');
+    expect((await ctx.task()).column).toBe('done');
+    expect(await ctx.openTurn()).toEqual(turnOf('done', 'worker', 'done: wrap up'));
+    expect((await ctx.why()).holds).toEqual([]);
+  });
+
+  it('a split task whose follow-up PR closed stays in Dev without a PR while the ticket is open', async () => {
+    const ctx = await followUpClosed();
+    await ctx.ticket();
+    expect((await ctx.task()).column).toBe('dev');
+    const dev = (await ctx.why()).gates.find((gate) => gate.column === 'dev');
+    expect(dev?.conditions.map((condition) => condition.reason)).toContain('no_pr');
+    expect(dev?.conditions.map((condition) => condition.reason)).not.toContain('pr_closed');
+  });
+
+  it.each([
+    ['in Dev', false, 'dev'],
+    ['in Review', true, 'review'],
+  ] as const)(
+    'a split task with follow-up #8 open %s reaches Done on its earlier merge once the ticket closes',
+    async (_label, submitted, column) => {
+      const ctx = await pastProductReview();
+      await merge(ctx);
+      await ctx.ticket();
+      await ctx.ticket();
+      const note = await ctx.openTurn();
+      expect(note).toEqual(turnOf('dev', 'worker', NOTE));
+      await ctx.ack(WORKER, note?.id ?? '');
+      await ctx.pr({ number: 8, url: 'https://github.com/o/r/pull/8', headSha: C, state: 'open' });
+      if (submitted) await ctx.submit(WORKER, note?.id ?? '', C);
+      expect((await ctx.task()).column).toBe(column);
+      await ctx.ticket('closed');
+      expect((await ctx.task()).column).toBe('done');
+      expect((await ctx.moves()).at(-1)).toEqual({ from: column, to: 'done', reason: 'merged' });
+      expect(await ctx.openTurn()).toEqual(turnOf('done', 'worker', 'done: wrap up'));
+      expect((await ctx.why()).holds).toEqual([]);
+    },
+  );
+
+  it('a task with no merged PR stays off Done when its ticket closes', async () => {
+    const ctx = await pastProductReview();
+    const before = await ctx.moves();
+    await ctx.ticket('closed');
+    expect((await ctx.task()).column).toBe('ready-to-merge');
+    expect(await ctx.moves()).toEqual(before);
+  });
+
+  it('holds a merged task while its ticket is unconfirmed', async () => {
+    const ctx = await pastProductReview();
+    const before = await devMoves(ctx);
+    await merge(ctx);
+    await ctx.ticket();
+    expect((await ctx.task()).column).toBe('ready-to-merge');
+    expect((await ctx.why()).holds).toEqual(['ticket_unconfirmed']);
+    // Out of the filter, the stored status may be stale: still held past the interval.
+    await ctx.ticket('open', false);
+    expect((await ctx.task()).column).toBe('ready-to-merge');
+    expect((await ctx.why()).holds).toEqual(['ticket_unconfirmed']);
+    expect(await devMoves(ctx)).toBe(before);
+  });
+
+  it('an unchanged ticket poll past the interval sends the task to Dev', async () => {
+    const ctx = await pastProductReview();
+    await merge(ctx);
+    await ctx.ticket();
+    const changes = (await ctx.events()).filter((event) => event.kind.startsWith('ticket_')).length;
+    await ctx.ticket();
+    expect((await ctx.events()).filter((event) => event.kind.startsWith('ticket_'))).toHaveLength(
+      changes,
+    );
+    expect((await ctx.task()).column).toBe('dev');
+    expect(await ctx.openTurn()).toEqual(turnOf('dev', 'worker', NOTE));
+  });
+
+  it('a ticket that closes one poll after the merge reaches Done with no Dev visit', async () => {
+    const ctx = await pastProductReview();
+    const before = await devMoves(ctx);
+    await merge(ctx);
+    await ctx.ticket('closed');
+    expect((await ctx.task()).column).toBe('done');
+    expect(await ctx.openTurn()).toEqual(turnOf('done', 'worker', 'done: wrap up'));
+    expect(await devMoves(ctx)).toBe(before);
+    expect((await ctx.moves()).at(-1)).toEqual({
+      from: 'ready-to-merge',
+      to: 'done',
+      reason: 'merged',
+    });
+  });
+
+  it('holds a merged task on a repo with no poll since start once its ticket is seen open', async () => {
+    const ctx = await pastProductReview();
+    const before = await devMoves(ctx);
+    // After a restart the project also tracks o/b, which has no complete poll yet.
+    ctx.restart({ secondRepo: true });
+    await ctx.spur();
+    const operatorTurn = await ctx.openTurn();
+    await merge(ctx);
+    await ctx.ticket();
+    await ctx.ticket();
+    // The merged PR counts as no PR, so a follow-up PR in o/b may not be seen yet.
+    expect((await ctx.task()).column).toBe('ready-to-merge');
+    expect((await ctx.why()).holds).toEqual(['github_blind']);
+    expect(await devMoves(ctx)).toBe(before);
+    expect(await ctx.openTurn()).toEqual(operatorTurn);
+    await ctx.repo('o/b');
+    expect((await ctx.task()).column).toBe('dev');
+    expect(await ctx.openTurn()).toEqual(turnOf('dev', 'worker', NOTE));
+  });
+
+  it('a hand-added task outside the filter goes back to Dev once its ticket is seen open past the interval', async () => {
+    const ctx = board();
+    await ctx.add();
+    await ctx.ticket('open', false);
+    await ctx.github();
+    await ctx.spur('live');
+    const turn = await ctx.openTurn();
+    await ctx.ack(WORKER, turn?.id ?? '');
+    await ctx.pr();
+    await ctx.submit(WORKER, turn?.id ?? '', A);
+    expect((await ctx.task()).column).toBe('review');
+    await merge(ctx);
+    await ctx.ticket('open', false);
+    expect((await ctx.task()).column).toBe('review');
+    await ctx.ticket('open', false);
+    expect((await ctx.task()).column).toBe('dev');
+    expect((await ctx.why()).holds).toEqual([]);
+    expect(await ctx.openTurn()).toEqual(turnOf('dev', 'worker', NOTE));
+  });
+});
 
 describe('shadow mode', () => {
   it('shadow creates no turn, ring or block and follows the same rules', async () => {
@@ -912,6 +1124,7 @@ describe('shadow mode', () => {
     await ctx.submit(COORD, KEY, A);
     expect((await ctx.task()).shadow_column).toBe('ready-to-merge');
     await ctx.pr({ state: 'merged' });
+    await ctx.ticket('closed');
 
     expect(await ctx.task()).toMatchObject({ shadow_column: 'done' });
     expect(await visit()).toEqual(['todo', 0, 0]);
@@ -1232,6 +1445,7 @@ describe('turns', () => {
     const ctx = await inReview();
     await ctx.spur('ended');
     await ctx.pr({ state: 'merged' });
+    await ctx.ticket('closed');
     expect((await ctx.task()).column).toBe('done');
     expect(await ctx.openTurn()).toBeNull();
     expect(
@@ -2243,6 +2457,7 @@ describe('task.move', () => {
   it('settles a correction out of an unlinked Done to Review back in Dev with no_pr, uncounted', async () => {
     const ctx = await inDev({ cycleLimit: 1 });
     await ctx.pr({ state: 'merged' });
+    await ctx.ticket('closed');
     expect((await ctx.task()).column).toBe('done');
     await ctx.unlinkPr();
     expect((await ctx.task()).column).toBe('done');

@@ -1,5 +1,5 @@
 {
-  "version": "0a028195076385950d64f7e464f2ee9d7c8edd1e62bfe26d47cb9f53ecedb938",
+  "version": "7412d3d9a68523decf7199a670cf4137dc1d604a2122e772ea5dfe4dff935558",
   "grants": [
     "operator",
     "project-agent",
@@ -1601,6 +1601,12 @@
                         "format": "date-time",
                         "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
                       },
+                      "closedAt": {
+                        "description": "When the pull request closed without merge; absent while it is not closed and in facts stored by an earlier version.",
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                      },
                       "feedback": {
                         "description": "Comments and submitted reviews on the pull request, oldest first, without their text.",
                         "type": "array",
@@ -1887,6 +1893,11 @@
                           { "type": "null" }
                         ],
                         "description": "Session role; null for a pull request or ticket."
+                      },
+                      "state": {
+                        "description": "Pull request state as last observed; absent for a session or ticket and for a pull request not observed yet. Only task.get sets it.",
+                        "type": "string",
+                        "enum": ["open", "closed", "merged"]
                       }
                     },
                     "required": ["kind", "ref", "role"],
@@ -2182,6 +2193,12 @@
                 },
                 "mergedAt": {
                   "description": "When the pull request merged; absent while it is not merged and in facts stored by an earlier version.",
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                },
+                "closedAt": {
+                  "description": "When the pull request closed without merge; absent while it is not closed and in facts stored by an earlier version.",
                   "type": "string",
                   "format": "date-time",
                   "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
@@ -3037,6 +3054,11 @@
                     { "type": "null" }
                   ],
                   "description": "Session role; null for a pull request or ticket."
+                },
+                "state": {
+                  "description": "Pull request state as last observed; absent for a session or ticket and for a pull request not observed yet. Only task.get sets it.",
+                  "type": "string",
+                  "enum": ["open", "closed", "merged"]
                 }
               },
               "required": ["kind", "ref", "role"],
@@ -3292,6 +3314,7 @@
                     "pr_snapshot_missing",
                     "github_blind",
                     "spur_blind",
+                    "ticket_unconfirmed",
                     "cycle_limit",
                     "work_not_started"
                   ]
