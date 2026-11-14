@@ -8,10 +8,11 @@ import { createFakeGateway } from '@spur-board/gateway-testkit';
 import { sql } from 'kysely';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createSender, openStore, type Store } from '../../src/index.ts';
-import { raiseItem } from '../../src/app/feed.ts';
+import { capPoints, raiseItem, tokenCardBody } from '../../src/app/feed.ts';
 import {
   decideTokenInTransaction,
   expirePendingTokens,
+  postTokenList,
   purgeEndedTokenRequests,
   requestToken,
   tokenAttention,
@@ -22,6 +23,7 @@ import {
   verifyOperatorToken,
 } from '../../src/app/tokens.ts';
 import { observeGateway } from '../support/observe.ts';
+import { renderedLength } from '../support/rendered.ts';
 import { testConfig } from '../support/config.ts';
 
 const AT = new Date('2026-11-04T10:00:00.000Z');
@@ -84,10 +86,18 @@ describe('operator token lifecycle', () => {
       ),
     ).toEqual({ name: 'desk', status: 'approved' });
     expect(await verifyOperatorToken(store, SECRET, AT, () => {})).toEqual({ name: 'desk' });
-    expect(await editPayload(store, 'feed.line.edit:token:desk:1')).toMatchObject({
-      resolved: { by: 'operator' },
+    const card = await editPayload(store, `feed.line.edit:token-card:${String(row.item_id)}`);
+    expect(card).toMatchObject({
+      tokenCard: {
+        name: 'desk',
+        folder: 'workspace/desk',
+        createdAt: AT.toISOString(),
+        approvedAt: AT.toISOString(),
+      },
+      actions: [{ id: `token:${String(row.item_id)}:revoke`, label: 'Revoke' }],
     });
-    expect(await editPayload(store, 'feed.line.edit:token:desk:1')).not.toHaveProperty('url');
+    expect(card).not.toHaveProperty('url');
+    expect(card).not.toHaveProperty('resolved');
     expect(
       await store.db
         .selectFrom('event')
@@ -808,5 +818,229 @@ describe('purgeEndedTokenRequests', () => {
           .execute()
       ).map((event) => event.kind),
     ).toEqual(['token_requested', 'token_denied']);
+  });
+});
+
+describe('token card', () => {
+  async function delivered(name = 'desk') {
+    const file = join(mkdtempSync(join(tmpdir(), 'core-token-')), 'board.db');
+    const store = openStore(file);
+    stores.push(store);
+    await enroll(store, name);
+    const fake = createFakeGateway({ profile: 'slack-like' });
+    const observed = observeGateway(fake, file);
+    // The sender's clock follows the last revoke, so its edit is due.
+    let sentAt = AT;
+    const sender = createSender({
+      config: testConfig,
+      store,
+      gateway: observed.gateway,
+      spur: { send: () => Promise.resolve() },
+      now: () => sentAt,
+      spaceIntervalMs: 0,
+    });
+    const tick = async () => {
+      for (let i = 0; i < 4; i++) await sender.tick();
+    };
+    await tick();
+    const row = await store.db.selectFrom('operator_token').selectAll().executeTakeFirstOrThrow();
+    const approve = () =>
+      scanTransaction(store, testConfig, (trx) =>
+        decideTokenInTransaction(trx, row.item_id, 'approve', AT),
+      );
+    const revoke = (at = REVOKED_AT) => {
+      sentAt = at;
+      return scanTransaction(store, testConfig, (trx) =>
+        tokenRevokeMutation.run(
+          trx,
+          { name: row.name },
+          { actor: 'operator', at: at.toISOString() },
+        ),
+      );
+    };
+    const message = () => {
+      const [line] = fake.platform.messages();
+      if (line === undefined) throw new Error('no line');
+      return line;
+    };
+    const rows = (like: string) =>
+      store.db
+        .selectFrom('outbox')
+        .selectAll()
+        .where('dedupe_key', 'like', like)
+        .orderBy('id')
+        .execute();
+    return { store, observed, tick, row, approve, revoke, message, rows };
+  }
+
+  const REVOKED_AT = new Date('2026-11-04T11:30:00.000Z');
+
+  it('turns the approved line into a card with a confirmed Revoke', async () => {
+    const { observed, tick, row, approve, message } = await delivered();
+    expect(message().actions).toEqual([
+      `token:${String(row.item_id)}:approve`,
+      `token:${String(row.item_id)}:deny`,
+      `item:${String(row.item_id)}:close`,
+    ]);
+    await approve();
+    await tick();
+    const request = observed.requests.at(-1);
+    expect(request?.target.kind).toBe('edit');
+    expect(request?.actions).toEqual([
+      {
+        id: `token:${String(row.item_id)}:revoke`,
+        label: 'Revoke',
+        confirm: 'Revoke operator token desk? Calls with it fail at once.',
+      },
+    ]);
+    expect(message().actions).toEqual([`token:${String(row.item_id)}:revoke`]);
+    expect(message().text).toBe(
+      'Operator token desk\n\nFolder: workspace/desk\n\nCreated 2026-11-04 10:00 · Approved 2026-11-04 10:00',
+    );
+  });
+
+  it('edits the card to revoked after a revoke', async () => {
+    const { tick, row, approve, revoke, message, rows } = await delivered();
+    await approve();
+    await tick();
+    await revoke();
+    await tick();
+    expect(message().text).toBe(
+      'Operator token desk\n\nFolder: workspace/desk\n\nCreated 2026-11-04 10:00 · Approved 2026-11-04 10:00\n\nRevoked by @operator at 11:30',
+    );
+    expect(message().actions).toEqual([]);
+    const [card, revoked] = await rows(`feed.line.edit:token-card:${String(row.item_id)}%`);
+    expect(revoked).toMatchObject({
+      dedupe_key: `feed.line.edit:token-card:${String(row.item_id)}:revoked`,
+      parent_outbox_id: card?.id,
+      state: 'done',
+    });
+    expect(JSON.parse(revoked?.payload ?? '{}')).not.toHaveProperty('actions');
+  });
+
+  it('posts one revoked line and one card edit from the CLI handler and adds nothing on a second revoke', async () => {
+    const { store, tick, row, approve, revoke, rows } = await delivered();
+    await approve();
+    await tick();
+    await revoke();
+    const outbox = await store.db.selectFrom('outbox').select('id').execute();
+    expect(await revoke(new Date(REVOKED_AT.getTime() + 60_000))).toEqual({
+      name: 'desk',
+      status: 'revoked',
+    });
+    expect(await store.db.selectFrom('outbox').select('id').execute()).toEqual(outbox);
+    const lines = await rows('feed.line:token-revoked:%');
+    expect(lines.map((line) => line.dedupe_key)).toEqual([
+      `feed.line:token-revoked:${String(row.id)}`,
+    ]);
+    expect(JSON.parse(lines[0]?.payload ?? '{}')).toMatchObject({
+      text: 'token desk revoked',
+      title: 'token desk revoked',
+    });
+    expect(await rows(`feed.line.edit:token-card:${String(row.item_id)}:revoked`)).toHaveLength(1);
+    expect(
+      await store.db.selectFrom('event').select('id').where('kind', '=', 'token_revoked').execute(),
+    ).toHaveLength(1);
+  });
+
+  it('posts the revoked line without a card edit for a token that has no card', async () => {
+    const { store, row, approve, revoke, rows } = await delivered();
+    await approve();
+    // As for a token approved before cards existed.
+    await store.db
+      .deleteFrom('outbox')
+      .where('dedupe_key', '=', `feed.line.edit:token-card:${String(row.item_id)}`)
+      .execute();
+    await revoke();
+    expect(await rows('feed.line:token-revoked:%')).toHaveLength(1);
+    expect(await rows('feed.line.edit:token-card:%')).toEqual([]);
+  });
+
+  it('posts the revoked line and the resolved edit when a pending request is revoked', async () => {
+    const { store, row, revoke, rows } = await delivered();
+    await revoke();
+    expect(await store.db.selectFrom('operator_token').select('status').execute()).toEqual([
+      { status: 'revoked' },
+    ]);
+    expect(await rows('feed.line:token-revoked:%')).toHaveLength(1);
+    expect(await rows('feed.line.edit:token-card:%')).toEqual([]);
+    expect(
+      JSON.parse((await rows('feed.line.edit:token:desk:1'))[0]?.payload ?? '{}'),
+    ).toMatchObject({ resolved: { by: 'operator' } });
+    expect(row.status).toBe('pending');
+  });
+
+  it('caps a legacy name and folder in the card, the revoked line and the list', async () => {
+    const { store, tick, approve, row, rows } = await delivered();
+    const legacy = `old desk ${'x'.repeat(300)}`;
+    await store.db
+      .updateTable('operator_token')
+      .set({ name: legacy, folder: 'f'.repeat(1024) })
+      .execute();
+    await approve();
+    await scanTransaction(store, testConfig, (trx) =>
+      postTokenList(trx, { key: 'legacy-list', at: AT }),
+    );
+    await scanTransaction(store, testConfig, (trx) =>
+      tokenRevokeMutation.run(trx, { name: legacy }, { actor: 'operator', at: AT.toISOString() }),
+    );
+    await tick();
+    const points = (text: unknown) => Array.from(String(text)).length;
+    const card = JSON.parse(
+      (await rows(`feed.line.edit:token-card:${String(row.item_id)}`))[0]?.payload ?? '{}',
+    ) as {
+      tokenCard: { name: string; folder: string };
+      actions: { label: string; confirm: string }[];
+    };
+    expect(points(card.tokenCard.name)).toBe(64);
+    expect(card.tokenCard.name.endsWith('…')).toBe(true);
+    expect(points(card.tokenCard.folder)).toBe(400);
+    expect(card.tokenCard.folder.endsWith('…')).toBe(true);
+    expect(points(card.actions[0]?.confirm)).toBeLessThanOrEqual(300);
+    const [line] = await rows('feed.line:token-revoked:%');
+    expect(JSON.parse(line?.payload ?? '{}')).toMatchObject({
+      text: `token ${capPoints(legacy, 64)} revoked`,
+    });
+    const list = JSON.parse((await rows('feed.line:token-list:%'))[0]?.payload ?? '{}') as {
+      text: string;
+      actions: { label: string; confirm: string }[];
+    };
+    expect(list.text).toBe(
+      `${capPoints(legacy, 64)} (approved), ${capPoints('f'.repeat(1024), 120)}`,
+    );
+    expect(points(list.actions[0]?.label)).toBe(47);
+    expect(list.actions[0]?.label.endsWith('…')).toBe(true);
+    expect(list.actions[0]?.confirm).toBe(card.actions[0]?.confirm);
+    const edits = await rows('feed.line.edit:token-card:%');
+    expect(edits.map((edit) => edit.state)).toEqual(['done', 'done']);
+    for (const outbox of await store.db.selectFrom('outbox').select('dedupe_key').execute()) {
+      expect(outbox.dedupe_key.length).toBeLessThanOrEqual(255);
+    }
+  });
+
+  it('keeps a card of an all-escaped legacy name and folder within one 2900-character part', async () => {
+    const { store, tick, approve, row, rows } = await delivered();
+    const legacy = '&'.repeat(70);
+    await store.db
+      .updateTable('operator_token')
+      .set({ name: legacy, folder: '&'.repeat(500) })
+      .execute();
+    await approve();
+    await tick();
+    await scanTransaction(store, testConfig, (trx) =>
+      tokenRevokeMutation.run(trx, { name: legacy }, { actor: 'operator', at: AT.toISOString() }),
+    );
+    const cards = await rows(`feed.line.edit:token-card:${String(row.item_id)}%`);
+    expect(cards).toHaveLength(2);
+    for (const card of cards) {
+      const { tokenCard } = JSON.parse(card.payload) as {
+        tokenCard: Parameters<typeof tokenCardBody>[0];
+      };
+      const points = Array.from(tokenCard.name).length + Array.from(tokenCard.folder).length;
+      const length = renderedLength(tokenCardBody(tokenCard, testConfig));
+      // Every capped point but the two cut marks escapes to five characters.
+      expect(length).toBeGreaterThanOrEqual(5 * (points - 2));
+      expect(length).toBeLessThanOrEqual(2900);
+    }
   });
 });

@@ -324,6 +324,7 @@ describe('catalog', () => {
       'status.get': { kind: 'slash-command', usage: '/board status' },
       'task.get': { kind: 'slash-command', usage: '/board task <KEY> [why]' },
       'task.history': { kind: 'slash-command', usage: '/board task <KEY> history' },
+      'token.list': { kind: 'slash-command', usage: '/board tokens' },
       'item.retry': { kind: 'button', label: 'Retry' },
       'item.close': { kind: 'button', label: 'Close' },
       'block.answer': { kind: 'thread-reply' },
@@ -334,7 +335,7 @@ describe('catalog', () => {
     expect(slack).toEqual(slackExceptions);
     expect(
       OPERATIONS.filter((op) => op.slack?.kind === 'slash-command').map((op) => op.id),
-    ).toEqual(['status.get', 'task.get', 'task.history']);
+    ).toEqual(['status.get', 'task.get', 'task.history', 'token.list']);
     for (const op of OPERATIONS) {
       expect(op.cli.command).not.toBe('');
       expect(op.mcp.name).toBe(op.id.replace('.', '_'));

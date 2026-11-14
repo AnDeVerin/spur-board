@@ -1,5 +1,5 @@
 {
-  "version": "0dc91b57fa1c8602f61b1bfe055f23fa2358a231d45c481552f0c9c4a2360caf",
+  "version": "a8dc0b337a7172deda49c2776e64bc455d8db6af819cbd097ce1d273b5147ea3",
   "grants": [
     "operator",
     "project-agent",
@@ -4416,7 +4416,7 @@
         "whenNotToUse": "Use token_revoke to disable a token.",
         "destructive": false
       },
-      "slack": null,
+      "slack": { "kind": "slash-command", "usage": "/board tokens" },
       "examples": [
         {
           "summary": "List operator tokens",

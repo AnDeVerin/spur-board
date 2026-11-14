@@ -112,7 +112,7 @@ interface StoredMessage {
   marker?: string;
   repeat: boolean;
   root: boolean;
-  /** Action ids shown on the message; an edit removes them (G16). */
+  /** Action ids shown on the message; an edit shows its own and removes the rest (G16). */
   actions: readonly string[];
   deletedAt?: string;
   /** Set for messages a user posted through `inject`; only these produce inbound events. */
@@ -381,7 +381,7 @@ export function createFakeGateway(options: FakeGatewayOptions): FakeGateway {
         }
         step(() => {
           message.text = render(request.body);
-          message.actions = [];
+          message.actions = (request.actions ?? []).map((action) => action.id);
         });
         return {
           status: 'delivered',
