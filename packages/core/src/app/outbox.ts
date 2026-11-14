@@ -133,9 +133,23 @@ export function renderBody(key: string, text: string): RichText {
   ];
 }
 
+/** Formatting marks and the lookalikes that replace them in quoted content. */
+const MARK_LOOKALIKES: Readonly<Record<string, string>> = {
+  '*': '\u2217',
+  _: '\u02cd',
+  '~': '\u223c',
+  '`': '\u00b4',
+};
+
+/** Quoted content as inert text: no mark in it can open a span or pass for a label. */
+function inert(text: string): string {
+  return text.replace(/[*_~`]/g, (mark) => MARK_LOOKALIKES[mark] ?? mark);
+}
+
 /**
  * A curator answer line: the task link and title, the question, the answer, the note, then the
- * block, who asked, who answered and the outcome as muted details.
+ * block, who asked, who answered and the outcome as muted details. The title, question, answer
+ * and note are quoted content, rendered inert; the payload keeps them as written.
  */
 export function exchangeBody(
   payload: Pick<FeedLinePayload, 'key' | 'url'> & { exchange: z.output<typeof exchange> },
@@ -150,26 +164,31 @@ export function exchangeBody(
           : { kind: 'link', url: payload.url, text: payload.key },
         ...(line.taskTitle === undefined
           ? []
-          : [{ kind: 'text' as const, text: ` ${line.taskTitle}` }]),
+          : [{ kind: 'text' as const, text: ` ${inert(line.taskTitle)}` }]),
       ],
     },
     {
       kind: 'paragraph',
       children: [
         { kind: 'emphasis', text: 'Question:' },
-        { kind: 'text', text: ` ${line.question}` },
+        { kind: 'text', text: ` ${inert(line.question)}` },
       ],
     },
     {
       kind: 'paragraph',
       children: [
         { kind: 'emphasis', text: 'Answer:' },
-        { kind: 'text', text: ` ${line.answer}` },
+        { kind: 'text', text: ` ${inert(line.answer)}` },
       ],
     },
     ...(line.note === undefined
       ? []
-      : [{ kind: 'paragraph' as const, children: [{ kind: 'italic' as const, text: line.note }] }]),
+      : [
+          {
+            kind: 'paragraph' as const,
+            children: [{ kind: 'italic' as const, text: inert(line.note) }],
+          },
+        ]),
     {
       kind: 'context',
       children: [
