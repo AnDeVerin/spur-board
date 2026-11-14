@@ -131,16 +131,10 @@ describe('board mcp', () => {
         expect(tool.outputSchema, op.id).toEqual(entry.output);
         const input = structuredClone(tool.inputSchema) as Record<string, unknown>;
         if (op.kind === 'mutation') {
-          const schemas = Array.isArray(input['oneOf'])
-            ? (input['oneOf'] as Record<string, unknown>[])
-            : [input];
-          for (const schema of schemas) {
-            const properties = schema['properties'] as Record<string, unknown>;
+          const schemas = (input['oneOf'] ?? [input]) as { properties: Record<string, unknown> }[];
+          for (const { properties } of schemas) {
             expect(properties['idempotencyKey'], op.id).toEqual(key);
             delete properties['idempotencyKey'];
-            const required = schema['required'] as string[] | undefined;
-            if (required?.includes('idempotencyKey'))
-              schema['required'] = required.filter((name) => name !== 'idempotencyKey');
           }
         }
         expect(input, op.id).toEqual({ ...entry.input, type: 'object' });

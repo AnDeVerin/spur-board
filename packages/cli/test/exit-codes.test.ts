@@ -307,11 +307,11 @@ describe('CLI exit classes and mutation keys', () => {
       .filter(([, spec]) => spec.status !== null)
       .map(([code]) => code);
     expect(Object.keys(SERVER_EXITS).sort()).toEqual(serverCodes.sort());
-    for (const [code, expected] of Object.entries(SERVER_EXITS) as [
-      keyof typeof SERVER_EXITS,
-      (typeof SERVER_EXITS)[keyof typeof SERVER_EXITS],
-    ][]) {
-      const problem = renderHttpProblem({ code, requestId: `req-${code}` });
+    for (const [code, expected] of Object.entries(SERVER_EXITS)) {
+      const problem = renderHttpProblem({
+        code: code as ServerErrorCode,
+        requestId: `req-${code}`,
+      });
       const { url } = await fakeServer((_request, response) => {
         response.writeHead(problem.status, { 'content-type': 'application/problem+json' });
         response.end(JSON.stringify(problem.body));
