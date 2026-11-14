@@ -15,8 +15,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import Database from 'better-sqlite3';
-import { Kysely, SqliteDialect } from 'kysely';
+import { messageRefSchema } from '@spur-board/contracts';
+import { Kysely, SqliteDialect, type CompiledQuery } from 'kysely';
 import { afterEach, describe, expect, it } from 'vitest';
+import { advanceConversationCursor } from '../../src/app/conversations.ts';
 import type { Tables } from '../../src/index.ts';
 import {
   KEEP_BACKUPS,
@@ -46,6 +48,11 @@ const INDEXES: Record<string, { table: string; columns: string[]; partialUnique:
   },
   block_task_state: { table: 'block', columns: ['task_id', 'state'], partialUnique: false },
   comment_task_id: { table: 'comment', columns: ['task_id', 'id'], partialUnique: false },
+  comment_conversation_message: {
+    table: 'comment',
+    columns: ['conversation_ref', 'message_ref'],
+    partialUnique: false,
+  },
   event_task_id: { table: 'event', columns: ['task_id', 'id'], partialUnique: false },
   event_at: { table: 'event', columns: ['at'], partialUnique: false },
   outbox_state_next_at: { table: 'outbox', columns: ['state', 'next_at'], partialUnique: false },
@@ -221,6 +228,47 @@ describe('migrate', () => {
       backup: null,
     });
     expect(backups(dir)).toEqual([]);
+  });
+
+  it('looks up comments by conversation and message through comment_conversation_message', async () => {
+    const { raw, db } = rawDb(join(tempDir(), 'board.db'));
+    migrate(raw, real);
+    const queries: CompiledQuery[] = [];
+    const logged = new Kysely<Tables>({
+      dialect: new SqliteDialect({ database: raw }),
+      log: (event) => {
+        if (event.level === 'query') queries.push(event.query);
+      },
+    });
+    cleanup.push(() => logged.destroy());
+
+    await advanceConversationCursor(
+      logged,
+      { ...sampleRows.conversation },
+      messageRefSchema.parse('m3'),
+      '2026-01-02T03:04:05.000Z',
+    );
+    const cursor = queries.find((q) => q.sql.startsWith('select') && q.sql.includes('"comment"'));
+    const linked = db
+      .selectFrom('comment')
+      .selectAll()
+      .where('conversation_ref', '=', 'c')
+      .where('message_ref', '=', 'm')
+      .compile();
+
+    expect(cursor).toBeDefined();
+    for (const query of [cursor, linked]) {
+      if (query === undefined) continue;
+      const plan = raw
+        .prepare<unknown[], { detail: string }>(`EXPLAIN QUERY PLAN ${query.sql}`)
+        .all(...query.parameters);
+      expect(
+        plan.map((step) => step.detail),
+        query.sql,
+      ).toEqual([
+        'SEARCH comment USING INDEX comment_conversation_message (conversation_ref=? AND message_ref=?)',
+      ]);
+    }
   });
 
   it('keeps rows written at N-1 when migrating to N', async () => {
@@ -462,7 +510,8 @@ describe('migrate', () => {
   it('backfills token approval times for approved rows only and leaves every last use empty', () => {
     const dir = tempDir();
     const { raw } = rawDb(join(dir, 'board.db'));
-    migrate(raw, real.slice(0, real.length - 1));
+    const tokenUse = real.findIndex((m) => m.name === '0016_token_use');
+    migrate(raw, real.slice(0, tokenUse));
     insertRaw(raw, 'operator_item', {
       ...sampleRows.operator_item,
       task_id: null,
@@ -808,6 +857,8 @@ describe('migration pins', () => {
       'dbc43e7c4f826d595267381f9c434401',
       '574215417800ac7113209a2ec91d65db',
     ].join(''),
+    '0017_comment_conversation_message.sql':
+      'b9be273061ec21c56ad54951dddfe2ee02a76887360ff956a4eba1666770de71',
   };
 
   interface MigrationFile {
