@@ -1,5 +1,7 @@
 import { assertNever } from '@spur-board/contracts';
+import { z } from 'zod';
 import { isItemKind, ITEM_POLICY } from '../domain/fromYou.ts';
+import { parseJson } from '../store/json.ts';
 import type { Row } from '../store/schema.ts';
 import type { Trx } from './board-utils.ts';
 import { closeBlockIfOpen } from './blocks.ts';
@@ -35,6 +37,12 @@ async function loadItem(
 }
 
 /** The task a `delivery:<outbox id>` item's row belongs to; the item itself has no task. */
+/** The ids a delivery payload may carry; each payload kind has its own full schema. */
+const deliveryPayloadSchema = z.object({
+  taskId: z.unknown().optional(),
+  notificationId: z.unknown().optional(),
+});
+
 async function deliveryTask(trx: Trx, item: Item): Promise<Row<'task'> | undefined> {
   if (item.kind !== 'post_failed') return undefined;
   const row = await trx
@@ -43,7 +51,7 @@ async function deliveryTask(trx: Trx, item: Item): Promise<Row<'task'> | undefin
     .where('id', '=', Number(item.item_key.slice('delivery:'.length)))
     .executeTakeFirst();
   if (row === undefined) return undefined;
-  const payload = JSON.parse(row.payload) as { taskId?: unknown; notificationId?: unknown };
+  const payload = parseJson(deliveryPayloadSchema, row.payload);
   if (typeof payload.taskId === 'number')
     return trx.selectFrom('task').selectAll().where('id', '=', payload.taskId).executeTakeFirst();
   if (row.kind !== 'doorbell') return undefined;

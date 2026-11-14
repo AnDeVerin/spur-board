@@ -27,7 +27,7 @@ import {
   resolveBlockConversation,
 } from './conversations.ts';
 import { BLOCK_ITEM_KINDS } from '../domain/fromYou.ts';
-import { toJson } from '../store/json.ts';
+import { parseJson, toJson } from '../store/json.ts';
 import type { Row } from '../store/schema.ts';
 import type { Store } from '../store/store.ts';
 import { emit, withCommandKey, type Trx } from './board-utils.ts';
@@ -40,7 +40,7 @@ import { deniedProject } from './denied-event.ts';
 import { raiseItem as raiseOperatorItem, clearItem as clearOperatorItem } from './feed.ts';
 import type { ReapplyInbound } from './items.ts';
 import { dispatchOperation, type OperationRegistry } from './operations.ts';
-import { enqueueConversationClose } from './outbox.ts';
+import { deliveredRefSchema, enqueueConversationClose } from './outbox.ts';
 import { redactPrivateReply, redactSecretMatches } from './secrets.ts';
 import {
   decideTokenInTransaction,
@@ -458,7 +458,7 @@ export function createInbound(input: {
     if (item === undefined || item.cleared_at !== null || item.inbound_event_json === null) {
       throw new CommandError('retry_not_applicable', 'This item has no stored event to retry.');
     }
-    const event = inboundEventSchema.parse(JSON.parse(item.inbound_event_json) as unknown);
+    const event = parseJson(inboundEventSchema, item.inbound_event_json);
     if (event.kind === 'gap' || event.kind === 'connection') {
       throw new CommandError('retry_not_applicable', 'This event cannot be retried.');
     }
@@ -923,7 +923,7 @@ export function createInbound(input: {
       const ref =
         opened?.external_ref === null || opened?.external_ref === undefined
           ? undefined
-          : (JSON.parse(opened.external_ref) as { permalink?: string });
+          : parseJson(deliveredRefSchema, opened.external_ref);
       const scope = createHash('sha256')
         .update(JSON.stringify([gateway.kind, event.conversation ?? null]))
         .digest('hex');
@@ -1072,7 +1072,7 @@ export function createInbound(input: {
       .where('id', '=', itemId)
       .executeTakeFirst();
     if (item?.inbound_event_json == null) return undefined;
-    const stored = inboundEventSchema.safeParse(JSON.parse(item.inbound_event_json) as unknown);
+    const stored = inboundEventSchema.safeParse(JSON.parse(item.inbound_event_json));
     return stored.success && 'conversation' in stored.data ? stored.data.conversation : undefined;
   }
 

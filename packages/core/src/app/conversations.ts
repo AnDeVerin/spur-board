@@ -96,10 +96,8 @@ export async function resolveBlockConversation(
     .where('dedupe_key', '=', input.originKey)
     .executeTakeFirst();
   if (opened === undefined) return undefined;
-  const parsed = outboxBodySchema.safeParse({
-    kind: 'conversation.open',
-    payload: JSON.parse(opened.payload) as unknown,
-  });
+  const payload: unknown = JSON.parse(opened.payload);
+  const parsed = outboxBodySchema.safeParse({ kind: 'conversation.open', payload });
   if (!parsed.success || parsed.data.kind !== 'conversation.open') return undefined;
   const row = await insertConversation(trx, {
     gateway: input.gateway,
