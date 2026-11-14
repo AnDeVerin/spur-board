@@ -1388,6 +1388,27 @@ describe('inbound apply', () => {
     ).toHaveLength(3);
   });
 
+  it('links a gap item to the permalink of the delivered conversation root', async () => {
+    const { store, inbound, root } = await setup();
+    const conversation = conversationRefSchema.parse('thread-1');
+    const permalink = 'https://example.slack.com/archives/C1/p1';
+    await store.db
+      .insertInto('outbox')
+      .values({
+        ...sampleRows.outbox,
+        id: undefined,
+        kind: 'conversation.open',
+        dedupe_key: 'conversation.open:1',
+        state: 'done',
+        external_ref: JSON.stringify({ conversation, message: root, permalink }),
+      })
+      .execute();
+    await inbound.sink({ kind: 'gap', dedupeKey: 'gap-permalink', conversation });
+    expect(await store.db.selectFrom('operator_item').select(['kind', 'url']).execute()).toEqual([
+      { kind: 'inbound_gap', url: permalink },
+    ]);
+  });
+
   it('registers a content-free worker answer notification for a live author', async () => {
     const { store, inbound, gateway } = await setup('agent:proj/sess-1');
     await scanTransaction(store, config, (trx) =>
