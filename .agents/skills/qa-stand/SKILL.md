@@ -21,7 +21,9 @@ A stand is a disposable board with fake Slack, Spur and GitHub APIs (`docs/qa-st
   (`qa-report`).
 - `up` prunes dead stands; `down` acts on one stand. `pnpm stand down` every stand you started,
   on pass, fail or error; check with `pnpm stand status` that none is left.
-- A sidecar runs `pnpm stand up --foreground` (`docs/qa-stand.md`).
+- A sidecar runs `pnpm stand up --foreground` (`docs/qa-stand.md`). Stop it with
+  `pnpm stand down`, then stop the sidecar; a sidecar stop alone keeps the home: remove it with
+  `pnpm stand down --home <dir>`.
 
 ## Roles
 
@@ -35,6 +37,7 @@ A stand is a disposable board with fake Slack, Spur and GitHub APIs (`docs/qa-st
   scenarios; elsewhere its calls are refused.
 - After `dispatch-dead-executor`, `--as worker` answers `forbidden`: its session is killed.
 - After `curator-absent`, the curator session is killed.
+- Drive `pnpm stand mcp` from a shell with the example in `docs/qa-stand.md`.
 - The wrapper refuses `service`, `update`, `rollback`, `skills` and `token create` with exit 2:
   they act on the real machine or write outside the stand.
 - Find board commands with `pnpm stand board --help`, `pnpm stand board <command> --help` and
