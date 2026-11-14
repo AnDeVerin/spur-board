@@ -290,4 +290,22 @@ describe('JSON columns', () => {
       warnSkippedOnce(undefined)('outbox', 'payload', 1, error);
     }).not.toThrow();
   });
+
+  it('warnSkippedOnce swallows a throwing warn and reports that row again later', () => {
+    const error = z.object({ n: z.int() }).safeParse({ n: 'x' }).error;
+    if (error === undefined) throw new Error('expected a parse error');
+    const warn = vi
+      .fn()
+      .mockImplementationOnce(() => {
+        throw new Error('log destination failed');
+      })
+      .mockImplementation(() => undefined);
+    const report = warnSkippedOnce(warn);
+    expect(() => {
+      report('outbox', 'payload', 1, error);
+    }).not.toThrow();
+    report('outbox', 'payload', 1, error);
+    report('outbox', 'payload', 1, error);
+    expect(warn).toHaveBeenCalledTimes(2);
+  });
 });

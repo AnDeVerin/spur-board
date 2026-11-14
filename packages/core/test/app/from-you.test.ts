@@ -620,6 +620,38 @@ it('warns once about a skipped source miss across ticks and keeps them committed
   );
 });
 
+it('keeps the tick committed when warn throws on a skipped source miss', async () => {
+  const warn = vi.fn(() => {
+    throw new Error('log destination failed');
+  });
+  const { store, core } = setup(warn);
+  await scanTransaction(store, config, async (trx) => {
+    await trx.insertInto('source_state').values(sampleRows.source_state).execute();
+    await trx
+      .insertInto('source_miss')
+      .values({ ...sampleRows.source_miss, ref: '{"kind":"pr","repo":"x/y"}', gone: 1 })
+      .execute();
+    await trx
+      .insertInto('outbox')
+      .values({ ...sampleRows.outbox, kind: 'conversation.reply', state: 'post_failed' })
+      .execute();
+  });
+  for (let tick = 0; tick < 2; tick++) {
+    now += 1_000;
+    await tickBoard({
+      store,
+      config,
+      clock,
+      completeSince: core.completeSince,
+      warnSkipped: core.warnSkipped,
+    });
+  }
+  expect(await store.db.selectFrom('operator_item').select(['item_key', 'kind']).execute()).toEqual(
+    [{ item_key: 'delivery:1', kind: 'post_failed' }],
+  );
+  expect(warn).toHaveBeenCalledTimes(2);
+});
+
 it('re-raises a pre-upgrade delivery item under post_failed', async () => {
   const { store, core } = setup();
   await scanTransaction(store, config, (trx) =>
