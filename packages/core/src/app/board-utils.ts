@@ -70,7 +70,6 @@ export async function taskPr(
     : { repo: link.repo, number: link.number, open: link.pr_open === 1 };
 }
 
-/** The project whose tracker or repo source wrote an observation. */
 /** A PR snapshot's facts, or null when the detail is missing or unreadable. */
 export function parsePr(detail: string | undefined): PrFacts | null {
   if (detail === undefined) return null;
@@ -82,6 +81,7 @@ export function parsePr(detail: string | undefined): PrFacts | null {
   }
 }
 
+/** The project whose tracker or repo source wrote an observation. */
 export function projectForSource(config: Config, source: string) {
   return config.projects.find(
     (project) =>
