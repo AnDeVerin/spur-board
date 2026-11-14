@@ -41,8 +41,13 @@ export function dryRunEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
 /**
  * The version semantic-release would publish for HEAD of `cwd`, or null when no release is due.
  * Runs against a local mirror with `main` at HEAD, so it needs no token and pushes nothing.
+ * semantic-release logs to `log`, stderr by default, so stdout carries only the script's output.
  */
-export async function nextVersion(cwd: string, env: NodeJS.ProcessEnv): Promise<string | null> {
+export async function nextVersion(
+  cwd: string,
+  env: NodeJS.ProcessEnv,
+  log: NodeJS.WriteStream = process.stderr,
+): Promise<string | null> {
   const analyzer = config.plugins.find(
     (plugin) =>
       (typeof plugin === 'string' ? plugin : plugin[0]) ===
@@ -66,7 +71,7 @@ export async function nextVersion(cwd: string, env: NodeJS.ProcessEnv): Promise<
         dryRun: true,
         ci: false,
       },
-      { cwd: work, env: dryRunEnv(env), stdout: process.stderr, stderr: process.stderr },
+      { cwd: work, env: dryRunEnv(env), stdout: log, stderr: log },
     );
     return result ? result.nextRelease.version : null;
   } finally {

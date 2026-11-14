@@ -3,6 +3,7 @@ import { createRequire } from 'node:module';
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { Writable } from 'node:stream';
 import { describe, expect, it } from 'vitest';
 import semanticRelease from 'semantic-release';
 import { dryRunEnv, nextVersion } from './release-candidate.ts';
@@ -13,6 +14,12 @@ const config = require('../release.config.cjs') as {
   branches: string[];
   plugins: Array<string | [string, Record<string, unknown>]>;
 };
+// Swallows semantic-release logs so a passing run prints nothing.
+const quiet = new Writable({
+  write(_chunk, _encoding, callback) {
+    callback();
+  },
+}) as unknown as NodeJS.WriteStream;
 
 function git(cwd: string, ...args: string[]): string {
   const result = spawnSync('git', args, {
@@ -193,6 +200,8 @@ describe('release policy', () => {
       {
         cwd: repo,
         env: { ...process.env, GITHUB_REF: 'refs/heads/main' },
+        stdout: quiet,
+        stderr: quiet,
       },
     );
     expect(result && result.nextRelease.version).toBe(expected);
@@ -233,12 +242,16 @@ describe('release policy', () => {
     // A dispatch checkout: on a feature branch, with no local main.
     git(repo, 'checkout', '-qb', 'feature');
     git(repo, 'branch', '-qD', 'main');
-    const version = await nextVersion(repo, {
-      ...process.env,
-      GITHUB_ACTIONS: 'true',
-      GITHUB_EVENT_NAME: 'workflow_dispatch',
-      GITHUB_REF: 'refs/heads/feature',
-    });
+    const version = await nextVersion(
+      repo,
+      {
+        ...process.env,
+        GITHUB_ACTIONS: 'true',
+        GITHUB_EVENT_NAME: 'workflow_dispatch',
+        GITHUB_REF: 'refs/heads/feature',
+      },
+      quiet,
+    );
     expect(version).toBe(expected);
   });
 });
