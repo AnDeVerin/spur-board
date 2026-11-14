@@ -663,6 +663,7 @@ async function endNotification(
     .set({ exhausted_at: at.toISOString() })
     .where('id', '=', n.id)
     .execute();
+  if (n.rings === 0) await releaseAfterCourseNote(trx, n, at);
   const addressee = parseAddressee(n.role);
   if (n.kind === 'block' && addressee.kind === 'curator') {
     const block = await trx
@@ -1036,9 +1037,10 @@ export async function recordRingDelivery(
 }
 
 /**
- * After the first delivered ring of a course note, moves the worker's rings on the task that
- * waited in the outbox to the front, in outbox id order, ahead of rings reconcile enqueues next.
- * A row in retry backoff (`attempts > 0`) keeps its wait.
+ * Once a course note no longer holds (`courseHold`): its first ring delivered, or read or ended
+ * before it rang. Moves the worker's rings on the task that waited in the outbox to the front, in
+ * outbox id order, ahead of rings reconcile enqueues next. A row in retry backoff
+ * (`attempts > 0`) keeps its wait.
  */
 async function releaseAfterCourseNote(trx: Trx, n: Notification, at: Date): Promise<void> {
   const note = await trx
@@ -1160,6 +1162,7 @@ export async function acknowledgeNotification(
       .set({ acked_at: input.at.toISOString() })
       .where('id', '=', notice.id)
       .execute();
+    if (notice.rings === 0) await releaseAfterCourseNote(trx, notice, input.at);
     await journal(trx, notice, 'doorbell_read', { doorbell: `N${String(notice.id)}` }, input.at);
     const item = await trx
       .selectFrom('operator_item')

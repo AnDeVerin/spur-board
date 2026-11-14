@@ -2264,6 +2264,25 @@ describe('course-check hold', () => {
     expect(await inboxComments(ctx, 'agent:web/worker-2')).toEqual([note]);
   });
 
+  it('keeps the release order when the worker acks the note before its ring', async () => {
+    const ctx = await board();
+    const { queued, course, late } = await held(ctx);
+    await ctx.apply(ctx.ops.answer, { block: course.block, text: NOTE }, CURATOR, 'answer');
+    const note = { entries: [{ id: await noteId(ctx), revision: 1 }] };
+    await ctx.apply(ctx.ops.ack, note, worker, 'ack-note');
+    await steps(ctx, 12, 250);
+    expect(ringBlocks(ctx)).toEqual([queued, late]);
+  });
+
+  it('keeps the release order when the note ring is rejected before it rings', async () => {
+    const ctx = await board();
+    const { queued, course, late } = await held(ctx);
+    await ctx.apply(ctx.ops.answer, { block: course.block, text: NOTE }, CURATOR, 'answer');
+    ctx.failNext(new SpurRejectedError('Spur send failed with HTTP 400: Bad request'));
+    await steps(ctx, 12, 250);
+    expect(ringBlocks(ctx)).toEqual([queued, late]);
+  });
+
   it('an item close without a note releases the held ring on the next step', async () => {
     const ctx = await board();
     const course = await raiseCourse(ctx);
