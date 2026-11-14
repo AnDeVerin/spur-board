@@ -2844,6 +2844,20 @@ describe('anomaly blocks', () => {
         'linked pull request o/r#8 closed without merge, no open PR',
       );
     });
+
+    it('opens no PR-closed block for a closed PR superseded by a later merge while the ticket is seen open', async () => {
+      const { b, ticket } = await split();
+      const closedAt = iso();
+      await prs(b, [pr(7, 'closed')]);
+      now += 1_000;
+      const merged = { ...pr(8, 'merged'), updatedAt: iso(), mergedAt: iso() };
+      await prs(b, [{ ...pr(7, 'closed'), updatedAt: closedAt }, merged]);
+      now += interval;
+      await ticket('open');
+      now += 1_000;
+      await prs(b, [{ ...pr(7, 'closed'), updatedAt: closedAt }, merged]);
+      expect(await openLedger(b)).toEqual([]);
+    });
   });
 
   it('keeps a ticket-closed block open while GitHub is blind', async () => {

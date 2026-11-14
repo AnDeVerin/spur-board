@@ -293,18 +293,22 @@ export async function reconcileItems(
   for (const task of tasks) {
     const state = taskPrs[String(task.id)];
     if (state === undefined || state.hasOpenPr || state.hasMergedPr) continue;
+    // A PR closed before the task's newest merge was superseded by it.
+    const mergedSince = Date.parse(mergedAt.get(task.id) ?? '');
     const closed = prs
       .filter((pr) => pr.task_id === task.id && pr.state === 'closed')
-      .map((pr) => ({ ...pr, ref: `${pr.repo ?? ''}#${String(pr.number)}` }))
+      .map((pr) => ({
+        ...pr,
+        ref: `${pr.repo ?? ''}#${String(pr.number)}`,
+        closedAt:
+          pr.detail === null ? NaN : Date.parse(parseJson(prFactsSchema, pr.detail).updatedAt),
+      }))
+      .filter((pr) => !(pr.closedAt < mergedSince))
       .sort((left, right) => left.ref.localeCompare(right.ref));
     const first = closed[0];
     if (first === undefined) continue;
     // A replacement PR counts only once every repo completed a poll since the last close.
-    const closedAt = Math.max(
-      ...closed.map((pr) =>
-        pr.detail === null ? NaN : Date.parse(parseJson(prFactsSchema, pr.detail).updatedAt),
-      ),
-    );
+    const closedAt = Math.max(...closed.map((pr) => pr.closedAt));
     const key = `pr-closed:${String(task.id)}`;
     if (state.prCompleteAt === null || !(state.prCompleteAt >= closedAt)) {
       heldKeys.push(key);
