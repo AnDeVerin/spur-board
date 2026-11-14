@@ -91,6 +91,9 @@ async function updateTerminal(
   const hasOpen = linked.some((pr) => pr.state === 'open');
   const merged = linked.some((pr) => pr.state === 'merged');
   const doneTicket = ticket !== undefined && ticketDone(project, ticket.status);
+  // A done ticket without a merged PR trusts `!hasOpen` only once every repo polled completely,
+  // unblind, since the task's last change; before that a newly opened PR may be missing from
+  // pr_snapshot. Only the repos count: they are where an open PR would show.
   const githubComplete = project.repos.every((repo) => {
     const source = prSourceId(project.id, repo);
     const complete = completeSince.get(source);
@@ -1007,6 +1010,11 @@ export function createObservationCore(deps: {
   productVersion?: string;
 }): AdapterCore & {
   notice(kind: 'unknown_state' | 'unknown_status', value: string): Promise<void>;
+  /**
+   * The `observedAt` of each source's latest effective-complete batch since this process
+   * started. Unlike the persisted `source_state.last_complete_at`, it starts empty, so the
+   * terminal and archive checks wait for a fresh complete poll after every restart.
+   */
   completeSince: Map<string, string>;
 } {
   const { store, config, clock } = deps;

@@ -66,6 +66,9 @@ export async function reconcileMembership(
         await emit(trx, 'flag_raised', task.project, task.id, at, { flag: 'out_of_filter' });
       }
     } else {
+      // Archiving needs all three kinds of source complete since the task's last change: the
+      // tracker proves the task left the filter, and Spur and the repos prove no live session
+      // or open PR retains it. Any of them blind or behind leaves the task for a later pass.
       const required = [
         'spur',
         trackerSourceId(project),

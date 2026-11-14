@@ -318,6 +318,8 @@ export async function getStatus(
         last === null ||
         clock.now() - Date.parse(last) >
           config.thresholds.staleMultiplier * interval(config, source),
+      // `lastCompleteAt` is persisted across restarts; `completeSince` holds only polls since
+      // this process started, so a source warms up until its first complete poll after a restart.
       warmingUp: !completeSince.has(source),
     };
   });
