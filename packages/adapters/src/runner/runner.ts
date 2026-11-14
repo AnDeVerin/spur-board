@@ -31,6 +31,8 @@ import {
 
 /** The setTimeout limit: a longer delay would otherwise fire after 1 ms. */
 const MAX_TIMER_MS = 2_147_483_647;
+/** Waits before the second and third attempt of an on-demand poll after a transient failure. */
+const DEMAND_RETRY_WAITS_MS = [1_000, 2_000] as const;
 
 interface RunnerEntry {
   adapter: Adapter;
@@ -364,12 +366,16 @@ function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: nu
     return outcome;
   }
 
-  /** One on-demand request at its turn on the chain; `live` is false once its caller left. */
+  /**
+   * One on-demand request at its turn on the chain; `live` is false once its caller left.
+   * `retryable` is called before it returns a `transient` failure of the `poll` step.
+   */
   async function demandTurn(
     ref: PrEntityRef,
     abort: AbortController,
     live: () => boolean,
     observing: () => void,
+    retryable: () => void,
   ): Promise<PollPrResult | undefined> {
     if (stopping) return err(stoppedError);
     if (!live()) return;
@@ -466,6 +472,9 @@ function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: nu
     } catch (error) {
       if (aborted()) return err(stoppedError);
       fail(step, error);
+      if (step === 'poll' && error instanceof AdapterError && error.kind === 'transient') {
+        retryable();
+      }
       const retryAt = throttledRetryAt(error);
       return err({
         kind: 'failed',
@@ -485,12 +494,17 @@ function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: nu
     if (stopping) return Promise.resolve(err(stoppedError));
     return new Promise((resolve) => {
       const abort = new AbortController();
+      const deadlineMs = now() + timeoutMs;
       let settled = false;
       let observing = false;
+      let attempts = 0;
+      let retryTimer: Timer | undefined;
       const settle = (result: PollPrResult) => {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
+        clearTimeout(retryTimer);
+        retryTimer = undefined;
         pending.delete(cancel);
         resolve(result);
       };
@@ -507,17 +521,34 @@ function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: nu
         settle(err({ kind: 'timeout', message: 'The on-demand poll timed out' }));
         abort.abort();
       }, timeoutMs);
-      void run(async () => {
-        const result = await demandTurn(
-          ref,
-          abort,
-          () => !settled,
-          () => {
-            observing = true;
-          },
-        );
-        if (result !== undefined) settle(result);
-      });
+      // A transient source failure goes back on the chain after a wait, inside the deadline.
+      const attempt = () =>
+        run(async () => {
+          let retry = false;
+          const result = await demandTurn(
+            ref,
+            abort,
+            () => !settled,
+            () => {
+              observing = true;
+            },
+            () => {
+              retry = true;
+            },
+          );
+          if (result === undefined) return;
+          const waitMs = DEMAND_RETRY_WAITS_MS[attempts];
+          attempts += 1;
+          if (retry && waitMs !== undefined && !settled && now() + waitMs < deadlineMs) {
+            retryTimer = setTimeout(() => {
+              retryTimer = undefined;
+              void attempt();
+            }, waitMs);
+            return;
+          }
+          settle(result);
+        });
+      void attempt();
     });
   }
 
