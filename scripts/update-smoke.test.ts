@@ -34,7 +34,7 @@ describe('update smoke registry proxy', () => {
         : Promise.resolve(answer());
     };
     const registry = await startRegistry({
-      fetch: fake as typeof fetch,
+      fetch: fake,
       sleep: (ms) => {
         sleeps.push(ms);
         return Promise.resolve();
