@@ -20,8 +20,8 @@
   raw read-write connections with no PRAGMA, migration or version check: the source for the
   copy, and an existing target that has a non-empty `-wal` only for `wal_checkpoint(TRUNCATE)`
   before the swap.
-- `openDatabase` skips version and migration checks and is test-only; it is not exported from
-  `packages/core/src/index.ts`.
+- Tests open raw connections with the store PRAGMAs through `rawDatabase` in
+  `packages/core/test/support/store.ts`; production code has no such export.
 - An up-to-date `openStore` takes no migration write lock (`packages/core/src/store/migrate.ts`),
   so a second reader can open the database.
 - Before migrating a database that already has a schema, write a backup with `copyDatabase`,
