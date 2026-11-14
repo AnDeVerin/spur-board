@@ -1382,7 +1382,7 @@ describe('dispatcher scenarios', () => {
   );
 
   it(
-    "dispatch-course-check: the curator's answer opens the Dev turn with the note",
+    "dispatch-course-check: the curator's answer rings the note, the held block, then one Dev turn",
     async () => {
       await up();
       const { scenario } = await seed('dispatch-course-check');
@@ -1390,23 +1390,51 @@ describe('dispatcher scenarios', () => {
         "# Scenario dispatch-course-check sets the stand project's Spur projects here.\n",
       );
       const block = scenario.blocks?.['course'];
+      const code = scenario.blocks?.['code'];
       const key = scenario.items?.['course'];
       expect(key).toMatch(/^course-check:\d+:review$/);
-      if (block === undefined) throw new Error('no course block');
+      if (block === undefined || code === undefined) throw new Error('no course or code block');
+      /** What each worker send on the task names: `B<n>` for a block, `T<n>` for a turn. */
+      const workerRings = async () =>
+        (await inspect(current())).sends
+          .filter(
+            ({ session, message }) => session === as('worker') && message.includes(`${ISSUE} `),
+          )
+          .map(({ message }) => /(?:block|turn) ([BT]\d+)[: ]/.exec(message)?.[1] ?? message);
+      const why = async () =>
+        (
+          await op<{ why: { heldBy?: string[] } }>(current(), 'task.get', {
+            task: ISSUE,
+            why: true,
+          })
+        ).why;
+      expect(await workerRings()).toEqual([]);
+      expect((await why()).heldBy).toEqual([block]);
+
       const note = 'Keep the parser as it is and finish the empty-list case.';
       await sessionOp(as('curator'), 'block.answer', { block, text: note }, randomUUID());
       await poll();
-      expect(await mustTurn(as('worker'))).toMatchObject({
-        column: 'dev',
-        reason: 'dev: no_submit_on_head',
-      });
+      const turn = await mustTurn(as('worker'));
+      expect(turn).toMatchObject({ column: 'dev', reason: 'dev: no_submit_on_head' });
+      await vi.waitFor(
+        async () => {
+          expect(await workerRings()).toEqual([block, code, turn.id]);
+        },
+        { timeout: 20_000, interval: 100 },
+      );
+
+      await poll();
+      await ok(current(), '/wait', { condition: 'outbox-drained', timeoutMs: 10_000 });
+      expect(await workerRings()).toEqual([block, code, turn.id]);
+      expect((await mustTurn(as('worker'))).id).toBe(turn.id);
       const { comments } = await sessionOp<{ comments: { block: string | null; text: string }[] }>(
         as('worker'),
         'inbox.get',
       );
-      expect(comments).toEqual(
-        expect.arrayContaining([expect.objectContaining({ block: null, text: note })]),
-      );
+      expect(comments.filter((comment) => comment.text === note)).toEqual([
+        expect.objectContaining({ block: null, text: note }),
+      ]);
+      expect(await why()).not.toHaveProperty('heldBy');
       expect((await status(current())).items.map((item) => item.key)).not.toContain(key);
     },
     TIMEOUT,
