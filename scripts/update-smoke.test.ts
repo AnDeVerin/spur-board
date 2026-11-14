@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { parseUnit, showProperties } from './update-smoke-systemctl.ts';
 import {
   buildPackument,
@@ -8,8 +8,139 @@ import {
   migrationName,
   patchManifest,
   standEnv,
+  startRegistry,
   upstreamUrl,
 } from './update-smoke.ts';
+
+describe('update smoke registry proxy', () => {
+  let close: (() => Promise<void>) | undefined;
+  afterEach(async () => {
+    await close?.();
+    close = undefined;
+  });
+
+  /** A proxy whose upstream answers each npmjs URL from its script, the last entry repeating. */
+  async function proxy(script: Record<string, (() => Response)[]>) {
+    const calls: string[] = [];
+    const sleeps: number[] = [];
+    const lines: string[] = [];
+    const fake = (input: string | URL | Request) => {
+      const url = input instanceof Request ? input.url : String(input);
+      const answers = script[url] ?? [];
+      const answer = answers[Math.min(calls.filter((c) => c === url).length, answers.length - 1)];
+      calls.push(url);
+      return answer === undefined
+        ? Promise.reject(new Error(`unexpected fetch ${url}`))
+        : Promise.resolve(answer());
+    };
+    const registry = await startRegistry({
+      fetch: fake as typeof fetch,
+      sleep: (ms) => {
+        sleeps.push(ms);
+        return Promise.resolve();
+      },
+      log: (text) => lines.push(text),
+    });
+    close = () =>
+      new Promise((resolve) => {
+        registry.server.closeAllConnections();
+        registry.server.close(() => {
+          resolve();
+        });
+      });
+    return { url: registry.url, calls, sleeps, lines };
+  }
+
+  const notFound = () => new Response('{"error":"Not found"}', { status: 404 });
+  const tarball = () =>
+    new Response('tarball bytes', {
+      status: 200,
+      headers: { 'content-type': 'application/octet-stream' },
+    });
+
+  it.each(['/left-pad/-/left-pad-1.3.0.tgz', '/@scope/pkg/-/pkg-1.0.0.tgz'])(
+    'retries a tarball 404 until it answers 200 (%s)',
+    async (path) => {
+      const npm = `https://registry.npmjs.org${path}`;
+      const p = await proxy({ [npm]: [notFound, notFound, tarball] });
+      const answer = await fetch(p.url + path);
+      expect(answer.status).toBe(200);
+      expect(await answer.text()).toBe('tarball bytes');
+      expect(p.calls).toEqual([npm, npm, npm]);
+      expect(p.sleeps).toEqual([1000, 2000]);
+      expect(p.lines).toHaveLength(3);
+      for (const line of p.lines) expect(line).toContain(path);
+      expect(p.lines.slice(0, 2).every((line) => line.includes('404'))).toBe(true);
+      const outcome = p.lines[2] ?? '';
+      expect(outcome).toMatch(/\b200\b/);
+      expect(outcome).toMatch(/\b3 attempts\b/);
+      expect(outcome).toMatch(/\b3000 ms\b/);
+    },
+  );
+
+  it('passes a tarball that stays 404 on after a bounded window', async () => {
+    const path = '/left-pad/-/left-pad-0.0.0.tgz';
+    const p = await proxy({ [`https://registry.npmjs.org${path}`]: [notFound] });
+    const answer = await fetch(p.url + path);
+    expect(answer.status).toBe(404);
+    await answer.body?.cancel();
+    expect(p.calls).toHaveLength(8);
+    expect(p.sleeps.reduce((sum, ms) => sum + ms, 0)).toBe(60_000);
+    expect(Math.max(...p.sleeps)).toBeLessThanOrEqual(15_000);
+    const outcome = p.lines.at(-1) ?? '';
+    expect(outcome).toContain(path);
+    expect(outcome).toMatch(/\b404\b/);
+    expect(outcome).toMatch(/\b8 attempts\b/);
+    expect(outcome).toMatch(/\b60000 ms\b/);
+  });
+
+  it('serves a tarball that answers at once without sleeping or logging', async () => {
+    const path = '/left-pad/-/left-pad-1.3.0.tgz';
+    const p = await proxy({ [`https://registry.npmjs.org${path}`]: [tarball] });
+    const answer = await fetch(p.url + path);
+    expect(answer.status).toBe(200);
+    expect(await answer.text()).toBe('tarball bytes');
+    expect(p.calls).toHaveLength(1);
+    expect(p.sleeps).toEqual([]);
+    expect(p.lines).toEqual([]);
+  });
+
+  it.each(['/left-pad', '/@scope%2fpkg'])(
+    'passes a packument 404 on at once (%s)',
+    async (path) => {
+      const p = await proxy({ [`https://registry.npmjs.org${path}`]: [notFound] });
+      const answer = await fetch(p.url + path);
+      expect(answer.status).toBe(404);
+      await answer.body?.cancel();
+      expect(p.calls).toHaveLength(1);
+      expect(p.sleeps).toEqual([]);
+      expect(p.lines).toEqual([]);
+    },
+  );
+
+  it('retries a 5xx once without sleeping', async () => {
+    const path = '/left-pad';
+    const p = await proxy({
+      [`https://registry.npmjs.org${path}`]: [
+        () => new Response('busy', { status: 503 }),
+        () => new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } }),
+      ],
+    });
+    const answer = await fetch(p.url + path);
+    expect(answer.status).toBe(200);
+    expect(await answer.text()).toBe('{}');
+    expect(p.calls).toHaveLength(2);
+    expect(p.sleeps).toEqual([]);
+  });
+
+  it('never forwards a local spur-board path', async () => {
+    const p = await proxy({});
+    const answer = await fetch(`${p.url}/spur-board/-/spur-board-9.9.9.tgz`);
+    expect(answer.status).toBe(404);
+    await answer.body?.cancel();
+    expect(p.calls).toEqual([]);
+  });
+});
 
 describe('update smoke registry', () => {
   it('forwards a path that starts with one slash to the npm host', () => {

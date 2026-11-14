@@ -26,6 +26,7 @@ import {
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { Readable } from 'node:stream';
+import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { packPackage } from './package.ts';
 import { command, credentialFreeEnv } from './package-smoke.ts';
@@ -210,15 +211,56 @@ export function upstreamUrl(path: string): string | undefined {
   return `https://registry.npmjs.org/${target.pathname.slice(1)}${target.search}`;
 }
 
-async function upstream(url: string, accept: string | undefined): Promise<Response> {
-  const attempt = () => fetch(url, { headers: accept === undefined ? {} : { accept } });
-  try {
-    const response = await attempt();
-    if (response.status < 500) return response;
-  } catch {
-    // Retried once below.
+// npmjs can list a just-published version in the packument before its tarball reaches every CDN
+// edge, and npm never retries a 404. The proxy waits out that lag for tarballs only.
+const TARBALL_RETRY_DELAYS_MS = [1_000, 2_000, 4_000, 8_000, 15_000, 15_000, 15_000];
+
+/** `/<name>/-/<file>.tgz` or `/@scope/<name>/-/<file>.tgz`; never a packument or `/-/v1/...`. */
+function isTarballPath(pathname: string): boolean {
+  return /^\/(?:@[^/]+\/)?[^/]+\/-\/[^/]+\.tgz$/.test(pathname);
+}
+
+interface RegistryDeps {
+  fetch: typeof fetch;
+  sleep: (ms: number) => Promise<unknown>;
+  log: (text: string) => void;
+}
+
+async function upstream(
+  url: string,
+  accept: string | undefined,
+  deps: RegistryDeps,
+): Promise<Response> {
+  const once = () => deps.fetch(url, { headers: accept === undefined ? {} : { accept } });
+  const attempt = async () => {
+    try {
+      const response = await once();
+      if (response.status < 500) return response;
+    } catch {
+      // Retried once below.
+    }
+    return once();
+  };
+  let response = await attempt();
+  const pathname = new URL(url).pathname;
+  if (response.status !== 404 || !isTarballPath(pathname)) return response;
+  let attempts = 1;
+  let waited = 0;
+  for (const wait of TARBALL_RETRY_DELAYS_MS) {
+    if (response.status !== 404) break;
+    await response.body?.cancel();
+    deps.log(
+      `registry: 404 on ${pathname}, attempt ${String(attempts)}, retrying in ${String(wait)} ms (waited ${String(waited)} ms)`,
+    );
+    await deps.sleep(wait);
+    waited += wait;
+    response = await attempt();
+    attempts += 1;
   }
-  return attempt();
+  deps.log(
+    `registry: ${pathname} answered ${String(response.status)} after ${String(attempts)} attempts, waited ${String(waited)} ms`,
+  );
+  return response;
 }
 
 interface Registry {
@@ -227,8 +269,17 @@ interface Registry {
   publish(version: string, tarball: string): void;
 }
 
-/** Serves `spur-board` from local tarballs and forwards every other path to npmjs. */
-async function startRegistry(): Promise<Registry> {
+/**
+ * Serves `spur-board` from local tarballs and forwards every other path to npmjs. Tests pass a
+ * fake `fetch`, `sleep` and `log`.
+ */
+export async function startRegistry(overrides: Partial<RegistryDeps> = {}): Promise<Registry> {
+  // Resolved here, not at module level: `log` is declared further down the module.
+  const deps: RegistryDeps = {
+    fetch: overrides.fetch ?? fetch,
+    sleep: overrides.sleep ?? ((ms) => delay(ms, undefined, { ref: false })),
+    log: overrides.log ?? log,
+  };
   const published: PublishedVersion[] = [];
   const tarballs = new Map<string, Buffer>();
   let url = '';
@@ -259,7 +310,7 @@ async function startRegistry(): Promise<Registry> {
       response.end('{"error":"Bad request path"}');
       return;
     }
-    upstream(target, request.headers.accept).then(
+    upstream(target, request.headers.accept, deps).then(
       (answer) => {
         response.writeHead(answer.status, {
           'content-type': answer.headers.get('content-type') ?? 'application/octet-stream',
