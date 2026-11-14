@@ -1,5 +1,5 @@
 {
-  "version": "332ad04f0eba34482ecb392233a2b8548d3a2625bb22809c17cc71a12a8bb1d5",
+  "version": "8f1875328fa5fc2a8a33f66565bf29d627bbf245128ccbf3af279fdf201cc4e9",
   "grants": [
     "operator",
     "project-agent",
@@ -4571,7 +4571,7 @@
     {
       "id": "inbox.ack",
       "kind": "mutation",
-      "description": "Mark comments, agent-addressed blocks or turns as read; acking a turn makes the caller its taker.",
+      "description": "Mark comments, agent-addressed blocks, turns or doorbell rings as read; acking a turn makes the caller its taker.",
       "grants": [{ "grant": "project-agent" }],
       "preconditions": null,
       "errors": [
@@ -4590,7 +4590,7 @@
       "mcp": {
         "name": "inbox_ack",
         "key": "idempotencyKey",
-        "whenToUse": "Mark handled inbox items read.",
+        "whenToUse": "Mark handled inbox items or a ring ID like N18-1 read; an item handled before comes back under alreadyHandled.",
         "whenNotToUse": "Use inbox_get to inspect them first.",
         "destructive": true
       },
@@ -4610,6 +4610,16 @@
           "summary": "Take a turn",
           "input": { "entries": [{ "id": "T4" }] },
           "output": { "acked": ["T4"] }
+        },
+        {
+          "summary": "Acknowledge a doorbell by the ring ID at the end of its text",
+          "input": { "entries": [{ "id": "N18-1" }] },
+          "output": { "acked": ["N18-1"] }
+        },
+        {
+          "summary": "Acknowledge a block already closed by an answer",
+          "input": { "entries": [{ "id": "B14" }] },
+          "output": { "acked": ["B14"], "alreadyHandled": ["B14"] }
         }
       ],
       "input": {
@@ -4666,10 +4676,23 @@
                   },
                   "required": ["id"],
                   "additionalProperties": false
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "maxLength": 32,
+                      "pattern": "^N[1-9]\\d{0,14}(?:-[1-9]\\d{0,14})?$",
+                      "description": "Ring ID from a doorbell text: N<notification>-<ring>, e.g. N18-1; the ring part is optional."
+                    }
+                  },
+                  "required": ["id"],
+                  "additionalProperties": false
                 }
               ]
             },
-            "description": "Comment revisions, blocks and turns to acknowledge."
+            "description": "Comment revisions, blocks, turns and ring IDs to acknowledge."
           }
         },
         "required": ["entries"],
@@ -4700,10 +4723,48 @@
                   "maxLength": 16,
                   "pattern": "^T[1-9]\\d{0,14}$",
                   "description": "Turn ID: T followed by a number, e.g. T4."
+                },
+                {
+                  "type": "string",
+                  "maxLength": 32,
+                  "pattern": "^N[1-9]\\d{0,14}(?:-[1-9]\\d{0,14})?$",
+                  "description": "Ring ID from a doorbell text: N<notification>-<ring>, e.g. N18-1; the ring part is optional."
                 }
               ]
             },
             "description": "Entries now acknowledged."
+          },
+          "alreadyHandled": {
+            "description": "Entries that were already handled; nothing new was acknowledged for them.",
+            "type": "array",
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 16,
+                  "pattern": "^C[1-9]\\d{0,14}$",
+                  "description": "Comment ID: C followed by a number, e.g. C3."
+                },
+                {
+                  "type": "string",
+                  "maxLength": 16,
+                  "pattern": "^B[1-9]\\d{0,14}$",
+                  "description": "Block ID: B followed by a number, e.g. B12."
+                },
+                {
+                  "type": "string",
+                  "maxLength": 16,
+                  "pattern": "^T[1-9]\\d{0,14}$",
+                  "description": "Turn ID: T followed by a number, e.g. T4."
+                },
+                {
+                  "type": "string",
+                  "maxLength": 32,
+                  "pattern": "^N[1-9]\\d{0,14}(?:-[1-9]\\d{0,14})?$",
+                  "description": "Ring ID from a doorbell text: N<notification>-<ring>, e.g. N18-1; the ring part is optional."
+                }
+              ]
+            }
           }
         },
         "required": ["acked"],

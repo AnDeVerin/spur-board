@@ -9,7 +9,7 @@ import {
   type EventPayload,
 } from '@spur-board/contracts';
 import { sql, type Selectable } from 'kysely';
-import type { BlockTable, CommentTable, TaskTable } from '../store/schema.ts';
+import type { BlockTable, CommentTable, NotificationTable, TaskTable } from '../store/schema.ts';
 import { BLOCK_ITEM_KINDS, isItemKind, ITEM_POLICY, type ItemKind } from '../domain/fromYou.ts';
 import {
   acknowledgeComment,
@@ -32,6 +32,7 @@ import {
   applyDoorbellPolicy,
   closeBlockNotification,
   moveBlockToAddressee,
+  notificationAddressedTo,
 } from './doorbells.ts';
 import { clearItem, dismissItem } from './feed.ts';
 import { takeTurn } from './turns.ts';
@@ -44,6 +45,9 @@ import {
 type Task = Selectable<TaskTable>;
 type Block = Selectable<BlockTable>;
 type Comment = Selectable<CommentTable>;
+type Notification = Selectable<NotificationTable>;
+/** `handled`: nothing new to acknowledge, so the entry is reported under `alreadyHandled`. */
+type AckResult = 'acked' | 'handled';
 
 const idNumber = (id: string) => Number(id.slice(1));
 const blockId = (id: number) => `B${String(id)}`;
@@ -72,6 +76,15 @@ async function blockById(trx: Trx, id: string): Promise<Block | undefined> {
 
 async function commentById(trx: Trx, id: string): Promise<Comment | undefined> {
   return trx.selectFrom('comment').selectAll().where('id', '=', idNumber(id)).executeTakeFirst();
+}
+
+/** The notification a ring ID `N<notification>[-<ring>]` names; the ring part is ignored. */
+async function notificationByRingId(trx: Trx, id: string): Promise<Notification | undefined> {
+  return trx
+    .selectFrom('notification')
+    .selectAll()
+    .where('id', '=', Number.parseInt(id.slice(1), 10))
+    .executeTakeFirst();
 }
 
 function found<T>(value: T | undefined): T {
@@ -897,6 +910,109 @@ export function createBlockMutations(config: Config) {
       return { comment: commentView(updated, task) };
     },
   };
+  /** Marks a comment read at `revision` and acks its unread answer notifications. */
+  async function ackComment(
+    trx: Trx,
+    comment: Comment,
+    revision: number,
+    ctx: CommandContext,
+  ): Promise<void> {
+    const task = await taskById(trx, comment.task_id);
+    await acknowledgeNotification(trx, {
+      commentId: comment.id,
+      revision,
+      actor: ctx.actor,
+      at: new Date(ctx.at),
+      config,
+    });
+    await trx
+      .updateTable('comment')
+      .set({ acked_revision: revision })
+      .where('id', '=', comment.id)
+      .execute();
+    await journal(trx, task, ctx, 'comment_acked', { comment: commentId(comment.id), revision });
+  }
+
+  /** Acks the caller's unread answers of an asked block, then its unread block notification. */
+  async function ackBlock(trx: Trx, id: number, ctx: CommandContext): Promise<AckResult> {
+    const rows = await trx
+      .selectFrom('notification')
+      .selectAll()
+      .where('block_id', '=', id)
+      .where('kind', 'in', ['block', 'answer'])
+      .orderBy('id', 'desc')
+      .execute();
+    const addressed = new Set<number>();
+    for (const row of rows) {
+      if (await notificationAddressedTo(trx, row, ctx.actor, config)) addressed.add(row.id);
+    }
+    const answered = new Set<number>();
+    for (const row of rows) {
+      const unreadAnswer = row.kind === 'answer' && row.acked_at === null;
+      if (unreadAnswer && row.comment_id !== null && addressed.has(row.id))
+        answered.add(row.comment_id);
+    }
+    for (const answer of answered) {
+      const comment = found(await commentById(trx, commentId(answer)));
+      await ackComment(trx, comment, comment.revision, ctx);
+    }
+    const unread = rows.find((row) => row.kind === 'block' && row.acked_at === null);
+    const readsBlock = unread !== undefined && addressed.has(unread.id);
+    if (readsBlock)
+      await acknowledgeNotification(trx, {
+        blockId: id,
+        actor: ctx.actor,
+        at: new Date(ctx.at),
+        config,
+      });
+    if (answered.size > 0 || readsBlock) return 'acked';
+    if (addressed.size > 0) return 'handled';
+    if (unread !== undefined)
+      throw new CommandError('forbidden', 'Only the addressed task role can acknowledge.');
+    throw new CommandError('not_found', 'No unread block notification.');
+  }
+
+  /** Takes a turn; a turn the caller took or was rung for before it closed is already handled. */
+  async function ackTurn(trx: Trx, id: number, ctx: CommandContext): Promise<AckResult> {
+    const taken = await takeTurn(trx, {
+      turnId: id,
+      actor: ctx.actor,
+      at: new Date(ctx.at),
+      config,
+    });
+    if (taken) return 'acked';
+    const turn = await trx.selectFrom('turn').selectAll().where('id', '=', id).executeTakeFirst();
+    if (turn?.acked_by === ctx.actor) return 'handled';
+    if (turn !== undefined && turn.closed_at !== null) {
+      const notice = await trx
+        .selectFrom('notification')
+        .selectAll()
+        .where('turn_id', '=', id)
+        .where('kind', '=', 'turn')
+        .orderBy('id', 'desc')
+        .executeTakeFirst();
+      if (notice !== undefined && (await notificationAddressedTo(trx, notice, ctx.actor, config)))
+        return 'handled';
+    }
+    throw new CommandError('not_found', 'No open turn to take for this ID.');
+  }
+
+  /** Acks the item a ring `N<notification>[-<ring>]` was sent for. */
+  async function ackRing(trx: Trx, id: string, ctx: CommandContext): Promise<AckResult> {
+    const notice = found(await notificationByRingId(trx, id));
+    if (notice.kind === 'block' && notice.block_id !== null)
+      return ackBlock(trx, notice.block_id, ctx);
+    if (notice.kind === 'turn' && notice.turn_id !== null) return ackTurn(trx, notice.turn_id, ctx);
+    if (!(await notificationAddressedTo(trx, notice, ctx.actor, config)))
+      throw new CommandError('forbidden', 'Only the addressed task role can acknowledge.');
+    if (notice.kind === 'answer' && notice.acked_at === null && notice.comment_id !== null) {
+      const comment = found(await commentById(trx, commentId(notice.comment_id)));
+      await ackComment(trx, comment, comment.revision, ctx);
+      return 'acked';
+    }
+    return 'handled';
+  }
+
   const ack: Mutation<'inbox.ack'> = {
     id: 'inbox.ack',
     async resolveTargets(trx, input) {
@@ -904,6 +1020,11 @@ export function createBlockMutations(config: Config) {
         input.entries.map(async ({ id }) => {
           if (id.startsWith('C')) return commentTarget(trx, id);
           if (id.startsWith('T')) return turnTarget(trx, id);
+          if (id.startsWith('N')) {
+            const notice = await notificationByRingId(trx, id);
+            if (notice === undefined) return { kind: 'missing' as const, id };
+            return { ...(await authorizationTarget(trx, await taskById(trx, notice.task_id))), id };
+          }
           const targets = await blockTarget(trx, id);
           const target = targets[0];
           return target === undefined ? { kind: 'missing' as const, id } : { ...target, id };
@@ -911,46 +1032,21 @@ export function createBlockMutations(config: Config) {
       );
     },
     async run(trx, input, ctx) {
+      const alreadyHandled: string[] = [];
       for (const entry of input.entries) {
-        if (entry.id.startsWith('T')) {
-          const taken = await takeTurn(trx, {
-            turnId: idNumber(entry.id),
-            actor: ctx.actor,
-            at: new Date(ctx.at),
-            config,
-          });
-          if (!taken) throw new CommandError('not_found', 'No open turn to take for this ID.');
-          continue;
-        }
-        if (!('revision' in entry)) {
-          const block = found(await blockById(trx, entry.id));
-          const read = await acknowledgeNotification(trx, {
-            blockId: block.id,
-            actor: ctx.actor,
-            at: new Date(ctx.at),
-            config,
-          });
-          if (!read) throw new CommandError('not_found', 'No unread block notification.');
-          continue;
-        }
-        const comment = found(await commentById(trx, entry.id));
-        const task = await taskById(trx, comment.task_id);
-        const revision = rule(() => acknowledgeComment(comment.revision, entry.revision));
-        await acknowledgeNotification(trx, {
-          commentId: comment.id,
-          revision,
-          actor: ctx.actor,
-          at: new Date(ctx.at),
-          config,
-        });
-        await trx
-          .updateTable('comment')
-          .set({ acked_revision: revision })
-          .where('id', '=', comment.id)
-          .execute();
-        await journal(trx, task, ctx, 'comment_acked', { comment: entry.id, revision });
+        let result: AckResult;
+        if ('revision' in entry) {
+          const comment = found(await commentById(trx, entry.id));
+          const revision = rule(() => acknowledgeComment(comment.revision, entry.revision));
+          await ackComment(trx, comment, revision, ctx);
+          result = 'acked';
+        } else if (entry.id.startsWith('T')) result = await ackTurn(trx, idNumber(entry.id), ctx);
+        else if (entry.id.startsWith('N')) result = await ackRing(trx, entry.id, ctx);
+        else result = await ackBlock(trx, found(await blockById(trx, entry.id)).id, ctx);
+        if (result === 'handled') alreadyHandled.push(entry.id);
       }
-      return { acked: input.entries.map(({ id }) => id) };
+      const acked = input.entries.map(({ id }) => id);
+      return alreadyHandled.length > 0 ? { acked, alreadyHandled } : { acked };
     },
   };
   return { ask, create, escalate, answer, unblock, add, edit, ack };
