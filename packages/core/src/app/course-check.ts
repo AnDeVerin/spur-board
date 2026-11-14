@@ -1,6 +1,7 @@
 import {
   COLUMN_IDS,
   eventPayloadSchemas,
+  type AddresseeRole,
   type ColumnId,
   type Config,
   type GateReason,
@@ -17,7 +18,8 @@ import { parsePr, taskPr, taskUrl, type Trx } from './board-utils.ts';
 import { capPoints, raiseItem } from './feed.ts';
 
 // The course check: after `columns[].courseCheck` counted returns to Dev from a column, the
-// board holds the task and asks the curator, or the operator without one, to check its course.
+// board holds the task and asks `columns[].courseCheckTo` (by default the curator, or the operator
+// without one) to check its course.
 // Its count is replayed from the journal next to the cycle limit's, with its own resets.
 
 type Task = Row<'task'>;
@@ -114,8 +116,8 @@ export async function returnCounts(
 
 /**
  * Raises the course check of a task's column, once while it is open: a `system` question to the
- * curator, or to the operator when the project has no curator, with the open findings in its
- * reason. The answer to the block resets the course count.
+ * column's `courseCheckTo` addressee (`courseAddressee`), with the open findings in its reason.
+ * The answer to the block resets the course count.
  */
 export async function raiseCourseCheck(
   trx: Trx,
@@ -136,7 +138,7 @@ export async function raiseCourseCheck(
     reason: await courseSummary(trx, task, column, count, url),
     at: at.toISOString(),
     config,
-    addressee: curatorProject(config, task.project) === null ? 'operator' : 'curator',
+    addressee: courseAddressee(config, task.project, column),
   });
   return raiseItem(trx, {
     itemKey,
@@ -147,6 +149,23 @@ export async function raiseCourseCheck(
     blockId: block.id,
     at,
   });
+}
+
+/**
+ * Who a column's course check asks: `courseCheckTo` read as the operator, the curator, or the
+ * orchestrator of this column or else of the first column it orchestrates. Without the key, or
+ * with a name that no longer fits, the curator, or the operator when the project has none.
+ */
+function courseAddressee(config: Config, projectId: string, column: ColumnId): AddresseeRole {
+  const fallback = curatorProject(config, projectId) === null ? 'operator' : 'curator';
+  const columns = config.projects.find((project) => project.id === projectId)?.columns ?? [];
+  const to = columns.find((c) => c.id === column)?.courseCheckTo;
+  if (to === undefined) return fallback;
+  if (to === 'operator') return 'operator';
+  if (to === curatorProject(config, projectId)) return 'curator';
+  const own = columns.find((c) => c.id === column && c.orchestrator === to);
+  const orchestrated = own ?? columns.find((c) => c.orchestrator === to);
+  return orchestrated === undefined ? fallback : `orchestrator:${orchestrated.id}`;
 }
 
 /** The question of a course check: the count, the open findings and the links. */

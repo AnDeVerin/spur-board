@@ -1579,6 +1579,21 @@ describe('curator doorbells', () => {
     },
   );
 
+  it('keeps a non-course orchestrator block with no live session due and addressed', async () => {
+    const ctx = await setup({ config: policyConfig, column: 'dev' });
+    const asked = await ctx.apply(ctx.ops.ask, { task: KEY, text: 'Q?' }, worker, 'ask');
+    expect(asked.block.addressee).toBe('orchestrator:dev');
+    await step(ctx);
+    expect(
+      await ctx.store.db.selectFrom('block').select('addressee_role').executeTakeFirst(),
+    ).toEqual({ addressee_role: 'orchestrator:dev' });
+    expect(await journalled(ctx, 'block_escalated')).toEqual([]);
+    expect(await notices(ctx)).toEqual([
+      expect.objectContaining({ role: 'orchestrator:dev', exhausted_at: null }),
+    ]);
+    expect(ctx.sent).toEqual([]);
+  });
+
   it('escalates after three unanswered rings', async () => {
     const ctx = await setup({ config: policyConfig, column: 'qa' });
     await addSession(ctx, 'cur-1', 'cur');
