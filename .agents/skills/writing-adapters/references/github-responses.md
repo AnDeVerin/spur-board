@@ -45,8 +45,11 @@ and `describe('PR index cache')` in `packages/adapters/test/github/prBatch.test.
   changed: read in full. Unscoped errors on a detail chunk still reject.
 - Per-instance adapter state is allowed: the Spur adapter (`createSpurAdapter`) and the PR cache
   in the `githubSources` closure, keyed by number, holding the PRs requested in the last poll and
-  those the last successful discovery listed; a failed discovery drops none. It lives in memory:
-  after a restart each PR at the cursor tie is read again.
+  those the last successful discovery listed; a failed discovery drops none. It lives in memory.
+- A discovered PR core does not request, also each one at the cursor tie after a restart, gets
+  two full reads (the first with a `null` fingerprint, the second indexed), then one index alias
+  per poll while discovery lists it, plus a full read whenever the index rules out reuse, such
+  as an open PR with a non-green rollup.
 - A discovered PR core does not request is cached and reused by the same rules as a requested
   one, but adds no entity and never holds the cursor once reused. Its facts go out every poll, so
   a batch core did not accept loses nothing. Tests: `describe('PR discovery reads')`.
