@@ -19,6 +19,7 @@ import {
   dispatchConflictInReadyToMerge,
   dispatchConflictInReview,
   dispatchCiRedAfterSubmit,
+  dispatchCloseAfterMerge,
   dispatchCourseCheck,
   dispatchCycleLimit,
   dispatchDeadExecutor,
@@ -28,6 +29,7 @@ import {
   dispatchReentrySameHead,
   dispatchReviewLoop,
   dispatchSourceBlind,
+  dispatchSplitPr,
 } from './dispatcher.ts';
 import { empty } from './empty.ts';
 import { questionToOperator } from './question-to-operator.ts';
@@ -141,6 +143,8 @@ export const SCENARIOS: readonly Scenario[] = [
   workerKilledNoPrJira,
   sourceBlindJira,
   dispatchHappyPath,
+  dispatchSplitPr,
+  dispatchCloseAfterMerge,
   dispatchReviewLoop,
   dispatchCiRedAfterSubmit,
   dispatchConflictInReview,

@@ -102,17 +102,25 @@ async function openPr(
 }
 
 /** The worker took T1, opened a green PR and submitted A: Review with the conductor's turn. */
-async function toReview(board: Board, fakes: ScenarioFakes): Promise<Turn> {
+async function toReview(
+  board: Board,
+  fakes: ScenarioFakes,
+  seed?: Record<string, unknown>,
+): Promise<Turn> {
   const dev = await begin(board, fakes);
   await take(board, 'worker', dev.id);
-  await openPr(board, fakes);
+  await openPr(board, fakes, seed === undefined ? {} : { seed });
   await submit(board, 'worker', dev.id, A);
   return awaitTurn(board, 'orchestrator', 'review: no_review_on_head');
 }
 
 /** The conductor took and submitted Review on A: Ready to Merge with the operator's turn item. */
-async function toReadyToMerge(board: Board, fakes: ScenarioFakes): Promise<string> {
-  const review = await toReview(board, fakes);
+async function toReadyToMerge(
+  board: Board,
+  fakes: ScenarioFakes,
+  seed?: Record<string, unknown>,
+): Promise<string> {
+  const review = await toReview(board, fakes, seed);
   await take(board, 'orchestrator', review.id);
   await submit(board, 'orchestrator', review.id, A);
   return operatorItem(board, 'ready-to-merge: not_merged');
@@ -171,6 +179,67 @@ export const dispatchHappyPath: Scenario = {
     const item = (await items(board)).find(({ key }) => key === turn);
     if (item?.summary.endsWith(': ready-to-merge: not_merged') !== true)
       problems.push(`no item ${turn ?? 'turn'} ready-to-merge: not_merged`);
+    return settledUnless(problems);
+  },
+};
+
+const SPLIT_NOTE = `dev: no_pr (PR ${PR} merged, ticket still open)`;
+
+export const dispatchSplitPr: Scenario = {
+  name: 'dispatch-split-pr',
+  summary: `PR #1 of ${ISSUE} merged while the issue stays open: back in Dev with the worker's turn naming the merged PR.`,
+  config: flow(),
+  async seed(board, fakes) {
+    await toReadyToMerge(board, fakes);
+    await fakes.github('merge', { repo: REPO, number: 1 });
+    await board.poll();
+    // The issue counts as open once a tracker poll sees it one interval (5 s here) after the merge.
+    await board.shiftClock(5_000);
+    await board.poll();
+    await awaitTurn(board, 'worker', SPLIT_NOTE);
+    return entities(board);
+  },
+  async settled({ board }) {
+    return settledUnless(
+      await check(board, { column: 'dev', role: 'worker', reason: SPLIT_NOTE, taken: false }),
+    );
+  },
+};
+
+export const dispatchCloseAfterMerge: Scenario = {
+  name: 'dispatch-close-after-merge',
+  summary: `PR #1 closes ${ISSUE}; the close is seen one poll after the merge: Done with the wrap-up turn, no Dev visit.`,
+  // A 60 s tracker interval keeps the seed's open-issue poll after the merge inside the grace, so
+  // a scheduled tracker poll on the real clock cannot send the task to Dev before the close.
+  config: { ...flow(), adapters: { githubIssues: { intervalMs: 60_000 } } },
+  async seed(board, fakes) {
+    await toReadyToMerge(board, fakes, {
+      closingIssuesReferences: [{ number: 1, repository: { nameWithOwner: REPO } }],
+    });
+    await fakes.github('merge', { repo: REPO, number: 1 });
+    await board.poll();
+    const held = await check(board, { column: 'ready-to-merge' });
+    const { why } = await board.call('operator', 'task.get', { task: ISSUE, why: true });
+    if (why?.holds.includes('ticket_unconfirmed') !== true)
+      held.push(`holds ${why?.holds.join(', ') ?? 'none'}, not ticket_unconfirmed`);
+    if (held.length > 0) throw new Error(`after the merge: ${held.join('; ')}`);
+    await fakes.github('issue-close', { repo: REPO, number: 1 });
+    await board.poll();
+    await awaitTurn(board, 'worker', 'done: wrap up');
+    return entities(board);
+  },
+  async settled({ board }) {
+    const problems = await check(board, {
+      column: 'done',
+      role: 'worker',
+      reason: 'done: wrap up',
+    });
+    const { why } = await board.call('operator', 'task.get', { task: ISSUE, why: true });
+    const last = why?.moves.at(-1);
+    if (last?.from !== 'ready-to-merge' || last.to !== 'done' || last.reason !== 'merged')
+      problems.push(
+        `last move ${last === undefined ? 'none' : `${last.from} -> ${last.to} (${last.reason})`}`,
+      );
     return settledUnless(problems);
   },
 };
