@@ -70,6 +70,14 @@ function toolDescription(op: Operation): string {
   ].join('\n');
 }
 
+const MISSING_KEY_HINT =
+  'Send a non-blank idempotencyKey string with this action: one new key per action, reused on retries.';
+const QUERY_KEY_HINT = 'Remove idempotencyKey: queries take no idempotencyKey.';
+
+const KEY_HINTS = new Set([MISSING_KEY_HINT, QUERY_KEY_HINT]);
+
+const keyError = (hint: string) => new CliError('usage', undefined, undefined, hint);
+
 function parseArguments(op: Operation, argumentsValue: unknown, agent: boolean) {
   if (!argumentsValue || typeof argumentsValue !== 'object' || Array.isArray(argumentsValue)) {
     throw new CliError('usage');
@@ -79,9 +87,9 @@ function parseArguments(op: Operation, argumentsValue: unknown, agent: boolean) 
   if (op.kind === 'mutation') {
     if (idempotencyKey === undefined && !agent) key = randomUUID();
     else if (typeof idempotencyKey === 'string' && idempotencyKey.trim()) key = idempotencyKey;
-    else throw new CliError('usage');
+    else throw keyError(MISSING_KEY_HINT);
   } else if (idempotencyKey !== undefined) {
-    throw new CliError('usage');
+    throw keyError(QUERY_KEY_HINT);
   }
   const parsed = op.input.safeParse(input);
   if (!parsed.success) throw new CliError('usage');
@@ -187,8 +195,11 @@ export function createMcpServer(
                   }
                 : {}),
             },
-            // Only a refusal's per-call hint says more than the catalog's MCP guidance.
-            error.code === 'forbidden' ? error.hint : undefined,
+            // Only a refusal's per-call hint and the key hints of `parseArguments` say more than
+            // the catalog's MCP guidance.
+            error.code === 'forbidden' || (error.hint && KEY_HINTS.has(error.hint))
+              ? error.hint
+              : undefined,
           );
         }
       },

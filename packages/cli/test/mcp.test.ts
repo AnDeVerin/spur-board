@@ -269,6 +269,43 @@ describe('board mcp', () => {
     );
   });
 
+  it('names idempotencyKey when a worker mutation omits it or sends a blank one', async () => {
+    const daemon = await fakeDaemon(() => {});
+    await withClient({ BOARD_DAEMON_URL: daemon.url, SPUR_SESSION: 'worker-1' }, async (client) => {
+      for (const extra of [{}, { idempotencyKey: '' }, { idempotencyKey: '   ' }]) {
+        const result = await client.callTool({
+          name: 'comment_add',
+          arguments: { task: 'PROJ-123', text: 'Hello', ...extra },
+        });
+        expect(result.isError).toBe(true);
+        expect(result.structuredContent).toMatchObject({
+          code: 'usage',
+          hint: expect.stringContaining('idempotencyKey') as string,
+        });
+        expect(result.content).toEqual([
+          { type: 'text', text: expect.stringMatching(/fix: [^\n]*idempotencyKey/) as string },
+        ]);
+      }
+      expect(daemon.requests).toHaveLength(0);
+    });
+  });
+
+  it('says queries take no key when a query is sent an idempotencyKey', async () => {
+    const daemon = await fakeDaemon(() => {});
+    await withClient({ BOARD_DAEMON_URL: daemon.url, SPUR_SESSION: 'worker-1' }, async (client) => {
+      const result = await client.callTool({
+        name: 'status_get',
+        arguments: { idempotencyKey: 'status-1' },
+      });
+      expect(result.isError).toBe(true);
+      expect(result.structuredContent).toMatchObject({
+        code: 'usage',
+        hint: expect.stringMatching(/quer(y|ies) take no idempotencyKey/i) as string,
+      });
+      expect(daemon.requests).toHaveLength(0);
+    });
+  });
+
   it('carries the per-call hint of a refused session', async () => {
     const hint = 'Spur project "stray" is not listed in any spurProjects.';
     const daemon = await fakeDaemon((_request, response) => {
@@ -309,6 +346,22 @@ describe('board mcp', () => {
     });
   });
 
+  it('keeps the catalog hint for a daemon usage error with a per-call hint', async () => {
+    const daemon = await fakeDaemon((_request, response) => {
+      response.writeHead(400, { 'content-type': 'application/problem+json' });
+      response.end(
+        JSON.stringify({
+          ...renderHttpProblem({ code: 'usage', requestId: 'req-1' }).body,
+          hint: 'Pass a task key.',
+        }),
+      );
+    });
+    await withClient({ BOARD_DAEMON_URL: daemon.url, SPUR_SESSION: 'worker-1' }, async (client) => {
+      const result = await client.callTool({ name: 'status_get', arguments: {} });
+      expect(result.structuredContent).toMatchObject({ code: 'usage', hint: ERRORS.usage.hint });
+    });
+  });
+
   it('generates a key for an operator mutation and returns the sent key on timeout', async () => {
     const daemon = await fakeDaemon(() => {});
     await withClient(
@@ -339,7 +392,10 @@ describe('board mcp', () => {
           arguments: { mode: 'done', block: 'B12', ref: 7, idempotencyKey: 'unblock-PROJ-123' },
         });
         expect(result.isError).toBe(true);
-        expect(result.structuredContent).toMatchObject({ code: 'usage' });
+        expect(result.structuredContent).toMatchObject({
+          code: 'usage',
+          hint: ERRORS.usage.hint,
+        });
         expect(daemon.requests).toHaveLength(0);
       },
     );

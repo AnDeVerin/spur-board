@@ -49,7 +49,8 @@ description: Rules for errors - Result vs throw, retries, the ERRORS catalog, hi
   equal by `packages/contracts/test/errors.test.ts` `describe('error representations')`.
 - Renderers take no hint (`errorInputSchema`). HTTP (the `setErrorHandler` callback) and CLI
   (`renderCliError`) patch a per-call hint after rendering; MCP (`renderMcpError`) applies one
-  for `forbidden` only, so the catalog hint of every other code must stand alone.
+  for `forbidden` and the `idempotencyKey` hints of `parseArguments` only, so the catalog hint
+  of every other code must stand alone.
 - MCP input errors are catalog `usage`: `handlerValidator` admits every argument and
   `parseArguments` rejects.
 - `problemError` (`packages/cli/src/client.ts`) keeps a code only when its `status` matches the
