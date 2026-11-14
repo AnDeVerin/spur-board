@@ -597,12 +597,7 @@ describe('rendering and surface', () => {
       body: [...body('Line'), { kind: 'context', children: [{ kind: 'text', text: long }] }],
     });
     expect(delivered.status).toBe('delivered');
-    const blocks = fake
-      .requests()
-      .filter((entry) => entry.method === 'chat.postMessage')
-      .flatMap((entry): { type: string; block_id?: string; text?: { text: string } }[] =>
-        JSON.parse(entry.params.blocks ?? '[]'),
-      );
+    const blocks = postedBlocks(fake.requests());
     expect(blocks.some((block) => block.type === 'context' && !block.block_id)).toBe(false);
     const sections = blocks.filter((block) => block.type === 'section');
     expect(sections.length).toBeGreaterThan(1);
@@ -612,7 +607,7 @@ describe('rendering and surface', () => {
 
   it('keeps many contexts as section text when the joined tenth element overflows', async () => {
     const { fake, gateway } = await setup();
-    const values = Array.from({ length: 40 }, (_, index) => `${String(index)}`.padEnd(100, 'c'));
+    const values = Array.from({ length: 40 }, (_, index) => String(index).padEnd(100, 'c'));
     const delivered = await gateway.deliver({
       ...request('overflow-context'),
       body: [
@@ -624,22 +619,13 @@ describe('rendering and surface', () => {
       ],
     });
     expect(delivered.status).toBe('delivered');
-    const posted = fake.requests().find((entry) => entry.method === 'chat.postMessage');
-    const text = ['Line', ...values].join('\n\n');
-    const blocks: { type: string; block_id?: string; text?: { text: string } }[] = JSON.parse(
-      posted?.params.blocks ?? '[]',
-    );
+    const blocks = postedBlocks(fake.requests());
     expect(blocks.some((block) => block.type === 'context' && !block.block_id)).toBe(false);
-    const all = fake
-      .requests()
-      .filter((entry) => entry.method === 'chat.postMessage')
-      .flatMap((entry): { type: string; text?: { text: string } }[] =>
-        JSON.parse(entry.params.blocks ?? '[]'),
-      )
+    const all = blocks
       .filter((block) => block.type === 'section')
       .map((block) => block.text?.text ?? '')
       .join('\n\n');
-    expect(all).toBe(text);
+    expect(all).toBe(['Line', ...values].join('\n\n'));
   });
 
   it('fails a marker longer than Block Kit allows without an HTTP request', async () => {
@@ -681,3 +667,14 @@ describe('rendering and surface', () => {
     expect(Object.keys(await import('../src/index.ts'))).toEqual(['createSlackGateway']);
   });
 });
+
+type PostedBlock = { type: string; block_id?: string; text?: { text: string } };
+
+/** Every block of every posted part, in order. */
+function postedBlocks(
+  requests: readonly { method: string; params: { blocks?: string } }[],
+): PostedBlock[] {
+  return requests
+    .filter((entry) => entry.method === 'chat.postMessage')
+    .flatMap((entry) => JSON.parse(entry.params.blocks ?? '[]') as PostedBlock[]);
+}
