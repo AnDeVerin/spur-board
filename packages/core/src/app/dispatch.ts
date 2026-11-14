@@ -543,9 +543,10 @@ export async function readInput(
     if (judged === 'open') mergedOpen = { repo: pr.repo, number: pr.number };
     ticketUnconfirmed = judged === 'unconfirmed';
   }
+  // A merged PR that counts as no PR leaves the follow-up PR in any repo: every repo must see.
+  if (mergedOpen !== undefined) pr = null;
   const repos = pr === null ? project.repos : [pr.repo];
   const githubBlind = repos.some((repo) => blind(prSourceId(project.id, repo)));
-  if (mergedOpen !== undefined) pr = null;
   const submissions = await trx
     .selectFrom('submission')
     .select(['column', 'commit_sha'])

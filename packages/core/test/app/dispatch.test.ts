@@ -60,6 +60,8 @@ type Options = {
   devOrchestrator?: string;
   /** The task's project left the config: the only project tracks another repo. */
   projectRemoved?: boolean;
+  /** The project also tracks the repo `o/b`. */
+  secondRepo?: boolean;
 };
 
 function boardConfig(options: Options = {}) {
@@ -72,7 +74,10 @@ function boardConfig(options: Options = {}) {
           repo: options.projectRemoved === true ? 'o/other' : 'o/r',
           label: 'board',
         },
-        repos: [options.projectRemoved === true ? 'o/other' : 'o/r'],
+        repos: [
+          options.projectRemoved === true ? 'o/other' : 'o/r',
+          ...(options.secondRepo === true ? ['o/b'] : []),
+        ],
         operatorGithubLogin: 'agent-bot',
         spurProjects: [
           { name: 'worker', role: 'worker' },
@@ -251,6 +256,8 @@ function board(options: Options = {}) {
         [...prs.values()].map((facts) => ({ kind: 'pr' as const, facts })),
         complete,
       ),
+    /** A complete poll of the project repo `repo` that finds no PR. */
+    repo: (repo: string, complete = true) => observe(`github:proj:${repo}`, [], complete),
     /** A complete Spur poll: the reviewers always, the worker while `worker` is not `none`. */
     spur: (worker: 'live' | 'ended' | 'none' | 'unlinked' = 'live', complete = true) =>
       observe(
@@ -977,6 +984,26 @@ describe('a merged PR and the ticket', () => {
       to: 'done',
       reason: 'merged',
     });
+  });
+
+  it('holds a merged task on a repo with no poll since start once its ticket is seen open', async () => {
+    const ctx = await pastProductReview();
+    const before = await devMoves(ctx);
+    // After a restart the project also tracks o/b, which has no complete poll yet.
+    ctx.restart({ secondRepo: true });
+    await ctx.spur();
+    const operatorTurn = await ctx.openTurn();
+    await merge(ctx);
+    await ctx.ticket();
+    await ctx.ticket();
+    // The merged PR counts as no PR, so a follow-up PR in o/b may not be seen yet.
+    expect((await ctx.task()).column).toBe('ready-to-merge');
+    expect((await ctx.why()).holds).toEqual(['github_blind']);
+    expect(await devMoves(ctx)).toBe(before);
+    expect(await ctx.openTurn()).toEqual(operatorTurn);
+    await ctx.repo('o/b');
+    expect((await ctx.task()).column).toBe('dev');
+    expect(await ctx.openTurn()).toEqual(turnOf('dev', 'worker', NOTE));
   });
 
   it('a hand-added task outside the filter goes back to Dev once its ticket is seen open past the interval', async () => {
