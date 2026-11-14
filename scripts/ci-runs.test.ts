@@ -57,6 +57,18 @@ describe('edit runs in ci.yml', () => {
       (jobs[id]?.if ?? '').includes(GUARD),
     );
     expect(guarded).toEqual([...EDIT_SKIPPED]);
+    // A new code job must carry the guard and join EDIT_SKIPPED; only these ids run on an edit
+    // or never run on a pull request.
+    const unguarded = new Set([
+      'pr-title',
+      'guardrails',
+      'ci-ok',
+      'release',
+      'release-build',
+      'release-smoke',
+    ]);
+    const codeJobIds = jobIdsFromWorkflow(workflow).filter((id) => !unguarded.has(id));
+    expect(codeJobIds).toEqual(guarded);
     for (const id of guarded) expect(jobs[id]?.if?.startsWith(GUARD), id).toBe(true);
     for (const id of ['pr-title', 'guardrails', 'ci-ok']) {
       expect(jobs[id]?.if ?? '', id).not.toContain('edited');
