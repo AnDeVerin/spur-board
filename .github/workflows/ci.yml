@@ -15,8 +15,32 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' && github.event.action != 'edited' }}
 
 jobs:
+  # On a PR edit, names the code run of this PR that tested this run's merge commit; the code jobs
+  # skip when it finds one and run otherwise. Installs nothing, so the token stays read-only.
+  reuse:
+    if: github.event_name == 'pull_request' && github.event.action == 'edited'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      code-run: ${{ steps.reuse.outputs.code-run }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 26
+      - id: reuse
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/ci.ts reuse
+
   changes:
-    if: github.event.action != 'edited'
+    needs: reuse
+    if: ${{ !cancelled() && needs.reuse.outputs.code-run == '' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -31,6 +55,9 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 2
+      # The jobs API lists the evaluated name; reuse matches it against an edit run's merge commit.
+      - name: Revision ${{ github.sha }}
+        run: git rev-parse HEAD
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -74,7 +101,8 @@ jobs:
       - run: pnpm guardrails
 
   secrets:
-    if: github.event.action != 'edited'
+    needs: reuse
+    if: ${{ !cancelled() && needs.reuse.outputs.code-run == '' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -102,7 +130,7 @@ jobs:
 
   workflows:
     needs: changes
-    if: github.event.action != 'edited' && needs.changes.outputs.github == 'true'
+    if: ${{ !cancelled() && needs.changes.result == 'success' && needs.changes.outputs.github == 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -119,7 +147,8 @@ jobs:
           args: --offline .github/workflows
 
   quality:
-    if: github.event.action != 'edited'
+    needs: reuse
+    if: ${{ !cancelled() && needs.reuse.outputs.code-run == '' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -141,7 +170,8 @@ jobs:
       - run: pnpm check:full --only format,lint,types,knip,agents
 
   test:
-    if: github.event.action != 'edited'
+    needs: reuse
+    if: ${{ !cancelled() && needs.reuse.outputs.code-run == '' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -169,7 +199,8 @@ jobs:
           retention-days: 7
 
   stand:
-    if: github.event.action != 'edited'
+    needs: reuse
+    if: ${{ !cancelled() && needs.reuse.outputs.code-run == '' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -198,7 +229,7 @@ jobs:
 
   package-smoke:
     needs: changes
-    if: github.event.action != 'edited' && (github.event_name != 'pull_request' || needs.changes.outputs.package == 'true')
+    if: ${{ !cancelled() && needs.changes.result == 'success' && (github.event_name != 'pull_request' || needs.changes.outputs.package == 'true') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     permissions:
@@ -297,6 +328,7 @@ jobs:
     if: always()
     needs:
       [
+        reuse,
         changes,
         pr-title,
         guardrails,
@@ -326,13 +358,12 @@ jobs:
           node-version: 26
       # Report only: writes the test and stand wall time to the summary, never fails ci-ok.
       - name: Compare test and stand wall time
-        if: github.event.action != 'edited'
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
         run: node scripts/ci.ts timing
-      # On a PR edit only pr-title and guardrails run; ci.ts judges the code jobs of the newest
-      # code run on the head commit through the Actions API.
+      # On a PR edit where reuse named a code run, the code jobs skip; ci.ts judges that run's code
+      # jobs and recorded revision through the Actions API. Otherwise this run's own jobs decide.
       - env:
           NEEDS: ${{ toJSON(needs) }}
           GH_TOKEN: ${{ github.token }}
