@@ -80,11 +80,10 @@ async function commentById(trx: Trx, id: string): Promise<Comment | undefined> {
 
 /** The notification a ring ID `N<notification>[-<ring>]` names; the ring part is ignored. */
 async function notificationByRingId(trx: Trx, id: string): Promise<Notification | undefined> {
-  const notification = Number(/^N(\d+)/.exec(id)?.[1]);
   return trx
     .selectFrom('notification')
     .selectAll()
-    .where('id', '=', notification)
+    .where('id', '=', Number.parseInt(id.slice(1), 10))
     .executeTakeFirst();
 }
 
@@ -947,28 +946,26 @@ export function createBlockMutations(config: Config) {
     for (const row of rows) {
       if (await notificationAddressedTo(trx, row, ctx.actor, config)) addressed.add(row.id);
     }
-    let wrote = false;
     const answered = new Set<number>();
     for (const row of rows) {
-      if (row.kind !== 'answer' || row.acked_at !== null || row.comment_id === null) continue;
-      if (addressed.has(row.id)) answered.add(row.comment_id);
+      const unreadAnswer = row.kind === 'answer' && row.acked_at === null;
+      if (unreadAnswer && row.comment_id !== null && addressed.has(row.id))
+        answered.add(row.comment_id);
     }
     for (const answer of answered) {
       const comment = found(await commentById(trx, commentId(answer)));
       await ackComment(trx, comment, comment.revision, ctx);
-      wrote = true;
     }
     const unread = rows.find((row) => row.kind === 'block' && row.acked_at === null);
-    if (unread !== undefined && addressed.has(unread.id)) {
+    const readsBlock = unread !== undefined && addressed.has(unread.id);
+    if (readsBlock)
       await acknowledgeNotification(trx, {
         blockId: id,
         actor: ctx.actor,
         at: new Date(ctx.at),
         config,
       });
-      wrote = true;
-    }
-    if (wrote) return 'acked';
+    if (answered.size > 0 || readsBlock) return 'acked';
     if (addressed.size > 0) return 'handled';
     if (unread !== undefined)
       throw new CommandError('forbidden', 'Only the addressed task role can acknowledge.');
