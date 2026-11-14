@@ -925,16 +925,22 @@ async function session(
   }
 }
 
-/** The PRs of a GitHub source's repo that still have an unbanned link, one per ref key. */
+/**
+ * The PRs of a GitHub source's repo that still have an unbanned link to a task that is not
+ * archived, one per ref key. A PR linked only to archived tasks is not polled; restoring the
+ * task brings it back on the next poll. `out_of_filter` tasks keep their PRs.
+ */
 async function linkedPrs(db: Trx, source: string): Promise<PrEntityRef[]> {
   if (!source.startsWith('github:')) return [];
   const repo = source.slice(source.lastIndexOf(':') + 1);
   const links = await db
     .selectFrom('link')
-    .select(['repo', 'number'])
-    .where('entity', '=', 'pr')
-    .where(sql<boolean>`lower(repo) = ${repo.toLowerCase()}`)
-    .where('banned', '=', 0)
+    .innerJoin('task', 'task.id', 'link.task_id')
+    .select(['link.repo', 'link.number'])
+    .where('link.entity', '=', 'pr')
+    .where(sql<boolean>`lower(link.repo) = ${repo.toLowerCase()}`)
+    .where('link.banned', '=', 0)
+    .where('task.membership', '!=', 'archived')
     .execute();
   const prs = links.flatMap((link) =>
     link.repo === null || link.number === null
@@ -1181,7 +1187,9 @@ export function createObservationCore(deps: {
             await holdContinuation(trx, source, item);
           } else await session(trx, config, item.facts, batch.observedAt, source, ambiguous);
         }
-        // A held history outlives no unbanned link: a discovered PR left unlinked drops it here.
+        // A held history outlives no unbanned link to a task that is not archived: a discovered
+        // PR left unlinked drops it here, and so, on purpose, does a PR whose only links are on
+        // archived tasks. A restored task's PR reads its history again on the next poll.
         const linked = (await linkedPrs(trx, source)).map(refKey);
         await trx
           .deleteFrom('pr_continuation')

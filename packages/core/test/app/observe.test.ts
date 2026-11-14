@@ -1943,6 +1943,115 @@ describe('accepted observation', () => {
     ]);
     expect('feedbackCursors' in (await core.context(source))).toBe(false);
   });
+
+  describe('PRs of archived tasks', () => {
+    const github = 'github:board:o/r';
+    const pr = (number: number) => ({ kind: 'pr' as const, repo: 'o/r', number });
+    /** The polled PR numbers in ascending order; `linkedPrs` promises no order. */
+    async function polled(core: ReturnType<typeof setup>['core']) {
+      const { prs } = (await core.context(github)).observe;
+      return [...prs].sort((left, right) => left.number - right.number);
+    }
+    async function linkPrs(
+      store: Store,
+      links: readonly { task: number; number: number; state?: 'active' | 'conflict' }[],
+    ): Promise<void> {
+      await store.db
+        .insertInto('link')
+        .values(
+          links.map((link) => ({
+            task_id: link.task,
+            entity: 'pr' as const,
+            repo: 'o/r',
+            number: link.number,
+            pr_state: link.state ?? 'active',
+            pr_open: 1 as const,
+            session_id: null,
+            role: null,
+            source: 'manual' as const,
+            ticket_key: null,
+            created_at: at,
+          })),
+        )
+        .execute();
+    }
+    async function archivedSetup() {
+      const env = setup();
+      await env.apply(env.mutations.add, { task: 'o/r#9' }, 'operator');
+      await env.apply(env.mutations.add, { task: 'o/r#10' }, 'operator');
+      await linkPrs(env.store, [
+        { task: 1, number: 5 },
+        { task: 2, number: 6 },
+        { task: 1, number: 8, state: 'conflict' },
+        { task: 2, number: 8, state: 'conflict' },
+      ]);
+      await env.apply(env.mutations.archive, { task: 'o/r#10' }, 'operator');
+      return env;
+    }
+
+    it('leaves out a PR linked only to archived tasks and keeps one also linked to an active task', async () => {
+      const { core } = await archivedSetup();
+
+      expect(await polled(core)).toEqual([pr(5), pr(8)]);
+    });
+
+    it('polls the PR of a restored task again on the next context', async () => {
+      const { core, apply, mutations } = await archivedSetup();
+      await apply(mutations.add, { task: 'o/r#10' }, 'operator');
+
+      expect(await polled(core)).toEqual([pr(5), pr(6), pr(8)]);
+    });
+
+    it('keeps the PR of an out-of-filter task', async () => {
+      const { store, core } = await archivedSetup();
+      await store.db
+        .updateTable('task')
+        .set({ membership: 'out_of_filter' })
+        .where('id', '=', 1)
+        .execute();
+
+      expect(await polled(core)).toEqual([pr(5), pr(8)]);
+    });
+
+    it('links no discovered PR of an archived task, with or without its earlier link', async () => {
+      for (const linked of [false, true]) {
+        const { store, core, apply, mutations } = setup();
+        await apply(mutations.add, { task: 'o/r#9' }, 'operator');
+        if (linked) await linkPrs(store, [{ task: 1, number: 7 }]);
+        await apply(mutations.archive, { task: 'o/r#9' }, 'operator');
+        const before = await store.db
+          .selectFrom('event')
+          .select(({ fn }) => fn.max('id').as('id'))
+          .executeTakeFirstOrThrow();
+        const links = await store.db.selectFrom('link').selectAll().execute();
+
+        await core.observe(github, {
+          batch: {
+            source: github,
+            observedAt: at,
+            complete: true,
+            items: [{ kind: 'pr', facts: { ...prFact(), headBranch: 'o/r#9-work' } }],
+            entities: [],
+          },
+          effectiveComplete: true,
+          state: { lastCompleteAt: at, gone: [] },
+          outcomes: [],
+        });
+
+        expect(await store.db.selectFrom('link').selectAll().execute()).toEqual(links);
+        expect(await store.db.selectFrom('task').select(['key', 'membership']).execute()).toEqual([
+          { key: 'o/r#9', membership: 'archived' },
+        ]);
+        const added = await store.db
+          .selectFrom('event')
+          .select('kind')
+          .where('id', '>', before.id)
+          .where('kind', 'in', ['link_added', 'task_added'])
+          .execute();
+        expect(added).toEqual([]);
+      }
+    });
+  });
 });
 
 describe('held comment history (A10)', () => {
@@ -2043,6 +2152,29 @@ describe('held comment history (A10)', () => {
       outcomes: [],
     });
     expect(await store.db.selectFrom('pr_continuation').selectAll().execute()).toEqual([]);
+  });
+
+  it('drops the held history of a PR whose only link is on an archived task', async () => {
+    const { store, core, apply, mutations } = await linkedSetup();
+    await observePr(core, {
+      kind: 'pr',
+      facts: { ...prFact(), feedback: [comment('c-1')] },
+      continuation: { resume: resume('p1') },
+    });
+    expect(await store.db.selectFrom('pr_continuation').select('ref_key').execute()).toEqual([
+      { ref_key: 'pr:o/r#7' },
+    ]);
+    await apply(mutations.archive, { task: 'o/r#9' }, 'operator');
+
+    await core.observe(github, {
+      batch: { source: github, observedAt: at, complete: true, items: [], entities: [] },
+      effectiveComplete: true,
+      state: { lastCompleteAt: at, gone: [] },
+      outcomes: [],
+    });
+
+    expect(await store.db.selectFrom('pr_continuation').selectAll().execute()).toEqual([]);
+    expect('continuations' in (await core.context(github))).toBe(false);
   });
 
   it('skips an unreadable held history row', async () => {
