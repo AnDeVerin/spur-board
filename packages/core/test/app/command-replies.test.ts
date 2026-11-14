@@ -43,6 +43,28 @@ describe('commandReply', () => {
       { task: 'PROJ-123' },
     );
     expect(task.cliHint).toBe('board task PROJ-123');
+    expect(task.body.slice(0, 2)).toEqual([
+      {
+        kind: 'paragraph',
+        children: [{ kind: 'text', text: 'Task PROJ-123: dev (active)' }],
+      },
+      {
+        kind: 'paragraph',
+        children: [
+          {
+            kind: 'text',
+            text: 'Turn T3 (dev, worker), opened 2026-01-05T09:30:00.000Z: not acked.',
+          },
+        ],
+      },
+    ]);
+    expect(
+      commandReply(
+        'task.get',
+        { ...taskOperation.examples[0].output, turn: null },
+        { task: 'PROJ-123' },
+      ).body[1],
+    ).toEqual({ kind: 'paragraph', children: [{ kind: 'text', text: 'No open turn.' }] });
     expect(task.body).toContainEqual({
       kind: 'paragraph',
       children: [{ kind: 'text', text: 'Block B12 (open, needs_input):' }],
@@ -87,7 +109,7 @@ describe('commandReply', () => {
       kind: 'paragraph',
       children: [{ kind: 'text', text: value }],
     });
-    expect(reply.body.slice(1, 4)).toEqual([
+    expect(reply.body.slice(2, 5)).toEqual([
       text('Pull request o/r#7: merged'),
       text('Pull request o/r#8: open'),
       text('Pull request o/r#9: not observed yet'),
@@ -233,7 +255,9 @@ describe('commandReply', () => {
       text('review: review_on_head failed (no_review_on_head)'),
       text('Gates passing: todo, dev, done.'),
       text('The review gate is blocked at review.'),
-      text('Turn T4 (review, orchestrator:review): taken by agent:rev/rev-1.'),
+      text(
+        'Turn T4 (review, orchestrator:review), opened 2026-01-05T09:30:00.000Z: acked by agent:rev/rev-1 at 2026-01-05T09:30:00.000Z.',
+      ),
       text('Open block B12 (needs_input):'),
       quoted('Which API version?'),
       text('2026-01-05T09:30:00.000Z: dev to review (gate_passed)'),

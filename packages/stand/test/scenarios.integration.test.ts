@@ -234,7 +234,7 @@ describe('scenario manifest', () => {
 });
 
 describe('scenarios', () => {
-  it('lists twenty-seven scenarios, each with a seed and a settled check', () => {
+  it('lists twenty-eight scenarios, each with a seed and a settled check', () => {
     expect(scenarioNames()).toEqual([
       'empty',
       'columns-basic',
@@ -263,6 +263,7 @@ describe('scenarios', () => {
       'dispatch-cycle-limit',
       'dispatch-course-check',
       'dispatch-long-comment-history',
+      'dispatch-turn-view',
     ]);
     for (const scenario of SCENARIOS) {
       expect(typeof scenario.seed, scenario.name).toBe('function');
@@ -1153,6 +1154,69 @@ describe('dispatcher scenarios', () => {
         ['review', 'ready-to-merge', 'gate_passed'],
         ['ready-to-merge', 'done', 'merged'],
       ]);
+    },
+    TIMEOUT,
+  );
+
+  it(
+    'dispatch-turn-view: board task shows the Dev turn unacked, then its ack time, then closed as submitted under detail',
+    async () => {
+      interface TaskTurn {
+        id: string;
+        column: string;
+        addressee: string;
+        at: string;
+        taken: { by: string; at: string } | null;
+        closed: { at: string; outcome: string } | null;
+      }
+      interface TaskGet {
+        turn: TaskTurn | null;
+        turns?: TaskTurn[];
+      }
+      const task = (detail?: boolean) =>
+        op<TaskGet>(current(), 'task.get', {
+          task: ISSUE,
+          ...(detail === undefined ? {} : { detail }),
+        });
+      await up();
+      await seed('dispatch-turn-view');
+      const unacked = await task();
+      expect(unacked.turn).toMatchObject({
+        id: 'T1',
+        column: 'dev',
+        addressee: 'worker',
+        taken: null,
+        closed: null,
+      });
+      expect(unacked).not.toHaveProperty('turns');
+
+      await ack(as('worker'), 'T1');
+      const acked = await task();
+      expect(acked.turn).toMatchObject({
+        id: 'T1',
+        taken: {
+          by: expect.stringContaining(`/${as('worker')}`) as unknown,
+          at: expect.any(String) as unknown,
+        },
+      });
+
+      await github('create', { seed: { headRefOid: A } });
+      await github('ci-green');
+      await poll();
+      expect((await submit(as('worker'), 'T1', A)).task.column).toBe('review');
+      const detail = await task(true);
+      expect(detail.turns).toEqual([
+        expect.objectContaining({
+          id: 'T1',
+          column: 'dev',
+          closed: expect.objectContaining({ outcome: 'submitted' }) as unknown,
+        }),
+      ]);
+      expect(detail.turn).toMatchObject({
+        column: 'review',
+        addressee: 'orchestrator:review',
+        closed: null,
+      });
     },
     TIMEOUT,
   );

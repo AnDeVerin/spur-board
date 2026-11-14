@@ -64,6 +64,23 @@ export type SessionEndReason = (typeof SESSION_END_REASONS)[number];
 export const DISPATCHER_MODES = ['shadow', 'on'] as const;
 export type DispatcherMode = (typeof DISPATCHER_MODES)[number];
 
+/**
+ * How a turn closed: `submitted` by the executor's submit, `returned` by `task.return`, `moved`
+ * when the task moved on (it also covers returns and mode switches recorded by older versions),
+ * `corrected` by the operator's column correction, `rerouted` to another executor,
+ * `mode_changed` by a dispatcher mode switch, `archived` with the task.
+ */
+export const TURN_OUTCOMES = [
+  'submitted',
+  'returned',
+  'moved',
+  'corrected',
+  'rerouted',
+  'mode_changed',
+  'archived',
+] as const;
+export type TurnOutcome = (typeof TURN_OUTCOMES)[number];
+
 /** The exit conditions of the column gates, as `board task --why` names them. */
 export const GATE_CONDITIONS = [
   'pr_open',

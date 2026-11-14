@@ -36,6 +36,7 @@ import { questionToOperator } from './question-to-operator.ts';
 import { sourceBlind, sourceBlindJira } from './source-blind.ts';
 import { spurSourceSilent } from './spur-source-silent.ts';
 import { tokenApproval } from './token-approval.ts';
+import { dispatchTurnView } from './turn-view.ts';
 import { workerKilledNoPr, workerKilledNoPrJira } from './worker-killed-no-pr.ts';
 
 /** How often `until` and `wait` look again. */
@@ -156,6 +157,7 @@ export const SCENARIOS: readonly Scenario[] = [
   dispatchCycleLimit,
   dispatchCourseCheck,
   dispatchLongCommentHistory,
+  dispatchTurnView,
 ];
 
 export const scenarioNames = (scenarios: readonly Scenario[] = SCENARIOS): string[] =>

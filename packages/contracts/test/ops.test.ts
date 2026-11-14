@@ -107,6 +107,7 @@ describe('catalog', () => {
     expect(
       operation.output.safeParse({
         task: { key: 'PROJ-123', project: 'web', column: 'dev', membership: 'active' },
+        turn: null,
         links: [{ kind: 'ticket', ref: 'PROJ-456', role: null }],
         blocks: [],
         comments: [],
