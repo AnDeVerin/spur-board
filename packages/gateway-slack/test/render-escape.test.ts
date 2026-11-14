@@ -13,7 +13,7 @@ import { body, closeFakes, request, setup } from './support/deliver.ts';
 
 afterEach(closeFakes);
 
-/** Each title, how mrkdwn shows it, and its `&<>` entities alone (code and the respond fallback). */
+/** Each title, how mrkdwn shows it, and its `&<>` entities alone (code block, code after its backtick swap, respond fallback). */
 const titles = [
   ['a < b', 'a &lt; b', 'a &lt; b'],
   ['a > b', 'a &gt; b', 'a &gt; b'],
@@ -21,6 +21,7 @@ const titles = [
   ['<!channel>', '&lt;!channel&gt;', '&lt;!channel&gt;'],
   ['<@U123>', '&lt;@U123&gt;', '&lt;@U123&gt;'],
   ['*bold*', '∗bold∗', '*bold*'],
+  ['a `b` c', 'a ´b´ c', 'a `b` c'],
 ] as const;
 
 const operator = userIdSchema.parse('U1');
@@ -75,7 +76,10 @@ const paragraph = (child: RichTextInline): RichText => [{ kind: 'paragraph', chi
 const kindCases = {
   text: (title, shown) => [paragraph({ kind: 'text', text: title }), shown],
   emphasis: (title, shown) => [paragraph({ kind: 'emphasis', text: title }), `*${shown}*`],
-  code: (title, _shown, entities) => [paragraph({ kind: 'code', text: title }), `\`${entities}\``],
+  code: (title, _shown, entities) => [
+    paragraph({ kind: 'code', text: title }),
+    `\`${entities.replaceAll('`', '´')}\``,
+  ],
   strike: (title, shown) => [paragraph({ kind: 'strike', text: title }), `~${shown}~`],
   italic: (title, shown) => [paragraph({ kind: 'italic', text: title }), `_${shown}_`],
   link: (title, shown) => [
@@ -345,6 +349,12 @@ describe('outside text stays literal', () => {
     ['a path', paragraph({ kind: 'text', text: '/srv/_config.yml' }), '/srv/ˍconfig.yml'],
     ['marks in italic', paragraph({ kind: 'italic', text: '_*x*_' }), '_ˍ∗x∗ˍ_'],
     ['stars in emphasis', paragraph({ kind: 'emphasis', text: 'a*b' }), '*a∗b*'],
+    ['backticks inside a word', paragraph({ kind: 'text', text: 'x`y`z' }), 'x´y´z'],
+    [
+      'a backtick in a bare URL',
+      paragraph({ kind: 'text', text: 'https://e.test/`a`' }),
+      'https://e.test/´a´',
+    ],
   ] satisfies [string, RichText, string][])('renders %s', (_name, rich, expected) => {
     expect(renderText(rich)).toBe(expected);
   });

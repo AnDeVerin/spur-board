@@ -95,8 +95,8 @@ function lines(value: Mrkdwn): Mrkdwn[] {
   return value.split('\n') as Mrkdwn[];
 }
 
-const lookalikes = { '*': '∗', _: 'ˍ', '~': '∼' } as const;
-type Mark = keyof typeof lookalikes;
+const lookalikes = { '*': '∗', _: 'ˍ', '~': '∼', '`': '´' } as const;
+type Mark = Exclude<keyof typeof lookalikes, '`'>;
 const urlRun = /https?:\/\/\S+/g;
 const wordChar = /[\p{L}\p{N}]/u;
 
@@ -106,13 +106,15 @@ const wordChar = /[\p{L}\p{N}]/u;
  * is the span's mark and is always swapped. Marks inside `https?://` runs stay so Slack still
  * links the URL. Neighbours are read from the original text: `ˍ` is a letter (Lm). A mark at a
  * word edge changes copied bytes: `__init__` shows `ˍˍinitˍˍ`, `/srv/_config.yml` shows
- * `/srv/ˍconfig.yml`.
+ * `/srv/ˍconfig.yml`. Every backtick is swapped, inside words and URLs too: Slack pairs
+ * backticks across words into code, which hides them.
  */
 function neutralize(text: string, own?: Mark): string {
   const urls = [...text.matchAll(urlRun)].map(
     (match) => [match.index, match.index + match[0].length] as const,
   );
-  return text.replace(/[*_~]/g, (found: string, index: number) => {
+  return text.replace(/[*_~`]/g, (found: string, index: number) => {
+    if (found === '`') return lookalikes['`'];
     const mark = found as Mark;
     if (mark === own) return lookalikes[mark];
     if (urls.some(([start, end]) => start <= index && index < end)) return mark;
@@ -144,7 +146,7 @@ function inline(value: RichTextInline): Mrkdwn {
     case 'emphasis':
       return markup`*${escapeText(neutralize(value.text, '*'))}*`;
     case 'code':
-      return markup`\`${escapeText(value.text.replaceAll('`', '´'))}\``;
+      return markup`\`${escapeText(value.text.replaceAll('`', lookalikes['`']))}\``;
     case 'strike':
       return perLine(neutralize(value.text, '~'), (line) => markup`~${line}~`);
     case 'italic':
