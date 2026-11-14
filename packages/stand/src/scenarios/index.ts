@@ -19,6 +19,7 @@ import {
   dispatchConflictInReadyToMerge,
   dispatchConflictInReview,
   dispatchCiRedAfterSubmit,
+  dispatchCourseCheck,
   dispatchCycleLimit,
   dispatchDeadExecutor,
   dispatchExternalComment,
@@ -149,6 +150,7 @@ export const SCENARIOS: readonly Scenario[] = [
   dispatchDeadExecutor,
   dispatchSourceBlind,
   dispatchCycleLimit,
+  dispatchCourseCheck,
   dispatchLongCommentHistory,
 ];
 

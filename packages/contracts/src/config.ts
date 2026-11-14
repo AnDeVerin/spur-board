@@ -198,6 +198,7 @@ const spurProject = z.strictObject({
 });
 
 const DEFAULT_CYCLE_LIMIT = 10;
+const DEFAULT_COURSE_CHECK = 3;
 
 const columnConfig = z.strictObject({
   id: z
@@ -225,6 +226,13 @@ const columnConfig = z.strictObject({
     .default(DEFAULT_CYCLE_LIMIT)
     .describe(
       'How many times a task may return to Dev from this column before the board stops it for the operator. Returns by the column executor, changes requested and external comments count; a conflict, red CI and a draft do not.',
+    ),
+  courseCheck: z
+    .int()
+    .min(0)
+    .default(DEFAULT_COURSE_CHECK)
+    .describe(
+      'How many returns to Dev from this column, counted as for cycleLimit, before the board holds the task and asks the curator, or the operator when the project has no curator, to check its course. The answer resets the count and reaches the worker as a task comment. 0 turns the check off; cycleLimit is checked first.',
     ),
 });
 
@@ -360,6 +368,7 @@ const projectSchema = z
           enabled: true,
           orchestrator: 'none',
           cycleLimit: DEFAULT_CYCLE_LIMIT,
+          courseCheck: DEFAULT_COURSE_CHECK,
         })),
       )
       .describe(
@@ -371,7 +380,7 @@ const projectSchema = z
           .enum(DISPATCHER_MODES)
           .default('shadow')
           .describe(
-            'shadow: the board evaluates the column gates and records where each task would go in its shadow column, and opens no turn, doorbell or block; the column executor submits with the task key. on: the board moves the task between columns, hands the column executor a turn and raises the cycle-limit block.',
+            'shadow: the board evaluates the column gates and records where each task would go in its shadow column, and opens no turn, doorbell or block; the column executor submits with the task key. on: the board moves the task between columns, hands the column executor a turn, and raises the cycle-limit and course-check blocks.',
           ),
       })
       .prefault({})

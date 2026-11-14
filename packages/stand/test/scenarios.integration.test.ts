@@ -234,7 +234,7 @@ describe('scenario manifest', () => {
 });
 
 describe('scenarios', () => {
-  it('lists twenty-four scenarios, each with a seed and a settled check', () => {
+  it('lists twenty-five scenarios, each with a seed and a settled check', () => {
     expect(scenarioNames()).toEqual([
       'empty',
       'columns-basic',
@@ -259,6 +259,7 @@ describe('scenarios', () => {
       'dispatch-dead-executor',
       'dispatch-source-blind',
       'dispatch-cycle-limit',
+      'dispatch-course-check',
       'dispatch-long-comment-history',
     ]);
     for (const scenario of SCENARIOS) {
@@ -991,7 +992,7 @@ describe('dispatcher scenarios', () => {
     expect(response.status, JSON.stringify(body)).toBe(200);
     return body.value;
   }
-  const as = (role: 'worker' | 'orchestrator') => current().roles[role];
+  const as = (role: 'worker' | 'orchestrator' | 'curator') => current().roles[role];
   const github = (verb: string, args: object = {}) =>
     ok(current(), '/fake', {
       system: 'github',
@@ -1376,6 +1377,37 @@ describe('dispatcher scenarios', () => {
         column: 'dev',
         reason: 'dev: no_submit_on_head',
       });
+    },
+    TIMEOUT,
+  );
+
+  it(
+    "dispatch-course-check: the curator's answer opens the Dev turn with the note",
+    async () => {
+      await up();
+      const { scenario } = await seed('dispatch-course-check');
+      expect(configText(current())).toContain(
+        "# Scenario dispatch-course-check sets the stand project's Spur projects here.\n",
+      );
+      const block = scenario.blocks?.['course'];
+      const key = scenario.items?.['course'];
+      expect(key).toMatch(/^course-check:\d+:review$/);
+      if (block === undefined) throw new Error('no course block');
+      const note = 'Keep the parser as it is and finish the empty-list case.';
+      await sessionOp(as('curator'), 'block.answer', { block, text: note }, randomUUID());
+      await poll();
+      expect(await mustTurn(as('worker'))).toMatchObject({
+        column: 'dev',
+        reason: 'dev: no_submit_on_head',
+      });
+      const { comments } = await sessionOp<{ comments: { block: string | null; text: string }[] }>(
+        as('worker'),
+        'inbox.get',
+      );
+      expect(comments).toEqual(
+        expect.arrayContaining([expect.objectContaining({ block: null, text: note })]),
+      );
+      expect((await status(current())).items.map((item) => item.key)).not.toContain(key);
     },
     TIMEOUT,
   );
