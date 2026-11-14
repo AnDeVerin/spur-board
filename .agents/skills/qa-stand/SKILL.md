@@ -19,8 +19,8 @@ A stand is a disposable board with fake Slack, Spur and GitHub APIs (`docs/qa-st
 - Check the stand with `pnpm stand status` and read its logs with `pnpm stand logs`.
 - `pnpm stand down` stops the process group and removes the home; capture evidence first
   (`qa-report`).
-- `up` and `down` prune dead stands. `pnpm stand down` every stand you started, on pass, fail or
-  error; check with `pnpm stand status` that none is left.
+- `up` prunes dead stands; `down` acts on one stand. `pnpm stand down` every stand you started,
+  on pass, fail or error; check with `pnpm stand status` that none is left.
 - A sidecar runs `pnpm stand up --foreground` (`docs/qa-stand.md`).
 
 ## Roles
