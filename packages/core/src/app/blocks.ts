@@ -371,7 +371,8 @@ export async function openSystemBlock(
  * Copies the answer to a course check to the task as a comment without a block, so the worker
  * reads it in its inbox: the close reason, else `answer`, else the closing actor's newest comment
  * on the block. A copied comment is named in the copy's `comment_added`, so its edits reach the
- * copy.
+ * copy. The copy rings the worker, ahead of its other rings on the task (`course_note`). Returns
+ * the copy, or undefined when there is no answer to copy.
  */
 async function forwardCourseNote(
   trx: Trx,
@@ -380,22 +381,23 @@ async function forwardCourseNote(
   ctx: CommandContext,
   reason: string | null,
   given: Comment | undefined,
-): Promise<void> {
-  if (reason !== null) {
-    await insertComment(trx, task, null, reason, ctx, 'worker');
-    return;
-  }
+): Promise<Comment | undefined> {
   const answer =
-    given ??
-    (await trx
-      .selectFrom('comment')
-      .select(['id', 'text'])
-      .where('block_id', '=', block.id)
-      .where('author', '=', ctx.actor)
-      .orderBy('id', 'desc')
-      .executeTakeFirst());
-  if (answer === undefined) return;
-  await insertComment(trx, task, null, answer.text, ctx, 'worker', undefined, answer.id);
+    reason !== null
+      ? undefined
+      : (given ??
+        (await trx
+          .selectFrom('comment')
+          .select(['id', 'text'])
+          .where('block_id', '=', block.id)
+          .where('author', '=', ctx.actor)
+          .orderBy('id', 'desc')
+          .executeTakeFirst()));
+  const text = reason ?? answer?.text;
+  if (text === undefined) return undefined;
+  const copy = await insertComment(trx, task, null, text, ctx, 'worker', undefined, answer?.id);
+  await applyDoorbellPolicy(trx, { kind: 'course_note', block, comment: copy }, new Date(ctx.at));
+  return copy;
 }
 
 /** The comments `forwardCourseNote` copied from comment `id`. */
@@ -441,8 +443,9 @@ async function reviseComment(
  * Unblocks one block with its journal entry, thread close, doorbell close and item clears. An
  * operator or agent close of a reconciled ledger block dismisses its item, so the condition
  * raises again only once it changes; a `system` or archive close only clears it. An answer or a
- * close with a reason to a course check also goes to the worker as a task comment; `answer` names
- * the answer when the closing actor also left a note after it.
+ * close with a reason to a course check also goes to the worker as a task comment that rings it
+ * first, before the rings the check held; `answer` names the answer when the closing actor also
+ * left a note after it.
  */
 export async function closeOpenBlock(
   trx: Trx,

@@ -25,7 +25,9 @@ import {
   selectNotificationRecipient,
 } from '../../src/app/doorbells.ts';
 import { curatorSessions } from '../../src/app/doctor.ts';
-import { reconcileItems } from '../../src/app/fromYou.ts';
+import { raiseCourseCheck } from '../../src/app/course-check.ts';
+import { raiseCycleLimit, reconcileItems } from '../../src/app/fromYou.ts';
+import { createItemMutations } from '../../src/app/items.ts';
 import { scanTransaction } from '../../src/app/secrets.ts';
 import { SpurRejectedError } from '../../src/app/sender.ts';
 import { sampleRows } from '../store/sample-rows.ts';
@@ -2056,6 +2058,163 @@ describe('doorbell policy', () => {
       expect((await notices(ctx)).filter((n) => n.kind === 'answer')).toEqual([]);
     },
   );
+});
+
+describe('course-check hold', () => {
+  const CURATOR: ActorId = 'agent:cur/cur-1';
+  const NOTE = 'Split the parser change out first.';
+
+  /** A board with a live curator session; the worker `worker-1` waits. */
+  async function board(): Promise<Board> {
+    const ctx = await setup({ config: policyConfig });
+    await addSession(ctx, 'cur-1', 'cur');
+    return ctx;
+  }
+
+  /** Raises the course check of task `taskId`; returns its item and block IDs. */
+  async function raiseCourse(ctx: Board, taskId = 1) {
+    const item = await scanTransaction(ctx.store, ctx.config, async (trx) => {
+      const task = await trx
+        .selectFrom('task')
+        .selectAll()
+        .where('id', '=', taskId)
+        .executeTakeFirstOrThrow();
+      return raiseCourseCheck(trx, {
+        task,
+        column: 'review',
+        count: 3,
+        at: ctx.now(),
+        config: ctx.config,
+      });
+    });
+    return { item: `I${String(item.id)}`, block: `B${String(item.block_id)}` };
+  }
+
+  /**
+   * Runs `count` doorbell steps `ms` apart. A deferred ring comes due again a second later, so
+   * steps shorter than that let a newer ring overtake one that waited, unless the release moves
+   * the waiting ring to the front.
+   */
+  async function steps(ctx: Board, count: number, ms = 1000): Promise<void> {
+    for (let index = 0; index < count; index += 1) {
+      ctx.advance(ms);
+      await step(ctx);
+    }
+  }
+
+  const workerTexts = (ctx: Board) =>
+    ctx.sent.filter((entry) => entry.session === 'worker-1').map((entry) => entry.text);
+
+  /** The block a ring names: `B<n>` from `<key> block B<n>: ...`. */
+  const ringBlocks = (ctx: Board) =>
+    workerTexts(ctx).map((text) => /block (B\d+):/.exec(text)?.[1] ?? text);
+
+  async function outboxState(ctx: Board, block: string) {
+    const notice = (await notices(ctx)).find(
+      (n) => n.kind === 'block' && n.block_id === Number(block.slice(1)),
+    );
+    const rows = await ctx.store.db
+      .selectFrom('outbox')
+      .select('state')
+      .where('kind', '=', 'doorbell')
+      .where(sql<number>`json_extract(payload, '$.notificationId')`, '=', notice?.id ?? 0)
+      .execute();
+    return rows.map((row) => row.state);
+  }
+
+  /** Queues ring Q, raises the course check, then registers worker block R during it. */
+  async function held(ctx: Board) {
+    const queued = await workerBlock(ctx.store);
+    await ctx.ring();
+    expect(await outboxState(ctx, queued)).toEqual(['pending']);
+    const course = await raiseCourse(ctx);
+    const late = await workerBlock(ctx.store);
+    await steps(ctx, 4);
+    return { queued, course, late };
+  }
+
+  it('holds a queued and a new worker ring while the curator is rung', async () => {
+    const ctx = await board();
+    const { queued, course } = await held(ctx);
+    expect(workerTexts(ctx)).toEqual([]);
+    expect(ctx.sent).toEqual([
+      expect.objectContaining({
+        session: 'cur-1',
+        text: expect.stringContaining(`block ${course.block}:`) as unknown,
+      }),
+    ]);
+    expect(await outboxState(ctx, queued)).toEqual(['pending']);
+    const worker = (await notices(ctx)).filter((n) => n.role === 'worker');
+    expect(worker.map((n) => ({ rings: n.rings, exhausted: n.exhausted_at }))).toEqual([
+      { rings: 0, exhausted: null },
+      { rings: 0, exhausted: null },
+    ]);
+  });
+
+  it('releases the course note first, then the queued ring, then the new one', async () => {
+    const ctx = await board();
+    const { queued, course, late } = await held(ctx);
+    await ctx.apply(ctx.ops.answer, { block: course.block, text: NOTE }, CURATOR, 'answer');
+    await steps(ctx, 12, 250);
+    expect(ringBlocks(ctx)).toEqual([course.block, queued, late]);
+    expect(await outboxState(ctx, queued)).toEqual(['done']);
+  });
+
+  it('keeps the hold through an escalation until the operator answers', async () => {
+    const ctx = await board();
+    const { queued, course, late } = await held(ctx);
+    await ctx.apply(ctx.ops.escalate, { block: course.block }, CURATOR, 'esc');
+    await steps(ctx, 4);
+    expect(workerTexts(ctx)).toEqual([]);
+    await ctx.apply(ctx.ops.answer, { block: course.block, text: NOTE }, 'operator', 'answer');
+    await steps(ctx, 12, 250);
+    expect(ringBlocks(ctx)).toEqual([course.block, queued, late]);
+  });
+
+  it('a cycle-limit item holds no worker ring', async () => {
+    const ctx = await board();
+    await scanTransaction(ctx.store, ctx.config, async (trx) => {
+      const task = await trx.selectFrom('task').selectAll().executeTakeFirstOrThrow();
+      await raiseCycleLimit(trx, { task, column: 'review', at: ctx.now(), config: ctx.config });
+    });
+    await workerBlock(ctx.store);
+    await steps(ctx, 2);
+    expect(sessionsRung(ctx)).toEqual(['worker-1']);
+  });
+
+  it('a course check on another task holds no ring of this one', async () => {
+    const ctx = await board();
+    await ctx.store.transaction(async (trx) => {
+      await trx
+        .insertInto('task')
+        .values({
+          ...sampleRows.task,
+          id: 2,
+          key: 'o/r#102',
+          tracker_id: '102',
+          project: 'proj',
+          membership: 'active',
+          archive_reason: null,
+          column: 'dev',
+        })
+        .execute();
+    });
+    await raiseCourse(ctx, 2);
+    const block = await workerBlock(ctx.store);
+    await steps(ctx, 3);
+    expect(ringBlocks(ctx)).toEqual([block]);
+  });
+
+  it('an item close without a note releases the held ring on the next step', async () => {
+    const ctx = await board();
+    const course = await raiseCourse(ctx);
+    const block = await workerBlock(ctx.store);
+    await steps(ctx, 3);
+    expect(workerTexts(ctx)).toEqual([]);
+    await ctx.apply(createItemMutations({}).close, { item: course.item }, 'operator', 'close');
+    await steps(ctx, 1);
+    expect(ringBlocks(ctx)).toEqual([block]);
+  });
 });
 
 describe('turns', () => {
