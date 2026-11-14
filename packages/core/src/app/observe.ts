@@ -1,6 +1,7 @@
 import { scanTransaction } from './secrets.ts';
 import {
   JIRA_PROJECT_KEY,
+  REF_NUMBER,
   RESERVED_PROJECT,
   entityRefSchema,
   prFactsSchema,
@@ -710,7 +711,7 @@ function branchHasKey(branch: string, key: string): boolean {
 }
 
 /** The Jira task key at the end of a session's `/browse/` link. */
-const BROWSE_KEY = new RegExp(`/browse/(${JIRA_PROJECT_KEY}-[1-9]\\d*)$`);
+const BROWSE_KEY = new RegExp(`/browse/(${JIRA_PROJECT_KEY}-${REF_NUMBER})$`);
 
 async function session(
   trx: Trx,
