@@ -47,7 +47,11 @@ beforeEach(() => {
     controlUrl: 'http://127.0.0.1:4791',
     controlToken: 'control',
     tokenPath,
-    roles: { worker: 'stand-worker-0a1b2c', orchestrator: 'stand-qa-3d4e5f' },
+    roles: {
+      worker: 'stand-worker-0a1b2c',
+      orchestrator: 'stand-qa-3d4e5f',
+      curator: 'stand-curator-6a7b8c',
+    },
   };
 });
 
@@ -79,6 +83,7 @@ describe('roleEnv', () => {
   it.each([
     ['worker', 'stand-worker-0a1b2c'],
     ['orchestrator', 'stand-qa-3d4e5f'],
+    ['curator', 'stand-curator-6a7b8c'],
   ] as const)('gives the %s its session id and no token', (role, session) => {
     const env = roleEnv(manifest, role, BASE);
     expect(env['SPUR_SESSION']).toBe(session);

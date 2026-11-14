@@ -14,6 +14,7 @@ import type { z } from 'zod';
 import type { RouteResult } from '../control.ts';
 import type { StandManifest } from '../manifest.ts';
 import { columnsBasic, columnsBasicJira } from './columns-basic.ts';
+import { curatorAbsent, curatorEscalation, questionToCurator } from './curator.ts';
 import {
   dispatchConflictInReadyToMerge,
   dispatchConflictInReview,
@@ -44,13 +45,13 @@ export type ScenarioEntities = Omit<NonNullable<StandManifest['scenario']>, 'nam
 
 export type Settled = { ok: true } | { ok: false; diagnostics: unknown };
 
-type Role = 'operator' | 'worker' | 'orchestrator';
+type Role = 'operator' | 'worker' | 'orchestrator' | 'curator';
 type Op<Id extends OperationId> = Extract<(typeof OPERATIONS)[number], { id: Id }>;
 type Db = InProcessDaemon['store']['db'];
 
 /** The board as a seed sees it: the public API by role, plus the stand's own poll and checks. */
 export interface Board {
-  /** The stand's role sessions; `worker` and `orchestrator` call with these. */
+  /** The stand's role sessions; `worker`, `orchestrator` and `curator` call with these. */
   readonly roles: StandManifest['roles'];
   /** One operation through `POST /v1/ops/<id>`; a non-2xx answer throws. */
   call<Id extends OperationId>(
@@ -116,7 +117,8 @@ export interface Scenario {
     stand?: {
       columns?: object[];
       dispatcher?: { mode: 'shadow' | 'on' };
-      spurProjects?: object[];
+      /** The full list; the curator scenarios add `stand-curator` as the project's curator. */
+      spurProjects?: { name: string; role: 'worker' | 'operator' | 'curator' }[];
     };
   };
   seed(board: Board, fakes: ScenarioFakes, clock: { now(): number }): Promise<ScenarioEntities>;
@@ -128,6 +130,9 @@ export const SCENARIOS: readonly Scenario[] = [
   empty,
   columnsBasic,
   questionToOperator,
+  questionToCurator,
+  curatorEscalation,
+  curatorAbsent,
   workerKilledNoPr,
   spurSourceSilent,
   sourceBlind,

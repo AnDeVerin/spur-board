@@ -1,7 +1,7 @@
 // The dispatcher flow scenarios: the `stand` project runs `dispatcher.mode: on` on a short board,
 // and each seed stops right after the dispatcher's first decision under test.
 import { randomUUID } from 'node:crypto';
-import { issueKey, openIssues, settledUnless } from './helpers.ts';
+import { issueKey, openIssues, settledUnless, STAND_SPUR_PROJECTS } from './helpers.ts';
 import type { Board, Scenario, ScenarioEntities, ScenarioFakes } from './index.ts';
 
 const REPO = 'stand-org/board';
@@ -16,7 +16,7 @@ const STEP_MS = 15_000;
  */
 const flow = (
   review: { cycleLimit?: number; courseCheck?: number } = {},
-  spurProjects?: object[],
+  spurProjects?: NonNullable<NonNullable<Scenario['config']>['stand']>['spurProjects'],
 ) => ({
   stand: {
     columns: [
@@ -460,10 +460,10 @@ const openBlocks = async (board: Board) =>
 
 export const dispatchCourseCheck: Scenario = {
   name: 'dispatch-course-check',
-  summary: `Review's course check is 1 and stand-qa is also the curator: the conductor's return holds ${ISSUE} in Dev on a curator block, with no turn.`,
+  summary: `Review's course check is 1 and stand-curator is the curator: the conductor's return holds ${ISSUE} in Dev on a curator block, with no turn.`,
   config: flow({ courseCheck: 1 }, [
-    { name: 'stand-worker', role: 'worker' },
-    { name: 'stand-qa', role: 'curator' },
+    ...STAND_SPUR_PROJECTS,
+    { name: 'stand-curator', role: 'curator' },
   ]),
   async seed(board, fakes) {
     const review = await toReview(board, fakes);
