@@ -1502,7 +1502,7 @@ describe('curator doorbells', () => {
         .orderBy('id')
         .execute();
       expect(rows.map((row) => row.state)).toEqual(['dead', 'dead', 'done']);
-      expect(rows[2]?.dedupe_key).toMatch(new RegExp(`:${project}-1:1:m2$`));
+      expect(rows[2]?.dedupe_key).toMatch(new RegExp(`:${project}-1:1:h1$`));
     },
   );
 
@@ -2351,7 +2351,48 @@ describe('course-check hold', () => {
     await steps(ctx, 2);
     const block = await workerBlock(ctx.store);
     await steps(ctx, 4);
-    expect(ringBlocks(ctx)).toEqual([course.block, block]);
+    // The return starts a new series: the note rings worker-1 again under a fresh key.
+    expect(ringBlocks(ctx)).toEqual([course.block, course.block, block]);
+  });
+
+  /**
+   * Retarget sequences of the course note before any of its rings is delivered. A session name
+   * links that worker and runs the doorbell job, which moves the note's queued ring to it; `fail`
+   * runs three steps while every Spur send fails.
+   */
+  it.each([
+    { path: 'A-B-A', moves: ['worker-2', 'worker-1'] },
+    { path: 'A-B-A-B', moves: ['worker-2', 'worker-1', 'worker-2'] },
+    { path: 'A, failed send, B-A', moves: ['fail', 'worker-2', 'worker-1'] },
+    { path: 'A-B, failed send, A', moves: ['worker-2', 'fail', 'worker-1'] },
+    { path: 'A-B-A, failed send', moves: ['worker-2', 'worker-1', 'fail'] },
+  ])('rings the note to the current worker and then the held rings: $path', async ({ moves }) => {
+    const ctx = await board();
+    await addSession(ctx, 'worker-2', 'web');
+    const { queued, course, late } = await held(ctx);
+    await ctx.apply(ctx.ops.answer, { block: course.block, text: NOTE }, CURATOR, 'answer');
+    await ctx.ring();
+    let current = 'worker-1';
+    for (const move of moves) {
+      if (move === 'fail') {
+        ctx.failAlways(true);
+        await steps(ctx, 3);
+        ctx.failAlways(false);
+      } else {
+        current = move;
+        await relink(ctx, move);
+        await ctx.ring();
+      }
+    }
+    expect(ctx.sent).toHaveLength(1);
+    await steps(ctx, 30);
+    const rung = ctx.sent.filter((entry) => entry.session === current);
+    expect(rung.map((entry) => /block (B\d+):/.exec(entry.text)?.[1])).toEqual([
+      course.block,
+      queued,
+      late,
+    ]);
+    expect(sessionsRung(ctx)).toEqual(['cur-1', current, current, current]);
   });
 
   it('keeps the release order when the worker acks the note before its ring', async () => {

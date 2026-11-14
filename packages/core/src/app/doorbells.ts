@@ -942,16 +942,6 @@ export async function reconcileDoorbells(trx: Trx, at: Date, config: Config): Pr
       .where('task_id', '=', n.task_id)
       .where('kind', '=', 'task_archived')
       .executeTakeFirst();
-    // A ring killed by a move keeps its key; the next one to that session needs a new key.
-    const killed = keepsRings
-      ? await trx
-          .selectFrom('outbox')
-          .select((eb) => eb.fn.countAll<number>().as('count'))
-          .where('kind', '=', 'doorbell')
-          .where('state', '=', 'dead')
-          .where(sql<number>`json_extract(payload, '$.notificationId')`, '=', n.id)
-          .executeTakeFirst()
-      : undefined;
     const ring = rings + 1;
     const text = await ringText(trx, n, task, ring);
     const outboxId = await enqueueDoorbell(trx, {
@@ -962,7 +952,6 @@ export async function reconcileDoorbells(trx: Trx, at: Date, config: Config): Pr
       at,
       series: raised?.series ?? 0,
       archives: archived?.count ?? 0,
-      moves: killed?.count ?? 0,
     });
     await trx
       .updateTable('notification')
