@@ -5,21 +5,22 @@
   `scripts/ci.ts`).
 - A code event cancels the older run for the PR; an edit never cancels and waits behind it; main
   and manual runs finish. The PR-number group and `cancel-in-progress` enforce this
-  (`.github/workflows/ci.yml`). A push while a run is in progress leaves the new run pending until
-  the cancelled run's `always()` `ci-ok` ends (15-20 s, longer when runners queue); an edit then
-  drops it and its `ci-ok` fails with no completed code run. A retarget is an edit too. Recover by
-  pushing a new commit; edit the body only after the push run has started.
-- An edit runs only `pr-title`, `guardrails` and `ci-ok`. That `ci-ok` checks this run's title
-  and body results and the code jobs of the newest code run on the head commit, never that run's
-  `ci-ok`. A new job that does not read the title or body carries the edit guard and joins
-  `EDIT_SKIPPED`. To recheck an edit, rerun the edit run: a code run rerun replays its old
-  payload (`scripts/ci-runs.ts`, `scripts/ci-runs.test.ts`, `describe('edit runs in ci.yml',`).
+  (`.github/workflows/ci.yml`). An edit that replaces a pending code run runs the code jobs itself.
+- On an edit, `reuse` looks for this PR's newest code run on the head commit whose `changes` step
+  `Revision <sha>` matches this run's merge commit. When it finds one, the code jobs skip and
+  `ci-ok` judges that run's code jobs plus this run's title and body, never that run's `ci-ok`.
+  Otherwise (base moved, fork PR, nothing found, lookup failed) the edit runs them. A red reused
+  run keeps the edit red: after a cancel or infrastructure failure, rerun the code run's failed
+  jobs and then rerun the whole edit run (not `--failed`); otherwise push a fix. A new code job
+  needs `reuse` with the guard (or `changes` with `needs.changes.result == 'success'`) and joins
+  `CODE_JOBS`. To recheck an edit, rerun the edit run: a code run rerun replays its old payload
+  (`scripts/ci-runs.ts`, `scripts/ci-runs.test.ts`, `describe('reuse gating in ci.yml',`).
 - `ci-ok` writes the test and stand wall time per Node leg to the job summary and warns when stand
   is slower; the step never fails `ci-ok` (`scripts/ci-runs.ts`, `standTiming`).
 - CI `test` and `stand` jobs: `check:full --only test` and `--only stand` (`.github/workflows/ci.yml`).
 - CI `package-smoke` job: `pnpm package:smoke` and `pnpm upgrade:smoke` on PRs, then
   `pnpm update:smoke`; on a PR it runs only when `classifyChanges` in `scripts/ci.ts` marks a
-  package change, and not on an edit. Pushes and dispatches smoke the candidate in `release-smoke`.
+  package change, and on an edit only when `reuse` found no code run. Pushes and dispatches smoke the candidate in `release-smoke`.
 - `.github/workflows/nightly.yml`: runs the published package's `--version`; on failure
   `scripts/nightly.ts` opens or updates one `ci-nightly` issue.
 - Run test, stand and package-smoke jobs on Node 24 and 26; pin workflow actions to commit SHAs and give

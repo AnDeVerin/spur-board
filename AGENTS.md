@@ -200,11 +200,13 @@ variables expanded into commands, and the GitHub API through `curl`.
   cancelled.
 - A cancelled run is not a failure. A cancelled run with a newer run on the same commit is
   superseded and does not count.
-- An edit of the PR title or body runs only `pr-title`, `guardrails` and `ci-ok`. That `ci-ok`
-  checks the new title and body plus the code jobs of the newest code run on the head commit, not
-  that run's `ci-ok`; it does not rerun tests. `ci:status` then reports the edit run, whose
-  `ci-ok` log names the code run. A `no completed code run` line there means a push made while a
-  run was in progress, followed by an edit, dropped the code run: push a new commit.
+- An edit of the PR title or body runs `reuse`, `pr-title`, `guardrails` and `ci-ok`. When
+  `reuse` finds this PR's code run that tested the same merge commit, the code jobs skip and
+  `ci-ok` checks the new title and body plus that run's code jobs, not that run's `ci-ok`.
+  Otherwise the edit runs the code jobs itself. `ci:status` then reports the edit run, whose
+  `reuse` and `ci-ok` logs name the reused run. A red reused run keeps the edit red: after a
+  cancel or infrastructure failure, rerun the code run's failed jobs and then rerun the whole
+  edit run (not `--failed`); otherwise push a fix.
 - A red `ci-ok` follows the other jobs; read the job that failed.
 - Rerun (`gh run rerun <id> --failed`) only a cancelled run or an infrastructure failure.
 - Otherwise reproduce with the printed `repro:` command, fix, and push a new commit.
