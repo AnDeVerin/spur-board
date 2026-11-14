@@ -194,6 +194,15 @@ delivery is wanted. This check appears instead of the four Slack integration che
 Choose a Spur project marked `operator`, or create a named token in a chosen folder and approve
 its request in Slack. A token waiting for approval does not satisfy this check.
 
+### operator.tokens
+
+A warning names approved tokens that need a look; it never blocks. "No token file" means the
+token was created on this machine and its folder, or the `.spur-board/token` file in it, is gone.
+"Unused" means no call has used the token for `operatorAccess.unusedAfterDays` days (default 14),
+counted from its approval when it was never used. Tokens created on another machine get only the
+unused check. Revoke a token nothing uses with `board token revoke <name>`; to keep a token you
+use rarely, raise `operatorAccess.unusedAfterDays` in `config.yaml` and restart the service.
+
 ### curator.sessions
 
 Lists each Board project with its curator and the curator's live session. A warning names the

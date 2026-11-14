@@ -273,6 +273,7 @@ const remoteBaseIds = [
   'spur.api',
   'spur.send',
   'operator.path',
+  'operator.tokens',
   'curator.sessions',
 ] as const;
 const remoteSlackIds = [

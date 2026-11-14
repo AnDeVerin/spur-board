@@ -1,6 +1,15 @@
 import { sampleLinkRules } from '@spur-board/adapters';
 import { SLACK_BOT_SCOPES, requiredSecretKeys, type Config } from '@spur-board/contracts';
-import { curatorSessions, type ApiOptions, type Store } from '@spur-board/core';
+import {
+  curatorSessions,
+  tokenAttention,
+  tokenAttentionLine,
+  type ApiOptions,
+  type Store,
+} from '@spur-board/core';
+import { lstat } from 'node:fs/promises';
+import { hostname } from 'node:os';
+import { join } from 'node:path';
 import type { ModuleContext } from './lifecycle.ts';
 import { spurErrorText, spurSendRequest } from './spur-port.ts';
 
@@ -312,6 +321,34 @@ function warning(id: string, fix: string): Check {
   return { id, status: 'warning', blocking: false, fix };
 }
 
+/**
+ * Whether a token's folder on this host still holds `.spur-board/token` as a regular file. Null
+ * for a token of another host, or when the folder cannot be read for another reason.
+ */
+async function tokenFilePresent(token: { folder: string; host: string }): Promise<boolean | null> {
+  if (token.host !== hostname()) return null;
+  try {
+    return (await lstat(join(token.folder, '.spur-board', 'token'))).isFile();
+  } catch (err) {
+    const code = err instanceof Error && 'code' in err ? err.code : undefined;
+    return code === 'ENOENT' || code === 'ENOTDIR' ? false : null;
+  }
+}
+
+async function operatorTokensCheck(ctx: ModuleContext<Store>, config: Config): Promise<Check> {
+  const days = config.operatorAccess.unusedAfterDays;
+  const attention = await tokenAttention(
+    ctx.store,
+    new Date(ctx.clock.now()),
+    days,
+    tokenFilePresent,
+  );
+  const line = tokenAttentionLine(attention, days);
+  return line === null
+    ? { id: 'operator.tokens', status: 'pass', blocking: false, fix: null }
+    : warning('operator.tokens', line);
+}
+
 async function request(
   ctx: ModuleContext<Store>,
   fetcher: typeof fetch,
@@ -618,6 +655,7 @@ export async function runDaemonDoctor(
       'Configure a Spur project with the operator role or approve a named operator token.',
     ),
   );
+  checks.push(await operatorTokensCheck(ctx, config));
   checks.push(curatorSessionsCheck(await curatorSessions(ctx.store.db, config)));
   return { version: productVersion, checks };
 }

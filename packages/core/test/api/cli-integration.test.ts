@@ -811,7 +811,7 @@ describe('CLI against the real HTTP API', () => {
         ready: () => true,
         clock,
         lookupSession: () => Promise.resolve(null),
-        verifyToken: (token) => verifyOperatorToken(store, token),
+        verifyToken: (token) => verifyOperatorToken(store, token, new Date(now), () => {}),
         registry: {},
         logRequest: () => {},
       });

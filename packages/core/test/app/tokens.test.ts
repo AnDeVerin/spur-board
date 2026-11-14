@@ -5,7 +5,8 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createFakeGateway } from '@spur-board/gateway-testkit';
-import { afterEach, describe, expect, it } from 'vitest';
+import { sql } from 'kysely';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createSender, openStore, type Store } from '../../src/index.ts';
 import { capPoints, raiseItem } from '../../src/app/feed.ts';
 import {
@@ -14,6 +15,8 @@ import {
   postTokenList,
   purgeEndedTokenRequests,
   requestToken,
+  tokenAttention,
+  tokenAttentionLine,
   tokenListQuery,
   tokenStatusByHash,
   tokenRevokeMutation,
@@ -67,7 +70,7 @@ describe('operator token lifecycle', () => {
       status: 'pending',
       expiresAt: '2026-11-04T10:15:00.000Z',
     });
-    expect(await verifyOperatorToken(store, SECRET)).toBeNull();
+    expect(await verifyOperatorToken(store, SECRET, AT, () => {})).toBeNull();
     const row = await store.db.selectFrom('operator_token').selectAll().executeTakeFirstOrThrow();
     expect(row).toMatchObject({ name: 'desk', hash: HASH, status: 'pending' });
     const persisted = JSON.stringify([
@@ -81,7 +84,7 @@ describe('operator token lifecycle', () => {
         decideTokenInTransaction(trx, row.item_id, 'approve', AT),
       ),
     ).toEqual({ name: 'desk', status: 'approved' });
-    expect(await verifyOperatorToken(store, SECRET)).toEqual({ name: 'desk' });
+    expect(await verifyOperatorToken(store, SECRET, AT, () => {})).toEqual({ name: 'desk' });
     const card = await editPayload(store, `feed.line.edit:token-card:${String(row.item_id)}`);
     expect(card).toMatchObject({
       tokenCard: {
@@ -106,7 +109,7 @@ describe('operator token lifecycle', () => {
         tokenRevokeMutation.run(trx, { name: 'desk' }, { actor: 'operator', at: AT.toISOString() }),
       ),
     ).toEqual({ name: 'desk', status: 'revoked' });
-    expect(await verifyOperatorToken(store, SECRET)).toBeNull();
+    expect(await verifyOperatorToken(store, SECRET, AT, () => {})).toBeNull();
     await expect(enroll(store, 'desk', HASH2)).rejects.toMatchObject({
       code: 'usage',
       hint: TAKEN,
@@ -115,7 +118,18 @@ describe('operator token lifecycle', () => {
       await scanTransaction(store, testConfig, (trx) =>
         tokenListQuery({ now: () => AT.getTime() }).run(trx, {}, 'operator'),
       ),
-    ).toEqual({ tokens: [{ name: 'desk', folder: 'workspace/desk', status: 'revoked' }] });
+    ).toEqual({
+      tokens: [
+        {
+          name: 'desk',
+          folder: 'workspace/desk',
+          status: 'revoked',
+          createdAt: AT.toISOString(),
+          approvedAt: AT.toISOString(),
+          lastUsedAt: AT.toISOString(),
+        },
+      ],
+    });
     expect(
       await store.db.selectFrom('event').select(['kind', 'project']).orderBy('id').execute(),
     ).toEqual([
@@ -136,14 +150,14 @@ describe('operator token lifecycle', () => {
     );
     const legacy = `old desk ${'x'.repeat(300)}`;
     await store.db.updateTable('operator_token').set({ name: legacy }).execute();
-    expect(await verifyOperatorToken(store, SECRET)).toEqual({ name: legacy });
+    expect(await verifyOperatorToken(store, SECRET, AT, () => {})).toEqual({ name: legacy });
 
     expect(
       await scanTransaction(store, testConfig, (trx) =>
         tokenRevokeMutation.run(trx, { name: legacy }, { actor: 'operator', at: AT.toISOString() }),
       ),
     ).toEqual({ name: legacy, status: 'revoked' });
-    expect(await verifyOperatorToken(store, SECRET)).toBeNull();
+    expect(await verifyOperatorToken(store, SECRET, AT, () => {})).toBeNull();
   });
 
   it('refuses a live duplicate name, denies the request, then reuses the denied name', async () => {
@@ -162,7 +176,7 @@ describe('operator token lifecycle', () => {
         decideTokenInTransaction(trx, row.item_id, 'deny', AT),
       ),
     ).toEqual({ name: 'desk', status: 'denied' });
-    expect(await verifyOperatorToken(store, SECRET)).toBeNull();
+    expect(await verifyOperatorToken(store, SECRET, AT, () => {})).toBeNull();
     expect(
       await scanTransaction(store, testConfig, (trx) =>
         decideTokenInTransaction(trx, row.item_id, 'deny', AT),
@@ -233,8 +247,8 @@ describe('operator token lifecycle', () => {
         decideTokenInTransaction(trx, row.item_id, 'approve', late),
       ),
     ).toEqual({ name: 'desk', status: 'approved' });
-    expect(await verifyOperatorToken(store, SECRET2)).toEqual({ name: 'desk' });
-    expect(await verifyOperatorToken(store, SECRET)).toBeNull();
+    expect(await verifyOperatorToken(store, SECRET2, AT, () => {})).toEqual({ name: 'desk' });
+    expect(await verifyOperatorToken(store, SECRET, AT, () => {})).toBeNull();
     expect(
       await store.db
         .selectFrom('event')
@@ -252,7 +266,18 @@ describe('operator token lifecycle', () => {
       await scanTransaction(store, testConfig, (trx) =>
         tokenListQuery({ now: () => late.getTime() }).run(trx, {}, 'operator'),
       ),
-    ).toEqual({ tokens: [{ name: 'desk', folder: 'workspace/desk', status: 'expired' }] });
+    ).toEqual({
+      tokens: [
+        {
+          name: 'desk',
+          folder: 'workspace/desk',
+          status: 'expired',
+          createdAt: AT.toISOString(),
+          approvedAt: null,
+          lastUsedAt: null,
+        },
+      ],
+    });
     const row = await store.db
       .selectFrom('operator_token')
       .select('item_id')
@@ -262,7 +287,7 @@ describe('operator token lifecycle', () => {
         decideTokenInTransaction(trx, row.item_id, 'approve', late),
       ),
     ).toEqual({ name: 'desk', status: 'expired' });
-    expect(await verifyOperatorToken(store, SECRET)).toBeNull();
+    expect(await verifyOperatorToken(store, SECRET, AT, () => {})).toBeNull();
     expect(
       await store.db
         .selectFrom('event')
@@ -472,6 +497,214 @@ describe('operator token lifecycle', () => {
     await expect(requestToken(store, testConfig, blocked, afterExpiry)).resolves.toMatchObject({
       name: 'desk-blocked',
       status: 'pending',
+    });
+  });
+});
+
+async function approve(store: Store, name = 'desk', hash = HASH, at = AT): Promise<void> {
+  await enroll(store, name, hash, at);
+  const row = await store.db
+    .selectFrom('operator_token')
+    .select('item_id')
+    .where('name', '=', name)
+    .executeTakeFirstOrThrow();
+  await scanTransaction(store, testConfig, (trx) =>
+    decideTokenInTransaction(trx, row.item_id, 'approve', at),
+  );
+}
+
+async function totalChanges(store: Store): Promise<number> {
+  const { rows } = await sql<{ n: number }>`SELECT total_changes() AS n`.execute(store.db);
+  return rows[0]?.n ?? -1;
+}
+
+async function lastUsedAt(store: Store, name = 'desk'): Promise<string | null> {
+  const row = await store.db
+    .selectFrom('operator_token')
+    .select('last_used_at')
+    .where('name', '=', name)
+    .executeTakeFirstOrThrow();
+  return row.last_used_at;
+}
+
+function listTokens(store: Store, at = AT) {
+  return scanTransaction(store, testConfig, (trx) =>
+    tokenListQuery({ now: () => at.getTime() }).run(trx, {}, 'operator'),
+  );
+}
+
+const MINUTE_MS = 60_000;
+const failOnUse = (err: unknown): void => {
+  throw new Error('unexpected token use error', { cause: err });
+};
+
+describe('token last use', () => {
+  it('records a use once per five minutes and only the time', async () => {
+    const store = setup();
+    await approve(store);
+    expect(await verifyOperatorToken(store, SECRET, AT, failOnUse)).toEqual({ name: 'desk' });
+    expect(await lastUsedAt(store)).toBe(AT.toISOString());
+
+    const before = await totalChanges(store);
+    const early = new Date(AT.getTime() + 5 * MINUTE_MS - 1000);
+    expect(await verifyOperatorToken(store, SECRET, early, failOnUse)).toEqual({ name: 'desk' });
+    expect(await totalChanges(store)).toBe(before);
+    expect(await lastUsedAt(store)).toBe(AT.toISOString());
+
+    const due = new Date(AT.getTime() + 5 * MINUTE_MS);
+    expect(await verifyOperatorToken(store, SECRET, due, failOnUse)).toEqual({ name: 'desk' });
+    expect(await lastUsedAt(store)).toBe(due.toISOString());
+    expect(await totalChanges(store)).toBe(before + 1);
+  });
+
+  it('writes one row for two concurrent stale calls', async () => {
+    const store = setup();
+    await approve(store);
+    const before = await totalChanges(store);
+    expect(
+      await Promise.all([
+        verifyOperatorToken(store, SECRET, AT, failOnUse),
+        verifyOperatorToken(store, SECRET, AT, failOnUse),
+      ]),
+    ).toEqual([{ name: 'desk' }, { name: 'desk' }]);
+    expect(await totalChanges(store)).toBe(before + 1);
+    expect(await lastUsedAt(store)).toBe(AT.toISOString());
+  });
+
+  it('writes nothing for a pending, revoked or unknown token', async () => {
+    const store = setup();
+    await enroll(store);
+    const before = await totalChanges(store);
+    expect(await verifyOperatorToken(store, SECRET, AT, failOnUse)).toBeNull();
+    expect(await verifyOperatorToken(store, SECRET2, AT, failOnUse)).toBeNull();
+    expect(await totalChanges(store)).toBe(before);
+
+    const row = await store.db
+      .selectFrom('operator_token')
+      .select('item_id')
+      .executeTakeFirstOrThrow();
+    await scanTransaction(store, testConfig, (trx) =>
+      decideTokenInTransaction(trx, row.item_id, 'approve', AT),
+    );
+    await scanTransaction(store, testConfig, (trx) =>
+      tokenRevokeMutation.run(trx, { name: 'desk' }, { actor: 'operator', at: AT.toISOString() }),
+    );
+    const revoked = await totalChanges(store);
+    expect(await verifyOperatorToken(store, SECRET, AT, failOnUse)).toBeNull();
+    expect(await totalChanges(store)).toBe(revoked);
+    expect(await lastUsedAt(store)).toBeNull();
+  });
+
+  it('still verifies the token when the use write fails and reports the error', async () => {
+    const store = setup();
+    await approve(store);
+    const injected = new Error('injected');
+    const broken: Store = { ...store, transaction: () => Promise.reject(injected) };
+    const onUseError = vi.fn();
+    expect(await verifyOperatorToken(broken, SECRET, AT, onUseError)).toEqual({ name: 'desk' });
+    expect(onUseError).toHaveBeenCalledTimes(1);
+    expect(onUseError).toHaveBeenCalledWith(injected);
+    expect(await lastUsedAt(store)).toBeNull();
+  });
+
+  it('lists the request, approval and last use times', async () => {
+    const store = setup();
+    const approvedAt = new Date(AT.getTime() + 2 * MINUTE_MS);
+    await enroll(store);
+    const row = await store.db
+      .selectFrom('operator_token')
+      .select('item_id')
+      .executeTakeFirstOrThrow();
+    await scanTransaction(store, testConfig, (trx) =>
+      decideTokenInTransaction(trx, row.item_id, 'approve', approvedAt),
+    );
+    const listed = {
+      name: 'desk',
+      folder: 'workspace/desk',
+      status: 'approved',
+      createdAt: AT.toISOString(),
+      approvedAt: approvedAt.toISOString(),
+    };
+    expect(await listTokens(store, approvedAt)).toEqual({
+      tokens: [{ ...listed, lastUsedAt: null }],
+    });
+    const used = new Date(AT.getTime() + 60 * MINUTE_MS);
+    await verifyOperatorToken(store, SECRET, used, failOnUse);
+    expect(await listTokens(store, used)).toEqual({
+      tokens: [{ ...listed, lastUsedAt: used.toISOString() }],
+    });
+  });
+});
+
+describe('token attention', () => {
+  const HEAD =
+    'operator tokens need attention (revoke any that nothing uses with `board token revoke <name>`)';
+
+  it('names missing files and unused tokens in one line', () => {
+    expect(tokenAttentionLine({ fileMissing: ['old-ci'], unused: ['desk'] }, 14)).toBe(
+      `2 ${HEAD}: no token file: old-ci; unused for 14+ days: desk`,
+    );
+    expect(tokenAttentionLine({ fileMissing: [], unused: ['desk'] }, 30)).toBe(
+      '1 operator token needs attention (revoke any that nothing uses with `board token revoke <name>`): unused for 30+ days: desk',
+    );
+  });
+
+  it('returns null when no token needs attention', () => {
+    expect(tokenAttentionLine({ fileMissing: [], unused: [] }, 14)).toBeNull();
+  });
+
+  it('counts a name enrollment would refuse without printing it', () => {
+    const line = tokenAttentionLine({ fileMissing: ['bad\u001b[31mname'], unused: ['desk'] }, 14);
+    expect(line).toBe(`2 ${HEAD}: unused for 14+ days: desk and 1 more`);
+    expect(tokenAttentionLine({ fileMissing: [], unused: ['x'.repeat(65)] }, 14)).toBe(
+      `1 ${HEAD.replace('tokens need', 'token needs')}: 1 not named`,
+    );
+  });
+
+  it('cuts trailing names to and N more within 300 characters', () => {
+    const names = Array.from(
+      { length: 20 },
+      (_, n) => `${String(n).padStart(2, '0')}${'n'.repeat(58)}`,
+    );
+    const line = tokenAttentionLine({ fileMissing: names.slice(0, 5), unused: names.slice(5) }, 14);
+    expect(line?.length).toBeLessThanOrEqual(300);
+    expect(line).toMatch(
+      /^20 operator tokens need attention .*: no token file: 00n+, 01n+ and 18 more$/,
+    );
+  });
+
+  it('groups approved tokens by missing file first, then by time unused', async () => {
+    const store = setup();
+    const old = new Date(AT.getTime() - 20 * DAY_MS);
+    await approve(store, 'old-ci', HASH, old);
+    await approve(store, 'desk', HASH2, old);
+    await approve(store, 'fresh', createHash('sha256').update('fresh').digest('hex'), AT);
+    await approve(store, 'gone', createHash('sha256').update('gone').digest('hex'), AT);
+    await approve(store, 'away', createHash('sha256').update('away').digest('hex'), AT);
+    await verifyOperatorToken(store, SECRET2, new Date(AT.getTime() - 13 * DAY_MS), failOnUse);
+    await store.db
+      .updateTable('operator_token')
+      .set({ folder: 'missing' })
+      .where('name', 'in', ['old-ci', 'gone'])
+      .execute();
+    await store.db
+      .updateTable('operator_token')
+      .set({ host: 'elsewhere' })
+      .where('name', '=', 'away')
+      .execute();
+    const probed: string[] = [];
+    const attention = await tokenAttention(store, AT, 14, (token) => {
+      probed.push(`${token.host}:${token.folder}`);
+      if (token.host !== 'local') return Promise.resolve(null);
+      return Promise.resolve(token.folder !== 'missing');
+    });
+    expect(attention).toEqual({ fileMissing: ['old-ci', 'gone'], unused: [] });
+    expect(probed).toHaveLength(5);
+
+    const later = new Date(AT.getTime() + 2 * DAY_MS);
+    expect(await tokenAttention(store, later, 14, () => Promise.resolve(true))).toEqual({
+      fileMissing: [],
+      unused: ['old-ci', 'desk'],
     });
   });
 });

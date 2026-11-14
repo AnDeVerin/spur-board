@@ -2397,10 +2397,12 @@ describe('operator token revoke from the gateway', () => {
     const { store, inbound, responses, request, press, status } = await tokenBoard();
     const item = await request('desk');
     await inbound.sink(press(`token:${String(item)}:approve`, 'approve-1'));
-    expect(await verifyOperatorToken(store, secret('desk'))).toEqual({ name: 'desk' });
+    expect(await verifyOperatorToken(store, secret('desk'), new Date(now), () => {})).toEqual({
+      name: 'desk',
+    });
     await inbound.sink(press(`token:${String(item)}:revoke`, 'revoke-1'));
     expect(await status('desk')).toBe('revoked');
-    expect(await verifyOperatorToken(store, secret('desk'))).toBeNull();
+    expect(await verifyOperatorToken(store, secret('desk'), new Date(now), () => {})).toBeNull();
     expect(
       await store.db
         .selectFrom('command')

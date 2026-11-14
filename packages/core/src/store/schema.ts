@@ -344,6 +344,10 @@ export interface OperatorTokenTable {
   expires_at: string;
   decided_at: string | null;
   item_id: number;
+  /** When the token was approved; revoke keeps it. NULL for a token revoked before migration 16. */
+  approved_at: string | null;
+  /** When an authenticated call last used the token, written at most once per few minutes. */
+  last_used_at: string | null;
 }
 
 export interface DismissalTable {

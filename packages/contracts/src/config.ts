@@ -570,6 +570,18 @@ export const configSchema = z.strictObject({
         ),
     })
     .prefault({}),
+  operatorAccess: z
+    .strictObject({
+      unusedAfterDays: z
+        .int()
+        .min(1)
+        .max(3650)
+        .default(14)
+        .describe(
+          'Days an approved operator access key from board token create may go unused before board doctor warns about it.',
+        ),
+    })
+    .prefault({}),
   doorbells: z
     .strictObject({
       firstRetryMs: durationMs(120_000, 'Wait after the first unanswered doorbell'),

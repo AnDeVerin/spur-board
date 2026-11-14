@@ -103,6 +103,7 @@ describe('fixtures', () => {
     expect(config.thresholds.blockOpenMs).toBe(86_400_000);
     expect(config.archive.doneWeekday).toBe('saturday');
     expect(config.commands.retentionDays).toBe(7);
+    expect(config.operatorAccess.unusedAfterDays).toBe(14);
     expect(config.doorbells).toEqual({
       firstRetryMs: 120_000,
       secondRetryMs: 300_000,
@@ -269,6 +270,18 @@ describe('invalid configs', () => {
       validConfig({}, { thresholds: { blockOpenMs: 0 } }),
       'Too small',
       'thresholds.blockOpenMs',
+    ],
+    [
+      'zero days before an unused operator access warning',
+      validConfig({}, { operatorAccess: { unusedAfterDays: 0 } }),
+      'Too small: expected number to be >=1',
+      'operatorAccess.unusedAfterDays',
+    ],
+    [
+      'over ten years before an unused operator access warning',
+      validConfig({}, { operatorAccess: { unusedAfterDays: 3651 } }),
+      'Too big: expected number to be <=3650',
+      'operatorAccess.unusedAfterDays',
     ],
     [
       'invalid doorbell retry pause',

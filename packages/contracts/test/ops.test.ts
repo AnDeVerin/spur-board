@@ -592,6 +592,8 @@ describe('comment shape', () => {
         'factAt',
         'observedAt',
         'lastCompleteAt',
+        'approvedAt',
+        'lastUsedAt',
       ].some((name) => path.endsWith(name));
       expect(Array.isArray(node['anyOf']), path).toBe(nullable);
       const variants: unknown[] = Array.isArray(node['anyOf']) ? node['anyOf'] : [node];

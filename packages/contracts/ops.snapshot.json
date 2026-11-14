@@ -1,5 +1,5 @@
 {
-  "version": "50e214df44908e0966dd55026b9a1618b82943d85bf99eefee1fb6ceeeca8ebd",
+  "version": "a8dc0b337a7172deda49c2776e64bc455d8db6af819cbd097ce1d273b5147ea3",
   "grants": [
     "operator",
     "project-agent",
@@ -4397,7 +4397,7 @@
     {
       "id": "token.list",
       "kind": "query",
-      "description": "List named operator tokens and their current status.",
+      "description": "List named operator tokens with their status and when each was created, approved and last used.",
       "grants": [{ "grant": "operator" }],
       "preconditions": null,
       "errors": [
@@ -4412,7 +4412,7 @@
       "mcp": {
         "name": "token_list",
         "key": null,
-        "whenToUse": "Inspect named operator tokens and their current status.",
+        "whenToUse": "Inspect named operator tokens, their status, and when each was approved and last used.",
         "whenNotToUse": "Use token_revoke to disable a token.",
         "destructive": false
       },
@@ -4422,7 +4422,16 @@
           "summary": "List operator tokens",
           "input": {},
           "output": {
-            "tokens": [{ "name": "desk", "folder": "workspace/desk", "status": "approved" }]
+            "tokens": [
+              {
+                "name": "desk",
+                "folder": "workspace/desk",
+                "status": "approved",
+                "createdAt": "2026-11-04T10:00:00.000Z",
+                "approvedAt": "2026-11-04T10:02:00.000Z",
+                "lastUsedAt": "2026-11-05T09:30:00.000Z"
+              }
+            ]
           }
         }
       ],
@@ -4455,9 +4464,37 @@
                   "type": "string",
                   "enum": ["pending", "approved", "denied", "expired", "revoked"],
                   "description": "Current token state."
+                },
+                "createdAt": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                  "description": "When the token was requested, ISO 8601 UTC."
+                },
+                "approvedAt": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                    },
+                    { "type": "null" }
+                  ],
+                  "description": "When the token was approved, ISO 8601 UTC; null when it never was, or was revoked before approval times were kept."
+                },
+                "lastUsedAt": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                    },
+                    { "type": "null" }
+                  ],
+                  "description": "When a call last authenticated with the token, ISO 8601 UTC, recorded at most once every 5 minutes; null before the first call."
                 }
               },
-              "required": ["name", "folder", "status"],
+              "required": ["name", "folder", "status", "createdAt", "approvedAt", "lastUsedAt"],
               "additionalProperties": false
             },
             "description": "Named tokens in creation order."
