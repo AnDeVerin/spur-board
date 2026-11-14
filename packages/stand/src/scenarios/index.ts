@@ -19,7 +19,6 @@ import {
   dispatchConflictInReadyToMerge,
   dispatchConflictInReview,
   dispatchCiRedAfterSubmit,
-  dispatchCloseAfterMerge,
   dispatchCourseCheck,
   dispatchCycleLimit,
   dispatchDeadExecutor,
@@ -29,8 +28,8 @@ import {
   dispatchReentrySameHead,
   dispatchReviewLoop,
   dispatchSourceBlind,
-  dispatchSplitPr,
 } from './dispatcher.ts';
+import { dispatchCloseAfterMerge, dispatchSplitPr } from './split-pr.ts';
 import { empty } from './empty.ts';
 import { questionToOperator } from './question-to-operator.ts';
 import { sourceBlind, sourceBlindJira } from './source-blind.ts';
