@@ -5609,6 +5609,12 @@ Choose a unique idempotencyKey for each action; reuse it on retries.",
           "minLength": 1,
           "type": "string",
         },
+        "note": {
+          "description": "Your own comment on the answer, kept apart from it: stored as a second comment and shown on the curator feed line.",
+          "maxLength": 20000,
+          "minLength": 1,
+          "type": "string",
+        },
         "text": {
           "description": "The answer.",
           "maxLength": 20000,
