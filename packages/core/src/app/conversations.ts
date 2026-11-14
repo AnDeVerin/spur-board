@@ -4,11 +4,10 @@ import {
   type ConversationRef,
   type MessageRef,
 } from '@spur-board/contracts';
-import type { Kysely } from 'kysely';
 import { outboxBodySchema } from './outbox.ts';
-import type { Row, Tables } from '../store/schema.ts';
+import type { Row } from '../store/schema.ts';
+import type { Trx } from './board-utils.ts';
 
-type Trx = Kysely<Tables>;
 type Conversation = Row<'conversation'>;
 
 /**

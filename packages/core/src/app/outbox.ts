@@ -12,10 +12,9 @@ import {
   type RichText,
   type SpaceId,
 } from '@spur-board/contracts';
-import { sql, type Kysely } from 'kysely';
+import { sql } from 'kysely';
 import { z } from 'zod';
-import type { Tables } from '../store/schema.ts';
-import { taskUrl } from './board-utils.ts';
+import { taskUrl, type Trx } from './board-utils.ts';
 import { TASKLESS_FEED_KEY, raiseItemWith } from './item-raise.ts';
 import { SCAN_PENDING, checkGatewayStrings, scanConfig } from './secrets.ts';
 
@@ -200,8 +199,6 @@ export function exchangeBody(
     },
   ];
 }
-
-type Trx = Kysely<Tables>;
 
 /**
  * A distinct semantic ring. Transport retries reuse this row and its text. A restarted series

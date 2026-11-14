@@ -1,14 +1,13 @@
 import { assertNever } from '@spur-board/contracts';
-import type { Kysely } from 'kysely';
 import { isItemKind, ITEM_POLICY } from '../domain/fromYou.ts';
-import type { Row, Tables } from '../store/schema.ts';
+import type { Row } from '../store/schema.ts';
+import type { Trx } from './board-utils.ts';
 import { closeBlockIfOpen } from './blocks.ts';
 import { CommandError, type Mutation } from './commands.ts';
 import { restartNotification, ringTask } from './doorbells.ts';
 import { clearItem, dismissItem } from './feed.ts';
 import { requeuePostFailed, retryTransport } from './sender.ts';
 
-type Trx = Kysely<Tables>;
 type Item = Row<'operator_item'>;
 
 /** Re-applies an `inbound_failure` item's stored event in `trx`; the caller clears the item. */

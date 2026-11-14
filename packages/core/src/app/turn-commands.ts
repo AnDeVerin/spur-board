@@ -9,18 +9,17 @@ import {
   type PollPrResult,
   type PrPoller,
 } from '@spur-board/contracts';
-import { sql, type Kysely, type Selectable } from 'kysely';
-import type { Tables, TaskTable, TurnTable } from '../store/schema.ts';
+import { sql, type Selectable } from 'kysely';
+import type { TaskTable, TurnTable } from '../store/schema.ts';
 import type { ResolvedTarget } from './authorize.ts';
 import { queueBlockOpen } from './block-thread.ts';
 import { authorizationTarget, blockView, openBlock, taskTarget } from './blocks.ts';
-import { emit, moveViews, taskPr, taskView } from './board-utils.ts';
+import { emit, moveViews, taskPr, taskView, type Trx } from './board-utils.ts';
 import { CommandError, type CommandContext, type Mutation } from './commands.ts';
 import { correctColumn, dispatchTasks, moveLeft } from './dispatch.ts';
 import { canonicalKey } from './membership.ts';
 import { closeTurns } from './turns.ts';
 
-type Trx = Kysely<Tables>;
 type Task = Selectable<TaskTable>;
 type Turn = Selectable<TurnTable>;
 
