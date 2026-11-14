@@ -114,6 +114,8 @@ async function setup(
     mode?: 'shadow' | 'on';
     /** GitHub and Spur count as polled to the end since start, so the dispatcher decides. */
     complete?: boolean;
+    /** When GitHub and Spur last completed a poll, with `complete`; default `AT`. */
+    completeAt?: string;
     pr?: Partial<PrFacts>;
   } = {},
 ) {
@@ -246,8 +248,8 @@ async function setup(
     completeSince: new Map(
       options.complete === true
         ? [
-            [SOURCE, AT],
-            ['spur', AT],
+            [SOURCE, options.completeAt ?? AT],
+            ['spur', options.completeAt ?? AT],
           ]
         : [],
     ),
@@ -326,6 +328,8 @@ async function setup(
         'operator',
         'unlink-1',
       ),
+    history: async () =>
+      (await query(registry['task.history'], { task: 'o/r#9' }, 'operator')).events,
     why: async (actor: ActorId = 'operator') => {
       const result = await query(registry['task.get'], { task: 'o/r#9', why: true }, actor);
       if (result.why === undefined) throw new Error('task.get returned no why');
@@ -498,11 +502,249 @@ describe('task.submit', () => {
 
     await expect(refused).rejects.toMatchObject({
       code: 'github_unavailable',
-      hint: 'GitHub did not answer for o/r#7 within 10 s; wait, then submit again.',
+      hint: 'GitHub did not answer for o/r#7 within 10 s; wait a minute, then submit again. The board has had no complete GitHub poll since it started.',
     });
     expect(ctx.calls).toEqual([
       [SOURCE, { kind: 'pr', repo: 'o/r', number: 7 }, { timeoutMs: 10_000 }],
     ]);
+  });
+
+  describe('head confirmed by the last poll', () => {
+    const LATER = '2026-11-04T08:01:00.000Z';
+    const noAnswer: PollPrError[] = [
+      { kind: 'timeout', message: 'GitHub timed out' },
+      { kind: 'failed', adapterKind: 'transient', message: 'HTTP 502' },
+      { kind: 'failed', adapterKind: 'unexpected', message: 'The poll step failed' },
+      {
+        kind: 'failed',
+        adapterKind: 'throttled',
+        retryAt: '2026-11-04T08:05:00.000Z',
+        message: 'Throttled',
+      },
+    ];
+    const label = (error: PollPrError) =>
+      error.kind === 'failed' ? `failed ${error.adapterKind}` : error.kind;
+
+    it.each(noAnswer.map((error) => [label(error), error] as const))(
+      'accepts the polled head when GitHub gives no answer: %s',
+      async (_, error) => {
+        const ctx = await taken({ complete: true });
+        ctx.answers(err(error));
+
+        await expect(ctx.submit(REV_1, A, 'submit-1')).resolves.toMatchObject({
+          turn: 'T1',
+          sha: A,
+        });
+
+        expect(
+          await ctx.store.db.selectFrom('submission').select(['column', 'commit_sha']).execute(),
+        ).toEqual([{ column: 'review', commit_sha: A }]);
+        expect((await ctx.turn()).closed_reason).toBe('submitted');
+        expect((await ctx.events()).filter((event) => event.kind === 'task_submitted')).toEqual([
+          {
+            kind: 'task_submitted',
+            payload: { turn: 'T1', column: 'review', sha: A, confirmedByPoll: true },
+          },
+        ]);
+        expect(
+          (await ctx.history()).filter((event) => event.kind === 'task_submitted'),
+        ).toMatchObject([{ summary: 'Turn submitted on the head of the last poll' }]);
+      },
+    );
+
+    it('marks a shadow submit confirmed by the last poll', async () => {
+      const ctx = await setup({ complete: true });
+      ctx.answers(err({ kind: 'timeout', message: 'GitHub timed out' }));
+
+      await expect(ctx.submit(REV_1, A, 'submit-1', 'o/r#9')).resolves.toMatchObject({
+        turn: null,
+        sha: A,
+      });
+
+      expect((await ctx.events()).filter((event) => event.kind === 'task_submitted')).toEqual([
+        { kind: 'task_submitted', payload: { column: 'review', sha: A, confirmedByPoll: true } },
+      ]);
+    });
+
+    it('shows a live-confirmed submit as a plain submit in history', async () => {
+      const ctx = await taken({ complete: true });
+      ctx.commits(B);
+
+      await ctx.submit(REV_1, B, 'submit-1');
+
+      expect(
+        (await ctx.history()).filter((event) => event.kind === 'task_submitted'),
+      ).toMatchObject([{ summary: 'Turn submitted' }]);
+    });
+
+    it('refuses a head the last poll did not see', async () => {
+      const ctx = await taken({ complete: true });
+      ctx.answers(err({ kind: 'timeout', message: 'GitHub timed out' }));
+      const before = await ctx.tables();
+
+      await expect(ctx.submit(REV_1, B, 'submit-1')).rejects.toMatchObject({
+        code: 'github_unavailable',
+        hint: `GitHub did not answer for o/r#7 within 10 s; wait a minute, then submit again. Its last poll saw head ${A}.`,
+      });
+
+      expect(await ctx.tables()).toEqual(before);
+    });
+
+    it('refuses a head seen before the last complete poll', async () => {
+      const ctx = await taken({ complete: true, completeAt: LATER });
+      ctx.answers(err({ kind: 'failed', adapterKind: 'transient', message: 'HTTP 502' }));
+      const before = await ctx.tables();
+
+      await expect(ctx.submit(REV_1, A, 'submit-1')).rejects.toMatchObject({
+        code: 'github_unavailable',
+        hint: `The GitHub poll of o/r#7 failed (transient); wait a minute, then submit again. The board last saw head ${A} at ${AT}, before its last complete GitHub poll.`,
+      });
+
+      expect(await ctx.tables()).toEqual(before);
+    });
+
+    it('refuses a live answer with another head even after a complete poll', async () => {
+      const ctx = await taken({ complete: true });
+      ctx.commits(B);
+
+      await expect(ctx.submit(REV_1, A, 'submit-1')).rejects.toMatchObject({
+        code: 'head_mismatch',
+      });
+
+      expect(await ctx.store.db.selectFrom('submission').selectAll().execute()).toEqual([]);
+    });
+
+    const SUBMIT_AGAIN: { name: string; result: Awaited<ReturnType<PollPr>>; hint: string }[] = [
+      {
+        name: 'timeout',
+        result: err({ kind: 'timeout', message: 'GitHub timed out' }),
+        hint: 'GitHub did not answer for o/r#7 within 10 s; wait a minute, then submit again. The board has had no complete GitHub poll since it started.',
+      },
+      {
+        name: 'failed transient',
+        result: err({ kind: 'failed', adapterKind: 'transient', message: 'HTTP 502' }),
+        hint: 'The GitHub poll of o/r#7 failed (transient); wait a minute, then submit again. The board has had no complete GitHub poll since it started.',
+      },
+      {
+        name: 'failed unexpected',
+        result: err({ kind: 'failed', adapterKind: 'unexpected', message: 'Boom' }),
+        hint: 'The GitHub poll of o/r#7 failed (unexpected); wait a minute, then submit again. The board has had no complete GitHub poll since it started.',
+      },
+      {
+        name: 'failed throttled',
+        result: err({
+          kind: 'failed',
+          adapterKind: 'throttled',
+          retryAt: '2026-11-04T08:05:00.000Z',
+          message: 'Throttled',
+        }),
+        hint: 'GitHub is throttled until 2026-11-04T08:05:00.000Z; submit again after that. The board has had no complete GitHub poll since it started.',
+      },
+      {
+        name: 'stopped',
+        result: err({ kind: 'stopped', message: 'Stopped' }),
+        hint: 'The GitHub poller is not running; submit again once the daemon is up.',
+      },
+      {
+        name: 'blind stale',
+        result: err({ kind: 'blind', reason: 'stale', message: 'Stale' }),
+        hint: 'The board has no recent complete GitHub poll for o/r#7; submit again in a few minutes, once GitHub answers its polls.',
+      },
+    ];
+    it.each(SUBMIT_AGAIN)(
+      'tells the caller to submit again after $name',
+      async ({ result, hint }) => {
+        const ctx = await taken();
+        ctx.answers(result);
+
+        await expect(ctx.submit(REV_1, A, 'submit-1')).rejects.toMatchObject({
+          code: 'github_unavailable',
+          hint,
+        });
+      },
+    );
+
+    it.each(SUBMIT_AGAIN.filter(({ name }) => name === 'stopped' || name === 'blind stale'))(
+      'refuses $name after a complete poll',
+      async ({ result, hint }) => {
+        const ctx = await taken({ complete: true });
+        ctx.answers(result);
+        const before = await ctx.tables();
+
+        await expect(ctx.submit(REV_1, A, 'submit-1')).rejects.toMatchObject({
+          code: 'github_unavailable',
+          hint,
+        });
+
+        expect(await ctx.tables()).toEqual(before);
+      },
+    );
+
+    const NO_REPEAT: {
+      name: string;
+      result?: Awaited<ReturnType<PollPr>>;
+      hint: string;
+    }[] = [
+      {
+        name: 'no poller',
+        hint: 'This daemon runs no GitHub poller; repeating will not help; ask the operator to check the daemon.',
+      },
+      {
+        name: 'blind auth',
+        result: err({ kind: 'blind', reason: 'auth', message: 'Bad token' }),
+        hint: 'The board cannot read o/r#7 (auth); repeating will not help; ask the operator to fix the GitHub access.',
+      },
+      {
+        name: 'blind config',
+        result: err({ kind: 'blind', reason: 'config', message: 'No token' }),
+        hint: 'The board cannot read o/r#7 (config); repeating will not help; ask the operator to fix the GitHub access.',
+      },
+      {
+        name: 'failed auth',
+        result: err({ kind: 'failed', adapterKind: 'auth', message: 'Bad token' }),
+        hint: 'The board cannot read o/r#7 (auth); repeating will not help; ask the operator to fix the GitHub access.',
+      },
+      {
+        name: 'failed config',
+        result: err({ kind: 'failed', adapterKind: 'config', message: 'Bad config' }),
+        hint: 'The board cannot read o/r#7 (config); repeating will not help; ask the operator to fix the GitHub access.',
+      },
+      {
+        name: 'unknown_source',
+        result: err({ kind: 'unknown_source', message: 'Unknown source' }),
+        hint: "The repo of o/r#7 is not in the project's repos; repeating will not help; ask the operator to add it to the config.",
+      },
+      {
+        name: 'unsupported',
+        result: err({ kind: 'unsupported', message: 'Unsupported' }),
+        hint: 'This daemon cannot poll a pull request on demand; repeating will not help; ask the operator to update the daemon.',
+      },
+      {
+        name: 'not_found',
+        result: ok({ status: 'not_found' as const, observedAt: AT }),
+        hint: "GitHub answered not_found for o/r#7; repeating will not help; ask the operator to check the board's GitHub access.",
+      },
+      {
+        name: 'no_access',
+        result: ok({ status: 'no_access' as const, observedAt: AT }),
+        hint: "GitHub answered no_access for o/r#7; repeating will not help; ask the operator to check the board's GitHub access.",
+      },
+    ];
+    it.each(NO_REPEAT)(
+      'refuses $name after a complete poll and says repeating will not help',
+      async ({ name, result, hint }) => {
+        const ctx = await taken({ complete: true, noPoller: name === 'no poller' });
+        if (result !== undefined) ctx.answers(result);
+        const before = await ctx.tables();
+
+        await expect(ctx.submit(REV_1, A, 'submit-1')).rejects.toMatchObject({
+          code: 'github_unavailable',
+          hint,
+        });
+
+        expect(await ctx.tables()).toEqual(before);
+      },
+    );
   });
   describe('shadow submit', () => {
     it('submits a shadow task by its key', async () => {

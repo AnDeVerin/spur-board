@@ -98,8 +98,10 @@ const USAGE = `Usage: pnpm stand <command>
                                   fail a route until clear; delay needs --ms (1-60000)
   fake spur clear                 drop every failure rule
   fake spur inspect               print sessions, rules, requests, sends and violations
-  fake github fail <mode>         delay <ms>, refuse, hang, auth (401), rate-limit <seconds>,
-                                  server-error [status] or clear; lasts until clear or reset
+  fake github fail <mode> [--times n]
+                                  delay <ms>, refuse, hang, auth (401), rate-limit <seconds>,
+                                  server-error [status] or clear; lasts until clear or reset, or
+                                  for n requests with --times
   fake github inspect             print the GraphQL requests the fake answered
   fake github pr <n> <verb> [--repo owner/name]
                                   create [--seed '<json>'], approve, ci-red, ci-green, merge,
@@ -116,7 +118,8 @@ const USAGE = `Usage: pnpm stand <command>
   fake jira issue <KEY> [--status s] [--title t]
                                   create ticket KEY (at To Do), or change its status or title;
                                   statuses: To Do, Ready for Dev, In Progress, In Review, Done
-  fake jira fail <mode>           the modes of fake github fail, for Jira alone
+  fake jira fail <mode> [--times n]
+                                  the modes of fake github fail, for Jira alone
   violations                      print requests no fake models; exit 1 if there are any
 
 Every command but up takes --home <dir> to pick one of several stands.
@@ -641,9 +644,13 @@ export function fakeBody(
     status?: string | undefined;
     author?: string | undefined;
     bot?: boolean | undefined;
+    times?: string | undefined;
   },
 ): Record<string, unknown> {
   const [first, kind, ...rest] = positionals;
+  const fail = (first === 'github' || first === 'jira') && kind === 'fail';
+  if (values.times !== undefined && (!fail || rest[0] === 'clear'))
+    throw new UsageError('--times goes only with fake github|jira fail <mode> other than clear');
   const pr = first === 'github' && kind === 'pr';
   const issue = first === 'github' && kind === 'issue';
   const jiraIssue = first === 'jira' && kind === 'issue';
@@ -660,8 +667,13 @@ export function fakeBody(
   if (pr) return prBody(rest, values);
   if (issue) return issueBody(rest, values);
   if (jiraIssue) return jiraIssueBody(rest, values);
-  if ((first === 'github' || first === 'jira') && kind === 'fail')
-    return { system: first, verb: 'fail', args: failureBody(rest) };
+  if (fail) {
+    const args = failureBody(rest);
+    if (values.times === undefined) return { system: first, verb: 'fail', args };
+    if (!/^[1-9]\d*$/.test(values.times))
+      throw new UsageError(`--times must be a positive whole number, got ${values.times}`);
+    return { system: first, verb: 'fail', args: { ...args, times: Number(values.times) } };
+  }
   if (first === 'github' && kind === 'inspect') {
     if (rest.length > 0) throw new UsageError('fake github inspect takes no arguments');
     return { system: 'github', verb: 'inspect', args: {} };
@@ -749,6 +761,7 @@ async function main(argv: string[]): Promise<number> {
           status: { type: 'string' },
           author: { type: 'string' },
           bot: { type: 'boolean' },
+          times: { type: 'string' },
         },
       });
       const body = fakeBody(positionals, values);

@@ -171,30 +171,59 @@ async function takenTurn(
   return { turn, task };
 }
 
+/** Ends a hint for a refusal that a later submit cannot fix. */
+const noRepeat = (step: string) => `repeating will not help; ask the operator to ${step}.`;
+
+/** The next step for an on-demand poll that answered nothing. */
 function pollErrorHint(error: PollPrError, pr: string): string {
   switch (error.kind) {
     case 'timeout':
-      return `GitHub did not answer for ${pr} within ${String(SUBMIT_POLL_TIMEOUT_MS / 1000)} s; wait, then submit again.`;
+      return `GitHub did not answer for ${pr} within ${String(SUBMIT_POLL_TIMEOUT_MS / 1000)} s; wait a minute, then submit again.`;
     case 'blind':
-      return `The board cannot read ${pr} (${error.reason}); ask the operator to fix the GitHub access, then submit again.`;
+      return error.reason === 'stale'
+        ? `The board has no recent complete GitHub poll for ${pr}; submit again in a few minutes, once GitHub answers its polls.`
+        : `The board cannot read ${pr} (${error.reason}); ${noRepeat('fix the GitHub access')}`;
     case 'failed':
+      if (error.adapterKind === 'auth' || error.adapterKind === 'config') {
+        return `The board cannot read ${pr} (${error.adapterKind}); ${noRepeat('fix the GitHub access')}`;
+      }
       return error.retryAt === undefined
-        ? `The GitHub poll of ${pr} failed (${error.adapterKind}); wait, then submit again.`
+        ? `The GitHub poll of ${pr} failed (${error.adapterKind}); wait a minute, then submit again.`
         : `GitHub is throttled until ${error.retryAt}; submit again after that.`;
     case 'stopped':
       return 'The GitHub poller is not running; submit again once the daemon is up.';
     case 'unknown_source':
-      return `The repo of ${pr} is not in the project's repos; ask the operator to add it to the config.`;
+      return `The repo of ${pr} is not in the project's repos; ${noRepeat('add it to the config')}`;
     case 'unsupported':
-      return 'This daemon cannot poll a pull request on demand; ask the operator to update the daemon.';
+      return `This daemon cannot poll a pull request on demand; ${noRepeat('update the daemon')}`;
   }
 }
 
-/** Throws `github_unavailable` unless `prepared` is a successful poll of this PR. */
-function confirmPolled(
-  prepared: SubmitPrepared | undefined,
-  pr: { repo: string; number: number },
-): void {
+/** True when GitHub gave no answer this call and the last poll may stand in for it. */
+function pollMayConfirm(error: PollPrError): boolean {
+  return (
+    error.kind === 'timeout' ||
+    (error.kind === 'failed' &&
+      (error.adapterKind === 'transient' ||
+        error.adapterKind === 'unexpected' ||
+        error.adapterKind === 'throttled'))
+  );
+}
+
+/**
+ * How the PR head behind a submit is confirmed: `live` by this call's poll, `poll` by the
+ * board's newest poll when GitHub did not answer. Throws `head_mismatch` when the confirmed head
+ * is not `sha`, `github_unavailable` when nothing confirms it.
+ */
+function confirmHead(input: {
+  prepared: SubmitPrepared | undefined;
+  pr: { repo: string; number: number };
+  sha: string;
+  snapshot: { head_sha: string; observed_at: string } | undefined;
+  /** When the PR's source last completed a poll since start. */
+  completeAt: string | undefined;
+}): 'live' | 'poll' {
+  const { prepared, pr, sha, snapshot, completeAt } = input;
   const label = `${pr.repo}#${String(pr.number)}`;
   const unavailable = (hint: string) => new CommandError('github_unavailable', hint);
   if (
@@ -206,14 +235,39 @@ function confirmPolled(
   }
   const { result } = prepared;
   if (result === null) {
-    throw unavailable('This daemon runs no GitHub poller; ask the operator to check the daemon.');
+    throw unavailable(`This daemon runs no GitHub poller; ${noRepeat('check the daemon')}`);
   }
-  if (!result.ok) throw unavailable(pollErrorHint(result.error, label));
+  if (!result.ok) {
+    const hint = pollErrorHint(result.error, label);
+    if (!pollMayConfirm(result.error)) throw unavailable(hint);
+    if (completeAt === undefined) {
+      throw unavailable(`${hint} The board has had no complete GitHub poll since it started.`);
+    }
+    if (snapshot === undefined) {
+      throw unavailable(`${hint} The board has not seen the head of ${label} yet.`);
+    }
+    if (Date.parse(snapshot.observed_at) < Date.parse(completeAt)) {
+      throw unavailable(
+        `${hint} The board last saw head ${snapshot.head_sha} at ${snapshot.observed_at}, before its last complete GitHub poll.`,
+      );
+    }
+    if (snapshot.head_sha.toLowerCase() !== sha) {
+      throw unavailable(`${hint} Its last poll saw head ${snapshot.head_sha}.`);
+    }
+    return 'poll';
+  }
   if (result.value.status !== 'ok') {
     throw unavailable(
-      `GitHub answered ${result.value.status} for ${label}; ask the operator to check the board's GitHub access.`,
+      `GitHub answered ${result.value.status} for ${label}; ${noRepeat("check the board's GitHub access")}`,
     );
   }
+  if (snapshot?.head_sha.toLowerCase() !== sha) {
+    throw new CommandError(
+      'head_mismatch',
+      `The head of ${label} is ${snapshot?.head_sha ?? 'unknown'}; push the commit, then submit the head.`,
+    );
+  }
+  return 'live';
 }
 
 /** Polls the task's PR on demand for a submit; `skipped` when the task has none. */
@@ -237,14 +291,15 @@ async function pollTaskPr(
 }
 
 /**
- * Records the submit of `sha` for the task's `column` visit `epoch`. Throws `head_mismatch` or
- * `github_unavailable` unless `sha` is the freshly polled PR head.
+ * Records the submit of `sha` for the task's `column` visit `epoch` and says how its head was
+ * confirmed (`confirmHead`). Throws `head_mismatch` or `github_unavailable` otherwise.
  */
 async function insertSubmission(
   trx: Trx,
   input: { task: Task; column: ColumnId; epoch: number; sha: string },
   ctx: CommandContext<SubmitPrepared>,
-): Promise<void> {
+  completeSince: ReadonlyMap<string, string>,
+): Promise<'live' | 'poll'> {
   const { task, column, epoch, sha } = input;
   const pr = await taskPr(trx, task.id);
   if (pr === null) {
@@ -253,19 +308,19 @@ async function insertSubmission(
       'The task has no active pull request; ask the operator to link it with `board link`, then submit its head.',
     );
   }
-  confirmPolled(ctx.prepared, pr);
   const snapshot = await trx
     .selectFrom('pr_snapshot')
-    .select('head_sha')
+    .select(['head_sha', 'observed_at'])
     .where(sql<boolean>`lower(repo) = ${pr.repo.toLowerCase()}`)
     .where('number', '=', pr.number)
     .executeTakeFirst();
-  if (snapshot?.head_sha.toLowerCase() !== sha) {
-    throw new CommandError(
-      'head_mismatch',
-      `The head of ${pr.repo}#${String(pr.number)} is ${snapshot?.head_sha ?? 'unknown'}; push the commit, then submit the head.`,
-    );
-  }
+  const confirmed = confirmHead({
+    prepared: ctx.prepared,
+    pr,
+    sha,
+    snapshot,
+    completeAt: completeSince.get(prSourceId(task.project, pr.repo)),
+  });
   await trx
     .insertInto('submission')
     .values({
@@ -280,7 +335,12 @@ async function insertSubmission(
       pr_number: pr.number,
     })
     .execute();
+  return confirmed;
 }
+
+/** The `task_submitted` payload mark of a head confirmed by the board's last poll. */
+const confirmation = (confirmed: 'live' | 'poll') =>
+  confirmed === 'poll' ? { confirmedByPoll: true as const } : {};
 
 /**
  * The executor's submit and return of a turn it took, the turnless shadow submit, and the
@@ -315,14 +375,19 @@ export function createTurnMutations(deps: {
         `Only the executor of ${column} submits this task while the dispatcher is in shadow mode.`,
       );
     }
-    await insertSubmission(trx, { task, column, epoch: task.column_epoch, sha: input.sha }, ctx);
+    const confirmed = await insertSubmission(
+      trx,
+      { task, column, epoch: task.column_epoch, sha: input.sha },
+      ctx,
+      completeSince,
+    );
     await emit(
       trx,
       'task_submitted',
       task.project,
       task.id,
       ctx.at,
-      { column, sha: input.sha },
+      { column, sha: input.sha, ...confirmation(confirmed) },
       ctx.actor,
     );
     return { task: taskView(await dispatched(trx, task.id, ctx.at)), turn: null, sha: input.sha };
@@ -355,10 +420,11 @@ export function createTurnMutations(deps: {
     async run(trx, input, ctx) {
       if (!isTurnId(input.turn)) return submitShadow(trx, input, ctx);
       const { turn, task } = await takenTurn(trx, input.turn, ctx);
-      await insertSubmission(
+      const confirmed = await insertSubmission(
         trx,
         { task, column: turn.column, epoch: turn.epoch, sha: input.sha },
         ctx,
+        completeSince,
       );
       await closeTurns(trx, { taskId: task.id, reason: 'submitted', at: new Date(ctx.at) });
       await emit(
@@ -367,7 +433,7 @@ export function createTurnMutations(deps: {
         task.project,
         task.id,
         ctx.at,
-        { turn: input.turn, column: turn.column, sha: input.sha },
+        { turn: input.turn, column: turn.column, sha: input.sha, ...confirmation(confirmed) },
         ctx.actor,
       );
       return {
