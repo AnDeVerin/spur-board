@@ -1,6 +1,6 @@
 // The curator scenarios: the stand project gets `stand-curator` as its curator, so a worker
 // question on a column without an orchestrator goes to the curator before the operator.
-import { issueKey, openIssues, settledUnless } from './helpers.ts';
+import { issueKey, openIssues, settledUnless, STAND_SPUR_PROJECTS } from './helpers.ts';
 import type { Board, Scenario, ScenarioEntities, ScenarioFakes, Settled } from './index.ts';
 
 const QUESTION = 'Which version should the client target?';
@@ -9,11 +9,7 @@ const CURATOR_WAIT_MS = 20_000;
 
 const curatorConfig: NonNullable<Scenario['config']> = {
   stand: {
-    spurProjects: [
-      { name: 'stand-worker', role: 'worker' },
-      { name: 'stand-qa', role: 'worker' },
-      { name: 'stand-curator', role: 'curator' },
-    ],
+    spurProjects: [...STAND_SPUR_PROJECTS, { name: 'stand-curator', role: 'curator' }],
   },
 };
 
@@ -126,7 +122,7 @@ export const curatorEscalation: Scenario = {
 /** No live curator session: the board passes the question on to the operator itself. */
 export const curatorAbsent: Scenario = {
   name: 'curator-absent',
-  summary: 'A worker question with the curator session killed, moved to the operator by the board.',
+  summary: 'A worker question with the curator session killed, passed on to the operator.',
   config: curatorConfig,
   async seed(board, fakes) {
     const entities = await askAsWorker(board, fakes, 'curator-absent', { killed: true });

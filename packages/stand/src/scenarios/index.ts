@@ -107,7 +107,8 @@ export interface Scenario {
   summary: string;
   /**
    * Merged into the stand's config: `thresholds` and `adapters` deep-merge, and `stand` replaces
-   * the `columns`, `dispatcher` and `spurProjects` of the `stand` project. Nothing else may change.
+   * the `columns`, `dispatcher` and `spurProjects` of the `stand` project. Nothing else may
+   * change.
    */
   config?: {
     thresholds?: Partial<Config['thresholds']>;

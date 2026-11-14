@@ -59,6 +59,7 @@ import {
   type Scenario,
   type ScenarioEntities,
 } from './scenarios/index.ts';
+import { STAND_SPUR_PROJECTS } from './scenarios/helpers.ts';
 import { privateDir, restoreSnapshot, saveSnapshot, snapshotKey } from './snapshots.ts';
 
 export { StandRefusedError } from './guards.ts';
@@ -123,10 +124,7 @@ export function standConfig(
         tracker: { type: 'github-issues', repo: 'stand-org/board' },
         repos: ['stand-org/board'],
         operatorGithubLogin: 'stand-agent',
-        spurProjects: [
-          { name: 'stand-worker', role: 'worker' },
-          { name: 'stand-qa', role: 'worker' },
-        ],
+        spurProjects: [...STAND_SPUR_PROJECTS],
         columns: COLUMN_IDS.map((id) => ({
           id,
           enabled: true,
@@ -1174,8 +1172,8 @@ export async function startStand(options: StandOptions): Promise<Stand> {
 
 /**
  * One approved operator token, as an operator approval would leave it, and a running session
- * snapshot for each role session, so worker, orchestrator and curator calls resolve before the first Spur
- * poll. The fake lists the same sessions, so a poll keeps them.
+ * snapshot for each role session, so worker, orchestrator and curator calls resolve before the
+ * first Spur poll. The fake lists the same sessions, so a poll keeps them.
  */
 async function seedIdentities(
   dbFile: string,
