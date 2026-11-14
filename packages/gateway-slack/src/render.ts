@@ -2,6 +2,8 @@ import type { Action, Persona, RichText, RichTextInline } from '@spur-board/cont
 
 /** Slack section mrkdwn is capped at 3000 characters; leave room for formatting. */
 export const MAX_PART_TEXT = 2900;
+/** Slack allows at most 10 elements in one context block. */
+const MAX_CONTEXT_ELEMENTS = 10;
 const MARKER_PREFIX = 'spur:';
 const ORIGIN_PREFIX = 'spur-origin:';
 
@@ -92,7 +94,7 @@ function inline(value: RichTextInline): string {
     case 'strike':
       return perLine(value.text.replaceAll('~', '∼'), '~');
     case 'italic':
-      return perLine(value.text, '_');
+      return perLine(value.text.replaceAll('_', 'ˍ'), '_');
     case 'link':
       return `<${value.url.replace(/[<>|]/g, '')}|${escapeText(value.text).replaceAll('|', '¦')}>`;
     case 'mention':
@@ -101,7 +103,8 @@ function inline(value: RichTextInline): string {
 }
 
 /**
- * Trailing context blocks become context elements after the section, each cut to fit one.
+ * Trailing context blocks become the elements of one context block after the section: at most
+ * 10, the last joining any overflow by newlines, each cut to fit one element.
  * Without other visible content they stay paragraphs, so the section keeps text.
  */
 export function splitContext(body: RichText): { body: RichText; context: string[] } {
@@ -111,9 +114,14 @@ export function splitContext(body: RichText): { body: RichText; context: string[
   const context = body
     .slice(end)
     .map((block) => (block.kind === 'context' ? block.children.map(inline).join('') : ''))
-    .filter((text) => text.length > 0)
-    .map((text) => splitText(text)?.[0] ?? text.slice(0, MAX_PART_TEXT));
-  return { body: body.slice(0, end), context };
+    .filter((text) => text.length > 0);
+  const bounded = [
+    ...context.slice(0, MAX_CONTEXT_ELEMENTS - 1),
+    ...(context.length >= MAX_CONTEXT_ELEMENTS
+      ? [context.slice(MAX_CONTEXT_ELEMENTS - 1).join('\n')]
+      : []),
+  ].map((text) => splitText(text)?.[0] ?? text.slice(0, MAX_PART_TEXT));
+  return { body: body.slice(0, end), context: bounded };
 }
 
 export function renderText(body: RichText): string {
@@ -240,14 +248,16 @@ export function messageBlocks(
     block_id: string;
     elements: [{ type: 'plain_text'; text: string }];
   };
-  type ContextBlock = { type: 'context'; elements: [{ type: 'mrkdwn'; text: string }] };
+  type ContextBlock = { type: 'context'; elements: { type: 'mrkdwn'; text: string }[] };
   const blocks: (SectionBlock | ActionsBlock | OriginBlock | ContextBlock)[] = [
     { type: 'section', block_id: marker, text: { type: 'mrkdwn', text } },
-    ...context.map((value): ContextBlock => ({
-      type: 'context',
-      elements: [{ type: 'mrkdwn', text: value }],
-    })),
   ];
+  if (context.length > 0) {
+    blocks.push({
+      type: 'context',
+      elements: context.map((value) => ({ type: 'mrkdwn', text: value })),
+    });
+  }
   if (originKey !== undefined) {
     const id = originMarkerId(originKey);
     if (id === null) throw new Error('origin marker too long');

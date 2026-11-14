@@ -553,6 +553,41 @@ describe('rendering and surface', () => {
     ).toBe('_a&lt;b_\n\n_c_');
   });
 
+  it('keeps underscores inside italic text from closing the span', () => {
+    expect(
+      renderText([
+        { kind: 'paragraph', children: [{ kind: 'italic', text: 'checked _again_ today' }] },
+      ]),
+    ).toBe('_checked ˍagainˍ today_');
+  });
+
+  it('puts many context blocks into one context block of at most ten elements', async () => {
+    const { fake, gateway } = await setup();
+    const values = Array.from({ length: 50 }, (_, index) => `c${String(index + 1)}`);
+    const delivered = await gateway.deliver({
+      ...request('many-context'),
+      body: [
+        ...body('Line'),
+        ...values.map((text) => ({
+          kind: 'context' as const,
+          children: [{ kind: 'text' as const, text }],
+        })),
+      ],
+    });
+    expect(delivered.status).toBe('delivered');
+    const posted = fake.requests().find((entry) => entry.method === 'chat.postMessage');
+    expect(JSON.parse(posted?.params.blocks ?? 'null')).toEqual([
+      { type: 'section', block_id: 'spur:many-context', text: { type: 'mrkdwn', text: 'Line' } },
+      {
+        type: 'context',
+        elements: [
+          ...values.slice(0, 9).map((text) => ({ type: 'mrkdwn', text })),
+          { type: 'mrkdwn', text: values.slice(9).join('\n') },
+        ],
+      },
+    ]);
+  });
+
   it('fails a marker longer than Block Kit allows without an HTTP request', async () => {
     const { fake, gateway } = await setup();
     expect(await gateway.deliver(request('x'.repeat(260)))).toEqual({
