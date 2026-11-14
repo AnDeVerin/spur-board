@@ -1328,24 +1328,16 @@ const itemsOf = (ctx: Board, kind: 'cycle_limit' | 'course_check') =>
     .execute();
 
 describe('cycle limit', () => {
-  const cycleItems = (ctx: Board) =>
-    ctx.store.db
-      .selectFrom('operator_item')
-      .select(['id', 'item_key', 'cleared_at', 'block_id'])
-      .where('kind', '=', 'cycle_limit')
-      .orderBy('id')
-      .execute();
-
   it('raises one operator block per limit, holds the task and resets on its close', async () => {
     // Four counted returns: the course check is off so only the cycle limit stops the task.
     const ctx = await inReview({ cycleLimit: 2, courseCheck: 0 });
     await cycle(ctx);
-    expect(await cycleItems(ctx)).toEqual([]);
+    expect(await itemsOf(ctx, 'cycle_limit')).toEqual([]);
     await resubmit(ctx, B);
     await cycle(ctx);
 
-    const [item] = await cycleItems(ctx);
-    expect(await cycleItems(ctx)).toEqual([
+    const [item] = await itemsOf(ctx, 'cycle_limit');
+    expect(await itemsOf(ctx, 'cycle_limit')).toEqual([
       {
         id: expect.any(Number) as unknown,
         item_key: 'cycle-limit:1:review',
@@ -1374,10 +1366,10 @@ describe('cycle limit', () => {
 
     await resubmit(ctx, C);
     await cycle(ctx);
-    expect(await cycleItems(ctx)).toHaveLength(1);
+    expect(await itemsOf(ctx, 'cycle_limit')).toHaveLength(1);
     await resubmit(ctx, A);
     await cycle(ctx);
-    expect(await cycleItems(ctx)).toEqual([
+    expect(await itemsOf(ctx, 'cycle_limit')).toEqual([
       expect.objectContaining({ cleared_at: expect.any(String) as unknown }),
       expect.objectContaining({ cleared_at: null }),
     ]);
@@ -1400,7 +1392,7 @@ describe('cycle limit', () => {
     await ctx.pr({ draft: true });
     expect((await ctx.task()).column).toBe('dev');
     expect((await ctx.moves()).filter((move) => move.reason === 'gate_broken')).toHaveLength(3);
-    expect(await cycleItems(ctx)).toEqual([]);
+    expect(await itemsOf(ctx, 'cycle_limit')).toEqual([]);
     expect(await ctx.openTurn()).toMatchObject({ column: 'dev' });
   });
 });
