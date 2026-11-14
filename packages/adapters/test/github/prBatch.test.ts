@@ -2404,7 +2404,8 @@ describe('PR discovery reads', () => {
   /**
    * One source polled again and again: discovery lists `listed` (PR number -> `updatedAt`), and
    * a full read answers each PR at its listed `updatedAt` in `state`; `failing` names the
-   * operation that answers 502.
+   * operation that answers 502. Each poll gets the cursor of the last accepted batch, as core
+   * hands it back; `accept: false` drops a batch, so the next poll gets the old cursor again.
    */
   function scenario(state: 'OPEN' | 'MERGED') {
     const answers = {
@@ -2431,14 +2432,16 @@ describe('PR discovery reads', () => {
     });
     const fresh = () => adapter(fetcher);
     let source = fresh();
+    let accepted = cursor;
     return {
       answers,
       restart: () => {
         source = fresh();
       },
-      poll: async (prs: ReturnType<typeof refOf>[] = []) => {
+      poll: async (prs: ReturnType<typeof refOf>[] = [], accept = true) => {
         fetcher.mockClear();
-        const batch = await source.poll(context(prs, cursor));
+        const batch = await source.poll(context(prs, accepted));
+        if (accept && batch.cursor !== undefined) accepted = batch.cursor;
         return { batch, details: numbersSent(fetcher, 'PrDetails').flat() };
       },
     };
@@ -2460,6 +2463,17 @@ describe('PR discovery reads', () => {
       expect(batch.cursor).toBe(first);
     },
   );
+
+  it('reads a PR again when core did not accept the batch of its last read', async () => {
+    const run = scenario('MERGED');
+    run.answers.listed.set(9, first);
+    expect((await run.poll([], false)).details).toEqual([9]);
+
+    const again = await run.poll();
+    expect(again.details).toEqual([9]);
+    expect(again.batch.cursor).toBe(first);
+    expect((await run.poll()).details).toEqual([]);
+  });
 
   it('reads the PR again once discovery lists it newer', async () => {
     const run = scenario('MERGED');

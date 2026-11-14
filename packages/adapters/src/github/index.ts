@@ -748,12 +748,15 @@ async function pollRepository({
       if (found.numbers.includes(number)) discoveredOk = false;
     }
   };
-  // A discovered PR not requested and not newer than its last full read is skipped: it is not
-  // unread, so it neither holds the cursor nor adds an entity.
+  // A discovered PR not requested and not newer than its last full read is skipped once core's
+  // accepted cursor covers the listing; a read core never accepted is read again. A skipped PR is
+  // not unread, so it neither holds the cursor nor adds an entity.
   const readBefore = (number: number): boolean => {
     const read = discoveryReads.get(number);
     const listed = discovery.updatedAt.get(number);
-    return read !== undefined && listed !== undefined && Date.parse(listed) <= Date.parse(read);
+    if (read === undefined || listed === undefined || ctx.cursor === undefined) return false;
+    const listedMs = Date.parse(listed);
+    return listedMs <= Date.parse(read) && listedMs <= Date.parse(ctx.cursor);
   };
   const discovered = found.numbers.filter((number) => !byNumber.has(number) && !readBefore(number));
   for (const chunk of [...chunks(changed, DETAIL_CHUNK), ...chunks(discovered, DETAIL_CHUNK)]) {
