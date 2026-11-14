@@ -83,6 +83,7 @@ export function createHttpModule(
           options.doctor ??
           (() => runDaemonDoctor(ctx, options.productVersion ?? 'unknown', options.fetcher)),
         ...(options.firstPollDone === undefined ? {} : { firstPollDone: options.firstPollDone }),
+        ...(options.productVersion === undefined ? {} : { productVersion: options.productVersion }),
         logRequest: ({ requestId, method, url, status, tokenName }) => {
           const path = new URL(url, 'http://127.0.0.1').pathname;
           ctx.log.info(
