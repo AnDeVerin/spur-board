@@ -311,6 +311,8 @@ export interface Adapter {
   readonly intervalMs: number;
   /** Observes the source once (A1-A7, A10). */
   poll(ctx: PollContext): Promise<Batch>;
+  /** Drains reported usage not yet returned in a batch or failure, including during cancellation. */
+  takeUsage?(): Batch['usage'];
   /**
    * Observes one pull request out of turn (A9). Omitted by a source that cannot; the runner
    * then answers `unsupported`.

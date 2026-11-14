@@ -3061,6 +3061,38 @@ describe('persisted terminal PR policy', () => {
     expect(batch.items).toHaveLength(1);
     expect(fetcher).toHaveBeenCalledTimes(4);
   });
+  it('keeps the original abort reason while exposing only already reported usage', async () => {
+    let entered: () => void = () => {};
+    const reading = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(discovery('CLOSED', 2))
+      .mockImplementation((_url, init) => {
+        entered();
+        return new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => {
+            const reason: unknown = init.signal?.reason;
+            reject(reason instanceof Error ? reason : new Error('Request aborted'));
+          });
+        });
+      });
+    const source = adapter(fetcher);
+    const controller = new AbortController();
+    const pending = source.poll({
+      ...context([], time),
+      terminalPrs: terminal('closed'),
+      prRechecks: [ref],
+      signal: controller.signal,
+    });
+    await reading;
+    expect(source.takeUsage?.()).toEqual({ points: 2 });
+    const reason = new Error('Stop this poll');
+    controller.abort(reason);
+    await expect(pending).rejects.toBe(reason);
+    expect(source.takeUsage?.()).toBeUndefined();
+  });
   it('retains valid costs when PR parsing rejects and drains them before the next attempt', async () => {
     const fetcher = vi.fn<typeof fetch>().mockImplementation(() =>
       Promise.resolve(

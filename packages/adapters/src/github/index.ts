@@ -128,6 +128,7 @@ export function githubSources(config: Config, options: GithubOptions): GithubSou
         adapter: {
           id,
           intervalMs: config.adapters.github.intervalMs,
+          takeUsage: () => client.takeUsage(),
           poll: (ctx) =>
             withUsage(ctx.signal, () =>
               pollRepository({

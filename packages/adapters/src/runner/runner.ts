@@ -204,9 +204,9 @@ function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: nu
 
   /** Appends the current state to the serial report chain; resolves when its step is done. */
   let pendingPoints: number | undefined;
-  function report(usage?: Batch['usage']): Promise<void> {
+  function report(usage?: Batch['usage'], allowStopped = false): Promise<void> {
     if (usage !== undefined) pendingPoints = (pendingPoints ?? 0) + usage.points;
-    if (stopping) return reports;
+    if (stopping && !allowStopped) return reports;
     reports = reports.then(async () => {
       const next = state();
       const json = JSON.stringify(next);
@@ -225,6 +225,25 @@ function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: nu
       }
     });
     return reports;
+  }
+
+  /** Drain synchronously on abort, before the adapter unwinds or stop waits for reports. */
+  async function readSource(
+    read: () => Promise<Batch>,
+    signal: AbortSignal,
+  ): Promise<Batch | undefined> {
+    const takeUsage = adapter.takeUsage?.bind(adapter);
+    if (takeUsage === undefined) return untilAborted(read(), signal);
+    const onAbort = () => {
+      const usage = takeUsage();
+      if (usage !== undefined) void report(usage, true);
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+    try {
+      return await untilAborted(read(), signal);
+    } finally {
+      signal.removeEventListener('abort', onAbort);
+    }
   }
 
   function armDeadline(): void {
@@ -304,8 +323,8 @@ function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: nu
       }
       const requested: GoneRef[] = [...context.observe.prs, ...context.observe.tickets];
       step = 'poll';
-      const batch = await untilAborted(
-        adapter.poll({ ...context, signal: abort.signal }),
+      const batch = await readSource(
+        () => adapter.poll({ ...context, signal: abort.signal }),
         abort.signal,
       );
       // Only an abort ends the poll here; a missing or malformed batch fails validation below.
@@ -424,7 +443,8 @@ function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: nu
     if (blind !== undefined) {
       return err({ kind: 'blind', reason: blind.reason, message: blind.message });
     }
-    if (adapter.pollPr === undefined) {
+    const pollOne = adapter.pollPr?.bind(adapter);
+    if (pollOne === undefined) {
       return err({ kind: 'unsupported', message: 'The source does not poll one PR on demand' });
     }
     if (throttledUntilMs !== undefined && startMs < throttledUntilMs) {
@@ -447,12 +467,13 @@ function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: nu
       const feedbackCursors = received.feedbackCursors?.filter(own) ?? [];
       const continuations = received.continuations?.filter(own) ?? [];
       step = 'poll';
-      const batch = await untilAborted(
-        adapter.pollPr(ref, {
-          signal: abort.signal,
-          ...(feedbackCursors.length === 0 ? {} : { feedbackCursors }),
-          ...(continuations.length === 0 ? {} : { continuations }),
-        }),
+      const batch = await readSource(
+        () =>
+          pollOne(ref, {
+            signal: abort.signal,
+            ...(feedbackCursors.length === 0 ? {} : { feedbackCursors }),
+            ...(continuations.length === 0 ? {} : { continuations }),
+          }),
         abort.signal,
       );
       // Aborted by stop() or by the timeout; after a timeout the caller already has its answer.

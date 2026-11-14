@@ -12,6 +12,7 @@ import {
 } from '@spur-board/contracts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as entry from '../../src/index.ts';
+import { githubSources } from '../../src/github/index.ts';
 import { classifyHttpFailure } from '../../src/runner/http.ts';
 import { type AdapterRunner, type PollFailure, startRunner } from '../../src/runner/runner.ts';
 import {
@@ -1983,5 +1984,123 @@ describe('state probes and reported source cost', () => {
     expect(
       core.reports.filter((report) => report.usage !== undefined).map((report) => report.usage),
     ).toEqual([{ points: 5 }]);
+  });
+});
+
+describe('reported cost before cancellation', () => {
+  const configured = configSchema.parse({
+    projects: [
+      {
+        id: 'web',
+        tracker: { type: 'github-issues', repo: 'acme/web' },
+        repos: ['acme/web'],
+        operatorGithubLogin: 'operator',
+      },
+    ],
+    operator: { slack: 'operator' },
+    digest: { tz: 'UTC' },
+    github: { reserveRemaining: 0 },
+  });
+  const wire = (data: object, cost: number) =>
+    new Response(
+      JSON.stringify({ data: { rateLimit: { cost, remaining: 4000, resetAt: at(I) }, ...data } }),
+    );
+  const discovery = (cost: number) =>
+    wire(
+      {
+        repository: {
+          pullRequests: { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } },
+          mergedBaseline: { nodes: [] },
+        },
+      },
+      cost,
+    );
+  const held = (_url: unknown, init?: RequestInit): Promise<Response> =>
+    new Promise((_resolve, reject) => {
+      init?.signal?.addEventListener(
+        'abort',
+        () => {
+          const reason: unknown = init.signal?.reason;
+          reject(reason instanceof Error ? reason : new Error('Request aborted'));
+        },
+        { once: true },
+      );
+    });
+  function source(fetcher: typeof fetch) {
+    const entry = githubSources(configured, {
+      token: 'synthetic',
+      now: () => Date.now(),
+      fetch: fetcher,
+    })[0];
+    if (entry === undefined) throw new Error('Missing source');
+    return entry;
+  }
+  it('persists already reported cost before stopping a regular poll, with no full batch', async () => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(discovery(7))
+      .mockImplementation(held);
+    const entry = source(fetcher);
+    const core = createFakeCore({ context: () => context({ prs: [pr] }) });
+    const runner = startRunner({
+      entries: [entry],
+      core,
+      config: configured,
+      now: () => Date.now(),
+    });
+    runners.push(runner);
+    await flush();
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    await runner.stop();
+    expect(core.observed).toEqual([]);
+    expect(core.reports.flatMap((report) => (report.usage ? [report.usage] : []))).toEqual([
+      { points: 7 },
+    ]);
+  });
+  it('persists reported detail cost before a demand timeout without inventing a cost for the hung page', async () => {
+    const connection = { nodes: [], pageInfo: { hasNextPage: false, endCursor: null } };
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(discovery(0))
+      .mockResolvedValueOnce(
+        wire(
+          {
+            pr0: {
+              pullRequest: {
+                reviews: connection,
+                reviewThreads: connection,
+                reviewRequests: connection,
+                statusCheckRollup: null,
+                comments: { nodes: [], pageInfo: { hasPreviousPage: true, startCursor: 'older' } },
+              },
+            },
+          },
+          5,
+        ),
+      )
+      .mockImplementation(held);
+    const entry = source(fetcher);
+    const core = createFakeCore();
+    const runner = startRunner({
+      entries: [entry],
+      core,
+      config: configured,
+      now: () => Date.now(),
+    });
+    runners.push(runner);
+    await flush();
+    const pending = runner.pollPr?.(entry.adapter.id, pr, { timeoutMs: 100 });
+    await flush();
+    expect(fetcher).toHaveBeenCalledTimes(3);
+    await vi.advanceTimersByTimeAsync(100);
+    await expect(pending).resolves.toMatchObject({ ok: false, error: { kind: 'timeout' } });
+    expect(core.observed).toHaveLength(1);
+    expect(core.reports.flatMap((report) => (report.usage ? [report.usage] : []))).toEqual([
+      { points: 5 },
+    ]);
+    await runner.stop();
+    expect(core.reports.flatMap((report) => (report.usage ? [report.usage] : []))).toEqual([
+      { points: 5 },
+    ]);
   });
 });
