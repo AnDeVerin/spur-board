@@ -1,7 +1,6 @@
 import {
   COLUMN_IDS,
   eventPayloadSchemas,
-  prFactsSchema,
   type ColumnId,
   type Config,
   type GateReason,
@@ -14,7 +13,7 @@ import { countCycles, type CycleEvent } from '../domain/gates.ts';
 import type { Row } from '../store/schema.ts';
 import { curatorProject } from './authorize.ts';
 import { openSystemBlock } from './blocks.ts';
-import { taskPr, taskUrl, type Trx } from './board-utils.ts';
+import { parsePr, taskPr, taskUrl, type Trx } from './board-utils.ts';
 import { capPoints, raiseItem } from './feed.ts';
 
 // The course check: after `columns[].courseCheck` counted returns to Dev from a column, the
@@ -183,13 +182,7 @@ async function prFacts(trx: Trx, taskId: number): Promise<PrFacts | null> {
     .where(sql<boolean>`lower(repo) = ${link.repo.toLowerCase()}`)
     .where('number', '=', link.number)
     .executeTakeFirst();
-  if (snapshot === undefined) return null;
-  try {
-    const parsed = prFactsSchema.safeParse(JSON.parse(snapshot.detail));
-    return parsed.success ? parsed.data : null;
-  } catch {
-    return null;
-  }
+  return parsePr(snapshot?.detail);
 }
 
 /**

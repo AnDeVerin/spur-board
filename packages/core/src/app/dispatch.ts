@@ -2,7 +2,6 @@ import {
   COLUMN_IDS,
   DISPATCHER_MODES,
   isExternalAuthor,
-  prFactsSchema,
   type ActorId,
   type ColumnId,
   type Config,
@@ -17,7 +16,7 @@ import { dispatch, turnReason } from '../domain/dispatch.ts';
 import type { GateMark } from '../domain/gates.ts';
 import { parseJson, toJson } from '../store/json.ts';
 import type { Row } from '../store/schema.ts';
-import { emit, projectForSource, taskPr, type Trx } from './board-utils.ts';
+import { emit, parsePr, projectForSource, taskPr, type Trx } from './board-utils.ts';
 import {
   courseKeyPrefix,
   cycleKeyPrefix,
@@ -308,16 +307,6 @@ export async function blindSources(trx: Trx, complete: ReadonlyMap<string, strin
     states.filter((state) => state.blind_reason !== null).map((state) => state.source),
   );
   return (source: string) => blind.has(source) || !complete.has(source);
-}
-
-function parsePr(detail: string | undefined): PrFacts | null {
-  if (detail === undefined) return null;
-  try {
-    const parsed = prFactsSchema.safeParse(JSON.parse(detail));
-    return parsed.success ? parsed.data : null;
-  } catch {
-    return null;
-  }
 }
 
 /** Whether the external reviewers approved: one approval, and no changes requested by one. */
