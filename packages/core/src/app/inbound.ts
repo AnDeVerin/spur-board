@@ -19,7 +19,7 @@ import {
   type RecoverRequest,
   type RichText,
 } from '@spur-board/contracts';
-import { sql, type Kysely } from 'kysely';
+import { sql } from 'kysely';
 import { z } from 'zod';
 import {
   advanceConversationCursor,
@@ -28,9 +28,9 @@ import {
 } from './conversations.ts';
 import { BLOCK_ITEM_KINDS } from '../domain/fromYou.ts';
 import { toJson } from '../store/json.ts';
-import type { Row, Tables } from '../store/schema.ts';
+import type { Row } from '../store/schema.ts';
 import type { Store } from '../store/store.ts';
-import { emit, withCommandKey } from './board-utils.ts';
+import { emit, withCommandKey, type Trx } from './board-utils.ts';
 import { editInboundComment, recordInboundBlockMessage } from './blocks.ts';
 import { selectNotificationRecipient } from './doorbells.ts';
 import { replayOperation } from './commands.ts';
@@ -49,7 +49,6 @@ import {
   tokenRevokeMutation,
 } from './tokens.ts';
 
-type Trx = Kysely<Tables>;
 type Item = Row<'operator_item'>;
 type UserEvent = Exclude<InboundEvent, { kind: 'gap' | 'connection' }>;
 type MessageEvent = Extract<

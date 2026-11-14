@@ -12,9 +12,10 @@ import {
   type Gateway,
   type SpaceId,
 } from '@spur-board/contracts';
-import { sql, type Kysely } from 'kysely';
+import { sql } from 'kysely';
 import type { Store } from '../store/store.ts';
-import type { Row, Tables } from '../store/schema.ts';
+import type { Row } from '../store/schema.ts';
+import type { Trx } from './board-utils.ts';
 import { insertConversation } from './conversations.ts';
 import { recordRingDelivery, ringStillCurrent, ringTask, ringUndelivered } from './doorbells.ts';
 import { expireTokenOfItem } from './tokens.ts';
@@ -80,7 +81,6 @@ const MAX_BACKOFF_MS = 60_000;
 /** post_failed rows rescanned per `recover()` transaction: far below the scan's string limit. */
 const RECOVER_BATCH = 100;
 
-type Trx = Kysely<Tables>;
 type OutboxRow = Row<'outbox'>;
 
 interface Claim {

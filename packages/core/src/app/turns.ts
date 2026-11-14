@@ -8,12 +8,12 @@ import {
   type Config,
   type PrEntityRef,
 } from '@spur-board/contracts';
-import { sql, type Kysely } from 'kysely';
+import { sql } from 'kysely';
 import { z } from 'zod';
 import { parseAddressee } from '../domain/blocks/blocks.ts';
 import { parseJson, toJson } from '../store/json.ts';
-import type { Row, Tables } from '../store/schema.ts';
-import { taskPr, taskUrl } from './board-utils.ts';
+import type { Row } from '../store/schema.ts';
+import { taskPr, taskUrl, type Trx } from './board-utils.ts';
 import { CommandError } from './commands.ts';
 import {
   acknowledgeNotification,
@@ -30,7 +30,6 @@ import { clearItem, raiseItem } from './feed.ts';
 // A turn hands a task's column visit `(column, column_epoch)` to the column's executor. Every
 // function takes `at` from the caller, so it is safe inside a scan transaction.
 
-type Trx = Kysely<Tables>;
 type Turn = Row<'turn'>;
 type Handed = z.output<typeof turnHandedSchema>;
 

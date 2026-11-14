@@ -9,7 +9,13 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { startAdapters } from '@spur-board/adapters';
 import { createFakeCore } from '@spur-board/adapters/testing';
-import { configSchema, DEFAULT_LINK, type Config } from '@spur-board/contracts';
+import {
+  configSchema,
+  DEFAULT_LINK,
+  prSourceId,
+  trackerSourceId,
+  type Config,
+} from '@spur-board/contracts';
 import { loadConfig, resolvePaths, type Paths } from '@spur-board/daemon/in-process';
 import { Kind, parse, type OperationDefinitionNode, type SelectionSetNode } from 'graphql';
 import { z } from 'zod';
@@ -56,6 +62,13 @@ const STAND = {
   done: standJira.tracker.doneStatuses[0] ?? '',
   ready: standJira.tracker.readyStatuses[0] ?? '',
 };
+/** The stand's source ids, built as core builds them. */
+const SOURCES = {
+  boardPr: prSourceId(STAND.issuesId, STAND.board),
+  servicePr: prSourceId(STAND.jiraId, STAND.service),
+  issues: trackerSourceId(standIssues),
+  jira: trackerSourceId(standJira),
+};
 /** The fake's statuses a live status with no done or ready role takes, in first-seen order. */
 const OTHER_STATUSES = STATUSES.filter((name) => name !== STAND.done && name !== STAND.ready);
 /** A status name a recording may hold: the fake's, or the generic one past them. */
@@ -65,10 +78,10 @@ const isStandStatus = (name: string): boolean =>
 /** The five files, by stand source id. */
 export const RECORDING_FILES: Readonly<Record<string, string>> = {
   spur: 'spur/sessions.json',
-  [`github:${STAND.issuesId}:${STAND.board}`]: `github-pr/${STAND.board.replace('/', '-')}.json`,
-  [`github:${STAND.jiraId}:${STAND.service}`]: `github-pr/${STAND.service.replace('/', '-')}.json`,
-  [`github-issues:${STAND.issuesId}:${STAND.board}`]: `github-issues/${STAND.board.replace('/', '-')}.json`,
-  [`jira:${STAND.jiraId}`]: `jira/${STAND.jiraId}.json`,
+  [SOURCES.boardPr]: `github-pr/${STAND.board.replace('/', '-')}.json`,
+  [SOURCES.servicePr]: `github-pr/${STAND.service.replace('/', '-')}.json`,
+  [SOURCES.issues]: `github-issues/${STAND.board.replace('/', '-')}.json`,
+  [SOURCES.jira]: `jira/${STAND.jiraId}.json`,
 };
 
 const headersSchema = z.record(z.string(), z.string());
@@ -1113,16 +1126,14 @@ function isPaging(system: System, raw: RawExchange): boolean {
 /** The stand source an exchange belongs to. */
 function sourceOf(scrubber: Scrubber, system: System, raw: RawExchange): string {
   if (system === 'spur') return 'spur';
-  if (system === 'jira') return `jira:${STAND.jiraId}`;
-  if (system === 'github-issues') return `github-issues:${STAND.issuesId}:${STAND.board}`;
+  if (system === 'jira') return SOURCES.jira;
+  if (system === 'github-issues') return SOURCES.issues;
   const body = JSON.parse(raw.body ?? '{}') as { variables?: Record<string, unknown> };
   const repo = scrubber.standRepo(
     `${String(body.variables?.['owner'])}/${String(body.variables?.['repo'])}`,
   );
   if (repo === undefined) throw new Refusal('A GraphQL request names an unknown repo.');
-  return repo === STAND.board
-    ? `github:${STAND.issuesId}:${STAND.board}`
-    : `github:${STAND.jiraId}:${STAND.service}`;
+  return repo === STAND.board ? SOURCES.boardPr : SOURCES.servicePr;
 }
 
 function draftResponse(scrubber: Scrubber, system: System, raw: RawExchange, at: string): Draft {
@@ -1288,15 +1299,10 @@ async function recordOrRefuse(
   const sourceIds = new Map<string, string>();
   for (const { source } of attempts) {
     const standSource = source
-      .replace(/^jira:.*$/, `jira:${STAND.jiraId}`)
-      .replace(
-        new RegExp(`^github-issues:${STAND.issuesId}:.*$`),
-        `github-issues:${STAND.issuesId}:${STAND.board}`,
-      )
-      .replace(
-        /^github:([^:]+):(.*)$/,
-        (_all, project: string, repo: string) =>
-          `github:${project}:${scrubber.standRepo(repo) ?? 'unknown'}`,
+      .replace(/^jira:.*$/, SOURCES.jira)
+      .replace(new RegExp(`^github-issues:${STAND.issuesId}:.*$`), SOURCES.issues)
+      .replace(/^github:([^:]+):(.*)$/, (_all, project: string, repo: string) =>
+        prSourceId(project, scrubber.standRepo(repo) ?? 'unknown'),
       );
     sourceIds.set(source, standSource);
   }
@@ -1342,7 +1348,7 @@ async function recordOrRefuse(
       source,
       recordedAt,
       observe: { prs: [], tickets: [], sessions: source === 'spur' ? [{ ...probe }] : [] },
-      ...(source === `jira:${STAND.jiraId}`
+      ...(source === SOURCES.jira
         ? {
             tracker: {
               doneStatuses: [

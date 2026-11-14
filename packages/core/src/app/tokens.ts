@@ -9,16 +9,14 @@ import {
   type Config,
   type EventKind,
 } from '@spur-board/contracts';
-import type { Kysely } from 'kysely';
-import type { OperatorTokenStatus, Row, Tables } from '../store/schema.ts';
+import type { OperatorTokenStatus, Row } from '../store/schema.ts';
 import type { Store } from '../store/store.ts';
-import { emit } from './board-utils.ts';
+import { emit, type Trx } from './board-utils.ts';
 import { CommandError, type Mutation } from './commands.ts';
 import { capPoints, clearItem, raiseItem } from './feed.ts';
 import { enqueueBoardFeedLine, enqueueTokenCard, tokenCardKey } from './outbox.ts';
 import type { Query } from './queries.ts';
 
-type Trx = Kysely<Tables>;
 const REQUEST_LIFETIME_MS = 15 * 60 * 1000;
 const MAX_PENDING_REQUESTS = 10;
 /** Days an expired or denied request stays after its decision before the daily purge drops it. */

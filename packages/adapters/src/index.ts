@@ -1,5 +1,12 @@
 // The adapters package: starts the runner that polls every source and reports to core.
-import { AdapterError, type Adapter, type AdapterCore, type Config } from '@spur-board/contracts';
+import {
+  AdapterError,
+  prSourceId,
+  trackerSourceId,
+  type Adapter,
+  type AdapterCore,
+  type Config,
+} from '@spur-board/contracts';
 import { githubSources } from './github/index.ts';
 import { createGithubIssuesAdapter } from './github/issues.ts';
 import { createJiraAdapter } from './jira/jira.ts';
@@ -42,7 +49,7 @@ export function startAdapters(
   for (const project of config.projects) {
     if (project.tracker.type === 'jira') {
       const tracker = project.tracker;
-      const id = `jira:${project.id}`;
+      const id = trackerSourceId(project);
       const email = secrets['JIRA_EMAIL'];
       const token = secrets['JIRA_API_TOKEN'];
       entries.push({
@@ -63,7 +70,7 @@ export function startAdapters(
             : blindSource(id, config.adapters.jira.intervalMs, 'Jira credential is missing'),
       });
     } else {
-      const id = `github-issues:${project.id}:${project.tracker.repo.toLowerCase()}`;
+      const id = trackerSourceId(project);
       const intervalMs = config.adapters.githubIssues.intervalMs;
       entries.push({
         adapter: githubToken
@@ -93,7 +100,7 @@ export function startAdapters(
       for (const repo of project.repos) {
         entries.push({
           adapter: blindSource(
-            `github:${project.id}:${repo.toLowerCase()}`,
+            prSourceId(project.id, repo),
             config.adapters.github.intervalMs,
             'GitHub credential is missing',
           ),

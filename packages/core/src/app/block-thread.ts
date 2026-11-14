@@ -6,16 +6,16 @@ import {
   type Config,
   type Persona,
 } from '@spur-board/contracts';
-import type { Kysely, Selectable } from 'kysely';
+import type { Selectable } from 'kysely';
 import { parseAddressee } from '../domain/blocks/blocks.ts';
-import type { BlockTable, Tables, TaskTable } from '../store/schema.ts';
+import type { BlockTable, TaskTable } from '../store/schema.ts';
+import type { Trx } from './board-utils.ts';
 import { curatorProject } from './authorize.ts';
 import type { CommandContext } from './commands.ts';
 import { enqueueConversationOpen, enqueueConversationReply } from './outbox.ts';
 
 type Task = Selectable<TaskTable>;
 type Block = Selectable<BlockTable>;
-type Trx = Kysely<Tables>;
 
 export function orchestrator(config: Config, task: Task): string | null {
   const name = config.projects

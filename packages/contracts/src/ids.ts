@@ -15,8 +15,10 @@ export type TypedRef =
  * and two different IDs never share one number. A longer number is `usage`.
  */
 const N = '[1-9]\\d{0,14}';
+/** Regex source of a Jira project key prefix, as in `PROJ-12`, in either letter case. */
+export const JIRA_PROJECT_KEY = '[A-Za-z][A-Za-z0-9_]*';
 const TASK_FORMS = [
-  { form: 'jira', source: `[A-Za-z][A-Za-z0-9_]*-${N}` },
+  { form: 'jira', source: `${JIRA_PROJECT_KEY}-${N}` },
   { form: 'github', source: `[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#${N}` },
   { form: 'github-short', source: `[A-Za-z0-9._-]+#${N}` },
 ] as const;

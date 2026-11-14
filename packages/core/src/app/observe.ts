@@ -1,10 +1,13 @@
 import { scanTransaction } from './secrets.ts';
 import {
+  JIRA_PROJECT_KEY,
   RESERVED_PROJECT,
   entityRefSchema,
   prFactsSchema,
+  prSourceId,
   sessionFactsSchema,
   ticketFactsSchema,
+  trackerSourceId,
   type AcceptedObservation,
   type AdapterCore,
   type Batch,
@@ -28,7 +31,6 @@ import {
   projectForKey,
   projectForSource,
   ticketDone,
-  trackerSource,
   type Trx,
 } from './board-utils.ts';
 import { enqueueLiveAfterFirstPoll } from './doctor.ts';
@@ -89,8 +91,11 @@ async function updateTerminal(
   const hasOpen = linked.some((pr) => pr.state === 'open');
   const merged = linked.some((pr) => pr.state === 'merged');
   const doneTicket = ticket !== undefined && ticketDone(project, ticket.status);
+  // A done ticket without a merged PR trusts `!hasOpen` only once every repo polled completely,
+  // unblind, since the task's last change; before that a newly opened PR may be missing from
+  // pr_snapshot. Only the repos count: they are where an open PR would show.
   const githubComplete = project.repos.every((repo) => {
-    const source = `github:${project.id}:${repo.toLowerCase()}`;
+    const source = prSourceId(project.id, repo);
     const complete = completeSince.get(source);
     return (
       !blind.has(source) &&
@@ -313,7 +318,7 @@ async function ticket(
     .where('source', '=', source)
     .where('ref_key', '=', `ticket:${source}:${fact.key}`)
     .execute();
-  const project = config.projects.find((entry) => trackerSource(entry) === source);
+  const project = config.projects.find((entry) => trackerSourceId(entry) === source);
   if (project === undefined) throw new Error('Ticket from an unconfigured tracker');
   let task = await trx
     .selectFrom('task')
@@ -704,6 +709,9 @@ function branchHasKey(branch: string, key: string): boolean {
   return false;
 }
 
+/** The Jira task key at the end of a session's `/browse/` link. */
+const BROWSE_KEY = new RegExp(`/browse/(${JIRA_PROJECT_KEY}-[1-9]\\d*)$`);
+
 async function session(
   trx: Trx,
   config: Config,
@@ -759,9 +767,7 @@ async function session(
   for (const label of ['board-worker', 'board-other'] as const) {
     const url = fact.links[label];
     if (url === undefined) continue;
-    const candidate =
-      /\/browse\/([A-Za-z][A-Za-z0-9_]*-[1-9]\d*)$/.exec(url)?.[1] ??
-      /\/issues\/([1-9]\d*)$/.exec(url)?.[1];
+    const candidate = BROWSE_KEY.exec(url)?.[1] ?? /\/issues\/([1-9]\d*)$/.exec(url)?.[1];
     key =
       candidate === undefined
         ? undefined
@@ -1004,6 +1010,11 @@ export function createObservationCore(deps: {
   productVersion?: string;
 }): AdapterCore & {
   notice(kind: 'unknown_state' | 'unknown_status', value: string): Promise<void>;
+  /**
+   * The `observedAt` of each source's latest effective-complete batch since this process
+   * started. Unlike the persisted `source_state.last_complete_at`, it starts empty, so the
+   * terminal and archive checks wait for a fresh complete poll after every restart.
+   */
   completeSince: Map<string, string>;
 } {
   const { store, config, clock } = deps;
@@ -1018,7 +1029,7 @@ export function createObservationCore(deps: {
         .executeTakeFirst();
       const project = projectForSource(config, source);
       const tickets =
-        project !== undefined && source === trackerSource(project)
+        project !== undefined && source === trackerSourceId(project)
           ? (
               await store.db
                 .selectFrom('task')
@@ -1229,7 +1240,7 @@ export function createObservationCore(deps: {
             .where('last_seen', '<', batch.observedAt)
             .execute();
         if (observation.effectiveComplete) {
-          const project = config.projects.find((entry) => trackerSource(entry) === source);
+          const project = config.projects.find((entry) => trackerSourceId(entry) === source);
           if (project !== undefined) {
             const seen = new Set(
               batch.items.flatMap((item) =>

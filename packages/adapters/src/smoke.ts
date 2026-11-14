@@ -4,6 +4,7 @@ import {
   type PrEntityRef,
   type SessionEntityRef,
   type TicketEntityRef,
+  trackerSourceId,
 } from '@spur-board/contracts';
 import { startAdapters } from './index.ts';
 
@@ -131,13 +132,7 @@ export async function runSmoke(
   const repos = new Set(
     config.projects.flatMap((project) => project.repos.map((repo) => repo.toLowerCase())),
   );
-  const trackers = new Set(
-    config.projects.map((project) =>
-      project.tracker.type === 'jira'
-        ? `jira:${project.id}`
-        : `github-issues:${project.id}:${project.tracker.repo.toLowerCase()}`,
-    ),
-  );
+  const trackers = new Set(config.projects.map((project) => trackerSourceId(project)));
   if (probes.prs.some((ref) => !repos.has(ref.repo.toLowerCase())))
     throw new Error('PR probe repository is not configured');
   if (probes.tickets.some((ref) => !trackers.has(ref.trackerId)))

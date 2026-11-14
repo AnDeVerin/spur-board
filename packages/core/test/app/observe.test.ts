@@ -286,6 +286,73 @@ describe('accepted observation', () => {
     ).toHaveLength(2);
   });
 
+  it('links a Jira /browse/ session link and skips one whose key starts with a digit', async () => {
+    const jira = configSchema.parse({
+      projects: [
+        {
+          id: 'web',
+          tracker: {
+            type: 'jira',
+            baseUrl: 'https://jira.example.test',
+            jql: 'project = WEBDEV',
+            doneStatuses: ['Done'],
+            readyStatuses: ['Ready'],
+            projectKeys: ['WEBDEV'],
+          },
+          repos: ['o/r'],
+          operatorGithubLogin: 'operator',
+          spurProjects: [{ name: 'worker', role: 'worker' }],
+        },
+      ],
+      operator: { slack: 'operator' },
+      digest: { tz: 'UTC' },
+    });
+    const { store, core } = setup(jira);
+    const observe = (src: string, items: Batch['items']) =>
+      core.observe(src, {
+        batch: { source: src, observedAt: at, complete: true, items, entities: [] },
+        effectiveComplete: true,
+        state: { lastCompleteAt: at, gone: [] },
+        outcomes: [],
+      });
+    const browse = (key: string) => `https://jira.example.test/browse/${key}`;
+    await observe('jira:web', [
+      {
+        kind: 'ticket',
+        facts: {
+          ...fact('WEBDEV-1'),
+          trackerId: 'jira:web',
+          id: '10001',
+          status: 'In Progress',
+          labels: [],
+          inFilter: true,
+          url: browse('WEBDEV-1'),
+        },
+      },
+    ]);
+    await observe('spur', [
+      {
+        kind: 'session',
+        facts: sessionFact('other-1', {
+          'board-worker': browse('9WEB-1'),
+          'board-other': browse('WEBDEV-1'),
+        }),
+      },
+      { kind: 'session', facts: sessionFact('worker-1', { 'board-worker': browse('WEBDEV-1') }) },
+    ]);
+    expect(
+      await store.db
+        .selectFrom('link')
+        .select(['session_id', 'role', 'source'])
+        .where('entity', '=', 'session')
+        .orderBy('session_id')
+        .execute(),
+    ).toEqual([
+      { session_id: 'other-1', role: 'other', source: 'spawn_link' },
+      { session_id: 'worker-1', role: 'worker', source: 'spawn_link' },
+    ]);
+  });
+
   it('links an explicit worker first, keeps reviewer as other, and omits ended sessions from context', async () => {
     const { store, core, apply, mutations } = setup();
     await apply(mutations.add, { task: 'o/r#9' }, 'operator');
