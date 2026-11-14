@@ -68,3 +68,8 @@ and `describe('PR index cache')` in `packages/adapters/test/github/prBatch.test.
   re-emit facts older than ones already delivered.
 - A new input to what a full read returns, such as a comment cursor or a held history, joins
   the cache key. A re-emitted entry carries no `continuation`, so core keeps its row.
+
+## Budget
+
+- GraphQL selects `rateLimit { remaining resetAt }` or the poll fails.
+- Issues reads `x-ratelimit-remaining`/`-reset` and omits bad ones.

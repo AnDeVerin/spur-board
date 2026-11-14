@@ -105,6 +105,19 @@ function shadowSummary(kind: EventKind, payloadText: string): string | null {
   }
 }
 
+/** The summary of a submit whose head the board's newest poll confirmed. */
+function submitSummary(kind: EventKind, payloadText: string): string | null {
+  if (kind !== 'task_submitted') return null;
+  try {
+    const payload = eventPayloadSchemas[kind].safeParse(JSON.parse(payloadText));
+    return payload.success && payload.data.confirmedByPoll === true
+      ? 'Turn submitted on the head of the last poll'
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 function projectTarget(project: string): ResolvedTarget {
   return { kind: 'found', value: { project, task: null, block: null, workers: [] } };
 }
@@ -278,6 +291,7 @@ export function createTaskQueries(deps: {
             summary:
               linkSummary(kind, row.payload) ??
               shadowSummary(kind, row.payload) ??
+              submitSummary(kind, row.payload) ??
               EVENT_SUMMARIES[kind],
           },
         ];

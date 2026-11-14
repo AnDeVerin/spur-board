@@ -53,15 +53,19 @@ interface Violation {
   body: string;
 }
 
+/** How many requests the failure applies to before it clears itself; unset, until `clear`. */
+const times = z.int().min(1).optional();
+
 const failSchema = z.discriminatedUnion('mode', [
-  z.strictObject({ mode: z.literal('delay'), ms: z.int().nonnegative() }),
-  z.strictObject({ mode: z.literal('refuse') }),
-  z.strictObject({ mode: z.literal('hang') }),
-  z.strictObject({ mode: z.literal('auth') }),
-  z.strictObject({ mode: z.literal('rate-limit'), seconds: z.int().nonnegative() }),
+  z.strictObject({ mode: z.literal('delay'), ms: z.int().nonnegative(), times }),
+  z.strictObject({ mode: z.literal('refuse'), times }),
+  z.strictObject({ mode: z.literal('hang'), times }),
+  z.strictObject({ mode: z.literal('auth'), times }),
+  z.strictObject({ mode: z.literal('rate-limit'), seconds: z.int().nonnegative(), times }),
   z.strictObject({
     mode: z.literal('server-error'),
     status: z.int().min(500).max(599).default(500),
+    times,
   }),
   z.strictObject({ mode: z.literal('clear') }),
 ]);
@@ -154,6 +158,15 @@ export function createFakes(options: {
     });
   }
 
+  /** Takes the system's failure for one request and spends one of its `times`. */
+  function claimFailure(system: string): Failure | undefined {
+    const failure = failures.get(system);
+    if (failure?.times === undefined) return failure;
+    if (failure.times > 1) failures.set(system, { ...failure, times: failure.times - 1 });
+    else failures.delete(system);
+    return failure;
+  }
+
   /** Applies the plan: a `Response` replaces the answer, undefined lets the answer through. */
   async function applyFailure(
     failure: Failure | undefined,
@@ -195,7 +208,7 @@ export function createFakes(options: {
         request.signal?.throwIfAborted();
         try {
           const answer = module.prepare(request);
-          const failed = await applyFailure(failures.get(module.system), request.signal);
+          const failed = await applyFailure(claimFailure(module.system), request.signal);
           return failed ?? respond(answer());
         } catch (err) {
           if (err instanceof FakeViolation) return record(module, request, err.message);

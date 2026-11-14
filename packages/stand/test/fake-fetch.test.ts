@@ -230,6 +230,38 @@ describe('failure modes through the real adapter', () => {
     expect(error).toMatchObject({ kind: 'transient', message: `HTTP ${String(expected)}` });
   });
 
+  it('times fails that many requests, then answers and drops the failure', async () => {
+    const fakes = githubFakes();
+    failWith(fakes, { mode: 'server-error', status: 502, times: 2 });
+    expect(fakes.state().failures).toEqual([
+      ['github', { mode: 'server-error', status: 502, times: 2 }],
+    ]);
+    await expect(pollRepo(fakes, BOARD)).rejects.toMatchObject({ kind: 'transient' });
+    expect(fakes.state().failures).toEqual([
+      ['github', { mode: 'server-error', status: 502, times: 1 }],
+    ]);
+    await expect(pollRepo(fakes, BOARD)).rejects.toMatchObject({ kind: 'transient' });
+    expect(fakes.state().failures).toEqual([]);
+    await expect(pollRepo(fakes, BOARD)).resolves.toMatchObject({ complete: true });
+  });
+
+  it('a failure without times stays until clear', async () => {
+    const fakes = githubFakes();
+    failWith(fakes, { mode: 'server-error' });
+    for (let n = 0; n < 3; n += 1)
+      await expect(pollRepo(fakes, BOARD)).rejects.toMatchObject({ kind: 'transient' });
+    expect(fakes.state().failures).toEqual([['github', { mode: 'server-error', status: 500 }]]);
+  });
+
+  it.each<Record<string, unknown>>([
+    { mode: 'server-error', times: 0 },
+    { mode: 'hang', times: 1.5 },
+    { mode: 'clear', times: 1 },
+  ])('refuses a malformed times: %j', (failure) => {
+    const fakes = githubFakes();
+    expect(fakes.control({ system: 'github', verb: 'fail', args: failure }).status).toBe(400);
+  });
+
   it('clear restores answers for later requests and leaves a held request held', async () => {
     const fakes = githubFakes();
     failWith(fakes, { mode: 'hang' });
@@ -313,6 +345,17 @@ describe('fakeBody', () => {
     [['github', 'fail', 'server-error'], {}, fail({ mode: 'server-error' })],
     [['github', 'fail', 'server-error', '503'], {}, fail({ mode: 'server-error', status: 503 })],
     [['github', 'fail', 'clear'], {}, fail({ mode: 'clear' })],
+    [['github', 'fail', 'server-error'], { times: '1' }, fail({ mode: 'server-error', times: 1 })],
+    [
+      ['github', 'fail', 'delay', '250'],
+      { times: '3' },
+      fail({ mode: 'delay', ms: 250, times: 3 }),
+    ],
+    [
+      ['jira', 'fail', 'auth'],
+      { times: '2' },
+      { system: 'jira', verb: 'fail', args: { mode: 'auth', times: 2 } },
+    ],
     [['github', 'inspect'], {}, { system: 'github', verb: 'inspect', args: {} }],
     [['github', 'pr', '7', 'create'], {}, pr('create')],
     [
@@ -388,6 +431,12 @@ describe('fakeBody', () => {
     [['github', 'fail', 'auth', '401']],
     [['github', 'fail', 'server-error', '500', '1']],
     [['github', 'fail', 'hang'], { seed: '{}' }],
+    [['github', 'fail', 'clear'], { times: '1' }],
+    [['github', 'fail', 'hang'], { times: '0' }],
+    [['github', 'fail', 'hang'], { times: 'x' }],
+    [['github', 'inspect'], { times: '1' }],
+    [['github', 'pr', '7', 'approve'], { times: '1' }],
+    [['jira', 'issue', 'STAND-1'], { times: '1' }],
     [['github', 'inspect', 'extra']],
     [['github', 'inspect'], { repo: BOARD }],
     [['github', 'pr']],

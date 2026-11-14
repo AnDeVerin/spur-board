@@ -1179,6 +1179,123 @@ describe('dispatcher scenarios', () => {
     TIMEOUT,
   );
 
+  /** Every `task_submitted` payload, oldest first. */
+  const submitted = () =>
+    withStore(async (store) =>
+      (
+        await store.db
+          .selectFrom('event')
+          .select('payload')
+          .where('kind', '=', 'task_submitted')
+          .orderBy('id')
+          .execute()
+      ).map(({ payload }) => JSON.parse(payload) as Record<string, unknown>),
+    );
+  const submissions = () =>
+    withStore((store) =>
+      store.db.selectFrom('submission').select(['column', 'commit_sha']).orderBy('id').execute(),
+    );
+  interface GraphqlRequest {
+    seq: number;
+    operation: string;
+    numbers: number[];
+  }
+  // Through `ok`: the `github` helper adds repo and number, which inspect refuses.
+  const inspect = async () =>
+    (
+      (await ok(current(), '/fake', { system: 'github', verb: 'inspect', args: {} })) as {
+        requests: GraphqlRequest[];
+      }
+    ).requests;
+  const turnNumber = (turn: string) => Number(turn.slice(1));
+
+  it(
+    'dispatch-review-loop: a submit reads the head again after a one-off GitHub failure',
+    async () => {
+      await up();
+      await seed('dispatch-review-loop');
+      const dev = await mustTurn(as('worker'));
+      await ack(as('worker'), dev.id);
+      await github('push', { sha: B });
+      await poll();
+      const last = Math.max(0, ...(await inspect()).map(({ seq }) => seq));
+      await github('fail', { mode: 'server-error', times: 1 });
+
+      await submit(as('worker'), dev.id, B);
+
+      expect((await submitted()).at(-1)).toEqual({ turn: dev.id, column: 'dev', sha: B });
+      expect((await turnRow(turnNumber(dev.id))).closed_at).not.toBeNull();
+      // The first read failed; the second read of the same PR answered the submit.
+      const after = (await inspect()).filter(({ seq }) => seq > last).slice(0, 2);
+      expect(after.map(({ operation, numbers }) => [operation, numbers])).toEqual([
+        ['PrDetails', [1]],
+        ['PrDetails', [1]],
+      ]);
+    },
+    TIMEOUT,
+  );
+
+  it(
+    'dispatch-review-loop: a submit on the polled head goes through while GitHub is down',
+    async () => {
+      await up();
+      await seed('dispatch-review-loop');
+      const dev = await mustTurn(as('worker'));
+      await ack(as('worker'), dev.id);
+      await poll();
+      const before = await submissions();
+      await github('fail', { mode: 'server-error' });
+
+      await submit(as('worker'), dev.id, A);
+
+      expect((await submitted()).at(-1)).toEqual({
+        turn: dev.id,
+        column: 'dev',
+        sha: A,
+        confirmedByPoll: true,
+      });
+      expect(await submissions()).toEqual([...before, { column: 'dev', commit_sha: A }]);
+      expect((await turnRow(turnNumber(dev.id))).closed_at).not.toBeNull();
+      const history = await op<{ events: { kind: string; summary: string }[] }>(
+        current(),
+        'task.history',
+        { task: ISSUE },
+      );
+      expect(history.events.filter(({ kind }) => kind === 'task_submitted').at(-1)).toMatchObject({
+        summary: 'Turn submitted on the head of the last poll',
+      });
+      await github('fail', { mode: 'clear' });
+    },
+    TIMEOUT,
+  );
+
+  it(
+    'dispatch-review-loop: a head no poll saw is refused while GitHub is down',
+    async () => {
+      await up();
+      await seed('dispatch-review-loop');
+      const dev = await mustTurn(as('worker'));
+      await ack(as('worker'), dev.id);
+      const before = await submissions();
+      await github('fail', { mode: 'server-error' });
+      await github('push', { sha: B });
+
+      const response = await fetch(`${current().daemonUrl}/v1/ops/task.submit`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-board-session': as('worker') },
+        body: JSON.stringify({ input: { turn: dev.id, sha: B }, key: randomUUID() }),
+      });
+      const body = (await response.json()) as { code: string };
+
+      expect(response.status, JSON.stringify(body)).toBe(503);
+      expect(body.code).toBe('github_unavailable');
+      expect((await turnRow(turnNumber(dev.id))).closed_at).toBeNull();
+      expect(await submissions()).toEqual(before);
+      await github('fail', { mode: 'clear' });
+    },
+    TIMEOUT,
+  );
+
   it(
     'dispatch-ci-red-after-submit: the red checks turn, then a green new head passes Dev',
     async () => {
