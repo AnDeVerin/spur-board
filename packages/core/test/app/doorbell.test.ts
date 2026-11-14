@@ -1236,7 +1236,7 @@ function policyBoard(devOrchestrator = 'qa'): Config {
         operatorGithubLogin: 'operator',
         spurProjects: [
           { name: 'web', role: 'worker' },
-          { name: 'qa', role: 'worker' },
+          { name: 'qa', role: 'orchestrator' },
           { name: 'cur', role: 'curator' },
           { name: 'ops', role: 'operator' },
         ],

@@ -10,7 +10,7 @@ projects:
     operatorGithubLogin: octocat
     spurProjects:
       - name: qa-bot
-        role: worker
+        role: orchestrator
     columns:
       - id: todo
       - id: ready-for-dev

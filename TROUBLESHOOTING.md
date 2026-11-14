@@ -211,6 +211,13 @@ counted from its approval when it was never used. Tokens created on another mach
 unused check. Revoke a token nothing uses with `board token revoke <name>`; to keep a token you
 use rarely, raise `operatorAccess.unusedAfterDays` in `config.yaml` and restart the service.
 
+### orchestrator.sessions
+
+Reports each configured orchestrator, its assigned columns and the live session that receives
+its rings. A warning is nonblocking: assign a column to an unused orchestrator or start a live
+session for one without a session. Finished and missing sessions are excluded. Long reports
+are shortened to the diagnostic limit.
+
 ### curator.sessions
 
 Lists each Board project with its curator and the curator's live session. A warning names the

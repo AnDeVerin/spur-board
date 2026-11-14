@@ -515,7 +515,10 @@ function laterFirst(left: number | null, right: number | null): number {
  * The newest live session of a Spur project, then the most recently active, then by id. A row
  * with an unreadable time or detail stays eligible and sorts last on that time.
  */
-async function bestProjectSession(trx: Trx, project: string | null): Promise<Session | undefined> {
+export async function bestProjectSession(
+  trx: Trx,
+  project: string | null,
+): Promise<Session | undefined> {
   if (project === null) return undefined;
   const rows = await trx
     .selectFrom('session_snapshot')

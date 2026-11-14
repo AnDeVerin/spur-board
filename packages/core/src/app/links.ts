@@ -212,6 +212,34 @@ async function run(
     return { task: key, target };
   }
 
+  const session = input.mode === 'session' ? await sessionSnapshot(trx, input.session) : null;
+  const orchestrator =
+    session !== null &&
+    config.projects.some((project) =>
+      project.spurProjects.some(
+        (spur) => spur.name === session.spurProject && spur.role === 'orchestrator',
+      ),
+    );
+  if (orchestrator && current?.role === 'worker') {
+    await trx.updateTable('link').set({ role: 'other' }).where('id', '=', current.id).execute();
+    await emit(
+      trx,
+      'link_added',
+      task.project,
+      task.id,
+      ctx.at,
+      {
+        entity: 'session',
+        session: session.id,
+        role: 'other',
+        source: current.source,
+        facts: session,
+        reason: 'Configured orchestrator sessions cannot be task workers.',
+      },
+      ctx.actor,
+    );
+  }
+
   if (
     current?.banned === 0 &&
     current.source === 'manual' &&
@@ -219,8 +247,11 @@ async function run(
   )
     return { task: key, target };
   const role =
-    input.mode === 'session' ? (current?.role ?? (await sessionRole(trx, task.id))) : null;
-  const session = input.mode === 'session' ? await sessionSnapshot(trx, input.session) : null;
+    input.mode === 'session'
+      ? orchestrator
+        ? 'other'
+        : (current?.role ?? (await sessionRole(trx, task.id)))
+      : null;
   if (current === undefined) {
     await trx
       .insertInto('link')
@@ -245,6 +276,7 @@ async function run(
       .set({
         source: 'manual',
         banned: 0,
+        ...(input.mode === 'session' ? { role } : {}),
         ...(pr === null
           ? {}
           : { pr_state: 'active' as const, pr_open: open ? (1 as const) : (0 as const) }),

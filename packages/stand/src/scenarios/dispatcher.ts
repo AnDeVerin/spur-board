@@ -179,6 +179,26 @@ export const dispatchHappyPath: Scenario = {
   },
 };
 
+export const dispatchOrchestratorRole: Scenario = {
+  name: 'dispatch-orchestrator-role',
+  summary: `${ISSUE} reaches Review while its orchestrator shares the PR and branch without becoming a worker.`,
+  config: flow(),
+  async seed(board, fakes) {
+    const review = await toReview(board, fakes);
+    await fakes.spur('session', {
+      id: board.roles.orchestrator,
+      branch: 'stand-1',
+      state: 'waiting',
+      links: [{ label: 'pr', url: `https://github.com/${REPO}/pull/1` }],
+    });
+    await board.poll();
+    const rings = () => sendsTo(fakes, board.roles.orchestrator, review.id);
+    await board.until('Review delivered', STEP_MS, async () => (await rings()).length > 0);
+    return entities(board);
+  },
+  settled: async ({ board }) => settledUnless(await check(board, { column: 'review' })),
+};
+
 export const dispatchReviewLoop: Scenario = {
   name: 'dispatch-review-loop',
   summary: `The conductor returns ${ISSUE} from Review: Dev with a code block and the worker's turn.`,

@@ -81,8 +81,8 @@ function boardConfig(options: Options = {}) {
         operatorGithubLogin: 'agent-bot',
         spurProjects: [
           { name: 'worker', role: 'worker' },
-          { name: 'rev', role: 'worker' },
-          { name: 'coord', role: 'worker' },
+          { name: 'rev', role: 'orchestrator' },
+          { name: 'coord', role: 'orchestrator' },
           ...(options.curator === true ? [{ name: 'cur', role: 'curator' }] : []),
         ],
         columns: [

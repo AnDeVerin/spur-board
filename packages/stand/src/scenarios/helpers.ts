@@ -9,7 +9,7 @@ const STAND_REPO = 'stand-org/board';
  */
 export const STAND_SPUR_PROJECTS = [
   { name: 'stand-worker', role: 'worker' },
-  { name: 'stand-qa', role: 'worker' },
+  { name: 'stand-qa', role: 'orchestrator' },
 ] as const;
 
 /** The open GitHub issue `number` of the stand project, as the board stores its task key. */

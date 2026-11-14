@@ -1,6 +1,11 @@
 import { configSchema, type SessionFacts } from '@spur-board/contracts';
 import { afterEach, describe, expect, it } from 'vitest';
-import { curatorSessions, enqueueLiveAfterFirstPoll, firstPollDone } from '../../src/app/doctor.ts';
+import {
+  orchestratorSessions,
+  curatorSessions,
+  enqueueLiveAfterFirstPoll,
+  firstPollDone,
+} from '../../src/app/doctor.ts';
 import { raiseItem } from '../../src/app/feed.ts';
 import { scanTransaction } from '../../src/app/secrets.ts';
 import type { ItemKind } from '../../src/domain/fromYou.ts';
@@ -380,5 +385,37 @@ describe('curator sessions', () => {
       .where('id', '=', 'cur-a-1')
       .execute();
     expect(await sessionOf(store, 'alpha')).toBe('cur-a-1');
+  });
+});
+
+describe('orchestrator sessions', () => {
+  it('lists multiple orchestrators and unused projects using the live doorbell selector', async () => {
+    const config = configSchema.parse({
+      ...curatorConfig,
+      projects: curatorConfig.projects.map((project) => ({
+        ...project,
+        spurProjects: [{ name: `cur-${project.id[0] ?? ''}`, role: 'orchestrator' }],
+        columns:
+          project.id === 'alpha'
+            ? [
+                { id: 'todo' },
+                { id: 'dev' },
+                { id: 'review', orchestrator: 'cur-a' },
+                { id: 'done' },
+              ]
+            : undefined,
+      })),
+    });
+    const store = openTempStore('board-orchestrators-').store;
+    stores.push(store);
+    const core = createObservationCore({ store, config, clock: { now: () => Date.parse(at) } });
+    await spurPoll(core, at, [
+      curatorSession('cur-a-1'),
+      curatorSession('cur-a-2', { lifecycle: 'completed' }),
+    ]);
+    expect((await orchestratorSessions(store.db, config)).slice(0, 2)).toEqual([
+      { project: 'alpha', orchestrator: 'cur-a', session: 'cur-a-1', columns: ['review'] },
+      { project: 'beta', orchestrator: 'cur-b', session: null, columns: [] },
+    ]);
   });
 });
