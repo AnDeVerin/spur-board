@@ -99,14 +99,9 @@ export function githubSources(config: Config, options: GithubOptions): GithubSou
       const id = prSourceId(project.id, repo);
       const client = new GithubClient(options.token, options.now, options.fetch);
       const keys = projectKeyRule(project.tracker, project.link, repo);
-      // Per source: the facts of each requested PR's last full read, keyed by number.
+      // Per source: the facts of each requested or discovered PR's last full read, keyed by
+      // number. Kept in memory only: after a restart each PR at the cursor tie is read once more.
       const cache = new Map<number, CachedPr>();
-      // Per source: the facts of each discovered PR's last full read, keyed by number, for the
-      // PRs the last successful discovery listed. A discovered PR core does not request is not
-      // read again until discovery shows it newer; its facts are sent again instead. Kept in
-      // memory only: after a restart each PR at the cursor tie is read once more. `pollPr` drops
-      // the PR's record, so older facts never follow the ones it delivered.
-      const discoveryReads = new Map<number, PrFacts>();
       sources.push({
         repo,
         reserveRemaining: config.github.reserveRemaining,
@@ -124,20 +119,9 @@ export function githubSources(config: Config, options: GithubOptions): GithubSou
               ctx,
               reserveRemaining: config.github.reserveRemaining,
               cache,
-              discoveryReads,
             }),
           pollPr: (ref, ctx) =>
-            pollOnePr({
-              id,
-              repo,
-              keys,
-              client,
-              now: options.now,
-              ref,
-              ctx,
-              cache,
-              discoveryReads,
-            }),
+            pollOnePr({ id, repo, keys, client, now: options.now, ref, ctx, cache }),
         },
       });
     }
@@ -578,18 +562,7 @@ const aliasesOf = (numbers: readonly number[]): string[] => numbers.map((_, i) =
 interface DiscoveryResult {
   ok: boolean;
   found: Discovery;
-  /** The newest listed `updatedAt` of each PR number discovery returned nodes for. */
-  updatedAt: ReadonlyMap<number, string>;
   bootstrapCursor: SourceCursor | undefined;
-}
-function newestByNumber(nodes: readonly { number: number; updatedAt: string }[]) {
-  const newest = new Map<number, string>();
-  for (const { number, updatedAt } of nodes) {
-    const seen = newest.get(number);
-    if (seen === undefined || Date.parse(updatedAt) > Date.parse(seen))
-      newest.set(number, updatedAt);
-  }
-  return newest;
 }
 /** Lists the repository's PRs since the cursor; a transient failure leaves `ok` false. */
 async function readDiscovery(
@@ -601,12 +574,7 @@ async function readDiscovery(
   const bootstrap = ctx.cursor === undefined;
   const response = await attempt(scope, discoveryQuery(bootstrap));
   if (response === undefined)
-    return {
-      ok: false,
-      found: discover([], ctx.cursor, login),
-      updatedAt: new Map(),
-      bootstrapCursor: undefined,
-    };
+    return { ok: false, found: discover([], ctx.cursor, login), bootstrapCursor: undefined };
   acc.budget = response.budget;
   rejectUnscoped(response.errors, ['repository']);
   let ok = scoped(response.errors, 'repository').length === 0;
@@ -647,7 +615,7 @@ async function readDiscovery(
           found.cursor,
         ) ?? sourceCursorSchema.parse('1970-01-01T00:00:00.000Z'))
       : undefined;
-  return { ok, found, updatedAt: newestByNumber(nodes), bootstrapCursor };
+  return { ok, found, bootstrapCursor };
 }
 /** Reads the light index of `numbers`; a PR left out of the map is read in full. */
 async function readIndex(
@@ -682,7 +650,6 @@ interface PollArgs {
   ctx: PollContext;
   reserveRemaining: number;
   cache: Map<number, CachedPr>;
-  discoveryReads: Map<number, PrFacts>;
 }
 async function pollRepository({
   id,
@@ -694,7 +661,6 @@ async function pollRepository({
   ctx,
   reserveRemaining,
   cache,
-  discoveryReads,
 }: PollArgs): Promise<Batch> {
   const observedAt = sourceCursorSchema.parse(new Date(now()).toISOString());
   const bootstrap = ctx.cursor === undefined;
@@ -702,15 +668,25 @@ async function pollRepository({
   if (!owner || !name) throw new AdapterError('config', 'Invalid repository');
   const requested = ctx.observe.prs.filter((ref) => ref.repo.toLowerCase() === repo.toLowerCase());
   const byNumber = new Map<number, PrEntityRef>(requested.map((ref) => [ref.number, ref]));
-  const numbers = [...byNumber.keys()];
   const closing = closingSelected(keys);
-  for (const number of cache.keys()) if (!byNumber.has(number)) cache.delete(number);
   const acc = accumulator(true);
   const requests: Requests = { failed: 0, succeeded: 0, firstError: undefined };
   const request: RequestScope = { client, owner, name, signal: ctx.signal, requests };
   const discovery = await readDiscovery(request, acc, ctx, login);
   if (!discovery.ok) acc.complete = false;
   const { found } = discovery;
+  // A discovered PR core does not request joins the index once a full read cached it, and is then
+  // reused like a requested one: at the cursor tie it costs an index slot, not a full read. It is
+  // never a requested entity.
+  const numbers = [
+    ...byNumber.keys(),
+    ...found.numbers.filter((number) => !byNumber.has(number) && cache.has(number)),
+  ];
+  const fresh = found.numbers.filter((number) => !byNumber.has(number) && !cache.has(number));
+  // A failed discovery lists nothing, so it keeps the entries of the PRs it may list again.
+  for (const number of cache.keys())
+    if (!byNumber.has(number) && discovery.ok && !found.numbers.includes(number))
+      cache.delete(number);
   const entries = await readIndex(request, acc, numbers);
   // A changed feedback cursor or held history forces a full read.
   const cursorKey = (number: number): string =>
@@ -722,9 +698,9 @@ async function pollRepository({
   for (const number of numbers) {
     const facts = reusable(cache.get(number), entries.get(number), cursorKey(number), now());
     const ref = byNumber.get(number);
-    if (facts !== undefined && ref !== undefined) {
+    if (facts !== undefined) {
       acc.items.push({ kind: 'pr', facts });
-      acc.entities.push({ ref, status: 'ok' });
+      if (ref !== undefined) acc.entities.push({ ref, status: 'ok' });
       continue;
     }
     // A full read below writes a fresh entry only with this poll's fingerprint.
@@ -752,23 +728,13 @@ async function pollRepository({
       if (found.numbers.includes(number)) discoveredOk = false;
     }
   };
-  // A discovered PR not requested and not newer than its last full read is not read: its facts
-  // go out again, so a batch core did not accept loses nothing. Like a cache re-emit, the item
-  // carries no `continuation`; the PR is not unread, holds no cursor and adds no entity.
-  const discovered: number[] = [];
-  for (const number of found.numbers) {
-    if (byNumber.has(number)) continue;
-    const read = discoveryReads.get(number);
-    const listed = discovery.updatedAt.get(number);
-    if (
-      read !== undefined &&
-      listed !== undefined &&
-      Date.parse(listed) <= Date.parse(read.updatedAt)
-    )
-      acc.items.push({ kind: 'pr', facts: read });
-    else discovered.push(number);
-  }
-  for (const chunk of [...chunks(changed, DETAIL_CHUNK), ...chunks(discovered, DETAIL_CHUNK)]) {
+  // Requested and discovered PRs go out in separate chunks, requested first.
+  const discovered = [...changed.filter((number) => !byNumber.has(number)), ...fresh];
+  const changedRequested = changed.filter((number) => byNumber.has(number));
+  for (const chunk of [
+    ...chunks(changedRequested, DETAIL_CHUNK),
+    ...chunks(discovered, DETAIL_CHUNK),
+  ]) {
     if (acc.budget !== undefined && acc.budget.remaining < reserveRemaining) {
       unread(chunk);
       continue;
@@ -791,22 +757,17 @@ async function pollRepository({
           if (found.numbers.includes(number)) discoveredOk = false;
           continue;
         }
-        if (found.numbers.includes(number)) discoveryReads.set(number, facts);
-        const entry = entries.get(number);
-        if (entry !== undefined)
-          cache.set(number, {
-            fingerprint: entry.fingerprint,
-            facts,
-            cursorKey: cursorKey(number),
-            readAt: now(),
-          });
+        // Without this poll's index entry the PR is only indexed next poll, never reused.
+        cache.set(number, {
+          fingerprint: entries.get(number)?.fingerprint ?? null,
+          facts,
+          cursorKey: cursorKey(number),
+          readAt: now(),
+        });
       }
     }
   }
   if (ctx.signal.aborted) throw new AdapterError('transient', 'GitHub poll aborted');
-  if (discovery.ok)
-    for (const number of discoveryReads.keys())
-      if (!found.numbers.includes(number)) discoveryReads.delete(number);
   if (requests.firstError !== undefined && requests.succeeded === 0) throw requests.firstError;
   rethrowLoneParseFailure(acc);
   const nextCursor = bootstrap ? discovery.bootstrapCursor : found.cursor;
@@ -835,28 +796,16 @@ interface PrArgs {
   ref: PrEntityRef;
   ctx: Parameters<NonNullable<Adapter['pollPr']>>[1];
   cache: Map<number, CachedPr>;
-  discoveryReads: Map<number, PrFacts>;
 }
 // Reads one requested PR without discovery (A9): never complete, no cursor, no continuation; it
 // merges the held history but leaves it to the next poll to state. It drops the PR's cached
-// facts and discovery-read record, so the next poll cannot re-emit facts older than these.
-async function pollOnePr({
-  id,
-  repo,
-  keys,
-  client,
-  now,
-  ref,
-  ctx,
-  cache,
-  discoveryReads,
-}: PrArgs): Promise<Batch> {
+// facts, so the next poll cannot re-emit facts older than these.
+async function pollOnePr({ id, repo, keys, client, now, ref, ctx, cache }: PrArgs): Promise<Batch> {
   const { signal } = ctx;
   const observedAt = new Date(now()).toISOString();
   const [owner, name] = repo.split('/');
   if (!owner || !name) throw new AdapterError('config', 'Invalid repository');
   cache.delete(ref.number);
-  discoveryReads.delete(ref.number);
   const response = await client.query(
     detailQuery([ref.number], closingSelected(keys)),
     { owner, repo: name },

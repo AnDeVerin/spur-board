@@ -79,7 +79,8 @@ export interface IndexEntry {
 }
 /** The facts of a PR's last full read, with the index fingerprint of the same poll. */
 export interface CachedPr {
-  fingerprint: string;
+  /** Null when that poll had no index entry for it: never reused, only indexed next poll. */
+  fingerprint: string | null;
   facts: PrFacts;
   /** The PR's `feedbackCursors` entry at that read, or `none`. */
   cursorKey: string;

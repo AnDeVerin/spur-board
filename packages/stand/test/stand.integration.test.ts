@@ -1325,10 +1325,12 @@ describe('stand', () => {
       expect(before.some(names('PrIndex', 2))).toBe(true);
       const boundary = Math.max(...before.map(({ seq }) => seq));
       await op('task.archive', { task: `${REPO}#2` });
+      // PR 1 moves past PR 2, so the next cursor leaves PR 2 behind.
+      expect((await pr(manifest, 1, 'approve')).status).toBe(200);
       // `/poll` restarts the runner, so this fresh adapter reads PR 2 once at the cursor tie.
       await poll(manifest);
       const restarted = Math.max(...(await requests()).map(({ seq }) => seq));
-      // The scheduled poll after it keeps the adapter: wait until the one after that has begun.
+      // The scheduled poll after it lists PR 1 only: wait until the one after that has begun.
       const next = await vi.waitFor(
         async () => {
           const batches = (await requests()).filter(
@@ -1347,7 +1349,7 @@ describe('stand', () => {
       for (const { numbers } of indexes) expect(numbers).toEqual([1]);
       const scheduled = after.filter(({ seq }) => seq > restarted && seq < next);
       expect(scheduled.filter(names('PrIndex', 1))).not.toEqual([]);
-      expect(scheduled.filter(names('PrDetails', 2))).toEqual([]);
+      expect(scheduled.filter(({ numbers }) => numbers.includes(2))).toEqual([]);
       const log = await control(manifest, '/violations');
       expect(log, JSON.stringify(log.body)).toMatchObject({ status: 200, body: { total: 0 } });
     }, 60_000);
