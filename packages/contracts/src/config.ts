@@ -543,7 +543,7 @@ export const configSchema = z.strictObject({
           feed: nonEmpty
             .optional()
             .describe(
-              'Slack channel ID where the board posts a line for each curator answer, each newly installed version and each operator item, with the buttons the operator presses. Operator items about failed Slack posts, transport health, undelivered answers and ended workers, and those shown as operator blocks, get no feed line. A line whose item clears before it is first sent, such as an expired token request, is dropped. Set it together with orchestrators.',
+              'Slack channel ID where the board posts a line for each curator answer, each newly installed version, each revoked operator token, each `/board tokens` list and each operator item, with the buttons the operator presses. Operator items about failed Slack posts, transport health, undelivered answers and ended workers, and those shown as operator blocks, get no feed line. A line whose item clears before it is first sent, such as an expired token request, is dropped. Set it together with orchestrators.',
             ),
         })
         .prefault({}),

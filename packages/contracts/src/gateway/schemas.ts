@@ -119,7 +119,7 @@ const commandEventSchema = z.strictObject({
     .discriminatedUnion('kind', [
       z.strictObject({
         kind: z.literal('query'),
-        id: z.enum(['status.get', 'task.get', 'task.history']),
+        id: z.enum(['status.get', 'task.get', 'task.history', 'token.list']),
         input: z.unknown(),
       }),
       z.strictObject({ kind: z.literal('usage'), text: z.string().min(1) }),

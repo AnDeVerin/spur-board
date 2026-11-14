@@ -16,7 +16,7 @@ import { sql, type Kysely } from 'kysely';
 import { z } from 'zod';
 import type { Tables } from '../store/schema.ts';
 import { taskUrl } from './board-utils.ts';
-import { raiseItemWith } from './item-raise.ts';
+import { TASKLESS_FEED_KEY, raiseItemWith } from './item-raise.ts';
 import { SCAN_PENDING, checkGatewayStrings, scanConfig } from './secrets.ts';
 
 export const OUTBOX_KINDS = [
@@ -75,10 +75,27 @@ const feedLineEditPayload = z.strictObject({
   taskId: id.optional(),
 });
 const feedLinePayload = feedLineEditPayload.extend({ title: z.string().min(1) });
-/** `text` is the line's summary; a row without `resolved` predates the resolved rendering. */
+const actionPayload = z.strictObject({
+  id: z.string(),
+  label: z.string(),
+  confirm: z.string().exactOptional(),
+});
+const tokenCardPayload = z.strictObject({
+  name: z.string(),
+  folder: z.string(),
+  createdAt: z.iso.datetime(),
+  approvedAt: z.iso.datetime(),
+  revoked: z.strictObject({ by: actorIdSchema, at: z.iso.datetime() }).optional(),
+});
+/**
+ * `text` is the line's summary; a row without `resolved` predates the resolved rendering. A
+ * `tokenCard` edit renders the card; `actions` replace the line's, and none removes them.
+ */
 const feedEditPayload = feedLineEditPayload.extend({
   url: z.url().optional(),
   resolved: z.strictObject({ by: actorIdSchema, at: z.iso.datetime() }).optional(),
+  tokenCard: tokenCardPayload.optional(),
+  actions: z.array(actionPayload).optional(),
 });
 export type FeedEditPayload = z.output<typeof feedEditPayload>;
 /** A curator answer's question and answer, shortened; a row without it renders `text`. */
@@ -95,7 +112,7 @@ const exchange = z.strictObject({
 const feedLineWithLinkPayload = feedLinePayload.extend({
   itemId: id.optional(),
   url: z.url().optional(),
-  actions: z.array(z.strictObject({ id: z.string(), label: z.string() })).optional(),
+  actions: z.array(actionPayload).optional(),
   exchange: exchange.optional(),
 });
 type FeedLinePayload = z.output<typeof feedLineWithLinkPayload>;
@@ -281,6 +298,38 @@ export async function enqueueLiveFeedLine(
   return row.id;
 }
 
+/**
+ * A taskless board line keyed by `dedupeKey`, so a replay adds none. Its caller caps every
+ * name it carries.
+ */
+export async function enqueueBoardFeedLine(
+  trx: Trx,
+  input: {
+    dedupeKey: string;
+    itemKey: string;
+    text: string;
+    title: string;
+    actions?: readonly Action[];
+    at: Date;
+  },
+): Promise<number | null> {
+  const row = await insertOutbox(trx, {
+    kind: 'feed.line',
+    dedupeKey: input.dedupeKey,
+    payload: {
+      key: TASKLESS_FEED_KEY,
+      text: input.text,
+      title: input.title,
+      persona: { name: 'board', role: 'board' },
+      itemKey: input.itemKey,
+      ...(input.actions === undefined ? {} : { actions: input.actions }),
+    },
+    parent: null,
+    at: input.at,
+  });
+  return row.id;
+}
+
 const QUESTION_CHARS = 120;
 const ANSWER_CHARS = 200;
 const NOTE_CHARS = 200;
@@ -377,6 +426,44 @@ export async function enqueueFeedEdit(
     at: input.at,
   });
   return row.id;
+}
+
+/**
+ * An operator token's card, written as an edit of its approval line, or of the card's own edit
+ * for the revoked card, so the two go out in order. The key names the approval item.
+ */
+export async function enqueueTokenCard(
+  trx: Trx,
+  input: {
+    itemId: number;
+    /** The approval line, or the card edit the revoked card follows. */
+    parent: number;
+    card: z.input<typeof tokenCardPayload>;
+    actions?: readonly Action[];
+    at: Date;
+  },
+): Promise<number | null> {
+  const revoked = input.card.revoked !== undefined;
+  const row = await insertOutbox(trx, {
+    kind: 'feed.line.edit',
+    dedupeKey: `${tokenCardKey(input.itemId)}${revoked ? ':revoked' : ''}`,
+    payload: {
+      key: TASKLESS_FEED_KEY,
+      text: `Operator token ${input.card.name}`,
+      persona: { name: 'board', role: 'board' },
+      itemKey: `token-card:${String(input.itemId)}`,
+      tokenCard: input.card,
+      ...(input.actions === undefined ? {} : { actions: input.actions }),
+    },
+    parent: input.parent,
+    at: input.at,
+  });
+  return row.id;
+}
+
+/** The outbox key of the card edit of approval item `itemId`. */
+export function tokenCardKey(itemId: number): string {
+  return `feed.line.edit:token-card:${String(itemId)}`;
 }
 
 function payloadStrings(value: unknown): string[] {

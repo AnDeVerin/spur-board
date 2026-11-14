@@ -1,5 +1,5 @@
-import { type DeliverRequest, type RichText } from '@spur-board/contracts';
-import { createSlackGateway } from '../src/index.ts';
+import type { DeliverRequest, RichText } from '@spur-board/contracts';
+import { createSlackGateway } from '../../src/index.ts';
 import { startFakeSlackApi, type FakeSlackApi } from '@spur-board/gateway-slack/testing';
 
 const fakes: FakeSlackApi[] = [];

@@ -5,6 +5,7 @@ import {
   TOKEN_REQUEST_LIMITS,
   requestHashOf,
   tokenRequestSchema,
+  type Action,
   type Config,
   type EventKind,
 } from '@spur-board/contracts';
@@ -13,7 +14,8 @@ import type { OperatorTokenStatus, Row, Tables } from '../store/schema.ts';
 import type { Store } from '../store/store.ts';
 import { emit } from './board-utils.ts';
 import { CommandError, type Mutation } from './commands.ts';
-import { clearItem, raiseItem } from './feed.ts';
+import { capPoints, clearItem, raiseItem } from './feed.ts';
+import { enqueueBoardFeedLine, enqueueTokenCard, tokenCardKey } from './outbox.ts';
 import type { Query } from './queries.ts';
 
 type Trx = Kysely<Tables>;
@@ -22,12 +24,54 @@ const MAX_PENDING_REQUESTS = 10;
 /** Days an expired or denied request stays after its decision before the daily purge drops it. */
 const TOKEN_REQUEST_RETENTION_DAYS = 7;
 const DAY_MS = 86_400_000;
+/**
+ * Code-point caps that keep a legacy name or folder from overflowing a card, line or button. A
+ * messenger may escape a point to five characters; a card of all-escaped points still fits 2900.
+ */
+const CARD_NAME = 64;
+const CARD_FOLDER = 400;
+const LIST_NAME = 64;
+const LIST_FOLDER = 120;
+const LABEL_NAME = 40;
+/** Tokens in one token-list feed line that get a row and a Revoke button. */
+const LIST_BUTTONS = 20;
+/**
+ * Escaped characters the rows and the `N more` line of a token list may take, each row counted
+ * with its newline and quote marks; the feed key fills the rest of one 2900-character part.
+ */
+const LIST_TEXT = 2800;
+/** Kept for the `N more` line. */
+const LIST_MORE = 40;
 /** An approved token's last use is written at most once per token per this interval. */
 const TOKEN_USE_INTERVAL_MS = 5 * 60_000;
 /** The longest attention line; the doctor fix limit is the same. */
 const ATTENTION_LINE_MAX = 300;
 
-function effectiveStatus(row: Row<'operator_token'>, at: Date): OperatorTokenStatus {
+/** The Revoke button of the token approved through item `itemId`, on its card or in a list. */
+function revokeAction(itemId: number, name: string, label: string): Action {
+  return {
+    id: `token:${String(itemId)}:revoke`,
+    label,
+    confirm: `Revoke operator token ${capPoints(name, CARD_NAME)}? Calls with it fail at once.`,
+  };
+}
+
+/** The card of token `row` approved at `approvedAt`, its name and folder capped. */
+function cardOf(row: Row<'operator_token'>, approvedAt: string) {
+  return {
+    name: capPoints(row.name, CARD_NAME),
+    folder: capPoints(row.folder, CARD_FOLDER),
+    createdAt: row.requested_at,
+    approvedAt,
+  };
+}
+
+/** The length of `text` once a messenger escapes it: `&`, `<` and `>` take up to five characters. */
+function escapedLength(text: string): number {
+  return text.length + 4 * (text.match(/[&<>]/g)?.length ?? 0);
+}
+
+export function effectiveStatus(row: Row<'operator_token'>, at: Date): OperatorTokenStatus {
   return row.status === 'pending' && row.expires_at <= at.toISOString() ? 'expired' : row.status;
 }
 
@@ -196,8 +240,23 @@ export async function decideTokenInTransaction(
     .where('id', '=', row.id)
     .execute();
   await journalToken(trx, decision === 'approve' ? 'token_approved' : 'token_denied', row.name, at);
-  // Only the operator can decide a token request.
-  await clearItem(trx, row.item_id, at, 'operator');
+  // Only the operator can decide a token request; an approval turns the line into a card.
+  await clearItem(
+    trx,
+    row.item_id,
+    at,
+    'operator',
+    decision === 'approve'
+      ? (item, lineId) =>
+          enqueueTokenCard(trx, {
+            itemId: item.id,
+            parent: lineId,
+            card: cardOf(row, at.toISOString()),
+            actions: [revokeAction(item.id, row.name, 'Revoke')],
+            at,
+          })
+      : undefined,
+  );
   return { name: row.name, status: next };
 }
 
@@ -313,6 +372,41 @@ export function tokenListQuery(clock: { now(): number }): Query<'token.list'> {
   };
 }
 
+/**
+ * Posts one feed line listing the approved and unexpired pending tokens under `key`, so a replay
+ * of the same command posts none. The first ones that fit 20 rows and the escaped text budget
+ * get a row and a Revoke button; the rest are counted. Returns how many are active and writes
+ * nothing for none.
+ */
+export async function postTokenList(trx: Trx, input: { key: string; at: Date }): Promise<number> {
+  const rows = (await trx.selectFrom('operator_token').selectAll().orderBy('id').execute())
+    .map((row) => ({ row, status: effectiveStatus(row, input.at) }))
+    .filter(({ status }) => status === 'approved' || status === 'pending');
+  if (rows.length === 0) return 0;
+  const lines: string[] = [];
+  let used = LIST_MORE;
+  for (const { row, status } of rows.slice(0, LIST_BUTTONS)) {
+    const line = `${capPoints(row.name, LIST_NAME)} (${status}), ${capPoints(row.folder, LIST_FOLDER)}`;
+    used += escapedLength(line) + 3;
+    if (used > LIST_TEXT) break;
+    lines.push(line);
+  }
+  const shown = rows.slice(0, lines.length);
+  const hidden = rows.length - shown.length;
+  if (hidden > 0) lines.push(`${String(hidden)} more: \`board token list\``);
+  await enqueueBoardFeedLine(trx, {
+    dedupeKey: `feed.line:token-list:${input.key}`,
+    itemKey: `token-list:${input.key}`,
+    text: lines.join('\n'),
+    title: 'Operator tokens',
+    actions: shown.map(({ row }) =>
+      revokeAction(row.item_id, row.name, `Revoke ${capPoints(row.name, LABEL_NAME)}`),
+    ),
+    at: input.at,
+  });
+  return rows.length;
+}
+
 export const tokenRevokeMutation: Mutation<'token.revoke'> = {
   id: 'token.revoke',
   resolveTargets: () => Promise.resolve([]),
@@ -332,6 +426,31 @@ export const tokenRevokeMutation: Mutation<'token.revoke'> = {
         .execute();
       await journalToken(trx, 'token_revoked', row.name, at);
       await clearItem(trx, row.item_id, at, ctx.actor);
+      const text = `token ${capPoints(row.name, CARD_NAME)} revoked`;
+      await enqueueBoardFeedLine(trx, {
+        dedupeKey: `feed.line:token-revoked:${String(row.id)}`,
+        itemKey: `token-revoked:${String(row.id)}`,
+        text,
+        title: text,
+        at,
+      });
+      const card =
+        row.status === 'approved'
+          ? await trx
+              .selectFrom('outbox')
+              .select(['id', 'state'])
+              .where('dedupe_key', '=', tokenCardKey(row.item_id))
+              .executeTakeFirst()
+          : undefined;
+      // A dead card edit was never shown: the revoked card would die with it.
+      if (card !== undefined && card.state !== 'dead' && row.decided_at !== null) {
+        await enqueueTokenCard(trx, {
+          itemId: row.item_id,
+          parent: card.id,
+          card: { ...cardOf(row, row.decided_at), revoked: { by: ctx.actor, at: ctx.at } },
+          at,
+        });
+      }
     }
     return { name: row.name, status: 'revoked' };
   },
