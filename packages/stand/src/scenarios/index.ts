@@ -32,6 +32,7 @@ import {
   dispatchLongCommentHistory,
   dispatchReentrySameHead,
   dispatchReviewLoop,
+  dispatchOrchestratorRole,
   dispatchSourceBlind,
 } from './dispatcher.ts';
 import { dispatchCloseAfterMerge, dispatchSplitPr } from './split-pr.ts';
@@ -131,7 +132,7 @@ export interface Scenario {
       columns?: object[];
       dispatcher?: { mode: 'shadow' | 'on' };
       /** The full list; the curator scenarios add `stand-curator` as the project's curator. */
-      spurProjects?: { name: string; role: 'worker' | 'operator' | 'curator' }[];
+      spurProjects?: Config['projects'][number]['spurProjects'];
     };
   };
   seed(board: Board, fakes: ScenarioFakes, clock: { now(): number }): Promise<ScenarioEntities>;
@@ -158,6 +159,7 @@ export const SCENARIOS: readonly Scenario[] = [
   dispatchSplitPr,
   dispatchCloseAfterMerge,
   dispatchReviewLoop,
+  dispatchOrchestratorRole,
   dispatchCiRedAfterSubmit,
   dispatchConflictInReview,
   dispatchConflictInReadyToMerge,

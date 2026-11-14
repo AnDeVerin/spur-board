@@ -435,47 +435,50 @@ describe('accepted observation', () => {
     expect(status.spurUnavailable).toBe('Spur unavailable: Access rejected');
   });
 
-  it('requests curator sessions by id and ends one Spur no longer knows', async () => {
-    const curated = configSchema.parse({
-      ...config,
-      projects: config.projects.map((project) => ({
-        ...project,
-        spurProjects: [...project.spurProjects, { name: 'cur', role: 'curator' }],
-      })),
-    });
-    const { store, core } = setup(curated);
-    const curatorFact = { ...sessionFact('cur-1'), spurProject: 'cur', branch: null };
-    const observe = (
-      items: SessionFacts[],
-      entities: { ref: { kind: 'session'; id: string }; status: 'ok' | 'not_found' }[],
-    ) =>
-      core.observe('spur', {
-        batch: {
-          source: 'spur',
-          observedAt: new Date(now).toISOString(),
-          complete: true,
-          items: items.map((facts) => ({ kind: 'session' as const, facts })),
-          entities,
-        },
-        effectiveComplete: true,
-        state: { lastCompleteAt: new Date(now).toISOString(), gone: [] },
-        outcomes: [],
+  it.each(['curator', 'orchestrator'] as const)(
+    'requests unlinked %s sessions by id and ends one Spur no longer knows',
+    async (role) => {
+      const curated = configSchema.parse({
+        ...config,
+        projects: config.projects.map((project) => ({
+          ...project,
+          spurProjects: [...project.spurProjects, { name: 'cur', role }],
+        })),
       });
-    await observe([curatorFact, sessionFact('worker-9')], []);
-    expect((await core.context('spur')).observe.sessions).toEqual([
-      { kind: 'session', id: 'cur-1' },
-    ]);
-    now += 1_000;
-    await observe([], [{ ref: { kind: 'session', id: 'cur-1' }, status: 'not_found' }]);
-    expect(
-      await store.db
-        .selectFrom('session_snapshot')
-        .select(['ended_at', 'end_reason'])
-        .where('id', '=', 'cur-1')
-        .executeTakeFirst(),
-    ).toEqual({ ended_at: new Date(now).toISOString(), end_reason: 'vanished' });
-    expect((await core.context('spur')).observe.sessions).toEqual([]);
-  });
+      const { store, core } = setup(curated);
+      const curatorFact = { ...sessionFact('cur-1'), spurProject: 'cur', branch: null };
+      const observe = (
+        items: SessionFacts[],
+        entities: { ref: { kind: 'session'; id: string }; status: 'ok' | 'not_found' }[],
+      ) =>
+        core.observe('spur', {
+          batch: {
+            source: 'spur',
+            observedAt: new Date(now).toISOString(),
+            complete: true,
+            items: items.map((facts) => ({ kind: 'session' as const, facts })),
+            entities,
+          },
+          effectiveComplete: true,
+          state: { lastCompleteAt: new Date(now).toISOString(), gone: [] },
+          outcomes: [],
+        });
+      await observe([curatorFact, sessionFact('worker-9')], []);
+      expect((await core.context('spur')).observe.sessions).toEqual([
+        { kind: 'session', id: 'cur-1' },
+      ]);
+      now += 1_000;
+      await observe([], [{ ref: { kind: 'session', id: 'cur-1' }, status: 'not_found' }]);
+      expect(
+        await store.db
+          .selectFrom('session_snapshot')
+          .select(['ended_at', 'end_reason'])
+          .where('id', '=', 'cur-1')
+          .executeTakeFirst(),
+      ).toEqual({ ended_at: new Date(now).toISOString(), end_reason: 'vanished' });
+      expect((await core.context('spur')).observe.sessions).toEqual([]);
+    },
+  );
 
   it('hides an unlinked session gone from complete Spur lists for over 7 days until it is listed again', async () => {
     const { store, core } = setup();
@@ -631,59 +634,71 @@ describe('accepted observation', () => {
     ).toEqual([{ session_id: 'worker-1', role: 'other' }]);
   });
 
-  it('does not link a curator session through its pr field or a task branch', async () => {
-    const withCurator = {
-      ...config,
-      projects: config.projects.map((project) => ({
-        ...project,
-        spurProjects: [...project.spurProjects, { name: 'cur', role: 'curator' as const }],
-      })),
-    };
-    const { store, core, apply, mutations } = setup(withCurator);
-    await apply(mutations.add, { task: 'o/r#9' }, 'operator');
-    await core.observe('github:board:o/r', {
-      batch: {
-        source: 'github:board:o/r',
-        observedAt: at,
-        complete: true,
-        items: [{ kind: 'pr', facts: prFact() }],
-        entities: [],
-      },
-      effectiveComplete: true,
-      state: { lastCompleteAt: at, gone: [] },
-      outcomes: [],
-    });
-    const pr = { repo: 'o/r', number: 7 };
-    await core.observe('spur', {
-      batch: {
-        source: 'spur',
-        observedAt: at,
-        complete: true,
-        items: [
-          {
-            kind: 'session',
-            facts: { ...sessionFact('cur-1'), spurProject: 'cur', branch: 'unrelated', pr },
-          },
-          {
-            kind: 'session',
-            facts: { ...sessionFact('cur-2'), spurProject: 'cur', branch: 'o/r#9-retry' },
-          },
-          { kind: 'session', facts: { ...sessionFact('worker-1'), branch: 'unrelated', pr } },
-        ],
-        entities: [],
-      },
-      effectiveComplete: true,
-      state: { lastCompleteAt: at, gone: [] },
-      outcomes: [],
-    });
-    expect(
-      await store.db
-        .selectFrom('link')
-        .select(['session_id', 'role'])
-        .where('entity', '=', 'session')
-        .execute(),
-    ).toEqual([{ session_id: 'worker-1', role: 'other' }]);
-  });
+  it.each(['curator', 'orchestrator'] as const)(
+    'does not link a %s session through its pr field or a task branch',
+    async (role) => {
+      const withCurator = {
+        ...config,
+        projects: config.projects.map((project) => ({
+          ...project,
+          spurProjects: [...project.spurProjects, { name: 'cur', role }],
+        })),
+      };
+      const { store, core, apply, mutations } = setup(withCurator);
+      await apply(mutations.add, { task: 'o/r#9' }, 'operator');
+      await core.observe('github:board:o/r', {
+        batch: {
+          source: 'github:board:o/r',
+          observedAt: at,
+          complete: true,
+          items: [{ kind: 'pr', facts: prFact() }],
+          entities: [],
+        },
+        effectiveComplete: true,
+        state: { lastCompleteAt: at, gone: [] },
+        outcomes: [],
+      });
+      const pr = { repo: 'o/r', number: 7 };
+      await core.observe('spur', {
+        batch: {
+          source: 'spur',
+          observedAt: at,
+          complete: true,
+          items: [
+            {
+              kind: 'session',
+              facts: { ...sessionFact('cur-1'), spurProject: 'cur', branch: 'unrelated', pr },
+            },
+            {
+              kind: 'session',
+              facts: { ...sessionFact('cur-2'), spurProject: 'cur', branch: 'o/r#9-retry' },
+            },
+            {
+              kind: 'session',
+              facts: {
+                ...sessionFact('cur-3'),
+                spurProject: 'cur',
+                branch: prFact().headBranch,
+                pr,
+              },
+            },
+            { kind: 'session', facts: { ...sessionFact('worker-1'), branch: 'unrelated', pr } },
+          ],
+          entities: [],
+        },
+        effectiveComplete: true,
+        state: { lastCompleteAt: at, gone: [] },
+        outcomes: [],
+      });
+      expect(
+        await store.db
+          .selectFrom('link')
+          .select(['session_id', 'role'])
+          .where('entity', '=', 'session')
+          .execute(),
+      ).toEqual([{ session_id: 'worker-1', role: 'other' }]);
+    },
+  );
 
   it('links a worker branch that equals the linked PR head even without a key in the branch', async () => {
     const { store, core, apply, mutations } = setup();

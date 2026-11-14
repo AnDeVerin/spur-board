@@ -2,7 +2,7 @@ import { prSourceId, trackerSourceId, type Config } from '@spur-board/contracts'
 import { sql } from 'kysely';
 import { curatorProject } from './authorize.ts';
 import type { Trx } from './board-utils.ts';
-import { curatorSession } from './doorbells.ts';
+import { bestProjectSession, curatorSession } from './doorbells.ts';
 import { enqueueLiveFeedLine } from './outbox.ts';
 
 const LIVE_VERSION_KEY = 'doctor_live_version';
@@ -58,6 +58,34 @@ export async function curatorSessions(db: Trx, config: Config): Promise<CuratorS
       curator: curatorProject(config, project.id),
       session: (await curatorSession(db, config, project.id))?.id ?? null,
     });
+  }
+  return entries;
+}
+
+/** Configured orchestrators and the same live session selected for their rings. */
+export async function orchestratorSessions(db: Trx, config: Config) {
+  const entries: {
+    project: string;
+    orchestrator: string;
+    session: string | null;
+    columns: string[];
+  }[] = [];
+  for (const project of config.projects) {
+    for (const spur of project.spurProjects.filter((entry) => entry.role === 'orchestrator')) {
+      entries.push({
+        project: project.id,
+        orchestrator: spur.name,
+        session: (await bestProjectSession(db, spur.name))?.id ?? null,
+        columns: project.columns
+          .filter(
+            (column) =>
+              column.orchestrator !== 'none' &&
+              column.orchestrator !== 'operator' &&
+              column.orchestrator === spur.name,
+          )
+          .map((column) => column.id),
+      });
+    }
   }
   return entries;
 }

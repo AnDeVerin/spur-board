@@ -116,7 +116,7 @@ describe('fixtures', () => {
     expect(adapterKeys(config)).toEqual(adapterDefaults);
     const project = config.projects[0];
     expect(project?.tracker.type === 'jira' && project.tracker.projectKeys).toEqual([]);
-    expect(project?.spurProjects).toEqual([{ name: 'qa-bot', role: 'worker' }]);
+    expect(project?.spurProjects).toEqual([{ name: 'qa-bot', role: 'orchestrator' }]);
     expect(project?.columns).toEqual([
       { id: 'todo', enabled: true, orchestrator: 'none', cycleLimit: 10, courseCheck: 3 },
       { id: 'ready-for-dev', enabled: true, orchestrator: 'none', cycleLimit: 10, courseCheck: 3 },
@@ -186,7 +186,7 @@ describe('fixtures', () => {
       const config = configSchema.parse(
         validConfig({
           spurProjects: [
-            { name: 'rev-bot', role: 'worker' },
+            { name: 'rev-bot', role: 'orchestrator' },
             { name: 'cur', role: 'curator' },
           ],
           columns: [
@@ -240,6 +240,40 @@ describe('fixtures', () => {
     expect(config.slack.appName).toBe('My Board');
     expect(config.slack.appId).toBe('A123ABC');
   });
+
+  it.each(['orchestrator', 'curator'] as const)('accepts named %s column executors', (role) => {
+    const config = configSchema.parse(
+      validConfig({
+        spurProjects: [
+          { name: 'executor', role },
+          { name: 'second', role: 'orchestrator' },
+        ],
+        columns: [{ id: 'todo' }, { id: 'dev', orchestrator: 'executor' }, { id: 'done' }],
+      }),
+    );
+    expect(config.projects[0]?.spurProjects).toHaveLength(2);
+    expect(config.projects[0]?.columns[1]?.orchestrator).toBe('executor');
+  });
+
+  it.each(['worker', 'operator'] as const)(
+    'rejects named %s column executors at the column path',
+    (role) => {
+      const result = configSchema.safeParse(
+        validConfig({
+          spurProjects: [{ name: 'executor', role }],
+          columns: [{ id: 'todo' }, { id: 'dev', orchestrator: 'executor' }, { id: 'done' }],
+        }),
+      );
+      expect(result.success).toBe(false);
+      if (!result.success)
+        expect(result.error.issues).toContainEqual(
+          expect.objectContaining({
+            path: ['projects', 0, 'columns', 1, 'orchestrator'],
+            message: expect.stringContaining('role orchestrator or curator') as unknown,
+          }),
+        );
+    },
+  );
 
   it('accepts one curator per board project', () => {
     const config = configSchema.parse(
