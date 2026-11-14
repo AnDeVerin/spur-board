@@ -1,4 +1,6 @@
 import type { Action, Persona, RichText, RichTextInline } from '@spur-board/contracts';
+import { z } from 'zod';
+import { itemsOf } from './wire.ts';
 
 /** Slack section mrkdwn is capped at 3000 characters; leave room for formatting. */
 export const MAX_PART_TEXT = 2900;
@@ -35,13 +37,19 @@ export function originMarkerId(key: string): string | null {
   return blockId(ORIGIN_PREFIX, key);
 }
 
+const blockIdWire = z.object({ block_id: z.string() });
+
+/** The string `block_id` of each block, in order; anything that is not a block list has none. */
+function blockIds(blocks: unknown): string[] {
+  return (itemsOf(blocks) ?? []).flatMap((block) => {
+    const id = blockIdWire.safeParse(block).data?.block_id;
+    return id === undefined ? [] : [id];
+  });
+}
+
 export function markerFromBlocks(blocks: unknown): string | undefined {
-  if (!Array.isArray(blocks)) return undefined;
-  const values: readonly unknown[] = blocks;
-  for (const block of values) {
-    if (typeof block !== 'object' || block === null || !('block_id' in block)) continue;
-    const id = block.block_id;
-    if (typeof id !== 'string' || !id.startsWith(MARKER_PREFIX)) continue;
+  for (const id of blockIds(blocks)) {
+    if (!id.startsWith(MARKER_PREFIX)) continue;
     try {
       return decodeURIComponent(id.slice(MARKER_PREFIX.length));
     } catch {
@@ -53,12 +61,8 @@ export function markerFromBlocks(blocks: unknown): string | undefined {
 
 /** The first part of a multipart root also carries the unsuffixed delivery key. */
 export function originKeyFromBlocks(blocks: unknown): string | undefined {
-  if (!Array.isArray(blocks)) return undefined;
-  const values: readonly unknown[] = blocks;
-  for (const block of values) {
-    if (typeof block !== 'object' || block === null || !('block_id' in block)) continue;
-    const id = block.block_id;
-    if (typeof id !== 'string' || !id.startsWith(ORIGIN_PREFIX)) continue;
+  for (const id of blockIds(blocks)) {
+    if (!id.startsWith(ORIGIN_PREFIX)) continue;
     try {
       return decodeURIComponent(id.slice(ORIGIN_PREFIX.length));
     } catch {

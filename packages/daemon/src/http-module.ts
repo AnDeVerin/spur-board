@@ -1,4 +1,4 @@
-import { SESSION_STATUSES } from '@spur-board/contracts';
+import { SESSION_STATUSES, apiBaseUrl } from '@spur-board/contracts';
 import type { ServerResponse } from 'node:http';
 import {
   createApiServer,
@@ -9,10 +9,16 @@ import {
   type OperationRegistry,
   type Store,
 } from '@spur-board/core';
+import { z } from 'zod';
 import type { Module, ModuleContext } from './lifecycle.ts';
 import { runDaemonDoctor } from './doctor.ts';
 
 const SESSION_TIMEOUT_MS = 5_000;
+const sessionDetailWire = z.object({
+  id: z.string(),
+  project: z.string().min(1),
+  status: z.enum(SESSION_STATUSES),
+});
 
 /** Fetch one session after a snapshot miss; 404 is a confirmed unknown session. */
 export async function lookupLiveSession(
@@ -20,26 +26,13 @@ export async function lookupLiveSession(
   id: string,
   fetcher: typeof fetch = fetch,
 ): Promise<LiveSession | null> {
-  const base = new URL(`${baseUrl.replace(/\/$/, '')}/`);
-  const url = new URL(`sessions/${encodeURIComponent(id)}`, base);
+  const url = new URL(`sessions/${encodeURIComponent(id)}`, apiBaseUrl(baseUrl));
   const response = await fetcher(url, { signal: AbortSignal.timeout(SESSION_TIMEOUT_MS) });
   if (response.status === 404) return null;
   if (!response.ok) throw new Error(`Session lookup failed with HTTP ${String(response.status)}`);
-  const body: unknown = await response.json();
-  if (body === null || typeof body !== 'object' || Array.isArray(body)) {
-    throw new Error('Invalid session detail response');
-  }
-  const record = body as Record<string, unknown>;
-  if (
-    record['id'] !== id ||
-    typeof record['project'] !== 'string' ||
-    record['project'].length === 0 ||
-    typeof record['status'] !== 'string' ||
-    !SESSION_STATUSES.some((status) => status === record['status'])
-  ) {
-    throw new Error('Invalid session detail response');
-  }
-  return { project: record['project'], status: record['status'] };
+  const detail = sessionDetailWire.safeParse(await response.json());
+  if (!detail.success || detail.data.id !== id) throw new Error('Invalid session detail response');
+  return { project: detail.data.project, status: detail.data.status };
 }
 
 /** Start and close the API as a daemon module, with runtime ports from its context. */

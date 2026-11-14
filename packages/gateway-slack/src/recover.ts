@@ -1,20 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { WebClient } from '@slack/web-api';
+import { z } from 'zod';
 import type { InboundEvent, RecoverRequest } from '@spur-board/contracts';
 import { apiFailure, IncompleteHistoryError, readMessages } from './api.ts';
 import { normalizeMessage, type BotIdentity } from './normalize.ts';
 import { parseRef } from './ref.ts';
-
-function record(value: unknown): Record<string, unknown> | null {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null;
-}
-
-function string(value: unknown): string | undefined {
-  return typeof value === 'string' ? value : undefined;
-}
+import { fieldsOf, messageTs } from './wire.ts';
 
 /** Milliseconds of a Slack ts, read from its digits so float error cannot shift the millisecond. */
 function tsMillis(ts: string): number {
@@ -128,7 +120,7 @@ export async function* recoverThreads(
       throw error;
     }
     if (history === ABORTED) return;
-    const root = history.find((message) => string(record(message)?.ts) === addressed.threadTs);
+    const root = history.find((message) => messageTs(message) === addressed.threadTs);
     if (root === undefined) {
       yield gap(conversation.ref);
       continue;
@@ -140,12 +132,12 @@ export async function* recoverThreads(
       (after === null ||
         after.channel !== addressed.channel ||
         after.threadTs !== addressed.threadTs ||
-        !history.some((message) => string(record(message)?.ts) === anchor))
+        !history.some((message) => messageTs(message) === anchor))
     ) {
       yield gap(conversation.ref);
     }
     for (const message of history) {
-      const source = record(message);
+      const source = fieldsOf(message);
       if (source === null) continue;
       const events = normalizeMessage(addressed.channel, source, {
         bot,
@@ -162,9 +154,9 @@ export async function* recoverThreads(
             yield event;
           }
         } else if (event.kind === 'message_edited') {
-          if (inInterval(string(record(source.edited)?.ts), from, until)) yield event;
+          if (inInterval(messageTs(source.edited), from, until)) yield event;
         } else if (event.kind === 'message_deleted') {
-          if (inInterval(string(source.event_ts), from, until)) yield event;
+          if (inInterval(z.string().safeParse(source.event_ts).data, from, until)) yield event;
         }
       }
     }

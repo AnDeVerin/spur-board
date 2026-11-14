@@ -114,9 +114,7 @@ export function validateTarball(entries: readonly string[], manifest: PackageMan
       throw new Error(`Tarball contains a forbidden file: ${entry}`);
     }
     const runtime =
-      /^package\/dist\/(?:bin|cli|client|daemon|mcp|(?:src|client|config|mcp)-[A-Za-z0-9_-]{8})\.mjs$/.test(
-        entry,
-      );
+      /^package\/dist\/(?:bin|cli|client|daemon|mcp|chunk-[A-Za-z0-9_-]{8})\.mjs$/.test(entry);
     const migration = /^package\/dist\/migrations\/\d{4}_[a-z0-9_]+\.sql$/.test(entry);
     if (
       entry !== 'package/package.json' &&

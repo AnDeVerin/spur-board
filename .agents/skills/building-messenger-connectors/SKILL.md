@@ -47,6 +47,8 @@ A gateway adapts one chat platform to the `Gateway` port.
 
 - Live and recovered input go through one normalizer (G8,
   `packages/gateway-slack/src/normalize.ts`).
+- Read Slack payloads through `packages/gateway-slack/src/wire.ts` or zod; `wireWalkerBans` in
+  `eslint.config.js` covers gateway `src/` except `testing.ts`.
 - Ack only after `sink` resolves; a rejected sink is not acked (G11, `function handle` in
   `packages/gateway-slack/src/socket.ts`, conformance case `ack-after-sink`).
 - Build `dedupeKey` from stable platform ids; an edit and a deletion get keys of their own (G9);

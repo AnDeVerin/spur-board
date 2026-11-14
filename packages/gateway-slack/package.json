@@ -15,7 +15,8 @@
     "@slack/socket-mode": "catalog:",
     "@slack/web-api": "catalog:",
     "@spur-board/contracts": "workspace:*",
-    "ws": "catalog:"
+    "ws": "catalog:",
+    "zod": "catalog:"
   },
   "devDependencies": {
     "@spur-board/gateway-testkit": "workspace:*",

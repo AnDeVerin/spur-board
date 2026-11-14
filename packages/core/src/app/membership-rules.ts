@@ -2,6 +2,7 @@ import { prSourceId, ticketFactsSchema, trackerSourceId, type Config } from '@sp
 import { sql } from 'kysely';
 import { archiveTask } from './archive.ts';
 import { emit, type Trx } from './board-utils.ts';
+import type { WarnSkipped } from '../store/json.ts';
 
 /** Run-local completeness is the only evidence allowed to authorize filter absence. */
 export async function reconcileMembership(
@@ -9,6 +10,7 @@ export async function reconcileMembership(
   config: Config,
   completeSince: ReadonlyMap<string, string>,
   at: string,
+  warnSkipped?: WarnSkipped,
 ): Promise<void> {
   const states = await trx.selectFrom('source_state').select(['source', 'blind_reason']).execute();
   const blind = new Set(
@@ -31,6 +33,7 @@ export async function reconcileMembership(
     if (ticket === undefined) continue;
     const detail: unknown = JSON.parse(ticket.detail);
     const facts = ticketFactsSchema.safeParse(detail);
+    if (!facts.success) warnSkipped?.('ticket_snapshot', 'detail', ticket.task_id, facts.error);
     // A detail of another shape keeps the loose read: in the filter only when inFilter is true.
     const inFilter = facts.success
       ? facts.data.inFilter

@@ -19,7 +19,10 @@ export function deniedReference(error: GraphError): boolean {
   );
 }
 // GraphQL errors are classified before `data` is read: a denied root arrives as null.
-const envelopeWire = z.object({ errors: z.array(graphErrorWire).optional(), data: z.unknown() });
+export const graphEnvelopeWire = z.object({
+  errors: z.array(graphErrorWire).optional(),
+  data: z.unknown(),
+});
 // Each root is parsed by its caller once its scoped errors are handled.
 const dataWire = z.looseObject({
   rateLimit: z.object({ remaining: z.int().nonnegative(), resetAt: z.string() }),
@@ -32,7 +35,8 @@ export function connectionWire<T extends z.ZodType>(node: T) {
   return z.object({ nodes: z.array(node), pageInfo: pageInfoWire });
 }
 
-function teamScopeDenied(error: GraphError, query: string): boolean {
+/** Whether `error` denies a requested team's slug in `query`, which must select it. */
+export function teamScopeDenied(error: GraphError, query: string): boolean {
   if (error.type !== 'INSUFFICIENT_SCOPES' || !query.includes('... on Team { slug }')) return false;
   if (error.path !== undefined)
     return (
@@ -133,6 +137,34 @@ export function pageQuery(
   return `query PrPage($owner: String!, $repo: String!, $number: Int!, $after: String!) { rateLimit { remaining resetAt } repository(owner: $owner, name: $repo) { pullRequest(number: $number) { ${field} } } }`;
 }
 
+/**
+ * The failure that GraphQL `errors` mean for the whole request, in rule order: a rate limit is
+ * `throttled`, a denied team slug or any missing scope is `auth`. Null when no rule applies.
+ */
+export function graphqlFailure(
+  errors: readonly GraphError[],
+  query: string,
+  headers: Headers,
+  now: number,
+): AdapterError | null {
+  if (errors.some((error) => error.type === 'RATE_LIMITED' || /rate limit/i.test(error.message)))
+    return classifyHttpFailure({ status: 429, headers }, now);
+  if (errors.some((error) => teamScopeDenied(error, query)))
+    return new AdapterError('auth', 'GitHub token needs read:org for team review requests');
+  if (errors.some((error) => error.type === 'INSUFFICIENT_SCOPES'))
+    return new AdapterError('auth', 'GitHub token lacks a required GraphQL read scope');
+  return null;
+}
+/** Whether the token was denied the check runs of a status rollup. */
+export function checkAccessDenied(errors: readonly GraphError[]): boolean {
+  return errors.some(
+    (error) =>
+      error.type === 'FORBIDDEN' &&
+      error.path?.includes('statusCheckRollup') === true &&
+      error.path.includes('contexts'),
+  );
+}
+
 export interface ResponseData {
   data: z.output<typeof dataWire>;
   errors: GraphError[];
@@ -186,14 +218,10 @@ export class GithubClient {
         return { response, body };
       },
     );
-    const wire = parseWire(envelopeWire, body, MALFORMED);
+    const wire = parseWire(graphEnvelopeWire, body, MALFORMED);
     const errors = wire.errors ?? [];
-    if (errors.some((error) => error.type === 'RATE_LIMITED' || /rate limit/i.test(error.message)))
-      throw classifyHttpFailure({ status: 429, headers: response.headers }, this.now());
-    if (errors.some((error) => teamScopeDenied(error, query)))
-      throw new AdapterError('auth', 'GitHub token needs read:org for team review requests');
-    if (errors.some((error) => error.type === 'INSUFFICIENT_SCOPES'))
-      throw new AdapterError('auth', 'GitHub token lacks a required GraphQL read scope');
+    const failure = graphqlFailure(errors, query, response.headers, this.now());
+    if (failure !== null) throw failure;
     const data = parseWire(dataWire, wire.data, MALFORMED, ['data']);
     return { data, errors, budget: data.rateLimit };
   }

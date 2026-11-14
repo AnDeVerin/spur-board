@@ -1,5 +1,5 @@
 import { configSchema, type TicketFacts } from '@spur-board/contracts';
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import {
   createApply,
   createMembershipMutations,
@@ -27,10 +27,18 @@ const config = configSchema.parse({
 const source = 'github-issues:board:o/r';
 const github = 'github:board:o/r';
 const stores: Store[] = [];
-function setup(boardConfig = config) {
+function setup(boardConfig = config, warn?: Parameters<typeof createObservationCore>[0]['warn']) {
   const store = openTempStore('board-membership-').store;
   stores.push(store);
-  return { store, core: createObservationCore({ store, config: boardConfig, clock }) };
+  return {
+    store,
+    core: createObservationCore({
+      store,
+      config: boardConfig,
+      clock,
+      ...(warn === undefined ? {} : { warn }),
+    }),
+  };
 }
 afterEach(async () => {
   for (const store of stores.splice(0)) await store.close();
@@ -168,6 +176,23 @@ it('archives filter loss only after a later complete poll from every required so
   expect(
     (await store.db.selectFrom('task').select('membership').executeTakeFirst())?.membership,
   ).toBe('archived');
+});
+
+it('warns once about a ticket detail of another shape and keeps the loose filter read', async () => {
+  const warn = vi.fn();
+  const { store, core } = setup(config, warn);
+  await ticketPoll(core, true);
+  await store.db.updateTable('ticket_snapshot').set({ detail: '{"inFilter":true}' }).execute();
+  for (const id of ['spur', github]) {
+    now += 1_000;
+    await emptyPoll(core, id);
+  }
+  expect((await membership(store)).membership).toBe('active');
+  expect(warn).toHaveBeenCalledTimes(1);
+  expect(warn).toHaveBeenCalledWith(
+    expect.objectContaining({ table: 'ticket_snapshot', column: 'detail', row: '1' }),
+    expect.any(String),
+  );
 });
 
 it('reactivates an out-of-filter archive when its ticket returns to the filter', async () => {

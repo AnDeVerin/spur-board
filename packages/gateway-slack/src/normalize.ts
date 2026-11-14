@@ -11,18 +11,9 @@ import type { SlackChannels } from './deliver.ts';
 import { conversationRef, messageRef } from './ref.ts';
 import { originKeyFromBlocks } from './render.ts';
 import { parseCommand } from './commands.ts';
+import { fieldsOf, itemsOf, textOf } from './wire.ts';
 
 type RecordValue = Record<string, unknown>;
-
-function record(value: unknown): RecordValue | null {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-    ? (value as RecordValue)
-    : null;
-}
-
-function string(value: unknown): string | undefined {
-  return typeof value === 'string' && value.length > 0 ? value : undefined;
-}
 
 function iso(ts: string): string | undefined {
   const at = new Date(Number(ts) * 1000);
@@ -58,10 +49,10 @@ function interactionRef(channel: string, user: string, triggerId: string): Inter
 
 export function parseInteractionRef(value: string): { channel: string; user: string } | null {
   try {
-    const parsed = record(JSON.parse(value));
+    const parsed = fieldsOf(JSON.parse(value));
     if (parsed === null) return null;
-    const channel = string(parsed.channel);
-    const user = string(parsed.user);
+    const channel = textOf(parsed.channel);
+    const user = textOf(parsed.user);
     return channel === undefined || user === undefined ? null : { channel, user };
   } catch {
     return null;
@@ -69,14 +60,14 @@ export function parseInteractionRef(value: string): { channel: string; user: str
 }
 
 function rootKey(context: NormalizeContext): string | undefined {
-  return originKeyFromBlocks(record(context.root)?.blocks);
+  return originKeyFromBlocks(fieldsOf(context.root)?.blocks);
 }
 
 function own(message: RecordValue, bot: BotIdentity): boolean {
   return (
     message.subtype === 'bot_message' ||
     (bot.botId !== undefined && message.bot_id === bot.botId) ||
-    string(message.user) === bot.userId
+    textOf(message.user) === bot.userId
   );
 }
 
@@ -93,10 +84,10 @@ function messageBase(
   author: ReturnType<typeof userIdSchema.parse>;
   originKey?: string;
 } | null {
-  const ts = string(message.ts);
-  const user = string(message.user);
+  const ts = textOf(message.ts);
+  const user = textOf(message.user);
   if (ts === undefined || user === undefined || own(message, context.bot)) return null;
-  const threadTs = string(message.thread_ts) ?? context.rootTs ?? ts;
+  const threadTs = textOf(message.thread_ts) ?? context.rootTs ?? ts;
   const originKey = rootKey(context);
   return {
     ts,
@@ -112,17 +103,17 @@ export function normalizeMessage(
   payload: unknown,
   context: NormalizeContext,
 ): InboundEvent[] {
-  const source = record(payload);
+  const source = fieldsOf(payload);
   if (source === null) return [];
   if (source.subtype === 'message_deleted') {
-    const deletedTs = string(source.deleted_ts);
-    const previous = record(source.previous_message);
+    const deletedTs = textOf(source.deleted_ts);
+    const previous = fieldsOf(source.previous_message);
     if (own(source, context.bot) || (previous !== null && own(previous, context.bot))) return [];
-    const priorThreadTs = string(previous?.thread_ts);
+    const priorThreadTs = textOf(previous?.thread_ts);
     const priorOriginKey = originKeyFromBlocks(previous?.blocks);
     const rootIsDeleted =
       deletedTs !== undefined &&
-      string(previous?.ts) === deletedTs &&
+      textOf(previous?.ts) === deletedTs &&
       (priorThreadTs === deletedTs ||
         (priorThreadTs === undefined && priorOriginKey !== undefined));
     const threadTs = priorThreadTs ?? (rootIsDeleted ? deletedTs : undefined);
@@ -144,13 +135,13 @@ export function normalizeMessage(
   }
 
   const changed = source.subtype === 'message_changed';
-  const message = changed ? record(source.message) : source;
+  const message = changed ? fieldsOf(source.message) : source;
   if (message === null) return [];
   const base = messageBase(message, context);
   const body = text(message.text);
   if (base === null || body === undefined) return [];
-  const edited = record(message.edited);
-  const editedTs = string(edited?.ts);
+  const edited = fieldsOf(message.edited);
+  const editedTs = textOf(edited?.ts);
   const editAt = editedTs === undefined ? undefined : iso(editedTs);
   const eventBase = {
     conversation: conversationRef(channel, base.threadTs),
@@ -198,17 +189,17 @@ export function normalizeInteraction(
   root?: unknown,
   commandName = DEFAULT_SLACK_COMMAND,
 ): InboundEvent[] {
-  const body = record(payload);
+  const body = fieldsOf(payload);
   if (body === null) return [];
-  const triggerId = string(body.trigger_id);
+  const triggerId = textOf(body.trigger_id);
   if (triggerId === undefined) return [];
-  const user = string(record(body.user)?.id) ?? string(body.user_id);
+  const user = textOf(fieldsOf(body.user)?.id) ?? textOf(body.user_id);
   if (user === undefined) return [];
   const author = userIdSchema.parse(user);
   if (type === 'slash_commands') {
-    const name = string(body.command);
+    const name = textOf(body.command);
     if (name === undefined) return [];
-    const channel = string(body.channel_id);
+    const channel = textOf(body.channel_id);
     if (channel === undefined) return [];
     return [
       {
@@ -227,13 +218,12 @@ export function normalizeInteraction(
     ];
   }
   if (type !== 'interactive' && type !== 'block_actions') return [];
-  const channel = string(record(body.channel)?.id);
-  const message = record(body.message);
-  const ts = string(message?.ts);
-  const threadTs = string(message?.thread_ts) ?? ts;
-  const actions = body.actions;
-  const action = Array.isArray(actions) ? record(actions[0]) : null;
-  const actionId = string(action?.action_id);
+  const channel = textOf(fieldsOf(body.channel)?.id);
+  const message = fieldsOf(body.message);
+  const ts = textOf(message?.ts);
+  const threadTs = textOf(message?.thread_ts) ?? ts;
+  const action = fieldsOf(itemsOf(body.actions)?.[0]);
+  const actionId = textOf(action?.action_id);
   if (
     channel === undefined ||
     ts === undefined ||
@@ -243,7 +233,7 @@ export function normalizeInteraction(
     return [];
   }
   const originKey = originKeyFromBlocks(
-    root === undefined ? message?.blocks : record(root)?.blocks,
+    root === undefined ? message?.blocks : fieldsOf(root)?.blocks,
   );
   return [
     {

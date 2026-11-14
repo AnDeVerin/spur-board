@@ -2,9 +2,11 @@ import { readFileSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
+  DOCTOR_FIX_MAX,
   configSchema,
   renderHttpProblem,
   type ActorId,
+  type DoctorReport,
   type ServerErrorCode,
 } from '@spur-board/contracts';
 import type { FastifyInstance } from 'fastify';
@@ -197,6 +199,25 @@ describe('catalog HTTP API', () => {
       });
     } finally {
       await failing.close();
+    }
+  });
+
+  it('refuses a doctor fix over DOCTOR_FIX_MAX', async () => {
+    const logError = vi.fn();
+    const doctor = (): Promise<DoctorReport> =>
+      Promise.resolve({
+        version: '1.2.3',
+        checks: [
+          { id: 'secrets', status: 'fail', blocking: true, fix: 'x'.repeat(DOCTOR_FIX_MAX + 1) },
+        ],
+      });
+    const app = await server(newStore(), { doctor, logError });
+    try {
+      const response = await app.inject({ method: 'GET', url: '/v1/doctor', headers: { host } });
+      expect(response.statusCode).toBe(500);
+      expect(logError).toHaveBeenCalledOnce();
+    } finally {
+      await app.close();
     }
   });
 

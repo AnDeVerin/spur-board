@@ -319,6 +319,48 @@ describe('adapters boundary', () => {
   );
 });
 
+describe('wire walker ban', () => {
+  it.each([
+    ['packages/daemon/src/x.ts', 'export const a = Array.isArray(globalThis);'],
+    [
+      'packages/daemon/src/x.ts',
+      'export function string(v: unknown): string { return String(v); }',
+    ],
+    ['packages/gateway-slack/src/x.ts', 'export const a = Array.isArray(globalThis);'],
+    [
+      'packages/gateway-slack/src/x.ts',
+      'export function string(v: unknown): string { return String(v); }',
+    ],
+  ])(
+    '%s: %s reports no-restricted-syntax',
+    async (path, code) => {
+      expect(await textRuleIds(code, path)).toEqual(['no-restricted-syntax']);
+    },
+    30_000,
+  );
+
+  it.each([
+    ['packages/daemon/src/logger.ts', 'export const a = Array.isArray(globalThis);'],
+    ['packages/daemon/test/x.ts', 'export const a = Array.isArray(globalThis);'],
+    ['packages/gateway-slack/src/testing.ts', 'export const a = Array.isArray(globalThis);'],
+    ['packages/gateway-slack/test/x.ts', 'export const a = Array.isArray(globalThis);'],
+  ])(
+    '%s: %s passes',
+    async (path, code) => {
+      expect(await textRuleIds(code, path)).toEqual([]);
+    },
+    30_000,
+  );
+
+  // The logger keeps the journal ban from the shared core and daemon block.
+  it('keeps the journal ban in packages/daemon/src/logger.ts', async () => {
+    const code = "export const q = trx.insertInto('event');";
+    expect(await textRuleIds(code, 'packages/daemon/src/logger.ts')).toEqual([
+      'no-restricted-syntax',
+    ]);
+  }, 30_000);
+});
+
 describe('wall time ban', () => {
   it.each([
     ['packages/adapters/src/x.ts', 'export const t = Date.now();'],

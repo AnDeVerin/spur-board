@@ -18,8 +18,8 @@ const files = [
   'package/dist/bin.mjs',
   'package/dist/cli.mjs',
   'package/dist/mcp.mjs',
-  'package/dist/client-BD4dc3-F.mjs',
-  'package/dist/config-BJE5kDof.mjs',
+  'package/dist/chunk-BD4dc3-F.mjs',
+  'package/dist/chunk-BJE5kDof.mjs',
   'package/dist/migrations/0001_init.sql',
   'package/skills/spur-board/SKILL.md',
   'package/skills/setup/SKILL.md',
@@ -43,6 +43,8 @@ describe('package tarball allowlist', () => {
     'package/dist/cli.mjs.map',
     'package/dist/migrations/seed.sql',
     'package/dist/migrations/0001_init.sql.map',
+    'package/dist/urls-DAMwWWmT.mjs',
+    'package/dist/chunk-short.mjs',
   ])('rejects unexpected dist member %s', (file) => {
     expect(() => {
       validateTarball([...files, file], manifest);

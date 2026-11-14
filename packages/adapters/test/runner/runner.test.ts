@@ -186,8 +186,16 @@ afterEach(async () => {
 });
 
 describe('startAdapters', () => {
-  it('exports only startAdapters, the doctor link sample and the test fakes', () => {
-    expect(Object.keys(entry).sort()).toEqual(['sampleLinkRules', 'startAdapters']);
+  it('exports only startAdapters, the doctor link sample, the GitHub classifiers and the test fakes', () => {
+    expect(Object.keys(entry).sort()).toEqual([
+      'checkAccessDenied',
+      'classifyHttpFailure',
+      'graphEnvelopeWire',
+      'graphqlFailure',
+      'sampleLinkRules',
+      'startAdapters',
+      'teamScopeDenied',
+    ]);
     const manifest = JSON.parse(
       readFileSync(new URL('../../package.json', import.meta.url), 'utf8'),
     ) as { exports: Record<string, string> };

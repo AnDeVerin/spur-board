@@ -1,9 +1,12 @@
+import { apiBaseUrl } from '@spur-board/contracts';
 import { SpurRejectedError, type SpurPort } from '@spur-board/core';
+import { z } from 'zod';
 
 const SEND_TIMEOUT_MS = 8_000;
 const ERROR_TEXT_LIMIT = 200;
 /** 4xx statuses Spur may answer for a passing state; every other 4xx ends the ring. */
 const RETRYABLE_4XX = new Set([408, 409, 425, 429]);
+const spurErrorWire = z.object({ error: z.string() });
 
 /** The request Spur's own `spur send` makes; the doctor probe sends the same one. */
 export function spurSendRequest(
@@ -12,10 +15,7 @@ export function spurSendRequest(
   text: string,
 ): { url: URL; init: RequestInit } {
   return {
-    url: new URL(
-      `sessions/${encodeURIComponent(session)}/send`,
-      new URL(`${baseUrl.replace(/\/$/, '')}/`),
-    ),
+    url: new URL(`sessions/${encodeURIComponent(session)}/send`, apiBaseUrl(baseUrl)),
     init: {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -27,9 +27,8 @@ export function spurSendRequest(
 /** The `error` string of a Spur error body, cut to a bounded length; null when unreadable. */
 export async function spurErrorText(response: Response): Promise<string | null> {
   try {
-    const value: unknown = await response.json();
-    if (value === null || typeof value !== 'object' || !('error' in value)) return null;
-    return typeof value.error === 'string' ? value.error.slice(0, ERROR_TEXT_LIMIT) : null;
+    const parsed = spurErrorWire.safeParse(await response.json());
+    return parsed.success ? parsed.data.error.slice(0, ERROR_TEXT_LIMIT) : null;
   } catch {
     return null;
   }

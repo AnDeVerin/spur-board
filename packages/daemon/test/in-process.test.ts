@@ -3,6 +3,7 @@ import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { configSchema, type Config } from '@spur-board/contracts';
+import { openStore, tickBoard } from '@spur-board/core';
 import { startFakeSlackApi } from '@spur-board/gateway-slack/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { acquireLock, startInProcessDaemon, type InProcessDaemon } from '../src/in-process.ts';
@@ -24,7 +25,7 @@ const configFor = (port: number) =>
 
 /** The daemon options of these tests: a temp home, a real lock, a tick the test controls. */
 function optionsFor(input: {
-  tick: () => Promise<void>;
+  tick: typeof tickBoard;
   port?: number;
   lines?: string[];
   shutdownTimeoutMs?: number;
@@ -179,6 +180,51 @@ describe('startInProcessDaemon', () => {
       );
     }
   }, 30_000);
+
+  it('logs a skipped JSON row once through the board-core logger', async () => {
+    const store = openStore(join(home, 'board.sqlite'));
+    const at = new Date().toISOString();
+    await store.db
+      .insertInto('source_state')
+      .values({
+        source: 'github',
+        initialized: 1,
+        last_complete_at: at,
+        blind_reason: null,
+        cursor: null,
+        observed_at: at,
+        blind_message: null,
+        gone: '[]',
+      })
+      .execute();
+    await store.db
+      .insertInto('source_miss')
+      .values({
+        source: 'github',
+        ref_key: 'pr:x/y#7',
+        ref: '{"kind":"pr","repo":"x/y"}',
+        misses: 1,
+        gone: 1,
+        outcome: 'not_found',
+      })
+      .execute();
+    await store.close();
+    const lines: string[] = [];
+    daemon = await startInProcessDaemon(optionsFor({ tick: tickBoard, lines }));
+    await daemon.tick();
+    await daemon.tick();
+    const records = lines.map((line) => JSON.parse(line) as Record<string, unknown>);
+    expect(records.filter((record) => record.table === 'source_miss')).toEqual([
+      expect.objectContaining({
+        level: 40,
+        module: 'board-core',
+        table: 'source_miss',
+        column: 'ref',
+        row: 'github pr:x/y#7',
+      }),
+    ]);
+    expect(await daemon.stop()).toBe(0);
+  });
 
   it('logs a failed Slack envelope through the gateway-slack logger', async () => {
     const fake = await startFakeSlackApi();

@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { startAdapters } from '@spur-board/adapters';
 import { createFakeCore } from '@spur-board/adapters/testing';
 import {
+  apiBaseUrl,
   configSchema,
   DEFAULT_LINK,
   prSourceId,
@@ -180,7 +181,7 @@ export function narrow(config: Config): Live {
     jiraRepo,
     jira,
     jiraOrigin: new URL(jira.baseUrl).origin,
-    spurBase: new URL(`${config.adapters.spur.baseUrl.replace(/\/$/, '')}/`),
+    spurBase: apiBaseUrl(config.adapters.spur.baseUrl),
     logins: [...new Set([issuesProject.operatorGithubLogin, jiraProject.operatorGithubLogin])],
   };
 }
@@ -500,7 +501,7 @@ class Scrubber {
     if (system === 'spur')
       return new URL(
         url.pathname.slice(this.live.spurBase.pathname.length) + url.search,
-        `${STAND.spurBase.replace(/\/$/, '')}/`,
+        apiBaseUrl(STAND.spurBase),
       ).href;
     if (system === 'jira') {
       const key = /^\/rest\/api\/3\/issue\/([A-Za-z][A-Za-z0-9_]*-[1-9]\d*)$/.exec(

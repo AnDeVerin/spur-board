@@ -4,11 +4,12 @@ import { join } from 'node:path';
 import { LINK_SOURCES, SESSION_LINK_ROLES } from '@spur-board/contracts';
 import Database from 'better-sqlite3';
 import { sql, type Insertable } from 'kysely';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, expectTypeOf, it, vi } from 'vitest';
 import { z, ZodError } from 'zod';
 import { openStore, parseJson, toJson, type Store, type Tables } from '../../src/index.ts';
 import { migrate, migrationsDir, readMigrations } from '../../src/store/migrate.ts';
 import { rawDatabase } from '../support/store.ts';
+import { warnSkippedOnce, type SkippedRow } from '../../src/store/json.ts';
 import { insertSampleRows, sampleRows, tableNames } from './sample-rows.ts';
 
 const open: Store[] = [];
@@ -253,5 +254,65 @@ describe('JSON columns', () => {
     expect(() => parseJson(schema, '{"n":')).toThrow(SyntaxError);
     expect(() => toJson(schema, { n: 1.5 })).toThrow(ZodError);
     expect(parseJson(schema, toJson(schema, { n: 3 }))).toEqual({ n: 3 });
+  });
+
+  it('warnSkippedOnce reports each table, column and row once, without the stored value', () => {
+    const schema = z.strictObject({ n: z.int(), m: z.object({ k: z.string() }) });
+    const error = schema.safeParse({ n: 'secret-value', m: { k: 1 }, extra: true }).error;
+    if (error === undefined) throw new Error('expected a parse error');
+    const warn = vi.fn();
+    const report = warnSkippedOnce(warn);
+    report('outbox', 'payload', 1, error);
+    report('outbox', 'payload', '1', error);
+    report('outbox', 'external_ref', 1, error);
+    report('source_miss', 'ref', 'github pr:x/y#7', error);
+    expect(warn.mock.calls.map(([fields]: unknown[]) => fields)).toEqual([
+      expect.objectContaining({ table: 'outbox', column: 'payload', row: '1' }),
+      expect.objectContaining({ table: 'outbox', column: 'external_ref', row: '1' }),
+      expect.objectContaining({ table: 'source_miss', column: 'ref', row: 'github pr:x/y#7' }),
+    ]);
+    expect(warn.mock.calls[0]).toEqual([
+      {
+        table: 'outbox',
+        column: 'payload',
+        row: '1',
+        issues: [
+          { path: 'n', code: 'invalid_type' },
+          { path: 'm.k', code: 'invalid_type' },
+          { path: '', code: 'unrecognized_keys' },
+        ],
+      },
+      'stored JSON does not match its schema',
+    ]);
+    expect(JSON.stringify(warn.mock.calls)).not.toContain('secret-value');
+    expect(JSON.stringify(warn.mock.calls)).not.toContain('extra');
+    expect(() => {
+      warnSkippedOnce(undefined)('outbox', 'payload', 1, error);
+    }).not.toThrow();
+  });
+
+  it('warnSkippedOnce swallows a throwing warn and reports that row again later', () => {
+    const error = z.object({ n: z.int() }).safeParse({ n: 'x' }).error;
+    if (error === undefined) throw new Error('expected a parse error');
+    const warn = vi
+      .fn()
+      .mockImplementationOnce(() => {
+        throw new Error('log destination failed');
+      })
+      .mockImplementation(() => undefined);
+    const report = warnSkippedOnce(warn);
+    expect(() => {
+      report('outbox', 'payload', 1, error);
+    }).not.toThrow();
+    report('outbox', 'payload', 1, error);
+    report('outbox', 'payload', 1, error);
+    expect(warn).toHaveBeenCalledTimes(2);
+  });
+
+  it('warnSkippedOnce takes a synchronous warn only, so a rejection cannot escape its catch', () => {
+    type Warn = Parameters<typeof warnSkippedOnce>[0];
+    expectTypeOf<(fields: SkippedRow, message: string) => Promise<void>>().not.toExtend<Warn>();
+    expectTypeOf<(fields: SkippedRow, message: string) => void>().not.toExtend<Warn>();
+    expectTypeOf<(fields: SkippedRow, message: string) => undefined>().toExtend<Warn>();
   });
 });

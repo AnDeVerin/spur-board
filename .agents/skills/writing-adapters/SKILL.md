@@ -52,6 +52,7 @@ rule names another. A PR changing a practice named here updates this skill.
 - Map a failed HTTP response with `classifyHttpFailure` in `packages/adapters/src/runner/http.ts`:
   429, or 403 with a rate-limit sign, is `throttled` with `retryAt`; other 401 and 403 are `auth`;
   the rest is `transient`.
+- Board doctor reuses it and the GitHub GraphQL rules.
 - `nextDelay` in `packages/adapters/src/runner/policy.ts` waits `authRetryMs` after `auth` or
   `config`, until `retryAt` after `throttled`, and backs off exponentially otherwise.
 - Report the budget in `Batch.budget`: GraphQL selects `rateLimit { remaining resetAt }` or the

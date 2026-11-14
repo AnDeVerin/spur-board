@@ -2,6 +2,12 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { hostname, tmpdir } from 'node:os';
 import { join } from 'node:path';
+import {
+  checkAccessDenied,
+  graphqlFailure,
+  sampleLinkRules,
+  teamScopeDenied,
+} from '@spur-board/adapters';
 import { configSchema } from '@spur-board/contracts';
 import {
   createOperationRegistry,
@@ -161,6 +167,8 @@ function doctorFetch(fail?: string, prs: readonly unknown[] = []): typeof fetch 
       expect(sent.variables).toEqual({ owner: 'example', repo: 'board' });
       if (fail === 'github.stalled-body')
         return Promise.resolve(new Response(new ReadableStream({ start() {} })));
+      if (fail === 'github.graphql-stalled-403')
+        return Promise.resolve(new Response(new ReadableStream({ start() {} }), { status: 403 }));
       const requestedTeam =
         fail === 'github.team-readable'
           ? [{ requestedReviewer: { __typename: 'Team', slug: 'reviewers' } }]
@@ -194,6 +202,7 @@ function doctorFetch(fail?: string, prs: readonly unknown[] = []): typeof fetch 
             fail === 'github.checks' || fail === 'github.checked-older'
               ? [
                   {
+                    message: 'Resource not accessible by personal access token',
                     type: 'FORBIDDEN',
                     path:
                       fail === 'github.checked-older'
@@ -223,6 +232,7 @@ function doctorFetch(fail?: string, prs: readonly unknown[] = []): typeof fetch 
               : fail === 'github.team'
                 ? [
                     {
+                      message: 'Your token has not been granted the required scopes.',
                       type: 'INSUFFICIENT_SCOPES',
                       path: [
                         'repository',
@@ -238,11 +248,19 @@ function doctorFetch(fail?: string, prs: readonly unknown[] = []): typeof fetch 
                     },
                   ]
                 : fail === 'github.unrelated'
-                  ? [{ type: 'FORBIDDEN', path: ['repository', 'name'] }]
+                  ? [
+                      {
+                        message: 'Resource not accessible by personal access token',
+                        type: 'FORBIDDEN',
+                        path: ['repository', 'name'],
+                      },
+                    ]
                   : [],
         }),
       );
     }
+    if (url.host === 'api.github.com' && fail === 'github.rest-stalled-403')
+      return Promise.resolve(new Response(new ReadableStream({ start() {} }), { status: 403 }));
     if (url.host === 'api.github.com')
       return Promise.resolve(
         new Response(null, {
@@ -421,6 +439,26 @@ describe('daemon doctor checks', () => {
       doctorContext({ operator: true, slack: false }),
       '1.2.3',
       doctorFetch('github.stalled-body'),
+      { deadlineMs: 250 },
+    );
+    expect(Date.now() - started).toBeLessThan(1_000);
+    expect(report.checks.find((entry) => entry.id === 'github.credentials')).toMatchObject({
+      status: 'fail',
+      blocking: true,
+      fix: 'Check the GitHub token and repository access.',
+    });
+  });
+
+  // A failed body is read for the rate-limit rule, so its read must end at the deadline too.
+  it.each([
+    ['REST', 'github.rest-stalled-403'],
+    ['GraphQL', 'github.graphql-stalled-403'],
+  ])('bounds a failed %s body with the doctor deadline', async (_probe, mode) => {
+    const started = Date.now();
+    const report = await runDaemonDoctor(
+      doctorContext({ operator: true, slack: false }),
+      '1.2.3',
+      doctorFetch(mode),
       { deadlineMs: 250 },
     );
     expect(Date.now() - started).toBeLessThan(1_000);
@@ -654,6 +692,193 @@ describe('daemon doctor checks', () => {
       blocking: false,
     });
     expect(command?.fix).toContain('Verify the installed Slack slash command');
+  });
+});
+
+const GITHUB_THROTTLED =
+  'GitHub is rate limiting this token, so access was not checked; rerun board doctor after the limit resets.';
+const GITHUB_FIX_TEXT = 'Check the GitHub token and repository access.';
+type GithubErrorFixture = Parameters<typeof graphqlFailure>[0][number];
+// One GitHub answer for the parity table; `errors` rows answer 200 with these GraphQL errors.
+type GithubFixture = { http: () => Response } | { errors: readonly GithubErrorFixture[] };
+
+// Answers the doctor's GitHub probe `target` and the link sample with `answer`; the rest of the
+// doctor's requests get the passing doctorFetch answers.
+function githubFixtureFetch(target: 'rest' | 'graphql', answer: () => Response): typeof fetch {
+  const passing = doctorFetch();
+  return vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(
+      input instanceof URL ? input.href : input instanceof Request ? input.url : input,
+    );
+    const graphql = url.pathname === '/graphql';
+    if (url.host === 'api.github.com' && (isLinkSample(init) || graphql === (target === 'graphql')))
+      return Promise.resolve(answer());
+    return passing(input, init);
+  });
+}
+
+function errorsResponse(errors: readonly GithubErrorFixture[]): Response {
+  return Response.json({ data: { repository: null }, errors });
+}
+
+// The doctor's own GraphQL probe query, read from the request it sent.
+function sentProbeQuery(fetcher: typeof fetch): string {
+  const call = vi
+    .mocked(fetcher)
+    .mock.calls.find(
+      ([input, init]) =>
+        typeof input === 'string' && input.endsWith('/graphql') && !isLinkSample(init),
+    );
+  if (typeof call?.[1]?.body !== 'string') throw new Error('Expected the doctor GraphQL probe');
+  return (JSON.parse(call[1].body) as { query: string }).query;
+}
+
+async function githubCheckFor(fetcher: typeof fetch) {
+  const report = await runDaemonDoctor(
+    doctorContext({ operator: true, slack: false }),
+    '1.2.3',
+    fetcher,
+  );
+  return report.checks.find((entry) => entry.id === 'github.credentials');
+}
+
+const teamPath = [
+  'repository',
+  'pullRequests',
+  'nodes',
+  0,
+  'reviewRequests',
+  'nodes',
+  0,
+  'requestedReviewer',
+  'slug',
+];
+const scopeMessage = 'Your token has not been granted the required scopes.';
+
+describe('doctor and adapter GitHub classification', () => {
+  const failed = { status: 'fail', blocking: true, fix: GITHUB_FIX_TEXT };
+  const throttled = { status: 'warning', blocking: false, fix: GITHUB_THROTTLED };
+  const teams = {
+    status: 'fail',
+    blocking: true,
+    fix: expect.stringContaining('read:org') as string,
+  };
+  it.each<[string, GithubFixture, string, object]>([
+    ['401', { http: () => new Response('Bad credentials', { status: 401 }) }, 'auth', failed],
+    ['plain 403', { http: () => new Response(null, { status: 403 }) }, 'auth', failed],
+    [
+      '403 with no remaining requests',
+      {
+        http: () => new Response(null, { status: 403, headers: { 'x-ratelimit-remaining': '0' } }),
+      },
+      'throttled',
+      throttled,
+    ],
+    [
+      '403 with a rate limit body',
+      { http: () => new Response('API rate limit exceeded', { status: 403 }) },
+      'throttled',
+      throttled,
+    ],
+    ['429', { http: () => new Response(null, { status: 429 }) }, 'throttled', throttled],
+    [
+      'RATE_LIMITED GraphQL error',
+      { errors: [{ type: 'RATE_LIMITED', message: 'API rate limit exceeded' }] },
+      'throttled',
+      throttled,
+    ],
+  ])('classifies %s alike', async (_case, fixture, kind, expected) => {
+    const answer = 'http' in fixture ? fixture.http : () => errorsResponse(fixture.errors);
+    const targets = 'http' in fixture ? (['rest', 'graphql'] as const) : (['graphql'] as const);
+    for (const target of targets)
+      expect(await githubCheckFor(githubFixtureFetch(target, answer))).toEqual({
+        id: 'github.credentials',
+        ...expected,
+      });
+    const project = doctorContext().config.projects[0];
+    if (project === undefined) throw new Error('Expected a project');
+    await expect(
+      sampleLinkRules(
+        {
+          repo: 'example/board',
+          login: project.operatorGithubLogin,
+          tracker: project.tracker,
+          link: project.link,
+        },
+        {
+          token: 'github-secret-canary',
+          now: () => 0,
+          fetch: githubFixtureFetch('graphql', answer),
+          signal: new AbortController().signal,
+        },
+      ),
+    ).rejects.toMatchObject({ kind });
+  });
+
+  // The team rule needs `... on Team { slug }` in the query, so these rows use the doctor's own.
+  it.each<[string, GithubErrorFixture[], object, object | null, boolean]>([
+    [
+      'RATE_LIMITED GraphQL error',
+      [{ type: 'RATE_LIMITED', message: 'API rate limit exceeded' }],
+      throttled,
+      { kind: 'throttled' },
+      false,
+    ],
+    [
+      'INSUFFICIENT_SCOPES on the team path',
+      [{ type: 'INSUFFICIENT_SCOPES', message: scopeMessage, path: teamPath }],
+      teams,
+      { kind: 'auth', message: 'GitHub token needs read:org for team review requests' },
+      true,
+    ],
+    [
+      'pathless INSUFFICIENT_SCOPES naming slug and read:org',
+      [
+        {
+          type: 'INSUFFICIENT_SCOPES',
+          message: "Field 'slug' requires read:org or read:discussion scope",
+        },
+      ],
+      teams,
+      { kind: 'auth', message: 'GitHub token needs read:org for team review requests' },
+      true,
+    ],
+    [
+      'INSUFFICIENT_SCOPES off the team path',
+      [
+        {
+          type: 'INSUFFICIENT_SCOPES',
+          message: scopeMessage,
+          path: ['repository', 'defaultBranchRef'],
+        },
+      ],
+      failed,
+      { kind: 'auth', message: 'GitHub token lacks a required GraphQL read scope' },
+      false,
+    ],
+    [
+      'FORBIDDEN check runs',
+      [
+        {
+          type: 'FORBIDDEN',
+          message: 'Resource not accessible by personal access token',
+          path: ['repository', 'defaultBranchRef', 'target', 'statusCheckRollup', 'contexts'],
+        },
+      ],
+      { status: 'fail', blocking: true, fix: expect.stringContaining('SSO') as string },
+      null,
+      false,
+    ],
+  ])('classifies %s with the doctor query', async (_case, errors, expected, failure, team) => {
+    const fetcher = githubFixtureFetch('graphql', () => errorsResponse(errors));
+    expect(await githubCheckFor(fetcher)).toEqual({ id: 'github.credentials', ...expected });
+    const query = sentProbeQuery(fetcher);
+    const classified = graphqlFailure(errors, query, new Headers(), 0);
+    if (failure === null) {
+      expect(classified).toBeNull();
+      expect(checkAccessDenied(errors)).toBe(true);
+    } else expect(classified).toMatchObject(failure);
+    expect(errors.some((error) => teamScopeDenied(error, query))).toBe(team);
   });
 });
 

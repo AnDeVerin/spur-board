@@ -5,21 +5,12 @@ import type { InboundEvent, InboundSink } from '@spur-board/contracts';
 import type { ApiConfig } from './api.ts';
 import { normalizeInteraction, normalizeMessage, type BotIdentity } from './normalize.ts';
 import type { SlackChannels } from './deliver.ts';
+import { fieldsOf, textOf } from './wire.ts';
 
 interface Envelope {
   type?: unknown;
   body?: unknown;
   ack?: (response?: unknown) => Promise<void>;
-}
-
-function object(value: unknown): Record<string, unknown> | null {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null;
-}
-
-function value(value: unknown): string | undefined {
-  return typeof value === 'string' && value.length > 0 ? value : undefined;
 }
 
 async function rootFor(client: WebClient, channel: string, threadTs: string): Promise<unknown> {
@@ -64,14 +55,14 @@ export function createSocket(
 
   async function handle(envelope: Envelope): Promise<void> {
     if (stopping || sink === undefined) return;
-    const type = value(envelope.type);
-    const body = object(envelope.body);
+    const type = textOf(envelope.type);
+    const body = fieldsOf(envelope.body);
     if (type === undefined || body === null) return;
     let events: InboundEvent[] = [];
     if (type === 'events_api') {
-      const event = object(body.event);
-      const eventType = value(event?.type);
-      const channel = value(event?.channel);
+      const event = fieldsOf(body.event);
+      const eventType = textOf(event?.type);
+      const channel = textOf(event?.channel);
       if (
         event !== null &&
         channel !== undefined &&
@@ -79,13 +70,13 @@ export function createSocket(
       ) {
         const bot = await botIdentity();
         const message = eventType === 'app_mention' ? { ...event, type: 'message' } : event;
-        const nested = object(message.message);
-        const previous = object(message.previous_message);
+        const nested = fieldsOf(message.message);
+        const previous = fieldsOf(message.previous_message);
         const threadTs =
-          value(message.thread_ts) ?? value(nested?.thread_ts) ?? value(previous?.thread_ts);
-        const messageTs = value(message.ts) ?? value(nested?.ts);
+          textOf(message.thread_ts) ?? textOf(nested?.thread_ts) ?? textOf(previous?.thread_ts);
+        const messageTs = textOf(message.ts) ?? textOf(nested?.ts);
         const deletedRoot =
-          message.subtype === 'message_deleted' && threadTs === value(message.deleted_ts);
+          message.subtype === 'message_deleted' && threadTs === textOf(message.deleted_ts);
         const root =
           threadTs === undefined || threadTs === messageTs || deletedRoot
             ? message
@@ -97,10 +88,10 @@ export function createSocket(
         });
       }
     } else if (type === 'interactive' || type === 'block_actions') {
-      const actionMessage = object(body.message);
-      const channel = value(object(body.channel)?.id);
-      const ts = value(actionMessage?.ts);
-      const threadTs = value(actionMessage?.thread_ts) ?? ts;
+      const actionMessage = fieldsOf(body.message);
+      const channel = textOf(fieldsOf(body.channel)?.id);
+      const ts = textOf(actionMessage?.ts);
+      const threadTs = textOf(actionMessage?.thread_ts) ?? ts;
       const root =
         channel !== undefined && threadTs !== undefined && threadTs !== ts
           ? await rootFor(api, channel, threadTs)

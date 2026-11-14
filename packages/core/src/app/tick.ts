@@ -1,6 +1,7 @@
 import { scanTransaction } from './secrets.ts';
 import { prSourceId, type Config } from '@spur-board/contracts';
 import type { Store } from '../store/store.ts';
+import type { WarnSkipped } from '../store/json.ts';
 import { archiveTask } from './archive.ts';
 import { dispatchJournaled } from './dispatch.ts';
 import { reconcileItems } from './fromYou.ts';
@@ -13,6 +14,8 @@ export async function tickBoard(deps: {
   config: Config;
   clock: { now(): number };
   completeSince: ReadonlyMap<string, string>;
+  /** Reports a malformed row the tick skipped; the observation core's `warnSkipped`. */
+  warnSkipped?: WarnSkipped;
 }): Promise<void> {
   const { store, config, clock, completeSince } = deps;
   const now = clock.now();
@@ -62,6 +65,6 @@ export async function tickBoard(deps: {
     }
     await dispatchJournaled(trx, { config, at: new Date(now), complete: completeSince });
     await remindStuckTurns(trx, config, new Date(now));
-    await reconcileItems(trx, config, now, completeSince.has('spur'));
+    await reconcileItems(trx, config, now, completeSince.has('spur'), deps.warnSkipped);
   });
 }

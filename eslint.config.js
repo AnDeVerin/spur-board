@@ -199,7 +199,8 @@ const importTypeBan = {
   selector: 'TSImportType',
   message: 'Use a static import so the boundary lint can check it.',
 };
-// Adapter folders parse responses with zod wire schemas, never with hand-written walkers.
+// Adapter folders, daemon sources and the Slack gateway parse responses with zod wire schemas,
+// never with hand-written walkers.
 const wireWalkerMessage = 'Parse responses with a zod wire schema (writing-adapters).';
 const wireWalkerNames = '/^(record|list|string|array|object|number|connectionNodes)$/';
 const wireWalkerBans = [
@@ -343,7 +344,13 @@ export default defineConfig(
     files: ['packages/gateway-slack/src/**/*.ts'],
     ignores: ['packages/gateway-slack/src/testing.ts'],
     rules: {
-      'no-restricted-syntax': ['error', sqliteImportBan, sqliteTypeImportBan, ...wallTimeBans],
+      'no-restricted-syntax': [
+        'error',
+        sqliteImportBan,
+        sqliteTypeImportBan,
+        ...wallTimeBans,
+        ...wireWalkerBans,
+      ],
     },
   },
   {
@@ -351,6 +358,13 @@ export default defineConfig(
     files: ['packages/core/src/**/*.ts', 'packages/daemon/src/**/*.ts'],
     ignores: ['packages/core/src/app/board-utils.ts'],
     rules: { 'no-restricted-syntax': ['error', journalInsertBan] },
+  },
+  {
+    // Daemon sources parse responses with zod, so this restates the journal ban and adds the
+    // wire walker bans; the logger's redaction walks arbitrary log values and keeps only the first.
+    files: ['packages/daemon/src/**/*.ts'],
+    ignores: ['packages/daemon/src/logger.ts'],
+    rules: { 'no-restricted-syntax': ['error', journalInsertBan, ...wireWalkerBans] },
   },
   {
     // Restates the journal ban and adds the gateway import()/import-type bans for core source.

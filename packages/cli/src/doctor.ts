@@ -12,21 +12,21 @@ import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { parseEnv } from 'node:util';
 import {
   actorIdSchema,
+  apiBaseUrl,
   configSchema,
+  remoteDoctorReportSchema,
   requiredSecretKeys,
   successEnvelopeSchema,
   type Config,
+  type DoctorCheck as DaemonCheck,
 } from '@spur-board/contracts';
 import YAML from 'yaml';
 import { z } from 'zod';
 import { configFile, dataDirectory, resolveDaemonAddress } from './config.ts';
 import { bindLoopback, checkHttpPort } from './port.ts';
+import { escapeTerminalControls } from './terminal.ts';
 
-export interface DoctorCheck {
-  id: string;
-  status: 'pass' | 'fail' | 'warning';
-  blocking: boolean;
-  fix: string | null;
+export interface DoctorCheck extends DaemonCheck {
   present?: string[];
 }
 
@@ -288,49 +288,38 @@ const remoteSlackIds = [
   'slack.feed_member',
   'slack.command',
 ] as const;
-const remoteIds = [...remoteBaseIds, ...remoteSlackIds, 'slack.configured'] as const;
-
 function remoteIdSet(slackConfigured: boolean): string[] {
   return [...remoteBaseIds, ...(slackConfigured ? remoteSlackIds : ['slack.configured'])];
 }
 
-function remoteChecks(value: unknown): { version: string; checks: DoctorCheck[] } | null {
-  if (!value || typeof value !== 'object' || !('version' in value) || !('checks' in value))
-    return null;
-  if (typeof value.version !== 'string' || !Array.isArray(value.checks)) return null;
-  const checks: DoctorCheck[] = [];
-  for (const entry of value.checks as unknown[]) {
-    if (
-      entry === null ||
-      typeof entry !== 'object' ||
-      !('id' in entry) ||
-      !('status' in entry) ||
-      !('blocking' in entry) ||
-      !('fix' in entry) ||
-      typeof entry.id !== 'string' ||
-      !remoteIds.some((id) => id === entry.id) ||
-      typeof entry.status !== 'string' ||
-      !['pass', 'fail', 'warning'].includes(entry.status) ||
-      typeof entry.blocking !== 'boolean' ||
-      (entry.fix !== null && typeof entry.fix !== 'string')
-    )
-      return null;
-    checks.push({
-      id: entry.id,
-      status: entry.status as DoctorCheck['status'],
-      blocking: entry.blocking,
-      fix: entry.fix,
-    });
-  }
-  const ids = new Set(checks.map((entry) => entry.id));
-  if (
-    ![true, false].some((slackConfigured) => {
-      const expected = remoteIdSet(slackConfigured);
-      return checks.length === expected.length && expected.every((id) => ids.has(id));
-    })
-  )
-    return null;
-  return { version: value.version, checks };
+const unreportedFix =
+  'The daemon did not report this check. Restart the user service so the daemon runs the installed version, then rerun board doctor.';
+
+/**
+ * The daemon's checks to show: any id it sends, except one the CLI checks itself or sent twice,
+ * plus a warning for each check this version expects but the daemon left out.
+ */
+function remoteMerge(
+  remote: readonly DoctorCheck[],
+  localIds: ReadonlySet<string>,
+  slackConfigured: boolean,
+): DoctorCheck[] {
+  const reported = new Set(remote.map((check) => check.id));
+  const slack = reported.has('slack.configured')
+    ? false
+    : remoteSlackIds.some((id) => reported.has(id)) || slackConfigured;
+  const seen = new Set(localIds);
+  const shown = remote.filter((check) => {
+    if (seen.has(check.id)) return false;
+    seen.add(check.id);
+    return true;
+  });
+  return [
+    ...shown,
+    ...remoteIdSet(slack)
+      .filter((id) => id !== 'secrets' && !reported.has(id))
+      .map((id) => warning(id, unreportedFix)),
+  ];
 }
 
 function safeIds(values: readonly string[]): string[] {
@@ -425,7 +414,7 @@ async function spurProjectPaths(
   ports: DoctorPorts,
 ): Promise<Map<string, string> | null> {
   try {
-    const response = await ports.fetcher(new URL('projects', `${baseUrl.replace(/\/$/, '')}/`), {
+    const response = await ports.fetcher(new URL('projects', apiBaseUrl(baseUrl)), {
       signal: AbortSignal.timeout(5_000),
     });
     if (!response.ok) return null;
@@ -736,7 +725,10 @@ export async function runDoctor(
     const response = await ports.fetcher(new URL('/v1/doctor', address), {
       signal: AbortSignal.timeout(8_000),
     });
-    if (response.ok) remote = remoteChecks(await response.json());
+    if (response.ok) {
+      const parsed = remoteDoctorReportSchema.safeParse(await response.json());
+      if (parsed.success) remote = parsed.data;
+    }
   } catch {
     // A stopped daemon is itself one actionable failure; local checks remain visible.
   }
@@ -755,9 +747,12 @@ export async function runDoctor(
         }
       : secrets,
   );
+  const slackConfigured = Boolean(
+    config.slack.channels.feed || config.slack.channels.orchestrators,
+  );
   if (remote === null) {
     checks.push(
-      ...remoteIdSet(Boolean(config.slack.channels.feed || config.slack.channels.orchestrators))
+      ...remoteIdSet(slackConfigured)
         .filter((id) => id !== 'secrets')
         .map((id) =>
           warning(
@@ -769,7 +764,8 @@ export async function runDoctor(
         ),
     );
   } else {
-    checks.push(...remote.checks.filter((check) => check.id !== 'secrets'));
+    const localIds = new Set([...checks.map((check) => check.id), 'versions']);
+    checks.push(...remoteMerge(remote.checks, localIds, slackConfigured));
   }
   const availableVersions = [
     ...(currentBoard.exitCode === 0 ? [currentBoard.stdout.trim()] : []),
@@ -793,7 +789,8 @@ export function renderDoctor(checks: readonly DoctorCheck[], json: boolean): str
     .map((check) => {
       const present =
         check.present === undefined ? '' : ` (present: ${check.present.join(', ') || 'none'})`;
-      return `${check.status.toUpperCase()} ${check.id}${present}${check.fix === null ? '' : `: ${check.fix}`}`;
+      const fix = check.fix === null ? '' : `: ${check.fix}`;
+      return escapeTerminalControls(`${check.status.toUpperCase()} ${check.id}${present}${fix}`);
     })
     .join('\n');
 }

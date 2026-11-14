@@ -140,6 +140,8 @@ Check `GITHUB_TOKEN` and repository access. This check also probes check-run con
 requested review teams. A `FORBIDDEN` result for a `CheckRun` or `INSUFFICIENT_SCOPES` for
 a requested review team needs the GitHub recovery below. A repository without check contexts can
 pass the check-data probe.
+When GitHub rate limits the token, the check is a non-blocking warning because access was not
+checked; rerun `board doctor` after the limit resets.
 
 ### link.rules
 

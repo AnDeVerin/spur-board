@@ -18,6 +18,7 @@ import {
   SESSION_END_REASONS,
   SESSION_LINK_ROLES,
   TASK_HOLDS,
+  TOKEN_STATUSES,
 } from '../src/index.ts';
 
 it('lists the built-in columns from To Do to Done, with ids and display names', () => {
@@ -101,6 +102,10 @@ it('lists session end reasons', () => {
 
 it('lists actors', () => {
   expect(ACTORS).toEqual(['operator', 'agent', 'system']);
+});
+
+it('lists token statuses', () => {
+  expect(TOKEN_STATUSES).toEqual(['pending', 'approved', 'denied', 'expired', 'revoked']);
 });
 
 it('lists dispatcher modes', () => {
