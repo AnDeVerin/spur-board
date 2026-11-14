@@ -20,6 +20,7 @@ import { blindSources, readInput } from './dispatch.ts';
 import { notificationAddressedTo } from './doorbells.ts';
 import { canonicalKey } from './membership.ts';
 import type { Query } from './queries.ts';
+import { taskTurns } from './task-turns.ts';
 import { turnHanded, turnNotification } from './turns.ts';
 
 type Task = Selectable<TaskTable>;
@@ -273,6 +274,7 @@ export function createTaskQueries(deps: {
       ]);
       return {
         task: taskView(task),
+        ...(await taskTurns(trx, task, input.detail === true)),
         links: links.map(linkView),
         blocks: blocks.map((block) => blockView(block, task)),
         comments: comments.map((comment) => commentView(comment, task)),

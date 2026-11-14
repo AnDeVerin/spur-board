@@ -15,7 +15,7 @@ const STEP_MS = 15_000;
  * To Do, Dev, Review by the stand-qa conductor, Ready to Merge by the operator, Done. `review`
  * sets Review's cycle limit and course check, and `spurProjects` replaces the stand project's.
  */
-const flow = (
+export const flow = (
   review: { cycleLimit?: number; courseCheck?: number } = {},
   spurProjects?: NonNullable<NonNullable<Scenario['config']>['stand']>['spurProjects'],
 ) => ({
@@ -77,7 +77,7 @@ const giveBack = (board: Board, turn: string) =>
   );
 
 /** Opens issue 1 and links the worker role session: Dev with the turn `dev: no_pr`. */
-async function begin(board: Board, fakes: ScenarioFakes): Promise<Turn> {
+export async function begin(board: Board, fakes: ScenarioFakes): Promise<Turn> {
   await openIssues(fakes, 1);
   await board.poll();
   await board.call('operator', 'link.add', {
@@ -131,7 +131,7 @@ async function operatorItem(board: Board, reason: string): Promise<string> {
   return key;
 }
 
-function entities(board: Board, extra: ScenarioEntities = {}): ScenarioEntities {
+export function entities(board: Board, extra: ScenarioEntities = {}): ScenarioEntities {
   return {
     tasks: { flow: ISSUE },
     prs: { flow: PR },

@@ -98,9 +98,10 @@ async function voidSubmits(trx: Trx, taskId: number, to: ColumnId, at: Date): Pr
 
 /**
  * Moves a task left to `to` as a new visit: bumps `column_epoch` and `left_moves`, voids the
- * submits of `to` and right of it, closes its turns and journals `task_moved`. In `on` mode a
- * counted return that reaches the column's cycle limit raises its cycle-limit block; otherwise
- * one that reaches its course check raises the course check. Either holds the task, and
+ * submits of `to` and right of it, closes its turns (`returned` for a `task.return` of `turn`,
+ * else `moved`) and journals `task_moved`. In `on` mode a counted return that reaches the
+ * column's cycle limit raises its cycle-limit block; otherwise one that reaches its course check
+ * raises the course check. Either holds the task, and
  * `limitReached` tells the dispatcher to stop the cascade.
  */
 export async function moveLeft(
@@ -130,7 +131,7 @@ export async function moveLeft(
     .returningAll()
     .executeTakeFirstOrThrow();
   await voidSubmits(trx, task.id, to, at);
-  await closeTurns(trx, { taskId: task.id, reason: 'moved', at });
+  await closeTurns(trx, { taskId: task.id, reason: turn === undefined ? 'moved' : 'returned', at });
   await emit(
     trx,
     'task_moved',
@@ -172,8 +173,9 @@ export async function moveLeft(
 /**
  * Applies a changed dispatcher mode of each project, as stored in `meta`. A first run only stores
  * the mode. A switch to `on` copies each task's shadow column into its column as a new visit; a
- * switch to `shadow` closes the project's unclosed turns. Either switch then clears the shadow
- * column and journals `dispatcher_mode_changed`.
+ * switch to `shadow` closes the project's unclosed turns. Turns either switch closes record
+ * `mode_changed`. Either switch then clears the shadow column and journals
+ * `dispatcher_mode_changed`.
  */
 async function syncModes(trx: Trx, config: Config, at: Date): Promise<void> {
   for (const project of config.projects) {
@@ -213,7 +215,7 @@ async function syncModes(trx: Trx, config: Config, at: Date): Promise<void> {
           })
           .where('id', '=', task.id)
           .execute();
-        await closeTurns(trx, { taskId: task.id, reason: 'moved', at });
+        await closeTurns(trx, { taskId: task.id, reason: 'mode_changed', at });
         await emit(trx, 'task_moved', task.project, task.id, at.toISOString(), {
           from: task.column,
           to: task.shadow_column,
@@ -232,7 +234,7 @@ async function syncModes(trx: Trx, config: Config, at: Date): Promise<void> {
         .orderBy('turn.task_id')
         .execute();
       for (const { task_id } of open)
-        await closeTurns(trx, { taskId: task_id, reason: 'moved', at });
+        await closeTurns(trx, { taskId: task_id, reason: 'mode_changed', at });
     }
     await trx
       .updateTable('task')

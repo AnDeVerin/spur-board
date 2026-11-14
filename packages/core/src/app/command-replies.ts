@@ -11,6 +11,13 @@ function quote(text: string): RichText[number] {
 
 type TaskGet = z.output<Extract<(typeof OPERATIONS)[number], { id: 'task.get' }>['output']>;
 
+/** The open turn: who executes it, when it opened and whether it was acked. */
+function turnLine(turn: Omit<NonNullable<TaskGet['turn']>, 'closed'> | null): RichText[number] {
+  if (turn === null) return line('No open turn.');
+  const ack = turn.taken === null ? 'not acked' : `acked by ${turn.taken.by} at ${turn.taken.at}`;
+  return line(`Turn ${turn.id} (${turn.column}, ${turn.addressee}), opened ${turn.at}: ${ack}.`);
+}
+
 /** Failed and waiting conditions lead a column's line; unchecked and met follow. */
 const STATE_ORDER = { failed: 0, waiting: 0, unchecked: 1, met: 2 } satisfies Record<
   GateConditionState,
@@ -35,7 +42,6 @@ function whyLines(
         : '';
   const here = why.gates.find((gate) => gate.column === why.column);
   const passing = why.gates.filter((gate) => gate.enabled && gate.ok).map((gate) => gate.column);
-  const turn = why.turn;
   return [
     line(`Task ${key} is in ${why.column}${mode}.`),
     ...(why.holds.length === 0 ? [] : [line(`Held: ${why.holds.join(', ')}.`)]),
@@ -65,11 +71,7 @@ function whyLines(
     ...(why.checksWaivedBy === null
       ? []
       : [line(`Dev checks are waived by ${why.checksWaivedBy}.`)]),
-    line(
-      turn === null
-        ? 'No open turn.'
-        : `Turn ${turn.id} (${turn.column}, ${turn.addressee}): ${turn.taken === null ? 'not taken' : `taken by ${turn.taken.by}`}.`,
-    ),
+    turnLine(why.turn),
     ...blocks
       .filter((block) => block.state === 'open')
       .flatMap((block) => [line(`Open block ${block.id} (${block.type}):`), quote(block.reason)]),
@@ -140,6 +142,7 @@ export function commandReply(
       cliHint: `board ${operation.cli.command} ${request.task}`,
       body: [
         line(`Task ${result.task.key}: ${result.task.column} (${result.task.membership})`),
+        turnLine(result.turn),
         ...result.blocks.flatMap((block) => [
           line(`Block ${block.id} (${block.state}, ${block.type}):`),
           quote(block.reason),

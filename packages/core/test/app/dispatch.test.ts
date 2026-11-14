@@ -356,6 +356,12 @@ function board(options: Options = {}) {
         `key-${String(++keys)}`,
       );
     },
+    get: (detail?: boolean) =>
+      query(
+        registry['task.get'],
+        { task: KEY, ...(detail === undefined ? {} : { detail }) },
+        'operator',
+      ),
     why: async () => {
       const result = await query(registry['task.get'], { task: KEY, why: true }, 'operator');
       if (result.why === undefined) throw new Error('task.get returned no why');
@@ -1303,6 +1309,74 @@ describe('turns', () => {
       await ctx.store.db.selectFrom('operator_item').select(['item_key', 'cleared_at']).execute(),
     ).toEqual([{ item_key: 'turn:1', cleared_at: expect.any(String) as unknown }]);
   });
+  it('task.get shows the unclosed turn, unacked then acked', async () => {
+    const ctx = await started();
+    const opened = ctx.at();
+    const unacked = await ctx.get();
+    expect(unacked.turn).toEqual({
+      id: 'T1',
+      column: 'dev',
+      addressee: 'worker',
+      at: opened,
+      taken: null,
+      closed: null,
+    });
+    expect(unacked).not.toHaveProperty('turns');
+
+    await ctx.ack(WORKER, 'T1');
+    expect((await ctx.get()).turn).toMatchObject({
+      id: 'T1',
+      at: opened,
+      taken: { by: WORKER, at: ctx.at() },
+      closed: null,
+    });
+
+    await ctx.pr();
+    await ctx.submit(WORKER, 'T1', A);
+    await ctx.archive();
+    expect((await ctx.get()).turn).toBeNull();
+  });
+
+  it('task.get detail lists closed turns with their outcome, newest first, at most five', async () => {
+    const ctx = await inReview();
+    await ctx.ack(REV, 'T2');
+    await ctx.ret(REV, 'T2');
+    const returned = await ctx.get(true);
+    expect(returned.turns?.map((turn) => [turn.id, turn.closed?.outcome])).toEqual([
+      ['T2', 'returned'],
+      ['T1', 'submitted'],
+    ]);
+    expect(returned.turn).toMatchObject({ column: 'dev', closed: null });
+    expect(returned.turns?.map((turn) => turn.id)).not.toContain(returned.turn?.id);
+
+    const fresh = board();
+    await fresh.ticket();
+    const { id } = await fresh.task();
+    const at = fresh.at();
+    await fresh.store.db
+      .insertInto('turn')
+      .values(
+        Array.from({ length: 7 }, (_, index) => ({
+          task_id: id,
+          column: 'dev' as const,
+          epoch: 0,
+          seq: index + 1,
+          role: 'worker' as const,
+          reason: 'dev: no_pr',
+          handed: '[]',
+          acked_by: null,
+          acked_at: null,
+          closed_at: at,
+          closed_reason: 'moved' as const,
+          created_at: at,
+          head_sha: null,
+        })),
+      )
+      .execute();
+    const detail = await fresh.get(true);
+    expect(detail.turn).toBeNull();
+    expect(detail.turns?.map((turn) => turn.id)).toEqual(['T7', 'T6', 'T5', 'T4', 'T3']);
+  });
 });
 
 describe('blindness', () => {
@@ -1809,6 +1883,40 @@ describe('mode switch', () => {
     );
   });
 
+  it('closes a turn left open in shadow mode as mode_changed on a switch to on', async () => {
+    const ctx = await started({ mode: 'shadow' });
+    await ctx.pr();
+    await ctx.submit(WORKER, KEY, A);
+    const task = await ctx.task();
+    expect(task).toMatchObject({ column: 'todo', shadow_column: 'review' });
+    // Shadow mode opens no turns; this row stands for one an older version left open.
+    await ctx.store.db
+      .insertInto('turn')
+      .values({
+        task_id: task.id,
+        column: 'todo',
+        epoch: 0,
+        seq: 1,
+        role: 'operator',
+        reason: 'todo: left open',
+        handed: '[]',
+        acked_by: null,
+        acked_at: null,
+        closed_at: null,
+        closed_reason: null,
+        created_at: ctx.at(),
+        head_sha: null,
+      })
+      .execute();
+
+    ctx.restart({ mode: 'on' });
+    await ctx.tick();
+    expect(await ctx.task()).toMatchObject({ column: 'review', shadow_column: null });
+    expect(await ctx.turns()).toEqual([
+      expect.objectContaining({ id: 1, closed_reason: 'mode_changed' }),
+    ]);
+  });
+
   it('keeps feedback a shadow submit handled after a switch to on', async () => {
     const ctx = await started({ mode: 'shadow' });
     await ctx.pr({
@@ -1907,7 +2015,7 @@ describe('mode switch', () => {
     expect(await ctx.openTurn()).toBeNull();
     expect(
       (await ctx.turns()).find((row) => `T${String(row.id)}` === turn?.id)?.closed_reason,
-    ).toBe('moved');
+    ).toBe('mode_changed');
     expect(await unackedTurnBells()).toEqual([]);
     expect((await ctx.events('dispatcher_mode_changed')).map((event) => event.payload)).toEqual([
       { from: 'shadow', to: 'on' },
