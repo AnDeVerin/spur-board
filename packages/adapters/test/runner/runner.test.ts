@@ -2035,6 +2035,58 @@ describe('reported cost before cancellation', () => {
     if (entry === undefined) throw new Error('Missing source');
     return entry;
   }
+  it('preserves cancellation cost queued while a state-only report is held, exactly once', async () => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(discovery(7))
+      .mockImplementation(held);
+    const entry = source(fetcher);
+    const read = entry.adapter.poll.bind(entry.adapter);
+    let pollSignal: AbortSignal | undefined;
+    let rejected: unknown;
+    const adapter = {
+      ...entry.adapter,
+      intervalMs: 1,
+      poll(ctx: PollContext) {
+        pollSignal = ctx.signal;
+        return read(ctx).catch((error: unknown) => {
+          rejected = error;
+          throw error;
+        });
+      },
+    };
+    const core = createFakeCore({ context: () => context({ prs: [pr] }) });
+    core.holdReports();
+    const runner = startRunner({
+      entries: [{ ...entry, adapter }],
+      core,
+      config: { ...configured, thresholds: { ...configured.thresholds, staleMultiplier: 1 } },
+      now: () => Date.now(),
+    });
+    runners.push(runner);
+    await flush();
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    // The hard stale deadline reports state while the second GraphQL request is still held.
+    await vi.advanceTimersByTimeAsync(4);
+    expect(core.reports).toHaveLength(1);
+    expect(core.reports[0]?.usage).toBeUndefined();
+    const stopped = runner.stop();
+    core.releaseReport();
+    await flush();
+    expect(core.reports.map((report) => report.usage)).toEqual([undefined, { points: 7 }]);
+    core.releaseReport();
+    await stopped;
+    expect(core.observed).toEqual([]);
+    expect(core.maxReportsInFlight).toBe(1);
+    expect(pollSignal?.aborted).toBe(true);
+    expect(rejected).toBeInstanceOf(Error);
+    expect(rejected).toBe(pollSignal?.reason);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    await runner.stop();
+    expect(core.reports.flatMap((report) => (report.usage ? [report.usage] : []))).toEqual([
+      { points: 7 },
+    ]);
+  });
   it('persists already reported cost before stopping a regular poll, with no full batch', async () => {
     const fetcher = vi
       .fn<typeof fetch>()

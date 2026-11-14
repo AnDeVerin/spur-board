@@ -214,10 +214,8 @@ function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: nu
       const points = pendingPoints;
       try {
         await core.reportSourceState(source, next, points === undefined ? undefined : { points });
-        pendingPoints =
-          points === undefined || pendingPoints === points
-            ? undefined
-            : (pendingPoints ?? 0) - points;
+        if (points !== undefined)
+          pendingPoints = pendingPoints === points ? undefined : (pendingPoints ?? 0) - points;
         lastReported = json;
       } catch (error) {
         // Not accepted: the next outcome reports again.
