@@ -42,6 +42,16 @@ function revokeAction(itemId: number, name: string, label: string): Action {
   };
 }
 
+/** The card of token `row` approved at `approvedAt`, its name and folder capped. */
+function cardOf(row: Row<'operator_token'>, approvedAt: string) {
+  return {
+    name: capPoints(row.name, CARD_NAME),
+    folder: capPoints(row.folder, CARD_FOLDER),
+    createdAt: row.requested_at,
+    approvedAt,
+  };
+}
+
 function effectiveStatus(row: Row<'operator_token'>, at: Date): OperatorTokenStatus {
   return row.status === 'pending' && row.expires_at <= at.toISOString() ? 'expired' : row.status;
 }
@@ -218,12 +228,7 @@ export async function decideTokenInTransaction(
           enqueueTokenCard(trx, {
             itemId: item.id,
             parent: lineId,
-            card: {
-              name: capPoints(row.name, CARD_NAME),
-              folder: capPoints(row.folder, CARD_FOLDER),
-              createdAt: row.requested_at,
-              approvedAt: at.toISOString(),
-            },
+            card: cardOf(row, at.toISOString()),
             actions: [revokeAction(item.id, row.name, 'Revoke')],
             at,
           })
@@ -387,13 +392,7 @@ export const tokenRevokeMutation: Mutation<'token.revoke'> = {
         await enqueueTokenCard(trx, {
           itemId: row.item_id,
           parent: card.id,
-          card: {
-            name: capPoints(row.name, CARD_NAME),
-            folder: capPoints(row.folder, CARD_FOLDER),
-            createdAt: row.requested_at,
-            approvedAt: row.decided_at,
-            revoked: { by: ctx.actor, at: ctx.at },
-          },
+          card: { ...cardOf(row, row.decided_at), revoked: { by: ctx.actor, at: ctx.at } },
           at,
         });
       }

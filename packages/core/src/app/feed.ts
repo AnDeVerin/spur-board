@@ -25,10 +25,6 @@ export function capPoints(text: string, max: number): string {
   return points.length <= max ? text : `${points.slice(0, max - 1).join('')}…`;
 }
 
-function capSummary(text: string): string {
-  return capPoints(text, MAX_SUMMARY);
-}
-
 type Trx = Kysely<Tables>;
 
 /** Raise one item generation. A repeated raise of an active key is idempotent. */
@@ -80,7 +76,7 @@ export async function clearItem(
     lineId: item.line_outbox_id,
     key: task?.key ?? TASKLESS_FEED_KEY,
     taskId: item.task_id,
-    summary: capSummary(item.text),
+    summary: capPoints(item.text, MAX_SUMMARY),
     url: item.url,
     by: actor,
     at,
