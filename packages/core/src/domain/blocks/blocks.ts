@@ -54,6 +54,7 @@ function orchestratorColumn(role: `orchestrator:${ColumnId}`): ColumnId {
 
 /** A new role fails typecheck here; a new kind fails at each caller's `assertNever`. */
 export function parseAddressee(role: AddresseeRole): ParsedAddressee {
+  // eslint-disable-next-line @typescript-eslint/switch-exhaustiveness-check -- every orchestrator:<column> role takes the default
   switch (role) {
     case 'operator':
     case 'curator':

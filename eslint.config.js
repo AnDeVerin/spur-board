@@ -3,6 +3,7 @@ import vitest from '@vitest/eslint-plugin';
 import { dirname, resolve, sep } from 'node:path';
 import { defineConfig } from 'eslint/config';
 import tseslint from 'typescript-eslint';
+import maxLinesBaseline from './eslint/max-lines-baseline.ts';
 import noProjectLiteralCompare from './eslint/no-project-literal-compare.ts';
 import skipNeedsFlakyIssue from './eslint/skip-needs-flaky-issue.ts';
 
@@ -92,6 +93,34 @@ const standBoundaryPatterns = [
     message: 'Production packages do not import the stand.',
   },
 ];
+// Core reaches a messenger only through the Gateway port in contracts; the daemon wires the gateway.
+const gatewayMessage =
+  'Core does not import a gateway package. Use the Gateway port from @spur-board/contracts; the daemon wires the gateway in.';
+const gatewayBoundaryPatterns = ['^@spur-board/gateway-', '^([.][.]/)+(packages/)?gateway-'].map(
+  (regex) => ({ regex, caseSensitive: true, message: gatewayMessage }),
+);
+// no-restricted-imports checks only static imports, so `import()` and import types need these.
+// An `import()` whose source is not a string literal (a template or a variable) cannot be checked.
+const gatewaySource = '/^(@spur-board[/]gateway-|([.][.][/])+(packages[/])?gateway-)/';
+const gatewayImportBans = [
+  { selector: `ImportExpression[source.value=${gatewaySource}]`, message: gatewayMessage },
+  { selector: `TSImportType[source.value=${gatewaySource}]`, message: gatewayMessage },
+  {
+    selector: "ImportExpression[source.type!='Literal']",
+    message: 'Pass import() a string literal so the boundary lint can check it.',
+  },
+];
+// Domain code is pure: it takes data as arguments and leaves queries and IO to app/.
+const domainMessage =
+  'core/src/domain has no IO: no store/, app/, api/, Kysely or Node IO modules. Take the data as an argument.';
+const domainBoundaryPatterns = [
+  '^[.]{1,2}/(.*/)?(app|store|api)(/|$)',
+  '^([.][.]/)+index([.]ts)?$',
+  '^@spur-board/core(/|$)',
+  '^kysely(/|$)',
+  '^better-sqlite3(/|$)',
+  '^(node:)?(fs|net|http|https|http2|child_process|dgram|dns|tls|worker_threads|cluster|readline|sqlite)(/|$)',
+].map((regex) => ({ regex, caseSensitive: true, message: domainMessage }));
 const globalImportOptions = {
   paths: sqliteImportOptions.paths,
   patterns: [...sqliteImportOptions.patterns, ...standBoundaryPatterns],
@@ -217,9 +246,15 @@ export default defineConfig(
       '@typescript-eslint/no-floating-promises': 'error',
       '@typescript-eslint/no-misused-promises': 'error',
       '@typescript-eslint/no-unnecessary-condition': 'error',
+      '@typescript-eslint/switch-exhaustiveness-check': 'error',
     },
   },
   { files: ['**/*.js'], extends: [tseslint.configs.disableTypeChecked] },
+  {
+    // Counted lines; files already over the limit are listed in the baseline.
+    ignores: [...maxLinesBaseline],
+    rules: { 'max-lines': ['error', { max: 500, skipBlankLines: true, skipComments: true }] },
+  },
   {
     plugins: { '@eslint-community/eslint-comments': comments },
     rules: { '@eslint-community/eslint-comments/require-description': 'error' },
@@ -263,6 +298,32 @@ export default defineConfig(
     },
   },
   {
+    // Core tests stay outside: they use the gateway testkit's fake.
+    files: ['packages/core/src/**/*.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        { patterns: [...standBoundaryPatterns, ...slackFakePatterns, ...gatewayBoundaryPatterns] },
+      ],
+    },
+  },
+  {
+    files: ['packages/core/src/domain/**/*.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            ...standBoundaryPatterns,
+            ...slackFakePatterns,
+            ...gatewayBoundaryPatterns,
+            ...domainBoundaryPatterns,
+          ],
+        },
+      ],
+    },
+  },
+  {
     // Same-rule options replace earlier ones, so this restates the global import options.
     files: ['packages/contracts/src/**/*.ts', 'packages/gateway-slack/src/**/*.ts'],
     ignores: ['packages/gateway-slack/src/testing.ts'],
@@ -290,6 +351,22 @@ export default defineConfig(
     files: ['packages/core/src/**/*.ts', 'packages/daemon/src/**/*.ts'],
     ignores: ['packages/core/src/app/board-utils.ts'],
     rules: { 'no-restricted-syntax': ['error', journalInsertBan] },
+  },
+  {
+    // Restates the journal ban and adds the gateway import()/import-type bans for core source.
+    files: ['packages/core/src/**/*.ts'],
+    ignores: ['packages/core/src/app/board-utils.ts'],
+    rules: { 'no-restricted-syntax': ['error', journalInsertBan, ...gatewayImportBans] },
+  },
+  {
+    // board-utils.ts may write journal events, but not import a gateway.
+    files: ['packages/core/src/app/board-utils.ts'],
+    rules: { 'no-restricted-syntax': ['error', ...gatewayImportBans] },
+  },
+  {
+    // Restates the journal ban; `import()` would get around the domain import ban.
+    files: ['packages/core/src/domain/**/*.ts'],
+    rules: { 'no-restricted-syntax': ['error', journalInsertBan, dynamicImportBan, importTypeBan] },
   },
   {
     // Same-rule options replace earlier ones, so test files restate the vi.mock ban.
