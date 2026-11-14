@@ -293,16 +293,19 @@ export async function reconcileItems(
   for (const task of tasks) {
     const state = taskPrs[String(task.id)];
     if (state === undefined || state.hasOpenPr || state.hasMergedPr) continue;
-    // A PR closed before the task's newest merge was superseded by it.
+    // A PR closed before the task's newest merge was superseded by it. Facts stored by an earlier
+    // version carry no close time; their last change stands in for it.
     const mergedSince = Date.parse(mergedAt.get(task.id) ?? '');
     const closed = prs
       .filter((pr) => pr.task_id === task.id && pr.state === 'closed')
-      .map((pr) => ({
-        ...pr,
-        ref: `${pr.repo ?? ''}#${String(pr.number)}`,
-        closedAt:
-          pr.detail === null ? NaN : Date.parse(parseJson(prFactsSchema, pr.detail).updatedAt),
-      }))
+      .map((pr) => {
+        const facts = pr.detail === null ? null : parseJson(prFactsSchema, pr.detail);
+        return {
+          ...pr,
+          ref: `${pr.repo ?? ''}#${String(pr.number)}`,
+          closedAt: facts === null ? NaN : Date.parse(facts.closedAt ?? facts.updatedAt),
+        };
+      })
       .filter((pr) => !(pr.closedAt < mergedSince))
       .sort((left, right) => left.ref.localeCompare(right.ref));
     const first = closed[0];

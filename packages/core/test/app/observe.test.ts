@@ -2858,6 +2858,20 @@ describe('anomaly blocks', () => {
       await prs(b, [{ ...pr(7, 'closed'), updatedAt: closedAt }, merged]);
       expect(await openLedger(b)).toEqual([]);
     });
+
+    it('opens no PR-closed block for a superseded closed PR edited after the later merge', async () => {
+      const { b, ticket } = await split();
+      const closedAt = iso();
+      await prs(b, [{ ...pr(7, 'closed'), closedAt }]);
+      now += 1_000;
+      const merged = { ...pr(8, 'merged'), updatedAt: iso(), mergedAt: iso() };
+      await prs(b, [{ ...pr(7, 'closed'), updatedAt: closedAt, closedAt }, merged]);
+      now += interval;
+      await ticket('open');
+      now += 1_000;
+      await prs(b, [{ ...pr(7, 'closed'), updatedAt: iso(), closedAt }, merged]);
+      expect(await openLedger(b)).toEqual([]);
+    });
   });
 
   it('keeps a ticket-closed block open while GitHub is blind', async () => {
