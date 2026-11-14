@@ -3,8 +3,25 @@
 - Keep PR CI active for draft PRs, including edits and ready-for-review transitions; do not add
   a top-level path filter. Scope optional jobs through `changes` instead (`.github/workflows/ci.yml`,
   `scripts/ci.ts`).
-- Cancel older runs for the same PR, but let main and manual runs finish. The PR-number group
-  and `cancel-in-progress` expression enforce this (`.github/workflows/ci.yml`).
+- A code event cancels the older run for the PR; an edit never cancels and waits behind it; main
+  and manual runs finish. The PR-number group and `cancel-in-progress` enforce this
+  (`.github/workflows/ci.yml`). A push while a run is in progress leaves the new run pending until
+  the cancelled run's `always()` `ci-ok` ends (15-20 s, longer when runners queue); an edit then
+  drops it and its `ci-ok` fails with no completed code run. A retarget is an edit too. Recover by
+  pushing a new commit; edit the body only after the push run has started.
+- An edit runs only `pr-title`, `guardrails` and `ci-ok`. That `ci-ok` checks this run's title
+  and body results and the code jobs of the newest code run on the head commit, never that run's
+  `ci-ok`. A new job that does not read the title or body carries the edit guard and joins
+  `EDIT_SKIPPED`. To recheck an edit, rerun the edit run: a code run rerun replays its old
+  payload (`scripts/ci-runs.ts`, `scripts/ci-runs.test.ts`, `describe('edit runs in ci.yml',`).
+- `ci-ok` writes the test and stand wall time per Node leg to the job summary and warns when stand
+  is slower; the step never fails `ci-ok` (`scripts/ci-runs.ts`, `standTiming`).
+- CI `test` and `stand` jobs: `check:full --only test` and `--only stand` (`.github/workflows/ci.yml`).
+- CI `package-smoke` job: `pnpm package:smoke` and `pnpm upgrade:smoke` on PRs, then
+  `pnpm update:smoke`; on a PR it runs only when `classifyChanges` in `scripts/ci.ts` marks a
+  package change, and not on an edit. Pushes and dispatches smoke the candidate in `release-smoke`.
+- `.github/workflows/nightly.yml`: runs the published package's `--version`; on failure
+  `scripts/nightly.ts` opens or updates one `ci-nightly` issue.
 - Run test, stand and package-smoke jobs on Node 24 and 26; pin workflow actions to commit SHAs and give
   each job a timeout (`.github/workflows/ci.yml`).
 - Report a scheduled workflow through `scripts/nightly.ts` under its own issue title. Grant
