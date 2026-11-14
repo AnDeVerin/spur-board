@@ -758,7 +758,8 @@ it('keeps a task off Done while a second active PR is open after the first merge
   await prPoll(core, 7, 'open');
   now += 1_000;
   await prPoll(core, 7, 'merged');
-  expect(await terminalAt(store)).not.toBeNull();
+  // The ticket is still open: the merge is not the end of the task.
+  expect(await terminalAt(store)).toBeNull();
   now += 1_000;
   await prPoll(core, 8, 'open');
   expect(await prState(store, 8)).toBe('active');
@@ -771,6 +772,9 @@ it('keeps a task off Done while a second active PR is open after the first merge
   expect((await membership(store)).membership).toBe('active');
   now += 60_000;
   await prPoll(core, 8, 'merged');
+  expect(await terminalAt(store)).toBeNull();
+  now += 1_000;
+  await ticketPoll(core, true, 'closed');
   expect(await terminalAt(store)).not.toBeNull();
   now += 1_000;
   await emptyPoll(core, github);
@@ -800,6 +804,9 @@ it('keeps a task off Done while a conflict PR is open after the active PR merged
   now += 60_000;
   await prPoll(core, 8, 'closed');
   expect(await prState(store, 8)).toBe('conflict');
+  expect(await terminalAt(store)).toBeNull();
+  now += 1_000;
+  await ticketPoll(core, true, 'closed');
   expect(await terminalAt(store)).not.toBeNull();
   now += 1_000;
   await emptyPoll(core, github);

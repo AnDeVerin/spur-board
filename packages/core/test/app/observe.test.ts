@@ -2773,6 +2773,107 @@ describe('anomaly blocks', () => {
     expect((await surface(merged.b)).blocks).toEqual([]);
   });
 
+  describe('a merged PR beside a ticket seen open past the tracker interval', () => {
+    const interval = config.adapters.githubIssues.intervalMs;
+    /** A hand-added task and its ticket, observed by key as the tracker requests it. */
+    async function split() {
+      const b = await board();
+      const ref = (await b.core.context(source)).observe.tickets[0];
+      if (ref === undefined) throw new Error('Missing ticket request');
+      const ticket = (status: string) =>
+        b.core.observe(source, {
+          batch: {
+            source,
+            observedAt: iso(),
+            complete: true,
+            items: [{ kind: 'ticket', facts: { ...fact(), status, updatedAt: iso() } }],
+            entities: [{ ref, status: 'ok' }],
+          },
+          effectiveComplete: true,
+          state: { lastCompleteAt: iso(), gone: [] },
+          outcomes: [],
+        });
+      const healthItems = async () =>
+        (
+          await b.store.db
+            .selectFrom('operator_item')
+            .selectAll()
+            .where('item_key', 'like', 'health:%')
+            .execute()
+        ).map((item) => [item.item_key.split(':').at(-1), item.text, item.cleared_at]);
+      return { b, ticket, healthItems };
+    }
+
+    it('raises the worker-end item beside a merged PR once the ticket is seen open past the tracker interval', async () => {
+      const { b, ticket, healthItems } = await split();
+      await spur(b, [session('worker-1', 'working')]);
+      await prs(b, [pr(7, 'merged')]);
+      await ticket('open');
+      now += 1_000;
+      await spur(b, [{ ...sessionFact('worker-1', link, true), endedAt: iso() }]);
+      now += 1_000;
+      await prs(b, [pr(7, 'merged')]);
+      expect(await healthItems()).toEqual([]);
+
+      now += interval;
+      await ticket('open');
+      expect(await healthItems()).toEqual([
+        ['worker_completed', 'o/r#9: worker ended (completed), no PR (worker-1)', null],
+      ]);
+
+      now += 1_000;
+      await ticket('closed');
+      expect(await healthItems()).toEqual([
+        [
+          'worker_completed',
+          'o/r#9: worker ended (completed), no PR (worker-1)',
+          expect.any(String),
+        ],
+      ]);
+    });
+
+    it('opens the PR-closed block for an unmerged follow-up beside a merged PR while the ticket is seen open', async () => {
+      const { b, ticket } = await split();
+      await prs(b, [pr(7, 'merged')]);
+      now += interval;
+      await ticket('open');
+      now += 1_000;
+      await prs(b, [pr(7, 'merged'), pr(8, 'closed')]);
+      expect(await openLedger(b)).toEqual(['pr-closed']);
+      expect((await surface(b)).blocks[0]?.reason).toBe(
+        'linked pull request o/r#8 closed without merge, no open PR',
+      );
+    });
+
+    it('opens no PR-closed block for a closed PR superseded by a later merge while the ticket is seen open', async () => {
+      const { b, ticket } = await split();
+      const closedAt = iso();
+      await prs(b, [pr(7, 'closed')]);
+      now += 1_000;
+      const merged = { ...pr(8, 'merged'), updatedAt: iso(), mergedAt: iso() };
+      await prs(b, [{ ...pr(7, 'closed'), updatedAt: closedAt }, merged]);
+      now += interval;
+      await ticket('open');
+      now += 1_000;
+      await prs(b, [{ ...pr(7, 'closed'), updatedAt: closedAt }, merged]);
+      expect(await openLedger(b)).toEqual([]);
+    });
+
+    it('opens no PR-closed block for a superseded closed PR edited after the later merge', async () => {
+      const { b, ticket } = await split();
+      const closedAt = iso();
+      await prs(b, [{ ...pr(7, 'closed'), closedAt }]);
+      now += 1_000;
+      const merged = { ...pr(8, 'merged'), updatedAt: iso(), mergedAt: iso() };
+      await prs(b, [{ ...pr(7, 'closed'), updatedAt: closedAt, closedAt }, merged]);
+      now += interval;
+      await ticket('open');
+      now += 1_000;
+      await prs(b, [{ ...pr(7, 'closed'), updatedAt: iso(), closedAt }, merged]);
+      expect(await openLedger(b)).toEqual([]);
+    });
+  });
+
   it('keeps a ticket-closed block open while GitHub is blind', async () => {
     const b = await board();
     const ref = (await b.core.context(source)).observe.tickets[0];
@@ -3524,9 +3625,9 @@ describe('anomaly blocks', () => {
       const b = await board();
       await ticket(b, 'open');
       await prs(b, [pr(7, 'merged')]);
+      await ticket(b, 'closed');
       expect((await task(b)).terminal_at).not.toBeNull();
 
-      await ticket(b, 'closed');
       await ticket(b, 'open');
       expect((await task(b)).terminal_at).toBeNull();
     });
@@ -3541,6 +3642,7 @@ describe('anomaly blocks', () => {
       expect(await hidden(b)).toEqual([7]);
 
       await prs(b, [pr(7, 'merged'), pr(8, 'merged')]);
+      await ticket(b, 'closed');
       expect((await task(b)).terminal_at).toBe(iso());
       expect(await taskPr(b.store.db, (await task(b)).id)).toMatchObject({ number: 8 });
     });
@@ -3568,6 +3670,7 @@ describe('anomaly blocks', () => {
       expect((await task(b)).terminal_at).toBeNull();
 
       await prs(b, [pr(7, 'merged'), pr(8, 'merged'), pr(9, 'closed')]);
+      await ticket(b, 'closed');
       expect((await task(b)).terminal_at).toBe(iso());
       expect(await taskPr(b.store.db, (await task(b)).id)).toMatchObject({ number: 8 });
     });
@@ -3585,6 +3688,7 @@ describe('anomaly blocks', () => {
       expect(await hidden(b)).toEqual([7]);
 
       await prs(b, [pr(7, 'merged'), pr(9, 'merged')]);
+      await ticket(b, 'closed');
       expect((await task(b)).terminal_at).toBe(iso());
       expect(await taskPr(b.store.db, (await task(b)).id)).toMatchObject({ number: 9 });
     });
@@ -3594,6 +3698,7 @@ describe('anomaly blocks', () => {
       await ticket(b, 'open');
       await prs(b, [pr(7, 'merged')]);
       await ticket(b, 'open');
+      await ticket(b, 'closed');
       expect((await task(b)).terminal_at).toBe(iso());
       expect(await hidden(b)).toEqual([]);
     });

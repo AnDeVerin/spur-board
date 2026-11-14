@@ -3,7 +3,7 @@ import { prFactsSchema, sessionFactsSchema } from '@spur-board/contracts';
 import { sql, type Selectable } from 'kysely';
 import { parseJson } from '../store/json.ts';
 import type { LinkTable } from '../store/schema.ts';
-import { emit, pastReopenFloor, projectForKey, type Trx } from './board-utils.ts';
+import { emit, pastReopenFloor, projectForKey, ticketDone, type Trx } from './board-utils.ts';
 import { taskTarget } from './blocks.ts';
 import { CommandError, type Mutation } from './commands.ts';
 import { canonicalKey } from './membership.ts';
@@ -95,7 +95,14 @@ async function sessionRole(trx: Trx, taskId: number): Promise<'worker' | 'other'
   return worker === undefined ? 'worker' : 'other';
 }
 
-async function prConflict(trx: Trx, taskId: number, repo: string, number: number, open: boolean) {
+async function prConflict(
+  trx: Trx,
+  taskId: number,
+  repo: string,
+  number: number,
+  open: boolean,
+  doneTicket: boolean,
+) {
   const links = await trx
     .selectFrom('link')
     .leftJoin('pr_snapshot', (join) =>
@@ -112,7 +119,8 @@ async function prConflict(trx: Trx, taskId: number, repo: string, number: number
   for (const link of links) {
     if (link.repo?.toLowerCase() === repo && link.number === number) continue;
     const blocking = `${link.repo ?? ''}#${String(link.number ?? '')}`;
-    if (link.state === 'merged')
+    // A merged PR whose ticket is still open leaves room for a follow-up PR.
+    if (link.state === 'merged' && doneTicket)
       throw new CommandError(
         'link_conflict',
         `${blocking} is merged; manual PR replacement is not allowed.`,
@@ -139,7 +147,17 @@ async function run(
   const pr = input.mode === 'pr' ? prIdentity(input.pr) : null;
   const facts = pr === null ? null : await snapshot(trx, pr.repo, pr.number);
   const open = facts?.state !== 'closed' && facts?.state !== 'merged';
-  if (!remove && pr !== null) await prConflict(trx, task.id, pr.repo, pr.number, open);
+  if (!remove && pr !== null) {
+    const project = config.projects.find((entry) => entry.id === task.project);
+    const status = await trx
+      .selectFrom('ticket_snapshot')
+      .select('status')
+      .where('task_id', '=', task.id)
+      .executeTakeFirst();
+    const doneTicket =
+      project !== undefined && status !== undefined && ticketDone(project, status.status);
+    await prConflict(trx, task.id, pr.repo, pr.number, open, doneTicket);
+  }
 
   if (remove) {
     if (current?.banned === 1) return { task: key, target };
