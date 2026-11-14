@@ -13,6 +13,8 @@ import {
   createApply,
   createBlockMutations,
   createObservationCore,
+  createOperationRegistry,
+  createQuery,
   createSender,
   reconcileDueDoorbells,
   tickBoard,
@@ -2203,6 +2205,63 @@ describe('course-check hold', () => {
     const block = await workerBlock(ctx.store);
     await steps(ctx, 3);
     expect(ringBlocks(ctx)).toEqual([block]);
+  });
+
+  /** The `C<n>` ID of the course note: the task's comment copied from the answer. */
+  async function noteId(ctx: Board): Promise<string> {
+    const note = await ctx.store.db
+      .selectFrom('comment')
+      .select('id')
+      .where('task_id', '=', 1)
+      .where('block_id', 'is', null)
+      .executeTakeFirstOrThrow();
+    return `C${String(note.id)}`;
+  }
+
+  /** The comment IDs `inbox.get` lists for `actor`. */
+  async function inboxComments(ctx: Board, actor: ActorId): Promise<string[]> {
+    const clock = { now: () => ctx.now().getTime() };
+    const registry = createOperationRegistry({
+      config: ctx.config,
+      clock,
+      completeSince: new Map(),
+    });
+    const query = createQuery({ store: ctx.store, config: ctx.config, clock });
+    const { comments } = await query(registry['inbox.get'], {}, actor);
+    return comments.map((comment) => comment.id);
+  }
+
+  it('lists the course note once to a worker linked after it rang another', async () => {
+    const ctx = await board();
+    const course = await raiseCourse(ctx);
+    await steps(ctx, 2);
+    await ctx.apply(ctx.ops.answer, { block: course.block, text: NOTE }, CURATOR, 'answer');
+    await steps(ctx, 2);
+    expect(ringBlocks(ctx)).toEqual([course.block]);
+    const note = await noteId(ctx);
+    await ctx.apply(
+      createLinkMutations(ctx.config).remove,
+      { mode: 'session', task: KEY, session: 'worker-1', reason: 'Handover.' },
+      'operator',
+    );
+    await addSession(ctx, 'worker-2', 'web');
+    await ctx.store.transaction((trx) =>
+      trx
+        .insertInto('link')
+        .values({
+          ...sampleRows.link,
+          id: 9,
+          task_id: 1,
+          entity: 'session',
+          repo: null,
+          number: null,
+          pr_state: null,
+          session_id: 'worker-2',
+          role: 'worker',
+        })
+        .execute(),
+    );
+    expect(await inboxComments(ctx, 'agent:web/worker-2')).toEqual([note]);
   });
 
   it('an item close without a note releases the held ring on the next step', async () => {

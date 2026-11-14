@@ -363,6 +363,7 @@ export function createTaskQueries(deps: {
         .execute();
       const comments = [];
       const seen = new Set<number>();
+      const listed = new Set<number>();
       for (const notice of notices) {
         if (notice.comment_id === null || seen.has(notice.comment_id)) continue;
         const task = await trx
@@ -379,6 +380,7 @@ export function createTaskQueries(deps: {
           .where('id', '=', notice.comment_id)
           .executeTakeFirst();
         if (comment === undefined || comment.acked_revision === comment.revision) continue;
+        listed.add(comment.id);
         comments.push(commentView(comment, task));
       }
       const parsedActor = parseActorId(actor);
@@ -404,10 +406,11 @@ export function createTaskQueries(deps: {
             .execute();
           for (const comment of taskComments) {
             const task = tasksById.get(comment.task_id);
-            // A course note is also an answer notice above; list it once.
+            // A course note is also an answer notice: list it once, and to a linked worker its
+            // notice does not address (a worker linked after the note rang another).
             if (
               task === undefined ||
-              seen.has(comment.id) ||
+              listed.has(comment.id) ||
               comment.author === actor ||
               comment.acked_revision === comment.revision
             )
