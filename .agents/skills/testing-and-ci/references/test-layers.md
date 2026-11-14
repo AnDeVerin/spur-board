@@ -104,12 +104,15 @@ Every test runs through the root config, so all of these hold:
 - `pnpm run check --pre-push` (the pre-push hook): changed-file format and lint, types and `unit`
   only.
 - `pnpm check:full --only test`: `unit`, `integration`, `process` and `startup`.
-- CI `test` and `stand` jobs: `check:full --only test` and `--only stand` (`.github/workflows/ci.yml`).
-- CI `package-smoke` job: `pnpm package:smoke` and `pnpm upgrade:smoke` on PRs, then
-  `pnpm update:smoke`; on a PR it runs only when `classifyChanges` in `scripts/ci.ts` marks a
-  package change. Pushes and dispatches smoke the candidate in `release-smoke`.
-- `.github/workflows/nightly.yml`: runs the published package's `--version`; on failure
-  `scripts/nightly.ts` opens or updates one `ci-nightly` issue.
+
+## Stand scenarios
+
+- A change needs a scenario when its behaviour crosses adapter, core and gateway, or adds a role
+  or entity the stand must know. Add it to `SCENARIOS` (`packages/stand/src/scenarios/index.ts`)
+  with its test in `packages/stand/test/scenarios.integration.test.ts`.
+- Before pushing, run the new and affected scenarios with `pnpm stand:scenarios <name>...`
+  (`packages/stand/src/run-scenarios.ts`) and name them in the PR's Testing section.
+- Reproduce a bug seen on the live board in a scenario first.
 
 ## Flaky tests
 
