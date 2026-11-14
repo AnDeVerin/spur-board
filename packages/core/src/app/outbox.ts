@@ -316,12 +316,14 @@ export async function enqueueCuratorAnswerLine(
   const itemKey = `curator-answer:comment:${String(input.commentId)}`;
   const note = input.note === undefined ? '' : shorten(input.note, NOTE_CHARS);
   const taskTitle = input.taskTitle === undefined ? '' : shorten(input.taskTitle, TITLE_CHARS);
+  const question = shorten(input.question, QUESTION_CHARS);
+  const answer = shorten(input.answer, ANSWER_CHARS);
   await insertOutbox(trx, {
     kind: 'feed.line',
     dedupeKey: `feed.line:${itemKey}`,
     payload: {
       key: input.key,
-      text: `${block} · ${input.asker} asked: ${shorten(input.question, QUESTION_CHARS)} → curator answered: ${shorten(input.answer, ANSWER_CHARS)}`,
+      text: `${block} · ${input.asker} asked: ${question} → curator answered: ${answer}`,
       title: `${input.key} ${block} answered by curator`,
       persona: input.persona,
       itemKey,
@@ -330,8 +332,8 @@ export async function enqueueCuratorAnswerLine(
       exchange: {
         block,
         ...(taskTitle === '' ? {} : { taskTitle }),
-        question: shorten(input.question, QUESTION_CHARS),
-        answer: shorten(input.answer, ANSWER_CHARS),
+        question,
+        answer,
         ...(note === '' ? {} : { note }),
         askedBy: input.asker,
         answeredBy: input.answeredBy,

@@ -546,7 +546,7 @@ async function ticketTitle(trx: Trx, task: Task): Promise<string | undefined> {
     return undefined;
   }
   const facts = ticketFactsSchema.safeParse(detail);
-  return facts.success && facts.data.title.trim() !== '' ? facts.data.title : undefined;
+  return facts.success ? facts.data.title : undefined;
 }
 
 /** Posts a curator's answer to the feed; an operator answer is already on the board. */
@@ -693,27 +693,11 @@ export function createBlockMutations(config: Config) {
       rule(() => {
         answerBlock(current(block));
       });
-      const comment = await addComment(
-        trx,
-        task,
-        block,
-        input.text,
-        ctx,
-        authorRole(config, task, block.author),
-        config,
-      );
+      const role = authorRole(config, task, block.author);
+      const comment = await addComment(trx, task, block, input.text, ctx, role, config);
       // Before the close, so a note on a threaded block is a reply that rings nobody.
       if (input.note !== undefined) {
-        await addComment(
-          trx,
-          task,
-          block,
-          input.note,
-          ctx,
-          authorRole(config, task, block.author),
-          config,
-          { ringsAuthor: false },
-        );
+        await addComment(trx, task, block, input.note, ctx, role, config, { ringsAuthor: false });
       }
       const updated = await closeOpenBlock(trx, task, block, ctx, 'done', null);
       await queueCuratorAnswerLine(trx, task, block, comment, input.note, ctx, config);
