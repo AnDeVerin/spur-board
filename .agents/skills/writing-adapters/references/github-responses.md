@@ -80,6 +80,9 @@ and `describe('PR index cache')` in `packages/adapters/test/github/prBatch.test.
   inferred from remaining-budget changes. Keep the latest remaining/reset independently.
 - Capture valid reported cost before GraphQL classification and PR parsing; sum it once per
   attempt in `Batch.usage`, or attach it to `AdapterError.usage` when the attempt rejects.
+- Expose pending cost through optional `Adapter.takeUsage`; the runner drains it synchronously
+  on cancellation and persists it through the source report chain, including during stop.
+  Preserve the original abort reason and never infer a cost for a request that did not report one.
 - The runner persists successful batch usage with the observation and failed usage with a source
   report, even when state text is unchanged; never report a committed batch's cost twice.
 - Core persists reported samples and exposes the sum in `(now - 1h, now]` as `pointsLastHour` for
