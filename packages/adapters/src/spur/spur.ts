@@ -1,6 +1,7 @@
 // Reads Spur's live session list and resolves linked sessions that leave it.
 import {
   AdapterError,
+  apiBaseUrl,
   SESSION_HEALTH_STATES,
   SESSION_STATUSES,
   parseRingMarker,
@@ -64,7 +65,7 @@ function queuedBoardRings(wire: SessionWire): { notification: number; ring: numb
 
 /** A single Spur source. State is scoped to this adapter instance, never shared across daemons. */
 export function createSpurAdapter(options: SpurAdapterOptions): Adapter {
-  const base = new URL(`${options.baseUrl.replace(/\/$/, '')}/`);
+  const base = apiBaseUrl(options.baseUrl);
   const fetchImpl = options.fetch ?? fetch;
   let health = new Map<string, HealthObservation>();
   let instanceId: string | undefined;

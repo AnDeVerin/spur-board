@@ -1,7 +1,7 @@
 // An in-memory Spur behind an injected `fetch`: the three routes the board calls, the failures a
 // scenario can inject, and a log of every request the board should not have made.
 import { parseArgs } from 'node:util';
-import { err, ok, type Result } from '@spur-board/contracts';
+import { apiBaseUrl, err, ok, type Result } from '@spur-board/contracts';
 import { z } from 'zod';
 import type { RouteResult } from './control.ts';
 
@@ -149,7 +149,7 @@ export function createFakeSpur(options: {
   /** Sessions present from the start, `running` and `working`. */
   sessions?: readonly Pick<SessionArgs, 'id' | 'project' | 'branch'>[];
 }): FakeSpur {
-  const base = new URL(`${options.baseUrl.replace(/\/$/, '')}/`);
+  const base = apiBaseUrl(options.baseUrl);
   const sessions = new Map<string, FakeSession>();
   const rules = new Map<RouteName, FailureRule>();
   const requests: { at: string; method: string; path: string; route: RouteName }[] = [];

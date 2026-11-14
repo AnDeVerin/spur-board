@@ -14,6 +14,7 @@ import { z } from 'zod';
 import { parseWire } from '../runner/wire.ts';
 import {
   GithubClient,
+  checkAccessDenied,
   connectionWire,
   deniedReference,
   detailQuery,
@@ -130,14 +131,6 @@ export function githubSources(config: Config, options: GithubOptions): GithubSou
 }
 function scoped(errors: readonly GraphError[], root: string): GraphError[] {
   return errors.filter((error) => error.path?.[0] === root);
-}
-function checkAccessDenied(errors: readonly GraphError[]): boolean {
-  return errors.some(
-    (error) =>
-      error.type === 'FORBIDDEN' &&
-      error.path?.includes('statusCheckRollup') === true &&
-      error.path.includes('contexts'),
-  );
 }
 function requireCheckAccess(errors: readonly GraphError[]): void {
   if (checkAccessDenied(errors))

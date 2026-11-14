@@ -1,20 +1,29 @@
-import { sampleLinkRules } from '@spur-board/adapters';
-import { SLACK_BOT_SCOPES, requiredSecretKeys, type Config } from '@spur-board/contracts';
 import {
-  curatorSessions,
-  tokenAttention,
-  tokenAttentionLine,
-  type ApiOptions,
-  type Store,
-} from '@spur-board/core';
+  checkAccessDenied,
+  classifyHttpFailure,
+  graphEnvelopeWire,
+  graphqlFailure,
+  sampleLinkRules,
+  teamScopeDenied,
+} from '@spur-board/adapters';
+import {
+  DOCTOR_FIX_MAX,
+  SLACK_BOT_SCOPES,
+  apiBaseUrl,
+  requiredSecretKeys,
+  type AdapterError,
+  type Config,
+  type DoctorCheck as Check,
+  type DoctorReport,
+} from '@spur-board/contracts';
+import { curatorSessions, tokenAttention, tokenAttentionLine, type Store } from '@spur-board/core';
 import { lstat } from 'node:fs/promises';
 import { hostname } from 'node:os';
 import { join } from 'node:path';
+import { z } from 'zod';
 import type { ModuleContext } from './lifecycle.ts';
 import { spurErrorText, spurSendRequest } from './spur-port.ts';
 
-type DoctorReport = Awaited<ReturnType<NonNullable<ApiOptions['doctor']>>>;
-type Check = DoctorReport['checks'][number];
 const DEADLINE_MS = 5_000;
 const SPUR_PROBE_SESSION = 'spur-board-doctor-probe';
 const SPUR_SEND_UNREACHABLE_FIX =
@@ -26,6 +35,8 @@ const GITHUB_CHECKS_FIX =
   'Use a classic GitHub personal access token with the repo scope, authorized for organization SSO where required, to read check runs.';
 const GITHUB_TEAMS_FIX =
   'Use a classic GitHub personal access token with the repo and read:org scopes to read requested review teams.';
+const GITHUB_THROTTLED_FIX =
+  'GitHub is rate limiting this token, so access was not checked; rerun board doctor after the limit resets.';
 // GitHub normalizes granted scopes: write:org and admin:org include read:org.
 const GITHUB_ORG_READ_SCOPES = new Set(['read:org', 'write:org', 'admin:org']);
 const GITHUB_PROBE = `query DoctorGithubPermissions($owner: String!, $repo: String!) {
@@ -41,33 +52,6 @@ const GITHUB_PROBE = `query DoctorGithubPermissions($owner: String!, $repo: Stri
     } } }
   }
 }`;
-
-function object(value: unknown): Record<string, unknown> | null {
-  return value !== null && typeof value === 'object' && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null;
-}
-
-function scopedGithubError(value: unknown): string | null {
-  const error = object(value);
-  const path = error?.['path'];
-  if (!Array.isArray(path)) return null;
-  const fields = path.filter((part): part is string => typeof part === 'string');
-  if (
-    error?.['type'] === 'FORBIDDEN' &&
-    fields.includes('statusCheckRollup') &&
-    fields.includes('contexts')
-  )
-    return GITHUB_CHECKS_FIX;
-  if (
-    error?.['type'] === 'INSUFFICIENT_SCOPES' &&
-    fields.includes('reviewRequests') &&
-    fields.includes('requestedReviewer') &&
-    fields.includes('slug')
-  )
-    return GITHUB_TEAMS_FIX;
-  return null;
-}
 
 // Runs `call` under logCall with a `deadlineMs` deadline that also aborts its signal; any failure
 // is logged as `failure`, so no vendor text reaches the log, and returns null.
@@ -106,34 +90,131 @@ async function deadlineCall<T>(
   }
 }
 
-async function githubGraphql(
+// A GitHub probe's response; `failure` classifies a failed one, whose body is read only for the
+// adapter's rate-limit rule and never leaves this module.
+interface GithubReply {
+  response: Response;
+  failure: AdapterError | null;
+  body: unknown;
+}
+
+// Sends one GitHub probe and reads its body inside the doctor deadline, so a stalled body ends
+// there too; an unreadable failed body counts as none.
+function githubCall(
   ctx: ModuleContext<Store>,
-  fetcher: typeof fetch,
   deadlineMs: number,
-  token: string,
-  repo: string,
-): Promise<{ response: Response; body: unknown } | null> {
-  const [owner, name] = repo.split('/');
-  if (!owner || !name) return null;
+  send: (signal: AbortSignal) => Promise<Response>,
+  json: boolean,
+): Promise<GithubReply | null> {
   return deadlineCall(
     ctx,
     deadlineMs,
     'doctor.github',
     'GitHub doctor probe failed',
     async (signal) => {
-      const response = await fetcher('https://api.github.com/graphql', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          Accept: 'application/vnd.github+json',
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ query: GITHUB_PROBE, variables: { owner, repo: name } }),
-        signal,
-      });
-      return { response, body: response.ok ? ((await response.json()) as unknown) : null };
+      const response = await send(signal);
+      if (response.ok)
+        return {
+          response,
+          failure: null,
+          body: json ? ((await response.json()) as unknown) : null,
+        };
+      const body = await response.text().catch(() => undefined);
+      const failure = classifyHttpFailure(
+        { status: response.status, headers: response.headers, body },
+        ctx.clock.now(),
+      );
+      return { response, failure, body: null };
     },
   );
+}
+
+function githubHeaders(token: string): Record<string, string> {
+  return { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json' };
+}
+
+function githubGraphql(
+  ctx: ModuleContext<Store>,
+  fetcher: typeof fetch,
+  deadlineMs: number,
+  token: string,
+  repo: string,
+): Promise<GithubReply | null> {
+  const [owner, name] = repo.split('/');
+  if (!owner || !name) return Promise.resolve(null);
+  return githubCall(
+    ctx,
+    deadlineMs,
+    (signal) =>
+      fetcher('https://api.github.com/graphql', {
+        method: 'POST',
+        headers: { ...githubHeaders(token), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: GITHUB_PROBE, variables: { owner, repo: name } }),
+        signal,
+      }),
+    true,
+  );
+}
+
+// A repo's GitHub finding: null passes; a throttled token is a warning, its access unchecked.
+type GithubFinding = { status: 'fail' | 'warning'; fix: string } | null;
+const githubFail = (fix: string): GithubFinding => ({ status: 'fail', fix });
+const githubHttpFinding = (failure: AdapterError): GithubFinding =>
+  failure.kind === 'throttled'
+    ? { status: 'warning', fix: GITHUB_THROTTLED_FIX }
+    : githubFail(GITHUB_FIX);
+const githubDataWire = z.object({
+  repository: z.object({ pullRequests: z.object({ nodes: z.array(z.unknown()) }) }),
+});
+
+// Classifies one repo with the adapter's HTTP and GraphQL rules, then the doctor's scope header.
+async function githubRepoFinding(
+  ctx: ModuleContext<Store>,
+  fetcher: typeof fetch,
+  deadlineMs: number,
+  token: string,
+  repo: string,
+): Promise<GithubFinding> {
+  const rest = await githubCall(
+    ctx,
+    deadlineMs,
+    (signal) =>
+      fetcher(`https://api.github.com/repos/${repo}`, { headers: githubHeaders(token), signal }),
+    false,
+  );
+  if (rest === null) return githubFail(GITHUB_FIX);
+  if (rest.failure !== null) return githubHttpFinding(rest.failure);
+  const probe = await githubGraphql(ctx, fetcher, deadlineMs, token, repo);
+  if (probe === null) return githubFail(GITHUB_FIX);
+  if (probe.failure !== null) return githubHttpFinding(probe.failure);
+  const envelope = graphEnvelopeWire.safeParse(probe.body);
+  if (!envelope.success) return githubFail(GITHUB_FIX);
+  const errors = envelope.data.errors ?? [];
+  const failure = graphqlFailure(errors, GITHUB_PROBE, probe.response.headers, ctx.clock.now());
+  if (failure?.kind === 'throttled') return githubHttpFinding(failure);
+  if (failure !== null)
+    return githubFail(
+      errors.some((error) => teamScopeDenied(error, GITHUB_PROBE)) ? GITHUB_TEAMS_FIX : GITHUB_FIX,
+    );
+  if (checkAccessDenied(errors)) return githubFail(GITHUB_CHECKS_FIX);
+  if (errors.length > 0) return githubFail(GITHUB_FIX);
+  if (!githubDataWire.safeParse(envelope.data.data).success) return githubFail(GITHUB_FIX);
+  const scopes = rest.response.headers.get('x-oauth-scopes');
+  if (
+    scopes !== null &&
+    !scopes.split(',').some((scope) => GITHUB_ORG_READ_SCOPES.has(scope.trim()))
+  )
+    return githubFail(GITHUB_TEAMS_FIX);
+  return null;
+}
+
+// Any failing repo fails the check; otherwise a throttled repo makes it a warning.
+function githubCheck(findings: readonly GithubFinding[]): Check {
+  const id = 'github.credentials';
+  const failed = findings.find((finding) => finding?.status === 'fail');
+  if (failed) return check(id, false, failed.fix);
+  const throttled = findings.find((finding) => finding?.status === 'warning');
+  return throttled ? warning(id, throttled.fix) : check(id, true, GITHUB_FIX);
 }
 
 type Project = Config['projects'][number];
@@ -142,8 +223,6 @@ type LinkSample = Awaited<ReturnType<typeof sampleLinkRules>>;
 type LinkOutcome =
   | { project: Project; repo: string; polled: false }
   | { project: Project; repo: string; polled: true; sample: LinkSample | null };
-// Limit of a check fix in the /v1/doctor report (doctorReportSchema in core's API server).
-const FIX_MAX = 300;
 const BRANCH_MAX = 40;
 const NAMED_PRS = 3;
 const LINK_RULES_TAIL = "Change projects[].link to the repo's branch and PR title rules.";
@@ -233,17 +312,17 @@ function linkSegment(outcome: LinkOutcome): LinkSegment {
   };
 }
 
-// The fix fits FIX_MAX: full text, then without branch names, then the leading projects that
+// The fix fits DOCTOR_FIX_MAX: full text, then without branch names, then the leading projects that
 // fit and a count of the rest, then the fallback.
 function fitFix(segments: readonly LinkSegment[], tail: string, fallback: string): string {
   for (const branches of [true, false]) {
     const full = `${segments.map((segment) => segment.text(branches)).join('. ')}.${tail}`;
-    if (full.length <= FIX_MAX) return full;
+    if (full.length <= DOCTOR_FIX_MAX) return full;
   }
   const texts = segments.map((segment) => segment.text(false));
   for (let kept = texts.length - 1; kept > 0; kept -= 1) {
     const text = `${texts.slice(0, kept).join('. ')}; and ${String(texts.length - kept)} more projects.${tail}`;
-    if (text.length <= FIX_MAX) return text;
+    if (text.length <= DOCTOR_FIX_MAX) return text;
   }
   return fallback;
 }
@@ -366,31 +445,28 @@ async function request(
   }
 }
 
-async function slackOk(response: Response | null): Promise<boolean> {
-  if (response === null || !response.ok) return false;
-  try {
-    const value: unknown = await response.json();
-    return value !== null && typeof value === 'object' && 'ok' in value && value.ok === true;
-  } catch {
-    return false;
-  }
-}
+const slackOkWire = z.object({ ok: z.literal(true) });
+const slackMemberWire = z.object({
+  ok: z.literal(true),
+  channel: z.object({ is_member: z.literal(true) }),
+});
+const slackManifestWire = z.object({
+  ok: z.literal(true),
+  manifest: z.object({ features: z.object({ slash_commands: z.array(z.unknown()) }) }),
+});
+const slashCommandWire = z.object({ command: z.string() });
 
-async function slackMember(response: Response | null): Promise<boolean> {
-  if (response === null || !response.ok) return false;
+// The parsed body of an ok Slack response, or null when it is unreadable or does not match.
+async function slackBody<T extends z.ZodType>(
+  response: Response | null,
+  wire: T,
+): Promise<z.output<T> | null> {
+  if (response === null || !response.ok) return null;
   try {
-    const value: unknown = await response.json();
-    if (value === null || typeof value !== 'object' || !('ok' in value) || value.ok !== true)
-      return false;
-    const channel = 'channel' in value ? value.channel : undefined;
-    return (
-      channel !== null &&
-      typeof channel === 'object' &&
-      'is_member' in channel &&
-      channel.is_member === true
-    );
+    const parsed = wire.safeParse(await response.json());
+    return parsed.success ? parsed.data : null;
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -443,51 +519,15 @@ export async function runDaemonDoctor(
 
   const githubToken = secrets['GITHUB_TOKEN'];
   const githubRepos = new Set(config.projects.flatMap((project) => project.repos));
-  const githubFailures =
+  const githubFindings =
     githubToken === undefined
-      ? [GITHUB_FIX]
+      ? [githubFail(GITHUB_FIX)]
       : await Promise.all(
-          [...githubRepos].map(async (repo): Promise<string | null> => {
-            const response = await request(
-              ctx,
-              fetcher,
-              deadlineMs,
-              'github',
-              `https://api.github.com/repos/${repo}`,
-              {
-                headers: {
-                  Authorization: `Bearer ${githubToken}`,
-                  Accept: 'application/vnd.github+json',
-                },
-              },
-            );
-            if (response?.ok !== true) return GITHUB_FIX;
-            const probe = await githubGraphql(ctx, fetcher, deadlineMs, githubToken, repo);
-            if (probe?.response.ok !== true) return GITHUB_FIX;
-            const payload = object(probe.body);
-            const errors = payload?.['errors'];
-            if (errors !== undefined) {
-              if (!Array.isArray(errors)) return GITHUB_FIX;
-              const scoped = errors.map(scopedGithubError).find((fix) => fix !== null);
-              if (scoped) return scoped;
-              if (errors.length > 0) return GITHUB_FIX;
-            }
-            const data = object(payload?.['data']);
-            const repository = object(data?.['repository']);
-            const pullRequests = object(repository?.['pullRequests']);
-            if (!Array.isArray(pullRequests?.['nodes'])) return GITHUB_FIX;
-            const scopes = response.headers.get('x-oauth-scopes');
-            if (
-              scopes !== null &&
-              !scopes.split(',').some((scope) => GITHUB_ORG_READ_SCOPES.has(scope.trim()))
-            ) {
-              return GITHUB_TEAMS_FIX;
-            }
-            return null;
-          }),
+          [...githubRepos].map((repo) =>
+            githubRepoFinding(ctx, fetcher, deadlineMs, githubToken, repo),
+          ),
         );
-  const githubFailure = githubFailures.find((failure) => failure !== null) ?? null;
-  checks.push(check('github.credentials', githubFailure === null, githubFailure ?? GITHUB_FIX));
+  checks.push(githubCheck(githubFindings));
   checks.push(linkRulesCheck(await linkSamples));
 
   // Same request the doorbell port makes, to a session that never exists, so no agent gets it.
@@ -502,7 +542,7 @@ export async function runDaemonDoctor(
       fetcher,
       deadlineMs,
       'spur',
-      new URL('sessions', `${config.adapters.spur.baseUrl.replace(/\/$/, '')}/`),
+      new URL('sessions', apiBaseUrl(config.adapters.spur.baseUrl)),
     ),
     request(ctx, fetcher, deadlineMs, 'spur.send', probe.url, probe.init),
   ]);
@@ -527,14 +567,14 @@ export async function runDaemonDoctor(
     const botToken = secrets['SLACK_BOT_TOKEN'];
     const slackHeaders = botToken ? { Authorization: `Bearer ${botToken}` } : {};
     const slackApi = secrets['SLACK_API_URL'] || 'https://slack.com/api/';
-    const slackBase = `${slackApi.replace(/\/$/, '')}/`;
+    const slackBase = apiBaseUrl(slackApi);
     const auth = botToken
       ? await request(ctx, fetcher, deadlineMs, 'slack.auth', new URL('auth.test', slackBase), {
           method: 'POST',
           headers: slackHeaders,
         })
       : null;
-    const authorized = await slackOk(auth);
+    const authorized = (await slackBody(auth, slackOkWire)) !== null;
     const granted = new Set(
       auth?.headers
         .get('x-oauth-scopes')
@@ -568,7 +608,11 @@ export async function runDaemonDoctor(
             )
           : null;
       checks.push(
-        check(id, await slackMember(response), 'Invite the bot to the configured channel ID.'),
+        check(
+          id,
+          (await slackBody(response, slackMemberWire)) !== null,
+          'Invite the bot to the configured channel ID.',
+        ),
       );
     }
 
@@ -596,34 +640,13 @@ export async function runDaemonDoctor(
           body: JSON.stringify({ app_id: config.slack.appId }),
         },
       );
-      let commands: string[] | null = null;
-      if (response?.ok) {
-        try {
-          const body: unknown = await response.json();
-          if (body && typeof body === 'object' && 'ok' in body && body.ok === true) {
-            const manifest = 'manifest' in body ? body.manifest : undefined;
-            const features =
-              manifest && typeof manifest === 'object' && 'features' in manifest
-                ? manifest.features
-                : undefined;
-            const slash =
-              features && typeof features === 'object' && 'slash_commands' in features
-                ? features.slash_commands
-                : undefined;
-            if (Array.isArray(slash))
-              commands = slash.flatMap((entry: unknown) =>
-                entry &&
-                typeof entry === 'object' &&
-                'command' in entry &&
-                typeof entry.command === 'string'
-                  ? [entry.command]
-                  : [],
-              );
-          }
-        } catch {
-          // An unreadable manifest is an unknown state, not proof of a mismatch.
-        }
-      }
+      // An unreadable manifest is an unknown state, not proof of a mismatch.
+      const manifest = await slackBody(response, slackManifestWire);
+      const commands =
+        manifest?.manifest.features.slash_commands.flatMap((entry) => {
+          const parsed = slashCommandWire.safeParse(entry);
+          return parsed.success ? [parsed.data.command] : [];
+        }) ?? null;
       checks.push(
         commands === null
           ? warning(

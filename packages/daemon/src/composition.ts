@@ -19,6 +19,7 @@ import type { ModuleContext, ModuleEntry } from './lifecycle.ts';
 import { createOutboxModule, slackSettings } from './outbox-module.ts';
 import { createJob } from './scheduler.ts';
 import { createSystemdModule, createSystemdNotifier, type NotifySend } from './systemd.ts';
+import { z } from 'zod';
 
 const DAY_MS = 86_400_000;
 
@@ -183,8 +184,7 @@ export function createDaemonModules(
   return { entries, inbound, outbox, tick: boardModules.tick };
 }
 
+const itemInput = z.object({ item: z.string() });
 function isItemInput(input: unknown): input is { item: string } {
-  return (
-    typeof input === 'object' && input !== null && 'item' in input && typeof input.item === 'string'
-  );
+  return itemInput.safeParse(input).success;
 }
