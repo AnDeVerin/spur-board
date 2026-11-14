@@ -19,6 +19,7 @@ import {
   SESSION_LINK_ROLES,
   TASK_HOLDS,
   TOKEN_STATUSES,
+  TURN_OUTCOMES,
 } from '../src/index.ts';
 
 it('lists the built-in columns from To Do to Done, with ids and display names', () => {
@@ -110,6 +111,18 @@ it('lists token statuses', () => {
 
 it('lists dispatcher modes', () => {
   expect(DISPATCHER_MODES).toEqual(['shadow', 'on']);
+});
+
+it('lists turn outcomes', () => {
+  expect(TURN_OUTCOMES).toEqual([
+    'submitted',
+    'returned',
+    'moved',
+    'corrected',
+    'rerouted',
+    'mode_changed',
+    'archived',
+  ]);
 });
 
 it('lists gate conditions and their states', () => {

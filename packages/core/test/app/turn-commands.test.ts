@@ -733,7 +733,7 @@ describe('task.return', () => {
       { kind: 'block_opened', payload: { block: 'B1', type: 'code', addressee: 'worker' } },
       { kind: 'task_moved', payload: { from: 'review', to: 'dev', turn: 'T1', block: 'B1' } },
     ]);
-    expect(await ctx.turn()).toMatchObject({ closed_reason: 'moved', closed_at: AT });
+    expect(await ctx.turn()).toMatchObject({ closed_reason: 'returned', closed_at: AT });
     expect(ctx.calls).toHaveLength(0);
   });
 

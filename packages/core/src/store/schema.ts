@@ -15,6 +15,7 @@ import type {
   SessionLinkRole,
   SpaceId,
   TOKEN_STATUSES,
+  TurnOutcome,
 } from '@spur-board/contracts';
 import type { Generated, Insertable, Selectable, Updateable } from 'kysely';
 
@@ -169,8 +170,8 @@ export interface TurnTable {
   acked_by: ActorId | null;
   acked_at: string | null;
   closed_at: string | null;
-  /** Free text in the store, so a later reason (a submit) needs no migration. */
-  closed_reason: 'moved' | 'archived' | 'submitted' | 'rerouted' | 'corrected' | null;
+  /** Free text in the store, so a new outcome needs no migration; the list is `TURN_OUTCOMES`. */
+  closed_reason: TurnOutcome | null;
   created_at: string;
   /** Head commit of the task's PR when the turn opened, lowercase; null without a PR. */
   head_sha: string | null;

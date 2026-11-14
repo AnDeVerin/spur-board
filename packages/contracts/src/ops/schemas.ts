@@ -10,6 +10,7 @@ import {
   GATE_CONDITION_STATES,
   MEMBERSHIPS,
   TASK_HOLDS,
+  TURN_OUTCOMES,
 } from '../enums.ts';
 import { GATE_REASONS, MOVE_REASONS } from '../events.ts';
 import {
@@ -130,6 +131,24 @@ export const turnViewSchema = z
       .describe('Who took the turn and when; null until it is taken.'),
   })
   .describe('A turn: the executor of a column is asked to act on a task.');
+
+/** A turn as `task.get` shows it: who executes it, whether it was taken, and how it closed. */
+export const taskTurnSchema = turnViewSchema
+  .pick({ id: true, column: true, addressee: true, at: true, taken: true })
+  .extend({
+    closed: z
+      .strictObject({
+        at: z.iso.datetime().describe('When the turn closed, ISO 8601 UTC.'),
+        outcome: z
+          .enum(TURN_OUTCOMES)
+          .describe(
+            'How the turn closed; turns closed by a return or a mode switch before those were recorded read moved.',
+          ),
+      })
+      .nullable()
+      .describe('How and when the turn closed; null while it is open.'),
+  })
+  .describe("A task's turn: the executor of a column is asked to act on it.");
 
 /** One column move from the journal: a dispatcher move, a return to Dev or a correction. */
 export const moveViewSchema = z
