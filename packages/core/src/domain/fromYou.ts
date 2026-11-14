@@ -16,6 +16,7 @@ const ITEM_KINDS = [
   'turn',
   'anomaly',
   'cycle_limit',
+  'course_check',
 ] as const;
 
 export type ItemKind = (typeof ITEM_KINDS)[number];
@@ -149,6 +150,18 @@ export const ITEM_POLICY = {
   },
   /** A task that reached its column's cycle limit; the operator's close resets it. */
   cycle_limit: {
+    retry: 'none',
+    feed: false,
+    priority: 4,
+    buttons: 'item',
+    reconciled: false,
+    block: true,
+  },
+  /**
+   * A task whose returns from a column reached its course check; the answer to its block, sent to
+   * the curator or the operator, resets it.
+   */
+  course_check: {
     retry: 'none',
     feed: false,
     priority: 4,

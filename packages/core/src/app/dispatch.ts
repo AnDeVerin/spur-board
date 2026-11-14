@@ -1,7 +1,6 @@
 import {
   COLUMN_IDS,
   DISPATCHER_MODES,
-  eventPayloadSchemas,
   isExternalAuthor,
   prFactsSchema,
   type ActorId,
@@ -14,11 +13,19 @@ import {
 } from '@spur-board/contracts';
 import { sql } from 'kysely';
 import { z } from 'zod';
-import { dispatch, returnCauses, turnReason } from '../domain/dispatch.ts';
-import { countCycles, type CycleEvent, type GateMark } from '../domain/gates.ts';
+import { dispatch, turnReason } from '../domain/dispatch.ts';
+import type { GateMark } from '../domain/gates.ts';
 import { parseJson, toJson } from '../store/json.ts';
 import type { Row } from '../store/schema.ts';
 import { emit, projectForSource, taskPr, type Trx } from './board-utils.ts';
+import {
+  courseKeyPrefix,
+  cycleKeyPrefix,
+  raiseCourseCheck,
+  returnCounts,
+  shadowCourseCheck,
+  uncounted,
+} from './course-check.ts';
 import { linkedSession } from './doorbells.ts';
 import { raiseCycleLimit } from './fromYou.ts';
 import {
@@ -57,10 +64,6 @@ const modeSchema = z.enum(DISPATCHER_MODES);
 const MARK_COLUMNS: readonly ColumnId[] = ['review', 'product-review'];
 
 const indexOf = (column: ColumnId) => COLUMN_IDS.indexOf(column);
-const cycleKeyPrefix = (taskId: number) => `cycle-limit:${String(taskId)}:`;
-/** A reopened ticket or a mode switch moves a task left without counting a return. */
-const uncounted = (reason: MoveReason | undefined) =>
-  reason === 'ticket_reopened' || reason === 'mode_changed';
 
 /**
  * Sets `voided_at` on the unvoided submits of `columns`. Review and product-review marks are
@@ -93,54 +96,11 @@ async function voidSubmits(trx: Trx, taskId: number, to: ColumnId, at: Date): Pr
   );
 }
 
-/** Whether the returns from `column` since its last limit reset reach the column's limit. */
-async function cycleLimitReached(
-  trx: Trx,
-  taskId: number,
-  column: ColumnId,
-  limit: number,
-): Promise<boolean> {
-  const prefix = cycleKeyPrefix(taskId);
-  const items = await trx
-    .selectFrom('operator_item')
-    .select(['id', 'item_key'])
-    .where('item_key', 'like', `${prefix}%`)
-    .execute();
-  const itemColumn = new Map(
-    items.map((item) => [`I${String(item.id)}`, item.item_key.slice(prefix.length)]),
-  );
-  // One `at` is shared by a whole transaction, so the journal order is the event id.
-  const rows = await trx
-    .selectFrom('event')
-    .select(['kind', 'payload'])
-    .where('task_id', '=', taskId)
-    .where('kind', 'in', ['task_moved', 'from_you_cleared'])
-    .orderBy('id')
-    .execute();
-  const events: CycleEvent[] = [];
-  for (const row of rows) {
-    if (row.kind === 'from_you_cleared') {
-      const cleared = eventPayloadSchemas.from_you_cleared.safeParse(JSON.parse(row.payload));
-      const of = cleared.success ? itemColumn.get(cleared.data.item) : undefined;
-      if (of !== undefined && (COLUMN_IDS as readonly string[]).includes(of))
-        events.push({ kind: 'limit_reset', column: of as ColumnId });
-      continue;
-    }
-    const moved = eventPayloadSchemas.task_moved.safeParse(JSON.parse(row.payload));
-    if (!moved.success) continue;
-    const { from, to, reason, gate, block } = moved.data;
-    if (indexOf(to) >= indexOf(from) || uncounted(reason)) continue;
-    const [first, ...rest] = returnCauses(gate ?? [], block !== undefined);
-    if (first !== undefined)
-      events.push({ kind: 'return', column: from, causes: [first, ...rest] });
-  }
-  return countCycles(events, column, limit).limitReached;
-}
-
 /**
  * Moves a task left to `to` as a new visit: bumps `column_epoch` and `left_moves`, voids the
  * submits of `to` and right of it, closes its turns and journals `task_moved`. In `on` mode a
- * counted return that reaches the column's cycle limit raises its cycle-limit block, and
+ * counted return that reaches the column's cycle limit raises its cycle-limit block; otherwise
+ * one that reaches its course check raises the course check. Either holds the task, and
  * `limitReached` tells the dispatcher to stop the cascade.
  */
 export async function moveLeft(
@@ -188,16 +148,25 @@ export async function moveLeft(
     actor,
   );
   const project = config.projects.find((entry) => entry.id === task.project);
-  const limit = project?.columns.find((column) => column.id === task.column)?.cycleLimit;
-  if (
-    project?.dispatcher.mode !== 'on' ||
-    limit === undefined ||
-    uncounted(reason) ||
-    !(await cycleLimitReached(trx, task.id, task.column, limit))
-  )
+  const column = project?.columns.find((entry) => entry.id === task.column);
+  if (project?.dispatcher.mode !== 'on' || column === undefined || uncounted(reason))
     return { task: moved, limitReached: false };
-  await raiseCycleLimit(trx, { task: moved, column: task.column, at, config });
-  return { task: moved, limitReached: true };
+  const counts = await returnCounts(trx, task.id, task.column);
+  if (counts.cycle >= column.cycleLimit) {
+    await raiseCycleLimit(trx, { task: moved, column: task.column, at, config });
+    return { task: moved, limitReached: true };
+  }
+  if (column.courseCheck > 0 && counts.course >= column.courseCheck) {
+    await raiseCourseCheck(trx, {
+      task: moved,
+      column: task.column,
+      count: counts.course,
+      at,
+      config,
+    });
+    return { task: moved, limitReached: true };
+  }
+  return { task: moved, limitReached: false };
 }
 
 /**
@@ -589,7 +558,12 @@ export async function readInput(
     (await trx
       .selectFrom('operator_item')
       .select('id')
-      .where('item_key', 'like', `${cycleKeyPrefix(task.id)}%`)
+      .where((eb) =>
+        eb.or([
+          eb('item_key', 'like', `${cycleKeyPrefix(task.id)}%`),
+          eb('item_key', 'like', `${courseKeyPrefix(task.id)}%`),
+        ]),
+      )
       .where('cleared_at', 'is', null)
       .executeTakeFirst()) !== undefined;
   return {
@@ -633,16 +607,24 @@ export async function readInput(
   };
 }
 
-async function applyShadow(trx: Trx, task: Task, result: DispatchResult, at: Date): Promise<void> {
+async function applyShadow(
+  trx: Trx,
+  task: Task,
+  project: Project,
+  result: DispatchResult,
+  at: Date,
+): Promise<void> {
   const last = result.moves.at(-1);
   if (last === undefined) return;
   for (const move of result.moves) {
     if (indexOf(move.to) < indexOf(move.from)) await voidSubmits(trx, task.id, move.to, at);
+    const courseCheck = await shadowCourseCheck(trx, task, move, project);
     await emit(trx, 'task_shadow_moved', task.project, task.id, at.toISOString(), {
       from: move.from,
       to: move.to,
       reason: move.reason,
       ...(move.gate === undefined ? {} : { gate: [...move.gate] }),
+      ...(courseCheck ? { courseCheck } : {}),
     });
   }
   await trx.updateTable('task').set({ shadow_column: last.to }).where('id', '=', task.id).execute();
@@ -726,7 +708,7 @@ export async function dispatchTasks(
     const read = await readInput(trx, task, project, mode, blind);
     if (read === null) continue;
     const result = dispatch(read.input);
-    if (mode === 'shadow') await applyShadow(trx, task, result, ctx.at);
+    if (mode === 'shadow') await applyShadow(trx, task, project, result, ctx.at);
     else await applyOn(trx, task, read, result, ctx);
   }
 }

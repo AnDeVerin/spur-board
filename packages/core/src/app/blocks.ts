@@ -234,6 +234,36 @@ function wroteBlock(config: Config, actor: ActorId, target: ResolvedTarget): boo
   return authorize([{ grant: 'block-author' }], actor, { config, target }).status === 'allowed';
 }
 
+/** Inserts a comment row and journals `comment_added`; it rings and posts nothing. */
+async function insertComment(
+  trx: Trx,
+  task: Task,
+  blockId: number | null,
+  text: string,
+  ctx: CommandContext,
+  addressee: AddresseeRole,
+  source?: { conversationRef: string; messageRef: string },
+): Promise<Comment> {
+  const row = await trx
+    .insertInto('comment')
+    .values({
+      task_id: task.id,
+      block_id: blockId,
+      author: ctx.actor,
+      text,
+      revision: 1,
+      conversation_ref: source?.conversationRef ?? null,
+      message_ref: source?.messageRef ?? null,
+      acked_revision: null,
+      created_at: ctx.at,
+      delivery_state: null,
+    })
+    .returningAll()
+    .executeTakeFirstOrThrow();
+  await journal(trx, task, ctx, 'comment_added', { comment: commentId(row.id), addressee });
+  return row;
+}
+
 async function addComment(
   trx: Trx,
   task: Task,
@@ -249,23 +279,7 @@ async function addComment(
   } = {},
 ): Promise<Comment> {
   const { source, ringsAuthor = true } = options;
-  const row = await trx
-    .insertInto('comment')
-    .values({
-      task_id: task.id,
-      block_id: block?.id ?? null,
-      author: ctx.actor,
-      text,
-      revision: 1,
-      conversation_ref: source?.conversationRef ?? null,
-      message_ref: source?.messageRef ?? null,
-      acked_revision: null,
-      created_at: ctx.at,
-      delivery_state: null,
-    })
-    .returningAll()
-    .executeTakeFirstOrThrow();
-  await journal(trx, task, ctx, 'comment_added', { comment: commentId(row.id), addressee });
+  const row = await insertComment(trx, task, block?.id ?? null, text, ctx, addressee, source);
   // A note or a withdrawal comment is not an answer, so it rings nobody.
   if (ringsAuthor) {
     await applyDoorbellPolicy(
@@ -332,24 +346,52 @@ export async function openBlock(
 }
 
 /**
- * Opens a `system` question to the operator on a condition only the operator can fix, with its
- * thread. The caller raises the ledger item that names the block.
+ * Opens a `system` question to `addressee` (the operator by default) on a condition the board
+ * cannot settle, with its thread once the operator holds it. The caller raises the ledger item
+ * that names the block.
  */
 export async function openSystemBlock(
   trx: Trx,
-  input: { task: Task; reason: string; at: string; config: Config },
+  input: { task: Task; reason: string; at: string; config: Config; addressee?: AddresseeRole },
 ): Promise<Block> {
-  const { task, reason, at, config } = input;
+  const { task, reason, at, config, addressee = 'operator' } = input;
   const ctx: CommandContext = { actor: 'system', at };
-  const block = await openBlock(trx, task, 'needs_input', reason, ctx, config, 'operator');
+  const block = await openBlock(trx, task, 'needs_input', reason, ctx, config, addressee);
   await queueBlockOpen(trx, task, block, ctx, config);
   return block;
 }
 
 /**
+ * Copies the answer to a course check to the task as a comment without a block, so the worker
+ * reads it in its inbox: the close reason, else the closing actor's newest comment on the block.
+ */
+async function forwardCourseNote(
+  trx: Trx,
+  task: Task,
+  block: Block,
+  ctx: CommandContext,
+  reason: string | null,
+): Promise<void> {
+  const text =
+    reason ??
+    (
+      await trx
+        .selectFrom('comment')
+        .select('text')
+        .where('block_id', '=', block.id)
+        .where('author', '=', ctx.actor)
+        .orderBy('id', 'desc')
+        .executeTakeFirst()
+    )?.text;
+  if (text === undefined) return;
+  await insertComment(trx, task, null, text, ctx, 'worker');
+}
+
+/**
  * Unblocks one block with its journal entry, thread close, doorbell close and item clears. An
  * operator or agent close of a reconciled ledger block dismisses its item, so the condition
- * raises again only once it changes; a `system` or archive close only clears it.
+ * raises again only once it changes; a `system` or archive close only clears it. An answer or a
+ * close with a reason to a course check also goes to the worker as a task comment.
  */
 export async function closeOpenBlock(
   trx: Trx,
@@ -390,6 +432,12 @@ export async function closeOpenBlock(
     .where('block_id', '=', block.id)
     .where('cleared_at', 'is', null)
     .execute();
+  if (
+    ctx.actor !== 'system' &&
+    (outcome === 'done' || outcome === 'reason') &&
+    items.some((item) => item.kind === ('course_check' satisfies ItemKind))
+  )
+    await forwardCourseNote(trx, task, block, ctx, outcome === 'reason' ? outcomeReason : null);
   for (const item of items) {
     if (item.kind === 'post_blocked') await clearItem(trx, item.id, new Date(ctx.at), ctx.actor);
     else if (
