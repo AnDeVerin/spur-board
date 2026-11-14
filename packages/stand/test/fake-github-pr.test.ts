@@ -663,6 +663,61 @@ describe('state and restore', () => {
   });
 });
 
+describe('request log', () => {
+  const inspect = (target: Fakes = fakes, args: unknown = {}) =>
+    target.control({ system: 'github', verb: 'inspect', args });
+  const logged = (target: Fakes = fakes) =>
+    (inspect(target).body as { requests: { seq: number; operation: string }[] }).requests;
+
+  it('lists each answered request with its operation, repo and PR numbers', async () => {
+    created(1);
+    created(2);
+    const fetcher = fakeFetch(fakes);
+    for (const query of [discoveryQuery(), indexQuery([2, 1]), detailQuery([2])])
+      expect((await postQuery(fetcher, query)).ok).toBe(true);
+    const page = { owner: 'stand-org', repo: 'service', number: 2, after: 'fake:reviews:1' };
+    expect((await postQuery(fetcher, pageQuery('reviews'), page)).ok).toBe(true);
+
+    const at = new Date(NOW).toISOString();
+    expect(inspect()).toEqual({
+      status: 200,
+      body: {
+        requests: [
+          { seq: 1, at, operation: 'PrBatch', repo: BOARD, numbers: [] },
+          { seq: 2, at, operation: 'PrIndex', repo: BOARD, numbers: [2, 1] },
+          { seq: 3, at, operation: 'PrDetails', repo: BOARD, numbers: [2] },
+          { seq: 4, at, operation: 'PrPage', repo: SERVICE, numbers: [2] },
+        ],
+      },
+    });
+  });
+
+  it('keeps the newest 500 entries and clears them on reset', async () => {
+    const fetcher = fakeFetch(fakes);
+    for (let i = 0; i < 501; i += 1) await postQuery(fetcher, discoveryQuery());
+    const requests = logged();
+    expect(requests).toHaveLength(500);
+    expect(requests.at(0)?.seq).toBe(2);
+    expect(requests.at(-1)?.seq).toBe(501);
+
+    fakes.reset();
+    expect(logged()).toEqual([]);
+    await postQuery(fetcher, discoveryQuery());
+    expect(logged().map(({ seq }) => seq)).toEqual([1]);
+  });
+
+  it('changes no pull request and refuses arguments', async () => {
+    created(1);
+    await pollRepo(fakes, BOARD);
+    const state = fakes.state();
+
+    expect(inspect().status).toBe(200);
+    expect(inspect(fakes, { number: 1 })).toMatchObject({ status: 400 });
+    expect(fakes.state()).toEqual(state);
+    expect(pr(fakes, 1, 'merge').status).toBe(200);
+  });
+});
+
 describe('linked PR volume', () => {
   it('polls 100 linked PRs in bounded chunks and reuses the unchanged ones', async () => {
     const numbers = Array.from({ length: 100 }, (_, i) => i + 1);

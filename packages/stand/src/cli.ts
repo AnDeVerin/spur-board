@@ -100,6 +100,7 @@ const USAGE = `Usage: pnpm stand <command>
   fake spur inspect               print sessions, rules, requests, sends and violations
   fake github fail <mode>         delay <ms>, refuse, hang, auth (401), rate-limit <seconds>,
                                   server-error [status] or clear; lasts until clear or reset
+  fake github inspect             print the GraphQL requests the fake answered
   fake github pr <n> <verb> [--repo owner/name]
                                   create [--seed '<json>'], approve, ci-red, ci-green, merge,
                                   close, conflict or push <sha>; close shuts it without a merge;
@@ -661,8 +662,12 @@ export function fakeBody(
   if (jiraIssue) return jiraIssueBody(rest, values);
   if ((first === 'github' || first === 'jira') && kind === 'fail')
     return { system: first, verb: 'fail', args: failureBody(rest) };
+  if (first === 'github' && kind === 'inspect') {
+    if (rest.length > 0) throw new UsageError('fake github inspect takes no arguments');
+    return { system: 'github', verb: 'inspect', args: {} };
+  }
   if (first === 'jira') throw new UsageError('fake jira needs fail <mode> or issue <KEY>');
-  throw new UsageError('fake github needs fail <mode>, pr <n> <verb> or issue <n> <verb>');
+  throw new UsageError('fake github needs fail <mode>, inspect, pr <n> <verb> or issue <n> <verb>');
 }
 
 /** `fake slack outbox` and `fake slack click <n> <button> [--text <text>]`. */

@@ -194,6 +194,49 @@ function aliasNumber(field: FieldNode): string {
   return argument.value.value;
 }
 
+const MAX_REQUESTS = 500;
+
+/** One request the fake answered, as `fake github inspect` lists it. */
+export interface GraphqlRequestEntry {
+  /** Grows by one per request from 1, across evictions, until the log is cleared. */
+  seq: number;
+  at: string;
+  operation: string;
+  repo: string;
+  /** The `pr<i>` alias literals in alias order, else the `number` variable, else none. */
+  numbers: number[];
+}
+
+/** The answered requests, newest last; past 500 entries the oldest goes. */
+export function createRequestLog(now: () => number) {
+  let seq = 0;
+  const entries: GraphqlRequestEntry[] = [];
+  return {
+    record(operation: OperationDefinitionNode, variables: Variables): void {
+      const aliased = operation.selectionSet.selections
+        .filter((field): field is FieldNode => field.kind === Kind.FIELD)
+        .filter((field) => /^pr\d+$/.test(field.alias?.value ?? ''))
+        .sort((a, b) => Number(a.alias?.value.slice(2)) - Number(b.alias?.value.slice(2)))
+        .map((field) => Number(aliasNumber(field)));
+      const number = variables['number'];
+      seq += 1;
+      entries.push({
+        seq,
+        at: new Date(now()).toISOString(),
+        operation: operation.name?.value ?? '',
+        repo: `${String(variables['owner'])}/${String(variables['repo'])}`,
+        numbers: aliased.length > 0 ? aliased : typeof number === 'number' ? [number] : [],
+      });
+      if (entries.length > MAX_REQUESTS) entries.shift();
+    },
+    list: (): GraphqlRequestEntry[] => structuredClone(entries),
+    clear(): void {
+      entries.length = 0;
+      seq = 0;
+    },
+  };
+}
+
 /** Alias numbers must run from `pr0` without a gap, and every alias must have one template. */
 function printAliases(aliases: readonly FieldNode[]): string[] {
   const indexes = aliases.map((field) => Number(field.alias?.value.slice(2))).sort((a, b) => a - b);

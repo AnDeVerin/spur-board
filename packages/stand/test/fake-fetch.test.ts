@@ -313,6 +313,7 @@ describe('fakeBody', () => {
     [['github', 'fail', 'server-error'], {}, fail({ mode: 'server-error' })],
     [['github', 'fail', 'server-error', '503'], {}, fail({ mode: 'server-error', status: 503 })],
     [['github', 'fail', 'clear'], {}, fail({ mode: 'clear' })],
+    [['github', 'inspect'], {}, { system: 'github', verb: 'inspect', args: {} }],
     [['github', 'pr', '7', 'create'], {}, pr('create')],
     [
       ['github', 'pr', '7', 'create'],
@@ -387,6 +388,8 @@ describe('fakeBody', () => {
     [['github', 'fail', 'auth', '401']],
     [['github', 'fail', 'server-error', '500', '1']],
     [['github', 'fail', 'hang'], { seed: '{}' }],
+    [['github', 'inspect', 'extra']],
+    [['github', 'inspect'], { repo: BOARD }],
     [['github', 'pr']],
     [['github', 'pr', 'x', 'create']],
     [['github', 'pr', '7']],

@@ -1259,6 +1259,99 @@ describe('stand', () => {
       expect(cleared.code, cleared.stderr).toBe(0);
     }, 60_000);
 
+    it('stops reading the PR of an archived task', async () => {
+      const manifest = await up();
+      const ok = async (route: string, body: object) => {
+        const result = await control(manifest, route, body);
+        expect(result.status, JSON.stringify(result.body)).toBe(200);
+        return result.body;
+      };
+      /** One operation as the operator, through the public API. */
+      const op = async (id: string, input: object) => {
+        const token = readFileSync(manifest.tokenPath, 'utf8').trim();
+        const response = await fetch(`${manifest.daemonUrl}/v1/ops/${id}`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+          body: JSON.stringify({ input }),
+        });
+        const body: unknown = await response.json();
+        expect(response.status, JSON.stringify(body)).toBe(200);
+      };
+      const requests = async () =>
+        (
+          (await ok('/fake', { system: 'github', verb: 'inspect', args: {} })) as {
+            requests: { seq: number; operation: string; repo: string; numbers: number[] }[];
+          }
+        ).requests.filter(({ repo }) => repo === REPO);
+      const names =
+        (operation: string, number: number) =>
+        (entry: Awaited<ReturnType<typeof requests>>[number]) =>
+          entry.operation === operation && entry.numbers.includes(number);
+      const linked = async (number: number) => {
+        const store = openStore(join(manifest.home, 'board.sqlite'));
+        try {
+          return await store.db
+            .selectFrom('link')
+            .innerJoin('task', 'task.id', 'link.task_id')
+            .select('task.key')
+            .where('link.entity', '=', 'pr')
+            .where('link.number', '=', number)
+            .execute();
+        } finally {
+          await store.close();
+        }
+      };
+      for (const number of [1, 2])
+        await ok('/fake', {
+          system: 'github',
+          verb: 'issue-open',
+          args: { repo: REPO, number, title: `Stand issue ${String(number)}` },
+        });
+      await poll(manifest);
+      for (const number of [1, 2]) {
+        const closing = [{ number, repository: { nameWithOwner: REPO } }];
+        expect(
+          (await pr(manifest, number, 'create', { seed: { closingIssuesReferences: closing } }))
+            .status,
+        ).toBe(200);
+      }
+      await poll(manifest);
+      expect(await linked(1)).toEqual([{ key: `${REPO}#1` }]);
+      expect(await linked(2)).toEqual([{ key: `${REPO}#2` }]);
+      expect((await pr(manifest, 2, 'merge')).status).toBe(200);
+      await poll(manifest);
+
+      const before = await requests();
+      expect(before.some(names('PrIndex', 2))).toBe(true);
+      const boundary = Math.max(...before.map(({ seq }) => seq));
+      await op('task.archive', { task: `${REPO}#2` });
+      // `/poll` restarts the runner, so this fresh adapter reads PR 2 once at the cursor tie.
+      await poll(manifest);
+      const restarted = Math.max(...(await requests()).map(({ seq }) => seq));
+      // The scheduled poll after it keeps the adapter: wait until the one after that has begun.
+      const next = await vi.waitFor(
+        async () => {
+          const batches = (await requests()).filter(
+            ({ seq, operation }) => seq > restarted && operation === 'PrBatch',
+          );
+          const second = batches[1];
+          if (second === undefined) throw new Error('no second scheduled poll yet');
+          return second.seq;
+        },
+        { timeout: 20_000, interval: 250 },
+      );
+
+      const after = (await requests()).filter(({ seq }) => seq > boundary);
+      const indexes = after.filter(({ operation }) => operation === 'PrIndex');
+      expect(indexes.length).toBeGreaterThan(0);
+      for (const { numbers } of indexes) expect(numbers).toEqual([1]);
+      const scheduled = after.filter(({ seq }) => seq > restarted && seq < next);
+      expect(scheduled.filter(names('PrIndex', 1))).not.toEqual([]);
+      expect(scheduled.filter(names('PrDetails', 2))).toEqual([]);
+      const log = await control(manifest, '/violations');
+      expect(log, JSON.stringify(log.body)).toMatchObject({ status: 200, body: { total: 0 } });
+    }, 60_000);
+
     it('drives the issues fake through the CLI into the real adapter', async () => {
       const manifest = await up();
       const { home } = manifest;

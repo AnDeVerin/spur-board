@@ -6,6 +6,7 @@ import { FakeViolation, type FakeModule } from './fetch.ts';
 import {
   canonicalizeQuery,
   canonicalize,
+  createRequestLog,
   NotFound,
   parseGraphqlRequest,
   project,
@@ -220,6 +221,8 @@ export function createGithubPrFake(options: {
   const { now } = options;
   const repos = new Set(options.repos.map((repo) => repo.toLowerCase()));
   const prs = new Map<string, Pr>();
+  // Not part of `state`: a restore keeps the requests answered so far.
+  const requests = createRequestLog(now);
   const keyOf = (repo: string, number: number): string => `${repo.toLowerCase()}#${String(number)}`;
   const iso = (ms: number): string => new Date(ms).toISOString();
 
@@ -435,6 +438,10 @@ export function createGithubPrFake(options: {
   }
 
   function control(verb: string, args: unknown): RouteResult | undefined {
+    if (verb === 'inspect')
+      return z.strictObject({}).safeParse(args ?? {}).success
+        ? { status: 200, body: { requests: requests.list() } }
+        : { status: 400, body: { error: 'inspect takes no arguments.' } };
     if (!PR_VERBS.has(verb)) return undefined;
     const parsed = prControlSchema.safeParse({ ...(args as object), verb });
     if (!parsed.success) return { status: 400, body: { error: z.prettifyError(parsed.error) } };
@@ -479,11 +486,13 @@ export function createGithubPrFake(options: {
       };
       // A dry run, so a request the state cannot answer is logged before any failure applies.
       answer();
+      requests.record(operation, variables);
       return answer;
     },
     control,
     reset() {
       prs.clear();
+      requests.clear();
     },
     state: () => structuredClone(prs),
     restore(state) {
