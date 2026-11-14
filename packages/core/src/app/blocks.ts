@@ -753,17 +753,20 @@ async function queueCuratorAnswerLine(
 
 /** Concrete block and comment mutations for the generic apply boundary. */
 export function createBlockMutations(config: Config) {
+  /** Opens a question block on a subject with the text as its first comment. */
+  async function askOn(trx: Trx, subject: BlockSubject, text: string, ctx: CommandContext) {
+    const block = await openBlock(trx, subject, 'needs_input', text, ctx, config);
+    await addComment(trx, subject, block, text, ctx, block.addressee_role, config);
+    await queueBlockOpen(trx, subject, block, ctx, config);
+    return { block: blockView(block, subject) };
+  }
   const ask: Mutation<'block.ask'> = {
     id: 'block.ask',
     resolveTargets: (trx, input) => taskTarget(trx, input.task),
     async run(trx, input, ctx) {
       const task = found(await taskByKey(trx, input.task));
       active(task);
-      const subject = taskSubject(task);
-      const block = await openBlock(trx, subject, 'needs_input', input.text, ctx, config);
-      await addComment(trx, subject, block, input.text, ctx, block.addressee_role, config);
-      await queueBlockOpen(trx, subject, block, ctx, config);
-      return { block: blockView(block, subject) };
+      return askOn(trx, taskSubject(task), input.text, ctx);
     },
   };
   const create: Mutation<'block.create'> = {
@@ -824,7 +827,7 @@ export function createBlockMutations(config: Config) {
       // A project-level block is the operator's, which escalates to no one.
       if (!next.changed || task === null) return unchanged();
       // An earlier addressee passes authorization to retry; only the current one moves the block.
-      const target = await authorizationTarget(trx, task, block);
+      const target = await subjectTarget(trx, subject, block);
       if (!holdsBlock(config, ctx.actor, target)) return unchanged();
       const updated = await moveBlockToAddressee(trx, {
         task,
@@ -1112,21 +1115,7 @@ export function createBlockMutations(config: Config) {
           ? projectTarget(input.project)
           : { kind: 'missing' as const },
       ]),
-    async run(trx, input, ctx) {
-      const subject = projectSubject(input.project);
-      const block = await openBlock(
-        trx,
-        subject,
-        'needs_input',
-        input.text,
-        ctx,
-        config,
-        'operator',
-      );
-      await addComment(trx, subject, block, input.text, ctx, 'operator', config);
-      await queueBlockOpen(trx, subject, block, ctx, config);
-      return { block: blockView(block, subject) };
-    },
+    run: (trx, input, ctx) => askOn(trx, projectSubject(input.project), input.text, ctx),
   };
   return { ask, create, escalate, answer, unblock, add, edit, ack, projectAsk };
 }

@@ -269,12 +269,13 @@ export function createTaskQueries(deps: {
           .orderBy('id')
           .execute(),
       ]);
+      const subject = taskSubject(task);
       return {
         task: taskView(task),
         ...(await taskTurns(trx, task, input.detail === true)),
         links: links.map(linkView),
-        blocks: blocks.map((block) => blockView(block, taskSubject(task))),
-        comments: comments.map((comment) => commentView(comment, taskSubject(task))),
+        blocks: blocks.map((block) => blockView(block, subject)),
+        comments: comments.map((comment) => commentView(comment, subject)),
         ...(input.why === true ? { why: await why(trx, task) } : {}),
       };
     },
