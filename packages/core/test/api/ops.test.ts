@@ -1,6 +1,4 @@
-import { readFileSync, mkdtempSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { readFileSync } from 'node:fs';
 import {
   DOCTOR_FIX_MAX,
   configSchema,
@@ -15,7 +13,6 @@ import {
   CommandError,
   createApiServer,
   listenApiServer,
-  openStore,
   type Mutation,
   type ApiOptions,
   type OperationRegistry,
@@ -23,6 +20,7 @@ import {
   type Store,
 } from '../../src/index.ts';
 import { sampleRows } from '../store/sample-rows.ts';
+import { openTempStore } from '../support/store.ts';
 
 const config = configSchema.parse({
   projects: [
@@ -47,7 +45,7 @@ const config = configSchema.parse({
 
 const stores: Store[] = [];
 function newStore(): Store {
-  const store = openStore(join(mkdtempSync(join(tmpdir(), 'board-api-ops-')), 'board.db'));
+  const store = openTempStore('board-api-ops-').store;
   stores.push(store);
   return store;
 }
