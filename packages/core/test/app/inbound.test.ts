@@ -34,7 +34,12 @@ import {
   reconcileDueDoorbells,
 } from '../../src/index.ts';
 import { sampleRows } from '../store/sample-rows.ts';
-import { purgeEndedTokenRequests, requestToken } from '../../src/app/tokens.ts';
+import {
+  purgeEndedTokenRequests,
+  requestToken,
+  verifyOperatorToken,
+} from '../../src/app/tokens.ts';
+import { sql } from 'kysely';
 
 const DAY_MS = 86_400_000;
 const now = Date.parse('2026-11-03T10:00:00.000Z');
@@ -2300,5 +2305,316 @@ describe('anomaly block', () => {
     expect(
       (await store.db.selectFrom('event').select('kind').execute()).map((row) => row.kind),
     ).not.toContain('doorbell_undelivered');
+  });
+});
+
+describe('operator token revoke from the gateway', () => {
+  const secret = (name: string) => `example-${name}-token-value`;
+
+  async function tokenBoard() {
+    const { store, gateway } = await setup();
+    const responses: string[] = [];
+    const inbound = createInbound({
+      store,
+      config,
+      clock: { now: () => now },
+      gateway: {
+        ...gateway,
+        respond(_interaction, body, options) {
+          expect(options.private).toBe(true);
+          responses.push(
+            body[0]?.kind === 'paragraph'
+              ? body[0].children.map((part) => (part.kind === 'text' ? part.text : '')).join('')
+              : '',
+          );
+          return Promise.resolve('sent' as const);
+        },
+      },
+    });
+    const request = async (name: string, requestedAt = now) => {
+      await requestToken(
+        store,
+        config,
+        {
+          name,
+          folder: `workspace/${name}`,
+          host: 'local',
+          hash: createHash('sha256').update(secret(name)).digest('hex'),
+        },
+        new Date(requestedAt),
+      );
+      const row = await store.db
+        .selectFrom('operator_token')
+        .select('item_id')
+        .where('name', '=', name)
+        .executeTakeFirstOrThrow();
+      return row.item_id;
+    };
+    const press = (
+      actionId: string,
+      dedupeKey: string,
+      author = 'operator',
+      sourceSpace: 'feed' | 'orchestrators' = 'feed',
+    ): InboundEvent => ({
+      kind: 'action',
+      dedupeKey,
+      interaction: interactionRefSchema.parse(`interaction-${dedupeKey}`),
+      actionId,
+      author: userIdSchema.parse(author),
+      conversation: conversationRefSchema.parse('feed-thread'),
+      message: messageRefSchema.parse('feed-line'),
+      rootMessage: messageRefSchema.parse('feed-line'),
+      sourceUrl: 'https://example.test/board',
+      sourceSpace,
+    });
+    const tokens = (dedupeKey: string, author = 'operator'): InboundEvent => ({
+      kind: 'command',
+      dedupeKey,
+      interaction: interactionRefSchema.parse(`interaction-${dedupeKey}`),
+      author: userIdSchema.parse(author),
+      text: 'tokens',
+      command: { kind: 'query', id: 'token.list', input: {} },
+      sourceUrl: 'https://example.test/command',
+    });
+    const outboxKeys = async () =>
+      (await store.db.selectFrom('outbox').select('dedupe_key').orderBy('id').execute()).map(
+        (row) => row.dedupe_key,
+      );
+    const status = async (name: string) =>
+      (
+        await store.db
+          .selectFrom('operator_token')
+          .select('status')
+          .where('name', '=', name)
+          .executeTakeFirstOrThrow()
+      ).status;
+    const events = async (kind: string) =>
+      store.db.selectFrom('event').select('request_id').where('kind', '=', kind).execute();
+    return { store, inbound, responses, request, press, tokens, outboxKeys, status, events };
+  }
+
+  it('revokes a token from its card as the operator', async () => {
+    const { store, inbound, responses, request, press, status } = await tokenBoard();
+    const item = await request('desk');
+    await inbound.sink(press(`token:${String(item)}:approve`, 'approve-1'));
+    expect(await verifyOperatorToken(store, secret('desk'))).toEqual({ name: 'desk' });
+    await inbound.sink(press(`token:${String(item)}:revoke`, 'revoke-1'));
+    expect(await status('desk')).toBe('revoked');
+    expect(await verifyOperatorToken(store, secret('desk'))).toBeNull();
+    expect(
+      await store.db
+        .selectFrom('command')
+        .select(['actor', 'key', 'operation'])
+        .where('key', '=', 'revoke-1')
+        .execute(),
+    ).toEqual([{ actor: 'operator', key: 'revoke-1', operation: 'token.revoke' }]);
+    const card = await store.db
+      .selectFrom('outbox')
+      .select('id')
+      .where('dedupe_key', '=', `feed.line.edit:token-card:${String(item)}`)
+      .executeTakeFirstOrThrow();
+    expect(
+      await store.db
+        .selectFrom('outbox')
+        .select('parent_outbox_id')
+        .where('dedupe_key', '=', `feed.line.edit:token-card:${String(item)}:revoked`)
+        .execute(),
+    ).toEqual([{ parent_outbox_id: card.id }]);
+    expect(responses).toEqual(['desk: approved', 'desk: revoked']);
+  });
+
+  it('adds nothing for a replayed or repeated Revoke click', async () => {
+    const { inbound, responses, request, press, outboxKeys, events } = await tokenBoard();
+    const item = await request('desk');
+    await inbound.sink(press(`token:${String(item)}:approve`, 'approve-1'));
+    await inbound.sink(press(`token:${String(item)}:revoke`, 'revoke-1'));
+    const keys = await outboxKeys();
+    expect(keys.filter((key) => key.startsWith('feed.line:token-revoked:'))).toHaveLength(1);
+    await inbound.sink(press(`token:${String(item)}:revoke`, 'revoke-1'));
+    expect(await outboxKeys()).toEqual(keys);
+    await inbound.sink(press(`token:${String(item)}:revoke`, 'revoke-2'));
+    expect(await outboxKeys()).toEqual(keys);
+    expect(responses).toEqual([
+      'desk: approved',
+      'desk: revoked',
+      'desk: revoked',
+      'desk: revoked',
+    ]);
+    expect(await events('token_revoked')).toHaveLength(1);
+  });
+
+  it('refuses a Revoke click by anyone but the operator with no side effects', async () => {
+    const { inbound, responses, request, press, outboxKeys, status, events } = await tokenBoard();
+    const item = await request('desk');
+    await inbound.sink(press(`token:${String(item)}:approve`, 'approve-1'));
+    const keys = await outboxKeys();
+    await inbound.sink(press(`token:${String(item)}:revoke`, 'foreign', 'another'));
+    await inbound.sink(
+      press(`token:${String(item)}:revoke`, 'wrong-space', 'operator', 'orchestrators'),
+    );
+    expect(await status('desk')).toBe('approved');
+    expect(await outboxKeys()).toEqual(keys);
+    expect(await events('operation_denied')).toEqual([{ request_id: 'foreign' }]);
+    expect(await events('token_revoked')).toEqual([]);
+    expect(responses).toEqual(['desk: approved', 'not allowed', 'not allowed']);
+  });
+
+  it('posts the active tokens with Revoke buttons for /board tokens once per command', async () => {
+    const { store, inbound, responses, request, press, tokens, outboxKeys } = await tokenBoard();
+    await request('old', now - 20 * 60 * 1000);
+    const desk = await request('desk');
+    const lab = await request('lab');
+    await inbound.sink(press(`token:${String(desk)}:approve`, 'approve-1'));
+    await inbound.sink(tokens('list-1'));
+    await inbound.sink(tokens('list-1'));
+    const lists = await store.db
+      .selectFrom('outbox')
+      .select('payload')
+      .where('dedupe_key', 'like', 'feed.line:token-list:%')
+      .execute();
+    expect(lists).toHaveLength(1);
+    expect(await outboxKeys()).toContain('feed.line:token-list:list-1');
+    const payload = JSON.parse(lists[0]?.payload ?? '{}') as {
+      text: string;
+      actions: { id: string; label: string; confirm: string }[];
+    };
+    expect(payload.text).toBe('desk (approved), workspace/desk\nlab (pending), workspace/lab');
+    expect(payload.actions).toEqual([
+      {
+        id: `token:${String(desk)}:revoke`,
+        label: 'Revoke desk',
+        confirm: 'Revoke operator token desk? Calls with it fail at once.',
+      },
+      {
+        id: `token:${String(lab)}:revoke`,
+        label: 'Revoke lab',
+        confirm: 'Revoke operator token lab? Calls with it fail at once.',
+      },
+    ]);
+    expect(responses.slice(1)).toEqual([
+      'Posted 2 operator tokens to the feed.',
+      'Posted 2 operator tokens to the feed.',
+    ]);
+    await inbound.sink(press(`token:${String(lab)}:revoke`, 'revoke-lab'));
+    expect(
+      await store.db
+        .selectFrom('operator_token')
+        .select('status')
+        .where('name', '=', 'lab')
+        .execute(),
+    ).toEqual([{ status: 'revoked' }]);
+  });
+
+  it('refuses /board tokens from anyone but the operator', async () => {
+    const { store, inbound, responses, request, tokens, events } = await tokenBoard();
+    await request('desk');
+    await inbound.sink(tokens('list-foreign', 'another'));
+    expect(
+      await store.db
+        .selectFrom('outbox')
+        .select('id')
+        .where('dedupe_key', 'like', 'feed.line:token-list:%')
+        .execute(),
+    ).toEqual([]);
+    expect(await events('operation_denied')).toEqual([{ request_id: 'list-foreign' }]);
+    expect(responses).toEqual(['not allowed']);
+  });
+
+  it('answers /board tokens with no active tokens privately and posts nothing', async () => {
+    const { store, inbound, responses, tokens } = await tokenBoard();
+    await inbound.sink(tokens('list-empty'));
+    expect(await store.db.selectFrom('outbox').select('id').execute()).toEqual([]);
+    expect(responses).toEqual(['No active operator tokens.']);
+  });
+
+  it('puts Revoke buttons on the first 20 tokens and counts the rest', async () => {
+    const { store, inbound, responses, tokens } = await tokenBoard();
+    await scanTransaction(store, config, async (trx) => {
+      for (let i = 1; i <= 21; i++) {
+        const item = await raiseOperatorItem(trx, {
+          itemKey: `token:t${String(i)}`,
+          kind: 'token_request',
+          text: `Approve t${String(i)}?`,
+          url: '',
+          taskId: null,
+          blockId: null,
+          at: new Date(now),
+        });
+        await trx
+          .insertInto('operator_token')
+          .values({
+            name: `t${String(i)}`,
+            hash: createHash('sha256').update(String(i)).digest('hex'),
+            folder: 'workspace',
+            host: 'local',
+            status: 'approved',
+            requested_at: at,
+            expires_at: at,
+            decided_at: at,
+            item_id: item.id,
+          })
+          .execute();
+      }
+    });
+    await inbound.sink(tokens('list-long'));
+    const list = await store.db
+      .selectFrom('outbox')
+      .select('payload')
+      .where('dedupe_key', '=', 'feed.line:token-list:list-long')
+      .executeTakeFirstOrThrow();
+    const payload = JSON.parse(list.payload) as { text: string; actions: unknown[] };
+    expect(payload.actions).toHaveLength(20);
+    expect(payload.text.split('\n')).toHaveLength(22);
+    expect(payload.text.endsWith('\n1 more: `board token list`')).toBe(true);
+    expect(responses).toEqual(['Posted 21 operator tokens to the feed.']);
+  });
+
+  it('retries a failed /board tokens from its item and posts the list once', async () => {
+    const { store, inbound, responses, request, tokens } = await tokenBoard();
+    await request('desk');
+    await sql`CREATE TRIGGER fail_token_list BEFORE INSERT ON outbox
+      WHEN NEW.dedupe_key LIKE 'feed.line:token-list:%'
+      BEGIN SELECT RAISE(ABORT, 'token list failed'); END`.execute(store.db);
+    await inbound.sink(tokens('list-1'));
+    expect(responses).toEqual(['not available yet']);
+    const item = await store.db
+      .selectFrom('operator_item')
+      .select(['id', 'inbound_event_json'])
+      .where('kind', '=', 'inbound_failure')
+      .executeTakeFirstOrThrow();
+    const listRows = () =>
+      store.db
+        .selectFrom('outbox')
+        .select('id')
+        .where('dedupe_key', '=', 'feed.line:token-list:list-1')
+        .execute();
+    expect(await listRows()).toEqual([]);
+    await sql`DROP TRIGGER fail_token_list`.execute(store.db);
+
+    const stored = item.inbound_event_json ?? '{}';
+    const foreign = { ...(JSON.parse(stored) as Record<string, unknown>), author: 'another' };
+    await store.db
+      .updateTable('operator_item')
+      .set({ inbound_event_json: JSON.stringify(foreign) })
+      .where('id', '=', item.id)
+      .execute();
+    await expect(inbound.retryStored(item.id)).rejects.toMatchObject({
+      code: 'retry_not_applicable',
+    });
+    expect(await listRows()).toEqual([]);
+
+    await store.db
+      .updateTable('operator_item')
+      .set({ inbound_event_json: stored })
+      .where('id', '=', item.id)
+      .execute();
+    await inbound.retryStored(item.id);
+    expect(await listRows()).toHaveLength(1);
+    expect((await getOperatorItem(store, item.id))?.cleared_at).not.toBeNull();
+    await expect(inbound.retryStored(item.id)).rejects.toMatchObject({
+      code: 'retry_not_applicable',
+    });
+    await inbound.sink(tokens('list-1'));
+    expect(await listRows()).toHaveLength(1);
   });
 });
