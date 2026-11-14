@@ -67,6 +67,34 @@ describe('commandReply', () => {
     expect(JSON.stringify(history.body)).toContain('Added to Dev.');
   });
 
+  it('lists every linked pull request with its state in the task reply', () => {
+    const operation = OPERATIONS.find((entry) => entry.id === 'task.get');
+    if (!operation) throw new Error('Missing task.get');
+    const reply = commandReply(
+      'task.get',
+      {
+        ...operation.examples[0].output,
+        links: [
+          { kind: 'pr', ref: 'o/r#7', role: null, state: 'merged' },
+          { kind: 'pr', ref: 'o/r#8', role: null, state: 'open' },
+          { kind: 'pr', ref: 'o/r#9', role: null },
+          { kind: 'session', ref: 'worker-1', role: 'worker' },
+        ],
+      },
+      { task: 'o/r#9' },
+    );
+    const text = (value: string) => ({
+      kind: 'paragraph',
+      children: [{ kind: 'text', text: value }],
+    });
+    expect(reply.body.slice(1, 4)).toEqual([
+      text('Pull request o/r#7: merged'),
+      text('Pull request o/r#8: open'),
+      text('Pull request o/r#9: not observed yet'),
+    ]);
+    expect(JSON.stringify(reply.body)).not.toContain('worker-1');
+  });
+
   it('marks the shadow column only on task lines where it differs', () => {
     const operation = OPERATIONS.find((entry) => entry.id === 'status.get');
     if (!operation) throw new Error('Missing status.get');

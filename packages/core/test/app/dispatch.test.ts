@@ -356,6 +356,7 @@ function board(options: Options = {}) {
         `key-${String(++keys)}`,
       );
     },
+    get: () => query(registry['task.get'], { task: KEY }, 'operator'),
     why: async () => {
       const result = await query(registry['task.get'], { task: KEY, why: true }, 'operator');
       if (result.why === undefined) throw new Error('task.get returned no why');
@@ -909,6 +910,26 @@ describe('a merged PR and the ticket', () => {
         .where('kind', 'in', ['cycle_limit', 'course_check'])
         .execute(),
     ).toEqual([]);
+  });
+
+  it('a split task reaches Done on its second merge and shows both merged PRs', async () => {
+    const ctx = await pastProductReview();
+    await merge(ctx);
+    await ctx.ticket();
+    await ctx.ticket();
+    const note = await ctx.openTurn();
+    expect(note).toEqual(turnOf('dev', 'worker', NOTE));
+    await ctx.ack(WORKER, note?.id ?? '');
+    await ctx.pr({ number: 8, url: 'https://github.com/o/r/pull/8', headSha: C, state: 'open' });
+    expect((await ctx.task()).column).toBe('dev');
+    await ctx.pr({ number: 8, state: 'merged' });
+    await ctx.ticket('closed');
+    expect((await ctx.task()).column).toBe('done');
+    expect(await ctx.openTurn()).toEqual(turnOf('done', 'worker', 'done: wrap up'));
+    expect((await ctx.get()).links.filter((link) => link.kind === 'pr')).toEqual([
+      { kind: 'pr', ref: 'o/r#7', role: null, state: 'merged' },
+      { kind: 'pr', ref: 'o/r#8', role: null, state: 'merged' },
+    ]);
   });
 
   it('holds a merged task while its ticket is unconfirmed', async () => {

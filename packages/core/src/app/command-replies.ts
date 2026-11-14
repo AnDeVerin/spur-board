@@ -140,6 +140,11 @@ export function commandReply(
       cliHint: `board ${operation.cli.command} ${request.task}`,
       body: [
         line(`Task ${result.task.key}: ${result.task.column} (${result.task.membership})`),
+        ...result.links.flatMap((link) =>
+          link.kind === 'pr'
+            ? [line(`Pull request ${link.ref}: ${link.state ?? 'not observed yet'}`)]
+            : [],
+        ),
         ...result.blocks.flatMap((block) => [
           line(`Block ${block.id} (${block.state}, ${block.type}):`),
           quote(block.reason),
