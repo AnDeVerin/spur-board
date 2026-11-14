@@ -30,7 +30,7 @@ const CARD_FOLDER = 500;
 const LIST_NAME = 64;
 const LIST_FOLDER = 120;
 const LABEL_NAME = 40;
-/** Tokens in one `/board tokens` line that get a Revoke button. */
+/** Tokens in one token-list feed line that get a Revoke button. */
 const LIST_BUTTONS = 20;
 
 /** The Revoke button of the token approved through item `itemId`, on its card or in a list. */
