@@ -2293,6 +2293,14 @@ describe('course-check hold', () => {
     await steps(ctx, 1);
     expect(ringBlocks(ctx)).toEqual([block]);
   });
+
+  it('keeps the release order when the item closes without a note', async () => {
+    const ctx = await board();
+    const { queued, course, late } = await held(ctx);
+    await ctx.apply(createItemMutations({}).close, { item: course.item }, 'operator', 'close');
+    await steps(ctx, 12, 250);
+    expect(ringBlocks(ctx)).toEqual([queued, late]);
+  });
 });
 
 describe('turns', () => {

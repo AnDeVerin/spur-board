@@ -11,7 +11,12 @@ import type { Trx } from './board-utils.ts';
 import { fingerprint } from '../domain/fromYou.ts';
 import { isOperator } from './authorize.ts';
 import { TASKLESS_FEED_KEY, journal, raiseItemWith, type RaiseItemInput } from './item-raise.ts';
-import { enqueueFeedEdit, enqueueFeedLine, type FeedEditPayload } from './outbox.ts';
+import {
+  enqueueFeedEdit,
+  enqueueFeedLine,
+  promoteWorkerDoorbells,
+  type FeedEditPayload,
+} from './outbox.ts';
 
 /** The struck summary is capped so the edit stays one message part. */
 const MAX_SUMMARY = 500;
@@ -31,7 +36,24 @@ export async function raiseItem(trx: Trx, input: RaiseItemInput): Promise<Row<'o
 }
 
 /**
- * Clear an item once; the edit waits for its line and is cancelled with a stale pending line.
+ * Whether the course check `item` forwarded a note: a worker `answer` notification on its block.
+ * The note's first ring then releases the held rings (`releaseAfterCourseNote`).
+ */
+async function courseNoted(trx: Trx, item: Row<'operator_item'>): Promise<boolean> {
+  if (item.block_id === null) return false;
+  const note = await trx
+    .selectFrom('notification')
+    .select('id')
+    .where('block_id', '=', item.block_id)
+    .where('role', '=', 'worker')
+    .where('kind', '=', 'answer')
+    .executeTakeFirst();
+  return note !== undefined;
+}
+
+/**
+ * Clear an item once; a course check cleared without a note moves the worker's held rings on its
+ * task that wait in the outbox to the front, so they keep their order. the edit waits for its line and is cancelled with a stale pending line.
  * The journal names `actor`, `system` unless an actor's action cleared it. `writeEdit`, when
  * given, writes the line's edit instead of the resolved one.
  */
@@ -55,6 +77,8 @@ export async function clearItem(
     .returningAll()
     .executeTakeFirstOrThrow();
   await journal(trx, item, 'from_you_cleared', at, undefined, actor);
+  if (item.kind === 'course_check' && item.task_id !== null && !(await courseNoted(trx, item)))
+    await promoteWorkerDoorbells(trx, item.task_id, at);
   if (item.line_outbox_id === null) return;
   if (writeEdit !== undefined) {
     await writeEdit(item, item.line_outbox_id);

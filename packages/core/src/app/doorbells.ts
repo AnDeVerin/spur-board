@@ -17,7 +17,7 @@ import { queueBlockOpen } from './block-thread.ts';
 import { emit, taskUrl, type Trx } from './board-utils.ts';
 import { CommandError, type CommandContext } from './commands.ts';
 import { clearItem, raiseItem } from './feed.ts';
-import { enqueueDoorbell } from './outbox.ts';
+import { enqueueDoorbell, promoteWorkerDoorbells } from './outbox.ts';
 import { scanTransaction } from './secrets.ts';
 import type { Store } from '../store/store.ts';
 
@@ -1038,9 +1038,9 @@ export async function recordRingDelivery(
 
 /**
  * Once a course note no longer holds (`courseHold`): its first ring delivered, or read or ended
- * before it rang. Moves the worker's rings on the task that waited in the outbox to the front, in
- * outbox id order, ahead of rings reconcile enqueues next. A row in retry backoff
- * (`attempts > 0`) keeps its wait.
+ * before it rang. Moves the worker's other rings on the task that waited in the outbox to the
+ * front (`promoteWorkerDoorbells`); `clearItem` does the same for a course check that clears
+ * without a note.
  */
 async function releaseAfterCourseNote(trx: Trx, n: Notification, at: Date): Promise<void> {
   const note = await trx
@@ -1052,20 +1052,7 @@ async function releaseAfterCourseNote(trx: Trx, n: Notification, at: Date): Prom
     .where((eb) => eb('block_id', 'in', courseBlocks(eb)))
     .executeTakeFirst();
   if (note === undefined) return;
-  const others = trx
-    .selectFrom('notification')
-    .select('id')
-    .where('task_id', '=', n.task_id)
-    .where('role', '=', 'worker')
-    .where('id', '!=', n.id);
-  await trx
-    .updateTable('outbox')
-    .set({ next_at: at.toISOString() })
-    .where('kind', '=', 'doorbell')
-    .where('state', '=', 'pending')
-    .where('attempts', '=', 0)
-    .where(sql<number>`json_extract(payload, '$.notificationId')`, 'in', others)
-    .execute();
+  await promoteWorkerDoorbells(trx, n.task_id, at, n.id);
 }
 
 /** True while the Spur source is blind: its stored session facts may no longer hold. */

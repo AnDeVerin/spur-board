@@ -240,6 +240,33 @@ export async function enqueueDoorbell(
   return row.id;
 }
 
+/**
+ * Moves the doorbell rows of the worker's notifications on task `taskId`, other than `exceptId`,
+ * that wait in the outbox to the front, in outbox id order, ahead of rings reconcile enqueues
+ * next. A row in retry backoff (`attempts > 0`) keeps its wait.
+ */
+export async function promoteWorkerDoorbells(
+  trx: Trx,
+  taskId: number,
+  at: Date,
+  exceptId?: number,
+): Promise<void> {
+  let others = trx
+    .selectFrom('notification')
+    .select('id')
+    .where('task_id', '=', taskId)
+    .where('role', '=', 'worker');
+  if (exceptId !== undefined) others = others.where('id', '!=', exceptId);
+  await trx
+    .updateTable('outbox')
+    .set({ next_at: at.toISOString() })
+    .where('kind', '=', 'doorbell')
+    .where('state', '=', 'pending')
+    .where('attempts', '=', 0)
+    .where(sql<number>`json_extract(payload, '$.notificationId')`, 'in', others)
+    .execute();
+}
+
 /** The key holds no install time, so a session gets at most one reload message per version. */
 export function skillReloadKey(version: string, session: string): string {
   return `doorbell:skill-reload:${version}:${session}`;
