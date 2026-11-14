@@ -55,7 +55,11 @@ connect to the loopback port. Without a credential they can:
 - read `GET /v1/schema`, `/v1/health` and `/v1/doctor`;
 - check a token's status by its hash;
 - request an operator token, which only raises an approval item for the operator; at most 10
-  requests wait at once.
+  requests wait at once;
+- make the daemon send its fixed skill reload message to the live sessions of configured Spur
+  projects, at most once per session for the version the daemon runs;
+- for session ids they already know, read whether and when each got that message; the daemon
+  never lists a session id the request does not name.
 
 They cannot run board operations without a live session id from a configured Spur project or an
 approved token. Treat both as secrets: a leaked session id or token file lets that user act as

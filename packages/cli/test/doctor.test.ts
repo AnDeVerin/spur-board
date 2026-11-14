@@ -767,6 +767,10 @@ describe('board doctor', () => {
     expect(seen).toContain('/usr/bin/no\\"de');
   });
 
+  const stopAndWake = (count: string, ids: string, forVersion = ' for 1.2.3') =>
+    `Stop and wake ${count} started before the last skill install that have no delivered reload message${forVersion}${ids}; stopping and waking restarts the agent and keeps the conversation. A session can instead read the spur-board skill file again: ~/.claude/skills/spur-board/SKILL.md for Claude Code, ~/.codex/skills/spur-board/SKILL.md for Codex ($CODEX_HOME/skills/spur-board/SKILL.md when set); doctor keeps listing it after that.`;
+  const undatedToo = 'Do the same for connected sessions whose start time is unavailable.';
+
   it('warns for confirmed stale sessions without failing doctor', async () => {
     const fake = ports({
       sessions: () => [
@@ -786,10 +790,7 @@ describe('board doctor', () => {
       blocking: false,
     });
     const fix = value.checks.find((entry) => entry.id === 'sessions.stale')?.fix;
-    expect(fix).toBe(
-      'Ask 1 session started before the last skill install to re-read the spur-board skill (SKILL.md and references/): old. Claude Code reads it from ~/.claude/skills/spur-board, Codex from ~/.codex/skills/spur-board ($CODEX_HOME/skills/spur-board when set). No restart is needed; doctor keeps listing a session after it re-reads.',
-    );
-    expect(fix).not.toMatch(/restart(?! is needed)/i);
+    expect(fix).toBe(stopAndWake('1 session', ': old'));
   });
 
   it('lists each stale session once and counts distinct sessions', async () => {
@@ -805,10 +806,7 @@ describe('board doctor', () => {
     });
     const value = await run(['doctor', '--json'], fake);
     const fix = value.checks.find((check) => check.id === 'sessions.stale')?.fix;
-    expect(fix).toBe(
-      'Ask 2 sessions started before the last skill install to re-read the spur-board skill (SKILL.md and references/): busy, quiet. Claude Code reads it from ~/.claude/skills/spur-board, Codex from ~/.codex/skills/spur-board ($CODEX_HOME/skills/spur-board when set). No restart is needed; doctor keeps listing a session after it re-reads.',
-    );
-    expect(fix).not.toMatch(/restart(?! is needed)/i);
+    expect(fix).toBe(stopAndWake('2 sessions', ': busy, quiet'));
   });
 
   const oldStart = Date.parse('2026-11-03T10:00:00.000Z');
@@ -831,9 +829,7 @@ describe('board doctor', () => {
     const value = await run(['doctor', '--json'], fake);
     const check = value.checks.find((entry) => entry.id === 'sessions.stale');
     expect(check?.status).toBe('warning');
-    expect(check?.fix).toBe(
-      'Ask 1 session started before the last skill install to re-read the spur-board skill (SKILL.md and references/): old. Claude Code reads it from ~/.claude/skills/spur-board, Codex from ~/.codex/skills/spur-board ($CODEX_HOME/skills/spur-board when set). No restart is needed; doctor keeps listing a session after it re-reads.',
-    );
+    expect(check?.fix).toBe(stopAndWake('1 session', ': old'));
   });
 
   it('passes when only sessions outside the configured projects are old or undated', async () => {
@@ -857,9 +853,136 @@ describe('board doctor', () => {
     const value = await run(['doctor', '--json'], fake);
     const check = value.checks.find((entry) => entry.id === 'sessions.stale');
     expect(check?.status).toBe('warning');
-    expect(check?.fix).toBe(
-      'Ask sessions started before the last skill install to re-read the spur-board skill (SKILL.md and references/). Claude Code reads it from ~/.claude/skills/spur-board, Codex from ~/.codex/skills/spur-board ($CODEX_HOME/skills/spur-board when set). No restart is needed; doctor keeps listing a session after it re-reads. Ask connected sessions whose start time is unavailable to re-read it too.',
+    expect(check?.fix).toBe(`${stopAndWake('sessions', '')} ${undatedToo}`);
+  });
+
+  const reloadsPath = '/v1/skills/reloads';
+  const fresh = '2026-11-04T09:00:01.000Z';
+  const reloadRecords = [
+    { id: 'delivered', state: 'delivered', queuedAt: fresh },
+    { id: 'failed', state: 'failed', queuedAt: fresh },
+    { id: 'pending', state: 'pending', queuedAt: fresh },
+    { id: 'rolled', state: 'delivered', queuedAt: '2026-11-03T12:00:00.000Z' },
+    { id: 'undated-ok', state: 'delivered', queuedAt: fresh },
+  ];
+  function reloadFetcher(
+    requests: { url: string; init: RequestInit | undefined }[],
+    reply: () => Response = () =>
+      Response.json({
+        ok: true,
+        requestId: 'req-1',
+        value: { version: '1.2.3', sessions: reloadRecords },
+      }),
+  ): DoctorPorts['fetcher'] {
+    return (input, init) => {
+      if (!(input instanceof URL)) throw new Error('Expected a URL.');
+      if (input.pathname === reloadsPath) {
+        requests.push({ url: input.href, init });
+        return Promise.resolve(reply());
+      }
+      return ports().fetcher(input, init);
+    };
+  }
+
+  it('drops delivered sessions, keeps queued ones apart and lists the rest to stop and wake', async () => {
+    const requests: { url: string; init: RequestInit | undefined }[] = [];
+    const value = await run(
+      ['doctor', '--json'],
+      ports({
+        sessions: () => [
+          session('delivered', 'worker', oldStart),
+          session('failed', 'worker', oldStart),
+          session('missing', 'worker', oldStart),
+          session('pending', 'worker', oldStart),
+          session('rolled', 'worker', oldStart),
+          session('undated-ok', 'worker', undefined),
+          session('fresh', 'worker', Date.parse('2026-11-04T10:00:00.000Z')),
+        ],
+        fetcher: reloadFetcher(requests),
+      }),
     );
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.url).toBe(`http://127.0.0.1:4311${reloadsPath}`);
+    expect(requests[0]?.init?.method).toBe('POST');
+    expect(requests[0]?.init?.body).toBe(
+      JSON.stringify({
+        version: '1.2.3',
+        sessions: ['delivered', 'failed', 'missing', 'pending', 'rolled', 'undated-ok'],
+      }),
+    );
+    expect(value.exitCode).toBe(0);
+    expect(value.checks.find((entry) => entry.id === 'sessions.stale')).toEqual({
+      id: 'sessions.stale',
+      status: 'warning',
+      blocking: false,
+      fix: `${stopAndWake('3 sessions', ': failed, missing, rolled')} The board's reload message for 1.2.3 is still queued for 1 session: pending; rerun board doctor in a minute.`,
+    });
+  });
+
+  it('passes when every stale session got the reload message after the last install', async () => {
+    const requests: { url: string; init: RequestInit | undefined }[] = [];
+    const value = await run(
+      ['doctor', '--json'],
+      ports({
+        sessions: () => [
+          session('delivered', 'worker', oldStart),
+          session('undated-ok', 'worker', undefined),
+        ],
+        fetcher: reloadFetcher(requests),
+      }),
+    );
+    expect(requests).toHaveLength(1);
+    expect(value.checks.find((entry) => entry.id === 'sessions.stale')).toMatchObject({
+      status: 'pass',
+      fix: null,
+    });
+  });
+
+  it('lists every stale session to stop and wake when the reload records are unavailable', async () => {
+    const requests: { url: string; init: RequestInit | undefined }[] = [];
+    const value = await run(
+      ['doctor', '--json'],
+      ports({
+        sessions: () => [
+          session('delivered', 'worker', oldStart),
+          session('pending', 'worker', oldStart),
+          session('undated-ok', 'worker', undefined),
+        ],
+        fetcher: reloadFetcher(requests, () =>
+          Response.json({ code: 'not_found' }, { status: 404 }),
+        ),
+      }),
+    );
+    expect(requests).toHaveLength(1);
+    expect(value.checks.find((entry) => entry.id === 'sessions.stale')?.fix).toBe(
+      `${stopAndWake('2 sessions', ': delivered, pending')} ${undatedToo}`,
+    );
+  });
+
+  it('sends no reload lookup without an install stamp and drops the version from the fix', async () => {
+    const requests: { url: string; init: RequestInit | undefined }[] = [];
+    const value = await run(
+      ['doctor', '--json'],
+      ports({
+        readText(path) {
+          if (path.endsWith('.spur-board-install.json')) throw new Error('missing');
+          return ports().readText(path);
+        },
+        sessions: () => [session('undated', 'worker', undefined)],
+        fetcher: reloadFetcher(requests),
+      }),
+    );
+    expect(requests).toEqual([]);
+    expect(value.checks.find((entry) => entry.id === 'sessions.stale')?.fix).toBe(
+      `${stopAndWake('sessions', '', '')} ${undatedToo}`,
+    );
+  });
+
+  it('sends no reload lookup when no session is stale or undated', async () => {
+    const requests: { url: string; init: RequestInit | undefined }[] = [];
+    const value = await run(['doctor', '--json'], ports({ fetcher: reloadFetcher(requests) }));
+    expect(requests).toEqual([]);
+    expect(value.checks.find((entry) => entry.id === 'sessions.stale')?.status).toBe('pass');
   });
 });
 

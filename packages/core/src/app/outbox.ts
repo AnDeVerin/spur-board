@@ -104,6 +104,8 @@ const doorbellPayload = z.strictObject({
   text: z.string(),
   notificationId: id.optional(),
   ring: z.int().min(1).max(3).optional(),
+  /** When a skill reload message was queued; rings never carry it. */
+  queuedAt: z.iso.datetime().optional(),
 });
 
 /** A row's kind with its parsed payload. */
@@ -173,6 +175,30 @@ export async function enqueueDoorbell(
   });
   if (row.id === null) throw new Error('Doorbell cannot be blocked by gateway scan');
   return row.id;
+}
+
+/** The key holds no install time, so a session gets at most one reload message per version. */
+export function skillReloadKey(version: string, session: string): string {
+  return `doorbell:skill-reload:${version}:${session}`;
+}
+
+/**
+ * Asks one session to re-read the board skill after an install of `version`; `queuedAt` lets a
+ * reader tell a message older than the latest install. Returns whether this call inserted it.
+ */
+export async function enqueueSkillReload(
+  trx: Trx,
+  input: { session: string; version: string; text: string; at: Date },
+): Promise<boolean> {
+  const row = await insertOutbox(trx, {
+    kind: 'doorbell',
+    dedupeKey: skillReloadKey(input.version, input.session),
+    payload: { session: input.session, text: input.text, queuedAt: input.at.toISOString() },
+    parent: null,
+    at: input.at,
+  });
+  if (row.id === null) throw new Error('Doorbell cannot be blocked by gateway scan');
+  return row.inserted;
 }
 
 /** The key includes the item raise, so a restart cannot add a second line. */

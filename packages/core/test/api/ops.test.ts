@@ -332,6 +332,18 @@ describe('catalog HTTP API', () => {
         headers: json,
         payload: JSON.stringify({ hash }),
       },
+      {
+        method: 'POST' as const,
+        url: '/v1/skills/reload',
+        headers: json,
+        payload: JSON.stringify({ version: '1.2.3' }),
+      },
+      {
+        method: 'POST' as const,
+        url: '/v1/skills/reloads',
+        headers: json,
+        payload: JSON.stringify({ version: '1.2.3', sessions: ['session-1'] }),
+      },
       post({ task: 'PROJ-123' }),
     ];
     try {

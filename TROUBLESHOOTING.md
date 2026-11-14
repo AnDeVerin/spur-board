@@ -79,12 +79,18 @@ passes while `skills.codex_visibility` fails or warns: fix that check first, the
 
 Lists live Spur sessions whose `SPUR_PROJECT` is a configured `spurProjects` name and that
 started before the latest `board skills install`; sessions of other projects, or with no
-project, are left out. A session does not reload new skill files on its own: ask each listed
-session to re-read the `spur-board` skill, SKILL.md and references/. Claude Code reads it from
-`~/.claude/skills/spur-board`, Codex from `~/.codex/skills/spur-board`
-(`$CODEX_HOME/skills/spur-board` when set). No restart is needed. Doctor compares start times
-with the install stamp, so a session stays listed after it re-reads. When a connected session's
-start time cannot be read, the fix asks it to re-read the skill too.
+project, are left out. A session does not reload new skill files on its own. When an install
+changes the version, `board skills install` asks the daemon to send each live session of a
+configured project one message to read the skill file again; a session that got it after the
+latest install drops out of this check. A session whose message is still queued is named in a
+separate sentence: rerun doctor in a minute. Stop and wake each remaining listed session in Spur:
+that restarts the agent and keeps the conversation. A session can instead read
+`~/.claude/skills/spur-board/SKILL.md` (Claude Code) or `~/.codex/skills/spur-board/SKILL.md`
+(Codex, `$CODEX_HOME/skills/spur-board/SKILL.md` when set) again, but doctor compares start
+times with the install stamp and keeps listing it. When a connected session's start time cannot
+be read, the fix names it too. After a rollback to a version that was installed before, the
+sessions that already got that version's message get no new one and stay listed: stop and wake
+them.
 
 ### http.port
 

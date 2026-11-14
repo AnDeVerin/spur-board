@@ -14,6 +14,12 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { CommandError } from '../app/commands.ts';
 import { dispatchOperation, type OperationRegistry } from '../app/operations.ts';
+import {
+  RELOAD_SESSIONS,
+  SKILL_VERSION,
+  requestSkillReload,
+  skillReloads,
+} from '../app/skill-reload.ts';
 import { requestToken, tokenStatusByHash } from '../app/tokens.ts';
 import { identifyCaller, type IdentifiedCaller, type IdentityPorts } from './identity.ts';
 
@@ -32,6 +38,8 @@ export interface ApiOptions extends IdentityPorts {
   readonly doctor?: () => Promise<DoctorReport>;
   /** Whether every non-blind source has completed a poll; read per request, with no probes. */
   readonly firstPollDone?: () => Promise<boolean>;
+  /** The installed spur-board version the daemon runs; absent, skill reload is unavailable. */
+  readonly productVersion?: string;
   readonly logRequest: (entry: {
     requestId: string;
     method: string;
@@ -76,6 +84,8 @@ const doctorReportSchema = z.strictObject({
 });
 
 const tokenStatusSchema = z.strictObject({ hash: tokenRequestSchema.shape.hash });
+const skillReloadSchema = z.strictObject({ version: SKILL_VERSION });
+const skillReloadsSchema = z.strictObject({ version: SKILL_VERSION, sessions: RELOAD_SESSIONS });
 
 function header(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? undefined : value;
@@ -221,6 +231,58 @@ export async function createApiServer(options: ApiOptions): Promise<FastifyInsta
     );
     return reply.send(
       successEnvelopeSchema.parse({ ok: true, requestId: request.id, value: { status } }),
+    );
+  });
+
+  /** Anonymous: the message is fixed and goes at most once per session for the running version. */
+  app.post('/v1/skills/reload', async (request, reply) => {
+    if (!options.ready()) throw notReady();
+    if (options.productVersion === undefined) {
+      throw new CommandError('not_found', 'Skill reload is unavailable.');
+    }
+    const parsed = skillReloadSchema.safeParse(request.body);
+    if (!parsed.success) {
+      throw new CommandError(
+        'usage',
+        'Send {"version": "<x.y.z>"} with the installed spur-board version.',
+      );
+    }
+    if (parsed.data.version !== options.productVersion) {
+      throw new CommandError(
+        'version_mismatch',
+        `The daemon runs ${options.productVersion}. Run \`board service restart\` to start the installed version.`,
+      );
+    }
+    const { version } = parsed.data;
+    const { queued } = await requestSkillReload(
+      options.store,
+      options.config,
+      version,
+      new Date(options.clock.now()),
+    );
+    return reply.send(
+      successEnvelopeSchema.parse({ ok: true, requestId: request.id, value: { version, queued } }),
+    );
+  });
+
+  /** Session ids travel in the body because request logs record the URL; only named ids answer. */
+  app.post('/v1/skills/reloads', async (request, reply) => {
+    if (!options.ready()) throw notReady();
+    const parsed = skillReloadsSchema.safeParse(request.body);
+    if (!parsed.success) {
+      throw new CommandError(
+        'usage',
+        'Send {"version": "<x.y.z>", "sessions": ["<session id>", ...]} with 1 to 200 session ids.',
+      );
+    }
+    const { version, sessions } = parsed.data;
+    const records = await skillReloads(options.store.db, version, sessions);
+    return reply.send(
+      successEnvelopeSchema.parse({
+        ok: true,
+        requestId: request.id,
+        value: { version, sessions: records },
+      }),
     );
   });
 

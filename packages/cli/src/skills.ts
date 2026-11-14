@@ -44,8 +44,15 @@ interface InstallStamp {
   installedAt: string;
 }
 
-async function packageVersion(packageRoot: string): Promise<string> {
-  const manifest = JSON.parse(await readFile(join(packageRoot, 'package.json'), 'utf8')) as {
+function bundledRoot(packageRoot: string | undefined): string {
+  return resolve(packageRoot ?? fileURLToPath(new URL('../', import.meta.url)));
+}
+
+/** The spur-board version whose skills `installSkills` copies from `packageRoot`. */
+export async function bundledSkillVersion(packageRoot?: string): Promise<string> {
+  const manifest = JSON.parse(
+    await readFile(join(bundledRoot(packageRoot), 'package.json'), 'utf8'),
+  ) as {
     version?: unknown;
   };
   if (typeof manifest.version !== 'string' || !manifest.version) {
@@ -344,12 +351,10 @@ async function installIntoHome(
 export async function installSkills(
   options: InstallSkillsOptions = {},
 ): Promise<SkillInstallResult[]> {
-  const packageRoot = resolve(
-    options.packageRoot ?? fileURLToPath(new URL('../', import.meta.url)),
-  );
+  const packageRoot = bundledRoot(options.packageRoot);
   const home = await realpath(resolve(options.home ?? homedir()));
   const env = options.env ?? process.env;
-  const version = await packageVersion(packageRoot);
+  const version = await bundledSkillVersion(packageRoot);
   // Check all assets before changing an existing installation.
   await Promise.all(
     skills.map((skill) => requireSource(join(packageRoot, 'skills', skill.source))),

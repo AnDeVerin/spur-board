@@ -369,7 +369,7 @@ async function liveSession(trx: Trx, id: string): Promise<Session | undefined> {
 }
 
 /** Spur lifecycle states of a session that can no longer read a ring. */
-const FINISHED_STATES = ['killed', 'stopped', 'errored', 'completed'];
+export const FINISHED_STATES = ['killed', 'stopped', 'errored', 'completed'];
 
 /** Stricter than `liveSession`: a role resolved by Spur project must also be in Spur's list. */
 function liveInProject(session: Session): boolean {
