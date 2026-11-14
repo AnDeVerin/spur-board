@@ -39,6 +39,8 @@ import {
   requestToken,
   verifyOperatorToken,
 } from '../../src/app/tokens.ts';
+import { renderBody } from '../../src/app/outbox.ts';
+import { renderedLength } from '../support/rendered.ts';
 import { sql } from 'kysely';
 
 const DAY_MS = 86_400_000;
@@ -2559,10 +2561,9 @@ describe('operator token revoke from the gateway', () => {
     expect(responses).toEqual(['Posted 1 operator token to the feed.']);
   });
 
-  it('puts Revoke buttons on the first 20 tokens and counts the rest', async () => {
-    const { store, inbound, responses, tokens } = await tokenBoard();
+  async function approvedTokens(store: Store, count: number, folder: string) {
     await scanTransaction(store, config, async (trx) => {
-      for (let i = 1; i <= 21; i++) {
+      for (let i = 1; i <= count; i++) {
         const item = await raiseOperatorItem(trx, {
           itemKey: `token:t${String(i)}`,
           kind: 'token_request',
@@ -2577,7 +2578,7 @@ describe('operator token revoke from the gateway', () => {
           .values({
             name: `t${String(i)}`,
             hash: createHash('sha256').update(String(i)).digest('hex'),
-            folder: 'workspace',
+            folder,
             host: 'local',
             status: 'approved',
             requested_at: at,
@@ -2588,17 +2589,45 @@ describe('operator token revoke from the gateway', () => {
           .execute();
       }
     });
-    await inbound.sink(tokens('list-long'));
+  }
+
+  async function listPayload(store: Store, key: string) {
     const list = await store.db
       .selectFrom('outbox')
       .select('payload')
-      .where('dedupe_key', '=', 'feed.line:token-list:list-long')
+      .where('dedupe_key', '=', `feed.line:token-list:${key}`)
       .executeTakeFirstOrThrow();
-    const payload = JSON.parse(list.payload) as { text: string; actions: unknown[] };
+    return JSON.parse(list.payload) as { text: string; actions: unknown[] };
+  }
+
+  it('lists and puts Revoke buttons on the first 20 tokens and counts the rest', async () => {
+    const { store, inbound, responses, tokens } = await tokenBoard();
+    await approvedTokens(store, 21, 'workspace');
+    await inbound.sink(tokens('list-long'));
+    const payload = await listPayload(store, 'list-long');
     expect(payload.actions).toHaveLength(20);
-    expect(payload.text.split('\n')).toHaveLength(22);
-    expect(payload.text.endsWith('\n1 more: `board token list`')).toBe(true);
+    const lines = payload.text.split('\n');
+    expect(lines).toHaveLength(21);
+    expect(lines.slice(0, 20)).toEqual(
+      Array.from({ length: 20 }, (_, i) => `t${String(i + 1)} (approved), workspace`),
+    );
+    expect(lines[20]).toBe('1 more: `board token list`');
     expect(responses).toEqual(['Posted 21 operator tokens to the feed.']);
+  });
+
+  it('keeps a list of tokens with all-escaped folders within one 2900-character part', async () => {
+    const { store, inbound, responses, tokens } = await tokenBoard();
+    await approvedTokens(store, 20, '&'.repeat(1024));
+    await inbound.sink(tokens('list-escaped'));
+    const payload = await listPayload(store, 'list-escaped');
+    const lines = payload.text.split('\n');
+    const shown = lines.length - 1;
+    expect(shown).toBeGreaterThan(0);
+    expect(shown).toBeLessThan(20);
+    expect(payload.actions).toHaveLength(shown);
+    expect(lines.at(-1)).toBe(`${String(20 - shown)} more: \`board token list\``);
+    expect(renderedLength(renderBody('spur-board', payload.text))).toBeLessThanOrEqual(2900);
+    expect(responses).toEqual(['Posted 20 operator tokens to the feed.']);
   });
 
   it('retries a failed /board tokens from its item and posts the list once', async () => {

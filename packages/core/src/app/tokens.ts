@@ -33,8 +33,15 @@ const CARD_FOLDER = 400;
 const LIST_NAME = 64;
 const LIST_FOLDER = 120;
 const LABEL_NAME = 40;
-/** Tokens in one token-list feed line that get a Revoke button. */
+/** Tokens in one token-list feed line that get a row and a Revoke button. */
 const LIST_BUTTONS = 20;
+/**
+ * Escaped characters the rows and the `N more` line of a token list may take, each row counted
+ * with its newline and quote marks; the feed key fills the rest of one 2900-character part.
+ */
+const LIST_TEXT = 2800;
+/** Kept for the `N more` line. */
+const LIST_MORE = 40;
 /** An approved token's last use is written at most once per token per this interval. */
 const TOKEN_USE_INTERVAL_MS = 5 * 60_000;
 /** The longest attention line; the doctor fix limit is the same. */
@@ -57,6 +64,11 @@ function cardOf(row: Row<'operator_token'>, approvedAt: string) {
     createdAt: row.requested_at,
     approvedAt,
   };
+}
+
+/** The length of `text` once a messenger escapes it: `&`, `<` and `>` take up to five characters. */
+function escapedLength(text: string): number {
+  return text.length + 4 * (text.match(/[&<>]/g)?.length ?? 0);
 }
 
 export function effectiveStatus(row: Row<'operator_token'>, at: Date): OperatorTokenStatus {
@@ -362,30 +374,34 @@ export function tokenListQuery(clock: { now(): number }): Query<'token.list'> {
 
 /**
  * Posts one feed line listing the approved and unexpired pending tokens under `key`, so a replay
- * of the same command posts none; the first ones get a Revoke button. Returns how many are
- * listed and writes nothing for none.
+ * of the same command posts none. The first ones that fit 20 rows and the escaped text budget
+ * get a row and a Revoke button; the rest are counted. Returns how many are active and writes
+ * nothing for none.
  */
 export async function postTokenList(trx: Trx, input: { key: string; at: Date }): Promise<number> {
   const rows = (await trx.selectFrom('operator_token').selectAll().orderBy('id').execute())
     .map((row) => ({ row, status: effectiveStatus(row, input.at) }))
     .filter(({ status }) => status === 'approved' || status === 'pending');
   if (rows.length === 0) return 0;
-  const lines = rows.map(
-    ({ row, status }) =>
-      `${capPoints(row.name, LIST_NAME)} (${status}), ${capPoints(row.folder, LIST_FOLDER)}`,
-  );
-  const hidden = rows.length - LIST_BUTTONS;
+  const lines: string[] = [];
+  let used = LIST_MORE;
+  for (const { row, status } of rows.slice(0, LIST_BUTTONS)) {
+    const line = `${capPoints(row.name, LIST_NAME)} (${status}), ${capPoints(row.folder, LIST_FOLDER)}`;
+    used += escapedLength(line) + 3;
+    if (used > LIST_TEXT) break;
+    lines.push(line);
+  }
+  const shown = rows.slice(0, lines.length);
+  const hidden = rows.length - shown.length;
   if (hidden > 0) lines.push(`${String(hidden)} more: \`board token list\``);
   await enqueueBoardFeedLine(trx, {
     dedupeKey: `feed.line:token-list:${input.key}`,
     itemKey: `token-list:${input.key}`,
     text: lines.join('\n'),
     title: 'Operator tokens',
-    actions: rows
-      .slice(0, LIST_BUTTONS)
-      .map(({ row }) =>
-        revokeAction(row.item_id, row.name, `Revoke ${capPoints(row.name, LABEL_NAME)}`),
-      ),
+    actions: shown.map(({ row }) =>
+      revokeAction(row.item_id, row.name, `Revoke ${capPoints(row.name, LABEL_NAME)}`),
+    ),
     at: input.at,
   });
   return rows.length;
