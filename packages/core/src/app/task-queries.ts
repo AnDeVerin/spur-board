@@ -6,10 +6,11 @@ import {
   type ActorId,
   type Config,
   type EventKind,
+  type GateReason,
 } from '@spur-board/contracts';
 import type { Selectable } from 'kysely';
 import { dispatchHolds } from '../domain/dispatch.ts';
-import { explainGates } from '../domain/gates.ts';
+import { evaluateGate, explainGates, HOLD_ONLY } from '../domain/gates.ts';
 import type { TaskTable, TurnTable } from '../store/schema.ts';
 import { authorize, type ResolvedTarget } from './authorize.ts';
 import { authorizationTarget, blockView, commentView, taskTarget } from './blocks.ts';
@@ -27,6 +28,13 @@ type Turn = Selectable<TurnTable>;
 
 /** How many of the last moves `task.get --why` shows. */
 const WHY_MOVES = 5;
+
+/** The fact each hold-only gate reason waits for, as `--why` names it. */
+const WAITING_FOR: Partial<Record<GateReason, string>> = {
+  checks_pending: 'waiting for CI',
+  mergeable_unknown: 'waiting for GitHub to compute mergeability',
+  comment_history_incomplete: 'waiting for the board to read the full PR comment history',
+};
 
 const EVENT_SUMMARIES = {
   head_moved: 'Pull request head moved',
@@ -221,8 +229,28 @@ export function createTaskQueries(deps: {
         checksWaivedBy: null,
       };
     }
-    const { gates, checksWaivedBy } = explainGates(read.input.facts, read.input.project);
-    return { ...shared, dispatcher: mode, holds: dispatchHolds(read.input), gates, checksWaivedBy };
+    const { facts } = read.input;
+    const { gates, checksWaivedBy } = explainGates(facts, read.input.project);
+    const gate = evaluateGate(column, facts, read.input.project);
+    const head = facts.pr?.headSha.toLowerCase();
+    const waiting =
+      gate.ok || head === undefined
+        ? []
+        : gate.reasons
+            .filter((reason) => HOLD_ONLY.has(reason))
+            .map((reason) => ({
+              reason,
+              head,
+              text: `${WAITING_FOR[reason] ?? `waiting for ${reason}`} on ${head}`,
+            }));
+    return {
+      ...shared,
+      dispatcher: mode,
+      holds: dispatchHolds(read.input),
+      gates,
+      checksWaivedBy,
+      ...(waiting.length === 0 ? {} : { waiting }),
+    };
   }
   const get: Query<'task.get'> = {
     id: 'task.get',

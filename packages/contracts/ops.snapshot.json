@@ -1,5 +1,5 @@
 {
-  "version": "a08d8dd08b69a6f5f65f9cc2d48dde53c2bdf8ff21e3330f8bb0edaf32ac1ee7",
+  "version": "309486f5b05d79af34d50c27d6d1eb6afb3944e7e5dbeec9be6b3fb96ede547a",
   "grants": [
     "operator",
     "project-agent",
@@ -3628,6 +3628,47 @@
                   "description": "A column move of a task."
                 },
                 "description": "The last 5 column moves, oldest first."
+              },
+              "waiting": {
+                "description": "Facts the task waits for that GitHub has not settled yet; absent when none.",
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "reason": {
+                      "type": "string",
+                      "enum": [
+                        "no_pr",
+                        "pr_closed",
+                        "pr_draft",
+                        "checks_red",
+                        "checks_pending",
+                        "conflict",
+                        "mergeable_unknown",
+                        "external_comments",
+                        "comment_history_incomplete",
+                        "no_submit_on_head",
+                        "no_review_on_head",
+                        "not_approved",
+                        "not_merged"
+                      ],
+                      "description": "The gate reason that waits on the fact."
+                    },
+                    "head": {
+                      "type": "string",
+                      "pattern": "^[0-9a-f]{40,64}$",
+                      "description": "Head commit of the pull request the fact is about."
+                    },
+                    "text": {
+                      "type": "string",
+                      "description": "The fact in one line, e.g. waiting for CI on <sha>."
+                    }
+                  },
+                  "required": ["reason", "head", "text"],
+                  "additionalProperties": false,
+                  "description": "One fact the task waits for."
+                }
               }
             },
             "required": [
