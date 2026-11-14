@@ -42,7 +42,12 @@ import type { ReapplyInbound } from './items.ts';
 import { dispatchOperation, type OperationRegistry } from './operations.ts';
 import { enqueueConversationClose } from './outbox.ts';
 import { redactPrivateReply, redactSecretMatches } from './secrets.ts';
-import { decideTokenInTransaction, postTokenList, tokenRevokeMutation } from './tokens.ts';
+import {
+  decideTokenInTransaction,
+  effectiveStatus,
+  postTokenList,
+  tokenRevokeMutation,
+} from './tokens.ts';
 
 type Trx = Kysely<Tables>;
 type Item = Row<'operator_item'>;
@@ -679,7 +684,8 @@ export function createInbound(input: {
 
   /**
    * A token press decides once per dedupe key, live or replayed from its failure item. Revoke
-   * names the token of the item's current request and runs the one revoke path as the operator.
+   * names the token of the item's current request and runs the one revoke path as the operator;
+   * it refuses a request that expired or was denied.
    */
   function decideToken(trx: Trx, key: string, token: TokenPress, at: string) {
     return replayOperation(trx, {
@@ -693,10 +699,15 @@ export function createInbound(input: {
         if (token.decision === 'revoke') {
           const row = await trx
             .selectFrom('operator_token')
-            .select('name')
+            .selectAll()
             .where('item_id', '=', token.itemId)
             .executeTakeFirst();
           if (row === undefined) throw new CommandError('not_found', 'Token was not found.');
+          // A stale button of an expired or denied request must not revoke and reserve its name.
+          const status = effectiveStatus(row, new Date(at));
+          if (status === 'expired' || status === 'denied') {
+            return { status: 'applied' as const, response: `${row.name}: request already ended` };
+          }
           const revoked = await tokenRevokeMutation.run(
             trx,
             { name: row.name },

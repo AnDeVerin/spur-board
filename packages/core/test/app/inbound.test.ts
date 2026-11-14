@@ -2461,6 +2461,29 @@ describe('operator token revoke from the gateway', () => {
     expect(responses).toEqual(['desk: approved', 'not allowed', 'not allowed']);
   });
 
+  it('refuses a Revoke click on an expired request with no side effects', async () => {
+    const { inbound, responses, request, press, outboxKeys, status, events } = await tokenBoard();
+    const item = await request('old', now - 20 * 60 * 1000);
+    const keys = await outboxKeys();
+    await inbound.sink(press(`token:${String(item)}:revoke`, 'revoke-old'));
+    expect(await status('old')).toBe('pending');
+    expect(await outboxKeys()).toEqual(keys);
+    expect(await events('token_revoked')).toEqual([]);
+    expect(responses).toEqual(['old: request already ended']);
+  });
+
+  it('refuses a Revoke click on a denied request with no side effects', async () => {
+    const { inbound, responses, request, press, outboxKeys, status, events } = await tokenBoard();
+    const item = await request('desk');
+    await inbound.sink(press(`token:${String(item)}:deny`, 'deny-1'));
+    const keys = await outboxKeys();
+    await inbound.sink(press(`token:${String(item)}:revoke`, 'revoke-1'));
+    expect(await status('desk')).toBe('denied');
+    expect(await outboxKeys()).toEqual(keys);
+    expect(await events('token_revoked')).toEqual([]);
+    expect(responses).toEqual(['desk: denied', 'desk: request already ended']);
+  });
+
   it('posts the active tokens with Revoke buttons for /board tokens once per command', async () => {
     const { store, inbound, responses, request, press, tokens, outboxKeys } = await tokenBoard();
     await request('old', now - 20 * 60 * 1000);

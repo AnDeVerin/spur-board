@@ -56,7 +56,7 @@ function cardOf(row: Row<'operator_token'>, approvedAt: string) {
   };
 }
 
-function effectiveStatus(row: Row<'operator_token'>, at: Date): OperatorTokenStatus {
+export function effectiveStatus(row: Row<'operator_token'>, at: Date): OperatorTokenStatus {
   return row.status === 'pending' && row.expires_at <= at.toISOString() ? 'expired' : row.status;
 }
 
