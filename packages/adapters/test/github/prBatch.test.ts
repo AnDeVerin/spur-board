@@ -2442,37 +2442,48 @@ describe('PR discovery reads', () => {
         fetcher.mockClear();
         const batch = await source.poll(context(prs, accepted));
         if (accept && batch.cursor !== undefined) accepted = batch.cursor;
-        return { batch, details: numbersSent(fetcher, 'PrDetails').flat() };
+        const delivered = okFacts(batch).map((facts) => facts.number);
+        return { batch, details: numbersSent(fetcher, 'PrDetails').flat(), delivered };
       },
     };
   }
 
   it.each(['MERGED', 'OPEN'] as const)(
-    'does not read an unrequested %s PR again at the updatedAt of its last read',
+    'sends the last read facts of an unrequested %s PR at the same updatedAt without reading it',
     async (state) => {
       const run = scenario(state);
       run.answers.listed.set(9, first);
-      expect((await run.poll()).details).toEqual([9]);
+      const read = await run.poll();
+      expect(read.details).toEqual([9]);
 
       const { batch, details } = await run.poll();
 
       expect(details).toEqual([]);
       expect(batch.entities).toEqual([]);
-      expect(batch.items).toEqual([]);
+      expect(batch.items).toEqual(read.batch.items);
+      expect(batch.items).toHaveLength(1);
       expect(batch.complete).toBe(true);
       expect(batch.cursor).toBe(first);
     },
   );
 
-  it('reads a PR again when core did not accept the batch of its last read', async () => {
+  it('sends the facts again when core did not accept the batch of the last read', async () => {
     const run = scenario('MERGED');
     run.answers.listed.set(9, first);
     expect((await run.poll([], false)).details).toEqual([9]);
 
     const again = await run.poll();
-    expect(again.details).toEqual([9]);
+    expect(again).toMatchObject({ details: [], delivered: [9] });
     expect(again.batch.cursor).toBe(first);
-    expect((await run.poll()).details).toEqual([]);
+  });
+
+  it('sends the facts again at the cursor tie after a batch core did not accept', async () => {
+    const run = scenario('MERGED');
+    run.answers.listed.set(9, first);
+    expect((await run.poll()).batch.cursor).toBe(first);
+    expect(await run.poll([], false)).toMatchObject({ details: [], delivered: [9] });
+
+    expect(await run.poll()).toMatchObject({ details: [], delivered: [9] });
   });
 
   it('reads the PR again once discovery lists it newer', async () => {
@@ -2482,7 +2493,7 @@ describe('PR discovery reads', () => {
     run.answers.listed.set(9, later);
 
     expect((await run.poll()).details).toEqual([9]);
-    expect((await run.poll()).details).toEqual([]);
+    expect(await run.poll()).toMatchObject({ details: [], delivered: [9] });
   });
 
   it('does not read a PR last read as requested once it is no longer requested', async () => {
@@ -2490,7 +2501,7 @@ describe('PR discovery reads', () => {
     run.answers.listed.set(9, first);
     expect((await run.poll([refOf(9)])).details).toEqual([9]);
 
-    expect((await run.poll()).details).toEqual([]);
+    expect(await run.poll()).toMatchObject({ details: [], delivered: [9] });
   });
 
   it('reads a PR whose last read failed', async () => {
@@ -2510,7 +2521,7 @@ describe('PR discovery reads', () => {
     run.answers.listed.set(9, first);
     await run.poll();
     run.answers.listed.delete(9);
-    expect((await run.poll()).details).toEqual([]);
+    expect(await run.poll()).toMatchObject({ details: [], delivered: [] });
     run.answers.listed.set(9, first);
 
     expect((await run.poll()).details).toEqual([9]);
@@ -2526,7 +2537,7 @@ describe('PR discovery reads', () => {
     expect(failed.batch.complete).toBe(false);
     run.answers.failing = undefined;
 
-    expect((await run.poll()).details).toEqual([]);
+    expect(await run.poll()).toMatchObject({ details: [], delivered: [9] });
   });
 
   it('reads each PR once in a fresh instance, then skips it', async () => {
@@ -2536,7 +2547,7 @@ describe('PR discovery reads', () => {
     run.restart();
 
     expect((await run.poll()).details).toEqual([9]);
-    expect((await run.poll()).details).toEqual([]);
+    expect(await run.poll()).toMatchObject({ details: [], delivered: [9] });
   });
 });
 

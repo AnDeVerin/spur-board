@@ -101,11 +101,11 @@ export function githubSources(config: Config, options: GithubOptions): GithubSou
       const keys = projectKeyRule(project.tracker, project.link, repo);
       // Per source: the facts of each requested PR's last full read, keyed by number.
       const cache = new Map<number, CachedPr>();
-      // Per source: the `updatedAt` of each discovered PR's last full read, keyed by number, for
-      // the PRs the last successful discovery listed. A discovered PR core does not request is
-      // not read again until discovery shows it newer. Kept in memory only: after a restart each
-      // PR at the cursor tie is read once more, then skipped.
-      const discoveryReads = new Map<number, string>();
+      // Per source: the facts of each discovered PR's last full read, keyed by number, for the
+      // PRs the last successful discovery listed. A discovered PR core does not request is not
+      // read again until discovery shows it newer; its facts are sent again instead. Kept in
+      // memory only: after a restart each PR at the cursor tie is read once more.
+      const discoveryReads = new Map<number, PrFacts>();
       sources.push({
         repo,
         reserveRemaining: config.github.reserveRemaining,
@@ -671,7 +671,7 @@ interface PollArgs {
   ctx: PollContext;
   reserveRemaining: number;
   cache: Map<number, CachedPr>;
-  discoveryReads: Map<number, string>;
+  discoveryReads: Map<number, PrFacts>;
 }
 async function pollRepository({
   id,
@@ -741,17 +741,22 @@ async function pollRepository({
       if (found.numbers.includes(number)) discoveredOk = false;
     }
   };
-  // A discovered PR not requested and not newer than its last full read is skipped once core's
-  // accepted cursor covers the listing; a read core never accepted is read again. A skipped PR is
-  // not unread, so it neither holds the cursor nor adds an entity.
-  const readBefore = (number: number): boolean => {
+  // A discovered PR not requested and not newer than its last full read is not read: its facts
+  // go out again, so a batch core did not accept loses nothing. Like a cache re-emit, the item
+  // carries no `continuation`; the PR is not unread, holds no cursor and adds no entity.
+  const discovered: number[] = [];
+  for (const number of found.numbers) {
+    if (byNumber.has(number)) continue;
     const read = discoveryReads.get(number);
     const listed = discovery.updatedAt.get(number);
-    if (read === undefined || listed === undefined || ctx.cursor === undefined) return false;
-    const listedMs = Date.parse(listed);
-    return listedMs <= Date.parse(read) && listedMs <= Date.parse(ctx.cursor);
-  };
-  const discovered = found.numbers.filter((number) => !byNumber.has(number) && !readBefore(number));
+    if (
+      read !== undefined &&
+      listed !== undefined &&
+      Date.parse(listed) <= Date.parse(read.updatedAt)
+    )
+      acc.items.push({ kind: 'pr', facts: read });
+    else discovered.push(number);
+  }
   for (const chunk of [...chunks(changed, DETAIL_CHUNK), ...chunks(discovered, DETAIL_CHUNK)]) {
     if (acc.budget !== undefined && acc.budget.remaining < reserveRemaining) {
       unread(chunk);
@@ -775,7 +780,7 @@ async function pollRepository({
           if (found.numbers.includes(number)) discoveredOk = false;
           continue;
         }
-        if (found.numbers.includes(number)) discoveryReads.set(number, facts.updatedAt);
+        if (found.numbers.includes(number)) discoveryReads.set(number, facts);
         const entry = entries.get(number);
         if (entry !== undefined)
           cache.set(number, {
