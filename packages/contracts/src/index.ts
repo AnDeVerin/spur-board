@@ -72,7 +72,9 @@ export {
   type ErrorInput,
 } from './error-renderers.ts';
 export {
+  JIRA_PROJECT_KEY,
   REF_KINDS,
+  REF_NUMBER,
   actorIdSchema,
   blockIdSchema,
   commentIdSchema,
@@ -153,7 +155,9 @@ export {
   batchItemSchema,
   batchSchema,
   entityRefSchema,
+  prSourceId,
   sourceCursorSchema,
+  trackerSourceId,
   type Adapter,
   type AdapterCore,
   type AdapterErrorKind,

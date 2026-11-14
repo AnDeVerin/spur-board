@@ -1,5 +1,5 @@
 import { scanTransaction } from './secrets.ts';
-import type { Config } from '@spur-board/contracts';
+import { prSourceId, type Config } from '@spur-board/contracts';
 import type { Store } from '../store/store.ts';
 import { archiveTask } from './archive.ts';
 import { dispatchJournaled } from './dispatch.ts';
@@ -37,10 +37,13 @@ export async function tickBoard(deps: {
       if (task.terminal_at === null || task.terminal_at > slot || task.archive_slot_at === slot)
         continue;
       const project = config.projects.find((entry) => entry.id === task.project);
+      // Only the repos gate the slot, re-checked here at slot time: a terminal task has no open
+      // PR, which holds only once every repo polled completely, unblind, since its last change.
+      // Spur and the tracker are not checked: they cannot show an open PR.
       if (
         project === undefined ||
         project.repos.some((repo) => {
-          const source = `github:${project.id}:${repo.toLowerCase()}`;
+          const source = prSourceId(project.id, repo);
           const complete = completeSince.get(source);
           return (
             blind.has(source) ||

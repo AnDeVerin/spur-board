@@ -16,7 +16,15 @@ import {
 } from 'node:fs';
 import { basename, join } from 'node:path';
 import { startAdapters, type AdapterRunner } from '@spur-board/adapters';
-import { COLUMN_IDS, configSchema, err, userIdSchema, type Config } from '@spur-board/contracts';
+import {
+  COLUMN_IDS,
+  configSchema,
+  err,
+  prSourceId,
+  trackerSourceId,
+  userIdSchema,
+  type Config,
+} from '@spur-board/contracts';
 import { migrationsDir, openStore, readMigrations } from '@spur-board/core';
 import {
   acquireLock,
@@ -187,10 +195,8 @@ export function requiredSources(config: Pick<Config, 'projects'>): string[] {
   return [
     'spur',
     ...config.projects.flatMap((project) => [
-      project.tracker.type === 'jira'
-        ? `jira:${project.id}`
-        : `github-issues:${project.id}:${project.tracker.repo.toLowerCase()}`,
-      ...project.repos.map((repo) => `github:${project.id}:${repo.toLowerCase()}`),
+      trackerSourceId(project),
+      ...project.repos.map((repo) => prSourceId(project.id, repo)),
     ]),
   ];
 }

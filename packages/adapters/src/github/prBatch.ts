@@ -1,6 +1,8 @@
 import {
   AdapterError,
   DEFAULT_LINK,
+  JIRA_PROJECT_KEY,
+  REF_NUMBER,
   REVIEW_STATES,
   assertNever,
   prFactsSchema,
@@ -322,13 +324,16 @@ function feedbackOf(
 export function ticketKeys(title: string, branch: string, prefixes: readonly string[]): string[] {
   return scanKeys(`${title} ${branch}`, prefixes);
 }
+// A Jira key anywhere in a text, in any letter case; used only through `matchAll`.
+const SCANNED_KEY = new RegExp(
+  `(?<![A-Za-z0-9_])(${JIRA_PROJECT_KEY})-(${REF_NUMBER})(?![A-Za-z0-9_])`,
+  'gi',
+);
 // Every key with one of `prefixes` in `text`, in any letter case, uppercased, in order.
 function scanKeys(text: string, prefixes: readonly string[]): string[] {
   const keys = new Set<string>();
   const allowed = new Set(prefixes);
-  for (const match of text.matchAll(
-    /(?<![A-Za-z0-9_])([A-Z][A-Z0-9_]*)-([1-9][0-9]*)(?![A-Za-z0-9_])/gi,
-  )) {
+  for (const match of text.matchAll(SCANNED_KEY)) {
     const prefix = match[1]?.toUpperCase();
     const number = match[2];
     if (prefix !== undefined && number !== undefined && allowed.has(prefix))
@@ -369,7 +374,7 @@ function issueKeys(
   }
   return [];
 }
-const JIRA_KEY = /^([A-Z][A-Z0-9_]*)-[1-9][0-9]*$/;
+const JIRA_KEY = new RegExp(`^(${JIRA_PROJECT_KEY})-${REF_NUMBER}$`);
 // The key a custom pattern captures, uppercased, when it is a key with one of `prefixes`.
 function matchedKey(text: string, pattern: RegExp, prefixes: readonly string[]): string[] {
   if (text.length > MAX_MATCHED_LENGTH) return [];

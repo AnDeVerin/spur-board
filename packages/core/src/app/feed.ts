@@ -6,8 +6,8 @@ import {
   type RichText,
   type RichTextInline,
 } from '@spur-board/contracts';
-import type { Kysely } from 'kysely';
-import type { Row, Tables } from '../store/schema.ts';
+import type { Row } from '../store/schema.ts';
+import type { Trx } from './board-utils.ts';
 import { fingerprint } from '../domain/fromYou.ts';
 import { isOperator } from './authorize.ts';
 import { TASKLESS_FEED_KEY, journal, raiseItemWith, type RaiseItemInput } from './item-raise.ts';
@@ -24,8 +24,6 @@ export function capPoints(text: string, max: number): string {
   const points = Array.from(text);
   return points.length <= max ? text : `${points.slice(0, max - 1).join('')}…`;
 }
-
-type Trx = Kysely<Tables>;
 
 /** Raise one item generation. A repeated raise of an active key is idempotent. */
 export async function raiseItem(trx: Trx, input: RaiseItemInput): Promise<Row<'operator_item'>> {

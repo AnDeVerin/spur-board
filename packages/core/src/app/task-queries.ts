@@ -7,13 +7,13 @@ import {
   type Config,
   type EventKind,
 } from '@spur-board/contracts';
-import type { Kysely, Selectable } from 'kysely';
+import type { Selectable } from 'kysely';
 import { dispatchHolds } from '../domain/dispatch.ts';
 import { explainGates } from '../domain/gates.ts';
-import type { Tables, TaskTable, TurnTable } from '../store/schema.ts';
+import type { TaskTable, TurnTable } from '../store/schema.ts';
 import { authorize, type ResolvedTarget } from './authorize.ts';
 import { authorizationTarget, blockView, commentView, taskTarget } from './blocks.ts';
-import { eventActor, linkView, moveViews, taskView } from './board-utils.ts';
+import { eventActor, linkView, moveViews, taskView, type Trx } from './board-utils.ts';
 import { CommandError } from './commands.ts';
 import { blindSources, readInput } from './dispatch.ts';
 import { notificationAddressedTo } from './doorbells.ts';
@@ -21,7 +21,6 @@ import { canonicalKey } from './membership.ts';
 import type { Query } from './queries.ts';
 import { turnHanded, turnNotification } from './turns.ts';
 
-type Trx = Kysely<Tables>;
 type Task = Selectable<TaskTable>;
 type Turn = Selectable<TurnTable>;
 

@@ -1,11 +1,8 @@
 // Operator item raising without the outbox, so the outbox can raise a blocked-post item.
 import { RESERVED_PROJECT, type Action, type ActorId } from '@spur-board/contracts';
-import type { Kysely } from 'kysely';
-import type { Row, Tables } from '../store/schema.ts';
+import type { Row } from '../store/schema.ts';
 import { hasRetryButton, ITEM_POLICY, type ItemKind } from '../domain/fromYou.ts';
-import { emit } from './board-utils.ts';
-
-type Trx = Kysely<Tables>;
+import { emit, type Trx } from './board-utils.ts';
 
 /** Display label of a feed line with no task; not part of the line's identity. */
 export const TASKLESS_FEED_KEY = 'spur-board';

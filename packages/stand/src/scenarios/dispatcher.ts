@@ -1,6 +1,7 @@
 // The dispatcher flow scenarios: the `stand` project runs `dispatcher.mode: on` on a short board,
 // and each seed stops right after the dispatcher's first decision under test.
 import { randomUUID } from 'node:crypto';
+import { prSourceId } from '@spur-board/contracts';
 import { issueKey, openIssues, settledUnless, STAND_SPUR_PROJECTS } from './helpers.ts';
 import type { Board, Scenario, ScenarioEntities, ScenarioFakes } from './index.ts';
 
@@ -390,7 +391,7 @@ export const dispatchDeadExecutor: Scenario = {
   },
 };
 
-const GITHUB_SOURCE = `github:stand:${REPO}`;
+const GITHUB_SOURCE = prSourceId('stand', REPO);
 
 export const dispatchSourceBlind: Scenario = {
   name: 'dispatch-source-blind',

@@ -1,7 +1,7 @@
-import type { Config } from '@spur-board/contracts';
+import { prSourceId, trackerSourceId, type Config } from '@spur-board/contracts';
 import { sql } from 'kysely';
 import { archiveTask } from './archive.ts';
-import { emit, trackerSource, type Trx } from './board-utils.ts';
+import { emit, type Trx } from './board-utils.ts';
 
 /** Run-local completeness is the only evidence allowed to authorize filter absence. */
 export async function reconcileMembership(
@@ -66,10 +66,13 @@ export async function reconcileMembership(
         await emit(trx, 'flag_raised', task.project, task.id, at, { flag: 'out_of_filter' });
       }
     } else {
+      // Archiving needs all three kinds of source complete since the task's last change: the
+      // tracker proves the task left the filter, and Spur and the repos prove no live session
+      // or open PR retains it. Any of them blind or behind leaves the task for a later pass.
       const required = [
         'spur',
-        trackerSource(project),
-        ...project.repos.map((repo) => `github:${project.id}:${repo.toLowerCase()}`),
+        trackerSourceId(project),
+        ...project.repos.map((repo) => prSourceId(project.id, repo)),
       ];
       if (
         required.some((source) => {

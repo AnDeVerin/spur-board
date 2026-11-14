@@ -1424,6 +1424,20 @@ describe('Jira PR keys', () => {
   it('links nothing when the capture is not a key', async () => {
     expect(await poll({ branchPattern: '^claude-([0-9]+)' }, 'claude-12-x')).toEqual([[]]);
   });
+  it('ignores a Jira key number over 15 digits and keeps 15', async () => {
+    const scan = (title: string) =>
+      adapter(single(issuesPr('feature/x', conn([]), 7, title)), config()).poll(context());
+    const batch = await scan('DEMO-1234567890123456 DEMO-12 fix');
+    expect(batch.complete).toBe(true);
+    expect(batch.entities).toEqual([{ ref, status: 'ok' }]);
+    expect(keysOf(batch)).toEqual([['DEMO-12']]);
+    expect(keysOf(await scan('DEMO-123456789012345 fix'))).toEqual([['DEMO-123456789012345']]);
+    const link = { branchPattern: '^task/([A-Za-z]+-[0-9]+)' };
+    expect(await poll(link, 'task/demo-1234567890123456', 'DEMO-42 Add widget')).toEqual([
+      ['DEMO-42'],
+    ]);
+    expect(await poll(link, 'task/demo-123456789012345')).toEqual([['DEMO-123456789012345']]);
+  });
   it('takes the first source that yields a key', async () => {
     expect(await poll({ sources: ['title', 'branch'] }, 'DEMO-1-x', 'DEMO-2 y')).toEqual([
       ['DEMO-2'],

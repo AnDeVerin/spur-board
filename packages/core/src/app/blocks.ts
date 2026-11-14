@@ -8,8 +8,8 @@ import {
   type EventKind,
   type EventPayload,
 } from '@spur-board/contracts';
-import { sql, type Kysely, type Selectable } from 'kysely';
-import type { BlockTable, CommentTable, Tables, TaskTable } from '../store/schema.ts';
+import { sql, type Selectable } from 'kysely';
+import type { BlockTable, CommentTable, TaskTable } from '../store/schema.ts';
 import { BLOCK_ITEM_KINDS, isItemKind, ITEM_POLICY, type ItemKind } from '../domain/fromYou.ts';
 import {
   acknowledgeComment,
@@ -25,7 +25,7 @@ import {
 } from '../domain/blocks/blocks.ts';
 import { authorize, curatorProject, type ResolvedTarget } from './authorize.ts';
 import { authorRole, orchestrator, personaFor, queueBlockOpen } from './block-thread.ts';
-import { emit, taskUrl } from './board-utils.ts';
+import { emit, taskUrl, type Trx } from './board-utils.ts';
 import { CommandError, type CommandContext, type Mutation } from './commands.ts';
 import {
   acknowledgeNotification,
@@ -44,7 +44,6 @@ import {
 type Task = Selectable<TaskTable>;
 type Block = Selectable<BlockTable>;
 type Comment = Selectable<CommentTable>;
-type Trx = Kysely<Tables>;
 
 const idNumber = (id: string) => Number(id.slice(1));
 const blockId = (id: number) => `B${String(id)}`;

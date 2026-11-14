@@ -9,19 +9,18 @@ import {
   type EventPayload,
   type SessionFacts,
 } from '@spur-board/contracts';
-import { sql, type Kysely } from 'kysely';
+import { sql } from 'kysely';
 import { parseAddressee } from '../domain/blocks/blocks.ts';
-import type { Row, Tables } from '../store/schema.ts';
+import type { Row } from '../store/schema.ts';
 import { curatorProject } from './authorize.ts';
 import { queueBlockOpen } from './block-thread.ts';
-import { emit, taskUrl } from './board-utils.ts';
+import { emit, taskUrl, type Trx } from './board-utils.ts';
 import { CommandError, type CommandContext } from './commands.ts';
 import { clearItem, raiseItem } from './feed.ts';
 import { enqueueDoorbell } from './outbox.ts';
 import { scanTransaction } from './secrets.ts';
 import type { Store } from '../store/store.ts';
 
-type Trx = Kysely<Tables>;
 type Notification = Row<'notification'>;
 type Block = Row<'block'>;
 type Task = Row<'task'>;

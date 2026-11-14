@@ -1,6 +1,7 @@
 import {
   parseActorId,
   prFactsSchema,
+  prSourceId,
   sessionFactsSchema,
   ticketFactsSchema,
   type ColumnId,
@@ -280,7 +281,7 @@ export async function reconcileItems(
       taskId: task.id,
       summary: `${task.key}: linked pull request ${refs.join(', ')} closed without merge, no open PR`,
       factAt: first.observed_at,
-      source: `github:${task.project}:${(first.repo ?? '').toLowerCase()}`,
+      source: prSourceId(task.project, first.repo ?? ''),
       priority: 4,
       revision: refs.join(','),
     });
@@ -526,7 +527,7 @@ function prCompleteAt(
   if (project === undefined) return null;
   let oldest = Infinity;
   for (const repo of project.repos) {
-    const source = sourceById.get(`github:${project.id}:${repo.toLowerCase()}`);
+    const source = sourceById.get(prSourceId(project.id, repo));
     if (source === undefined || source.blind_reason !== null || source.last_complete_at === null)
       return null;
     oldest = Math.min(oldest, Date.parse(source.last_complete_at));
