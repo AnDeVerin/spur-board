@@ -102,24 +102,16 @@ async function openPr(
 }
 
 /** The worker took T1, opened a green PR and submitted A: Review with the conductor's turn. */
-async function toReview(
-  board: Board,
-  fakes: ScenarioFakes,
-  seed?: Record<string, unknown>,
-): Promise<Turn> {
+async function toReview(board: Board, fakes: ScenarioFakes, seed = {}): Promise<Turn> {
   const dev = await begin(board, fakes);
   await take(board, 'worker', dev.id);
-  await openPr(board, fakes, seed === undefined ? {} : { seed });
+  await openPr(board, fakes, { seed });
   await submit(board, 'worker', dev.id, A);
   return awaitTurn(board, 'orchestrator', 'review: no_review_on_head');
 }
 
 /** The conductor took and submitted Review on A: Ready to Merge with the operator's turn item. */
-async function toReadyToMerge(
-  board: Board,
-  fakes: ScenarioFakes,
-  seed?: Record<string, unknown>,
-): Promise<string> {
+async function toReadyToMerge(board: Board, fakes: ScenarioFakes, seed = {}): Promise<string> {
   const review = await toReview(board, fakes, seed);
   await take(board, 'orchestrator', review.id);
   await submit(board, 'orchestrator', review.id, A);
@@ -184,6 +176,9 @@ export const dispatchHappyPath: Scenario = {
 };
 
 const SPLIT_NOTE = `dev: no_pr (PR ${PR} merged, ticket still open)`;
+const SPLIT = { column: 'dev', role: 'worker', reason: SPLIT_NOTE, taken: false } as const;
+const WRAP_UP = { column: 'done', role: 'worker', reason: 'done: wrap up' } as const;
+const CLOSES = { closingIssuesReferences: [{ number: 1, repository: { nameWithOwner: REPO } }] };
 
 export const dispatchSplitPr: Scenario = {
   name: 'dispatch-split-pr',
@@ -199,23 +194,16 @@ export const dispatchSplitPr: Scenario = {
     await awaitTurn(board, 'worker', SPLIT_NOTE);
     return entities(board);
   },
-  async settled({ board }) {
-    return settledUnless(
-      await check(board, { column: 'dev', role: 'worker', reason: SPLIT_NOTE, taken: false }),
-    );
-  },
+  settled: async ({ board }) => settledUnless(await check(board, SPLIT)),
 };
 
 export const dispatchCloseAfterMerge: Scenario = {
   name: 'dispatch-close-after-merge',
   summary: `PR #1 closes ${ISSUE}; the close is seen one poll after the merge: Done with the wrap-up turn, no Dev visit.`,
-  // A 60 s tracker interval keeps the seed's open-issue poll after the merge inside the grace, so
-  // a scheduled tracker poll on the real clock cannot send the task to Dev before the close.
+  // 60 s tracker interval: no scheduled poll on the real clock confirms the issue open pre-close.
   config: { ...flow(), adapters: { githubIssues: { intervalMs: 60_000 } } },
   async seed(board, fakes) {
-    await toReadyToMerge(board, fakes, {
-      closingIssuesReferences: [{ number: 1, repository: { nameWithOwner: REPO } }],
-    });
+    await toReadyToMerge(board, fakes, CLOSES);
     await fakes.github('merge', { repo: REPO, number: 1 });
     await board.poll();
     const held = await check(board, { column: 'ready-to-merge' });
@@ -229,17 +217,11 @@ export const dispatchCloseAfterMerge: Scenario = {
     return entities(board);
   },
   async settled({ board }) {
-    const problems = await check(board, {
-      column: 'done',
-      role: 'worker',
-      reason: 'done: wrap up',
-    });
+    const problems = await check(board, WRAP_UP);
     const { why } = await board.call('operator', 'task.get', { task: ISSUE, why: true });
     const last = why?.moves.at(-1);
-    if (last?.from !== 'ready-to-merge' || last.to !== 'done' || last.reason !== 'merged')
-      problems.push(
-        `last move ${last === undefined ? 'none' : `${last.from} -> ${last.to} (${last.reason})`}`,
-      );
+    const move = `${last?.from ?? ''} -> ${last?.to ?? ''} (${last?.reason ?? ''})`;
+    if (move !== 'ready-to-merge -> done (merged)') problems.push(`last move ${move}`);
     return settledUnless(problems);
   },
 };
