@@ -100,6 +100,11 @@ export function githubSources(config: Config, options: GithubOptions): GithubSou
       const keys = projectKeyRule(project.tracker, project.link, repo);
       // Per source: the facts of each requested PR's last full read, keyed by number.
       const cache = new Map<number, CachedPr>();
+      // Per source: the `updatedAt` of each discovered PR's last full read, keyed by number, for
+      // the PRs the last successful discovery listed. A discovered PR core does not request is
+      // not read again until discovery shows it newer. Kept in memory only: after a restart each
+      // PR at the cursor tie is read once more, then skipped.
+      const discoveryReads = new Map<number, string>();
       sources.push({
         repo,
         reserveRemaining: config.github.reserveRemaining,
@@ -117,6 +122,7 @@ export function githubSources(config: Config, options: GithubOptions): GithubSou
               ctx,
               reserveRemaining: config.github.reserveRemaining,
               cache,
+              discoveryReads,
             }),
           pollPr: (ref, ctx) =>
             pollOnePr({ id, repo, keys, client, now: options.now, ref, ctx, cache }),
@@ -568,7 +574,18 @@ const aliasesOf = (numbers: readonly number[]): string[] => numbers.map((_, i) =
 interface DiscoveryResult {
   ok: boolean;
   found: Discovery;
+  /** The newest listed `updatedAt` of each PR number discovery returned nodes for. */
+  updatedAt: ReadonlyMap<number, string>;
   bootstrapCursor: SourceCursor | undefined;
+}
+function newestByNumber(nodes: readonly { number: number; updatedAt: string }[]) {
+  const newest = new Map<number, string>();
+  for (const { number, updatedAt } of nodes) {
+    const seen = newest.get(number);
+    if (seen === undefined || Date.parse(updatedAt) > Date.parse(seen))
+      newest.set(number, updatedAt);
+  }
+  return newest;
 }
 /** Lists the repository's PRs since the cursor; a transient failure leaves `ok` false. */
 async function readDiscovery(
@@ -580,7 +597,12 @@ async function readDiscovery(
   const bootstrap = ctx.cursor === undefined;
   const response = await attempt(scope, discoveryQuery(bootstrap));
   if (response === undefined)
-    return { ok: false, found: discover([], ctx.cursor, login), bootstrapCursor: undefined };
+    return {
+      ok: false,
+      found: discover([], ctx.cursor, login),
+      updatedAt: new Map(),
+      bootstrapCursor: undefined,
+    };
   acc.budget = response.budget;
   rejectUnscoped(response.errors, ['repository']);
   let ok = scoped(response.errors, 'repository').length === 0;
@@ -621,7 +643,7 @@ async function readDiscovery(
           found.cursor,
         ) ?? sourceCursorSchema.parse('1970-01-01T00:00:00.000Z'))
       : undefined;
-  return { ok, found, bootstrapCursor };
+  return { ok, found, updatedAt: newestByNumber(nodes), bootstrapCursor };
 }
 /** Reads the light index of `numbers`; a PR left out of the map is read in full. */
 async function readIndex(
@@ -656,6 +678,7 @@ interface PollArgs {
   ctx: PollContext;
   reserveRemaining: number;
   cache: Map<number, CachedPr>;
+  discoveryReads: Map<number, string>;
 }
 async function pollRepository({
   id,
@@ -667,6 +690,7 @@ async function pollRepository({
   ctx,
   reserveRemaining,
   cache,
+  discoveryReads,
 }: PollArgs): Promise<Batch> {
   const observedAt = sourceCursorSchema.parse(new Date(now()).toISOString());
   const bootstrap = ctx.cursor === undefined;
@@ -724,7 +748,14 @@ async function pollRepository({
       if (found.numbers.includes(number)) discoveredOk = false;
     }
   };
-  const discovered = found.numbers.filter((number) => !byNumber.has(number));
+  // A discovered PR not requested and not newer than its last full read is skipped: it is not
+  // unread, so it neither holds the cursor nor adds an entity.
+  const readBefore = (number: number): boolean => {
+    const read = discoveryReads.get(number);
+    const listed = discovery.updatedAt.get(number);
+    return read !== undefined && listed !== undefined && Date.parse(listed) <= Date.parse(read);
+  };
+  const discovered = found.numbers.filter((number) => !byNumber.has(number) && !readBefore(number));
   for (const chunk of [...chunks(changed, DETAIL_CHUNK), ...chunks(discovered, DETAIL_CHUNK)]) {
     if (acc.budget !== undefined && acc.budget.remaining < reserveRemaining) {
       unread(chunk);
@@ -748,6 +779,7 @@ async function pollRepository({
           if (found.numbers.includes(number)) discoveredOk = false;
           continue;
         }
+        if (found.numbers.includes(number)) discoveryReads.set(number, facts.updatedAt);
         const entry = entries.get(number);
         if (entry !== undefined)
           cache.set(number, {
@@ -760,6 +792,9 @@ async function pollRepository({
     }
   }
   if (ctx.signal.aborted) throw new AdapterError('transient', 'GitHub poll aborted');
+  if (discovery.ok)
+    for (const number of discoveryReads.keys())
+      if (!found.numbers.includes(number)) discoveryReads.delete(number);
   if (requests.firstError !== undefined && requests.succeeded === 0) throw requests.firstError;
   rethrowLoneParseFailure(acc);
   const nextCursor = bootstrap ? discovery.bootstrapCursor : found.cursor;
