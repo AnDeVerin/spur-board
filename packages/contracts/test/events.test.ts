@@ -177,7 +177,7 @@ const samples: { [K in EventKind]: Extract<JournalEvent, { kind: K }> } = {
   comment_added: {
     ...base,
     kind: 'comment_added',
-    payload: { comment: 'cmt-1', addressee: 'worker' },
+    payload: { comment: 'cmt-2', addressee: 'worker', forwardedFrom: 'cmt-1' },
   },
   comment_edited: {
     ...base,
