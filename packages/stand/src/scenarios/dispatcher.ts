@@ -10,21 +10,24 @@ const PR = `${REPO}#1`;
 const A = 'a'.repeat(40);
 const STEP_MS = 15_000;
 
-/** To Do, Dev, Review by the stand-qa conductor, Ready to Merge by the operator, Done. */
-const flow = (reviewCycleLimit?: number) => ({
+/**
+ * To Do, Dev, Review by the stand-qa conductor, Ready to Merge by the operator, Done. `review`
+ * sets Review's cycle limit and course check, and `spurProjects` replaces the stand project's.
+ */
+const flow = (
+  review: { cycleLimit?: number; courseCheck?: number } = {},
+  spurProjects?: object[],
+) => ({
   stand: {
     columns: [
       { id: 'todo' },
       { id: 'dev' },
-      {
-        id: 'review',
-        orchestrator: 'stand-qa',
-        ...(reviewCycleLimit === undefined ? {} : { cycleLimit: reviewCycleLimit }),
-      },
+      { id: 'review', orchestrator: 'stand-qa', ...review },
       { id: 'ready-to-merge', orchestrator: 'operator' },
       { id: 'done' },
     ],
     dispatcher: { mode: 'on' as const },
+    ...(spurProjects === undefined ? {} : { spurProjects }),
   },
 });
 
@@ -421,7 +424,7 @@ const cycleItem = async (board: Board) =>
 export const dispatchCycleLimit: Scenario = {
   name: 'dispatch-cycle-limit',
   summary: `Review's cycle limit is 1: the conductor's return holds ${ISSUE} in Dev on an operator block, with no turn.`,
-  config: flow(1),
+  config: flow({ cycleLimit: 1 }),
   async seed(board, fakes) {
     const review = await toReview(board, fakes);
     await take(board, 'orchestrator', review.id);
@@ -441,6 +444,62 @@ export const dispatchCycleLimit: Scenario = {
     const { blocks } = await board.call('operator', 'task.get', { task: ISSUE });
     if (!blocks.some(({ state, addressee }) => state === 'open' && addressee === 'operator'))
       problems.push('no open operator block');
+    if ((await turnOf(board, 'worker')) !== undefined) problems.push('a worker turn');
+    return settledUnless(problems);
+  },
+};
+
+const courseItem = async (board: Board) =>
+  (await items(board)).find(({ key }) => /^course-check:\d+:review$/.test(key));
+
+/** The flow task's open blocks, as the operator sees them. */
+const openBlocks = async (board: Board) =>
+  (await board.call('operator', 'task.get', { task: ISSUE })).blocks.filter(
+    ({ state }) => state === 'open',
+  );
+
+export const dispatchCourseCheck: Scenario = {
+  name: 'dispatch-course-check',
+  summary: `Review's course check is 1 and stand-qa is also the curator: the conductor's return holds ${ISSUE} in Dev on a curator block, with no turn.`,
+  config: flow({ courseCheck: 1 }, [
+    { name: 'stand-worker', role: 'worker' },
+    { name: 'stand-qa', role: 'curator' },
+  ]),
+  async seed(board, fakes) {
+    const review = await toReview(board, fakes);
+    await take(board, 'orchestrator', review.id);
+    await giveBack(board, review.id);
+    let course: string | undefined;
+    let code: string | undefined;
+    let key: string | undefined;
+    await board.until('course-check block', STEP_MS, async () => {
+      const blocks = await openBlocks(board);
+      course = blocks.find(
+        (block) =>
+          block.type === 'needs_input' &&
+          block.author === 'system' &&
+          block.addressee === 'curator',
+      )?.id;
+      code = blocks.find((block) => block.type === 'code')?.id;
+      key = (await courseItem(board))?.key;
+      return course !== undefined && key !== undefined;
+    });
+    return entities(board, {
+      ...(course === undefined
+        ? {}
+        : { blocks: { course, ...(code === undefined ? {} : { code }) } }),
+      ...(key === undefined ? {} : { items: { course: key } }),
+    });
+  },
+  async settled({ board, entities: named }) {
+    const problems = await check(board, { column: 'dev' });
+    const item = await courseItem(board);
+    if (item === undefined || item.key !== named.items?.['course'])
+      problems.push(`no item ${named.items?.['course'] ?? 'course-check'}`);
+    const block = (await openBlocks(board)).find(({ id }) => id === named.blocks?.['course']);
+    if (block?.addressee !== 'curator') problems.push('no open curator block');
+    for (const part of ['Handle the empty list.', '/pull/1', '/issues/1'])
+      if (block?.reason.includes(part) !== true) problems.push(`no ${part} in the block reason`);
     if ((await turnOf(board, 'worker')) !== undefined) problems.push('a worker turn');
     return settledUnless(problems);
   },

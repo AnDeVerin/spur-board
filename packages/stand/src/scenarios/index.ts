@@ -18,6 +18,7 @@ import {
   dispatchConflictInReadyToMerge,
   dispatchConflictInReview,
   dispatchCiRedAfterSubmit,
+  dispatchCourseCheck,
   dispatchCycleLimit,
   dispatchDeadExecutor,
   dispatchExternalComment,
@@ -106,12 +107,17 @@ export interface Scenario {
   summary: string;
   /**
    * Merged into the stand's config: `thresholds` and `adapters` deep-merge, and `stand` replaces
-   * the `columns` and `dispatcher` of the `stand` project. Nothing else may change.
+   * the `columns`, `dispatcher` and `spurProjects` of the `stand` project. Nothing else may
+   * change.
    */
   config?: {
     thresholds?: Partial<Config['thresholds']>;
     adapters?: Record<string, object>;
-    stand?: { columns?: object[]; dispatcher?: { mode: 'shadow' | 'on' } };
+    stand?: {
+      columns?: object[];
+      dispatcher?: { mode: 'shadow' | 'on' };
+      spurProjects?: object[];
+    };
   };
   seed(board: Board, fakes: ScenarioFakes, clock: { now(): number }): Promise<ScenarioEntities>;
   /** Whether the state the seed set up has arrived; `stand wait scenario` re-runs it. */
@@ -139,6 +145,7 @@ export const SCENARIOS: readonly Scenario[] = [
   dispatchDeadExecutor,
   dispatchSourceBlind,
   dispatchCycleLimit,
+  dispatchCourseCheck,
   dispatchLongCommentHistory,
 ];
 
