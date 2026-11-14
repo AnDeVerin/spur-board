@@ -2527,6 +2527,13 @@ describe('operator token revoke from the gateway', () => {
     expect(responses).toEqual(['No active operator tokens.']);
   });
 
+  it('names one listed token in the singular', async () => {
+    const { inbound, responses, request, tokens } = await tokenBoard();
+    await request('desk');
+    await inbound.sink(tokens('list-one'));
+    expect(responses).toEqual(['Posted 1 operator token to the feed.']);
+  });
+
   it('puts Revoke buttons on the first 20 tokens and counts the rest', async () => {
     const { store, inbound, responses, tokens } = await tokenBoard();
     await scanTransaction(store, config, async (trx) => {

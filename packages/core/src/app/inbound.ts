@@ -789,7 +789,7 @@ export function createInbound(input: {
           response = plain(
             listed === 0
               ? 'No active operator tokens.'
-              : `Posted ${String(listed)} operator tokens to the feed.`,
+              : `Posted ${String(listed)} operator ${listed === 1 ? 'token' : 'tokens'} to the feed.`,
           );
         } else {
           const value = await dispatchOperation(
