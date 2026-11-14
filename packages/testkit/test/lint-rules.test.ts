@@ -433,6 +433,39 @@ describe('core gateway boundary', () => {
     },
     30_000,
   );
+
+  const dynamic = (from: string): string =>
+    `export async function load(): Promise<unknown> {\n  return import('${from}');\n}`;
+  const typed = (from: string): string => `export type T = import('${from}').X;`;
+
+  it.each([
+    ['packages/core/src/app/x.ts', dynamic('@spur-board/gateway-slack')],
+    ['packages/core/src/x.ts', dynamic('../../gateway-slack/src/index.ts')],
+    ['packages/core/src/app/board-utils.ts', dynamic('@spur-board/gateway-testkit')],
+    ['packages/core/src/app/x.ts', typed('@spur-board/gateway-slack')],
+  ])(
+    '%s: dynamic or type import of a gateway reports no-restricted-syntax',
+    async (path, code) => {
+      expect(await textRuleIds(code, path)).toEqual(['no-restricted-syntax']);
+    },
+    30_000,
+  );
+
+  it.each([
+    ['packages/core/src/app/x.ts', dynamic('./outbox.ts')],
+    ['packages/daemon/src/x.ts', dynamic('@spur-board/gateway-slack')],
+  ])(
+    '%s: a dynamic import that is not a gateway in core passes',
+    async (path, code) => {
+      expect(await textRuleIds(code, path)).toEqual([]);
+    },
+    30_000,
+  );
+
+  it('core/src still bans journal inserts outside board-utils', async () => {
+    const code = "export const q = trx.insertInto('event');";
+    expect(await textRuleIds(code, 'packages/core/src/app/x.ts')).toEqual(['no-restricted-syntax']);
+  }, 30_000);
 });
 
 describe('domain boundary', () => {

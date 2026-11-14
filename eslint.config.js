@@ -99,6 +99,12 @@ const gatewayMessage =
 const gatewayBoundaryPatterns = ['^@spur-board/gateway-', '^([.][.]/)+(packages/)?gateway-'].map(
   (regex) => ({ regex, caseSensitive: true, message: gatewayMessage }),
 );
+// no-restricted-imports checks only static imports, so `import()` and import types need these.
+const gatewaySource = '/^(@spur-board[/]gateway-|([.][.][/])+(packages[/])?gateway-)/';
+const gatewayImportBans = [
+  { selector: `ImportExpression[source.value=${gatewaySource}]`, message: gatewayMessage },
+  { selector: `TSImportType[source.value=${gatewaySource}]`, message: gatewayMessage },
+];
 // Domain code is pure: it takes data as arguments and leaves queries and IO to app/.
 const domainMessage =
   'core/src/domain has no IO: no store/, app/, api/, Kysely or Node IO modules. Take the data as an argument.';
@@ -340,6 +346,17 @@ export default defineConfig(
     files: ['packages/core/src/**/*.ts', 'packages/daemon/src/**/*.ts'],
     ignores: ['packages/core/src/app/board-utils.ts'],
     rules: { 'no-restricted-syntax': ['error', journalInsertBan] },
+  },
+  {
+    // Restates the journal ban and adds the gateway import()/import-type bans for core source.
+    files: ['packages/core/src/**/*.ts'],
+    ignores: ['packages/core/src/app/board-utils.ts'],
+    rules: { 'no-restricted-syntax': ['error', journalInsertBan, ...gatewayImportBans] },
+  },
+  {
+    // board-utils.ts may write journal events, but not import a gateway.
+    files: ['packages/core/src/app/board-utils.ts'],
+    rules: { 'no-restricted-syntax': ['error', ...gatewayImportBans] },
   },
   {
     // Restates the journal ban; `import()` would get around the domain import ban.
