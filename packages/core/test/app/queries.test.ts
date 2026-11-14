@@ -423,6 +423,124 @@ describe('production query handlers', () => {
     ).rejects.toMatchObject({ code: 'forbidden' });
   });
 
+  it("acks a block after an answer as already handled and the asker's answer by the block id", async () => {
+    const { store, registry, query, apply } = await seeded();
+    const ack = required(registry['inbox.ack']);
+    const B1 = { entries: [{ id: 'B1' }] };
+    const reads = async () =>
+      (
+        await store.db
+          .selectFrom('event')
+          .select('kind')
+          .where('kind', '=', 'doorbell_read')
+          .execute()
+      ).length;
+    const asked = await apply(
+      required(registry['block.ask']),
+      { task: KEY, text: 'Review this?' },
+      worker,
+      'ask',
+    );
+    expect(asked.block.id).toBe('B1');
+    const answered = await apply(
+      required(registry['block.answer']),
+      { block: 'B1', text: 'Yes.' },
+      orchestrator,
+      'answer',
+    );
+    const before = await reads();
+
+    await expect(apply(ack, B1, orchestrator, 'ack-addressee')).resolves.toEqual({
+      acked: ['B1'],
+      alreadyHandled: ['B1'],
+    });
+    expect(await reads()).toBe(before);
+
+    await expect(apply(ack, B1, worker, 'ack-asker')).resolves.toEqual({ acked: ['B1'] });
+    expect((await query(required(registry['inbox.get']), {}, worker)).comments).toEqual([]);
+    const comment = await store.db
+      .selectFrom('comment')
+      .select('acked_revision')
+      .where('id', '=', Number(answered.comment.id.slice(1)))
+      .executeTakeFirstOrThrow();
+    expect(comment.acked_revision).toBe(1);
+    await expect(apply(ack, B1, worker, 'ack-asker-again')).resolves.toEqual({
+      acked: ['B1'],
+      alreadyHandled: ['B1'],
+    });
+
+    await store.transaction(async (trx) => {
+      await trx
+        .insertInto('block')
+        .values({
+          id: 2,
+          task_id: 1,
+          type: 'needs_input',
+          reason: 'Operator only',
+          author: worker,
+          addressee_role: 'operator',
+          target_column: null,
+          state: 'open',
+          outcome: null,
+          outcome_reason: null,
+          repeat_of: null,
+          unblocked_by: null,
+          unblocked_at: null,
+          created_at: AT,
+        })
+        .execute();
+    });
+    await expect(
+      apply(ack, { entries: [{ id: 'B2' }] }, worker, 'ack-operator-block'),
+    ).rejects.toMatchObject({ code: 'not_found' });
+  });
+
+  it("acks the asker's answer by the id of an open block, then reports it already handled", async () => {
+    const { store, registry, apply } = await seeded();
+    const ack = required(registry['inbox.ack']);
+    const B1 = { entries: [{ id: 'B1' }] };
+    const blockRow = () =>
+      store.db
+        .selectFrom('notification')
+        .select('acked_at')
+        .where('block_id', '=', 1)
+        .where('kind', '=', 'block')
+        .executeTakeFirstOrThrow();
+    await apply(
+      required(registry['block.ask']),
+      { task: KEY, text: 'Review this?' },
+      worker,
+      'ask',
+    );
+    const added = await apply(
+      required(registry['comment.add']),
+      { task: KEY, block: 'B1', text: 'Looking.' },
+      orchestrator,
+      'comment',
+    );
+
+    await expect(apply(ack, B1, worker, 'ack-asker')).resolves.toEqual({ acked: ['B1'] });
+    expect((await blockRow()).acked_at).toBeNull();
+    const comment = await store.db
+      .selectFrom('comment')
+      .select('acked_revision')
+      .where('id', '=', Number(added.comment.id.slice(1)))
+      .executeTakeFirstOrThrow();
+    expect(comment.acked_revision).toBe(1);
+    await expect(apply(ack, B1, worker, 'ack-asker-again')).resolves.toEqual({
+      acked: ['B1'],
+      alreadyHandled: ['B1'],
+    });
+    await expect(apply(ack, B1, 'agent:web/worker-2', 'ack-unlinked')).rejects.toMatchObject({
+      code: 'forbidden',
+    });
+
+    await expect(apply(ack, B1, orchestrator, 'ack-addressee')).resolves.toEqual({
+      acked: ['B1'],
+    });
+    expect((await blockRow()).acked_at).toBe(AT);
+  });
+
   it('refuses a turn id that shares a block number', async () => {
     const { store, registry, query, apply } = await seeded();
     const asked = await apply(

@@ -283,7 +283,7 @@ Operation errors: `usage` (exit 2: Run `board schema` to see the expected input 
 
 ### `board inbox ack`
 
-Mark comments, agent-addressed blocks or turns as read; acking a turn makes the caller its taker.
+Mark comments, agent-addressed blocks, turns or doorbell rings as read; acking a turn makes the caller its taker.
 
 Arguments: `<entries>`.
 

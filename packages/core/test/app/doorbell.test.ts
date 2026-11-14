@@ -1683,6 +1683,48 @@ describe('curator doorbells', () => {
     },
   );
 
+  it('acks an answer by the ring id of its doorbell', async () => {
+    const ctx = await setup();
+    const asked = await ctx.apply(ctx.ops.ask, { task: KEY, text: 'Q?' }, worker, 'ask');
+    const answered = await ctx.apply(
+      ctx.ops.answer,
+      { block: asked.block.id, text: 'A.' },
+      'operator',
+      'answer',
+    );
+    await step(ctx);
+    const rung = ctx.sent.find(
+      (entry) => entry.session === 'worker-1' && entry.text.includes(`block ${asked.block.id}`),
+    );
+    const marker = parseRingMarker(rung?.text ?? '');
+    if (marker === null) throw new Error('no answer ring sent');
+    const id = `N${String(marker.notification)}-${String(marker.ring)}`;
+    const ring = { entries: [{ id }] };
+    const answers = async () => (await notices(ctx)).filter((n) => n.kind === 'answer');
+    const comment = () =>
+      ctx.store.db
+        .selectFrom('comment')
+        .selectAll()
+        .where('id', '=', Number(answered.comment.id.slice(1)))
+        .executeTakeFirstOrThrow();
+
+    await ctx.apply(ctx.ops.edit, { comment: answered.comment.id, text: 'A2.' }, 'operator');
+    expect(await answers()).toHaveLength(1);
+
+    await expect(ctx.apply(ctx.ops.ack, ring, worker, 'ack-ring')).resolves.toEqual({
+      acked: [id],
+    });
+    expect((await comment()).acked_revision).toBe(2);
+    expect((await answers())[0]?.acked_at).toBe(ctx.now().toISOString());
+    await expect(ctx.apply(ctx.ops.ack, ring, worker, 'ack-ring-again')).resolves.toEqual({
+      acked: [id],
+      alreadyHandled: [id],
+    });
+
+    await ctx.apply(ctx.ops.edit, { comment: answered.comment.id, text: 'A3.' }, 'operator');
+    expect((await answers()).map((n) => n.revision)).toEqual([1, 3]);
+  });
+
   it.each([
     {
       name: 'rings the later curator session over a live older author',
@@ -2554,14 +2596,41 @@ describe('turns', () => {
   });
 
   it('refuses a second take of a worker turn', async () => {
-    const ctx = await setup({ config: policyBoard('none') });
+    const ctx = await setup({ config: policyBoard('none'), replacement: true });
     await open(ctx);
     await step(ctx);
     await ctx.apply(ctx.ops.ack, T1, worker, 'ack-1');
+    const taken = (await turns(ctx))[0]?.acked_at;
 
-    await expect(ctx.apply(ctx.ops.ack, T1, worker, 'ack-2')).rejects.toMatchObject({
-      code: 'not_found',
+    await expect(ctx.apply(ctx.ops.ack, T1, worker, 'ack-2')).resolves.toEqual({
+      acked: ['T1'],
+      alreadyHandled: ['T1'],
     });
+    expect((await turns(ctx))[0]?.acked_at).toBe(taken);
+    await expect(
+      ctx.apply(ctx.ops.ack, T1, 'agent:web/worker-2', 'ack-other'),
+    ).rejects.toMatchObject({ code: 'not_found' });
+    expect((await turns(ctx))[0]?.acked_by).toBe(worker);
+  });
+
+  it('takes a turn by the ring id of its doorbell', async () => {
+    const ctx = await setup({ config: policyBoard('none') });
+    await open(ctx);
+    await step(ctx);
+    const text = ctx.sent[0]?.text ?? '';
+    expect(text).toBe(`${KEY} turn T1: check board inbox (N1-1)`);
+    const marker = parseRingMarker(text);
+    const ring = { entries: [{ id: `N${String(marker?.notification)}-${String(marker?.ring)}` }] };
+
+    await expect(ctx.apply(ctx.ops.ack, ring, worker, 'ack-ring')).resolves.toEqual({
+      acked: ['N1-1'],
+    });
+    expect((await turns(ctx))[0]?.acked_by).toBe(worker);
+    await expect(ctx.apply(ctx.ops.ack, ring, worker, 'ack-ring-again')).resolves.toEqual({
+      acked: ['N1-1'],
+      alreadyHandled: ['N1-1'],
+    });
+    expect(await events(ctx, 'doorbell_read')).toHaveLength(1);
   });
 
   it('closes an open turn on a move', async () => {
@@ -2589,9 +2658,12 @@ describe('turns', () => {
       expect.objectContaining({ closed_reason: 'moved', closed_at: expect.any(String) as unknown }),
     ]);
     expect((await notices(ctx))[0]?.acked_at).not.toBeNull();
-    await expect(ctx.apply(ctx.ops.ack, T1, worker, 'ack-closed')).rejects.toMatchObject({
-      code: 'not_found',
+    const read = (await events(ctx, 'doorbell_read')).length;
+    await expect(ctx.apply(ctx.ops.ack, T1, worker, 'ack-closed')).resolves.toEqual({
+      acked: ['T1'],
+      alreadyHandled: ['T1'],
     });
+    expect(await events(ctx, 'doorbell_read')).toHaveLength(read);
   });
 
   it('clears the exhaustion item of a closed turn', async () => {
