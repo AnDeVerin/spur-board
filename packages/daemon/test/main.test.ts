@@ -599,8 +599,9 @@ describe('daemon process', () => {
       const exited = once(child, 'exit');
       await waitForLine(child, 'daemon ready');
       await hold.entered;
+      const stopping = waitForLine(child, 'shutting down');
       child.kill('SIGTERM');
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      await stopping;
       expect(child.exitCode).toBeNull();
       const duringStop = await fetch(`http://127.0.0.1:${String(httpPort(home))}/v1/schema`);
       expect(duringStop.status).toBe(503);
