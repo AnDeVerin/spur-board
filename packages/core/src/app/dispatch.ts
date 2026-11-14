@@ -592,6 +592,12 @@ export async function readInput(
                 : 'none',
         open: unclosed?.acked_at != null,
         operatorUntaken: unclosed?.role === 'operator' && unclosed.acked_at === null,
+        // turn.head_sha is stored lowercased; GitHub's head is not.
+        headMoved:
+          unclosed !== undefined &&
+          unclosed.head_sha !== null &&
+          pr !== null &&
+          unclosed.head_sha !== pr.headSha.toLowerCase(),
       },
     },
     handed,

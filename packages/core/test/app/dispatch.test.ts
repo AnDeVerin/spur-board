@@ -2438,15 +2438,49 @@ describe('design flows 2.5 and 2.10', () => {
     expect((await ctx.moves()).at(-1)).toMatchObject({ gate: ['pr_draft'] });
   });
 
-  it('a force-push in Review with the conductor turn open waits, then goes to Dev', async () => {
+  it('a force-push in Review closes the taken conductor turn and goes to Dev at once', async () => {
     const ctx = await inReview();
     await ctx.ack(REV, 'T2');
     await ctx.pr({ headSha: B });
-    expect((await ctx.task()).column).toBe('review');
-    await ctx.submit(REV, 'T2', B);
     expect((await ctx.task()).column).toBe('dev');
-    expect((await ctx.moves()).at(-1)).toMatchObject({ gate: ['no_submit_on_head'] });
+    expect((await ctx.turns())[1]).toMatchObject({
+      id: 2,
+      column: 'review',
+      closed_reason: 'moved',
+    });
+    expect((await ctx.moves()).at(-1)).toMatchObject({
+      from: 'review',
+      to: 'dev',
+      reason: 'gate_broken',
+      gate: ['no_submit_on_head'],
+    });
     expect(await ctx.openTurn()).toEqual(turnOf('dev', 'worker', 'dev: no_submit_on_head'));
+  });
+
+  it('red CI on a new head in Product Review closes the taken turn and goes to Dev', async () => {
+    const ctx = await inReview();
+    await ctx.ack(REV, 'T2');
+    await ctx.submit(REV, 'T2', A);
+    await ctx.ack(COORD, 'T3');
+    await ctx.pr({
+      headSha: B,
+      requiredChecks: [{ name: 'ci', state: 'failure', completedAt: null }],
+    });
+    expect((await ctx.task()).column).toBe('dev');
+    expect((await ctx.turns())[2]).toMatchObject({
+      id: 3,
+      column: 'product-review',
+      closed_reason: 'moved',
+    });
+    expect((await ctx.moves()).at(-1)).toMatchObject({
+      from: 'product-review',
+      to: 'dev',
+      reason: 'gate_broken',
+      gate: ['checks_red', 'no_submit_on_head'],
+    });
+    expect(await ctx.openTurn()).toEqual(
+      turnOf('dev', 'worker', 'dev: checks_red, no_submit_on_head'),
+    );
   });
 
   it('a PR closed without merge sends the task to Dev with no turn', async () => {
