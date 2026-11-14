@@ -1305,10 +1305,10 @@ describe('blindness', () => {
 });
 
 /** The reviewer takes its turn and returns the task. */
-async function cycle(ctx: Board, reason?: string) {
+async function cycle(ctx: Board) {
   const review = await ctx.openTurn();
   await ctx.ack(REV, review?.id ?? '');
-  await ctx.ret(REV, review?.id ?? '', reason);
+  await ctx.ret(REV, review?.id ?? '');
 }
 
 /** The worker takes its Dev turn, pushes `head` and submits it. */
