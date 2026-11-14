@@ -52,8 +52,9 @@ async function courseNoted(trx: Trx, item: Row<'operator_item'>): Promise<boolea
 }
 
 /**
- * Clear an item once; a course check cleared without a note moves the worker's held rings on its
- * task that wait in the outbox to the front, so they keep their order. the edit waits for its line and is cancelled with a stale pending line.
+ * Clear an item once; the edit waits for its line and is cancelled with a stale pending line.
+ * A course check cleared without a note moves the worker's held rings on its task that wait in
+ * the outbox to the front, so they keep their order.
  * The journal names `actor`, `system` unless an actor's action cleared it. `writeEdit`, when
  * given, writes the line's edit instead of the resolved one.
  */
