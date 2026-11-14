@@ -46,8 +46,9 @@ and `describe('PR index cache')` in `packages/adapters/test/github/prBatch.test.
   in the `githubSources` closure, keyed by number, holding only refs requested in the last poll.
 - The discovery-read record, beside the cache: PR number to the `updatedAt` of its last full read,
   written for this poll's discovery numbers, requested or not; after a successful discovery it
-  keeps only the numbers discovery listed. A discovered PR not requested and not newer than its
-  record is not read, holds no cursor and adds no entity. It lives in memory: after a restart each
+  keeps only the numbers discovery listed. A discovered PR not requested, not newer than its
+  record and not newer than core's `PollContext.cursor` is not read, holds no cursor and adds no
+  entity; a read whose batch core did not accept is read again. It lives in memory: after a restart each
   PR at the cursor tie is read once more. Tests: `describe('PR discovery reads')`.
 - Cache fingerprint: `JSON.stringify` of the parsed index alias (`prIndex.ts`). It lists each
   check's name and state without `isRequired`: a `SUCCESS` rollup also covers skipped checks,
