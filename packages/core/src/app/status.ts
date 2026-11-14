@@ -1,7 +1,9 @@
 import {
   prFactsSchema,
+  prSourceId,
   sessionFactsSchema,
   ticketFactsSchema,
+  trackerSourceId,
   type Config,
   type PrFacts,
   type SessionFacts,
@@ -10,7 +12,7 @@ import {
 import { sql } from 'kysely';
 import { parseJson } from '../store/json.ts';
 import type { Store } from '../store/store.ts';
-import { linkView, projectForSource, trackerSource } from './board-utils.ts';
+import { linkView, projectForSource } from './board-utils.ts';
 import { CommandError } from './commands.ts';
 
 function sessionView(fact: SessionFacts) {
@@ -292,8 +294,8 @@ export async function getStatus(
   const required = new Set([
     'spur',
     ...projects.flatMap((project) => [
-      trackerSource(project),
-      ...project.repos.map((repo) => `github:${project.id}:${repo.toLowerCase()}`),
+      trackerSourceId(project),
+      ...project.repos.map((repo) => prSourceId(project.id, repo)),
     ]),
   ]);
   const sourceById = new Map(sourceRows.map((row) => [row.source, row]));

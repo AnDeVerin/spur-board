@@ -5,6 +5,8 @@ import {
   parseActorId,
   parseRef,
   prFactsSchema,
+  prSourceId,
+  trackerSourceId,
   type ActorId,
   type ColumnId,
   type Config,
@@ -23,12 +25,6 @@ import type { EventTable, LinkTable, Tables, TaskTable } from '../store/schema.t
 export type Trx = Kysely<Tables>;
 type Task = Selectable<TaskTable>;
 type Link = Selectable<LinkTable>;
-
-export function trackerSource(project: Config['projects'][number]): string {
-  return project.tracker.type === 'jira'
-    ? `jira:${project.id}`
-    : `github-issues:${project.id}:${project.tracker.repo.toLowerCase()}`;
-}
 
 /** Whether a ticket status is done: a Jira done status, or a closed GitHub Issue. */
 export function ticketDone(project: Config['projects'][number], status: string): boolean {
@@ -85,8 +81,8 @@ export function parsePr(detail: string | undefined): PrFacts | null {
 export function projectForSource(config: Config, source: string) {
   return config.projects.find(
     (project) =>
-      source === trackerSource(project) ||
-      project.repos.some((repo) => source === `github:${project.id}:${repo.toLowerCase()}`),
+      source === trackerSourceId(project) ||
+      project.repos.some((repo) => source === prSourceId(project.id, repo)),
   );
 }
 

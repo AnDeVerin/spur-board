@@ -1,6 +1,7 @@
 import {
   parseActorId,
   parseRef,
+  prSourceId,
   type ActorId,
   type ColumnId,
   type Config,
@@ -229,7 +230,7 @@ async function pollTaskPr(
     poll === undefined
       ? null
       : await poll(
-          `github:${task.project}:${repo}`,
+          prSourceId(task.project, repo),
           { kind: 'pr', repo: pr.repo, number: pr.number },
           { timeoutMs: SUBMIT_POLL_TIMEOUT_MS },
         );

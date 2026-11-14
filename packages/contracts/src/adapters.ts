@@ -1,6 +1,7 @@
 // The adapter port: one poll method per source. `Batch` is what an adapter hands back to core
 // and is validated at runtime; `Adapter` and `PollContext` are built by core and are not.
 import { z } from 'zod';
+import type { Config } from './config.ts';
 import type { Result } from './errors.ts';
 import {
   prFactsSchema,
@@ -221,6 +222,23 @@ export interface PollContext {
   signal: AbortSignal;
 }
 
+/** Source id of the PR poll of one project repo: `github:<project>:<repo lowercased>`. */
+export function prSourceId(projectId: string, repo: string): string {
+  return `github:${projectId}:${repo.toLowerCase()}`;
+}
+
+/**
+ * Source id of a project's tracker poll: `jira:<project>`, or
+ * `github-issues:<project>:<tracker repo lowercased>`.
+ */
+export function trackerSourceId(
+  project: Pick<Config['projects'][number], 'id' | 'tracker'>,
+): string {
+  return project.tracker.type === 'jira'
+    ? `jira:${project.id}`
+    : `github-issues:${project.id}:${project.tracker.repo.toLowerCase()}`;
+}
+
 /**
  * One source of facts. Core calls `poll` every `intervalMs` and decides what the facts mean.
  *
@@ -363,7 +381,7 @@ export interface PrPoller {
   /**
    * Queues a poll of `ref` on the source's single-flight chain, after any poll in flight, and
    * resolves once core committed its observation; it never rejects. `source` is the id core
-   * builds (`github:<project>:<repo>`). The commit moves the source's `observed_at` but not its
+   * builds with `prSourceId`. The commit moves the source's `observed_at` but not its
    * last complete time. While a regular throttle wait runs it resolves `failed` with
    * `adapterKind: 'throttled'` and `retryAt` without calling the source.
    */

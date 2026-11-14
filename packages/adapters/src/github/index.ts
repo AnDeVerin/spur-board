@@ -8,6 +8,7 @@ import {
   type PrFacts,
   type PrFeedback,
   type SourceCursor,
+  prSourceId,
   sourceCursorSchema,
 } from '@spur-board/contracts';
 import { z } from 'zod';
@@ -85,9 +86,6 @@ export interface GithubOptions {
   now: () => number;
   fetch?: typeof fetch;
 }
-function sourceId(project: string, repo: string): string {
-  return `github:${project}:${repo.toLowerCase()}`;
-}
 export function githubSources(config: Config, options: GithubOptions): GithubSource[] {
   const sources: GithubSource[] = [];
   for (const project of config.projects) {
@@ -97,7 +95,7 @@ export function githubSources(config: Config, options: GithubOptions): GithubSou
       if (seen.has(normalized))
         throw new AdapterError('config', 'Duplicate GitHub repository in project');
       seen.add(normalized);
-      const id = sourceId(project.id, repo);
+      const id = prSourceId(project.id, repo);
       const client = new GithubClient(options.token, options.now, options.fetch);
       const keys = projectKeyRule(project.tracker, project.link, repo);
       // Per source: the facts of each requested PR's last full read, keyed by number.

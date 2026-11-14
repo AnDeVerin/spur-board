@@ -1,7 +1,7 @@
-import type { Config } from '@spur-board/contracts';
+import { prSourceId, trackerSourceId, type Config } from '@spur-board/contracts';
 import { sql } from 'kysely';
 import { archiveTask } from './archive.ts';
-import { emit, trackerSource, type Trx } from './board-utils.ts';
+import { emit, type Trx } from './board-utils.ts';
 
 /** Run-local completeness is the only evidence allowed to authorize filter absence. */
 export async function reconcileMembership(
@@ -68,8 +68,8 @@ export async function reconcileMembership(
     } else {
       const required = [
         'spur',
-        trackerSource(project),
-        ...project.repos.map((repo) => `github:${project.id}:${repo.toLowerCase()}`),
+        trackerSourceId(project),
+        ...project.repos.map((repo) => prSourceId(project.id, repo)),
       ];
       if (
         required.some((source) => {

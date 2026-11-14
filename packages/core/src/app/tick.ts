@@ -1,5 +1,5 @@
 import { scanTransaction } from './secrets.ts';
-import type { Config } from '@spur-board/contracts';
+import { prSourceId, type Config } from '@spur-board/contracts';
 import type { Store } from '../store/store.ts';
 import { archiveTask } from './archive.ts';
 import { dispatchJournaled } from './dispatch.ts';
@@ -40,7 +40,7 @@ export async function tickBoard(deps: {
       if (
         project === undefined ||
         project.repos.some((repo) => {
-          const source = `github:${project.id}:${repo.toLowerCase()}`;
+          const source = prSourceId(project.id, repo);
           const complete = completeSince.get(source);
           return (
             blind.has(source) ||

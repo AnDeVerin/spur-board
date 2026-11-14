@@ -3,8 +3,10 @@ import {
   RESERVED_PROJECT,
   entityRefSchema,
   prFactsSchema,
+  prSourceId,
   sessionFactsSchema,
   ticketFactsSchema,
+  trackerSourceId,
   type AcceptedObservation,
   type AdapterCore,
   type Batch,
@@ -28,7 +30,6 @@ import {
   projectForKey,
   projectForSource,
   ticketDone,
-  trackerSource,
   type Trx,
 } from './board-utils.ts';
 import { enqueueLiveAfterFirstPoll } from './doctor.ts';
@@ -90,7 +91,7 @@ async function updateTerminal(
   const merged = linked.some((pr) => pr.state === 'merged');
   const doneTicket = ticket !== undefined && ticketDone(project, ticket.status);
   const githubComplete = project.repos.every((repo) => {
-    const source = `github:${project.id}:${repo.toLowerCase()}`;
+    const source = prSourceId(project.id, repo);
     const complete = completeSince.get(source);
     return (
       !blind.has(source) &&
@@ -313,7 +314,7 @@ async function ticket(
     .where('source', '=', source)
     .where('ref_key', '=', `ticket:${source}:${fact.key}`)
     .execute();
-  const project = config.projects.find((entry) => trackerSource(entry) === source);
+  const project = config.projects.find((entry) => trackerSourceId(entry) === source);
   if (project === undefined) throw new Error('Ticket from an unconfigured tracker');
   let task = await trx
     .selectFrom('task')
@@ -1018,7 +1019,7 @@ export function createObservationCore(deps: {
         .executeTakeFirst();
       const project = projectForSource(config, source);
       const tickets =
-        project !== undefined && source === trackerSource(project)
+        project !== undefined && source === trackerSourceId(project)
           ? (
               await store.db
                 .selectFrom('task')
@@ -1229,7 +1230,7 @@ export function createObservationCore(deps: {
             .where('last_seen', '<', batch.observedAt)
             .execute();
         if (observation.effectiveComplete) {
-          const project = config.projects.find((entry) => trackerSource(entry) === source);
+          const project = config.projects.find((entry) => trackerSourceId(entry) === source);
           if (project !== undefined) {
             const seen = new Set(
               batch.items.flatMap((item) =>

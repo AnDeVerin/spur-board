@@ -1,7 +1,7 @@
-import type { Config } from '@spur-board/contracts';
+import { prSourceId, trackerSourceId, type Config } from '@spur-board/contracts';
 import { sql } from 'kysely';
 import { curatorProject } from './authorize.ts';
-import { trackerSource, type Trx } from './board-utils.ts';
+import type { Trx } from './board-utils.ts';
 import { curatorSession } from './doorbells.ts';
 import { enqueueLiveFeedLine } from './outbox.ts';
 
@@ -12,8 +12,8 @@ function doctorSources(config: Config): ReadonlySet<string> {
   return new Set([
     'spur',
     ...config.projects.flatMap((project) => [
-      trackerSource(project),
-      ...project.repos.map((repo) => `github:${project.id}:${repo.toLowerCase()}`),
+      trackerSourceId(project),
+      ...project.repos.map((repo) => prSourceId(project.id, repo)),
     ]),
   ]);
 }

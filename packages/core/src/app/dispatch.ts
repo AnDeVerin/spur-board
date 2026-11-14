@@ -2,6 +2,7 @@ import {
   COLUMN_IDS,
   DISPATCHER_MODES,
   isExternalAuthor,
+  prSourceId,
   type ActorId,
   type ColumnId,
   type Config,
@@ -511,7 +512,7 @@ export async function readInput(
     if (pr === null) return null;
   }
   const repos = pr === null ? project.repos : [pr.repo];
-  const githubBlind = repos.some((repo) => blind(`github:${project.id}:${repo.toLowerCase()}`));
+  const githubBlind = repos.some((repo) => blind(prSourceId(project.id, repo)));
   const submissions = await trx
     .selectFrom('submission')
     .select(['column', 'commit_sha'])
