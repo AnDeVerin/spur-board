@@ -399,6 +399,23 @@ describe('catalog', () => {
     expect(ack?.input.safeParse({ ids: ['C3'] }).success).toBe(false);
   });
 
+  it('takes the ring id of a doorbell and reports already handled entries', () => {
+    const ack = OPERATIONS.find((op) => op.id === 'inbox.ack');
+    for (const id of ['N18-1', 'N18']) {
+      expect(ack?.input.safeParse({ entries: [{ id }] }).success, id).toBe(true);
+    }
+    for (const id of ['N0-1', 'N18-0', '(N18-1)', 'N18-1@1', 'N1234567890123456-1']) {
+      const result = ack?.input.safeParse({ entries: [{ id }] });
+      expect(result?.success, id).toBe(false);
+      if (result?.error !== undefined) expect(errorCodeOf(result.error), id).toBe('usage');
+    }
+    expect(ack?.input.safeParse({ entries: [{ id: 'N18-1', revision: 1 }] }).success).toBe(false);
+    expect(ack?.output.safeParse({ acked: ['N18-1'], alreadyHandled: ['N18-1'] }).success).toBe(
+      true,
+    );
+    expect(ack?.output.safeParse({ acked: ['B13'] }).success).toBe(true);
+  });
+
   it('gives wrong_id_kind for a task key passed as a block ID', () => {
     const answer = OPERATIONS.find((op) => op.id === 'block.answer');
     const result = answer?.input.safeParse({ block: 'PROJ-123', text: 'Yes.' });

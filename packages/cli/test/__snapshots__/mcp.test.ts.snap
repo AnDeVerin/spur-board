@@ -38,8 +38,8 @@ Example: {}",
     "name": "inbox_get",
   },
   {
-    "description": "Mark comments, agent-addressed blocks or turns as read; acking a turn makes the caller its taker.
-Use when: Mark handled inbox items read.
+    "description": "Mark comments, agent-addressed blocks, turns or doorbell rings as read; acking a turn makes the caller its taker.
+Use when: Mark handled inbox items or a ring ID like N18-1 read; an item handled before comes back under alreadyHandled.
 When not to use: Use inbox_get to inspect them first.
 Example: {"entries":[{"id":"C3","revision":1}],"idempotencyKey":"inbox_ack-example-001"}
 Choose a unique idempotencyKey for each action; reuse it on retries.",

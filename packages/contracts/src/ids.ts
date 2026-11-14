@@ -111,6 +111,17 @@ export const turnIdSchema = refSchema(
   'Turn ID: T followed by a number, e.g. T4.',
   NUMBERED_ID_MAX,
 );
+/**
+ * The ring ID a doorbell text ends with, `N<notification>-<ring>`, or a bare `N<notification>`.
+ * Only `inbox.ack` takes it; it is not a `RefKind`, since `N18-1` is also a valid Jira key.
+ */
+export const ringIdSchema = z
+  .string()
+  .max(32)
+  .regex(new RegExp(`^N${REF_NUMBER}(?:-${REF_NUMBER})?$`))
+  .describe(
+    'Ring ID from a doorbell text: N<notification>-<ring>, e.g. N18-1; the ring part is optional.',
+  );
 const TASK_KEY_DESCRIPTION =
   'Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42).';
 export const taskKeySchema = refSchema('task', TASK_KEY_DESCRIPTION);

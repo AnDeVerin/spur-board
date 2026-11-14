@@ -286,6 +286,23 @@ describe('board mcp', () => {
     );
   });
 
+  it('acks a ring id and passes already handled entries through as success', async () => {
+    const value = { acked: ['N18-1'], alreadyHandled: ['N18-1'] };
+    const daemon = await fakeDaemon((_request, response) => {
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end(JSON.stringify({ ok: true, requestId: 'req-ack', value }));
+    });
+    await withClient({ BOARD_DAEMON_URL: daemon.url, SPUR_SESSION: 'worker-1' }, async (client) => {
+      const result = await client.callTool({
+        name: 'inbox_ack',
+        arguments: { entries: [{ id: 'N18-1' }], idempotencyKey: 'inbox-ack-ring' },
+      });
+      expect(result.isError).not.toBe(true);
+      expect(result.structuredContent).toEqual(value);
+      expect(daemon.requests[0]?.body.input).toEqual({ entries: [{ id: 'N18-1' }] });
+    });
+  });
+
   it('names idempotencyKey when a worker mutation omits it or sends a blank one', async () => {
     const daemon = await fakeDaemon(() => {});
     await withClient({ BOARD_DAEMON_URL: daemon.url, SPUR_SESSION: 'worker-1' }, async (client) => {
