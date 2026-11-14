@@ -18,6 +18,10 @@ verbs and scenario names; this card keeps the rules and traps.
 - Quote task keys in the shell: `'stand-org/board#1'`; an unquoted `#` starts a comment.
 - The `dispatch-*` scenarios run project `stand` in `dispatcher.mode: on` with To Do, Dev, Review
   (`--as orchestrator`), Ready to Merge (the operator) and Done.
+- `dispatch-new-head-in-ready-to-merge` and `dispatch-ci-red-new-head-in-product-review` add
+  Product Review and run Review, Product Review and Ready to Merge by `--as orchestrator`.
+- `dispatch-ci-pending-after-submit` and `dispatch-ring-closed-turn` set the conductor session
+  `--state waiting` so rings to it go out.
 - The curator scenarios (`question-to-curator`, `curator-escalation`, `curator-absent`) add
   `stand-curator` as the stand project's curator; their seeds set the worker and curator sessions
   `--state waiting` so rings go out.

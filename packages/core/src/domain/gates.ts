@@ -11,8 +11,9 @@ import {
 } from '@spur-board/contracts';
 
 /**
- * A submit or a mark, each bound to the head commit it was given on. A mark lasts for its head
- * whatever the visit; a submit lasts for one visit of its column.
+ * A submit or a mark, each bound to the head commit it was given on. A mark lasts whatever the
+ * visit while its head stays the PR's head (a new head voids it); a submit lasts for one visit of
+ * its column.
  */
 export type GateMark =
   | { kind: 'submit'; column: ColumnId; headSha: string }
@@ -54,11 +55,16 @@ export type GateProject = {
  * The hold-only reasons: a fact is not known yet, and waiting resolves it. See `GateResult` for
  * the caller rule.
  */
-export const HOLD_ONLY: ReadonlySet<GateReason> = new Set([
+const HOLD_ONLY_REASONS = [
   'mergeable_unknown',
   'checks_pending',
   'comment_history_incomplete',
-]);
+] as const satisfies readonly GateReason[];
+
+/** A gate reason that holds dispatch without failing the gate. */
+export type HoldOnlyReason = (typeof HOLD_ONLY_REASONS)[number];
+
+export const HOLD_ONLY: ReadonlySet<GateReason> = new Set(HOLD_ONLY_REASONS);
 
 /**
  * The gate result: ok, or the leftmost enabled column whose exit condition fails, with every

@@ -45,6 +45,9 @@ function whyLines(
   return [
     line(`Task ${key} is in ${why.column}${mode}.`),
     ...(why.holds.length === 0 ? [] : [line(`Held: ${why.holds.join(', ')}.`)]),
+    ...(why.waiting ?? []).map((entry) =>
+      line(`${entry.text.charAt(0).toUpperCase()}${entry.text.slice(1)}.`),
+    ),
     ...why.gates
       .filter((gate) => gate.enabled && !gate.ok)
       .map((gate) =>

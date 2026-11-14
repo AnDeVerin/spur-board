@@ -32,6 +32,12 @@ import {
 } from './dispatcher.ts';
 import { dispatchCloseAfterMerge, dispatchSplitPr } from './split-pr.ts';
 import { empty } from './empty.ts';
+import {
+  dispatchCiPendingAfterSubmit,
+  dispatchCiRedNewHeadInProductReview,
+  dispatchNewHeadInReadyToMerge,
+  dispatchRingClosedTurn,
+} from './new-head.ts';
 import { questionToOperator } from './question-to-operator.ts';
 import { sourceBlind, sourceBlindJira } from './source-blind.ts';
 import { spurSourceSilent } from './spur-source-silent.ts';
@@ -158,6 +164,10 @@ export const SCENARIOS: readonly Scenario[] = [
   dispatchCycleLimit,
   dispatchCourseCheck,
   dispatchLongCommentHistory,
+  dispatchCiPendingAfterSubmit,
+  dispatchNewHeadInReadyToMerge,
+  dispatchCiRedNewHeadInProductReview,
+  dispatchRingClosedTurn,
   dispatchTurnView,
 ];
 

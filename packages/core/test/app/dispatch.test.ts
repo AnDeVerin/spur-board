@@ -2656,15 +2656,124 @@ describe('design flows 2.5 and 2.10', () => {
     expect((await ctx.moves()).at(-1)).toMatchObject({ gate: ['pr_draft'] });
   });
 
-  it('a force-push in Review with the conductor turn open waits, then goes to Dev', async () => {
+  it('a force-push in Review closes the taken conductor turn and goes to Dev at once', async () => {
     const ctx = await inReview();
     await ctx.ack(REV, 'T2');
     await ctx.pr({ headSha: B });
-    expect((await ctx.task()).column).toBe('review');
-    await ctx.submit(REV, 'T2', B);
     expect((await ctx.task()).column).toBe('dev');
-    expect((await ctx.moves()).at(-1)).toMatchObject({ gate: ['no_submit_on_head'] });
+    expect((await ctx.turns())[1]).toMatchObject({
+      id: 2,
+      column: 'review',
+      closed_reason: 'moved',
+    });
+    expect((await ctx.moves()).at(-1)).toMatchObject({
+      from: 'review',
+      to: 'dev',
+      reason: 'gate_broken',
+      gate: ['no_submit_on_head'],
+    });
     expect(await ctx.openTurn()).toEqual(turnOf('dev', 'worker', 'dev: no_submit_on_head'));
+  });
+
+  it('red CI on a new head in Product Review closes the taken turn and goes to Dev', async () => {
+    const ctx = await inReview();
+    await ctx.ack(REV, 'T2');
+    await ctx.submit(REV, 'T2', A);
+    await ctx.ack(COORD, 'T3');
+    await ctx.pr({
+      headSha: B,
+      requiredChecks: [{ name: 'ci', state: 'failure', completedAt: null }],
+    });
+    expect((await ctx.task()).column).toBe('dev');
+    expect((await ctx.turns())[2]).toMatchObject({
+      id: 3,
+      column: 'product-review',
+      closed_reason: 'moved',
+    });
+    expect((await ctx.moves()).at(-1)).toMatchObject({
+      from: 'product-review',
+      to: 'dev',
+      reason: 'gate_broken',
+      gate: ['checks_red', 'no_submit_on_head'],
+    });
+    expect(await ctx.openTurn()).toEqual(
+      turnOf('dev', 'worker', 'dev: checks_red, no_submit_on_head'),
+    );
+  });
+
+  it('a head back to an earlier commit needs fresh Review and Product Review marks', async () => {
+    const ctx = await inReview();
+    await ctx.ack(REV, 'T2');
+    await ctx.submit(REV, 'T2', A);
+    await ctx.ack(COORD, 'T3');
+    await ctx.submit(COORD, 'T3', A);
+    expect((await ctx.task()).column).toBe('ready-to-merge');
+    await ctx.pr({ headSha: B });
+    expect((await ctx.task()).column).toBe('dev');
+    await ctx.pr({ headSha: A });
+    const dev = await ctx.openTurn();
+    expect(dev).toEqual(turnOf('dev', 'worker', 'dev: no_submit_on_head'));
+    await ctx.ack(WORKER, dev?.id ?? '');
+
+    await expect(ctx.submit(WORKER, dev?.id ?? '', A)).resolves.toMatchObject({
+      task: { column: 'review' },
+    });
+    expect(await ctx.openTurn()).toEqual(
+      expect.objectContaining({
+        column: 'review',
+        role: 'orchestrator:review',
+        reason: 'review: no_review_on_head',
+        head_sha: A,
+      }),
+    );
+    expect(
+      await ctx.store.db
+        .selectFrom('submission')
+        .select(['column', 'commit_sha'])
+        .where('voided_at', 'is not', null)
+        .where('column', 'in', ['review', 'product-review'])
+        .orderBy('id')
+        .execute(),
+    ).toEqual([
+      { column: 'review', commit_sha: A },
+      { column: 'product-review', commit_sha: A },
+    ]);
+  });
+
+  it('only a new head of its own PR voids a mark', async () => {
+    const ctx = await inReview();
+    await ctx.ack(REV, 'T2');
+    await ctx.submit(REV, 'T2', A);
+    const task = await ctx.task();
+    await ctx.store.db
+      .insertInto('submission')
+      .values({
+        task_id: task.id,
+        column: 'review',
+        epoch: 0,
+        commit_sha: A,
+        author: REV,
+        submitted_at: ctx.at(),
+        note: null,
+        pr_repo: 'o/r',
+        pr_number: 8,
+      })
+      .execute();
+    const voided = () =>
+      ctx.store.db
+        .selectFrom('submission')
+        .select(['column', 'pr_number'])
+        .where('voided_at', 'is not', null)
+        .orderBy('id')
+        .execute();
+    await ctx.github();
+    expect(await voided()).toEqual([]);
+
+    await ctx.pr({ headSha: B });
+    expect(await voided()).toEqual([
+      { column: 'dev', pr_number: 7 },
+      { column: 'review', pr_number: 7 },
+    ]);
   });
 
   it('a PR closed without merge sends the task to Dev with no turn', async () => {
