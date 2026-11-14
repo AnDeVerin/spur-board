@@ -443,6 +443,18 @@ describe('core gateway boundary', () => {
     ['packages/core/src/x.ts', dynamic('../../gateway-slack/src/index.ts')],
     ['packages/core/src/app/board-utils.ts', dynamic('@spur-board/gateway-testkit')],
     ['packages/core/src/app/x.ts', typed('@spur-board/gateway-slack')],
+    [
+      'packages/core/src/app/x.ts',
+      'export async function load(): Promise<unknown> {\n  return import(`@spur-board/gateway-testkit`);\n}',
+    ],
+    [
+      'packages/core/src/app/x.ts',
+      'export async function load(name: string): Promise<unknown> {\n  return import(`@spur-board/gateway-${name}`);\n}',
+    ],
+    [
+      'packages/core/src/app/x.ts',
+      'export async function load(name: string): Promise<unknown> {\n  return import(name);\n}',
+    ],
   ])(
     '%s: dynamic or type import of a gateway reports no-restricted-syntax',
     async (path, code) => {

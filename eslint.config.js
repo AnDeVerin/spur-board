@@ -100,10 +100,15 @@ const gatewayBoundaryPatterns = ['^@spur-board/gateway-', '^([.][.]/)+(packages/
   (regex) => ({ regex, caseSensitive: true, message: gatewayMessage }),
 );
 // no-restricted-imports checks only static imports, so `import()` and import types need these.
+// An `import()` whose source is not a string literal (a template or a variable) cannot be checked.
 const gatewaySource = '/^(@spur-board[/]gateway-|([.][.][/])+(packages[/])?gateway-)/';
 const gatewayImportBans = [
   { selector: `ImportExpression[source.value=${gatewaySource}]`, message: gatewayMessage },
   { selector: `TSImportType[source.value=${gatewaySource}]`, message: gatewayMessage },
+  {
+    selector: "ImportExpression[source.type!='Literal']",
+    message: 'Pass import() a string literal so the boundary lint can check it.',
+  },
 ];
 // Domain code is pure: it takes data as arguments and leaves queries and IO to app/.
 const domainMessage =
