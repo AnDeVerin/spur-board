@@ -11,6 +11,7 @@ import {
   type Batch,
   type Config,
   type PollPrError,
+  type PollContext,
   type PollPrResult,
   type PollPrValue,
   type PrEntityRef,
@@ -28,6 +29,32 @@ import {
   type GoneRef,
   type PollOutcome,
 } from './policy.ts';
+
+function answersProbes(context: Omit<PollContext, 'signal'>, batch: Batch): boolean {
+  const probes = batch.prProbes ?? [];
+  const key = (ref: PrEntityRef) => `${ref.repo.toLowerCase()}#${String(ref.number)}`;
+  const allowed = new Set(
+    [
+      ...(context.prRechecks ?? []),
+      ...(context.terminalPrs ?? [])
+        .filter((entry) => entry.state === 'closed')
+        .map((entry) => entry.ref),
+    ].map(key),
+  );
+  const seen = new Set<string>();
+  for (const probe of probes) {
+    const identity = key(probe.ref);
+    if (!allowed.has(identity) || seen.has(identity)) return false;
+    seen.add(identity);
+    const item = batch.items.some(
+      (item) =>
+        item.kind === 'pr' &&
+        key({ kind: 'pr', repo: item.facts.repo, number: item.facts.number }) === identity,
+    );
+    if ((probe.status === 'refreshed') !== item) return false;
+  }
+  return (context.prRechecks ?? []).every((ref) => seen.has(key(ref)));
+}
 
 /** The setTimeout limit: a longer delay would otherwise fire after 1 ms. */
 const MAX_TIMER_MS = 2_147_483_647;
@@ -176,14 +203,21 @@ function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: nu
   }
 
   /** Appends the current state to the serial report chain; resolves when its step is done. */
-  function report(): Promise<void> {
+  let pendingPoints: number | undefined;
+  function report(usage?: Batch['usage']): Promise<void> {
+    if (usage !== undefined) pendingPoints = (pendingPoints ?? 0) + usage.points;
     if (stopping) return reports;
     reports = reports.then(async () => {
       const next = state();
       const json = JSON.stringify(next);
-      if (json === lastReported) return;
+      if (json === lastReported && pendingPoints === undefined) return;
+      const points = pendingPoints;
       try {
-        await core.reportSourceState(source, next);
+        await core.reportSourceState(source, next, points === undefined ? undefined : { points });
+        pendingPoints =
+          points === undefined || pendingPoints === points
+            ? undefined
+            : (pendingPoints ?? 0) - points;
         lastReported = json;
       } catch (error) {
         // Not accepted: the next outcome reports again.
@@ -246,6 +280,7 @@ function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: nu
     controller = abort;
     const startMs = now();
     let outcome: PollOutcome;
+    let usage: Batch['usage'];
     let step: PollFailure['step'] = 'context';
     try {
       const received = await core.context(source);
@@ -275,15 +310,18 @@ function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: nu
       );
       // Only an abort ends the poll here; a missing or malformed batch fails validation below.
       if (aborted()) return;
+      usage = batch?.usage;
       step = 'batch';
       const parsed = batchSchema.safeParse({ ...batch, observedAt: iso(startMs) });
       const invalid = !parsed.success
         ? undefined
         : parsed.data.source !== source
           ? 'names another source'
-          : !answersRequest(context.observe, parsed.data.entities)
-            ? 'does not answer the request'
-            : undefined;
+          : !answersProbes(context, parsed.data)
+            ? 'does not answer state probes'
+            : !answersRequest(context.observe, parsed.data.entities)
+              ? 'does not answer the request'
+              : undefined;
       if (!parsed.success || invalid !== undefined) {
         const reason = invalid ?? 'fails the batch schema';
         const error = new AdapterError('transient', `Invalid batch: ${reason}`);
@@ -324,6 +362,7 @@ function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: nu
             state: proposedState,
             outcomes: outcomes.outcomes,
           });
+          usage = undefined;
           counts = outcomes.counts;
           gone = outcomes.gone;
           lastCompleteMs = proposedLastCompleteMs;
@@ -341,6 +380,7 @@ function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: nu
       }
     } catch (error) {
       if (aborted()) return;
+      if (error instanceof AdapterError && error.usage !== undefined) usage = error.usage;
       fail(step, error);
       if (error instanceof AdapterError && (error.kind === 'auth' || error.kind === 'config')) {
         errorBlind = { reason: error.kind, message: error.message };
@@ -361,7 +401,7 @@ function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: nu
     failures = delay.failures;
     throttledUntilMs = outcome.kind === 'failed' ? throttledRetryAt(outcome.error) : undefined;
     if (!options.oneShot) armDeadline();
-    await report();
+    await report(usage);
     if (!options.oneShot) schedule(delay.delayMs);
     return outcome;
   }
@@ -396,6 +436,7 @@ function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: nu
       });
     }
     const aborted = () => abort.signal.aborted;
+    let usage: Batch['usage'];
     let step: PollFailure['step'] = 'context';
     try {
       // Only this ref's feedback cursor and held history; the adapter merges but never states it.
@@ -416,6 +457,7 @@ function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: nu
       );
       // Aborted by stop() or by the timeout; after a timeout the caller already has its answer.
       if (aborted()) return err(stoppedError);
+      usage = batch?.usage;
       step = 'batch';
       const observedAt = iso(startMs);
       const parsed = batchSchema.safeParse({ ...batch, observedAt });
@@ -426,17 +468,19 @@ function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: nu
           ? 'names another source'
           : !answersRequest({ prs: [ref], tickets: [], sessions: [] }, parsed.data.entities)
             ? 'does not answer the request'
-            : parsed.data.complete
-              ? 'is marked complete'
-              : parsed.data.cursor !== undefined
-                ? 'carries a cursor'
-                : parsed.data.items.some(
-                      (item) => item.kind === 'pr' && item.continuation !== undefined,
-                    )
-                  ? 'carries a continuation'
-                  : value === undefined
-                    ? 'carries another item'
-                    : undefined;
+            : (parsed.data.prProbes?.length ?? 0) > 0
+              ? 'carries state probes'
+              : parsed.data.complete
+                ? 'is marked complete'
+                : parsed.data.cursor !== undefined
+                  ? 'carries a cursor'
+                  : parsed.data.items.some(
+                        (item) => item.kind === 'pr' && item.continuation !== undefined,
+                      )
+                    ? 'carries a continuation'
+                    : value === undefined
+                      ? 'carries another item'
+                      : undefined;
       if (!parsed.success || invalid !== undefined || value === undefined) {
         const reason = invalid ?? 'fails the batch schema';
         const error = new AdapterError('transient', `Invalid batch: ${reason}`);
@@ -449,6 +493,7 @@ function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: nu
             message: issue.message,
           })),
         );
+        await report(usage);
         return err({ kind: 'failed', adapterKind: 'transient', message: error.message });
       }
       step = 'observe';
@@ -464,6 +509,7 @@ function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: nu
           state: committed,
           outcomes: [],
         });
+        usage = undefined;
         lastReported = JSON.stringify(committed);
         return ok(value);
       });
@@ -471,10 +517,12 @@ function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: nu
       return await accepted;
     } catch (error) {
       if (aborted()) return err(stoppedError);
+      if (error instanceof AdapterError && error.usage !== undefined) usage = error.usage;
       fail(step, error);
       if (step === 'poll' && error instanceof AdapterError && error.kind === 'transient') {
         retryable();
       }
+      await report(usage);
       const retryAt = throttledRetryAt(error);
       return err({
         kind: 'failed',

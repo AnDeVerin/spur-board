@@ -14,13 +14,13 @@ Other errors: `not_found`.
 
 ### `board task`
 
-Purpose: Show a task with its open turn, links, blocks and comments.
+Purpose: Show a task with its open turn, links, blocks and comments. Use refresh to read linked pull requests from GitHub now.
 Arguments: `<task>`.
-Flags: `--detail`, `--why`, `--json`.
+Flags: `--refresh`, `--detail`, `--why`, `--json`.
 Use when: Inspect one task now; pass detail for its last closed turns.
 Avoid when: Use `board task history <task>` for past events.
 Example: `board task PROJ-123` — Show one task.
-Other errors: `wrong_id_kind`, `not_found`.
+Other errors: `wrong_id_kind`, `not_found`, `github_unavailable`.
 
 ### `board task history`
 

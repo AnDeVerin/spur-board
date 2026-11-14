@@ -193,19 +193,20 @@ Operation errors: `usage` (exit 2: Run `board schema` to see the expected input 
 
 ### `board task`
 
-Show a task with its open turn, links, blocks and comments.
+Show a task with its open turn, links, blocks and comments. Use refresh to read linked pull requests from GitHub now.
 
 Arguments: `<task>`.
 
 Flags:
 
+`--refresh` — Read every linked pull request from GitHub before showing the task; unavailable reads fail visibly.
 `--detail` — Also list the last 5 closed turns, newest first; absent means none.
 `--why` — Explain why the task is in its column: gates, holds, the open turn and the last moves; absent means no explanation.
 `--json` — Print JSON output or a JSON error.
 
 Example: `board task PROJ-123`
 
-Operation errors: `usage` (exit 2: Run `board schema` to see the expected input and fix the arguments.); `wrong_id_kind` (exit 2: Pass the ID kind the operation expects, e.g. B<n> for a block or a task key for a task.); `forbidden` (exit 1: Check which role may run the operation in `board schema`, or ask the operator.); `not_found` (exit 1: Check the ID with `board status` or `board task <KEY>`.); `not_implemented` (exit 1: Ask the operator to update the daemon to a build with this operation.); `identity_unavailable` (exit 3: Ask in your own session, then retry the same command later with its existing idempotency key if it has one.); `starting` (exit 3: Wait until the daemon is ready, then retry the command with its existing idempotency key if it has one.); `stopping` (exit 3: Wait until the daemon is running again, then retry the command with its existing idempotency key if it has one; if it stays stopped, ask in your own session.).
+Operation errors: `usage` (exit 2: Run `board schema` to see the expected input and fix the arguments.); `wrong_id_kind` (exit 2: Pass the ID kind the operation expects, e.g. B<n> for a block or a task key for a task.); `forbidden` (exit 1: Check which role may run the operation in `board schema`, or ask the operator.); `not_found` (exit 1: Check the ID with `board status` or `board task <KEY>`.); `not_implemented` (exit 1: Ask the operator to update the daemon to a build with this operation.); `identity_unavailable` (exit 3: Ask in your own session, then retry the same command later with its existing idempotency key if it has one.); `starting` (exit 3: Wait until the daemon is ready, then retry the command with its existing idempotency key if it has one.); `stopping` (exit 3: Wait until the daemon is running again, then retry the command with its existing idempotency key if it has one; if it stays stopped, ask in your own session.); `github_unavailable` (exit 3: Wait until GitHub answers, then retry the operation.).
 
 ### `board task history`
 
@@ -343,7 +344,7 @@ Exit codes: see the table above; setup errors are reported by the CLI.
 
 ### `board link`
 
-Manually link a pull request, session, or additional ticket to a task.
+Manually link a pull request, session, or additional ticket to a task. Pull request links first read current facts from GitHub.
 
 Arguments: `<task>`.
 
@@ -358,7 +359,7 @@ Flags:
 
 Example: `board link PROJ-123 --pr https://github.com/example/web/pull/7 --reason "Attach work started before the ticket was named." --key link-PROJ-123-example-1432`
 
-Operation errors: `usage` (exit 2: Run `board schema` to see the expected input and fix the arguments.); `wrong_id_kind` (exit 2: Pass the ID kind the operation expects, e.g. B<n> for a block or a task key for a task.); `forbidden` (exit 1: Check which role may run the operation in `board schema`, or ask the operator.); `not_found` (exit 1: Check the ID with `board status` or `board task <KEY>`.); `not_implemented` (exit 1: Ask the operator to update the daemon to a build with this operation.); `task_archived` (exit 1: Ask an operator to add the task to the board again if work continues.); `link_conflict` (exit 1: Read the task links and use a different task or resolve the existing pull request link.); `idempotency_key_mismatch` (exit 1: Use a new key for a new command, or repeat the earlier input with the same key.); `identity_unavailable` (exit 3: Ask in your own session, then retry the same command later with its existing idempotency key if it has one.); `starting` (exit 3: Wait until the daemon is ready, then retry the command with its existing idempotency key if it has one.); `stopping` (exit 3: Wait until the daemon is running again, then retry the command with its existing idempotency key if it has one; if it stays stopped, ask in your own session.).
+Operation errors: `usage` (exit 2: Run `board schema` to see the expected input and fix the arguments.); `wrong_id_kind` (exit 2: Pass the ID kind the operation expects, e.g. B<n> for a block or a task key for a task.); `forbidden` (exit 1: Check which role may run the operation in `board schema`, or ask the operator.); `not_found` (exit 1: Check the ID with `board status` or `board task <KEY>`.); `not_implemented` (exit 1: Ask the operator to update the daemon to a build with this operation.); `task_archived` (exit 1: Ask an operator to add the task to the board again if work continues.); `link_conflict` (exit 1: Read the task links and use a different task or resolve the existing pull request link.); `idempotency_key_mismatch` (exit 1: Use a new key for a new command, or repeat the earlier input with the same key.); `identity_unavailable` (exit 3: Ask in your own session, then retry the same command later with its existing idempotency key if it has one.); `starting` (exit 3: Wait until the daemon is ready, then retry the command with its existing idempotency key if it has one.); `stopping` (exit 3: Wait until the daemon is running again, then retry the command with its existing idempotency key if it has one; if it stays stopped, ask in your own session.); `github_unavailable` (exit 3: Wait until GitHub answers, then retry the operation.).
 
 ### `board unlink`
 
@@ -535,7 +536,7 @@ Flags:
 
 Example: `board submit T4 9f2c4e1b7a3d5c8e0f1a2b3c4d5e6f708192a3b4 --key submit-PROJ-123-example-1432`
 
-Operation errors: `usage` (exit 2: Run `board schema` to see the expected input and fix the arguments.); `wrong_id_kind` (exit 2: Pass the ID kind the operation expects, e.g. B<n> for a block or a task key for a task.); `forbidden` (exit 1: Check which role may run the operation in `board schema`, or ask the operator.); `not_found` (exit 1: Check the ID with `board status` or `board task <KEY>`.); `not_implemented` (exit 1: Ask the operator to update the daemon to a build with this operation.); `turn_closed` (exit 1: Read your open turns with `board inbox` and act only on a turn listed there.); `not_turn_taker` (exit 1: Take the turn with `board inbox ack` first; only the session that took it can submit or return it.); `head_mismatch` (exit 1: Push the commit to the task's pull request branch and submit its head; if the task has none, ask the operator to link the pull request with `board link` first.); `task_archived` (exit 1: Ask an operator to add the task to the board again if work continues.); `idempotency_key_mismatch` (exit 1: Use a new key for a new command, or repeat the earlier input with the same key.); `identity_unavailable` (exit 3: Ask in your own session, then retry the same command later with its existing idempotency key if it has one.); `starting` (exit 3: Wait until the daemon is ready, then retry the command with its existing idempotency key if it has one.); `stopping` (exit 3: Wait until the daemon is running again, then retry the command with its existing idempotency key if it has one; if it stays stopped, ask in your own session.); `github_unavailable` (exit 3: Wait until GitHub answers, then submit again.).
+Operation errors: `usage` (exit 2: Run `board schema` to see the expected input and fix the arguments.); `wrong_id_kind` (exit 2: Pass the ID kind the operation expects, e.g. B<n> for a block or a task key for a task.); `forbidden` (exit 1: Check which role may run the operation in `board schema`, or ask the operator.); `not_found` (exit 1: Check the ID with `board status` or `board task <KEY>`.); `not_implemented` (exit 1: Ask the operator to update the daemon to a build with this operation.); `turn_closed` (exit 1: Read your open turns with `board inbox` and act only on a turn listed there.); `not_turn_taker` (exit 1: Take the turn with `board inbox ack` first; only the session that took it can submit or return it.); `head_mismatch` (exit 1: Push the commit to the task's pull request branch and submit its head; if the task has none, ask the operator to link the pull request with `board link` first.); `task_archived` (exit 1: Ask an operator to add the task to the board again if work continues.); `idempotency_key_mismatch` (exit 1: Use a new key for a new command, or repeat the earlier input with the same key.); `identity_unavailable` (exit 3: Ask in your own session, then retry the same command later with its existing idempotency key if it has one.); `starting` (exit 3: Wait until the daemon is ready, then retry the command with its existing idempotency key if it has one.); `stopping` (exit 3: Wait until the daemon is running again, then retry the command with its existing idempotency key if it has one; if it stays stopped, ask in your own session.); `github_unavailable` (exit 3: Wait until GitHub answers, then retry the operation.).
 
 ### `board return`
 

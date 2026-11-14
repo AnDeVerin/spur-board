@@ -434,7 +434,7 @@ describe('grants', () => {
   // id, kind, grants, preconditions, specific errors
   const table: [string, string, unknown, unknown, readonly ServerErrorCode[]][] = [
     ['status.get', 'query', [operator, projectAgent], null, ['not_found']],
-    ['task.get', 'query', [operator, projectAgent], null, id],
+    ['task.get', 'query', [operator, projectAgent], null, [...id, 'github_unavailable']],
     ['task.history', 'query', [operator, projectAgent], null, id],
     ['schema.get', 'query', 'any', null, []],
     ['inbox.get', 'query', [projectAgent, operator], null, ['not_found']],
@@ -443,7 +443,13 @@ describe('grants', () => {
     ['token.revoke', 'mutation', [operator], null, ['not_found']],
     ['task.add', 'mutation', [operator], null, id],
     ['task.archive', 'mutation', [operator], null, archived],
-    ['link.add', 'mutation', [operator], null, [...archived, 'link_conflict']],
+    [
+      'link.add',
+      'mutation',
+      [operator],
+      null,
+      [...archived, 'link_conflict', 'github_unavailable'],
+    ],
     ['link.remove', 'mutation', [operator], null, archived],
     ['item.retry', 'mutation', [operator], null, [...archived, 'retry_not_applicable']],
     ['item.close', 'mutation', [operator], null, id],

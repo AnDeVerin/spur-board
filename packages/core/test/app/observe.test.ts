@@ -1659,7 +1659,13 @@ describe('accepted observation', () => {
 
   it('replays the PR and session facts of a manually linked task from its own events', async () => {
     const { store, core, apply, mutations } = setup();
-    const links = createLinkMutations(config);
+    const links = createLinkMutations(config, {
+      prPoller: () => () =>
+        Promise.resolve({
+          ok: true,
+          value: { status: 'ok', facts: prFact(), observedAt: at },
+        }),
+    });
     await apply(mutations.add, { task: 'o/r#9' }, 'operator');
     const merged: PrFacts = {
       ...prFact(),
@@ -3728,5 +3734,103 @@ describe('anomaly blocks', () => {
       await spur(merged, [sessionFact('worker-1', link, true)]);
       expect(await openLedger(merged)).toEqual([]);
     });
+  });
+});
+
+describe('persisted PR eligibility and source points', () => {
+  const prSource = 'github:board:o/r';
+  const ref = { kind: 'pr' as const, repo: 'o/r', number: 7 };
+  async function accept(core: ReturnType<typeof createObservationCore>, facts: PrFacts, usage = 3) {
+    await core.observe(prSource, {
+      batch: {
+        source: prSource,
+        observedAt: new Date(now).toISOString(),
+        complete: true,
+        items: [{ kind: 'pr', facts }],
+        entities: [],
+        usage: { points: usage },
+      },
+      effectiveComplete: true,
+      state: { lastCompleteAt: at, gone: [] },
+      outcomes: [],
+    });
+  }
+  it('omits legacy merged snapshots with valid heads, retains held history for explicit refresh, and survives core recreation', async () => {
+    const { store, core, apply, mutations } = setup();
+    await apply(mutations.add, { task: 'o/r#9' }, 'operator');
+    await accept(core, { ...prFact(), state: 'merged' });
+    await store.db
+      .insertInto('pr_continuation')
+      .values({ source: prSource, ref_key: 'pr:o/r#7', resume: null, feedback: '[]' })
+      .execute();
+    const restarted = createObservationCore({ store, config, clock });
+    const ctx = await restarted.context(prSource);
+    expect(ctx.observe.prs).toEqual([]);
+    expect(ctx.terminalPrs).toEqual([{ ref, state: 'merged' }]);
+    expect(ctx.prRechecks).toEqual([]);
+    expect(ctx.continuations).toEqual([{ ref, resume: null, feedback: [] }]);
+    expect(
+      (await store.db.selectFrom('pr_snapshot').selectAll().executeTakeFirstOrThrow()).head_sha,
+    ).toBe(prFact().headSha);
+  });
+  it('persists closed deadlines and changes no facts, events or freshness on unchanged probes', async () => {
+    const { store, core, apply, mutations } = setup();
+    await apply(mutations.add, { task: 'o/r#9' }, 'operator');
+    await accept(core, { ...prFact(), state: 'closed' });
+    const old = await store.db.selectFrom('pr_snapshot').selectAll().executeTakeFirstOrThrow();
+    const events = await store.db.selectFrom('event').selectAll().execute();
+    now += 6 * 3_600_000 - 1;
+    expect((await core.context(prSource)).prRechecks).toEqual([]);
+    now++;
+    expect((await core.context(prSource)).prRechecks).toEqual([ref]);
+    await store.db.updateTable('task').set({ membership: 'archived' }).execute();
+    expect((await core.context(prSource)).prRechecks).toEqual([]);
+    await store.db.updateTable('task').set({ membership: 'active' }).execute();
+    expect((await core.context(prSource)).prRechecks).toEqual([ref]);
+    await core.observe(prSource, {
+      batch: {
+        source: prSource,
+        observedAt: new Date(now).toISOString(),
+        complete: true,
+        items: [],
+        entities: [],
+        prProbes: [{ ref, status: 'closed' }],
+      },
+      effectiveComplete: true,
+      state: { lastCompleteAt: at, gone: [] },
+      outcomes: [],
+    });
+    const refreshed = await store.db
+      .selectFrom('pr_snapshot')
+      .selectAll()
+      .executeTakeFirstOrThrow();
+    expect({ ...refreshed, closed_recheck_at: old.closed_recheck_at }).toEqual(old);
+    expect(await store.db.selectFrom('event').selectAll().execute()).toEqual(events);
+    const restarted = createObservationCore({ store, config, clock });
+    expect((await restarted.context(prSource)).prRechecks).toEqual([]);
+    await store.db.updateTable('pr_snapshot').set({ closed_recheck_at: null }).execute();
+    expect((await restarted.context(prSource)).prRechecks).toEqual([ref]);
+    await accept(restarted, { ...prFact(), state: 'open' });
+    expect((await restarted.context(prSource)).observe.prs).toEqual([ref]);
+    expect((await restarted.context(prSource)).terminalPrs).toEqual([]);
+  });
+  it('sums reported costs once across standalone reports and restarts with an open lower hour boundary', async () => {
+    const { store, core } = setup();
+    await accept(core, prFact(), 7);
+    await core.reportSourceState(prSource, { gone: [] }, { points: 3 });
+    const status = () => getStatus({ store, config, clock, completeSince: new Map() });
+    expect(
+      (await status()).sources.find((entry) => entry.source === prSource)?.pointsLastHour,
+    ).toBe(10);
+    now += 3_600_000;
+    expect(
+      (await status()).sources.find((entry) => entry.source === prSource)?.pointsLastHour,
+    ).toBe(0);
+    const restarted = createObservationCore({ store, config, clock });
+    await restarted.reportSourceState(prSource, { gone: [] }, { points: 5 });
+    expect(
+      (await status()).sources.find((entry) => entry.source === prSource)?.pointsLastHour,
+    ).toBe(5);
+    expect(await store.db.selectFrom('source_cost').selectAll().execute()).toHaveLength(1);
   });
 });

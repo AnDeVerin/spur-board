@@ -48,7 +48,6 @@ export const sampleRows: SampleRows = {
   },
   source_cost: { id: 1, source: 'github', at, points: 3 },
   pr_snapshot: {
-    closed_recheck_at: null,
     repo: 'x/y',
     number: 7,
     head_sha: 'a'.repeat(40),
@@ -60,6 +59,7 @@ export const sampleRows: SampleRows = {
     detail: '{"checks":[]}',
     source: 'github',
     observed_at: at,
+    closed_recheck_at: null,
   },
   ticket_snapshot: {
     task_id: 1,

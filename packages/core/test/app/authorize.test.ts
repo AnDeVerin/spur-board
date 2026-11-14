@@ -432,6 +432,7 @@ describe('authorize catalog grants', () => {
       'ref',
       'answer',
       'detail',
+      'refresh',
       'note',
       'turn',
       'sha',

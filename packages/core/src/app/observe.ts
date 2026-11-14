@@ -511,9 +511,13 @@ async function pr(
       detail: toJson(prFactsSchema, fact),
       source,
       observed_at: at,
+      closed_recheck_at:
+        fact.state === 'closed' ? new Date(Date.parse(at) + 6 * 60 * 60_000).toISOString() : null,
     })
     .onConflict((oc) =>
       oc.columns(['repo', 'number']).doUpdateSet({
+        closed_recheck_at:
+          fact.state === 'closed' ? new Date(Date.parse(at) + 6 * 60 * 60_000).toISOString() : null,
         head_sha: fact.headSha,
         head_branch: fact.headBranch,
         state: fact.state,
@@ -1030,6 +1034,24 @@ async function holdContinuation(
     .execute();
 }
 
+/** Reported cost only; shared remaining-budget changes do not measure consumption. */
+async function recordUsage(
+  trx: Trx,
+  source: string,
+  usage: Batch['usage'],
+  now: number,
+): Promise<void> {
+  if (usage === undefined) return;
+  await trx
+    .deleteFrom('source_cost')
+    .where('at', '<=', new Date(now - 3_600_000).toISOString())
+    .execute();
+  await trx
+    .insertInto('source_cost')
+    .values({ source, at: new Date(now).toISOString(), points: usage.points })
+    .execute();
+}
+
 /** Core's adapter-facing port. Every accepted batch and its source state share one transaction. */
 export function createObservationCore(deps: {
   store: Store;
@@ -1097,7 +1119,39 @@ export function createObservationCore(deps: {
                 : [];
             })
           : [];
-      const requested = await linkedPrs(store.db, source);
+      const linked = await linkedPrs(store.db, source);
+      const snapshots = source.startsWith('github:')
+        ? await store.db
+            .selectFrom('pr_snapshot')
+            .selectAll()
+            .where(
+              sql<boolean>`lower(repo) = ${source.slice(source.lastIndexOf(':') + 1).toLowerCase()}`,
+            )
+            .execute()
+        : [];
+      const linkedKeys = new Set(linked.map(refKey));
+      const terminalPrs: NonNullable<PollContext['terminalPrs']>[number][] = [];
+      const prRechecks: PrEntityRef[] = [];
+      for (const row of snapshots) {
+        let value: unknown;
+        try {
+          value = JSON.parse(row.detail);
+        } catch {
+          continue;
+        }
+        const parsed = prFactsSchema.safeParse(value);
+        if (!parsed.success || !['merged', 'closed'].includes(parsed.data.state)) continue;
+        const ref: PrEntityRef = { kind: 'pr', repo: row.repo, number: row.number };
+        terminalPrs.push({ ref, state: parsed.data.state === 'merged' ? 'merged' : 'closed' });
+        if (
+          parsed.data.state === 'closed' &&
+          linkedKeys.has(refKey(ref)) &&
+          (row.closed_recheck_at === null || Date.parse(row.closed_recheck_at) <= clock.now())
+        )
+          prRechecks.push(ref);
+      }
+      const terminal = new Set(terminalPrs.map(({ ref }) => refKey(ref)));
+      const requested = linked.filter((ref) => !terminal.has(refKey(ref)));
       const sessions =
         source === 'spur'
           ? (
@@ -1130,9 +1184,11 @@ export function createObservationCore(deps: {
         .selectAll()
         .where('source', '=', source)
         .execute();
-      const feedbackCursors = await pollFeedbackCursors(store.db, config, requested);
-      const continuations = await heldContinuations(store.db, source, requested);
+      const feedbackCursors = await pollFeedbackCursors(store.db, config, linked);
+      const continuations = await heldContinuations(store.db, source, linked);
       return {
+        terminalPrs,
+        prRechecks,
         observe: {
           prs: requested,
           tickets,
@@ -1160,6 +1216,21 @@ export function createObservationCore(deps: {
       await scanTransaction(store, config, async (trx) => {
         const wasBlind = await blindReason(trx, source);
         await sourceState(trx, source, observation.state, batch.observedAt, batch.cursor);
+        await recordUsage(trx, source, batch.usage, now);
+        for (const probe of batch.prProbes ?? []) {
+          if (probe.status !== 'closed') continue;
+          await trx
+            .updateTable('pr_snapshot')
+            .set({
+              closed_recheck_at: new Date(
+                Date.parse(batch.observedAt) + 6 * 60 * 60_000,
+              ).toISOString(),
+            })
+            .where(sql<boolean>`lower(repo) = ${probe.ref.repo.toLowerCase()}`)
+            .where('number', '=', probe.ref.number)
+            .where('state', '=', 'closed')
+            .execute();
+        }
         for (const outcome of observation.outcomes) {
           const answer = batch.entities.find(
             (entity) => refKey(entity.ref) === refKey(outcome.ref),
@@ -1375,11 +1446,12 @@ export function createObservationCore(deps: {
       });
       if (observation.effectiveComplete) completeSince.set(source, batch.observedAt);
     },
-    reportSourceState(source, state) {
+    reportSourceState(source, state, usage) {
       const now = clock.now();
       return scanTransaction(store, config, async (trx) => {
         const wasBlind = await blindReason(trx, source);
         await sourceState(trx, source, state);
+        await recordUsage(trx, source, usage, now);
         if (wasBlind !== null && state.blind === undefined)
           await dispatchSource(trx, source, { config, at: new Date(now), complete: completeSince });
         await reconcileItems(trx, config, now, completeSince.has('spur'), warnSkipped);

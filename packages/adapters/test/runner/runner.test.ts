@@ -1914,3 +1914,74 @@ describe('on-demand PR poll', () => {
     expect(starts).toEqual([0, 10 * I]);
   });
 });
+
+describe('state probes and reported source cost', () => {
+  it('accepts closed probe outcomes separately from ordinary entity coverage and miss counters', async () => {
+    const { core } = start(
+      () =>
+        Promise.resolve(batch({ prProbes: [{ ref: pr, status: 'closed' }], usage: { points: 2 } })),
+      { core: { context: () => ({ ...context(), prRechecks: [pr] }) } },
+    );
+    await flush();
+    expect(core.observed).toHaveLength(1);
+    expect(core.observed[0]?.observation.outcomes).toEqual([]);
+    expect(core.observed[0]?.batch.usage).toEqual({ points: 2 });
+    expect(core.reports.flatMap((report) => (report.usage ? [report.usage] : []))).toEqual([]);
+  });
+  it('rejects missing probe outcomes without accepting a successful listing', async () => {
+    const { core, failures } = start(() => Promise.resolve(batch()), {
+      core: { context: () => ({ ...context(), prRechecks: [pr] }) },
+    });
+    await flush();
+    expect(core.observed).toEqual([]);
+    expect(failures[0]?.error).toMatchObject({
+      message: 'Invalid batch: does not answer state probes',
+    });
+  });
+  it('reports every rejected attempt cost despite identical state text', async () => {
+    random(0);
+    const { core, starts } = start(() => {
+      const error = new AdapterError('transient', 'Malformed PR');
+      error.usage = { points: 4 };
+      return Promise.reject(error);
+    });
+    await flush();
+    expect(starts).toHaveLength(1);
+    await advanceTo(2 * I);
+    expect(starts.length).toBeGreaterThan(1);
+    expect(core.reports.filter((report) => report.usage !== undefined)).toHaveLength(starts.length);
+    expect(
+      core.reports
+        .filter((report) => report.usage !== undefined)
+        .every((report) => report.usage?.points === 4),
+    ).toBe(true);
+  });
+  it('reports on-demand failure cost and never reports successful demand usage twice', async () => {
+    let fails = true;
+    const { core, runner } = start(() => Promise.resolve(batch()), {
+      pollPr: () => {
+        if (fails) {
+          const error = new AdapterError('auth', 'Denied');
+          error.usage = { points: 5 };
+          return Promise.reject(error);
+        }
+        return Promise.resolve(prOk({ complete: false, usage: { points: 6 } }));
+      },
+    });
+    await flush();
+    await expect(runner.pollPr?.('github', pr, { timeoutMs: 10_000 })).resolves.toMatchObject({
+      ok: false,
+    });
+    expect(
+      core.reports.filter((report) => report.usage !== undefined).map((report) => report.usage),
+    ).toEqual([{ points: 5 }]);
+    fails = false;
+    await expect(runner.pollPr?.('github', pr, { timeoutMs: 10_000 })).resolves.toMatchObject({
+      ok: true,
+    });
+    expect(core.observed.at(-1)?.batch.usage).toEqual({ points: 6 });
+    expect(
+      core.reports.filter((report) => report.usage !== undefined).map((report) => report.usage),
+    ).toEqual([{ points: 5 }]);
+  });
+});

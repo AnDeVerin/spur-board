@@ -1,9 +1,10 @@
 import { EVENT_KINDS, OPERATIONS, configSchema } from '@spur-board/contracts';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createApply, createOperationRegistry, createQuery, type Store } from '../../src/index.ts';
 import { scanTransaction } from '../../src/app/secrets.ts';
 import { closeTurns, openTurn } from '../../src/app/turns.ts';
 import { openTempStore } from '../support/store.ts';
+import { refreshPrs } from '../../src/app/pr-refresh.ts';
 
 const KEY = 'o/r#101';
 const OTHER_KEY = 'x/y#202';
@@ -632,4 +633,143 @@ describe('production query handlers', () => {
       expect(await turnsFor(actor)).toEqual([]);
     }
   });
+});
+
+describe('authorized task PR refresh', () => {
+  async function linked() {
+    const ctx = await seeded();
+    await ctx.store.db
+      .insertInto('link')
+      .values({
+        task_id: 1,
+        entity: 'pr',
+        repo: 'o/r',
+        number: 7,
+        pr_state: 'active',
+        pr_open: 0,
+        session_id: null,
+        role: null,
+        source: 'manual',
+        created_at: AT,
+      })
+      .execute();
+    return ctx;
+  }
+  it('refreshes all linked refs outside the query transaction and reauthorizes after preparation', async () => {
+    const { store, query } = await linked();
+    let calls = 0;
+    const registry = createOperationRegistry({
+      config,
+      clock,
+      completeSince: new Map(),
+      prPoller: () => async (_source, ref) => {
+        calls++;
+        expect(ref.number).toBe(7);
+        // This transaction would deadlock if prepare held the query's transaction.
+        await store.transaction(async (trx) => {
+          await trx.deleteFrom('link').where('entity', '=', 'session').execute();
+        });
+        return { ok: false, error: { kind: 'timeout', message: 'Timeout' } };
+      },
+    });
+    await expect(
+      query(registry['task.get'], { task: KEY, refresh: true }, foreign),
+    ).rejects.toMatchObject({ code: 'forbidden' });
+    expect(calls).toBe(0);
+    await expect(
+      query(registry['task.get'], { task: 'o/r#999', refresh: true }, 'operator'),
+    ).rejects.toMatchObject({ code: 'not_found' });
+    expect(calls).toBe(0);
+    await expect(
+      query(registry['task.get'], { task: KEY, refresh: true }, worker),
+    ).rejects.toMatchObject({ code: 'github_unavailable' });
+    expect(calls).toBe(1);
+    const success = createOperationRegistry({
+      config,
+      clock,
+      completeSince: new Map(),
+      prPoller: () => async () => {
+        await store.transaction(async (trx) => {
+          await trx.updateTable('task').set({ project: 'other' }).where('id', '=', 1).execute();
+        });
+        // A successful result is sufficient for this authorization boundary test.
+        return { ok: true, value: { status: 'ok', facts: refreshFact, observedAt: AT } };
+      },
+    });
+    await store.db
+      .insertInto('link')
+      .values({
+        task_id: 1,
+        entity: 'session',
+        repo: null,
+        number: null,
+        pr_state: null,
+        session_id: 'worker-1',
+        role: 'worker',
+        source: 'manual',
+        created_at: AT,
+      })
+      .execute();
+    await expect(
+      query(success['task.get'], { task: KEY, refresh: true }, worker),
+    ).rejects.toMatchObject({ code: 'forbidden' });
+  });
+  it('fails visibly when the poller is missing rather than returning cached facts', async () => {
+    const { query, registry } = await linked();
+    await expect(
+      query(registry['task.get'], { task: KEY, refresh: true }, 'operator'),
+    ).rejects.toMatchObject({ code: 'github_unavailable' });
+    await expect(query(registry['task.get'], { task: KEY }, 'operator')).resolves.toHaveProperty(
+      'task.key',
+      KEY,
+    );
+  });
+});
+
+const refreshFact = {
+  repo: 'o/r',
+  number: 7,
+  url: 'https://github.com/o/r/pull/7',
+  title: 'Work',
+  author: 'worker',
+  headSha: 'a'.repeat(40),
+  headBranch: 'work',
+  state: 'merged' as const,
+  draft: false,
+  mergeable: 'unknown' as const,
+  mergeState: 'unknown' as const,
+  requiredChecks: [],
+  checks: [],
+  reviews: [],
+  reviewThreads: [],
+  reviewRequests: [],
+  ticketKeys: [],
+  updatedAt: AT,
+};
+
+it('shares one ten-second deadline across distinct PR refreshes and deduplicates refs', async () => {
+  vi.useFakeTimers();
+  try {
+    const ref = { kind: 'pr' as const, repo: 'o/r', number: 7 };
+    const calls: number[] = [];
+    const pending = refreshPrs(
+      config,
+      'board',
+      [ref, ref, { ...ref, number: 8 }],
+      async (_source, _ref, options) => {
+        calls.push(options.timeoutMs);
+        if (calls.length === 1) {
+          vi.setSystemTime(Date.now() + 7_000);
+          return { ok: true, value: { status: 'ok', facts: refreshFact, observedAt: AT } };
+        }
+        return new Promise(() => {});
+      },
+    );
+    const rejected = expect(pending).rejects.toMatchObject({ code: 'github_unavailable' });
+    await vi.advanceTimersByTimeAsync(3_000);
+    await rejected;
+    expect(calls).toEqual([10_000, 3_000]);
+  } finally {
+    vi.useRealTimers();
+  }
 });

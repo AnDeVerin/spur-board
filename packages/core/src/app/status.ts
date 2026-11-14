@@ -298,6 +298,14 @@ export async function getStatus(
       ...project.repos.map((repo) => prSourceId(project.id, repo)),
     ]),
   ]);
+  const costs = await store.db
+    .selectFrom('source_cost')
+    .select(['source', 'points'])
+    .where('at', '>', new Date(clock.now() - 3_600_000).toISOString())
+    .where('at', '<=', new Date(clock.now()).toISOString())
+    .execute();
+  const points = new Map<string, number>();
+  for (const cost of costs) points.set(cost.source, (points.get(cost.source) ?? 0) + cost.points);
   const sourceById = new Map(sourceRows.map((row) => [row.source, row]));
   const sources = [...required].map((source) => {
     const row = sourceById.get(source);
@@ -310,6 +318,7 @@ export async function getStatus(
         : null;
     return {
       source,
+      ...(source.startsWith('github:') ? { pointsLastHour: points.get(source) ?? 0 } : {}),
       observedAt: row?.observed_at ?? null,
       lastCompleteAt: last,
       blindReason,
