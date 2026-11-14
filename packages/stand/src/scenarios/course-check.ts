@@ -1,7 +1,7 @@
 // The course-check scenarios: Review's course check holds the task on a block to the curator, or
 // to the addressee its courseCheckTo names.
 import { sendsTo, settledUnless, STAND_SPUR_PROJECTS } from './helpers.ts';
-import type { Board, Scenario, ScenarioFakes } from './index.ts';
+import type { Board, Scenario } from './index.ts';
 import {
   check,
   entities,

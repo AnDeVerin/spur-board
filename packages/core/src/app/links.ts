@@ -6,6 +6,7 @@ import type { LinkTable } from '../store/schema.ts';
 import { emit, pastReopenFloor, projectForKey, ticketDone, type Trx } from './board-utils.ts';
 import { taskTarget } from './blocks.ts';
 import { CommandError, type Mutation } from './commands.ts';
+import { rerouteDemotedWorkerTurn } from './turns.ts';
 import { canonicalKey } from './membership.ts';
 import type { Config } from '@spur-board/contracts';
 
@@ -222,6 +223,12 @@ async function run(
     );
   if (orchestrator && current?.role === 'worker') {
     await trx.updateTable('link').set({ role: 'other' }).where('id', '=', current.id).execute();
+    await rerouteDemotedWorkerTurn(trx, {
+      taskId: task.id,
+      sessionId: session.id,
+      at: new Date(ctx.at),
+      config,
+    });
     await emit(
       trx,
       'link_added',

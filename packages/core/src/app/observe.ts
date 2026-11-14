@@ -50,7 +50,7 @@ import {
   pollFeedbackCursors,
   voidMarksOffHead,
 } from './dispatch.ts';
-import { closeTurns } from './turns.ts';
+import { closeTurns, rerouteDemotedWorkerTurn } from './turns.ts';
 
 function refKey(ref: EntityRef): string {
   switch (ref.kind) {
@@ -799,6 +799,12 @@ async function session(
       .returning(['task_id', 'source'])
       .execute();
     for (const link of demoted) {
+      await rerouteDemotedWorkerTurn(trx, {
+        taskId: link.task_id,
+        sessionId: fact.id,
+        at: new Date(at),
+        config,
+      });
       const task = await trx
         .selectFrom('task')
         .select('project')

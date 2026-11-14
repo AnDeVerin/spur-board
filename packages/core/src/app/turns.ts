@@ -216,6 +216,32 @@ export async function closeTurns(
   }
 }
 
+/** Releases a taken worker turn when its holder's session is demoted from worker. */
+export async function rerouteDemotedWorkerTurn(
+  trx: Trx,
+  input: { taskId: number; sessionId: string; at: Date; config: Config },
+): Promise<void> {
+  const { taskId, sessionId, at, config } = input;
+  const turn = await trx
+    .selectFrom('turn')
+    .selectAll()
+    .where('task_id', '=', taskId)
+    .where('role', '=', 'worker')
+    .where('closed_at', 'is', null)
+    .executeTakeFirst();
+  const holder =
+    turn?.acked_by === null || turn?.acked_by === undefined ? null : parseActorId(turn.acked_by);
+  if (turn === undefined || holder?.actor !== 'agent' || holder.actorRef.session !== sessionId)
+    return;
+  const task = await trx
+    .selectFrom('task')
+    .selectAll()
+    .where('id', '=', taskId)
+    .executeTakeFirstOrThrow();
+  await closeTurns(trx, { taskId, reason: 'rerouted', at });
+  await openTurn(trx, { task, reason: turn.reason, handed: turnHanded(turn), at, config });
+}
+
 /** How long the holder of a taken turn may sit quiet before it is reminded, then flagged. */
 export function stuckTurnAfterMs(config: Config): number {
   return config.health.idleInDevAfterMs;
