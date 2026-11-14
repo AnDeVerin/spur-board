@@ -165,6 +165,7 @@ export const eventPayloadSchemas = {
     to: z.enum(COLUMN_IDS),
     reason: z.enum(MOVE_REASONS),
     gate: z.array(z.enum(GATE_REASONS)).optional(),
+    courseCheck: z.literal(true).optional(),
   }),
   task_corrected: z.looseObject({
     from: z.enum(COLUMN_IDS),

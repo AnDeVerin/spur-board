@@ -141,7 +141,13 @@ const samples: { [K in EventKind]: Extract<JournalEvent, { kind: K }> } = {
   task_shadow_moved: {
     ...base,
     kind: 'task_shadow_moved',
-    payload: { from: 'review', to: 'dev', reason: 'gate_broken', gate: ['checks_red'] },
+    payload: {
+      from: 'review',
+      to: 'dev',
+      reason: 'gate_broken',
+      gate: ['checks_red'],
+      courseCheck: true,
+    },
   },
   task_corrected: {
     ...base,
