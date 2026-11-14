@@ -69,7 +69,7 @@ const USAGE = `Usage: pnpm stand <command>
   down                            stop the stand and remove its home
   status [--json]                 show the stand and whether its API answers
   logs [--stand]                  print the daemon log (--stand: the stand process log)
-  board [--as role] <args...>     run the board CLI against the stand (operator, worker, orchestrator)
+  board [--as role] <args...>     run the board CLI against the stand (operator, worker, orchestrator, curator)
   mcp [--as role]                 run the board MCP server against the stand
   wait <condition> [--timeout s]  wait for ${WAIT_CONDITIONS.join(', ')} (default ${String(WAIT_DEFAULT_S)} s)
   poll [source]                   restart every source's poll now (source is only checked to

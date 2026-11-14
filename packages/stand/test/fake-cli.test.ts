@@ -56,7 +56,7 @@ async function stubStand(answer: RouteResult): Promise<string> {
     controlUrl: control.url,
     controlToken: TOKEN,
     tokenPath: join(home, 'token'),
-    roles: { worker: 'w', orchestrator: 'o' },
+    roles: { worker: 'w', orchestrator: 'o', curator: 'c' },
   });
   return home;
 }
