@@ -12,10 +12,11 @@ permissions: {}
 
 concurrency:
   group: ${{ github.event_name == 'pull_request' && format('ci-pr-{0}', github.event.pull_request.number) || format('ci-run-{0}', github.run_id) }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' && github.event.action != 'edited' }}
 
 jobs:
   changes:
+    if: github.event.action != 'edited'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -73,6 +74,7 @@ jobs:
       - run: pnpm guardrails
 
   secrets:
+    if: github.event.action != 'edited'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -100,7 +102,7 @@ jobs:
 
   workflows:
     needs: changes
-    if: needs.changes.outputs.github == 'true'
+    if: github.event.action != 'edited' && needs.changes.outputs.github == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -117,6 +119,7 @@ jobs:
           args: --offline .github/workflows
 
   quality:
+    if: github.event.action != 'edited'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -138,6 +141,7 @@ jobs:
       - run: pnpm check:full --only format,lint,types,knip,agents
 
   test:
+    if: github.event.action != 'edited'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -165,6 +169,7 @@ jobs:
           retention-days: 7
 
   stand:
+    if: github.event.action != 'edited'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -193,7 +198,7 @@ jobs:
 
   package-smoke:
     needs: changes
-    if: github.event_name != 'pull_request' || needs.changes.outputs.package == 'true'
+    if: github.event.action != 'edited' && (github.event_name != 'pull_request' || needs.changes.outputs.package == 'true')
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     permissions:
@@ -308,6 +313,7 @@ jobs:
     timeout-minutes: 5
     permissions:
       contents: read
+      actions: read
     env:
       pnpm_config_verify_deps_before_run: 'false'
     steps:
@@ -318,8 +324,18 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 26
+      # Report only: writes the test and stand wall time to the summary, never fails ci-ok.
+      - name: Compare test and stand wall time
+        if: github.event.action != 'edited'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/ci.ts timing
+      # On a PR edit only pr-title and guardrails run; ci.ts judges the code jobs of the newest
+      # code run on the head commit through the Actions API.
       - env:
           NEEDS: ${{ toJSON(needs) }}
+          GH_TOKEN: ${{ github.token }}
         run: pnpm ci:ok
 
   release:
