@@ -71,6 +71,23 @@ it('registers status and limits an agent to its configured project', async () =>
         })
         .execute();
     }
+    const block = {
+      type: 'needs_input',
+      reason: 'Restart?',
+      // An operator's own block raises no item, so the item lists below stay as they are.
+      author: 'operator',
+      addressee_role: 'operator',
+      state: 'open',
+      created_at: new Date(clock.now()).toISOString(),
+    } as const;
+    await trx
+      .insertInto('block')
+      .values({ ...block, task_id: 1 })
+      .execute();
+    await trx
+      .insertInto('block')
+      .values({ ...block, project: 'first' })
+      .execute();
   });
   const core = createObservationCore({ store, config, clock });
   for (const [source, message] of [
@@ -88,6 +105,8 @@ it('registers status and limits an agent to its configured project', async () =>
   const agent = 'agent:first-worker/session-1' as const;
   const visible = await query(status, {}, agent);
   expect(visible.tasks.map((task) => task.key)).toEqual(['o/first#1']);
+  expect(visible.tasks.map((task) => task.openBlocks)).toEqual([1]);
+  expect(visible.projectBlocks).toEqual([{ project: 'first', openBlocks: 1 }]);
   expect(visible.sources.every((source) => !source.source.includes('second'))).toBe(true);
   expect(visible.items.map((item) => item.summary)).toEqual([
     'github-issues:first:o/first: First source unavailable (not confirmed)',
@@ -97,6 +116,10 @@ it('registers status and limits an agent to its configured project', async () =>
   });
   const operator = await query(status, {}, 'operator');
   expect(operator.tasks.map((task) => task.key).sort()).toEqual(['o/first#1', 'o/second#2']);
+  expect(operator.projectBlocks).toEqual([
+    { project: 'first', openBlocks: 1 },
+    { project: 'second', openBlocks: 0 },
+  ]);
   expect(operator.items).toHaveLength(2);
   const schema = registry['schema.get'];
   const catalog = await query(schema, { role: 'worker' }, agent);

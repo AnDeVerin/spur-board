@@ -3425,3 +3425,52 @@ describe('turns', () => {
     ]);
   });
 });
+
+describe('project question doorbells', () => {
+  const askProject = (ctx: Board, actor: ActorId) =>
+    ctx.apply(
+      ctx.ops.projectAsk,
+      { project: 'proj', to: 'operator', text: 'Restart?' },
+      actor,
+      'q',
+    );
+  const answer = (ctx: Board, block: string) =>
+    ctx.apply(ctx.ops.answer, { block, text: 'Yes.' }, 'operator', 'answer');
+
+  it('rings the curator that asked with the project in the text', async () => {
+    const ctx = await setup({ config: policyConfig });
+    await addSession(ctx, 'cur-1', 'cur');
+    const { block } = await askProject(ctx, 'agent:cur/cur-1');
+    await answer(ctx, block.id);
+    await step(ctx);
+    expect(sessionsRung(ctx)).toEqual(['cur-1']);
+    const [notice] = await notices(ctx);
+    expect(ctx.sent[0]?.text).toBe(
+      `proj (project) block ${block.id}: check board inbox (N${String(notice?.id)}-1)`,
+    );
+  });
+
+  it("rings a worker author's own session", async () => {
+    const ctx = await setup({ config: policyConfig });
+    const { block } = await askProject(ctx, worker);
+    await answer(ctx, block.id);
+    await step(ctx);
+    expect(sessionsRung(ctx)).toEqual(['worker-1']);
+  });
+
+  it('ends the series of a worker author with no live session, not ringing a linked worker', async () => {
+    const ctx = await setup({ config: policyConfig });
+    const { block } = await askProject(ctx, 'agent:web/worker-9');
+    await answer(ctx, block.id);
+    await step(ctx);
+    expect(sessionsRung(ctx)).toEqual([]);
+    const [notice] = await notices(ctx);
+    expect(notice?.exhausted_at).toBe(ctx.now().toISOString());
+    expect(await journalled(ctx, 'doorbell_undelivered')).toEqual([
+      {
+        actor: 'system',
+        payload: { doorbell: `N${String(notice?.id)}`, reason: 'no live addressee' },
+      },
+    ]);
+  });
+});

@@ -129,6 +129,50 @@ describe('worker question through the daemon', () => {
     expect(h.sends).toHaveLength(3);
   });
 
+  it('answers and rings a project question without a task, then closes its thread', async () => {
+    const h = await setup();
+    const asked = await h.cli([
+      'project',
+      'ask',
+      'proj',
+      'Restart?',
+      '--to',
+      'operator',
+      '--key',
+      'project-ask-proj-restart-0800',
+      '--json',
+    ]);
+    expect(asked.code, asked.stderr).toBe(0);
+    const { block } = JSON.parse(asked.stdout) as { block: { id: string; task: null } };
+    expect(block.task).toBeNull();
+    await h.pulse();
+    const open = await h.store.db
+      .selectFrom('outbox')
+      .select('payload')
+      .where('kind', '=', 'conversation.open')
+      .executeTakeFirstOrThrow();
+    expect(JSON.parse(open.payload)).toMatchObject({
+      key: 'proj (project)',
+      taskId: null,
+      persona: { name: 'worker', role: 'worker' },
+    });
+    const conversation = h.gateway.platform.conversations()[0];
+    if (conversation === undefined) throw new Error('Missing conversation');
+    await h.gateway.platform.inject({
+      kind: 'message',
+      conversation: conversation.ref,
+      author: h.operator,
+      text: 'Yes.',
+    });
+    await h.gateway.platform.settle();
+    h.advance(1001);
+    await h.pulse();
+    expect(h.gateway.platform.conversations()[0]?.done).toBe(true);
+    expect(h.sends).toHaveLength(1);
+    expect(h.sends[0]?.session).toBe(h.session);
+    expect(h.sends[0]?.text).toContain(`proj (project) block ${block.id}`);
+  });
+
   it('retries an archived-task answer from its feed Retry button', async () => {
     const h = await setup();
     const { conversation } = await ask(h, 'ask-proj-123-archived-0800');

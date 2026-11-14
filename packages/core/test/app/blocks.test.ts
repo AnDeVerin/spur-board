@@ -9,6 +9,7 @@ import {
   CommandError,
   createApply,
   createBlockMutations,
+  createQuery,
   createSender,
   openStore,
   type Store,
@@ -18,6 +19,7 @@ import { raiseItem } from '../../src/app/feed.ts';
 import { reconcileItems } from '../../src/app/fromYou.ts';
 import { scanTransaction } from '../../src/app/secrets.ts';
 import { taskSubject } from '../../src/app/subject.ts';
+import { createTaskQueries } from '../../src/app/task-queries.ts';
 import { sampleRows } from '../store/sample-rows.ts';
 import { observeGateway } from '../support/observe.ts';
 
@@ -1746,5 +1748,227 @@ describe('ledger block', () => {
         (row) => row.item_key,
       ),
     ).toEqual(['pr-closed:1']);
+  });
+});
+
+describe('project question', () => {
+  const used = withCurator();
+  const at = new Date(NOW).toISOString();
+  const stranger = 'agent:stranger/s-1';
+  const board = () => curatorBoard('dev', used);
+  type Board = Awaited<ReturnType<typeof board>>;
+  const ask = (b: Board, actor: ActorId, key = 'ask', project = 'proj') =>
+    b.apply(b.ops.projectAsk, { project, to: 'operator', text: 'Restart?' }, actor, key);
+  const outbox = async (store: Store, kind: string) =>
+    (await store.db.selectFrom('outbox').select('payload').where('kind', '=', kind).execute()).map(
+      (row) => JSON.parse(row.payload) as Record<string, unknown>,
+    );
+  const inbox = (store: Store, actor: ActorId) =>
+    createQuery({ store, clock, config: used })(
+      createTaskQueries({ config: used, completeSince: new Map() }).inbox,
+      {},
+      actor,
+    );
+
+  it('opens an operator block without a task for the curator, an orchestrator and a worker', async () => {
+    const b = await board();
+    const authors = [curator, orchestrator, author] as const;
+    for (const [index, actor] of authors.entries()) {
+      const { block } = await ask(b, actor, `ask-${String(index)}`);
+      expect(block).toEqual({
+        id: `B${String(index + 1)}`,
+        task: null,
+        project: 'proj',
+        type: 'needs_input',
+        state: 'open',
+        author: actor,
+        addressee: 'operator',
+        reason: 'Restart?',
+        at,
+        outcome: null,
+        outcomeReason: null,
+        unblockedBy: null,
+        unblockedAt: null,
+      });
+    }
+    expect(
+      await b.store.db.selectFrom('block').select(['task_id', 'project', 'author']).execute(),
+    ).toEqual(authors.map((actor) => ({ task_id: null, project: 'proj', author: actor })));
+    expect(
+      await b.store.db.selectFrom('comment').select(['task_id', 'block_id', 'text']).execute(),
+    ).toEqual([1, 2, 3].map((id) => ({ task_id: null, block_id: id, text: 'Restart?' })));
+    const before = await counts(b.store);
+    await expect(ask(b, stranger, 'ask-stranger')).rejects.toMatchObject({ code: 'forbidden' });
+    expect((await events(b.store)).filter((e) => e.kind === 'operation_denied')).toHaveLength(1);
+    await expect(ask(b, curator, 'ask-nope', 'nope')).rejects.toMatchObject({ code: 'not_found' });
+    expect((await counts(b.store)).blocks).toBe(before.blocks);
+    const { block: taskBlock } = await b.apply(b.ops.ask, { task: KEY, text: 'Q?' }, author, 'q');
+    expect(taskBlock.task).toBe(KEY);
+    expect(taskBlock).not.toHaveProperty('project');
+  });
+
+  it('opens the thread under the author persona, and none for an operator-role agent', async () => {
+    const b = await board();
+    const personas = [];
+    for (const actor of [curator, orchestrator, author] as const) {
+      const { block } = await ask(b, actor, `ask-${actor}`);
+      const [open] = (await outbox(b.store, 'conversation.open')).filter(
+        (payload) => payload['blockId'] === Number(block.id.slice(1)),
+      );
+      expect(open).toMatchObject({ key: 'proj (project)', taskId: null, text: 'Restart?' });
+      personas.push(open?.['persona']);
+    }
+    expect(personas).toEqual([
+      { name: 'cur', role: 'curator' },
+      { name: 'qa', role: 'worker' },
+      { name: 'web', role: 'worker' },
+    ]);
+    await ask(b, operatorAgent, 'ask-ops');
+    expect(await outbox(b.store, 'conversation.open')).toHaveLength(3);
+  });
+
+  it('raises a from-you item and feed line that the answer clears', async () => {
+    const b = await board();
+    const { block } = await ask(b, curator);
+    const reconcile = () =>
+      scanTransaction(b.store, used, (trx) => reconcileItems(trx, used, NOW, true));
+    await reconcile();
+    const items = () =>
+      b.store.db
+        .selectFrom('operator_item')
+        .select(['item_key', 'task_id', 'text', 'cleared_at'])
+        .execute();
+    expect(await items()).toEqual([
+      {
+        item_key: `operator-block:${block.id.slice(1)}`,
+        task_id: null,
+        text: 'proj (project): Restart?',
+        cleared_at: null,
+      },
+    ]);
+    expect(await outbox(b.store, 'feed.line')).toHaveLength(1);
+    await b.apply(b.ops.answer, { block: block.id, text: 'Yes.' }, 'operator', 'answer');
+    await reconcile();
+    expect((await items())[0]?.cleared_at).not.toBeNull();
+  });
+
+  it('closes by answer, reason or withdrawal with the task-block close line', async () => {
+    const b = await board();
+    const closes: unknown[] = [];
+    const close = async (actor: ActorId, run: (id: string) => Promise<unknown>) => {
+      const { block } = await ask(b, actor, `ask-${String(closes.length)}`);
+      const [open] = await b.store.db
+        .selectFrom('outbox')
+        .select('id')
+        .where('kind', '=', 'conversation.open')
+        .orderBy('id', 'desc')
+        .execute();
+      // Mark the open delivered so the close follows its thread, as after a real post.
+      await b.store.db
+        .updateTable('outbox')
+        .set({ state: 'done' })
+        .where('id', '=', open?.id ?? 0)
+        .execute();
+      await b.store.db
+        .insertInto('conversation')
+        .values({
+          ...sampleRows.conversation,
+          ref: `c-${block.id}`,
+          task_id: null,
+          block_id: Number(block.id.slice(1)),
+          state: 'open',
+          closed_at: null,
+        })
+        .execute();
+      await run(block.id);
+      const [row] = (await outbox(b.store, 'conversation.close')).slice(-1);
+      closes.push({ key: row?.['key'], text: row?.['text'], taskId: row?.['taskId'] });
+    };
+    await close(curator, (id) =>
+      b.apply(b.ops.answer, { block: id, text: 'Yes.' }, 'operator', 'answer'),
+    );
+    await close(curator, (id) =>
+      b.apply(b.ops.unblock, { block: id, mode: 'reason', reason: 'Not now.' }, 'operator', 'r'),
+    );
+    await close(author, (id) =>
+      b.apply(b.ops.unblock, { block: id, mode: 'withdraw', answer: 'Solved.' }, author, 'w'),
+    );
+    expect(closes).toEqual([
+      { key: 'proj (project)', text: 'resolved: done (operator)', taskId: null },
+      { key: 'proj (project)', text: 'resolved: reason (operator)', taskId: null },
+      { key: 'proj (project)', text: `resolved: withdrawn (${author})`, taskId: null },
+    ]);
+    expect(
+      await b.store.db.selectFrom('block').select(['state', 'unblocked_by']).execute(),
+    ).toEqual([
+      { state: 'unblocked', unblocked_by: 'operator' },
+      { state: 'unblocked', unblocked_by: 'operator' },
+      { state: 'unblocked', unblocked_by: author },
+    ]);
+  });
+
+  it('lists the block to the operator and the answer to the curator, who acks it', async () => {
+    const b = await board();
+    const { block } = await ask(b, curator);
+    expect((await inbox(b.store, operatorAgent)).blocks.map((entry) => entry.id)).toEqual([
+      block.id,
+    ]);
+    expect((await inbox(b.store, curator)).blocks).toEqual([]);
+    const { comment } = await b.apply(
+      b.ops.answer,
+      { block: block.id, text: 'Yes.' },
+      'operator',
+      'answer',
+    );
+    expect((await inbox(b.store, operatorAgent)).blocks).toEqual([]);
+    expect((await inbox(b.store, curator)).comments).toMatchObject([
+      { id: comment.id, task: null, block: block.id, text: 'Yes.' },
+    ]);
+    const acked = await b.apply(
+      b.ops.ack,
+      { entries: [{ id: comment.id, revision: 1 }] },
+      curator,
+      'ack',
+    );
+    expect(acked).toEqual({ acked: [comment.id] });
+    expect((await inbox(b.store, curator)).comments).toEqual([]);
+
+    const ring = await board();
+    const second = await ask(ring, curator);
+    await ring.apply(
+      ring.ops.answer,
+      { block: second.block.id, text: 'Yes.' },
+      'operator',
+      'answer',
+    );
+    const notice = await ring.store.db
+      .selectFrom('notification')
+      .select('id')
+      .executeTakeFirstOrThrow();
+    const ringId = `N${String(notice.id)}-1`;
+    expect(
+      await ring.apply(ring.ops.ack, { entries: [{ id: ringId }] }, curator, 'ack-ring'),
+    ).toEqual({ acked: [ringId] });
+    expect((await inbox(ring.store, curator)).comments).toEqual([]);
+  });
+
+  it('refuses the author an escalation and lets the operator post a note in place', async () => {
+    const b = await board();
+    const { block } = await ask(b, curator);
+    await expect(
+      b.apply(b.ops.escalate, { block: block.id }, curator, 'esc'),
+    ).rejects.toMatchObject({ code: 'forbidden' });
+    expect((await events(b.store)).filter((e) => e.kind === 'operation_denied')).toHaveLength(1);
+    const escalated = await b.apply(
+      b.ops.escalate,
+      { block: block.id, note: 'Looking.' },
+      'operator',
+      'esc-op',
+    );
+    expect(escalated.block).toMatchObject({ state: 'open', addressee: 'operator' });
+    expect(
+      await b.store.db.selectFrom('comment').select('text').where('block_id', '=', 1).execute(),
+    ).toEqual([{ text: 'Restart?' }, { text: 'Looking.' }]);
+    expect(await outbox(b.store, 'conversation.reply')).toHaveLength(1);
   });
 });
