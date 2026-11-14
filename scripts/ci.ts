@@ -13,6 +13,7 @@ import {
   EDIT_SKIPPED,
   fetchJobs,
   fetchRunIds,
+  isObject,
   pickCodeRun,
   standTiming,
 } from './ci-runs.ts';
@@ -152,10 +153,6 @@ export function secretsLogOpts(input: {
     return `${before}..${after}`;
   }
   return FULL_HISTORY;
-}
-
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function git(args: string[]): { status: number; stdout: string } {

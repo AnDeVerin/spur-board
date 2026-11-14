@@ -31,7 +31,7 @@ export interface CodeRun {
   lines: string[];
 }
 
-function isObject(value: unknown): value is Record<string, unknown> {
+export function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
@@ -72,7 +72,7 @@ export function fetchJobs(repo: string, runId: number): RunJob[] {
   });
 }
 
-/** Ids of the ci.yml pull request runs on a head commit, newest first. */
+/** Ids of the ci.yml pull request runs on a head commit. */
 export function fetchRunIds(repo: string, headSha: string): number[] {
   const body = ghJson(
     `repos/${repo}/actions/workflows/ci.yml/runs?event=pull_request&head_sha=${headSha}&per_page=100`,
@@ -80,13 +80,11 @@ export function fetchRunIds(repo: string, headSha: string): number[] {
   if (!isObject(body) || !Array.isArray(body['workflow_runs'])) {
     throw new Error('runs response has no workflow_runs list');
   }
-  return body['workflow_runs']
-    .map((run: unknown) => {
-      const id = isObject(run) ? run['id'] : undefined;
-      if (typeof id !== 'number' || !Number.isInteger(id)) throw new Error('a run has no id');
-      return id;
-    })
-    .sort((a, b) => b - a);
+  return body['workflow_runs'].map((run: unknown) => {
+    const id = isObject(run) ? run['id'] : undefined;
+    if (typeof id !== 'number' || !Number.isInteger(id)) throw new Error('a run has no id');
+    return id;
+  });
 }
 
 /** A job belongs to an id when its name is the id or an expanded matrix leg `<id> (<n>)`. */
