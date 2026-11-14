@@ -104,8 +104,9 @@ function inline(value: RichTextInline): string {
 
 /**
  * Trailing context blocks become the elements of one context block after the section: at most
- * 10, the last joining any overflow by newlines, each cut to fit one element.
- * Without other visible content they stay paragraphs, so the section keeps text.
+ * 10, the last joining any overflow by newlines. When any element would exceed one part, or
+ * without other visible content, they stay paragraphs, so the section text carries every
+ * character.
  */
 export function splitContext(body: RichText): { body: RichText; context: string[] } {
   let end = body.length;
@@ -120,7 +121,8 @@ export function splitContext(body: RichText): { body: RichText; context: string[
     ...(context.length >= MAX_CONTEXT_ELEMENTS
       ? [context.slice(MAX_CONTEXT_ELEMENTS - 1).join('\n')]
       : []),
-  ].map((text) => splitText(text)?.[0] ?? text.slice(0, MAX_PART_TEXT));
+  ];
+  if (bounded.some((text) => text.length > MAX_PART_TEXT)) return { body, context: [] };
   return { body: body.slice(0, end), context: bounded };
 }
 

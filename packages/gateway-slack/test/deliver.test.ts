@@ -588,6 +588,60 @@ describe('rendering and surface', () => {
     ]);
   });
 
+  it('keeps a context longer than one element as section text', async () => {
+    const { fake, gateway } = await setup();
+    const long = Array.from({ length: 1100 }, (_, index) => `w${String(index % 10)}`).join(' ');
+    expect(long.length).toBeGreaterThan(MAX_PART_TEXT);
+    const delivered = await gateway.deliver({
+      ...request('long-context'),
+      body: [...body('Line'), { kind: 'context', children: [{ kind: 'text', text: long }] }],
+    });
+    expect(delivered.status).toBe('delivered');
+    const blocks = fake
+      .requests()
+      .filter((entry) => entry.method === 'chat.postMessage')
+      .flatMap((entry): { type: string; block_id?: string; text?: { text: string } }[] =>
+        JSON.parse(entry.params.blocks ?? '[]'),
+      );
+    expect(blocks.some((block) => block.type === 'context' && !block.block_id)).toBe(false);
+    const sections = blocks.filter((block) => block.type === 'section');
+    expect(sections.length).toBeGreaterThan(1);
+    const joined = sections.map((block) => block.text?.text ?? '').join(' ');
+    expect(joined.replace(/\s+/g, ' ')).toBe(`Line ${long}`);
+  });
+
+  it('keeps many contexts as section text when the joined tenth element overflows', async () => {
+    const { fake, gateway } = await setup();
+    const values = Array.from({ length: 40 }, (_, index) => `${String(index)}`.padEnd(100, 'c'));
+    const delivered = await gateway.deliver({
+      ...request('overflow-context'),
+      body: [
+        ...body('Line'),
+        ...values.map((text) => ({
+          kind: 'context' as const,
+          children: [{ kind: 'text' as const, text }],
+        })),
+      ],
+    });
+    expect(delivered.status).toBe('delivered');
+    const posted = fake.requests().find((entry) => entry.method === 'chat.postMessage');
+    const text = ['Line', ...values].join('\n\n');
+    const blocks: { type: string; block_id?: string; text?: { text: string } }[] = JSON.parse(
+      posted?.params.blocks ?? '[]',
+    );
+    expect(blocks.some((block) => block.type === 'context' && !block.block_id)).toBe(false);
+    const all = fake
+      .requests()
+      .filter((entry) => entry.method === 'chat.postMessage')
+      .flatMap((entry): { type: string; text?: { text: string } }[] =>
+        JSON.parse(entry.params.blocks ?? '[]'),
+      )
+      .filter((block) => block.type === 'section')
+      .map((block) => block.text?.text ?? '')
+      .join('\n\n');
+    expect(all).toBe(text);
+  });
+
   it('fails a marker longer than Block Kit allows without an HTTP request', async () => {
     const { fake, gateway } = await setup();
     expect(await gateway.deliver(request('x'.repeat(260)))).toEqual({
