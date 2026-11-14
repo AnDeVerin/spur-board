@@ -104,7 +104,8 @@ export function githubSources(config: Config, options: GithubOptions): GithubSou
       // Per source: the facts of each discovered PR's last full read, keyed by number, for the
       // PRs the last successful discovery listed. A discovered PR core does not request is not
       // read again until discovery shows it newer; its facts are sent again instead. Kept in
-      // memory only: after a restart each PR at the cursor tie is read once more.
+      // memory only: after a restart each PR at the cursor tie is read once more. `pollPr` drops
+      // the PR's record, so older facts never follow the ones it delivered.
       const discoveryReads = new Map<number, PrFacts>();
       sources.push({
         repo,
@@ -126,7 +127,17 @@ export function githubSources(config: Config, options: GithubOptions): GithubSou
               discoveryReads,
             }),
           pollPr: (ref, ctx) =>
-            pollOnePr({ id, repo, keys, client, now: options.now, ref, ctx, cache }),
+            pollOnePr({
+              id,
+              repo,
+              keys,
+              client,
+              now: options.now,
+              ref,
+              ctx,
+              cache,
+              discoveryReads,
+            }),
         },
       });
     }
@@ -824,16 +835,28 @@ interface PrArgs {
   ref: PrEntityRef;
   ctx: Parameters<NonNullable<Adapter['pollPr']>>[1];
   cache: Map<number, CachedPr>;
+  discoveryReads: Map<number, PrFacts>;
 }
 // Reads one requested PR without discovery (A9): never complete, no cursor, no continuation; it
 // merges the held history but leaves it to the next poll to state. It drops the PR's cached
-// facts, so the next poll cannot re-emit facts older than these.
-async function pollOnePr({ id, repo, keys, client, now, ref, ctx, cache }: PrArgs): Promise<Batch> {
+// facts and discovery-read record, so the next poll cannot re-emit facts older than these.
+async function pollOnePr({
+  id,
+  repo,
+  keys,
+  client,
+  now,
+  ref,
+  ctx,
+  cache,
+  discoveryReads,
+}: PrArgs): Promise<Batch> {
   const { signal } = ctx;
   const observedAt = new Date(now()).toISOString();
   const [owner, name] = repo.split('/');
   if (!owner || !name) throw new AdapterError('config', 'Invalid repository');
   cache.delete(ref.number);
+  discoveryReads.delete(ref.number);
   const response = await client.query(
     detailQuery([ref.number], closingSelected(keys)),
     { owner, repo: name },

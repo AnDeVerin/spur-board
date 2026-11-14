@@ -2445,6 +2445,12 @@ describe('PR discovery reads', () => {
         const delivered = okFacts(batch).map((facts) => facts.number);
         return { batch, details: numbersSent(fetcher, 'PrDetails').flat(), delivered };
       },
+      pollPr: async (number: number) => {
+        if (source.pollPr === undefined) throw new Error('Missing pollPr');
+        fetcher.mockClear();
+        await source.pollPr(refOf(number), { signal: new AbortController().signal });
+        return numbersSent(fetcher, 'PrDetails').flat();
+      },
     };
   }
 
@@ -2483,6 +2489,16 @@ describe('PR discovery reads', () => {
     expect((await run.poll()).batch.cursor).toBe(first);
     expect(await run.poll([], false)).toMatchObject({ details: [], delivered: [9] });
 
+    expect(await run.poll()).toMatchObject({ details: [], delivered: [9] });
+  });
+
+  it('reads a PR in full once it is no longer requested after pollPr read it', async () => {
+    const run = scenario('MERGED');
+    run.answers.listed.set(9, first);
+    expect((await run.poll([refOf(9)])).details).toEqual([9]);
+    expect(await run.pollPr(9)).toEqual([9]);
+
+    expect(await run.poll()).toMatchObject({ details: [9], delivered: [9] });
     expect(await run.poll()).toMatchObject({ details: [], delivered: [9] });
   });
 
