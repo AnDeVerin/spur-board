@@ -17,6 +17,7 @@ import { closeOpenBlock, editInboundComment, openSystemBlock } from '../../src/a
 import { raiseItem } from '../../src/app/feed.ts';
 import { reconcileItems } from '../../src/app/fromYou.ts';
 import { scanTransaction } from '../../src/app/secrets.ts';
+import { taskSubject } from '../../src/app/subject.ts';
 import { sampleRows } from '../store/sample-rows.ts';
 import { observeGateway } from '../support/observe.ts';
 
@@ -1730,7 +1731,7 @@ describe('ledger block', () => {
     await scanTransaction(store, config, (trx) =>
       closeOpenBlock(
         trx,
-        bySystem.task,
+        taskSubject(bySystem.task),
         bySystem.block,
         { actor: 'system', at: new Date(NOW).toISOString() },
         'withdrawn',

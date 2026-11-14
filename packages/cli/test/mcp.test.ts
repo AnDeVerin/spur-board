@@ -1,78 +1,19 @@
 import { spawn } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { createServer, type Server, type ServerResponse } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Client } from '@modelcontextprotocol/client';
-import {
-  InMemoryTransport,
-  LATEST_PROTOCOL_VERSION,
-  type JsonSchemaType,
-} from '@modelcontextprotocol/server';
+import { LATEST_PROTOCOL_VERSION, type JsonSchemaType } from '@modelcontextprotocol/server';
 import { AjvJsonSchemaValidator } from '@modelcontextprotocol/server/validators/ajv';
 import { ERRORS, OPERATIONS, buildCatalogSnapshot, renderHttpProblem } from '@spur-board/contracts';
 import { afterEach, describe, expect, it } from 'vitest';
-import { createMcpServer } from '../src/mcp.ts';
-import { loadClientConfig } from '../src/config.ts';
+import { fakeDaemon, withClient } from './support/mcp.ts';
 
-const children: Server[] = [];
 const homes: string[] = [];
 
 afterEach(() => {
-  for (const server of children.splice(0)) {
-    server.closeAllConnections();
-    server.close();
-  }
   for (const home of homes.splice(0)) rmSync(home, { recursive: true, force: true });
 });
-
-async function fakeDaemon(
-  respond: (
-    request: { headers: Record<string, unknown>; body: Record<string, unknown> },
-    response: ServerResponse,
-  ) => void,
-) {
-  const requests: { headers: Record<string, unknown>; body: Record<string, unknown> }[] = [];
-  const server = createServer((request, response) => {
-    const chunks: Buffer[] = [];
-    request.on('data', (chunk: Buffer) => chunks.push(chunk));
-    request.on('end', () => {
-      const value = {
-        headers: request.headers,
-        body: JSON.parse(Buffer.concat(chunks).toString()) as Record<string, unknown>,
-      };
-      requests.push(value);
-      respond(value, response);
-    });
-  });
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  children.push(server);
-  const address = server.address();
-  if (!address || typeof address === 'string') throw new Error('fake daemon has no port');
-  return { url: `http://127.0.0.1:${String(address.port)}`, requests };
-}
-
-async function withClient<T>(
-  env: NodeJS.ProcessEnv,
-  run: (client: Client) => Promise<T>,
-  timeoutMs?: number,
-): Promise<T> {
-  const server = createMcpServer(env, (value) => {
-    const config = loadClientConfig(value);
-    return { ...config, responseTimeoutMs: timeoutMs ?? config.responseTimeoutMs };
-  });
-  const client = new Client({ name: 'mcp-test', version: '1.0.0' });
-  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-  await server.connect(serverTransport);
-  await client.connect(clientTransport);
-  try {
-    return await run(client);
-  } finally {
-    await client.close();
-    await server.close();
-  }
-}
 
 describe('board mcp', () => {
   it('uses the configured daemon without BOARD_DAEMON_URL', async () => {
@@ -301,6 +242,32 @@ describe('board mcp', () => {
       expect(result.structuredContent).toEqual(value);
       expect(daemon.requests[0]?.body.input).toEqual({ entries: [{ id: 'N18-1' }] });
     });
+  });
+
+  it('sends a project question with the session identity', async () => {
+    const value = OPERATIONS.find((op) => op.id === 'project.ask')?.examples[0].output;
+    const daemon = await fakeDaemon((_request, response) => {
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end(JSON.stringify({ ok: true, requestId: 'req-project', value }));
+    });
+    await withClient(
+      { BOARD_DAEMON_URL: daemon.url, SPUR_SESSION: 'curator-1' },
+      async (client) => {
+        const result = await client.callTool({
+          name: 'project_ask',
+          arguments: { project: 'web', to: 'operator', text: 'Restart?', idempotencyKey: 'ask-1' },
+        });
+        expect(result.isError).not.toBe(true);
+        expect(result.structuredContent).toEqual(value);
+        expect(daemon.requests[0]?.headers['x-board-session']).toBe('curator-1');
+        expect(daemon.requests[0]?.body.key).toBe('ask-1');
+        expect(daemon.requests[0]?.body.input).toEqual({
+          project: 'web',
+          to: 'operator',
+          text: 'Restart?',
+        });
+      },
+    );
   });
 
   it('names idempotencyKey when a worker mutation omits it or sends a blank one', async () => {

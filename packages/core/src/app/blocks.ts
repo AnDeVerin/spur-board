@@ -23,7 +23,7 @@ import {
   priorAddressees,
   type CurrentBlock,
 } from '../domain/blocks/blocks.ts';
-import { authorize, curatorProject, type ResolvedTarget } from './authorize.ts';
+import { authorize, curatorProject, projectTarget, type ResolvedTarget } from './authorize.ts';
 import { authorRole, orchestrator, personaFor, queueBlockOpen } from './block-thread.ts';
 import { emit, taskUrl, type Trx } from './board-utils.ts';
 import { CommandError, type CommandContext, type Mutation } from './commands.ts';
@@ -35,6 +35,13 @@ import {
   notificationAddressedTo,
 } from './doorbells.ts';
 import { clearItem, dismissItem } from './feed.ts';
+import {
+  blockSubject,
+  projectSubject,
+  rowSubject,
+  taskSubject,
+  type BlockSubject,
+} from './subject.ts';
 import { takeTurn } from './turns.ts';
 import {
   enqueueConversationClose,
@@ -98,12 +105,24 @@ function active(task: Task): void {
   }
 }
 
-export async function authorizationTarget(
+/** The authorization target of a subject; a project-level block has no task and no links. */
+export async function subjectTarget(
   trx: Trx,
-  task: Task | undefined,
+  subject: BlockSubject | undefined,
   block?: Block,
 ): Promise<ResolvedTarget> {
-  if (task === undefined) return { kind: 'missing' };
+  if (subject === undefined) return { kind: 'missing' };
+  const target = projectTarget(subject.project);
+  if (target.kind !== 'found') return target;
+  const value = {
+    ...target.value,
+    block:
+      block === undefined
+        ? null
+        : { type: block.type, author: block.author, addressee_role: block.addressee_role },
+  };
+  const { task } = subject;
+  if (task === null) return { kind: 'found', value };
   const workers = await trx
     .selectFrom('link')
     .select(['session_id', 'role', 'banned'])
@@ -112,16 +131,16 @@ export async function authorizationTarget(
     .execute();
   return {
     kind: 'found',
-    value: {
-      project: task.project,
-      task: { id: task.id, column: task.column },
-      block:
-        block === undefined
-          ? null
-          : { type: block.type, author: block.author, addressee_role: block.addressee_role },
-      workers,
-    },
+    value: { ...value, task: { id: task.id, column: task.column }, workers },
   };
+}
+
+export async function authorizationTarget(
+  trx: Trx,
+  task: Task | undefined,
+  block?: Block,
+): Promise<ResolvedTarget> {
+  return subjectTarget(trx, task === undefined ? undefined : taskSubject(task), block);
 }
 
 export async function taskTarget(trx: Trx, key: string): Promise<readonly ResolvedTarget[]> {
@@ -131,9 +150,9 @@ export async function taskTarget(trx: Trx, key: string): Promise<readonly Resolv
 async function blockTarget(trx: Trx, id: string): Promise<readonly ResolvedTarget[]> {
   const block = await blockById(trx, id);
   return [
-    await authorizationTarget(
+    await subjectTarget(
       trx,
-      block === undefined ? undefined : await taskById(trx, block.task_id),
+      block === undefined ? undefined : await blockSubject(trx, block),
       block,
     ),
   ];
@@ -151,9 +170,9 @@ async function turnTarget(trx: Trx, id: string): Promise<ResolvedTarget> {
 
 async function commentTarget(trx: Trx, id: string): Promise<ResolvedTarget> {
   const comment = await commentById(trx, id);
-  const target = await authorizationTarget(
+  const target = await subjectTarget(
     trx,
-    comment === undefined ? undefined : await taskById(trx, comment.task_id),
+    comment === undefined ? undefined : await rowSubject(trx, comment),
   );
   return { ...target, id };
 }
@@ -169,10 +188,12 @@ function current(block: Block): CurrentBlock {
   };
 }
 
-export function blockView(block: Block, task: Task) {
+export function blockView(block: Block, subject: BlockSubject) {
   return {
     id: blockId(block.id),
-    task: task.key,
+    task: subject.task?.key ?? null,
+    // Only a project-level block names its project: a task block's view keeps its old shape.
+    ...(subject.task === null ? { project: subject.project } : {}),
     type: block.type,
     state: block.state,
     author: block.author,
@@ -186,10 +207,10 @@ export function blockView(block: Block, task: Task) {
   };
 }
 
-export function commentView(comment: Comment, task: Task) {
+export function commentView(comment: Comment, subject: BlockSubject) {
   return {
     id: commentId(comment.id),
-    task: task.key,
+    task: subject.task?.key ?? null,
     block: comment.block_id === null ? null : blockId(comment.block_id),
     author: comment.author,
     at: comment.created_at,
@@ -202,12 +223,12 @@ export function commentView(comment: Comment, task: Task) {
 
 async function journal<K extends EventKind>(
   trx: Trx,
-  task: Task,
+  subject: BlockSubject,
   ctx: CommandContext,
   kind: K,
   payload: EventPayload<K>,
 ): Promise<void> {
-  await emit(trx, kind, task.project, task.id, ctx.at, payload, ctx.actor);
+  await emit(trx, kind, subject.project, subject.task?.id ?? null, ctx.at, payload, ctx.actor);
 }
 
 async function hasWorker(trx: Trx, task: Task): Promise<boolean> {
@@ -232,7 +253,7 @@ async function routeBlock(
   return blockAddressee({
     type: block.type,
     author: block.author,
-    authorRole: authorRole(config, task, block.author),
+    authorRole: authorRole(config, taskSubject(task), block.author),
     column: task.column,
     orchestrator: orchestrator(config, task),
     curator: curatorProject(config, task.project),
@@ -251,7 +272,7 @@ function wroteBlock(config: Config, actor: ActorId, target: ResolvedTarget): boo
 /** Inserts a comment row and journals `comment_added`; it rings and posts nothing. */
 async function insertComment(
   trx: Trx,
-  task: Task,
+  subject: BlockSubject,
   blockId: number | null,
   text: string,
   ctx: CommandContext,
@@ -262,7 +283,7 @@ async function insertComment(
   const row = await trx
     .insertInto('comment')
     .values({
-      task_id: task.id,
+      task_id: subject.task?.id ?? null,
       block_id: blockId,
       author: ctx.actor,
       text,
@@ -275,7 +296,7 @@ async function insertComment(
     })
     .returningAll()
     .executeTakeFirstOrThrow();
-  await journal(trx, task, ctx, 'comment_added', {
+  await journal(trx, subject, ctx, 'comment_added', {
     comment: commentId(row.id),
     addressee,
     ...(forwardedFrom === undefined ? {} : { forwardedFrom: commentId(forwardedFrom) }),
@@ -285,7 +306,7 @@ async function insertComment(
 
 async function addComment(
   trx: Trx,
-  task: Task,
+  subject: BlockSubject,
   block: Block | undefined,
   text: string,
   ctx: CommandContext,
@@ -298,7 +319,7 @@ async function addComment(
   } = {},
 ): Promise<Comment> {
   const { source, ringsAuthor = true } = options;
-  const row = await insertComment(trx, task, block?.id ?? null, text, ctx, addressee, source);
+  const row = await insertComment(trx, subject, block?.id ?? null, text, ctx, addressee, source);
   // A note or a withdrawal comment is not an answer, so it rings nobody.
   if (ringsAuthor) {
     await applyDoorbellPolicy(
@@ -310,7 +331,7 @@ async function addComment(
             block,
             commentId: row.id,
             revision: row.revision,
-            authorRole: authorRole(config, task, block.author),
+            authorRole: authorRole(config, subject, block.author),
             actor: ctx.actor,
           },
       new Date(ctx.at),
@@ -319,27 +340,31 @@ async function addComment(
   if (block !== undefined && source === undefined) {
     await enqueueConversationReply(trx, {
       commentId: row.id,
-      persona: personaFor(config, task, ctx.actor),
+      persona: personaFor(config, subject, ctx.actor),
       at: new Date(ctx.at),
     });
   }
   return row;
 }
 
+/** Opens a block; a project-level block, which has no task to route by, goes to the operator. */
 export async function openBlock(
   trx: Trx,
-  task: Task,
+  subject: BlockSubject,
   type: Block['type'],
   reason: string,
   ctx: CommandContext,
   config: Config,
   addressee?: AddresseeRole,
 ): Promise<Block> {
-  addressee ??= await routeBlock(trx, task, { type, author: ctx.actor }, config);
+  const { task } = subject;
+  addressee ??=
+    task === null ? 'operator' : await routeBlock(trx, task, { type, author: ctx.actor }, config);
   const row = await trx
     .insertInto('block')
     .values({
-      task_id: task.id,
+      task_id: task?.id ?? null,
+      project: task === null ? subject.project : null,
       type,
       reason,
       author: ctx.actor,
@@ -355,10 +380,10 @@ export async function openBlock(
     })
     .returningAll()
     .executeTakeFirstOrThrow();
-  await journal(trx, task, ctx, 'block_opened', { block: blockId(row.id), type, addressee });
+  await journal(trx, subject, ctx, 'block_opened', { block: blockId(row.id), type, addressee });
   await applyDoorbellPolicy(
     trx,
-    { kind: 'block_opened', block: row, authorRole: authorRole(config, task, ctx.actor) },
+    { kind: 'block_opened', block: row, authorRole: authorRole(config, subject, ctx.actor) },
     new Date(ctx.at),
   );
   return row;
@@ -375,8 +400,9 @@ export async function openSystemBlock(
 ): Promise<Block> {
   const { task, reason, at, config, addressee = 'operator' } = input;
   const ctx: CommandContext = { actor: 'system', at };
-  const block = await openBlock(trx, task, 'needs_input', reason, ctx, config, addressee);
-  await queueBlockOpen(trx, task, block, ctx, config);
+  const subject = taskSubject(task);
+  const block = await openBlock(trx, subject, 'needs_input', reason, ctx, config, addressee);
+  await queueBlockOpen(trx, subject, block, ctx, config);
   return block;
 }
 
@@ -408,7 +434,16 @@ async function forwardCourseNote(
           .executeTakeFirst()));
   const text = reason ?? answer?.text;
   if (text === undefined) return undefined;
-  const copy = await insertComment(trx, task, null, text, ctx, 'worker', undefined, answer?.id);
+  const copy = await insertComment(
+    trx,
+    taskSubject(task),
+    null,
+    text,
+    ctx,
+    'worker',
+    undefined,
+    answer?.id,
+  );
   await applyDoorbellPolicy(trx, { kind: 'course_note', block, comment: copy }, new Date(ctx.at));
   return copy;
 }
@@ -432,7 +467,7 @@ async function forwardedCopies(trx: Trx, id: number): Promise<Comment[]> {
 /** Writes an edit to one comment by the acknowledgment rule, with its `comment_edited`. */
 async function reviseComment(
   trx: Trx,
-  task: Task,
+  subject: BlockSubject,
   comment: Comment,
   text: string,
   ctx: CommandContext,
@@ -444,7 +479,7 @@ async function reviseComment(
     .where('id', '=', comment.id)
     .returningAll()
     .executeTakeFirstOrThrow();
-  await journal(trx, task, ctx, 'comment_edited', {
+  await journal(trx, subject, ctx, 'comment_edited', {
     comment: commentId(comment.id),
     revision: next.revision,
     clarification: next.clarification,
@@ -462,7 +497,7 @@ async function reviseComment(
  */
 export async function closeOpenBlock(
   trx: Trx,
-  task: Task,
+  subject: BlockSubject,
   block: Block,
   ctx: CommandContext,
   outcome: 'done' | 'reason' | 'withdrawn' | 'archived',
@@ -481,7 +516,7 @@ export async function closeOpenBlock(
     .where('id', '=', block.id)
     .returningAll()
     .executeTakeFirstOrThrow();
-  await journal(trx, task, ctx, 'block_unblocked', {
+  await journal(trx, subject, ctx, 'block_unblocked', {
     block: blockId(block.id),
     outcome,
     ...(outcomeReason === null ? {} : { reason: outcomeReason }),
@@ -501,13 +536,14 @@ export async function closeOpenBlock(
     .where('cleared_at', 'is', null)
     .execute();
   if (
+    subject.task !== null &&
     ctx.actor !== 'system' &&
     (outcome === 'done' || outcome === 'reason') &&
     items.some((item) => item.kind === ('course_check' satisfies ItemKind))
   )
     await forwardCourseNote(
       trx,
-      task,
+      subject.task,
       block,
       ctx,
       outcome === 'reason' ? outcomeReason : null,
@@ -542,12 +578,7 @@ export async function closeBlockIfOpen(
     .where('state', '=', 'open')
     .executeTakeFirst();
   if (block === undefined) return;
-  const task = await trx
-    .selectFrom('task')
-    .selectAll()
-    .where('id', '=', block.task_id)
-    .executeTakeFirstOrThrow();
-  await closeOpenBlock(trx, task, block, ctx, outcome, outcomeReason);
+  await closeOpenBlock(trx, await blockSubject(trx, block), block, ctx, outcome, outcomeReason);
 }
 
 /** Applies an operator message to the block selected by its conversation, without echoing it. */
@@ -564,7 +595,7 @@ export async function recordInboundBlockMessage(
 ): Promise<{
   comment: Comment;
   block: Block;
-  task: Task;
+  subject: BlockSubject;
   answered: boolean;
   authorRole: AddresseeRole;
 }> {
@@ -573,32 +604,32 @@ export async function recordInboundBlockMessage(
     .selectAll()
     .where('id', '=', input.blockId)
     .executeTakeFirstOrThrow();
-  const task = await taskById(trx, block.task_id);
+  const subject = await blockSubject(trx, block);
   const ctx: CommandContext = { actor: 'operator', at: input.at };
   const answered = block.state === 'open';
   if (answered) {
-    active(task);
+    if (subject.task !== null) active(subject.task);
     rule(() => {
       answerBlock(current(block));
     });
   }
   const comment = await addComment(
     trx,
-    task,
+    subject,
     block,
     input.text,
     ctx,
-    authorRole(input.config, task, block.author),
+    authorRole(input.config, subject, block.author),
     input.config,
     { source: { conversationRef: input.conversationRef, messageRef: input.messageRef } },
   );
-  const updated = answered ? await closeOpenBlock(trx, task, block, ctx, 'done', null) : block;
+  const updated = answered ? await closeOpenBlock(trx, subject, block, ctx, 'done', null) : block;
   return {
     comment,
     block: updated,
-    task,
+    subject,
     answered,
-    authorRole: authorRole(input.config, task, block.author),
+    authorRole: authorRole(input.config, subject, block.author),
   };
 }
 
@@ -607,15 +638,21 @@ export async function editInboundComment(
   trx: Trx,
   input: { comment: Comment; text: string; at: string; actor: ActorId; config: Config },
 ): Promise<Comment> {
-  const task = await taskById(trx, input.comment.task_id);
-  active(task);
+  const subject = await rowSubject(trx, input.comment);
+  if (subject.task !== null) active(subject.task);
   if (input.comment.author !== input.actor) {
     throw new CommandError('forbidden', 'Only the comment author can edit it.');
   }
   const ctx: CommandContext = { actor: input.actor, at: input.at };
-  const { updated, clarification } = await reviseComment(trx, task, input.comment, input.text, ctx);
+  const { updated, clarification } = await reviseComment(
+    trx,
+    subject,
+    input.comment,
+    input.text,
+    ctx,
+  );
   for (const copy of await forwardedCopies(trx, input.comment.id))
-    await reviseComment(trx, task, copy, input.text, ctx);
+    await reviseComment(trx, subject, copy, input.text, ctx);
   // Only a comment that rang as an answer rings again; a note or a withdrawal never did.
   const answered = await trx
     .selectFrom('notification')
@@ -636,7 +673,7 @@ export async function editInboundComment(
         block,
         commentId: updated.id,
         revision: updated.revision,
-        authorRole: authorRole(input.config, task, block.author),
+        authorRole: authorRole(input.config, subject, block.author),
         actor: input.actor,
       },
       new Date(input.at),
@@ -674,7 +711,7 @@ async function queueCuratorAnswerLine(
   config: Config,
 ): Promise<void> {
   if (parseAddressee(block.addressee_role).kind !== 'curator') return;
-  if (authorRole(config, task, ctx.actor) === 'operator') return;
+  if (authorRole(config, taskSubject(task), ctx.actor) === 'operator') return;
   const curator = parseActorId(ctx.actor);
   if (curator?.actor !== 'agent') return;
   const asker = parseActorId(block.author);
@@ -721,10 +758,11 @@ export function createBlockMutations(config: Config) {
     async run(trx, input, ctx) {
       const task = found(await taskByKey(trx, input.task));
       active(task);
-      const block = await openBlock(trx, task, 'needs_input', input.text, ctx, config);
-      await addComment(trx, task, block, input.text, ctx, block.addressee_role, config);
-      await queueBlockOpen(trx, task, block, ctx, config);
-      return { block: blockView(block, task) };
+      const subject = taskSubject(task);
+      const block = await openBlock(trx, subject, 'needs_input', input.text, ctx, config);
+      await addComment(trx, subject, block, input.text, ctx, block.addressee_role, config);
+      await queueBlockOpen(trx, subject, block, ctx, config);
+      return { block: blockView(block, subject) };
     },
   };
   const create: Mutation<'block.create'> = {
@@ -733,9 +771,10 @@ export function createBlockMutations(config: Config) {
     async run(trx, input, ctx) {
       const task = found(await taskByKey(trx, input.task));
       active(task);
-      const block = await openBlock(trx, task, input.type, input.reason, ctx, config);
-      await queueBlockOpen(trx, task, block, ctx, config);
-      return { block: blockView(block, task) };
+      const subject = taskSubject(task);
+      const block = await openBlock(trx, subject, input.type, input.reason, ctx, config);
+      await queueBlockOpen(trx, subject, block, ctx, config);
+      return { block: blockView(block, subject) };
     },
   };
   const escalate: Mutation<'block.escalate'> = {
@@ -743,10 +782,13 @@ export function createBlockMutations(config: Config) {
     async resolveTargets(trx, input, actor) {
       const block = await blockById(trx, input.block);
       if (block === undefined) return blockTarget(trx, input.block);
-      const task = await taskById(trx, block.task_id);
-      const target = await authorizationTarget(trx, task, block);
+      const subject = await blockSubject(trx, block);
+      const target = await subjectTarget(trx, subject, block);
       if (target.kind !== 'found' || target.value.block === null) return [target];
       if (holdsBlock(config, actor, target)) return [target];
+      const { task } = subject;
+      // A project-level block has no task to route by, so it has no earlier addressee.
+      if (task === null) return [target];
       const priors = priorAddressees(
         await routeBlock(trx, task, block, config),
         block.addressee_role,
@@ -764,20 +806,22 @@ export function createBlockMutations(config: Config) {
     },
     async run(trx, input, ctx) {
       const block = found(await blockById(trx, input.block));
-      const task = await taskById(trx, block.task_id);
-      active(task);
-      const hasCurator = curatorProject(config, task.project) !== null;
+      const subject = await blockSubject(trx, block);
+      const { task } = subject;
+      if (task !== null) active(task);
+      const hasCurator = curatorProject(config, subject.project) !== null;
       const next = rule(() => escalateBlock(current(block), hasCurator));
       // A no-op leaves the block as it is but still posts the note to its current thread.
       const unchanged = async () => {
         if (input.note !== undefined) {
-          await addComment(trx, task, block, input.note, ctx, block.addressee_role, config, {
+          await addComment(trx, subject, block, input.note, ctx, block.addressee_role, config, {
             ringsAuthor: false,
           });
         }
-        return { block: blockView(block, task) };
+        return { block: blockView(block, subject) };
       };
-      if (!next.changed) return unchanged();
+      // A project-level block is the operator's, which escalates to no one.
+      if (!next.changed || task === null) return unchanged();
       // An earlier addressee passes authorization to retry; only the current one moves the block.
       const target = await authorizationTarget(trx, task, block);
       if (!holdsBlock(config, ctx.actor, target)) return unchanged();
@@ -790,11 +834,11 @@ export function createBlockMutations(config: Config) {
       });
       // After the open, so the note is a reply and never replaces the original text at the head.
       if (input.note !== undefined) {
-        await addComment(trx, task, updated, input.note, ctx, next.addressee, config, {
+        await addComment(trx, subject, updated, input.note, ctx, next.addressee, config, {
           ringsAuthor: false,
         });
       }
-      return { block: blockView(updated, task) };
+      return { block: blockView(updated, subject) };
     },
   };
   const answer: Mutation<'block.answer'> = {
@@ -802,20 +846,24 @@ export function createBlockMutations(config: Config) {
     resolveTargets: (trx, input) => blockTarget(trx, input.block),
     async run(trx, input, ctx) {
       const block = found(await blockById(trx, input.block));
-      const task = await taskById(trx, block.task_id);
-      active(task);
+      const subject = await blockSubject(trx, block);
+      const { task } = subject;
+      if (task !== null) active(task);
       rule(() => {
         answerBlock(current(block));
       });
-      const role = authorRole(config, task, block.author);
-      const comment = await addComment(trx, task, block, input.text, ctx, role, config);
+      const role = authorRole(config, subject, block.author);
+      const comment = await addComment(trx, subject, block, input.text, ctx, role, config);
       // Before the close, so a note on a threaded block is a reply that rings nobody.
       if (input.note !== undefined) {
-        await addComment(trx, task, block, input.note, ctx, role, config, { ringsAuthor: false });
+        await addComment(trx, subject, block, input.note, ctx, role, config, {
+          ringsAuthor: false,
+        });
       }
-      const updated = await closeOpenBlock(trx, task, block, ctx, 'done', null, comment);
-      await queueCuratorAnswerLine(trx, task, block, comment, input.note, ctx, config);
-      return { block: blockView(updated, task), comment: commentView(comment, task) };
+      const updated = await closeOpenBlock(trx, subject, block, ctx, 'done', null, comment);
+      if (task !== null)
+        await queueCuratorAnswerLine(trx, task, block, comment, input.note, ctx, config);
+      return { block: blockView(updated, subject), comment: commentView(comment, subject) };
     },
   };
   const unblock: Mutation<'block.unblock'> = {
@@ -823,9 +871,9 @@ export function createBlockMutations(config: Config) {
     resolveTargets: (trx, input) => blockTarget(trx, input.block),
     async run(trx, input, ctx) {
       const block = found(await blockById(trx, input.block));
-      const task = await taskById(trx, block.task_id);
-      active(task);
-      const target = await authorizationTarget(trx, task, block);
+      const subject = await blockSubject(trx, block);
+      if (subject.task !== null) active(subject.task);
+      const target = await subjectTarget(trx, subject, block);
       const decision = rule(() =>
         input.mode === 'done'
           ? closeBlock(current(block), {
@@ -841,13 +889,13 @@ export function createBlockMutations(config: Config) {
               }),
       );
       if (input.mode === 'withdraw') {
-        await addComment(trx, task, block, input.answer, ctx, block.addressee_role, config, {
+        await addComment(trx, subject, block, input.answer, ctx, block.addressee_role, config, {
           ringsAuthor: false,
         });
       }
       const updated = await closeOpenBlock(
         trx,
-        task,
+        subject,
         block,
         ctx,
         decision.outcome,
@@ -861,7 +909,7 @@ export function createBlockMutations(config: Config) {
           : { kind: 'block_removed', block: updated },
         new Date(ctx.at),
       );
-      return { block: blockView(updated, task) };
+      return { block: blockView(updated, subject) };
     },
   };
   const add: Mutation<'comment.add'> = {
@@ -875,22 +923,23 @@ export function createBlockMutations(config: Config) {
       if (block !== undefined && block.task_id !== task.id) {
         throw new CommandError('not_found', 'Block does not belong to this task.');
       }
+      const subject = taskSubject(task);
       let addressee: AddresseeRole = 'worker';
       if (block !== undefined) {
         if (ctx.actor !== block.author) {
-          addressee = authorRole(config, task, block.author);
+          addressee = authorRole(config, subject, block.author);
         } else if (
           block.outcome === 'done' &&
           block.unblocked_by !== null &&
           block.unblocked_by !== block.author
         ) {
-          addressee = authorRole(config, task, block.unblocked_by);
+          addressee = authorRole(config, subject, block.unblocked_by);
         } else {
           addressee = block.addressee_role;
         }
       }
-      const comment = await addComment(trx, task, block, input.text, ctx, addressee, config);
-      return { comment: commentView(comment, task) };
+      const comment = await addComment(trx, subject, block, input.text, ctx, addressee, config);
+      return { comment: commentView(comment, subject) };
     },
   };
   const edit: Mutation<'comment.edit'> = {
@@ -909,8 +958,7 @@ export function createBlockMutations(config: Config) {
         actor: ctx.actor,
         config,
       });
-      const task = await taskById(trx, comment.task_id);
-      return { comment: commentView(updated, task) };
+      return { comment: commentView(updated, await rowSubject(trx, comment)) };
     },
   };
   /** Marks a comment read at `revision` and acks its unread answer notifications. */
@@ -920,7 +968,7 @@ export function createBlockMutations(config: Config) {
     revision: number,
     ctx: CommandContext,
   ): Promise<void> {
-    const task = await taskById(trx, comment.task_id);
+    const subject = await rowSubject(trx, comment);
     await acknowledgeNotification(trx, {
       commentId: comment.id,
       revision,
@@ -933,7 +981,10 @@ export function createBlockMutations(config: Config) {
       .set({ acked_revision: revision })
       .where('id', '=', comment.id)
       .execute();
-    await journal(trx, task, ctx, 'comment_acked', { comment: commentId(comment.id), revision });
+    await journal(trx, subject, ctx, 'comment_acked', {
+      comment: commentId(comment.id),
+      revision,
+    });
   }
 
   /** Acks the caller's unread answers of an asked block, then its unread block notification. */
@@ -1026,7 +1077,7 @@ export function createBlockMutations(config: Config) {
           if (id.startsWith('N')) {
             const notice = await notificationByRingId(trx, id);
             if (notice === undefined) return { kind: 'missing' as const, id };
-            return { ...(await authorizationTarget(trx, await taskById(trx, notice.task_id))), id };
+            return { ...(await subjectTarget(trx, await rowSubject(trx, notice))), id };
           }
           const targets = await blockTarget(trx, id);
           const target = targets[0];
@@ -1052,5 +1103,29 @@ export function createBlockMutations(config: Config) {
       return alreadyHandled.length > 0 ? { acked, alreadyHandled } : { acked };
     },
   };
-  return { ask, create, escalate, answer, unblock, add, edit, ack };
+  const projectAsk: Mutation<'project.ask'> = {
+    id: 'project.ask',
+    resolveTargets: (_trx, input) =>
+      Promise.resolve([
+        config.projects.some((project) => project.id === input.project)
+          ? projectTarget(input.project)
+          : { kind: 'missing' as const },
+      ]),
+    async run(trx, input, ctx) {
+      const subject = projectSubject(input.project);
+      const block = await openBlock(
+        trx,
+        subject,
+        'needs_input',
+        input.text,
+        ctx,
+        config,
+        'operator',
+      );
+      await addComment(trx, subject, block, input.text, ctx, 'operator', config);
+      await queueBlockOpen(trx, subject, block, ctx, config);
+      return { block: blockView(block, subject) };
+    },
+  };
+  return { ask, create, escalate, answer, unblock, add, edit, ack, projectAsk };
 }

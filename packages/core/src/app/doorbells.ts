@@ -17,8 +17,10 @@ import { queueBlockOpen } from './block-thread.ts';
 import { emit, taskUrl, type Trx } from './board-utils.ts';
 import { CommandError, type CommandContext } from './commands.ts';
 import { clearItem, raiseItem } from './feed.ts';
+import { TASKLESS_ITEM_URL } from './item-raise.ts';
 import { enqueueDoorbell, promoteWorkerDoorbells } from './outbox.ts';
 import { scanTransaction } from './secrets.ts';
+import { rowSubject, taskSubject, type BlockSubject } from './subject.ts';
 import type { Store } from '../store/store.ts';
 
 type Notification = Row<'notification'>;
@@ -52,12 +54,8 @@ async function journal<K extends 'doorbell_rung' | 'doorbell_read' | 'doorbell_u
   payload: EventPayload<K>,
   at: Date,
 ): Promise<void> {
-  const task = await trx
-    .selectFrom('task')
-    .select('project')
-    .where('id', '=', notification.task_id)
-    .executeTakeFirstOrThrow();
-  await emit(trx, kind, task.project, notification.task_id, at.toISOString(), payload);
+  const project = await noticeProject(trx, notification);
+  await emit(trx, kind, project, notification.task_id, at.toISOString(), payload);
 }
 
 /**
@@ -249,10 +247,10 @@ function noticeBlockId(n: Pick<Notification, 'kind' | 'block_id'>): number {
 }
 
 /** What a notification is about, as the operator item names it. */
-function noticeRef(n: Notification, task: Task): string {
+function noticeRef(n: Notification, subject: BlockSubject): string {
   return isTurnKind(n.kind)
-    ? `turn T${String(n.turn_id)} on ${task.key}`
-    : `block B${String(noticeBlockId(n))} on ${task.key}`;
+    ? `turn T${String(n.turn_id)} on ${subject.key}`
+    : `block B${String(noticeBlockId(n))} on ${subject.key}`;
 }
 
 /** Register a one-ring notice that a block its addressee held was closed by someone else. */
@@ -461,7 +459,7 @@ export async function moveBlockToAddressee(
     ctx.actor,
   );
   await applyDoorbellPolicy(trx, { kind: 'block_escalated', block: updated }, new Date(ctx.at));
-  await queueBlockOpen(trx, task, updated, ctx, config);
+  await queueBlockOpen(trx, taskSubject(task), updated, ctx, config);
   return updated;
 }
 
@@ -551,12 +549,13 @@ export async function curatorSession(
   return bestProjectSession(trx, curatorProject(config, projectId));
 }
 
-/** The newest live session linked to a task in a role. */
+/** The newest live session linked to a task in a role; a project-level notice has no links. */
 export async function linkedSession(
   trx: Trx,
-  taskId: number,
+  taskId: number | null,
   role: 'worker' | 'orchestrator',
 ): Promise<Session | undefined> {
+  if (taskId === null) return undefined;
   const links = await trx
     .selectFrom('link')
     .select('session_id')
@@ -574,13 +573,12 @@ export async function linkedSession(
   return undefined;
 }
 
-async function taskProject(trx: Trx, taskId: number): Promise<string> {
-  const task = await trx
-    .selectFrom('task')
-    .select('project')
-    .where('id', '=', taskId)
-    .executeTakeFirstOrThrow();
-  return task.project;
+/** The board project of a notification: its task's, else its project-level block's. */
+async function noticeProject(
+  trx: Trx,
+  n: Pick<Notification, 'task_id'> & Partial<Pick<Notification, 'block_id'>>,
+): Promise<string> {
+  return (await rowSubject(trx, { task_id: n.task_id, block_id: n.block_id ?? null })).project;
 }
 
 /** The Spur project orchestrating a column; null when no agent project does. */
@@ -602,7 +600,7 @@ function columnOrchestratorProject(
 export async function selectNotificationRecipient(
   trx: Trx,
   n: Pick<Notification, 'task_id' | 'role' | 'author_session'> &
-    Partial<Pick<Notification, 'kind'>>,
+    Partial<Pick<Notification, 'kind' | 'block_id'>>,
   config: Config,
 ): Promise<Session | undefined> {
   if (n.kind === 'turn_reminder')
@@ -611,7 +609,7 @@ export async function selectNotificationRecipient(
   switch (addressee.kind) {
     case 'curator':
       // Any current curator speaks for the role, so the session that asked has no claim.
-      return curatorSession(trx, config, await taskProject(trx, n.task_id));
+      return curatorSession(trx, config, await noticeProject(trx, n));
     case 'orchestrator': {
       const author =
         n.author_session === null ? undefined : await sessionById(trx, n.author_session);
@@ -620,7 +618,7 @@ export async function selectNotificationRecipient(
         (await linkedSession(trx, n.task_id, 'orchestrator')) ??
         bestProjectSession(
           trx,
-          columnOrchestratorProject(config, await taskProject(trx, n.task_id), addressee.column),
+          columnOrchestratorProject(config, await noticeProject(trx, n), addressee.column),
         )
       );
     }
@@ -677,7 +675,7 @@ export async function restartNotification(trx: Trx, sourceKey: string, at: Date)
 async function endNotification(
   trx: Trx,
   n: Notification,
-  task: Task,
+  subject: BlockSubject,
   end: { session: string | null; reason: string; at: Date; config: Config },
 ): Promise<void> {
   const { session, reason, at, config } = end;
@@ -688,7 +686,8 @@ async function endNotification(
     .execute();
   if (n.rings === 0) await releaseAfterCourseNote(trx, n, at);
   const addressee = parseAddressee(n.role);
-  if (n.kind === 'block' && addressee.kind === 'curator') {
+  const { task } = subject;
+  if (n.kind === 'block' && addressee.kind === 'curator' && task !== null) {
     const block = await trx
       .selectFrom('block')
       .selectAll()
@@ -703,7 +702,7 @@ async function endNotification(
       config,
     });
   } else if (n.kind !== 'removed' && n.kind !== 'turn_reminder' && session !== null) {
-    const blockRef = noticeRef(n, task);
+    const blockRef = noticeRef(n, subject);
     const answer = `Answer to ${blockRef} was not`;
     const holder = `${addressee.kind} ${session}`;
     await raiseItem(trx, {
@@ -717,8 +716,8 @@ async function endNotification(
           : n.kind === 'answer'
             ? `${answer} delivered: ${reason}`
             : `${holder} did not get ${blockRef}: ${reason}`,
-      url: taskUrl(task, config),
-      taskId: task.id,
+      url: task === null ? TASKLESS_ITEM_URL : taskUrl(task, config),
+      taskId: task?.id ?? null,
       blockId: n.block_id,
       at,
     });
@@ -775,12 +774,7 @@ export async function ringUndelivered(
     n.last_outbox_id !== input.outboxId
   )
     return;
-  const task = await trx
-    .selectFrom('task')
-    .selectAll()
-    .where('id', '=', n.task_id)
-    .executeTakeFirstOrThrow();
-  await endNotification(trx, n, task, {
+  await endNotification(trx, n, await rowSubject(trx, n), {
     session: input.session,
     reason,
     at,
@@ -788,46 +782,54 @@ export async function ringUndelivered(
   });
 }
 
-/** Why a notification with no recipient ends now, or null when it stays due for a next session. */
+/**
+ * Why a notification with no recipient ends now, or null when it stays due for a next session. A
+ * worker's answer on a project-level block goes only to the session that asked.
+ */
 function noRecipientEnd(n: Notification): string | null {
   if (
     n.kind === 'removed' ||
     n.kind === 'turn_reminder' ||
-    (n.kind === 'answer' && n.role === 'operator')
+    (n.kind === 'answer' && n.role === 'operator') ||
+    (n.kind === 'answer' && n.role === 'worker' && n.task_id === null)
   )
     return 'no live addressee';
   return n.kind === 'block' && n.role === 'curator' ? 'no live curator session' : null;
 }
 
 /** A ring never carries comment or reason text: only where to look. */
-async function ringText(trx: Trx, n: Notification, task: Task, ring: number): Promise<string> {
+async function ringText(
+  trx: Trx,
+  n: Notification,
+  { key }: BlockSubject,
+  ring: number,
+): Promise<string> {
   const suffix = ringMarker(n.id, ring);
-  if (n.kind === 'turn')
-    return `${task.key} turn T${String(n.turn_id)}: check board inbox ${suffix}`;
+  if (n.kind === 'turn') return `${key} turn T${String(n.turn_id)}: check board inbox ${suffix}`;
   if (n.kind === 'turn_reminder')
-    return `${task.key} turn T${String(n.turn_id)} is still open: check board inbox ${suffix}`;
+    return `${key} turn T${String(n.turn_id)} is still open: check board inbox ${suffix}`;
   const blockId = noticeBlockId(n);
   if (n.kind !== 'removed') {
-    return `${task.key} block B${String(blockId)}: check board inbox ${suffix}`;
+    return `${key} block B${String(blockId)}: check board inbox ${suffix}`;
   }
   const block = await trx
     .selectFrom('block')
     .select('unblocked_by')
     .where('id', '=', blockId)
     .executeTakeFirstOrThrow();
-  return `${task.key} block B${String(blockId)} was removed by ${block.unblocked_by ?? 'system'}; see board task ${task.key} ${suffix}`;
+  return `${key} block B${String(blockId)} was removed by ${block.unblocked_by ?? 'system'}; see board task ${key} ${suffix}`;
 }
 
 /**
- * Notifications reconcile looks at: unacked, not exhausted, due, on a task not archived, and not
- * held by a course check (`courseHold`).
+ * Notifications reconcile looks at: unacked, not exhausted, due, on a task not archived or on a
+ * project-level block, and not held by a course check (`courseHold`).
  */
 function dueNotifications(db: Trx, at: Date) {
   // Archive cancels unsent rings (`archiveTask`); ringing again before `task.add` would undo that.
   return db
     .selectFrom('notification')
-    .innerJoin('task', 'task.id', 'notification.task_id')
-    .where('task.membership', '!=', 'archived')
+    .leftJoin('task', 'task.id', 'notification.task_id')
+    .where((eb) => eb.or([eb('task.id', 'is', null), eb('task.membership', '!=', 'archived')]))
     .where('notification.acked_at', 'is', null)
     .where('notification.exhausted_at', 'is', null)
     .where('notification.next_at', '<=', at.toISOString())
@@ -857,12 +859,12 @@ export async function reconcileDoorbells(trx: Trx, at: Date, config: Config): Pr
     if (session === undefined) {
       const reason = noRecipientEnd(n);
       if (reason !== null) {
-        const task = await trx
-          .selectFrom('task')
-          .selectAll()
-          .where('id', '=', n.task_id)
-          .executeTakeFirstOrThrow();
-        await endNotification(trx, n, task, { session: null, reason, at, config });
+        await endNotification(trx, n, await rowSubject(trx, n), {
+          session: null,
+          reason,
+          at,
+          config,
+        });
       } else if (n.recipient_session !== null) {
         await trx
           .updateTable('notification')
@@ -903,13 +905,14 @@ export async function reconcileDoorbells(trx: Trx, at: Date, config: Config): Pr
         .executeTakeFirst();
       if (row?.state === 'pending' || row?.state === 'in_flight') continue;
     }
-    const task = await trx
-      .selectFrom('task')
-      .selectAll()
-      .where('id', '=', n.task_id)
-      .executeTakeFirstOrThrow();
+    const subject = await rowSubject(trx, n);
     if (rings >= 3) {
-      await endNotification(trx, n, task, { session: session.id, reason: UNANSWERED, at, config });
+      await endNotification(trx, n, subject, {
+        session: session.id,
+        reason: UNANSWERED,
+        at,
+        config,
+      });
       continue;
     }
     // A ring still in the recipient's Spur queue was never read: hold the next one until the
@@ -920,7 +923,7 @@ export async function reconcileDoorbells(trx: Trx, at: Date, config: Config): Pr
       const deadline =
         Date.parse(n.next_at) + pauses.slice(rings).reduce((sum, pause) => sum + pause, 0);
       if (at.getTime() >= deadline) {
-        await endNotification(trx, n, task, {
+        await endNotification(trx, n, subject, {
           session: session.id,
           reason: UNANSWERED,
           at,
@@ -936,14 +939,17 @@ export async function reconcileDoorbells(trx: Trx, at: Date, config: Config): Pr
       .where('item_key', '=', exhaustedItemKey(n))
       .executeTakeFirst();
     // Archive killed any unsent ring of this task; a resumed ring needs a key the dead row lacks.
-    const archived = await trx
-      .selectFrom('event')
-      .select((eb) => eb.fn.countAll<number>().as('count'))
-      .where('task_id', '=', n.task_id)
-      .where('kind', '=', 'task_archived')
-      .executeTakeFirst();
+    const archived =
+      n.task_id === null
+        ? undefined
+        : await trx
+            .selectFrom('event')
+            .select((eb) => eb.fn.countAll<number>().as('count'))
+            .where('task_id', '=', n.task_id)
+            .where('kind', '=', 'task_archived')
+            .executeTakeFirst();
     const ring = rings + 1;
-    const text = await ringText(trx, n, task, ring);
+    const text = await ringText(trx, n, subject, ring);
     const outboxId = await enqueueDoorbell(trx, {
       notificationId: n.id,
       ring,
@@ -1063,7 +1069,8 @@ async function releaseAfterCourseNote(trx: Trx, n: Notification, at: Date): Prom
     .where('kind', '=', 'answer')
     .where((eb) => eb('block_id', 'in', courseBlocks(eb)))
     .executeTakeFirst();
-  if (note === undefined) return;
+  // A project-level block is never a course check, so its notice holds no ring.
+  if (note === undefined || n.task_id === null) return;
   await promoteWorkerDoorbells(trx, n.task_id, at, n.id);
 }
 
@@ -1187,11 +1194,11 @@ export async function notificationAddressedTo(
   const addressee = parseAddressee(n.role);
   switch (addressee.kind) {
     case 'curator':
-      return project === curatorProject(config, await taskProject(trx, n.task_id));
+      return project === curatorProject(config, await noticeProject(trx, n));
     case 'orchestrator':
       return (
         project ===
-          columnOrchestratorProject(config, await taskProject(trx, n.task_id), addressee.column) ||
+          columnOrchestratorProject(config, await noticeProject(trx, n), addressee.column) ||
         (await hasLiveLink(trx, n.task_id, 'orchestrator', session))
       );
     case 'operator':
@@ -1205,10 +1212,11 @@ export async function notificationAddressedTo(
 
 async function sessionLink(
   trx: Trx,
-  taskId: number,
+  taskId: number | null,
   role: 'worker' | 'orchestrator',
   session: string,
 ): Promise<{ id: number } | undefined> {
+  if (taskId === null) return undefined;
   return trx
     .selectFrom('link')
     .select('id')
@@ -1222,7 +1230,7 @@ async function sessionLink(
 
 async function hasLiveLink(
   trx: Trx,
-  taskId: number,
+  taskId: number | null,
   role: 'orchestrator',
   session: string,
 ): Promise<boolean> {

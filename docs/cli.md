@@ -424,6 +424,22 @@ Example: `board ask PROJ-123 "Which API version should the client target?" --key
 
 Operation errors: `usage` (exit 2: Run `board schema` to see the expected input and fix the arguments.); `wrong_id_kind` (exit 2: Pass the ID kind the operation expects, e.g. B<n> for a block or a task key for a task.); `forbidden` (exit 1: Check which role may run the operation in `board schema`, or ask the operator.); `not_found` (exit 1: Check the ID with `board status` or `board task <KEY>`.); `not_implemented` (exit 1: Ask the operator to update the daemon to a build with this operation.); `task_archived` (exit 1: Ask an operator to add the task to the board again if work continues.); `idempotency_key_mismatch` (exit 1: Use a new key for a new command, or repeat the earlier input with the same key.); `identity_unavailable` (exit 3: Ask in your own session, then retry the same command later with its existing idempotency key if it has one.); `starting` (exit 3: Wait until the daemon is ready, then retry the command with its existing idempotency key if it has one.); `stopping` (exit 3: Wait until the daemon is running again, then retry the command with its existing idempotency key if it has one; if it stays stopped, ask in your own session.).
 
+### `board project ask`
+
+Ask the operator about a project, not a task.
+
+Arguments: `<project> <text>`.
+
+Flags:
+
+`--to <value>` — Who answers; only the operator.
+`--key <key>` — Idempotency key for this action.
+`--json` — Print JSON output or a JSON error.
+
+Example: `board project ask web "Restart?" --to operator --key project-ask-PROJ-123-example-1432`
+
+Operation errors: `usage` (exit 2: Run `board schema` to see the expected input and fix the arguments.); `forbidden` (exit 1: Check which role may run the operation in `board schema`, or ask the operator.); `not_found` (exit 1: Check the ID with `board status` or `board task <KEY>`.); `not_implemented` (exit 1: Ask the operator to update the daemon to a build with this operation.); `idempotency_key_mismatch` (exit 1: Use a new key for a new command, or repeat the earlier input with the same key.); `identity_unavailable` (exit 3: Ask in your own session, then retry the same command later with its existing idempotency key if it has one.); `starting` (exit 3: Wait until the daemon is ready, then retry the command with its existing idempotency key if it has one.); `stopping` (exit 3: Wait until the daemon is running again, then retry the command with its existing idempotency key if it has one; if it stays stopped, ask in your own session.).
+
 ### `board comment`
 
 Comment on a task.

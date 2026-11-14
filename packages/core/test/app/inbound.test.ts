@@ -64,6 +64,7 @@ const stores: Store[] = [];
 function emptyStatus() {
   return {
     tasks: [],
+    projectBlocks: [],
     items: [],
     unlinkedPrs: [],
     unlinkedSessions: [],

@@ -178,7 +178,7 @@ describe('catalog', () => {
   );
 
   it('marks only the mutations that write new rows as non-destructive', () => {
-    const additive = ['block.ask', 'comment.add', 'block.create'];
+    const additive = ['block.ask', 'project.ask', 'comment.add', 'block.create'];
     const mutations = OPERATIONS.filter((op) => op.kind === 'mutation');
     expect(mutations.filter((op) => !op.mcp.destructive).map((op) => op.id)).toEqual(additive);
     for (const op of mutations) {
@@ -448,6 +448,7 @@ describe('grants', () => {
     ['item.retry', 'mutation', [operator], null, [...archived, 'retry_not_applicable']],
     ['item.close', 'mutation', [operator], null, id],
     ['block.ask', 'mutation', [projectAgent], null, archived],
+    ['project.ask', 'mutation', [projectAgent], null, ['not_found']],
     ['comment.add', 'mutation', [projectAgent, operator], null, archived],
     ['comment.edit', 'mutation', [projectAgent, operator], null, archived],
     ['block.create', 'mutation', [{ grant: 'column-orchestrator' }, operator], null, archived],
@@ -506,7 +507,7 @@ describe('grants', () => {
     ]);
   });
 
-  it('pins the 24 operations with kinds, grants, preconditions and errors', () => {
+  it('pins the 25 operations with kinds, grants, preconditions and errors', () => {
     const order = Object.keys(ERRORS);
     expect(
       OPERATIONS.map((op) => [op.id, op.kind, op.grants, op.preconditions, op.errors]),
@@ -527,7 +528,7 @@ describe('grants', () => {
         return [opId, kind, grants, preconditions, errors];
       }),
     );
-    expect(OPERATIONS).toHaveLength(24);
+    expect(OPERATIONS).toHaveLength(25);
   });
 
   it('names a branch of the input discriminator in every grant mode', () => {
@@ -555,7 +556,7 @@ describe('grants', () => {
     const missing = OPERATIONS.filter(
       (op) => op.kind === 'mutation' && !op.errors.includes('task_archived'),
     ).map((op) => op.id);
-    expect(missing).toEqual(['inbox.ack', 'token.revoke', 'task.add', 'item.close']);
+    expect(missing).toEqual(['inbox.ack', 'token.revoke', 'task.add', 'item.close', 'project.ask']);
   });
 });
 

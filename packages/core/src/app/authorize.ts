@@ -42,6 +42,11 @@ export type AuthorizationDecision =
   | { readonly status: 'unresolved' }
   | { readonly status: 'denied'; readonly hint: string };
 
+/** The target of an operation on a board project as a whole: no task, block or links. */
+export function projectTarget(project: string): ResolvedTarget {
+  return { kind: 'found', value: { project, task: null, block: null, workers: [] } };
+}
+
 /** True for the operator token and for a session of a Spur project with the `operator` role. */
 export function isOperator(actor: ActorId, config: Config): boolean {
   if (actor === 'operator') return true;

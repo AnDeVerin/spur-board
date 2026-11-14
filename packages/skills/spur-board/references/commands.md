@@ -7,7 +7,7 @@ Every command can return the common errors in [errors.md](errors.md). Each entry
 Purpose: List actionable items, source freshness and compact tasks; detail adds full facts and links.
 Arguments: none.
 Flags: `--project <value>`, `--detail`, `--json`.
-Use when: Get a board overview; pass detail for full ticket, pull request and session facts.
+Use when: Get a board overview.
 Avoid when: Use `board task <task>` for one task.
 Example: `board status` — Show the board.
 Other errors: `not_found`.
@@ -29,7 +29,7 @@ Arguments: `<task>`.
 Flags: `--json`.
 Use when: Trace changes to one task.
 Avoid when: Use `board task <task>` for current state.
-Example: `board task history acme/web#42` — Show the history of a task.
+Example: `board task history acme/web#42` — Show task history.
 Other errors: `wrong_id_kind`, `not_found`.
 
 ### `board schema`
@@ -73,6 +73,16 @@ Avoid when: Use `board comment <task> <text>` for a nonblocking note.
 Example: `board ask PROJ-123 "Which API version should the client target?" --key ask-PROJ-123-api-version-1432` — Ask which API version to target.
 Other errors: `wrong_id_kind`, `not_found`, `task_archived`, `idempotency_key_mismatch`.
 
+### `board project ask`
+
+Purpose: Ask the operator about a project, not a task.
+Arguments: `<project>`, `<text>`.
+Flags: `--to <value>`, `--key <key>`, `--json`.
+Use when: A question has no task.
+Avoid when: Use `board ask <task> <text>` for a task question.
+Example: `board project ask web "Restart?" --to operator --key project-ask-PROJ-123-restart-1432` — Ask to restart.
+Other errors: `not_found`, `idempotency_key_mismatch`.
+
 ### `board comment`
 
 Purpose: Comment on a task.
@@ -110,7 +120,7 @@ Arguments: `<block>`.
 Flags: `--note <value>`, `--key <key>`, `--json`.
 Use when: Escalate an open block.
 Avoid when: Use `board answer <block> <text>` to answer a question.
-Example: `board escalate B13 --key escalate-PROJ-123-failing-build-1432` — Escalate a failing build to the operator.
+Example: `board escalate B13 --key escalate-PROJ-123-failing-build-1432` — Escalate a failing build.
 Other errors: `wrong_id_kind`, `not_found`, `block_not_open`, `task_archived`, `idempotency_key_mismatch`.
 
 ### `board answer`
@@ -131,7 +141,7 @@ Flags: `--done [ref]`, `--reason <reason>`, `--withdraw <answer>`, `--key <key>`
 Modes by role: worker: `--done`, `--reason`, `--withdraw`; orchestrator: `--reason`, `--withdraw`.
 Use when: Close an open block.
 Avoid when: Use `board answer <block> <text>` for a question answer.
-Worker example: `board unblock B13 --done example/web#9 --key unblock-PROJ-123-fixing-build-1432` — Unblock after fixing the build.
+Worker example: `board unblock B13 --done example/web#9 --key unblock-PROJ-123-fix-1432` — Unblock after a fix.
 Orchestrator example: `board unblock B13 --reason "The build issue was resolved." --key unblock-PROJ-123-code-block-1432` — Explain why a code block no longer applies.
 Other errors: `wrong_id_kind`, `not_found`, `block_not_open`, `task_archived`, `idempotency_key_mismatch`.
 
@@ -142,7 +152,7 @@ Arguments: `<turn>`, `<sha>`.
 Flags: `--key <key>`, `--json`.
 Use when: Hand in the work of a turn you took, at the pull request head. While the project dispatcher is in shadow mode no turn opens: the column executor submits with the task key.
 Avoid when: Use `board return <turn> <reason>` to send the task back to Dev instead.
-Example: `board submit T4 9f2c4e1b7a3d5c8e0f1a2b3c4d5e6f708192a3b4 --key submit-PROJ-123-submit-pull-1432` — Submit the pull request head for a review turn.
+Example: `board submit T4 9f2c4e1b7a3d5c8e0f1a2b3c4d5e6f708192a3b4 --key submit-PROJ-123-submit-pull-1432` — Submit the pull request head.
 Other errors: `wrong_id_kind`, `not_found`, `turn_closed`, `not_turn_taker`, `head_mismatch`, `task_archived`, `idempotency_key_mismatch`, `github_unavailable`.
 
 ### `board return`

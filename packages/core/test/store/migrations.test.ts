@@ -355,7 +355,7 @@ describe('migrate', () => {
         'reopened_at',
       ]),
     );
-    insertRaw(raw, 'block', sampleRows.block);
+    insertRaw(raw, 'block', without(sampleRows.block, ['project']));
     insertRaw(raw, 'comment', comment);
     insertRaw(raw, 'outbox', outbox);
 
@@ -600,7 +600,7 @@ describe('migrate', () => {
     const { raw } = rawDb(join(dir, 'board.db'));
     migrate(raw, real.slice(0, 11));
     insertRaw(raw, 'task', without(sampleRows.task, ['reopened_at']));
-    insertRaw(raw, 'block', sampleRows.block);
+    insertRaw(raw, 'block', without(sampleRows.block, ['project']));
     const old = without(
       { ...sampleRows.notification, author_session: null, last_outbox_id: null },
       ['turn_id'],
@@ -643,7 +643,7 @@ describe('migrate', () => {
     const { raw } = rawDb(join(dir, 'board.db'));
     migrate(raw, real.slice(0, 12));
     insertRaw(raw, 'task', without(sampleRows.task, ['reopened_at']));
-    insertRaw(raw, 'block', sampleRows.block);
+    insertRaw(raw, 'block', without(sampleRows.block, ['project']));
     insertRaw(raw, 'turn', {
       ...without(sampleRows.turn, ['head_sha']),
       closed_at: null,
@@ -684,6 +684,65 @@ describe('migrate', () => {
     }).toThrow(/CHECK constraint failed/);
     expect(() => {
       insert({ source_key: 'block:1:d', turn_id: 1 });
+    }).toThrow(/CHECK constraint failed/);
+    expect(raw.pragma('foreign_key_check')).toEqual([]);
+  });
+
+  it('rebuilds block, comment and notification for a project-level block', () => {
+    const dir = tempDir();
+    const { raw } = rawDb(join(dir, 'board.db'));
+    migrate(raw, real.slice(0, 17));
+    insertRaw(raw, 'task', sampleRows.task);
+    const block = without(sampleRows.block, ['project']);
+    insertRaw(raw, 'block', block);
+    insertRaw(raw, 'comment', sampleRows.comment);
+    insertRaw(raw, 'turn', sampleRows.turn);
+    const notification = { ...sampleRows.notification, last_outbox_id: null, turn_id: null };
+    insertRaw(raw, 'notification', notification);
+    raw.prepare("UPDATE sqlite_sequence SET seq = 40 WHERE name = 'block'").run();
+    raw.prepare("UPDATE sqlite_sequence SET seq = 50 WHERE name = 'comment'").run();
+    raw.prepare("UPDATE sqlite_sequence SET seq = 60 WHERE name = 'notification'").run();
+
+    migrate(raw, real);
+
+    expect(rows(raw, 'block')).toEqual([{ ...block, project: null }]);
+    expect(rows(raw, 'comment')).toEqual([sampleRows.comment]);
+    expect(rows(raw, 'notification')).toEqual([notification]);
+    const add = (table: string, row: Record<string, unknown>) => {
+      insertRaw(raw, table, without(row, ['id']));
+    };
+    const lastId = (table: string) =>
+      raw.prepare(`SELECT max(id) FROM ${table}`).pluck().get() as number;
+    add('block', { ...block, task_id: null, project: 'proj' });
+    expect(lastId('block')).toBe(41);
+    add('comment', { ...sampleRows.comment, task_id: null, block_id: 41 });
+    expect(lastId('comment')).toBe(51);
+    add('notification', {
+      ...notification,
+      source_key: 'answer:51:1',
+      task_id: null,
+      block_id: 41,
+      comment_id: 51,
+    });
+    expect(lastId('notification')).toBe(61);
+    expect(() => {
+      add('block', { ...block, project: 'proj' });
+    }).toThrow(/CHECK constraint failed/);
+    expect(() => {
+      add('block', { ...block, task_id: null });
+    }).toThrow(/CHECK constraint failed/);
+    expect(() => {
+      add('comment', { ...sampleRows.comment, task_id: null, block_id: null });
+    }).toThrow(/CHECK constraint failed/);
+    expect(() => {
+      add('notification', {
+        ...notification,
+        source_key: 'turn:1:none',
+        kind: 'turn',
+        task_id: null,
+        block_id: null,
+        turn_id: 1,
+      });
     }).toThrow(/CHECK constraint failed/);
     expect(raw.pragma('foreign_key_check')).toEqual([]);
   });
@@ -860,6 +919,7 @@ describe('migration pins', () => {
     ].join(''),
     '0017_comment_conversation_message.sql':
       'b9be273061ec21c56ad54951dddfe2ee02a76887360ff956a4eba1666770de71',
+    '0018_project_block.sql': '995c4435c6a2eff15b37e60e3b70a456b1bda4491ffdb1163cf2ce4c152ff64a',
   };
 
   interface MigrationFile {
