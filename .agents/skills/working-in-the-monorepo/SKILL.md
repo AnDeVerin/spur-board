@@ -12,7 +12,7 @@ description: Package map, allowed dependencies, PR order, new packages, catalog 
   depends on adapters, contracts, core and gateway-slack. The private stand depends on adapters,
   contracts, core, daemon, gateway-slack and testkit. Runtime dependencies point toward contracts;
   contracts depends on no workspace package at runtime.
-- Dev edges: core, daemon and gateway-slack use gateway-testkit; contracts uses testkit; the CLI
+- Dev edges: core, daemon and gateway-slack use gateway-testkit; the CLI
   takes contracts as a dev dependency because its bundle inlines it. A dev dependency on
   `packages/testkit` or `packages/gateway-testkit` is allowed from any package except adapters
   and the CLI: their boundary lint covers their tests too and rejects both imports
