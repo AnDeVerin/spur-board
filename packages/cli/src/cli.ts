@@ -33,7 +33,8 @@ import {
   uninstallService,
   type ServiceOptions,
 } from './service.ts';
-import { installSkills, type InstallSkillsOptions } from './skills.ts';
+import { askSessionsToReload } from './skill-reload.ts';
+import { bundledSkillVersion, installSkills, type InstallSkillsOptions } from './skills.ts';
 import { escapeTerminalControls } from './terminal.ts';
 import { rollbackPackage, updatePackage, type UpdatePorts } from './update.ts';
 import {
@@ -360,9 +361,19 @@ function registerSetupCommands(
   });
 
   commandFor(program, 'skills install')
-    .description('Install bundled skills for Claude Code and Codex.')
+    .description(
+      'Install bundled skills for Claude Code and Codex, and ask running sessions to re-read them after a version change.',
+    )
     .action(async () => {
-      print(await runSetup(() => installSkills({ ...options.setup, env })));
+      const results = await runSetup(() => installSkills({ ...options.setup, env }));
+      print(results);
+      if (!results.some((entry) => entry.changed)) return;
+      await askSessionsToReload({
+        env,
+        home: options.setup?.home ?? options.home ?? homedir(),
+        version: await bundledSkillVersion(options.setup?.packageRoot),
+        stderr: io.stderr,
+      });
     });
 
   commandFor(program, 'service install')

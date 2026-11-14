@@ -10,7 +10,13 @@ import {
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { parseEnv } from 'node:util';
-import { configSchema, requiredSecretKeys, type Config } from '@spur-board/contracts';
+import {
+  actorIdSchema,
+  configSchema,
+  requiredSecretKeys,
+  successEnvelopeSchema,
+  type Config,
+} from '@spur-board/contracts';
 import YAML from 'yaml';
 import { z } from 'zod';
 import { configFile, dataDirectory, resolveDaemonAddress } from './config.ts';
@@ -335,6 +341,75 @@ function listing(ids: readonly string[]): string {
   return ids.length ? `: ${ids.join(', ')}` : '';
 }
 
+function sessionCount(ids: readonly string[]): string {
+  return ids.length === 0
+    ? 'sessions'
+    : `${String(ids.length)} session${ids.length === 1 ? '' : 's'}`;
+}
+
+/** Reload states that count for the newest install: delivered or pending, queued after it. */
+type ReloadState = 'delivered' | 'pending';
+
+const reloadRecords = z.object({
+  sessions: z.array(
+    z.object({
+      id: z.string(),
+      state: z.enum(['delivered', 'pending', 'failed']),
+      queuedAt: z.string().nullable(),
+    }),
+  ),
+});
+
+/**
+ * The daemon's reload record of each named session for the newest install's version. Ids travel
+ * in the body, never the URL. A record queued before that install, as after a rollback to a
+ * version installed earlier, does not count; an unreachable daemon yields no records.
+ */
+async function reloadStates(
+  ids: readonly string[],
+  newest: { version: string; installedAt: number },
+  address: () => URL,
+  ports: DoctorPorts,
+): Promise<Map<string, ReloadState>> {
+  const states = new Map<string, ReloadState>();
+  const sessions = [
+    ...new Set(
+      ids.filter(
+        (id) => id.length <= 128 && actorIdSchema.safeParse(`agent:project/${id}`).success,
+      ),
+    ),
+  ]
+    .sort()
+    .slice(0, 200);
+  if (sessions.length === 0) return states;
+  try {
+    const response = await ports.fetcher(new URL('/v1/skills/reloads', address()), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ version: newest.version, sessions }),
+      signal: AbortSignal.timeout(5_000),
+    });
+    if (response.status !== 200) return states;
+    const envelope = successEnvelopeSchema.safeParse(await response.json());
+    const parsed = reloadRecords.safeParse(envelope.data?.value);
+    if (!parsed.success) return states;
+    for (const record of parsed.data.sessions) {
+      const queuedAt = record.queuedAt === null ? Number.NaN : Date.parse(record.queuedAt);
+      if (
+        record.state !== 'failed' &&
+        sessions.includes(record.id) &&
+        Number.isFinite(queuedAt) &&
+        queuedAt >= newest.installedAt
+      ) {
+        states.set(record.id, record.state);
+      }
+    }
+  } catch {
+    // Without records every stale session is listed under stop and wake.
+  }
+  return states;
+}
+
 const skillLink = '.agents/skills/spur-board';
 const codexVisibilityFix =
   "Add .agents/skills/spur-board to the Spur project's symlinks in its config and start a new session.";
@@ -588,29 +663,62 @@ export async function runDoctor(
       stamp(ports, join(home, agent, 'skills', skill, '.spur-board-install.json')),
     ),
   );
-  const latestInstall = Math.max(
-    ...stamps.flatMap((entry) => (entry === null ? [] : [entry.installedAt])),
+  const newest = stamps.reduce<(typeof stamps)[number]>(
+    (latest, entry) =>
+      entry !== null && (latest === null || entry.installedAt > latest.installedAt)
+        ? entry
+        : latest,
+    null,
   );
+  const latestInstall = newest?.installedAt ?? -Infinity;
   // Only sessions of a configured Spur project read the board skill.
   const connected = sessions.filter(
     (session) => session.project !== undefined && configured.has(session.project),
   );
-  const stale = connected.filter(
-    (session) => session.startAt !== undefined && session.startAt < latestInstall,
-  );
-  const unknownStarts = connected.some((session) => session.startAt === undefined);
   // Spur lists one entry per pane or process, so one session can appear several times.
-  const staleSessions = [...new Set(stale.map((session) => session.id))];
-  const staleIds = safeIds(staleSessions);
-  const staleCount =
-    staleSessions.length === 0
-      ? 'sessions'
-      : `${String(staleSessions.length)} session${staleSessions.length === 1 ? '' : 's'}`;
+  const staleSessions = [
+    ...new Set(
+      connected
+        .filter((session) => session.startAt !== undefined && session.startAt < latestInstall)
+        .map((session) => session.id),
+    ),
+  ];
+  const undatedSessions = [
+    ...new Set(
+      connected.filter((session) => session.startAt === undefined).map((session) => session.id),
+    ),
+  ];
+  const reloads =
+    newest === null
+      ? new Map<string, ReloadState>()
+      : await reloadStates(
+          [...staleSessions, ...undatedSessions],
+          newest,
+          () => resolveDaemonAddress(env, home, config.http.port),
+          ports,
+        );
+  const unreached = staleSessions.filter((id) => reloads.get(id) === undefined);
+  const unknownStarts = undatedSessions.some((id) => reloads.get(id) === undefined);
+  const pending = [...new Set([...staleSessions, ...undatedSessions])].filter(
+    (id) => reloads.get(id) === 'pending',
+  );
+  const forVersion = newest === null ? '' : ` for ${newest.version}`;
   checks.push(
-    stale.length > 0 || unknownStarts
+    unreached.length > 0 || unknownStarts || pending.length > 0
       ? warning(
           'sessions.stale',
-          `Ask ${staleCount} started before the last skill install to re-read the spur-board skill (SKILL.md and references/)${listing(staleIds)}. Claude Code reads it from ~/.claude/skills/spur-board, Codex from ~/.codex/skills/spur-board ($CODEX_HOME/skills/spur-board when set). No restart is needed; doctor keeps listing a session after it re-reads.${unknownStarts ? ' Ask connected sessions whose start time is unavailable to re-read it too.' : ''}`,
+          [
+            ...(unreached.length > 0 || unknownStarts
+              ? [
+                  `Stop and wake ${sessionCount(unreached)} started before the last skill install that have no delivered reload message${forVersion}${listing(safeIds(unreached))}; stopping and waking restarts the agent and keeps the conversation. A session can instead read the spur-board skill file again: ~/.claude/skills/spur-board/SKILL.md for Claude Code, ~/.codex/skills/spur-board/SKILL.md for Codex ($CODEX_HOME/skills/spur-board/SKILL.md when set); doctor keeps listing it after that.${unknownStarts ? ' Do the same for connected sessions whose start time is unavailable.' : ''}`,
+                ]
+              : []),
+            ...(pending.length > 0
+              ? [
+                  `The board's reload message${forVersion} is still queued for ${sessionCount(pending)}${listing(safeIds(pending))}; rerun board doctor in a minute.`,
+                ]
+              : []),
+          ].join(' '),
         )
       : result('sessions.stale', true, 'Ask older sessions to re-read the spur-board skill.'),
   );
