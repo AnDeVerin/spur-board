@@ -48,15 +48,15 @@ rule names another. A PR changing a practice named here updates this skill.
 ## Failures, backoff and budget
 
 - One attempt per request (A6): no retry, no sleep. Reject the poll with an `AdapterError` of the
-  matching kind. The one exception, GitHub PR chunk halving: `references/github-responses.md`.
+  matching kind. The one exception, PR chunk halving: `references/github-responses.md`.
 - Map a failed HTTP response with `classifyHttpFailure` in `packages/adapters/src/runner/http.ts`:
   429, or 403 with a rate-limit sign, is `throttled` with `retryAt`; other 401 and 403 are `auth`;
-  the rest is `transient`.
-- Board doctor reuses it and the GitHub GraphQL rules.
+  the rest is `transient`. Board doctor reuses it and the GraphQL rules.
 - `nextDelay` in `packages/adapters/src/runner/policy.ts` waits `authRetryMs` after `auth` or
   `config`, until `retryAt` after `throttled`, and backs off exponentially otherwise.
-- Report the budget in `Batch.budget`: GraphQL selects `rateLimit { remaining resetAt }` or the
-  poll fails; Issues reads `x-ratelimit-remaining`/`-reset`, omitting bad ones. `budgetPause`
+- `pollPr` retries a `transient` step-`poll` failure `DEMAND_RETRY_WAITS_MS` apart within
+  `timeoutMs` (`packages/adapters/src/runner/runner.ts`).
+- Report the budget in `Batch.budget` (GitHub: `references/github-responses.md`). `budgetPause`
   pauses each bucket below `github.reserveRemaining`.
 - The runner hands each failed step and rejected report to `onFailure`; no bare `catch`.
 - GitHub, GitHub Issues and Jira requests run under `withTimeout` in
@@ -64,7 +64,7 @@ rule names another. A PR changing a practice named here updates this skill.
   through unchanged. Spur keeps its own 5 s timer.
 - `schedule` (`packages/adapters/src/runner/runner.ts`) caps a poll wait at 2147483647 ms, the
   setTimeout limit; a longer one fires after 1 ms.
-- Runner coverage: `describe('batch validation')`, `describe('failures')`,
+- Runner coverage: `describe('batch validation')`, `describe('failures')`, `describe('retry')`,
   `describe('http failure classification')`, `describe('budget')`,
   `describe('auth and config errors')` and `describe('failure log')` in
   `packages/adapters/test/runner/runner.test.ts`.
@@ -74,7 +74,6 @@ rule names another. A PR changing a practice named here updates this skill.
 - Inject `vi.fn<typeof fetch>()` returning inline wire JSON, as `wire()` does in
   `packages/adapters/test/github/prBatch.test.ts` (`describe('GitHub PR batch')`).
 - Runner fakes: `createFakeCore` and `createFakeAdapter` from `@spur-board/adapters/testing`.
-- Module mocks are banned (`viMockBan` in `eslint.config.js`).
 - Per adapter, cover a happy batch, malformed wire, each failure kind, abort and budget.
 
 ## Gaps
