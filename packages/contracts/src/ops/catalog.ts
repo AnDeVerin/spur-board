@@ -629,7 +629,7 @@ export const OPERATIONS = [
     grants: operatorOnly,
     errors: [],
     cli: { command: 'token list', args: [] },
-    slack: null,
+    slack: { kind: 'slash-command', usage: '/board tokens' },
     examples: [
       {
         summary: 'List operator tokens',

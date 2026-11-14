@@ -22,6 +22,8 @@ export interface Persona {
 export interface Action {
   id: string;
   label: string;
+  /** A question the platform asks before the press is sent, where it can. */
+  confirm?: string;
 }
 
 export type RichTextInline =
@@ -46,7 +48,8 @@ export type DeliveryTargetKind = (typeof DELIVERY_TARGET_KINDS)[number];
 
 /**
  * Where a delivery goes. `open` starts a conversation in a space; `reply` posts into one;
- * `edit` replaces a message's text with the request body and removes its actions (G16);
+ * `edit` replaces a message's text with the request body and its actions with the request's
+ * `actions`, removing them when there are none (G16);
  * `close` posts the body as the closing line and marks the conversation done.
  */
 export type DeliveryTarget =
@@ -141,8 +144,8 @@ export type RespondResult = 'sent' | 'dropped';
  * - G15: With `private: true` and `capabilities.privateResponses: false`, `respond` posts
  *   nothing, publicly or otherwise, and returns `dropped`, so core can record the unanswered
  *   interaction.
- * - G16: `edit` replaces the message's text with the request body and removes the message's
- *   actions; a later edit never restores them.
+ * - G16: `edit` replaces the message's text with the request body and its actions with the
+ *   request's `actions`; an edit without `actions` removes them.
  */
 export interface Gateway {
   /** Gateway identifier, e.g. the platform name. */
