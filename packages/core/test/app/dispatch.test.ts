@@ -944,6 +944,38 @@ describe('a merged PR and the ticket', () => {
     ]);
   });
 
+  /** #7 merged with the ticket open, the task back in Dev, then follow-up #8 closed unmerged. */
+  const followUpClosed = async () => {
+    const ctx = await pastProductReview();
+    await merge(ctx);
+    await ctx.ticket();
+    await ctx.ticket();
+    const note = await ctx.openTurn();
+    expect(note).toEqual(turnOf('dev', 'worker', NOTE));
+    await ctx.ack(WORKER, note?.id ?? '');
+    await ctx.pr({ number: 8, url: 'https://github.com/o/r/pull/8', headSha: C, state: 'open' });
+    await ctx.pr({ number: 8, state: 'closed' });
+    return ctx;
+  };
+
+  it('a split task whose follow-up PR closed reaches Done on its earlier merge once the ticket closes', async () => {
+    const ctx = await followUpClosed();
+    expect((await ctx.task()).column).toBe('dev');
+    await ctx.ticket('closed');
+    expect((await ctx.task()).column).toBe('done');
+    expect(await ctx.openTurn()).toEqual(turnOf('done', 'worker', 'done: wrap up'));
+    expect((await ctx.why()).holds).toEqual([]);
+  });
+
+  it('a split task whose follow-up PR closed stays in Dev without a PR while the ticket is open', async () => {
+    const ctx = await followUpClosed();
+    await ctx.ticket();
+    expect((await ctx.task()).column).toBe('dev');
+    const dev = (await ctx.why()).gates.find((gate) => gate.column === 'dev');
+    expect(dev?.conditions.map((condition) => condition.reason)).toContain('no_pr');
+    expect(dev?.conditions.map((condition) => condition.reason)).not.toContain('pr_closed');
+  });
+
   it('holds a merged task while its ticket is unconfirmed', async () => {
     const ctx = await pastProductReview();
     const before = await devMoves(ctx);

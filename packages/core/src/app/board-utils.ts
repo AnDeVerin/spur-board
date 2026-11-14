@@ -98,6 +98,35 @@ export async function taskPr(
     : { repo: link.repo, number: link.number, open: link.pr_open === 1 };
 }
 
+/**
+ * The task's newest merged PR: the newest active unbanned link past the reopen floor whose PR is
+ * seen merged. Completes a task whose follow-up PR closed unmerged after an earlier merge.
+ */
+export async function taskMergedPr(
+  db: Trx,
+  taskId: number,
+): Promise<{ repo: string; number: number } | null> {
+  const link = await db
+    .selectFrom('link')
+    .innerJoin('pr_snapshot', (join) =>
+      join
+        .on(sql<boolean>`lower(pr_snapshot.repo) = lower(link.repo)`)
+        .onRef('pr_snapshot.number', '=', 'link.number'),
+    )
+    .select(['link.repo', 'link.number'])
+    .where('link.task_id', '=', taskId)
+    .where('link.entity', '=', 'pr')
+    .where('link.pr_state', '=', 'active')
+    .where('link.banned', '=', 0)
+    .where('pr_snapshot.state', '=', 'merged')
+    .where(pastReopenFloor)
+    .orderBy('link.id', 'desc')
+    .executeTakeFirst();
+  return link?.repo == null || link.number === null
+    ? null
+    : { repo: link.repo, number: link.number };
+}
+
 /** A PR snapshot's facts, or null when the detail is missing or unreadable. */
 export function parsePr(detail: string | undefined): PrFacts | null {
   if (detail === undefined) return null;

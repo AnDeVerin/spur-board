@@ -18,7 +18,15 @@ import { dispatch, turnReason } from '../domain/dispatch.ts';
 import type { GateMark } from '../domain/gates.ts';
 import { parseJson, toJson } from '../store/json.ts';
 import type { Row } from '../store/schema.ts';
-import { emit, mergedTicket, parsePr, projectForSource, taskPr, type Trx } from './board-utils.ts';
+import {
+  emit,
+  mergedTicket,
+  parsePr,
+  projectForSource,
+  taskMergedPr,
+  taskPr,
+  type Trx,
+} from './board-utils.ts';
 import {
   courseKeyPrefix,
   cycleKeyPrefix,
@@ -511,17 +519,30 @@ export async function readInput(
   /** The task's PR merged and its ticket is neither done nor confirmed open: hold the task. */
   ticketUnconfirmed: boolean;
 } | null> {
+  const readPr = async (ref: { repo: string; number: number }) =>
+    parsePr(
+      (
+        await trx
+          .selectFrom('pr_snapshot')
+          .select('detail')
+          .where(sql<boolean>`lower(repo) = ${ref.repo.toLowerCase()}`)
+          .where('number', '=', ref.number)
+          .executeTakeFirst()
+      )?.detail,
+    );
   const link = await taskPr(trx, task.id);
   let pr: PrFacts | null = null;
   if (link !== null) {
-    const snapshot = await trx
-      .selectFrom('pr_snapshot')
-      .select('detail')
-      .where(sql<boolean>`lower(repo) = ${link.repo.toLowerCase()}`)
-      .where('number', '=', link.number)
-      .executeTakeFirst();
-    pr = parsePr(snapshot?.detail);
+    pr = await readPr(link);
     if (pr === null) return null;
+  }
+  // A follow-up PR closed unmerged with no PR open leaves the task's earlier merge to judge.
+  if (pr?.state === 'closed' && link?.open !== true) {
+    const merged = await taskMergedPr(trx, task.id);
+    if (merged !== null) {
+      pr = await readPr(merged);
+      if (pr === null) return null;
+    }
   }
   // A merged PR finishes the task only with its ticket done. A ticket seen open one tracker
   // interval after the merge sends it back to work without a PR; before that, it waits.
