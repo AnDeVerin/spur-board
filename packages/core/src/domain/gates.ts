@@ -11,8 +11,9 @@ import {
 } from '@spur-board/contracts';
 
 /**
- * A submit or a mark, each bound to the head commit it was given on. A mark lasts for its head
- * whatever the visit; a submit lasts for one visit of its column.
+ * A submit or a mark, each bound to the head commit it was given on. A mark lasts whatever the
+ * visit while its head stays the PR's head (a new head voids it); a submit lasts for one visit of
+ * its column.
  */
 export type GateMark =
   | { kind: 'submit'; column: ColumnId; headSha: string }

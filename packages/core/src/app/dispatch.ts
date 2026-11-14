@@ -67,7 +67,7 @@ const indexOf = (column: ColumnId) => COLUMN_IDS.indexOf(column);
 
 /**
  * Sets `voided_at` on the unvoided submits of `columns`. Review and product-review marks are
- * never voided.
+ * not voided by a move; a new PR head voids them (`voidMarksOffHead`).
  */
 async function voidColumns(
   trx: Trx,
@@ -83,6 +83,44 @@ async function voidColumns(
     .where('task_id', '=', taskId)
     .where('voided_at', 'is', null)
     .where('column', 'in', voided)
+    .execute();
+}
+
+/**
+ * Sets `voided_at` on the unvoided Review and Product Review marks of PR `repo#number` that are
+ * not on `head`, for the PR's new head: a mark lasts only while its head stays the PR's head, so
+ * a head that comes back to an earlier commit needs fresh marks. Marks made before submissions
+ * recorded their PR count for the tasks linked to the PR.
+ */
+export async function voidMarksOffHead(
+  trx: Trx,
+  input: { repo: string; number: number; head: string; at: string },
+): Promise<void> {
+  const repo = input.repo.toLowerCase();
+  await trx
+    .updateTable('submission')
+    .set({ voided_at: input.at })
+    .where('voided_at', 'is', null)
+    .where('column', 'in', MARK_COLUMNS)
+    .where(sql<boolean>`lower(commit_sha) != ${input.head.toLowerCase()}`)
+    .where((eb) =>
+      eb.or([
+        eb.and([eb(sql`lower(pr_repo)`, '=', repo), eb('pr_number', '=', input.number)]),
+        eb.and([
+          eb('pr_repo', 'is', null),
+          eb(
+            'task_id',
+            'in',
+            eb
+              .selectFrom('link')
+              .select('task_id')
+              .where('entity', '=', 'pr')
+              .where(sql<boolean>`lower(repo) = ${repo}`)
+              .where('number', '=', input.number),
+          ),
+        ]),
+      ]),
+    )
     .execute();
 }
 

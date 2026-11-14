@@ -43,7 +43,12 @@ import {
 import { enqueueLiveAfterFirstPoll } from './doctor.ts';
 import { reconcileMembership } from './membership-rules.ts';
 import { reconcileItems } from './fromYou.ts';
-import { dispatchJournaled, dispatchSource, pollFeedbackCursors } from './dispatch.ts';
+import {
+  dispatchJournaled,
+  dispatchSource,
+  pollFeedbackCursors,
+  voidMarksOffHead,
+} from './dispatch.ts';
 import { closeTurns } from './turns.ts';
 
 function refKey(ref: EntityRef): string {
@@ -519,6 +524,14 @@ async function pr(
       }),
     )
     .execute();
+  if (old !== undefined && old.head_sha.toLowerCase() !== fact.headSha.toLowerCase()) {
+    await voidMarksOffHead(trx, {
+      repo: fact.repo,
+      number: fact.number,
+      head: fact.headSha,
+      at,
+    });
+  }
   const project = projectForSource(config, source);
   if (project === undefined) return;
   for (const key of fact.ticketKeys) {
