@@ -18,15 +18,19 @@ import { curatorAbsent, curatorEscalation, questionToCurator } from './curator.t
 import {
   dispatchConflictInReadyToMerge,
   dispatchConflictInReview,
+  dispatchCiPendingAfterSubmit,
   dispatchCiRedAfterSubmit,
+  dispatchCiRedNewHeadInProductReview,
   dispatchCourseCheck,
   dispatchCycleLimit,
   dispatchDeadExecutor,
   dispatchExternalComment,
   dispatchHappyPath,
   dispatchLongCommentHistory,
+  dispatchNewHeadInReadyToMerge,
   dispatchReentrySameHead,
   dispatchReviewLoop,
+  dispatchRingClosedTurn,
   dispatchSourceBlind,
 } from './dispatcher.ts';
 import { empty } from './empty.ts';
@@ -153,6 +157,10 @@ export const SCENARIOS: readonly Scenario[] = [
   dispatchCycleLimit,
   dispatchCourseCheck,
   dispatchLongCommentHistory,
+  dispatchCiPendingAfterSubmit,
+  dispatchNewHeadInReadyToMerge,
+  dispatchCiRedNewHeadInProductReview,
+  dispatchRingClosedTurn,
   dispatchTurnView,
 ];
 
