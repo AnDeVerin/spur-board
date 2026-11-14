@@ -14,13 +14,12 @@ import type { z } from 'zod';
 import type { RouteResult } from '../control.ts';
 import type { StandManifest } from '../manifest.ts';
 import { columnsBasic, columnsBasicJira } from './columns-basic.ts';
+import { dispatchCourseCheck, dispatchCourseCheckTo } from './course-check.ts';
 import { curatorAbsent, curatorEscalation, questionToCurator } from './curator.ts';
 import {
   dispatchConflictInReadyToMerge,
   dispatchConflictInReview,
   dispatchCiRedAfterSubmit,
-  dispatchCourseCheck,
-  dispatchCourseCheckTo,
   dispatchCycleLimit,
   dispatchDeadExecutor,
   dispatchExternalComment,
