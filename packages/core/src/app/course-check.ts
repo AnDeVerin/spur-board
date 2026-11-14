@@ -37,6 +37,23 @@ const indexOf = (column: ColumnId) => COLUMN_IDS.indexOf(column);
 const isColumn = (text: string): text is ColumnId =>
   (COLUMN_IDS as readonly string[]).includes(text);
 
+/** A left move as a return with its causes, or null when it is no counted return. */
+function counted(
+  move: {
+    from: ColumnId;
+    to: ColumnId;
+    reason?: MoveReason | undefined;
+    gate?: readonly GateReason[] | undefined;
+  },
+  blocked: boolean,
+): CycleEvent | null {
+  if (indexOf(move.to) >= indexOf(move.from) || uncounted(move.reason)) return null;
+  const [first, ...rest] = returnCauses(move.gate ?? [], blocked);
+  return first === undefined
+    ? null
+    : { kind: 'return', column: move.from, causes: [first, ...rest] };
+}
+
 /**
  * The counted returns from `column`: `cycle` since the last close of its cycle-limit item, and
  * `course` since the last close of its course-check item.
@@ -84,12 +101,8 @@ export async function returnCounts(
       continue;
     }
     const moved = eventPayloadSchemas.task_moved.safeParse(JSON.parse(row.payload));
-    if (!moved.success) continue;
-    const { from, to, reason, gate, block } = moved.data;
-    if (indexOf(to) >= indexOf(from) || uncounted(reason)) continue;
-    const [first, ...rest] = returnCauses(gate ?? [], block !== undefined);
-    if (first === undefined) continue;
-    const event: CycleEvent = { kind: 'return', column: from, causes: [first, ...rest] };
+    const event = moved.success ? counted(moved.data, moved.data.block !== undefined) : null;
+    if (event === null) continue;
     events.cycle.push(event);
     events.course.push(event);
   }
@@ -236,20 +249,6 @@ async function openFindings(
   return findings;
 }
 
-/** A left shadow move as a return with its causes, or null when it is no counted return. */
-function shadowReturn(move: {
-  from: ColumnId;
-  to: ColumnId;
-  reason: MoveReason;
-  gate?: readonly GateReason[] | undefined;
-}): CycleEvent | null {
-  if (indexOf(move.to) >= indexOf(move.from) || uncounted(move.reason)) return null;
-  const [first, ...rest] = returnCauses(move.gate ?? [], false);
-  return first === undefined
-    ? null
-    : { kind: 'return', column: move.from, causes: [first, ...rest] };
-}
-
 /**
  * Whether a shadow move reaches the course check of its column: a counted return whose count of
  * counted shadow returns from that column, itself included, is a multiple of `courseCheck`.
@@ -257,24 +256,24 @@ function shadowReturn(move: {
  */
 export async function shadowCourseCheck(
   trx: Trx,
-  task: Task,
+  taskId: number,
   move: { from: ColumnId; to: ColumnId; reason: MoveReason; gate?: readonly GateReason[] },
   project: Project,
 ): Promise<boolean> {
   const every = project.columns.find((column) => column.id === move.from)?.courseCheck ?? 0;
-  const current = shadowReturn(move);
+  const current = counted(move, false);
   if (every <= 0 || current === null) return false;
   const rows = await trx
     .selectFrom('event')
     .select('payload')
-    .where('task_id', '=', task.id)
+    .where('task_id', '=', taskId)
     .where('kind', '=', 'task_shadow_moved')
     .orderBy('id')
     .execute();
   const past: CycleEvent[] = [];
   for (const row of rows) {
     const moved = eventPayloadSchemas.task_shadow_moved.safeParse(JSON.parse(row.payload));
-    const event = moved.success ? shadowReturn(moved.data) : null;
+    const event = moved.success ? counted(moved.data, false) : null;
     if (event !== null) past.push(event);
   }
   const before = countCycles(past, move.from, every).count;

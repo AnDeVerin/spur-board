@@ -607,7 +607,7 @@ async function applyShadow(
   if (last === undefined) return;
   for (const move of result.moves) {
     if (indexOf(move.to) < indexOf(move.from)) await voidSubmits(trx, task.id, move.to, at);
-    const courseCheck = await shadowCourseCheck(trx, task, move, project);
+    const courseCheck = await shadowCourseCheck(trx, task.id, move, project);
     await emit(trx, 'task_shadow_moved', task.project, task.id, at.toISOString(), {
       from: move.from,
       to: move.to,
