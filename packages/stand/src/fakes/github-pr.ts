@@ -36,7 +36,7 @@ const ORDER = 'orderBy: {field: UPDATED_AT, direction: DESC}';
 const contextNodes = (number: string): string =>
   `nodes { ... on CheckRun { __typename name status conclusion startedAt completedAt checkSuite { createdAt } isRequired(pullRequestNumber: ${number}) } ... on StatusContext { __typename context state createdAt isRequired(pullRequestNumber: ${number}) } }`;
 const prAlias = (closing: boolean): string =>
-  `pr0: repository(owner: $owner, name: $repo) { pullRequest(number: 1) { id number url title updatedAt mergedAt state isDraft mergeable mergeStateStatus author { login } headRefName headRefOid statusCheckRollup { contexts(first: 100) { ${contextNodes('1')} ${PAGE_INFO} } } reviews(first: 100) { nodes { ${REVIEW_FIELDS} } ${PAGE_INFO} } comments(last: 100) { ${COMMENT_FIELDS} } reviewThreads(first: 100) { nodes { isResolved } ${PAGE_INFO} } reviewRequests(first: 100) { nodes { ${REVIEWER_FIELDS} } ${PAGE_INFO} }${closing ? ` closingIssuesReferences(first: 100) { ${CLOSING_FIELDS} }` : ''} } }`;
+  `pr0: repository(owner: $owner, name: $repo) { pullRequest(number: 1) { id number url title updatedAt mergedAt closedAt state isDraft mergeable mergeStateStatus author { login } headRefName headRefOid statusCheckRollup { contexts(first: 100) { ${contextNodes('1')} ${PAGE_INFO} } } reviews(first: 100) { nodes { ${REVIEW_FIELDS} } ${PAGE_INFO} } comments(last: 100) { ${COMMENT_FIELDS} } reviewThreads(first: 100) { nodes { isResolved } ${PAGE_INFO} } reviewRequests(first: 100) { nodes { ${REVIEWER_FIELDS} } ${PAGE_INFO} }${closing ? ` closingIssuesReferences(first: 100) { ${CLOSING_FIELDS} }` : ''} } }`;
 const prBatch = (states: string, baseline: string): string =>
   `query PrBatch($owner: String!, $repo: String!) { ${RATE_LIMIT} repository(owner: $owner, name: $repo) { pullRequests(first: 100, states: [${states}], ${ORDER}) { ${DISCOVERY_FIELDS} }${baseline} } }`;
 const PR_INDEX = `query PrIndex($owner: String!, $repo: String!) { ${RATE_LIMIT} pr0: repository(owner: $owner, name: $repo) { pullRequest(number: 1) { number updatedAt state isDraft mergeable mergeStateStatus headRefOid statusCheckRollup { state contexts(first: 100) { totalCount nodes { ... on CheckRun { __typename name status conclusion completedAt } ... on StatusContext { __typename context state } } } } reviews(first: 100) { totalCount nodes { id state } } reviewThreads(first: 100) { totalCount nodes { isResolved } } reviewRequests(first: 100) { totalCount nodes { ${REVIEWER_FIELDS} } } comments(last: 1) { totalCount nodes { id } } } } }`;
@@ -106,6 +106,7 @@ const fieldsSchema = z.strictObject({
   title: z.string(),
   updatedAt: z.iso.datetime(),
   mergedAt: z.iso.datetime().nullable(),
+  closedAt: z.iso.datetime().nullable(),
   state: z.enum(['OPEN', 'CLOSED', 'MERGED']),
   isDraft: z.boolean(),
   mergeable: z.string(),
@@ -240,6 +241,8 @@ export function createGithubPrFake(options: {
       title: `Stand PR ${String(number)}`,
       updatedAt: at,
       mergedAt: seed.state === 'MERGED' ? (seed.updatedAt ?? at) : null,
+      // GitHub stamps closedAt on a merge too.
+      closedAt: seed.state === 'MERGED' || seed.state === 'CLOSED' ? (seed.updatedAt ?? at) : null,
       state: 'OPEN',
       isDraft: false,
       mergeable: 'MERGEABLE',
@@ -345,11 +348,13 @@ export function createGithubPrFake(options: {
       case 'merge':
         pr.state = 'MERGED';
         pr.mergedAt = at;
+        pr.closedAt = at;
         pr.mergeable = 'UNKNOWN';
         pr.mergeStateStatus = 'UNKNOWN';
         break;
       case 'close':
         pr.state = 'CLOSED';
+        pr.closedAt = at;
         break;
     }
   }
@@ -385,6 +390,7 @@ export function createGithubPrFake(options: {
       title: pr.title,
       updatedAt: pr.updatedAt,
       mergedAt: pr.mergedAt,
+      closedAt: pr.closedAt,
       state: pr.state,
       isDraft: pr.isDraft,
       mergeable: pr.mergeable,

@@ -860,6 +860,7 @@ class Scrubber {
       case 'conclusion':
       case 'updatedAt':
       case 'mergedAt':
+      case 'closedAt':
       case 'createdAt':
       case 'startedAt':
       case 'completedAt':

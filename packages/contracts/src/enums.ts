@@ -108,6 +108,7 @@ export const TASK_HOLDS = [
   'pr_snapshot_missing',
   'github_blind',
   'spur_blind',
+  'ticket_unconfirmed',
   'cycle_limit',
   'work_not_started',
 ] as const;

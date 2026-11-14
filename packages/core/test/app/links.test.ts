@@ -297,6 +297,10 @@ describe('manual task links', () => {
       { number: 8, banned: 0, pr_open: 1 },
     ]);
     await observe('github:board:o/r', { kind: 'pr', facts: prFact(7, 'merged') });
+    await observe('github-issues:board:o/r', {
+      kind: 'ticket',
+      facts: { ...ticketFact(), status: 'closed' },
+    });
     await expectConflict(
       call(
         'link.add',
@@ -306,6 +310,29 @@ describe('manual task links', () => {
       ),
       'merged',
     );
+  });
+
+  it('links a follow-up PR after a merge while the ticket is open', async () => {
+    const { store, call, observe } = await setup();
+    await observe('github-issues:board:o/r', { kind: 'ticket', facts: ticketFact() });
+    await observe('github:board:o/r', { kind: 'pr', facts: prFact(7, 'merged') });
+    await call(
+      'link.add',
+      { mode: 'pr', task, pr: prUrl(8), reason: 'The ticket needs a second PR.' },
+      'operator',
+      'follow-up',
+    );
+    expect(
+      await store.db
+        .selectFrom('link')
+        .select(['number', 'banned'])
+        .where('entity', '=', 'pr')
+        .orderBy('number')
+        .execute(),
+    ).toEqual([
+      { number: 7, banned: 0 },
+      { number: 8, banned: 0 },
+    ]);
   });
 
   it('links a new PR to a reopened task whose merged PR is below the floor', async () => {

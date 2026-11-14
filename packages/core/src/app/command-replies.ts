@@ -146,6 +146,11 @@ export function commandReply(
       body: [
         line(`Task ${result.task.key}: ${result.task.column} (${result.task.membership})`),
         turnLine(result.turn),
+        ...result.links.flatMap((link) =>
+          link.kind === 'pr'
+            ? [line(`Pull request ${link.ref}: ${link.state ?? 'not observed yet'}`)]
+            : [],
+        ),
         ...result.blocks.flatMap((block) => [
           line(`Block ${block.id} (${block.state}, ${block.type}):`),
           quote(block.reason),

@@ -45,6 +45,7 @@ import { reconcileMembership } from './membership-rules.ts';
 import { reconcileItems } from './fromYou.ts';
 import {
   dispatchJournaled,
+  dispatchMergedTickets,
   dispatchSource,
   pollFeedbackCursors,
   voidMarksOffHead,
@@ -116,7 +117,8 @@ async function updateTerminal(
     );
   });
   // Conflict links count too: `linked` has no pr_state filter, so an open conflict PR is in hasOpen.
-  const terminal = !hasOpen && (merged || (doneTicket && githubComplete));
+  // A merged PR ends the task only with its ticket done: a split task merges more than once.
+  const terminal = !hasOpen && doneTicket && (merged || githubComplete);
   await trx
     .updateTable('task')
     .set({
@@ -1359,6 +1361,7 @@ export function createObservationCore(deps: {
         const recovered = wasBlind !== null && observation.state.blind === undefined;
         if ((observation.effectiveComplete && !completeSince.has(source)) || recovered)
           await dispatchSource(trx, source, dispatchContext);
+        await dispatchMergedTickets(trx, source, dispatchContext);
         await dispatchJournaled(trx, dispatchContext);
         await reconcileItems(trx, config, now, currentComplete.has('spur'), warnSkipped);
         if (deps.productVersion !== undefined)

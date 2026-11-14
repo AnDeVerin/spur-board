@@ -6,6 +6,7 @@ import {
   parseRef,
   prFactsSchema,
   prSourceId,
+  ticketFactsSchema,
   trackerSourceId,
   type ActorId,
   type ColumnId,
@@ -31,6 +32,37 @@ export function ticketDone(project: Config['projects'][number], status: string):
   return project.tracker.type === 'jira'
     ? project.tracker.doneStatuses.includes(status)
     : status === 'closed';
+}
+
+/**
+ * How the ticket of a task stands after its PR merged at `mergedAt`: `done`; `open` once the
+ * tracker saw it open at least one tracker interval after the merge, in the filter or fetched by
+ * key for a hand-added task; else `unconfirmed`, since the close a merge triggers may not be
+ * polled yet and a ticket dropped from the filter keeps a stale status.
+ */
+export function mergedTicket(
+  project: Config['projects'][number],
+  config: Config,
+  ticket: { status: string; detail: string; observed_at: string } | undefined,
+  manualInclude: boolean,
+  mergedAt: string,
+): 'done' | 'open' | 'unconfirmed' {
+  if (ticket === undefined) return 'unconfirmed';
+  if (ticketDone(project, ticket.status)) return 'done';
+  let inFilter: boolean;
+  try {
+    const parsed = ticketFactsSchema.safeParse(JSON.parse(ticket.detail));
+    if (!parsed.success) return 'unconfirmed';
+    inFilter = parsed.data.inFilter;
+  } catch {
+    return 'unconfirmed';
+  }
+  const { intervalMs } =
+    project.tracker.type === 'jira' ? config.adapters.jira : config.adapters.githubIssues;
+  return (inFilter || manualInclude) &&
+    Date.parse(ticket.observed_at) >= Date.parse(mergedAt) + intervalMs
+    ? 'open'
+    : 'unconfirmed';
 }
 
 /**
@@ -64,6 +96,35 @@ export async function taskPr(
   return link?.repo == null || link.number === null
     ? null
     : { repo: link.repo, number: link.number, open: link.pr_open === 1 };
+}
+
+/**
+ * The task's newest merged PR: the newest active unbanned link past the reopen floor whose PR is
+ * seen merged. Completes a task whose follow-up PR closed unmerged after an earlier merge.
+ */
+export async function taskMergedPr(
+  db: Trx,
+  taskId: number,
+): Promise<{ repo: string; number: number } | null> {
+  const link = await db
+    .selectFrom('link')
+    .innerJoin('pr_snapshot', (join) =>
+      join
+        .on(sql<boolean>`lower(pr_snapshot.repo) = lower(link.repo)`)
+        .onRef('pr_snapshot.number', '=', 'link.number'),
+    )
+    .select(['link.repo', 'link.number'])
+    .where('link.task_id', '=', taskId)
+    .where('link.entity', '=', 'pr')
+    .where('link.pr_state', '=', 'active')
+    .where('link.banned', '=', 0)
+    .where('pr_snapshot.state', '=', 'merged')
+    .where(pastReopenFloor)
+    .orderBy('link.id', 'desc')
+    .executeTakeFirst();
+  return link?.repo == null || link.number === null
+    ? null
+    : { repo: link.repo, number: link.number };
 }
 
 /** A PR snapshot's facts, or null when the detail is missing or unreadable. */

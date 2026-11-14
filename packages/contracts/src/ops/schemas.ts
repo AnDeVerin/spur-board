@@ -23,6 +23,7 @@ import {
 } from '../ids.ts';
 import {
   FEEDBACK_KINDS,
+  PR_STATES,
   commitShaSchema,
   prFactsSchema,
   prRefSchema,
@@ -291,6 +292,12 @@ export const linkViewSchema = z
       .enum(['worker', 'other', 'orchestrator'])
       .nullable()
       .describe('Session role; null for a pull request or ticket.'),
+    state: z
+      .enum(PR_STATES)
+      .optional()
+      .describe(
+        'Pull request state as last observed; absent for a session or ticket and for a pull request not observed yet. Only task.get sets it.',
+      ),
   })
   .describe('An effective link to a task.');
 

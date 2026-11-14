@@ -3,6 +3,7 @@ import {
   DISPATCHER_MODES,
   isExternalAuthor,
   prSourceId,
+  trackerSourceId,
   type ActorId,
   type ColumnId,
   type Config,
@@ -17,7 +18,16 @@ import { dispatch, turnReason } from '../domain/dispatch.ts';
 import type { GateMark } from '../domain/gates.ts';
 import { parseJson, toJson } from '../store/json.ts';
 import type { Row } from '../store/schema.ts';
-import { emit, parsePr, projectForSource, taskPr, type Trx } from './board-utils.ts';
+import {
+  emit,
+  mergedTicket,
+  parsePr,
+  projectForSource,
+  taskMergedPr,
+  taskPr,
+  ticketDone,
+  type Trx,
+} from './board-utils.ts';
 import {
   courseKeyPrefix,
   cycleKeyPrefix,
@@ -538,19 +548,72 @@ export async function readInput(
   project: Project,
   mode: DispatcherMode,
   blind: (source: string) => boolean,
-): Promise<{ input: DispatchInput; handed: Handed[]; unclosed: Row<'turn'> | undefined } | null> {
+  config: Config,
+): Promise<{
+  input: DispatchInput;
+  handed: Handed[];
+  unclosed: Row<'turn'> | undefined;
+  /** The merged PR whose ticket was seen open past the grace: the task has no PR for the gates. */
+  mergedOpen: { repo: string; number: number } | undefined;
+  /** The task's PR merged and its ticket is neither done nor confirmed open: hold the task. */
+  ticketUnconfirmed: boolean;
+} | null> {
+  const readPr = async (ref: { repo: string; number: number }) =>
+    parsePr(
+      (
+        await trx
+          .selectFrom('pr_snapshot')
+          .select('detail')
+          .where(sql<boolean>`lower(repo) = ${ref.repo.toLowerCase()}`)
+          .where('number', '=', ref.number)
+          .executeTakeFirst()
+      )?.detail,
+    );
   const link = await taskPr(trx, task.id);
   let pr: PrFacts | null = null;
   if (link !== null) {
-    const snapshot = await trx
-      .selectFrom('pr_snapshot')
-      .select('detail')
-      .where(sql<boolean>`lower(repo) = ${link.repo.toLowerCase()}`)
-      .where('number', '=', link.number)
-      .executeTakeFirst();
-    pr = parsePr(snapshot?.detail);
+    pr = await readPr(link);
     if (pr === null) return null;
   }
+  const readTicket = () =>
+    trx
+      .selectFrom('ticket_snapshot')
+      .select(['status', 'detail', 'observed_at'])
+      .where('task_id', '=', task.id)
+      .executeTakeFirst();
+  // An earlier merge decides when the chosen PR is not merged: a done ticket ends the task on
+  // it whatever its other PRs are, and a follow-up closed unmerged with none open leaves it to judge.
+  if (pr !== null && pr.state !== 'merged') {
+    const merged = await taskMergedPr(trx, task.id);
+    if (merged !== null) {
+      const ticket = await readTicket();
+      if (
+        (pr.state === 'closed' && link?.open !== true) ||
+        (ticket !== undefined && ticketDone(project, ticket.status))
+      ) {
+        pr = await readPr(merged);
+        if (pr === null) return null;
+      }
+    }
+  }
+  // A merged PR finishes the task only with its ticket done. A ticket seen open one tracker
+  // interval after the merge sends it back to work without a PR; before that, it waits.
+  let mergedOpen: { repo: string; number: number } | undefined;
+  let ticketUnconfirmed = false;
+  if (pr?.state === 'merged') {
+    const ticket = await readTicket();
+    const judged = mergedTicket(
+      project,
+      config,
+      ticket,
+      task.manual_include === 1,
+      pr.mergedAt ?? pr.updatedAt,
+    );
+    if (judged === 'open') mergedOpen = { repo: pr.repo, number: pr.number };
+    ticketUnconfirmed = judged === 'unconfirmed';
+  }
+  // A merged PR that counts as no PR leaves the follow-up PR in any repo: every repo must see.
+  if (mergedOpen !== undefined) pr = null;
   const repos = pr === null ? project.repos : [pr.repo];
   const githubBlind = repos.some((repo) => blind(prSourceId(project.id, repo)));
   const submissions = await trx
@@ -608,6 +671,7 @@ export async function readInput(
         marks,
       },
       reopened:
+        mergedOpen === undefined &&
         (await trx
           .selectFrom('link')
           .select('id')
@@ -640,6 +704,8 @@ export async function readInput(
     },
     handed,
     unclosed,
+    mergedOpen,
+    ticketUnconfirmed,
   };
 }
 
@@ -716,7 +782,10 @@ async function applyOn(
   ];
   await openTurn(trx, {
     task: current,
-    reason: turnReason(turn, replaced?.reason),
+    reason:
+      read.mergedOpen === undefined || turn.kind === 'reroute'
+        ? turnReason(turn, replaced?.reason)
+        : `${turnReason(turn)} (PR ${read.mergedOpen.repo}#${String(read.mergedOpen.number)} merged, ticket still open)`,
     handed: current.column === 'dev' ? handed : [],
     at,
     config,
@@ -741,8 +810,8 @@ export async function dispatchTasks(
     const project = ctx.config.projects.find((entry) => entry.id === task.project);
     if (project === undefined) continue;
     const mode = project.dispatcher.mode;
-    const read = await readInput(trx, task, project, mode, blind);
-    if (read === null) continue;
+    const read = await readInput(trx, task, project, mode, blind, ctx.config);
+    if (read === null || read.ticketUnconfirmed) continue;
     const result = dispatch(read.input);
     if (mode === 'shadow') await applyShadow(trx, task, project, result, ctx.at);
     else await applyOn(trx, task, read, result, ctx);
@@ -809,6 +878,43 @@ export async function dispatchSource(
     .select('id')
     .where('project', 'in', projects)
     .where('membership', '!=', 'archived')
+    .execute();
+  await dispatchTasks(
+    trx,
+    tasks.map((task) => task.id),
+    ctx,
+  );
+}
+
+/**
+ * Evaluates the tasks of a tracker source's project that are out of Done and whose PR merged:
+ * a poll that only refreshes an unchanged open ticket journals nothing, yet can confirm it open
+ * past the merge.
+ */
+export async function dispatchMergedTickets(
+  trx: Trx,
+  source: string,
+  ctx: DispatchContext,
+): Promise<void> {
+  const project = ctx.config.projects.find((entry) => trackerSourceId(entry) === source);
+  if (project === undefined) return;
+  const tasks = await trx
+    .selectFrom('task')
+    .innerJoin('link', 'link.task_id', 'task.id')
+    .innerJoin('pr_snapshot', (join) =>
+      join
+        .on(sql<boolean>`lower(pr_snapshot.repo) = lower(link.repo)`)
+        .onRef('pr_snapshot.number', '=', 'link.number'),
+    )
+    .select('task.id')
+    .distinct()
+    .where('task.project', '=', project.id)
+    .where('task.membership', '!=', 'archived')
+    .where((eb) => eb.or([eb('task.column', '!=', 'done'), eb('task.shadow_column', '!=', 'done')]))
+    .where('link.entity', '=', 'pr')
+    .where('link.pr_state', '=', 'active')
+    .where('link.banned', '=', 0)
+    .where('pr_snapshot.state', '=', 'merged')
     .execute();
   await dispatchTasks(
     trx,

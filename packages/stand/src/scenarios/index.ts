@@ -29,6 +29,7 @@ import {
   dispatchReviewLoop,
   dispatchSourceBlind,
 } from './dispatcher.ts';
+import { dispatchCloseAfterMerge, dispatchSplitPr } from './split-pr.ts';
 import { empty } from './empty.ts';
 import {
   dispatchCiPendingAfterSubmit,
@@ -148,6 +149,8 @@ export const SCENARIOS: readonly Scenario[] = [
   workerKilledNoPrJira,
   sourceBlindJira,
   dispatchHappyPath,
+  dispatchSplitPr,
+  dispatchCloseAfterMerge,
   dispatchReviewLoop,
   dispatchCiRedAfterSubmit,
   dispatchConflictInReview,

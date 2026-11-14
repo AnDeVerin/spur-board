@@ -44,6 +44,7 @@ const pr = {
   title: 'DEMO-42 Add widget',
   updatedAt: at,
   mergedAt: null,
+  closedAt: null,
   state: 'OPEN',
   isDraft: false,
   mergeable: 'UNKNOWN',

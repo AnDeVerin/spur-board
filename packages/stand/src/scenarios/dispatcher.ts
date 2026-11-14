@@ -5,9 +5,9 @@ import { prSourceId } from '@spur-board/contracts';
 import { issueKey, openIssues, settledUnless, STAND_SPUR_PROJECTS } from './helpers.ts';
 import type { Board, Scenario, ScenarioEntities, ScenarioFakes } from './index.ts';
 
-const REPO = 'stand-org/board';
-const ISSUE = issueKey(1);
-const PR = `${REPO}#1`;
+export const REPO = 'stand-org/board';
+export const ISSUE = issueKey(1);
+export const PR = `${REPO}#1`;
 const A = 'a'.repeat(40);
 const STEP_MS = 15_000;
 
@@ -102,17 +102,21 @@ export async function openPr(
 }
 
 /** The worker took T1, opened a green PR and submitted A: Review with the conductor's turn. */
-export async function toReview(board: Board, fakes: ScenarioFakes): Promise<Turn> {
+export async function toReview(board: Board, fakes: ScenarioFakes, seed = {}): Promise<Turn> {
   const dev = await begin(board, fakes);
   await take(board, 'worker', dev.id);
-  await openPr(board, fakes);
+  await openPr(board, fakes, { seed });
   await submit(board, 'worker', dev.id, A);
   return awaitTurn(board, 'orchestrator', 'review: no_review_on_head');
 }
 
 /** The conductor took and submitted Review on A: Ready to Merge with the operator's turn item. */
-async function toReadyToMerge(board: Board, fakes: ScenarioFakes): Promise<string> {
-  const review = await toReview(board, fakes);
+export async function toReadyToMerge(
+  board: Board,
+  fakes: ScenarioFakes,
+  seed = {},
+): Promise<string> {
+  const review = await toReview(board, fakes, seed);
   await take(board, 'orchestrator', review.id);
   await submit(board, 'orchestrator', review.id, A);
   return operatorItem(board, 'ready-to-merge: not_merged');
