@@ -51,6 +51,9 @@ verbs and scenario names; this card keeps the rules and traps.
 - `fake github pr <n> comment` and `fake github pr <n> review <state>` add a comment, or a review
   on the head, at the stand clock. The author is `--author`, else `stand-reviewer`, or `stand-bot`
   with `--bot`; keep bots off `stand-reviewer`, or its approvals stop counting.
+- `fake github inspect` prints the last 500 GraphQL requests the fake answered: `seq`, operation,
+  repo and PR numbers; `reset` clears them. Each `pnpm stand poll` restarts the adapters, so
+  in-memory adapter state (PR cache, discovery-read record) starts empty on that poll.
 
 ## Violations and reset
 
