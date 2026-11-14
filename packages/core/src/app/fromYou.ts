@@ -256,16 +256,14 @@ export async function reconcileItems(
     const facts = parsePr(pr.detail ?? undefined);
     const at = facts === null ? null : (facts.mergedAt ?? facts.updatedAt);
     const newest = mergedAt.get(pr.task_id) ?? null;
-    mergedAt.set(
-      pr.task_id,
-      newest !== null && (at === null || Date.parse(newest) > Date.parse(at)) ? newest : at,
-    );
+    if (newest === null || (at !== null && Date.parse(at) >= Date.parse(newest)))
+      mergedAt.set(pr.task_id, at);
   }
   for (const [taskId, at] of mergedAt) {
     const state = taskPrs[String(taskId)];
     const task = taskById.get(taskId);
-    const project = config.projects.find((entry) => entry.id === task?.project);
     if (state === undefined || task === undefined) continue;
+    const project = config.projects.find((entry) => entry.id === task.project);
     // A merged PR counts as finished work unless the ticket was seen open after it: a split task
     // back in Dev is watched like any task without a PR.
     state.hasMergedPr =
