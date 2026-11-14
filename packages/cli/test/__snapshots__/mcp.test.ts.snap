@@ -10,8 +10,8 @@ Example: {}",
     "name": "status_get",
   },
   {
-    "description": "Show a task with its links, blocks and comments.
-Use when: Inspect one task now.
+    "description": "Show a task with its open turn, links, blocks and comments.
+Use when: Inspect one task now; pass detail for its last closed turns.
 When not to use: Use task_history for past events.
 Example: {"task":"PROJ-123"}",
     "name": "task_get",

@@ -14,10 +14,10 @@ Other errors: `not_found`.
 
 ### `board task`
 
-Purpose: Show a task with its links, blocks and comments.
+Purpose: Show a task with its open turn, links, blocks and comments.
 Arguments: `<task>`.
-Flags: `--why`, `--json`.
-Use when: Inspect one task now.
+Flags: `--detail`, `--why`, `--json`.
+Use when: Inspect one task now; pass detail for its last closed turns.
 Avoid when: Use `board task history <task>` for past events.
 Example: `board task PROJ-123` — Show one task.
 Other errors: `wrong_id_kind`, `not_found`.

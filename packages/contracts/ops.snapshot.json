@@ -1,5 +1,5 @@
 {
-  "version": "a860bb57fb71ee266ad99d1066973ef7ca7c8c796a0d2e764b842116a72812d4",
+  "version": "3b4acb1438cc217fea316c857d8cc29f4fd2b34e7d2e7f4b9b3a2bd296dc2505",
   "grants": [
     "operator",
     "project-agent",
@@ -2436,7 +2436,7 @@
     {
       "id": "task.get",
       "kind": "query",
-      "description": "Show a task with its links, blocks and comments.",
+      "description": "Show a task with its open turn, links, blocks and comments.",
       "grants": [{ "grant": "operator" }, { "grant": "project-agent" }],
       "preconditions": null,
       "errors": [
@@ -2453,7 +2453,7 @@
       "mcp": {
         "name": "task_get",
         "key": null,
-        "whenToUse": "Inspect one task now.",
+        "whenToUse": "Inspect one task now; pass detail for its last closed turns.",
         "whenNotToUse": "Use task_history for past events.",
         "destructive": false
       },
@@ -2468,6 +2468,14 @@
               "project": "web",
               "column": "dev",
               "membership": "active"
+            },
+            "turn": {
+              "id": "T3",
+              "column": "dev",
+              "addressee": "worker",
+              "at": "2026-01-05T09:30:00.000Z",
+              "taken": null,
+              "closed": null
             },
             "links": [],
             "blocks": [
@@ -2510,6 +2518,14 @@
               "project": "web",
               "column": "review",
               "membership": "active"
+            },
+            "turn": {
+              "id": "T4",
+              "column": "review",
+              "addressee": "orchestrator:review",
+              "at": "2026-01-05T09:30:00.000Z",
+              "taken": { "by": "agent:rev/rev-1", "at": "2026-01-05T09:30:00.000Z" },
+              "closed": null
             },
             "links": [],
             "blocks": [],
@@ -2639,6 +2655,39 @@
               ]
             }
           }
+        },
+        {
+          "summary": "Show a task with its last closed turns",
+          "input": { "task": "PROJ-123", "detail": true },
+          "output": {
+            "task": {
+              "key": "PROJ-123",
+              "project": "web",
+              "column": "dev",
+              "membership": "active"
+            },
+            "turn": {
+              "id": "T4",
+              "column": "dev",
+              "addressee": "worker",
+              "at": "2026-01-05T10:15:00.000Z",
+              "taken": { "by": "agent:web/web-7", "at": "2026-01-05T10:15:00.000Z" },
+              "closed": null
+            },
+            "turns": [
+              {
+                "id": "T3",
+                "column": "dev",
+                "addressee": "worker",
+                "at": "2026-01-05T09:30:00.000Z",
+                "taken": null,
+                "closed": { "at": "2026-01-05T10:15:00.000Z", "outcome": "submitted" }
+              }
+            ],
+            "links": [],
+            "blocks": [],
+            "comments": []
+          }
         }
       ],
       "input": {
@@ -2650,6 +2699,10 @@
             "maxLength": 300,
             "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
             "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
+          },
+          "detail": {
+            "description": "Also list the last 5 closed turns, newest first; absent means none.",
+            "type": "boolean"
           },
           "why": {
             "description": "Explain why the task is in its column: gates, holds, the open turn and the last moves; absent means no explanation.",
@@ -2700,6 +2753,246 @@
             "required": ["key", "project", "column", "membership"],
             "additionalProperties": false,
             "description": "A task on the board."
+          },
+          "turn": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "maxLength": 16,
+                    "pattern": "^T[1-9]\\d{0,14}$",
+                    "description": "Turn ID: T followed by a number, e.g. T4."
+                  },
+                  "column": {
+                    "type": "string",
+                    "enum": [
+                      "todo",
+                      "ready-for-dev",
+                      "dev",
+                      "review",
+                      "product-review",
+                      "external-review",
+                      "qa",
+                      "ready-to-merge",
+                      "done"
+                    ],
+                    "description": "Board column the turn belongs to."
+                  },
+                  "addressee": {
+                    "type": "string",
+                    "enum": [
+                      "operator",
+                      "curator",
+                      "orchestrator:todo",
+                      "orchestrator:ready-for-dev",
+                      "orchestrator:dev",
+                      "orchestrator:review",
+                      "orchestrator:product-review",
+                      "orchestrator:external-review",
+                      "orchestrator:qa",
+                      "orchestrator:ready-to-merge",
+                      "orchestrator:done",
+                      "worker"
+                    ],
+                    "description": "Who executes the turn."
+                  },
+                  "at": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                    "description": "When the turn was opened, ISO 8601 UTC."
+                  },
+                  "taken": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "by": {
+                            "anyOf": [
+                              { "type": "string", "const": "operator" },
+                              { "type": "string", "const": "system" },
+                              {
+                                "type": "string",
+                                "pattern": "^agent:[A-Za-z0-9._-]+\\/[A-Za-z0-9._-]+$"
+                              }
+                            ],
+                            "description": "Actor: operator, system, or agent:<project>/<session>."
+                          },
+                          "at": {
+                            "type": "string",
+                            "format": "date-time",
+                            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                            "description": "When the turn was taken, ISO 8601 UTC."
+                          }
+                        },
+                        "required": ["by", "at"],
+                        "additionalProperties": false
+                      },
+                      { "type": "null" }
+                    ],
+                    "description": "Who took the turn and when; null until it is taken."
+                  },
+                  "closed": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "at": {
+                            "type": "string",
+                            "format": "date-time",
+                            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                            "description": "When the turn closed, ISO 8601 UTC."
+                          },
+                          "outcome": {
+                            "type": "string",
+                            "enum": [
+                              "submitted",
+                              "returned",
+                              "moved",
+                              "corrected",
+                              "rerouted",
+                              "mode_changed",
+                              "archived"
+                            ],
+                            "description": "How the turn closed; turns closed by a return or a mode switch before those were recorded read moved."
+                          }
+                        },
+                        "required": ["at", "outcome"],
+                        "additionalProperties": false
+                      },
+                      { "type": "null" }
+                    ],
+                    "description": "How and when the turn closed; null while it is open."
+                  }
+                },
+                "required": ["id", "column", "addressee", "at", "taken", "closed"],
+                "additionalProperties": false,
+                "description": "A task's turn: the executor of a column is asked to act on it."
+              },
+              { "type": "null" }
+            ],
+            "description": "The task's unclosed turn; null when none is open."
+          },
+          "turns": {
+            "description": "Present only with detail: the last 5 closed turns, newest first.",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "maxLength": 16,
+                  "pattern": "^T[1-9]\\d{0,14}$",
+                  "description": "Turn ID: T followed by a number, e.g. T4."
+                },
+                "column": {
+                  "type": "string",
+                  "enum": [
+                    "todo",
+                    "ready-for-dev",
+                    "dev",
+                    "review",
+                    "product-review",
+                    "external-review",
+                    "qa",
+                    "ready-to-merge",
+                    "done"
+                  ],
+                  "description": "Board column the turn belongs to."
+                },
+                "addressee": {
+                  "type": "string",
+                  "enum": [
+                    "operator",
+                    "curator",
+                    "orchestrator:todo",
+                    "orchestrator:ready-for-dev",
+                    "orchestrator:dev",
+                    "orchestrator:review",
+                    "orchestrator:product-review",
+                    "orchestrator:external-review",
+                    "orchestrator:qa",
+                    "orchestrator:ready-to-merge",
+                    "orchestrator:done",
+                    "worker"
+                  ],
+                  "description": "Who executes the turn."
+                },
+                "at": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                  "description": "When the turn was opened, ISO 8601 UTC."
+                },
+                "taken": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "by": {
+                          "anyOf": [
+                            { "type": "string", "const": "operator" },
+                            { "type": "string", "const": "system" },
+                            {
+                              "type": "string",
+                              "pattern": "^agent:[A-Za-z0-9._-]+\\/[A-Za-z0-9._-]+$"
+                            }
+                          ],
+                          "description": "Actor: operator, system, or agent:<project>/<session>."
+                        },
+                        "at": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                          "description": "When the turn was taken, ISO 8601 UTC."
+                        }
+                      },
+                      "required": ["by", "at"],
+                      "additionalProperties": false
+                    },
+                    { "type": "null" }
+                  ],
+                  "description": "Who took the turn and when; null until it is taken."
+                },
+                "closed": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "at": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                          "description": "When the turn closed, ISO 8601 UTC."
+                        },
+                        "outcome": {
+                          "type": "string",
+                          "enum": [
+                            "submitted",
+                            "returned",
+                            "moved",
+                            "corrected",
+                            "rerouted",
+                            "mode_changed",
+                            "archived"
+                          ],
+                          "description": "How the turn closed; turns closed by a return or a mode switch before those were recorded read moved."
+                        }
+                      },
+                      "required": ["at", "outcome"],
+                      "additionalProperties": false
+                    },
+                    { "type": "null" }
+                  ],
+                  "description": "How and when the turn closed; null while it is open."
+                }
+              },
+              "required": ["id", "column", "addressee", "at", "taken", "closed"],
+              "additionalProperties": false,
+              "description": "A task's turn: the executor of a column is asked to act on it."
+            }
           },
           "links": {
             "type": "array",
@@ -3349,7 +3642,7 @@
             "additionalProperties": false
           }
         },
-        "required": ["task", "links", "blocks", "comments"],
+        "required": ["task", "turn", "links", "blocks", "comments"],
         "additionalProperties": false
       }
     },

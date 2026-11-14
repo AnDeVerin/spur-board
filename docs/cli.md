@@ -193,12 +193,13 @@ Operation errors: `usage` (exit 2: Run `board schema` to see the expected input 
 
 ### `board task`
 
-Show a task with its links, blocks and comments.
+Show a task with its open turn, links, blocks and comments.
 
 Arguments: `<task>`.
 
 Flags:
 
+`--detail` — Also list the last 5 closed turns, newest first; absent means none.
 `--why` — Explain why the task is in its column: gates, holds, the open turn and the last moves; absent means no explanation.
 `--json` — Print JSON output or a JSON error.
 

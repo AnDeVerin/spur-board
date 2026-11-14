@@ -26,6 +26,7 @@ import {
   statusTaskSchema,
   statusUnlinkedPrSchema,
   statusUnlinkedSessionSchema,
+  taskTurnSchema,
   taskViewSchema,
   taskWhySchema,
   turnViewSchema,
@@ -130,6 +131,15 @@ const reviewTurn = {
   at,
   taken: null,
 } as const;
+const devTurn = {
+  id: 'T3',
+  column: 'dev',
+  addressee: 'worker',
+  at,
+  taken: null,
+  closed: null,
+} as const;
+const later = '2026-01-05T10:15:00.000Z';
 const handedReview = {
   repo: 'acme/web',
   number: 42,
@@ -362,10 +372,17 @@ export const OPERATIONS = [
   defineOperation({
     id: 'task.get',
     kind: 'query',
-    description: 'Show a task with its links, blocks and comments.',
-    mcp: { whenToUse: 'Inspect one task now.', whenNotToUse: 'Use task_history for past events.' },
+    description: 'Show a task with its open turn, links, blocks and comments.',
+    mcp: {
+      whenToUse: 'Inspect one task now; pass detail for its last closed turns.',
+      whenNotToUse: 'Use task_history for past events.',
+    },
     input: z.strictObject({
       task: taskKeyInputSchema,
+      detail: z
+        .boolean()
+        .optional()
+        .describe('Also list the last 5 closed turns, newest first; absent means none.'),
       why: z
         .boolean()
         .optional()
@@ -375,6 +392,11 @@ export const OPERATIONS = [
     }),
     output: z.strictObject({
       task: taskViewSchema,
+      turn: taskTurnSchema.nullable().describe("The task's unclosed turn; null when none is open."),
+      turns: z
+        .array(taskTurnSchema)
+        .optional()
+        .describe('Present only with detail: the last 5 closed turns, newest first.'),
       links: z.array(linkViewSchema).describe('Effective pull request, session, and ticket links.'),
       blocks: z.array(blockViewSchema).describe('Blocks on the task, open and unblocked.'),
       comments: z.array(commentSchema).describe('Comments on the task, oldest first.'),
@@ -388,13 +410,21 @@ export const OPERATIONS = [
       {
         summary: 'Show one task',
         input: { task: 'PROJ-123' },
-        output: { task, links: [], blocks: [question], comments: [comment] },
+        output: { task, turn: devTurn, links: [], blocks: [question], comments: [comment] },
       },
       {
         summary: 'Explain why a task waits in Review',
         input: { task: 'PROJ-123', why: true },
         output: {
           task: { ...task, column: 'review' },
+          turn: {
+            id: reviewTurn.id,
+            column: reviewTurn.column,
+            addressee: reviewTurn.addressee,
+            at,
+            taken: { by: 'agent:rev/rev-1', at },
+            closed: null,
+          },
           links: [],
           blocks: [],
           comments: [],
@@ -422,6 +452,18 @@ export const OPERATIONS = [
               },
             ],
           },
+        },
+      },
+      {
+        summary: 'Show a task with its last closed turns',
+        input: { task: 'PROJ-123', detail: true },
+        output: {
+          task,
+          turn: { ...devTurn, id: 'T4', at: later, taken: { by: 'agent:web/web-7', at: later } },
+          turns: [{ ...devTurn, closed: { at: later, outcome: 'submitted' } }],
+          links: [],
+          blocks: [],
+          comments: [],
         },
       },
     ],
