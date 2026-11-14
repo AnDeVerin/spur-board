@@ -80,7 +80,7 @@ function input(changes: Changes = {}): Input {
     spurBlind: false,
     liveWorker: true,
     cycleHeld: false,
-    turn: { visit: 'none', open: false, operatorUntaken: false, ...turn },
+    turn: { visit: 'none', open: false, operatorUntaken: false, headMoved: false, ...turn },
     ...rest,
   };
 }
@@ -159,6 +159,50 @@ const cases: [string, Changes, Result][] = [
   [
     'waits for an open turn',
     { column: 'review', pr: red, turn: { visit: 'unclosed', open: true } },
+    nothing,
+  ],
+  [
+    'a new head lifts the wait for a taken Review turn',
+    {
+      column: 'review',
+      pr: { headSha: B },
+      facts: { marks: [submit('dev'), mark('review')] },
+      turn: { visit: 'unclosed', open: true, headMoved: true },
+    },
+    {
+      moves: [left('review', 'dev', 'no_submit_on_head')],
+      turn: turn('entry', 'dev', 'no_submit_on_head'),
+    },
+  ],
+  [
+    'a new head lifts the wait for a taken Ready to Merge turn',
+    {
+      column: 'ready-to-merge',
+      pr: { headSha: B },
+      facts: { marks: [submit('dev'), mark('review'), mark('product-review')] },
+      turn: { visit: 'unclosed', open: true, headMoved: true },
+    },
+    {
+      moves: [left('ready-to-merge', 'dev', 'no_submit_on_head')],
+      turn: turn('entry', 'dev', 'no_submit_on_head'),
+    },
+  ],
+  [
+    'red CI on a new head lifts the wait for a taken Product Review turn',
+    {
+      column: 'product-review',
+      pr: { headSha: B, ...red },
+      facts: { marks: [submit('dev'), mark('review')] },
+      turn: { visit: 'unclosed', open: true, headMoved: true },
+    },
+    {
+      moves: [left('product-review', 'dev', 'checks_red', 'no_submit_on_head')],
+      turn: turn('entry', 'dev', 'checks_red', 'no_submit_on_head'),
+    },
+  ],
+  [
+    'a taken Dev turn survives a new head',
+    { pr: { headSha: B }, turn: { visit: 'unclosed', open: true, headMoved: true } },
     nothing,
   ],
   [

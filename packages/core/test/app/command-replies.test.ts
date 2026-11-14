@@ -267,6 +267,38 @@ describe('commandReply', () => {
     ]);
   });
 
+  it('names each fact the task waits for after the holds', () => {
+    const operation = OPERATIONS.find((entry) => entry.id === 'task.get');
+    if (!operation) throw new Error('Missing task.get');
+    const explained = operation.examples[1];
+    if (explained === undefined) throw new Error('Missing the why example');
+    const example = operation.output.parse(explained.output);
+    if (example.why === undefined) throw new Error('Missing the why example');
+    const sha = 'c'.repeat(40);
+    const reply = commandReply(
+      'task.get',
+      {
+        ...example,
+        blocks: [],
+        why: {
+          ...example.why,
+          holds: ['github_blind'],
+          waiting: [{ reason: 'checks_pending', head: sha, text: `waiting for CI on ${sha}` }],
+        },
+      },
+      { task: 'PROJ-123', why: true },
+    );
+    const text = (value: string) => ({
+      kind: 'paragraph',
+      children: [{ kind: 'text', text: value }],
+    });
+    expect(reply.body.slice(0, 3)).toEqual([
+      text('Task PROJ-123 is in review.'),
+      text('Held: github_blind.'),
+      text(`Waiting for CI on ${sha}.`),
+    ]);
+  });
+
   it('lists every condition of a failing gate, so a task with no PR shows unchecked Dev checks', () => {
     const operation = OPERATIONS.find((entry) => entry.id === 'task.get');
     if (!operation) throw new Error('Missing task.get');

@@ -20,8 +20,8 @@ reuse it only to retry the same action and input after an uncertain outcome you 
 ## Turns
 
 A turn T<number> hands a column visit to its executor. Ack it first with keyed
-`board inbox ack <entries>`; only the session that acked may submit or return it. An unacked
-turn delays no return, e.g. on a new head, red CI, a draft, a conflict or external comments.
+`board inbox ack <entries>`; only the session that acked may submit or return it. A new head
+closes a turn outside Dev. Unacked turns delay no return: red CI, draft, conflict, comments.
 On `turn_closed`, act only on a turn `board inbox` lists. Shadow mode opens no turn:
 `board submit <task> <sha>`.
 

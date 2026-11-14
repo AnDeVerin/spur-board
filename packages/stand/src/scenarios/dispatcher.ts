@@ -34,7 +34,7 @@ export const flow = (
 });
 
 type Agent = 'worker' | 'orchestrator';
-type Turn = Awaited<ReturnType<typeof inbox>>['turns'][number];
+export type Turn = Awaited<ReturnType<typeof inbox>>['turns'][number];
 
 const inbox = (board: Board, role: Agent) => board.call(role, 'inbox.get', {});
 
@@ -66,7 +66,7 @@ export async function items(board: Board) {
 export const take = (board: Board, role: Agent, turn: string) =>
   board.call(role, 'inbox.ack', { entries: [{ id: turn }] }, randomUUID());
 
-const submit = (board: Board, role: Agent, turn: string, sha: string) =>
+export const submit = (board: Board, role: Agent, turn: string, sha: string) =>
   board.call(role, 'task.submit', { turn, sha }, randomUUID());
 
 export const giveBack = (board: Board, turn: string) =>
@@ -92,7 +92,7 @@ export async function begin(board: Board, fakes: ScenarioFakes): Promise<Turn> {
 }
 
 /** PR #1 at head A, linked by its branch `stand-1`; green unless `green` is false. */
-async function openPr(
+export async function openPr(
   board: Board,
   fakes: ScenarioFakes,
   options: { green?: boolean; seed?: Record<string, unknown> } = {},

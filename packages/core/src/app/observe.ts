@@ -48,6 +48,7 @@ import {
   dispatchMergedTickets,
   dispatchSource,
   pollFeedbackCursors,
+  voidMarksOffHead,
 } from './dispatch.ts';
 import { closeTurns } from './turns.ts';
 
@@ -525,6 +526,14 @@ async function pr(
       }),
     )
     .execute();
+  if (old !== undefined && old.head_sha.toLowerCase() !== fact.headSha.toLowerCase()) {
+    await voidMarksOffHead(trx, {
+      repo: fact.repo,
+      number: fact.number,
+      head: fact.headSha,
+      at,
+    });
+  }
   const project = projectForSource(config, source);
   if (project === undefined) return;
   for (const key of fact.ticketKeys) {

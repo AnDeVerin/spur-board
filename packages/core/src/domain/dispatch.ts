@@ -29,6 +29,8 @@ interface VisitTurn {
   open: boolean;
   /** The unclosed turn is the operator's and nobody took it. */
   operatorUntaken: boolean;
+  /** The unclosed turn was opened on a PR head other than the current one. */
+  headMoved: boolean;
 }
 
 interface DispatchInput {
@@ -79,7 +81,12 @@ interface DispatchResult {
 /** No rule cycles, so a real cascade ends long before this; the bound is a guard. */
 const STEP_BOUND = 2 * COLUMN_IDS.length;
 
-const NO_TURN: VisitTurn = { visit: 'none', open: false, operatorUntaken: false };
+const NO_TURN: VisitTurn = {
+  visit: 'none',
+  open: false,
+  operatorUntaken: false,
+  headMoved: false,
+};
 
 const indexOf = (column: ColumnId) => COLUMN_IDS.indexOf(column);
 
@@ -182,7 +189,9 @@ export function dispatch(input: DispatchInput): DispatchResult {
     }
     const reasons = [...gate.reasons];
     if (gate.column !== column) {
-      if (cycleHeld || turn.open || reasons.every((reason) => HOLD_ONLY.has(reason))) {
+      // A taken turn holds the task, unless a new head closed it: no mark counts on that head.
+      const held = turn.open && !turn.headMoved;
+      if (cycleHeld || held || reasons.every((reason) => HOLD_ONLY.has(reason))) {
         return result(null);
       }
       move(gate.column, 'gate_broken', reasons);
