@@ -846,12 +846,14 @@ async function pollRepository({
   if (ctx.signal.aborted) throw new AdapterError('transient', 'GitHub poll aborted');
   if (requests.firstError !== undefined && requests.succeeded === 0) throw requests.firstError;
   rethrowLoneParseFailure(acc);
-  if (
-    [...fullProbe].some(
-      (number) => !acc.items.some((item) => item.kind === 'pr' && item.facts.number === number),
-    )
-  )
-    acc.complete = false;
+  const fullReadProbes = [...fullProbe].map((number) => ({
+    ref: terminal.get(number)?.ref ?? { kind: 'pr' as const, repo, number },
+    status: acc.items.some((item) => item.kind === 'pr' && item.facts.number === number)
+      ? ('refreshed' as const)
+      : ('no_access' as const),
+  }));
+  if (fullReadProbes.some((probe) => probe.status === 'no_access')) acc.complete = false;
+  const prProbes = [...probes, ...fullReadProbes];
   const nextCursor = bootstrap ? discovery.bootstrapCursor : found.cursor;
   return {
     source: id,
@@ -859,19 +861,7 @@ async function pollRepository({
     complete: acc.complete,
     items: acc.items,
     entities: acc.entities,
-    ...(probes.length === 0 && fullProbe.size === 0
-      ? {}
-      : {
-          prProbes: [
-            ...probes,
-            ...[...fullProbe].map((number) => ({
-              ref: terminal.get(number)?.ref ?? { kind: 'pr' as const, repo, number },
-              status: acc.items.some((item) => item.kind === 'pr' && item.facts.number === number)
-                ? ('refreshed' as const)
-                : ('no_access' as const),
-            })),
-          ],
-        }),
+    ...(prProbes.length === 0 ? {} : { prProbes }),
     ...(discovery.ok && discoveredOk
       ? nextCursor === undefined
         ? {}
