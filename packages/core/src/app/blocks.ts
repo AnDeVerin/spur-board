@@ -112,26 +112,27 @@ export async function subjectTarget(
   block?: Block,
 ): Promise<ResolvedTarget> {
   if (subject === undefined) return { kind: 'missing' };
-  const target = projectTarget(subject.project);
-  if (target.kind !== 'found') return target;
-  const value = {
-    ...target.value,
-    block:
-      block === undefined
-        ? null
-        : { type: block.type, author: block.author, addressee_role: block.addressee_role },
-  };
   const { task } = subject;
-  if (task === null) return { kind: 'found', value };
-  const workers = await trx
-    .selectFrom('link')
-    .select(['session_id', 'role', 'banned'])
-    .where('task_id', '=', task.id)
-    .where('entity', '=', 'session')
-    .execute();
+  const workers =
+    task === null
+      ? []
+      : await trx
+          .selectFrom('link')
+          .select(['session_id', 'role', 'banned'])
+          .where('task_id', '=', task.id)
+          .where('entity', '=', 'session')
+          .execute();
   return {
     kind: 'found',
-    value: { ...value, task: { id: task.id, column: task.column }, workers },
+    value: {
+      project: subject.project,
+      task: task === null ? null : { id: task.id, column: task.column },
+      block:
+        block === undefined
+          ? null
+          : { type: block.type, author: block.author, addressee_role: block.addressee_role },
+      workers,
+    },
   };
 }
 
