@@ -1039,12 +1039,14 @@ describe('stand', () => {
       manifest.home,
     ]);
     expect(usage.code).toBe(2);
-    expect(usage.stderr).toContain('Usage:');
+    expect(usage.stderr).toContain('fake slack click needs a message number and a button');
+    expect(usage.stderr).toContain('pnpm stand help');
 
     // --text belongs to fake slack click only.
     const stray = await standCli(['reset', '--text', 'x', '--home', manifest.home]);
     expect(stray.code, stray.stdout).toBe(2);
-    expect(stray.stderr).toContain('Usage:');
+    expect(stray.stderr).toContain("Unknown option '--text'");
+    expect(stray.stderr).toContain('pnpm stand help');
   }, 60_000);
 
   it('approves a token and closes an item by click', async () => {

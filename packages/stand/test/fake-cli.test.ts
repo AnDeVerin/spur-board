@@ -121,7 +121,7 @@ describe('stand clock', () => {
     const dir = await stubStand({ status: 200, body: { total: 0, items: [] } });
     const result = await runCli(['clock', ...shift, '--home', dir]);
     expect(result.code).toBe(2);
-    // The first line is the reason; the usage text follows it.
+    // The first line is the reason; a pointer to the help follows it.
     expect(result.stderr.split('\n')[0]).toMatch(/clock/);
     expect(clock).not.toHaveBeenCalled();
   });
@@ -131,5 +131,40 @@ describe('stand clock', () => {
     const result = await runCli(['clock', '-5m', '--home', dir]);
     expect(result.code).toBe(2);
     expect(result.stderr).toContain('only moves forward');
+  });
+});
+
+describe('stand usage errors', () => {
+  it('prints the reason and a pointer to the help, not the help, on a refused board command', async () => {
+    const dir = await stubStand({ status: 200, body: { total: 0, items: [] } });
+    const result = await runCli(['board', '--home', dir, 'service', 'status']);
+    expect(result.code).toBe(2);
+    const lines = result.stderr.trimEnd().split('\n');
+    expect(lines.length, result.stderr).toBeLessThanOrEqual(2);
+    expect(lines[0]).toMatch(/service/);
+    expect(lines.slice(1).join('\n')).toContain('pnpm stand help');
+    expect(result.stderr).not.toContain('Usage:');
+  });
+
+  it('prints the reason and a pointer to the help on a parse error', async () => {
+    const result = await runCli(['status', '--no-such-flag']);
+    expect(result.code).toBe(2);
+    const lines = result.stderr.trimEnd().split('\n');
+    expect(lines, result.stderr).toHaveLength(2);
+    expect(lines[0]).toContain('--no-such-flag');
+    expect(lines[1]).toContain('pnpm stand help');
+  });
+
+  it('prints the full help to stderr and exits 2 with no command', async () => {
+    const result = await runCli([]);
+    expect(result.code).toBe(2);
+    expect(result.stderr.replace(/\s+/g, ' ')).toContain('Usage: pnpm stand <command>');
+    expect(result.stderr).toContain('Exit codes: 0 ok, 1 failure, 2 usage, 3 refused.');
+  });
+
+  it('prints the full help to stdout and exits 0 on help', async () => {
+    const result = await runCli(['help']);
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain('Usage: pnpm stand <command>');
   });
 });

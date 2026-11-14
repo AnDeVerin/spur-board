@@ -853,7 +853,7 @@ if (import.meta.main) {
         'code' in error &&
         String(error.code).startsWith('ERR_PARSE_ARGS'))
     ) {
-      err(`${error.message}\n\n${USAGE}`);
+      err(`${error.message}\nRun pnpm stand help for the commands.\n`);
       exitAfterFlush(2);
       return;
     }
