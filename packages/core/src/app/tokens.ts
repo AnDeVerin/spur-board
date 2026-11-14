@@ -393,7 +393,7 @@ export async function postTokenList(trx: Trx, input: { key: string; at: Date }):
   }
   const shown = rows.slice(0, lines.length);
   const hidden = rows.length - shown.length;
-  if (hidden > 0) lines.push(`${String(hidden)} more: \`board token list\``);
+  if (hidden > 0) lines.push(`${String(hidden)} more: board token list`);
   await enqueueBoardFeedLine(trx, {
     dedupeKey: `feed.line:token-list:${input.key}`,
     itemKey: `token-list:${input.key}`,
