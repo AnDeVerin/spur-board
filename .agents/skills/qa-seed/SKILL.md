@@ -18,6 +18,9 @@ verbs and scenario names; this card keeps the rules and traps.
 - Quote task keys in the shell: `'stand-org/board#1'`; an unquoted `#` starts a comment.
 - The `dispatch-*` scenarios run project `stand` in `dispatcher.mode: on` with To Do, Dev, Review
   (`--as orchestrator`), Ready to Merge (the operator) and Done.
+- The curator scenarios (`question-to-curator`, `curator-escalation`, `curator-absent`) add
+  `stand-curator` as the stand project's curator; their seeds set the worker and curator sessions
+  `--state waiting` so rings go out.
 - `dispatch-dead-executor` kills the worker role session and keeps its link. To hand the task to
   a new worker, create it with `fake spur session` and `poll`, then `link.remove` the dead
   session and `link.add` the new one; without the removal the new one links as `other` and gets

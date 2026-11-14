@@ -58,6 +58,7 @@ FINDING: <non-obvious fact> - <file:line or command>
 - Reach a stand only through `pnpm stand board` or `pnpm stand mcp`. Bare `board` reaches the
   live board: use it only for the outcome on the live task in a board QA round. In a manager run
   post nothing to the live board.
+- Stand roles for `--as` are operator, worker, orchestrator and curator (`qa-stand`).
 - Never act on the machine's real systemd user manager (`AGENTS.md`, Workflow); leave such a
   scenario out and name it under `Errors` as an operator step.
 - `FINDING:` lines are for facts worth keeping beyond this task; none -> no line.

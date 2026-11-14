@@ -71,7 +71,7 @@ function stand(
     controlUrl: 'http://127.0.0.1:2',
     controlToken: 'control',
     tokenPath: join(dir, 'token'),
-    roles: { worker: 'w', orchestrator: 'o' },
+    roles: { worker: 'w', orchestrator: 'o', curator: 'c' },
   });
   writeManifest(dir, manifest);
   return manifest;
