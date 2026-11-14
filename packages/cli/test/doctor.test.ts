@@ -39,6 +39,7 @@ const remoteIds = [
   'operator.path',
   'operator.tokens',
   'curator.sessions',
+  'orchestrator.sessions',
 ];
 const stamp = JSON.stringify({ version: '1.2.3', installedAt: '2026-11-04T09:00:00.000Z' });
 const spurYaml =
@@ -243,41 +244,46 @@ describe('board doctor', () => {
     expect(urls.filter((url) => url.includes('/v1/doctor'))).toEqual([]);
     expect(result.checks.find((check) => check.id === 'daemon.available')?.status).toBe('fail');
   });
-  it('shows the curator sessions text from the daemon in JSON and human output', async () => {
-    const fix =
-      'beta: curator cur-b, no live session. alpha: curator cur-a, session cur-a-7. Start a Spur session of each curator with no live session.';
-    const curator: DoctorCheck = {
-      id: 'curator.sessions',
-      status: 'warning',
-      blocking: false,
-      fix,
-    };
-    const fake = ports({
-      fetcher: (input) =>
-        Promise.resolve(
-          isSpurProjects(input)
-            ? Response.json([{ id: 'worker', path: '/main' }])
-            : Response.json({
-                version: '1.2.3',
-                checks: remoteIds.map((id): DoctorCheck =>
-                  id === curator.id ? curator : { id, status: 'pass', blocking: false, fix: null },
-                ),
-              }),
-        ),
-    });
-    const value = await run(['doctor', '--json'], fake);
-    expect(value.exitCode).toBe(0);
-    expect(value.checks.find((check) => check.id === 'curator.sessions')).toEqual(curator);
-    const human = capture();
-    const humanExit = await runCli(['doctor'], {
-      io: human.io,
-      env: { BOARD_HOME: '/board', BOARD_DAEMON_URL: 'http://127.0.0.1:4311' },
-      home: '/home',
-      doctor: fake,
-    });
-    expect(humanExit).toBe(0);
-    expect(human.output()).toContain(`WARNING curator.sessions: ${fix}`);
-  });
+  it.each(['curator', 'orchestrator'])(
+    'shows %s session diagnostics in JSON and human output',
+    async (role) => {
+      const fix =
+        'beta: curator cur-b, no live session. alpha: curator cur-a, session cur-a-7. Start a Spur session of each curator with no live session.';
+      const curator: DoctorCheck = {
+        id: `${role}.sessions`,
+        status: 'warning',
+        blocking: false,
+        fix,
+      };
+      const fake = ports({
+        fetcher: (input) =>
+          Promise.resolve(
+            isSpurProjects(input)
+              ? Response.json([{ id: 'worker', path: '/main' }])
+              : Response.json({
+                  version: '1.2.3',
+                  checks: remoteIds.map((id): DoctorCheck =>
+                    id === curator.id
+                      ? curator
+                      : { id, status: 'pass', blocking: false, fix: null },
+                  ),
+                }),
+          ),
+      });
+      const value = await run(['doctor', '--json'], fake);
+      expect(value.exitCode).toBe(0);
+      expect(value.checks.find((check) => check.id === `${role}.sessions`)).toEqual(curator);
+      const human = capture();
+      const humanExit = await runCli(['doctor'], {
+        io: human.io,
+        env: { BOARD_HOME: '/board', BOARD_DAEMON_URL: 'http://127.0.0.1:4311' },
+        home: '/home',
+        doctor: fake,
+      });
+      expect(humanExit).toBe(0);
+      expect(human.output()).toContain(`WARNING ${role}.sessions: ${fix}`);
+    },
+  );
 
   it('returns every local and daemon check in JSON', async () => {
     const value = await run(['doctor', '--json'], ports());

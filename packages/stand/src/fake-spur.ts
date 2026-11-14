@@ -28,6 +28,7 @@ const sessionArgs = z.strictObject({
   status: text.optional(),
   project: text.optional(),
   branch: text.optional(),
+  links: z.array(z.strictObject({ label: text, url: z.url() })).optional(),
   retain: z.literal(true).optional(),
   /** Why Spur stopped the session, as a live Spur reports it (`stale_timeout`). */
   stopReason: text.optional(),
@@ -63,6 +64,7 @@ interface FakeSession {
   id: string;
   project: string;
   branch: string | null;
+  slots?: { links: { label: string; url: string }[] };
   status: string;
   state: string;
   lastActivityAt: string | null;
@@ -172,6 +174,9 @@ export function createFakeSpur(options: {
       id: args.id,
       project: args.project ?? previous?.project ?? 'stand-worker',
       branch: args.branch ?? previous?.branch ?? null,
+      ...(args.links === undefined && previous?.slots?.links === undefined
+        ? {}
+        : { slots: { links: args.links ?? previous?.slots?.links ?? [] } }),
       status: args.status ?? previous?.status ?? 'running',
       state: args.state ?? previous?.state ?? 'working',
       lastActivityAt: iso(),

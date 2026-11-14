@@ -259,6 +259,7 @@ describe('scenarios', () => {
       'dispatch-close-after-merge',
       'pr-finality',
       'dispatch-review-loop',
+      'dispatch-orchestrator-role',
       'dispatch-ci-red-after-submit',
       'dispatch-conflict-in-review',
       'dispatch-conflict-in-ready-to-merge',
@@ -1233,6 +1234,33 @@ describe('dispatcher scenarios', () => {
         addressee: 'orchestrator:review',
         closed: null,
       });
+    },
+    TIMEOUT,
+  );
+
+  it(
+    'dispatch-orchestrator-role: shares the PR and branch, receives Review, acks and submits without a worker link',
+    async () => {
+      await up();
+      await seed('dispatch-orchestrator-role');
+      const review = await mustTurn(as('orchestrator'));
+      expect(review.column).toBe('review');
+      expect(
+        await withStore((store) =>
+          store.db
+            .selectFrom('link')
+            .selectAll()
+            .where('session_id', '=', as('orchestrator'))
+            .where('role', '=', 'worker')
+            .execute(),
+        ),
+      ).toEqual([]);
+      await ack(as('orchestrator'), review.id);
+      expect((await mustTurn(as('orchestrator'))).taken).toMatchObject({
+        by: `agent:stand-qa/${as('orchestrator')}`,
+      });
+      expect((await submit(as('orchestrator'), review.id, A)).task.column).toBe('ready-to-merge');
+      expect(await ok(current(), '/violations')).toMatchObject({ total: 0 });
     },
     TIMEOUT,
   );

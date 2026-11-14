@@ -191,9 +191,9 @@ const spurProject = z.strictObject({
     'The name of the project in Spur. A Spur project can be listed under only one board project.',
   ),
   role: z
-    .enum(['worker', 'operator', 'curator'])
+    .enum(['worker', 'operator', 'curator', 'orchestrator'])
     .describe(
-      "worker: sessions of this Spur project may link to this project's tasks through their PR or branch. operator: sessions act as the operator. curator: sessions answer the questions no column orchestrator takes and escalate the rest to the operator; a board project has at most one.",
+      "worker: sessions of this Spur project may link to this project's tasks through their PR or branch. operator: sessions act as the operator. orchestrator: sessions execute named columns and never become task workers. curator: sessions answer the questions no column orchestrator takes and escalate the rest to the operator; a board project has at most one.",
     ),
   displayName: nonEmpty
     .max(80)
@@ -231,7 +231,7 @@ const columnConfig = z.strictObject({
   orchestrator: nonEmpty
     .default('none')
     .describe(
-      "Who takes the column's turns. none: the task's live worker session, else the operator. operator: the operator, who also gets the questions asked in the column. Otherwise the name of a spurProjects entry whose sessions orchestrate the column and get the questions others ask in it.",
+      "Who takes the column's turns. none: the task's live worker session, else the operator. operator: the operator, who also gets the questions asked in the column. Otherwise the name of a spurProjects entry with role orchestrator or curator whose sessions orchestrate the column and get the questions others ask in it.",
     ),
   cycleLimit: z
     .int()
@@ -426,7 +426,11 @@ const projectSchema = z
         message: `Repository ${JSON.stringify(repo)} is not in repos`,
       });
     });
-    const spurNames = new Set(project.spurProjects.map((p) => p.name));
+    const spurNames = new Set(
+      project.spurProjects
+        .filter((p) => p.role === 'orchestrator' || p.role === 'curator')
+        .map((p) => p.name),
+    );
     project.columns.forEach(({ orchestrator }, j) => {
       if (orchestrator === 'none' || orchestrator === 'operator' || spurNames.has(orchestrator)) {
         return;
@@ -434,7 +438,7 @@ const projectSchema = z
       ctx.addIssue({
         code: 'custom',
         path: ['columns', j, 'orchestrator'],
-        message: `Unknown orchestrator ${JSON.stringify(orchestrator)}: use none, operator or a spurProjects name`,
+        message: `Unknown orchestrator ${JSON.stringify(orchestrator)}: use none, operator or a spurProjects name with role orchestrator or curator`,
       });
     });
     const curator = project.spurProjects.find((p) => p.role === 'curator')?.name;
@@ -447,7 +451,7 @@ const projectSchema = z
     );
     project.columns.forEach(({ courseCheckTo }, j) => {
       if (courseCheckTo === undefined || courseCheckTo === 'operator') return;
-      const known = spurNames.has(courseCheckTo);
+      const known = project.spurProjects.some((spur) => spur.name === courseCheckTo);
       if (known && (courseCheckTo === curator || orchestrators.has(courseCheckTo))) return;
       const name = JSON.stringify(courseCheckTo);
       ctx.addIssue({

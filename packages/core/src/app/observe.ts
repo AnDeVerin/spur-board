@@ -50,7 +50,7 @@ import {
   pollFeedbackCursors,
   voidMarksOffHead,
 } from './dispatch.ts';
-import { closeTurns } from './turns.ts';
+import { closeTurns, rerouteDemotedWorkerTurn } from './turns.ts';
 
 function refKey(ref: EntityRef): string {
   switch (ref.kind) {
@@ -787,6 +787,51 @@ async function session(
       }),
     )
     .execute();
+  const orchestrator = config.projects.some((project) =>
+    project.spurProjects.some(
+      (spur) => spur.name === fact.spurProject && spur.role === 'orchestrator',
+    ),
+  );
+  // Accepted identity also corrects links created before a project changed role, including bans.
+  if (orchestrator) {
+    const demoted = await trx
+      .updateTable('link')
+      .set({ role: 'other' })
+      .where('entity', '=', 'session')
+      .where('session_id', '=', fact.id)
+      .where('role', '=', 'worker')
+      .returning(['task_id', 'source'])
+      .execute();
+    const linked = await trx
+      .selectFrom('link')
+      .select(['task_id', 'source'])
+      .where('entity', '=', 'session')
+      .where('session_id', '=', fact.id)
+      .where('role', '=', 'other')
+      .execute();
+    for (const link of linked) {
+      const rerouted = await rerouteDemotedWorkerTurn(trx, {
+        taskId: link.task_id,
+        sessionId: fact.id,
+        at: new Date(at),
+        config,
+      });
+      if (!rerouted && !demoted.some((entry) => entry.task_id === link.task_id)) continue;
+      const task = await trx
+        .selectFrom('task')
+        .select('project')
+        .where('id', '=', link.task_id)
+        .executeTakeFirstOrThrow();
+      await emit(trx, 'link_added', task.project, link.task_id, at, {
+        entity: 'session',
+        session: fact.id,
+        role: 'other',
+        source: link.source,
+        facts: fact,
+        reason: 'Configured orchestrator sessions cannot be task workers.',
+      });
+    }
+  }
   // Explicit ticket links are read before branch inference and keep their first role.
   let key: string | undefined;
   let role: 'worker' | 'other' | undefined;
@@ -800,7 +845,7 @@ async function session(
         : url.includes('/issues/')
           ? `${new URL(url).pathname.split('/').slice(1, 3).join('/')}#${candidate}`
           : candidate;
-    role = label === 'board-worker' ? 'worker' : 'other';
+    role = label === 'board-worker' && !orchestrator ? 'worker' : 'other';
     if (key !== undefined) break;
   }
   // A pr field names the worker only from the PR's head branch; otherwise the branch rules run
@@ -1166,9 +1211,11 @@ export function createObservationCore(deps: {
               link.session_id === null ? [] : [{ kind: 'session' as const, id: link.session_id }],
             )
           : [];
-      // A curator session has no link, yet a ring needs to know at once when it is gone.
+      // A curator or orchestrator session may have no link, yet a ring needs to know at once when it is gone.
       const curators = config.projects.flatMap((project) =>
-        project.spurProjects.filter((spur) => spur.role === 'curator').map((spur) => spur.name),
+        project.spurProjects
+          .filter((spur) => spur.role === 'curator' || spur.role === 'orchestrator')
+          .map((spur) => spur.name),
       );
       if (source === 'spur' && curators.length > 0) {
         const rows = await store.db

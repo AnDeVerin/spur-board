@@ -50,7 +50,11 @@ function doctorContext(
     // Board projects and their Spur projects in place of the single `board` project.
     projects?: readonly {
       id: string;
-      spurProjects: readonly { name: string; role: 'worker' | 'operator' | 'curator' }[];
+      columns?: { id: string; orchestrator: string }[];
+      spurProjects: readonly {
+        name: string;
+        role: 'worker' | 'operator' | 'curator' | 'orchestrator';
+      }[];
     }[];
   } = {},
 ) {
@@ -63,7 +67,7 @@ function doctorContext(
     },
   ];
   const config = configSchema.parse({
-    projects: projects.map(({ id, spurProjects }) => ({
+    projects: projects.map(({ id, spurProjects, columns }) => ({
       id,
       tracker: options.issues
         ? { type: 'github-issues', repo: 'example/board', label: 'board' }
@@ -78,6 +82,7 @@ function doctorContext(
       repos: options.repos ?? ['example/board'],
       operatorGithubLogin: 'operator',
       spurProjects,
+      columns,
     })),
     operator: { slack: 'U0000000000' },
     ...(options.slack === false
@@ -522,6 +527,7 @@ describe('daemon doctor checks', () => {
       'operator.path',
       'operator.tokens',
       'curator.sessions',
+      'orchestrator.sessions',
     ]);
     expect(report.checks.find((check) => check.id === 'slack.configured')).toEqual({
       id: 'slack.configured',
@@ -591,6 +597,7 @@ describe('daemon doctor checks', () => {
       'operator.path',
       'operator.tokens',
       'curator.sessions',
+      'orchestrator.sessions',
     ]);
     expect(report.checks.find((check) => check.id === 'link.rules')).toEqual({
       id: 'link.rules',
@@ -604,7 +611,9 @@ describe('daemon doctor checks', () => {
         // curator.sessions passes with text naming each project's curator.
         .every(
           (check) =>
-            check.status === 'pass' && (check.id === 'curator.sessions' || check.fix === null),
+            check.status === 'pass' &&
+            (['curator.sessions', 'orchestrator.sessions'].includes(check.id) ||
+              check.fix === null),
         ),
     ).toBe(true);
     expect(JSON.stringify(report)).not.toMatch(/secret-canary/);
@@ -910,6 +919,58 @@ async function seedSession(
     })
     .execute();
 }
+
+describe('daemon doctor orchestrator sessions', () => {
+  it('warns without blocking for missing sessions and unused orchestrators within report bounds', async () => {
+    const ctx = doctorContext({
+      operator: true,
+      projects: [
+        {
+          id: 'alpha',
+          spurProjects: [
+            { name: 'reviewer', role: 'orchestrator' },
+            { name: 'unused', role: 'orchestrator' },
+          ],
+          columns: [
+            { id: 'todo', orchestrator: 'none' },
+            { id: 'dev', orchestrator: 'none' },
+            { id: 'review', orchestrator: 'reviewer' },
+            { id: 'done', orchestrator: 'none' },
+          ],
+        },
+      ],
+    });
+    await seedSession(ctx, 'review-1', 'reviewer');
+    const report = await runDaemonDoctor(ctx, '1.2.3', doctorFetch());
+    const entry = report.checks.find((check) => check.id === 'orchestrator.sessions');
+    expect(entry).toMatchObject({ status: 'warning', blocking: false });
+    expect(entry?.fix).toContain('unused');
+    expect(entry?.fix).toContain('no live session');
+    expect(entry?.fix).toContain('review-1');
+    expect(entry?.fix?.length).toBeLessThanOrEqual(300);
+    expect(report.checks.length).toBeLessThanOrEqual(30);
+  });
+});
+
+describe('bounded orchestrator diagnostics', () => {
+  it('shortens many long orchestrator names without blocking', async () => {
+    const ctx = doctorContext({
+      operator: true,
+      projects: Array.from({ length: 15 }, (_, index) => ({
+        id: `project-${String(index)}`,
+        spurProjects: [
+          { name: `executor-${String(index)}-${'x'.repeat(200)}`, role: 'orchestrator' as const },
+        ],
+      })),
+    });
+    const report = await runDaemonDoctor(ctx, '1.2.3', doctorFetch());
+    const entry = report.checks.find((check) => check.id === 'orchestrator.sessions');
+    expect(entry).toMatchObject({ status: 'warning', blocking: false });
+    expect(entry?.fix?.length).toBeLessThanOrEqual(300);
+    expect(entry?.fix).toContain('15');
+    expect(report.checks.length).toBeLessThanOrEqual(30);
+  });
+});
 
 describe('daemon doctor curator sessions', () => {
   const curators = (...ids: string[]) =>

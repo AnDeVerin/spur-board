@@ -157,6 +157,141 @@ afterEach(async () => {
 });
 
 describe('manual task links', () => {
+  it.each([false, true])(
+    'demotes an unknown manual worker when orchestrator facts arrive, banned=%s',
+    async (banned) => {
+      const config = configSchema.parse({
+        ...defaultConfig,
+        projects: defaultConfig.projects.map((project) => ({
+          ...project,
+          spurProjects: [...project.spurProjects, { name: 'conductor', role: 'orchestrator' }],
+        })),
+      });
+      const { store, call, observe } = await setup(config);
+      const input = { mode: 'session', task, session: 'conductor-1', reason: 'Assigned work' };
+      await call('link.add', input);
+      const before = await store.db
+        .selectFrom('link')
+        .selectAll()
+        .where('session_id', '=', 'conductor-1')
+        .executeTakeFirstOrThrow();
+      expect(before.role).toBe('worker');
+      if (banned) await call('link.remove', input);
+      await observe('spur', {
+        kind: 'session',
+        facts: { ...sessionFact('conductor-1'), spurProject: 'conductor' },
+      });
+      expect(
+        await store.db
+          .selectFrom('link')
+          .selectAll()
+          .where('id', '=', before.id)
+          .executeTakeFirst(),
+      ).toEqual({
+        ...before,
+        role: 'other',
+        banned: banned ? 1 : 0,
+      });
+      await call('link.add', input);
+      expect(
+        await store.db
+          .selectFrom('link')
+          .select(['id', 'role', 'banned'])
+          .where('session_id', '=', 'conductor-1')
+          .executeTakeFirst(),
+      ).toEqual({ id: before.id, role: 'other', banned: 0 });
+    },
+  );
+
+  it('uses other for known orchestrator explicit labels and manual insertion even with no worker', async () => {
+    const config = configSchema.parse({
+      ...defaultConfig,
+      projects: defaultConfig.projects.map((project) => ({
+        ...project,
+        spurProjects: [...project.spurProjects, { name: 'conductor', role: 'orchestrator' }],
+      })),
+    });
+    const { store, call, observe } = await setup(config);
+    for (const [id, links] of [
+      ['explicit', sessionFact('x').links],
+      ['manual', {}],
+    ] as const)
+      await observe('spur', {
+        kind: 'session',
+        facts: { ...sessionFact(id), spurProject: 'conductor', links },
+      });
+    await call('link.add', { mode: 'session', task, session: 'manual', reason: 'Assign' });
+    expect(
+      await store.db
+        .selectFrom('link')
+        .select(['session_id', 'role'])
+        .where('entity', '=', 'session')
+        .orderBy('id')
+        .execute(),
+    ).toEqual([
+      { session_id: 'explicit', role: 'other' },
+      { session_id: 'manual', role: 'other' },
+    ]);
+  });
+
+  it.each(['observation', 'manual'] as const)(
+    'demotes existing worker links after a role change through %s even when facts do not change',
+    async (mode) => {
+      const { store, observe, call } = await setup();
+      const facts = sessionFact('worker-1');
+      await observe('spur', { kind: 'session', facts });
+      await call('link.add', { mode: 'session', task, session: facts.id, reason: 'Assign' });
+      const before = await store.db
+        .selectFrom('link')
+        .selectAll()
+        .where('session_id', '=', facts.id)
+        .executeTakeFirstOrThrow();
+      const updated = configSchema.parse({
+        ...defaultConfig,
+        projects: defaultConfig.projects.map((project) => ({
+          ...project,
+          spurProjects: project.spurProjects.map((spur) =>
+            spur.name === 'worker' ? { ...spur, role: 'orchestrator' } : spur,
+          ),
+        })),
+      });
+      if (mode === 'manual') {
+        const registry = createOperationRegistry({
+          config: updated,
+          clock,
+          completeSince: new Map(),
+        });
+        await dispatchOperation(
+          { store, config: updated, clock, registry },
+          'link.add',
+          { mode: 'session', task, session: facts.id, reason: 'Confirm' },
+          'operator',
+        );
+      } else {
+        const core = createObservationCore({ store, config: updated, clock });
+        await core.observe('spur', {
+          batch: {
+            source: 'spur',
+            observedAt: at,
+            complete: true,
+            items: [{ kind: 'session', facts }],
+            entities: [],
+          },
+          effectiveComplete: true,
+          state: { lastCompleteAt: at, gone: [] },
+          outcomes: [],
+        });
+      }
+      expect(
+        await store.db
+          .selectFrom('link')
+          .selectAll()
+          .where('id', '=', before.id)
+          .executeTakeFirst(),
+      ).toEqual({ ...before, role: 'other' });
+    },
+  );
+
   it('keeps a manual PR and session through matching observations', async () => {
     const { store, call, observe } = await setup();
     await call(

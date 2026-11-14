@@ -37,7 +37,7 @@ const config = configSchema.parse({
       operatorGithubLogin: 'operator',
       spurProjects: [
         { name: 'web', role: 'worker' },
-        { name: 'qa', role: 'worker' },
+        { name: 'qa', role: 'orchestrator' },
         { name: 'ops', role: 'operator' },
       ],
       columns: [
