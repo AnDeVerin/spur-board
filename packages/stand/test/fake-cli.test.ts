@@ -168,3 +168,27 @@ describe('stand usage errors', () => {
     expect(result.stdout).toContain('Usage: pnpm stand <command>');
   });
 });
+
+describe('stand mcp help', () => {
+  it.each(['--help', '-h'])(
+    'prints the mcp usage and exits 0 on %s without a stand',
+    async (flag) => {
+      // An empty home: no manifest, so help must not look one up.
+      home = mkdtempSync(join(realpathSync(tmpdir()), STAND_PREFIX));
+      const result = await runCli(['mcp', '--home', home, flag]);
+      expect(result.code, result.stderr).toBe(0);
+      expect(result.stdout).toContain('Usage: pnpm stand mcp [--as');
+      expect(result.stdout).toContain('stdio');
+      expect(result.stdout).toContain('--as operator|worker|orchestrator');
+      expect(result.stdout).toContain('default operator');
+      expect(result.stdout).not.toContain('Usage: pnpm stand <command>');
+    },
+  );
+
+  it('still refuses any other argument', async () => {
+    const dir = await stubStand({ status: 200, body: { total: 0, items: [] } });
+    const result = await runCli(['mcp', '--home', dir, 'tools']);
+    expect(result.code).toBe(2);
+    expect(result.stderr.split('\n')[0]).toBe('mcp takes no arguments');
+  });
+});

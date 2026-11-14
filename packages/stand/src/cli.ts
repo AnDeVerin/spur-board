@@ -122,6 +122,12 @@ Every command but up takes --home <dir> to pick one of several stands.
 Exit codes: 0 ok, 1 failure, 2 usage, 3 refused.
 `;
 
+const MCP_USAGE = `Usage: pnpm stand mcp [--as ${ROLES.join('|')}] [--home <dir>]
+
+Serve the board MCP server over stdio against the stand, as the given role
+(default operator). Takes no other arguments.
+`;
+
 class UsageError extends Error {}
 
 const SHIFT_UNIT_MS = { s: 1_000, m: 60_000, h: 3_600_000, d: 86_400_000 } as const;
@@ -703,6 +709,14 @@ async function main(argv: string[]): Promise<number> {
   }
   if (command === 'board' || command === 'mcp') {
     const parsed = leading(args);
+    if (
+      command === 'mcp' &&
+      parsed.rest.length === 1 &&
+      ['--help', '-h'].includes(parsed.rest[0] ?? '')
+    ) {
+      out(MCP_USAGE);
+      return 0;
+    }
     const manifest = target(parsed.home);
     const as = role(parsed.as);
     if (command === 'mcp') {
