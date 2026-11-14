@@ -516,6 +516,7 @@ function failureBody(args: readonly string[]): Record<string, unknown> {
     case 'clear':
       arity(0);
       return { mode };
+    case undefined:
     default:
       throw new UsageError(
         'fail needs delay <ms>, refuse, hang, auth, rate-limit <seconds>, server-error [status] or clear',

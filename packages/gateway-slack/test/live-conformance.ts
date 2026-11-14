@@ -376,6 +376,11 @@ async function guidedCase(ctx: RunContext, id: LiveCaseId): Promise<string> {
     case 'guided-mention':
       instruction = `On the run root message, select Reply in thread. In the thread composer, type @ and select the app from autocomplete, include ${token}, then press Enter.`;
       break;
+    case 'delivery':
+    case 'multipart':
+    case 'maybe-sent':
+    case 'recovery':
+    case 'bot-posts':
     default:
       throw new CaseError('unknown guided case');
   }
@@ -455,6 +460,11 @@ async function execute(ctx: RunContext, id: LiveCaseId): Promise<string> {
       return recoveryCase(ctx);
     case 'bot-posts':
       return botPostsCase(ctx);
+    case 'guided-reply':
+    case 'guided-edit':
+    case 'guided-button':
+    case 'guided-slash':
+    case 'guided-mention':
     default:
       return guidedCase(ctx, id);
   }

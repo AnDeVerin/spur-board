@@ -9,6 +9,7 @@ import {
   messageBlocks,
   originMarkerId,
   renderText,
+  splitContext,
   splitText,
 } from './render.ts';
 
@@ -55,14 +56,21 @@ export function createDeliveryGateway(
     text: string,
     marker: string,
     request: DeliverRequest,
-    includeActions: boolean,
+    first: boolean,
+    context: readonly string[],
     originKey?: string,
   ): Promise<string> {
     const response = await client.chat.postMessage({
       channel,
       ...(threadTs === undefined ? {} : { thread_ts: threadTs }),
       text,
-      blocks: messageBlocks(text, marker, includeActions ? request.actions : undefined, originKey),
+      blocks: messageBlocks(
+        text,
+        marker,
+        first ? request.actions : undefined,
+        originKey,
+        first ? context : [],
+      ),
       username: request.persona.name,
       icon_emoji: iconFor(request.persona),
     });
@@ -79,7 +87,8 @@ export function createDeliveryGateway(
   }
 
   async function deliver(request: DeliverRequest): Promise<DeliveryResult> {
-    const text = renderText(request.body);
+    const { body, context } = splitContext(request.body);
+    const text = renderText(body);
     const parts = splitText(text);
     if (parts === null) return failedMessage('part_too_long');
     if (parts.length === 0) return failedMessage('no_text');
@@ -119,7 +128,7 @@ export function createDeliveryGateway(
             channel: addressed.channel,
             ts: addressed.ts,
             text: parts[0] ?? '',
-            blocks: messageBlocks(parts[0] ?? '', marker, request.actions),
+            blocks: messageBlocks(parts[0] ?? '', marker, request.actions, undefined, context),
           });
           confirmed = true;
         }
@@ -181,6 +190,7 @@ export function createDeliveryGateway(
             marker,
             request,
             i === 0,
+            context,
             target.kind === 'open' && i === 0 && parts.length > 1 ? request.key : undefined,
           ));
         confirmed = true;

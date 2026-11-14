@@ -16,6 +16,8 @@ export type PersonaRole = (typeof PERSONA_ROLES)[number];
 export interface Persona {
   name: string;
   role: PersonaRole;
+  /** An icon shown instead of the role's icon. */
+  icon?: string | undefined;
 }
 
 /** A button-like choice attached to a delivered message; a press arrives as an `action` event. */
@@ -31,6 +33,7 @@ export type RichTextInline =
   | { kind: 'emphasis'; text: string }
   | { kind: 'code'; text: string }
   | { kind: 'strike'; text: string }
+  | { kind: 'italic'; text: string }
   | { kind: 'link'; url: string; text: string }
   /** Core fills `user`, e.g. with the operator's id. */
   | { kind: 'mention'; user: UserId };
@@ -38,6 +41,8 @@ export type RichTextInline =
 export type RichTextBlock =
   | { kind: 'paragraph'; children: readonly RichTextInline[] }
   | { kind: 'quote'; children: readonly RichTextInline[] }
+  /** Muted secondary details; a paragraph where the platform has no such element. */
+  | { kind: 'context'; children: readonly RichTextInline[] }
   | { kind: 'code_block'; text: string };
 
 /** Neutral rich text; each gateway renders it to its platform's format. */

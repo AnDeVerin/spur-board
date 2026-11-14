@@ -25,7 +25,7 @@ import {
   advanceConversationCursor,
   conversationsForRecovery,
   resolveBlockConversation,
-} from '../domain/conversations.ts';
+} from './conversations.ts';
 import { BLOCK_ITEM_KINDS } from '../domain/fromYou.ts';
 import { toJson } from '../store/json.ts';
 import type { Row, Tables } from '../store/schema.ts';

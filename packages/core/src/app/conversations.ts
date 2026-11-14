@@ -5,11 +5,67 @@ import {
   type MessageRef,
 } from '@spur-board/contracts';
 import type { Kysely } from 'kysely';
-import { outboxBodySchema } from '../app/outbox.ts';
+import { outboxBodySchema } from './outbox.ts';
 import type { Row, Tables } from '../store/schema.ts';
 
 type Trx = Kysely<Tables>;
 type Conversation = Row<'conversation'>;
+
+/**
+ * The only writer of conversation rows. A block thread takes its task, state and start from the
+ * block row, never from an outbox payload: a key merge moves the block but leaves delivered rows.
+ * Returns undefined when the block is missing or `(gateway, ref)` is already registered.
+ */
+export async function insertConversation(
+  trx: Trx,
+  input: { gateway: string; ref: ConversationRef; rootMessage: MessageRef; at: string } & (
+    { blockId: number } | { taskId: number | null }
+  ),
+): Promise<Conversation | undefined> {
+  const common = {
+    gateway: input.gateway,
+    ref: conversationRefSchema.parse(input.ref),
+    root_message_ref: messageRefSchema.parse(input.rootMessage),
+    after_message_ref: null,
+  };
+  let values;
+  if ('blockId' in input) {
+    const block = await trx
+      .selectFrom('block')
+      .select(['id', 'task_id', 'state', 'unblocked_at', 'created_at'])
+      .where('id', '=', input.blockId)
+      .executeTakeFirst();
+    if (block === undefined) return undefined;
+    values = {
+      ...common,
+      space: 'orchestrators' as const,
+      task_id: block.task_id,
+      block_id: block.id,
+      purpose: 'block' as const,
+      state: block.state === 'open' ? ('open' as const) : ('closed' as const),
+      // Recovery must include replies sent before this thread was first observed.
+      created_at: block.created_at,
+      closed_at: block.state === 'open' ? null : (block.unblocked_at ?? input.at),
+    };
+  } else {
+    values = {
+      ...common,
+      space: 'feed' as const,
+      task_id: input.taskId,
+      block_id: null,
+      purpose: 'feed_line' as const,
+      state: 'open' as const,
+      created_at: input.at,
+      closed_at: null,
+    };
+  }
+  return trx
+    .insertInto('conversation')
+    .values(values)
+    .onConflict((oc) => oc.columns(['gateway', 'ref']).doNothing())
+    .returningAll()
+    .executeTakeFirst();
+}
 
 /**
  * The ref is the routing key. An origin key can register a second thread opened after an
@@ -46,31 +102,13 @@ export async function resolveBlockConversation(
     payload: JSON.parse(opened.payload) as unknown,
   });
   if (!parsed.success || parsed.data.kind !== 'conversation.open') return undefined;
-  const block = await trx
-    .selectFrom('block')
-    .select(['id', 'state', 'unblocked_at', 'created_at'])
-    .where('id', '=', parsed.data.payload.blockId)
-    .executeTakeFirst();
-  if (block === undefined) return undefined;
-  const row = await trx
-    .insertInto('conversation')
-    .values({
-      gateway: input.gateway,
-      ref: conversationRefSchema.parse(input.ref),
-      space: 'orchestrators',
-      task_id: parsed.data.payload.taskId,
-      block_id: block.id,
-      purpose: 'block',
-      state: block.state === 'open' ? 'open' : 'closed',
-      root_message_ref: messageRefSchema.parse(input.rootMessage),
-      after_message_ref: null,
-      // Recovery must include replies sent before this thread was first observed.
-      created_at: block.created_at,
-      closed_at: block.state === 'open' ? null : (block.unblocked_at ?? input.at),
-    })
-    .onConflict((oc) => oc.columns(['gateway', 'ref']).doNothing())
-    .returningAll()
-    .executeTakeFirst();
+  const row = await insertConversation(trx, {
+    gateway: input.gateway,
+    ref: input.ref,
+    rootMessage: input.rootMessage,
+    at: input.at,
+    blockId: parsed.data.payload.blockId,
+  });
   if (row !== undefined) return { conversation: row, registered: true };
   const raced = await trx
     .selectFrom('conversation')

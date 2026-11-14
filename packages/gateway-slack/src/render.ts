@@ -2,6 +2,8 @@ import type { Action, Persona, RichText, RichTextInline } from '@spur-board/cont
 
 /** Slack section mrkdwn is capped at 3000 characters; leave room for formatting. */
 export const MAX_PART_TEXT = 2900;
+/** Slack allows at most 10 elements in one context block. */
+const MAX_CONTEXT_ELEMENTS = 10;
 const MARKER_PREFIX = 'spur:';
 const ORIGIN_PREFIX = 'spur-origin:';
 
@@ -13,7 +15,7 @@ const roleIcons: Record<Persona['role'], string> = {
 };
 
 export function iconFor(persona: Persona): string {
-  return roleIcons[persona.role];
+  return persona.icon ?? roleIcons[persona.role];
 }
 
 function blockId(prefix: string, key: string): string | null {
@@ -70,13 +72,13 @@ function escapeText(value: string): string {
   return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
 }
 
-/** Slack strikes only within one line and not across edge spaces or a `~` inside. */
-function strike(text: string): string {
+/** Slack applies `~` and `_` only within one line and not across edge spaces. */
+function perLine(text: string, mark: string): string {
   return text
     .split('\n')
     .map((line) => {
-      const value = line.trim().replaceAll('~', '∼');
-      return value.length === 0 ? '' : `~${escapeText(value)}~`;
+      const value = line.trim();
+      return value.length === 0 ? '' : `${mark}${escapeText(value)}${mark}`;
     })
     .join('\n');
 }
@@ -90,12 +92,38 @@ function inline(value: RichTextInline): string {
     case 'code':
       return `\`${value.text.replaceAll('`', '´')}\``;
     case 'strike':
-      return strike(value.text);
+      return perLine(value.text.replaceAll('~', '∼'), '~');
+    case 'italic':
+      return perLine(value.text.replaceAll('_', 'ˍ'), '_');
     case 'link':
       return `<${value.url.replace(/[<>|]/g, '')}|${escapeText(value.text).replaceAll('|', '¦')}>`;
     case 'mention':
       return `<@${value.user}>`;
   }
+}
+
+/**
+ * Trailing context blocks become the elements of one context block after the section: at most
+ * 10, the last joining any overflow by newlines. When any element would exceed one part, or
+ * without other visible content, they stay paragraphs, so the section text carries every
+ * character.
+ */
+export function splitContext(body: RichText): { body: RichText; context: string[] } {
+  let end = body.length;
+  while (end > 0 && body[end - 1]?.kind === 'context') end--;
+  if (renderText(body.slice(0, end)).length === 0) return { body, context: [] };
+  const context = body
+    .slice(end)
+    .map((block) => (block.kind === 'context' ? block.children.map(inline).join('') : ''))
+    .filter((text) => text.length > 0);
+  const bounded = [
+    ...context.slice(0, MAX_CONTEXT_ELEMENTS - 1),
+    ...(context.length >= MAX_CONTEXT_ELEMENTS
+      ? [context.slice(MAX_CONTEXT_ELEMENTS - 1).join('\n')]
+      : []),
+  ];
+  if (bounded.some((text) => text.length > MAX_PART_TEXT)) return { body, context: [] };
+  return { body: body.slice(0, end), context: bounded };
 }
 
 export function renderText(body: RichText): string {
@@ -122,6 +150,7 @@ function literal(value: RichTextInline): string {
     case 'emphasis':
     case 'code':
     case 'strike':
+    case 'italic':
       return value.text;
     case 'link':
       return `${value.text} (${value.url})`;
@@ -220,6 +249,7 @@ export function messageBlocks(
   marker: string,
   actions: readonly Action[] = [],
   originKey?: string,
+  context: readonly string[] = [],
 ) {
   type SectionBlock = {
     type: 'section';
@@ -247,9 +277,16 @@ export function messageBlocks(
     block_id: string;
     elements: [{ type: 'plain_text'; text: string }];
   };
-  const blocks: (SectionBlock | ActionsBlock | OriginBlock)[] = [
+  type ContextBlock = { type: 'context'; elements: { type: 'mrkdwn'; text: string }[] };
+  const blocks: (SectionBlock | ActionsBlock | OriginBlock | ContextBlock)[] = [
     { type: 'section', block_id: marker, text: { type: 'mrkdwn', text } },
   ];
+  if (context.length > 0) {
+    blocks.push({
+      type: 'context',
+      elements: context.map((value) => ({ type: 'mrkdwn', text: value })),
+    });
+  }
   if (originKey !== undefined) {
     const id = originMarkerId(originKey);
     if (id === null) throw new Error('origin marker too long');

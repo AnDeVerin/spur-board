@@ -102,6 +102,7 @@ function visibleInline(value: RichTextInline): string {
     case 'emphasis':
     case 'code':
     case 'strike':
+    case 'italic':
       return value.text;
     case 'link':
       return `${value.text} (${value.url})`;

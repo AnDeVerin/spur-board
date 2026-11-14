@@ -1,8 +1,10 @@
 import { ESLint } from 'eslint';
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import tseslint from 'typescript-eslint';
 import { describe, expect, it } from 'vitest';
+import maxLinesBaseline from '../../../eslint/max-lines-baseline.ts';
 
 // Lints the on-disk fixtures with the real eslint.config.js. `eslint .` ignores them.
 const root = fileURLToPath(new URL('../../..', import.meta.url));
@@ -33,6 +35,7 @@ describe('test-file lint rules', () => {
     ['skip-unlinked.ts', 'local/skip-needs-flaky-issue'],
     ['vi-mock.ts', 'no-restricted-syntax'],
     ['disable-no-description.ts', '@eslint-community/eslint-comments/require-description'],
+    ['switch-not-exhaustive.ts', '@typescript-eslint/switch-exhaustiveness-check'],
   ])(
     '%s reports %s',
     async (fixture, ruleId) => {
@@ -353,7 +356,6 @@ describe('Slack fake boundary', () => {
 
   it.each([
     ['packages/daemon/src/x.ts', '@spur-board/gateway-slack/testing'],
-    ['packages/core/src/x.ts', '@spur-board/gateway-slack/testing'],
     ['packages/contracts/src/x.ts', '@spur-board/gateway-slack/testing'],
     ['packages/daemon/src/x.ts', '../../gateway-slack/src/testing.ts'],
     ['packages/gateway-slack/src/x.ts', './testing.ts'],
@@ -367,6 +369,13 @@ describe('Slack fake boundary', () => {
     },
     30_000,
   );
+
+  // Core's gateway ban matches too; one report per matching ban shows both bans hold.
+  it('core/src reports both the Slack fake and the gateway ban', async () => {
+    expect(
+      await textRuleIds(imports('@spur-board/gateway-slack/testing'), 'packages/core/src/x.ts'),
+    ).toEqual(['no-restricted-imports', 'no-restricted-imports']);
+  }, 30_000);
 
   // The blocks replace earlier import options, so the older bans must still hold there.
   it.each([
@@ -395,6 +404,151 @@ describe('Slack fake boundary', () => {
     },
     30_000,
   );
+});
+
+describe('core gateway boundary', () => {
+  const imports = (from: string): string => `import { x } from '${from}';\nexport const y = x;`;
+
+  it.each([
+    ['packages/core/src/x.ts', '@spur-board/gateway-slack'],
+    ['packages/core/src/x.ts', '@spur-board/gateway-testkit'],
+    ['packages/core/src/x.ts', '../../gateway-slack/src/index.ts'],
+    ['packages/core/src/app/x.ts', '@spur-board/gateway-slack'],
+    ['packages/core/src/x.ts', '@spur-board/stand'],
+  ])(
+    '%s: import of %s reports no-restricted-imports',
+    async (path, from) => {
+      expect(await textRuleIds(imports(from), path)).toEqual(['no-restricted-imports']);
+    },
+    30_000,
+  );
+
+  it.each([
+    ['packages/daemon/src/x.ts', '@spur-board/gateway-slack'],
+    ['packages/core/test/x.test.ts', '@spur-board/gateway-testkit'],
+  ])(
+    '%s: import of %s passes',
+    async (path, from) => {
+      expect(await textRuleIds(imports(from), path)).toEqual([]);
+    },
+    30_000,
+  );
+
+  const dynamic = (from: string): string =>
+    `export async function load(): Promise<unknown> {\n  return import('${from}');\n}`;
+  const typed = (from: string): string => `export type T = import('${from}').X;`;
+
+  it.each([
+    ['packages/core/src/app/x.ts', dynamic('@spur-board/gateway-slack')],
+    ['packages/core/src/x.ts', dynamic('../../gateway-slack/src/index.ts')],
+    ['packages/core/src/app/board-utils.ts', dynamic('@spur-board/gateway-testkit')],
+    ['packages/core/src/app/x.ts', typed('@spur-board/gateway-slack')],
+    [
+      'packages/core/src/app/x.ts',
+      'export async function load(): Promise<unknown> {\n  return import(`@spur-board/gateway-testkit`);\n}',
+    ],
+    [
+      'packages/core/src/app/x.ts',
+      'export async function load(name: string): Promise<unknown> {\n  return import(`@spur-board/gateway-${name}`);\n}',
+    ],
+    [
+      'packages/core/src/app/x.ts',
+      'export async function load(name: string): Promise<unknown> {\n  return import(name);\n}',
+    ],
+  ])(
+    '%s: dynamic or type import of a gateway reports no-restricted-syntax',
+    async (path, code) => {
+      expect(await textRuleIds(code, path)).toEqual(['no-restricted-syntax']);
+    },
+    30_000,
+  );
+
+  it.each([
+    ['packages/core/src/app/x.ts', dynamic('./outbox.ts')],
+    ['packages/daemon/src/x.ts', dynamic('@spur-board/gateway-slack')],
+  ])(
+    '%s: a dynamic import that is not a gateway in core passes',
+    async (path, code) => {
+      expect(await textRuleIds(code, path)).toEqual([]);
+    },
+    30_000,
+  );
+
+  it('core/src still bans journal inserts outside board-utils', async () => {
+    const code = "export const q = trx.insertInto('event');";
+    expect(await textRuleIds(code, 'packages/core/src/app/x.ts')).toEqual(['no-restricted-syntax']);
+  }, 30_000);
+});
+
+describe('domain boundary', () => {
+  const imports = (from: string): string => `import { x } from '${from}';\nexport const y = x;`;
+
+  it.each([
+    ['packages/core/src/domain/x.ts', '../store/schema.ts'],
+    ['packages/core/src/domain/x.ts', '../app/outbox.ts'],
+    ['packages/core/src/domain/x.ts', '../api/server.ts'],
+    ['packages/core/src/domain/blocks/x.ts', '../../store/x.ts'],
+    ['packages/core/src/domain/x.ts', 'kysely'],
+    ['packages/core/src/domain/x.ts', 'node:fs'],
+    ['packages/core/src/domain/x.ts', 'better-sqlite3'],
+    ['packages/core/src/domain/x.ts', '../index.ts'],
+    ['packages/core/src/domain/x.ts', '@spur-board/core'],
+    ['packages/core/src/domain/x.ts', '@spur-board/stand'],
+  ])(
+    '%s: import of %s reports no-restricted-imports',
+    async (path, from) => {
+      expect(await textRuleIds(imports(from), path)).toEqual(['no-restricted-imports']);
+    },
+    30_000,
+  );
+
+  it.each([
+    "export const m = import('../store/schema.ts');",
+    "export type T = import('kysely').Kysely<never>;",
+    "export const q = trx.insertInto('event');",
+  ])(
+    '%s reports no-restricted-syntax',
+    async (code) => {
+      expect(await textRuleIds(code, 'packages/core/src/domain/x.ts')).toEqual([
+        'no-restricted-syntax',
+      ]);
+    },
+    30_000,
+  );
+
+  it.each([
+    ['packages/core/src/domain/x.ts', './gates.ts'],
+    ['packages/core/src/domain/blocks/x.ts', '../gates.ts'],
+    ['packages/core/src/domain/x.ts', '@spur-board/contracts'],
+    ['packages/core/src/domain/x.ts', 'node:crypto'],
+    ['packages/core/src/app/x.ts', '../store/schema.ts'],
+  ])(
+    '%s: import of %s passes',
+    async (path, from) => {
+      expect(await textRuleIds(imports(from), path)).toEqual([]);
+    },
+    30_000,
+  );
+});
+
+describe('max-lines', () => {
+  const lines = (count: number): string =>
+    Array.from({ length: count }, (_, i) => `export const a${String(i)} = ${String(i)};`).join(
+      '\n',
+    );
+
+  it('reports a file over 500 counted lines', async () => {
+    expect(await textRuleIds(lines(501), 'packages/core/src/x.ts')).toEqual(['max-lines']);
+  }, 30_000);
+
+  it('passes a file of 500 lines and a baseline file of 501', async () => {
+    expect(await textRuleIds(lines(500), 'packages/core/src/x.ts')).toEqual([]);
+    expect(await textRuleIds(lines(501), 'packages/core/src/app/observe.ts')).toEqual([]);
+  }, 30_000);
+
+  it('lists only files that exist', () => {
+    expect(maxLinesBaseline.filter((path) => !existsSync(join(root, path)))).toEqual([]);
+  });
 });
 
 describe('CLI boundary', () => {
