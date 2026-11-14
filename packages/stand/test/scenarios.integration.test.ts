@@ -1139,7 +1139,7 @@ describe('dispatcher scenarios', () => {
     numbers: number[];
   }
   // Through `ok`: the `github` helper adds repo and number, which inspect refuses.
-  const inspect = async () =>
+  const githubRequests = async () =>
     (
       (await ok(current(), '/fake', { system: 'github', verb: 'inspect', args: {} })) as {
         requests: GraphqlRequest[];
@@ -1156,7 +1156,7 @@ describe('dispatcher scenarios', () => {
       await ack(as('worker'), dev.id);
       await github('push', { sha: B });
       await poll();
-      const last = Math.max(0, ...(await inspect()).map(({ seq }) => seq));
+      const last = Math.max(0, ...(await githubRequests()).map(({ seq }) => seq));
       await github('fail', { mode: 'server-error', times: 1 });
 
       await submit(as('worker'), dev.id, B);
@@ -1164,7 +1164,7 @@ describe('dispatcher scenarios', () => {
       expect((await submitted()).at(-1)).toEqual({ turn: dev.id, column: 'dev', sha: B });
       expect((await turnRow(turnNumber(dev.id))).closed_at).not.toBeNull();
       // The first read failed; the second read of the same PR answered the submit.
-      const after = (await inspect()).filter(({ seq }) => seq > last).slice(0, 2);
+      const after = (await githubRequests()).filter(({ seq }) => seq > last).slice(0, 2);
       expect(after.map(({ operation, numbers }) => [operation, numbers])).toEqual([
         ['PrDetails', [1]],
         ['PrDetails', [1]],
