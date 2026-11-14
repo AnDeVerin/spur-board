@@ -255,6 +255,8 @@ export const sampleRows: SampleRows = {
     expires_at: at,
     decided_at: null,
     item_id: 1,
+    approved_at: null,
+    last_used_at: null,
   },
   dismissal: {
     item_key: 'item-1',

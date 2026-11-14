@@ -22,6 +22,10 @@ const MAX_PENDING_REQUESTS = 10;
 /** Days an expired or denied request stays after its decision before the daily purge drops it. */
 const TOKEN_REQUEST_RETENTION_DAYS = 7;
 const DAY_MS = 86_400_000;
+/** An approved token's last use is written at most once per token per this interval. */
+const TOKEN_USE_INTERVAL_MS = 5 * 60_000;
+/** The longest attention line; the doctor fix limit is the same. */
+const ATTENTION_LINE_MAX = 300;
 
 function effectiveStatus(row: Row<'operator_token'>, at: Date): OperatorTokenStatus {
   return row.status === 'pending' && row.expires_at <= at.toISOString() ? 'expired' : row.status;
@@ -184,7 +188,11 @@ export async function decideTokenInTransaction(
   const next = decision === 'approve' ? 'approved' : 'denied';
   await trx
     .updateTable('operator_token')
-    .set({ status: next, decided_at: at.toISOString() })
+    .set({
+      status: next,
+      decided_at: at.toISOString(),
+      ...(next === 'approved' ? { approved_at: at.toISOString() } : {}),
+    })
     .where('id', '=', row.id)
     .execute();
   await journalToken(trx, decision === 'approve' ? 'token_approved' : 'token_denied', row.name, at);
@@ -231,18 +239,43 @@ export async function purgeEndedTokenRequests(store: Store, at: Date): Promise<n
   });
 }
 
-/** Hash lookup uses the unique index and checks durable state on every call. */
+/**
+ * Hash lookup uses the unique index and checks durable state on every call. An approved token's
+ * use at `at` is recorded when its last recorded use is older than `TOKEN_USE_INTERVAL_MS`; a
+ * failed write goes to `onUseError` and never changes the result.
+ */
 export async function verifyOperatorToken(
   store: Store,
   token: string,
+  at: Date,
+  onUseError: (err: unknown) => void,
 ): Promise<{ name: string } | null> {
   const hash = createHash('sha256').update(token).digest('hex');
   const row = await store.db
     .selectFrom('operator_token')
-    .select(['name', 'status'])
+    .select(['name', 'status', 'last_used_at'])
     .where('hash', '=', hash)
     .executeTakeFirst();
-  return row?.status === 'approved' ? { name: row.name } : null;
+  if (row?.status !== 'approved') return null;
+  const usedAt = at.toISOString();
+  const staleBy = new Date(at.getTime() - TOKEN_USE_INTERVAL_MS).toISOString();
+  if (row.last_used_at === null || row.last_used_at <= staleBy) {
+    try {
+      // The guard repeats the staleness test under the write lock, so concurrent calls write once.
+      await store.transaction((trx) =>
+        trx
+          .updateTable('operator_token')
+          .set({ last_used_at: usedAt })
+          .where('hash', '=', hash)
+          .where('status', '=', 'approved')
+          .where((eb) => eb.or([eb('last_used_at', 'is', null), eb('last_used_at', '<=', staleBy)]))
+          .execute(),
+      );
+    } catch (err) {
+      onUseError(err);
+    }
+  }
+  return { name: row.name };
 }
 
 /** Read-only: an expired pending row is reported as expired but left for the sweep. */
@@ -271,6 +304,9 @@ export function tokenListQuery(clock: { now(): number }): Query<'token.list'> {
           name: row.name,
           folder: row.folder,
           status: effectiveStatus(row, at),
+          createdAt: row.requested_at,
+          approvedAt: row.approved_at,
+          lastUsedAt: row.last_used_at,
         })),
       };
     },
@@ -300,3 +336,78 @@ export const tokenRevokeMutation: Mutation<'token.revoke'> = {
     return { name: row.name, status: 'revoked' };
   },
 };
+
+/** Approved tokens that need the operator's attention, by token name in creation order. */
+export interface TokenAttention {
+  /** On this host, the token's folder no longer holds its token file. */
+  fileMissing: string[];
+  /** Not used for `unusedAfterDays` days; a token in `fileMissing` is not repeated here. */
+  unused: string[];
+}
+
+/**
+ * Approved tokens unused for `unusedAfterDays` days (last use, else approval, else request time)
+ * or whose token file is gone. `probe` answers whether the token file is present, or null when
+ * it cannot tell (another host, an unreadable folder); it runs after the read, outside any
+ * transaction.
+ */
+export async function tokenAttention(
+  store: Store,
+  at: Date,
+  unusedAfterDays: number,
+  probe: (token: { folder: string; host: string }) => Promise<boolean | null>,
+): Promise<TokenAttention> {
+  const rows = await store.db
+    .selectFrom('operator_token')
+    .select(['name', 'folder', 'host', 'requested_at', 'approved_at', 'last_used_at'])
+    .where('status', '=', 'approved')
+    .orderBy('id')
+    .execute();
+  const cutoff = new Date(at.getTime() - unusedAfterDays * DAY_MS).toISOString();
+  const attention: TokenAttention = { fileMissing: [], unused: [] };
+  for (const row of rows) {
+    if ((await probe({ folder: row.folder, host: row.host })) === false) {
+      attention.fileMissing.push(row.name);
+    } else if ((row.last_used_at ?? row.approved_at ?? row.requested_at) <= cutoff) {
+      attention.unused.push(row.name);
+    }
+  }
+  return attention;
+}
+
+/**
+ * One line naming the tokens in `attention`, at most 300 characters, or null when none needs
+ * attention. Shared by `board doctor` and the daily digest. A name enrollment would refuse today
+ * is counted, never printed; trailing names that do not fit become "and N more".
+ */
+export function tokenAttentionLine(
+  attention: TokenAttention,
+  unusedAfterDays: number,
+): string | null {
+  const total = attention.fileMissing.length + attention.unused.length;
+  if (total === 0) return null;
+  const head = `${String(total)} operator ${total === 1 ? 'token needs' : 'tokens need'} attention (revoke any that nothing uses with \`board token revoke <name>\`)`;
+  const printableNames = (names: string[]) =>
+    names.filter((name) => tokenRequestSchema.shape.name.safeParse(name).success);
+  const printable = [
+    { label: 'no token file', names: printableNames(attention.fileMissing) },
+    {
+      label: `unused for ${String(unusedAfterDays)}+ days`,
+      names: printableNames(attention.unused),
+    },
+  ];
+  const named = printable.reduce((n, group) => n + group.names.length, 0);
+  for (let shown = named; shown > 0; shown -= 1) {
+    let left = shown;
+    const parts: string[] = [];
+    for (const { label, names } of printable) {
+      const listed = names.slice(0, left);
+      left -= listed.length;
+      if (listed.length > 0) parts.push(`${label}: ${listed.join(', ')}`);
+    }
+    const more = total - shown;
+    const line = `${head}: ${parts.join('; ')}${more > 0 ? ` and ${String(more)} more` : ''}`;
+    if (line.length <= ATTENTION_LINE_MAX) return line;
+  }
+  return `${head}: ${String(total)} not named`;
+}

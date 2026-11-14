@@ -365,6 +365,20 @@
       },
       "additionalProperties": false
     },
+    "operatorAccess": {
+      "default": {},
+      "type": "object",
+      "properties": {
+        "unusedAfterDays": {
+          "default": 14,
+          "description": "Days an approved operator access key from board token create may go unused before board doctor warns about it.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3650
+        }
+      },
+      "additionalProperties": false
+    },
     "doorbells": {
       "default": {},
       "type": "object",

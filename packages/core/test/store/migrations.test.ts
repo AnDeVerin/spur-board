@@ -459,6 +459,40 @@ describe('migrate', () => {
     ]);
   });
 
+  it('backfills token approval times for approved rows only and leaves every last use empty', () => {
+    const dir = tempDir();
+    const { raw } = rawDb(join(dir, 'board.db'));
+    migrate(raw, real.slice(0, real.length - 1));
+    insertRaw(raw, 'operator_item', {
+      ...sampleRows.operator_item,
+      task_id: null,
+      block_id: null,
+      line_outbox_id: null,
+    });
+    const legacy = without(sampleRows.operator_token, ['id', 'approved_at', 'last_used_at']);
+    const decidedAt = '2026-01-02T03:04:05.000Z';
+    for (const [n, status] of ['approved', 'revoked', 'pending'].entries()) {
+      insertRaw(raw, 'operator_token', {
+        ...legacy,
+        name: status,
+        hash: String(n).repeat(64),
+        status,
+        decided_at: status === 'pending' ? null : decidedAt,
+      });
+    }
+
+    migrate(raw, real);
+
+    expect(
+      raw.prepare('SELECT name, approved_at, last_used_at FROM operator_token ORDER BY id').all(),
+    ).toEqual([
+      { name: 'approved', approved_at: decidedAt, last_used_at: null },
+      { name: 'revoked', approved_at: null, last_used_at: null },
+      { name: 'pending', approved_at: null, last_used_at: null },
+    ]);
+    expect(raw.pragma('foreign_key_check')).toEqual([]);
+  });
+
   it('preserves shared operator item IDs when upgrading a version 7 store', () => {
     const dir = tempDir();
     const { raw } = rawDb(join(dir, 'board.db'));
@@ -770,6 +804,10 @@ describe('migration pins', () => {
     '0013_turn_reminder.sql': '5843346871e99e0de1fd655f0402fb162dab583318a24c0baf51c7504b71053b',
     '0014_dispatcher.sql': 'cbb8ee72ad4fff5bb1eeeaff95eebf93da3e92d902e42eee3e69d98aec11a2b5',
     '0015_pr_continuation.sql': '2fd21d20e35cde02d2a35e643bac89506cf4effa504f1c71dfd4743061cbe1db',
+    '0016_token_use.sql': [
+      'dbc43e7c4f826d595267381f9c434401',
+      '574215417800ac7113209a2ec91d65db',
+    ].join(''),
   };
 
   interface MigrationFile {

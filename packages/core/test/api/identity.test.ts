@@ -72,7 +72,7 @@ describe('API identity', () => {
       ready: () => true,
       clock: { now: () => now },
       lookupSession: vi.fn(),
-      verifyToken: (token) => verifyOperatorToken(store, token),
+      verifyToken: (token) => verifyOperatorToken(store, token, new Date(now), () => {}),
       registry: {},
       logRequest: vi.fn(),
     });
@@ -92,7 +92,7 @@ describe('API identity', () => {
       const response = await enroll('private');
       expect(response.statusCode).toBe(200);
       expect(response.json()).toMatchObject({ value: { name: 'desk', status: 'pending' } });
-      expect(await verifyOperatorToken(store, 'private')).toBeNull();
+      expect(await verifyOperatorToken(store, 'private', new Date(now), () => {})).toBeNull();
 
       now += 15 * 60 * 1000;
       const again = await enroll('private-again');
@@ -122,7 +122,8 @@ describe('API identity', () => {
         ready: () => true,
         clock: { now: () => Date.parse('2026-11-04T10:00:00.000Z') },
         lookupSession: vi.fn(),
-        verifyToken: (token) => verifyOperatorToken(store, token),
+        verifyToken: (token) =>
+          verifyOperatorToken(store, token, new Date('2026-11-04T10:00:00.000Z'), () => {}),
         registry: {},
         logRequest: vi.fn(),
       });
@@ -199,7 +200,7 @@ describe('API identity', () => {
       ready: () => true,
       clock: { now: () => now },
       lookupSession: vi.fn(),
-      verifyToken: (token) => verifyOperatorToken(store, token),
+      verifyToken: (token) => verifyOperatorToken(store, token, new Date(now), () => {}),
       registry: {},
       logRequest,
     });
@@ -293,7 +294,7 @@ describe('API identity', () => {
       decideTokenInTransaction(trx, row.item_id, 'approve', at),
     );
     const logRequest = vi.fn();
-    const verifyToken = vi.fn((token: string) => verifyOperatorToken(store, token));
+    const verifyToken = vi.fn((token: string) => verifyOperatorToken(store, token, at, () => {}));
     const clock = { now: () => at.getTime() };
     const app = await createApiServer({
       store,
@@ -340,7 +341,7 @@ describe('API identity', () => {
       });
       expect(revoked.statusCode).toBe(200);
       expect(revoked.json()).toMatchObject({ value: { name: 'desk', status: 'revoked' } });
-      expect(await verifyOperatorToken(store, secret)).toBeNull();
+      expect(await verifyOperatorToken(store, secret, at, () => {})).toBeNull();
     } finally {
       await app.close();
     }

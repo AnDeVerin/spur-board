@@ -39,6 +39,8 @@ export {
   verifyOperatorToken,
   tokenListQuery,
   tokenRevokeMutation,
+  tokenAttention,
+  tokenAttentionLine,
 } from './app/tokens.ts';
 export { createBlockMutations } from './app/blocks.ts';
 export { createMembershipMutations } from './app/membership.ts';
