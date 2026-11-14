@@ -372,6 +372,15 @@ function board(options: Options = {}) {
       step();
       return apply(registry['block.answer'], { block, text }, actor, `key-${String(++keys)}`);
     },
+    unblock: (actor: ActorId, block: string, reason: string) => {
+      step();
+      return apply(
+        registry['block.unblock'],
+        { mode: 'reason', block, reason },
+        actor,
+        `key-${String(++keys)}`,
+      );
+    },
     escalate: (actor: ActorId, block: string) => {
       step();
       return apply(registry['block.escalate'], { block }, actor, `key-${String(++keys)}`);
@@ -1591,6 +1600,20 @@ describe('course check', () => {
         expect.objectContaining({ block: null, text: NOTE, author: 'operator' }),
       ]),
     );
+  });
+
+  it('the curator closing the course block with a reason resumes Dev with the reason', async () => {
+    const ctx = await inReview({ curator: true });
+    await threeReturns(ctx);
+    const block = await courseBlock(ctx);
+    const reason = 'The course is fine: the reviewer asks for the same fix each time.';
+
+    await ctx.unblock(CUR, `B${String(block.id)}`, reason);
+    expect((await itemsOf(ctx, 'course_check'))[0]?.cleared_at).toEqual(expect.any(String));
+    await ctx.tick();
+    expect(await ctx.openTurn()).toEqual(turnOf('dev', 'worker', 'dev: no_submit_on_head'));
+    const notes = (await ctx.inbox(WORKER)).comments.filter((comment) => comment.block === null);
+    expect(notes).toEqual([expect.objectContaining({ text: reason, author: CUR })]);
   });
 
   it('the curator escalates the course block to the operator, whose reply resumes Dev', async () => {
