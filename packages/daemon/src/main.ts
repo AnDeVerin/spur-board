@@ -2,6 +2,7 @@ import { homedir } from 'node:os';
 import { existsSync, readFileSync } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
 import { copyDatabase, openStore, type Store } from '@spur-board/core';
+import { z } from 'zod';
 import { loadConfig, resolvePaths } from './config.ts';
 import { DEFAULT_SHUTDOWN_TIMEOUT_MS, runDaemon, type ProcessPort } from './lifecycle.ts';
 import { acquireLock, LockHeldError } from './lock.ts';
@@ -11,6 +12,9 @@ import { slackSettings } from './outbox-module.ts';
 // Below the 2^31-1 ms timer limit; Node turns larger values into 1 ms with a warning.
 const KEEPALIVE_MS = 3_600_000;
 
+const packedManifestWire = z.object({ name: z.literal('spur-board') });
+const versionWire = z.object({ version: z.string() });
+
 /** Resolve the publishable package, both from source and from the packed daemon. */
 export function publishedVersion(): string {
   const packed = new URL('../package.json', import.meta.url);
@@ -18,21 +22,12 @@ export function publishedVersion(): string {
   const packedManifest: unknown = existsSync(packed)
     ? JSON.parse(readFileSync(packed, 'utf8'))
     : null;
-  const manifest: unknown =
-    packedManifest !== null &&
-    typeof packedManifest === 'object' &&
-    'name' in packedManifest &&
-    packedManifest.name === 'spur-board'
-      ? packedManifest
-      : JSON.parse(readFileSync(source, 'utf8'));
-  if (
-    manifest === null ||
-    typeof manifest !== 'object' ||
-    !('version' in manifest) ||
-    typeof manifest.version !== 'string'
-  )
-    throw new Error('Invalid spur-board package version.');
-  return manifest.version;
+  const manifest: unknown = packedManifestWire.safeParse(packedManifest).success
+    ? packedManifest
+    : JSON.parse(readFileSync(source, 'utf8'));
+  const parsed = versionWire.safeParse(manifest);
+  if (!parsed.success) throw new Error('Invalid spur-board package version.');
+  return parsed.data.version;
 }
 
 /** The real process. Handlers are attached when runDaemon registers them, not before. */

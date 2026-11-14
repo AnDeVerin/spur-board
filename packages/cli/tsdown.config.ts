@@ -12,12 +12,11 @@ export default defineConfig({
   platform: 'node',
   target: 'node24',
   clean: true,
-  // Rolldown names a shared chunk after its last module. Keep the chunk holding `src/config.ts`
-  // named `config-*`, which the package allowlist admits (scripts/package.ts), whichever module
-  // ends up last in it.
+  // Rolldown names a shared chunk after its last module, so a new shared module can rename a chunk.
+  // Give every shared chunk one fixed prefix, which the package allowlist admits
+  // (scripts/package.ts).
   outputOptions: {
-    chunkFileNames: (chunk) =>
-      `${chunk.moduleIds.some((id) => /[\\/]cli[\\/]src[\\/]config\.ts$/.test(id)) ? 'config' : '[name]'}-[hash].mjs`,
+    chunkFileNames: 'chunk-[hash].mjs',
   },
   deps: {
     alwaysBundle: [/^@spur-board\//],

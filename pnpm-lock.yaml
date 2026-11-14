@@ -476,6 +476,9 @@ importers:
       yaml:
         specifier: 'catalog:'
         version: 2.9.1
+      zod:
+        specifier: 'catalog:'
+        version: 4.6.7
     devDependencies:
       '@spur-board/gateway-testkit':
         specifier: workspace:*
@@ -498,6 +501,9 @@ importers:
       ws:
         specifier: 'catalog:'
         version: 8.21.3
+      zod:
+        specifier: 'catalog:'
+        version: 4.6.7
     devDependencies:
       '@spur-board/gateway-testkit':
         specifier: workspace:*

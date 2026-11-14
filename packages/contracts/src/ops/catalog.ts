@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { BLOCK_TYPES, COLUMN_IDS } from '../enums.ts';
+import { BLOCK_TYPES, COLUMN_IDS, TOKEN_STATUSES } from '../enums.ts';
 import { EVENT_KINDS } from '../events.ts';
 import {
   actorIdSchema,
@@ -217,9 +217,7 @@ const linkOutput = z.strictObject({ task: taskKeySchema, target });
 
 const operatorOrProjectAgent = [{ grant: 'operator' }, { grant: 'project-agent' }] as const;
 const operatorOnly = [{ grant: 'operator' }] as const;
-const tokenStatus = z
-  .enum(['pending', 'approved', 'denied', 'expired', 'revoked'])
-  .describe('Current token state.');
+const tokenStatus = z.enum(TOKEN_STATUSES).describe('Current token state.');
 const tokenName = z.string().min(1).describe('Unique name of the operator token.');
 
 /** The M1 operations. CLI, MCP and the daemon route are generated from this list. */

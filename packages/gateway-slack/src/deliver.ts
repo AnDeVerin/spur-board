@@ -12,24 +12,15 @@ import {
   splitContext,
   splitText,
 } from './render.ts';
+import { fieldsOf, messageTs } from './wire.ts';
 
 export interface SlackChannels {
   orchestrators: string;
   feed: string;
 }
 
-function messageTs(message: unknown): string | undefined {
-  return typeof message === 'object' &&
-    message !== null &&
-    'ts' in message &&
-    typeof message.ts === 'string'
-    ? message.ts
-    : undefined;
-}
-
 function messageMarker(message: unknown): string | undefined {
-  if (typeof message !== 'object' || message === null || !('blocks' in message)) return undefined;
-  return markerFromBlocks(message.blocks);
+  return markerFromBlocks(fieldsOf(message)?.blocks);
 }
 
 function oldest(at: Date | undefined): string | undefined {

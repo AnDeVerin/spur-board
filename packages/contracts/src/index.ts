@@ -179,4 +179,18 @@ export {
   type TicketEntityRef,
 } from './adapters.ts';
 export { BOARD_TICK_MS, SYSTEMD_SERVICE_SETTINGS } from './systemd.ts';
-export { TOKEN_REQUEST_LIMITS, requestHashOf, tokenRequestSchema } from './tokens.ts';
+export {
+  TOKEN_REQUEST_LIMITS,
+  requestHashOf,
+  tokenRequestResultSchema,
+  tokenRequestSchema,
+  tokenRequestStatusSchema,
+} from './tokens.ts';
+export {
+  DOCTOR_FIX_MAX,
+  doctorReportSchema,
+  remoteDoctorReportSchema,
+  type DoctorCheck,
+  type DoctorReport,
+} from './doctor.ts';
+export { apiBaseUrl } from './urls.ts';

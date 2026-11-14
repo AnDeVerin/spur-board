@@ -53,6 +53,8 @@ description: Rules for packages/daemon/ - modules, config and secrets, logging a
   `requestId`, `method`, `path`, `status`, `port`. Name new entity IDs as contracts do, e.g.
   `taskId`.
 - Wrap external calls in `ctx.logCall`; it logs duration and outcome, then rethrows.
+- Parse every response with zod or an adapter export; `wireWalkerBans` in `eslint.config.js`
+  covers daemon sources except `logger.ts`.
 - Log sender ticks and Spur doorbell sends (`spur.send`, HTTP to `adapters.spur.baseUrl`) through
   the outbox module's `ctx.logCall`.
 - Wrap adapter HTTP calls through `board-adapters.logCall`. Log each runner failure

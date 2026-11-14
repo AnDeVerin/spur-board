@@ -19,7 +19,8 @@
     "@spur-board/core": "workspace:*",
     "@spur-board/gateway-slack": "workspace:*",
     "pino": "catalog:",
-    "yaml": "catalog:"
+    "yaml": "catalog:",
+    "zod": "catalog:"
   },
   "devDependencies": {
     "@spur-board/gateway-testkit": "workspace:*",

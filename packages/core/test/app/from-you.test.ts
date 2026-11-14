@@ -557,6 +557,25 @@ it('raises a failed delivery item of every outbox kind with no feed line', async
   }
 });
 
+it('skips a source miss of another shape and keeps the tick committed', async () => {
+  const { store, core } = setup();
+  await scanTransaction(store, config, async (trx) => {
+    await trx.insertInto('source_state').values(sampleRows.source_state).execute();
+    await trx
+      .insertInto('source_miss')
+      .values({ ...sampleRows.source_miss, ref: '{"kind":"pr","repo":"o/r"}', gone: 1 })
+      .execute();
+    await trx
+      .insertInto('outbox')
+      .values({ ...sampleRows.outbox, kind: 'conversation.reply', state: 'post_failed' })
+      .execute();
+  });
+  await tickBoard({ store, config, clock, completeSince: core.completeSince });
+  expect(await store.db.selectFrom('operator_item').select(['item_key', 'kind']).execute()).toEqual(
+    [{ item_key: 'delivery:1', kind: 'post_failed' }],
+  );
+});
+
 it('re-raises a pre-upgrade delivery item under post_failed', async () => {
   const { store, core } = setup();
   await scanTransaction(store, config, (trx) =>
