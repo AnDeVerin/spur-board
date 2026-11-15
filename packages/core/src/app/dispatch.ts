@@ -64,6 +64,8 @@ interface DispatchContext {
   at: Date;
   /** Since when each source has had an effectively complete poll in this process. */
   complete: ReadonlyMap<string, string>;
+  /** The actor whose operation runs this pass; absent for tick and observation. */
+  actor?: ActorId | undefined;
 }
 
 const CURSOR_KEY = 'dispatcher_cursor';
@@ -1012,6 +1014,7 @@ async function applyOn(
     handed: current.column === 'dev' ? handed : [],
     at,
     config,
+    opener: ctx.actor,
   });
 }
 

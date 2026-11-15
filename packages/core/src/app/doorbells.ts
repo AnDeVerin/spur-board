@@ -120,13 +120,19 @@ export async function registerBlockNotification(trx: Trx, block: Block, at: Date
 
 /**
  * Register an agent executor's turn. Core opens a turn, so no session authored it: the worker
- * or column orchestrator the board selects is rung.
+ * or column orchestrator the board selects is rung. A turn opened by the operation of the
+ * session it would ring first rings only after `doorbells.firstRetryMs`, so an ack in that time
+ * sends nothing.
  */
 export async function registerTurnNotification(
   trx: Trx,
   turn: Pick<Row<'turn'>, 'id' | 'task_id' | 'role'>,
   at: Date,
+  opts: { config: Config; opener?: ActorId | undefined },
 ): Promise<void> {
+  const nextAt = (await heldForOpener(trx, turn, opts))
+    ? new Date(at.getTime() + opts.config.doorbells.firstRetryMs)
+    : at;
   await trx
     .insertInto('notification')
     .values({
@@ -140,7 +146,7 @@ export async function registerTurnNotification(
       role: turn.role,
       author_session: null,
       recipient_session: null,
-      next_at: at.toISOString(),
+      next_at: nextAt.toISOString(),
       last_outbox_id: null,
       acked_at: null,
       exhausted_at: null,
@@ -148,6 +154,22 @@ export async function registerTurnNotification(
     })
     .onConflict((oc) => oc.column('source_key').doNothing())
     .execute();
+}
+
+/** Whether the opener is the agent session the turn would ring now. */
+async function heldForOpener(
+  trx: Trx,
+  turn: Pick<Row<'turn'>, 'task_id' | 'role'>,
+  opts: { config: Config; opener?: ActorId | undefined },
+): Promise<boolean> {
+  const opener = opts.opener === undefined ? undefined : parseActorId(opts.opener);
+  if (opener?.actor !== 'agent') return false;
+  const recipient = await selectNotificationRecipient(
+    trx,
+    { task_id: turn.task_id, role: turn.role, author_session: null, kind: 'turn', block_id: null },
+    opts.config,
+  );
+  return recipient?.id === opener.actorRef.session;
 }
 
 /**
