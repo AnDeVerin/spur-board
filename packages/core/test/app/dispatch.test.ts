@@ -3323,6 +3323,45 @@ describe('pending submit', () => {
     expect((await submissions(ctx))[0]?.voided_at).toBe(ctx.at());
   });
 
+  // Complete polls skip a PR already seen merged or closed (#469), so its snapshot never gets
+  // an observation after the submit.
+  it('confirms a submit on a PR seen merged before it, which no poll reads again', async () => {
+    const ctx = await inDev();
+    await ctx.pr({ state: 'merged', headSha: B, mergedAt: ctx.at() });
+    await ctx.repo('o/r');
+    ctx.pollAnswers(TIMEOUT);
+    const turn = await ctx.openTurn();
+    await expect(ctx.submit(WORKER, turn?.id ?? '', B)).resolves.toMatchObject({
+      status: 'pending',
+    });
+
+    // A merged PR's ticket holds the task until it is seen done.
+    await ctx.ticket('closed');
+
+    expect((await submissions(ctx))[0]).toMatchObject({
+      commit_sha: B,
+      pending_until: null,
+      voided_at: null,
+    });
+  });
+
+  it('hands the turn back on a PR seen closed before the submit, which no poll reads again', async () => {
+    const ctx = await inDev();
+    await ctx.pr({ state: 'closed' });
+    await ctx.repo('o/r');
+    ctx.pollAnswers(TIMEOUT);
+    const turn = await ctx.openTurn();
+    if (turn?.id !== 'T1') await ctx.ack(WORKER, turn?.id ?? '');
+    await expect(ctx.submit(WORKER, turn?.id ?? '', B)).resolves.toMatchObject({
+      status: 'pending',
+    });
+
+    expect((await ctx.openTurn())?.reason).toBe(
+      'dev: pr_closed (submit of bbbbbbb: PR o/r#7 closed)',
+    );
+    expect((await submissions(ctx))[0]?.voided_at).toBe(ctx.at());
+  });
+
   it('holds a pending submit while the clock alone passes the bound', async () => {
     const { ctx } = await pendingNoPr();
     ctx.wait(BOUND + 1);

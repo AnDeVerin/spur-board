@@ -597,7 +597,12 @@ async function readPendingSubmit(
       .where(sql<boolean>`lower(repo) = ${link.repo.toLowerCase()}`)
       .where('number', '=', link.number)
       .executeTakeFirst();
-    if (snap === undefined || Date.parse(snap.observed_at) < Date.parse(row.submitted_at)) {
+    // Complete polls skip a PR already seen merged or closed, so only an open one waits for a
+    // poll after the submit.
+    if (
+      snap === undefined ||
+      (snap.state === 'open' && Date.parse(snap.observed_at) < Date.parse(row.submitted_at))
+    ) {
       return pending;
     }
     if (snap.state === 'closed') {
