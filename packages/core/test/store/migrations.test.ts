@@ -860,6 +860,8 @@ describe('migration pins', () => {
     ].join(''),
     '0017_comment_conversation_message.sql':
       'b9be273061ec21c56ad54951dddfe2ee02a76887360ff956a4eba1666770de71',
+    '0018_submission_pending.sql':
+      '20a8c5ae40faa72dd3e58b2dd99ad1b3cea6035cdc8a63c3f18708483fd42cc7',
   };
 
   interface MigrationFile {

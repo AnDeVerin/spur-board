@@ -150,10 +150,17 @@ export interface SubmissionTable {
   voided_at: string | null;
   /**
    * The PR whose fresh head the submit was checked against; null for a submit recorded before
-   * migration 0014, which handles feedback on no PR.
+   * migration 0014, which handles feedback on no PR, or for a pending submit made before the
+   * board linked a PR (filled in when a poll confirms it).
    */
   pr_repo: string | null;
   pr_number: number | null;
+  /**
+   * Deadline for a PR to appear for a turn submit accepted before the board could confirm its
+   * head; null when not pending (confirmed, or recorded before migration 0018). A pending row is
+   * no gate mark until a poll observed after `submitted_at` confirms the head.
+   */
+  pending_until: string | null;
 }
 
 /** A column executor's turn of one column visit; `seq` counts the turns of the visit. */

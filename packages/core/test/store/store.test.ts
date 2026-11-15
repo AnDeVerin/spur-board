@@ -104,6 +104,7 @@ describe('openStore', () => {
       'voided_at',
       'pr_repo',
       'pr_number',
+      'pending_until',
     ]);
   });
 
