@@ -16,7 +16,13 @@ import type { Store } from '../store/store.ts';
 import { emit, type Trx } from './board-utils.ts';
 import { CommandError, type Mutation } from './commands.ts';
 import { capPoints, clearItem, raiseItem } from './feed.ts';
-import { enqueueBoardFeedLine, enqueueTokenCard, tokenCardKey } from './outbox.ts';
+import {
+  enqueueBoardFeedLine,
+  enqueueTokenCard,
+  feedText,
+  tokenCardKey,
+  type FeedSegment,
+} from './outbox.ts';
 import type { Query } from './queries.ts';
 
 const REQUEST_LIFETIME_MS = 15 * 60 * 1000;
@@ -393,11 +399,19 @@ export async function postTokenList(trx: Trx, input: { key: string; at: Date }):
   }
   const shown = rows.slice(0, lines.length);
   const hidden = rows.length - shown.length;
-  if (hidden > 0) lines.push(`${String(hidden)} more: board token list`);
+  // The hidden count's command is a code segment; every token name and folder stays text.
+  const segments: FeedSegment[] | undefined =
+    hidden > 0
+      ? [
+          { kind: 'text', text: [...lines, `${String(hidden)} more: `].join('\n') },
+          { kind: 'code', text: 'board token list' },
+        ]
+      : undefined;
   await enqueueBoardFeedLine(trx, {
     dedupeKey: `feed.line:token-list:${input.key}`,
     itemKey: `token-list:${input.key}`,
-    text: lines.join('\n'),
+    text: segments === undefined ? lines.join('\n') : feedText(segments),
+    ...(segments === undefined ? {} : { segments }),
     title: 'Operator tokens',
     actions: shown.map(({ row }) =>
       revokeAction(row.item_id, row.name, `Revoke ${capPoints(row.name, LABEL_NAME)}`),
