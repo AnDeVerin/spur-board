@@ -31,3 +31,16 @@ URLs (also before observation), and effective session IDs. Banned links are excl
 session navigation. This replaces the former detail-only association array; use `board task PROJ-123`
 for the detailed association list. `board status --detail` adds full ticket, PR and session facts.
 The catalog version changes with these contracts; restart the daemon and live MCP sessions together.
+
+## Web shell
+
+The private web package builds an empty desktop shell with task count, named source health,
+stream state, a persistent Light/Dark/Auto theme choice and the packaged version in its footer.
+It uses local JetBrains Mono fonts and the V1 prototype tokens. Read failures retain previous
+status as stale; stream failures reconnect with capped backoff and show offline after five
+failed attempts while continuing recovery.
+
+The daemon will serve the packaged SPA when the separate web listener (#530) lands; the stream
+server is #533. This package supplies clients and installed assets only. The existing agent
+API guards stay unchanged. Until #547 adds daemon version fields, the footer version comes
+from the CLI manifest at build time.

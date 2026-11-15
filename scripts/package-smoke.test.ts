@@ -1,3 +1,4 @@
+import { verifyWebAssets } from './package.ts';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -112,6 +113,7 @@ describe('packed smoke steps', () => {
   it('keeps the staged checks in one ordered list', () => {
     expect(smokeSteps.map((step) => step.name)).toEqual([
       'version',
+      'web assets',
       'daemon',
       'schema',
       'status',
@@ -337,5 +339,37 @@ describe('installPackage tarball argument', () => {
       '--no-audit',
       '--no-fund',
     ]);
+  });
+});
+
+describe('installed web smoke', () => {
+  it.each([
+    'index.html',
+    'assets/app-abcdefgh.js',
+    'assets/app-abcdefgh.css',
+    'assets/font-abcdefgh.woff2',
+    '../OFL.txt',
+  ])('rejects missing %s', (missing) => {
+    const root = mkdtempSync(join(tmpdir(), 'board-smoke-web-'));
+    const web = join(root, 'web');
+    mkdirSync(join(web, 'assets'), { recursive: true });
+    writeFileSync(join(root, 'OFL.txt'), 'license');
+    writeFileSync(
+      join(web, 'index.html'),
+      '<script src="/assets/app-abcdefgh.js"></script><link href="/assets/app-abcdefgh.css">',
+    );
+    writeFileSync(join(web, 'assets/app-abcdefgh.js'), 'app');
+    writeFileSync(
+      join(web, 'assets/app-abcdefgh.css'),
+      '@font-face {src:url(./font-abcdefgh.woff2)}',
+    );
+    writeFileSync(join(web, 'assets/font-abcdefgh.woff2'), 'font');
+    expect(() => {
+      verifyWebAssets(web, join(root, 'OFL.txt'));
+    }).not.toThrow();
+    rmSync(join(web, missing));
+    expect(() => {
+      verifyWebAssets(web, join(root, 'OFL.txt'));
+    }).toThrow(/Missing web asset|license/);
   });
 });

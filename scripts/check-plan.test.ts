@@ -345,3 +345,16 @@ describe('runSteps', () => {
     expect(statusLine(3)).toBe('CHECK FAIL (exit 3)');
   });
 });
+
+describe('TSX check planning', () => {
+  it.each([false, true])('lints and checks an isolated App.tsx change in prePush=%s', (prePush) => {
+    const plan = planCheck({
+      full: false,
+      prePush,
+      changed: [{ path: 'packages/web/src/App.tsx', deleted: false }],
+      packageDirs: ['packages/web', 'packages/core'],
+    });
+    expect(plan.lintFiles).toEqual(['packages/web/src/App.tsx']);
+    expect(plan.packageDirs).toEqual(['packages/web']);
+  });
+});

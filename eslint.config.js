@@ -1,6 +1,7 @@
 import comments from '@eslint-community/eslint-plugin-eslint-comments';
 import vitest from '@vitest/eslint-plugin';
 import { dirname, resolve, sep } from 'node:path';
+import { builtinModules } from 'node:module';
 import { defineConfig } from 'eslint/config';
 import tseslint from 'typescript-eslint';
 import maxLinesBaseline from './eslint/max-lines-baseline.ts';
@@ -35,10 +36,46 @@ const cliImportBoundary = {
   },
 };
 
+const webRoot = resolve(import.meta.dirname, 'packages/web');
+const browserEntry = resolve(contractsRoot, 'src/browser.ts');
+const nodeModules = new Set(builtinModules.map((name) => name.replace(/^node:/, '')));
+const webImportBoundary = {
+  meta: {
+    type: 'problem',
+    schema: [],
+    messages: {
+      outside: 'Web code imports only browser-safe dependencies and @spur-board/contracts/browser.',
+    },
+  },
+  create(context) {
+    const check = (node) => {
+      const source = node.source ?? node.argument;
+      const specifier = source?.value;
+      if (typeof specifier !== 'string') return;
+      let forbidden = specifier.startsWith('node:') || nodeModules.has(specifier);
+      if (specifier.startsWith('@spur-board/'))
+        forbidden ||= specifier !== '@spur-board/contracts/browser';
+      if (specifier.startsWith('.')) {
+        const target = resolve(dirname(context.filename), specifier);
+        forbidden ||= !within(webRoot, target) && target !== browserEntry;
+      }
+      if (forbidden) context.report({ node: source, messageId: 'outside' });
+    };
+    return {
+      ImportDeclaration: check,
+      ExportNamedDeclaration: check,
+      ExportAllDeclaration: check,
+      ImportExpression: check,
+      TSImportType: check,
+    };
+  },
+};
+
 // One plugin object: ESLint rejects two different objects under the same plugin name.
 const local = {
   rules: {
     'cli-import-boundary': cliImportBoundary,
+    'web-import-boundary': webImportBoundary,
     'no-project-literal-compare': noProjectLiteralCompare,
     'skip-needs-flaky-issue': skipNeedsFlakyIssue,
   },
@@ -221,6 +258,7 @@ const wallTimeBans = [
 ].map((selector) => ({ selector, message: wallTimeMessage }));
 
 export default defineConfig(
+  { files: ['**/*.tsx'] },
   {
     // ESLint does not read .gitignore.
     ignores: [
@@ -278,7 +316,7 @@ export default defineConfig(
     rules: { 'local/no-project-literal-compare': 'error' },
   },
   {
-    files: ['**/*.ts', '**/*.js'],
+    files: ['**/*.ts', '**/*.tsx', '**/*.js'],
     ignores: sqliteBoundaryIgnores,
     rules: {
       'no-restricted-imports': ['error', globalImportOptions],
@@ -461,6 +499,31 @@ export default defineConfig(
         {
           selector: "ImportExpression[source.value!='./cli.ts'][source.value!='./mcp.ts']",
           message: 'The CLI entrypoint may dynamically import only its own command modules.',
+        },
+      ],
+    },
+  },
+  {
+    files: ['packages/web/src/**/*.{ts,tsx}', 'packages/web/test/**/*.ts'],
+    plugins: { local },
+    rules: {
+      'local/web-import-boundary': 'error',
+      'no-restricted-syntax': [
+        'error',
+        viMockBan,
+        sqliteImportBan,
+        sqliteTypeImportBan,
+        {
+          selector: "JSXAttribute[name.name='dangerouslySetInnerHTML']",
+          message: 'Render untrusted facts as text.',
+        },
+        {
+          selector: 'AssignmentExpression[left.property.name=/^(innerHTML|outerHTML)$/]',
+          message: 'Render untrusted facts as text.',
+        },
+        {
+          selector: "CallExpression[callee.property.name='insertAdjacentHTML']",
+          message: 'Render untrusted facts as text.',
         },
       ],
     },

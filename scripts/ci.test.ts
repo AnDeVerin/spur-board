@@ -503,3 +503,18 @@ describe('ci.ts CLI', () => {
     expect(box.run(box.dir, { NEEDS: needs, GITHUB_EVENT_NAME: 'push' }, 'ok').status).toBe(0);
   });
 });
+
+describe('web CI build prerequisites', () => {
+  it.each(['quality', 'test', 'package-smoke'])(
+    '%s builds web after installing dependencies',
+    (name) => {
+      const source = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8');
+      const job =
+        source.slice(source.indexOf(`\n  ${name}:`) + 1).split(/\n  [a-z][a-z-]*:/)[0] ?? '';
+      expect(job.indexOf('pnpm install --frozen-lockfile')).toBeGreaterThan(-1);
+      expect(job.indexOf('pnpm --filter @spur-board/web build')).toBeGreaterThan(
+        job.indexOf('pnpm install --frozen-lockfile'),
+      );
+    },
+  );
+});

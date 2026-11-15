@@ -1,3 +1,4 @@
+import { verifyWebAssets } from './package.ts';
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import {
   existsSync,
@@ -351,6 +352,13 @@ export const smokeSteps: readonly SmokeStep[] = [
     baseline: true,
     async run(ctx) {
       verifyVersion(await command(ctx.binary, ['--version'], ctx.env), ctx.expectedVersion);
+    },
+  },
+  {
+    name: 'web assets',
+    run(ctx) {
+      verifyWebAssets(join(ctx.packageRoot, 'dist/web'), join(ctx.packageRoot, 'OFL.txt'));
+      return Promise.resolve();
     },
   },
   {

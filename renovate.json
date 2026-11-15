@@ -58,7 +58,9 @@
         "kysely",
         "pino",
         "yaml",
-        "zod"
+        "zod",
+        "react",
+        "react-dom"
       ],
       "groupName": "runtime dependencies",
       "semanticCommitType": "fix"

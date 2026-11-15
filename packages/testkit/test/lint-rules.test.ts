@@ -21,7 +21,7 @@ async function ruleIds(fixture: string): Promise<(string | null)[]> {
 const virtual = new ESLint({
   cwd: root,
   ignore: false,
-  overrideConfig: [{ files: ['**/*.{ts,mjs}'], ...tseslint.configs.disableTypeChecked }],
+  overrideConfig: [{ files: ['**/*.{ts,tsx,mjs}'], ...tseslint.configs.disableTypeChecked }],
 });
 
 async function textRuleIds(code: string, path: string): Promise<(string | null)[]> {
@@ -763,4 +763,49 @@ describe('stand boundary', () => {
     },
     30_000,
   );
+});
+
+describe('web browser boundary', () => {
+  it.each([
+    "import { x } from '@spur-board/core';",
+    "import type { X } from '@spur-board/daemon';",
+    "export * from '@spur-board/core';",
+    "export { x } from '@spur-board/contracts';",
+    "const x = import('@spur-board/daemon');",
+    "type X = import('@spur-board/core').X;",
+    "import { x } from '../../core/src/index.ts';",
+    "const x = import('../../daemon/src/index.ts');",
+    "import fs from 'node:fs';",
+    "import fs from 'fs';",
+    "import { OPERATIONS } from '../../contracts/src/ops/catalog.ts';",
+  ])(
+    'rejects %s in TS and TSX',
+    async (code) => {
+      for (const ext of ['ts', 'tsx'])
+        expect(await textRuleIds(code, `packages/web/src/x.${ext}`)).toContain(
+          'local/web-import-boundary',
+        );
+    },
+    30000,
+  );
+  it.each([
+    "import { browserOperations } from '@spur-board/contracts/browser';",
+    "import { createApi } from './lib/api.ts';",
+  ])(
+    'allows %s',
+    async (code) => {
+      expect(await textRuleIds(code, 'packages/web/src/x.tsx')).not.toContain(
+        'local/web-import-boundary',
+      );
+    },
+    30000,
+  );
+  it('rejects HTML injection in JSX', async () => {
+    expect(
+      await textRuleIds(
+        'export const view = <div dangerouslySetInnerHTML={{ __html: value }} />;',
+        'packages/web/src/x.tsx',
+      ),
+    ).toContain('no-restricted-syntax');
+  });
 });

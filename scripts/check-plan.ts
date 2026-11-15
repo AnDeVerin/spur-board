@@ -114,7 +114,7 @@ const GLOBAL_FILES = new Set([
   'knip.json',
 ]);
 const GLOBAL_DIRS = ['eslint/', 'scripts/', 'packages/testkit/', 'packages/skills/'];
-const LINT_EXTENSIONS = /\.(ts|mts|cts|js|mjs|cjs)$/;
+const LINT_EXTENSIONS = /\.(ts|tsx|mts|cts|js|mjs|cjs)$/;
 // A change to any of these runs the agents step (`node scripts/agents.ts lint`).
 const AGENT_DIRS = ['.agents/', '.claude/', '.codex/'];
 const AGENT_FILES = new Set(['AGENTS.md', 'scripts/agents.ts']);

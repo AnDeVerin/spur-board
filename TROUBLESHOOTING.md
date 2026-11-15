@@ -437,3 +437,16 @@ review team. Use a **classic personal access token with the `repo` and `read:org
 authorize it for organization SSO where applicable. Put it in `GITHUB_TOKEN` through private
 local input, restart the service, and rerun `board doctor`. A GitHub App with the needed
 permissions may be an alternative in a future release.
+
+## Web shell assets
+
+Build a checkout's UI with `pnpm --filter @spur-board/web build`, or assemble the published
+package with `pnpm package:build`. Packaging checks `dist/web/index.html`, every referenced
+JS/CSS/font, and the top-level `OFL.txt`; a missing asset fails the installed smoke test.
+A future “UI not built” 503 from the #530 listener calls for rebuilding/reinstalling those
+assets. This shell package does not yet add that listener or the #533 stream server.
+
+The footer distinguishes an initial unavailable status from a later stale read: refresh errors
+keep the last count and source names. Stream reconnecting/offline also marks data stale and
+continues recovery. Theme switching works independently of status reads and tolerates blocked
+browser storage. Auto follows the system; explicit Light/Dark choices stay fixed.

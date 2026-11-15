@@ -52,7 +52,60 @@ export function assembleSkills(
   }
 }
 
+/** Verify the installed web graph, including CSS font references. */
+export function verifyWebAssets(webRoot: string, license: string): void {
+  if (!existsSync(license)) throw new Error('Web font license OFL.txt is missing.');
+  const pending = ['index.html'];
+  const seen = new Set<string>();
+  for (const file of pending) {
+    if (seen.has(file)) continue;
+    seen.add(file);
+    if (
+      !/^(?:index[.]html|assets\/[A-Za-z0-9_-]+-[A-Za-z0-9_-]{8,}[.](?:js|css|woff2))$/.test(file)
+    )
+      throw new Error(`Unexpected web reference: ${file}`);
+    const path = join(webRoot, file);
+    if (!existsSync(path)) throw new Error(`Missing web asset: ${file}`);
+    if (!/[.](html|css)$/.test(file)) continue;
+    const source = readFileSync(path, 'utf8');
+    const references =
+      file === 'index.html'
+        ? [...source.matchAll(/(?:src|href)=['"]([^'"]+)['"]/g)].map((match) => match[1] ?? '')
+        : [...source.matchAll(/url\((?:['"])?([^)'"\s]+)(?:['"])?\)/g)].map(
+            (match) => match[1] ?? '',
+          );
+    for (const reference of references)
+      pending.push(
+        reference.startsWith('/')
+          ? reference.slice(1)
+          : file === 'index.html'
+            ? reference
+            : `assets/${reference.replace(/^\.\//, '')}`,
+      );
+  }
+  if (
+    ![...seen].some((file) => file.endsWith('.js')) ||
+    ![...seen].some((file) => file.endsWith('.css')) ||
+    ![...seen].some((file) => file.endsWith('.woff2'))
+  )
+    throw new Error('Web output must reference JS, CSS and local fonts.');
+}
+
+/** Copy only after the CLI clean build, replacing any old web assets. */
+export function assembleWeb(
+  source = join(root, 'packages/web/dist'),
+  destination = join(packageRoot, 'dist/web'),
+  license = join(packageRoot, 'OFL.txt'),
+): void {
+  verifyWebAssets(source, join(root, 'packages/web/OFL.txt'));
+  rmSync(destination, { recursive: true, force: true });
+  cpSync(source, destination, { recursive: true });
+  cpSync(join(root, 'packages/web/OFL.txt'), license);
+  verifyWebAssets(destination, license);
+}
+
 export function buildPackage(): void {
+  run('pnpm', ['--filter', '@spur-board/web', 'build']);
   run('pnpm', ['build'], packageRoot);
   const dist = join(packageRoot, 'dist');
   const source = readFileSync(join(packageRoot, 'src/bin.mjs'), 'utf8');
@@ -83,6 +136,7 @@ export function buildPackage(): void {
   cpSync(join(root, 'packages/core/src/store/migrations'), join(dist, 'migrations'), {
     recursive: true,
   });
+  assembleWeb();
   assembleSkills();
 }
 
@@ -97,6 +151,8 @@ export function validateTarball(entries: readonly string[], manifest: PackageMan
   for (const required of [
     'package/README.md',
     'package/LICENSE',
+    'package/OFL.txt',
+    'package/dist/web/index.html',
     'package/package.json',
     'package/skills/spur-board/SKILL.md',
     'package/skills/setup/SKILL.md',
@@ -115,11 +171,17 @@ export function validateTarball(entries: readonly string[], manifest: PackageMan
     }
     const runtime =
       /^package\/dist\/(?:bin|cli|client|daemon|mcp|chunk-[A-Za-z0-9_-]{8})\.mjs$/.test(entry);
+    const web =
+      /^package\/dist\/web\/(?:index[.]html|assets\/[A-Za-z0-9_-]+-[A-Za-z0-9_-]{8,}[.](?:js|css|woff2))$/.test(
+        entry,
+      );
     const migration = /^package\/dist\/migrations\/\d{4}_[a-z0-9_]+\.sql$/.test(entry);
     if (
       entry !== 'package/package.json' &&
       entry !== 'package/README.md' &&
       entry !== 'package/LICENSE' &&
+      entry !== 'package/OFL.txt' &&
+      !web &&
       !runtime &&
       !migration &&
       !entry.startsWith('package/skills/')

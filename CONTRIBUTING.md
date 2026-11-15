@@ -43,3 +43,28 @@ A check passes only when its exit code is 0.
 Every change needs the code owner's approval ([.github/CODEOWNERS](.github/CODEOWNERS)). The
 maintainer merges by hand with a squash merge; the squash commit takes the PR title. Review
 changes go in new commits; never force-push a pushed branch.
+
+## Web shell
+
+Build the private React/Vite package with `pnpm --filter @spur-board/web build`; typecheck with
+`pnpm --filter @spur-board/web typecheck`. Unit tests run through the root Vitest unit project:
+`pnpm exec vitest run --project unit packages/web/test scripts/web.test.ts` (build first).
+Components use CSS Modules and custom properties from `packages/web/src/ds/tokens.css`; the
+empty `ds/index.ts` is reserved for the design system. Keep prototype token names and values.
+Raw hex/RGB literals outside the token file fail the style policy test. Primary, secondary and
+status text meet 4.5:1; tertiary text and the attention chip are deliberate prototype exemptions.
+The shell uses secondary text. Future quiet text components must raise tertiary to secondary on
+hover, focus-within and touch, as described in #535.
+
+JetBrains Mono is local, emitted as hashed WOFF2 files, with `packages/web/OFL.txt` copied into
+the published package. No external font requests or HTML injection. Browser code imports the
+narrow `@spur-board/contracts/browser` entry; the build rejects server/catalog modules.
+`pnpm package:build` builds web, runs the CLI clean build, then copies web output and verifies
+its asset graph. React and React DOM ship in those assets; Vite remains build tooling.
+
+Before the production web listener (#530) and stream server (#533) land, exercise the shell with
+`node scripts/web-shell-qa.ts --port 4780` through a disposable session sidecar after building.
+This loopback fixture serves controlled status/stream scenarios; it is never packaged. POST to
+`/__qa/scenario/loading|empty|healthy|mixed|read-error|refresh-error|recovered|stream-drop`;
+POST `/__qa/release` releases held loading reads. The footer displays the CLI version embedded
+at build time; #547 will switch it to the daemon version without changing this shell's wire API.
