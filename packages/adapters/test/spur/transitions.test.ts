@@ -34,7 +34,7 @@ describe('Spur transition feed', () => {
   it('reads both kinds without link filters, in order, before reconciliation', async () => {
     const calls: URL[] = [];
     const source = adapter((input) => {
-      const url = new URL(String(input));
+      const url = new URL(input instanceof Request ? input.url : input);
       calls.push(url);
       return Promise.resolve(
         Response.json(
@@ -95,7 +95,7 @@ describe('Spur transition feed', () => {
   it('bounds each tick to four pages and resumes raw positions after recreation', async () => {
     const seen: string[] = [];
     const fetcher: typeof fetch = (input) => {
-      const url = new URL(String(input));
+      const url = new URL(input instanceof Request ? input.url : input);
       if (url.pathname === '/sessions') return Promise.resolve(Response.json([session]));
       const since = url.searchParams.get('since') ?? 'position-0';
       seen.push(since);
@@ -131,7 +131,7 @@ describe('Spur transition feed', () => {
   it('resyncs an expired cursor once and resumes strict-after the new baseline', async () => {
     const requests: URL[] = [];
     const source = adapter((input) => {
-      const url = new URL(String(input));
+      const url = new URL(input instanceof Request ? input.url : input);
       requests.push(url);
       return Promise.resolve(
         url.pathname === '/sessions'
@@ -152,23 +152,19 @@ describe('Spur transition feed', () => {
     ).toEqual(['old', 'fresh']);
   });
 
-  it.each(['malformed', '500', '400', 'invalid410', 'duplicate', 'abort'])(
+  it.each(['malformed', '500', '400', 'invalid410', 'duplicate'])(
     'rejects a later %s page without returning progress',
     async (failure) => {
       const ctx = context('original');
       let calls = 0;
       const source = adapter((input) => {
-        const url = new URL(String(input));
+        const url = new URL(input instanceof Request ? input.url : input);
         expect(url.pathname).toBe('/sessions/transitions');
         calls++;
         if (calls === 1)
           return Promise.resolve(
             Response.json({ entries: [edge], nextCursor: edge.cursor, hasMore: true }),
           );
-        if (failure === 'abort') {
-          ctx.signal.throwIfAborted();
-          return Promise.reject(new Error('aborted'));
-        }
         if (failure === '500' || failure === '400')
           return Promise.resolve(Response.json({}, { status: Number(failure) }));
         if (failure === 'invalid410')
@@ -191,7 +187,7 @@ describe('Spur transition feed', () => {
     const source = adapter((input) =>
       Promise.resolve(
         Response.json(
-          new URL(String(input)).pathname === '/sessions'
+          new URL(input instanceof Request ? input.url : input).pathname === '/sessions'
             ? [{ ...session, state, rateLimitResetAt: at }]
             : { entries: [], nextCursor: 'stable', hasMore: false },
         ),
@@ -205,4 +201,26 @@ describe('Spur transition feed', () => {
     state = 'working';
     expect((await source.poll(context())).items[0]?.facts).not.toHaveProperty('rateLimitResetAt');
   });
+});
+
+it('propagates an abort on the second page without reading snapshots or returning progress', async () => {
+  const controller = new AbortController();
+  let calls = 0;
+  const source = adapter((_input, init) => {
+    calls++;
+    if (calls === 1)
+      return Promise.resolve(
+        Response.json({ entries: [edge], nextCursor: edge.cursor, hasMore: true }),
+      );
+    return new Promise((_resolve, reject) => {
+      init?.signal?.addEventListener('abort', () => {
+        reject(new Error('cancelled'));
+      });
+      controller.abort();
+    });
+  });
+  await expect(source.poll({ ...context(), signal: controller.signal })).rejects.toThrow(
+    'Spur poll aborted',
+  );
+  expect(calls).toBe(2);
 });

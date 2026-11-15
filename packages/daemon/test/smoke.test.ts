@@ -24,6 +24,10 @@ function fakeFetch(failGithub = false): typeof fetch {
     if (url.pathname.endsWith('/issues/9'))
       return Promise.resolve(new Response('', { status: 404 }));
     if (url.pathname.endsWith('/issues')) return Promise.resolve(Response.json([]));
+    if (url.pathname === '/sessions/transitions')
+      return Promise.resolve(
+        Response.json({ entries: [], nextCursor: 'synthetic-empty', hasMore: false }),
+      );
     if (url.pathname === '/sessions') return Promise.resolve(Response.json([]));
     throw new Error(`Unexpected fake URL ${url.pathname}`);
   };
