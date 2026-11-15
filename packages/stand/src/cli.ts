@@ -111,8 +111,12 @@ const USAGE = `Usage: pnpm stand <command>
                                   --repo defaults to ${DEFAULT_FAKE_REPO}
   fake github pr <n> comment [--author login] [--bot]
   fake github pr <n> review <approved|changes-requested|commented> [--author login] [--bot]
+                                  [--threads n]
                                   add a comment, or a review on the head, at the stand clock;
-                                  the author defaults to stand-reviewer, or stand-bot with --bot
+                                  the author defaults to stand-reviewer, or stand-bot with --bot;
+                                  --threads opens n unresolved review threads with the review
+  fake github pr <n> resolve [--thread id]
+                                  resolve the review thread id (PRRT_<n>_<i>), or every thread
   fake github pr <n> edit <index>
                                   edit comment <index> (0 is the oldest) at the stand clock;
                                   the pull request's updatedAt stays
@@ -174,6 +178,7 @@ const FAKE_PR_VERBS = [
   'push',
   'comment',
   'review',
+  'resolve',
   'edit',
 ];
 const REVIEW_STATES = new Map([
@@ -556,6 +561,8 @@ function prBody(
     seed?: string | undefined;
     author?: string | undefined;
     bot?: boolean | undefined;
+    threads?: string | undefined;
+    thread?: string | undefined;
   },
 ): Record<string, unknown> {
   const [number, verb, value, ...extra] = args;
@@ -585,6 +592,12 @@ function prBody(
   const feedback = verb === 'comment' || verb === 'review';
   if (!feedback && (values.author !== undefined || values.bot !== undefined))
     throw new UsageError('--author and --bot go only with comment or review');
+  if (values.threads !== undefined && verb !== 'review')
+    throw new UsageError('--threads goes only with review');
+  if (values.threads !== undefined && !/^(0|[1-9]\d*)$/.test(values.threads))
+    throw new UsageError(`--threads must be a whole number, got ${values.threads}`);
+  if (values.thread !== undefined && verb !== 'resolve')
+    throw new UsageError('--thread goes only with resolve');
   return {
     system: 'github',
     verb,
@@ -596,6 +609,8 @@ function prBody(
       ...(state === undefined ? {} : { state }),
       ...(values.author === undefined ? {} : { author: values.author }),
       ...(values.bot === true ? { bot: true } : {}),
+      ...(values.threads === undefined ? {} : { threads: Number(values.threads) }),
+      ...(values.thread === undefined ? {} : { thread: values.thread }),
       ...(values.seed === undefined ? {} : { seed: seedOf(values.seed) }),
     },
   };
@@ -656,6 +671,8 @@ export function fakeBody(
     status?: string | undefined;
     author?: string | undefined;
     bot?: boolean | undefined;
+    threads?: string | undefined;
+    thread?: string | undefined;
     times?: string | undefined;
   },
 ): Record<string, unknown> {
@@ -672,6 +689,8 @@ export function fakeBody(
     throw new UsageError('--seed goes only with fake github pr');
   if (!pr && (values.author !== undefined || values.bot !== undefined))
     throw new UsageError('--author and --bot go only with fake github pr');
+  if (!pr && (values.threads !== undefined || values.thread !== undefined))
+    throw new UsageError('--threads and --thread go only with fake github pr');
   if (!issue && !jiraIssue && values.title !== undefined)
     throw new UsageError('--title goes only with fake github issue or fake jira issue');
   if (!jiraIssue && values.status !== undefined)
@@ -782,6 +801,8 @@ async function main(argv: string[]): Promise<number> {
           status: { type: 'string' },
           author: { type: 'string' },
           bot: { type: 'boolean' },
+          threads: { type: 'string' },
+          thread: { type: 'string' },
           times: { type: 'string' },
         },
       });

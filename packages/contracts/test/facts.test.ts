@@ -341,6 +341,26 @@ describe('stored facts', () => {
     ]);
   });
 
+  it('parses review threads with and without their id, url and outdated flag', () => {
+    const thread = {
+      resolved: false,
+      id: 'PRRT_1',
+      url: 'https://github.com/o/r/pull/7#discussion_r1',
+      outdated: true,
+    };
+    const input = { ...prFacts(), reviewThreads: [{ resolved: true }, thread] };
+    expect(prFactsSchema.parse(input).reviewThreads).toEqual([{ resolved: true }, thread]);
+  });
+
+  it.each([
+    ['an empty id', { resolved: false, id: '' }, 'reviewThreads[0].id'],
+    ['a url that is not a web URL', { resolved: false, url: 'ftp://x/y' }, 'reviewThreads[0].url'],
+    ['an unknown key', { resolved: false, path: 'a.ts' }, 'reviewThreads[0]'],
+  ])('rejects a review thread with %s at its path', (_name, thread, path) => {
+    const error = errorFor(prFactsSchema, { ...prFacts(), reviewThreads: [thread] });
+    expect(pathLines(error)).toContain(`→ at ${path}`);
+  });
+
   it('parses a status comment flag only as true', () => {
     const input = prFacts();
     const [comment] = input['feedback'] as Record<string, unknown>[];

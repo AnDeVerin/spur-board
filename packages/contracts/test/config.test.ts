@@ -79,6 +79,7 @@ const adapterDefaults: Pick<Config, 'adapters' | 'sources' | 'github' | 'health'
   sources: { authRetryMs: 900_000, goneAfterPolls: 3 },
   github: { reserveRemaining: 1000 },
   health: {
+    turnStallAfterMs: 600_000,
     errorAfterMs: 90_000,
     needsInputAfterMs: 120_000,
     idleInDevAfterMs: 1_800_000,
@@ -450,6 +451,14 @@ describe('invalid configs', () => {
       'projects[0].columns[1].enabled',
     ],
     [
+      'resolved threads required on done',
+      validConfig({
+        columns: [...columns('todo', 'dev'), { id: 'done', requireResolvedThreads: true }],
+      }),
+      'Column "done" cannot require resolved threads: set it on a column from dev to ready-to-merge',
+      'projects[0].columns[2].requireResolvedThreads',
+    ],
+    [
       'built-in columns out of order',
       validConfig({ columns: columns('todo', 'dev', 'qa', 'review', 'done') }),
       'Column "review" is out of order: built-in columns go in the order todo, ready-for-dev, dev, review, product-review, external-review, qa, ready-to-merge, done',
@@ -733,6 +742,18 @@ describe('invalid configs', () => {
       'adapters.spur.baseUrl',
     ],
     [
+      'zero turn-stall duration',
+      validConfig({}, { health: { turnStallAfterMs: 0 } }),
+      'Too small: expected number to be >=1',
+      'health.turnStallAfterMs',
+    ],
+    [
+      'negative turn-stall duration',
+      validConfig({}, { health: { turnStallAfterMs: -1 } }),
+      'Too small: expected number to be >=1',
+      'health.turnStallAfterMs',
+    ],
+    [
       'zero error-after duration',
       validConfig({}, { health: { errorAfterMs: 0 } }),
       'Too small: expected number to be >=1',
@@ -966,6 +987,7 @@ describe('JSON Schema', () => {
       '.health.hostLoad.windowMs',
       '.health.idleInDevAfterMs',
       '.health.needsInputAfterMs',
+      '.health.turnStallAfterMs',
       '.projects[].dispatcher.submitConfirmMs',
       '.sources.authRetryMs',
       '.thresholds.blockOpenMs',

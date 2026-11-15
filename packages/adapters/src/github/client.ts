@@ -60,9 +60,10 @@ const REVIEW_FIELDS =
 const COMMENT_FIELDS =
   'nodes { id author { __typename login } createdAt body url lastEditedAt } pageInfo { hasPreviousPage startCursor }';
 // Each thread's newest 100 inline comments, thread replies included, give each review its inline
-// comments with their URL and thread id; a review is found by id, never through `replyTo`.
+// comments with their URL and thread id; a review is found by id, never through `replyTo`. A
+// thread has no URL of its own; its first listed comment's URL links it.
 const THREAD_FIELDS =
-  'id isResolved comments(last: 100) { nodes { id url lastEditedAt pullRequestReview { id } } }';
+  'id isResolved isOutdated comments(last: 100) { nodes { id url lastEditedAt pullRequestReview { id } } }';
 const CLOSING_FIELDS =
   'nodes { number repository { nameWithOwner } } pageInfo { hasNextPage endCursor }';
 // `closing` adds the issues a PR closes; only the tracker repo of a github-issues project

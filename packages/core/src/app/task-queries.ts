@@ -12,10 +12,10 @@ import {
 import { sql, type Selectable } from 'kysely';
 import { dispatchHolds } from '../domain/dispatch.ts';
 import { evaluateGate, explainGates, HOLD_ONLY, type HoldOnlyReason } from '../domain/gates.ts';
-import type { TaskTable, TurnTable } from '../store/schema.ts';
+import type { TaskTable } from '../store/schema.ts';
 import { authorize, projectTarget } from './authorize.ts';
 import { blockView, commentView, subjectTarget, taskTarget } from './blocks.ts';
-import { eventActor, linkView, moveViews, taskView, turnReturn, type Trx } from './board-utils.ts';
+import { eventActor, linkView, moveViews, taskView, type Trx } from './board-utils.ts';
 import { CommandError } from './commands.ts';
 import { courseKeyPrefix, cycleKeyPrefix } from './course-check.ts';
 import { blindSources, readInput } from './dispatch.ts';
@@ -25,10 +25,10 @@ import type { Query } from './queries.ts';
 import { blockSubject, rowSubject, taskSubject } from './subject.ts';
 import { taskTurns } from './task-turns.ts';
 import { taskSessions } from './task-sessions.ts';
-import { turnHanded, turnNotification } from './turns.ts';
+import { turnView } from './turn-view.ts';
+import { turnNotification } from './turns.ts';
 
 type Task = Selectable<TaskTable>;
-type Turn = Selectable<TurnTable>;
 
 /** How many of the last moves `task.get --why` shows. */
 const WHY_MOVES = 5;
@@ -176,25 +176,6 @@ async function taskByKey(trx: Trx, key: string) {
   return task;
 }
 
-async function turnView(trx: Trx, turn: Turn, key: string) {
-  const returned = await turnReturn(trx, turn);
-  return {
-    id: `T${String(turn.id)}`,
-    task: key,
-    column: turn.column,
-    addressee: turn.role,
-    reason: turn.reason,
-    handed: turnHanded(turn),
-    ...(returned === undefined ? {} : { returned }),
-    head: turn.head_sha,
-    at: turn.created_at,
-    taken:
-      turn.acked_by === null || turn.acked_at === null
-        ? null
-        : { by: turn.acked_by, at: turn.acked_at },
-  };
-}
-
 import { refreshPrs } from './pr-refresh.ts';
 import type { PrPoller } from '@spur-board/contracts';
 
@@ -225,12 +206,12 @@ export function createTaskQueries(deps: {
       .where('closed_at', 'is', null)
       .orderBy('id', 'desc')
       .executeTakeFirst();
+    const project = config.projects.find((entry) => entry.id === task.project);
     const shared = {
       column,
-      turn: open === undefined ? null : await turnView(trx, open, task.key),
+      turn: open === undefined ? null : await turnView(trx, open, task, project),
       moves: await moveViews(trx, task.id, { limit: WHY_MOVES }),
     };
-    const project = config.projects.find((entry) => entry.id === task.project);
     if (project === undefined)
       return { ...shared, dispatcher: null, holds: [], gates: [], checksWaivedBy: null };
     const mode = project.dispatcher.mode;
@@ -411,7 +392,7 @@ export function createTaskQueries(deps: {
       .selectFrom('turn')
       .innerJoin('task', 'task.id', 'turn.task_id')
       .selectAll('turn')
-      .select('task.key')
+      .select(['task.key', 'task.project'])
       .where('task.project', 'in', [...projects])
       .where('turn.closed_at', 'is', null)
       .where('turn.role', '!=', 'operator')
@@ -432,7 +413,8 @@ export function createTaskQueries(deps: {
         )
           continue;
       }
-      turns.push(await turnView(trx, turn, turn.key));
+      const project = config.projects.find((entry) => entry.id === turn.project);
+      turns.push(await turnView(trx, turn, { id: turn.task_id, key: turn.key }, project));
     }
     return turns;
   }

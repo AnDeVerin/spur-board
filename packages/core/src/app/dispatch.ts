@@ -866,6 +866,8 @@ export async function readInput(
         externalReviewApproved: pr !== null && externalApproval(pr, project.operatorGithubLogin),
         commentHistory: pr?.feedbackComplete === true ? 'complete' : 'incomplete',
         unhandledExternalComments: unhandled.length,
+        unresolvedThreads:
+          pr === null ? 0 : pr.reviewThreads.filter((thread) => !thread.resolved).length,
         marks,
       },
       reopened:

@@ -71,6 +71,7 @@ function input(changes: Changes = {}): Input {
       externalReviewApproved: false,
       commentHistory: 'complete',
       unhandledExternalComments: 0,
+      unresolvedThreads: 0,
       marks: [submit('dev')],
       ...facts,
     },
@@ -535,6 +536,75 @@ const cases: [string, Changes, Result][] = [
       turn: turn('entry', 'ready-to-merge', 'not_merged'),
     },
   ],
+  [
+    'review ignores unresolved threads left of Ready to Merge',
+    { facts: { unresolvedThreads: 1 } },
+    { moves: [right('dev', 'review')], turn: turn('entry', 'review', 'no_review_on_head') },
+  ],
+  [
+    'returns from Ready to Merge on an unresolved thread, counted as a submit bounce',
+    {
+      facts: {
+        marks: [submit('dev'), mark('review'), mark('product-review')],
+        unresolvedThreads: 1,
+      },
+    },
+    {
+      moves: [
+        right('dev', 'review'),
+        right('review', 'product-review'),
+        right('product-review', 'ready-to-merge'),
+        left('ready-to-merge', 'dev', 'unresolved_threads'),
+      ],
+      turn: turn('entry', 'dev', 'unresolved_threads', 'no_submit_on_head'),
+    },
+  ],
+  [
+    'an approval with inline notes passes External Review and returns from Ready to Merge',
+    {
+      column: 'external-review',
+      board: disable(ALL, 'ready-for-dev', 'qa'),
+      facts: {
+        marks: [submit('dev'), mark('review'), mark('product-review')],
+        externalReviewApproved: true,
+        unresolvedThreads: 2,
+      },
+    },
+    {
+      moves: [
+        right('external-review', 'ready-to-merge'),
+        left('ready-to-merge', 'dev', 'unresolved_threads'),
+      ],
+      turn: turn('entry', 'dev', 'unresolved_threads', 'no_submit_on_head'),
+    },
+  ],
+  [
+    'a taken Ready to Merge turn holds an unresolved-thread return',
+    {
+      column: 'ready-to-merge',
+      facts: {
+        marks: [submit('dev'), mark('review'), mark('product-review')],
+        unresolvedThreads: 1,
+      },
+      turn: { visit: 'unclosed', open: true },
+    },
+    nothing,
+  ],
+  [
+    'a first Dev turn names unresolved threads on a project requiring them',
+    { facts: { marks: [], unresolvedThreads: 1 } },
+    { moves: [], turn: turn('entry', 'dev', 'unresolved_threads', 'no_submit_on_head') },
+  ],
+  [
+    'a Dev turn ignores unresolved threads when no column requires them',
+    { board: disable(SB, 'ready-to-merge'), facts: { marks: [], unresolvedThreads: 1 } },
+    { moves: [], turn: turn('entry', 'dev', 'no_submit_on_head') },
+  ],
+  [
+    'a Dev turn on a closed PR does not name unresolved threads',
+    { pr: { state: 'closed' }, submitFailed: true, facts: { unresolvedThreads: 1 } },
+    { moves: [], turn: turn('entry', 'dev', 'pr_closed') },
+  ],
 ];
 
 describe('dispatch', () => {
@@ -609,6 +679,12 @@ describe('returnCauses', () => {
       ['draft', 'checks_red', 'conflict'],
     ],
     ['external comments', ['external_comments', 'no_submit_on_head'], false, ['external_comments']],
+    [
+      'unresolved threads',
+      ['unresolved_threads', 'no_submit_on_head'],
+      false,
+      ['unresolved_threads'],
+    ],
     ['an executor return with a conflict', ['conflict'], true, ['executor', 'conflict']],
     ['unmapped reasons only', ['pr_closed', 'no_pr', 'checks_pending'], false, []],
   ])('%s', (_name, gate, byExecutor, expected) => {

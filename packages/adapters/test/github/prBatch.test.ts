@@ -283,7 +283,7 @@ describe('GitHub PR batch', () => {
     expect(bootstrapQuery).not.toContain('closingIssuesReferences');
     const issuesQuery = detailQuery([7], true);
     expect(createHash('sha256').update(issuesQuery).digest('hex')).toBe(
-      '21ae5dfc44e54d85e1bc1bbd04fbea9a7b047e9eba6c99eaca732fd88d3f3544',
+      '40fadb899c0ab6d2242ee27b16dd8bacd45188495efc3644dcc03ec25efeb9c9',
     );
     expect(issuesQuery).toContain('closingIssuesReferences(first: 100)');
     for (const selection of [details, pageQuery('reviewRequests')]) {
@@ -378,6 +378,32 @@ describe('GitHub PR batch', () => {
     expect(
       normalizePr('demo/widgets', { ...wire(), state: 'CLOSED' }, demoKeys, true),
     ).not.toHaveProperty('closedAt');
+  });
+  it('maps review thread ids, outdated flags and first comment URLs', () => {
+    const url = 'https://github.com/demo/widgets/pull/7#discussion_r1';
+    const pr = {
+      ...wire(),
+      reviewThreads: conn([
+        {
+          id: 'PRRT_1',
+          isResolved: false,
+          isOutdated: true,
+          comments: conn([{ id: 'PRRC_1', url }]),
+        },
+        { id: 'PRRT_2', isResolved: true, isOutdated: false, comments: conn([]) },
+        // A recording of the earlier selection carries the resolved flag alone.
+        { isResolved: false },
+      ]),
+    };
+    expect(normalizePr('demo/widgets', pr, demoKeys, true).reviewThreads).toEqual([
+      { resolved: false, id: 'PRRT_1', url, outdated: true },
+      { resolved: true, id: 'PRRT_2', outdated: false },
+      { resolved: false },
+    ]);
+    for (const query of [detailQuery([7]), pageQuery('reviewThreads')])
+      expect(query).toContain(
+        'nodes { id isResolved isOutdated comments(last: 100) { nodes { id url lastEditedAt pullRequestReview { id } } } }',
+      );
   });
   it('keeps the latest review opinion after a comment-only review', () => {
     const pr = wire();
@@ -550,6 +576,40 @@ describe('GitHub PR batch', () => {
     ]);
     expect(batch.budget?.remaining).toBe(4000);
     expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+  it('continues a PR review thread connection with each thread link', async () => {
+    const first = wire();
+    first.reviewThreads.pageInfo = { hasNextPage: true, endCursor: 'thread-next' };
+    const url = 'https://github.com/demo/widgets/pull/7#discussion_r2';
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        response({ repository: { pullRequests: conn([]) }, pr0: { pullRequest: first } }),
+      )
+      .mockResolvedValueOnce(
+        response({
+          repository: {
+            pullRequest: {
+              reviewThreads: conn([
+                {
+                  id: 'PRRT_2',
+                  isResolved: false,
+                  isOutdated: true,
+                  comments: conn([{ id: 'PRRC_2', url }]),
+                },
+              ]),
+            },
+          },
+        }),
+      );
+    const batch = await adapter(fetcher).poll(context());
+    expect(batch.items[0]?.kind === 'pr' && batch.items[0].facts.reviewThreads).toEqual([
+      { resolved: false },
+      { resolved: false, id: 'PRRT_2', url, outdated: true },
+    ]);
+    expect(sentQueries(fetcher, 'PrPage')[0]).toContain(
+      'reviewThreads(first: 100, after: $after) { nodes { id isResolved isOutdated comments(last: 100) { nodes { id url lastEditedAt pullRequestReview { id } } } }',
+    );
   });
   it('omits a PR with a scoped connection-page error and keeps other facts', async () => {
     const first = wire();
@@ -1800,9 +1860,12 @@ describe('PR feedback', () => {
         ],
       },
     ]);
-    expect(facts.reviewThreads).toEqual([{ resolved: false }, { resolved: true }]);
+    expect(facts.reviewThreads).toEqual([
+      { resolved: false, id: 'PRRT_1', url: `${prUrl}#discussion_r1` },
+      { resolved: true, id: 'PRRT_2', url: `${prUrl}#discussion_r4` },
+    ]);
     expect(detailsSent(fetcher)).toContain(
-      'reviewThreads(first: 100) { nodes { id isResolved comments(last: 100) { nodes { id url lastEditedAt pullRequestReview { id } } } }',
+      'reviewThreads(first: 100) { nodes { id isResolved isOutdated comments(last: 100) { nodes { id url lastEditedAt pullRequestReview { id } } } }',
     );
   });
 

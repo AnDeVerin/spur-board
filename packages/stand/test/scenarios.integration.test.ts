@@ -284,9 +284,12 @@ describe('scenarios', () => {
       'dispatch-ring-closed-turn',
       'dispatch-turn-view',
       'dispatch-reviewer-status-comment',
+      'dispatch-unresolved-thread',
+      'dispatch-approval-with-notes',
       'spur-transitions-rapid-recovery',
       'spur-transitions-cursor-expired',
       'spur-transitions-killed-holder',
+      'spur-turn-stall',
     ]);
     for (const scenario of SCENARIOS) {
       expect(typeof scenario.seed, scenario.name).toBe('function');
@@ -983,6 +986,46 @@ describe('curator scenarios', () => {
     return { task, id };
   }
 
+  it('spur-turn-stall: delivers to curator, escalates to operator, withdraws on recovery', async () => {
+    await up();
+    const { scenario } = await seed('spur-turn-stall');
+    const task = scenario.tasks?.['stall'];
+    const id = scenario.blocks?.['stall'];
+    if (task === undefined || id === undefined) throw new Error('Missing stall seed');
+    expect(await blockOf(task, id)).toMatchObject({ state: 'open', addressee: 'curator' });
+    expect(await sendsNaming(current().roles.curator, id)).toHaveLength(1);
+    const inbox = await asCurator(current(), ['inbox', '--json']);
+    expect(inbox.code, inbox.stderr).toBe(0);
+    expect(
+      (JSON.parse(inbox.stdout) as { blocks: { id: string }[] }).blocks.map((block) => block.id),
+    ).toContain(id);
+    const escalated = await asCurator(current(), [
+      'escalate',
+      id,
+      '--note',
+      'Operator intervention needed.',
+    ]);
+    expect(escalated.code, escalated.stderr).toBe(0);
+    await ok(current(), '/wait', { condition: 'outbox-drained', timeoutMs: 20_000 });
+    expect(await blockOf(task, id)).toMatchObject({ state: 'open', addressee: 'operator' });
+    expect((await slack()).some((message) => message.text.includes('remains needs_input'))).toBe(
+      true,
+    );
+    await ok(current(), '/fake', {
+      system: 'spur',
+      verb: 'session',
+      args: { id: current().roles.orchestrator, state: 'working' },
+    });
+    await ok(current(), '/poll');
+    await vi.waitFor(
+      async () => {
+        expect(await blockOf(task, id)).toMatchObject({ state: 'unblocked', outcome: 'withdrawn' });
+      },
+      { timeout: 20_000, interval: 100 },
+    );
+    expect((await history(task)).some((event) => event.kind === 'block_escalated')).toBe(true);
+  }, 60_000);
+
   it('question-to-curator: the curator reads its inbox, answers, and the worker is rung', async () => {
     const manifest = await up();
     const { scenario } = await seed('question-to-curator');
@@ -1297,6 +1340,7 @@ describe('dispatcher scenarios', () => {
     head: string | null;
     taken: { by: string } | null;
     handed: { kind: string; id: string }[];
+    threads?: { id: string; url: string; outdated: boolean }[];
   }
   interface Inbox {
     turns: TurnView[];
@@ -1813,6 +1857,76 @@ describe('dispatcher scenarios', () => {
         'dev',
         'ready-to-merge',
       ]);
+    },
+    TIMEOUT,
+  );
+
+  it(
+    'dispatch-unresolved-thread: a submit after resolving reaches Ready to Merge without a Review turn',
+    async () => {
+      await up();
+      await seed('dispatch-unresolved-thread');
+      expect((await moves()).at(-1)).toEqual({
+        from: 'ready-to-merge',
+        to: 'dev',
+        reason: 'gate_broken',
+        gate: ['unresolved_threads'],
+      });
+      const dev = await mustTurn(as('worker'));
+      expect(dev.reason).toBe('dev: unresolved_threads, no_submit_on_head');
+      expect(dev.threads).toEqual([
+        {
+          id: 'PRRT_1_0',
+          url: expect.stringMatching(/#discussion_r0$/) as unknown,
+          outdated: false,
+        },
+      ]);
+      const before = (await moves()).length;
+      const reviews = (await turnsIn('review')).length;
+
+      await github('resolve');
+      await ack(as('worker'), dev.id);
+      expect((await submit(as('worker'), dev.id, A)).task.column).toBe('ready-to-merge');
+      expect((await fromTo()).slice(before)).toEqual([
+        ['dev', 'review', 'gate_passed'],
+        ['review', 'ready-to-merge', 'gate_passed'],
+      ]);
+      expect(await turnsIn('review')).toHaveLength(reviews);
+    },
+    TIMEOUT,
+  );
+
+  it(
+    'dispatch-approval-with-notes: both notes resolved, a Dev submit reaches Ready to Merge with no new approval',
+    async () => {
+      await up();
+      await seed('dispatch-approval-with-notes');
+      expect((await fromTo()).slice(-2)).toEqual([
+        ['external-review', 'ready-to-merge', 'gate_passed'],
+        ['ready-to-merge', 'dev', 'gate_broken'],
+      ]);
+      const dev = await mustTurn(as('worker'));
+      expect(dev.threads?.map(({ id }) => id)).toEqual(['PRRT_1_0', 'PRRT_1_1']);
+      const before = (await moves()).length;
+
+      await github('resolve', { thread: 'PRRT_1_0' });
+      await github('resolve', { thread: 'PRRT_1_1' });
+      await ack(as('worker'), dev.id);
+      expect((await submit(as('worker'), dev.id, A)).task.column).toBe('ready-to-merge');
+      expect((await fromTo()).slice(before)).toEqual([
+        ['dev', 'review', 'gate_passed'],
+        ['review', 'external-review', 'gate_passed'],
+        ['external-review', 'ready-to-merge', 'gate_passed'],
+      ]);
+      const reviews = await withStore(async (store) => {
+        const row = await store.db
+          .selectFrom('pr_snapshot')
+          .select('detail')
+          .where('number', '=', 1)
+          .executeTakeFirstOrThrow();
+        return (JSON.parse(row.detail) as { reviews: unknown[] }).reviews;
+      });
+      expect(reviews).toHaveLength(1);
     },
     TIMEOUT,
   );

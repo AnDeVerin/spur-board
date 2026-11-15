@@ -10,7 +10,6 @@ import {
   GATE_CONDITION_STATES,
   MEMBERSHIPS,
   TASK_HOLDS,
-  TURN_OUTCOMES,
 } from '../enums.ts';
 import { GATE_REASONS, MOVE_REASONS } from '../events.ts';
 import {
@@ -19,19 +18,16 @@ import {
   commentIdSchema,
   itemIdSchema,
   taskKeySchema,
-  turnIdSchema,
 } from '../ids.ts';
 import {
-  FEEDBACK_KINDS,
   PR_STATES,
   commitShaSchema,
-  feedbackLinkShape,
   prFactsSchema,
-  prRefSchema,
   sessionFactsSchema,
   ticketFactsSchema,
 } from '../facts.ts';
 import { OPERATION_KINDS, cliModeSchema, grantRuleSchema } from './define.ts';
+import { turnViewSchema } from './turn-schemas.ts';
 
 // Shapes several operations return. Every object is strict and every field is described, so the
 // generated CLI help, MCP tool schemas and `board schema` carry the same text.
@@ -106,85 +102,6 @@ export const blockViewSchema = z
       .describe('When the block was unblocked; null while open.'),
   })
   .describe('A block on a task.');
-
-/** One pull request comment or review a turn handed to its executor. */
-export const turnHandedSchema = z
-  .strictObject({
-    ...prRefSchema.shape,
-    kind: z.enum(FEEDBACK_KINDS).describe('Whether this is a comment or a submitted review.'),
-    id: z.string().min(1).describe('Stable id of the comment or review in the source.'),
-    postedAt: z.iso
-      .datetime()
-      .describe('When the comment was posted or the review submitted, ISO 8601 UTC.'),
-    ...feedbackLinkShape,
-  })
-  .describe('Pull request feedback a turn handed; an edit after the hand hands it again.');
-
-/** The return that opened the Dev visit a turn belongs to. */
-const turnReturnSchema = z
-  .strictObject({
-    by: actorIdSchema.describe('Who returned the task to Dev.'),
-    from: z.enum(COLUMN_IDS).describe('Column the task was returned from.'),
-    turn: turnIdSchema.describe('The turn the return closed.'),
-    block: blockIdSchema.describe('The code block the return opened.'),
-    reason: z.string().describe('Reason of the return, verbatim from its code block.'),
-  })
-  .describe('The return that sent the task back to Dev and opened this visit.');
-
-export const turnViewSchema = z
-  .strictObject({
-    id: turnIdSchema,
-    task: taskKeySchema,
-    column: z.enum(COLUMN_IDS).describe('Board column the turn belongs to.'),
-    addressee: z.enum(ADDRESSEE_ROLES).describe('Who executes the turn.'),
-    reason: z.string().describe('Why the turn was handed to the executor.'),
-    handed: z.array(turnHandedSchema).describe('Pull request feedback handed over with the turn.'),
-    returned: turnReturnSchema
-      .optional()
-      .describe(
-        'The return that opened this Dev visit: who returned it, from which column, the closed turn, the code block and its reason. Missing when the visit did not start with a return.',
-      ),
-    head: commitShaSchema
-      .nullable()
-      .describe(
-        "Head commit of the task's pull request when the turn was opened; null when the task had no pull request.",
-      ),
-    at: z.iso.datetime().describe('When the turn was opened, ISO 8601 UTC.'),
-    taken: z
-      .strictObject({
-        by: actorIdSchema,
-        at: z.iso.datetime().describe('When the turn was taken, ISO 8601 UTC.'),
-      })
-      .nullable()
-      .describe('Who took the turn and when; null until it is taken.'),
-  })
-  .describe('A turn: the executor of a column is asked to act on a task.');
-
-/** A turn as `task.get` shows it: who executes it, whether it was taken, and how it closed. */
-export const taskTurnSchema = turnViewSchema
-  .pick({
-    id: true,
-    column: true,
-    addressee: true,
-    at: true,
-    taken: true,
-    handed: true,
-    returned: true,
-  })
-  .extend({
-    closed: z
-      .strictObject({
-        at: z.iso.datetime().describe('When the turn closed, ISO 8601 UTC.'),
-        outcome: z
-          .enum(TURN_OUTCOMES)
-          .describe(
-            'How the turn closed; turns closed by a return or a mode switch before those were recorded read moved.',
-          ),
-      })
-      .nullable()
-      .describe('How and when the turn closed; null while it is open.'),
-  })
-  .describe("A task's turn: the executor of a column is asked to act on it.");
 
 /** One column move from the journal: a dispatcher move, a return to Dev or a correction. */
 export const moveViewSchema = z
@@ -268,7 +185,11 @@ export const taskWhySchema = z
           .strictObject({
             column: z.enum(COLUMN_IDS).describe('Board column.'),
             enabled: z.boolean().describe('Whether the column is enabled in the project.'),
-            ok: z.boolean().describe("Whether the column's own exit conditions pass."),
+            ok: z
+              .boolean()
+              .describe(
+                "Whether the column's own exit conditions pass. Dev's threads_resolved counts once any enabled column requires resolved threads, while the gates left of that column ignore it.",
+              ),
             blockedIn: z
               .enum(COLUMN_IDS)
               .nullable()

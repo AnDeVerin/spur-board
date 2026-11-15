@@ -465,6 +465,15 @@ function reviewer(wire: ReviewerWire): { kind: ReviewerKind; id: string } {
       return assertNever(wire);
   }
 }
+function reviewThread(node: ThreadWire): PrFacts['reviewThreads'][number] {
+  const url = node.comments?.nodes[0]?.url;
+  return {
+    resolved: node.isResolved,
+    ...(node.id === undefined ? {} : { id: node.id }),
+    ...(url === undefined ? {} : { url }),
+    ...(node.isOutdated === undefined ? {} : { outdated: node.isOutdated }),
+  };
+}
 /**
  * `feedbackComplete` says whether the comments in `value`, with the `held` comments an earlier
  * poll read, reach back to the cursor or start.
@@ -507,7 +516,7 @@ export function normalizePr(
     mergeState,
     ...checks,
     reviews: latestReviews(wire.reviews.nodes),
-    reviewThreads: wire.reviewThreads.nodes.map((node) => ({ resolved: node.isResolved })),
+    reviewThreads: wire.reviewThreads.nodes.map(reviewThread),
     reviewRequests: wire.reviewRequests.nodes.flatMap(({ requestedReviewer, asCodeOwner }) =>
       requestedReviewer === null ? [] : [{ ...reviewer(requestedReviewer), asCodeOwner }],
     ),

@@ -52,11 +52,13 @@ import {
   dispatchSubmitNoPr,
 } from './new-head.ts';
 import { questionToOperator } from './question-to-operator.ts';
+import { dispatchApprovalWithNotes, dispatchUnresolvedThread } from './review-threads.ts';
 import { sourceBlind, sourceBlindJira } from './source-blind.ts';
 import {
   spurTransitionsRapidRecovery,
   spurTransitionsCursorExpired,
   spurTransitionsKilledHolder,
+  spurTurnStall,
 } from './spur-transitions.ts';
 import { spurSourceSilent } from './spur-source-silent.ts';
 import { tokenApproval } from './token-approval.ts';
@@ -201,9 +203,12 @@ export const SCENARIOS: readonly Scenario[] = [
   dispatchRingClosedTurn,
   dispatchTurnView,
   dispatchReviewerStatusComment,
+  dispatchUnresolvedThread,
+  dispatchApprovalWithNotes,
   spurTransitionsRapidRecovery,
   spurTransitionsCursorExpired,
   spurTransitionsKilledHolder,
+  spurTurnStall,
 ];
 
 export const scenarioNames = (scenarios: readonly Scenario[] = SCENARIOS): string[] =>

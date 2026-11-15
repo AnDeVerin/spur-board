@@ -10,10 +10,12 @@ const threadCommentWire = z.object({
   lastEditedAt: z.string().nullish(),
   pullRequestReview: z.object({ id: z.string().min(1) }).nullish(),
 });
-// `id` and `comments` are optional only so the committed live recordings still replay.
+// `id`, `isOutdated` and `comments` are optional only so the committed live recordings still
+// replay. The first listed comment's URL links the thread, which has no URL of its own.
 export const threadWire = z.object({
   id: z.string().min(1).optional(),
   isResolved: z.boolean(),
+  isOutdated: z.boolean().optional(),
   comments: z.object({ nodes: z.array(threadCommentWire) }).optional(),
 });
 export type ThreadWire = z.output<typeof threadWire>;

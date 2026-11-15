@@ -4,8 +4,8 @@ import { z } from 'zod';
 import type { RouteResult } from '../control.ts';
 import { FakeViolation, type FakeModule } from './fetch.ts';
 import { PR_VERBS, prControlSchema, type Pr, type Seed, type Verb } from './github-pr-control.ts';
+import { KNOWN_SHAPES } from './github-pr-shapes.ts';
 import {
-  canonicalizeQuery,
   canonicalize,
   createRequestLog,
   NotFound,
@@ -20,72 +20,6 @@ const GRAPHQL_URL = 'https://api.github.com/graphql';
 const AGENT = 'stand-agent';
 const REVIEWER = 'stand-reviewer';
 const BOT = 'stand-bot';
-
-// The request shapes the adapter may send, written out here on purpose: a change to an adapter
-// query must fail until this list is updated, so these never come from the adapter's builders.
-const REVIEWER_FIELDS =
-  'requestedReviewer { __typename ... on Bot { login } ... on Mannequin { login } ... on User { login } ... on Team { slug } ... on EnterpriseTeam { slug } } asCodeOwner';
-const REVIEW_FIELDS =
-  'id author { __typename login } state commit { oid } submittedAt url lastEditedAt';
-const PAGE_INFO = 'pageInfo { hasNextPage endCursor }';
-const COMMENT_FIELDS =
-  'nodes { id author { __typename login } createdAt body url lastEditedAt } pageInfo { hasPreviousPage startCursor }';
-const THREAD_FIELDS =
-  'id isResolved comments(last: 100) { nodes { id url lastEditedAt pullRequestReview { id } } }';
-const CLOSING_FIELDS = `nodes { number repository { nameWithOwner } } ${PAGE_INFO}`;
-const DISCOVERY_FIELDS = `nodes { number updatedAt author { login } state } ${PAGE_INFO}`;
-const RATE_LIMIT = 'rateLimit { cost remaining resetAt }';
-const ORDER = 'orderBy: {field: UPDATED_AT, direction: DESC}';
-const contextNodes = (number: string): string =>
-  `nodes { ... on CheckRun { __typename name status conclusion startedAt completedAt checkSuite { createdAt } isRequired(pullRequestNumber: ${number}) } ... on StatusContext { __typename context state createdAt isRequired(pullRequestNumber: ${number}) } }`;
-const prAlias = (closing: boolean): string =>
-  `pr0: repository(owner: $owner, name: $repo) { pullRequest(number: 1) { id number url title updatedAt mergedAt closedAt state isDraft mergeable mergeStateStatus author { login } headRefName headRefOid statusCheckRollup { contexts(first: 100) { ${contextNodes('1')} ${PAGE_INFO} } } reviews(first: 100) { nodes { ${REVIEW_FIELDS} } ${PAGE_INFO} } comments(last: 100) { ${COMMENT_FIELDS} } reviewThreads(first: 100) { nodes { ${THREAD_FIELDS} } ${PAGE_INFO} } reviewRequests(first: 100) { nodes { ${REVIEWER_FIELDS} } ${PAGE_INFO} }${closing ? ` closingIssuesReferences(first: 100) { ${CLOSING_FIELDS} }` : ''} } }`;
-const prBatch = (states: string, baseline: string): string =>
-  `query PrBatch($owner: String!, $repo: String!) { ${RATE_LIMIT} repository(owner: $owner, name: $repo) { pullRequests(first: 100, states: [${states}], ${ORDER}) { ${DISCOVERY_FIELDS} }${baseline} } }`;
-const PR_INDEX = `query PrIndex($owner: String!, $repo: String!) { ${RATE_LIMIT} pr0: repository(owner: $owner, name: $repo) { pullRequest(number: 1) { number updatedAt state isDraft mergeable mergeStateStatus headRefOid statusCheckRollup { state contexts(first: 100) { totalCount nodes { ... on CheckRun { __typename name status conclusion completedAt } ... on StatusContext { __typename context state } } } } reviews(first: 100) { totalCount nodes { id state lastEditedAt } } reviewThreads(first: 100) { totalCount nodes { isResolved } } reviewRequests(first: 100) { totalCount nodes { ${REVIEWER_FIELDS} } } comments(last: 1) { totalCount nodes { id } } edited: comments(first: 1, ${ORDER}) { nodes { id updatedAt } } } } }`;
-const prDetails = (closing: boolean): string =>
-  `query PrDetails($owner: String!, $repo: String!) { ${RATE_LIMIT} ${prAlias(closing)} }`;
-const prPage = (field: string, cursor = 'after'): string =>
-  `query PrPage($owner: String!, $repo: String!, $number: Int!, $${cursor}: String!) { ${RATE_LIMIT} repository(owner: $owner, name: $repo) { pullRequest(number: $number) { ${field} } } }`;
-const discoveryPage = (states: string): string =>
-  `query DiscoveryPage($owner: String!, $repo: String!, $after: String!) { ${RATE_LIMIT} repository(owner: $owner, name: $repo) { pullRequests(first: 100, after: $after, states: [${states}], ${ORDER}) { ${DISCOVERY_FIELDS} } } }`;
-const BASELINE = ` mergedBaseline: pullRequests(first: 1, states: [MERGED, CLOSED], ${ORDER}) { nodes { updatedAt } }`;
-const KNOWN_DOCUMENTS = [
-  prBatch('OPEN, MERGED, CLOSED', ''),
-  prBatch('OPEN', BASELINE),
-  PR_INDEX,
-  `query PrStates($owner: String!, $repo: String!) { ${RATE_LIMIT} pr0: repository(owner: $owner, name: $repo) { pullRequest(number: 1) { number state } } }`,
-  prDetails(false),
-  prDetails(true),
-  prPage(`reviews(first: 100, after: $after) { nodes { ${REVIEW_FIELDS} } ${PAGE_INFO} }`),
-  prPage(`reviewThreads(first: 100, after: $after) { nodes { ${THREAD_FIELDS} } ${PAGE_INFO} }`),
-  prPage(`reviewRequests(first: 100, after: $after) { nodes { ${REVIEWER_FIELDS} } ${PAGE_INFO} }`),
-  prPage(
-    `statusCheckRollup { contexts(first: 100, after: $after) { ${contextNodes('$number')} ${PAGE_INFO} } }`,
-  ),
-  prPage(`closingIssuesReferences(first: 100, after: $after) { ${CLOSING_FIELDS} }`),
-  prPage(`comments(last: 100, before: $before) { ${COMMENT_FIELDS} }`, 'before'),
-  discoveryPage('OPEN, MERGED, CLOSED'),
-  discoveryPage('OPEN'),
-];
-// Keep exact legacy shapes for the committed live recordings, which select neither the cost, a
-// comment body, links and edits, nor thread ids and inline comments; none is inferred.
-const legacy = (query: string): string =>
-  query
-    .replace('cost remaining', 'remaining')
-    .replaceAll('createdAt body url lastEditedAt }', 'createdAt }')
-    .replaceAll('submittedAt url lastEditedAt', 'submittedAt')
-    .replaceAll(THREAD_FIELDS, 'isResolved')
-    .replace('nodes { id state lastEditedAt }', 'nodes { id state }')
-    .replace(` edited: comments(first: 1, ${ORDER}) { nodes { id updatedAt } }`, '');
-const KNOWN_SHAPES = new Set(
-  KNOWN_DOCUMENTS.flatMap((query) => [canonicalizeQuery(query), canonicalizeQuery(legacy(query))]),
-);
-
-/** Whether a query text is one of the shapes this fake answers. */
-export function isKnownShape(query: string): boolean {
-  return KNOWN_SHAPES.has(canonicalizeQuery(query));
-}
 
 function page(connection: string, items: readonly Wire[], args: Args): WireObject {
   // The variable check has already made a given `after` a string.
@@ -142,6 +76,8 @@ export function createGithubPrFake(options: {
   const requests = createRequestLog(now);
   const keyOf = (repo: string, number: number): string => `${repo.toLowerCase()}#${String(number)}`;
   const iso = (ms: number): string => new Date(ms).toISOString();
+
+  const threadId = (pr: Pr, i: number): string => `PRRT_${String(pr.number)}_${String(i)}`;
 
   /** Moves `updatedAt` strictly forward, so two verbs in one millisecond still differ. */
   function touch(pr: Pr): string {
@@ -247,6 +183,21 @@ export function createGithubPrFake(options: {
         break;
       case 'review':
         addReview(pr, authorOf(command), command.state, at);
+        pr.reviewThreads = [
+          ...pr.reviewThreads,
+          ...Array.from({ length: command.threads }, () => ({
+            isResolved: false,
+            isOutdated: false,
+            comments: [],
+          })),
+        ];
+        break;
+      case 'resolve':
+        pr.reviewThreads = pr.reviewThreads.map((thread, i) =>
+          command.thread === undefined || command.thread === threadId(pr, i)
+            ? { ...thread, isResolved: true }
+            : thread,
+        );
         break;
       case 'comment':
         pr.comments = [
@@ -316,7 +267,7 @@ export function createGithubPrFake(options: {
   function prView(pr: Pr): WireObject {
     const { closingIssuesReferences: closing, contexts } = pr;
     const n = String(pr.number);
-    const url = `https://github.stand.invalid/${pr.repo}/pull/${String(pr.number)}`;
+    const url = `https://github.stand.invalid/${pr.repo}/pull/${n}`;
     const reviewId = (i: number): string => `PRR_${n}_${String(i)}`;
     const reviews = pr.reviews.map((review, i) => ({
       id: reviewId(i),
@@ -336,16 +287,21 @@ export function createGithubPrFake(options: {
         (a, b) => Date.parse(b.comment.updatedAt) - Date.parse(a.comment.updatedAt) || b.i - a.i,
       )
       .map(({ comment }) => comment);
+    // A thread links through its first comment, as on GitHub; one seeded without comments, as
+    // `review --threads` opens them, lists a root comment of no review.
     const threads = pr.reviewThreads.map((thread, t) => {
-      const inline = thread.comments.map((comment, c) => ({
+      const seeded = thread.comments.length > 0;
+      const listed = seeded ? thread.comments : [{ review: null, lastEditedAt: null }];
+      const inline = listed.map((comment, c) => ({
         id: `PRRC_${n}_${String(t)}_${String(c)}`,
-        url: `${url}#discussion_r${String(t)}_${String(c)}`,
+        url: `${url}#discussion_r${String(t)}${seeded ? `_${String(c)}` : ''}`,
         lastEditedAt: comment.lastEditedAt,
         pullRequestReview: comment.review === null ? null : { id: reviewId(comment.review) },
       }));
       return {
-        id: `PRRT_${n}_${String(t)}`,
+        id: threadId(pr, t),
         isResolved: thread.isResolved,
+        isOutdated: thread.isOutdated,
         comments: (args: Args) => pageBack('threadComments', inline, args),
       };
     });
@@ -437,6 +393,12 @@ export function createGithubPrFake(options: {
     if (command.verb === 'reopen' ? existing.state !== 'CLOSED' : existing.state !== 'OPEN')
       return { status: 409, body: { error: `Pull request ${name} is ${existing.state}.` } };
     if (command.verb === 'edit') return edit(existing, command, name);
+    if (
+      command.verb === 'resolve' &&
+      command.thread !== undefined &&
+      !existing.reviewThreads.some((_, i) => threadId(existing, i) === command.thread)
+    )
+      return { status: 404, body: { error: `No review thread ${command.thread} on ${name}.` } };
     apply(existing, command);
     return { status: 200, body: { pr: name, updatedAt: existing.updatedAt } };
   }
@@ -450,7 +412,7 @@ export function createGithubPrFake(options: {
       const { operation, variables } = parseGraphqlRequest(request.body);
       if (!KNOWN_SHAPES.has(canonicalize(operation)))
         throw new FakeViolation(
-          `Unknown query shape ${operation.name?.value ?? '(unnamed)'}: if the adapter changed on purpose, update KNOWN_DOCUMENTS in packages/stand/src/fakes/github-pr.ts.`,
+          `Unknown query shape ${operation.name?.value ?? '(unnamed)'}: if the adapter changed on purpose, update KNOWN_DOCUMENTS in packages/stand/src/fakes/github-pr-shapes.ts.`,
         );
       // Synthetic operation costs make request savings measurable without claiming live pricing.
       const operationName = operation.name?.value;

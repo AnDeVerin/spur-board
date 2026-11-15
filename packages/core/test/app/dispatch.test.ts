@@ -24,6 +24,7 @@ import {
 } from '../../src/index.ts';
 import { registerTurnReminder, ringStillCurrent } from '../../src/app/doorbells.ts';
 import { archiveTask } from '../../src/app/archive.ts';
+import { returnCounts } from '../../src/app/course-check.ts';
 import { editInboundComment, recordInboundBlockMessage } from '../../src/app/blocks.ts';
 import { scanTransaction } from '../../src/app/secrets.ts';
 import { openTempStore } from '../support/store.ts';
@@ -70,6 +71,8 @@ type Options = {
   secondRepo?: boolean;
   /** Enables QA, run by `coord`, and hands Ready to Merge to `coord` instead of the operator. */
   qa?: boolean;
+  /** Ready to Merge's `requireResolvedThreads`; unset by default. */
+  rtmThreads?: boolean;
 };
 
 function boardConfig(options: Options = {}) {
@@ -114,7 +117,13 @@ function boardConfig(options: Options = {}) {
           { id: 'product-review', orchestrator: 'coord' },
           ...(options.externalReview === true ? [{ id: 'external-review' }] : []),
           ...(options.qa === true ? [{ id: 'qa', orchestrator: 'coord' }] : []),
-          { id: 'ready-to-merge', orchestrator: options.qa === true ? 'coord' : 'operator' },
+          {
+            id: 'ready-to-merge',
+            orchestrator: options.qa === true ? 'coord' : 'operator',
+            ...(options.rtmThreads === undefined
+              ? {}
+              : { requireResolvedThreads: options.rtmThreads }),
+          },
           { id: 'done' },
         ],
         dispatcher: { mode: options.mode ?? 'on' },
@@ -1080,6 +1089,160 @@ async function pastProductReview(options: Options = {}): Promise<Board> {
 }
 
 const at = (minute: number) => new Date(BASE + minute * 60_000).toISOString();
+
+describe('unresolved review threads', () => {
+  const URL = 'https://github.com/o/r/pull/7#discussion_r1';
+  const thread = (patch: Partial<PrFacts['reviewThreads'][number]> = {}) => ({
+    resolved: false,
+    id: 'PRRT_1',
+    url: URL,
+    ...patch,
+  });
+  const RETURNED = {
+    from: 'ready-to-merge',
+    to: 'dev',
+    reason: 'gate_broken',
+    gate: ['unresolved_threads'],
+  };
+  const REASON = 'dev: unresolved_threads, no_submit_on_head';
+  const listed = async (ctx: Board) => (await ctx.why()).turn?.threads;
+  const counts = async (ctx: Board) =>
+    returnCounts(ctx.store.db, (await ctx.task()).id, 'ready-to-merge');
+  const reviewTurns = async (ctx: Board) =>
+    (await ctx.turns()).filter((turn) => turn.column === 'review').length;
+
+  it('returns from Ready to Merge and lists the thread', async () => {
+    const ctx = await pastProductReview();
+    expect((await ctx.task()).column).toBe('ready-to-merge');
+    await ctx.pr({ reviewThreads: [thread()] });
+
+    expect((await ctx.task()).column).toBe('dev');
+    expect((await ctx.moves()).at(-1)).toEqual(RETURNED);
+    expect((await ctx.openTurn())?.reason).toBe(REASON);
+    const threads = [{ id: 'PRRT_1', url: URL, outdated: false }];
+    expect(await listed(ctx)).toEqual(threads);
+    const [turn] = (await ctx.inbox(WORKER)).turns;
+    expect(turn).toMatchObject({ column: 'dev', reason: REASON, threads });
+    expect(JSON.parse((await ctx.openTurn())?.handed ?? '[]')).toEqual([]);
+  });
+
+  it('resolve then submit on the same head reaches Ready to Merge without a Review turn', async () => {
+    const ctx = await pastProductReview();
+    await ctx.pr({ reviewThreads: [thread()] });
+    const turn = await ctx.openTurn();
+    await ctx.ack(WORKER, turn?.id ?? '');
+    await ctx.pr({ reviewThreads: [thread({ resolved: true })] });
+    expect(await listed(ctx)).toBeUndefined();
+    const before = await reviewTurns(ctx);
+
+    await expect(ctx.submit(WORKER, turn?.id ?? '', A)).resolves.toMatchObject({
+      status: 'confirmed',
+    });
+
+    expect((await ctx.task()).column).toBe('ready-to-merge');
+    expect((await ctx.moves()).slice(-3)).toEqual([
+      { from: 'dev', to: 'review', reason: 'gate_passed' },
+      { from: 'review', to: 'product-review', reason: 'gate_passed' },
+      { from: 'product-review', to: 'ready-to-merge', reason: 'gate_passed' },
+    ]);
+    expect(await reviewTurns(ctx)).toBe(before);
+    expect(await ctx.openTurn()).toEqual(
+      turnOf('ready-to-merge', 'operator', 'ready-to-merge: not_merged'),
+    );
+  });
+
+  it('a submit with an open thread bounces back counted', async () => {
+    const ctx = await pastProductReview();
+    await ctx.pr({ reviewThreads: [thread()] });
+    expect(await counts(ctx)).toMatchObject({ cycle: 1, course: 1 });
+    const turn = await ctx.openTurn();
+    await ctx.ack(WORKER, turn?.id ?? '');
+    await ctx.submit(WORKER, turn?.id ?? '', A);
+
+    expect((await ctx.task()).column).toBe('dev');
+    expect((await ctx.moves()).filter((move) => move.reason === 'gate_broken')).toEqual([
+      RETURNED,
+      RETURNED,
+    ]);
+    expect(await counts(ctx)).toMatchObject({ cycle: 2, course: 2 });
+    expect((await ctx.openTurn())?.reason).toBe(REASON);
+  });
+
+  it('counts an outdated thread and lists it outdated', async () => {
+    const ctx = await pastProductReview();
+    await ctx.pr({ reviewThreads: [thread({ outdated: true })] });
+    expect((await ctx.moves()).at(-1)).toEqual(RETURNED);
+    expect(await listed(ctx)).toEqual([{ id: 'PRRT_1', url: URL, outdated: true }]);
+  });
+
+  it('a resolved thread never counts', async () => {
+    const ctx = await pastProductReview();
+    const moves = (await ctx.moves()).length;
+    await ctx.pr({ reviewThreads: [thread({ resolved: true })] });
+    expect((await ctx.task()).column).toBe('ready-to-merge');
+    expect(await ctx.moves()).toHaveLength(moves);
+  });
+
+  it('lists only threads stored with an id and a link', async () => {
+    const ctx = await pastProductReview();
+    await ctx.pr({ reviewThreads: [{ resolved: false }, thread()] });
+    expect((await ctx.moves()).at(-1)).toEqual(RETURNED);
+    expect(await listed(ctx)).toEqual([{ id: 'PRRT_1', url: URL, outdated: false }]);
+  });
+
+  it.each([
+    { login: 'agent-bot', type: 'user' as const },
+    { login: 'review-bot', type: 'bot' as const },
+  ])('a thread from a review by $login still returns', async (author) => {
+    const ctx = await pastProductReview();
+    await ctx.pr({
+      reviewThreads: [thread()],
+      feedback: [{ kind: 'review', state: 'commented', id: 'r-1', author, postedAt: at(1) }],
+    });
+    expect((await ctx.moves()).at(-1)).toEqual(RETURNED);
+    expect((await ctx.openTurn())?.reason).toBe(REASON);
+  });
+
+  it('does not return when Ready to Merge does not require resolved threads', async () => {
+    const ctx = await pastProductReview({ rtmThreads: false });
+    const moves = (await ctx.moves()).length;
+    await ctx.pr({ reviewThreads: [thread()] });
+    expect((await ctx.task()).column).toBe('ready-to-merge');
+    expect(await ctx.moves()).toHaveLength(moves);
+  });
+
+  it('lists no threads once the PR is closed', async () => {
+    const ctx = await pastProductReview();
+    await ctx.pr({ state: 'closed', reviewThreads: [thread()] });
+    expect((await ctx.moves()).at(-1)).toEqual({ ...RETURNED, gate: ['pr_closed'] });
+    expect(await ctx.openTurn()).toBeNull();
+  });
+
+  it('a hand-back turn on a closed PR lists no threads', async () => {
+    const ctx = await inDev();
+    ctx.pollAnswers(err({ kind: 'timeout' as const, message: 'GitHub timed out' }));
+    await expect(ctx.submit(WORKER, 'T1', B)).resolves.toMatchObject({ status: 'pending' });
+    await ctx.pr({ state: 'closed', reviewThreads: [thread()] });
+
+    const turn = await ctx.openTurn();
+    expect(turn?.reason).toBe('dev: pr_closed (submit of bbbbbbb: PR o/r#7 closed)');
+    expect((await ctx.why()).turn).not.toHaveProperty('threads');
+  });
+
+  it('lists no threads after a merge with the ticket open', async () => {
+    const ctx = await pastProductReview();
+    await ctx.pr({
+      state: 'merged',
+      mergedAt: new Date(Date.parse(ctx.at()) + 60_000).toISOString(),
+      reviewThreads: [thread()],
+    });
+    await ctx.ticket();
+    await ctx.ticket();
+    expect((await ctx.task()).column).toBe('dev');
+    expect((await ctx.openTurn())?.reason).toBe('dev: no_pr (PR o/r#7 merged, ticket still open)');
+    expect((await ctx.why()).turn).not.toHaveProperty('threads');
+  });
+});
 
 describe('a merged PR and the ticket', () => {
   const NOTE = 'dev: no_pr (PR o/r#7 merged, ticket still open)';

@@ -44,6 +44,7 @@ function ready(
     externalReviewApproved: false,
     commentHistory: 'complete',
     unhandledExternalComments: 0,
+    unresolvedThreads: 0,
     marks: [submit('dev', A)],
     ...rest,
   };
@@ -80,6 +81,8 @@ const disable = (board: Board, ...ids: ColumnId[]): Board =>
   board.map((c) => (ids.includes(c.id) ? { ...c, enabled: false } : c));
 const orchestrate = (board: Board, id: ColumnId, orchestrator: string): Board =>
   board.map((c) => (c.id === id ? { ...c, orchestrator } : c));
+const requireThreads = (board: Board, id: ColumnId, requireResolvedThreads: boolean): Board =>
+  board.map((c) => (c.id === id ? { ...c, requireResolvedThreads } : c));
 
 /** evaluateGate on `board`, with the project's repos without CI. */
 const gate = (
@@ -394,8 +397,101 @@ const gateCases: [string, ColumnId, TaskGateFacts, Board, Expected][] = [
   ],
 ];
 
+/** Unresolved review threads: Dev's condition counts only at and right of the flagged column. */
+const rtmMarks = [...reviewMarks, submit('qa', A)];
+const threadCases: [string, ColumnId, TaskGateFacts, Board, Expected][] = [
+  [
+    't1 review left of ready to merge ignores threads',
+    'review',
+    ready({ unresolvedThreads: 1 }),
+    ORCH,
+    broken('review', 'no_review_on_head'),
+  ],
+  [
+    't2 default board review passes with threads',
+    'review',
+    ready({ unresolvedThreads: 1 }),
+    DEFAULT,
+    ok,
+  ],
+  [
+    't3 ready to merge returns to dev',
+    'ready-to-merge',
+    ready({ marks: rtmMarks, externalReviewApproved: true, unresolvedThreads: 1 }),
+    ORCH,
+    broken('dev', 'unresolved_threads'),
+  ],
+  [
+    't4 done right of ready to merge',
+    'done',
+    ready({ marks: rtmMarks, externalReviewApproved: true, unresolvedThreads: 2 }),
+    ORCH,
+    broken('dev', 'unresolved_threads'),
+  ],
+  [
+    't5 threads next to a missing submit',
+    'ready-to-merge',
+    ready({ marks: [], externalReviewApproved: true, unresolvedThreads: 1 }),
+    ORCH,
+    broken('dev', 'unresolved_threads', 'no_submit_on_head'),
+  ],
+  [
+    't6 resolved threads pass',
+    'ready-to-merge',
+    ready({ marks: rtmMarks, externalReviewApproved: true }),
+    ORCH,
+    broken('ready-to-merge', 'not_merged'),
+  ],
+  [
+    't7 turned off on ready to merge',
+    'ready-to-merge',
+    ready({ marks: rtmMarks, externalReviewApproved: true, unresolvedThreads: 1 }),
+    requireThreads(ORCH, 'ready-to-merge', false),
+    broken('ready-to-merge', 'not_merged'),
+  ],
+  [
+    't8 required on external review',
+    'external-review',
+    ready({ marks: reviewMarks, externalReviewApproved: true, unresolvedThreads: 1 }),
+    requireThreads(ORCH, 'external-review', true),
+    broken('dev', 'unresolved_threads'),
+  ],
+  [
+    't9 product review left of a flagged external review',
+    'product-review',
+    ready({ marks: reviewMarks, unresolvedThreads: 1 }),
+    requireThreads(ORCH, 'external-review', true),
+    ok,
+  ],
+  [
+    't10 a disabled ready to merge requires nothing',
+    'done',
+    ready({ marks: rtmMarks, externalReviewApproved: true, unresolvedThreads: 1 }),
+    disable(ORCH, 'ready-to-merge'),
+    ok,
+  ],
+  [
+    't11 required on dev',
+    'dev',
+    ready({ unresolvedThreads: 1 }),
+    requireThreads(ORCH, 'dev', true),
+    broken('dev', 'unresolved_threads'),
+  ],
+  [
+    't12 merged with threads',
+    'done',
+    ready({ pr: { state: 'merged' }, unresolvedThreads: 1 }),
+    ORCH,
+    ok,
+  ],
+];
+
 describe('evaluateGate', () => {
   it.each(gateCases)('%s', (_name, column, facts, board, expected) => {
+    expect(gate(column, facts, board)).toEqual(expected);
+  });
+
+  it.each(threadCases)('%s', (_name, column, facts, board, expected) => {
     expect(gate(column, facts, board)).toEqual(expected);
   });
 
@@ -536,8 +632,8 @@ describe('explainGates', () => {
     explainGates(facts, { columns: board, reposWithoutCi });
   const blockedIn = (expected: Expected) => (expected.ok ? null : expected.column);
 
-  it('agrees with evaluateGate at every column for every gate case', () => {
-    for (const [name, , facts, board] of gateCases) {
+  it('agrees with evaluateGate at every column for every gate and thread case', () => {
+    for (const [name, , facts, board] of [...gateCases, ...threadCases]) {
       const { gates, checksWaivedBy } = explain(facts, board);
       expect(gates.map((entry) => entry.column)).toEqual(COLUMN_IDS);
       for (const entry of gates) {
@@ -578,6 +674,7 @@ describe('explainGates', () => {
           state: 'waiting',
           reason: 'comment_history_incomplete',
         },
+        { condition: 'threads_resolved', state: 'met', reason: null },
         { condition: 'submit_on_head', state: 'failed', reason: 'no_submit_on_head' },
       ],
     });
@@ -604,10 +701,30 @@ describe('explainGates', () => {
           'no_conflict',
           'external_comments_handled',
           'comment_history_read',
+          'threads_resolved',
           'submit_on_head',
         ].map((condition) => ({ condition, state: 'unchecked', reason: null })),
       ]);
     }
+  });
+
+  it("fails Dev's own threads condition while only the flagged column's gate blocks", () => {
+    const facts = ready({ unresolvedThreads: 1 });
+    const threadsOf = (board: Board) => {
+      const dev = explain(facts, board).gates.find((g) => g.column === 'dev');
+      return [dev?.ok, dev?.conditions.find((c) => c.condition === 'threads_resolved')];
+    };
+    const { gates } = explain(facts, ORCH);
+    expect(gates.find((g) => g.column === 'dev')?.blockedIn).toBeNull();
+    expect(gates.find((g) => g.column === 'ready-to-merge')?.blockedIn).toBe('dev');
+    expect(threadsOf(ORCH)).toEqual([
+      false,
+      { condition: 'threads_resolved', state: 'failed', reason: 'unresolved_threads' },
+    ]);
+    expect(threadsOf(disable(ORCH, 'ready-to-merge'))).toEqual([
+      true,
+      { condition: 'threads_resolved', state: 'met', reason: null },
+    ]);
   });
 
   it('passes every column with every condition met under a merged PR', () => {
@@ -674,6 +791,13 @@ describe('countCycles', () => {
       'external comments',
       [ret('review', 'external_comments')],
       'review',
+      10,
+      { count: 1, limitReached: false },
+    ],
+    [
+      'unresolved threads',
+      [ret('ready-to-merge', 'unresolved_threads')],
+      'ready-to-merge',
       10,
       { count: 1, limitReached: false },
     ],

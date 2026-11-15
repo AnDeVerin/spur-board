@@ -72,6 +72,7 @@ const fieldsSchema = z.strictObject({
   reviewThreads: z.array(
     z.strictObject({
       isResolved: z.boolean(),
+      isOutdated: z.boolean().default(false),
       comments: z
         .array(z.strictObject({ review: z.int().nonnegative().nullable(), ...lastEditedAt }))
         .default([]),
@@ -126,7 +127,11 @@ export const prControlSchema = z.discriminatedUnion('verb', [
     verb: z.literal('review'),
     ...feedbackAuthor,
     state: z.enum(['APPROVED', 'CHANGES_REQUESTED', 'COMMENTED']),
+    // Unresolved review threads the review opens on the head, as inline notes do.
+    threads: z.int().min(0).default(0),
   }),
+  // Resolves the thread with this id, or every thread when omitted.
+  z.strictObject({ ...target, verb: z.literal('resolve'), thread: z.string().min(1).optional() }),
 ]);
 export const PR_VERBS = new Set<string>(
   prControlSchema.options.map((option) => option.shape.verb.value),

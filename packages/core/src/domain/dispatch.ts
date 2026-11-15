@@ -1,5 +1,6 @@
 import {
   COLUMN_IDS,
+  GATE_REASONS,
   type ColumnId,
   type GateReason,
   type MoveReason,
@@ -12,6 +13,7 @@ import {
   type GateProject,
   type ReturnCause,
   type TaskGateFacts,
+  threadsGated,
 } from './gates.ts';
 
 // The dispatcher's rules over one task, with no store and no clock: from the task's column and
@@ -159,7 +161,7 @@ export function dispatch(input: DispatchInput): DispatchResult {
   const result = (next: DispatchTurn | null): DispatchResult => {
     const deferred =
       next !== null && input.spurBlind && orchestratorOf(project, next.column) === 'none';
-    const opened = cycleHeld || deferred ? null : next;
+    const opened = cycleHeld || deferred ? null : withThreads(next);
     // Only a Dev turn hands over feedback, and none from an incomplete history (applyOn).
     const handsOver =
       opened?.column === 'dev' &&
@@ -168,6 +170,18 @@ export function dispatch(input: DispatchInput): DispatchResult {
     return opened !== null && (opened.kind === 'after_submit' || handsOver)
       ? { moves, turn: opened, voids: opened.column }
       : { moves, turn: opened };
+  };
+
+  // A Dev turn names unresolved threads whenever a column of the project requires them resolved,
+  // even where Dev's own gate ignores them, so the worker resolves them before moving right.
+  const withThreads = (next: DispatchTurn | null): DispatchTurn | null => {
+    if (next?.column !== 'dev' || !threadsGated(project) || facts.unresolvedThreads === 0)
+      return next;
+    const { reasons } = next;
+    if (reasons.some((r) => r === 'no_pr' || r === 'pr_closed' || r === 'unresolved_threads'))
+      return next;
+    const added = new Set<GateReason>([...reasons, 'unresolved_threads']);
+    return { ...next, reasons: GATE_REASONS.filter((reason) => added.has(reason)) };
   };
 
   for (let step = 0; step < STEP_BOUND; step++) {
@@ -238,6 +252,7 @@ const CAUSE_OF: Partial<Record<GateReason, ReturnCause>> = {
   conflict: 'conflict',
   pr_draft: 'draft',
   external_comments: 'external_comments',
+  unresolved_threads: 'unresolved_threads',
 };
 
 /**

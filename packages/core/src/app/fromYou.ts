@@ -7,6 +7,7 @@ import {
   ticketFactsSchema,
   type ColumnId,
   type Config,
+  type SessionFacts,
 } from '@spur-board/contracts';
 import { z } from 'zod';
 import { sql } from 'kysely';
@@ -37,12 +38,29 @@ import {
   type Trx,
 } from './board-utils.ts';
 import { clearItem, raiseItem } from './feed.ts';
-import { bestProjectSession } from './doorbells.ts';
+import {
+  bestProjectSession,
+  curatorSession,
+  moveBlockToAddressee,
+  selectNotificationRecipient,
+} from './doorbells.ts';
+import { curatorProject } from './authorize.ts';
 import { TASKLESS_ITEM_URL, type RaiseItemInput } from './item-raise.ts';
 import { projectSubject, taskSubject, type BlockSubject } from './subject.ts';
 import { quietTurns, stuckTurnAfterMs } from './turns.ts';
 
 const episodeSchema = z.object({ startedAt: z.number() }).nullable();
+const stallEpisodeSchema = z.object({
+  session: z.string().nullable(),
+  health: z.string().nullable(),
+  since: z.string().nullable(),
+  revision: z.int().min(1),
+});
+const stallObservationSchema = z.object({
+  blind: z.boolean(),
+  observedAt: z.string().nullable(),
+  resumedAt: z.number().nullable(),
+});
 
 const ENDED_WORKER_LABELS: Partial<Record<SessionHealthFlagKind, string>> = {
   worker_completed: 'worker ended (completed), no PR',
@@ -102,6 +120,8 @@ export async function reconcileItems(
   now: number,
   spurComplete: boolean,
   warnSkipped?: WarnSkipped,
+  /** Fresh complete Spur batch after startup or an expired observation interval. */
+  spurContinuityStartAt?: number,
 ): Promise<void> {
   const candidates: ItemCandidate[] = [];
   const sources = await trx.selectFrom('source_state').selectAll().execute();
@@ -423,6 +443,187 @@ export async function reconcileItems(
       revision: 'closed',
     });
   }
+  // Startup snapshots and source recovery can retain an old healthSince. New alerts need a fresh
+  // observed interval; an already-open or dismissed episode keeps its established identity.
+  const observationRow = await trx
+    .selectFrom('meta')
+    .select('value')
+    .where('key', '=', 'turn_stall_observation')
+    .executeTakeFirst();
+  const previousObservation =
+    observationRow === undefined
+      ? { blind: false, observedAt: null, resumedAt: null }
+      : parseJson(stallObservationSchema, observationRow.value);
+  const spurExpired =
+    spur?.last_complete_at != null &&
+    now >
+      Date.parse(spur.last_complete_at) +
+        config.adapters.spur.intervalMs * config.thresholds.staleMultiplier;
+  const observation =
+    spurBlind || !spurComplete || spurExpired
+      ? {
+          ...previousObservation,
+          blind: true,
+          observedAt: spurComplete ? (spur?.observed_at ?? null) : null,
+        }
+      : spurContinuityStartAt !== undefined
+        ? { blind: false, observedAt: spur?.observed_at ?? null, resumedAt: spurContinuityStartAt }
+        : previousObservation.blind &&
+            spur?.observed_at != null &&
+            spur.observed_at !== previousObservation.observedAt
+          ? { blind: false, observedAt: spur.observed_at, resumedAt: Date.parse(spur.observed_at) }
+          : previousObservation;
+  if (JSON.stringify(observation) !== JSON.stringify(previousObservation))
+    await trx
+      .insertInto('meta')
+      .values({ key: 'turn_stall_observation', value: toJson(stallObservationSchema, observation) })
+      .onConflict((oc) =>
+        oc.column('key').doUpdateSet({ value: toJson(stallObservationSchema, observation) }),
+      )
+      .execute();
+  const stallBlind = observation.blind;
+  const stallExecutors = new Map<string, string>();
+  // Diagnose turns separately from delivery: a stopped session cannot receive a ring.
+  const stalled = new Set<string>();
+  const stallHeld = new Set<string>();
+  const turns = await trx.selectFrom('turn').selectAll().where('closed_at', 'is', null).execute();
+  for (const turn of turns) {
+    const task = taskById.get(turn.task_id);
+    if (task === undefined || turn.role === 'operator') continue;
+    const holder = turn.acked_by === null ? null : parseActorId(turn.acked_by);
+    let executor =
+      holder?.actor === 'agent'
+        ? await trx
+            .selectFrom('session_snapshot')
+            .selectAll()
+            .where('id', '=', holder.actorRef.session)
+            .executeTakeFirst()
+        : turn.acked_at === null
+          ? await selectNotificationRecipient(
+              trx,
+              { task_id: task.id, role: turn.role, author_session: null },
+              config,
+            )
+          : undefined;
+    if (executor === undefined && turn.acked_at === null) {
+      const project = config.projects.find((entry) => entry.id === task.project);
+      const target = project?.columns.find((entry) => entry.id === turn.column)?.orchestrator;
+      const stopped = await trx
+        .selectFrom('session_snapshot')
+        .selectAll()
+        .where('state', '=', 'stopped')
+        .where('ended_at', 'is', null)
+        .where('absent_since', 'is', null)
+        .orderBy('first_seen', 'desc')
+        .orderBy('id')
+        .execute();
+      for (const row of stopped) {
+        const linked = await trx
+          .selectFrom('link')
+          .select('id')
+          .where('task_id', '=', task.id)
+          .where('session_id', '=', row.id)
+          .where('role', '=', turn.role === 'worker' ? 'worker' : 'orchestrator')
+          .where('banned', '=', 0)
+          .executeTakeFirst();
+        if (linked !== undefined || (turn.role !== 'worker' && row.spur_project === target)) {
+          executor = row;
+          break;
+        }
+      }
+    }
+    if (executor === undefined || executor.ended_at !== null || executor.absent_since !== null) {
+      await observeTurnEpisode(trx, turn.id, null);
+      continue;
+    }
+    if (turn.role === 'worker') {
+      const removed = await trx
+        .selectFrom('link')
+        .select('id')
+        .where('task_id', '=', task.id)
+        .where('session_id', '=', executor.id)
+        .where('banned', '=', 1)
+        .executeTakeFirst();
+      if (removed !== undefined) {
+        await observeTurnEpisode(trx, turn.id, null);
+        continue;
+      }
+    }
+    const parsed = sessionFactsSchema.safeParse(JSON.parse(executor.detail));
+    if (!parsed.success) {
+      await observeTurnEpisode(trx, turn.id, null);
+      continue;
+    }
+    const fact = parsed.data;
+    if (holder?.actor === 'agent' && holder.actorRef.project !== fact.spurProject) {
+      await observeTurnEpisode(trx, turn.id, null);
+      continue;
+    }
+    const episode = await observeTurnEpisode(trx, turn.id, fact);
+    const episodeSince = episode.since ?? fact.healthSince;
+    if (!['needs_input', 'error', 'rate_limited', 'stopped'].includes(fact.health)) continue;
+    const healthStart = Math.max(Date.parse(turn.created_at), Date.parse(episodeSince));
+    if (!Number.isFinite(healthStart)) continue;
+    stalled.add(`${String(task.id)}:${fact.id}`);
+    const key = `turn-stall:${String(turn.id)}:${fact.id}:${fact.health}:${episodeSince}:${String(episode.revision)}`;
+    stallHeld.add(key);
+    const previous = await trx
+      .selectFrom('operator_item')
+      .select(['text', 'cleared_at', 'block_id'])
+      .where('item_key', '=', key)
+      .orderBy('id', 'desc')
+      .executeTakeFirst();
+    const activeBlock =
+      previous?.cleared_at === null
+        ? blocks.find((block) => block.id === previous.block_id)
+        : undefined;
+    // The curator can change while this block is open, including while new alerts wait.
+    if (
+      activeBlock?.addressee_role === 'curator' &&
+      (await curatorSession(trx, config, task.project))?.id === fact.id
+    )
+      await moveBlockToAddressee(trx, {
+        task,
+        block: activeBlock,
+        to: 'operator',
+        reason: 'The selected curator is the stalled executor.',
+        ctx: { actor: 'system', at: new Date(now).toISOString() },
+        config,
+      });
+    const since =
+      previous?.cleared_at === null
+        ? healthStart
+        : Math.max(healthStart, observation.resumedAt ?? healthStart);
+    if (stallBlind || now - since < config.health.turnStallAfterMs) continue;
+    stallExecutors.set(key, fact.id);
+    const questions = blocks
+      .filter((block) => {
+        const author = parseActorId(block.author);
+        return (
+          block.task_id === task.id &&
+          author?.actor === 'agent' &&
+          author.actorRef.project === fact.spurProject &&
+          author.actorRef.session === fact.id
+        );
+      })
+      .map((block) => `B${String(block.id)}`);
+    const quota =
+      fact.health === 'rate_limited'
+        ? `; quota name unavailable; reset ${fact.rateLimitResetAt ?? 'unknown'}`
+        : '';
+    // Opening evidence remains frozen across later polls and observation gaps.
+    candidates.push({
+      key,
+      kind: 'anomaly',
+      taskId: task.id,
+      summary:
+        previous?.text ??
+        `${task.key}: turn T${String(turn.id)} executor ${fact.id} remains ${fact.health} since ${episodeSince}; turn-relative elapsed ${String(now - since)} ms${since > healthStart ? `; continuous observation since ${new Date(since).toISOString()}` : ''}${quota}${questions.length === 0 ? '' : `; open executor questions: ${questions.join(', ')}`}`,
+      factAt: episodeSince,
+      source: 'spur',
+      priority: 4,
+    });
+  }
   const previousEpisode = await trx
     .selectFrom('meta')
     .select('value')
@@ -452,6 +653,11 @@ export async function reconcileItems(
     const fact = subjects.find(
       (subject) => subject.taskId === flag.taskId && subject.id === flag.sessionId,
     );
+    if (
+      ['stuck_worker', 'stuck_orchestrator', 'needs_input'].includes(flag.kind) &&
+      stalled.has(`${flag.taskId}:${flag.sessionId}`)
+    )
+      continue;
     const endedLabel = ENDED_WORKER_LABELS[flag.kind];
     // A session waiting on its own board question already has the operator's attention.
     const asking =
@@ -520,7 +726,8 @@ export async function reconcileItems(
   const seen = new Set([...ordered.map((item) => item.key), ...heldKeys]);
   for (const flag of health.held) {
     const task = taskById.get(Number(flag.taskId));
-    if (task !== undefined) seen.add(healthKey(task.id, flag));
+    if (task !== undefined && !stalled.has(`${flag.taskId}:${flag.sessionId}`))
+      seen.add(healthKey(task.id, flag));
   }
   const existing = await trx
     .selectFrom('operator_item')
@@ -535,7 +742,10 @@ export async function reconcileItems(
       : subjects
           .filter(
             (subject) =>
-              subject.endedAt === null && subject.health === 'error' && subject.role !== 'other',
+              subject.endedAt === null &&
+              subject.health === 'error' &&
+              subject.role !== 'other' &&
+              !stalled.has(`${subject.taskId}:${subject.id}`),
           )
           .map((subject) =>
             healthKey(Number(subject.taskId), {
@@ -545,7 +755,8 @@ export async function reconcileItems(
             }),
           ),
   );
-  const spurHeld = spurBlind ? await blindHeldKeys(trx, subjects) : new Set();
+  const spurHeld = spurBlind ? await blindHeldKeys(trx, subjects) : new Set<string>();
+  if (stallBlind) for (const key of stallHeld) spurHeld.add(key);
   for (const item of existing) {
     if (item.kind !== ('anomaly' satisfies ItemKind)) continue;
     // Spur-derived blocks wait out a blind Spur, and error blocks a host-load episode.
@@ -600,7 +811,7 @@ export async function reconcileItems(
       priority: candidate.priority,
     };
     if (ITEM_POLICY[candidate.kind].block && task !== null && task !== undefined)
-      await raiseAnomaly(trx, config, task, input);
+      await raiseAnomaly(trx, config, task, input, stallExecutors.get(candidate.key));
     else await raiseItem(trx, { ...input, taskId: candidate.taskId, blockId: null });
   }
 }
@@ -633,6 +844,7 @@ async function raiseAnomaly(
   config: Config,
   task: Row<'task'>,
   input: Omit<RaiseItemInput, 'taskId' | 'blockId'>,
+  executorId?: string,
 ): Promise<Row<'operator_item'>> {
   const active = await trx
     .selectFrom('operator_item')
@@ -642,11 +854,16 @@ async function raiseAnomaly(
     .executeTakeFirst();
   if (active !== undefined) return active;
   const prefix = `${task.key}: `;
+  const toCurator =
+    input.itemKey.startsWith('turn-stall:') &&
+    curatorProject(config, task.project) !== null &&
+    (await curatorSession(trx, config, task.project))?.id !== executorId;
   const block = await openSystemBlock(trx, {
     task,
     reason: input.text.startsWith(prefix) ? input.text.slice(prefix.length) : input.text,
     at: input.at.toISOString(),
     config,
+    ...(toCurator ? { addressee: 'curator' as const } : {}),
   });
   return raiseItem(trx, { ...input, taskId: task.id, blockId: block.id });
 }
@@ -695,6 +912,37 @@ async function blindHeldKeys(
       );
   for (const { turn } of await quietTurns(trx)) held.add(`stuck-turn:${String(turn.id)}`);
   return held;
+}
+
+/** A producer's local healthSince can restart without a new current observed health state. */
+async function observeTurnEpisode(trx: Trx, turnId: number, fact: SessionFacts | null) {
+  const key = `turn_stall_episode:${String(turnId)}`;
+  const row = await trx
+    .selectFrom('meta')
+    .select('value')
+    .where('key', '=', key)
+    .executeTakeFirst();
+  const previous = row === undefined ? undefined : parseJson(stallEpisodeSchema, row.value);
+  if (
+    previous !== undefined &&
+    previous.session === (fact?.id ?? null) &&
+    previous.health === (fact?.health ?? null)
+  )
+    return previous;
+  const episode = {
+    session: fact?.id ?? null,
+    health: fact?.health ?? null,
+    since: fact?.healthSince ?? null,
+    revision: (previous?.revision ?? 0) + 1,
+  };
+  await trx
+    .insertInto('meta')
+    .values({ key, value: toJson(stallEpisodeSchema, episode) })
+    .onConflict((oc) =>
+      oc.column('key').doUpdateSet({ value: toJson(stallEpisodeSchema, episode) }),
+    )
+    .execute();
+  return episode;
 }
 
 function healthKey(taskId: number, flag: SessionHealthFlag): string {

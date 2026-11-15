@@ -32,6 +32,8 @@ export interface TaskGateFacts {
   commentHistory: 'complete' | 'incomplete';
   /** External comments nobody has handled yet, external changes requested included. */
   unhandledExternalComments: number;
+  /** Unresolved review threads on the pull request, outdated ones included; 0 without one. */
+  unresolvedThreads: number;
   /**
    * Submits and marks of the task, on any head. On a move left to a column, the caller drops the
    * submits of that column and of every column right of it, and passes the remaining submits and
@@ -42,7 +44,7 @@ export interface TaskGateFacts {
 
 type GateColumn = Pick<
   Config['projects'][number]['columns'][number],
-  'id' | 'enabled' | 'orchestrator'
+  'id' | 'enabled' | 'orchestrator' | 'requireResolvedThreads'
 >;
 
 /** What the gates read about the task's project: its board and its repos without CI. */
@@ -161,10 +163,30 @@ function executorDone(
   );
 }
 
+/**
+ * The leftmost enabled column that requires resolved threads: `requireResolvedThreads`, by default
+ * true on Ready to Merge only. Undefined when no enabled column requires them.
+ */
+function threadsFrom(project: GateProject): ColumnId | undefined {
+  return project.columns.find(
+    (c) => c.enabled && (c.requireResolvedThreads ?? c.id === 'ready-to-merge'),
+  )?.id;
+}
+
+/** Whether any enabled column of the project requires resolved review threads. */
+export function threadsGated(project: GateProject): boolean {
+  return threadsFrom(project) !== undefined;
+}
+
+/**
+ * Dev's failing reasons. `threads` adds the resolved-threads condition: it holds for the gate of
+ * every column at or right of the leftmost column requiring resolved threads.
+ */
 function devReasons(
   facts: TaskGateFacts,
   columns: readonly GateColumn[],
   waived: boolean,
+  threads: boolean,
 ): GateReason[] {
   const { pr } = facts;
   if (pr === null) return ['no_pr'];
@@ -178,16 +200,21 @@ function devReasons(
   if (pr.mergeable === 'unknown') reasons.push('mergeable_unknown');
   if (facts.unhandledExternalComments > 0) reasons.push('external_comments');
   if (facts.commentHistory === 'incomplete') reasons.push('comment_history_incomplete');
+  if (threads && facts.unresolvedThreads > 0) reasons.push('unresolved_threads');
   if (!executorDone('dev', facts, columns)) reasons.push('no_submit_on_head');
   return reasons;
 }
 
-/** The failing reasons of one column's exit condition; it does not depend on the column asked. */
+/**
+ * The failing reasons of one column's exit condition. Only Dev's resolved-threads condition depends
+ * on the column asked: `threads` says whether it counts.
+ */
 function columnCondition(
   column: ColumnId,
   facts: TaskGateFacts,
   columns: readonly GateColumn[],
   waived: boolean,
+  threads: boolean,
 ): GateReason[] {
   switch (column) {
     case 'todo':
@@ -195,7 +222,7 @@ function columnCondition(
     case 'done':
       return [];
     case 'dev':
-      return devReasons(facts, columns, waived);
+      return devReasons(facts, columns, waived, threads);
     case 'review':
     case 'product-review':
       return executorDone(column, facts, columns) ? [] : ['no_review_on_head'];
@@ -213,8 +240,10 @@ function columnCondition(
 /**
  * Evaluates the exit conditions of every enabled column from To Do up to and including `column`,
  * and returns the leftmost one that fails. A column absent from the project's columns or disabled
- * passes through. A merged pull request passes every column. Once Dev is evaluated with its check
- * condition passed by `reposWithoutCi`, the result carries `checksWaivedBy`.
+ * passes through. A merged pull request passes every column. Dev's resolved-threads condition
+ * counts when `column` is at or right of the leftmost enabled column requiring resolved threads.
+ * Once Dev is evaluated with its check condition passed by `reposWithoutCi`, the result carries
+ * `checksWaivedBy`.
  */
 export function evaluateGate(
   column: ColumnId,
@@ -223,11 +252,13 @@ export function evaluateGate(
 ): GateResult {
   if (facts.pr?.state === 'merged') return { ok: true };
   const waived = noCiWaives(facts.pr, project);
+  const from = threadsFrom(project);
+  const threads = from !== undefined && COLUMN_IDS.indexOf(from) <= COLUMN_IDS.indexOf(column);
   let marker: { checksWaivedBy?: ChecksWaiver } = {};
   for (const id of COLUMN_IDS.slice(0, COLUMN_IDS.indexOf(column) + 1)) {
     if (project.columns.find((c) => c.id === id)?.enabled !== true) continue;
     if (id === 'dev' && waived) marker = { checksWaivedBy: 'reposWithoutCi' };
-    const [first, ...rest] = columnCondition(id, facts, project.columns, waived);
+    const [first, ...rest] = columnCondition(id, facts, project.columns, waived, threads);
     if (first !== undefined) return { ok: false, column: id, reasons: [first, ...rest], ...marker };
   }
   return { ok: true, ...marker };
@@ -244,6 +275,7 @@ const COLUMN_CONDITIONS = {
     'no_conflict',
     'external_comments_handled',
     'comment_history_read',
+    'threads_resolved',
     'submit_on_head',
   ],
   review: ['review_on_head'],
@@ -265,6 +297,7 @@ const CONDITION_OF = {
   mergeable_unknown: 'no_conflict',
   external_comments: 'external_comments_handled',
   comment_history_incomplete: 'comment_history_read',
+  unresolved_threads: 'threads_resolved',
   no_submit_on_head: 'submit_on_head',
   no_review_on_head: 'review_on_head',
   not_approved: 'approved',
@@ -292,8 +325,9 @@ interface GateExplanation {
 
 /**
  * Every column's own exit conditions with their state, and where its cumulative gate blocks, as
- * `evaluateGate` decides it for each column. A merged pull request passes every column and every
- * condition. `checksWaivedBy` is the marker `evaluateGate('done')` carries, or null.
+ * `evaluateGate` decides it for each column. Dev's own conditions count resolved threads once any
+ * enabled column requires them. A merged pull request passes every column and every condition.
+ * `checksWaivedBy` is the marker `evaluateGate('done')` carries, or null.
  */
 export function explainGates(
   facts: TaskGateFacts,
@@ -301,13 +335,14 @@ export function explainGates(
 ): { gates: GateExplanation[]; checksWaivedBy: ChecksWaiver | null } {
   const merged = facts.pr?.state === 'merged';
   const waived = noCiWaives(facts.pr, project);
-  let blockedIn: ColumnId | null = null;
+  const threads = threadsGated(project);
   let checksWaivedBy: ChecksWaiver | null = null;
   const gates = COLUMN_IDS.map((column): GateExplanation => {
     const enabled = project.columns.find((c) => c.id === column)?.enabled === true;
-    const reasons = merged ? [] : columnCondition(column, facts, project.columns, waived);
+    const reasons = merged ? [] : columnCondition(column, facts, project.columns, waived, threads);
     if (enabled && !merged && column === 'dev' && waived) checksWaivedBy = 'reposWithoutCi';
-    if (enabled && blockedIn === null && reasons.length > 0) blockedIn = column;
+    const gate = evaluateGate(column, facts, project);
+    const blockedIn = gate.ok ? null : gate.column;
     const stopped = reasons.some((reason) => STOPS_DEV.has(reason));
     const conditions = COLUMN_CONDITIONS[column].map((condition): ConditionExplanation => {
       const reason = reasons.find((r) => CONDITION_OF[r] === condition) ?? null;
@@ -320,13 +355,20 @@ export function explainGates(
 }
 
 export type ReturnCause =
-  'executor' | 'changes_requested' | 'external_comments' | 'conflict' | 'checks_red' | 'draft';
+  | 'executor'
+  | 'changes_requested'
+  | 'external_comments'
+  | 'unresolved_threads'
+  | 'conflict'
+  | 'checks_red'
+  | 'draft';
 
 /** A return counts toward the column's cycle limit when one of its causes counts. */
 const COUNTED = {
   executor: true,
   changes_requested: true,
   external_comments: true,
+  unresolved_threads: true,
   conflict: false,
   checks_red: false,
   draft: false,
