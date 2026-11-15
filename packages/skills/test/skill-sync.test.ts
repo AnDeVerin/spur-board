@@ -209,7 +209,7 @@ describe('product skill sync', () => {
   it('keeps the skill and bounded references equal to fresh generation', () => {
     expect(replaceGeneratedSection(skill)).toBe(skill);
     expect(Buffer.byteLength(skill)).toBeLessThanOrEqual(5120);
-    expect(references.map((reference) => reference.fileName)).toEqual(['commands.md', 'errors.md']);
+    expect(references.map((r) => r.fileName)).toEqual(['commands.md', 'config.md', 'errors.md']);
     expect(references[0]?.content).toContain('[errors.md](errors.md)');
     expect(readdirSync(refsPath).sort()).toEqual(
       [...references.map((reference) => reference.fileName), ...manualNames].sort(),
@@ -252,7 +252,7 @@ describe('product skill sync', () => {
     ).toEqual(expected.map((operation) => operation.cli.command));
     for (const operation of expected)
       expect(section).toContain(
-        `references/commands.md#board-${operation.cli.command.replaceAll(' ', '-')}`,
+        `references/${operation.id === 'config.get' ? 'config.md' : 'commands.md'}#board-${operation.cli.command.replaceAll(' ', '-')}`,
       );
   });
 

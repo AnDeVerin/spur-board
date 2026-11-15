@@ -1,5 +1,5 @@
 {
-  "version": "b01117b41f5aa5e1d0b4a85c07a1d92b598ed1d93ac138b1f71436edf158ca9d",
+  "version": "9948b09dbb69eccc915c54513e85d885ce766b43f75b22be43af216b8d5d19c1",
   "grants": [
     "operator",
     "project-agent",
@@ -912,7 +912,7 @@
     {
       "id": "status.get",
       "kind": "query",
-      "description": "List actionable items, source freshness and compact tasks; detail adds full facts and links.",
+      "description": "List items, freshness and tasks with turns, PR summaries and navigation; detail adds full facts.",
       "grants": [{ "grant": "operator" }, { "grant": "project-agent" }],
       "preconditions": null,
       "errors": [
@@ -953,7 +953,10 @@
                 "state": "ticket not observed",
                 "prCount": 0,
                 "sessionCount": 0,
-                "openBlocks": 0
+                "openBlocks": 0,
+                "turn": null,
+                "prSummary": null,
+                "links": { "ticket": null, "prs": [], "sessions": [] }
               }
             ],
             "projectBlocks": [{ "project": "web", "openBlocks": 0 }],
@@ -995,10 +998,12 @@
                 "prCount": 0,
                 "sessionCount": 0,
                 "openBlocks": 0,
+                "turn": null,
+                "prSummary": null,
+                "links": { "ticket": null, "prs": [], "sessions": [] },
                 "ticket": null,
                 "prs": [],
-                "sessions": [],
-                "links": []
+                "sessions": []
               }
             ],
             "projectBlocks": [{ "project": "web", "openBlocks": 0 }],
@@ -1021,7 +1026,7 @@
             "maxLength": 256
           },
           "detail": {
-            "description": "Include full ticket, pull request and session facts and links; absent means compact rows.",
+            "description": "Include full ticket, pull request and session facts; absent means compact rows.",
             "type": "boolean"
           }
         },
@@ -1958,39 +1963,377 @@
                     "description": "Session facts with links as display entries."
                   }
                 },
-                "links": {
-                  "description": "Effective pull request, session, and ticket links. Present only with detail.",
-                  "type": "array",
-                  "items": {
-                    "type": "object",
-                    "properties": {
-                      "kind": {
-                        "type": "string",
-                        "enum": ["pr", "session", "ticket"],
-                        "description": "Linked entity kind."
+                "turn": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "maxLength": 16,
+                          "pattern": "^T[1-9]\\d{0,14}$",
+                          "description": "Turn ID: T followed by a number, e.g. T4."
+                        },
+                        "task": {
+                          "type": "string",
+                          "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
+                          "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
+                        },
+                        "column": {
+                          "type": "string",
+                          "enum": [
+                            "todo",
+                            "ready-for-dev",
+                            "dev",
+                            "review",
+                            "product-review",
+                            "external-review",
+                            "qa",
+                            "ready-to-merge",
+                            "done"
+                          ],
+                          "description": "Board column the turn belongs to."
+                        },
+                        "addressee": {
+                          "type": "string",
+                          "enum": [
+                            "operator",
+                            "curator",
+                            "orchestrator:todo",
+                            "orchestrator:ready-for-dev",
+                            "orchestrator:dev",
+                            "orchestrator:review",
+                            "orchestrator:product-review",
+                            "orchestrator:external-review",
+                            "orchestrator:qa",
+                            "orchestrator:ready-to-merge",
+                            "orchestrator:done",
+                            "worker"
+                          ],
+                          "description": "Who executes the turn."
+                        },
+                        "reason": {
+                          "type": "string",
+                          "description": "Why the turn was handed to the executor."
+                        },
+                        "returned": {
+                          "description": "The return that opened this Dev visit: who returned it, from which column, the closed turn, the code block and its reason. Missing when the visit did not start with a return.",
+                          "type": "object",
+                          "properties": {
+                            "by": {
+                              "anyOf": [
+                                { "type": "string", "const": "operator" },
+                                { "type": "string", "const": "system" },
+                                {
+                                  "type": "string",
+                                  "pattern": "^agent:[A-Za-z0-9._-]+\\/[A-Za-z0-9._-]+$"
+                                }
+                              ],
+                              "description": "Who returned the task to Dev."
+                            },
+                            "from": {
+                              "type": "string",
+                              "enum": [
+                                "todo",
+                                "ready-for-dev",
+                                "dev",
+                                "review",
+                                "product-review",
+                                "external-review",
+                                "qa",
+                                "ready-to-merge",
+                                "done"
+                              ],
+                              "description": "Column the task was returned from."
+                            },
+                            "turn": {
+                              "type": "string",
+                              "maxLength": 16,
+                              "pattern": "^T[1-9]\\d{0,14}$",
+                              "description": "The turn the return closed."
+                            },
+                            "block": {
+                              "type": "string",
+                              "maxLength": 16,
+                              "pattern": "^B[1-9]\\d{0,14}$",
+                              "description": "The code block the return opened."
+                            },
+                            "reason": {
+                              "type": "string",
+                              "description": "Reason of the return, verbatim from its code block."
+                            }
+                          },
+                          "required": ["by", "from", "turn", "block", "reason"],
+                          "additionalProperties": false
+                        },
+                        "head": {
+                          "anyOf": [
+                            { "type": "string", "pattern": "^[0-9a-f]{40,64}$" },
+                            { "type": "null" }
+                          ],
+                          "description": "Head commit of the task's pull request when the turn was opened; null when the task had no pull request."
+                        },
+                        "at": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                          "description": "When the turn was opened, ISO 8601 UTC."
+                        },
+                        "taken": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "by": {
+                                  "anyOf": [
+                                    { "type": "string", "const": "operator" },
+                                    { "type": "string", "const": "system" },
+                                    {
+                                      "type": "string",
+                                      "pattern": "^agent:[A-Za-z0-9._-]+\\/[A-Za-z0-9._-]+$"
+                                    }
+                                  ],
+                                  "description": "Actor: operator, system, or agent:<project>/<session>."
+                                },
+                                "at": {
+                                  "type": "string",
+                                  "format": "date-time",
+                                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                                  "description": "When the turn was taken, ISO 8601 UTC."
+                                }
+                              },
+                              "required": ["by", "at"],
+                              "additionalProperties": false
+                            },
+                            { "type": "null" }
+                          ],
+                          "description": "Who took the turn and when; null until it is taken."
+                        },
+                        "threads": {
+                          "description": "The unresolved review threads on the task's open pull request, read live, in a Dev turn of a project requiring resolved threads; absent when none, or when the pull request is closed, merged or missing. Fix or answer each thread, then resolve it.",
+                          "minItems": 1,
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string",
+                                "minLength": 1,
+                                "description": "Node ID of the review thread."
+                              },
+                              "url": {
+                                "type": "string",
+                                "format": "uri",
+                                "description": "Web URL of the thread's first comment."
+                              },
+                              "outdated": {
+                                "type": "boolean",
+                                "description": "Whether the thread is on a diff line the head no longer has."
+                              }
+                            },
+                            "required": ["id", "url", "outdated"],
+                            "additionalProperties": false,
+                            "description": "One unresolved review thread."
+                          }
+                        },
+                        "addressedTo": {
+                          "description": "Newest assigned recipient session of an untaken turn; null when taken or unassigned.",
+                          "type": ["string", "null"]
+                        }
                       },
-                      "ref": {
-                        "type": "string",
-                        "minLength": 1,
-                        "description": "Pull request, session, or ticket identifier."
-                      },
-                      "role": {
-                        "anyOf": [
-                          { "type": "string", "enum": ["worker", "other", "orchestrator"] },
-                          { "type": "null" }
+                      "required": [
+                        "id",
+                        "task",
+                        "column",
+                        "addressee",
+                        "reason",
+                        "head",
+                        "at",
+                        "taken",
+                        "addressedTo"
+                      ],
+                      "additionalProperties": false,
+                      "description": "Unclosed turn without feedback, return context or thread details."
+                    },
+                    { "type": "null" }
+                  ],
+                  "description": "Unclosed task turn, or null."
+                },
+                "prSummary": {
+                  "anyOf": [
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "repo": {
+                            "type": "string",
+                            "pattern": "^[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+$",
+                            "description": "Repository as owner/name."
+                          },
+                          "number": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 9007199254740991,
+                            "description": "Pull request number in the repository."
+                          },
+                          "checks": {
+                            "type": "object",
+                            "properties": {
+                              "pass": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991,
+                                "description": "Successful or neutral checks."
+                              },
+                              "fail": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991,
+                                "description": "Failed checks, including skipped."
+                              },
+                              "pending": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991,
+                                "description": "Expected or pending checks."
+                              }
+                            },
+                            "required": ["pass", "fail", "pending"],
+                            "additionalProperties": false,
+                            "description": "Required checks when nonempty, otherwise all reported checks; a factual rollup, not a gate verdict."
+                          },
+                          "mergeable": {
+                            "type": "string",
+                            "enum": ["mergeable", "conflicting", "unknown"],
+                            "description": "Whether the head merges into the base without conflicts."
+                          },
+                          "threads": {
+                            "type": "object",
+                            "properties": {
+                              "unresolved": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991,
+                                "description": "Unresolved review threads."
+                              },
+                              "total": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991,
+                                "description": "All review threads."
+                              }
+                            },
+                            "required": ["unresolved", "total"],
+                            "additionalProperties": false,
+                            "description": "Review thread counts."
+                          },
+                          "reviewsOnHead": {
+                            "type": "object",
+                            "properties": {
+                              "approved": {
+                                "type": "array",
+                                "items": { "type": "string" },
+                                "description": "Reviewers approving the current head."
+                              },
+                              "changesRequested": {
+                                "type": "array",
+                                "items": { "type": "string" },
+                                "description": "Reviewers requesting changes on the current head."
+                              }
+                            },
+                            "required": ["approved", "changesRequested"],
+                            "additionalProperties": false,
+                            "description": "Latest recorded reviews on the current head, without gate filtering."
+                          },
+                          "draft": {
+                            "type": "boolean",
+                            "description": "Whether the pull request is a draft."
+                          },
+                          "factAt": {
+                            "type": "string",
+                            "format": "date-time",
+                            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                            "description": "Snapshot observation time, ISO 8601 UTC."
+                          },
+                          "unconfirmed": {
+                            "type": "boolean",
+                            "description": "Observation is stale or its supporting source is blind or missing."
+                          }
+                        },
+                        "required": [
+                          "repo",
+                          "number",
+                          "checks",
+                          "mergeable",
+                          "threads",
+                          "reviewsOnHead",
+                          "draft",
+                          "factAt",
+                          "unconfirmed"
                         ],
-                        "description": "Session role; null for a pull request or ticket."
-                      },
-                      "state": {
-                        "description": "Pull request state as last observed; absent for a session or ticket and for a pull request not observed yet. Only task.get sets it.",
-                        "type": "string",
-                        "enum": ["open", "closed", "merged"]
+                        "additionalProperties": false,
+                        "description": "Compact observed pull request facts."
                       }
                     },
-                    "required": ["kind", "ref", "role"],
-                    "additionalProperties": false,
-                    "description": "An effective link to a task."
-                  }
+                    { "type": "null" }
+                  ],
+                  "description": "One summary per observed effective PR; null when none are observed."
+                },
+                "links": {
+                  "type": "object",
+                  "properties": {
+                    "ticket": {
+                      "anyOf": [{ "type": "string", "format": "uri" }, { "type": "null" }],
+                      "description": "Observed tracker ticket URL, or null."
+                    },
+                    "prs": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "repo": {
+                            "type": "string",
+                            "pattern": "^[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+$",
+                            "description": "Repository as owner/name."
+                          },
+                          "number": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 9007199254740991,
+                            "description": "Pull request number in the repository."
+                          },
+                          "url": {
+                            "type": "string",
+                            "format": "uri",
+                            "description": "Web URL of the pull request."
+                          }
+                        },
+                        "required": ["repo", "number", "url"],
+                        "additionalProperties": false
+                      },
+                      "description": "Effective PR navigation, including links not yet observed."
+                    },
+                    "sessions": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "pattern": "^[A-Za-z0-9._-]+$",
+                            "description": "Spur session name."
+                          }
+                        },
+                        "required": ["id"],
+                        "additionalProperties": false
+                      },
+                      "description": "Effective linked session IDs; clients build session URLs."
+                    }
+                  },
+                  "required": ["ticket", "prs", "sessions"],
+                  "additionalProperties": false,
+                  "description": "Navigation links, always present in compact and detailed rows."
                 },
                 "linkHints": {
                   "description": "Why a pull request a linked session reports has no link to this task: the PR is in the GitHub Issues tracker repo and the project link rules found no key for the task in it. Present only when there is a hint.",
@@ -2007,12 +2350,15 @@
                 "state",
                 "prCount",
                 "sessionCount",
-                "openBlocks"
+                "openBlocks",
+                "turn",
+                "prSummary",
+                "links"
               ],
               "additionalProperties": false,
-              "description": "A board task with a one-line state and counts; detail adds its facts and links."
+              "description": "A board task with a one-line state and counts, turn, PR summaries and navigation; detail adds full facts."
             },
-            "description": "Tasks on the board with state and counts; facts and links with detail."
+            "description": "Tasks with state, turn, PR summary arrays and navigation; full facts with detail."
           },
           "projectBlocks": {
             "type": "array",
@@ -9387,6 +9733,165 @@
         },
         "required": ["task", "from", "to", "column", "settled"],
         "additionalProperties": false
+      }
+    },
+    {
+      "id": "config.get",
+      "kind": "query",
+      "description": "Show effective project columns, executors and Spur bindings.",
+      "grants": [{ "grant": "operator" }, { "grant": "project-agent" }],
+      "preconditions": null,
+      "errors": [
+        "usage",
+        "forbidden",
+        "not_found",
+        "not_implemented",
+        "identity_unavailable",
+        "starting",
+        "stopping"
+      ],
+      "cli": { "command": "config get", "args": [], "modes": null, "key": null },
+      "mcp": {
+        "name": "config_get",
+        "key": null,
+        "whenToUse": "Read configuration before rendering the Board overview.",
+        "whenNotToUse": "Use status_get for task state and freshness.",
+        "destructive": false
+      },
+      "slack": null,
+      "examples": [
+        {
+          "summary": "Show effective configuration",
+          "input": {},
+          "output": {
+            "projects": [
+              {
+                "id": "web",
+                "columns": [{ "id": "dev", "executor": { "kind": "worker", "name": null } }],
+                "dispatcher": { "mode": "on" },
+                "spurProjects": [
+                  { "name": "web-worker", "role": "worker", "displayName": "web-worker" }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "project": {
+            "description": "Project to limit the answer to; absent means every project the caller may see.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          }
+        },
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "projects": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": { "type": "string", "minLength": 1, "description": "Board project ID." },
+                "columns": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "enum": [
+                          "todo",
+                          "ready-for-dev",
+                          "dev",
+                          "review",
+                          "product-review",
+                          "external-review",
+                          "qa",
+                          "ready-to-merge",
+                          "done"
+                        ],
+                        "description": "Enabled column in canonical order."
+                      },
+                      "executor": {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string",
+                            "enum": ["dispatcher", "worker", "orchestrator", "curator", "operator"],
+                            "description": "Configured executor; worker falls back to operator without a live worker."
+                          },
+                          "name": {
+                            "description": "Named Spur project, or null for automatic routing.",
+                            "type": ["string", "null"]
+                          }
+                        },
+                        "required": ["kind", "name"],
+                        "additionalProperties": false,
+                        "description": "Effective column executor."
+                      }
+                    },
+                    "required": ["id", "executor"],
+                    "additionalProperties": false
+                  },
+                  "description": "Enabled board columns."
+                },
+                "dispatcher": {
+                  "type": "object",
+                  "properties": {
+                    "mode": {
+                      "type": "string",
+                      "enum": ["shadow", "on"],
+                      "description": "Effective dispatcher mode."
+                    }
+                  },
+                  "required": ["mode"],
+                  "additionalProperties": false,
+                  "description": "Dispatcher configuration."
+                },
+                "spurProjects": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "Spur project name."
+                      },
+                      "role": {
+                        "type": "string",
+                        "enum": ["worker", "operator", "curator", "orchestrator"],
+                        "description": "worker: sessions of this Spur project may link to this project's tasks through their PR or branch. operator: sessions act as the operator. orchestrator: sessions execute named columns and never become task workers. curator: sessions answer the questions no column orchestrator takes and escalate the rest to the operator; a board project has at most one."
+                      },
+                      "displayName": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "Configured display name, falling back to project name."
+                      }
+                    },
+                    "required": ["name", "role", "displayName"],
+                    "additionalProperties": false
+                  },
+                  "description": "Effective Spur project bindings."
+                }
+              },
+              "required": ["id", "columns", "dispatcher", "spurProjects"],
+              "additionalProperties": false
+            },
+            "description": "Effective projects visible to this caller."
+          }
+        },
+        "required": ["projects"],
+        "additionalProperties": false,
+        "description": "Allowlisted effective configuration without credentials or adapter settings."
       }
     }
   ]

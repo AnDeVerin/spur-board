@@ -1,5 +1,9 @@
+import Database from 'better-sqlite3';
+import { Kysely, SqliteDialect } from 'kysely';
+import type { Tables } from '../../src/store/schema.ts';
+import { getStatus } from '../../src/app/status.ts';
 import { scanTransaction } from '../../src/app/secrets.ts';
-import { OPERATIONS, configSchema, roleCanUseOperation } from '@spur-board/contracts';
+import { CHECK_STATES, OPERATIONS, configSchema, roleCanUseOperation } from '@spur-board/contracts';
 import { afterEach, expect, expectTypeOf, it } from 'vitest';
 import {
   createApply,
@@ -435,9 +439,10 @@ it('keeps the default status for 100 tasks under the budget and lists every item
   const query = createQuery({ store, config, clock });
 
   const result = await query(status, {}, 'operator');
-  // Measured 2026-11-13: 24,879 chars for this fixture with the shadow fields; the full detail
-  // was 129,112 on 2026-11-08.
-  expect(JSON.stringify(result).length).toBeLessThan(30_000);
+  // Compact navigation and summaries have a disclosed 100k fixture budget; full facts stay opt-in.
+
+  // Measured on this fixture: baseline 25,071 chars; enriched compact 42,912 chars.
+  expect(JSON.stringify(result).length).toBeLessThan(100_000);
   expect(Object.keys(result)[0]).toBe('items');
   expect(result.items.map((item) => item.key)).toEqual(
     items.toSorted((a, b) => a.priority - b.priority).map((item) => item.key),
@@ -445,17 +450,35 @@ it('keeps the default status for 100 tasks under the budget and lists every item
   const compact = [
     'column',
     'key',
+    'links',
     'membership',
     'openBlocks',
     'prCount',
+    'prSummary',
     'project',
     'sessionCount',
     'shadowColumn',
     'shadowDiffers',
     'state',
+    'turn',
   ];
   expect(result.tasks).toHaveLength(100);
-  for (const row of result.tasks) expect(Object.keys(row).sort()).toEqual(compact);
+  for (const row of result.tasks) {
+    expect(Object.keys(row).sort()).toEqual(compact);
+    for (const field of ['ticket', 'prs', 'sessions', 'handed', 'feedback', 'why'])
+      expect(row).not.toHaveProperty(field);
+    if (row.turn !== null) expect(row.turn).not.toHaveProperty('handed');
+  }
+  for (const detailField of [
+    'handed',
+    'feedback',
+    'requiredChecks',
+    'reviewThreads',
+    'reviewRequests',
+    'headBranch',
+    'returned',
+  ])
+    expect(JSON.stringify(result.tasks)).not.toContain(`"${detailField}":`);
   const linked = result.tasks.find((row) => row.key === 'o/first#1');
   expect(linked).toEqual({
     key: 'o/first#1',
@@ -468,6 +491,25 @@ it('keeps the default status for 100 tasks under the budget and lists every item
     prCount: 1,
     sessionCount: 1,
     openBlocks: 1,
+    turn: null,
+    prSummary: [
+      {
+        repo: 'o/first',
+        number: 1,
+        checks: { pass: 1, fail: 0, pending: 0 },
+        mergeable: 'mergeable',
+        threads: { unresolved: 6, total: 13 },
+        reviewsOnHead: { approved: [], changesRequested: [] },
+        draft: false,
+        factAt: at,
+        unconfirmed: true,
+      },
+    ],
+    links: {
+      ticket: 'https://github.com/o/first/issues/1',
+      prs: [{ repo: 'o/first', number: 1, url: 'https://github.com/o/first/pull/1' }],
+      sessions: [{ id: 'session-1' }],
+    },
   });
   expect(result.tasks.find((row) => row.key === 'o/first#100')?.state).toBe('ticket not observed');
   expect(result.unlinkedPrs).toHaveLength(5);
@@ -499,12 +541,11 @@ it('keeps the default status for 100 tasks under the budget and lists every item
       links: [{ label: 'log', url: 'https://spur.example.com/sessions/session-1/log' }],
     },
   ]);
-  expect(full?.links).toEqual(
-    expect.arrayContaining([
-      { kind: 'pr', ref: 'o/first#1', role: null },
-      { kind: 'session', ref: 'session-1', role: 'worker' },
-    ]),
-  );
+  expect(full?.links).toEqual({
+    ticket: 'https://github.com/o/first/issues/1',
+    prs: [{ repo: 'o/first', number: 1, url: 'https://github.com/o/first/pull/1' }],
+    sessions: [{ id: 'session-1' }],
+  });
   expect(detail.tasks.find((row) => row.key === 'o/first#100')?.ticket).toBeNull();
   expect(detail.unlinkedPrs[0]?.checks).toHaveLength(13);
   expect(detail.unlinkedSessions[0]?.healthSince).toBe(at);
@@ -1000,3 +1041,420 @@ it.each([
     expect(result.items.map((item) => item.key).sort()).toEqual(keys);
   },
 );
+
+it('allowlists effective configuration and applies status project visibility', async () => {
+  const store = openTempStore('board-config-view-').store;
+  stores.push(store);
+  const effective = configSchema.parse({
+    projects: [
+      {
+        id: 'first',
+        tracker: { type: 'github-issues', repo: 'o/first', label: 'board' },
+        repos: ['o/first'],
+        operatorGithubLogin: 'operator',
+        spurProjects: [
+          { name: 'first-worker', role: 'worker' },
+          { name: 'curator', role: 'curator', displayName: 'Curator' },
+        ],
+        columns: [
+          { id: 'todo' },
+          { id: 'dev', orchestrator: 'curator' },
+          { id: 'review', enabled: false },
+          { id: 'external-review' },
+          { id: 'done', orchestrator: 'operator' },
+        ],
+      },
+      config.projects[1],
+    ],
+    spurProjects: [
+      { name: 'reviewer', role: 'orchestrator', columns: ['todo'], displayName: 'Reviewer' },
+      { name: 'desk', role: 'operator' },
+    ],
+    operator: { slack: 'operator' },
+    digest: { tz: 'UTC' },
+  });
+  // Simulate future runtime fields after validation: none may enter the explicit projection.
+  for (const object of [
+    effective,
+    effective.projects[0],
+    effective.projects[0]?.columns[0],
+    effective.projects[0]?.spurProjects[0],
+    effective.projects[0]?.dispatcher,
+  ]) {
+    Object.assign(object ?? {}, {
+      token: 'credential-sentinel',
+      slackToken: 'slack-sentinel',
+      githubToken: 'github-sentinel',
+      tokenFile: 'path-sentinel',
+    });
+  }
+  const registry = createOperationRegistry({ config: effective, clock, completeSince: new Map() });
+  const query = createQuery({ store, config: effective, clock });
+  const result = await query(registry['config.get'], {}, 'agent:first-worker/session');
+  expect(result).toEqual({
+    projects: [
+      {
+        id: 'first',
+        columns: [
+          { id: 'todo', executor: { kind: 'orchestrator', name: 'reviewer' } },
+          { id: 'dev', executor: { kind: 'curator', name: 'curator' } },
+          { id: 'external-review', executor: { kind: 'dispatcher', name: null } },
+          { id: 'done', executor: { kind: 'operator', name: null } },
+        ],
+        dispatcher: { mode: 'shadow' },
+        spurProjects: [
+          { name: 'first-worker', role: 'worker', displayName: 'first-worker' },
+          { name: 'curator', role: 'curator', displayName: 'Curator' },
+          { name: 'reviewer', role: 'orchestrator', displayName: 'Reviewer' },
+          { name: 'desk', role: 'operator', displayName: 'desk' },
+        ],
+      },
+    ],
+  });
+  for (const sentinel of [
+    'credential-sentinel',
+    'slack-sentinel',
+    'github-sentinel',
+    'path-sentinel',
+    'tokenFile',
+  ])
+    expect(JSON.stringify(result)).not.toContain(sentinel);
+  expect(
+    (await query(registry['config.get'], {}, 'operator')).projects.map((project) => project.id),
+  ).toEqual(['first', 'second']);
+  expect(
+    (await query(registry['config.get'], { project: 'first' }, 'operator')).projects,
+  ).toHaveLength(1);
+  await expect(
+    query(registry['config.get'], { project: 'second' }, 'agent:first-worker/session'),
+  ).rejects.toMatchObject({ code: 'forbidden' });
+  const ordinary = createOperationRegistry({ config, clock, completeSince: new Map() });
+  expect(
+    (
+      await createQuery({ store, config, clock })(ordinary['config.get'], {}, 'operator')
+    ).projects[0]?.columns.find((column) => column.id === 'dev')?.executor,
+  ).toEqual({ kind: 'worker', name: null });
+});
+
+it('loads compact turns once per page with newest turn notices and unchanged task read slope', async () => {
+  const { store, file } = openTempStore('board-status-turns-');
+  stores.push(store);
+  const at = new Date(clock.now()).toISOString();
+  const addTasks = async (from: number, to: number) => {
+    for (let n = from; n <= to; n += 1) {
+      const task = await store.db
+        .insertInto('task')
+        .values({
+          project: 'first',
+          tracker_kind: 'github-issues',
+          tracker_id: String(n),
+          key: `o/first#${String(n)}`,
+          membership: 'active',
+          column: 'dev',
+          created_at: at,
+        })
+        .returning('id')
+        .executeTakeFirstOrThrow();
+      if (n === 4) continue;
+      const turn = await store.db
+        .insertInto('turn')
+        .values({
+          task_id: task.id,
+          column: 'dev',
+          epoch: 0,
+          seq: 1,
+          role: n === 3 ? 'operator' : 'worker',
+          reason: 'Act on this task',
+          handed: '[]',
+          acked_by: n === 2 ? 'agent:first-worker/holder' : null,
+          acked_at: n === 2 ? at : null,
+          closed_at: n === 5 ? at : null,
+          closed_reason: n === 5 ? 'submitted' : null,
+          created_at: at,
+          head_sha: null,
+        })
+        .returning('id')
+        .executeTakeFirstOrThrow();
+      if (n === 3 || n > 5) continue;
+      for (const [kind, recipient] of [
+        ['turn', 'old'],
+        ['turn', 'latest'],
+        ['turn_reminder', 'reminder'],
+      ] as const) {
+        await store.db
+          .insertInto('notification')
+          .values({
+            task_id: task.id,
+            turn_id: turn.id,
+            source_key: `${String(n)}:${kind}:${recipient}`,
+            kind,
+            role: 'worker',
+            recipient_session: recipient,
+            next_at: at,
+            created_at: at,
+          })
+          .execute();
+      }
+    }
+  };
+  await addTasks(1, 1);
+  const statements: string[] = [];
+  const db = new Kysely<Tables>({
+    dialect: new SqliteDialect({
+      database: new Database(file, { readonly: true, fileMustExist: true }),
+    }),
+    log: (event) => {
+      if (event.level === 'query') statements.push(event.query.sql);
+    },
+  });
+  try {
+    const read = () => getStatus({ store: { db }, config, clock, completeSince: new Map() });
+    const small = await read();
+    const smallQueries = statements.splice(0);
+    expect(small.tasks[0]?.turn).toMatchObject({ taken: null, addressedTo: 'latest' });
+    await addTasks(2, 40);
+    const many = await read();
+    const manyQueries = statements.splice(0);
+    const turnQueries = (queries: string[]) =>
+      queries.filter((query) => query.includes('from "turn"'));
+    expect(turnQueries(smallQueries)).toHaveLength(1);
+    expect(turnQueries(manyQueries)).toHaveLength(1);
+    // Existing ticket and link reads remain two per added task; enrichment adds no slope.
+    expect(manyQueries.length - smallQueries.length).toBe(39 * 2);
+    expect(manyQueries.filter((query) => query.includes('notification'))).toHaveLength(1);
+    expect(many.tasks).toHaveLength(40);
+    expect(many.tasks[1]?.turn).toMatchObject({
+      taken: { by: 'agent:first-worker/holder', at },
+      addressedTo: null,
+    });
+    expect(many.tasks[2]?.turn).toMatchObject({
+      addressee: 'operator',
+      taken: null,
+      addressedTo: null,
+    });
+    expect(many.tasks[3]?.turn).toBeNull();
+    expect(many.tasks[4]?.turn).toBeNull();
+    expect(many.tasks[5]?.turn).toMatchObject({ taken: null, addressedTo: null });
+    for (const row of many.tasks)
+      if (row.turn !== null) {
+        expect(Object.keys(row.turn).sort()).toEqual([
+          'addressedTo',
+          'addressee',
+          'at',
+          'column',
+          'head',
+          'id',
+          'reason',
+          'taken',
+          'task',
+        ]);
+      }
+    expect(
+      OPERATIONS.find((operation) => operation.id === 'status.get')?.output.safeParse(many).success,
+    ).toBe(true);
+  } finally {
+    await db.destroy();
+  }
+});
+
+it('summarizes each observed PR without gates and exposes effective navigation before observation', async () => {
+  const store = openTempStore('board-status-summary-').store;
+  stores.push(store);
+  const at = new Date(clock.now()).toISOString();
+  const head = 'a'.repeat(40);
+  const oldHead = 'b'.repeat(40);
+  const source = 'github:first:o/first';
+  const facts = (number: number) => ({
+    repo: 'o/first',
+    number,
+    url: `https://github.com/o/first/pull/${String(number)}`,
+    title: 'A PR',
+    author: 'author',
+    headSha: head,
+    headBranch: 'branch',
+    state: 'open' as const,
+    draft: true,
+    mergeable: number === 1 ? ('conflicting' as const) : ('unknown' as const),
+    mergeState: 'unknown' as const,
+    requiredChecks:
+      number === 1 ? [{ name: 'required', state: 'success' as const, completedAt: at }] : [],
+    checks: CHECK_STATES.map((state) => ({ name: state, state, completedAt: at })),
+    reviews: [
+      { reviewer: 'approved', state: 'approved' as const, commitSha: head, submittedAt: at },
+      {
+        reviewer: 'changes',
+        state: 'changes_requested' as const,
+        commitSha: head,
+        submittedAt: at,
+      },
+      { reviewer: 'old', state: 'approved' as const, commitSha: oldHead, submittedAt: at },
+      { reviewer: 'comment', state: 'commented' as const, commitSha: head, submittedAt: at },
+    ],
+    reviewThreads: [{ resolved: false }, { resolved: true }, { resolved: false }],
+    reviewRequests: [],
+    ticketKeys: [],
+    updatedAt: at,
+  });
+  for (const [key, tracker, url] of [
+    ['o/first#1', 'github-issues', 'https://github.com/o/first/issues/1'],
+    ['PROJ-2', 'jira', 'https://jira.example.com/browse/PROJ-2'],
+  ] as const) {
+    const task = await store.db
+      .insertInto('task')
+      .values({
+        project: 'first',
+        tracker_kind: tracker,
+        tracker_id: key,
+        key,
+        membership: 'active',
+        column: 'dev',
+        created_at: at,
+      })
+      .returning('id')
+      .executeTakeFirstOrThrow();
+    await store.db
+      .insertInto('ticket_snapshot')
+      .values({
+        task_id: task.id,
+        status: 'open',
+        assignee: null,
+        source: 'tracker',
+        observed_at: at,
+        detail: JSON.stringify({
+          trackerId: 'tracker',
+          id: key,
+          key,
+          title: 'Ticket',
+          status: 'open',
+          assignee: null,
+          sprint: null,
+          labels: [],
+          inFilter: true,
+          url,
+          updatedAt: at,
+        }),
+      })
+      .execute();
+    if (tracker === 'jira') continue;
+    for (const number of [1, 2, 3, 4]) {
+      await store.db
+        .insertInto('link')
+        .values({
+          task_id: task.id,
+          entity: 'pr',
+          repo: 'o/first',
+          number,
+          pr_state: number === 1 ? 'active' : 'conflict',
+          pr_open: 1,
+          source: 'manual',
+          banned: number === 4 ? 1 : 0,
+          created_at: at,
+        })
+        .execute();
+      if (number > 2) continue;
+      const pr = facts(number);
+      await store.db
+        .insertInto('pr_snapshot')
+        .values({
+          repo: pr.repo,
+          number,
+          head_sha: head,
+          head_branch: 'branch',
+          state: 'open',
+          draft: 1,
+          mergeable: pr.mergeable,
+          merge_state: 'unknown',
+          source,
+          observed_at: at,
+          detail: JSON.stringify(pr),
+        })
+        .execute();
+    }
+    for (const [id, banned] of [
+      ['unobserved', 0],
+      ['removed', 1],
+    ] as const)
+      await store.db
+        .insertInto('link')
+        .values({
+          task_id: task.id,
+          entity: 'session',
+          session_id: id,
+          role: 'worker',
+          source: 'manual',
+          banned,
+          created_at: at,
+        })
+        .execute();
+  }
+  const query = createQuery({ store, config, clock });
+  const status = createOperationRegistry({ config, clock, completeSince: new Map() })['status.get'];
+  const read = () => query(status, {}, 'operator');
+  const missingSource = await read();
+  expect(missingSource.tasks[0]?.prSummary?.every((pr) => pr.unconfirmed)).toBe(true);
+  await store.db
+    .insertInto('source_state')
+    .values({
+      source,
+      observed_at: at,
+      last_complete_at: at,
+      blind_reason: null,
+      blind_message: null,
+    })
+    .execute();
+  const result = await read();
+  expect(result.tasks[0]?.prSummary).toEqual([
+    {
+      repo: 'o/first',
+      number: 1,
+      checks: { pass: 1, fail: 0, pending: 0 },
+      mergeable: 'conflicting',
+      threads: { unresolved: 2, total: 3 },
+      reviewsOnHead: { approved: ['approved'], changesRequested: ['changes'] },
+      draft: true,
+      factAt: at,
+      unconfirmed: false,
+    },
+    {
+      repo: 'o/first',
+      number: 2,
+      checks: { pass: 2, fail: 7, pending: 2 },
+      mergeable: 'unknown',
+      threads: { unresolved: 2, total: 3 },
+      reviewsOnHead: { approved: ['approved'], changesRequested: ['changes'] },
+      draft: true,
+      factAt: at,
+      unconfirmed: false,
+    },
+  ]);
+  expect(result.tasks[0]?.links).toEqual({
+    ticket: 'https://github.com/o/first/issues/1',
+    prs: [1, 2, 3].map((number) => ({
+      repo: 'o/first',
+      number,
+      url: `https://github.com/o/first/pull/${String(number)}`,
+    })),
+    sessions: [{ id: 'unobserved' }],
+  });
+  expect(result.tasks[1]?.links).toEqual({
+    ticket: 'https://jira.example.com/browse/PROJ-2',
+    prs: [],
+    sessions: [],
+  });
+  expect(result.tasks[1]?.prSummary).toBeNull();
+  const detail = await query(status, { detail: true }, 'operator');
+  expect(detail.tasks.map((task) => task.links)).toEqual(result.tasks.map((task) => task.links));
+  expect(detail.tasks[0]?.prs).toHaveLength(2);
+  await store.db
+    .updateTable('pr_snapshot')
+    .set({ observed_at: '2020-01-01T00:00:00.000Z' })
+    .where('number', '=', 1)
+    .execute();
+  expect((await read()).tasks[0]?.prSummary?.map((pr) => pr.unconfirmed)).toEqual([true, false]);
+  await store.db
+    .updateTable('source_state')
+    .set({ blind_reason: 'auth', blind_message: 'Unavailable' })
+    .where('source', '=', source)
+    .execute();
+  expect((await read()).tasks[0]?.prSummary?.every((pr) => pr.unconfirmed)).toBe(true);
+});

@@ -573,7 +573,7 @@ describe('manual task links', () => {
     );
     expect(status.tasks[0]?.ticket?.key).toBe(task);
     expect(status.tasks[0]?.ticket?.status).toBe('open');
-    expect(status.tasks[0]?.links).toContainEqual({ kind: 'ticket', ref: 'o/r#10', role: null });
+    expect(status.tasks[0]?.links.ticket).toBe('https://github.com/o/r/issues/9');
     const event = await store.db
       .selectFrom('event')
       .selectAll()

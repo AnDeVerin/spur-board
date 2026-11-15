@@ -1517,10 +1517,14 @@ describe('shadow mode', () => {
       prCount: 0,
       sessionCount: 0,
       openBlocks: 0,
+      turn: null,
+      prSummary: null,
+      links: { ticket: 'https://github.com/o/r/issues/9', prs: [], sessions: [] },
     });
 
     await ctx.spur('live');
     await ctx.pr();
+    const prAt = ctx.at();
     await ctx.submit(WORKER, KEY, A);
     expect(await ctx.task()).toMatchObject({ column: 'todo', shadow_column: 'review' });
     expect(await ctx.status()).toEqual({
@@ -1534,6 +1538,25 @@ describe('shadow mode', () => {
       prCount: 1,
       sessionCount: 1,
       openBlocks: 0,
+      turn: null,
+      prSummary: [
+        {
+          repo: 'o/r',
+          number: 7,
+          checks: { pass: 1, fail: 0, pending: 0 },
+          mergeable: 'mergeable',
+          threads: { unresolved: 0, total: 0 },
+          reviewsOnHead: { approved: [], changesRequested: [] },
+          draft: false,
+          factAt: prAt,
+          unconfirmed: false,
+        },
+      ],
+      links: {
+        ticket: 'https://github.com/o/r/issues/9',
+        prs: [{ repo: 'o/r', number: 7, url: 'https://github.com/o/r/pull/7' }],
+        sessions: [{ id: 'worker-1' }],
+      },
     });
   });
 
@@ -2514,6 +2537,9 @@ describe('mode switch', () => {
       'prCount',
       'sessionCount',
       'openBlocks',
+      'turn',
+      'prSummary',
+      'links',
     ]);
     expect(row).toEqual({
       key: KEY,
@@ -2524,6 +2550,19 @@ describe('mode switch', () => {
       prCount: 0,
       sessionCount: 1,
       openBlocks: 0,
+      turn: {
+        id: 'T1',
+        task: KEY,
+        column: 'dev',
+        addressee: 'worker',
+        reason: 'dev: no_pr',
+        head: null,
+        at: on.at(),
+        taken: null,
+        addressedTo: null,
+      },
+      prSummary: null,
+      links: { ticket: 'https://github.com/o/r/issues/9', prs: [], sessions: [{ id: 'worker-1' }] },
     });
 
     const ctx = await started({ mode: 'shadow' });

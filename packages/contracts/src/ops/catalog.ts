@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { configViewSchema } from './config-view-schema.ts';
 import {
   ADDRESSEE_SOURCES,
   BLOCK_TYPES,
@@ -315,7 +316,7 @@ export const OPERATIONS = [
     id: 'status.get',
     kind: 'query',
     description:
-      'List actionable items, source freshness and compact tasks; detail adds full facts and links.',
+      'List items, freshness and tasks with turns, PR summaries and navigation; detail adds full facts.',
     mcp: {
       whenToUse: 'Get a board overview.',
       whenNotToUse: 'Use task_get for one task.',
@@ -326,7 +327,7 @@ export const OPERATIONS = [
         .boolean()
         .optional()
         .describe(
-          'Include full ticket, pull request and session facts and links; absent means compact rows.',
+          'Include full ticket, pull request and session facts; absent means compact rows.',
         ),
     }),
     output: z.strictObject({
@@ -361,7 +362,9 @@ export const OPERATIONS = [
       sources: z.array(sourceViewSchema).describe('Freshness and availability of each source.'),
       tasks: z
         .array(statusTaskSchema)
-        .describe('Tasks on the board with state and counts; facts and links with detail.'),
+        .describe(
+          'Tasks with state, turn, PR summary arrays and navigation; full facts with detail.',
+        ),
       projectBlocks: z
         .array(
           z
@@ -418,6 +421,9 @@ export const OPERATIONS = [
               prCount: 0,
               sessionCount: 0,
               openBlocks: 0,
+              turn: null,
+              prSummary: null,
+              links: { ticket: null, prs: [], sessions: [] },
             },
           ],
           projectBlocks: [{ project: 'web', openBlocks: 0 }],
@@ -451,10 +457,12 @@ export const OPERATIONS = [
               prCount: 0,
               sessionCount: 0,
               openBlocks: 0,
+              turn: null,
+              prSummary: null,
+              links: { ticket: null, prs: [], sessions: [] },
               ticket: null,
               prs: [],
               sessions: [],
-              links: [],
             },
           ],
           projectBlocks: [{ project: 'web', openBlocks: 0 }],
@@ -1517,6 +1525,37 @@ export const OPERATIONS = [
               reason: 'gate_broken',
               gate: ['external_comments'],
               text: null,
+            },
+          ],
+        },
+      },
+    ],
+  }),
+  defineOperation({
+    id: 'config.get',
+    kind: 'query',
+    description: 'Show effective project columns, executors and Spur bindings.',
+    mcp: {
+      whenToUse: 'Read configuration before rendering the Board overview.',
+      whenNotToUse: 'Use status_get for task state and freshness.',
+    },
+    input: z.strictObject({ project }),
+    output: configViewSchema,
+    grants: operatorOrProjectAgent,
+    errors: ['not_found'],
+    cli: { command: 'config get', args: [] },
+    slack: null,
+    examples: [
+      {
+        summary: 'Show effective configuration',
+        input: {},
+        output: {
+          projects: [
+            {
+              id: 'web',
+              columns: [{ id: 'dev', executor: { kind: 'worker', name: null } }],
+              dispatcher: { mode: 'on' },
+              spurProjects: [{ name: 'web-worker', role: 'worker', displayName: 'web-worker' }],
             },
           ],
         },

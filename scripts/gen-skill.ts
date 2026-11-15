@@ -167,7 +167,10 @@ export function renderCommandReferences(): CommandReference[] {
     '',
     'Every command can return the common errors in [errors.md](errors.md). Each entry lists its other codes; their hints are there too.',
     '',
-    visibleOperations.map(renderOperation).join('\n\n'),
+    visibleOperations
+      .filter((operation) => operation.id !== 'config.get')
+      .map(renderOperation)
+      .join('\n\n'),
     '',
   ].join('\n');
   const errors = [
@@ -185,8 +188,21 @@ export function renderCommandReferences(): CommandReference[] {
   const references = [
     {
       fileName: 'commands.md',
-      commands: visibleOperations.map((operation) => operation.cli.command),
+      commands: visibleOperations
+        .filter((operation) => operation.id !== 'config.get')
+        .map((operation) => operation.cli.command),
       content: commands,
+    },
+    {
+      fileName: 'config.md',
+      commands: ['config get'],
+      content:
+        '# Board configuration command\n\n' +
+        visibleOperations
+          .filter((operation) => operation.id === 'config.get')
+          .map(renderOperation)
+          .join('\n\n') +
+        '\n',
     },
     { fileName: 'errors.md', commands: [], content: errors },
   ];

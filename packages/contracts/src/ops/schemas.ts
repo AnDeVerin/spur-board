@@ -272,6 +272,54 @@ export const linkViewSchema = z
 const detailOnly = 'Present only with detail.';
 const count = (what: string) => z.int().min(0).describe(what);
 
+const statusTurnSchema = turnViewSchema
+  .omit({ handed: true })
+  .extend({
+    addressedTo: z
+      .string()
+      .nullable()
+      .describe(
+        'Newest assigned recipient session of an untaken turn; null when taken or unassigned.',
+      ),
+  })
+  .describe('Unclosed turn without feedback, return context or thread details.');
+
+const prSummarySchema = z
+  .strictObject({
+    repo: prFactsSchema.shape.repo,
+    number: prFactsSchema.shape.number,
+    checks: z
+      .strictObject({
+        pass: count('Successful or neutral checks.'),
+        fail: count('Failed checks, including skipped.'),
+        pending: count('Expected or pending checks.'),
+      })
+      .describe(
+        'Required checks when nonempty, otherwise all reported checks; a factual rollup, not a gate verdict.',
+      ),
+    mergeable: prFactsSchema.shape.mergeable,
+    threads: z
+      .strictObject({
+        unresolved: count('Unresolved review threads.'),
+        total: count('All review threads.'),
+      })
+      .describe('Review thread counts.'),
+    reviewsOnHead: z
+      .strictObject({
+        approved: z.array(z.string()).describe('Reviewers approving the current head.'),
+        changesRequested: z
+          .array(z.string())
+          .describe('Reviewers requesting changes on the current head.'),
+      })
+      .describe('Latest recorded reviews on the current head, without gate filtering.'),
+    draft: prFactsSchema.shape.draft,
+    factAt: z.iso.datetime().describe('Snapshot observation time, ISO 8601 UTC.'),
+    unconfirmed: z
+      .boolean()
+      .describe('Observation is stale or its supporting source is blind or missing.'),
+  })
+  .describe('Compact observed pull request facts.');
+
 export const statusTaskSchema = taskViewSchema
   .extend({
     shadowColumn: z
@@ -307,10 +355,31 @@ export const statusTaskSchema = taskViewSchema
       .array(statusSessionFactsSchema)
       .optional()
       .describe(`Latest facts for linked sessions. ${detailOnly}`),
+    turn: statusTurnSchema.nullable().describe('Unclosed task turn, or null.'),
+    prSummary: z
+      .array(prSummarySchema)
+      .nullable()
+      .describe('One summary per observed effective PR; null when none are observed.'),
     links: z
-      .array(linkViewSchema)
-      .optional()
-      .describe(`Effective pull request, session, and ticket links. ${detailOnly}`),
+      .strictObject({
+        ticket: z
+          .url({ protocol: /^https?$/ })
+          .nullable()
+          .describe('Observed tracker ticket URL, or null.'),
+        prs: z
+          .array(
+            z.strictObject({
+              repo: prFactsSchema.shape.repo,
+              number: prFactsSchema.shape.number,
+              url: prFactsSchema.shape.url,
+            }),
+          )
+          .describe('Effective PR navigation, including links not yet observed.'),
+        sessions: z
+          .array(z.strictObject({ id: sessionFactsSchema.shape.id }))
+          .describe('Effective linked session IDs; clients build session URLs.'),
+      })
+      .describe('Navigation links, always present in compact and detailed rows.'),
     linkHints: z
       .array(z.string().min(1))
       .min(1)
@@ -319,7 +388,9 @@ export const statusTaskSchema = taskViewSchema
         'Why a pull request a linked session reports has no link to this task: the PR is in the GitHub Issues tracker repo and the project link rules found no key for the task in it. Present only when there is a hint.',
       ),
   })
-  .describe('A board task with a one-line state and counts; detail adds its facts and links.');
+  .describe(
+    'A board task with a one-line state and counts, turn, PR summaries and navigation; detail adds full facts.',
+  );
 
 export const statusUnlinkedPrSchema = prFactsSchema
   .partial({
