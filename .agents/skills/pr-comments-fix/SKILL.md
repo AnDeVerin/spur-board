@@ -47,8 +47,7 @@ Fix or answer every open PR point once, with a reason for each rejection.
 
 - Make all fixes as new commits, following `gitflow` (conventional messages, agent files in
   their own `chore(agents)` commit, no amend, no force-push).
-- Run `pnpm check`, or report `no checks available` when there is no `package.json`. Fix every
-  failure first.
+- Run `pnpm check`. Fix every failure first.
 - The branch conflicts with `main`: merge `main` into it as `gitflow` says.
 - Push once, after all fixes are committed, so reviewers get one notification and one new head.
 - A fix changes a test or a check -> add its line to the PR's `## Changed checks` section
