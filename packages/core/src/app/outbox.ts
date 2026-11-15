@@ -6,6 +6,7 @@ import {
   messageRefSchema,
   PERSONA_ROLES,
   type ActorId,
+  type ConversationRef,
   type Persona,
   type Action,
   type RichText,
@@ -22,6 +23,7 @@ export const OUTBOX_KINDS = [
   'conversation.open',
   'conversation.reply',
   'conversation.close',
+  'conversation.notice',
   'feed.line',
   'feed.line.edit',
   'doorbell',
@@ -33,6 +35,7 @@ export const KIND_SPACE = {
   'conversation.open': 'orchestrators',
   'conversation.reply': 'orchestrators',
   'conversation.close': 'orchestrators',
+  'conversation.notice': 'orchestrators',
   'feed.line': 'feed',
   'feed.line.edit': 'feed',
   doorbell: null,
@@ -43,6 +46,7 @@ export const KIND_PRIORITY = {
   'conversation.open': 0,
   'conversation.reply': 0,
   'conversation.close': 1,
+  'conversation.notice': 0,
   'feed.line': 2,
   'feed.line.edit': 2,
   doorbell: 0,
@@ -68,6 +72,13 @@ const closePayload = z.strictObject({
 });
 const openPayload = closePayload.extend({ title: z.string().min(1) });
 const replyPayload = closePayload.extend({ commentId: id });
+/** A board reply in a thread the operator started that opened no block; `key` names the board. */
+const noticePayload = z.strictObject({
+  key: z.string().min(1),
+  text: z.string().min(1),
+  persona,
+  targetConversation: conversationRefSchema,
+});
 const feedLineEditPayload = z.strictObject({
   key: z.string().min(1),
   text: z.string(),
@@ -131,6 +142,7 @@ export const outboxBodySchema = z.discriminatedUnion('kind', [
   z.strictObject({ kind: z.literal('conversation.open'), payload: openPayload }),
   z.strictObject({ kind: z.literal('conversation.reply'), payload: replyPayload }),
   z.strictObject({ kind: z.literal('conversation.close'), payload: closePayload }),
+  z.strictObject({ kind: z.literal('conversation.notice'), payload: noticePayload }),
   z.strictObject({ kind: z.literal('feed.line'), payload: feedLineWithLinkPayload }),
   z.strictObject({ kind: z.literal('feed.line.edit'), payload: feedEditPayload }),
   z.strictObject({ kind: z.literal('doorbell'), payload: doorbellPayload }),
@@ -717,10 +729,25 @@ export async function enqueueConversationOpen(
   return row.id;
 }
 
+/** The thread an operator conversation was started in; undefined for every other block. */
+async function operatorThread(trx: Trx, blockId: number): Promise<ConversationRef | undefined> {
+  const row = await trx
+    .selectFrom('conversation')
+    .innerJoin('block', 'block.id', 'conversation.block_id')
+    .select('conversation.ref')
+    .where('conversation.block_id', '=', blockId)
+    .where('block.addressee_spur_project', 'is not', null)
+    .orderBy('conversation.created_at')
+    .executeTakeFirst();
+  return row === undefined ? undefined : conversationRefSchema.parse(row.ref);
+}
+
 /**
  * Writes the `conversation.reply` row of a later comment on a block whose open row exists.
  * The row waits for the thread's latest open, reply or close row. Returns null and writes
- * nothing when there is no such row or it is dead: a dead thread takes no more replies.
+ * nothing when there is no such row or it is dead: a dead thread takes no more replies. A block
+ * with no open row, an operator conversation, replies in its registered thread
+ * (`targetConversation`), after its earlier replies.
  */
 export async function enqueueConversationReply(
   trx: Trx,
@@ -741,7 +768,8 @@ export async function enqueueConversationReply(
     .orderBy('id', 'desc')
     .limit(1)
     .executeTakeFirst();
-  if (tail === undefined || tail.state === 'dead') return null;
+  const started = await operatorThread(trx, blockId);
+  if ((tail === undefined && started === undefined) || tail?.state === 'dead') return null;
   const payload: z.input<typeof replyPayload> = {
     key: (await rowSubject(trx, comment)).key,
     text: comment.text,
@@ -749,12 +777,13 @@ export async function enqueueConversationReply(
     taskId: comment.task_id,
     blockId,
     commentId: comment.id,
+    ...(started === undefined ? {} : { targetConversation: started }),
   };
   const row = await insertOutbox(trx, {
     kind: 'conversation.reply',
     dedupeKey: `conversation.reply:comment:${String(comment.id)}`,
     payload,
-    parent: tail.id,
+    parent: tail?.id ?? null,
     at: input.at,
   });
   if (row.inserted) await markCommentPending(trx, comment.id);
@@ -824,4 +853,28 @@ export async function enqueueConversationClose(
     .where('block_id', '=', input.blockId)
     .where('state', '=', 'open')
     .execute();
+}
+
+/**
+ * Posts one board line in a thread the operator started that opened nothing, such as the list of
+ * valid addressees. It names no block or comment; each thread gets it once.
+ */
+export async function enqueueConversationNotice(
+  trx: Trx,
+  input: { conversation: ConversationRef; text: string; at: Date },
+): Promise<void> {
+  const hash = createHash('sha256').update(input.conversation).digest('hex');
+  const payload: z.input<typeof noticePayload> = {
+    key: 'board',
+    text: input.text,
+    persona: { name: 'board', role: 'board' },
+    targetConversation: input.conversation,
+  };
+  await insertOutbox(trx, {
+    kind: 'conversation.notice',
+    dedupeKey: `conversation.notice:ref:${hash}`,
+    payload,
+    parent: null,
+    at: input.at,
+  });
 }

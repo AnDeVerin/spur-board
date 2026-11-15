@@ -37,6 +37,7 @@ import {
   type Trx,
 } from './board-utils.ts';
 import { clearItem, raiseItem } from './feed.ts';
+import { bestProjectSession } from './doorbells.ts';
 import { TASKLESS_ITEM_URL, type RaiseItemInput } from './item-raise.ts';
 import { projectSubject, taskSubject, type BlockSubject } from './subject.ts';
 import { quietTurns, stuckTurnAfterMs } from './turns.ts';
@@ -58,6 +59,41 @@ const ANOMALY_FLAGS: ReadonlySet<SessionHealthFlagKind> = new Set([
   'worker_completed',
   'worker_lost',
 ]);
+
+/**
+ * The item for an open operator conversation with a ring that waits for a live session of its
+ * Spur project, or undefined while a session can take it or nothing waits.
+ */
+async function conversationWaiting(
+  trx: Trx,
+  config: Config,
+  block: Row<'block'>,
+  subject: BlockSubject,
+): Promise<ItemCandidate | undefined> {
+  const spur = block.addressee_spur_project;
+  if (spur === null) return undefined;
+  const ring = await trx
+    .selectFrom('notification')
+    .select('id')
+    .where('block_id', '=', block.id)
+    .where('kind', 'in', ['block', 'answer'])
+    .where('acked_at', 'is', null)
+    .where('exhausted_at', 'is', null)
+    .executeTakeFirst();
+  if (ring === undefined || (await bestProjectSession(trx, spur)) !== undefined) return undefined;
+  const shortName =
+    config.projects.flatMap((project) => project.spurProjects).find((entry) => entry.name === spur)
+      ?.shortName ?? spur;
+  return {
+    key: `conversation:${String(block.id)}`,
+    kind: 'conversation_waiting',
+    taskId: subject.task?.id ?? null,
+    summary: `${subject.key}: message to @${shortName} waits for a live ${spur} session`,
+    factAt: block.created_at,
+    source: null,
+    priority: ITEM_POLICY.conversation_waiting.priority,
+  };
+}
 
 /** Reconciles every item in the caller's observation or tick transaction. */
 export async function reconcileItems(
@@ -177,6 +213,10 @@ export async function reconcileItems(
         source: null,
         priority: 0,
       });
+    if (block.addressee_spur_project !== null) {
+      const waiting = await conversationWaiting(trx, config, block, subject);
+      if (waiting !== undefined) candidates.push(waiting);
+    }
     if (now - Date.parse(block.created_at) >= config.thresholds.blockOpenMs)
       candidates.push({
         key: `block:${String(block.id)}`,

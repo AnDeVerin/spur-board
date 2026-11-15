@@ -17,6 +17,7 @@ import {
   messageRefSchema,
   userIdSchema,
   type ActorId,
+  type Config,
   type Gateway,
   type InboundEvent,
 } from '@spur-board/contracts';
@@ -42,6 +43,13 @@ import {
 import { renderBody } from '../../src/app/outbox.ts';
 import { renderedLength } from '../support/rendered.ts';
 import { sql } from 'kysely';
+import {
+  conversationConfig,
+  conversationStore,
+  liveSession,
+  threadReply,
+  topLevel,
+} from '../support/conversation.ts';
 
 const DAY_MS = 86_400_000;
 const now = Date.parse('2026-11-03T10:00:00.000Z');
@@ -2845,5 +2853,200 @@ describe('operator token revoke from the gateway', () => {
     });
     await inbound.sink(tokens('list-1'));
     expect(await listRows()).toHaveLength(1);
+  });
+});
+
+describe('operator conversation', () => {
+  /** Inbound on a store with `o/r#101`, `o/r#102` (archived) and `x/y#5`. */
+  async function board(used: Config = conversationConfig()) {
+    const { store } = await conversationStore();
+    stores.push(store);
+    const gateway = createFakeGateway({ profile: 'slack-like', start: new Date(now) });
+    const inbound = createInbound({ store, gateway, config: used, clock: { now: () => now } });
+    return { store, inbound, used };
+  }
+  const blocks = (store: Store) =>
+    store.db
+      .selectFrom('block')
+      .select([
+        'type',
+        'task_id',
+        'project',
+        'author',
+        'addressee_role',
+        'addressee_spur_project',
+        'reason',
+        'state',
+      ])
+      .orderBy('id')
+      .execute();
+  const outbox = (store: Store) =>
+    store.db.selectFrom('outbox').select(['kind', 'payload']).orderBy('id').execute();
+  const skipped = async (store: Store) =>
+    (
+      await store.db
+        .selectFrom('event')
+        .select('payload')
+        .where('kind', '=', 'inbound_skipped')
+        .execute()
+    ).map((row) => (JSON.parse(row.payload) as { reason: string }).reason);
+  const open = (spur: string, role: string, reason: string, task: number | null = null) => ({
+    type: 'needs_input',
+    task_id: task,
+    project: task === null ? 'proj' : null,
+    author: 'operator',
+    addressee_role: role,
+    addressee_spur_project: spur,
+    reason,
+    state: 'open',
+  });
+
+  it.each([
+    ['@cur hello', open('cur', 'curator', 'hello')],
+    ['@cur', open('cur', 'curator', '@cur')],
+    ['@qa  hello there', open('qa', 'worker', 'hello there')],
+    ['hello', open('qa', 'worker', 'hello')],
+    ['@nobody hello', open('qa', 'worker', '@nobody hello')],
+    ['please ask @cur', open('qa', 'worker', 'please ask @cur')],
+    ['<@U123> hi', open('qa', 'worker', '<@U123> hi')],
+    ['@cur o/r#101 status?', open('cur', 'curator', 'o/r#101 status?', 1)],
+    ['@cur o/r#999 status?', open('cur', 'curator', 'o/r#999 status?')],
+    ['@cur o/r#102 status?', open('cur', 'curator', 'o/r#102 status?')],
+    ['@cur x/y#5 status?', open('cur', 'curator', 'x/y#5 status?')],
+  ])('opens %j as one conversation with no reply', async (text, expected) => {
+    const { store, inbound } = await board();
+    const event = topLevel(text);
+    await inbound.sink(event);
+    expect(await blocks(store)).toEqual([expected]);
+    expect(
+      await store.db
+        .selectFrom('comment')
+        .select(['text', 'conversation_ref', 'message_ref'])
+        .execute(),
+    ).toEqual([{ text: expected.reason, conversation_ref: 'top-1', message_ref: 'top-1' }]);
+    expect(
+      await store.db
+        .selectFrom('conversation')
+        .select(['ref', 'block_id', 'state', 'after_message_ref'])
+        .execute(),
+    ).toEqual([{ ref: 'top-1', block_id: 1, state: 'open', after_message_ref: 'top-1' }]);
+    expect(
+      await store.db.selectFrom('notification').select(['kind', 'role', 'block_id']).execute(),
+    ).toEqual([{ kind: 'block', role: expected.addressee_role, block_id: 1 }]);
+    expect(await outbox(store)).toEqual([]);
+    await inbound.sink(event);
+    expect(await blocks(store)).toHaveLength(1);
+  });
+
+  it('rings the live session of the addressed Spur project with the block ID', async () => {
+    const { store, inbound, used } = await board();
+    await liveSession(store, 'cur-1', 'cur');
+    await liveSession(store, 'qa-1', 'qa');
+    await inbound.sink(topLevel('@cur hello'));
+    await reconcileDueDoorbells(store, used, new Date(now));
+    const rings = await outbox(store);
+    expect(rings.map((row) => row.kind)).toEqual(['doorbell']);
+    expect(JSON.parse(rings[0]?.payload ?? '{}')).toMatchObject({
+      session: 'cur-1',
+      text: expect.stringMatching(/^proj \(project\) block B1: check board inbox /) as unknown,
+    });
+  });
+
+  it('lists the valid prefixes once and opens nothing without a default addressee', async () => {
+    const { store, inbound } = await board(conversationConfig({ defaultAddressee: null }));
+    await inbound.sink(topLevel('hello'));
+    await inbound.sink(topLevel('hello'));
+    expect(await blocks(store)).toEqual([]);
+    const rows = await outbox(store);
+    expect(rows.map((row) => row.kind)).toEqual(['conversation.notice']);
+    expect(JSON.parse(rows[0]?.payload ?? '{}')).toEqual({
+      key: 'board',
+      text: 'No addressee. Start with one of: @cur, @qa.',
+      persona: { name: 'board', role: 'board' },
+      targetConversation: 'top-1',
+    });
+  });
+
+  it.each([
+    ['no short name configured', conversationConfig({ shortNames: false }), 'orchestrators'],
+    ['a message in the feed', conversationConfig(), 'feed'],
+    ['a message from outside the board spaces', conversationConfig(), null],
+  ] as const)('skips %s as an unknown conversation', async (_name, used, space) => {
+    const { store, inbound } = await board(used);
+    await inbound.sink(topLevel('@cur hello', 1, space));
+    expect(await blocks(store)).toEqual([]);
+    expect(await outbox(store)).toEqual([]);
+    expect(await skipped(store)).toEqual(['Unknown board conversation.']);
+    expect(
+      (await store.db.selectFrom('event').select('kind').execute()).map((row) => row.kind),
+    ).toEqual(['inbound_skipped']);
+  });
+
+  const unacked = (store: Store) =>
+    store.db
+      .selectFrom('notification')
+      .select(['kind', 'role'])
+      .where('acked_at', 'is', null)
+      .orderBy('id')
+      .execute();
+
+  it('rings the addressee for each follow-up and nobody once closed', async () => {
+    const { store, inbound } = await board();
+    await inbound.sink(topLevel('@cur hello'));
+    await inbound.sink(threadReply('and more', 1));
+    expect(await blocks(store)).toEqual([open('cur', 'curator', 'hello')]);
+    expect(await unacked(store)).toEqual([
+      { kind: 'block', role: 'curator' },
+      { kind: 'answer', role: 'curator' },
+    ]);
+    await inbound.sink(threadReply('close', 2));
+    await inbound.sink(threadReply('late', 3));
+    expect((await store.db.selectFrom('comment').select('text').execute()).at(-1)).toEqual({
+      text: 'late',
+    });
+    expect(await unacked(store)).toEqual([]);
+    const kinds = (await store.db.selectFrom('event').select('kind').execute()).map((r) => r.kind);
+    expect(kinds).not.toContain('doorbell_undelivered');
+    expect(await store.db.selectFrom('operator_item').select('kind').execute()).toEqual([]);
+  });
+
+  it.each([
+    ['close', 'unblocked'],
+    ['✅', 'unblocked'],
+    [':white_check_mark:', 'unblocked'],
+    [' close ', 'unblocked'],
+    ['close it', 'open'],
+  ])('closes on %j only on the exact command', async (text, state) => {
+    const { store, inbound } = await board();
+    await inbound.sink(topLevel('@cur hello'));
+    await inbound.sink(threadReply('and more', 1));
+    await inbound.sink(threadReply(text, 2));
+    expect((await blocks(store))[0]?.state).toBe(state);
+    const closes = (await outbox(store)).filter((row) => row.kind === 'conversation.close');
+    if (state === 'open') {
+      expect(closes).toEqual([]);
+      expect(await unacked(store)).toHaveLength(3);
+      return;
+    }
+    expect(closes.map((row) => JSON.parse(row.payload) as unknown)).toEqual([
+      expect.objectContaining({ text: 'resolved: done (operator)', targetConversation: 'top-1' }),
+    ]);
+    expect(await unacked(store)).toEqual([]);
+  });
+
+  it('replays a stored reply event without sourceSpace', async () => {
+    const { store, inbound } = await setup('agent:web/worker-1');
+    const stored = message({ conversation: 'thread-1', root: 'root-1' });
+    expect(stored).not.toHaveProperty('sourceSpace');
+    await inbound.sink(stored);
+    await inbound.sink(structuredClone(stored));
+    const kinds = (await store.db.selectFrom('event').select('kind').execute()).map((r) => r.kind);
+    expect(kinds).not.toContain('inbound_failure');
+    expect(await store.db.selectFrom('operator_item').select('kind').execute()).not.toContainEqual({
+      kind: 'inbound_failure',
+    });
+    expect(await store.db.selectFrom('comment').select('text').execute()).toEqual([
+      { text: 'Yes' },
+    ]);
   });
 });

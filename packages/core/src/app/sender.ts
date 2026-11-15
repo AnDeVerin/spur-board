@@ -114,6 +114,7 @@ function commentOf(body: OutboxBody): number | null {
     case 'conversation.reply':
     case 'conversation.close':
       return body.payload.commentId;
+    case 'conversation.notice':
     case 'feed.line':
     case 'feed.line.edit':
     case 'doorbell':
@@ -298,7 +299,11 @@ function target(claim: Claim): DeliveryTarget | null {
     case 'feed.line':
       return { kind: 'open', space: KIND_SPACE[body.kind], title: body.payload.title };
     case 'conversation.reply':
-      return parent && { kind: 'reply', conversation: parent.conversation };
+      return body.payload.targetConversation === undefined
+        ? parent && { kind: 'reply', conversation: parent.conversation }
+        : { kind: 'reply', conversation: body.payload.targetConversation };
+    case 'conversation.notice':
+      return { kind: 'reply', conversation: body.payload.targetConversation };
     case 'conversation.close':
       return body.payload.targetConversation === undefined
         ? parent && { kind: 'close', conversation: parent.conversation }
@@ -687,19 +692,21 @@ export function createSender(options: SenderOptions): Sender {
                   { ...body.payload, resolved: body.payload.resolved },
                   options.config,
                 )
-              : c.body.kind === 'feed.line' && c.body.payload.exchange !== undefined
-                ? exchangeBody({ ...c.body.payload, exchange: c.body.payload.exchange })
-                : c.body.kind === 'feed.line' && c.body.payload.url !== undefined
-                  ? [
-                      {
-                        kind: 'paragraph',
-                        children: [
-                          { kind: 'link', url: c.body.payload.url, text: c.body.payload.key },
-                        ],
-                      },
-                      { kind: 'quote', children: [{ kind: 'text', text: c.body.payload.text }] },
-                    ]
-                  : renderBody(c.body.payload.key, c.body.payload.text),
+              : c.body.kind === 'conversation.notice'
+                ? [{ kind: 'paragraph', children: [{ kind: 'text', text: c.body.payload.text }] }]
+                : c.body.kind === 'feed.line' && c.body.payload.exchange !== undefined
+                  ? exchangeBody({ ...c.body.payload, exchange: c.body.payload.exchange })
+                  : c.body.kind === 'feed.line' && c.body.payload.url !== undefined
+                    ? [
+                        {
+                          kind: 'paragraph',
+                          children: [
+                            { kind: 'link', url: c.body.payload.url, text: c.body.payload.key },
+                          ],
+                        },
+                        { kind: 'quote', children: [{ kind: 'text', text: c.body.payload.text }] },
+                      ]
+                    : renderBody(c.body.payload.key, c.body.payload.text),
         ...((body.kind === 'feed.line' || body.kind === 'feed.line.edit') &&
         body.payload.actions !== undefined
           ? { actions: body.payload.actions }
@@ -765,7 +772,9 @@ export function createSender(options: SenderOptions): Sender {
         return;
       case 'delivered': {
         const conversation =
-          body.kind === 'conversation.close'
+          body.kind === 'conversation.close' ||
+          body.kind === 'conversation.reply' ||
+          body.kind === 'conversation.notice'
             ? (body.payload.targetConversation ?? outcome.conversation ?? c.parent?.conversation)
             : body.kind === 'feed.line.edit'
               ? c.parent?.conversation

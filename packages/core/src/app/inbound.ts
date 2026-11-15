@@ -40,6 +40,7 @@ import { deniedProject } from './denied-event.ts';
 import { raiseItem as raiseOperatorItem, clearItem as clearOperatorItem } from './feed.ts';
 import type { ReapplyInbound } from './items.ts';
 import { dispatchOperation, type OperationRegistry } from './operations.ts';
+import { openOperatorConversation } from './operator-conversation.ts';
 import { deliveredRefSchema, enqueueConversationClose } from './outbox.ts';
 import { redactPrivateReply, redactSecretMatches } from './secrets.ts';
 import { rowSubject, type BlockSubject } from './subject.ts';
@@ -280,6 +281,8 @@ async function ringAuthor(
     config: Config;
   },
 ): Promise<void> {
+  // An operator conversation rings its addressee instead (`registerConversationFollowUp`).
+  if (input.block.addressee_spur_project !== null) return;
   // A ledger block asks for the operator's action, not an answer: its author is the board.
   const ledger = await trx
     .selectFrom('operator_item')
@@ -396,6 +399,22 @@ export function createInbound(input: {
   ): Promise<Result | undefined> {
     if (await alreadyApplied(trx, event)) return undefined;
     const conversation = await sourceContext(trx, event, at);
+    // A new operator message in the orchestrators channel starts a conversation.
+    if (
+      conversation === undefined &&
+      (event.kind === 'message' || event.kind === 'mention') &&
+      event.sourceSpace === 'orchestrators' &&
+      (await openOperatorConversation(trx, {
+        text: event.text,
+        conversation: event.conversation,
+        message: event.message,
+        rootMessage: event.rootMessage,
+        gateway: gateway.kind,
+        at: event.at,
+        config,
+      }))
+    )
+      return { status: 'applied' };
     if (conversation?.block_id === null || conversation === undefined) {
       return skip(trx, {
         event,
