@@ -15,7 +15,7 @@ Each column has one executor: `projects[].columns[].orchestrator`:
 `orchestrator`.
 
 Top-level `spurProjects[].columns` fills `none` columns board-wide;
-its `role: operator` serves operatorless projects, one session
+`role: operator` there serves operatorless projects, one session acting in
 each. A project-level binding wins.
 
 ## Gates and placement
@@ -24,7 +24,7 @@ Facts (head, checks, reviews, comments, ticket, sessions) feed gates; two action
 per evaluation). Turns follow unmet entry gates, actionable post-submit failures,
 rerouting or Done wrap-up. Holds and existing turns can yield neither action.
 
-Moves, turns, course checks need `projects[].dispatcher.mode: on`;
+Moves, turns and course checks need `projects[].dispatcher.mode: on`;
 default is `shadow`: no doorbells or blocks.
 
 Gates are cumulative: each column checks its enabled gate and those to its left. At a turn boundary, failed gates return to the leftmost failing
@@ -32,8 +32,8 @@ column. Taken turns hold until submit, return or a new head. Pending CI, unknown
 mergeability and incomplete comment history are waits. Downstream handoff waits
 for settled prerequisites; Dev can receive a repair turn.
 
-Dev: open non-draft PR, green checks, no conflict, handled
-feedback, comment history, current-head submit. Feedback excludes
+Dev needs an open non-draft PR, passing checks, no conflict, handled
+feedback, comment history and current-head submit. Feedback excludes
 bots, approvals and `projects[].operatorGithubLogin` (agents' account), so worker
 thread replies never count; others' posts do.
 The repo owner's and the human operator's own accounts count too, unless one is
@@ -44,11 +44,11 @@ change nothing for feedback. Bots (GitHub Apps) neither return a task, approve i
 an approval; their threads still count. Handled means handed by ID to a Dev turn, not answered; in shadow
 mode, a later submit in Dev or an executor `none` column handles it.
 A status comment whose last line is a hidden `board-reviewer-progress` or
-`board-reviewer-unavailable` marker is not external feedback. No required checks: non-skipped count. `projects[].reposWithoutCi` waives absent (not failed/skipped
-required) checks in listed repos.
+`board-reviewer-unavailable` marker is not external feedback. No required checks: non-skipped count. `projects[].reposWithoutCi` waives absent checks
+for listed repos; never failed/skipped required ones.
 
 Review and Product Review need current-head internal review marks, separate from
-External Review's external approval. QA: current-head submit; Ready to Merge awaits merge. Executor `none` reuses other worker columns' same-head submits. Fixed gate rules have no configuration switch
+External Review's external approval. QA: current-head submit; Ready to Merge awaits merge. Executor `none` may reuse same-head submits of other worker columns. Fixed gate rules have no configuration switch
 except enabled columns, no-CI and resolved threads.
 
 `projects[].columns[].requireResolvedThreads` (default: `ready-to-merge` only)
@@ -59,7 +59,7 @@ Dev submit on the same head moves right, keeping marks and approval. An
 approval's inline notes are threads; it still passes External Review.
 
 Review/Product Review mark lasts across visits on the current head. A visit
-submission belongs to one column visit; moving left clears it and rightward ones. New heads invalidate internal Review and Product Review marks.
+submission belongs to one column visit; moving left clears it and those to the right. New heads invalidate internal Review and Product Review marks.
 
 PR closed without merge with no open PR, or closed
 ticket with live work and no merged PR. `board status` lists them as operator block threads.
@@ -83,8 +83,12 @@ Closed turns receive no further Board sends; Obsolete queued rings are dropped;
 a message already accepted by Spur cannot be retracted. Check `board inbox` and
 act only on a current turn; reread after `turn_closed`.
 
-Turn executors stalled past `health.turnStallAfterMs` ask
-once: curator unless self, else operator.
+Open-turn executors in `needs_input`, `error`, `rate_limited` or `stopped` raise
+one question after `health.turnStallAfterMs` (default 600000): curator unless self, else
+operator. Time starts at the later turn/state start; taking never resets it.
+One frozen explanation/dismissal per turn/session/state episode. Recovery,
+replacement, removal, archive or turn closure withdraws it. Blind Spur opens none,
+holds existing; gaps restart timing for new questions.
 
 ## Doorbells
 
@@ -114,8 +118,8 @@ review is one) count, as do thread returns; CI failures, conflicts and drafts al
 reopened tickets or mode switches.
 
 If returns keep hitting the same mechanism, fix the bug class once; cover its variants with one table test. Put remaining edges with no user-visible effect under Risk in the PR description. Still fix P0/P1 and user-visible findings in this PR.
-`projects[].columns[].courseCheckTo`: `operator`, curator or orchestrator
-(`projects[].spurProjects[].role`); default curator, else operator. An answer
+`projects[].columns[].courseCheckTo`: `operator`, curator or column orchestrator.
+Default: curator (`projects[].spurProjects[].role`), else operator. An answer
 resets the course count and reaches the worker as a task comment. Only the
 operator can resolve the separate cycle limit and reset its count. With no live
 session it falls back to the operator; a live conductor that does not
@@ -129,7 +133,7 @@ operator. Routing avoids asking yourself; curators ask the operator.
 A `code` block goes to the worker; `dependency` or `external` block stays with
 its author's role. Escalation: column orchestrator to curator to
 operator; other blocks escalate straight to the operator. Keyed
-`board escalate <block>` if its addressee can't resolve it.
+`board escalate <block>` if its addressee cannot resolve it.
 
 Taskless: all roles, operator only:
 `board project ask <project> <text> --to operator --key <key>`.
@@ -167,4 +171,4 @@ else project name and role icon (`board` for operator). No session:
 ## Done follows the ticket
 
 One linked PR merging does not by itself finish the task. Done: `projects[].tracker.doneStatuses` for Jira; for GitHub, the Issue must be
-closed. If open, link another PR.
+closed. If still open, link another PR.
