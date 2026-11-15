@@ -53,13 +53,17 @@ export function teamScopeDenied(error: GraphError, query: string): boolean {
 // Every member of the RequestedReviewer union, so none arrives as an empty object.
 const REVIEWER_FIELDS =
   'requestedReviewer { __typename ... on Bot { login } ... on Mannequin { login } ... on User { login } ... on Team { slug } ... on EnterpriseTeam { slug } } asCodeOwner';
-const REVIEW_FIELDS = 'id author { __typename login } state commit { oid } submittedAt';
+const REVIEW_FIELDS =
+  'id author { __typename login } state commit { oid } submittedAt url lastEditedAt';
 // Comments are read newest first, back from the end of the PR. The body is read only to tell a
 // reviewer status comment (`isStatusComment` in prBatch.ts) and never leaves the adapter.
 const COMMENT_FIELDS =
-  'nodes { id author { __typename login } createdAt body } pageInfo { hasPreviousPage startCursor }';
-// A thread has no URL of its own; its first comment's URL links it.
-const THREAD_FIELDS = 'id isResolved isOutdated comments(first: 1) { nodes { url } }';
+  'nodes { id author { __typename login } createdAt body url lastEditedAt } pageInfo { hasPreviousPage startCursor }';
+// Each thread's newest 100 inline comments, thread replies included, give each review its inline
+// comments with their URL and thread id; a review is found by id, never through `replyTo`. A
+// thread has no URL of its own; its first listed comment's URL links it.
+const THREAD_FIELDS =
+  'id isResolved isOutdated comments(last: 100) { nodes { id url lastEditedAt pullRequestReview { id } } }';
 const CLOSING_FIELDS =
   'nodes { number repository { nameWithOwner } } pageInfo { hasNextPage endCursor }';
 // `closing` adds the issues a PR closes; only the tracker repo of a github-issues project
@@ -81,9 +85,11 @@ const DISCOVERY_FIELDS = `nodes { number updatedAt author { login } state } page
 // The fields the index compares to tell whether a PR changed since its last full read. Each
 // check is listed without `isRequired`, the costly field: GitHub's SUCCESS rollup also covers
 // skipped checks, so only the checks themselves show a skipped required check that reran.
+// `edited`, the comment updated last, and each review's `lastEditedAt` show an edit of a comment
+// or a review body; an inline comment's edit shows only at the next refresh (`OPEN_REFRESH_MS`).
 const INDEX_CONTEXTS =
   'contexts(first: 100) { totalCount nodes { ... on CheckRun { __typename name status conclusion completedAt } ... on StatusContext { __typename context state } } }';
-const INDEX_FIELDS = `number updatedAt state isDraft mergeable mergeStateStatus headRefOid statusCheckRollup { state ${INDEX_CONTEXTS} } reviews(first: 100) { totalCount nodes { id state } } reviewThreads(first: 100) { totalCount nodes { isResolved } } reviewRequests(first: 100) { totalCount nodes { ${REVIEWER_FIELDS} } } comments(last: 1) { totalCount nodes { id } }`;
+const INDEX_FIELDS = `number updatedAt state isDraft mergeable mergeStateStatus headRefOid statusCheckRollup { state ${INDEX_CONTEXTS} } reviews(first: 100) { totalCount nodes { id state lastEditedAt } } reviewThreads(first: 100) { totalCount nodes { isResolved } } reviewRequests(first: 100) { totalCount nodes { ${REVIEWER_FIELDS} } } comments(last: 1) { totalCount nodes { id } } edited: comments(first: 1, orderBy: {field: UPDATED_AT, direction: DESC}) { nodes { id updatedAt } }`;
 // Alias numbers are literals, so a request can contain an arbitrary set of requested PRs.
 function aliases(numbers: readonly number[], fields: (number: number) => string): string {
   return numbers

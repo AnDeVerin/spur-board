@@ -125,10 +125,11 @@ function replayConfig(): Config {
   return configSchema.parse(raw);
 }
 
-/** Ignore only the newly selected optional cost, comment body and thread id, outdated flag and
- * link when replaying older recorded requests. The response remains untouched: a recording with
- * no cost contributes no reported usage, a comment with no body is never a status comment, and a
- * thread with its resolved flag alone is counted but never listed.
+/** Ignore only the newly selected optional cost, comment body, links, edits, and thread id,
+ * outdated flag and inline comments when replaying older recorded requests. The response remains
+ * untouched: a recording with no cost contributes no reported usage, a comment with no body is
+ * never a status comment, an entry with no url or edit gets neither, and a thread with its
+ * resolved flag alone is counted but never listed.
  */
 function replayBody(body: Json): string {
   if (isObject(body) && typeof body['query'] === 'string')
@@ -136,8 +137,12 @@ function replayBody(body: Json): string {
       ...body,
       query: body['query']
         .replace('rateLimit { cost remaining resetAt }', 'rateLimit { remaining resetAt }')
-        .replaceAll(' createdAt body }', ' createdAt }')
-        .replaceAll('id isResolved isOutdated comments(first: 1) { nodes { url } }', 'isResolved'),
+        .replaceAll(' createdAt body url lastEditedAt }', ' createdAt }')
+        .replaceAll(' submittedAt url lastEditedAt }', ' submittedAt }')
+        .replaceAll(
+          '{ id isResolved isOutdated comments(last: 100) { nodes { id url lastEditedAt pullRequestReview { id } } } }',
+          '{ isResolved }',
+        ),
     });
   return canonical(body);
 }

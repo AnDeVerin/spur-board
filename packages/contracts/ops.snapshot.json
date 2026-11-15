@@ -1,5 +1,5 @@
 {
-  "version": "0242dc16d791523bf2189b22f95b5427576754288b20bffab5052eed65ddd60f",
+  "version": "b01117b41f5aa5e1d0b4a85c07a1d92b598ed1d93ac138b1f71436edf158ca9d",
   "grants": [
     "operator",
     "project-agent",
@@ -1694,6 +1694,49 @@
                               "description": "True for a status comment of a reviewer service, marked by its last line; it is not external feedback. Missing otherwise.",
                               "type": "boolean",
                               "const": true
+                            },
+                            "url": {
+                              "description": "Web URL of the comment or review; missing in snapshots and handed entries written before it.",
+                              "type": "string",
+                              "format": "uri"
+                            },
+                            "editedAt": {
+                              "description": "When it was last edited; for a review the newest edit of its body or its inline comments. Missing when never edited or not yet read.",
+                              "type": "string",
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                            },
+                            "comments": {
+                              "description": "A review's inline comments, thread replies included, oldest first within each thread; missing for a comment and a review without inline comments.",
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "id": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "description": "Stable id of the inline review comment in the source."
+                                  },
+                                  "url": {
+                                    "description": "Web URL that opens the inline comment, a thread reply included, in its thread.",
+                                    "type": "string",
+                                    "format": "uri"
+                                  },
+                                  "threadId": {
+                                    "description": "Id of the review thread the inline comment belongs to.",
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "editedAt": {
+                                    "description": "When the inline comment was last edited; missing when never edited.",
+                                    "type": "string",
+                                    "format": "date-time",
+                                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                                  }
+                                },
+                                "required": ["id"],
+                                "additionalProperties": false
+                              }
                             }
                           },
                           "required": ["kind", "id", "author", "postedAt"],
@@ -2315,6 +2358,49 @@
                         "description": "True for a status comment of a reviewer service, marked by its last line; it is not external feedback. Missing otherwise.",
                         "type": "boolean",
                         "const": true
+                      },
+                      "url": {
+                        "description": "Web URL of the comment or review; missing in snapshots and handed entries written before it.",
+                        "type": "string",
+                        "format": "uri"
+                      },
+                      "editedAt": {
+                        "description": "When it was last edited; for a review the newest edit of its body or its inline comments. Missing when never edited or not yet read.",
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                      },
+                      "comments": {
+                        "description": "A review's inline comments, thread replies included, oldest first within each thread; missing for a comment and a review without inline comments.",
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "minLength": 1,
+                              "description": "Stable id of the inline review comment in the source."
+                            },
+                            "url": {
+                              "description": "Web URL that opens the inline comment, a thread reply included, in its thread.",
+                              "type": "string",
+                              "format": "uri"
+                            },
+                            "threadId": {
+                              "description": "Id of the review thread the inline comment belongs to.",
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "editedAt": {
+                              "description": "When the inline comment was last edited; missing when never edited.",
+                              "type": "string",
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                            }
+                          },
+                          "required": ["id"],
+                          "additionalProperties": false
+                        }
                       }
                     },
                     "required": ["kind", "id", "author", "postedAt"],
@@ -2685,7 +2771,31 @@
               "addressee": "worker",
               "at": "2026-01-05T09:30:00.000Z",
               "taken": null,
-              "closed": null
+              "closed": null,
+              "handed": [
+                {
+                  "repo": "acme/web",
+                  "number": 42,
+                  "kind": "review",
+                  "id": "PRR_kwDOA1",
+                  "postedAt": "2026-01-05T09:30:00.000Z",
+                  "url": "https://github.com/acme/web/pull/42#pullrequestreview-2001",
+                  "comments": [
+                    {
+                      "id": "PRRC_kwDOA2",
+                      "url": "https://github.com/acme/web/pull/42#discussion_r3001",
+                      "threadId": "PRRT_kwDOA3"
+                    }
+                  ]
+                }
+              ],
+              "returned": {
+                "by": "agent:rev/rev-1",
+                "from": "review",
+                "turn": "T2",
+                "block": "B13",
+                "reason": "Tests fail on the main branch."
+              }
             },
             "links": [],
             "blocks": [
@@ -2697,6 +2807,20 @@
                 "author": "agent:web/web-7",
                 "addressee": "operator",
                 "reason": "Which API version should the client target?",
+                "at": "2026-01-05T09:30:00.000Z",
+                "outcome": null,
+                "outcomeReason": null,
+                "unblockedBy": null,
+                "unblockedAt": null
+              },
+              {
+                "id": "B13",
+                "task": "PROJ-123",
+                "type": "code",
+                "state": "open",
+                "author": "agent:web/web-8",
+                "addressee": "worker",
+                "reason": "Tests fail on the main branch.",
                 "at": "2026-01-05T09:30:00.000Z",
                 "outcome": null,
                 "outcomeReason": null,
@@ -2735,6 +2859,7 @@
               "addressee": "orchestrator:review",
               "at": "2026-01-05T09:30:00.000Z",
               "taken": { "by": "agent:rev/rev-1", "at": "2026-01-05T09:30:00.000Z" },
+              "handed": [],
               "closed": null
             },
             "links": [],
@@ -2883,7 +3008,8 @@
               "addressee": "worker",
               "at": "2026-01-05T10:15:00.000Z",
               "taken": { "by": "agent:web/web-7", "at": "2026-01-05T10:15:00.000Z" },
-              "closed": null
+              "closed": null,
+              "handed": []
             },
             "turns": [
               {
@@ -2892,7 +3018,8 @@
                 "addressee": "worker",
                 "at": "2026-01-05T09:30:00.000Z",
                 "taken": null,
-                "closed": { "at": "2026-01-05T10:15:00.000Z", "outcome": "submitted" }
+                "closed": { "at": "2026-01-05T10:15:00.000Z", "outcome": "submitted" },
+                "handed": []
               }
             ],
             "links": [],
@@ -3049,6 +3176,138 @@
                     ],
                     "description": "Who took the turn and when; null until it is taken."
                   },
+                  "handed": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "repo": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+$",
+                          "description": "Repository as owner/name."
+                        },
+                        "number": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 9007199254740991,
+                          "description": "Pull request number in the repository."
+                        },
+                        "kind": {
+                          "type": "string",
+                          "enum": ["comment", "review"],
+                          "description": "Whether this is a comment or a submitted review."
+                        },
+                        "id": {
+                          "type": "string",
+                          "minLength": 1,
+                          "description": "Stable id of the comment or review in the source."
+                        },
+                        "postedAt": {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                          "description": "When the comment was posted or the review submitted, ISO 8601 UTC."
+                        },
+                        "url": {
+                          "description": "Web URL of the comment or review; missing in snapshots and handed entries written before it.",
+                          "type": "string",
+                          "format": "uri"
+                        },
+                        "editedAt": {
+                          "description": "When it was last edited; for a review the newest edit of its body or its inline comments. Missing when never edited or not yet read.",
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                        },
+                        "comments": {
+                          "description": "A review's inline comments, thread replies included, oldest first within each thread; missing for a comment and a review without inline comments.",
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string",
+                                "minLength": 1,
+                                "description": "Stable id of the inline review comment in the source."
+                              },
+                              "url": {
+                                "description": "Web URL that opens the inline comment, a thread reply included, in its thread.",
+                                "type": "string",
+                                "format": "uri"
+                              },
+                              "threadId": {
+                                "description": "Id of the review thread the inline comment belongs to.",
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              "editedAt": {
+                                "description": "When the inline comment was last edited; missing when never edited.",
+                                "type": "string",
+                                "format": "date-time",
+                                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                              }
+                            },
+                            "required": ["id"],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": ["repo", "number", "kind", "id", "postedAt"],
+                      "additionalProperties": false,
+                      "description": "Pull request feedback a turn handed; an edit after the hand hands it again."
+                    },
+                    "description": "Pull request feedback handed over with the turn."
+                  },
+                  "returned": {
+                    "description": "The return that opened this Dev visit: who returned it, from which column, the closed turn, the code block and its reason. Missing when the visit did not start with a return.",
+                    "type": "object",
+                    "properties": {
+                      "by": {
+                        "anyOf": [
+                          { "type": "string", "const": "operator" },
+                          { "type": "string", "const": "system" },
+                          {
+                            "type": "string",
+                            "pattern": "^agent:[A-Za-z0-9._-]+\\/[A-Za-z0-9._-]+$"
+                          }
+                        ],
+                        "description": "Who returned the task to Dev."
+                      },
+                      "from": {
+                        "type": "string",
+                        "enum": [
+                          "todo",
+                          "ready-for-dev",
+                          "dev",
+                          "review",
+                          "product-review",
+                          "external-review",
+                          "qa",
+                          "ready-to-merge",
+                          "done"
+                        ],
+                        "description": "Column the task was returned from."
+                      },
+                      "turn": {
+                        "type": "string",
+                        "maxLength": 16,
+                        "pattern": "^T[1-9]\\d{0,14}$",
+                        "description": "The turn the return closed."
+                      },
+                      "block": {
+                        "type": "string",
+                        "maxLength": 16,
+                        "pattern": "^B[1-9]\\d{0,14}$",
+                        "description": "The code block the return opened."
+                      },
+                      "reason": {
+                        "type": "string",
+                        "description": "Reason of the return, verbatim from its code block."
+                      }
+                    },
+                    "required": ["by", "from", "turn", "block", "reason"],
+                    "additionalProperties": false
+                  },
                   "closed": {
                     "anyOf": [
                       {
@@ -3082,7 +3341,7 @@
                     "description": "How and when the turn closed; null while it is open."
                   }
                 },
-                "required": ["id", "column", "addressee", "at", "taken", "closed"],
+                "required": ["id", "column", "addressee", "at", "taken", "handed", "closed"],
                 "additionalProperties": false,
                 "description": "A task's turn: the executor of a column is asked to act on it."
               },
@@ -3171,6 +3430,135 @@
                   ],
                   "description": "Who took the turn and when; null until it is taken."
                 },
+                "handed": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "repo": {
+                        "type": "string",
+                        "pattern": "^[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+$",
+                        "description": "Repository as owner/name."
+                      },
+                      "number": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 9007199254740991,
+                        "description": "Pull request number in the repository."
+                      },
+                      "kind": {
+                        "type": "string",
+                        "enum": ["comment", "review"],
+                        "description": "Whether this is a comment or a submitted review."
+                      },
+                      "id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "Stable id of the comment or review in the source."
+                      },
+                      "postedAt": {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                        "description": "When the comment was posted or the review submitted, ISO 8601 UTC."
+                      },
+                      "url": {
+                        "description": "Web URL of the comment or review; missing in snapshots and handed entries written before it.",
+                        "type": "string",
+                        "format": "uri"
+                      },
+                      "editedAt": {
+                        "description": "When it was last edited; for a review the newest edit of its body or its inline comments. Missing when never edited or not yet read.",
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                      },
+                      "comments": {
+                        "description": "A review's inline comments, thread replies included, oldest first within each thread; missing for a comment and a review without inline comments.",
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "minLength": 1,
+                              "description": "Stable id of the inline review comment in the source."
+                            },
+                            "url": {
+                              "description": "Web URL that opens the inline comment, a thread reply included, in its thread.",
+                              "type": "string",
+                              "format": "uri"
+                            },
+                            "threadId": {
+                              "description": "Id of the review thread the inline comment belongs to.",
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "editedAt": {
+                              "description": "When the inline comment was last edited; missing when never edited.",
+                              "type": "string",
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                            }
+                          },
+                          "required": ["id"],
+                          "additionalProperties": false
+                        }
+                      }
+                    },
+                    "required": ["repo", "number", "kind", "id", "postedAt"],
+                    "additionalProperties": false,
+                    "description": "Pull request feedback a turn handed; an edit after the hand hands it again."
+                  },
+                  "description": "Pull request feedback handed over with the turn."
+                },
+                "returned": {
+                  "description": "The return that opened this Dev visit: who returned it, from which column, the closed turn, the code block and its reason. Missing when the visit did not start with a return.",
+                  "type": "object",
+                  "properties": {
+                    "by": {
+                      "anyOf": [
+                        { "type": "string", "const": "operator" },
+                        { "type": "string", "const": "system" },
+                        { "type": "string", "pattern": "^agent:[A-Za-z0-9._-]+\\/[A-Za-z0-9._-]+$" }
+                      ],
+                      "description": "Who returned the task to Dev."
+                    },
+                    "from": {
+                      "type": "string",
+                      "enum": [
+                        "todo",
+                        "ready-for-dev",
+                        "dev",
+                        "review",
+                        "product-review",
+                        "external-review",
+                        "qa",
+                        "ready-to-merge",
+                        "done"
+                      ],
+                      "description": "Column the task was returned from."
+                    },
+                    "turn": {
+                      "type": "string",
+                      "maxLength": 16,
+                      "pattern": "^T[1-9]\\d{0,14}$",
+                      "description": "The turn the return closed."
+                    },
+                    "block": {
+                      "type": "string",
+                      "maxLength": 16,
+                      "pattern": "^B[1-9]\\d{0,14}$",
+                      "description": "The code block the return opened."
+                    },
+                    "reason": {
+                      "type": "string",
+                      "description": "Reason of the return, verbatim from its code block."
+                    }
+                  },
+                  "required": ["by", "from", "turn", "block", "reason"],
+                  "additionalProperties": false
+                },
                 "closed": {
                   "anyOf": [
                     {
@@ -3204,7 +3592,7 @@
                   "description": "How and when the turn closed; null while it is open."
                 }
               },
-              "required": ["id", "column", "addressee", "at", "taken", "closed"],
+              "required": ["id", "column", "addressee", "at", "taken", "handed", "closed"],
               "additionalProperties": false,
               "description": "A task's turn: the executor of a column is asked to act on it."
             }
@@ -3920,13 +4308,106 @@
                               "format": "date-time",
                               "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
                               "description": "When the comment was posted or the review submitted, ISO 8601 UTC."
+                            },
+                            "url": {
+                              "description": "Web URL of the comment or review; missing in snapshots and handed entries written before it.",
+                              "type": "string",
+                              "format": "uri"
+                            },
+                            "editedAt": {
+                              "description": "When it was last edited; for a review the newest edit of its body or its inline comments. Missing when never edited or not yet read.",
+                              "type": "string",
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                            },
+                            "comments": {
+                              "description": "A review's inline comments, thread replies included, oldest first within each thread; missing for a comment and a review without inline comments.",
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "id": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "description": "Stable id of the inline review comment in the source."
+                                  },
+                                  "url": {
+                                    "description": "Web URL that opens the inline comment, a thread reply included, in its thread.",
+                                    "type": "string",
+                                    "format": "uri"
+                                  },
+                                  "threadId": {
+                                    "description": "Id of the review thread the inline comment belongs to.",
+                                    "type": "string",
+                                    "minLength": 1
+                                  },
+                                  "editedAt": {
+                                    "description": "When the inline comment was last edited; missing when never edited.",
+                                    "type": "string",
+                                    "format": "date-time",
+                                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                                  }
+                                },
+                                "required": ["id"],
+                                "additionalProperties": false
+                              }
                             }
                           },
                           "required": ["repo", "number", "kind", "id", "postedAt"],
                           "additionalProperties": false,
-                          "description": "Pull request feedback handed over with a turn."
+                          "description": "Pull request feedback a turn handed; an edit after the hand hands it again."
                         },
                         "description": "Pull request feedback handed over with the turn."
+                      },
+                      "returned": {
+                        "description": "The return that opened this Dev visit: who returned it, from which column, the closed turn, the code block and its reason. Missing when the visit did not start with a return.",
+                        "type": "object",
+                        "properties": {
+                          "by": {
+                            "anyOf": [
+                              { "type": "string", "const": "operator" },
+                              { "type": "string", "const": "system" },
+                              {
+                                "type": "string",
+                                "pattern": "^agent:[A-Za-z0-9._-]+\\/[A-Za-z0-9._-]+$"
+                              }
+                            ],
+                            "description": "Who returned the task to Dev."
+                          },
+                          "from": {
+                            "type": "string",
+                            "enum": [
+                              "todo",
+                              "ready-for-dev",
+                              "dev",
+                              "review",
+                              "product-review",
+                              "external-review",
+                              "qa",
+                              "ready-to-merge",
+                              "done"
+                            ],
+                            "description": "Column the task was returned from."
+                          },
+                          "turn": {
+                            "type": "string",
+                            "maxLength": 16,
+                            "pattern": "^T[1-9]\\d{0,14}$",
+                            "description": "The turn the return closed."
+                          },
+                          "block": {
+                            "type": "string",
+                            "maxLength": 16,
+                            "pattern": "^B[1-9]\\d{0,14}$",
+                            "description": "The code block the return opened."
+                          },
+                          "reason": {
+                            "type": "string",
+                            "description": "Reason of the return, verbatim from its code block."
+                          }
+                        },
+                        "required": ["by", "from", "turn", "block", "reason"],
+                        "additionalProperties": false
                       },
                       "head": {
                         "anyOf": [
@@ -4695,7 +5176,15 @@
                     "number": 42,
                     "kind": "review",
                     "id": "PRR_kwDOA1",
-                    "postedAt": "2026-01-05T09:30:00.000Z"
+                    "postedAt": "2026-01-05T09:30:00.000Z",
+                    "url": "https://github.com/acme/web/pull/42#pullrequestreview-2001",
+                    "comments": [
+                      {
+                        "id": "PRRC_kwDOA2",
+                        "url": "https://github.com/acme/web/pull/42#discussion_r3001",
+                        "threadId": "PRRT_kwDOA3"
+                      }
+                    ]
                   }
                 ]
               }
@@ -5020,13 +5509,103 @@
                         "format": "date-time",
                         "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
                         "description": "When the comment was posted or the review submitted, ISO 8601 UTC."
+                      },
+                      "url": {
+                        "description": "Web URL of the comment or review; missing in snapshots and handed entries written before it.",
+                        "type": "string",
+                        "format": "uri"
+                      },
+                      "editedAt": {
+                        "description": "When it was last edited; for a review the newest edit of its body or its inline comments. Missing when never edited or not yet read.",
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                      },
+                      "comments": {
+                        "description": "A review's inline comments, thread replies included, oldest first within each thread; missing for a comment and a review without inline comments.",
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "minLength": 1,
+                              "description": "Stable id of the inline review comment in the source."
+                            },
+                            "url": {
+                              "description": "Web URL that opens the inline comment, a thread reply included, in its thread.",
+                              "type": "string",
+                              "format": "uri"
+                            },
+                            "threadId": {
+                              "description": "Id of the review thread the inline comment belongs to.",
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "editedAt": {
+                              "description": "When the inline comment was last edited; missing when never edited.",
+                              "type": "string",
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                            }
+                          },
+                          "required": ["id"],
+                          "additionalProperties": false
+                        }
                       }
                     },
                     "required": ["repo", "number", "kind", "id", "postedAt"],
                     "additionalProperties": false,
-                    "description": "Pull request feedback handed over with a turn."
+                    "description": "Pull request feedback a turn handed; an edit after the hand hands it again."
                   },
                   "description": "Pull request feedback handed over with the turn."
+                },
+                "returned": {
+                  "description": "The return that opened this Dev visit: who returned it, from which column, the closed turn, the code block and its reason. Missing when the visit did not start with a return.",
+                  "type": "object",
+                  "properties": {
+                    "by": {
+                      "anyOf": [
+                        { "type": "string", "const": "operator" },
+                        { "type": "string", "const": "system" },
+                        { "type": "string", "pattern": "^agent:[A-Za-z0-9._-]+\\/[A-Za-z0-9._-]+$" }
+                      ],
+                      "description": "Who returned the task to Dev."
+                    },
+                    "from": {
+                      "type": "string",
+                      "enum": [
+                        "todo",
+                        "ready-for-dev",
+                        "dev",
+                        "review",
+                        "product-review",
+                        "external-review",
+                        "qa",
+                        "ready-to-merge",
+                        "done"
+                      ],
+                      "description": "Column the task was returned from."
+                    },
+                    "turn": {
+                      "type": "string",
+                      "maxLength": 16,
+                      "pattern": "^T[1-9]\\d{0,14}$",
+                      "description": "The turn the return closed."
+                    },
+                    "block": {
+                      "type": "string",
+                      "maxLength": 16,
+                      "pattern": "^B[1-9]\\d{0,14}$",
+                      "description": "The code block the return opened."
+                    },
+                    "reason": {
+                      "type": "string",
+                      "description": "Reason of the return, verbatim from its code block."
+                    }
+                  },
+                  "required": ["by", "from", "turn", "block", "reason"],
+                  "additionalProperties": false
                 },
                 "head": {
                   "anyOf": [

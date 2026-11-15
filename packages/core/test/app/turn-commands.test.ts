@@ -1207,6 +1207,57 @@ describe('task.return', () => {
     expect(await ctx.ring(AT)).toContain(`doorbell:${String(notice.id)}:worker-1:1`);
   });
 
+  it('the next Dev turn carries the return in inbox, task.get and why', async () => {
+    const green = { name: 'ci', state: 'success' as const, completedAt: AT };
+    const ctx = await taken({
+      mode: 'on',
+      complete: true,
+      pr: { requiredChecks: [green], feedback: [], feedbackComplete: true },
+    });
+    const query = createQuery({
+      store: ctx.store,
+      clock: { now: () => Date.parse(AT) },
+      config: ctx.config,
+    });
+    const registry = createOperationRegistry({
+      config: ctx.config,
+      clock: { now: () => Date.parse(AT) },
+      completeSince: new Map([
+        [SOURCE, AT],
+        ['spur', AT],
+      ]),
+    });
+    const task = (detail = false) =>
+      query(registry['task.get'], { task: 'o/r#9', ...(detail ? { detail } : {}) }, 'operator');
+    expect((await task()).turn).not.toHaveProperty('returned');
+
+    await ctx.return(REV_1, 'return-1');
+
+    const returned = {
+      by: REV_1,
+      from: 'review',
+      turn: 'T1',
+      block: 'B1',
+      reason: 'Handle the empty list.',
+    };
+    const inbox = await query(registry['inbox.get'], {}, WORKER_1);
+    expect(inbox.turns).toEqual([expect.objectContaining({ id: 'T2', column: 'dev', returned })]);
+    expect((await task()).turn).toEqual(expect.objectContaining({ id: 'T2', returned }));
+    expect((await ctx.why()).turn).toEqual(expect.objectContaining({ id: 'T2', returned }));
+
+    // A correction at the same frozen instant opens a new visit: the returned turn keeps it.
+    await ctx.move('dev');
+
+    const { turn, turns } = await task(true);
+    expect(turns).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: 'T2', returned })]),
+    );
+    expect(turns?.find((entry) => entry.id === 'T1')).not.toHaveProperty('returned');
+    expect(turn).not.toBeNull();
+    expect(turn?.id).not.toBe('T2');
+    expect(turn).not.toHaveProperty('returned');
+  });
+
   it.each(['dev', 'done'] as const)('refuses a return from %s', async (column) => {
     const ctx = await setup({ column });
     expect((await ctx.openTurn()).role).toBe('worker');

@@ -115,6 +115,62 @@ describe('catalog', () => {
     ).toBe(true);
   });
 
+  it('shows handed links and the return on task.get and inbox.get turns', () => {
+    const op = (id: string) => {
+      const operation = OPERATIONS.find((entry) => entry.id === id);
+      if (operation === undefined) throw new Error(`Missing ${id}`);
+      return operation;
+    };
+    const at = '2026-01-05T09:30:00.000Z';
+    const handed = {
+      repo: 'acme/web',
+      number: 42,
+      kind: 'review',
+      id: 'PRR_1',
+      postedAt: at,
+      url: 'https://github.com/acme/web/pull/42#pullrequestreview-1',
+      editedAt: at,
+      comments: [
+        { id: 'PRRC_1', url: 'https://github.com/acme/web/pull/42#discussion_r1', threadId: 'T_1' },
+      ],
+    };
+    const returned = {
+      by: 'agent:rev/rev-1',
+      from: 'review',
+      turn: 'T2',
+      block: 'B5',
+      reason: 'Handle the empty list.',
+    };
+    const turn = { id: 'T3', column: 'dev', addressee: 'worker', at, taken: null, closed: null };
+    const task = { key: 'PROJ-123', project: 'web', column: 'dev', membership: 'active' };
+    const taskGet = (value: unknown) =>
+      op('task.get').output.safeParse({ task, turn: value, links: [], blocks: [], comments: [] });
+    expect(taskGet({ ...turn, handed: [handed], returned }).success).toBe(true);
+    expect(taskGet({ ...turn, handed: [] }).success).toBe(true);
+    expect(taskGet(turn).success).toBe(false);
+    expect(taskGet({ ...turn, handed: [], returned: { ...returned, block: 'T2' } }).success).toBe(
+      false,
+    );
+    const inboxTurn = {
+      id: 'T3',
+      task: 'PROJ-123',
+      column: 'dev',
+      addressee: 'worker',
+      reason: 'Changes were requested.',
+      handed: [handed],
+      returned,
+      head: null,
+      at,
+      taken: null,
+    };
+    const inbox = (value: unknown) =>
+      op('inbox.get').output.safeParse({ comments: [], blocks: [], turns: [value] });
+    expect(inbox(inboxTurn).success).toBe(true);
+    expect(inbox({ ...inboxTurn, handed: [{ ...handed, url: 'file:///etc' }] }).success).toBe(
+      false,
+    );
+  });
+
   it('projects operation grants and mode grants by role', () => {
     const byId = new Map(OPERATIONS.map((operation) => [operation.id, operation]));
     const schema = byId.get('schema.get');

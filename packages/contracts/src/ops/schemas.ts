@@ -10,7 +10,6 @@ import {
   GATE_CONDITION_STATES,
   MEMBERSHIPS,
   TASK_HOLDS,
-  TURN_OUTCOMES,
 } from '../enums.ts';
 import { GATE_REASONS, MOVE_REASONS } from '../events.ts';
 import {
@@ -19,18 +18,16 @@ import {
   commentIdSchema,
   itemIdSchema,
   taskKeySchema,
-  turnIdSchema,
 } from '../ids.ts';
 import {
-  FEEDBACK_KINDS,
   PR_STATES,
   commitShaSchema,
   prFactsSchema,
-  prRefSchema,
   sessionFactsSchema,
   ticketFactsSchema,
 } from '../facts.ts';
 import { OPERATION_KINDS, cliModeSchema, grantRuleSchema } from './define.ts';
+import { turnViewSchema } from './turn-schemas.ts';
 
 // Shapes several operations return. Every object is strict and every field is described, so the
 // generated CLI help, MCP tool schemas and `board schema` carry the same text.
@@ -105,77 +102,6 @@ export const blockViewSchema = z
       .describe('When the block was unblocked; null while open.'),
   })
   .describe('A block on a task.');
-
-/** One pull request comment or review a turn handed to its executor. */
-export const turnHandedSchema = z
-  .strictObject({
-    ...prRefSchema.shape,
-    kind: z.enum(FEEDBACK_KINDS).describe('Whether this is a comment or a submitted review.'),
-    id: z.string().min(1).describe('Stable id of the comment or review in the source.'),
-    postedAt: z.iso
-      .datetime()
-      .describe('When the comment was posted or the review submitted, ISO 8601 UTC.'),
-  })
-  .describe('Pull request feedback handed over with a turn.');
-
-export const turnViewSchema = z
-  .strictObject({
-    id: turnIdSchema,
-    task: taskKeySchema,
-    column: z.enum(COLUMN_IDS).describe('Board column the turn belongs to.'),
-    addressee: z.enum(ADDRESSEE_ROLES).describe('Who executes the turn.'),
-    reason: z.string().describe('Why the turn was handed to the executor.'),
-    handed: z.array(turnHandedSchema).describe('Pull request feedback handed over with the turn.'),
-    head: commitShaSchema
-      .nullable()
-      .describe(
-        "Head commit of the task's pull request when the turn was opened; null when the task had no pull request.",
-      ),
-    at: z.iso.datetime().describe('When the turn was opened, ISO 8601 UTC.'),
-    taken: z
-      .strictObject({
-        by: actorIdSchema,
-        at: z.iso.datetime().describe('When the turn was taken, ISO 8601 UTC.'),
-      })
-      .nullable()
-      .describe('Who took the turn and when; null until it is taken.'),
-    threads: z
-      .array(
-        z
-          .strictObject({
-            id: z.string().min(1).describe('Node ID of the review thread.'),
-            url: z.url({ protocol: /^https?$/ }).describe("Web URL of the thread's first comment."),
-            outdated: z
-              .boolean()
-              .describe('Whether the thread is on a diff line the head no longer has.'),
-          })
-          .describe('One unresolved review thread.'),
-      )
-      .min(1)
-      .optional()
-      .describe(
-        "The unresolved review threads on the task's open pull request, read live, in a Dev turn of a project requiring resolved threads; absent when none, or when the pull request is closed, merged or missing. Fix or answer each thread, then resolve it.",
-      ),
-  })
-  .describe('A turn: the executor of a column is asked to act on a task.');
-
-/** A turn as `task.get` shows it: who executes it, whether it was taken, and how it closed. */
-export const taskTurnSchema = turnViewSchema
-  .pick({ id: true, column: true, addressee: true, at: true, taken: true })
-  .extend({
-    closed: z
-      .strictObject({
-        at: z.iso.datetime().describe('When the turn closed, ISO 8601 UTC.'),
-        outcome: z
-          .enum(TURN_OUTCOMES)
-          .describe(
-            'How the turn closed; turns closed by a return or a mode switch before those were recorded read moved.',
-          ),
-      })
-      .nullable()
-      .describe('How and when the turn closed; null while it is open.'),
-  })
-  .describe("A task's turn: the executor of a column is asked to act on it.");
 
 /** One column move from the journal: a dispatcher move, a return to Dev or a correction. */
 export const moveViewSchema = z

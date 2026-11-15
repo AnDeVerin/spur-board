@@ -2,7 +2,7 @@ import type { Config } from '@spur-board/contracts';
 import type { Selectable } from 'kysely';
 import { threadsGated } from '../domain/gates.ts';
 import type { TaskTable, TurnTable } from '../store/schema.ts';
-import type { Trx } from './board-utils.ts';
+import { turnReturn, type Trx } from './board-utils.ts';
 import { prFacts } from './course-check.ts';
 import { turnHanded } from './turns.ts';
 
@@ -26,7 +26,10 @@ async function turnThreads(trx: Trx, taskId: number, project: Project | undefine
   return threads.length === 0 ? undefined : threads;
 }
 
-/** A turn as the worker and `task.get --why` read it, with the threads of a Dev turn. */
+/**
+ * A turn as the worker and `task.get --why` read it, with the return that opened its visit and the
+ * threads of a Dev turn.
+ */
 export async function turnView(
   trx: Trx,
   turn: Turn,
@@ -34,6 +37,7 @@ export async function turnView(
   project: Project | undefined,
 ) {
   const threads = await turnThreads(trx, task.id, project, turn);
+  const returned = await turnReturn(trx, turn);
   return {
     id: `T${String(turn.id)}`,
     task: task.key,
@@ -41,6 +45,7 @@ export async function turnView(
     addressee: turn.role,
     reason: turn.reason,
     handed: turnHanded(turn),
+    ...(returned === undefined ? {} : { returned }),
     head: turn.head_sha,
     at: turn.created_at,
     taken:

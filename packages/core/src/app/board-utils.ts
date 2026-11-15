@@ -21,7 +21,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { sql, type Kysely, type Selectable } from 'kysely';
 import { z } from 'zod';
 import { parseJson, toJson } from '../store/json.ts';
-import type { EventTable, LinkTable, Tables, TaskTable } from '../store/schema.ts';
+import type { EventTable, LinkTable, Tables, TaskTable, TurnTable } from '../store/schema.ts';
 
 export type Trx = Kysely<Tables>;
 type Task = Selectable<TaskTable>;
@@ -294,6 +294,49 @@ export async function moveViews(
       ? await query.where('id', '>', options.after).orderBy('id').execute()
       : (await query.orderBy('id', 'desc').limit(options.limit).execute()).reverse();
   return rows.flatMap((row) => moveView(row) ?? []);
+}
+
+/**
+ * The return that opened the visit `turn` belongs to, or undefined. A `task.return` closes the
+ * returned turn of the current visit and bumps the column epoch, so the visit it opens is the one
+ * at the next epoch in the column it moved to. Read from ids and epochs, never from `at`: a later
+ * move cannot add or remove it. The reason is the code block's current reason.
+ */
+export async function turnReturn(
+  db: Trx,
+  turn: Pick<Selectable<TurnTable>, 'task_id' | 'column' | 'epoch'>,
+) {
+  const previous = await db
+    .selectFrom('turn')
+    .select('id')
+    .where('task_id', '=', turn.task_id)
+    .where('epoch', '=', turn.epoch - 1)
+    .execute();
+  if (previous.length === 0) return undefined;
+  const labels = new Set(previous.map((row) => `T${String(row.id)}`));
+  const moves = await db
+    .selectFrom('event')
+    .select(['actor', 'actor_ref', 'payload'])
+    .where('task_id', '=', turn.task_id)
+    .where('kind', '=', 'task_moved')
+    .orderBy('id', 'desc')
+    .execute();
+  for (const row of moves) {
+    const parsed = eventPayloadSchemas.task_moved.safeParse(JSON.parse(row.payload));
+    if (!parsed.success) continue;
+    const { from, to, turn: returned, block } = parsed.data;
+    if (returned === undefined || block === undefined || to !== turn.column) continue;
+    if (!labels.has(returned) || !/^B\d+$/.test(block)) continue;
+    const opened = await db
+      .selectFrom('block')
+      .select('reason')
+      .where('id', '=', Number(block.slice(1)))
+      .where('task_id', '=', turn.task_id)
+      .executeTakeFirst();
+    if (opened === undefined) return undefined;
+    return { by: eventActor(row), from, turn: returned, block, reason: opened.reason };
+  }
+  return undefined;
 }
 
 export function taskView(task: Task) {

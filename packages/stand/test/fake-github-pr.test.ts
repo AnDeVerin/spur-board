@@ -560,6 +560,7 @@ describe('feedback verbs', () => {
     );
     const facts = factsOf(batch, 1);
     const at = (step: number) => iso(NOW + step * 1_000);
+    const url = `https://github.stand.invalid/${BOARD}/pull/1`;
     expect(facts.feedback).toEqual(
       expect.arrayContaining([
         {
@@ -567,20 +568,29 @@ describe('feedback verbs', () => {
           id: 'IC_1_0',
           author: { login: 'stand-reviewer', type: 'user' },
           postedAt: at(1),
+          url: `${url}#issuecomment-0`,
         },
         {
           kind: 'comment',
           id: 'IC_1_1',
           author: { login: 'stand-bot', type: 'bot' },
           postedAt: at(2),
+          url: `${url}#issuecomment-1`,
         },
-        { kind: 'comment', id: 'IC_1_2', author: { login: 'carol', type: 'bot' }, postedAt: at(3) },
+        {
+          kind: 'comment',
+          id: 'IC_1_2',
+          author: { login: 'carol', type: 'bot' },
+          postedAt: at(3),
+          url: `${url}#issuecomment-2`,
+        },
         {
           kind: 'review',
           id: 'PRR_1_0',
           author: { login: 'stand-reviewer', type: 'user' },
           postedAt: at(4),
           state: 'changes_requested',
+          url: `${url}#pullrequestreview-0`,
         },
         {
           kind: 'review',
@@ -588,6 +598,7 @@ describe('feedback verbs', () => {
           author: { login: 'stand-bot', type: 'bot' },
           postedAt: at(5),
           state: 'commented',
+          url: `${url}#pullrequestreview-1`,
         },
         {
           kind: 'review',
@@ -595,6 +606,7 @@ describe('feedback verbs', () => {
           author: { login: 'dave', type: 'user' },
           postedAt: at(6),
           state: 'approved',
+          url: `${url}#pullrequestreview-2`,
         },
         {
           kind: 'comment',
@@ -602,6 +614,7 @@ describe('feedback verbs', () => {
           author: { login: 'stand-reviewer', type: 'user' },
           postedAt: at(7),
           statusComment: true,
+          url: `${url}#issuecomment-3`,
         },
       ]),
     );
@@ -613,6 +626,70 @@ describe('feedback verbs', () => {
       ]),
     );
     expect(facts.reviewRequests).toEqual([]);
+  });
+
+  it('edits a comment at the stand clock, leaves updatedAt, and the index reads the PR again', async () => {
+    let now = NOW;
+    fakes = githubFakes(() => now);
+    created(1);
+    expect(pr(fakes, 1, 'ci-green').status).toBe(200);
+    expect(pr(fakes, 1, 'comment').status).toBe(200);
+    const ref = { kind: 'pr' as const, repo: BOARD, number: 1 };
+    const context = pollContext({ observe: { prs: [ref], tickets: [], sessions: [] } });
+    const source = repoSource(fakes, BOARD, () => now);
+    const details = () =>
+      (
+        fakes.control({ system: 'github', verb: 'inspect', args: {} }).body as {
+          requests: { operation: string }[];
+        }
+      ).requests.filter(({ operation }) => operation === 'PrDetails').length;
+    // A full read without a fingerprint, then an indexed one; the third poll reuses the facts.
+    await source.poll(context);
+    const before = factsOf(await source.poll(context), 1);
+    expect(before.feedback?.[0]).not.toHaveProperty('editedAt');
+    const read = details();
+    await source.poll(context);
+    expect(details()).toBe(read);
+
+    now += 5_000;
+    const edited = pr(fakes, 1, 'edit', { index: 0, body: 'Edited.' });
+    expect(edited.body).toEqual({ pr: `${BOARD}#1`, editedAt: iso(now) });
+    const second = pr(fakes, 1, 'edit', { index: 0 });
+    expect(second.body).toEqual({ pr: `${BOARD}#1`, editedAt: iso(now + 1) });
+    const after = factsOf(await source.poll(context), 1);
+    expect(details()).toBe(read + 1);
+    expect(after.updatedAt).toBe(before.updatedAt);
+    expect(after.feedback?.[0]).toMatchObject({ id: 'IC_1_0', editedAt: iso(now + 1) });
+    expect(pr(fakes, 1, 'edit', { index: 1 }).status).toBe(404);
+    expect(pr(fakes, 1, 'edit', {}).status).toBe(400);
+  });
+
+  it('lists seeded inline comments under their review with url and thread id', async () => {
+    created(1, {
+      reviews: [
+        {
+          author: { __typename: 'User', login: 'stand-reviewer' },
+          state: 'COMMENTED',
+          commit: { oid: SHA },
+          submittedAt: AT,
+        },
+      ],
+      reviewThreads: [
+        { isResolved: false, comments: [{ review: 0 }, { review: null, lastEditedAt: AT }] },
+      ],
+    });
+    const facts = factsOf(await pollRepo(fakes, BOARD), 1);
+    const url = `https://github.stand.invalid/${BOARD}/pull/1`;
+    expect(facts.feedback).toEqual([
+      expect.objectContaining({
+        id: 'PRR_1_0',
+        url: `${url}#pullrequestreview-0`,
+        comments: [{ id: 'PRRC_1_0_0', url: `${url}#discussion_r0_0`, threadId: 'PRRT_1_0' }],
+      }),
+    ]);
+    expect(facts.reviewThreads).toEqual([
+      { resolved: false, id: 'PRRT_1_0', url: `${url}#discussion_r0_0`, outdated: false },
+    ]);
   });
 
   it.each<[string, string, Record<string, unknown>]>([

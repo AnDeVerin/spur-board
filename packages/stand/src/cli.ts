@@ -117,6 +117,9 @@ const USAGE = `Usage: pnpm stand <command>
                                   --threads opens n unresolved review threads with the review
   fake github pr <n> resolve [--thread id]
                                   resolve the review thread id (PRRT_<n>_<i>), or every thread
+  fake github pr <n> edit <index>
+                                  edit comment <index> (0 is the oldest) at the stand clock;
+                                  the pull request's updatedAt stays
   fake github issue <n> <verb> [--repo owner/name]
                                   open [--title t] (create, or reopen a closed issue), close,
                                   label [name...] (replaces the labels; none clears them) or
@@ -176,6 +179,7 @@ const FAKE_PR_VERBS = [
   'comment',
   'review',
   'resolve',
+  'edit',
 ];
 const REVIEW_STATES = new Map([
   ['approved', 'APPROVED'],
@@ -567,15 +571,19 @@ function prBody(
   if (verb === undefined) throw new UsageError('pr needs a verb');
   if (!FAKE_PR_VERBS.includes(verb))
     throw new UsageError(`pr verb must be one of ${FAKE_PR_VERBS.join(', ')}`);
-  const takesValue = verb === 'push' || verb === 'review';
+  const takesValue = verb === 'push' || verb === 'review' || verb === 'edit';
   if (extra.length > 0 || takesValue !== (value !== undefined))
     throw new UsageError(
       verb === 'push'
         ? 'push needs one sha'
         : verb === 'review'
           ? `review needs one state: ${[...REVIEW_STATES.keys()].join(', ')}`
-          : `${verb} takes no value`,
+          : verb === 'edit'
+            ? 'edit needs one comment index'
+            : `${verb} takes no value`,
     );
+  if (verb === 'edit' && !/^(0|[1-9]\d*)$/.test(value ?? ''))
+    throw new UsageError('edit needs a comment index: 0 or a positive integer');
   const state = verb === 'review' && value !== undefined ? REVIEW_STATES.get(value) : undefined;
   if (verb === 'review' && state === undefined)
     throw new UsageError(`review state must be one of ${[...REVIEW_STATES.keys()].join(', ')}`);
@@ -597,6 +605,7 @@ function prBody(
       repo: values.repo ?? DEFAULT_FAKE_REPO,
       number: Number(number),
       ...(verb === 'push' ? { sha: value } : {}),
+      ...(verb === 'edit' ? { index: Number(value) } : {}),
       ...(state === undefined ? {} : { state }),
       ...(values.author === undefined ? {} : { author: values.author }),
       ...(values.bot === true ? { bot: true } : {}),

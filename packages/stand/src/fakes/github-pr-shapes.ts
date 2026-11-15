@@ -5,11 +5,13 @@ import { canonicalizeQuery } from './graphql.ts';
 // query must fail until this list is updated, so these never come from the adapter's builders.
 const REVIEWER_FIELDS =
   'requestedReviewer { __typename ... on Bot { login } ... on Mannequin { login } ... on User { login } ... on Team { slug } ... on EnterpriseTeam { slug } } asCodeOwner';
-const REVIEW_FIELDS = 'id author { __typename login } state commit { oid } submittedAt';
+const REVIEW_FIELDS =
+  'id author { __typename login } state commit { oid } submittedAt url lastEditedAt';
 const PAGE_INFO = 'pageInfo { hasNextPage endCursor }';
 const COMMENT_FIELDS =
-  'nodes { id author { __typename login } createdAt body } pageInfo { hasPreviousPage startCursor }';
-const THREAD_FIELDS = 'id isResolved isOutdated comments(first: 1) { nodes { url } }';
+  'nodes { id author { __typename login } createdAt body url lastEditedAt } pageInfo { hasPreviousPage startCursor }';
+const THREAD_FIELDS =
+  'id isResolved isOutdated comments(last: 100) { nodes { id url lastEditedAt pullRequestReview { id } } }';
 const CLOSING_FIELDS = `nodes { number repository { nameWithOwner } } ${PAGE_INFO}`;
 const DISCOVERY_FIELDS = `nodes { number updatedAt author { login } state } ${PAGE_INFO}`;
 const RATE_LIMIT = 'rateLimit { cost remaining resetAt }';
@@ -20,7 +22,7 @@ const prAlias = (closing: boolean): string =>
   `pr0: repository(owner: $owner, name: $repo) { pullRequest(number: 1) { id number url title updatedAt mergedAt closedAt state isDraft mergeable mergeStateStatus author { login } headRefName headRefOid statusCheckRollup { contexts(first: 100) { ${contextNodes('1')} ${PAGE_INFO} } } reviews(first: 100) { nodes { ${REVIEW_FIELDS} } ${PAGE_INFO} } comments(last: 100) { ${COMMENT_FIELDS} } reviewThreads(first: 100) { nodes { ${THREAD_FIELDS} } ${PAGE_INFO} } reviewRequests(first: 100) { nodes { ${REVIEWER_FIELDS} } ${PAGE_INFO} }${closing ? ` closingIssuesReferences(first: 100) { ${CLOSING_FIELDS} }` : ''} } }`;
 const prBatch = (states: string, baseline: string): string =>
   `query PrBatch($owner: String!, $repo: String!) { ${RATE_LIMIT} repository(owner: $owner, name: $repo) { pullRequests(first: 100, states: [${states}], ${ORDER}) { ${DISCOVERY_FIELDS} }${baseline} } }`;
-const PR_INDEX = `query PrIndex($owner: String!, $repo: String!) { ${RATE_LIMIT} pr0: repository(owner: $owner, name: $repo) { pullRequest(number: 1) { number updatedAt state isDraft mergeable mergeStateStatus headRefOid statusCheckRollup { state contexts(first: 100) { totalCount nodes { ... on CheckRun { __typename name status conclusion completedAt } ... on StatusContext { __typename context state } } } } reviews(first: 100) { totalCount nodes { id state } } reviewThreads(first: 100) { totalCount nodes { isResolved } } reviewRequests(first: 100) { totalCount nodes { ${REVIEWER_FIELDS} } } comments(last: 1) { totalCount nodes { id } } } } }`;
+const PR_INDEX = `query PrIndex($owner: String!, $repo: String!) { ${RATE_LIMIT} pr0: repository(owner: $owner, name: $repo) { pullRequest(number: 1) { number updatedAt state isDraft mergeable mergeStateStatus headRefOid statusCheckRollup { state contexts(first: 100) { totalCount nodes { ... on CheckRun { __typename name status conclusion completedAt } ... on StatusContext { __typename context state } } } } reviews(first: 100) { totalCount nodes { id state lastEditedAt } } reviewThreads(first: 100) { totalCount nodes { isResolved } } reviewRequests(first: 100) { totalCount nodes { ${REVIEWER_FIELDS} } } comments(last: 1) { totalCount nodes { id } } edited: comments(first: 1, ${ORDER}) { nodes { id updatedAt } } } } }`;
 const prDetails = (closing: boolean): string =>
   `query PrDetails($owner: String!, $repo: String!) { ${RATE_LIMIT} ${prAlias(closing)} }`;
 const prPage = (field: string, cursor = 'after'): string =>
@@ -47,12 +49,16 @@ const KNOWN_DOCUMENTS = [
   discoveryPage('OPEN'),
 ];
 // Keep exact legacy shapes for the committed live recordings, which select neither the cost, a
-// comment body nor a thread's id, outdated flag and link; none is inferred.
+// comment body, links and edits, nor a thread's id, outdated flag and inline comments; none is
+// inferred.
 const legacy = (query: string): string =>
   query
     .replace('cost remaining', 'remaining')
-    .replaceAll('createdAt body }', 'createdAt }')
-    .replaceAll(THREAD_FIELDS, 'isResolved');
+    .replaceAll('createdAt body url lastEditedAt }', 'createdAt }')
+    .replaceAll('submittedAt url lastEditedAt', 'submittedAt')
+    .replaceAll(THREAD_FIELDS, 'isResolved')
+    .replace('nodes { id state lastEditedAt }', 'nodes { id state }')
+    .replace(` edited: comments(first: 1, ${ORDER}) { nodes { id updatedAt } }`, '');
 export const KNOWN_SHAPES = new Set(
   KNOWN_DOCUMENTS.flatMap((query) => [canonicalizeQuery(query), canonicalizeQuery(legacy(query))]),
 );

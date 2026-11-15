@@ -42,7 +42,9 @@ const indexAliasWire = z.object({
         ),
       })
       .nullable(),
-    reviews: counted(z.object({ id: z.string(), state: z.string() })),
+    reviews: counted(
+      z.object({ id: z.string(), state: z.string(), lastEditedAt: z.string().nullable() }),
+    ),
     reviewThreads: counted(z.object({ isResolved: z.boolean() })),
     reviewRequests: counted(
       z.object({
@@ -57,6 +59,8 @@ const indexAliasWire = z.object({
       }),
     ),
     comments: counted(z.object({ id: z.string() })),
+    // The comment updated last: an edit moves it even when the comment count does not change.
+    edited: z.object({ nodes: z.array(z.object({ id: z.string(), updatedAt: z.string() })) }),
   }),
 });
 

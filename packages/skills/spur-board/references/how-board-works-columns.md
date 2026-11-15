@@ -43,6 +43,7 @@ hides its inline comments; thread resolution and the head a comment was left on
 change nothing for feedback. Bots (GitHub Apps) neither return a task, approve it nor block
 an approval; their threads still count. Handled means handed by ID to a Dev turn, not answered; in shadow
 mode, a later submit in Dev or an executor `none` column handles it.
+An edit after the hand makes it unhandled again, returning a task right of Dev.
 A status comment whose last line is a hidden `board-reviewer-progress` or
 `board-reviewer-unavailable` marker is not external feedback. No required checks: non-skipped count. `projects[].reposWithoutCi` waives absent checks
 for listed repos; never failed/skipped required ones.

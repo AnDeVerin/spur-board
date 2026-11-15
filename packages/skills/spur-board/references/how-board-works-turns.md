@@ -14,6 +14,9 @@ A new head closes taken turns outside Dev; taken Dev turns survive pushes.
 Right of Dev, red CI, a draft, a conflict, an external comment or an unresolved
 thread where required returns the task to Dev at once, unless a turn is taken; then after its submit or return.
 The Dev turn hands the comments, beside a return's `code` block.
+Each handed entry has its `url`, `editedAt` once edited, and a review's inline
+`comments` with `url` and `threadId`. Turns of a Dev visit opened by a return
+show `returned`: who, from, the turn, the `code` block and the verbatim reason.
 
 Closed turns receive no further Board sends; Obsolete queued rings are dropped;
 a message already accepted by Spur cannot be retracted. Check `board inbox` and

@@ -13,6 +13,13 @@ import {
 } from '@spur-board/contracts';
 import { z } from 'zod';
 import { parseWire } from '../runner/wire.ts';
+import {
+  inlineComments,
+  linkOf,
+  newestEdit,
+  threadWire,
+  type ThreadWire,
+} from './feedbackLinks.ts';
 
 const KEPT_REVIEWS = ['approved', 'changes_requested', 'dismissed'];
 const actor = z.object({ login: z.string().optional() }).nullish();
@@ -48,6 +55,9 @@ const reviewWire = z
     state: z.string(),
     commit: z.object({ oid: z.string() }).nullable(),
     submittedAt: z.string().nullish(),
+    // Optional only so the committed live recordings, read before these fields, still replay.
+    url: z.string().optional(),
+    lastEditedAt: z.string().nullish(),
   })
   .refine(
     (review) =>
@@ -65,6 +75,9 @@ export const commentWire = z.object({
   createdAt: z.iso.datetime(),
   // Read only by `isStatusComment`; it never reaches the facts.
   body: z.string().optional(),
+  // Optional only so the committed live recordings, read before these fields, still replay.
+  url: z.string().optional(),
+  lastEditedAt: z.iso.datetime().nullish(),
 });
 const loginReviewer = <T extends string>(type: T) =>
   z.object({ __typename: z.literal(type), login: z.string() });
@@ -111,15 +124,7 @@ const prWire = z.object({
   statusCheckRollup: z.object({ contexts: nodes(contextWire) }).nullish(),
   reviews: nodes(reviewWire),
   comments: nodes(commentWire),
-  // `id`, `isOutdated` and `comments` are optional so recordings of the older selection replay.
-  reviewThreads: nodes(
-    z.object({
-      id: z.string().optional(),
-      isResolved: z.boolean(),
-      isOutdated: z.boolean().optional(),
-      comments: nodes(z.object({ url: z.string() })).optional(),
-    }),
-  ),
+  reviewThreads: nodes(threadWire),
   reviewRequests: nodes(
     z.object({
       requestedReviewer: reviewerWire,
@@ -136,7 +141,6 @@ type CommentWire = z.output<typeof commentWire>;
 type ActorWire = z.output<typeof typedActor>;
 type ReviewerWire = NonNullable<z.output<typeof reviewerWire>>;
 type ClosingWire = z.output<typeof closingWire>;
-type ThreadWire = z.output<typeof prWire>['reviewThreads']['nodes'][number];
 type IssuesRule = Extract<KeyRule, { type: 'issues' }>;
 type JiraRule = Extract<KeyRule, { type: 'jira' }>;
 type Link = Config['projects'][number]['link'];
@@ -313,8 +317,10 @@ function isStatusComment(body: string | undefined): boolean {
 function feedbackOf(
   reviews: readonly ReviewWire[],
   comments: readonly CommentWire[],
+  threads: readonly ThreadWire[],
   held: readonly PrFeedback[],
 ): PrFeedback[] {
+  const inline = inlineComments(threads);
   const entries = new Map<string, PrFeedback>();
   const add = (entry: PrFeedback): void => {
     entries.set(`${entry.kind}:${entry.id}`, entry);
@@ -327,16 +333,21 @@ function feedbackOf(
       author: feedbackAuthor(node.author),
       postedAt: node.createdAt,
       ...(isStatusComment(node.body) ? { statusComment: true as const } : {}),
+      ...linkOf(node.url, node.lastEditedAt),
     });
   for (const node of reviews) {
     if (node.submittedAt == null) continue;
     const state = REVIEW_STATES.find((known) => known === node.state.toLowerCase());
+    const own = inline.get(node.id) ?? [];
+    const editedAt = newestEdit([node.lastEditedAt, ...own.map((entry) => entry.editedAt)]);
     add({
       kind: 'review',
       id: node.id,
       author: feedbackAuthor(node.author),
       postedAt: node.submittedAt,
       ...(state === undefined ? {} : { state }),
+      ...linkOf(node.url, editedAt),
+      ...(own.length === 0 ? {} : { comments: own }),
     });
   }
   const tie = (entry: PrFeedback): string => `${entry.id}\u0000${entry.kind}`;
@@ -513,7 +524,7 @@ export function normalizePr(
     updatedAt: wire.updatedAt,
     ...(state === 'merged' && wire.mergedAt !== null ? { mergedAt: wire.mergedAt } : {}),
     ...(state === 'closed' && wire.closedAt !== null ? { closedAt: wire.closedAt } : {}),
-    feedback: feedbackOf(wire.reviews.nodes, wire.comments.nodes, held),
+    feedback: feedbackOf(wire.reviews.nodes, wire.comments.nodes, wire.reviewThreads.nodes, held),
     feedbackComplete,
   };
   const parsed = prFactsSchema.safeParse(facts);

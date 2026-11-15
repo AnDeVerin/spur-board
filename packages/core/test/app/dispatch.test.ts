@@ -1886,6 +1886,7 @@ describe('turns', () => {
       addressee: 'worker',
       at: opened,
       taken: null,
+      handed: [],
       closed: null,
     });
     expect(unacked).not.toHaveProperty('turns');
@@ -1904,6 +1905,40 @@ describe('turns', () => {
     expect((await ctx.get()).turn).toBeNull();
   });
 
+  it('task.get, inbox and why show the same handed entries', async () => {
+    const ctx = await inDev();
+    const links = {
+      url: 'https://github.com/o/r/pull/7#pullrequestreview-1',
+      editedAt: at(2),
+      comments: [
+        { id: 'rc-1', url: 'https://github.com/o/r/pull/7#discussion_r1', threadId: 'PRRT_1' },
+      ],
+    };
+    await ctx.pr({
+      feedback: [
+        {
+          kind: 'review',
+          id: 'r-1',
+          author: { login: EXTERNAL, type: 'user' },
+          postedAt: at(1),
+          state: 'changes_requested',
+          ...links,
+        },
+      ],
+    });
+    await ctx.submit(WORKER, 'T1', A);
+    await ctx.ack(WORKER, 'T2');
+    const expected = [
+      { repo: 'o/r', number: 7, kind: 'review', id: 'r-1', postedAt: at(1), ...links },
+    ];
+
+    expect((await ctx.get()).turn).toMatchObject({ id: 'T2', handed: expected });
+    expect((await ctx.inbox(WORKER)).turns).toEqual([
+      expect.objectContaining({ id: 'T2', handed: expected }),
+    ]);
+    expect((await ctx.why()).turn).toMatchObject({ id: 'T2', handed: expected });
+  });
+
   it('task.get detail lists closed turns with their outcome, newest first, at most five', async () => {
     const ctx = await inReview();
     await ctx.ack(REV, 'T2');
@@ -1913,8 +1948,13 @@ describe('turns', () => {
       ['T2', 'returned'],
       ['T1', 'submitted'],
     ]);
-    expect(returned.turn).toMatchObject({ column: 'dev', closed: null });
+    expect(returned.turn).toMatchObject({
+      column: 'dev',
+      closed: null,
+      returned: { by: REV, from: 'review', turn: 'T2' },
+    });
     expect(returned.turns?.map((turn) => turn.id)).not.toContain(returned.turn?.id);
+    for (const turn of returned.turns ?? []) expect(turn).not.toHaveProperty('returned');
 
     const fresh = board();
     await fresh.ticket();
@@ -3029,14 +3069,25 @@ describe('design flows 2.5 and 2.10', () => {
 
   it('an external changes-requested review returns the task to Dev and the Dev turn hands it over', async () => {
     const ctx = await pastProductReview({ externalReview: true });
-    await ctx.pr(review(EXTERNAL, 'changes_requested', 30));
+    const links = {
+      url: 'https://github.com/o/r/pull/7#pullrequestreview-30',
+      comments: [
+        { id: 'rc-1', url: 'https://github.com/o/r/pull/7#discussion_r1', threadId: 'PRRT_1' },
+      ],
+    };
+    const changes = review(EXTERNAL, 'changes_requested', 30);
+    await ctx.pr({
+      ...changes,
+      feedback: changes.feedback.map((entry) => ({ ...entry, ...links })),
+    });
     expect((await ctx.task()).column).toBe('dev');
     expect((await ctx.moves()).at(-1)).toMatchObject({ gate: ['external_comments'] });
     const turn = await ctx.openTurn();
     expect(turn).toEqual(turnOf('dev', 'worker', 'dev: external_comments, no_submit_on_head'));
     expect(JSON.parse(turn?.handed ?? '[]')).toEqual([
-      { repo: 'o/r', number: 7, kind: 'review', id: `r-${EXTERNAL}`, postedAt: at(30) },
+      { repo: 'o/r', number: 7, kind: 'review', id: `r-${EXTERNAL}`, postedAt: at(30), ...links },
     ]);
+    expect((await ctx.get()).turn?.handed).toEqual(JSON.parse(turn?.handed ?? '[]'));
   });
 
   it.each([
@@ -4035,6 +4086,168 @@ describe('pending submit', () => {
     expect((await submissions(ctx)).find((row) => row.column === 'review')?.voided_at).toBe(
       ctx.at(),
     );
+  });
+});
+
+describe('edited feedback', () => {
+  const URL_1 = 'https://github.com/o/r/pull/7#issuecomment-1';
+  const comment = (editedAt?: string) => ({
+    kind: 'comment' as const,
+    id: 'c-1',
+    author: { login: EXTERNAL, type: 'user' as const },
+    postedAt: at(1),
+    url: URL_1,
+    ...(editedAt === undefined ? {} : { editedAt }),
+  });
+  const handed = (editedAt?: string) => ({
+    repo: 'o/r',
+    number: 7,
+    kind: 'comment',
+    id: 'c-1',
+    postedAt: at(1),
+    url: URL_1,
+    ...(editedAt === undefined ? {} : { editedAt }),
+  });
+  /** What each turn that handed anything handed, oldest first. */
+  const handedSoFar = async (ctx: Board) =>
+    (await ctx.turns())
+      .map((turn) => JSON.parse(turn.handed) as unknown[])
+      .filter((entries) => entries.length > 0);
+  /** The worker's submit of T1 left `entry` unhandled: Dev turn T2 handed it and was taken. */
+  async function handedInDev(entry = comment()) {
+    const ctx = await inDev();
+    await ctx.pr({ feedback: [entry] });
+    await ctx.submit(WORKER, 'T1', A);
+    expect(await ctx.openTurn()).toMatchObject({ id: 'T2', column: 'dev' });
+    await ctx.ack(WORKER, 'T2');
+    return ctx;
+  }
+  /** The worker submits the taken Dev turn `turn` and takes the Dev turn it leaves, if any. */
+  async function submitDev(ctx: Board, turn: string) {
+    await ctx.submit(WORKER, turn, A);
+    const next = await ctx.openTurn();
+    if (next?.column === 'dev') await ctx.ack(WORKER, next.id);
+    return next;
+  }
+
+  it('hands a comment edited after its hand once more, and again after a second edit', async () => {
+    const ctx = await handedInDev();
+    const first = ctx.at();
+    await ctx.pr({ feedback: [comment(first)] });
+    const t3 = await submitDev(ctx, 'T2');
+    expect(t3).toMatchObject({ id: 'T3', column: 'dev' });
+    expect(JSON.parse(t3?.handed ?? '[]')).toEqual([handed(first)]);
+
+    const second = ctx.at();
+    await ctx.pr({ feedback: [comment(second)] });
+    const t4 = await submitDev(ctx, 'T3');
+    expect(t4).toMatchObject({ id: 'T4', column: 'dev' });
+    expect(JSON.parse(t4?.handed ?? '[]')).toEqual([handed(second)]);
+
+    expect(await submitDev(ctx, 'T4')).toMatchObject({ column: 'review' });
+    expect(await handedSoFar(ctx)).toEqual([[handed()], [handed(first)], [handed(second)]]);
+  });
+
+  it('hands a comment edited before any hand once, with its edit', async () => {
+    const ctx = await handedInDev(comment(at(2)));
+    expect(JSON.parse((await ctx.openTurn())?.handed ?? '[]')).toEqual([handed(at(2))]);
+
+    expect(await submitDev(ctx, 'T2')).toMatchObject({ column: 'review' });
+    expect(await handedSoFar(ctx)).toEqual([[handed(at(2))]]);
+  });
+
+  it('counts edits of an entry handed without url or edit only after its turn opened', async () => {
+    const ctx = await handedInDev();
+    // As a turn handed it before entries carried a url.
+    const legacy = { repo: 'o/r', number: 7, kind: 'comment', id: 'c-1', postedAt: at(1) };
+    await ctx.store.db
+      .updateTable('turn')
+      .set({ handed: JSON.stringify([legacy]) })
+      .where('id', '=', 2)
+      .execute();
+    const opened = (await ctx.turns())[1]?.created_at ?? '';
+
+    await ctx.pr({ feedback: [comment(opened)] });
+    expect(await submitDev(ctx, 'T2')).toMatchObject({ id: 'T3', column: 'review' });
+
+    const later = ctx.at();
+    await ctx.pr({ feedback: [comment(later)] });
+    expect((await ctx.task()).column).toBe('dev');
+    expect(JSON.parse((await ctx.openTurn())?.handed ?? '[]')).toEqual([handed(later)]);
+    expect(await handedSoFar(ctx)).toEqual([[legacy], [handed(later)]]);
+  });
+
+  it('returns the task to Dev when a handed comment is edited in Review', async () => {
+    const ctx = await handedInDev();
+    expect(await submitDev(ctx, 'T2')).toMatchObject({ id: 'T3', column: 'review' });
+    const moves = await ctx.moves();
+
+    const edited = ctx.at();
+    await ctx.pr({ feedback: [comment(edited)] });
+
+    expect((await ctx.task()).column).toBe('dev');
+    expect((await ctx.moves()).slice(moves.length)).toEqual([
+      expect.objectContaining({ from: 'review', to: 'dev', gate: ['external_comments'] }),
+    ]);
+    expect(JSON.parse((await ctx.openTurn())?.handed ?? '[]')).toEqual([handed(edited)]);
+  });
+
+  it('hands an entry handed with url once more for an edit dated before its turn opened', async () => {
+    const ctx = await handedInDev();
+    const opened = (await ctx.turns())[1]?.created_at ?? '';
+    expect(Date.parse(at(2))).toBeLessThan(Date.parse(opened));
+
+    await ctx.pr({ feedback: [comment(at(2))] });
+    const t3 = await submitDev(ctx, 'T2');
+    expect(t3).toMatchObject({ id: 'T3', column: 'dev' });
+    expect(JSON.parse(t3?.handed ?? '[]')).toEqual([handed(at(2))]);
+
+    expect(await submitDev(ctx, 'T3')).toMatchObject({ column: 'review' });
+    expect(await handedSoFar(ctx)).toEqual([[handed()], [handed(at(2))]]);
+  });
+
+  it('hands the edited copy in the turn a reroute opens, and nothing more after it', async () => {
+    const ctx = await started({}, 'none');
+    await ctx.pr({ feedback: [comment()] });
+    expect(JSON.parse((await ctx.openTurn())?.handed ?? '[]')).toEqual([handed()]);
+    const edited = ctx.at();
+    await ctx.pr({ feedback: [comment(edited)] });
+    expect(await ctx.openTurn()).toMatchObject({ id: 'T1', role: 'operator' });
+
+    await ctx.spur('live');
+
+    expect((await ctx.turns())[0]).toMatchObject({ id: 1, closed_reason: 'rerouted' });
+    const t2 = await ctx.openTurn();
+    expect(t2).toMatchObject({ id: 'T2', column: 'dev', role: 'worker' });
+    expect(JSON.parse(t2?.handed ?? '[]')).toEqual([handed(edited)]);
+    await ctx.ack(WORKER, 'T2');
+    expect(await submitDev(ctx, 'T2')).toMatchObject({ column: 'review' });
+    expect(await handedSoFar(ctx)).toEqual([[handed()], [handed(edited)]]);
+  });
+
+  it('recalls the newest edit an untaken turn handed, once, after a correction', async () => {
+    const ctx = await started({}, 'none');
+    await ctx.pr({ feedback: [comment()] });
+    const edited = ctx.at();
+    await ctx.pr({ feedback: [comment(edited)] });
+    await ctx.spur('live');
+    expect(JSON.parse((await ctx.openTurn())?.handed ?? '[]')).toEqual([handed(edited)]);
+    // A poll dropped c-1 from the snapshot: only the closed untaken turns T1 and T2 recall it.
+    await ctx.pr({ feedback: [] });
+
+    await ctx.move('dev');
+
+    expect((await ctx.turns()).map((turn) => turn.closed_reason)).toEqual([
+      'rerouted',
+      'corrected',
+      null,
+    ]);
+    const t3 = await ctx.openTurn();
+    expect(t3).toMatchObject({ id: 'T3', column: 'dev', role: 'worker' });
+    expect(JSON.parse(t3?.handed ?? '[]')).toEqual([handed(edited)]);
+    await ctx.ack(WORKER, 'T3');
+    expect(await submitDev(ctx, 'T3')).toMatchObject({ column: 'review' });
+    expect(await handedSoFar(ctx)).toEqual([[handed()], [handed(edited)], [handed(edited)]]);
   });
 });
 
