@@ -49,6 +49,14 @@ interface DispatchInput {
   liveWorker: boolean;
   /** An active cycle-limit or course-check item holds the task. */
   cycleHeld: boolean;
+  /** A turn submit of the current visit waits for a poll to confirm its head: nothing moves. */
+  submitPending: boolean;
+  /**
+   * A pending turn submit failed (head moved, PR closed, no PR), in the current visit or in the
+   * visit a left move with no turn left: its turn goes back to the executor even on a closed PR,
+   * or after a left move to the target column's executor.
+   */
+  submitFailed: boolean;
   turn: VisitTurn;
 }
 
@@ -111,15 +119,16 @@ function workStarted(input: DispatchInput): boolean {
 }
 
 /**
- * What holds the dispatcher on the task now: a blind GitHub stops it, a blind Spur defers a
- * worker's turn, an active cycle-limit or course-check item stops every turn and move right, and
- * To Do and Ready for Dev wait for the work to start. The last is judged at the task's column,
- * while `dispatch` judges it at each column the cascade reaches.
+ * What holds the dispatcher on the task now: a blind GitHub or a pending submit stops it, a blind
+ * Spur defers a worker's turn, an active cycle-limit or course-check item stops every turn and
+ * move right, and To Do and Ready for Dev wait for the work to start. The last is judged at the
+ * task's column, while `dispatch` judges it at each column the cascade reaches.
  */
 export function dispatchHolds(input: DispatchInput): TaskHold[] {
   const holds: TaskHold[] = [];
   if (input.githubBlind) holds.push('github_blind');
   if (input.spurBlind) holds.push('spur_blind');
+  if (input.submitPending) holds.push('submit_pending');
   if (input.cycleHeld) holds.push('cycle_limit');
   if ((input.column === 'todo' || input.column === 'ready-for-dev') && !workStarted(input))
     holds.push('work_not_started');
@@ -133,10 +142,13 @@ export function dispatchHolds(input: DispatchInput): TaskHold[] {
  */
 export function dispatch(input: DispatchInput): DispatchResult {
   const moves: DispatchMove[] = [];
-  if (input.githubBlind) return { moves, turn: null };
+  if (input.githubBlind || input.submitPending) return { moves, turn: null };
   const { project, reopened, cycleHeld } = input;
   const workerLive = input.liveWorker && !input.spurBlind;
   const started = workStarted(input);
+  // A left move resets `turn`, so the failed submit is judged on the input visit: the one it was
+  // made in, or a visit with no turn yet that a deferred hand-back carried it to.
+  const handsBack = input.submitFailed && input.turn.visit !== 'unclosed';
   let { column, facts, turn } = input;
   const move = (to: ColumnId, reason: MoveReason, gate?: GateReason[]) => {
     moves.push({ from: column, to, reason, ...(gate === undefined ? {} : { gate }) });
@@ -199,7 +211,8 @@ export function dispatch(input: DispatchInput): DispatchResult {
     }
     const executor = orchestratorOf(project, column);
     if (column === 'external-review' && executor === 'none') return result(null);
-    if (reasons.includes('pr_closed')) return result(null);
+    // A closed PR opens no turn, except to hand back a pending submit it failed.
+    if (reasons.includes('pr_closed') && !handsBack) return result(null);
     switch (turn.visit) {
       case 'none':
         return result({ column, reasons, kind: 'entry' });

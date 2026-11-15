@@ -147,14 +147,25 @@ export interface SubmissionTable {
   author: ActorId;
   submitted_at: string;
   note: string | null;
-  /** When a left move made this submit stale; null while it counts. Marks are never voided. */
+  /**
+   * When a left move made this submit stale; null while it counts. Marks are never voided, and a
+   * pending submit is voided only when it settles without counting (handed back or superseded).
+   */
   voided_at: string | null;
   /**
    * The PR whose fresh head the submit was checked against; null for a submit recorded before
-   * migration 0014, which handles feedback on no PR.
+   * migration 0014, which handles feedback on no PR, or for a pending submit made before the
+   * board linked a PR (filled in when a poll confirms it).
    */
   pr_repo: string | null;
   pr_number: number | null;
+  /**
+   * Deadline for a PR to appear for a turn submit accepted before the board could confirm its
+   * head; null when not pending (confirmed, or recorded before migration 0021). A pending row is
+   * no gate mark until a poll observed after `submitted_at`, or a merged PR's snapshot, confirms
+   * the head; a PR seen closed before the submit fails it only past this deadline.
+   */
+  pending_until: string | null;
 }
 
 /** A column executor's turn of one column visit; `seq` counts the turns of the visit. */

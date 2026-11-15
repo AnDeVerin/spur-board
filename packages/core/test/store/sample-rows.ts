@@ -114,6 +114,7 @@ export const sampleRows: SampleRows = {
     voided_at: null,
     pr_repo: 'x/y',
     pr_number: 7,
+    pending_until: null,
   },
   turn: {
     id: 1,

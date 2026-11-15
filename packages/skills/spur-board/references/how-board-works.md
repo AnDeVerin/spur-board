@@ -1,14 +1,14 @@
 # How the Board works
 
 Start with `board task <task> --why`: it explains the gates, holds, open turn and
-last moves behind the task's position. Read `board inbox` before acting on a ring.
+last moves behind the task's position.
 
 ## Columns and executors
 
 The fixed order is `todo`, `ready-for-dev`, `dev`, `review`, `product-review`,
 `external-review`, `qa`, `ready-to-merge`, `done`.
-`projects[].columns[].enabled` skips a column and its gate when false; To Do, Dev
-and Done must stay enabled. Omitted optional columns are skipped too.
+`projects[].columns[].enabled` false, or omitting an optional column, skips it and
+its gate; To Do, Dev and Done must stay enabled.
 
 Each column has one executor, selected by `projects[].columns[].orchestrator`:
 `none` uses the task's live worker, falling back to the operator; `operator` uses
@@ -59,6 +59,9 @@ with keyed `board inbox ack <entries>`. Only the acknowledging session may submi
 or return it: keyed `board submit <turn> <sha>` accepts the head, and keyed
 `board return <turn> <reason>` sends findings back to Dev. A worker submits a fresh
 PR head after pushing. In shadow mode, use keyed `board submit <task> <sha>`.
+An unseen head answers `pending`: that submit is final,
+so do not resubmit or raise a block; the Board confirms it or hands the turn back
+(`projects[].dispatcher.submitConfirmMs`).
 
 A new head closes taken turns outside Dev; a taken Dev turn survives the worker's
 push so that worker can submit it. An unacknowledged turn does not hold back a
@@ -111,8 +114,8 @@ ID). Role addresses follow the current session filling the role.
 
 ## Slack now
 
-`slack.channels.feed` carries summaries such as curator answers and operator
-items, with exceptions for items represented elsewhere or delivery problems.
+`slack.channels.feed` carries summaries like curator answers and operator
+items, except items shown elsewhere and delivery problems.
 `slack.channels.orchestrators` carries block threads addressed to the operator by
 someone else. Answer in the existing block thread to preserve its task context.
 

@@ -80,6 +80,8 @@ function input(changes: Changes = {}): Input {
     spurBlind: false,
     liveWorker: true,
     cycleHeld: false,
+    submitPending: false,
+    submitFailed: false,
     turn: { visit: 'none', open: false, operatorUntaken: false, headMoved: false, ...turn },
     ...rest,
   };
@@ -415,6 +417,75 @@ const cases: [string, Changes, Result][] = [
     { moves: [left('review', 'dev', 'pr_closed')], turn: null },
   ],
   ['cycle hold opens no turn', { pr: red, cycleHeld: true }, nothing],
+  [
+    'submit pending holds every move and turn',
+    { pr: red, facts: { marks: [] }, submitPending: true, turn: { visit: 'submitted' } },
+    nothing,
+  ],
+  ['submit pending holds a right move', { submitPending: true }, nothing],
+  ['submit pending holds merge', { pr: { state: 'merged' }, submitPending: true }, nothing],
+  [
+    'submit pending while GitHub is blind does nothing',
+    { submitPending: true, githubBlind: true, turn: { visit: 'submitted' } },
+    nothing,
+  ],
+  [
+    'failed submit on a closed PR opens after_submit',
+    {
+      pr: { state: 'closed' },
+      facts: { marks: [] },
+      submitFailed: true,
+      turn: { visit: 'submitted' },
+    },
+    { moves: [], turn: turn('after_submit', 'dev', 'pr_closed'), voids: 'dev' },
+  ],
+  [
+    'failed Review submit on a closed PR moves to Dev and opens its entry turn',
+    {
+      column: 'review',
+      pr: { state: 'closed' },
+      facts: { marks: [submit('dev')] },
+      submitFailed: true,
+      turn: { visit: 'submitted' },
+    },
+    { moves: [left('review', 'dev', 'pr_closed')], turn: turn('entry', 'dev', 'pr_closed') },
+  ],
+  [
+    'failed submit carried to a Dev visit with no turn opens its entry turn on a closed PR',
+    {
+      pr: { state: 'closed' },
+      facts: { marks: [] },
+      submitFailed: true,
+      turn: { visit: 'none' },
+    },
+    { moves: [], turn: turn('entry', 'dev', 'pr_closed') },
+  ],
+  [
+    'failed submit beside an unclosed turn opens nothing on a closed PR',
+    {
+      pr: { state: 'closed' },
+      facts: { marks: [] },
+      submitFailed: true,
+      turn: { visit: 'unclosed' },
+    },
+    nothing,
+  ],
+  [
+    'closed PR without a failed submit opens no turn',
+    { pr: { state: 'closed' }, facts: { marks: [] }, turn: { visit: 'submitted' } },
+    nothing,
+  ],
+  [
+    'failed submit on a closed PR under a cycle hold opens nothing',
+    {
+      pr: { state: 'closed' },
+      facts: { marks: [] },
+      submitFailed: true,
+      cycleHeld: true,
+      turn: { visit: 'submitted' },
+    },
+    nothing,
+  ],
   ['cycle hold makes no right move', { cycleHeld: true }, nothing],
   ['cycle hold makes no left move', { column: 'review', pr: red, cycleHeld: true }, nothing],
   [
@@ -494,6 +565,13 @@ describe('dispatchHolds', () => {
     ['a blind GitHub', { githubBlind: true }, ['github_blind']],
     ['a blind Spur', { spurBlind: true }, ['spur_blind']],
     ['a cycle-limit item', { cycleHeld: true }, ['cycle_limit']],
+    ['a pending submit', { submitPending: true }, ['submit_pending']],
+    [
+      'a pending submit while GitHub is blind',
+      { submitPending: true, githubBlind: true },
+      ['github_blind', 'submit_pending'],
+    ],
+    ['a failed submit holds nothing', { submitFailed: true }, []],
     ['To Do with an open PR', { column: 'todo' }, []],
     ['To Do with a live worker only', { column: 'todo', openPr: false }, []],
     [

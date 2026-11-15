@@ -37,14 +37,16 @@ function prFact(headSha: string): PrFacts {
 }
 
 it('submits through the daemon after the injected pollPr confirms the head', async () => {
-  let answer: 'commit-b' | 'timeout' = 'commit-b';
+  let answer: 'commit-b' | 'auth' = 'commit-b';
   const calls: Parameters<PrPoller['pollPr']>[] = [];
   const harness = await createE2eHarness({
     startAdapters: (_config, core) => ({
       stop: () => Promise.resolve(),
       async pollPr(...args) {
         calls.push(args);
-        if (answer === 'timeout') return err({ kind: 'timeout', message: 'GitHub timed out' });
+        if (answer === 'auth') {
+          return err({ kind: 'failed', adapterKind: 'auth', message: 'Bad token' });
+        }
         await core.observe(SOURCE, {
           batch: {
             source: SOURCE,
@@ -122,15 +124,17 @@ it('submits through the daemon after the injected pollPr confirms the head', asy
   expect(stale.stderr).toContain('head_mismatch');
   expect((await turn()).closed_at).toBeNull();
 
-  answer = 'timeout';
-  const timedOut = await harness.cli(['submit', 'T1', B, '--key', 'submit-timeout']);
-  expect(timedOut.code, timedOut.stderr).toBe(3);
-  expect(timedOut.stderr).toContain('github_unavailable');
+  // A refusal repeating cannot fix stays refused; waiting ones are accepted pending (stand).
+  answer = 'auth';
+  const refused = await harness.cli(['submit', 'T1', B, '--key', 'submit-auth']);
+  expect(refused.code, refused.stderr).toBe(3);
+  expect(refused.stderr).toContain('github_unavailable');
   expect((await turn()).closed_at).toBeNull();
 
   answer = 'commit-b';
-  const fresh = await harness.cli(['submit', 'T1', B, '--key', 'submit-fresh']);
+  const fresh = await harness.cli(['submit', 'T1', B, '--key', 'submit-fresh', '--json']);
   expect(fresh.code, fresh.stderr).toBe(0);
+  expect(JSON.parse(fresh.stdout)).toMatchObject({ turn: 'T1', sha: B, status: 'confirmed' });
   expect(
     await harness.store.db.selectFrom('submission').select(['commit_sha', 'author']).execute(),
   ).toEqual([{ commit_sha: B, author: actor }]);

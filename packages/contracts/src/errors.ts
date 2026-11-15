@@ -165,10 +165,11 @@ export const ERRORS = {
   head_mismatch: spec('head_mismatch', {
     status: 409,
     exit: EXIT_CODES.refused,
-    message: "The commit is not the head of the task's pull request, or the task has none.",
-    hint: "Push the commit to the task's pull request branch and submit its head; if the task has none, ask the operator to link the pull request with `board link` first.",
+    message:
+      "The commit is not the head GitHub reports for the task's pull request, or a submit by task key found no pull request.",
+    hint: "Push the commit to the task's pull request branch and submit the head GitHub shows.",
     recovery: noRetry(
-      "Push the commit to the task's pull request branch and submit its head; if the task has none, ask the operator to link the pull request first.",
+      "Push the commit to the task's pull request branch and submit the head GitHub shows.",
     ),
   }),
   return_not_allowed: spec('return_not_allowed', {
@@ -249,10 +250,10 @@ export const ERRORS = {
     status: 503,
     exit: EXIT_CODES.notApplied,
     message: 'GitHub did not confirm current pull request facts.',
-    hint: 'Wait until GitHub answers, then retry the operation.',
+    hint: "Follow the message: ask the operator to fix what it names, or retry a read or link once GitHub answers the board's polls; repeat a submit only by task key in shadow mode.",
     recovery: retry(
-      'Wait until GitHub answers, then retry the operation.',
-      'After GitHub is reachable; wait briefly between retries.',
+      'Ask the operator to fix what the message names; retry a read or link once GitHub answers, and repeat a submit only by task key in shadow mode.',
+      "After GitHub answers the board's polls.",
     ),
   }),
   version_mismatch: spec('version_mismatch', {

@@ -410,6 +410,10 @@ const projectSchema = z
           .describe(
             'shadow: the board evaluates the column gates and records where each task would go in its shadow column, and opens no turn, doorbell or block; the column executor submits with the task key. on: the board moves the task between columns, hands the column executor a turn, and raises the cycle-limit and course-check blocks.',
           ),
+        submitConfirmMs: durationMs(
+          180_000,
+          'How long the board waits to confirm a turn submit it accepted pending (no PR linked yet, or GitHub not confirming the head) before handing the turn back to its executor with the reason',
+        ),
       })
       .prefault({})
       .describe(

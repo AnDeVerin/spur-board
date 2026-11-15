@@ -109,6 +109,7 @@ export const TASK_HOLDS = [
   'github_blind',
   'spur_blind',
   'ticket_unconfirmed',
+  'submit_pending',
   'cycle_limit',
   'work_not_started',
 ] as const;

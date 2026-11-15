@@ -1225,7 +1225,7 @@ export const OPERATIONS = [
     id: 'task.submit',
     kind: 'mutation',
     description:
-      "Submit the commit at the head of the task's pull request for a turn this session took; the turn closes.",
+      "Submit the task's pull request head for a turn this session took; the turn closes; a pending result is final.",
     mcp: {
       whenToUse:
         'Hand in the work of a turn you took, at the pull request head. While the project dispatcher is in shadow mode no turn opens: the column executor submits with the task key.',
@@ -1247,6 +1247,14 @@ export const OPERATIONS = [
         .nullable()
         .describe('The closed turn; null for a submit by task key in shadow mode.'),
       sha: commitShaSchema.describe('The submitted commit SHA.'),
+      // The default reads a result stored before pending submits existed, when every submit
+      // confirmed its head; a new call always sets status, so the output schema keeps it required.
+      status: z
+        .enum(['confirmed', 'pending'])
+        .default('confirmed')
+        .describe(
+          'confirmed: the board saw the PR head at sha. pending: accepted, pending confirmation - the board confirms the head on its next polls and hands the turn back with the reason if it cannot; do not resubmit or raise a block.',
+        ),
     }),
     grants: [{ grant: 'task-worker' }, { grant: 'column-orchestrator' }],
     errors: [
@@ -1264,12 +1272,27 @@ export const OPERATIONS = [
       {
         summary: 'Submit the pull request head',
         input: { turn: 'T4', sha: submittedSha },
-        output: { task: { ...task, column: 'review' }, turn: 'T4', sha: submittedSha },
+        output: {
+          task: { ...task, column: 'review' },
+          turn: 'T4',
+          sha: submittedSha,
+          status: 'confirmed',
+        },
+      },
+      {
+        summary: 'Submit a dev turn before the board has seen the pull request',
+        input: { turn: 'T3', sha: submittedSha },
+        output: { task, turn: 'T3', sha: submittedSha, status: 'pending' },
       },
       {
         summary: 'Submit the pull request head by task key while the dispatcher is in shadow mode',
         input: { turn: 'PROJ-123', sha: submittedSha },
-        output: { task: { ...task, column: 'review' }, turn: null, sha: submittedSha },
+        output: {
+          task: { ...task, column: 'review' },
+          turn: null,
+          sha: submittedSha,
+          status: 'confirmed',
+        },
       },
     ],
   }),
