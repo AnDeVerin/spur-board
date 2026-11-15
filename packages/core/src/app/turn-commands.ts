@@ -390,7 +390,12 @@ export function createTurnMutations(deps: {
       { column, sha: input.sha, ...confirmation(confirmed) },
       ctx.actor,
     );
-    return { task: taskView(await dispatched(trx, task.id, ctx.at)), turn: null, sha: input.sha };
+    return {
+      task: taskView(await dispatched(trx, task.id, ctx.at)),
+      turn: null,
+      sha: input.sha,
+      status: 'confirmed' as const,
+    };
   }
   const submit: Mutation<'task.submit', SubmitPrepared> = {
     id: 'task.submit',
@@ -440,6 +445,7 @@ export function createTurnMutations(deps: {
         task: taskView(await dispatched(trx, task.id, ctx.at)),
         turn: input.turn,
         sha: input.sha,
+        status: 'confirmed' as const,
       };
     },
   };

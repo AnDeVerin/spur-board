@@ -59,6 +59,10 @@ with keyed `board inbox ack <entries>`. Only the acknowledging session may submi
 or return it: keyed `board submit <turn> <sha>` accepts the head, and keyed
 `board return <turn> <reason>` sends findings back to Dev. A worker submits a fresh
 PR head after pushing. In shadow mode, use keyed `board submit <task> <sha>`.
+If the Board has not seen the head yet, `board submit` answers `pending`:
+that submit is final. The Board confirms the head itself and, if the head moved,
+the PR closed or no PR appears within `projects[].dispatcher.submitConfirmMs`,
+hands the turn back with the reason; do not resubmit or raise a block.
 
 A new head closes taken turns outside Dev; a taken Dev turn survives the worker's
 push so that worker can submit it. An unacknowledged turn does not hold back a

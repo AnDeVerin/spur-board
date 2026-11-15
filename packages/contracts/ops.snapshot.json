@@ -1,5 +1,5 @@
 {
-  "version": "cbb6b851934920290d0cca6bdceaa30219f99ad81636ffec4e70b1a8991cbbd7",
+  "version": "adf94483940a1da86f34bbd4cf8bcd3c8b170b35eac8e429ae9b03043bdb98cd",
   "grants": [
     "operator",
     "project-agent",
@@ -310,10 +310,10 @@
     "head_mismatch": {
       "status": 409,
       "exit": 1,
-      "message": "The commit is not the head of the task's pull request, or the task has none.",
-      "hint": "Push the commit to the task's pull request branch and submit its head; if the task has none, ask the operator to link the pull request with `board link` first.",
+      "message": "The commit is not the head GitHub reports for the task's pull request, or a submit by task key found no pull request.",
+      "hint": "Push the commit to the task's pull request branch and submit the head GitHub shows.",
       "recovery": {
-        "action": "Push the commit to the task's pull request branch and submit its head; if the task has none, ask the operator to link the pull request first.",
+        "action": "Push the commit to the task's pull request branch and submit the head GitHub shows.",
         "sideEffects": "none",
         "maxRetries": 0,
         "retryTiming": "After fixing the cause."
@@ -601,12 +601,12 @@
       "status": 503,
       "exit": 3,
       "message": "GitHub did not confirm the pull request head; nothing was applied.",
-      "hint": "Wait until GitHub answers, then submit again.",
+      "hint": "Follow the message: ask the operator to fix what it names, or, for a submit by task key in shadow mode, repeat it once GitHub answers the board's polls.",
       "recovery": {
-        "action": "Wait until GitHub answers, then submit again.",
+        "action": "Ask the operator to fix what the message names; repeat only a submit by task key in shadow mode, once GitHub answers.",
         "sideEffects": "none",
         "maxRetries": 3,
-        "retryTiming": "After GitHub is reachable; wait briefly between retries."
+        "retryTiming": "After GitHub answers the board's polls."
       },
       "docs": "docs/errors.md#github_unavailable",
       "context": {
@@ -3276,6 +3276,7 @@
                     "github_blind",
                     "spur_blind",
                     "ticket_unconfirmed",
+                    "submit_pending",
                     "cycle_limit",
                     "work_not_started"
                   ]
@@ -3292,6 +3293,29 @@
                   "pattern": "^B[1-9]\\d{0,14}$",
                   "description": "Block ID: B followed by a number, e.g. B12."
                 }
+              },
+              "pendingSubmit": {
+                "description": "The turn submit the board accepted pending; absent when no submit waits.",
+                "type": "object",
+                "properties": {
+                  "sha": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{40,64}$",
+                    "description": "The submitted commit SHA the board has not confirmed yet."
+                  },
+                  "until": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                    "description": "When the board stops waiting for a PR, ISO 8601 UTC; a linked PR is waited for until a poll observes it."
+                  },
+                  "text": {
+                    "type": "string",
+                    "description": "The hold in words: submit pending confirmation of <sha7>."
+                  }
+                },
+                "required": ["sha", "until", "text"],
+                "additionalProperties": false
               },
               "gates": {
                 "type": "array",
@@ -7268,7 +7292,7 @@
     {
       "id": "task.submit",
       "kind": "mutation",
-      "description": "Submit the commit at the head of the task's pull request for a turn this session took; the turn closes.",
+      "description": "Submit the commit at the head of the task's pull request for a turn this session took; the turn closes; a pending result is final.",
       "grants": [{ "grant": "task-worker" }, { "grant": "column-orchestrator" }],
       "preconditions": null,
       "errors": [
@@ -7308,7 +7332,23 @@
               "membership": "active"
             },
             "turn": "T4",
-            "sha": "9f2c4e1b7a3d5c8e0f1a2b3c4d5e6f708192a3b4"
+            "sha": "9f2c4e1b7a3d5c8e0f1a2b3c4d5e6f708192a3b4",
+            "status": "confirmed"
+          }
+        },
+        {
+          "summary": "Submit a dev turn before the board has seen the pull request",
+          "input": { "turn": "T3", "sha": "9f2c4e1b7a3d5c8e0f1a2b3c4d5e6f708192a3b4" },
+          "output": {
+            "task": {
+              "key": "PROJ-123",
+              "project": "web",
+              "column": "dev",
+              "membership": "active"
+            },
+            "turn": "T3",
+            "sha": "9f2c4e1b7a3d5c8e0f1a2b3c4d5e6f708192a3b4",
+            "status": "pending"
           }
         },
         {
@@ -7322,7 +7362,8 @@
               "membership": "active"
             },
             "turn": null,
-            "sha": "9f2c4e1b7a3d5c8e0f1a2b3c4d5e6f708192a3b4"
+            "sha": "9f2c4e1b7a3d5c8e0f1a2b3c4d5e6f708192a3b4",
+            "status": "confirmed"
           }
         }
       ],
@@ -7415,9 +7456,14 @@
             "type": "string",
             "pattern": "^[0-9a-f]{40,64}$",
             "description": "The submitted commit SHA."
+          },
+          "status": {
+            "type": "string",
+            "enum": ["confirmed", "pending"],
+            "description": "confirmed: the board saw the PR head at sha. pending: accepted, pending confirmation - the board confirms the head on its next polls and hands the turn back with the reason if it cannot; do not resubmit or raise a block."
           }
         },
-        "required": ["task", "turn", "sha"],
+        "required": ["task", "turn", "sha", "status"],
         "additionalProperties": false
       }
     },

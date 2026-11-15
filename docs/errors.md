@@ -344,12 +344,12 @@ Example:
 
 ## head_mismatch
 
-The commit is not the head of the task's pull request, or the task has none.
+The commit is not the head GitHub reports for the task's pull request, or a submit by task key found no pull request.
 
 HTTP: 409  
 Exit code: 1  
-Hint: Push the commit to the task's pull request branch and submit its head; if the task has none, ask the operator to link the pull request with `board link` first.  
-Recovery: Push the commit to the task's pull request branch and submit its head; if the task has none, ask the operator to link the pull request first.  
+Hint: Push the commit to the task's pull request branch and submit the head GitHub shows.  
+Recovery: Push the commit to the task's pull request branch and submit the head GitHub shows.  
 Side effects: none  
 Retry: maximum 0; After fixing the cause.
 
@@ -362,11 +362,11 @@ Example:
   "error": {
     "code": "head_mismatch",
     "requestId": "req-example-123",
-    "message": "The commit is not the head of the task's pull request, or the task has none.",
-    "hint": "Push the commit to the task's pull request branch and submit its head; if the task has none, ask the operator to link the pull request with `board link` first.",
+    "message": "The commit is not the head GitHub reports for the task's pull request, or a submit by task key found no pull request.",
+    "hint": "Push the commit to the task's pull request branch and submit the head GitHub shows.",
     "docs": "docs/errors.md#head_mismatch",
     "recovery": {
-      "action": "Push the commit to the task's pull request branch and submit its head; if the task has none, ask the operator to link the pull request first.",
+      "action": "Push the commit to the task's pull request branch and submit the head GitHub shows.",
       "sideEffects": "none",
       "maxRetries": 0,
       "retryTiming": "After fixing the cause."
@@ -688,10 +688,10 @@ GitHub did not confirm the pull request head; nothing was applied.
 
 HTTP: 503  
 Exit code: 3  
-Hint: Wait until GitHub answers, then submit again.  
-Recovery: Wait until GitHub answers, then submit again.  
+Hint: Follow the message: ask the operator to fix what it names, or, for a submit by task key in shadow mode, repeat it once GitHub answers the board's polls.  
+Recovery: Ask the operator to fix what the message names; repeat only a submit by task key in shadow mode, once GitHub answers.  
 Side effects: none  
-Retry: maximum 3; After GitHub is reachable; wait briefly between retries.
+Retry: maximum 3; After GitHub answers the board's polls.
 
 Example:
 
@@ -703,13 +703,13 @@ Example:
     "code": "github_unavailable",
     "requestId": "req-example-123",
     "message": "GitHub did not confirm the pull request head; nothing was applied.",
-    "hint": "Wait until GitHub answers, then submit again.",
+    "hint": "Follow the message: ask the operator to fix what it names, or, for a submit by task key in shadow mode, repeat it once GitHub answers the board's polls.",
     "docs": "docs/errors.md#github_unavailable",
     "recovery": {
-      "action": "Wait until GitHub answers, then submit again.",
+      "action": "Ask the operator to fix what the message names; repeat only a submit by task key in shadow mode, once GitHub answers.",
       "sideEffects": "none",
       "maxRetries": 3,
-      "retryTiming": "After GitHub is reachable; wait briefly between retries."
+      "retryTiming": "After GitHub answers the board's polls."
     },
     "context": {}
   }

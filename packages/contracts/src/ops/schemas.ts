@@ -215,6 +215,18 @@ export const taskWhySchema = z
       .describe(
         'Blocks of the open cycle-limit or course-check items holding the task; absent when none does.',
       ),
+    pendingSubmit: z
+      .strictObject({
+        sha: commitShaSchema.describe('The submitted commit SHA the board has not confirmed yet.'),
+        until: z.iso
+          .datetime()
+          .describe(
+            'When the board stops waiting for a PR, ISO 8601 UTC; a linked PR is waited for until a poll observes it.',
+          ),
+        text: z.string().describe('The hold in words: submit pending confirmation of <sha7>.'),
+      })
+      .optional()
+      .describe('The turn submit the board accepted pending; absent when no submit waits.'),
     gates: z
       .array(
         z

@@ -157,6 +157,8 @@ export const eventPayloadSchemas = {
     sha: S,
     /** The head was confirmed by the board's newest poll; GitHub did not answer the submit. */
     confirmedByPoll: z.literal(true).optional(),
+    /** The board accepted the submit before it could confirm the head; it confirms it on a later poll. */
+    pending: z.literal(true).optional(),
   }),
   task_moved: z.looseObject({
     from: z.enum(COLUMN_IDS),

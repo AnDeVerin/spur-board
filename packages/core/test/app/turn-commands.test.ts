@@ -361,6 +361,7 @@ describe('task.submit', () => {
       task: { key: 'o/r#9', project: 'proj', column: 'review', membership: 'active' },
       turn: 'T1',
       sha: B,
+      status: 'confirmed',
     });
 
     const task = await ctx.task();
@@ -534,6 +535,7 @@ describe('task.submit', () => {
         await expect(ctx.submit(REV_1, A, 'submit-1')).resolves.toMatchObject({
           turn: 'T1',
           sha: A,
+          status: 'confirmed',
         });
 
         expect(
@@ -559,6 +561,7 @@ describe('task.submit', () => {
       await expect(ctx.submit(REV_1, A, 'submit-1', 'o/r#9')).resolves.toMatchObject({
         turn: null,
         sha: A,
+        status: 'confirmed',
       });
 
       expect((await ctx.events()).filter((event) => event.kind === 'task_submitted')).toEqual([
@@ -755,6 +758,7 @@ describe('task.submit', () => {
         task: { key: 'o/r#9', project: 'proj', column: 'review', membership: 'active' },
         turn: null,
         sha: B,
+        status: 'confirmed',
       });
 
       expect(
@@ -780,6 +784,7 @@ describe('task.submit', () => {
         task: { key: 'o/r#9', column: 'review' },
         turn: null,
         sha: B,
+        status: 'confirmed',
       });
 
       expect(

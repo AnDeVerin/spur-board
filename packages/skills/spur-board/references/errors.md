@@ -20,6 +20,6 @@
 - `wrong_block_type`: Read the block type with `board task <KEY>` and use the operation for that type.
 - `turn_closed`: Read your open turns with `board inbox` and act only on a turn listed there.
 - `not_turn_taker`: Take the turn with `board inbox ack` first; only the session that took it can submit or return it.
-- `head_mismatch`: Push the commit to the task's pull request branch and submit its head; if the task has none, ask the operator to link the pull request with `board link` first.
-- `github_unavailable`: Wait until GitHub answers, then submit again.
+- `head_mismatch`: Push the commit to the task's pull request branch and submit the head GitHub shows.
+- `github_unavailable`: Follow the message: ask the operator to fix what it names, or, for a submit by task key in shadow mode, repeat it once GitHub answers the board's polls.
 - `return_not_allowed`: In Dev, ask with `board ask` instead.

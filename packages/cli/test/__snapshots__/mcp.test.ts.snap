@@ -165,7 +165,7 @@ Choose a unique idempotencyKey for each action; reuse it on retries.",
     "name": "block_unblock",
   },
   {
-    "description": "Submit the commit at the head of the task's pull request for a turn this session took; the turn closes.
+    "description": "Submit the commit at the head of the task's pull request for a turn this session took; the turn closes; a pending result is final.
 Use when: Hand in the work of a turn you took, at the pull request head. While the project dispatcher is in shadow mode no turn opens: the column executor submits with the task key.
 When not to use: Use task_return to send the task back to Dev instead.
 Example: {"turn":"T4","sha":"9f2c4e1b7a3d5c8e0f1a2b3c4d5e6f708192a3b4","idempotencyKey":"task_submit-example-001"}

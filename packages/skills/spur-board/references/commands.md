@@ -137,7 +137,7 @@ Other errors: `wrong_id_kind`, `not_found`, `block_not_open`, `task_archived`, `
 
 ### `board submit`
 
-Purpose: Submit the commit at the head of the task's pull request for a turn this session took; the turn closes.
+Purpose: Submit the commit at the head of the task's pull request for a turn this session took; the turn closes; a pending result is final.
 Arguments: `<turn>`, `<sha>`.
 Flags: `--key <key>`, `--json`.
 Use when: Hand in the work of a turn you took, at the pull request head. While the project dispatcher is in shadow mode no turn opens: the column executor submits with the task key.
