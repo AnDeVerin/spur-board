@@ -68,8 +68,8 @@ export function plainHttpAllowed(url: URL): boolean {
 }
 
 /** Check raw syntax before URL normalization can hide a slash, whitespace or backslash. */
-function validOrigin(value: string, template: boolean): boolean {
-  const resolved = template ? value.replaceAll('{port}', '7777') : value;
+function validOrigin(value: string, port?: number): boolean {
+  const resolved = port === undefined ? value : value.replaceAll('{port}', String(port));
   if (!/^https?:\/\/[^/\\\s?#@{}]+$/i.test(resolved)) return false;
   try {
     const url = new URL(resolved);
@@ -79,11 +79,11 @@ function validOrigin(value: string, template: boolean): boolean {
   }
 }
 
-const origin = (template: boolean) =>
-  z.string().refine((value) => validOrigin(value, template), {
-    error:
-      'Expected a bare HTTP/HTTPS origin; HTTP requires loopback, with no path, trailing slash, query, fragment, credentials or invalid placeholders',
-  });
+const originError =
+  'Expected a bare HTTP/HTTPS origin; HTTP requires loopback, with no path, trailing slash, query, fragment, credentials or invalid placeholders';
+const concreteOrigin = z.string().refine((value) => validOrigin(value), {
+  error: originError,
+});
 
 const jiraTracker = z.strictObject({
   type: z
@@ -761,12 +761,13 @@ const configObject = z.strictObject({
         .describe(
           'Optional web listener port (0 assigns a free port); omitted means off. Set together with publicOrigin. This config does not start a listener.',
         ),
-      publicOrigin: origin(true)
+      publicOrigin: z
+        .string()
         .optional()
         .describe(
           'Bare public HTTP/HTTPS origin for the web API; HTTP requires loopback. Set together with port. Every {port} is replaced with the listener port, including in hostnames. No trailing slash.',
         ),
-      spurUiOrigin: origin(false)
+      spurUiOrigin: concreteOrigin
         .optional()
         .describe(
           'Optional concrete bare origin for the Spur UI, independently of the web API. HTTP requires loopback; no placeholders or trailing slash. Omitted means no configured UI origin.',
@@ -866,6 +867,9 @@ const configObject = z.strictObject({
 /** The board config file. Every object rejects unknown keys; no key holds a secret. */
 export const configSchema = configObject.superRefine((config, ctx) => {
   const { web } = config;
+  if (web.publicOrigin !== undefined && !validOrigin(web.publicOrigin, web.port)) {
+    ctx.addIssue({ code: 'custom', path: ['web', 'publicOrigin'], message: originError });
+  }
   if ((web.port === undefined) !== (web.publicOrigin === undefined)) {
     ctx.addIssue({
       code: 'custom',
@@ -897,7 +901,7 @@ export const configSchema = configObject.superRefine((config, ctx) => {
         ctx.addIssue({
           code: 'custom',
           path: ['stand', 'portRange'],
-          message: `Stand port range includes ${field}.port ${port}`,
+          message: `Stand port range includes ${field}.port ${String(port)}`,
         });
       }
     }

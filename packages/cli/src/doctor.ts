@@ -577,13 +577,13 @@ export async function runDoctor(
   ] as const;
   const overlaps = collisions
     .filter(([, port]) => port !== undefined && port >= range.min && port <= range.max)
-    .map(([field, port]) => `${field} ${port}`);
+    .map(([field, port]) => `${field} ${String(port)}`);
   checks.push(
     overlaps.length === 0
       ? result('stand.port_range', true, '')
       : warning(
           'stand.port_range',
-          `Implicit stand port range ${range.min}..${range.max} overlaps ${overlaps.join(', ')}. Set a nonoverlapping stand.portRange. Range allocation and exclusions are deferred to #534; current stand behavior is unchanged.`,
+          `Implicit stand port range ${String(range.min)}..${String(range.max)} overlaps ${overlaps.join(', ')}. Set a nonoverlapping stand.portRange. Range allocation and exclusions are deferred to #534; current stand behavior is unchanged.`,
         ),
   );
   if (options.offline) return checks;

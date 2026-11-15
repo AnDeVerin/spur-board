@@ -1129,6 +1129,18 @@ describe('web and stand configuration', () => {
     ).toBe(value);
   });
 
+  it('validates substitutions using the configured port', () => {
+    const config = configSchema.parse(
+      validConfig({}, { web: { port: 1, publicOrigin: 'http://127.0.0.{port}' } }),
+    );
+    expect(resolveWebOrigin(config.web)).toBe('http://127.0.0.1');
+    expect(
+      errorFor(
+        validConfig({}, { web: { port: 65535, publicOrigin: 'https://example.test:{port}0' } }),
+      ),
+    ).toContain('→ at web.publicOrigin');
+  });
+
   it('rejects placeholders for the UI', () => {
     expect(
       errorFor(validConfig({}, { web: { spurUiOrigin: 'https://{port}.example.test' } })),
