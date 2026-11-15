@@ -18,8 +18,7 @@ head and submit it or return it with findings; they do not push to that branch.
 
 `projects[].spurProjects[].role` currently accepts `worker`, `operator` and
 `curator`. A separate `orchestrator` project role is planned, not available;
-today column assignment uses the configured Spur project name rather than that
-role value.
+columns name a Spur project instead.
 
 ## Gates and placement
 
@@ -36,10 +35,11 @@ Downstream handoff waits for settled prerequisites; Dev can still receive a
 repair turn to fix red CI, a draft, conflicts or unhandled external comments.
 
 Dev needs an open, non-draft PR, passing checks, no conflict, handled external
-feedback (the worker's thread replies never count: a bot or
-`projects[].operatorGithubLogin` post is internal; other accounts' posts, the
-operator's too, count), complete comment history and a submit on the current
-head. With no required checks, non-skipped checks are evaluated.
+feedback (posts by a bot or `projects[].operatorGithubLogin`, the agents'
+account, never count, so worker thread replies do not; other accounts' comments
+and non-approval reviews do, the operator's included), complete comment history
+and a submit on the current head. With no required checks, non-skipped checks
+are evaluated.
 `projects[].reposWithoutCi` waives the check requirement only for a listed
 repository with no checks at all; it does not waive a failing or skipped required
 check.

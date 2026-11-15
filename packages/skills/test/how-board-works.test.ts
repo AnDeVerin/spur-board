@@ -35,8 +35,8 @@ describe('how the Board works guide', () => {
         /visit submission belongs to one column visit/,
         /new head invalidates internal\s*Review and Product Review marks/,
         /fixed gate rules have no\s*configuration switch/,
-        /worker's thread replies never count/,
-        /other accounts' posts, the\s*operator's too, count/,
+        /`projects\[\]\.operatorGithubLogin`,\s+the\s+agents'\s+account,\s+never\s+count,\s+so\s+worker\s+thread\s+replies\s+do\s+not/,
+        /other\s+accounts'\s+comments\s+and\s+non-approval\s+reviews\s+do,\s+the\s+operator's\s+included/,
       ],
       keys: [
         'projects[].dispatcher.mode: on',
