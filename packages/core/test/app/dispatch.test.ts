@@ -2876,6 +2876,56 @@ describe('design flows 2.5 and 2.10', () => {
     ]);
   });
 
+  it.each([
+    {
+      name: 'a bot approval',
+      states: [['review-app', 'approved']],
+      column: 'external-review',
+      turn: null,
+    },
+    {
+      name: 'a bot changes-requested review',
+      states: [['review-app', 'changes_requested']],
+      column: 'external-review',
+      turn: null,
+    },
+    {
+      name: 'a human approval beside a bot changes-requested review',
+      states: [
+        [EXTERNAL, 'approved'],
+        ['review-app', 'changes_requested'],
+      ],
+      column: 'ready-to-merge',
+      turn: turnOf('ready-to-merge', 'operator', 'ready-to-merge: not_merged'),
+    },
+  ] as const)(
+    'bots in External Review: after $name the task is in $column',
+    async ({ states, column, turn }) => {
+      const ctx = await pastProductReview({ externalReview: true });
+      await ctx.pr({
+        reviews: states.map(([reviewer, state], index) => ({
+          reviewer,
+          state,
+          commitSha: A,
+          submittedAt: at(30 + index),
+        })),
+        feedback: states.map(([reviewer, state], index) => ({
+          kind: 'review' as const,
+          id: `r-${reviewer}`,
+          author: {
+            login: reviewer,
+            type: reviewer === 'review-app' ? ('bot' as const) : ('user' as const),
+          },
+          postedAt: at(30 + index),
+          state,
+        })),
+      });
+      await ctx.tick();
+      expect((await ctx.task()).column).toBe(column);
+      expect(await ctx.openTurn()).toEqual(turn);
+    },
+  );
+
   it('a second approval by the same reviewer in Ready to Merge returns nothing', async () => {
     const ctx = await pastProductReview();
     expect((await ctx.task()).column).toBe('ready-to-merge');
@@ -3191,13 +3241,15 @@ describe('design flows 2.5 and 2.10', () => {
     ],
   });
 
-  it.each([
-    { author: 'agent-bot', returns: false },
-    { author: EXTERNAL, returns: true },
-    { author: 'operator-human', returns: true },
-  ])(
-    'posts by $author during a taken Review turn return to Dev at submit: $returns',
-    async ({ author, returns }) => {
+  it.each(
+    [
+      { author: 'agent-bot', returns: false },
+      { author: EXTERNAL, returns: true },
+      { author: 'operator-human', returns: true },
+    ].flatMap((row) => (['submit', 'return'] as const).map((via) => ({ ...row, via }))),
+  )(
+    'posts by $author during a taken Review turn return to Dev at $via: $returns',
+    async ({ author, returns, via }) => {
       const ctx = await inReview();
       await ctx.ack(REV, 'T2');
       await ctx.pr(posts(author));
@@ -3209,6 +3261,41 @@ describe('design flows 2.5 and 2.10', () => {
         closed_at: null,
       });
 
+      if (via === 'return') {
+        await ctx.ret(REV, 'T2');
+        expect((await ctx.task()).column).toBe('dev');
+        expect((await ctx.moves()).at(-1)).toMatchObject({ from: 'review', to: 'dev' });
+        const turn = await ctx.openTurn();
+        expect(turn).toEqual(
+          turnOf(
+            'dev',
+            'worker',
+            returns ? 'dev: external_comments, no_submit_on_head' : 'dev: no_submit_on_head',
+          ),
+        );
+        expect(JSON.parse(turn?.handed ?? '[]')).toEqual(
+          returns
+            ? [
+                { repo: 'o/r', number: 7, kind: 'review', id: 'r-reply', postedAt: at(20) },
+                { repo: 'o/r', number: 7, kind: 'comment', id: 'c-reply', postedAt: at(21) },
+              ]
+            : [],
+        );
+        expect(
+          await ctx.store.db
+            .selectFrom('block')
+            .select(['type', 'reason', 'addressee_role', 'state'])
+            .execute(),
+        ).toEqual([
+          {
+            type: 'code',
+            reason: expect.stringContaining('Handle the empty list.'),
+            addressee_role: 'worker',
+            state: 'open',
+          },
+        ]);
+        return;
+      }
       await ctx.submit(REV, 'T2', A);
       if (!returns) {
         expect((await ctx.task()).column).toBe('product-review');
