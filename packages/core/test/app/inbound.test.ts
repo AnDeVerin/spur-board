@@ -2968,7 +2968,9 @@ describe('operator conversation', () => {
   });
 
   it('lists the valid prefixes once and opens nothing without a default addressee', async () => {
-    const { store, inbound } = await board(conversationConfig({ defaultAddressee: null }));
+    const { store, inbound } = await board(
+      conversationConfig({ defaultAddressee: null, operator: false }),
+    );
     await inbound.sink(topLevel('hello'));
     await inbound.sink(topLevel('hello'));
     expect(await blocks(store)).toEqual([]);
@@ -2980,6 +2982,36 @@ describe('operator conversation', () => {
       persona: { name: 'board', role: 'board' },
       targetConversation: 'top-1',
     });
+  });
+
+  it('opens a message without a prefix to the first project operator when no default is set', async () => {
+    const { store, inbound } = await board(conversationConfig({ defaultAddressee: null }));
+    await inbound.sink(topLevel('hello'));
+    expect(await blocks(store)).toEqual([open('board-pm', 'worker', 'hello')]);
+    expect(await outbox(store)).toEqual([]);
+  });
+
+  it('opens a message without a prefix to the board-wide operator with no short name', async () => {
+    const { store, inbound } = await board(
+      conversationConfig({
+        shortNames: false,
+        defaultAddressee: null,
+        spurProjects: [{ name: 'hq', role: 'operator' }],
+      }),
+    );
+    await inbound.sink(topLevel('hello'));
+    expect(await blocks(store)).toEqual([{ ...open('hq', 'worker', 'hello'), project: 'other' }]);
+    expect(await skipped(store)).toEqual([]);
+  });
+
+  it('opens @br on a task of the second project the board-wide orchestrator serves', async () => {
+    const { store, inbound } = await board(
+      conversationConfig({
+        spurProjects: [{ name: 'br', role: 'orchestrator', columns: ['review'], shortName: 'br' }],
+      }),
+    );
+    await inbound.sink(topLevel('@br x/y#5 hi'));
+    expect(await blocks(store)).toEqual([open('br', 'worker', 'x/y#5 hi', 3)]);
   });
 
   it.each([
