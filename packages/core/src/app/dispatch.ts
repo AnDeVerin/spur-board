@@ -575,23 +575,18 @@ function pastBound(
 
 /**
  * The newest unvoided pending submit of the task's current visit in `on` mode, settled from
- * stored facts: the linked PR's snapshot observed at or after the submit decides it, and so does
- * a merged one observed before; a closed one observed before fails it, and no PR linked fails
- * it, only once the bound passed and a complete poll of the PR's repo, or of every project
- * repo, started at or after the bound. Nothing settles while GitHub is blind.
+ * stored facts (`settlePending`). With `carry` (no turn yet in the current visit), the task's
+ * newest submission from an earlier visit counts too, but only once it failed: a left move whose
+ * turn was deferred or held still hands the failure back with the turn it opens later. Such a
+ * row never confirms or holds the task here.
  */
 async function readPendingSubmit(
   trx: Trx,
   task: Task,
   project: Project,
-  input: {
-    link: { repo: string; number: number } | null;
-    githubBlind: boolean;
-    at: Date;
-    complete: ReadonlyMap<string, string>;
-  },
+  input: SettleInput & { carry: boolean },
 ): Promise<PendingSubmit | undefined> {
-  const row = await trx
+  const current = await trx
     .selectFrom('submission')
     .select(['id', 'commit_sha', 'author', 'submitted_at', 'pending_until'])
     .where('task_id', '=', task.id)
@@ -601,7 +596,51 @@ async function readPendingSubmit(
     .where('pending_until', 'is not', null)
     .orderBy('id', 'desc')
     .executeTakeFirst();
-  if (row?.pending_until == null) return undefined;
+  if (current?.pending_until != null) {
+    return settlePending(trx, { ...current, pending_until: current.pending_until }, project, input);
+  }
+  if (!input.carry) return undefined;
+  const newest = await trx
+    .selectFrom('submission')
+    .select(['id', 'commit_sha', 'author', 'submitted_at', 'pending_until', 'voided_at'])
+    .where('task_id', '=', task.id)
+    .orderBy('id', 'desc')
+    .executeTakeFirst();
+  if (newest?.pending_until == null || newest.voided_at !== null) return undefined;
+  const settled = await settlePending(
+    trx,
+    { ...newest, pending_until: newest.pending_until },
+    project,
+    input,
+  );
+  return settled.state === 'failed' ? settled : undefined;
+}
+
+interface SettleInput {
+  link: { repo: string; number: number } | null;
+  githubBlind: boolean;
+  at: Date;
+  complete: ReadonlyMap<string, string>;
+}
+
+/**
+ * Settles a pending submit from stored facts: the linked PR's snapshot observed at or after the
+ * submit decides it, and so does a merged one observed before; a closed one observed before fails
+ * it, and no PR linked fails it, only once the bound passed and a complete poll of the PR's repo,
+ * or of every project repo, started at or after the bound. Nothing settles while GitHub is blind.
+ */
+async function settlePending(
+  trx: Trx,
+  row: {
+    id: number;
+    commit_sha: string;
+    author: string;
+    submitted_at: string;
+    pending_until: string;
+  },
+  project: Project,
+  input: SettleInput,
+): Promise<PendingSubmit> {
   const sha = row.commit_sha.toLowerCase();
   const pending: PendingSubmit = { id: row.id, sha, until: row.pending_until, state: 'pending' };
   if (input.githubBlind) return pending;
@@ -735,9 +774,25 @@ export async function readInput(
   if (mergedOpen !== undefined) pr = null;
   const repos = pr === null ? project.repos : [pr.repo];
   const githubBlind = repos.some((repo) => blind(prSourceId(project.id, repo)));
+  const last =
+    mode === 'shadow'
+      ? undefined
+      : await trx
+          .selectFrom('turn')
+          .selectAll()
+          .where('task_id', '=', task.id)
+          .where('column', '=', task.column)
+          .where('epoch', '=', task.column_epoch)
+          .orderBy('seq', 'desc')
+          .executeTakeFirst();
   const pending =
     mode === 'on'
-      ? await readPendingSubmit(trx, task, project, { link, githubBlind, ...clock })
+      ? await readPendingSubmit(trx, task, project, {
+          link,
+          githubBlind,
+          ...clock,
+          carry: last === undefined,
+        })
       : undefined;
   const submissions = await trx
     .selectFrom('submission')
@@ -762,17 +817,6 @@ export async function readInput(
   // past the unread older ones, and the next poll would stop before them.
   const handed = pr?.feedbackComplete === true ? unhandled : [];
   const column = mode === 'shadow' ? (task.shadow_column ?? task.column) : task.column;
-  const last =
-    mode === 'shadow'
-      ? undefined
-      : await trx
-          .selectFrom('turn')
-          .selectAll()
-          .where('task_id', '=', task.id)
-          .where('column', '=', task.column)
-          .where('epoch', '=', task.column_epoch)
-          .orderBy('seq', 'desc')
-          .executeTakeFirst();
   const unclosed = last?.closed_at === null ? last : undefined;
   const held =
     mode === 'on' &&
@@ -894,8 +938,7 @@ async function applyOn(
         ...(move.gate === undefined ? {} : { gate: move.gate }),
       });
       current = left.task;
-      // The left move ends the visit of the failed submit.
-      await voidFailed();
+      // The failure stays deliverable until a turn hands it back (`readPendingSubmit` carry).
       if (left.limitReached) return;
       continue;
     }
@@ -915,9 +958,9 @@ async function applyOn(
   const turn = result.turn;
   if (turn === null) return;
   if (result.voids !== undefined) await voidColumns(trx, current.id, [result.voids], at);
-  if (turn.kind === 'after_submit') await voidFailed();
   // An entry turn hands a failed submit back after a left move: the target column's executor.
   const handedBack = turn.kind === 'after_submit' || turn.kind === 'entry' ? failed : undefined;
+  if (handedBack !== undefined) await voidFailed();
   const replaced = turn.kind === 'reroute' ? read.unclosed : undefined;
   if (replaced !== undefined) await closeTurns(trx, { taskId: current.id, reason: 'rerouted', at });
   // A reroute carries the feedback the replaced turn handed over; the cursor already counts it.

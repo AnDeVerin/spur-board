@@ -52,9 +52,9 @@ interface DispatchInput {
   /** A turn submit of the current visit waits for a poll to confirm its head: nothing moves. */
   submitPending: boolean;
   /**
-   * A pending turn submit of the current visit failed (head moved, PR closed, no PR): its turn
-   * goes back to the executor even on a closed PR, or after a left move to the target column's
-   * executor.
+   * A pending turn submit failed (head moved, PR closed, no PR), in the current visit or in the
+   * visit a left move with no turn left: its turn goes back to the executor even on a closed PR,
+   * or after a left move to the target column's executor.
    */
   submitFailed: boolean;
   turn: VisitTurn;
@@ -146,8 +146,9 @@ export function dispatch(input: DispatchInput): DispatchResult {
   const { project, reopened, cycleHeld } = input;
   const workerLive = input.liveWorker && !input.spurBlind;
   const started = workStarted(input);
-  // A left move resets `turn`, so the failed submit is judged on the visit it was made in.
-  const handsBack = input.submitFailed && input.turn.visit === 'submitted';
+  // A left move resets `turn`, so the failed submit is judged on the input visit: the one it was
+  // made in, or a visit with no turn yet that a deferred hand-back carried it to.
+  const handsBack = input.submitFailed && input.turn.visit !== 'unclosed';
   let { column, facts, turn } = input;
   const move = (to: ColumnId, reason: MoveReason, gate?: GateReason[]) => {
     moves.push({ from: column, to, reason, ...(gate === undefined ? {} : { gate }) });

@@ -3588,6 +3588,39 @@ describe('pending submit', () => {
     expect(await ctx.events()).toHaveLength(events);
   });
 
+  it('a Review submit failed by a closed PR while Spur is blind hands back once Spur recovers', async () => {
+    const ctx = await inReview();
+    await ctx.ack(REV, 'T2');
+    ctx.pollAnswers(TIMEOUT);
+    await expect(ctx.submit(REV, 'T2', C)).resolves.toMatchObject({ status: 'pending' });
+    await ctx.blind('spur', true);
+
+    await ctx.pr({ state: 'closed' });
+
+    expect((await ctx.task()).column).toBe('dev');
+    expect(await ctx.openTurn()).toBeNull();
+    const review = async () => (await submissions(ctx)).find((row) => row.column === 'review');
+    expect((await review())?.voided_at).toBeNull();
+
+    await ctx.blind('spur', false);
+    await ctx.spur();
+    await ctx.tick();
+
+    expect(await ctx.openTurn()).toEqual(
+      turnOf('dev', 'worker', 'dev: pr_closed (submit of ccccccc: PR o/r#7 closed)'),
+    );
+    expect((await review())?.voided_at).not.toBeNull();
+
+    const turns = (await ctx.turns()).length;
+    const events = (await ctx.events()).length;
+    await ctx.tick();
+    await ctx.github();
+    await ctx.spur();
+    await ctx.tick();
+    expect(await ctx.turns()).toHaveLength(turns);
+    expect(await ctx.events()).toHaveLength(events);
+  });
+
   it('a Review submit failed by a moved head that breaks the Dev gate names it on the worker turn', async () => {
     const ctx = await inReview();
     await ctx.ack(REV, 'T2');
