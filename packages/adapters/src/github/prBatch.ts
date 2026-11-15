@@ -333,7 +333,7 @@ function feedbackOf(
       author: feedbackAuthor(node.author),
       postedAt: node.createdAt,
       ...(isStatusComment(node.body) ? { statusComment: true as const } : {}),
-      ...linkOf(node.url, node.lastEditedAt ?? undefined),
+      ...linkOf(node.url, node.lastEditedAt),
     });
   for (const node of reviews) {
     if (node.submittedAt == null) continue;

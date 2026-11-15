@@ -29,8 +29,8 @@ export function newestEdit(times: readonly (string | null | undefined)[]): strin
   );
 }
 /** The link fields of a fact: each only when GitHub gave it, never guessed. */
-export function linkOf(url: string | undefined, editedAt: string | undefined) {
-  return { ...(url === undefined ? {} : { url }), ...(editedAt === undefined ? {} : { editedAt }) };
+export function linkOf(url: string | undefined, editedAt: string | null | undefined) {
+  return { ...(url === undefined ? {} : { url }), ...(editedAt == null ? {} : { editedAt }) };
 }
 /** Each review's inline comments by review id, in thread order and oldest first in a thread. */
 export function inlineComments(threads: readonly ThreadWire[]): Map<string, InlineComment[]> {
@@ -42,7 +42,7 @@ export function inlineComments(threads: readonly ThreadWire[]): Map<string, Inli
       const list = byReview.get(review) ?? [];
       list.push({
         id: node.id,
-        ...linkOf(node.url, node.lastEditedAt ?? undefined),
+        ...linkOf(node.url, node.lastEditedAt),
         ...(thread.id === undefined ? {} : { threadId: thread.id }),
       });
       byReview.set(review, list);

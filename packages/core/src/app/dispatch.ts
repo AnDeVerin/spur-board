@@ -391,8 +391,9 @@ function externalApproval(pr: PrFacts, agentLogin: string): boolean {
  * reviewer's latest approval. An entry is handled once a turn handed it over, or an older one,
  * unless a correction or a reroute closed that turn untaken, or once a handling submission
  * (`handlingSubmits`) on this PR was made at or after it and its last edit. An edit after the
- * entry's baseline (`editBaselines`) makes it unhandled again, so it is handed once per edit. The entries such an untaken turn handed
- * over come from the turn when a later poll dropped them from the snapshot (`recalledFeedback`).
+ * entry's baseline (`editBaselines`) makes it unhandled again, so it is handed once per edit.
+ * The entries such an untaken turn handed over come from the turn when a later poll dropped them
+ * from the snapshot (`recalledFeedback`).
  * A reviewer service's status comment (`statusComment`) never counts, and neither a recall nor a
  * reroute hands one over again (`withoutStatusComments` in `turns.ts`).
  */
