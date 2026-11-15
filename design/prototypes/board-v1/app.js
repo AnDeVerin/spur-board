@@ -192,6 +192,15 @@ fetch('fixture.json')
           },
         ],
       };
+      INBOX.items.push({
+        id: 'B102',
+        project: CFG.id,
+        kind: 'block',
+        text: TG[key].blocks[0].reason,
+        at: TG[key].blocks[0].at,
+        task: key,
+        severity: 'attention',
+      });
       Object.assign(
         S.sources.find((s) => s.source.startsWith('github-issues:')),
         { lastCompleteAt: null, stale: true, warmingUp: true, budget: null },

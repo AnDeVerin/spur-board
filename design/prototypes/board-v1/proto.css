@@ -634,6 +634,10 @@ a.chip:hover {
   color: var(--color-status-error);
   font-weight: 700;
 }
+/* message row: no value, the message is the failure */
+.kv.fail:not(:has(.v)) .k {
+  color: var(--color-status-error);
+}
 .kv.wait {
   background: var(--color-fill-attention);
 }
@@ -1159,6 +1163,11 @@ a.chip:hover {
 .svc-box .kv .k {
   flex: none;
   width: 140px;
+}
+/* message row: no value, the message takes the full width */
+.svc-box .kv:not(:has(.v)) .k {
+  width: auto;
+  flex: 1;
 }
 .svc-box .kv .v {
   white-space: normal;
