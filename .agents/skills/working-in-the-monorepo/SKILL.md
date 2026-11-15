@@ -20,12 +20,13 @@ description: Package map, allowed dependencies, PR order, new packages, catalog 
   adapters. Their tests import local fakes by relative path, e.g. `createFakeCore` from
   `packages/adapters/src/testing.ts`.
 - Declare every workspace import in the importing package's `package.json` as `workspace:*`.
-- Lint enforces only seven edges: adapters import only contracts and
+- Lint enforces eight edges: adapters import only contracts and
   `packages/adapters/src/runner/`, and adapter folders do not import each other; the CLI imports
   only contracts; only core and daemon import SQLite; no other package imports the stand;
   production `src` does not import the Slack fake; `packages/core/src/domain/` imports no store,
-  app, api, Kysely or Node IO module; `packages/core/src` imports no gateway package. Every other
-  edge is held by `package.json` alone, so check the direction yourself.
+  app, api, Kysely or Node IO module; `packages/core/src` imports no gateway package; browser code
+  in web imports only its own files and the narrow contracts browser entry, with no Node
+  builtins. Every other edge is held by `package.json` alone, so check the direction yourself.
 
 ## PR order
 
