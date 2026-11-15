@@ -1,15 +1,13 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-
-const howBoardWorks = readFileSync(
-  new URL('../../../docs/how-board-works.md', import.meta.url),
-  'utf8',
-);
 
 describe('how the Board works guide', () => {
   it.each([
     {
       section: 'Columns and executors',
+      topic: 'columns',
       clauses: [
         /`todo`, `ready-for-dev`, `dev`, `review`, `product-review`,\s*`external-review`, `qa`, `ready-to-merge`, `done`/,
         /Each column has one executor/,
@@ -28,6 +26,7 @@ describe('how the Board works guide', () => {
     },
     {
       section: 'Gates and placement',
+      topic: 'columns',
       clauses: [
         /default is `shadow`/,
         /Facts \(head, checks, reviews, comments, ticket, sessions\) feed gates/,
@@ -74,6 +73,7 @@ describe('how the Board works guide', () => {
     },
     {
       section: 'Turns and delivery',
+      topic: 'turns',
       clauses: [
         /turn `T<number>`/,
         /Only the acknowledging session may submit\s*or return/,
@@ -98,6 +98,7 @@ describe('how the Board works guide', () => {
     },
     {
       section: 'Doorbells',
+      topic: 'turns',
       clauses: [
         /A turn opened for you by your own confirmed submit or return is first rung only after `doorbells.firstRetryMs`; a turn opened for you any other way rings at once\./,
         /doorbell expects action: read `board inbox`/,
@@ -122,6 +123,7 @@ describe('how the Board works guide', () => {
     },
     {
       section: 'Course checks and cycle limits',
+      topic: 'turns',
       clauses: [
         /If returns keep hitting the same mechanism/,
         /fix the bug class once/,
@@ -147,6 +149,7 @@ describe('how the Board works guide', () => {
     },
     {
       section: 'Blocks and escalation',
+      topic: 'blocks',
       clauses: [
         /question \(`needs_input`\)/,
         /avoids asking yourself/,
@@ -169,6 +172,7 @@ describe('how the Board works guide', () => {
     },
     {
       section: 'Slack now',
+      topic: 'slack',
       clauses: [
         /curator answers and operator items/,
         /block threads addressed to the operator/,
@@ -178,6 +182,7 @@ describe('how the Board works guide', () => {
     },
     {
       section: 'Slack addressing',
+      topic: 'slack',
       clauses: [
         /new operator message in\s*`slack.channels.orchestrators` starts a conversation/,
         /leading registered\s*`@shortName` selects that Spur project and is stripped/,
@@ -205,13 +210,18 @@ describe('how the Board works guide', () => {
     },
     {
       section: 'Done follows the ticket',
+      topic: 'done',
       clauses: [
         /One linked PR merging does not by itself finish the task/,
         /for GitHub, the Issue must be\s*closed/,
       ],
       keys: ['projects[].tracker.doneStatuses'],
     },
-  ])('pins the operational contract in $section', ({ section, clauses, keys }) => {
+  ])('pins the operational contract in $section', ({ section, topic, clauses, keys }) => {
+    const howBoardWorks = readFileSync(
+      new URL(`../../../docs/how-board-works-${topic}.md`, import.meta.url),
+      'utf8',
+    );
     const heading = `## ${section}\n`;
     const start = howBoardWorks.indexOf(heading);
     expect(start).toBeGreaterThanOrEqual(0);
@@ -219,5 +229,117 @@ describe('how the Board works guide', () => {
     const body = howBoardWorks.slice(start + heading.length, end < 0 ? undefined : end);
     for (const clause of clauses) expect(body).toMatch(clause);
     for (const key of keys) expect(body).toContain(`\`${key}\``);
+  });
+});
+
+function withoutFences(text: string): string {
+  return text.replace(/^(`{3,}|~{3,})[^\n]*\n[\s\S]*?^\1[ \t]*$/gm, '');
+}
+
+function headingSlugs(text: string): Set<string> {
+  const slugs = new Set<string>();
+  for (const match of withoutFences(text).matchAll(/^#{1,6} (.+)$/gm)) {
+    const heading = match[1] ?? '';
+    if (/[<>]/.test(heading)) {
+      throw new Error(`Unsupported HTML or angle brackets in heading: ${heading}`);
+    }
+    const base = heading
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+      .replace(/[^\p{L}\p{N}\p{M}_\-\s]/gu, '')
+      .trim()
+      .toLowerCase()
+      .replace(/\s/g, '-');
+    let slug = base;
+    let duplicate = 0;
+    while (slugs.has(slug)) slug = `${base}-${String(++duplicate)}`;
+    slugs.add(slug);
+  }
+  return slugs;
+}
+
+function localLinks(source: string, text: string) {
+  const errors: string[] = [];
+  let files = 0;
+  let fragments = 0;
+  const prose = withoutFences(text).replace(/(`+)[\s\S]*?\1/g, '');
+  for (const match of prose.matchAll(/\[[^\]\n]*\]\(([^)\s]+)\)/g)) {
+    const href = match[1] ?? '';
+    if (/^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(href)) continue;
+    const [file = '', fragment] = href.split('#');
+    const target = file === '' ? source : resolve(dirname(source), decodeURIComponent(file));
+    if (file !== '') files++;
+    if (!existsSync(target)) {
+      errors.push(`Missing file: ${href}`);
+    } else if (fragment !== undefined && fragment !== '') {
+      fragments++;
+      if (!headingSlugs(readFileSync(target, 'utf8')).has(decodeURIComponent(fragment))) {
+        errors.push(`Missing fragment: ${href}`);
+      }
+    }
+  }
+  return { errors, files, fragments };
+}
+
+function markdownFiles(directory: string): string[] {
+  return readdirSync(directory).flatMap((name) => {
+    const path = resolve(directory, name);
+    return statSync(path).isDirectory() ? markdownFiles(path) : path.endsWith('.md') ? [path] : [];
+  });
+}
+
+describe('documentation local links', () => {
+  const root = fileURLToPath(new URL('../../../', import.meta.url));
+
+  it('resolves local files and heading fragments throughout docs and product skills', () => {
+    let fragments = 0;
+    for (const tree of ['docs', 'packages/skills']) {
+      const paths = markdownFiles(resolve(root, tree));
+      expect(paths.length).toBeGreaterThan(0);
+      let files = 0;
+      for (const path of paths) {
+        const result = localLinks(path, readFileSync(path, 'utf8'));
+        expect(result.errors, path).toEqual([]);
+        files += result.files;
+        fragments += result.fragments;
+      }
+      expect(files, tree).toBeGreaterThan(0);
+    }
+    expect(fragments).toBeGreaterThan(0);
+  });
+
+  it('rejects missing files and fragments', () => {
+    const source = resolve(root, 'docs/how-board-works.md');
+    expect(localLinks(source, '[missing](missing-guide.md)').errors).toEqual([
+      'Missing file: missing-guide.md',
+    ]);
+    expect(localLinks(source, '[missing](#missing-heading)').errors).toEqual([
+      'Missing fragment: #missing-heading',
+    ]);
+  });
+
+  it.each(['<em>Hello</em>', '<scr<script>ipt>', '<script', 'Hello >'])(
+    'rejects unsupported angle-bracket heading syntax: %s',
+    (heading) => {
+      expect(() => headingSlugs(`# ${heading}`)).toThrow(
+        'Unsupported HTML or angle brackets in heading',
+      );
+    },
+  );
+
+  it('handles formatted and duplicate headings, decoded fragments and code exclusions', () => {
+    expect([...headingSlugs('# **Hello** `world`\n## Hello world\n## Hello world\n')]).toEqual([
+      'hello-world',
+      'hello-world-1',
+      'hello-world-2',
+    ]);
+    const source = resolve(root, 'docs/how-board-works.md');
+    expect(localLinks(source, '[entry](#how%2Dthe-board-works)').errors).toEqual([]);
+    expect(
+      localLinks(
+        source,
+        '`[inline](missing.md)`\n```md\n[fenced](missing.md)\n```\n~~~md\n[tilde](missing.md)\n~~~',
+      ).files,
+    ).toBe(0);
+    expect([...headingSlugs('```md\n# Hidden\n```\n# Visible')]).toEqual(['visible']);
   });
 });
