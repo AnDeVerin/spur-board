@@ -195,6 +195,16 @@ const spurProject = z.strictObject({
     .describe(
       "worker: sessions of this Spur project may link to this project's tasks through their PR or branch. operator: sessions act as the operator. orchestrator: sessions execute named columns and never become task workers. curator: sessions answer the questions no column orchestrator takes and escalate the rest to the operator; a board project has at most one.",
     ),
+  shortName: z
+    .string()
+    .regex(
+      /^[a-z0-9][a-z0-9_-]{0,31}$/,
+      'Expected a short name of lowercase letters, digits, _ and -, starting with a letter or digit, at most 32 characters',
+    )
+    .optional()
+    .describe(
+      "The name the operator types as @<shortName> at the start of a new message in the orchestrators channel to start a conversation with this Spur project's live session. Unique across the board.",
+    ),
   displayName: nonEmpty
     .max(80)
     .optional()
@@ -531,216 +541,259 @@ function rejectSharedSpurProjects(
   });
 }
 
+/** A `shortName` addresses one Spur project, so it is unique across every board project. */
+function rejectSharedShortNames(
+  items: readonly z.output<typeof projectSchema>[],
+  ctx: z.RefinementCtx,
+): void {
+  const seen = new Set<string>();
+  items.forEach((project, i) => {
+    project.spurProjects.forEach(({ shortName }, j) => {
+      if (shortName === undefined) return;
+      if (seen.has(shortName)) {
+        ctx.addIssue({
+          code: 'custom',
+          path: [i, 'spurProjects', j, 'shortName'],
+          message: `Duplicate short name: ${JSON.stringify(shortName)}`,
+        });
+      }
+      seen.add(shortName);
+    });
+  });
+}
+
 /** The board config file. Every object rejects unknown keys; no key holds a secret. */
-export const configSchema = z.strictObject({
-  projects: z
-    .array(projectSchema)
-    .min(1)
-    .superRefine((items, ctx) => {
-      rejectDuplicates(items, 'id', 'project id', ctx);
-      rejectSharedSpurProjects(items, ctx);
-    })
-    .describe(
-      'Board projects, at least one. Each reads tasks from one tracker and PRs from its repos. A Spur project can be listed under only one board project.',
-    ),
-  operator: z.strictObject({
-    slack: nonEmpty.describe(
-      'Slack user ID of the operator, such as U0123456789. Slack commands, button presses and messages from anyone else are denied. A feed line the operator resolves names this user.',
-    ),
-  }),
-  slack: z
-    .strictObject({
-      appName: z
-        .string()
-        .trim()
-        .min(1)
-        .default(DEFAULT_SLACK_APP_NAME)
-        .describe(
-          'Slack app and bot display name that board slack manifest writes when --app-name is not given.',
-        ),
-      command: z
-        .string()
-        .regex(/^\/[a-z0-9_-]+$/, 'Expected a slash command such as /board')
-        .default(DEFAULT_SLACK_COMMAND)
-        .describe(
-          'Slash command with its leading slash. The board acts only on this command, and board slack manifest writes it when --command is not given. When slack.channels is set and SLACK_APP_CONFIG_TOKEN and slack.appId are present, board doctor compares it with the installed app.',
-        ),
-      appId: z
-        .string()
-        .regex(/^A[A-Z0-9]+$/, 'Expected a Slack app ID')
-        .optional()
-        .describe(
-          "Slack app ID, such as A0123456789. When slack.channels is set and SLACK_APP_CONFIG_TOKEN is present, board doctor reads this app's manifest to check the installed slash command against slack.command.",
-        ),
-      channels: z
-        .strictObject({
-          orchestrators: nonEmpty
-            .optional()
-            .describe(
-              'Slack channel ID, such as C0123456789, where the board opens a thread for each block addressed to the operator by someone else. Once either channel is set, the daemon does not start without the other channel and SLACK_BOT_TOKEN, and without SLACK_APP_TOKEN it reads nothing from Slack.',
-            ),
-          feed: nonEmpty
-            .optional()
-            .describe(
-              'Slack channel ID where the board posts a line for each curator answer, each newly installed version, each revoked operator token, each `/board tokens` list and each operator item, with the buttons the operator presses. Operator items about failed Slack posts, transport health, undelivered answers and ended workers, and those shown as operator blocks, get no feed line. A line whose item clears before it is first sent, such as an expired token request, is dropped. Set it together with orchestrators.',
-            ),
-        })
-        .prefault({}),
-    })
-    .prefault({}),
-  thresholds: z
-    .strictObject({
-      staleMultiplier: z
-        .number()
-        .min(1)
-        .default(3)
-        .describe(
-          'A source with no complete poll for this many of its poll intervals turns blind stale. board status marks that source, and an operator item whose fact is older than that, as stale.',
-        ),
-      blockOpenMs: durationMs(
-        86_400_000,
-        'How long a block may stay open before an item is raised',
-      ),
-    })
-    .prefault({}),
-  archive: z
-    .strictObject({
-      doneWeekday: z
-        .enum(WEEKDAYS)
-        .default('saturday')
-        .describe(
-          'Weekday whose local midnight, in digest.tz, is the weekly archive slot: tasks done before it are archived then, once their repos have a complete poll since their last change. A slot missed while the daemon was down is applied on the next tick.',
-        ),
-    })
-    .prefault({}),
-  digest: z.strictObject({
-    tz: z
-      .string()
-      .refine(isTimeZone, 'Unknown IANA time zone')
+export const configSchema = z
+  .strictObject({
+    projects: z
+      .array(projectSchema)
+      .min(1)
+      .superRefine((items, ctx) => {
+        rejectDuplicates(items, 'id', 'project id', ctx);
+        rejectSharedSpurProjects(items, ctx);
+        rejectSharedShortNames(items, ctx);
+      })
       .describe(
-        'IANA time zone, such as Europe/Berlin, for the archive.doneWeekday slot and the times shown in resolved feed lines.',
+        'Board projects, at least one. Each reads tasks from one tracker and PRs from its repos. A Spur project can be listed under only one board project.',
       ),
-  }),
-  commands: z
-    .strictObject({
-      retentionDays: z
-        .int()
-        .min(1)
-        .default(7)
-        .describe(
-          "Days the board keeps each caller's mutation --key with its input and result. In that time the same caller and key with the same input returns the stored result, and with a different input the call is refused. A daily job deletes older keys.",
-        ),
-    })
-    .prefault({}),
-  operatorAccess: z
-    .strictObject({
-      unusedAfterDays: z
-        .int()
-        .min(1)
-        .max(3650)
-        .default(14)
-        .describe(
-          'Days an approved operator access key from board token create may go unused before board doctor warns about it.',
-        ),
-    })
-    .prefault({}),
-  doorbells: z
-    .strictObject({
-      firstRetryMs: durationMs(120_000, 'Wait after the first unanswered doorbell'),
-      secondRetryMs: durationMs(300_000, 'Wait after the second unanswered doorbell'),
-      unansweredAfterMs: durationMs(900_000, 'Wait after the third unanswered doorbell'),
-    })
-    .superRefine((pauses, ctx) => {
-      if (pauses.secondRetryMs <= pauses.firstRetryMs) {
-        ctx.addIssue({
-          code: 'custom',
-          path: ['secondRetryMs'],
-          message: 'Second retry pause must exceed the first retry pause',
-        });
-      }
-      if (pauses.unansweredAfterMs <= pauses.secondRetryMs) {
-        ctx.addIssue({
-          code: 'custom',
-          path: ['unansweredAfterMs'],
-          message: 'Final unanswered pause must exceed the second retry pause',
-        });
-      }
-    })
-    .prefault({}),
-  http: z
-    .strictObject({
-      port: z
-        .int()
-        .min(0)
-        .max(65_535)
-        .default(DEFAULT_HTTP_PORT)
-        .describe(
-          "Local HTTP API port (0 assigns a free port). The default 4777 is above 4310-4399, a margin kept for Spur's server port 4310 and the ports from 4311 upward that its MCP port takes, and avoids Spur's ports 5555 and 8730-8799 and the Linux ephemeral range 32768-60999.",
-        ),
-    })
-    .prefault({}),
-  adapters: z
-    .strictObject({
-      spur: spurAdapterSection,
-      github: adapterSection(60_000),
-      githubIssues: adapterSection(120_000),
-      jira: adapterSection(120_000),
-    })
-    .prefault({}),
-  sources: z
-    .strictObject({
-      authRetryMs: durationMs(900_000, 'Wait before polling a source again after an auth error'),
-      goneAfterPolls: z
-        .int()
-        .min(1)
-        .default(3)
-        .describe('Complete polls an entity must be missing from before it counts as gone.'),
-    })
-    .prefault({}),
-  github: z
-    .strictObject({
-      reserveRemaining: z
-        .int()
-        .min(0)
-        .default(1000)
-        .describe('GitHub API requests to leave unused in each quota window.'),
-    })
-    .prefault({}),
-  health: z
-    .strictObject({
-      errorAfterMs: durationMs(90_000, 'How long a session stays in error before it is flagged'),
-      needsInputAfterMs: durationMs(
-        120_000,
-        'How long a session waits for input before it is flagged',
+    operator: z.strictObject({
+      slack: nonEmpty.describe(
+        'Slack user ID of the operator, such as U0123456789. Slack commands, button presses and messages from anyone else are denied. A feed line the operator resolves names this user.',
       ),
-      idleInDevAfterMs: durationMs(
-        1_800_000,
-        'How long a worker session without an open PR, or the executor of a taken turn, waits at its prompt before it is flagged',
-      ),
-      flipSmoothingMs: durationMs(
-        30_000,
-        'How long a new session health value must hold before it is reported',
-      ),
-      hostLoad: z
-        .strictObject({
-          sessions: z
-            .int()
-            .min(1)
-            .default(3)
-            .describe('Sessions entering error within the window that start an episode.'),
-          windowMs: durationMs(
-            60_000,
-            'Window in which that many sessions entering error start a host-load episode',
+    }),
+    slack: z
+      .strictObject({
+        appName: z
+          .string()
+          .trim()
+          .min(1)
+          .default(DEFAULT_SLACK_APP_NAME)
+          .describe(
+            'Slack app and bot display name that board slack manifest writes when --app-name is not given.',
           ),
-          maxEpisodeMs: durationMs(
-            300_000,
-            'Longest a host-load episode lasts before error flags resume',
+        command: z
+          .string()
+          .regex(/^\/[a-z0-9_-]+$/, 'Expected a slash command such as /board')
+          .default(DEFAULT_SLACK_COMMAND)
+          .describe(
+            'Slash command with its leading slash. The board acts only on this command, and board slack manifest writes it when --command is not given. When slack.channels is set and SLACK_APP_CONFIG_TOKEN and slack.appId are present, board doctor compares it with the installed app.',
           ),
-        })
-        .prefault({}),
-    })
-    .prefault({}),
-});
+        appId: z
+          .string()
+          .regex(/^A[A-Z0-9]+$/, 'Expected a Slack app ID')
+          .optional()
+          .describe(
+            "Slack app ID, such as A0123456789. When slack.channels is set and SLACK_APP_CONFIG_TOKEN is present, board doctor reads this app's manifest to check the installed slash command against slack.command.",
+          ),
+        channels: z
+          .strictObject({
+            orchestrators: nonEmpty
+              .optional()
+              .describe(
+                'Slack channel ID, such as C0123456789, where the board opens a thread for each block addressed to the operator by someone else. Once either channel is set, the daemon does not start without the other channel and SLACK_BOT_TOKEN, and without SLACK_APP_TOKEN it reads nothing from Slack.',
+              ),
+            feed: nonEmpty
+              .optional()
+              .describe(
+                'Slack channel ID where the board posts a line for each curator answer, each newly installed version, each revoked operator token, each `/board tokens` list and each operator item, with the buttons the operator presses. Operator items about failed Slack posts, transport health, undelivered answers and ended workers, and those shown as operator blocks, get no feed line. A line whose item clears before it is first sent, such as an expired token request, is dropped. Set it together with orchestrators.',
+              ),
+          })
+          .prefault({}),
+        defaultAddressee: z
+          .string()
+          .optional()
+          .describe(
+            'The shortName of the Spur project that gets a new orchestrators-channel message which does not start with a known @<shortName>. Without it, such a message gets one reply listing the valid prefixes. Ignored when no shortName is configured.',
+          ),
+      })
+      .prefault({}),
+    thresholds: z
+      .strictObject({
+        staleMultiplier: z
+          .number()
+          .min(1)
+          .default(3)
+          .describe(
+            'A source with no complete poll for this many of its poll intervals turns blind stale. board status marks that source, and an operator item whose fact is older than that, as stale.',
+          ),
+        blockOpenMs: durationMs(
+          86_400_000,
+          'How long a block may stay open before an item is raised',
+        ),
+      })
+      .prefault({}),
+    archive: z
+      .strictObject({
+        doneWeekday: z
+          .enum(WEEKDAYS)
+          .default('saturday')
+          .describe(
+            'Weekday whose local midnight, in digest.tz, is the weekly archive slot: tasks done before it are archived then, once their repos have a complete poll since their last change. A slot missed while the daemon was down is applied on the next tick.',
+          ),
+      })
+      .prefault({}),
+    digest: z.strictObject({
+      tz: z
+        .string()
+        .refine(isTimeZone, 'Unknown IANA time zone')
+        .describe(
+          'IANA time zone, such as Europe/Berlin, for the archive.doneWeekday slot and the times shown in resolved feed lines.',
+        ),
+    }),
+    commands: z
+      .strictObject({
+        retentionDays: z
+          .int()
+          .min(1)
+          .default(7)
+          .describe(
+            "Days the board keeps each caller's mutation --key with its input and result. In that time the same caller and key with the same input returns the stored result, and with a different input the call is refused. A daily job deletes older keys.",
+          ),
+      })
+      .prefault({}),
+    operatorAccess: z
+      .strictObject({
+        unusedAfterDays: z
+          .int()
+          .min(1)
+          .max(3650)
+          .default(14)
+          .describe(
+            'Days an approved operator access key from board token create may go unused before board doctor warns about it.',
+          ),
+      })
+      .prefault({}),
+    doorbells: z
+      .strictObject({
+        firstRetryMs: durationMs(120_000, 'Wait after the first unanswered doorbell'),
+        secondRetryMs: durationMs(300_000, 'Wait after the second unanswered doorbell'),
+        unansweredAfterMs: durationMs(900_000, 'Wait after the third unanswered doorbell'),
+      })
+      .superRefine((pauses, ctx) => {
+        if (pauses.secondRetryMs <= pauses.firstRetryMs) {
+          ctx.addIssue({
+            code: 'custom',
+            path: ['secondRetryMs'],
+            message: 'Second retry pause must exceed the first retry pause',
+          });
+        }
+        if (pauses.unansweredAfterMs <= pauses.secondRetryMs) {
+          ctx.addIssue({
+            code: 'custom',
+            path: ['unansweredAfterMs'],
+            message: 'Final unanswered pause must exceed the second retry pause',
+          });
+        }
+      })
+      .prefault({}),
+    http: z
+      .strictObject({
+        port: z
+          .int()
+          .min(0)
+          .max(65_535)
+          .default(DEFAULT_HTTP_PORT)
+          .describe(
+            "Local HTTP API port (0 assigns a free port). The default 4777 is above 4310-4399, a margin kept for Spur's server port 4310 and the ports from 4311 upward that its MCP port takes, and avoids Spur's ports 5555 and 8730-8799 and the Linux ephemeral range 32768-60999.",
+          ),
+      })
+      .prefault({}),
+    adapters: z
+      .strictObject({
+        spur: spurAdapterSection,
+        github: adapterSection(60_000),
+        githubIssues: adapterSection(120_000),
+        jira: adapterSection(120_000),
+      })
+      .prefault({}),
+    sources: z
+      .strictObject({
+        authRetryMs: durationMs(900_000, 'Wait before polling a source again after an auth error'),
+        goneAfterPolls: z
+          .int()
+          .min(1)
+          .default(3)
+          .describe('Complete polls an entity must be missing from before it counts as gone.'),
+      })
+      .prefault({}),
+    github: z
+      .strictObject({
+        reserveRemaining: z
+          .int()
+          .min(0)
+          .default(1000)
+          .describe('GitHub API requests to leave unused in each quota window.'),
+      })
+      .prefault({}),
+    health: z
+      .strictObject({
+        errorAfterMs: durationMs(90_000, 'How long a session stays in error before it is flagged'),
+        needsInputAfterMs: durationMs(
+          120_000,
+          'How long a session waits for input before it is flagged',
+        ),
+        idleInDevAfterMs: durationMs(
+          1_800_000,
+          'How long a worker session without an open PR, or the executor of a taken turn, waits at its prompt before it is flagged',
+        ),
+        flipSmoothingMs: durationMs(
+          30_000,
+          'How long a new session health value must hold before it is reported',
+        ),
+        hostLoad: z
+          .strictObject({
+            sessions: z
+              .int()
+              .min(1)
+              .default(3)
+              .describe('Sessions entering error within the window that start an episode.'),
+            windowMs: durationMs(
+              60_000,
+              'Window in which that many sessions entering error start a host-load episode',
+            ),
+            maxEpisodeMs: durationMs(
+              300_000,
+              'Longest a host-load episode lasts before error flags resume',
+            ),
+          })
+          .prefault({}),
+      })
+      .prefault({}),
+  })
+  .superRefine((config, ctx) => {
+    const addressee = config.slack.defaultAddressee;
+    if (addressee === undefined) return;
+    const known = config.projects.some((project) =>
+      project.spurProjects.some(({ shortName }) => shortName === addressee),
+    );
+    if (!known) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['slack', 'defaultAddressee'],
+        message: `Unknown short name ${JSON.stringify(addressee)}: set it as projects[].spurProjects[].shortName first`,
+      });
+    }
+  });
 
 export type Config = z.output<typeof configSchema>;
 export type ConfigInput = z.input<typeof configSchema>;

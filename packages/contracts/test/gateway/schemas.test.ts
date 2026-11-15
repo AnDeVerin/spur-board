@@ -196,6 +196,22 @@ describe('inboundEventSchema', () => {
     expect(inboundEventSchema.safeParse(withoutSourceSpace).success).toBe(false);
   });
 
+  it.each(['message', 'mention'] as const)(
+    '%s: accepts the first message of a conversation with its source space',
+    (kind) => {
+      const first = { ...events[kind].valid, sourceSpace: 'orchestrators' };
+      expect(inboundEventSchema.safeParse(first).success).toBe(true);
+      expect(inboundEventSchema.safeParse({ ...first, sourceSpace: 'elsewhere' }).success).toBe(
+        false,
+      );
+    },
+  );
+
+  it('rejects a source space on a message edit', () => {
+    const edit = { ...events.message_edited.valid, sourceSpace: 'orchestrators' };
+    expect(inboundEventSchema.safeParse(edit).success).toBe(false);
+  });
+
   it('accepts a command without a board source space', () => {
     const withoutSourceSpace = { ...events.command.valid };
     delete withoutSourceSpace.sourceSpace;
