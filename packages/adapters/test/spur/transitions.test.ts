@@ -128,6 +128,173 @@ describe('Spur transition feed', () => {
     ]);
   });
 
+  it('bootstraps a foreign stored cursor and resumes strict-after the fresh baseline with full snapshots', async () => {
+    const requests: URL[] = [];
+    const freshEdge = { ...edge, cursor: 'replacement-1' };
+    const fetcher: typeof fetch = (input) => {
+      const url = new URL(input instanceof Request ? input.url : input);
+      requests.push(url);
+      if (url.pathname === '/sessions') return Promise.resolve(Response.json([session]));
+      const since = url.searchParams.get('since');
+      if (since === 'foreign-stored')
+        return Promise.resolve(
+          Response.json({ error: 'Invalid or foreign transitions cursor' }, { status: 400 }),
+        );
+      return Promise.resolve(
+        Response.json({
+          entries: since === null ? [freshEdge] : [],
+          nextCursor: 'replacement-1',
+          hasMore: false,
+        }),
+      );
+    };
+    const ctx = context('foreign-stored');
+    const first = await adapter(fetcher).poll(ctx);
+    expect(batchSchema.parse(first)).toEqual(first);
+    expect(first.cursor).toBe('replacement-1');
+    expect(first.sessionTransitions).toHaveLength(1);
+    expect(first.sessionTransitions?.[0]).toMatchObject({
+      position: 'replacement-1',
+      session: session.id,
+      at: edge.at,
+    });
+    expect(first.items[0]?.facts).toMatchObject({ id: session.id, health: 'working' });
+    expect(ctx.cursor).toBe('foreign-stored');
+    const next = await adapter(fetcher).poll(context(first.cursor));
+    expect(next).toMatchObject({ cursor: 'replacement-1', sessionTransitions: [] });
+    expect(next.items).toHaveLength(1);
+    expect(requests.map((url) => [url.pathname, url.searchParams.get('since')])).toEqual([
+      ['/sessions/transitions', 'foreign-stored'],
+      ['/sessions/transitions', null],
+      ['/sessions', null],
+      ['/sessions/transitions', 'replacement-1'],
+      ['/sessions', null],
+    ]);
+  });
+
+  it('counts foreign-cursor recovery toward the four-request budget and persists partial bootstrap progress', async () => {
+    const sinceValues: (string | null)[] = [];
+    const fetcher: typeof fetch = (input) => {
+      const url = new URL(input instanceof Request ? input.url : input);
+      if (url.pathname === '/sessions') return Promise.resolve(Response.json([session]));
+      const since = url.searchParams.get('since');
+      sinceValues.push(since);
+      if (since === 'foreign-stored')
+        return Promise.resolve(
+          Response.json({ error: 'Invalid or foreign transitions cursor' }, { status: 400 }),
+        );
+      const next = since === null ? 1 : Number(since.slice('replacement-'.length)) + 1;
+      return Promise.resolve(
+        Response.json({
+          entries: [{ ...edge, cursor: `replacement-${String(next)}` }],
+          nextCursor: `replacement-${String(next)}`,
+          hasMore: next < 4,
+        }),
+      );
+    };
+    const capped = await adapter(fetcher).poll(context('foreign-stored'));
+    expect(capped.sessionTransitions?.map(({ position }) => position)).toEqual([
+      'replacement-1',
+      'replacement-2',
+      'replacement-3',
+    ]);
+    expect(capped.cursor).toBe('replacement-3');
+    expect(capped.items).toHaveLength(1);
+    const next = await adapter(fetcher).poll(context(capped.cursor));
+    expect(next.sessionTransitions?.map(({ position }) => position)).toEqual(['replacement-4']);
+    expect(next.cursor).toBe('replacement-4');
+    expect(sinceValues).toEqual([
+      'foreign-stored',
+      null,
+      'replacement-1',
+      'replacement-2',
+      'replacement-3',
+    ]);
+  });
+
+  it.each([
+    ['future cursor', { error: 'Future transitions cursor' }],
+    ['query validation error', { error: 'limit must be an integer from 1 through 1000' }],
+    ['nonmatching cursor message', { error: 'Invalid cursor' }],
+    ['missing error', {}],
+    ['malformed error', { error: 400 }],
+  ])('rejects an initial %s 400 without bootstrapping or reconciling', async (_name, body) => {
+    let calls = 0;
+    const source = adapter(() => {
+      calls++;
+      return Promise.resolve(Response.json(body, { status: 400 }));
+    });
+    await expect(source.poll(context('stored'))).rejects.toMatchObject({ kind: 'transient' });
+    expect(calls).toBe(1);
+  });
+
+  it('rejects a non-JSON 400 without discarding the stored cursor', async () => {
+    let calls = 0;
+    const source = adapter(() => {
+      calls++;
+      return Promise.resolve(new Response('not JSON', { status: 400 }));
+    });
+    const ctx = context('stored');
+    await expect(source.poll(ctx)).rejects.toMatchObject({ kind: 'transient' });
+    expect(ctx.cursor).toBe('stored');
+    expect(calls).toBe(1);
+  });
+
+  it('rejects the cursor message without a stored position or on a later page', async () => {
+    let calls = 0;
+    const error = () =>
+      Response.json({ error: 'Invalid or foreign transitions cursor' }, { status: 400 });
+    await expect(
+      adapter(() => {
+        calls++;
+        return Promise.resolve(error());
+      }).poll(context()),
+    ).rejects.toMatchObject({ kind: 'transient' });
+    expect(calls).toBe(1);
+    calls = 0;
+    const later = adapter(() => {
+      calls++;
+      return Promise.resolve(
+        calls === 1
+          ? Response.json({ entries: [edge], nextCursor: edge.cursor, hasMore: true })
+          : error(),
+      );
+    });
+    await expect(later.poll(context('stored'))).rejects.toMatchObject({ kind: 'transient' });
+    expect(calls).toBe(2);
+  });
+
+  it('fails a malformed bootstrap without returning progress, then accepts one copy on retry', async () => {
+    let malformed = true;
+    const sinceValues: (string | null)[] = [];
+    const source = adapter((input) => {
+      const url = new URL(input instanceof Request ? input.url : input);
+      if (url.pathname === '/sessions') return Promise.resolve(Response.json([session]));
+      const since = url.searchParams.get('since');
+      sinceValues.push(since);
+      if (since === 'stored')
+        return Promise.resolve(
+          Response.json({ error: 'Invalid or foreign transitions cursor' }, { status: 400 }),
+        );
+      return Promise.resolve(
+        Response.json({
+          entries: malformed ? [{ ...edge, at: 'bad' }] : [edge],
+          nextCursor: edge.cursor,
+          hasMore: false,
+        }),
+      );
+    });
+    const ctx = context('stored');
+    await expect(source.poll(ctx)).rejects.toMatchObject({ kind: 'transient' });
+    expect(ctx.cursor).toBe('stored');
+    malformed = false;
+    const accepted = await source.poll(ctx);
+    expect(accepted.cursor).toBe(edge.cursor);
+    expect(accepted.sessionTransitions).toHaveLength(1);
+    expect(accepted.items).toHaveLength(1);
+    expect(sinceValues).toEqual(['stored', null, 'stored', null]);
+  });
+
   it('resyncs an expired cursor once and resumes strict-after the new baseline', async () => {
     const requests: URL[] = [];
     const source = adapter((input) => {

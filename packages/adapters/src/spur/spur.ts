@@ -50,6 +50,7 @@ const transitionsWire = z.object({
   nextCursor: sourceCursorSchema,
   hasMore: z.boolean(),
 });
+const foreignCursorWire = z.object({ error: z.literal('Invalid or foreign transitions cursor') });
 type SessionWire = z.output<typeof sessionWire>;
 
 interface HealthObservation {
@@ -112,7 +113,7 @@ export function createSpurAdapter(options: SpurAdapterOptions): Adapter {
     }, REQUEST_TIMEOUT_MS);
     try {
       const response = await fetchImpl(new URL(path, base), { signal: controller.signal });
-      if (!response.ok && response.status !== 410) return { response };
+      if (!response.ok && response.status !== 410 && response.status !== 400) return { response };
       try {
         return { response, body: await response.json() };
       } catch (error) {
@@ -218,6 +219,17 @@ export function createSpurAdapter(options: SpurAdapterOptions): Adapter {
           `sessions/transitions?${query.toString()}`,
           ctx.signal,
         );
+        if (
+          page === 0 &&
+          cursor !== undefined &&
+          response.status === 400 &&
+          foreignCursorWire.safeParse(body).success
+        ) {
+          // A replacement stream cannot use the stored position. Bootstrap once; this failed
+          // request consumes one of the four slots, and only a validated batch replaces it.
+          cursor = undefined;
+          continue;
+        }
         if (response.status === 410) {
           cursor = parseWire(
             z.object({ latestCursor: sourceCursorSchema }),
