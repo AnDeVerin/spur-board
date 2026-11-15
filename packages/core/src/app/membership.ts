@@ -1,6 +1,7 @@
 import { parseRef, type Config } from '@spur-board/contracts';
 import type { Mutation } from './commands.ts';
 import { CommandError } from './commands.ts';
+import { reconcileTaskPrs } from './pr-associations.ts';
 import { archiveTask } from './archive.ts';
 import { emit, projectForKey, taskView, type Trx } from './board-utils.ts';
 
@@ -117,6 +118,7 @@ export function createMembershipMutations(config: Config): {
             .where('id', '=', task.id)
             .executeTakeFirstOrThrow();
         }
+        await reconcileTaskPrs(trx, config, task.id, ctx.at);
         return { task: taskView(task) };
       },
     },

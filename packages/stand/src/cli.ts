@@ -105,7 +105,7 @@ const USAGE = `Usage: pnpm stand <command>
   fake github inspect             print the GraphQL requests the fake answered
   fake github pr <n> <verb> [--repo owner/name]
                                   create [--seed '<json>'], approve, ci-red, ci-green, merge,
-                                  close, conflict or push <sha>; close shuts it without a merge;
+                                  close, reopen, conflict or push <sha>; reopen requires CLOSED;
                                   --repo defaults to ${DEFAULT_FAKE_REPO}
   fake github pr <n> comment [--author login] [--bot]
   fake github pr <n> review <approved|changes-requested|commented> [--author login] [--bot]
@@ -164,6 +164,7 @@ const FAKE_PR_VERBS = [
   'ci-green',
   'merge',
   'close',
+  'reopen',
   'conflict',
   'push',
   'comment',

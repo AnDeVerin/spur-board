@@ -8,6 +8,7 @@ const timestamp = z
 // GitHub returns a null author for a deleted account.
 export const discoveryNodeWire = z.object({
   number: z.int().positive(),
+  state: z.string().optional(),
   updatedAt: timestamp,
   author: z.object({ login: z.string() }).nullable(),
 });
@@ -17,6 +18,7 @@ type BaselineNode = z.output<typeof baselineNodeWire>;
 
 export interface Discovery {
   numbers: number[];
+  states: Map<number, string | undefined>;
   cursor?: SourceCursor;
 }
 export function latestUpdatedAt(
@@ -38,15 +40,17 @@ export function discover(
 ): Discovery {
   let high = previous;
   const numbers = new Set<number>();
+  const states = new Map<number, string | undefined>();
   for (const node of nodes) {
     const updated = sourceCursorSchema.parse(node.updatedAt);
     const updatedMs = Date.parse(updated);
     if (high === undefined || updatedMs > Date.parse(high)) high = updated;
     if (previous !== undefined && updatedMs < Date.parse(previous)) continue;
+    states.set(node.number, node.state);
     if (node.author?.login.toLowerCase() !== login.toLowerCase()) continue;
     numbers.add(node.number);
   }
-  return { numbers: [...numbers], ...(high === undefined ? {} : { cursor: high }) };
+  return { numbers: [...numbers], states, ...(high === undefined ? {} : { cursor: high }) };
 }
 /** Pages are sorted newest first; older nodes end the scan, while ties must be revisited. */
 export function pastCursor(

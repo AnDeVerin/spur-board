@@ -684,12 +684,12 @@ Example:
 
 ## github_unavailable
 
-GitHub did not confirm the pull request head; nothing was applied.
+GitHub did not confirm current pull request facts.
 
 HTTP: 503  
 Exit code: 3  
-Hint: Wait until GitHub answers, then submit again.  
-Recovery: Wait until GitHub answers, then submit again.  
+Hint: Wait until GitHub answers, then retry the operation.  
+Recovery: Wait until GitHub answers, then retry the operation.  
 Side effects: none  
 Retry: maximum 3; After GitHub is reachable; wait briefly between retries.
 
@@ -702,11 +702,11 @@ Example:
   "error": {
     "code": "github_unavailable",
     "requestId": "req-example-123",
-    "message": "GitHub did not confirm the pull request head; nothing was applied.",
-    "hint": "Wait until GitHub answers, then submit again.",
+    "message": "GitHub did not confirm current pull request facts.",
+    "hint": "Wait until GitHub answers, then retry the operation.",
     "docs": "docs/errors.md#github_unavailable",
     "recovery": {
-      "action": "Wait until GitHub answers, then submit again.",
+      "action": "Wait until GitHub answers, then retry the operation.",
       "sideEffects": "none",
       "maxRetries": 3,
       "retryTiming": "After GitHub is reachable; wait briefly between retries."

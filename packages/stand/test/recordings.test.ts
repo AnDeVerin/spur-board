@@ -125,10 +125,25 @@ function replayConfig(): Config {
   return configSchema.parse(raw);
 }
 
+/** Ignore only the newly selected optional cost when replaying older recorded requests.
+ * The response remains untouched: a recording with no cost contributes no reported usage.
+ */
+function replayBody(body: Json): string {
+  if (isObject(body) && typeof body['query'] === 'string')
+    return canonical({
+      ...body,
+      query: body['query'].replace(
+        'rateLimit { cost remaining resetAt }',
+        'rateLimit { remaining resetAt }',
+      ),
+    });
+  return canonical(body);
+}
+
 function requestOf(input: Parameters<typeof fetch>[0], init: Parameters<typeof fetch>[1]) {
   const url = new URL(input instanceof Request ? input.url : String(input));
   const method = (init?.method ?? 'GET').toUpperCase();
-  const body = typeof init?.body === 'string' ? canonical(JSON.parse(init.body) as Json) : 'null';
+  const body = typeof init?.body === 'string' ? replayBody(JSON.parse(init.body) as Json) : 'null';
   return { url: url.href, method, body };
 }
 
@@ -141,7 +156,7 @@ function replayFetch() {
       (exchange) =>
         exchange.request.method === request.method &&
         exchange.request.url === request.url &&
-        canonical(exchange.request.body) === request.body,
+        replayBody(exchange.request.body) === request.body,
     );
     const [exchange] = index === -1 ? [] : pending.splice(index, 1);
     if (exchange === undefined)
@@ -537,6 +552,11 @@ describe('stand fakes against the recorded live responses', () => {
     const replay = replayFetch();
     const result = await pollOnce(replayConfig(), replay.fetcher);
     expectDelivered(result);
+    expect(
+      result.core.observed
+        .filter(({ source }) => source.startsWith('github:'))
+        .every(({ batch }) => batch.usage === undefined),
+    ).toBe(true);
     expect(replay.pending.map(({ request }) => `${request.method} ${request.url}`)).toEqual([]);
   });
 

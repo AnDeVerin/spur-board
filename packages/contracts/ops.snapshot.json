@@ -1,5 +1,5 @@
 {
-  "version": "171e7ed6080f9dc995f77812652477c9b281993c75e4dea1f995f07bba920b08",
+  "version": "d03aa67fd70f21633afcb172886fd51a56b7508002bc352ae0abd3caaa33a702",
   "grants": [
     "operator",
     "project-agent",
@@ -600,10 +600,10 @@
     "github_unavailable": {
       "status": 503,
       "exit": 3,
-      "message": "GitHub did not confirm the pull request head; nothing was applied.",
-      "hint": "Wait until GitHub answers, then submit again.",
+      "message": "GitHub did not confirm current pull request facts.",
+      "hint": "Wait until GitHub answers, then retry the operation.",
       "recovery": {
-        "action": "Wait until GitHub answers, then submit again.",
+        "action": "Wait until GitHub answers, then retry the operation.",
         "sideEffects": "none",
         "maxRetries": 3,
         "retryTiming": "After GitHub is reachable; wait briefly between retries."
@@ -1136,6 +1136,12 @@
             "items": {
               "type": "object",
               "properties": {
+                "pointsLastHour": {
+                  "description": "Reported source points consumed during the preceding hour.",
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
                 "source": {
                   "type": "string",
                   "minLength": 1,
@@ -2475,7 +2481,7 @@
     {
       "id": "task.get",
       "kind": "query",
-      "description": "Show a task with its open turn, links, blocks and comments.",
+      "description": "Show a task; refresh reads GitHub PRs.",
       "grants": [{ "grant": "operator" }, { "grant": "project-agent" }],
       "preconditions": null,
       "errors": [
@@ -2486,13 +2492,14 @@
         "not_implemented",
         "identity_unavailable",
         "starting",
-        "stopping"
+        "stopping",
+        "github_unavailable"
       ],
       "cli": { "command": "task", "args": ["task"], "modes": null, "key": null },
       "mcp": {
         "name": "task_get",
         "key": null,
-        "whenToUse": "Inspect one task now; pass detail for its last closed turns.",
+        "whenToUse": "Inspect a task; detail adds closed turns.",
         "whenNotToUse": "Use task_history for past events.",
         "destructive": false
       },
@@ -2738,6 +2745,10 @@
             "maxLength": 300,
             "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
             "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
+          },
+          "refresh": {
+            "description": "Read every linked pull request from GitHub before showing the task; unavailable reads fail visibly.",
+            "type": "boolean"
           },
           "detail": {
             "description": "Also list the last 5 closed turns, newest first; absent means none.",
@@ -5255,7 +5266,7 @@
     {
       "id": "link.add",
       "kind": "mutation",
-      "description": "Manually link a pull request, session, or additional ticket to a task.",
+      "description": "Manually link a pull request, session, or additional ticket to a task. Pull request links first read current facts from GitHub.",
       "grants": [{ "grant": "operator" }],
       "preconditions": null,
       "errors": [
@@ -5269,7 +5280,8 @@
         "idempotency_key_mismatch",
         "identity_unavailable",
         "starting",
-        "stopping"
+        "stopping",
+        "github_unavailable"
       ],
       "cli": {
         "command": "link",

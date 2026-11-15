@@ -46,6 +46,7 @@ export const sampleRows: SampleRows = {
     archive_slot_at: null,
     reopened_at: at,
   },
+  source_cost: { id: 1, source: 'github', at, points: 3 },
   pr_snapshot: {
     repo: 'x/y',
     number: 7,
@@ -58,6 +59,7 @@ export const sampleRows: SampleRows = {
     detail: '{"checks":[]}',
     source: 'github',
     observed_at: at,
+    closed_recheck_at: null,
   },
   ticket_snapshot: {
     task_id: 1,

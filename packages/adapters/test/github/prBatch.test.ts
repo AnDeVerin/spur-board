@@ -260,19 +260,19 @@ describe('GitHub PR batch', () => {
   it('pins the discovery and detail queries', () => {
     const query = discoveryQuery();
     expect(createHash('sha256').update(query).digest('hex')).toBe(
-      'be8f5037ce78c40af8655a1a6942dc6fa0aaad89098a45e779fa6f1a2600a0d0',
+      'ed5408a6d8394754c92b244c13db18b4cc543ed7c81d6f39f327e609e29adf43',
     );
-    expect(query).toContain('rateLimit { remaining resetAt }');
+    expect(query).toContain('rateLimit { cost remaining resetAt }');
     expect(query).toContain('pullRequests(first: 100');
     expect(query).not.toContain('pr0: repository');
     expect(query).toContain('states: [OPEN, MERGED, CLOSED]');
     expect(pageQuery('pullRequests')).toContain('states: [OPEN, MERGED, CLOSED]');
     const details = detailQuery([7]);
-    expect(details).toContain('rateLimit { remaining resetAt }');
+    expect(details).toContain('rateLimit { cost remaining resetAt }');
     expect(details).toContain('pr0: repository');
     const bootstrapQuery = discoveryQuery(true);
     expect(createHash('sha256').update(bootstrapQuery).digest('hex')).toBe(
-      'ddce343c8846e5ad05876f723f92c61b8253d327402b837fd854f1054ea9c8be',
+      '26d80dbae4818ae5454484fbf472db07507f69a06fe74adb080de6098c109dc0',
     );
     expect(bootstrapQuery).toContain('states: [OPEN]');
     expect(bootstrapQuery).toContain(
@@ -283,7 +283,7 @@ describe('GitHub PR batch', () => {
     expect(bootstrapQuery).not.toContain('closingIssuesReferences');
     const issuesQuery = detailQuery([7], true);
     expect(createHash('sha256').update(issuesQuery).digest('hex')).toBe(
-      '4c826ef66d705df20b70a831f36148e87e612a7fd71ee228613c6e2f1d66b024',
+      '65f6a781cdf33af7ce6b5261e7512dd7d2ef2b777e008a57a46ccd5154441e3b',
     );
     expect(issuesQuery).toContain('closingIssuesReferences(first: 100)');
     for (const selection of [details, pageQuery('reviewRequests')]) {
@@ -2917,5 +2917,221 @@ describe('PR index cache', () => {
     ]);
     expect(batch.complete).toBe(false);
     expect(batch.budget?.remaining).toBe(500);
+  });
+});
+
+describe('persisted terminal PR policy', () => {
+  const terminal = (state: 'merged' | 'closed') => [{ ref, state }];
+  const discovery = (state = 'MERGED', cost = 2) =>
+    response({
+      rateLimit: { cost, remaining: 4000, resetAt: '2026-01-03T00:00:00.000Z' },
+      repository: {
+        pullRequests: conn([{ number: 7, updatedAt: time, author: { login: 'operator' }, state }]),
+      },
+    });
+  it('suppresses merged cursor ties before index/detail work, including a recreated adapter', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockImplementation(() => Promise.resolve(discovery()));
+    for (let i = 0; i < 3; i++) {
+      const source = adapter(fetcher);
+      const batch = await source.poll({ ...context([], time), terminalPrs: terminal('merged') });
+      expect(batch.items).toEqual([]);
+      expect(batch.entities).toEqual([]);
+      expect(batch.usage).toEqual({ points: 2 });
+    }
+    expect(fetcher).toHaveBeenCalledTimes(3);
+    expect(sentQueries(fetcher).join(' ')).not.toContain('pullRequest(number:');
+  });
+  it('uses only identity and state for a due unchanged closed PR', async () => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(discovery('CLOSED'))
+      .mockResolvedValueOnce(
+        response({
+          rateLimit: { cost: 3, remaining: 50, resetAt: '2026-01-03T00:00:00.000Z' },
+          pr0: { pullRequest: { number: 7, state: 'CLOSED' } },
+        }),
+      );
+    const batch = await adapter(fetcher).poll({
+      ...context([], time),
+      terminalPrs: terminal('closed'),
+      prRechecks: [ref],
+    });
+    expect(batch.prProbes).toEqual([{ ref, status: 'closed' }]);
+    expect(batch.items).toEqual([]);
+    expect(batch.entities).toEqual([]);
+    expect(batch.complete).toBe(true);
+    expect(batch.usage).toEqual({ points: 5 });
+    const query = sentQueries(fetcher, 'PrStates')[0];
+    expect(query).toContain('pullRequest(number: 7) { number state }');
+    for (const field of ['comments', 'reviews', 'contexts', 'reviewThreads'])
+      expect(query).not.toContain(field);
+    expect(sentQueries(fetcher)).toHaveLength(2);
+  });
+  it.each(['OPEN', 'MERGED', 'FUTURE_STATE'])(
+    'fully reads a due probe that reports %s',
+    async (state) => {
+      const fetcher = vi
+        .fn<typeof fetch>()
+        .mockResolvedValueOnce(discovery('CLOSED'))
+        .mockResolvedValueOnce(response({ pr0: { pullRequest: { number: 7, state } } }))
+        .mockResolvedValueOnce(
+          response({
+            pr0: { pullRequest: { ...wire(), state: state === 'MERGED' ? 'MERGED' : 'OPEN' } },
+          }),
+        );
+      const batch = await adapter(fetcher).poll({
+        ...context([], time),
+        terminalPrs: terminal('closed'),
+        prRechecks: [ref],
+      });
+      expect(batch.prProbes).toEqual([{ ref, status: 'refreshed' }]);
+      expect(batch.items).toHaveLength(1);
+      expect(sentQueries(fetcher, 'PrDetails')).toHaveLength(1);
+      expect(sentQueries(fetcher, 'PrIndex')).toEqual([]);
+    },
+  );
+  it('refreshes closed PRs reopened in discovery even for another author and before a probe is due', async () => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        response({
+          repository: {
+            pullRequests: conn([
+              { number: 7, updatedAt: time, state: 'OPEN', author: { login: 'someone' } },
+            ]),
+          },
+        }),
+      )
+      .mockResolvedValueOnce(response({ pr0: { pullRequest: wire() } }));
+    const batch = await adapter(fetcher).poll({
+      ...context([], time),
+      terminalPrs: terminal('closed'),
+    });
+    expect(batch.items).toHaveLength(1);
+    expect(batch.prProbes).toEqual([{ ref, status: 'refreshed' }]);
+    expect(sentQueries(fetcher, 'PrStates')).toEqual([]);
+  });
+  it('refreshes a closed PR merged in discovery before its probe deadline, then suppresses final facts', async () => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(discovery('MERGED'))
+      .mockResolvedValueOnce(
+        response({ pr0: { pullRequest: { ...wire(), state: 'MERGED', mergedAt: time } } }),
+      )
+      .mockResolvedValueOnce(discovery('MERGED'));
+    const batch = await adapter(fetcher).poll({
+      ...context([], time),
+      terminalPrs: terminal('closed'),
+    });
+    expect(batch.items).toHaveLength(1);
+    expect(batch.items[0]).toMatchObject({ kind: 'pr', facts: { state: 'merged' } });
+    expect(batch.prProbes).toEqual([{ ref, status: 'refreshed' }]);
+    expect(sentQueries(fetcher, 'PrStates')).toEqual([]);
+    expect(sentQueries(fetcher, 'PrDetails')).toHaveLength(1);
+    const next = await adapter(fetcher).poll({
+      ...context([], time),
+      terminalPrs: terminal('merged'),
+    });
+    expect(next.items).toEqual([]);
+    expect(sentQueries(fetcher)).toHaveLength(1);
+    expect(sentQueries(fetcher).join(' ')).not.toContain('pullRequest(number:');
+    expect(fetcher).toHaveBeenCalledTimes(3);
+  });
+  it('keeps malformed/denied/missing probes separate from ordinary absence', async () => {
+    for (const value of [null, { pullRequest: null }, { pullRequest: { number: 7 } }]) {
+      const fetcher = vi
+        .fn<typeof fetch>()
+        .mockResolvedValueOnce(discovery('CLOSED'))
+        .mockResolvedValueOnce(response({ pr0: value }));
+      const batch = await adapter(fetcher).poll({
+        ...context([], time),
+        terminalPrs: terminal('closed'),
+        prRechecks: [ref],
+      });
+      expect(batch.complete).toBe(false);
+      expect(batch.prProbes).toEqual([{ ref, status: 'no_access' }]);
+      expect(batch.entities).toEqual([]);
+      expect(batch.items).toEqual([]);
+    }
+  });
+  it('sums discovery pages, index and detail cost independently of remaining budget changes', async () => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        response({
+          rateLimit: { cost: 2, remaining: 5000, resetAt: '2026-01-03T00:00:00.000Z' },
+          repository: { pullRequests: conn([], 'next') },
+        }),
+      )
+      .mockResolvedValueOnce(
+        response({
+          rateLimit: { cost: 4, remaining: 2000, resetAt: '2026-01-03T00:00:00.000Z' },
+          repository: { pullRequests: conn([]) },
+        }),
+      )
+      .mockResolvedValueOnce(
+        response({
+          rateLimit: { cost: 3, remaining: 7000, resetAt: '2026-01-03T00:00:00.000Z' },
+          pr0: null,
+        }),
+      )
+      .mockResolvedValueOnce(
+        response({
+          rateLimit: { cost: 5, remaining: 3000, resetAt: '2026-01-03T00:00:00.000Z' },
+          pr0: { pullRequest: wire() },
+        }),
+      );
+    const batch = await adapter(fetcher).poll(context([ref], time));
+    expect(batch.usage).toEqual({ points: 14 });
+    expect(batch.budget?.remaining).toBe(3000);
+    expect(batch.items).toHaveLength(1);
+    expect(fetcher).toHaveBeenCalledTimes(4);
+  });
+  it('keeps the original abort reason while exposing only already reported usage', async () => {
+    let entered: () => void = () => {};
+    const reading = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(discovery('CLOSED', 2))
+      .mockImplementation((_url, init) => {
+        entered();
+        return new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => {
+            const reason: unknown = init.signal?.reason;
+            reject(reason instanceof Error ? reason : new Error('Request aborted'));
+          });
+        });
+      });
+    const source = adapter(fetcher);
+    const controller = new AbortController();
+    const pending = source.poll({
+      ...context([], time),
+      terminalPrs: terminal('closed'),
+      prRechecks: [ref],
+      signal: controller.signal,
+    });
+    await reading;
+    expect(source.takeUsage?.()).toEqual({ points: 2 });
+    const reason = new Error('Stop this poll');
+    controller.abort(reason);
+    await expect(pending).rejects.toBe(reason);
+    expect(source.takeUsage?.()).toBeUndefined();
+  });
+  it('retains valid costs when PR parsing rejects and drains them before the next attempt', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockImplementation(() =>
+      Promise.resolve(
+        response({
+          rateLimit: { cost: 4, remaining: 1, resetAt: '2026-01-03T00:00:00.000Z' },
+          pr0: { pullRequest: {} },
+        }),
+      ),
+    );
+    const source = adapter(fetcher);
+    for (let i = 0; i < 2; i++)
+      await expect(
+        source.pollPr?.(ref, { signal: new AbortController().signal }),
+      ).rejects.toMatchObject({ usage: { points: 4 } });
   });
 });

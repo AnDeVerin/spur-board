@@ -248,10 +248,10 @@ export const ERRORS = {
   github_unavailable: spec('github_unavailable', {
     status: 503,
     exit: EXIT_CODES.notApplied,
-    message: 'GitHub did not confirm the pull request head; nothing was applied.',
-    hint: 'Wait until GitHub answers, then submit again.',
+    message: 'GitHub did not confirm current pull request facts.',
+    hint: 'Wait until GitHub answers, then retry the operation.',
     recovery: retry(
-      'Wait until GitHub answers, then submit again.',
+      'Wait until GitHub answers, then retry the operation.',
       'After GitHub is reachable; wait briefly between retries.',
     ),
   }),

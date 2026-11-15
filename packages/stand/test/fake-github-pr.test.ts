@@ -6,6 +6,7 @@ import {
   discoveryQuery,
   indexQuery,
   pageQuery,
+  stateQuery,
 } from '../../adapters/src/github/client.ts';
 import type { Fakes } from '../src/fakes/fetch.ts';
 import { isKnownShape } from '../src/fakes/github-pr.ts';
@@ -67,11 +68,15 @@ describe('adapter queries', () => {
       Object.keys(client)
         .filter((name) => name.endsWith('Query'))
         .sort(),
-    ).toEqual(['detailQuery', 'discoveryQuery', 'indexQuery', 'pageQuery']);
+    ).toEqual(['detailQuery', 'discoveryQuery', 'indexQuery', 'pageQuery', 'stateQuery']);
   });
 
   it.each(booleans)('knows PrBatch for bootstrap %s', (bootstrap) => {
     expect(isKnownShape(discoveryQuery(bootstrap))).toBe(true);
+  });
+
+  it('knows the identity/state-only probe', () => {
+    for (const numbers of numberSets) expect(isKnownShape(stateQuery(numbers))).toBe(true);
   });
 
   it('knows PrIndex', () => {
@@ -685,10 +690,10 @@ describe('request log', () => {
       status: 200,
       body: {
         requests: [
-          { seq: 1, at, operation: 'PrBatch', repo: BOARD, numbers: [] },
-          { seq: 2, at, operation: 'PrIndex', repo: BOARD, numbers: [2, 1] },
-          { seq: 3, at, operation: 'PrDetails', repo: BOARD, numbers: [2] },
-          { seq: 4, at, operation: 'PrPage', repo: SERVICE, numbers: [2] },
+          { seq: 1, at, operation: 'PrBatch', repo: BOARD, numbers: [], points: 1 },
+          { seq: 2, at, operation: 'PrIndex', repo: BOARD, numbers: [2, 1], points: 2 },
+          { seq: 3, at, operation: 'PrDetails', repo: BOARD, numbers: [2], points: 5 },
+          { seq: 4, at, operation: 'PrPage', repo: SERVICE, numbers: [2], points: 3 },
         ],
       },
     });
@@ -760,5 +765,32 @@ describe('linked PR volume', () => {
     expect(again.items).toEqual(batch.items);
     expect(aliases.get('PrIndex')).toEqual([50, 50]);
     expect(aliases.has('PrDetails')).toBe(false);
+  });
+});
+
+describe('state probes and reopen', () => {
+  it('returns only selected identity/state fields and deterministic reported cost', async () => {
+    created(7, { state: 'CLOSED' });
+    const response = await postQuery(fakeFetch(fakes), stateQuery([7]));
+    expect(await response.json()).toEqual({
+      data: {
+        rateLimit: { cost: 1, remaining: 5000, resetAt: new Date(NOW + 3_600_000).toISOString() },
+        pr0: { pullRequest: { number: 7, state: 'CLOSED' } },
+      },
+    });
+  });
+  it('reopens only closed unmerged PRs, clears closedAt and preserves the head', async () => {
+    created(7, { state: 'CLOSED', headRefOid: SHA });
+    expect(pr(fakes, 7, 'reopen').status).toBe(200);
+    expect(factsOf(await pollRepo(fakes, BOARD), 7)).toMatchObject({ state: 'open', headSha: SHA });
+    const response = await postQuery(fakeFetch(fakes), detailQuery([7]));
+    expect(await response.json()).toMatchObject({
+      data: { pr0: { pullRequest: { closedAt: null, mergedAt: null } } },
+    });
+    expect(pr(fakes, 7, 'reopen').status).toBe(409);
+    expect(pr(fakes, 7, 'merge').status).toBe(200);
+    expect(pr(fakes, 7, 'reopen').status).toBe(409);
+    const cursor = sourceCursorSchema.parse('2025-01-01T00:00:00.000Z');
+    expect(factsOf(await pollRepo(fakes, BOARD, pollContext({ cursor })), 7).state).toBe('merged');
   });
 });

@@ -10,8 +10,8 @@ Example: {}",
     "name": "status_get",
   },
   {
-    "description": "Show a task with its open turn, links, blocks and comments.
-Use when: Inspect one task now; pass detail for its last closed turns.
+    "description": "Show a task; refresh reads GitHub PRs.
+Use when: Inspect a task; detail adds closed turns.
 When not to use: Use task_history for past events.
 Example: {"task":"PROJ-123"}",
     "name": "task_get",
@@ -77,7 +77,7 @@ Choose a unique idempotencyKey for each action; reuse it on retries.",
     "name": "task_archive",
   },
   {
-    "description": "Manually link a pull request, session, or additional ticket to a task.
+    "description": "Manually link a pull request, session, or additional ticket to a task. Pull request links first read current facts from GitHub.
 Use when: Attach a pull request, session, or additional ticket.
 When not to use: Use link_remove to detach one.
 Example: {"mode":"pr","task":"PROJ-123","pr":"https://github.com/example/web/pull/7","reason":"Attach work started before the ticket was named.","idempotencyKey":"link_add-example-001"}

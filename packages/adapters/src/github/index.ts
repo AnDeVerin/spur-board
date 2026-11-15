@@ -22,6 +22,7 @@ import {
   discoveryQuery,
   indexQuery,
   pageQuery,
+  stateQuery,
   type GraphError,
   type ResponseData,
 } from './client.ts';
@@ -105,26 +106,47 @@ export function githubSources(config: Config, options: GithubOptions): GithubSou
       // second indexed), then one index alias per poll while listed, plus a full read whenever
       // the index shows it changed or not reusable, e.g. open with a non-green rollup.
       const cache = new Map<number, CachedPr>();
+      async function withUsage(signal: AbortSignal, read: () => Promise<Batch>): Promise<Batch> {
+        try {
+          const batch = await read();
+          const usage = client.takeUsage();
+          return { ...batch, ...(usage === undefined ? {} : { usage }) };
+        } catch (cause) {
+          const usage = client.takeUsage();
+          if (signal.aborted || usage === undefined) throw cause;
+          const error =
+            cause instanceof AdapterError
+              ? cause
+              : new AdapterError('transient', 'GitHub poll failed', { cause });
+          error.usage = usage;
+          throw error;
+        }
+      }
       sources.push({
         repo,
         reserveRemaining: config.github.reserveRemaining,
         adapter: {
           id,
           intervalMs: config.adapters.github.intervalMs,
+          takeUsage: () => client.takeUsage(),
           poll: (ctx) =>
-            pollRepository({
-              id,
-              repo,
-              login: project.operatorGithubLogin,
-              keys,
-              client,
-              now: options.now,
-              ctx,
-              reserveRemaining: config.github.reserveRemaining,
-              cache,
-            }),
+            withUsage(ctx.signal, () =>
+              pollRepository({
+                id,
+                repo,
+                login: project.operatorGithubLogin,
+                keys,
+                client,
+                now: options.now,
+                ctx,
+                reserveRemaining: config.github.reserveRemaining,
+                cache,
+              }),
+            ),
           pollPr: (ref, ctx) =>
-            pollOnePr({ id, repo, keys, client, now: options.now, ref, ctx, cache }),
+            withUsage(ctx.signal, () =>
+              pollOnePr({ id, repo, keys, client, now: options.now, ref, ctx, cache }),
+            ),
         },
       });
     }
@@ -678,6 +700,58 @@ async function pollRepository({
   const discovery = await readDiscovery(request, acc, ctx, login);
   if (!discovery.ok) acc.complete = false;
   const { found } = discovery;
+  const terminal = new Map(
+    (ctx.terminalPrs ?? [])
+      .filter(({ ref }) => ref.repo.toLowerCase() === repo.toLowerCase())
+      .map((entry) => [entry.ref.number, entry]),
+  );
+  const probes: NonNullable<Batch['prProbes']> = [];
+  const fullProbe = new Set<number>();
+  const due = (ctx.prRechecks ?? []).filter((ref) => ref.repo.toLowerCase() === repo.toLowerCase());
+  // Reopen or merge discovery bypasses closed deferral, even outside the operator's listing.
+  for (const [number, entry] of terminal) {
+    if (entry.state === 'closed' && ['OPEN', 'MERGED'].includes(found.states.get(number) ?? ''))
+      fullProbe.add(number);
+  }
+  const stateWire = z
+    .object({ pullRequest: z.object({ number: z.int().positive(), state: z.string() }).nullable() })
+    .nullable();
+  for (const chunk of chunks(
+    due.filter((ref) => !fullProbe.has(ref.number)).map((ref) => ref.number),
+    INDEX_CHUNK,
+  )) {
+    for (const segment of await sendChunk(request, chunk, stateQuery)) {
+      const { response, numbers: sent } = segment;
+      if (response !== undefined) acc.budget = response.budget;
+      for (const [i, number] of sent.entries()) {
+        const ref = due.find((ref) => ref.number === number);
+        if (ref === undefined) continue;
+        const errors = response === undefined ? [] : scoped(response.errors, `pr${String(i)}`);
+        const parsed =
+          response === undefined ? undefined : stateWire.safeParse(response.data[`pr${String(i)}`]);
+        if (
+          response === undefined ||
+          unscoped(response.errors, aliasesOf(sent)) ||
+          errors.length > 0 ||
+          !parsed?.success ||
+          parsed.data?.pullRequest == null ||
+          parsed.data.pullRequest.number !== number
+        ) {
+          const missing = errors.some((error) => error.type === 'NOT_FOUND');
+          probes.push({ ref, status: missing ? 'not_found' : 'no_access' });
+          acc.complete = false;
+        } else if (parsed.data.pullRequest.state === 'CLOSED') {
+          probes.push({ ref, status: 'closed' });
+        } else fullProbe.add(number);
+      }
+    }
+  }
+  found.numbers = found.numbers.filter((number) => !terminal.has(number));
+  for (const number of fullProbe) {
+    cache.delete(number);
+    if (!found.numbers.includes(number)) found.numbers.push(number);
+  }
+  for (const number of terminal.keys()) cache.delete(number);
   // A discovered PR core does not request joins the index once a full read cached it, and is then
   // reused like a requested one: at the cursor tie it costs an index slot, not a full read. It is
   // never a requested entity.
@@ -773,6 +847,14 @@ async function pollRepository({
   if (ctx.signal.aborted) throw new AdapterError('transient', 'GitHub poll aborted');
   if (requests.firstError !== undefined && requests.succeeded === 0) throw requests.firstError;
   rethrowLoneParseFailure(acc);
+  const fullReadProbes = [...fullProbe].map((number) => ({
+    ref: terminal.get(number)?.ref ?? { kind: 'pr' as const, repo, number },
+    status: acc.items.some((item) => item.kind === 'pr' && item.facts.number === number)
+      ? ('refreshed' as const)
+      : ('no_access' as const),
+  }));
+  if (fullReadProbes.some((probe) => probe.status === 'no_access')) acc.complete = false;
+  const prProbes = [...probes, ...fullReadProbes];
   const nextCursor = bootstrap ? discovery.bootstrapCursor : found.cursor;
   return {
     source: id,
@@ -780,6 +862,7 @@ async function pollRepository({
     complete: acc.complete,
     items: acc.items,
     entities: acc.entities,
+    ...(prProbes.length === 0 ? {} : { prProbes }),
     ...(discovery.ok && discoveredOk
       ? nextCursor === undefined
         ? {}
