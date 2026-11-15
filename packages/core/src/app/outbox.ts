@@ -188,14 +188,14 @@ export function exchangeBody(
     {
       kind: 'paragraph',
       children: [
-        { kind: 'emphasis', text: 'Question:' },
+        { kind: 'emphasis', text: 'Q:' },
         { kind: 'text', text: ` ${line.question}` },
       ],
     },
     {
       kind: 'paragraph',
       children: [
-        { kind: 'emphasis', text: 'Answer:' },
+        { kind: 'emphasis', text: 'A:' },
         { kind: 'text', text: ` ${line.answer}` },
       ],
     },
@@ -409,8 +409,8 @@ export async function enqueueBoardFeedLine(
   return row.id;
 }
 
-const QUESTION_CHARS = 120;
-const ANSWER_CHARS = 200;
+const QUESTION_CHARS = 127;
+const ANSWER_CHARS = 205;
 const NOTE_CHARS = 200;
 const TITLE_CHARS = 80;
 
