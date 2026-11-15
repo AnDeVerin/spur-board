@@ -759,7 +759,7 @@ const configObject = z.strictObject({
         .max(65_535)
         .optional()
         .describe(
-          'Optional web listener port (0 assigns a free port); omitted means off. Set together with publicOrigin. This config does not start a listener.',
+          'Optional web listener port (0 assigns a free port); omitted means off. Set together with publicOrigin. Must differ from http.port, including when both are 0. This config does not start a listener.',
         ),
       publicOrigin: z
         .string()
