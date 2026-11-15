@@ -104,7 +104,6 @@ export async function replacePrTicketKeys(
   await trx
     .insertInto('pr_ticket_key')
     .values(unique.map((ticket_key) => ({ repo, number, source, ticket_key })))
-    .onConflict((oc) => oc.doNothing())
     .execute();
 }
 
