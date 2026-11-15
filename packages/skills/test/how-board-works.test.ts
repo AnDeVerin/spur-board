@@ -53,6 +53,7 @@ describe('how the Board works guide', () => {
         /An approval\s+hides its inline comments; thread resolution and the head a comment was left on\s+change nothing/,
         /Bots \(GitHub Apps\) neither return a task, approve it nor block\s+an approval/,
         /Handled means handed by ID to a Dev turn, not answered; in shadow\s+mode, a later submit in Dev or an executor `none` column handles it/,
+        /An edit after the hand makes it unhandled again, returning a task right of Dev/,
       ],
       keys: [
         'projects[].dispatcher.mode: on',
@@ -78,6 +79,8 @@ describe('how the Board works guide', () => {
         /do not resubmit or raise a\s*block/,
         /Right of Dev, red CI, a draft, a conflict or an external comment returns the\s+task to Dev at once, unless a turn is taken; then after its submit or return/,
         /The Dev turn hands the comments, beside a return's `code` block/,
+        /Each handed entry has its `url`, `editedAt` once edited, and a review's inline\s+`comments` with `url` and `threadId`/,
+        /Turns of a Dev visit opened by a return\s+show `returned`: who, from, the turn, the `code` block and the verbatim reason/,
       ],
       keys: ['projects[].dispatcher.submitConfirmMs'],
     },
