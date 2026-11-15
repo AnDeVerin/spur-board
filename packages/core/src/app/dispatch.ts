@@ -558,11 +558,27 @@ type PendingSubmit = {
   | { state: 'failed'; failure: string }
 );
 
+/** The clock passed `until` and a complete poll of each of `repos` started at or after it. */
+function pastBound(
+  project: Project,
+  until: string,
+  input: { at: Date; complete: ReadonlyMap<string, string> },
+  repos: readonly string[],
+): boolean {
+  const bound = Date.parse(until);
+  if (input.at.getTime() < bound) return false;
+  return repos.every((repo) => {
+    const since = input.complete.get(prSourceId(project.id, repo));
+    return since !== undefined && Date.parse(since) >= bound;
+  });
+}
+
 /**
  * The newest unvoided pending submit of the task's current visit in `on` mode, settled from
- * stored facts: the linked PR's snapshot observed at or after the submit decides it; with no PR
- * linked, it fails only once the bound passed and a complete poll of every project repo started
- * at or after the bound. Nothing settles while GitHub is blind.
+ * stored facts: the linked PR's snapshot observed at or after the submit decides it, and so does
+ * a merged one observed before; a closed one observed before fails it, and no PR linked fails
+ * it, only once the bound passed and a complete poll of the PR's repo, or of every project
+ * repo, started at or after the bound. Nothing settles while GitHub is blind.
  */
 async function readPendingSubmit(
   trx: Trx,
@@ -597,15 +613,13 @@ async function readPendingSubmit(
       .where(sql<boolean>`lower(repo) = ${link.repo.toLowerCase()}`)
       .where('number', '=', link.number)
       .executeTakeFirst();
-    // Complete polls skip a PR already seen merged or closed, so only an open one waits for a
-    // poll after the submit.
-    if (
-      snap === undefined ||
-      (snap.state === 'open' && Date.parse(snap.observed_at) < Date.parse(row.submitted_at))
-    ) {
-      return pending;
-    }
+    if (snap === undefined) return pending;
+    // Complete polls skip a PR already seen merged or closed (#469). A merged head is final; a
+    // closed PR seen before the submit may have reopened, so it fails only past the bound.
+    const stale = Date.parse(snap.observed_at) < Date.parse(row.submitted_at);
+    if (snap.state === 'open' && stale) return pending;
     if (snap.state === 'closed') {
+      if (stale && !pastBound(project, row.pending_until, input, [link.repo])) return pending;
       return {
         ...pending,
         state: 'failed',
@@ -619,12 +633,7 @@ async function readPendingSubmit(
       failure: `head moved to ${snap.head_sha.toLowerCase().slice(0, 7)}`,
     };
   }
-  const until = Date.parse(row.pending_until);
-  const polledAfter = project.repos.every((repo) => {
-    const since = input.complete.get(prSourceId(project.id, repo));
-    return since !== undefined && Date.parse(since) >= until;
-  });
-  if (input.at.getTime() < until || !polledAfter) return pending;
+  if (!pastBound(project, row.pending_until, input, project.repos)) return pending;
   const parsed = parseActorId(row.author);
   const session = parsed?.actor === 'agent' ? parsed.actorRef.session : undefined;
   const branch =

@@ -3345,7 +3345,8 @@ describe('pending submit', () => {
     });
   });
 
-  it('hands the turn back on a PR seen closed before the submit, which no poll reads again', async () => {
+  /** PR #7 seen closed, then a complete poll that skips it; the worker submits B pending. */
+  async function pendingOnClosedPr() {
     const ctx = await inDev();
     await ctx.pr({ state: 'closed' });
     await ctx.repo('o/r');
@@ -3355,11 +3356,41 @@ describe('pending submit', () => {
     await expect(ctx.submit(WORKER, turn?.id ?? '', B)).resolves.toMatchObject({
       status: 'pending',
     });
+    return ctx;
+  }
+
+  it('hands the turn back on a PR seen closed before the submit only past the bound', async () => {
+    const ctx = await pendingOnClosedPr();
+    expect(await ctx.openTurn()).toBeNull();
+    expect((await submissions(ctx))[0]).toMatchObject({
+      pending_until: expect.any(String) as string,
+      voided_at: null,
+    });
+    ctx.wait(BOUND);
+    await ctx.tick();
+    expect(await ctx.openTurn()).toBeNull();
+    expect((await submissions(ctx))[0]?.voided_at).toBeNull();
+
+    await ctx.repo('o/r');
+    await ctx.tick();
 
     expect((await ctx.openTurn())?.reason).toBe(
       'dev: pr_closed (submit of bbbbbbb: PR o/r#7 closed)',
     );
     expect((await submissions(ctx))[0]?.voided_at).toBe(ctx.at());
+  });
+
+  it('confirms a submit on a PR seen closed before it when a poll sees it reopened at the head', async () => {
+    const ctx = await pendingOnClosedPr();
+
+    await ctx.pr({ state: 'open', headSha: B });
+
+    expect((await submissions(ctx))[0]).toMatchObject({
+      commit_sha: B,
+      pending_until: null,
+      voided_at: null,
+    });
+    expect(await ctx.openTurn()).not.toMatchObject({ role: 'worker' });
   });
 
   it('holds a pending submit while the clock alone passes the bound', async () => {

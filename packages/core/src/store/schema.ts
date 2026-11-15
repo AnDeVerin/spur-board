@@ -160,7 +160,7 @@ export interface SubmissionTable {
    * Deadline for a PR to appear for a turn submit accepted before the board could confirm its
    * head; null when not pending (confirmed, or recorded before migration 0020). A pending row is
    * no gate mark until a poll observed after `submitted_at`, or a merged PR's snapshot, confirms
-   * the head.
+   * the head; a PR seen closed before the submit fails it only past this deadline.
    */
   pending_until: string | null;
 }
