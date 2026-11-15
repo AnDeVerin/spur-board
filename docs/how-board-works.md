@@ -84,11 +84,11 @@ acknowledgement stops them. Removal notices and quiet-turn reminders ring once.
 Busy recipients defer delivery; pending delivery or earlier rings in the Spur
 queue defer repeats. Queued rings can exhaust their waiting window.
 
-Notices await missing recipients; curator questions and course-check
-orchestrator questions fall back to the operator. Operator conversations wait
-for their project. Exhausted series normally ask the operator to
-intervene; curator questions move to the operator. Removal notices and quiet-turn
-reminders end without an intervention item.
+Most notices await recipients; taskless worker and operator-agent answers
+end without a live asking session. Curator and course-check orchestrator
+questions fall back to operator. Operator conversations await their project.
+Exhaustion normally alerts the operator; curator questions move to
+operator. Removals and quiet-turn reminders end without intervention.
 
 ## Course checks and cycle limits
 
