@@ -1388,6 +1388,35 @@ describe('on-demand PR poll', () => {
     expect(starts).toEqual([0, I]);
   });
 
+  it('reports completed demand usage exactly once when timeout discards its queued observation', async () => {
+    const ready = deferred<Batch>();
+    const { core, adapter, runner } = start(() => Promise.resolve(batch({ complete: false })), {
+      pollPr: () => ready.promise,
+    });
+    await flush();
+    core.holdReports();
+    const pending = runner.pollPr?.('github', pr, { timeoutMs: 4 * I });
+    await flush();
+    await advanceTo(3 * I + 1);
+    expect(core.reports).toHaveLength(1);
+    expect(core.reports[0]?.usage).toBeUndefined();
+    ready.resolve(demandOk({ usage: { points: 7 } }));
+    await flush();
+    expect(adapter.prRequests).toHaveLength(1);
+    await advanceTo(4 * I);
+    await expect(pending).resolves.toMatchObject({ ok: false, error: { kind: 'timeout' } });
+    core.releaseReport();
+    await flush();
+    expect(core.reports.map((report) => report.usage)).toEqual([undefined, { points: 7 }]);
+    core.releaseReport();
+    await flush();
+    await runner.stop();
+    expect(core.observed.every(({ batch }) => batch.items.length === 0)).toBe(true);
+    expect(core.reports.flatMap((report) => (report.usage ? [report.usage] : []))).toEqual([
+      { points: 7 },
+    ]);
+  });
+
   it('leaves schedule, cursor and miss counts alone', async () => {
     random(0);
     const cursor = sourceCursorSchema.parse('cursor-1');

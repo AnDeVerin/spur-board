@@ -533,7 +533,13 @@ function runSource(entry: RunnerEntry, options: RunnerOptions, runnerStartMs: nu
         return ok(value);
       });
       reports = accepted.then(noop, noop);
-      return await accepted;
+      const result = await accepted;
+      // A completed read consumed points even when timeout/stop discarded its queued facts.
+      if (usage !== undefined) {
+        await report(usage, true);
+        usage = undefined;
+      }
+      return result;
     } catch (error) {
       if (aborted()) return err(stoppedError);
       if (error instanceof AdapterError && error.usage !== undefined) usage = error.usage;
