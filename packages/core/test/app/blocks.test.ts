@@ -2254,6 +2254,75 @@ describe('operator conversation', () => {
     ).toEqual([]);
   });
 
+  it.each([
+    ['--reason', { mode: 'reason', reason: 'Done here.' }],
+    ['--withdraw', { mode: 'withdraw', answer: 'Never mind.' }],
+  ] as const)('refuses the addressee %s and keeps the conversation open', async (_flag, mode) => {
+    const { store, apply } = await followedUp();
+    const unacked = await notices(store);
+    await expect(
+      apply(createBlockMutations(board).unblock, { block: 'B1', ...mode }, 'agent:cur/cur-1', 'u'),
+    ).rejects.toMatchObject({ code: 'forbidden' });
+    expect(await store.db.selectFrom('block').select('state').execute()).toEqual([
+      { state: 'open' },
+    ]);
+    expect(await notices(store)).toEqual(unacked);
+    expect(await replies(store)).toEqual([]);
+  });
+
+  it.each(['operator', 'agent:board-pm/pm-1'] as const)(
+    'lets %s close the conversation with --reason',
+    async (actor) => {
+      const { apply } = await followedUp();
+      const closed = await apply(
+        createBlockMutations(board).unblock,
+        { block: 'B1', mode: 'reason', reason: 'Settled.' },
+        actor,
+        'u',
+      );
+      expect(closed.block).toMatchObject({ state: 'unblocked', outcome: 'reason' });
+    },
+  );
+
+  it('rings again and lists a follow-up the operator edits after the answer', async () => {
+    const { store, apply } = await followedUp();
+    await apply(
+      createBlockMutations(board).answer,
+      { block: 'B1', text: 'hi' },
+      'agent:cur/cur-1',
+      'a',
+    );
+    const followUp = await store.db
+      .selectFrom('comment')
+      .selectAll()
+      .where('text', '=', 'and more')
+      .executeTakeFirstOrThrow();
+    expect(followUp.acked_revision).toBe(followUp.revision);
+    await scanTransaction(store, board, (trx) =>
+      editInboundComment(trx, {
+        comment: followUp,
+        text: 'and more, edited',
+        at: new Date(NOW + 1000).toISOString(),
+        actor: 'operator',
+        config: board,
+      }),
+    );
+    const fresh = await store.db
+      .selectFrom('notification')
+      .select(['kind', 'role', 'comment_id'])
+      .where('acked_at', 'is', null)
+      .execute();
+    expect(fresh).toEqual([{ kind: 'answer', role: 'curator', comment_id: followUp.id }]);
+    const listed = await createQuery({ store, clock, config: board })(
+      createTaskQueries({ config: board, completeSince: new Map() }).inbox,
+      {},
+      'agent:cur/cur-1',
+    );
+    expect(listed.comments).toEqual([
+      expect.objectContaining({ id: `C${String(followUp.id)}`, text: 'and more, edited' }),
+    ]);
+  });
+
   it('denies an agent of another Spur project', async () => {
     const { apply } = await followedUp();
     await expect(

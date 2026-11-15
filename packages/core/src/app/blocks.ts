@@ -990,7 +990,19 @@ export function createBlockMutations(config: Config) {
   };
   const unblock: Mutation<'block.unblock'> = {
     id: 'block.unblock',
-    resolveTargets: (trx, input) => blockTarget(trx, input.block),
+    async resolveTargets(trx, input) {
+      const [target] = await blockTarget(trx, input.block);
+      if (target?.kind !== 'found' || target.value.block?.addressee_spur_project == null)
+        return [target ?? { kind: 'missing' }];
+      // Only the operator closes an operator conversation: for unblocking, the operator holds it.
+      const block = { ...target.value.block, addressee_role: 'operator' as const };
+      return [
+        {
+          ...target,
+          value: { ...target.value, block: { ...block, addressee_spur_project: null } },
+        },
+      ];
+    },
     async run(trx, input, ctx) {
       const block = found(await blockById(trx, input.block));
       const subject = await blockSubject(trx, block);

@@ -1378,7 +1378,8 @@ export async function closeTurnNotification(trx: Trx, turnId: number, at: Date):
 
 /**
  * Ends an operator conversation's block and follow-up rings, whoever answered or closed it: the
- * operation's grant already chose the actor. Exhaustion items are cleared by `actor`.
+ * operation's grant already chose the actor. Exhaustion items are cleared by `actor`, and each
+ * follow-up comment is marked read at its current revision.
  */
 export async function ackConversationNotifications(
   trx: Trx,
@@ -1386,7 +1387,23 @@ export async function ackConversationNotifications(
   at: Date,
   actor: ActorId,
 ): Promise<void> {
+  // The answer or close covers each follow-up as read, so a later edit is a clarification.
+  const answers = await trx
+    .selectFrom('notification')
+    .select('comment_id')
+    .where('block_id', '=', blockId)
+    .where('kind', '=', 'answer')
+    .where('acked_at', 'is', null)
+    .execute();
   await closeOwnedNotifications(trx, 'conversation', blockId, at, actor);
+  for (const { comment_id: id } of answers) {
+    if (id === null) continue;
+    await trx
+      .updateTable('comment')
+      .set((eb) => ({ acked_revision: eb.ref('revision') }))
+      .where('id', '=', id)
+      .execute();
+  }
 }
 
 const OWNED_KINDS = {
