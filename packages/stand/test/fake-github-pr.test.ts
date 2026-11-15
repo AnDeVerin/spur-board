@@ -916,7 +916,12 @@ describe('state probes and reopen', () => {
     const response = await postQuery(fakeFetch(fakes), stateQuery([7]));
     expect(await response.json()).toEqual({
       data: {
-        rateLimit: { cost: 1, remaining: 5000, resetAt: new Date(NOW + 3_600_000).toISOString() },
+        rateLimit: {
+          cost: 1,
+          limit: 5000,
+          remaining: 5000,
+          resetAt: new Date(NOW + 3_600_000).toISOString(),
+        },
         pr0: { pullRequest: { number: 7, state: 'CLOSED' } },
       },
     });

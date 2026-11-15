@@ -550,13 +550,21 @@ describe('GitHub Issues source', () => {
       )
       .mockResolvedValueOnce(
         Response.json([issue(2)], {
-          headers: { 'x-ratelimit-remaining': '4998', 'x-ratelimit-reset': reset },
+          headers: {
+            'x-ratelimit-remaining': '4998',
+            'x-ratelimit-limit': '5000',
+            'x-ratelimit-reset': reset,
+          },
         }),
       )
       .mockResolvedValueOnce(Response.json([]));
     const adapter = labelAdapter(fetcher);
     const batch = await adapter.poll(context());
-    expect(batch.budget).toEqual({ remaining: 4998, resetAt: '2026-01-01T00:00:00.000Z' });
+    expect(batch.budget).toEqual({
+      remaining: 4998,
+      limit: 5000,
+      resetAt: '2026-01-01T00:00:00.000Z',
+    });
     expect(batchSchema.parse(batch)).toEqual(batch);
     expect((await adapter.poll(context())).budget).toBeUndefined();
   });
@@ -579,6 +587,28 @@ describe('GitHub Issues source', () => {
     const batch = await labelAdapter(fetcher).poll(context());
     expect(batch.complete).toBe(true);
     expect(batch).not.toHaveProperty('budget');
+    expect(batchSchema.safeParse(batch).success).toBe(true);
+  });
+});
+
+describe('GitHub Issues budget limit', () => {
+  it.each([
+    ['no limit header', undefined],
+    ['a zero limit', '0'],
+    ['a non-numeric limit', '5000x'],
+    ['an unsafe limit', '99999999999999999999'],
+  ])('keeps the budget without its limit for %s', async (_name, limit) => {
+    const headers = {
+      'x-ratelimit-remaining': '4999',
+      'x-ratelimit-reset': '1767225600',
+      ...(limit === undefined ? {} : { 'x-ratelimit-limit': limit }),
+    };
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(Response.json([issue(1)], { headers }));
+    const batch = await labelAdapter(fetcher).poll(context());
+    expect(batch.complete).toBe(true);
+    expect(batch.budget).toEqual({ remaining: 4999, resetAt: '2026-01-01T00:00:00.000Z' });
     expect(batchSchema.safeParse(batch).success).toBe(true);
   });
 });
