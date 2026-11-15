@@ -29,7 +29,7 @@ browser/proxy -> Web Fastify (web.port) -> shared ops route -> registry
 - Require exact resolved public-origin Host, exact Origin on methods other than GET/HEAD, JSON POST and no `Sec-Fetch-Site: cross-site`; never add CORS headers or trust proxy identity.
 - Serve only bound catalog operations, health and memory-mapped static assets; leave token, skill, schema, doctor and future events routes absent.
 - Identify every web operation as operator and allow it only when `operation.web !== null`; keep the two enabled writes in the catalog.
-- Wrap dispatch with `withChannel('web', fn)`; until channel context lands, its compatibility stub is pass-through and proves no persistent channel/history behavior.
+- Wrap request dispatch with `withVia('web', fn)` so journal events and history retain `via: web`; keep `afterOperation` and detached job triggers outside that scope.
 - Reject raw and encoded traversal before fallback; use index fallback only for extensionless paths outside the `/v1/` namespace, and return the build-hint 503 when index is absent.
 - Set CSP (`default-src 'self'; frame-ancestors 'none'`), DENY, nosniff and no-referrer on every response.
 - Default webRoot next to the daemon bundle; no request-path filesystem reads.

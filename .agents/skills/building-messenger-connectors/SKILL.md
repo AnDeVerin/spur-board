@@ -28,7 +28,7 @@ A gateway adapts one chat platform to the `Gateway` port.
 - Import the platform SDK only inside its gateway package; no lint covers it, so review it. The
   daemon imports only the factory (`createSlackGateway` in `packages/daemon/src/composition.ts`).
 - Keep wire fields and markup out of `packages/contracts/src/gateway/` and `packages/core/`;
-  "no Slack fields" in `packages/contracts/test/gateway/source.test.ts` scans both; the neutral `withChannel` identifier is exempt.
+  "no Slack fields" in `packages/contracts/test/gateway/source.test.ts` scans both.
 - Platform settings may live outside the gateway as config keys in
   `packages/contracts/src/config.ts` and catalog bindings in
   `packages/contracts/src/ops/catalog.ts`.
