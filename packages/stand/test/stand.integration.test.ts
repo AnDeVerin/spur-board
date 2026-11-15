@@ -19,6 +19,7 @@ import { basename, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { configSchema, type PrFacts } from '@spur-board/contracts';
 import { openStore } from '@spur-board/core';
+import { isScrubbed } from '@spur-board/testkit';
 import { acquireLock } from '@spur-board/daemon/in-process';
 import { sql } from 'kysely';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -282,13 +283,19 @@ async function waitForSendRequest(manifest: StandManifest, session: string): Pro
   );
 }
 
-/** The stand CLI in a child. Async: `spawnSync` would block the control endpoint in this process. */
-function standCli(args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
+/**
+ * The stand CLI in a child, with `extra` added to its environment. Async: `spawnSync` would block
+ * the control endpoint in this process.
+ */
+function standCli(
+  args: string[],
+  extra: Record<string, string> = {},
+): Promise<{ code: number; stdout: string; stderr: string }> {
   return new Promise((resolve) => {
     execFile(
       process.execPath,
       [CLI, ...args],
-      { env: { PATH: process.env['PATH'] ?? '', HOME: osHome, TMPDIR: root } },
+      { env: { ...extra, PATH: process.env['PATH'] ?? '', HOME: osHome, TMPDIR: root } },
       (error, stdout, stderr) => {
         resolve({ code: error === null ? 0 : Number(error.code ?? -1), stdout, stderr });
       },
@@ -533,6 +540,42 @@ describe('stand', () => {
       expect(readdirSync(root)).toEqual([basename(home)]);
     } finally {
       await taken.close();
+    }
+  }, 60_000);
+
+  it('keeps host board, Spur, Slack and proxy variables away from the stand daemon', async () => {
+    // What a host running a live board and an agent session exports; none is a credential.
+    const host = {
+      BOARD_HOME: join(base, 'live-home'),
+      BOARD_DAEMON_URL: 'http://127.0.0.1:4777',
+      SPUR_SESSION: 'live-session',
+      SPUR_PROJECT: 'live-project',
+      HTTP_PROXY: 'http://127.0.0.1:9',
+      NO_PROXY: 'example.invalid',
+    };
+    const refused = await standCli(['up'], { ...host, SLACK_BOT_TOKEN: 'xoxb-host' });
+    expect(refused.code, refused.stderr).toBe(3);
+    expect(refused.stderr).toContain('stand refused (external_secrets)');
+    expect(refused.stderr).not.toContain('xoxb-host');
+    expect(readdirSync(root).filter((name) => name.startsWith('spur-board-stand.'))).toEqual([]);
+
+    const started = await standCli(['up'], host);
+    expect(started.code, started.stderr).toBe(0);
+    const { home } = JSON.parse(started.stdout) as { home: string };
+    try {
+      // The daemon runs in the stand process, so its environment is the daemon's.
+      const pid = readManifest(home)?.pid;
+      if (pid === undefined) throw new Error('the stand wrote no manifest');
+      const names = readFileSync(`/proc/${String(pid)}/environ`, 'utf8')
+        .split('\0')
+        .filter((entry) => entry !== '')
+        .map((entry) => entry.slice(0, entry.indexOf('=')));
+      expect(names).toContain('HOME');
+      for (const name of Object.keys(host)) expect(names).not.toContain(name);
+      expect(names.filter(isScrubbed)).toEqual([]);
+    } finally {
+      const downed = await standCli(['down', '--home', home]);
+      expect(downed.code, downed.stderr).toBe(0);
     }
   }, 60_000);
 
