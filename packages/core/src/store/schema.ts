@@ -195,6 +195,8 @@ export interface BlockTable {
   created_at: string;
   /** Board project of a project-level block; null on a task block. */
   project: string | null;
+  /** Spur project an operator conversation is addressed to; null on every other block. */
+  addressee_spur_project: string | null;
 }
 
 export interface CommentTable {
