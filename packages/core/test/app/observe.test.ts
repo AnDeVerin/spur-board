@@ -2485,6 +2485,122 @@ describe('anomaly blocks', () => {
     },
   );
 
+  it.each(['needs_input', 'error', 'rate_limited', 'stopped'] as const)(
+    'restarts unproven %s continuity after an observation gap',
+    async (health) => {
+      for (const gap of ['same core', 'new core', 'status before snapshot']) {
+        const b = await board();
+        const original = session('worker-1', health, {
+          lifecycle: health === 'stopped' ? 'stopped' : 'running',
+        });
+        await spur(b, [original]);
+        await heldTurn(b);
+        now += 300_000;
+        await tick(b);
+        expect(await openLedger(b)).toEqual([]);
+        await b.core.reportSourceState('spur', {
+          lastCompleteAt: iso(),
+          blind: { reason: 'stale', message: 'Offline' },
+          gone: [],
+        });
+        now += 3_600_000;
+        const resumed =
+          gap === 'new core'
+            ? { ...b, core: createObservationCore({ store: b.store, config, clock }) }
+            : b;
+        await tick(resumed);
+        expect(await openLedger(b)).toEqual([]);
+        if (gap === 'status before snapshot') {
+          await resumed.core.reportSourceState('spur', { lastCompleteAt: iso(), gone: [] });
+          await tick(resumed);
+          expect(await openLedger(b)).toEqual([]);
+        }
+        await spur(resumed, [original]);
+        expect(await openLedger(b)).toEqual([]);
+        now += config.health.turnStallAfterMs - 1;
+        await tick(resumed);
+        expect(await openLedger(b)).toEqual([]);
+        now += 1;
+        await tick(resumed);
+        const opened = await surface(b);
+        expect(opened.blocks).toHaveLength(1);
+        expect(opened.blocks[0]?.state).toBe('open');
+        expect(opened.blocks[0]?.reason).toContain('elapsed 600000 ms');
+        await resumed.core.reportSourceState('spur', {
+          lastCompleteAt: iso(),
+          blind: { reason: 'stale', message: 'Offline again' },
+          gone: [],
+        });
+        now += 3_600_000;
+        await tick(resumed);
+        await spur(resumed, [original]);
+        expect((await surface(b)).blocks).toEqual(opened.blocks);
+      }
+    },
+  );
+
+  it.each(['same executor', 'different curator', 'healthy replacement curator'] as const)(
+    'routes stalled curator-column turns with %s',
+    async (recipient) => {
+      const cfg = configSchema.parse({
+        ...config,
+        projects: config.projects.map((project) => ({
+          ...project,
+          columns: project.columns.map((column) => ({
+            ...column,
+            orchestrator: recipient === 'different curator' ? 'reviewer' : 'curator',
+          })),
+          spurProjects: [
+            ...project.spurProjects,
+            { name: 'curator', role: 'curator' },
+            { name: 'reviewer', role: 'orchestrator' },
+          ],
+        })),
+      });
+      const b = await board(cfg);
+      const project = recipient === 'different curator' ? 'reviewer' : 'curator';
+      const executor = session('executor', 'needs_input', {
+        spurProject: project,
+        links: {},
+        branch: null,
+      });
+      await spur(b, [executor]);
+      const turn = await heldTurn(b, 'executor');
+      await b.store.db
+        .updateTable('turn')
+        .set({ role: `orchestrator:${b.task.column}`, acked_by: `agent:${project}/executor` })
+        .where('id', '=', turn.id)
+        .execute();
+      now += 1;
+      if (recipient !== 'same executor')
+        await spur(b, [
+          executor,
+          session('healthy-curator', 'waiting', {
+            spurProject: 'curator',
+            links: {},
+            branch: null,
+          }),
+        ]);
+      now += cfg.health.turnStallAfterMs;
+      await tick(b);
+      const { blocks } = await surface(b);
+      expect(blocks).toHaveLength(1);
+      expect(blocks[0]?.addressee_role).toBe(
+        recipient === 'same executor' ? 'operator' : 'curator',
+      );
+      expect(
+        await b.store.db
+          .selectFrom('notification')
+          .select('role')
+          .where('block_id', '=', blocks[0]?.id ?? -1)
+          .execute(),
+      ).toEqual(
+        recipient === 'same executor' ? [] : [expect.objectContaining({ role: 'curator' })],
+      );
+      expect((await surface(b)).opens).toBe(recipient === 'same executor' ? 1 : 0);
+    },
+  );
+
   it.each(['worker', 'linked orchestrator', 'unlinked orchestrator'] as const)(
     'diagnoses taken and untaken %s executors in every unhealthy state',
     async (kind) => {
@@ -2722,6 +2838,9 @@ describe('anomaly blocks', () => {
       await tick(b);
       expect((await surface(b)).blocks).toEqual([]);
       await spur(b, [session('worker-1', 'rate_limited', { healthSince: at })]);
+      expect((await surface(b)).blocks).toEqual([]);
+      now += config.health.turnStallAfterMs;
+      await tick(b);
       expect((await surface(b)).blocks).toHaveLength(1);
       await b.core.reportSourceState('spur', {
         lastCompleteAt: iso(),

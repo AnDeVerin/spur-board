@@ -37,13 +37,18 @@ import {
   type Trx,
 } from './board-utils.ts';
 import { clearItem, raiseItem } from './feed.ts';
-import { bestProjectSession, selectNotificationRecipient } from './doorbells.ts';
+import { bestProjectSession, curatorSession, selectNotificationRecipient } from './doorbells.ts';
 import { curatorProject } from './authorize.ts';
 import { TASKLESS_ITEM_URL, type RaiseItemInput } from './item-raise.ts';
 import { projectSubject, taskSubject, type BlockSubject } from './subject.ts';
 import { quietTurns, stuckTurnAfterMs } from './turns.ts';
 
 const episodeSchema = z.object({ startedAt: z.number() }).nullable();
+const stallObservationSchema = z.object({
+  blind: z.boolean(),
+  observedAt: z.string().nullable(),
+  resumedAt: z.number().nullable(),
+});
 
 const ENDED_WORKER_LABELS: Partial<Record<SessionHealthFlagKind, string>> = {
   worker_completed: 'worker ended (completed), no PR',
@@ -424,6 +429,34 @@ export async function reconcileItems(
       revision: 'closed',
     });
   }
+  // A source can recover with the adapter's old healthSince. New alerts need a fresh
+  // observed interval; an already-open or dismissed episode keeps its established identity.
+  const observationRow = await trx
+    .selectFrom('meta')
+    .select('value')
+    .where('key', '=', 'turn_stall_observation')
+    .executeTakeFirst();
+  const previousObservation =
+    observationRow === undefined
+      ? { blind: false, observedAt: null, resumedAt: null }
+      : parseJson(stallObservationSchema, observationRow.value);
+  const observation = spurBlind
+    ? { ...previousObservation, blind: true, observedAt: spur.observed_at }
+    : previousObservation.blind &&
+        spur?.observed_at != null &&
+        spur.observed_at !== previousObservation.observedAt
+      ? { blind: false, observedAt: spur.observed_at, resumedAt: Date.parse(spur.observed_at) }
+      : previousObservation;
+  if (JSON.stringify(observation) !== JSON.stringify(previousObservation))
+    await trx
+      .insertInto('meta')
+      .values({ key: 'turn_stall_observation', value: toJson(stallObservationSchema, observation) })
+      .onConflict((oc) =>
+        oc.column('key').doUpdateSet({ value: toJson(stallObservationSchema, observation) }),
+      )
+      .execute();
+  const stallBlind = spurBlind || observation.blind;
+  const stallExecutors = new Map<string, string>();
   // Diagnose turns separately from delivery: a stopped session cannot receive a ring.
   const stalled = new Set<string>();
   const stallHeld = new Set<string>();
@@ -490,12 +523,23 @@ export async function reconcileItems(
     const fact = parsed.data;
     if (holder?.actor === 'agent' && holder.actorRef.project !== fact.spurProject) continue;
     if (!['needs_input', 'error', 'rate_limited', 'stopped'].includes(fact.health)) continue;
-    const since = Math.max(Date.parse(turn.created_at), Date.parse(fact.healthSince));
-    if (!Number.isFinite(since)) continue;
+    const healthStart = Math.max(Date.parse(turn.created_at), Date.parse(fact.healthSince));
+    if (!Number.isFinite(healthStart)) continue;
     stalled.add(`${String(task.id)}:${fact.id}`);
     const key = `turn-stall:${String(turn.id)}:${fact.id}:${fact.health}:${fact.healthSince}`;
     stallHeld.add(key);
-    if (spurBlind || now - since < config.health.turnStallAfterMs) continue;
+    const previous = await trx
+      .selectFrom('operator_item')
+      .select(['text', 'cleared_at'])
+      .where('item_key', '=', key)
+      .orderBy('id', 'desc')
+      .executeTakeFirst();
+    const since =
+      previous?.cleared_at === null
+        ? healthStart
+        : Math.max(healthStart, observation.resumedAt ?? healthStart);
+    if (stallBlind || now - since < config.health.turnStallAfterMs) continue;
+    stallExecutors.set(key, fact.id);
     const questions = blocks
       .filter((block) => {
         const author = parseActorId(block.author);
@@ -511,20 +555,14 @@ export async function reconcileItems(
       fact.health === 'rate_limited'
         ? `; quota name unavailable; reset ${fact.rateLimitResetAt ?? 'unknown'}`
         : '';
-    // The opening evidence is frozen even if reset metadata or elapsed time changes later.
-    const previous = await trx
-      .selectFrom('operator_item')
-      .select('text')
-      .where('item_key', '=', key)
-      .orderBy('id')
-      .executeTakeFirst();
+    // Opening evidence remains frozen across later polls and observation gaps.
     candidates.push({
       key,
       kind: 'anomaly',
       taskId: task.id,
       summary:
         previous?.text ??
-        `${task.key}: turn T${String(turn.id)} executor ${fact.id} remains ${fact.health} since ${fact.healthSince}; turn-relative elapsed ${String(now - since)} ms${quota}${questions.length === 0 ? '' : `; open executor questions: ${questions.join(', ')}`}`,
+        `${task.key}: turn T${String(turn.id)} executor ${fact.id} remains ${fact.health} since ${fact.healthSince}; turn-relative elapsed ${String(now - since)} ms${since > healthStart ? `; continuous observation since ${new Date(since).toISOString()}` : ''}${quota}${questions.length === 0 ? '' : `; open executor questions: ${questions.join(', ')}`}`,
       factAt: fact.healthSince,
       source: 'spur',
       priority: 4,
@@ -662,7 +700,7 @@ export async function reconcileItems(
           ),
   );
   const spurHeld = spurBlind ? await blindHeldKeys(trx, subjects) : new Set<string>();
-  if (spurBlind) for (const key of stallHeld) spurHeld.add(key);
+  if (stallBlind) for (const key of stallHeld) spurHeld.add(key);
   for (const item of existing) {
     if (item.kind !== ('anomaly' satisfies ItemKind)) continue;
     // Spur-derived blocks wait out a blind Spur, and error blocks a host-load episode.
@@ -717,7 +755,7 @@ export async function reconcileItems(
       priority: candidate.priority,
     };
     if (ITEM_POLICY[candidate.kind].block && task !== null && task !== undefined)
-      await raiseAnomaly(trx, config, task, input);
+      await raiseAnomaly(trx, config, task, input, stallExecutors.get(candidate.key));
     else await raiseItem(trx, { ...input, taskId: candidate.taskId, blockId: null });
   }
 }
@@ -750,6 +788,7 @@ async function raiseAnomaly(
   config: Config,
   task: Row<'task'>,
   input: Omit<RaiseItemInput, 'taskId' | 'blockId'>,
+  executorId?: string,
 ): Promise<Row<'operator_item'>> {
   const active = await trx
     .selectFrom('operator_item')
@@ -759,14 +798,16 @@ async function raiseAnomaly(
     .executeTakeFirst();
   if (active !== undefined) return active;
   const prefix = `${task.key}: `;
+  const toCurator =
+    input.itemKey.startsWith('turn-stall:') &&
+    curatorProject(config, task.project) !== null &&
+    (await curatorSession(trx, config, task.project))?.id !== executorId;
   const block = await openSystemBlock(trx, {
     task,
     reason: input.text.startsWith(prefix) ? input.text.slice(prefix.length) : input.text,
     at: input.at.toISOString(),
     config,
-    ...(input.itemKey.startsWith('turn-stall:') && curatorProject(config, task.project) !== null
-      ? { addressee: 'curator' as const }
-      : {}),
+    ...(toCurator ? { addressee: 'curator' as const } : {}),
   });
   return raiseItem(trx, { ...input, taskId: task.id, blockId: block.id });
 }

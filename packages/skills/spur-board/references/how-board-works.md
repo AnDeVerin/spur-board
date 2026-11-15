@@ -66,11 +66,11 @@ a message already accepted by Spur cannot be retracted. Check `board inbox` and
 act only on a current turn; reread after `turn_closed`.
 
 Open-turn executors in `needs_input`, `error`, `rate_limited` or `stopped` raise
-one question after `health.turnStallAfterMs` (default 600000 ms): curator, else
+one question after `health.turnStallAfterMs` (default 600000 ms): curator unless self, else
 operator. Time starts at the later turn/state start; taking never resets it.
 One frozen explanation/dismissal per turn/session/state episode. Recovery,
-replacement, removal, archive or turn closure withdraws it. Blind Spur opens none
-but holds existing questions until known closure/removal.
+replacement, removal, archive or turn closure withdraws it. Blind Spur opens none,
+holds existing; gaps restart timing for new questions.
 
 ## Doorbells
 
