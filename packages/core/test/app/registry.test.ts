@@ -981,7 +981,7 @@ it.each([
             payload: JSON.stringify(payload),
             state: 'post_failed',
             next_at: at.toISOString(),
-            last_error: 'channel_not_found',
+            last_error: 'gateway refused',
             external_ref: null,
             parent_outbox_id: null,
             first_attempt_at: null,
