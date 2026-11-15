@@ -295,6 +295,8 @@ describe('board doctor', () => {
     expect(value.exitCode).toBe(0);
     expect(value.checks.map((check) => check.id)).toEqual([
       'config',
+      'web',
+      'stand.port_range',
       'service.installed',
       'service.node',
       'service.running',
@@ -508,9 +510,86 @@ describe('board doctor', () => {
       });
       const value = await run(['doctor', '--offline', '--json'], fake);
       expect(value.exitCode).toBe(0);
-      expect(value.checks).toEqual([{ id: 'config', status: 'pass', blocking: false, fix: null }]);
+      expect(value.checks).toEqual([
+        { id: 'config', status: 'pass', blocking: false, fix: null },
+        { id: 'web', status: 'pass', blocking: false, fix: null, present: ['off'] },
+        { id: 'stand.port_range', status: 'pass', blocking: false, fix: null },
+      ]);
     },
   );
+
+  it.each([
+    ['', ['off']],
+    [
+      'web:\n  port: 7777\n  publicOrigin: https://{port}.local.example\n',
+      ['on', 'https://7777.local.example'],
+    ],
+  ])('renders offline web state in JSON and human output (%j)', async (settings, present) => {
+    const fake = ports({ readText: () => yaml + settings });
+    const value = await run(['doctor', '--offline', '--json'], fake);
+    expect(value.exitCode).toBe(0);
+    expect(value.checks.find(({ id }) => id === 'web')).toEqual({
+      id: 'web',
+      status: 'pass',
+      blocking: false,
+      fix: null,
+      present,
+    });
+    const output = capture();
+    output.io.isTTY = true;
+    expect(
+      await runCli(['doctor', '--offline'], {
+        io: output.io,
+        home: '/home',
+        env: { BOARD_HOME: '/board' },
+        doctor: fake,
+      }),
+    ).toBe(0);
+    expect(output.output()).toContain(`PASS web (present: ${present.join(', ')})`);
+  });
+
+  it.each([
+    ['http:\n  port: 4780\n', ['http.port 4780']],
+    ['web:\n  port: 4799\n  publicOrigin: http://localhost:{port}\n', ['web.port 4799']],
+    [
+      'http:\n  port: 4780\nweb:\n  port: 4799\n  publicOrigin: http://localhost:{port}\n',
+      ['http.port 4780', 'web.port 4799'],
+    ],
+  ])(
+    'warns offline without blocking for implicit range overlap (%j)',
+    async (settings, overlaps) => {
+      const value = await run(
+        ['doctor', '--offline', '--json'],
+        ports({ readText: () => yaml + settings }),
+      );
+      expect(value.exitCode).toBe(0);
+      const check = value.checks.find(({ id }) => id === 'stand.port_range');
+      expect(check).toMatchObject({ status: 'warning', blocking: false });
+      expect(check?.fix).toContain('Set a nonoverlapping stand.portRange');
+      for (const overlap of overlaps) expect(check?.fix).toContain(overlap);
+    },
+  );
+
+  it.each([
+    ['http:\n  port: 4780\nstand:\n  portRange: {}\n', 'stand.portRange'],
+    ['web:\n  port: 7777\n', 'web.publicOrigin'],
+    ['web:\n  extra: true\n', 'web'],
+    ['stand:\n  extra: true\n', 'stand'],
+  ])('rejects invalid offline settings (%j) at %s', async (settings, path) => {
+    const value = await run(
+      ['doctor', '--offline', '--json'],
+      ports({ readText: () => yaml + settings }),
+    );
+    expect(value.exitCode).toBe(1);
+    expect(value.checks).toEqual([
+      {
+        id: 'config',
+        status: 'fail',
+        blocking: true,
+        fix: `Correct ${path} in config.yaml using the configuration schema.`,
+      },
+    ]);
+  });
 
   it('returns a config fix and nonzero exit for invalid offline config', async () => {
     const fake = ports({ readText: () => 'projects: []\n' });

@@ -21,8 +21,8 @@ that changes these rules updates this skill in the same PR.
   should pick instead (the guidance test under `describe('catalog')` checks the form).
 - `outputSchema` is the operation's `output`; the handler returns the result as
   `structuredContent`. Change the catalog output, not the tool.
-- Two operations have a detailed mode, off by default: `status.get` `detail` adds full facts and
-  links to compact rows. `task.get` always returns the open turn; its `why` adds the gates,
+- Two operations have a detailed mode, off by default: `status.get` compact rows include turns, PR summaries and navigation links; `detail`
+  adds full facts. `task.get` always returns the open turn; its `why` adds the gates,
   holds, open turn and last moves, and its `detail` adds the last 5 closed turns.
   The `status.get` default size budget is pinned in `packages/core/test/app/registry.test.ts`.
 - No operation has a limit, cursor or pagination; the unlinked rows of `status.get` have no

@@ -79,6 +79,56 @@ export function createOperationRegistry(deps: {
       });
     },
   };
+  const configGet: Query<'config.get'> = {
+    id: 'config.get',
+    resolveTargets(_trx, input, actor) {
+      return Promise.resolve(projectTargets(config, input.project, actor));
+    },
+    run(_trx, input, actor) {
+      const visible = visibleProjects(config, actor);
+      return Promise.resolve({
+        projects: config.projects
+          .filter(
+            (project) =>
+              visible.has(project.id) &&
+              (input.project === undefined || input.project === project.id),
+          )
+          .map((project) => ({
+            id: project.id,
+            columns: project.columns
+              .filter((column) => column.enabled)
+              .map((column) => {
+                const named =
+                  column.orchestrator === 'none' || column.orchestrator === 'operator'
+                    ? undefined
+                    : project.spurProjects.find((spur) => spur.name === column.orchestrator);
+                return {
+                  id: column.id,
+                  executor: {
+                    kind:
+                      column.orchestrator === 'operator'
+                        ? ('operator' as const)
+                        : named?.role === 'curator'
+                          ? ('curator' as const)
+                          : named !== undefined
+                            ? ('orchestrator' as const)
+                            : column.id === 'external-review'
+                              ? ('dispatcher' as const)
+                              : ('worker' as const),
+                    name: named?.name ?? null,
+                  },
+                };
+              }),
+            dispatcher: { mode: project.dispatcher.mode },
+            spurProjects: project.spurProjects.map((spur) => ({
+              name: spur.name,
+              role: spur.role,
+              displayName: spur.displayName ?? spur.name,
+            })),
+          })),
+      });
+    },
+  };
   const status: Query<'status.get'> = {
     id: 'status.get',
     resolveTargets(_trx, input, actor) {
@@ -112,6 +162,7 @@ export function createOperationRegistry(deps: {
   return {
     'schema.get': schema,
     'status.get': status,
+    'config.get': configGet,
     'task.get': taskQueries.get,
     'task.history': taskQueries.history,
     'inbox.get': taskQueries.inbox,

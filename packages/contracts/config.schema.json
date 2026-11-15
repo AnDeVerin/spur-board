@@ -570,6 +570,55 @@
       },
       "additionalProperties": false
     },
+    "web": {
+      "default": {},
+      "type": "object",
+      "properties": {
+        "port": {
+          "description": "Optional web listener port (0 assigns a free port); omitted means off. Set together with publicOrigin. Must differ from http.port, including when both are 0. This config does not start a listener.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65535
+        },
+        "publicOrigin": {
+          "description": "Bare public HTTP/HTTPS origin for the web API; HTTP requires loopback. Set together with port. Every {port} is replaced with the listener port, including in hostnames. No trailing slash. The resolved origin must remain valid and HTTP loopback-only after actual-port substitution; the resolver returns no origin for an invalid actual port or resulting origin.",
+          "type": "string"
+        },
+        "spurUiOrigin": {
+          "description": "Optional concrete bare origin for the Spur UI, independently of the web API. HTTP requires loopback; no placeholders or trailing slash. Omitted means no configured UI origin.",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "stand": {
+      "default": {},
+      "type": "object",
+      "properties": {
+        "portRange": {
+          "description": "Optional stand port range, effectively 4780..4799 when omitted. An explicit range (including {}) must exclude http.port and web.port; an omitted range preserves legacy configs and doctor warns on overlaps. Range allocation and exclusions are deferred to #534; current stand behavior is unchanged.",
+          "type": "object",
+          "properties": {
+            "min": {
+              "default": 4780,
+              "description": "Inclusive first stand port; defaults to 4780 when a range is supplied.",
+              "type": "integer",
+              "minimum": 1024,
+              "maximum": 65535
+            },
+            "max": {
+              "default": 4799,
+              "description": "Inclusive last stand port; defaults to 4799 when a range is supplied.",
+              "type": "integer",
+              "minimum": 1024,
+              "maximum": 65535
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
     "adapters": {
       "default": {},
       "type": "object",

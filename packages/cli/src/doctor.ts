@@ -14,6 +14,8 @@ import {
   actorIdSchema,
   apiBaseUrl,
   configSchema,
+  DEFAULT_STAND_PORT_RANGE,
+  resolveWebOrigin,
   remoteDoctorReportSchema,
   requiredSecretKeys,
   successEnvelopeSchema,
@@ -563,6 +565,27 @@ export async function runDoctor(
     );
     return checks;
   }
+  const webOrigin = resolveWebOrigin(config.web);
+  checks.push({
+    ...result('web', true, ''),
+    present: webOrigin === undefined ? ['off'] : ['on', webOrigin],
+  });
+  const range = config.stand.portRange ?? DEFAULT_STAND_PORT_RANGE;
+  const collisions = [
+    ['http.port', config.http.port],
+    ['web.port', config.web.port],
+  ] as const;
+  const overlaps = collisions
+    .filter(([, port]) => port !== undefined && port >= range.min && port <= range.max)
+    .map(([field, port]) => `${field} ${String(port)}`);
+  checks.push(
+    overlaps.length === 0
+      ? result('stand.port_range', true, '')
+      : warning(
+          'stand.port_range',
+          `Implicit stand port range ${String(range.min)}..${String(range.max)} overlaps ${overlaps.join(', ')}. Set a nonoverlapping stand.portRange. Range allocation and exclusions are deferred to #534; current stand behavior is unchanged.`,
+        ),
+  );
   if (options.offline) return checks;
 
   const unitPath = unitFile(env, home);

@@ -16,6 +16,7 @@ import {
  * range 32768-60999.
  */
 export const DEFAULT_HTTP_PORT = 4777;
+export const DEFAULT_STAND_PORT_RANGE = { min: 4780, max: 4799 } as const;
 export const DEFAULT_SLACK_APP_NAME = 'spur-board';
 export const DEFAULT_SLACK_COMMAND = '/board';
 /**
@@ -73,6 +74,24 @@ export function plainHttpAllowed(url: URL): boolean {
   const host = url.hostname;
   return host === 'localhost' || host === '[::1]' || LOOPBACK_IPV4.test(host);
 }
+
+/** Check raw syntax before URL normalization can hide a slash, whitespace or backslash. */
+function validOrigin(value: string, port?: number): boolean {
+  const resolved = port === undefined ? value : value.replaceAll('{port}', String(port));
+  if (!/^https?:\/\/[^/\\\s?#@{}]+$/i.test(resolved)) return false;
+  try {
+    const url = new URL(resolved);
+    return url.username === '' && url.password === '' && plainHttpAllowed(url);
+  } catch {
+    return false;
+  }
+}
+
+const originError =
+  'Expected a bare HTTP/HTTPS origin; HTTP requires loopback, with no path, trailing slash, query, fragment, credentials or invalid placeholders';
+const concreteOrigin = z.string().refine((value) => validOrigin(value), {
+  error: originError,
+});
 
 const jiraTracker = z.strictObject({
   type: z
@@ -838,6 +857,52 @@ const configObject = z.strictObject({
         ),
     })
     .prefault({}),
+  web: z
+    .strictObject({
+      port: z
+        .int()
+        .min(0)
+        .max(65_535)
+        .optional()
+        .describe(
+          'Optional web listener port (0 assigns a free port); omitted means off. Set together with publicOrigin. Must differ from http.port, including when both are 0. This config does not start a listener.',
+        ),
+      publicOrigin: z
+        .string()
+        .optional()
+        .describe(
+          'Bare public HTTP/HTTPS origin for the web API; HTTP requires loopback. Set together with port. Every {port} is replaced with the listener port, including in hostnames. No trailing slash. The resolved origin must remain valid and HTTP loopback-only after actual-port substitution; the resolver returns no origin for an invalid actual port or resulting origin.',
+        ),
+      spurUiOrigin: concreteOrigin
+        .optional()
+        .describe(
+          'Optional concrete bare origin for the Spur UI, independently of the web API. HTTP requires loopback; no placeholders or trailing slash. Omitted means no configured UI origin.',
+        ),
+    })
+    .prefault({}),
+  stand: z
+    .strictObject({
+      portRange: z
+        .strictObject({
+          min: z
+            .int()
+            .min(1024)
+            .max(65_535)
+            .default(DEFAULT_STAND_PORT_RANGE.min)
+            .describe('Inclusive first stand port; defaults to 4780 when a range is supplied.'),
+          max: z
+            .int()
+            .min(1024)
+            .max(65_535)
+            .default(DEFAULT_STAND_PORT_RANGE.max)
+            .describe('Inclusive last stand port; defaults to 4799 when a range is supplied.'),
+        })
+        .optional()
+        .describe(
+          'Optional stand port range, effectively 4780..4799 when omitted. An explicit range (including {}) must exclude http.port and web.port; an omitted range preserves legacy configs and doctor warns on overlaps. Range allocation and exclusions are deferred to #534; current stand behavior is unchanged.',
+        ),
+    })
+    .prefault({}),
   adapters: z
     .strictObject({
       spur: spurAdapterSection,
@@ -1020,6 +1085,46 @@ function checkBoardWideAgainstProjects(config: ConfigObject, ctx: z.RefinementCt
 export const configSchema = configObject
   .superRefine(checkBoardWideAgainstProjects)
   .superRefine((config, ctx) => {
+    const { web } = config;
+    if (web.publicOrigin !== undefined && !validOrigin(web.publicOrigin, web.port)) {
+      ctx.addIssue({ code: 'custom', path: ['web', 'publicOrigin'], message: originError });
+    }
+    if ((web.port === undefined) !== (web.publicOrigin === undefined)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['web', web.port === undefined ? 'port' : 'publicOrigin'],
+        message: 'Set web.port and web.publicOrigin together',
+      });
+    }
+    if (web.port !== undefined && web.port === config.http.port) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['web', 'port'],
+        message: 'Web port must differ from http.port',
+      });
+    }
+    const range = config.stand.portRange;
+    if (range !== undefined) {
+      if (range.min > range.max) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['stand', 'portRange', 'max'],
+          message: 'Range maximum must be at least its minimum',
+        });
+      }
+      for (const [field, port] of [
+        ['http', config.http.port],
+        ['web', web.port],
+      ] as const) {
+        if (port !== undefined && port >= range.min && port <= range.max) {
+          ctx.addIssue({
+            code: 'custom',
+            path: ['stand', 'portRange'],
+            message: `Stand port range includes ${field}.port ${String(port)}`,
+          });
+        }
+      }
+    }
     const addressee = config.slack.defaultAddressee;
     if (addressee === undefined) return;
     const known =
@@ -1039,6 +1144,19 @@ export const configSchema = configObject
 
 export type Config = z.output<typeof configSchema>;
 export type ConfigInput = z.input<typeof configSchema>;
+
+/**
+ * Resolve validated web settings without mutation or I/O. Returns undefined when off, or when
+ * the effective port is not an integer in 0..65535 or its substituted origin violates the
+ * config origin policy. Invalid overrides never expose a URL parser error or unsafe origin.
+ */
+export function resolveWebOrigin(web: Config['web'], actualPort?: number): string | undefined {
+  if (web.port === undefined || web.publicOrigin === undefined) return undefined;
+  const port = actualPort ?? web.port;
+  if (!Number.isInteger(port) || port < 0 || port > 65_535) return undefined;
+  if (!validOrigin(web.publicOrigin, port)) return undefined;
+  return new URL(web.publicOrigin.replaceAll('{port}', String(port))).origin;
+}
 
 /** The top-level `spurProjects` entry named `name`: a Spur project bound board-wide. */
 export function boardWideSpurProject(

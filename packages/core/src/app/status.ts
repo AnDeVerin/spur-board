@@ -13,9 +13,10 @@ import {
 import { sql } from 'kysely';
 import { parseJson } from '../store/json.ts';
 import type { Store } from '../store/store.ts';
-import { linkView, projectForSource } from './board-utils.ts';
+import { projectForSource } from './board-utils.ts';
 import { CommandError } from './commands.ts';
 import { itemOwner } from './items.ts';
+import { readStatusTurns, summarizePr } from './status-views.ts';
 
 function sessionView(fact: SessionFacts) {
   return { ...fact, links: Object.entries(fact.links).map(([label, url]) => ({ label, url })) };
@@ -99,7 +100,7 @@ export async function getStatus(
      * failed deliveries of those projects' tasks, which it may retry and close.
      */
     operatorProjects?: ReadonlySet<string> | undefined;
-    /** Adds full ticket, pull request and session facts and links to every row. */
+    /** Adds full ticket, pull request and session facts to every row. */
     detail?: boolean | undefined;
   } = {},
 ) {
@@ -144,6 +145,9 @@ export async function getStatus(
     project: project.id,
     openBlocks: openProjectBlocks.get(project.id) ?? 0,
   }));
+  const sourceRows = await store.db.selectFrom('source_state').selectAll().execute();
+  const sourceById = new Map(sourceRows.map((row) => [row.source, row]));
+  const turns = await readStatusTurns(store.db, projectIds);
   const tasks = [];
   for (const task of rows) {
     if (!projectIds.has(task.project)) continue;
@@ -159,17 +163,28 @@ export async function getStatus(
       .execute();
     const links = taskLinks.filter((link) => link.banned === 0);
     const prs: PrFacts[] = [];
+    const summaries = [];
     const sessions: SessionFacts[] = [];
     const sessionStates: { fact: SessionFacts; absentSince: string | null }[] = [];
     for (const link of links) {
       if (link.entity === 'pr' && link.repo !== null && link.number !== null) {
         const snapshot = await store.db
           .selectFrom('pr_snapshot')
-          .select('detail')
+          .select(['detail', 'source', 'observed_at'])
           .where(sql<boolean>`lower(repo) = ${link.repo.toLowerCase()}`)
           .where('number', '=', link.number)
           .executeTakeFirst();
-        if (snapshot !== undefined) prs.push(parseJson(prFactsSchema, snapshot.detail));
+        if (snapshot !== undefined) {
+          const fact = parseJson(prFactsSchema, snapshot.detail);
+          prs.push(fact);
+          const source = sourceById.get(snapshot.source);
+          const unconfirmed =
+            source === undefined ||
+            source.blind_reason !== null ||
+            clock.now() - Date.parse(snapshot.observed_at) >
+              config.thresholds.staleMultiplier * interval(config, snapshot.source);
+          summaries.push(summarizePr(fact, snapshot.observed_at, unconfirmed));
+        }
       } else if (link.entity === 'session' && link.session_id !== null) {
         const snapshot = await store.db
           .selectFrom('session_snapshot')
@@ -226,13 +241,36 @@ export async function getStatus(
       prCount: links.filter((link) => link.entity === 'pr').length,
       sessionCount: links.filter((link) => link.entity === 'session').length,
       openBlocks: openBlocks.get(task.id) ?? 0,
+      turn: turns.get(task.id) ?? null,
+      prSummary: summaries.length === 0 ? null : summaries,
+      links: {
+        ticket: ticketFacts?.url ?? null,
+        prs: links.flatMap((link) =>
+          link.entity === 'pr' && link.repo !== null && link.number !== null
+            ? [
+                {
+                  repo: link.repo,
+                  number: link.number,
+                  url:
+                    prs.find(
+                      (pr) =>
+                        pr.repo.toLowerCase() === link.repo?.toLowerCase() &&
+                        pr.number === link.number,
+                    )?.url ?? `https://github.com/${link.repo}/pull/${String(link.number)}`,
+                },
+              ]
+            : [],
+        ),
+        sessions: links.flatMap((link) =>
+          link.entity === 'session' && link.session_id !== null ? [{ id: link.session_id }] : [],
+        ),
+      },
       ...(linkHints.length > 0 ? { linkHints } : {}),
       ...(detail
         ? {
             ticket: ticketFacts,
             prs,
             sessions: sessions.map(sessionView),
-            links: links.map(linkView),
           }
         : {}),
     });
@@ -311,7 +349,6 @@ export async function getStatus(
       const { id, spurProject, branch, lifecycle, health } = facts;
       return { id, spurProject, branch, lifecycle, health };
     });
-  const sourceRows = await store.db.selectFrom('source_state').selectAll().execute();
   const required = new Set([
     'spur',
     ...projects.flatMap((project) => [
@@ -327,7 +364,6 @@ export async function getStatus(
     .execute();
   const points = new Map<string, number>();
   for (const cost of costs) points.set(cost.source, (points.get(cost.source) ?? 0) + cost.points);
-  const sourceById = new Map(sourceRows.map((row) => [row.source, row]));
   const sources = [...required].map((source) => {
     const row = sourceById.get(source);
     const last = row?.last_complete_at ?? null;
