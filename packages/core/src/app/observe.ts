@@ -706,37 +706,43 @@ function branchHasKey(branch: string, key: string): boolean {
 /** The Jira task key at the end of a session's `/browse/` link. */
 const BROWSE_KEY = new RegExp(`/browse/(${JIRA_PROJECT_KEY}-${REF_NUMBER})$`);
 
+/** Parse a published task URL without deciding whether that task is currently known. */
+function sessionTaskKey(url: string): string | undefined {
+  const candidate = BROWSE_KEY.exec(url)?.[1] ?? /\/issues\/([1-9]\d*)$/.exec(url)?.[1];
+  return candidate === undefined
+    ? undefined
+    : url.includes('/issues/')
+      ? `${new URL(url).pathname.split('/').slice(1, 3).join('/')}#${candidate}`
+      : candidate;
+}
+
 /** History is journaled without changing snapshots, links or task change times. */
 async function sessionTransition(trx: Trx, config: Config, edge: SessionTransition): Promise<void> {
   const projects = config.projects.filter((project) =>
     project.spurProjects.some((spur) => spur.name === edge.spurProject),
   );
-  const explicit = ['board-worker', 'board-other'].flatMap((label) => {
+  let key: string | undefined;
+  for (const label of ['board-worker', 'board-other'] as const) {
     const url = edge.links[label];
-    if (url === undefined) return [];
-    const jira = BROWSE_KEY.exec(url)?.[1];
-    if (jira !== undefined) return [jira];
-    const match = /^\/([^/]+\/[^/]+)\/issues\/([1-9]\d*)$/.exec(new URL(url).pathname);
-    return match?.[1] === undefined || match[2] === undefined ? [] : [`${match[1]}#${match[2]}`];
-  });
-  let tasks: { id: number; project: string }[] = [];
-  if (explicit.length > 0) {
-    tasks = await trx
-      .selectFrom('task')
-      .select(['id', 'project'])
-      .where('key', 'in', explicit)
-      .execute();
+    if (url === undefined) continue;
+    key = sessionTaskKey(url);
+    if (key !== undefined) break;
   }
-  const projectIds = new Set(projects.map((project) => project.id));
-  tasks = tasks.filter((task) => projectIds.has(task.project));
-  if (tasks.length > 0) {
-    for (const task of tasks)
-      await emit(trx, 'session_state_changed', task.project, task.id, edge.at, {
-        session: edge.session,
-        from: edge.from,
-        to: edge.to,
-        transition: edge,
-      });
+  const task =
+    key === undefined
+      ? undefined
+      : await trx
+          .selectFrom('task')
+          .select(['id', 'project'])
+          .where('key', '=', key)
+          .executeTakeFirst();
+  if (task !== undefined) {
+    await emit(trx, 'session_state_changed', task.project, task.id, edge.at, {
+      session: edge.session,
+      from: edge.from,
+      to: edge.to,
+      transition: edge,
+    });
   } else {
     for (const project of projects)
       await emit(trx, 'session_state_changed', project.id, null, edge.at, {
@@ -849,13 +855,7 @@ async function session(
   for (const label of ['board-worker', 'board-other'] as const) {
     const url = fact.links[label];
     if (url === undefined) continue;
-    const candidate = BROWSE_KEY.exec(url)?.[1] ?? /\/issues\/([1-9]\d*)$/.exec(url)?.[1];
-    key =
-      candidate === undefined
-        ? undefined
-        : url.includes('/issues/')
-          ? `${new URL(url).pathname.split('/').slice(1, 3).join('/')}#${candidate}`
-          : candidate;
+    key = sessionTaskKey(url);
     role = label === 'board-worker' && !orchestrator ? 'worker' : 'other';
     if (key !== undefined) break;
   }

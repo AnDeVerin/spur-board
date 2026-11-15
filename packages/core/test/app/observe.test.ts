@@ -4087,6 +4087,145 @@ describe('ordered historical session observations', () => {
     });
   }
 
+  it.each([
+    ['competing labels', 'https://github.com/o/r/issues/9', 'o/r#9', 'worker'],
+    ['unresolved first label', 'https://github.com/o/r/issues/999', null, null],
+    ['unparseable first label', 'https://example.com/docs', 'o/r#10', 'other'],
+  ] as const)(
+    'uses snapshot label precedence for historical %s',
+    async (_name, workerUrl, expectedKey, expectedRole) => {
+      const { store, core, apply, mutations } = setup();
+      await apply(mutations.add, { task: 'o/r#9' }, 'operator');
+      await apply(mutations.add, { task: 'o/r#10' }, 'operator');
+      const links = {
+        'board-worker': workerUrl,
+        'board-other': 'https://github.com/o/r/issues/10',
+      };
+      const current = { ...sessionFact('worker-1', links), branch: null };
+      const edge = {
+        ...transition('label-precedence', 'rate_limited'),
+        links,
+        rateLimitResetAt: '2026-11-03T13:00:00.000Z',
+      };
+      await deliver(core, {
+        sessionTransitions: [edge],
+        cursor: edge.position,
+        items: [{ kind: 'session', facts: current }],
+      });
+      const tasks = await store.db.selectFrom('task').select(['id', 'key']).execute();
+      const selected = tasks.find((task) => task.key === expectedKey);
+      const events = await store.db
+        .selectFrom('event')
+        .selectAll()
+        .where('kind', '=', 'session_state_changed')
+        .execute();
+      expect(events).toHaveLength(1);
+      expect(events[0]).toMatchObject({
+        project: 'board',
+        task_id: selected?.id ?? null,
+        at: edge.at,
+      });
+      expect(JSON.parse(events[0]?.payload ?? '{}')).toEqual({
+        session: edge.session,
+        from: edge.from,
+        to: edge.to,
+        transition: edge,
+      });
+      const registry = createOperationRegistry({
+        config,
+        clock,
+        completeSince: core.completeSince,
+      });
+      const query = createQuery({ store, config, clock });
+      for (const task of tasks) {
+        const history = await query(registry['task.history'], { task: task.key }, 'operator');
+        expect(history.events.filter(({ kind }) => kind === 'session_state_changed')).toHaveLength(
+          task.key === expectedKey ? 1 : 0,
+        );
+      }
+      expect(
+        await store.db
+          .selectFrom('link')
+          .select(['task_id', 'role'])
+          .where('entity', '=', 'session')
+          .execute(),
+      ).toEqual(selected === undefined ? [] : [{ task_id: selected.id, role: expectedRole }]);
+      expect(
+        JSON.parse(
+          (await store.db.selectFrom('session_snapshot').select('detail').executeTakeFirstOrThrow())
+            .detail,
+        ),
+      ).toEqual(current);
+    },
+  );
+
+  it('records explicit cross-project ownership on the destination board with original source metadata', async () => {
+    const cross = configSchema.parse({
+      ...config,
+      projects: [
+        ...config.projects,
+        {
+          id: 'other',
+          tracker: { type: 'github-issues', repo: 'x/y', label: 'board' },
+          repos: ['x/y'],
+          operatorGithubLogin: 'operator',
+          spurProjects: [{ name: 'other-worker', role: 'worker' }],
+        },
+      ],
+    });
+    const { store, core, apply, mutations } = setup(cross);
+    await apply(mutations.add, { task: 'x/y#1' }, 'operator');
+    const links = { 'board-worker': 'https://github.com/x/y/issues/1' };
+    const current = { ...sessionFact('worker-1', links), branch: null };
+    const edge = { ...transition('cross-project', 'rate_limited'), links };
+    await deliver(core, {
+      sessionTransitions: [edge],
+      cursor: edge.position,
+      items: [{ kind: 'session', facts: current }],
+    });
+    const task = await store.db
+      .selectFrom('task')
+      .selectAll()
+      .where('key', '=', 'x/y#1')
+      .executeTakeFirstOrThrow();
+    const events = await store.db
+      .selectFrom('event')
+      .selectAll()
+      .where('kind', '=', 'session_state_changed')
+      .execute();
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ project: 'other', task_id: task.id, at: edge.at });
+    expect(JSON.parse(events[0]?.payload ?? '{}')).toEqual({
+      session: edge.session,
+      from: edge.from,
+      to: edge.to,
+      transition: edge,
+    });
+    const registry = createOperationRegistry({
+      config: cross,
+      clock,
+      completeSince: core.completeSince,
+    });
+    const query = createQuery({ store, config: cross, clock });
+    const history = await query(registry['task.history'], { task: 'x/y#1' }, 'operator');
+    expect(history.events.filter(({ kind }) => kind === 'session_state_changed')).toHaveLength(1);
+    expect(
+      await store.db
+        .selectFrom('link')
+        .select(['task_id', 'role'])
+        .where('entity', '=', 'session')
+        .execute(),
+    ).toEqual([{ task_id: task.id, role: 'worker' }]);
+    expect(
+      JSON.parse(
+        (await store.db.selectFrom('session_snapshot').select('detail').executeTakeFirstOrThrow())
+          .detail,
+      ),
+    ).toEqual(current);
+    expect(task.last_change_at).toBe(at);
+    expect((await core.context('spur')).cursor).toBe(edge.position);
+  });
+
   it('keeps an unlabeled transition project-scoped when the same poll infers a session link', async () => {
     const { store, core, apply, mutations } = setup();
     await apply(mutations.add, { task: 'o/r#9' }, 'operator');
