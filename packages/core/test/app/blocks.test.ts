@@ -711,6 +711,27 @@ function withCurator(orchestrators: Partial<Record<ColumnId, string>> = {}): Con
   });
 }
 
+const reviewer = 'agent:rev/rev-1';
+
+/** Adds `rev` as the `review` column's orchestrator, with or without the `cur` curator. */
+function withReviewer(curated: boolean): Config {
+  const base = curated ? withCurator() : config;
+  return configSchema.parse({
+    ...base,
+    projects: base.projects.map((project) =>
+      project.id === 'proj'
+        ? {
+            ...project,
+            spurProjects: [...project.spurProjects, { name: 'rev', role: 'orchestrator' }],
+            columns: project.columns.map((column) =>
+              column.id === 'review' ? { ...column, orchestrator: 'rev' } : column,
+            ),
+          }
+        : project,
+    ),
+  });
+}
+
 /** A board on the shared seed whose task sits in `column`; `dev` is orchestrated by `qa`. */
 async function curatorBoard(column: ColumnId = 'dev', used: Config = withCurator()) {
   const { store, file } = await seeded();
@@ -828,13 +849,80 @@ describe('curator routing', () => {
     const asked = await apply(curated.ask, { task: KEY, text: 'Q?' }, author, 'ask');
     expect(asked.block.addressee).toBe('orchestrator:dev');
     const hop = await apply(curated.escalate, { block: asked.block.id }, curator, 'hop-1');
-    expect(hop.block.addressee).toBe('curator');
+    expect(hop.block.addressee).toBe('operator');
+    expect(await escalations(store)).toEqual([
+      { block: asked.block.id, from: 'orchestrator:dev', to: 'operator' },
+    ]);
+    expect(
+      await store.db
+        .selectFrom('notification')
+        .select('id')
+        .where('role', '=', 'curator')
+        .execute(),
+    ).toEqual([]);
     const top = await apply(curated.escalate, { block: asked.block.id }, curator, 'hop-2');
     expect(top.block.addressee).toBe('operator');
+    expect(await escalations(store)).toHaveLength(1);
+  });
+
+  it("routes a column orchestrator's own question up the chain and another orchestrator's question to it", async () => {
+    for (const [used, expected] of [
+      [withReviewer(true), 'curator'],
+      [withReviewer(false), 'operator'],
+    ] as const) {
+      const { apply, ops: curated } = await curatorBoard('review', used);
+      const own = await apply(curated.ask, { task: KEY, text: 'Q?' }, reviewer, 'own');
+      expect(own.block.addressee).toBe(expected);
+      const other = await apply(curated.ask, { task: KEY, text: 'Q?' }, orchestrator, 'other');
+      expect(other.block.addressee).toBe('orchestrator:review');
+    }
   });
 });
 
 describe('curator escalation', () => {
+  it('keeps a question at its stored addressee after a column move and escalates it past its author', async () => {
+    const used = withReviewer(true);
+    const { store, apply, ops: curated } = await curatorBoard('review', used);
+    const { block } = await apply(curated.ask, { task: KEY, text: 'Q?' }, orchestrator, 'ask');
+    expect(block.addressee).toBe('orchestrator:review');
+    await store.transaction((trx) =>
+      trx.updateTable('task').set({ column: 'dev' }).where('id', '=', 1).execute(),
+    );
+    const get = () =>
+      createQuery({ store, clock, config: used })(
+        createTaskQueries({ config: used, completeSince: new Map() }).get,
+        { task: KEY },
+        'operator',
+      );
+    expect((await get()).blocks.map((entry) => entry.addressee)).toEqual(['orchestrator:review']);
+    await expect(
+      apply(curated.escalate, { block: block.id }, orchestrator, 'author'),
+    ).rejects.toMatchObject({ code: 'forbidden' });
+    const toCurator = await apply(curated.escalate, { block: block.id }, reviewer, 'esc-1');
+    expect(toCurator.block.addressee).toBe('curator');
+    const toOperator = await apply(curated.escalate, { block: block.id }, curator, 'esc-2');
+    expect(toOperator.block.addressee).toBe('operator');
+    expect(await escalations(store)).toEqual([
+      { block: block.id, from: 'orchestrator:review', to: 'curator' },
+      { block: block.id, from: 'curator', to: 'operator' },
+    ]);
+    expect((await get()).blocks.map((entry) => entry.addressee)).toEqual(['operator']);
+  });
+
+  it("escalates a column orchestrator's own question from the curator to the operator, never back to its column", async () => {
+    const { store, apply, ops: curated } = await curatorBoard('review', withReviewer(true));
+    const { block } = await apply(curated.ask, { task: KEY, text: 'Q?' }, reviewer, 'ask');
+    expect(block.addressee).toBe('curator');
+    await expect(
+      apply(curated.escalate, { block: block.id }, reviewer, 'author'),
+    ).rejects.toMatchObject({ code: 'forbidden' });
+    const moved = await apply(curated.escalate, { block: block.id }, curator, 'esc');
+    expect(moved.block.addressee).toBe('operator');
+    expect(await escalations(store)).toEqual([
+      { block: block.id, from: 'curator', to: 'operator' },
+    ]);
+  });
+
   it('walks a question up the chain and treats each retry as a no-op', async () => {
     const { store, apply, ops: curated } = await curatorBoard();
     const { block } = await apply(curated.ask, { task: KEY, text: 'Q?' }, author, 'ask');
