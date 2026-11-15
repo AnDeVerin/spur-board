@@ -2,6 +2,7 @@ import {
   COLUMN_IDS,
   DISPATCHER_MODES,
   isExternalAuthor,
+  parseActorId,
   prSourceId,
   trackerSourceId,
   type ActorId,
@@ -538,6 +539,100 @@ function handedOf(pr: PrFacts, entry: NonNullable<PrFacts['feedback']>[number]):
   };
 }
 
+/** A turn submit accepted before the board could confirm its head, and what it turned into. */
+interface PendingSubmit {
+  id: number;
+  sha: string;
+  /** `submitted_at + submitConfirmMs`: when an absent PR counts as none. */
+  until: string;
+  /**
+   * `pending`: nothing settles it yet. `confirmed`: a poll observed the PR at `sha` after the
+   * submit. `failed`: the head moved, the PR closed, or no PR appeared within the bound.
+   */
+  state: 'pending' | 'confirmed' | 'failed';
+  failure?: string;
+  /** The linked PR, copied onto a confirmed row recorded without one. */
+  pr?: { repo: string; number: number };
+}
+
+/**
+ * The newest unvoided pending submit of the task's current visit in `on` mode, settled from
+ * stored facts: the linked PR's snapshot observed at or after the submit decides it; with no PR
+ * linked, it fails only once the bound passed and a complete poll of every project repo started
+ * at or after the bound. Nothing settles while GitHub is blind.
+ */
+async function readPendingSubmit(
+  trx: Trx,
+  task: Task,
+  project: Project,
+  input: {
+    link: { repo: string; number: number } | null;
+    githubBlind: boolean;
+    at: Date;
+    complete: ReadonlyMap<string, string>;
+  },
+): Promise<PendingSubmit | undefined> {
+  const row = await trx
+    .selectFrom('submission')
+    .select(['id', 'commit_sha', 'author', 'submitted_at', 'pending_until'])
+    .where('task_id', '=', task.id)
+    .where('column', '=', task.column)
+    .where('epoch', '=', task.column_epoch)
+    .where('voided_at', 'is', null)
+    .where('pending_until', 'is not', null)
+    .orderBy('id', 'desc')
+    .executeTakeFirst();
+  if (row?.pending_until == null) return undefined;
+  const sha = row.commit_sha.toLowerCase();
+  const pending: PendingSubmit = { id: row.id, sha, until: row.pending_until, state: 'pending' };
+  if (input.githubBlind) return pending;
+  const { link } = input;
+  if (link !== null) {
+    const snap = await trx
+      .selectFrom('pr_snapshot')
+      .select(['head_sha', 'state', 'observed_at'])
+      .where(sql<boolean>`lower(repo) = ${link.repo.toLowerCase()}`)
+      .where('number', '=', link.number)
+      .executeTakeFirst();
+    if (snap === undefined || Date.parse(snap.observed_at) < Date.parse(row.submitted_at)) {
+      return pending;
+    }
+    const pr = { repo: link.repo, number: link.number };
+    if (snap.state === 'closed') {
+      return { ...pending, state: 'failed', failure: `PR ${pr.repo}#${String(pr.number)} closed` };
+    }
+    if (snap.head_sha.toLowerCase() === sha) return { ...pending, state: 'confirmed', pr };
+    return {
+      ...pending,
+      state: 'failed',
+      failure: `head moved to ${snap.head_sha.toLowerCase().slice(0, 7)}`,
+    };
+  }
+  const until = Date.parse(row.pending_until);
+  const polledAfter = project.repos.every((repo) => {
+    const since = input.complete.get(prSourceId(project.id, repo));
+    return since !== undefined && Date.parse(since) >= until;
+  });
+  if (input.at.getTime() < until || !polledAfter) return pending;
+  const parsed = parseActorId(row.author);
+  const session = parsed?.actor === 'agent' ? parsed.actorRef.session : undefined;
+  const branch =
+    session === undefined
+      ? undefined
+      : (
+          await trx
+            .selectFrom('session_snapshot')
+            .select('branch')
+            .where('id', '=', session)
+            .executeTakeFirst()
+        )?.branch;
+  return {
+    ...pending,
+    state: 'failed',
+    failure: branch == null ? 'no PR found' : `no PR found for ${branch}`,
+  };
+}
+
 /**
  * The dispatcher input of one task, or null when a stored snapshot is missing or unreadable. It
  * only reads.
@@ -549,6 +644,8 @@ export async function readInput(
   mode: DispatcherMode,
   blind: (source: string) => boolean,
   config: Config,
+  /** The pass time and the complete-poll map, for a pending submit's bound. */
+  clock: { at: Date; complete: ReadonlyMap<string, string> },
 ): Promise<{
   input: DispatchInput;
   handed: Handed[];
@@ -557,6 +654,8 @@ export async function readInput(
   mergedOpen: { repo: string; number: number } | undefined;
   /** The task's PR merged and its ticket is neither done nor confirmed open: hold the task. */
   ticketUnconfirmed: boolean;
+  /** The pending turn submit of the current visit (`on` mode); absent when none waits. */
+  pending: PendingSubmit | undefined;
 } | null> {
   const readPr = async (ref: { repo: string; number: number }) =>
     parsePr(
@@ -616,14 +715,23 @@ export async function readInput(
   if (mergedOpen !== undefined) pr = null;
   const repos = pr === null ? project.repos : [pr.repo];
   const githubBlind = repos.some((repo) => blind(prSourceId(project.id, repo)));
+  const pending =
+    mode === 'on'
+      ? await readPendingSubmit(trx, task, project, { link, githubBlind, ...clock })
+      : undefined;
   const submissions = await trx
     .selectFrom('submission')
-    .select(['column', 'commit_sha'])
+    .select(['id', 'column', 'commit_sha', 'pending_until'])
     .where('task_id', '=', task.id)
     .where('voided_at', 'is', null)
     .orderBy('id')
     .execute();
-  const marks = submissions.map((row): GateMark => {
+  // A pending submit counts only once a poll confirmed it, in this pass or an earlier one.
+  const counted = submissions.filter(
+    (row) =>
+      row.pending_until === null || (pending?.state === 'confirmed' && row.id === pending.id),
+  );
+  const marks = counted.map((row): GateMark => {
     const headSha = row.commit_sha.toLowerCase();
     return row.column === 'review' || row.column === 'product-review'
       ? { kind: 'mark', column: row.column, headSha }
@@ -683,6 +791,8 @@ export async function readInput(
       spurBlind: blind('spur'),
       liveWorker: (await linkedSession(trx, task.id, 'worker')) !== undefined,
       cycleHeld: held,
+      submitPending: pending?.state === 'pending',
+      submitFailed: pending?.state === 'failed',
       turn: {
         visit:
           last === undefined
@@ -706,6 +816,7 @@ export async function readInput(
     unclosed,
     mergedOpen,
     ticketUnconfirmed,
+    pending,
   };
 }
 
@@ -772,6 +883,16 @@ async function applyOn(
   const turn = result.turn;
   if (turn === null) return;
   if (result.voids !== undefined) await voidColumns(trx, current.id, [result.voids], at);
+  // By id: the turn's `voids` skips the Review and Product Review marks.
+  const failed =
+    turn.kind === 'after_submit' && read.pending?.state === 'failed' ? read.pending : undefined;
+  if (failed !== undefined) {
+    await trx
+      .updateTable('submission')
+      .set({ voided_at: at.toISOString() })
+      .where('id', '=', failed.id)
+      .execute();
+  }
   const replaced = turn.kind === 'reroute' ? read.unclosed : undefined;
   if (replaced !== undefined) await closeTurns(trx, { taskId: current.id, reason: 'rerouted', at });
   // A reroute carries the feedback the replaced turn handed over; the cursor already counts it.
@@ -780,16 +901,33 @@ async function applyOn(
     ...carried,
     ...read.handed.filter((entry) => !carried.some((old) => sameHanded(old, entry))),
   ];
+  const reason =
+    read.mergedOpen === undefined || turn.kind === 'reroute'
+      ? turnReason(turn, replaced?.reason)
+      : `${turnReason(turn)} (PR ${read.mergedOpen.repo}#${String(read.mergedOpen.number)} merged, ticket still open)`;
   await openTurn(trx, {
     task: current,
     reason:
-      read.mergedOpen === undefined || turn.kind === 'reroute'
-        ? turnReason(turn, replaced?.reason)
-        : `${turnReason(turn)} (PR ${read.mergedOpen.repo}#${String(read.mergedOpen.number)} merged, ticket still open)`,
+      failed === undefined
+        ? reason
+        : `${reason} (submit of ${failed.sha.slice(0, 7)}: ${failed.failure ?? 'failed'})`,
     handed: current.column === 'dev' ? handed : [],
     at,
     config,
   });
+}
+
+/** Counts a pending submit a poll confirmed: from its receipt time, on the linked PR. */
+async function confirmSubmit(trx: Trx, pending: PendingSubmit): Promise<void> {
+  await trx
+    .updateTable('submission')
+    .set((eb) => ({
+      pending_until: null,
+      pr_repo: eb.fn.coalesce('pr_repo', eb.val(pending.pr?.repo ?? null)),
+      pr_number: eb.fn.coalesce('pr_number', eb.val(pending.pr?.number ?? null)),
+    }))
+    .where('id', '=', pending.id)
+    .execute();
 }
 
 /**
@@ -810,8 +948,9 @@ export async function dispatchTasks(
     const project = ctx.config.projects.find((entry) => entry.id === task.project);
     if (project === undefined) continue;
     const mode = project.dispatcher.mode;
-    const read = await readInput(trx, task, project, mode, blind, ctx.config);
+    const read = await readInput(trx, task, project, mode, blind, ctx.config, ctx);
     if (read === null || read.ticketUnconfirmed) continue;
+    if (read.pending?.state === 'confirmed') await confirmSubmit(trx, read.pending);
     const result = dispatch(read.input);
     if (mode === 'shadow') await applyShadow(trx, task, project, result, ctx.at);
     else await applyOn(trx, task, read, result, ctx);
@@ -857,6 +996,39 @@ export async function dispatchJournaled(trx: Trx, ctx: DispatchContext): Promise
     .values({ key: CURSOR_KEY, value })
     .onConflict((oc) => oc.column('key').doUpdateSet({ value }))
     .execute();
+}
+
+/**
+ * Evaluates the tasks of `on`-mode projects whose current visit has an unvoided pending submit:
+ * its bound passes and a poll confirms it without a journal entry. A still-pending task gets no
+ * write.
+ */
+export async function dispatchPendingSubmits(trx: Trx, ctx: DispatchContext): Promise<void> {
+  const projects = ctx.config.projects
+    .filter((project) => project.dispatcher.mode === 'on')
+    .map((project) => project.id);
+  if (projects.length === 0) return;
+  const tasks = await trx
+    .selectFrom('task')
+    .innerJoin('submission', (join) =>
+      join
+        .onRef('submission.task_id', '=', 'task.id')
+        .onRef('submission.column', '=', 'task.column')
+        .onRef('submission.epoch', '=', 'task.column_epoch'),
+    )
+    .select('task.id')
+    .distinct()
+    .where('task.project', 'in', projects)
+    .where('task.membership', '!=', 'archived')
+    .where('submission.voided_at', 'is', null)
+    .where('submission.pending_until', 'is not', null)
+    .execute();
+  if (tasks.length === 0) return;
+  await dispatchTasks(
+    trx,
+    tasks.map((task) => task.id),
+    ctx,
+  );
 }
 
 /**

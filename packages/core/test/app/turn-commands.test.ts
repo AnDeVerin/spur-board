@@ -352,6 +352,44 @@ async function taken(options: Parameters<typeof setup>[0] = {}) {
   return ctx;
 }
 
+/** `submitConfirmMs` past `AT`: when a pending submit stops waiting for a PR. */
+const PENDING_UNTIL = new Date(Date.parse(AT) + 180_000).toISOString();
+
+/** Asserts rev-1's review submit of `sha` was accepted pending: the row, the closed turn, the event. */
+async function expectPending(
+  ctx: Awaited<ReturnType<typeof setup>>,
+  submitted: Promise<unknown>,
+  sha: string,
+  pr: { pr_repo: string | null; pr_number: number | null } = { pr_repo: 'o/r', pr_number: 7 },
+) {
+  await expect(submitted).resolves.toMatchObject({ turn: 'T1', sha, status: 'pending' });
+  expect(
+    await ctx.store.db
+      .selectFrom('submission')
+      .select(['column', 'commit_sha', 'submitted_at', 'pending_until', 'pr_repo', 'pr_number'])
+      .execute(),
+  ).toEqual([
+    {
+      column: 'review',
+      commit_sha: sha,
+      submitted_at: AT,
+      pending_until: PENDING_UNTIL,
+      ...pr,
+    },
+  ]);
+  expect(await ctx.turn()).toMatchObject({ closed_reason: 'submitted', closed_at: AT });
+  expect((await ctx.events()).filter((event) => event.kind === 'task_submitted')).toEqual([
+    { kind: 'task_submitted', payload: { turn: 'T1', column: 'review', sha, pending: true } },
+  ]);
+}
+
+/** Bans the task's PR link, as when the board has linked no PR yet. */
+async function unlinkAll(ctx: Awaited<ReturnType<typeof setup>>) {
+  await ctx.store.transaction(async (trx) => {
+    await trx.updateTable('link').set({ banned: 1 }).where('entity', '=', 'pr').execute();
+  });
+}
+
 describe('task.submit', () => {
   it('accepts a head the board saw only through the poll', async () => {
     const ctx = await taken();
@@ -448,14 +486,33 @@ describe('task.submit', () => {
     ).toBe(B);
   });
 
-  it('refuses a task with no active pull request without polling', async () => {
-    const ctx = await taken();
-    await ctx.store.transaction(async (trx) => {
-      await trx.updateTable('link').set({ banned: 1 }).where('entity', '=', 'pr').execute();
+  it('accepts a submit with no linked PR as pending', async () => {
+    const ctx = await taken({ mode: 'on', complete: true });
+    await unlinkAll(ctx);
+
+    await expectPending(ctx, ctx.submit(REV_1, A, 'submit-1'), A, {
+      pr_repo: null,
+      pr_number: null,
     });
+
+    expect(ctx.calls).toHaveLength(0);
+    // The dispatcher in the same transaction holds the task: no move to Dev, no new turn.
+    expect((await ctx.task()).column).toBe('review');
+    expect(await ctx.store.db.selectFrom('turn').select('id').execute()).toHaveLength(1);
+    expect((await ctx.history()).filter((event) => event.kind === 'task_submitted')).toMatchObject([
+      { summary: 'Turn submitted, pending confirmation' },
+    ]);
+    // The same key replays the pending result; a new key finds the turn closed.
+    await expect(ctx.submit(REV_1, A, 'submit-1')).resolves.toMatchObject({ status: 'pending' });
+    await expect(ctx.submit(REV_1, A, 'submit-2')).rejects.toMatchObject({ code: 'turn_closed' });
+  });
+
+  it('refuses a shadow submit with no linked PR', async () => {
+    const ctx = await setup();
+    await unlinkAll(ctx);
     const before = await ctx.tables();
 
-    await expect(ctx.submit(REV_1, A, 'submit-1')).rejects.toMatchObject({
+    await expect(ctx.submit(REV_1, A, 'submit-1', 'o/r#9')).rejects.toMatchObject({
       code: 'head_mismatch',
       hint: 'The task has no active pull request; ask the operator to link it with `board link`, then submit its head.',
     });
@@ -464,18 +521,31 @@ describe('task.submit', () => {
     expect(await ctx.tables()).toEqual(before);
   });
 
+  const waitable: { name: string; result: Awaited<ReturnType<PollPr>> }[] = (
+    [
+      { kind: 'timeout', message: 'GitHub timed out' },
+      {
+        kind: 'failed',
+        adapterKind: 'throttled',
+        retryAt: '2026-11-04T08:05:00.000Z',
+        message: 'Throttled',
+      },
+      { kind: 'stopped', message: 'Stopped' },
+    ] satisfies PollPrError[]
+  ).map((error) => ({ name: error.kind, result: err(error) }));
+  it.each(waitable)('accepts a submit pending for $name', async ({ result }) => {
+    const ctx = await taken();
+    ctx.answers(result);
+
+    await expectPending(ctx, ctx.submit(REV_1, A, 'submit-1'), A);
+
+    expect(ctx.calls).toHaveLength(1);
+  });
+
   const unavailable: { name: string; result?: Awaited<ReturnType<PollPr>> }[] = [
     ...(
       [
-        { kind: 'timeout', message: 'GitHub timed out' },
         { kind: 'blind', reason: 'auth', message: 'Bad token' },
-        {
-          kind: 'failed',
-          adapterKind: 'throttled',
-          retryAt: '2026-11-04T08:05:00.000Z',
-          message: 'Throttled',
-        },
-        { kind: 'stopped', message: 'Stopped' },
         { kind: 'unknown_source', message: 'Unknown source' },
         { kind: 'unsupported', message: 'Unsupported' },
       ] satisfies PollPrError[]
@@ -495,11 +565,11 @@ describe('task.submit', () => {
     expect(await ctx.tables()).toEqual(before);
   });
 
-  it('names the poll timeout it waited for in the timeout hint', async () => {
-    const ctx = await taken();
+  it('names the poll timeout it waited for in the timeout hint of a shadow submit', async () => {
+    const ctx = await setup();
     ctx.answers(err({ kind: 'timeout', message: 'GitHub timed out' }));
 
-    const refused = ctx.submit(REV_1, A, 'submit-1');
+    const refused = ctx.submit(REV_1, A, 'submit-1', 'o/r#9');
 
     await expect(refused).rejects.toMatchObject({
       code: 'github_unavailable',
@@ -580,12 +650,19 @@ describe('task.submit', () => {
       ).toMatchObject([{ summary: 'Turn submitted' }]);
     });
 
-    it('refuses a head the last poll did not see', async () => {
+    it('accepts a head the last poll did not see as pending', async () => {
       const ctx = await taken({ complete: true });
+      ctx.answers(err({ kind: 'timeout', message: 'GitHub timed out' }));
+
+      await expectPending(ctx, ctx.submit(REV_1, B, 'submit-1'), B);
+    });
+
+    it('refuses a shadow submit of a head the last poll did not see', async () => {
+      const ctx = await setup({ complete: true });
       ctx.answers(err({ kind: 'timeout', message: 'GitHub timed out' }));
       const before = await ctx.tables();
 
-      await expect(ctx.submit(REV_1, B, 'submit-1')).rejects.toMatchObject({
+      await expect(ctx.submit(REV_1, B, 'submit-1', 'o/r#9')).rejects.toMatchObject({
         code: 'github_unavailable',
         hint: `GitHub did not answer for o/r#7 within 10 s; wait a minute, then submit again. Its last poll saw head ${A}.`,
       });
@@ -593,12 +670,19 @@ describe('task.submit', () => {
       expect(await ctx.tables()).toEqual(before);
     });
 
-    it('refuses a head seen before the last complete poll', async () => {
+    it('accepts a head seen before the last complete poll as pending', async () => {
       const ctx = await taken({ complete: true, completeAt: LATER });
+      ctx.answers(err({ kind: 'failed', adapterKind: 'transient', message: 'HTTP 502' }));
+
+      await expectPending(ctx, ctx.submit(REV_1, A, 'submit-1'), A);
+    });
+
+    it('refuses a shadow submit of a head seen before the last complete poll', async () => {
+      const ctx = await setup({ complete: true, completeAt: LATER });
       ctx.answers(err({ kind: 'failed', adapterKind: 'transient', message: 'HTTP 502' }));
       const before = await ctx.tables();
 
-      await expect(ctx.submit(REV_1, A, 'submit-1')).rejects.toMatchObject({
+      await expect(ctx.submit(REV_1, A, 'submit-1', 'o/r#9')).rejects.toMatchObject({
         code: 'github_unavailable',
         hint: `The GitHub poll of o/r#7 failed (transient); wait a minute, then submit again. The board last saw head ${A} at ${AT}, before its last complete GitHub poll.`,
       });
@@ -654,27 +738,47 @@ describe('task.submit', () => {
         hint: 'The board has no recent complete GitHub poll for o/r#7; submit again in a few minutes, once GitHub answers its polls.',
       },
     ];
-    it.each(SUBMIT_AGAIN)(
-      'tells the caller to submit again after $name',
-      async ({ result, hint }) => {
-        const ctx = await taken();
-        ctx.answers(result);
+    it.each(SUBMIT_AGAIN)('accepts a turn submit pending after $name', async ({ result }) => {
+      const ctx = await taken();
+      ctx.answers(result);
 
-        await expect(ctx.submit(REV_1, A, 'submit-1')).rejects.toMatchObject({
+      await expectPending(ctx, ctx.submit(REV_1, A, 'submit-1'), A);
+    });
+
+    it.each(SUBMIT_AGAIN)(
+      'tells a shadow caller to submit again after $name',
+      async ({ result, hint }) => {
+        const ctx = await setup();
+        ctx.answers(result);
+        const before = await ctx.tables();
+
+        await expect(ctx.submit(REV_1, A, 'submit-1', 'o/r#9')).rejects.toMatchObject({
           code: 'github_unavailable',
           hint,
         });
+
+        expect(await ctx.tables()).toEqual(before);
       },
     );
 
     it.each(SUBMIT_AGAIN.filter(({ name }) => name === 'stopped' || name === 'blind stale'))(
-      'refuses $name after a complete poll',
-      async ({ result, hint }) => {
+      'accepts $name after a complete poll as pending',
+      async ({ result }) => {
         const ctx = await taken({ complete: true });
+        ctx.answers(result);
+
+        await expectPending(ctx, ctx.submit(REV_1, A, 'submit-1'), A);
+      },
+    );
+
+    it.each(SUBMIT_AGAIN.filter(({ name }) => name === 'stopped' || name === 'blind stale'))(
+      'refuses a shadow submit after $name and a complete poll',
+      async ({ result, hint }) => {
+        const ctx = await setup({ complete: true });
         ctx.answers(result);
         const before = await ctx.tables();
 
-        await expect(ctx.submit(REV_1, A, 'submit-1')).rejects.toMatchObject({
+        await expect(ctx.submit(REV_1, A, 'submit-1', 'o/r#9')).rejects.toMatchObject({
           code: 'github_unavailable',
           hint,
         });
@@ -1061,6 +1165,28 @@ describe('task.return', () => {
 describe('task.get why', () => {
   const green = { name: 'ci', state: 'success' as const, completedAt: AT };
   const ready = { requiredChecks: [green], feedback: [], feedbackComplete: true };
+
+  it('shows a pending submit as a hold with its text', async () => {
+    const ctx = await taken({ mode: 'on', complete: true, pr: ready });
+    await unlinkAll(ctx);
+    await ctx.submit(REV_1, A, 'submit-1');
+
+    const waiting = await ctx.why();
+    expect(waiting.holds).toEqual(['submit_pending']);
+    expect(waiting.pendingSubmit).toEqual({
+      sha: A,
+      until: PENDING_UNTIL,
+      text: 'submit pending confirmation of aaaaaaa',
+    });
+
+    // The PR linked again, observed at the submit's time on its head, confirms it.
+    await ctx.store.transaction(async (trx) => {
+      await trx.updateTable('link').set({ banned: 0 }).where('entity', '=', 'pr').execute();
+    });
+    const settled = await ctx.why();
+    expect(settled.holds).toEqual([]);
+    expect(settled).not.toHaveProperty('pendingSubmit');
+  });
 
   it('explains a Review task with an open turn and the last moves', async () => {
     const ctx = await taken({ mode: 'on', complete: true, pr: ready });

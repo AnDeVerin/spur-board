@@ -1,5 +1,6 @@
 import {
   configSchema,
+  err,
   eventPayloadSchemas,
   ok,
   type ActorId,
@@ -199,11 +200,14 @@ function board(options: Options = {}) {
   let core = createObservationCore({ store, config, clock });
   let current: PrFacts | null = null;
   const prs = new Map<number, PrFacts>();
+  /** Set by `pollAnswers`: the on-demand poll's fixed answer instead of the current PR. */
+  let pollAnswer: Awaited<ReturnType<PrPoller['pollPr']>> | undefined;
   const pollPr: PrPoller['pollPr'] = () =>
     Promise.resolve(
-      current === null
-        ? ok({ status: 'not_found' as const, observedAt: new Date(now).toISOString() })
-        : ok({ status: 'ok' as const, facts: current, observedAt: new Date(now).toISOString() }),
+      pollAnswer ??
+        (current === null
+          ? ok({ status: 'not_found' as const, observedAt: new Date(now).toISOString() })
+          : ok({ status: 'ok' as const, facts: current, observedAt: new Date(now).toISOString() })),
     );
   const build = () => ({
     registry: createOperationRegistry({
@@ -225,8 +229,10 @@ function board(options: Options = {}) {
     source: string,
     items: Parameters<typeof core.observe>[1]['batch']['items'],
     complete = true,
+    startedAt?: string,
   ) => {
-    const observedAt = step();
+    const stepped = step();
+    const observedAt = startedAt ?? stepped;
     await core.observe(source, {
       batch: { source, observedAt, complete, items, entities: [] },
       effectiveComplete: complete,
@@ -245,8 +251,11 @@ function board(options: Options = {}) {
     },
     ticket: (status = 'open', inFilter = true) =>
       observe(TRACKER, [{ kind: 'ticket', facts: ticketFacts(status, inFilter) }]),
-    /** A complete GitHub poll with the given PR facts merged over the current ones. */
-    async pr(patch: Partial<PrFacts> = {}, complete = true) {
+    /**
+     * A complete GitHub poll with the given PR facts merged over the current ones; `startedAt`
+     * backdates the poll's start, as for a poll that began before an earlier step.
+     */
+    async pr(patch: Partial<PrFacts> = {}, complete = true, startedAt?: string) {
       const number = patch.number ?? current?.number ?? 7;
       current = prFacts({ ...prs.get(number), ...patch });
       prs.set(number, current);
@@ -254,7 +263,16 @@ function board(options: Options = {}) {
         GITHUB,
         [...prs.values()].map((facts) => ({ kind: 'pr' as const, facts })),
         complete,
+        startedAt,
       );
+    },
+    /** The on-demand poll of a submit answers `result` from now on. */
+    pollAnswers: (result: Awaited<ReturnType<PrPoller['pollPr']>>) => {
+      pollAnswer = result;
+    },
+    /** Moves the clock forward by `ms` with no other step. */
+    wait: (ms: number) => {
+      now += ms;
     },
     github: (complete = true) =>
       observe(
@@ -3040,5 +3058,287 @@ describe('triggers', () => {
     await ctx.blind(GITHUB, true);
     await ctx.blind(GITHUB, false);
     expect((await ctx.task()).column).toBe('dev');
+  });
+});
+
+describe('pending submit', () => {
+  const TIMEOUT = err({ kind: 'timeout' as const, message: 'GitHub timed out' });
+  const BOUND = 180_000;
+
+  /** The submission rows, oldest first. */
+  const submissions = (ctx: Board) =>
+    ctx.store.db
+      .selectFrom('submission')
+      .select([
+        'column',
+        'commit_sha',
+        'submitted_at',
+        'pending_until',
+        'voided_at',
+        'pr_repo',
+        'pr_number',
+      ])
+      .orderBy('id')
+      .execute();
+
+  /** The worker took the Dev turn of a task with no PR, and submitted A pending. */
+  async function pendingNoPr(options: Options = {}, branch: string | null = 'work-9') {
+    const ctx = await started(options);
+    await ctx.store.db
+      .updateTable('session_snapshot')
+      .set({ branch })
+      .where('id', '=', 'worker-1')
+      .execute();
+    await ctx.ack(WORKER, 'T1');
+    await expect(ctx.submit(WORKER, 'T1', A)).resolves.toMatchObject({ status: 'pending' });
+    return { ctx, submittedAt: ctx.at() };
+  }
+
+  /** The worker took the Dev turn on PR #7 at A and submitted B, which no poll saw: pending. */
+  async function pendingOnPr() {
+    const ctx = await inDev();
+    ctx.pollAnswers(TIMEOUT);
+    await expect(ctx.submit(WORKER, 'T1', B)).resolves.toMatchObject({ status: 'pending' });
+    return { ctx, submittedAt: ctx.at() };
+  }
+
+  it('confirms a submit when the next poll links the PR at its head', async () => {
+    const { ctx, submittedAt } = await pendingNoPr();
+    expect((await ctx.task()).column).toBe('dev');
+    expect(await ctx.openTurn()).toBeNull();
+
+    await ctx.pr();
+
+    expect((await ctx.task()).column).toBe('review');
+    expect(await ctx.openTurn()).toEqual(
+      turnOf('review', 'orchestrator:review', 'review: no_review_on_head'),
+    );
+    expect(await submissions(ctx)).toEqual([
+      {
+        column: 'dev',
+        commit_sha: A,
+        submitted_at: submittedAt,
+        pending_until: null,
+        voided_at: null,
+        pr_repo: 'o/r',
+        pr_number: 7,
+      },
+    ]);
+    expect((await ctx.why()).holds).toEqual([]);
+  });
+
+  it('confirms on the tick when the linking poll started before the submit', async () => {
+    const { ctx, submittedAt } = await pendingNoPr();
+
+    await ctx.pr({}, true, new Date(Date.parse(submittedAt) - 1).toISOString());
+    expect((await ctx.task()).column).toBe('dev');
+    // The next poll is unchanged and journals nothing, so only the tick decides.
+    await ctx.github();
+    expect((await ctx.task()).column).toBe('dev');
+    expect((await ctx.why()).holds).toEqual([]);
+
+    await ctx.tick();
+
+    expect((await ctx.task()).column).toBe('review');
+    expect((await submissions(ctx))[0]).toMatchObject({
+      submitted_at: submittedAt,
+      pending_until: null,
+    });
+  });
+
+  it('hands the turn back when a poll after the submit sees another head', async () => {
+    const { ctx } = await pendingOnPr();
+    expect(await submissions(ctx)).toMatchObject([
+      { commit_sha: B, pending_until: expect.any(String) as string, voided_at: null },
+    ]);
+
+    await ctx.pr({ headSha: C });
+
+    expect((await ctx.task()).column).toBe('dev');
+    expect(await ctx.openTurn()).toEqual(
+      turnOf('dev', 'worker', 'dev: no_submit_on_head (submit of bbbbbbb: head moved to ccccccc)'),
+    );
+    expect((await submissions(ctx))[0]?.voided_at).toBe(ctx.at());
+  });
+
+  it('hands the turn back when a poll after the submit sees the PR closed', async () => {
+    const { ctx } = await pendingOnPr();
+
+    await ctx.pr({ state: 'closed' });
+
+    expect(await ctx.openTurn()).toEqual(
+      turnOf('dev', 'worker', 'dev: pr_closed (submit of bbbbbbb: PR o/r#7 closed)'),
+    );
+    expect((await submissions(ctx))[0]?.voided_at).toBe(ctx.at());
+  });
+
+  it('holds a pending submit while the clock alone passes the bound', async () => {
+    const { ctx } = await pendingNoPr();
+    ctx.wait(BOUND + 1);
+
+    await ctx.tick();
+
+    expect(await ctx.openTurn()).toBeNull();
+    expect(await submissions(ctx)).toMatchObject([
+      { pending_until: expect.any(String) as string, voided_at: null },
+    ]);
+    const why = await ctx.why();
+    expect(why.holds).toEqual(['submit_pending']);
+    expect(why.pendingSubmit?.text).toBe('submit pending confirmation of aaaaaaa');
+
+    // A complete poll that started after the bound and still finds no PR fails it on the tick.
+    await ctx.github();
+    expect(await ctx.openTurn()).toBeNull();
+    await ctx.tick();
+
+    expect(await ctx.openTurn()).toEqual(
+      turnOf('dev', 'worker', 'dev: no_pr (submit of aaaaaaa: no PR found for work-9)'),
+    );
+    expect((await submissions(ctx))[0]?.voided_at).toBe(ctx.at());
+    expect(await ctx.why()).not.toHaveProperty('pendingSubmit');
+  });
+
+  it('names no branch when the author session has none', async () => {
+    const { ctx } = await pendingNoPr({}, null);
+    ctx.wait(BOUND);
+    await ctx.github();
+    await ctx.tick();
+
+    expect(await ctx.openTurn()).toEqual(
+      turnOf('dev', 'worker', 'dev: no_pr (submit of aaaaaaa: no PR found)'),
+    );
+  });
+
+  it('decides nothing before the bound', async () => {
+    const { ctx, submittedAt } = await pendingNoPr();
+    ctx.wait(BOUND - 120_000 - 1);
+    await ctx.github();
+    await ctx.tick();
+
+    expect(ctx.at()).toBe(new Date(Date.parse(submittedAt) + BOUND - 1).toISOString());
+    expect(await ctx.openTurn()).toBeNull();
+    expect((await submissions(ctx))[0]?.voided_at).toBeNull();
+  });
+
+  it('keeps a submit on a linked PR no poll observed pending past the bound', async () => {
+    const { ctx } = await pendingOnPr();
+    await ctx.store.db.deleteFrom('pr_snapshot').execute();
+    await ctx.store.db
+      .insertInto('pr_snapshot')
+      .values({
+        repo: 'o/r',
+        number: 7,
+        head_sha: A,
+        head_branch: 'o/r#9-work',
+        state: 'open',
+        draft: 0,
+        mergeable: 'mergeable',
+        merge_state: 'clean',
+        detail: JSON.stringify(prFacts()),
+        source: GITHUB,
+        observed_at: '2026-11-04T08:00:00.000Z',
+      })
+      .execute();
+    ctx.wait(BOUND);
+    await ctx.repo('o/r');
+    await ctx.tick();
+    await ctx.tick();
+
+    expect(await ctx.openTurn()).toBeNull();
+    expect((await submissions(ctx))[0]).toMatchObject({
+      voided_at: null,
+      pending_until: expect.any(String) as string,
+    });
+    expect((await ctx.why()).holds).toEqual(['submit_pending']);
+  });
+
+  it('expiry while GitHub is blind decides nothing', async () => {
+    const { ctx } = await pendingNoPr();
+    await ctx.blind(GITHUB, true);
+    ctx.wait(BOUND);
+    const before = await ctx.snapshot();
+
+    await ctx.tick();
+
+    expect(await ctx.snapshot()).toEqual(before);
+    expect(await ctx.openTurn()).toBeNull();
+    expect((await ctx.why()).holds).toEqual(['github_blind', 'submit_pending']);
+
+    await ctx.blind(GITHUB, false);
+    await ctx.github();
+    await ctx.tick();
+
+    expect(await ctx.openTurn()).toEqual(
+      turnOf('dev', 'worker', 'dev: no_pr (submit of aaaaaaa: no PR found for work-9)'),
+    );
+  });
+
+  it('failure under a cycle hold waits for the hold', async () => {
+    const { ctx } = await pendingNoPr();
+    const task = await ctx.task();
+    await ctx.store.db
+      .insertInto('operator_item')
+      .values({
+        item_key: `cycle-limit:${String(task.id)}:dev`,
+        raise_no: 1,
+        kind: 'cycle_limit',
+        text: 'Cycle limit',
+        url: 'https://example.invalid/item',
+        task_id: task.id,
+        block_id: null,
+        raised_at: ctx.at(),
+        cleared_at: null,
+        line_outbox_id: null,
+        inbound_event_json: null,
+      })
+      .execute();
+    ctx.wait(BOUND);
+    await ctx.github();
+    await ctx.tick();
+
+    expect(await ctx.openTurn()).toBeNull();
+    expect((await submissions(ctx))[0]?.voided_at).toBeNull();
+
+    await ctx.store.db.updateTable('operator_item').set({ cleared_at: ctx.at() }).execute();
+    await ctx.tick();
+
+    expect(await ctx.openTurn()).toEqual(
+      turnOf('dev', 'worker', 'dev: no_pr (submit of aaaaaaa: no PR found for work-9)'),
+    );
+    expect((await submissions(ctx))[0]?.voided_at).toBe(ctx.at());
+  });
+
+  it('a failed Review submit is voided by id', async () => {
+    const ctx = await inReview();
+    await ctx.ack(REV, 'T2');
+    ctx.pollAnswers(TIMEOUT);
+    await expect(ctx.submit(REV, 'T2', C)).resolves.toMatchObject({ status: 'pending' });
+
+    await ctx.github();
+    await ctx.tick();
+
+    expect(await ctx.openTurn()).toEqual(
+      turnOf(
+        'review',
+        'orchestrator:review',
+        'review: no_review_on_head (submit of ccccccc: head moved to aaaaaaa)',
+      ),
+    );
+    const failed = (await submissions(ctx)).find((row) => row.column === 'review');
+    // Voided in the pass that opened the turn, though `voids: review` skips the mark column.
+    expect(failed?.voided_at).toBe((await ctx.turns()).at(-1)?.created_at);
+
+    const events = (await ctx.events()).length;
+    await ctx.tick();
+    await ctx.tick();
+    expect(await ctx.events()).toHaveLength(events);
+
+    await ctx.pr({ headSha: C });
+    await ctx.tick();
+
+    expect((await submissions(ctx)).find((row) => row.column === 'review')).toEqual(failed);
+    expect(
+      (await ctx.moves()).filter((move) => move.from === 'review' && move.reason === 'gate_passed'),
+    ).toEqual([]);
   });
 });
