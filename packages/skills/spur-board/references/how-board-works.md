@@ -52,6 +52,9 @@ current. A visit submission belongs to one column visit; a move left clears
 submissions at that column and to its right. A new head invalidates internal
 Review and Product Review marks, even if an older head later comes back.
 
+A status comment whose last line is a hidden `board-reviewer-progress` or
+`board-reviewer-unavailable` marker is not external feedback.
+
 ## Turns and delivery
 
 A turn `T<number>` hands one column visit to its executor. First acknowledge it
@@ -64,9 +67,9 @@ so do not resubmit or raise a block; the Board confirms it or hands the turn bac
 (`projects[].dispatcher.submitConfirmMs`).
 
 A new head closes taken turns outside Dev; a taken Dev turn survives the worker's
-push so that worker can submit it. An unacknowledged turn does not hold back a
-return for CI, draft, conflict or external comments. The operator gets one inbox
-item and Slack thread for a turn, which closes when the task leaves the column.
+push so that worker can submit it. An untaken turn does not hold back a return
+for CI, draft, conflict or external comments. The operator gets one inbox item
+and Slack thread per turn, closed when the task leaves the column.
 
 Closed turns receive no further Board sends. Obsolete queued rings are dropped,
 but a message already accepted by Spur cannot be retracted. On receipt, check
@@ -78,8 +81,8 @@ but a message already accepted by Spur cannot be retracted. On receipt, check
 column; `courseCheck: 0` disables the course check.
 `projects[].columns[].cycleLimit` defaults to 10 and takes priority if both limits
 are reached. Executor returns, changes requested and external comments count;
-CI failures, conflicts and drafts alone do not count. Reopening a ticket or
-switching dispatcher mode does not count as a return.
+CI failures, conflicts and drafts alone do not count; nor do a reopened ticket
+or a dispatcher mode switch.
 
 A course check holds the task and asks for direction, with open findings.
 `projects[].columns[].courseCheckTo` may name `operator`, the curator, or a
@@ -97,18 +100,18 @@ the operator gets an item to intervene.
 A question (`needs_input`) goes to the column's configured orchestrator, then the
 curator when no other orchestrator takes it, otherwise the operator. Routing
 avoids asking yourself: an orchestrator's own question goes to the curator, and
-the curator's own question goes to the operator. A column explicitly assigned to
-`operator` also sends questions to the operator.
+the curator's own question goes to the operator, as does a question in an
+`operator` column.
 
 A `code` block goes to the worker to repair. A `dependency` or `external` block
 stays with its author's role to track the dependency or outside event. Questions
 can escalate from column orchestrator to curator to operator; other blocks
 escalate straight to the operator. Escalation skips a step your own project also
-holds: a curator that also orchestrates the column escalates its column's
-question straight to the operator. Use keyed `board escalate <block>`
+holds: a curator that also orchestrates the column sends its question straight
+to the operator. Use keyed `board escalate <block>`
 when the current addressee cannot resolve it.
 
-The routing configuration is `projects[].columns[].orchestrator`,
+Routing uses `projects[].columns[].orchestrator`,
 `projects[].spurProjects[].role` and `operator.slack` (the operator's Slack user
 ID). Role addresses follow the current session filling the role.
 
@@ -143,5 +146,5 @@ role icon (`board` for operator roles). With no live session,
 One linked PR merging does not by itself finish the task. Done follows ticket
 completion: `projects[].tracker.doneStatuses` defines Jira's done statuses;
 for GitHub, the Issue must be closed. After a merge the Board waits for tracker
-confirmation; if the ticket remains open once that confirmation settles, work
-continues and another PR can be linked.
+confirmation; if the ticket stays open, work continues and another PR can be
+linked.
