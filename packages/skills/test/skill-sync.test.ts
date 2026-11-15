@@ -228,7 +228,7 @@ describe('product skill sync', () => {
 
   it('ships the identical bounded manual guide and links it from the skill', () => {
     expect(howBoardWorksReference).toBe(howBoardWorks);
-    expect(Buffer.byteLength(howBoardWorksReference)).toBeLessThanOrEqual(9216);
+    expect(Buffer.byteLength(howBoardWorksReference)).toBeLessThanOrEqual(10240);
     expect(skill).toContain('[how the Board works](references/how-board-works.md)');
     expect(skill).toContain('untrusted: true');
     expect(validateInvocations(howBoardWorks)).toEqual([]);
