@@ -26,7 +26,7 @@ import {
   type Sender,
   type Store,
 } from '../../src/index.ts';
-import { renderBody } from '../../src/app/outbox.ts';
+import { enqueueConversationNotice, renderBody } from '../../src/app/outbox.ts';
 import { HEALTH_PROBE_MS, retryTransport, SpurRejectedError } from '../../src/app/sender.ts';
 import {
   observeGateway,
@@ -483,6 +483,88 @@ describe('producers', () => {
     });
     expect(sent.target).toMatchObject({ kind: 'open', space: 'orchestrators' });
     expect(sent.target.kind === 'open' && sent.target.title.startsWith(seed.key)).toBe(true);
+  });
+});
+
+describe('operator conversation threads', () => {
+  /** A seeded block made an operator conversation in a thread a user started on the fake. */
+  async function started(ctx: Ctx) {
+    const seed = await seedBlock(ctx, { author: 'operator', addressee: 'curator' });
+    const root = await ctx.fake.platform.inject({
+      kind: 'message',
+      space: 'orchestrators',
+      author: userIdSchema.parse('operator'),
+      text: '@cur hello',
+    });
+    if (root.conversation === undefined || root.message === undefined) throw new Error('no root');
+    const conversation = root.conversation;
+    const at = ctx.fake.platform.now().toISOString();
+    await ctx.store.transaction(async (trx) => {
+      await trx
+        .updateTable('block')
+        .set({ addressee_spur_project: 'cur' })
+        .where('id', '=', seed.blockId)
+        .execute();
+      await trx
+        .insertInto('conversation')
+        .values({
+          gateway: ctx.fake.kind,
+          ref: conversation,
+          space: 'orchestrators',
+          task_id: seed.taskId,
+          block_id: seed.blockId,
+          purpose: 'block',
+          state: 'open',
+          root_message_ref: root.message ?? '',
+          after_message_ref: null,
+          created_at: at,
+        })
+        .execute();
+    });
+    return { seed, conversation };
+  }
+
+  it('replies in the thread the operator started, with no open row as parent', async () => {
+    const ctx = setup('slack-like', 0);
+    const { seed, conversation } = await started(ctx);
+    const first = await enqueueReply(ctx, seed.commentId);
+    const second = await enqueueReply(ctx, await addComment(ctx, seed, 'and more'));
+    expect(await outboxRow(ctx, first)).toMatchObject({ parent_outbox_id: null });
+    expect(await outboxRow(ctx, second)).toMatchObject({ parent_outbox_id: first });
+    expect(JSON.parse((await outboxRow(ctx, second)).payload)).toMatchObject({
+      targetConversation: conversation,
+    });
+    await ctx.sender.tick();
+    await ctx.sender.tick();
+    expect(ctx.observed.requests.map((request) => request.target)).toEqual([
+      { kind: 'reply', conversation },
+      { kind: 'reply', conversation },
+    ]);
+    expect(externalConversation(await outboxRow(ctx, second))).toBe(conversation);
+    expect((await commentRow(ctx, seed.commentId)).conversation_ref).toBe(conversation);
+  });
+
+  it('posts a notice as a plain board reply in its thread', async () => {
+    const ctx = setup('slack-like', 0);
+    const { conversation } = await started(ctx);
+    await scanTransaction(ctx.store, testConfig, (trx) =>
+      enqueueConversationNotice(trx, {
+        conversation,
+        text: 'No addressee.',
+        at: ctx.fake.platform.now(),
+      }),
+    );
+    await ctx.sender.tick();
+    expect(ctx.observed.requests).toEqual([
+      expect.objectContaining({
+        target: { kind: 'reply', conversation },
+        persona: { name: 'board', role: 'board' },
+        body: [{ kind: 'paragraph', children: [{ kind: 'text', text: 'No addressee.' }] }],
+      }),
+    ]);
+    const [row] = await ctx.store.db.selectFrom('outbox').selectAll().execute();
+    expect(row?.state).toBe('done');
+    expect(externalConversation(row ?? { external_ref: null })).toBe(conversation);
   });
 });
 

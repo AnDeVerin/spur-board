@@ -87,7 +87,7 @@ export async function conversationStore(): Promise<{ store: Store; file: string 
   return opened;
 }
 
-/** A live, idle Spur session `id` of Spur project `spur`. */
+/** A live Spur session `id` of Spur project `spur`, waiting at its prompt so rings go out. */
 export async function liveSession(store: Store, id: string, spur: string): Promise<void> {
   await store.db
     .insertInto('session_snapshot')
@@ -99,6 +99,19 @@ export async function liveSession(store: Store, id: string, spur: string): Promi
       end_reason: null,
       absent_since: null,
       first_seen: CONVERSATION_AT,
+      detail: JSON.stringify({
+        id,
+        spurProject: spur,
+        branch: null,
+        pr: null,
+        links: {},
+        lifecycle: 'running',
+        health: 'waiting',
+        healthSince: CONVERSATION_AT,
+        lastActivityAt: null,
+        endedAt: null,
+        endReason: null,
+      }),
     })
     .execute();
 }

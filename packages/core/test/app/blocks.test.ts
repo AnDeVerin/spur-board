@@ -14,7 +14,12 @@ import {
   openStore,
   type Store,
 } from '../../src/index.ts';
-import { closeOpenBlock, editInboundComment, openSystemBlock } from '../../src/app/blocks.ts';
+import {
+  closeOpenBlock,
+  editInboundComment,
+  openSystemBlock,
+  recordInboundBlockMessage,
+} from '../../src/app/blocks.ts';
 import { raiseItem } from '../../src/app/feed.ts';
 import { reconcileItems } from '../../src/app/fromYou.ts';
 import { scanTransaction } from '../../src/app/secrets.ts';
@@ -22,6 +27,11 @@ import { taskSubject } from '../../src/app/subject.ts';
 import { createTaskQueries } from '../../src/app/task-queries.ts';
 import { sampleRows } from '../store/sample-rows.ts';
 import { observeGateway } from '../support/observe.ts';
+import {
+  conversationConfig,
+  conversationStore,
+  startConversation,
+} from '../support/conversation.ts';
 
 const KEY = 'o/r#101';
 const NOW = Date.parse('2026-11-03T10:00:00.000Z');
@@ -1129,6 +1139,23 @@ describe('curator delivery', () => {
     expect(observed.violations).toEqual([]);
   });
 
+  it("keeps the asker's answer ring unacked after the answer closes the block", async () => {
+    const { store, apply, ops: curated } = await curatorBoard('qa', used);
+    const { block } = await apply(curated.ask, { task: KEY, text: 'Q?' }, author, 'ask');
+    const answered = await apply(curated.answer, { block: block.id, text: 'A.' }, curator, 'a');
+    expect(answered.block.state).toBe('unblocked');
+    expect(
+      await store.db
+        .selectFrom('notification')
+        .select(['kind', 'role', 'acked_at'])
+        .orderBy('id')
+        .execute(),
+    ).toEqual([
+      { kind: 'block', role: 'curator', acked_at: new Date(NOW).toISOString() },
+      { kind: 'answer', role: 'worker', acked_at: null },
+    ]);
+  });
+
   it('names the line after the configured curator display name and icon', async () => {
     const named = configSchema.parse({
       ...used,
@@ -1559,6 +1586,27 @@ describe('escalation note', () => {
       expect(await counts(store)).toEqual(settled);
     });
 
+    it('leaves an operator conversation on a task where the operator addressed it', async () => {
+      const board = conversationConfig();
+      const { store } = await conversationStore();
+      stores.push(store);
+      await startConversation(store, board, '@cur o/r#101 status?');
+      const notices = await store.db.selectFrom('notification').selectAll().execute();
+      const before = await store.db.selectFrom('block').selectAll().execute();
+      const result = await createApply({ store, clock, config: board })(
+        createBlockMutations(board).escalate,
+        { block: 'B1', note: 'Not mine.' },
+        curator,
+        'esc',
+      );
+      expect(result.block).toMatchObject({ task: KEY, addressee: 'curator', state: 'open' });
+      expect(await store.db.selectFrom('block').selectAll().execute()).toEqual(before);
+      expect(before[0]).toMatchObject({ addressee_spur_project: 'cur', addressee_role: 'curator' });
+      expect(await store.db.selectFrom('notification').selectAll().execute()).toEqual(notices);
+      expect((await comments(store)).at(-1)).toEqual({ text: 'Not mine.' });
+      expect(await escalations(store)).toEqual([]);
+    });
+
     it('adds the note when the block is already at the top', async () => {
       const { store, apply, ops: curated, id } = await operatorThread();
       const notices = await store.db.selectFrom('notification').selectAll().execute();
@@ -1970,5 +2018,105 @@ describe('project question', () => {
       await b.store.db.selectFrom('comment').select('text').where('block_id', '=', 1).execute(),
     ).toEqual([{ text: 'Restart?' }, { text: 'Looking.' }]);
     expect(await outbox(b.store, 'conversation.reply')).toHaveLength(1);
+  });
+});
+
+describe('operator conversation', () => {
+  const board = conversationConfig();
+  /** A `cur` conversation with its block ring and one unacked operator follow-up ring. */
+  async function followedUp(text = '@cur hello') {
+    const { store } = await conversationStore();
+    stores.push(store);
+    await startConversation(store, board, text);
+    await scanTransaction(store, board, (trx) =>
+      recordInboundBlockMessage(trx, {
+        blockId: 1,
+        text: 'and more',
+        conversationRef: 'top-1',
+        messageRef: 'top-1-reply-1',
+        at: new Date(NOW).toISOString(),
+        config: board,
+      }),
+    );
+    return { store, apply: createApply({ store, clock, config: board }) };
+  }
+  const notices = (store: Store) =>
+    store.db
+      .selectFrom('notification')
+      .select(['kind', 'role', 'acked_at'])
+      .orderBy('id')
+      .execute();
+  const replies = async (store: Store) =>
+    (
+      await store.db
+        .selectFrom('outbox')
+        .select('payload')
+        .where('kind', '=', 'conversation.reply')
+        .execute()
+    ).map((row) => JSON.parse(row.payload) as Record<string, unknown>);
+
+  it.each([
+    ['the curator it addresses', 'agent:cur/cur-1', { name: 'cur', role: 'curator' }],
+    ['an operator-role agent', 'agent:board-pm/pm-1', { name: 'board-pm', role: 'board' }],
+  ] as const)('keeps the conversation open when %s answers', async (_who, actor, persona) => {
+    const { store, apply } = await followedUp();
+    const unacked = await notices(store);
+    expect(unacked).toEqual([
+      { kind: 'block', role: 'curator', acked_at: null },
+      { kind: 'answer', role: 'curator', acked_at: null },
+    ]);
+    const answered = await apply(
+      createBlockMutations(board).answer,
+      { block: 'B1', text: 'hi' },
+      actor,
+      'answer',
+    );
+    expect(answered.block).toMatchObject({
+      state: 'open',
+      addressee: 'curator',
+      type: 'needs_input',
+    });
+    expect(await replies(store)).toEqual([
+      expect.objectContaining({ text: 'hi', persona, targetConversation: 'top-1' }),
+    ]);
+    expect(await notices(store)).toEqual(
+      unacked.map((row) => ({ ...row, acked_at: new Date(NOW).toISOString() })),
+    );
+    expect(
+      await store.db.selectFrom('outbox').select('kind').where('kind', '=', 'feed.line').execute(),
+    ).toEqual([]);
+  });
+
+  it('rings the addressee again for an operator CLI answer', async () => {
+    const { store, apply } = await followedUp();
+    await apply(createBlockMutations(board).answer, { block: 'B1', text: 'hi' }, 'operator', 'a');
+    expect((await notices(store)).map((row) => [row.kind, row.acked_at === null])).toEqual([
+      ['block', false],
+      ['answer', false],
+      ['answer', true],
+    ]);
+  });
+
+  it('answers a task conversation under the orchestrator persona of its column', async () => {
+    const { store, apply } = await followedUp('@qa o/r#101 status?');
+    await apply(
+      createBlockMutations(board).answer,
+      { block: 'B1', text: 'ok' },
+      'agent:qa/qa-1',
+      'a',
+    );
+    expect(await replies(store)).toEqual([
+      expect.objectContaining({ persona: { name: 'qa', role: 'orchestrator' } }),
+    ]);
+    expect(
+      await store.db.selectFrom('outbox').select('kind').where('kind', '=', 'feed.line').execute(),
+    ).toEqual([]);
+  });
+
+  it('denies an agent of another Spur project', async () => {
+    const { apply } = await followedUp();
+    await expect(
+      apply(createBlockMutations(board).answer, { block: 'B1', text: 'x' }, 'agent:qa/qa-1', 'a'),
+    ).rejects.toMatchObject({ code: 'forbidden' });
   });
 });

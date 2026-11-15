@@ -22,6 +22,7 @@ import {
 } from '../../src/index.ts';
 import { sampleRows } from '../store/sample-rows.ts';
 import { openTempStore } from '../support/store.ts';
+import { conversationConfig } from '../support/conversation.ts';
 
 const config = configSchema.parse({
   projects: [
@@ -198,6 +199,53 @@ describe('authorize catalog grants', () => {
       'denied',
     );
     expect(authorize(escalate.grants, actors.worker, state('worker')).status).toBe('allowed');
+  });
+
+  describe('conversation addressee', () => {
+    const board = conversationConfig();
+    const conversation = (spur: string, addressee_role: 'curator' | 'worker', task: boolean) => ({
+      config: board,
+      target: {
+        kind: 'found' as const,
+        value: {
+          ...target,
+          task: task ? target.task : null,
+          workers: task ? target.workers : [],
+          block: {
+            type: 'needs_input' as const,
+            author: 'operator' as const,
+            addressee_role,
+            addressee_spur_project: spur,
+          },
+        },
+      },
+    });
+    const answer = operation('block.answer');
+    const escalate = operation('block.escalate');
+
+    it.each([
+      ['cur', 'curator', false],
+      ['qa', 'worker', false],
+      ['qa', 'worker', true],
+      ['cur', 'curator', true],
+    ] as const)(
+      'lets only the %s project hold a %s conversation (on a task: %s)',
+      (spur, role, task) => {
+        const state = conversation(spur, role, task);
+        const holds = (actor: ActorId, grants: typeof answer.grants) =>
+          authorize(grants, actor, state).status;
+        const target = `agent:${spur}/s-1` as ActorId;
+        expect(holds(target, answer.grants)).toBe('allowed');
+        expect(holds(target, escalate.grants)).toBe('allowed');
+        for (const other of ['agent:cur/s-1', 'agent:qa/s-1', 'agent:web/worker-1'] as const) {
+          if (other === target) continue;
+          expect(holds(other, answer.grants), other).toBe('denied');
+          expect(holds(other, escalate.grants), other).toBe('denied');
+        }
+        expect(holds('agent:board-pm/pm-1', answer.grants)).toBe('allowed');
+        expect(holds('operator', answer.grants)).toBe('allowed');
+      },
+    );
   });
 
   describe('curator', () => {

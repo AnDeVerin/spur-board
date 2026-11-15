@@ -44,8 +44,17 @@ import {
   turnExecutor,
 } from '../../src/app/turns.ts';
 import { openTempStore } from '../support/store.ts';
+import {
+  CONVERSATION_AT,
+  conversationConfig,
+  conversationStore,
+  liveSession,
+  startConversation,
+} from '../support/conversation.ts';
+import { recordInboundBlockMessage } from '../../src/app/blocks.ts';
 
 const KEY = 'o/r#101';
+const DAY_MS = 86_400_000;
 const START = Date.parse('2026-11-03T10:00:00.000Z');
 const config = configSchema.parse({
   projects: [
@@ -3515,6 +3524,116 @@ describe('project question doorbells', () => {
         actor: 'system',
         payload: { doorbell: `N${String(notice?.id)}`, reason: 'no live addressee' },
       },
+    ]);
+  });
+});
+
+describe('operator conversation doorbells', () => {
+  const board = conversationConfig();
+  const at = new Date(CONVERSATION_AT);
+  /** A `cur` conversation opened by the operator; `session` adds a live `cur` session. */
+  async function conversation(session: boolean) {
+    const { store } = await conversationStore();
+    stores.push(store);
+    if (session) await liveSession(store, 'cur-1', 'cur');
+    await startConversation(store, board, '@cur hello');
+    const apply = createApply({ store, clock: { now: () => at.getTime() }, config: board });
+    const follow = (text: string, n: number) =>
+      scanTransaction(store, board, (trx) =>
+        recordInboundBlockMessage(trx, {
+          blockId: 1,
+          text,
+          conversationRef: 'top-1',
+          messageRef: `top-1-reply-${String(n)}`,
+          at: CONVERSATION_AT,
+          config: board,
+        }),
+      );
+    const rings = async () =>
+      (
+        await store.db
+          .selectFrom('outbox')
+          .select('payload')
+          .where('kind', '=', 'doorbell')
+          .orderBy('id')
+          .execute()
+      ).map((row) => JSON.parse(row.payload) as { session: string; text: string });
+    const notices = () =>
+      store.db
+        .selectFrom('notification')
+        .select(['kind', 'role', 'acked_at', 'exhausted_at'])
+        .orderBy('id')
+        .execute();
+    const kinds = async () =>
+      (await store.db.selectFrom('event').select('kind').execute()).map((row) => row.kind);
+    const reconcile = (when = at) => reconcileDueDoorbells(store, board, when);
+    return { store, apply, follow, rings, notices, kinds, reconcile };
+  }
+
+  it('rings the addressed session again for each operator follow-up', async () => {
+    const ctx = await conversation(true);
+    await ctx.reconcile();
+    expect((await ctx.rings()).map((ring) => ring.session)).toEqual(['cur-1']);
+    const ops = createBlockMutations(board);
+    await ctx.apply(ops.answer, { block: 'B1', text: 'hi' }, 'agent:cur/cur-1', 'answer');
+    await ctx.follow('and more', 1);
+    await ctx.reconcile();
+    const rings = await ctx.rings();
+    expect(rings.map((ring) => ring.session)).toEqual(['cur-1', 'cur-1']);
+    expect(rings[1]?.text).toMatch(/^proj \(project\) block B1: check board inbox \(N2-1\)$/);
+    expect(await ctx.kinds()).not.toContain('doorbell_undelivered');
+    expect(await ctx.store.db.selectFrom('operator_item').select('kind').execute()).toEqual([]);
+  });
+
+  it('rings nobody for a message after the conversation closed', async () => {
+    const ctx = await conversation(true);
+    await ctx.follow('close', 1);
+    await ctx.follow('late', 2);
+    await ctx.reconcile();
+    expect(await ctx.rings()).toEqual([]);
+    expect((await ctx.notices()).map((row) => row.kind)).toEqual(['block']);
+    expect((await ctx.notices())[0]?.acked_at).not.toBeNull();
+  });
+
+  it('keeps a ring due with no live session and sends it once one appears', async () => {
+    const ctx = await conversation(false);
+    await ctx.follow('and more', 1);
+    const later = new Date(at.getTime() + DAY_MS);
+    await ctx.reconcile(later);
+    expect(await ctx.rings()).toEqual([]);
+    expect(await ctx.notices()).toEqual([
+      { kind: 'block', role: 'curator', acked_at: null, exhausted_at: null },
+      { kind: 'answer', role: 'curator', acked_at: null, exhausted_at: null },
+    ]);
+    expect(await ctx.kinds()).not.toContain('doorbell_undelivered');
+    expect(await ctx.kinds()).not.toContain('block_escalated');
+    expect(
+      await ctx.store.db.selectFrom('block').select(['addressee_role', 'state']).execute(),
+    ).toEqual([{ addressee_role: 'curator', state: 'open' }]);
+    await liveSession(ctx.store, 'cur-2', 'cur');
+    await ctx.reconcile(later);
+    expect((await ctx.rings()).map((ring) => ring.session)).toEqual(['cur-2', 'cur-2']);
+  });
+
+  it("keeps the operator's removal ring for the addressee until a session appears", async () => {
+    const ctx = await conversation(false);
+    const ops = createBlockMutations(board);
+    const input = { block: 'B1', mode: 'reason', reason: 'Not needed.' } as const;
+    await ctx.apply(ops.unblock, input, 'operator', 'unblock');
+    await ctx.reconcile();
+    expect(await ctx.notices()).toEqual([
+      { kind: 'block', role: 'curator', acked_at: CONVERSATION_AT, exhausted_at: null },
+      { kind: 'removed', role: 'curator', acked_at: null, exhausted_at: null },
+    ]);
+    expect(await ctx.rings()).toEqual([]);
+    expect(await ctx.kinds()).not.toContain('doorbell_undelivered');
+    await liveSession(ctx.store, 'cur-1', 'cur');
+    await ctx.reconcile();
+    expect(await ctx.rings()).toEqual([
+      expect.objectContaining({
+        session: 'cur-1',
+        text: expect.stringMatching(/block B1 was removed by operator/) as unknown,
+      }),
     ]);
   });
 });
