@@ -717,7 +717,7 @@ async function sessionTransition(trx: Trx, config: Config, edge: SessionTransiti
     const jira = BROWSE_KEY.exec(url)?.[1];
     if (jira !== undefined) return [jira];
     const match = /^\/([^/]+\/[^/]+)\/issues\/([1-9]\d*)$/.exec(new URL(url).pathname);
-    return match === null ? [] : [`${match[1]}#${match[2]}`];
+    return match?.[1] === undefined || match[2] === undefined ? [] : [`${match[1]}#${match[2]}`];
   });
   let tasks: { id: number; project: string }[] = [];
   if (explicit.length > 0) {

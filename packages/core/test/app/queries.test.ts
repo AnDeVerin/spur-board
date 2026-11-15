@@ -922,3 +922,76 @@ it('shares one ten-second deadline across distinct PR refreshes and deduplicates
     vi.useRealTimers();
   }
 });
+
+it('task.get and detailed status expose known reset facts and clear them only on observed recovery', async () => {
+  const { store, registry, query } = await seeded();
+  const core = createObservationCore({ store, config, clock });
+  const reset = '2026-11-04T07:00:00.000Z';
+  const base = {
+    id: 'worker-1',
+    spurProject: 'web',
+    branch: null,
+    pr: null,
+    links: {},
+    lifecycle: 'running' as const,
+    healthSince: AT,
+    lastActivityAt: null,
+    endedAt: null,
+    endReason: null,
+  };
+  async function observe(health: 'rate_limited' | 'working', rateLimitResetAt?: string) {
+    await core.observe('spur', {
+      batch: {
+        source: 'spur',
+        complete: true,
+        observedAt: AT,
+        sessionTransitions: [],
+        items: [
+          {
+            kind: 'session',
+            facts: {
+              ...base,
+              health,
+              ...(rateLimitResetAt === undefined ? {} : { rateLimitResetAt }),
+            },
+          },
+        ],
+        entities: [],
+      },
+      effectiveComplete: true,
+      outcomes: [],
+      state: { lastCompleteAt: AT, gone: [] },
+    });
+  }
+  const taskGet = required(registry['task.get']);
+  await observe('rate_limited', reset);
+  const known = await query(taskGet, { task: KEY }, 'operator');
+  expect(known.sessions).toEqual([
+    { ...base, health: 'rate_limited', rateLimitResetAt: reset, links: [] },
+  ]);
+  expect(OPERATIONS.find(({ id }) => id === 'task.get')?.output.safeParse(known).success).toBe(
+    true,
+  );
+  const detail = await getStatus(
+    { store, config, clock, completeSince: core.completeSince },
+    { detail: true },
+  );
+  expect(detail.tasks.find(({ key }) => key === KEY)?.sessions).toContainEqual(
+    expect.objectContaining({ rateLimitResetAt: reset, health: 'rate_limited' }),
+  );
+  await observe('rate_limited');
+  expect((await query(taskGet, { task: KEY }, 'operator')).sessions?.[0]).not.toHaveProperty(
+    'rateLimitResetAt',
+  );
+  await observe('working');
+  expect((await query(taskGet, { task: KEY }, 'operator')).sessions?.[0]).toMatchObject({
+    health: 'working',
+  });
+  expect((await query(taskGet, { task: KEY }, 'operator')).sessions?.[0]).not.toHaveProperty(
+    'rateLimitResetAt',
+  );
+  await store.transaction((trx) =>
+    trx.updateTable('link').set({ banned: 1 }).where('entity', '=', 'session').execute(),
+  );
+  expect((await query(taskGet, { task: KEY }, 'operator')).sessions).toEqual([]);
+});

@@ -487,3 +487,14 @@ describe('evaluateSessionHealth', () => {
     expect(waiting.held).toEqual([]);
   });
 });
+
+it('carries a known rate limit reset without inferring recovery from an elapsed reset', () => {
+  const reset = new Date(start - 1000).toISOString();
+  const result = evaluate({
+    sessions: [session('limited', 'rate_limited', 5000, { rateLimitResetAt: reset })],
+  });
+  expect(result.statuses).toEqual([
+    { taskId: 'TASK-1', sessionId: 'limited', kind: 'rate_limited', rateLimitResetAt: reset },
+  ]);
+  expect(evaluate({ sessions: [session('limited', 'working', 0)] }).statuses).toEqual([]);
+});

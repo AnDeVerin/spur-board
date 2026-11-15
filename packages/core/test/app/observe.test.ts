@@ -4119,7 +4119,7 @@ describe('ordered historical session observations', () => {
       .where('kind', '=', 'session_state_changed')
       .orderBy('id')
       .execute();
-    expect(events.map((row) => JSON.parse(row.payload))).toEqual(
+    expect(events.map((row) => JSON.parse(row.payload) as unknown)).toEqual(
       edges.map((edge) => ({
         session: edge.session,
         from: edge.from,
