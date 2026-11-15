@@ -3,6 +3,7 @@ import { once } from 'node:events';
 import { createServer } from 'node:http';
 import { connect, type AddressInfo } from 'node:net';
 import { afterEach, describe, expect, it } from 'vitest';
+import { userIdSchema } from '@spur-board/contracts';
 import { startFakeSlackApi, type FakeSlackApi } from '@spur-board/gateway-slack/testing';
 
 const fakes: FakeSlackApi[] = [];
@@ -31,6 +32,24 @@ describe('startFakeSlackApi', () => {
     } finally {
       holder.close();
     }
+  });
+
+  it('posts a message started in a space to its configured channel', async () => {
+    const fake = await startFakeSlackApi({ channels: { orchestrators: 'C_O', feed: 'C_F' } });
+    fakes.push(fake);
+    const author = userIdSchema.parse('U_OPERATOR');
+    await fake.platform.inject({ kind: 'message', space: 'orchestrators', author, text: 'a' });
+    await fake.platform.inject({ kind: 'message', space: 'feed', author, text: 'b' });
+    const defaults = await start();
+    await defaults.platform.inject({ kind: 'message', space: 'orchestrators', author, text: 'c' });
+    const channelOf = (message: string) => (JSON.parse(message) as { channel: string }).channel;
+    expect((await fake.platform.messages()).map((message) => channelOf(message.message))).toEqual([
+      'C_O',
+      'C_F',
+    ]);
+    expect(
+      (await defaults.platform.messages()).map((message) => channelOf(message.message)),
+    ).toEqual(['C_ORCH']);
   });
 
   it('survives a malformed Socket Mode frame', async () => {

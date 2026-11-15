@@ -827,6 +827,18 @@ const originKey: ConformanceCase = {
       'G7: a user-started conversation emits a message event',
     );
     expect(event.originKey, 'G7: a user-started conversation has no originKey').toBeUndefined();
+    expect(event.sourceSpace, 'G7: a user-started conversation names its space').toBe(space);
+    const replied = await live(h, {
+      kind: 'message',
+      conversation: event.conversation,
+      author,
+      text: 'user-reply',
+    });
+    const reply = required(
+      ofKind(about(replied.events, replied.message), 'message')[0],
+      'G7: a reply in a user-started conversation emits a message event',
+    );
+    expect(reply, 'G7: a reply carries no source space').not.toHaveProperty('sourceSpace');
   },
 };
 

@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { normalizeInteraction, normalizeMessage } from '../src/normalize.ts';
+import { conversationRef, messageRef } from '../src/ref.ts';
 
 const bot = { userId: 'U_BOT', botId: 'B_BOT' };
 const root = { ts: '1760000000.000001', blocks: [{ block_id: 'spur:open-key' }] };
-const context = { bot, root, rootTs: root.ts };
 const channels = { orchestrators: 'C_ONE', feed: 'C_FEED' };
+const context = { bot, channels, root, rootTs: root.ts };
 
 describe('Slack inbound normalization', () => {
   it('gives duplicate top-level mentions the same event, including retries', () => {
@@ -15,12 +16,13 @@ describe('Slack inbound normalization', () => {
       text: 'please look <@U_BOT>',
       user: 'U_OPERATOR',
     };
-    const regular = normalizeMessage('C_ONE', message, { bot, root: message });
+    const regular = normalizeMessage('C_ONE', message, { bot, channels, root: message });
     const mention = normalizeMessage(
       'C_ONE',
       { ...message, type: 'app_mention' },
       {
         bot,
+        channels,
         root: message,
       },
     );
@@ -29,6 +31,7 @@ describe('Slack inbound normalization', () => {
       { ...message, retry_attempt: 3 },
       {
         bot,
+        channels,
         root: message,
       },
     );
@@ -196,7 +199,7 @@ describe('Slack inbound normalization', () => {
         deleted_ts: root.ts,
         previous_message: { ts: root.ts, blocks: root.blocks },
       },
-      { bot },
+      { bot, channels },
     );
     expect(events).toMatchObject([
       {
@@ -205,6 +208,55 @@ describe('Slack inbound normalization', () => {
         originKey: 'open-key',
       },
     ]);
+  });
+
+  it.each([
+    ['C_ONE', 'orchestrators'],
+    ['C_FEED', 'feed'],
+    ['C_OTHER', null],
+  ] as const)('names the space of a first message posted in %s', (channel, space) => {
+    const message = { ts: '1760000010.000011', text: '@cur hello', user: 'U_OPERATOR' };
+    const plain = normalizeMessage(channel, message, { bot, channels, root: message });
+    const mention = normalizeMessage(
+      channel,
+      { ...message, text: '<@U_BOT> hello' },
+      { bot, channels, root: message },
+    );
+    expect(plain).toMatchObject([{ kind: 'message', sourceSpace: space }]);
+    expect(mention).toMatchObject([{ kind: 'mention', sourceSpace: space }]);
+  });
+
+  it('keeps the pre-upgrade shape of thread replies and edits, without a source space', () => {
+    const reply = { ts: '1760000011.000012', thread_ts: root.ts, text: 'more', user: 'U_OPERATOR' };
+    expect(normalizeMessage('C_ONE', reply, context)).toEqual([
+      {
+        kind: 'message',
+        dedupeKey: 'slack:C_ONE:1760000011.000012',
+        conversation: conversationRef('C_ONE', root.ts),
+        message: messageRef('C_ONE', '1760000011.000012', root.ts),
+        rootMessage: messageRef('C_ONE', root.ts, root.ts),
+        sourceUrl: 'https://app.slack.com/archives/C_ONE/p1760000011000012',
+        author: 'U_OPERATOR',
+        text: 'more',
+        at: '2025-10-09T08:53:31.000Z',
+        originKey: 'open-key',
+      },
+    ]);
+    const first = { ts: '1760000012.000013', text: 'hello', user: 'U_OPERATOR' };
+    const editedFirst = { ...first, text: 'hello again', edited: { ts: '1760000013.000014' } };
+    const history = normalizeMessage('C_ONE', editedFirst, { bot, channels, root: editedFirst });
+    const live = normalizeMessage(
+      'C_ONE',
+      { subtype: 'message_changed', message: editedFirst },
+      { bot, channels, root: editedFirst },
+    );
+    expect(history.map((event) => [event.kind, 'sourceSpace' in event])).toEqual([
+      ['message', true],
+      ['message_edited', false],
+    ]);
+    expect(live).toHaveLength(1);
+    expect(live[0]).toEqual(history[1]);
+    expect(live[0]).not.toHaveProperty('sourceSpace');
   });
 
   it('uses trigger IDs for command and action retries', () => {

@@ -83,6 +83,7 @@ export function createSocket(
             : await rootFor(api, channel, threadTs);
         events = normalizeMessage(channel, message, {
           bot,
+          channels: config.channels,
           root,
           ...(threadTs === undefined ? {} : { rootTs: threadTs }),
         });
