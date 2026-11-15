@@ -51,6 +51,7 @@ import {
   dispatchSubmitNoPr,
 } from './new-head.ts';
 import { questionToOperator } from './question-to-operator.ts';
+import { dispatchApprovalWithNotes, dispatchUnresolvedThread } from './review-threads.ts';
 import { sourceBlind, sourceBlindJira } from './source-blind.ts';
 import {
   spurTransitionsRapidRecovery,
@@ -199,6 +200,8 @@ export const SCENARIOS: readonly Scenario[] = [
   dispatchRingClosedTurn,
   dispatchTurnView,
   dispatchReviewerStatusComment,
+  dispatchUnresolvedThread,
+  dispatchApprovalWithNotes,
   spurTransitionsRapidRecovery,
   spurTransitionsCursorExpired,
   spurTransitionsKilledHolder,
