@@ -232,6 +232,11 @@ describe('inbound apply', () => {
         .where('kind', '=', 'conversation.close')
         .execute(),
     ).toHaveLength(1);
+    const events = await store.db.selectFrom('event').select(['kind', 'via']).execute();
+    expect(events.map((event) => event.kind)).toEqual(
+      expect.arrayContaining(['comment_added', 'block_unblocked']),
+    );
+    expect(events.map((event) => event.via)).toEqual(events.map(() => 'slack'));
   });
 
   it('journals non-operator input without changing the block', async () => {
@@ -1304,6 +1309,12 @@ describe('inbound apply', () => {
       { kind: 'inbound_failed', request_id: 'failed-status' },
       { kind: 'from_you_raised', request_id: 'failed-status' },
     ]);
+    expect(
+      await store.db.selectFrom('event').select(['kind', 'via']).orderBy('id').execute(),
+    ).toEqual([
+      { kind: 'inbound_failed', via: 'slack' },
+      { kind: 'from_you_raised', via: 'slack' },
+    ]);
     const item = await getOperatorItem(store, 1);
     expect(item).toMatchObject({
       kind: 'inbound_failure',
@@ -1366,6 +1377,9 @@ describe('inbound apply', () => {
       .orderBy('id')
       .execute();
     expect(first).toHaveLength(2);
+    const gapEvents = await store.db.selectFrom('event').select('via').execute();
+    expect(gapEvents.length).toBeGreaterThan(0);
+    expect(gapEvents.map((event) => event.via)).toEqual(gapEvents.map(() => 'slack'));
     expect(first.map((item) => item.text)).toEqual(['repeat your answer', 'repeat your answer']);
     expect(
       await store.db.selectFrom('operator_item').select('kind').orderBy('id').execute(),

@@ -1,5 +1,5 @@
 {
-  "version": "bbf04f3af97f1273ac1f09e3ec4729ce5240d0e93ad25b11f9be8a2ac425aa2d",
+  "version": "b3cdd8c32b130f64bad0cda8eaa2c1dfd3fd724eafcce3c727a8d98d1bc0ec75",
   "grants": [
     "operator",
     "project-agent",
@@ -5213,6 +5213,11 @@
                     { "type": "string", "pattern": "^agent:[A-Za-z0-9._-]+\\/[A-Za-z0-9._-]+$" }
                   ],
                   "description": "Actor: operator, system, or agent:<project>/<session>."
+                },
+                "via": {
+                  "description": "Channel the write arrived through, web or slack, whoever the actor; absent for CLI, MCP, agent and scheduled writes.",
+                  "type": "string",
+                  "enum": ["web", "slack"]
                 },
                 "summary": { "type": "string", "description": "What happened, in one line." }
               },

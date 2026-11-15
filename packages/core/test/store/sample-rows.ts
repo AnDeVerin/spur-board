@@ -196,6 +196,7 @@ export const sampleRows: SampleRows = {
     payload: '{}',
     v: 1,
     request_id: 'req-1',
+    via: 'web',
   },
   outbox: {
     id: 1,

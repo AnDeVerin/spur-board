@@ -30,7 +30,7 @@ import { BLOCK_ITEM_KINDS } from '../domain/fromYou.ts';
 import { parseJson, toJson, warnSkippedOnce, type WarnSkippedRow } from '../store/json.ts';
 import type { Row } from '../store/schema.ts';
 import type { Store } from '../store/store.ts';
-import { emit, withCommandKey, type Trx } from './board-utils.ts';
+import { emit, withCommandKey, withVia, type Trx } from './board-utils.ts';
 import { editInboundComment, recordInboundBlockMessage } from './blocks.ts';
 import { selectNotificationRecipient } from './doorbells.ts';
 import { replayOperation } from './commands.ts';
@@ -478,34 +478,36 @@ export function createInbound(input: {
   }
 
   async function reapply(trx: Trx, itemId: number, at: string): Promise<void> {
-    const item = await trx
-      .selectFrom('operator_item')
-      .selectAll()
-      .where('id', '=', itemId)
-      .executeTakeFirst();
-    if (item === undefined || item.cleared_at !== null || item.inbound_event_json === null) {
-      throw new CommandError('retry_not_applicable', 'This item has no stored event to retry.');
-    }
-    const event = parseJson(inboundEventSchema, item.inbound_event_json);
-    if (event.kind === 'gap' || event.kind === 'connection') {
-      throw new CommandError('retry_not_applicable', 'This event cannot be retried.');
-    }
-    if (event.kind === 'command' || event.kind === 'action') {
-      await reapplyInteraction(trx, event, at);
-      return;
-    }
-    const actor: ActorId =
-      event.kind === 'message_deleted' || event.author === config.operator.slack
-        ? 'operator'
-        : 'system';
-    await replayOperation(trx, {
-      actor,
-      key: event.dedupeKey,
-      operation: operationId(event),
-      fingerprintInput: event,
-      output: resultSchema,
-      at,
-      run: () => runUser(trx, event, at),
+    await withVia('slack', async () => {
+      const item = await trx
+        .selectFrom('operator_item')
+        .selectAll()
+        .where('id', '=', itemId)
+        .executeTakeFirst();
+      if (item === undefined || item.cleared_at !== null || item.inbound_event_json === null) {
+        throw new CommandError('retry_not_applicable', 'This item has no stored event to retry.');
+      }
+      const event = parseJson(inboundEventSchema, item.inbound_event_json);
+      if (event.kind === 'gap' || event.kind === 'connection') {
+        throw new CommandError('retry_not_applicable', 'This event cannot be retried.');
+      }
+      if (event.kind === 'command' || event.kind === 'action') {
+        await reapplyInteraction(trx, event, at);
+        return;
+      }
+      const actor: ActorId =
+        event.kind === 'message_deleted' || event.author === config.operator.slack
+          ? 'operator'
+          : 'system';
+      await replayOperation(trx, {
+        actor,
+        key: event.dedupeKey,
+        operation: operationId(event),
+        fingerprintInput: event,
+        output: resultSchema,
+        at,
+        run: () => runUser(trx, event, at),
+      });
     });
   }
 
@@ -880,94 +882,98 @@ export function createInbound(input: {
   }
 
   async function applyUser(event: UserEvent): Promise<void> {
-    if (
-      (event.kind === 'command' || event.kind === 'action') &&
-      event.author === config.operator.slack &&
-      (event.kind !== 'command' ||
-        event.name === undefined ||
-        event.name === config.slack.command) &&
-      (event.kind === 'command' || event.sourceSpace !== null)
-    ) {
-      await dispatchInteraction(event);
-      return;
-    }
-    const at = new Date(clock.now()).toISOString();
-    const actor: ActorId =
-      event.kind === 'message_deleted' || event.author === config.operator.slack
-        ? 'operator'
-        : 'system';
-    try {
-      const result = await scanTransaction(store, config, (trx) =>
-        replayOperation(trx, {
-          actor,
-          key: event.dedupeKey,
-          operation: operationId(event),
-          fingerprintInput: event,
-          output: resultSchema,
-          at,
-          run: () => runUser(trx, event, at),
-        }),
-      );
-      if (result?.response !== undefined && 'interaction' in event) {
-        try {
-          await gateway.respond(event.interaction, plain(result.response), { private: true });
-        } catch {
-          // The input already committed; an ephemeral response failure must not replay it.
-        }
+    await withVia('slack', async () => {
+      if (
+        (event.kind === 'command' || event.kind === 'action') &&
+        event.author === config.operator.slack &&
+        (event.kind !== 'command' ||
+          event.name === undefined ||
+          event.name === config.slack.command) &&
+        (event.kind === 'command' || event.sourceSpace !== null)
+      ) {
+        await dispatchInteraction(event);
+        return;
       }
-    } catch (error) {
-      await recordFailure(event, error, at);
-    }
+      const at = new Date(clock.now()).toISOString();
+      const actor: ActorId =
+        event.kind === 'message_deleted' || event.author === config.operator.slack
+          ? 'operator'
+          : 'system';
+      try {
+        const result = await scanTransaction(store, config, (trx) =>
+          replayOperation(trx, {
+            actor,
+            key: event.dedupeKey,
+            operation: operationId(event),
+            fingerprintInput: event,
+            output: resultSchema,
+            at,
+            run: () => runUser(trx, event, at),
+          }),
+        );
+        if (result?.response !== undefined && 'interaction' in event) {
+          try {
+            await gateway.respond(event.interaction, plain(result.response), { private: true });
+          } catch {
+            // The input already committed; an ephemeral response failure must not replay it.
+          }
+        }
+      } catch (error) {
+        await recordFailure(event, error, at);
+      }
+    });
   }
 
   async function applyGap(event: Extract<InboundEvent, { kind: 'gap' }>): Promise<void> {
-    const at = new Date(clock.now()).toISOString();
-    await scanTransaction(store, config, async (trx) => {
-      const context = await taskContext(trx, event, gateway.kind);
-      const conversation =
-        event.conversation === undefined
-          ? undefined
-          : await trx
-              .selectFrom('conversation')
-              .select(['root_message_ref'])
-              .where('gateway', '=', gateway.kind)
-              .where('ref', '=', event.conversation)
-              .executeTakeFirst();
-      const opened =
-        conversation === undefined
-          ? undefined
-          : await trx
-              .selectFrom('outbox')
-              .select(['id', 'external_ref'])
-              .where('kind', '=', 'conversation.open')
-              .where('state', '=', 'done')
-              .where(
-                sql<string>`json_extract(external_ref, '$.message')`,
-                '=',
-                conversation.root_message_ref,
-              )
-              .orderBy('id', 'desc')
-              .executeTakeFirst();
-      const parsed =
-        opened?.external_ref === null || opened?.external_ref === undefined
-          ? undefined
-          : deliveredRefSchema.safeParse(JSON.parse(opened.external_ref));
-      if (opened !== undefined && parsed?.success === false)
-        warnSkipped('outbox', 'external_ref', opened.id, parsed.error);
-      const ref = parsed?.data;
-      const scope = createHash('sha256')
-        .update(JSON.stringify([gateway.kind, event.conversation ?? null]))
-        .digest('hex');
-      const baseKey = `inbound:gap:${scope}`;
+    await withVia('slack', async () => {
+      const at = new Date(clock.now()).toISOString();
+      await scanTransaction(store, config, async (trx) => {
+        const context = await taskContext(trx, event, gateway.kind);
+        const conversation =
+          event.conversation === undefined
+            ? undefined
+            : await trx
+                .selectFrom('conversation')
+                .select(['root_message_ref'])
+                .where('gateway', '=', gateway.kind)
+                .where('ref', '=', event.conversation)
+                .executeTakeFirst();
+        const opened =
+          conversation === undefined
+            ? undefined
+            : await trx
+                .selectFrom('outbox')
+                .select(['id', 'external_ref'])
+                .where('kind', '=', 'conversation.open')
+                .where('state', '=', 'done')
+                .where(
+                  sql<string>`json_extract(external_ref, '$.message')`,
+                  '=',
+                  conversation.root_message_ref,
+                )
+                .orderBy('id', 'desc')
+                .executeTakeFirst();
+        const parsed =
+          opened?.external_ref === null || opened?.external_ref === undefined
+            ? undefined
+            : deliveredRefSchema.safeParse(JSON.parse(opened.external_ref));
+        if (opened !== undefined && parsed?.success === false)
+          warnSkipped('outbox', 'external_ref', opened.id, parsed.error);
+        const ref = parsed?.data;
+        const scope = createHash('sha256')
+          .update(JSON.stringify([gateway.kind, event.conversation ?? null]))
+          .digest('hex');
+        const baseKey = `inbound:gap:${scope}`;
 
-      await raiseInboundItem(trx, {
-        sourceKey: baseKey,
-        title: 'repeat your answer',
-        sourceUrl: ref?.permalink ?? null,
-        event,
-        taskId: context.taskId,
-        at,
-        retry: false,
+        await raiseInboundItem(trx, {
+          sourceKey: baseKey,
+          title: 'repeat your answer',
+          sourceUrl: ref?.permalink ?? null,
+          event,
+          taskId: context.taskId,
+          at,
+          retry: false,
+        });
       });
     });
   }

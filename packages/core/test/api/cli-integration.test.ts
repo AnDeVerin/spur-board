@@ -293,6 +293,10 @@ describe('CLI against the real HTTP API', () => {
         { kind: 'block', role: 'curator' },
         { kind: 'answer', role: 'worker' },
       ]);
+      // CLI, MCP and agent writes reach the same HTTP API and record no `via`.
+      const vias = await store.db.selectFrom('event').select('via').execute();
+      expect(vias.length).toBeGreaterThan(1);
+      expect(vias.map((event) => event.via)).toEqual(vias.map(() => null));
     } finally {
       try {
         await app?.close();

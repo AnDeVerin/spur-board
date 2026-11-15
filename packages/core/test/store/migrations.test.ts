@@ -467,6 +467,18 @@ describe('migrate', () => {
     ]);
   });
 
+  it('leaves via empty on event rows written before 0024', () => {
+    const { raw } = rawDb(join(tempDir(), 'board.db'));
+    migrate(raw, real.slice(0, 23));
+    insertRaw(raw, 'task', sampleRows.task);
+    const row = without(sampleRows.event, ['via']);
+    insertRaw(raw, 'event', row);
+
+    migrate(raw, real);
+
+    expect(rows(raw, 'event')).toEqual([{ ...row, via: null }]);
+  });
+
   it('keeps rows written at N-1 when migrating to N', async () => {
     const dir = tempDir();
     const { raw, db } = rawDb(join(dir, 'board.db'));
@@ -1165,6 +1177,7 @@ describe('migration pins', () => {
       '0c9118e6801ec43095111b36d3547385',
     ].join(''),
     '0023_source_budget.sql': '30465faed50ff53978f63fcb75892f3add6d6f26bb74a1ea1bbfad3d2d4ce8bd',
+    '0024_event_via.sql': 'e46ef205ce6b4f36fe83f986ef652db36c1a455b62533aaa5360d30e6055c69a',
   };
 
   interface MigrationFile {

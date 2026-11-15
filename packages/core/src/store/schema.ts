@@ -16,6 +16,7 @@ import type {
   SpaceId,
   TOKEN_STATUSES,
   TurnOutcome,
+  Via,
 } from '@spur-board/contracts';
 import type { Generated, Insertable, Selectable, Updateable } from 'kysely';
 
@@ -252,6 +253,8 @@ export interface EventTable {
   payload: string;
   v: number;
   request_id: string | null;
+  /** `web` or `slack` for a write that arrived that way, any actor; NULL for CLI, MCP, agents. */
+  via: Via | null;
 }
 
 export interface OutboxTable {
