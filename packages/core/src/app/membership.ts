@@ -4,7 +4,6 @@ import { CommandError } from './commands.ts';
 import { reconcileTaskPrs } from './pr-associations.ts';
 import { archiveTask } from './archive.ts';
 import { emit, projectForKey, taskView, type Trx } from './board-utils.ts';
-import { projectTarget } from './authorize.ts';
 import { authorizationTarget } from './blocks.ts';
 
 export function canonicalKey(
@@ -47,8 +46,8 @@ export function createMembershipMutations(config: Config): {
   return {
     add: {
       id: 'task.add',
-      // A key is the project whose tracker it matches, whether or not its task exists yet; a key
-      // of no unique project has no target, and `run` raises the key's own error.
+      // An existing key is its project's task; a new or unknown key has no project yet, so only
+      // the board-wide operator or the token may add it. `run` raises the key's own error.
       async resolveTargets(trx, input) {
         let canonical;
         try {
@@ -62,11 +61,7 @@ export function createMembershipMutations(config: Config): {
           .where('project', '=', canonical.project.id)
           .where('key', '=', canonical.key)
           .executeTakeFirst();
-        return [
-          task === undefined
-            ? projectTarget(canonical.project.id)
-            : await authorizationTarget(trx, task),
-        ];
+        return task === undefined ? [] : [await authorizationTarget(trx, task)];
       },
       async run(trx, input, ctx) {
         const { project, key } = canonicalKey(config, input.task);
