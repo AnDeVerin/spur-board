@@ -6,7 +6,7 @@
 
 `todo`, `ready-for-dev`, `dev`, `review`, `product-review`,
 `external-review`, `qa`, `ready-to-merge`, `done`.
-`projects[].columns[].enabled` false or omitted optional columns skip gates;
+`projects[].columns[].enabled` false/omitted optional columns skip gates;
 To Do, Dev, Done stay enabled.
 
 Each column has one executor: `projects[].columns[].orchestrator`:
@@ -36,7 +36,7 @@ feedback, comment history and current-head submit. Feedback excludes
 bots, approvals and `projects[].operatorGithubLogin` (agents' account), so worker
 thread replies never count; others' posts do.
 A status comment whose last line is a hidden `board-reviewer-progress` or
-`board-reviewer-unavailable` marker is not external feedback. No required checks: count non-skipped checks. `projects[].reposWithoutCi` waives absent checks
+`board-reviewer-unavailable` marker is not external feedback. No required checks: non-skipped ones count. `projects[].reposWithoutCi` waives absent checks
 for listed repos; never failed/skipped required ones.
 
 Review and Product Review need current-head internal review marks, separate from
@@ -46,7 +46,7 @@ except enabled columns, no-CI and resolved threads.
 `projects[].columns[].requireResolvedThreads` (default: `ready-to-merge` only)
 gates that column and those right of it: an unresolved review thread, outdated
 or by anyone, returns the task to Dev, whose turn lists each thread link. The
-worker fixes or answers, then resolves each; reviewers never do. Then a
+worker fixes or answers, then resolves each; reviewers never do. A
 Dev submit on the same head moves right, keeping marks and approval. An
 approval's inline notes are threads; it still passes External Review.
 
@@ -68,7 +68,7 @@ Unseen heads answer `pending`: that submit is final; do not resubmit or raise a
 block. Confirms or returns the turn
 (`projects[].dispatcher.submitConfirmMs`).
 
-A new head closes taken turns outside Dev; taken Dev turns survive pushes.
+A new head closes taken turns outside Dev; taken Dev turns survive.
 
 Closed turns receive no further Board sends; Obsolete queued rings are dropped;
 a message already accepted by Spur cannot be retracted. Check `board inbox` and
@@ -111,12 +111,12 @@ answer keeps the question.
 ## Blocks and escalation
 
 A question (`needs_input`): column orchestrator, else curator, else
-operator. Routing avoids asking yourself: orchestrators ask the curator; curators
-ask the operator.
+operator. Routing avoids asking yourself: orchestrators ask curator, curators
+operator.
 
 A `code` block goes to the worker; `dependency` or `external` block stays with
 its author's role. Escalation: column orchestrator to curator to
-operator; other blocks escalate straight to the operator. Use keyed
+operator; other blocks escalate straight to the operator. Keyed
 `board escalate <block>` if its addressee cannot resolve it.
 
 Taskless: all roles, operator only:
@@ -125,11 +125,12 @@ Project `needs_input` blocks get Slack threads except operator-agent asks;
 operator: `board inbox`, keyed `board answer`. Answers reach a current curator session; other roles use the asking session.
 
 Routing: `projects[].columns[].orchestrator`, `projects[].spurProjects[].role`,
-`operator.slack` (Slack user ID). Roles follow session.
+`operator.slack` (user ID). Roles follow session.
 
 ## Slack now
 
-`slack.channels.feed`: curator answers and operator items.
+`slack.channels.feed`: curator answers and operator items,
+except delivery/health/ended-worker items and blocks.
 `slack.channels.orchestrators`: block threads addressed to the operator by
 others. Answer in the existing block thread.
 
@@ -144,7 +145,7 @@ Middle mentions or Slack `<@U…>` address nobody; unknown names cause no lookup
 error. The operator checks short-name collisions with workspace names.
 A task key after the prefix attaches it.
 
-Given block ID, read `board inbox`, reply with
+Given block ID: `board inbox`, then
 `board answer`. Each operator thread message rings again; `close` or ✅ in the
 thread closes it. Replies use `projects[].spurProjects[].displayName` and `icon`.
 No session:
