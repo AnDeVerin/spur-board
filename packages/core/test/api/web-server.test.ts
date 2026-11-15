@@ -279,6 +279,86 @@ describe('web listener', () => {
     secure(response);
   });
 
+  it.each(
+    [
+      { path: '/assets/%zz', status: 404 },
+      { path: '/v1/ops/%E0%A4%A', status: 404 },
+      { path: `/v1/ops/${'x'.repeat(101)}`, status: 400 },
+      { path: `/v1/ops/${'%61'.repeat(101)}`, status: 400 },
+    ].flatMap((pathCase) =>
+      [
+        { method: 'GET', changes: {}, status: pathCase.status === 400 ? 404 : pathCase.status },
+        { method: 'GET', changes: { host: 'foreign.example.test' }, status: 403 },
+        { method: 'GET', changes: { 'sec-fetch-site': 'cross-site' }, status: 403 },
+        { method: 'POST', changes: { origin: undefined }, status: 403 },
+        { method: 'POST', changes: { origin: 'null' }, status: 403 },
+        { method: 'POST', changes: { origin: 'https://foreign.example.test' }, status: 403 },
+        { method: 'POST', changes: { 'content-type': 'text/plain' }, status: 403 },
+        { method: 'POST', changes: {}, status: pathCase.status },
+      ].map((requestCase) => ({ ...pathCase, ...requestCase })),
+    ),
+  )(
+    'guards and audits router failures: $method $path $changes',
+    async ({ path, method, changes, status }) => {
+      const runOperation = vi.fn();
+      const { app, logRequest } = await setup({
+        runOperation: (id, input, run) => {
+          runOperation(id, input);
+          return run();
+        },
+      });
+      const address = await app.listen({ host: '127.0.0.1', port: 0 });
+      const requestHeaders = Object.fromEntries(
+        Object.entries({
+          ...headers,
+          'x-forwarded-for': '192.0.2.1',
+          'user-agent': 'Router test',
+          ...changes,
+        }).filter(([, value]) => value !== undefined),
+      );
+      const response = await new Promise<{
+        statusCode: number | undefined;
+        headers: Record<string, unknown>;
+        body: string;
+      }>((resolve, reject) => {
+        const request = httpRequest(
+          `${address}/`,
+          { path: `${path}?secret=hidden`, method, headers: requestHeaders },
+          (response) => {
+            let body = '';
+            response.setEncoding('utf8');
+            response.on('data', (chunk: string) => {
+              body += chunk;
+            });
+            response.on('end', () => {
+              resolve({ statusCode: response.statusCode, headers: response.headers, body });
+            });
+          },
+        );
+        request.on('error', reject);
+        request.end(method === 'POST' ? '{}' : undefined);
+      });
+      expect(response.statusCode).toBe(status);
+      secure(response);
+      expect(response.headers['x-request-id']).toMatch(/^[0-9a-f-]{36}$/);
+      expect(response.headers['content-type']).toContain('application/problem+json');
+      expect(
+        Object.keys(response.headers).filter((name) => name.startsWith('access-control-')),
+      ).toEqual([]);
+      expect(response.body).not.toContain('secret=hidden');
+      expect(runOperation).not.toHaveBeenCalled();
+      expect(logRequest).toHaveBeenCalledExactlyOnceWith({
+        requestId: response.headers['x-request-id'],
+        method,
+        path,
+        status,
+        via: 'web',
+        forwardedFor: '192.0.2.1',
+        userAgent: 'Router test',
+      });
+    },
+  );
+
   it('keeps health and operations available without a UI build', async () => {
     const { app } = await setup({}, false);
     const response = await app.inject({ url: '/', headers });

@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { readdir, readFile } from 'node:fs/promises';
 import { extname, join } from 'node:path';
 import { resolveWebOrigin } from '@spur-board/contracts';
-import Fastify, { type FastifyInstance } from 'fastify';
+import Fastify, { type FastifyInstance, type FastifyRequest, type FastifyReply } from 'fastify';
 import { CommandError } from '../app/commands.ts';
 import { createOpsRoute, installOperationErrors } from './ops-route.ts';
 import type { ApiOptions } from './server.ts';
@@ -79,9 +79,33 @@ async function loadFiles(root: string | URL): Promise<Map<string, Buffer>> {
 /** Independent browser transport; the caller owns listening and shutdown. */
 export async function createWebServer(options: WebOptions): Promise<FastifyInstance> {
   const files = await loadFiles(options.webRoot);
-  const app = Fastify({ logger: false, genReqId: () => randomUUID(), trustProxy: false });
-  installOperationErrors(app, options);
-  app.addHook('onRequest', async (request, reply) => {
+  const app = Fastify({
+    logger: false,
+    genReqId: () => randomUUID(),
+    trustProxy: false,
+    frameworkErrors(error, request, reply) {
+      // Router failures skip route hooks, including response listeners.
+      secure(reply);
+      reply.raw.once('finish', () => {
+        audit(request, reply);
+      });
+      try {
+        guard(request, reply);
+      } catch (err) {
+        errorHandler(err, request, reply);
+        return;
+      }
+      errorHandler(
+        error.code === 'FST_ERR_MAX_PARAM_LENGTH'
+          ? new CommandError('usage', 'Use a shorter web path.')
+          : error,
+        request,
+        reply,
+      );
+    },
+  });
+  const errorHandler = installOperationErrors(app, options);
+  function guard(request: FastifyRequest, reply: FastifyReply): void {
     reply.header('x-request-id', request.id);
     const address = app.server.address();
     const origin = resolveWebOrigin(
@@ -108,14 +132,14 @@ export async function createWebServer(options: WebOptions): Promise<FastifyInsta
     }
     if (decoded.split(/[\\/]/).some((part) => part === '..' || part === '.'))
       throw new CommandError('not_found', 'Invalid web path.');
-  });
-  app.addHook('onSend', async (_request, reply) => {
+  }
+  function secure(reply: FastifyReply): void {
     reply.header('content-security-policy', "default-src 'self'; frame-ancestors 'none'");
     reply.header('x-frame-options', 'DENY');
     reply.header('x-content-type-options', 'nosniff');
     reply.header('referrer-policy', 'no-referrer');
-  });
-  app.addHook('onResponse', (request, reply, done) => {
+  }
+  function audit(request: FastifyRequest, reply: FastifyReply): void {
     const forwardedFor = request.headers['x-forwarded-for'];
     const userAgent = request.headers['user-agent'];
     options.logRequest({
@@ -127,6 +151,15 @@ export async function createWebServer(options: WebOptions): Promise<FastifyInsta
       ...(typeof forwardedFor === 'string' ? { forwardedFor } : {}),
       ...(userAgent === undefined ? {} : { userAgent }),
     });
+  }
+  app.addHook('onRequest', async (request, reply) => {
+    guard(request, reply);
+  });
+  app.addHook('onSend', async (_request, reply) => {
+    secure(reply);
+  });
+  app.addHook('onResponse', (request, reply, done) => {
+    audit(request, reply);
     done();
   });
   createOpsRoute(app, {

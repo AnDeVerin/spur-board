@@ -6,7 +6,7 @@ import {
   type Operation,
   type ServerErrorCode,
 } from '@spur-board/contracts';
-import type { FastifyInstance, FastifyRequest } from 'fastify';
+import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { CommandError } from '../app/commands.ts';
 import { dispatchOperation } from '../app/operations.ts';
 import type { IdentifiedCaller } from './identity.ts';
@@ -30,8 +30,8 @@ function inputBody(body: unknown): { input: unknown; key: string | undefined } {
 export function installOperationErrors(
   app: FastifyInstance,
   options: Pick<ApiOptions, 'logError'>,
-): void {
-  app.setErrorHandler((error, request, reply) => {
+) {
+  const handler = (error: unknown, request: FastifyRequest, reply: FastifyReply): void => {
     let code: ServerErrorCode = 'unexpected';
     let hint: string | undefined;
     if (error instanceof CommandError) {
@@ -47,7 +47,9 @@ export function installOperationErrors(
       .code(problem.status)
       .type('application/problem+json')
       .send(hint === undefined ? problem.body : { ...problem.body, hint });
-  });
+  };
+  app.setErrorHandler(handler);
+  return handler;
 }
 
 export function createOpsRoute(
