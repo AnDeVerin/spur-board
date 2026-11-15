@@ -450,6 +450,14 @@ describe('invalid configs', () => {
       'projects[0].columns[1].enabled',
     ],
     [
+      'resolved threads required on done',
+      validConfig({
+        columns: [...columns('todo', 'dev'), { id: 'done', requireResolvedThreads: true }],
+      }),
+      'Column "done" cannot require resolved threads: set it on a column from dev to ready-to-merge',
+      'projects[0].columns[2].requireResolvedThreads',
+    ],
+    [
       'built-in columns out of order',
       validConfig({ columns: columns('todo', 'dev', 'qa', 'review', 'done') }),
       'Column "review" is out of order: built-in columns go in the order todo, ready-for-dev, dev, review, product-review, external-review, qa, ready-to-merge, done',

@@ -164,7 +164,8 @@ const failed = (
 ): ConditionView => ({ condition, state: 'failed', reason });
 /**
  * The gates of a task in Review on a project with To Do, Dev, Review and Done enabled: Dev passes,
- * Review waits for its review on head.
+ * Review waits for its review on head. Ready to Merge is disabled, so no column requires resolved
+ * threads and Dev's `threads_resolved` is met.
  */
 const reviewGates: GateView[] = [
   { column: 'todo', enabled: true, ok: true, blockedIn: null, conditions: [] },
@@ -181,6 +182,7 @@ const reviewGates: GateView[] = [
       met('no_conflict'),
       met('external_comments_handled'),
       met('comment_history_read'),
+      met('threads_resolved'),
       met('submit_on_head'),
     ],
   },

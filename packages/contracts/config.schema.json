@@ -289,7 +289,7 @@
                 },
                 "cycleLimit": {
                   "default": 10,
-                  "description": "How many times a task may return to Dev from this column before the board stops it for the operator. Returns by the column executor, changes requested and external comments count; a conflict, red CI and a draft do not.",
+                  "description": "How many times a task may return to Dev from this column before the board stops it for the operator. Returns by the column executor, changes requested, external comments and unresolved review threads count; a conflict, red CI and a draft do not.",
                   "type": "integer",
                   "minimum": 1,
                   "maximum": 9007199254740991
@@ -305,6 +305,10 @@
                   "description": "Who answers this column's course check: operator, the curator's name, or the name of a column orchestrator. Without it, the curator, or the operator when the project has no curator. When the addressee has no live session the question moves to the operator; a conductor that is rung and does not answer keeps it, and the operator gets an item.",
                   "type": "string",
                   "minLength": 1
+                },
+                "requireResolvedThreads": {
+                  "description": "true: a task leaves this column, and every column right of it, only when its PR has no unresolved review thread; an unresolved one sends it back to Dev, and the worker's Dev turn lists each thread. Outdated threads count; a thread counts until someone resolves it, whoever wrote it. Defaults to true on ready-to-merge and false elsewhere; allowed on dev through ready-to-merge.",
+                  "type": "boolean"
                 }
               },
               "required": ["id"],

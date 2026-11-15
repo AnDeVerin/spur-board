@@ -248,7 +248,7 @@ const columnConfig = z.strictObject({
     .min(1)
     .default(DEFAULT_CYCLE_LIMIT)
     .describe(
-      'How many times a task may return to Dev from this column before the board stops it for the operator. Returns by the column executor, changes requested and external comments count; a conflict, red CI and a draft do not.',
+      'How many times a task may return to Dev from this column before the board stops it for the operator. Returns by the column executor, changes requested, external comments and unresolved review threads count; a conflict, red CI and a draft do not.',
     ),
   courseCheck: z
     .int()
@@ -262,11 +262,23 @@ const columnConfig = z.strictObject({
     .describe(
       "Who answers this column's course check: operator, the curator's name, or the name of a column orchestrator. Without it, the curator, or the operator when the project has no curator. When the addressee has no live session the question moves to the operator; a conductor that is rung and does not answer keeps it, and the operator gets an item.",
     ),
+  requireResolvedThreads: z
+    .boolean()
+    .optional()
+    .describe(
+      "true: a task leaves this column, and every column right of it, only when its PR has no unresolved review thread; an unresolved one sends it back to Dev, and the worker's Dev turn lists each thread. Outdated threads count; a thread counts until someone resolves it, whoever wrote it. Defaults to true on ready-to-merge and false elsewhere; allowed on dev through ready-to-merge.",
+    ),
 });
 
 type ColumnConfig = z.output<typeof columnConfig>;
 
-/** The board rules: required columns present and enabled, built-ins in canonical order. */
+/** Columns a task never leaves through the Dev gate, so they cannot require resolved threads. */
+const NO_THREAD_GATE: ReadonlySet<ColumnConfig['id']> = new Set(['todo', 'ready-for-dev', 'done']);
+
+/**
+ * The board rules: required columns present and enabled, resolved threads required only from Dev
+ * to Ready to Merge, built-ins in canonical order.
+ */
 function checkBoard(items: readonly ColumnConfig[], ctx: z.RefinementCtx): void {
   rejectDuplicates(items, 'id', 'column', ctx);
   for (const required of REQUIRED_COLUMN_IDS) {
@@ -285,6 +297,15 @@ function checkBoard(items: readonly ColumnConfig[], ctx: z.RefinementCtx): void 
       });
     }
   }
+  items.forEach((item, i) => {
+    if (item.requireResolvedThreads === true && NO_THREAD_GATE.has(item.id)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: [i, 'requireResolvedThreads'],
+        message: `Column ${JSON.stringify(item.id)} cannot require resolved threads: set it on a column from dev to ready-to-merge`,
+      });
+    }
+  });
   let previous = -1;
   items.forEach((item, i) => {
     const position = COLUMN_IDS.indexOf(item.id);

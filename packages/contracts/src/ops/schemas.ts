@@ -139,6 +139,23 @@ export const turnViewSchema = z
       })
       .nullable()
       .describe('Who took the turn and when; null until it is taken.'),
+    threads: z
+      .array(
+        z
+          .strictObject({
+            id: z.string().min(1).describe('Node ID of the review thread.'),
+            url: z.url({ protocol: /^https?$/ }).describe("Web URL of the thread's first comment."),
+            outdated: z
+              .boolean()
+              .describe('Whether the thread is on a diff line the head no longer has.'),
+          })
+          .describe('One unresolved review thread.'),
+      )
+      .min(1)
+      .optional()
+      .describe(
+        "The unresolved review threads on the task's open pull request, read live, in a Dev turn of a project requiring resolved threads; absent when none, or when the pull request is closed, merged or missing. Fix or answer each thread, then resolve it.",
+      ),
   })
   .describe('A turn: the executor of a column is asked to act on a task.');
 
@@ -242,7 +259,11 @@ export const taskWhySchema = z
           .strictObject({
             column: z.enum(COLUMN_IDS).describe('Board column.'),
             enabled: z.boolean().describe('Whether the column is enabled in the project.'),
-            ok: z.boolean().describe("Whether the column's own exit conditions pass."),
+            ok: z
+              .boolean()
+              .describe(
+                "Whether the column's own exit conditions pass. Dev's threads_resolved counts once any enabled column requires resolved threads, while the gates left of that column ignore it.",
+              ),
             blockedIn: z
               .enum(COLUMN_IDS)
               .nullable()

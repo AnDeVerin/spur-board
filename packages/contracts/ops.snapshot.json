@@ -1,5 +1,5 @@
 {
-  "version": "3c4b515f33d9c57c787487471d62981d895770408d890e11419b9be64ba9e06f",
+  "version": "a26d86ddf017fda2deb15c9c8174da87e118863fa38f3580b5d8ef7c3a5776c2",
   "grants": [
     "operator",
     "project-agent",
@@ -2657,6 +2657,7 @@
                     { "condition": "no_conflict", "state": "met", "reason": null },
                     { "condition": "external_comments_handled", "state": "met", "reason": null },
                     { "condition": "comment_history_read", "state": "met", "reason": null },
+                    { "condition": "threads_resolved", "state": "met", "reason": null },
                     { "condition": "submit_on_head", "state": "met", "reason": null }
                   ]
                 },
@@ -3629,7 +3630,7 @@
                     },
                     "ok": {
                       "type": "boolean",
-                      "description": "Whether the column's own exit conditions pass."
+                      "description": "Whether the column's own exit conditions pass. Dev's threads_resolved counts once any enabled column requires resolved threads, while the gates left of that column ignore it."
                     },
                     "blockedIn": {
                       "anyOf": [
@@ -3665,6 +3666,7 @@
                               "no_conflict",
                               "external_comments_handled",
                               "comment_history_read",
+                              "threads_resolved",
                               "submit_on_head",
                               "review_on_head",
                               "approved",
@@ -3691,6 +3693,7 @@
                                   "mergeable_unknown",
                                   "external_comments",
                                   "comment_history_incomplete",
+                                  "unresolved_threads",
                                   "no_submit_on_head",
                                   "no_review_on_head",
                                   "not_approved",
@@ -3853,6 +3856,33 @@
                           { "type": "null" }
                         ],
                         "description": "Who took the turn and when; null until it is taken."
+                      },
+                      "threads": {
+                        "description": "The unresolved review threads on the task's open pull request, read live, in a Dev turn of a project requiring resolved threads; absent when none, or when the pull request is closed, merged or missing. Fix or answer each thread, then resolve it.",
+                        "minItems": 1,
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string",
+                              "minLength": 1,
+                              "description": "Node ID of the review thread."
+                            },
+                            "url": {
+                              "type": "string",
+                              "format": "uri",
+                              "description": "Web URL of the thread's first comment."
+                            },
+                            "outdated": {
+                              "type": "boolean",
+                              "description": "Whether the thread is on a diff line the head no longer has."
+                            }
+                          },
+                          "required": ["id", "url", "outdated"],
+                          "additionalProperties": false,
+                          "description": "One unresolved review thread."
+                        }
                       }
                     },
                     "required": [
@@ -3954,6 +3984,7 @@
                           "mergeable_unknown",
                           "external_comments",
                           "comment_history_incomplete",
+                          "unresolved_threads",
                           "no_submit_on_head",
                           "no_review_on_head",
                           "not_approved",
@@ -3992,6 +4023,7 @@
                         "mergeable_unknown",
                         "external_comments",
                         "comment_history_incomplete",
+                        "unresolved_threads",
                         "no_submit_on_head",
                         "no_review_on_head",
                         "not_approved",
@@ -4924,6 +4956,33 @@
                     { "type": "null" }
                   ],
                   "description": "Who took the turn and when; null until it is taken."
+                },
+                "threads": {
+                  "description": "The unresolved review threads on the task's open pull request, read live, in a Dev turn of a project requiring resolved threads; absent when none, or when the pull request is closed, merged or missing. Fix or answer each thread, then resolve it.",
+                  "minItems": 1,
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": "Node ID of the review thread."
+                      },
+                      "url": {
+                        "type": "string",
+                        "format": "uri",
+                        "description": "Web URL of the thread's first comment."
+                      },
+                      "outdated": {
+                        "type": "boolean",
+                        "description": "Whether the thread is on a diff line the head no longer has."
+                      }
+                    },
+                    "required": ["id", "url", "outdated"],
+                    "additionalProperties": false,
+                    "description": "One unresolved review thread."
+                  }
                 }
               },
               "required": [
@@ -8612,6 +8671,7 @@
                       "mergeable_unknown",
                       "external_comments",
                       "comment_history_incomplete",
+                      "unresolved_threads",
                       "no_submit_on_head",
                       "no_review_on_head",
                       "not_approved",
