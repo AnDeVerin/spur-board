@@ -1240,8 +1240,11 @@ export const OPERATIONS = [
         .nullable()
         .describe('The closed turn; null for a submit by task key in shadow mode.'),
       sha: commitShaSchema.describe('The submitted commit SHA.'),
+      // The default reads a result stored before pending submits existed, when every submit
+      // confirmed its head; a new call always sets status, so the output schema keeps it required.
       status: z
         .enum(['confirmed', 'pending'])
+        .default('confirmed')
         .describe(
           'confirmed: the board saw the PR head at sha. pending: accepted, pending confirmation - the board confirms the head on its next polls and hands the turn back with the reason if it cannot; do not resubmit or raise a block.',
         ),

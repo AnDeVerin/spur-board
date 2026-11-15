@@ -1,5 +1,5 @@
 {
-  "version": "d2bc90daaea4a6ca12c7b98881a641d957cc33db0e23cc7995603c40c069d870",
+  "version": "ec3c32fbc2810cdc42f273c512fc6ce2e7f400d4f1da94947c7d368f6c2549b6",
   "grants": [
     "operator",
     "project-agent",
@@ -7802,9 +7802,10 @@
             "description": "The submitted commit SHA."
           },
           "status": {
+            "default": "confirmed",
+            "description": "confirmed: the board saw the PR head at sha. pending: accepted, pending confirmation - the board confirms the head on its next polls and hands the turn back with the reason if it cannot; do not resubmit or raise a block.",
             "type": "string",
-            "enum": ["confirmed", "pending"],
-            "description": "confirmed: the board saw the PR head at sha. pending: accepted, pending confirmation - the board confirms the head on its next polls and hands the turn back with the reason if it cannot; do not resubmit or raise a block."
+            "enum": ["confirmed", "pending"]
           }
         },
         "required": ["task", "turn", "sha", "status"],

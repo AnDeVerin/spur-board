@@ -8,6 +8,7 @@ import {
   type PrFacts,
   type PrPoller,
 } from '@spur-board/contracts';
+import { sql } from 'kysely';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   createApply,
@@ -421,6 +422,25 @@ describe('task.submit', () => {
     await expect(ctx.submit(REV_1, B, 'submit-2')).rejects.toMatchObject({ code: 'turn_closed' });
     ctx.answers(err({ kind: 'timeout', message: 'GitHub timed out' }));
     await expect(ctx.submit(REV_1, B, 'submit-1')).resolves.toMatchObject({ turn: 'T1', sha: B });
+    expect(ctx.calls).toHaveLength(1);
+  });
+
+  it('replays a result stored before submits had a status as confirmed', async () => {
+    const ctx = await taken();
+    ctx.commits(B);
+    await ctx.submit(REV_1, B, 'submit-1');
+    // A result stored before the upgrade has no status: every submit then confirmed its head.
+    await ctx.store.db
+      .updateTable('command')
+      .set({ result: sql<string>`json_remove(result, '$.status')` })
+      .where('key', '=', 'submit-1')
+      .execute();
+
+    await expect(ctx.submit(REV_1, B, 'submit-1')).resolves.toMatchObject({
+      turn: 'T1',
+      sha: B,
+      status: 'confirmed',
+    });
     expect(ctx.calls).toHaveLength(1);
   });
 
