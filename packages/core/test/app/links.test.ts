@@ -10,6 +10,7 @@ import {
   CommandError,
   createObservationCore,
   createOperationRegistry,
+  createQuery,
   getStatus,
   type Store,
 } from '../../src/index.ts';
@@ -157,6 +158,46 @@ afterEach(async () => {
 });
 
 describe('manual task links', () => {
+  it.each([
+    { case: 'plain', session: 'worker-1' },
+    { case: 'slash', session: 'worker/1' },
+    { case: 'colon', session: 'worker:1' },
+    { case: 'space', session: 'worker 1' },
+    { case: 'unicode', session: 'worker-λ' },
+    { case: 'whitespace', session: ' ' },
+    { case: 'maximum length', session: 'w'.repeat(256) },
+  ])(
+    'keeps a manually linked $case ID visible in compact and detailed status',
+    async ({ session }) => {
+      const { store, call } = await setup();
+      await expect(
+        call(
+          'link.add',
+          { mode: 'session', task, session, reason: 'Link before observation.' },
+          'operator',
+          'manual-session',
+        ),
+      ).resolves.toEqual({ task, target: session });
+      expect(
+        await store.db
+          .selectFrom('link')
+          .select(['session_id', 'banned'])
+          .where('entity', '=', 'session')
+          .execute(),
+      ).toEqual([{ session_id: session, banned: 0 }]);
+      expect(await store.db.selectFrom('session_snapshot').select('id').execute()).toEqual([]);
+      // Rebuild the reader so the overview covers persisted links, without an adapter observation.
+      const registry = createOperationRegistry({ config, clock, completeSince: new Map() });
+      const query = createQuery({ store, config, clock });
+      for (const detail of [false, true]) {
+        const result = await query(registry['status.get'], { detail }, 'operator');
+        expect(result.tasks.find((row) => row.key === task)?.links.sessions).toEqual([
+          { id: session },
+        ]);
+      }
+    },
+  );
+
   it.each([false, true])(
     'demotes an unknown manual worker when orchestrator facts arrive, banned=%s',
     async (banned) => {

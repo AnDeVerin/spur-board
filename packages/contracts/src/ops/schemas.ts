@@ -381,7 +381,7 @@ export const statusTaskSchema = taskViewSchema
           )
           .describe('Effective PR navigation, including links not yet observed.'),
         sessions: z
-          .array(z.strictObject({ id: sessionFactsSchema.shape.id }))
+          .array(z.strictObject({ id: z.string().min(1).describe('Stored session ID.') }))
           .describe('Effective linked session IDs; clients build session URLs.'),
       })
       .describe('Navigation links, always present in compact and detailed rows.'),

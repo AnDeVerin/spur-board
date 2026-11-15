@@ -1,5 +1,5 @@
 {
-  "version": "2cd2d7998adaf4a9484773220cc758f254e6eb4fa8901e61cc2833fe61f16401",
+  "version": "65dabb2ca5a6a4972cd0d0fe721391a735af6e536bc9e35ba08c9612377a32dd",
   "grants": [
     "operator",
     "project-agent",
@@ -2321,8 +2321,8 @@
                         "properties": {
                           "id": {
                             "type": "string",
-                            "pattern": "^[A-Za-z0-9._-]+$",
-                            "description": "Spur session name."
+                            "minLength": 1,
+                            "description": "Stored session ID."
                           }
                         },
                         "required": ["id"],
