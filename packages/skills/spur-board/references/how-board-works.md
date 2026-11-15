@@ -11,11 +11,14 @@ To Do, Dev and Done stay enabled.
 
 Each column has one executor: `projects[].columns[].orchestrator` selects
 `none` (live worker, else operator), `operator`, or a project with role
-`orchestrator` or `curator`. The worker owns the code and branch; other executors
-inspect and submit the head or return findings without pushing.
+`orchestrator` or `curator`. The worker owns the code and branch; others submit or return without pushing.
 
 `projects[].spurProjects[].role` accepts `worker`, `operator`, `curator` and
-`orchestrator`. Curators check direction; orchestrators execute columns, never as workers.
+`orchestrator`. Orchestrators run columns, never as workers.
+
+Top-level `spurProjects[].columns` fills its columns left at `none` in each
+project board-wide; a project-level binding wins, and a top-level `operator`
+serves projects without their own. One session acts in each project it serves.
 
 ## Gates and placement
 
@@ -28,10 +31,9 @@ Moves, turns and course checks require `projects[].dispatcher.mode: on`. The
 default is `shadow`: proposed placement only, no turns, doorbells or blocks.
 
 Gates are cumulative: each column checks its enabled gate and those to its left. At a turn boundary, broken gates return work to the leftmost failing
-column. Taken turns hold until submit, return or a new head. Pending CI, unknown
+column. Pending CI, unknown
 mergeability and incomplete comment history are waits. Downstream handoff waits
-for settled prerequisites; Dev can receive a repair turn for red CI, drafts,
-conflicts or unhandled external comments.
+for settled prerequisites; Dev can receive a repair turn.
 
 Dev needs an open non-draft PR, passing checks, no conflict, handled external
 feedback, complete comment history and current-head submit. Feedback excludes
@@ -44,8 +46,7 @@ for listed repos, never failing or skipped required ones.
 
 Review and Product Review need current-head internal review marks, separate from
 External Review's external approval. QA needs a current-head submission; Ready to Merge waits for merge. Executor `none` may reuse same-head worker submissions
-from other worker columns. Fixed gate rules have no configuration switch
-beyond enabled columns and the no-CI exception.
+from other worker columns. Fixed gate rules have no configuration switch.
 
 A Review or Product Review mark lasts across visits on the current head. A visit
 submission belongs to one column visit; moving left clears submissions there and
@@ -97,10 +98,8 @@ curator questions move to operator.
 `projects[].columns[].courseCheck` defaults to 3 counted returns to Dev;
 `courseCheck: 0` disables it. `projects[].columns[].cycleLimit` defaults to 10 and
 takes priority. Executor returns, changes requested and external comments count;
-CI failures, conflicts and drafts alone do not count, nor reopened tickets or
-mode switches.
+CI failures, conflicts and drafts alone do not count.
 
-Course checks hold work for direction.
 `projects[].columns[].courseCheckTo`: `operator`, curator or column orchestrator.
 Default: curator (`projects[].spurProjects[].role`), else operator. An answer
 resets the course count and reaches the worker as a task comment. Only the
@@ -125,7 +124,7 @@ Project `needs_input` blocks get Slack threads except operator-agent asks;
 operator: `board inbox`, keyed `board answer`. Answers reach a current curator session; other roles use the asking session.
 
 Routing: `projects[].columns[].orchestrator`, `projects[].spurProjects[].role`,
-`operator.slack` (Slack user ID). Roles follow the current session.
+`operator.slack`. Roles follow the current session.
 
 ## Slack now
 
@@ -136,19 +135,20 @@ others. Answer in the existing block thread.
 
 ## Slack addressing
 
-With `projects[].spurProjects[].shortName`, a new operator message in
+With a `projects[].spurProjects[].shortName` or `spurProjects[].shortName`, or a
+board-wide operator, a new operator message in
 `slack.channels.orchestrators` starts a conversation. A leading registered
 `@shortName` selects that Spur project and is stripped. With an absent or unknown
-leading name, `slack.defaultAddressee` receives the complete text, retaining any
-unknown prefix; without it the Board replies once with the valid prefixes.
+leading name, the default addressee gets the complete text, retaining any
+unknown prefix: `slack.defaultAddressee`, else the board-wide operator, else the
+first project operator; with none the Board replies once with the valid prefixes.
 Middle mentions or Slack `<@U…>` address nobody; unknown names cause no lookup
 error. The operator checks short-name collisions with workspace names.
 A task key after the prefix attaches it.
 
 The addressee gets the block ID, reads `board inbox`, replies with
 `board answer`. Each operator thread message rings again; `close` or ✅ in the
-thread closes it. Replies use `projects[].spurProjects[].displayName` and `icon`,
-else project name and role icon (`board` for operator). Without a session,
+thread closes it. Replies use `projects[].spurProjects[].displayName` and `icon`. Without a session,
 `board status` lists it as waiting.
 
 ## Done follows the ticket

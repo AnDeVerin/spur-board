@@ -16,11 +16,14 @@ describe('how the Board works guide', () => {
         /worker owns the code and branch/,
         /`worker`, `operator`, `curator` and\s*`orchestrator`/,
         /project with role\s*`orchestrator` or `curator`/,
+        /board-wide/,
+        /project-level binding wins/,
       ],
       keys: [
         'projects[].columns[].enabled',
         'projects[].columns[].orchestrator',
         'projects[].spurProjects[].role',
+        'spurProjects[].columns',
       ],
     },
     {
@@ -160,9 +163,11 @@ describe('how the Board works guide', () => {
         /Replies\s+use\s*`projects\[\]\.spurProjects\[\]\.displayName`\s+and\s+`icon`/,
         /`close` or ✅ in the\s*thread closes it/,
         /`board status` lists it as waiting/,
+        /board-wide operator/,
       ],
       keys: [
         'projects[].spurProjects[].shortName',
+        'spurProjects[].shortName',
         'projects[].spurProjects[].displayName',
         'slack.defaultAddressee',
         'slack.channels.orchestrators',
