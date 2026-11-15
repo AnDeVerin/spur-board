@@ -399,7 +399,7 @@ export function createInbound(input: {
   ): Promise<Result | undefined> {
     if (await alreadyApplied(trx, event)) return undefined;
     const conversation = await sourceContext(trx, event, at);
-    // A new operator message in the orchestrators channel starts a conversation.
+    // A new operator message in the orchestrators space starts a conversation.
     if (
       conversation === undefined &&
       (event.kind === 'message' || event.kind === 'mention') &&

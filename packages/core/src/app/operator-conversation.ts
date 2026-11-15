@@ -1,4 +1,4 @@
-// An operator's new message in the orchestrators channel starts a conversation with one Spur
+// An operator's new message in the orchestrators space starts a conversation with one Spur
 // project: a `needs_input` block addressed to it, whose thread is the operator's message.
 import {
   parseRef,
