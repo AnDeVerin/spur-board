@@ -131,8 +131,9 @@ conversation to that task.
 The addressee is rung with the block ID, reads the text in `board inbox` and
 replies in the thread with `board answer`. Each operator thread message rings it
 again; `close` or ✅ in the thread closes it. Replies post under
-`projects[].spurProjects[].displayName` and `icon`, else its name and role icon.
-While no live session can take it, `board status` lists it as waiting.
+`projects[].spurProjects[].displayName` and `icon`, else the Spur project's
+name and role icon (`board` for an operator role). While no live session can
+take it, `board status` lists it as waiting.
 
 ## Done follows the ticket
 

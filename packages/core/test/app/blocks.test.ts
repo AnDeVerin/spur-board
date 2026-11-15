@@ -2170,7 +2170,7 @@ describe('operator conversation', () => {
     const { store } = await conversationStore();
     stores.push(store);
     await startConversation(store, config, text);
-    await scanTransaction(store, board, (trx) =>
+    await scanTransaction(store, config, (trx) =>
       recordInboundBlockMessage(trx, {
         blockId: 1,
         text: 'and more',
