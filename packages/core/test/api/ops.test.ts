@@ -713,6 +713,7 @@ describe('catalog HTTP API', () => {
           spurUnavailable: null,
           hostLoad: null,
           transport: [],
+          bindings: { columns: [], operators: [], defaultAddressee: null },
         });
       },
     };

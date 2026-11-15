@@ -1,6 +1,7 @@
 // An operator's new message in the orchestrators space starts a conversation with one Spur
 // project: a `needs_input` block addressed to it, whose thread is the operator's message.
 import {
+  defaultAddressee,
   parseRef,
   type AddresseeRole,
   type Config,
@@ -17,8 +18,9 @@ import { projectSubject, taskSubject, type BlockSubject } from './subject.ts';
 
 /**
  * Who an operator's new message goes to: the Spur project of a leading `@<shortName>` with the
- * text after it, else `slack.defaultAddressee` with the text unchanged, else a hint that lists the
- * valid prefixes. Null when no short name is configured: the message then stays unhandled.
+ * text after it, else the default addressee (`defaultAddressee`) with the text unchanged, else a
+ * hint that lists the valid prefixes. Null when no short name and no default addressee exist: the
+ * message then stays unhandled.
  */
 type OperatorAddress = { spur: string; text: string } | { hint: string } | null;
 
@@ -27,14 +29,13 @@ function addressOperatorMessage(text: string, config: Config): OperatorAddress {
   for (const project of config.projects)
     for (const spur of project.spurProjects)
       if (spur.shortName !== undefined) spurByShortName.set(spur.shortName, spur.name);
-  if (spurByShortName.size === 0) return null;
   const prefix = /^@(\S+)\s*/.exec(text);
   const named = prefix?.[1] === undefined ? undefined : spurByShortName.get(prefix[1]);
   if (prefix?.[1] !== undefined && named !== undefined)
     return { spur: named, text: stripShortName(text, prefix[1]) };
-  const fallback = config.slack.defaultAddressee;
-  const fallbackSpur = fallback === undefined ? undefined : spurByShortName.get(fallback);
-  if (fallbackSpur !== undefined) return { spur: fallbackSpur, text };
+  const fallback = defaultAddressee(config);
+  if (fallback !== null) return { spur: fallback.spurProject, text };
+  if (spurByShortName.size === 0) return null;
   const names = [...spurByShortName.keys()].map((name) => `@${name}`).join(', ');
   return { hint: `No addressee. Start with one of: ${names}.` };
 }
@@ -64,8 +65,10 @@ async function namedTask(trx: Trx, config: Config, project: string, text: string
 }
 
 /**
- * Opens the conversation an operator's new message starts, or posts the hint in its thread.
- * Returns false, and writes nothing, when no short name is configured.
+ * Opens the conversation an operator's new message starts, or posts the hint in its thread. The
+ * block goes on the task its text names in the first board project listing the addressee that
+ * has that task, else on the first such project. Returns false, and writes nothing, when no short
+ * name and no default addressee exist.
  */
 export async function openOperatorConversation(
   trx: Trx,
@@ -90,16 +93,21 @@ export async function openOperatorConversation(
     });
     return true;
   }
-  const project = config.projects.find((entry) =>
+  const candidates = config.projects.filter((entry) =>
     entry.spurProjects.some((spur) => spur.name === address.spur),
   );
-  if (project === undefined) return false;
+  const first = candidates[0];
+  if (first === undefined) return false;
   const role: AddresseeRole =
-    project.spurProjects.find((spur) => spur.name === address.spur)?.role === 'curator'
+    first.spurProjects.find((spur) => spur.name === address.spur)?.role === 'curator'
       ? 'curator'
       : 'worker';
-  const task = await namedTask(trx, config, project.id, address.text);
-  const subject: BlockSubject = task === undefined ? projectSubject(project.id) : taskSubject(task);
+  let task: Awaited<ReturnType<typeof namedTask>>;
+  for (const candidate of candidates) {
+    task = await namedTask(trx, config, candidate.id, address.text);
+    if (task !== undefined) break;
+  }
+  const subject: BlockSubject = task === undefined ? projectSubject(first.id) : taskSubject(task);
   const ctx: CommandContext = { actor: 'operator', at: input.at };
   const block = await openBlock(
     trx,

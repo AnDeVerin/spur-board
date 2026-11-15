@@ -410,7 +410,13 @@ describe('orchestrator sessions', () => {
       const core = createObservationCore({ store, config, clock: { now: () => Date.parse(at) } });
       await spurPoll(core, at, [{ ...curatorSession('literal-1'), spurProject: name }]);
       expect(await orchestratorSessions(store.db, config)).toEqual([
-        { project: 'alpha', orchestrator: name, session: 'literal-1', columns: [] },
+        {
+          project: 'alpha',
+          orchestrator: name,
+          source: 'project',
+          session: 'literal-1',
+          columns: [],
+        },
       ]);
     },
   );
@@ -440,8 +446,42 @@ describe('orchestrator sessions', () => {
       curatorSession('cur-a-2', { lifecycle: 'completed' }),
     ]);
     expect((await orchestratorSessions(store.db, config)).slice(0, 2)).toEqual([
-      { project: 'alpha', orchestrator: 'cur-a', session: 'cur-a-1', columns: ['review'] },
-      { project: 'beta', orchestrator: 'cur-b', session: null, columns: [] },
+      {
+        project: 'alpha',
+        orchestrator: 'cur-a',
+        source: 'project',
+        session: 'cur-a-1',
+        columns: ['review'],
+      },
+      { project: 'beta', orchestrator: 'cur-b', source: 'project', session: null, columns: [] },
+    ]);
+  });
+
+  it('lists a board-wide orchestrator under each project it serves', async () => {
+    const config = configSchema.parse({
+      ...curatorConfig,
+      projects: curatorConfig.projects.slice(0, 2),
+      spurProjects: [{ name: 'br', role: 'orchestrator', columns: ['review'] }],
+    });
+    const store = openTempStore('board-board-wide-orchestrator-').store;
+    stores.push(store);
+    const core = createObservationCore({ store, config, clock: { now: () => Date.parse(at) } });
+    await spurPoll(core, at, [{ ...curatorSession('br-1'), spurProject: 'br' }]);
+    expect(await orchestratorSessions(store.db, config)).toEqual([
+      {
+        project: 'alpha',
+        orchestrator: 'br',
+        source: 'board-wide',
+        session: 'br-1',
+        columns: ['review'],
+      },
+      {
+        project: 'beta',
+        orchestrator: 'br',
+        source: 'board-wide',
+        session: 'br-1',
+        columns: ['review'],
+      },
     ]);
   });
 });

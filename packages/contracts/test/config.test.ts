@@ -6,8 +6,10 @@ import {
   DEFAULT_HTTP_PORT,
   RESERVED_PROJECT,
   type Config,
+  configBindings,
   configJsonSchema,
   configSchema,
+  defaultAddressee,
 } from '../src/index.ts';
 import { walk as walkJsonSchema } from './json-schema-walk.ts';
 
@@ -53,6 +55,28 @@ function withoutOperator(): Record<string, unknown> {
 
 const githubTracker = { type: 'github-issues', repo: 'example-org/board' };
 const columns = (...ids: string[]) => ids.map((id) => ({ id }));
+
+/** A valid config with board projects web and api and top-level `spurProjects`. */
+function boardWide(
+  spurProjects: unknown[],
+  web: Record<string, unknown> = {},
+  api: Record<string, unknown> = {},
+  root: Record<string, unknown> = {},
+): Record<string, unknown> {
+  return validConfig(
+    {},
+    {
+      projects: [
+        { ...jiraProject(), ...web },
+        { ...jiraProject(), id: 'api', repos: ['example-org/api'], ...api },
+      ],
+      spurProjects,
+      ...root,
+    },
+  );
+}
+
+const br = { name: 'br', role: 'orchestrator', columns: ['review'] };
 
 /** The error printed for an invalid config, or a failure if it parsed. */
 function errorFor(input: unknown): string {
@@ -111,6 +135,7 @@ describe('fixtures', () => {
       unansweredAfterMs: 900_000,
     });
     expect(config.http.port).toBe(DEFAULT_HTTP_PORT);
+    expect(config.spurProjects).toEqual([]);
     expect(config.slack.channels).toEqual({});
     expect(config.slack.command).toBe('/board');
     expect(config.slack.appName).toBe('spur-board');
@@ -136,6 +161,7 @@ describe('fixtures', () => {
     expect(config.archive.doneWeekday).toBe('saturday');
     expect(config.commands.retentionDays).toBe(7);
     expect(config.http.port).toBe(DEFAULT_HTTP_PORT);
+    expect(config.spurProjects).toEqual([]);
     expect(config.slack.channels).toEqual({});
     expect(adapterKeys(config)).toEqual(adapterDefaults);
     const project = config.projects[0];
@@ -341,6 +367,254 @@ describe('fixtures', () => {
   it('accepts an explicit HTTP port', () => {
     expect(configSchema.parse(validConfig({}, { http: { port: 4312 } })).http.port).toBe(4312);
     expect(configSchema.parse(validConfig({}, { http: { port: 0 } })).http.port).toBe(0);
+  });
+});
+
+describe('board-wide spur projects', () => {
+  const orchestrator = (config: Config, project: number, column: string) =>
+    config.projects[project]?.columns.find((entry) => entry.id === column)?.orchestrator;
+
+  it('fills enabled columns left at none in every board project and keeps project bindings', () => {
+    const config = configSchema.parse(
+      validConfig(
+        {},
+        {
+          projects: [
+            {
+              ...jiraProject(),
+              id: 'alpha',
+              spurProjects: [{ name: 'rev', role: 'orchestrator' }],
+              columns: [
+                ...columns('todo', 'dev'),
+                { id: 'review', orchestrator: 'rev' },
+                ...columns('qa', 'done'),
+              ],
+            },
+            {
+              ...jiraProject(),
+              id: 'beta',
+              columns: [
+                ...columns('todo', 'dev'),
+                { id: 'review', orchestrator: 'none' },
+                { id: 'qa', enabled: false },
+                ...columns('done'),
+              ],
+            },
+            { ...jiraProject(), id: 'gamma', columns: columns('todo', 'dev', 'done') },
+          ],
+          spurProjects: [
+            {
+              name: 'br',
+              role: 'orchestrator',
+              columns: ['review', 'qa'],
+              shortName: 'br',
+              displayName: 'BR',
+              icon: ':eyes:',
+            },
+          ],
+        },
+      ),
+    );
+    const synthetic = {
+      name: 'br',
+      role: 'orchestrator',
+      shortName: 'br',
+      displayName: 'BR',
+      icon: ':eyes:',
+    };
+    expect(orchestrator(config, 0, 'review')).toBe('rev');
+    expect(orchestrator(config, 0, 'qa')).toBe('br');
+    expect(orchestrator(config, 1, 'review')).toBe('br');
+    expect(orchestrator(config, 1, 'qa')).toBe('none');
+    expect(config.projects[0]?.spurProjects).toStrictEqual([
+      { name: 'rev', role: 'orchestrator' },
+      synthetic,
+    ]);
+    expect(config.projects[1]?.spurProjects).toStrictEqual([synthetic]);
+    expect(config.projects[2]?.spurProjects).toStrictEqual([]);
+    expect(config.projects[2]?.columns.map((column) => column.orchestrator)).toEqual([
+      'none',
+      'none',
+      'none',
+    ]);
+    expect(config.spurProjects).toEqual([
+      {
+        name: 'br',
+        role: 'orchestrator',
+        columns: ['review', 'qa'],
+        shortName: 'br',
+        displayName: 'BR',
+        icon: ':eyes:',
+      },
+    ]);
+  });
+
+  it('keeps a column bound to the operator literal', () => {
+    const config = configSchema.parse(
+      boardWide([br], {
+        columns: [
+          ...columns('todo', 'dev'),
+          { id: 'review', orchestrator: 'operator' },
+          ...columns('done'),
+        ],
+      }),
+    );
+    expect(orchestrator(config, 0, 'review')).toBe('operator');
+    expect(config.projects[0]?.spurProjects).toEqual([]);
+    expect(orchestrator(config, 1, 'review')).toBe('br');
+  });
+
+  it('adds the board-wide operator only to board projects without their own', () => {
+    const config = configSchema.parse(
+      boardWide([{ name: 'hq', role: 'operator' }], {
+        spurProjects: [{ name: 'web-ops', role: 'operator' }],
+      }),
+    );
+    expect(config.projects[0]?.spurProjects).toStrictEqual([{ name: 'web-ops', role: 'operator' }]);
+    expect(config.projects[1]?.spurProjects).toStrictEqual([{ name: 'hq', role: 'operator' }]);
+  });
+
+  it('lists the effective bindings of the requested board projects with their sources', () => {
+    const config = configSchema.parse(
+      boardWide(
+        [br, { name: 'hq', role: 'operator' }],
+        {
+          spurProjects: [
+            { name: 'rev', role: 'orchestrator' },
+            { name: 'web-ops', role: 'operator' },
+          ],
+          columns: [
+            ...columns('todo', 'dev'),
+            { id: 'review', orchestrator: 'rev' },
+            { id: 'qa', orchestrator: 'operator' },
+            ...columns('done'),
+          ],
+        },
+        { columns: columns('todo', 'dev', 'review', 'done') },
+      ),
+    );
+    expect(configBindings(config, new Set(['web', 'api']))).toEqual({
+      columns: [
+        { project: 'web', column: 'review', orchestrator: 'rev', source: 'project' },
+        { project: 'web', column: 'qa', orchestrator: 'operator', source: 'project' },
+        { project: 'api', column: 'review', orchestrator: 'br', source: 'board-wide' },
+      ],
+      operators: [
+        { project: 'web', operator: 'web-ops', source: 'project' },
+        { project: 'api', operator: 'hq', source: 'board-wide' },
+      ],
+      defaultAddressee: { spurProject: 'hq', source: 'board-wide' },
+    });
+    expect(configBindings(config, new Set(['api']))).toMatchObject({
+      columns: [{ project: 'api' }],
+      operators: [{ project: 'api' }],
+    });
+  });
+
+  it("lists another board project's operator while no board-wide operator exists", () => {
+    const config = configSchema.parse(
+      boardWide([], { spurProjects: [{ name: 'web-ops', role: 'operator' }] }),
+    );
+    expect(configBindings(config, new Set(['web', 'api'])).operators).toEqual([
+      { project: 'web', operator: 'web-ops', source: 'project' },
+      { project: 'api', operator: 'web-ops', source: 'other-project' },
+    ]);
+  });
+
+  it.each<[string, Record<string, unknown>[], Record<string, unknown>[], unknown]>([
+    [
+      'both projects have an operator, no board-wide one',
+      [],
+      [{ name: 'api-ops', role: 'operator' }],
+      [
+        { project: 'web', operator: 'web-ops', source: 'project' },
+        { project: 'web', operator: 'api-ops', source: 'other-project' },
+        { project: 'api', operator: 'api-ops', source: 'project' },
+        { project: 'api', operator: 'web-ops', source: 'other-project' },
+      ],
+    ],
+    [
+      'only one project has an operator, no board-wide one',
+      [],
+      [],
+      [
+        { project: 'web', operator: 'web-ops', source: 'project' },
+        { project: 'api', operator: 'web-ops', source: 'other-project' },
+      ],
+    ],
+    [
+      'a board-wide operator exists',
+      [{ name: 'hq', role: 'operator' }],
+      [],
+      [
+        { project: 'web', operator: 'web-ops', source: 'project' },
+        { project: 'api', operator: 'hq', source: 'board-wide' },
+      ],
+    ],
+  ])('lists the operators acting on each project when %s', (_, top, api, operators) => {
+    const config = configSchema.parse(
+      boardWide(
+        top,
+        { spurProjects: [{ name: 'web-ops', role: 'operator' }] },
+        { spurProjects: api },
+      ),
+    );
+    expect(configBindings(config, new Set(['web', 'api'])).operators).toEqual(operators);
+  });
+
+  describe('defaultAddressee', () => {
+    const hq = { name: 'hq', role: 'operator' };
+    const alphaOps = { spurProjects: [{ name: 'alpha-ops', role: 'operator' }] };
+    const named = { spurProjects: [{ name: 'cur', role: 'curator', shortName: 'cur' }] };
+
+    it.each<[string, Record<string, unknown>, unknown]>([
+      [
+        'slack.defaultAddressee, which always wins',
+        boardWide(
+          [hq],
+          { spurProjects: [{ name: 'alpha-ops', role: 'operator', shortName: 'ops' }] },
+          {},
+          { slack: { defaultAddressee: 'ops' } },
+        ),
+        { spurProject: 'alpha-ops', source: 'config' },
+      ],
+      [
+        'a board-wide short name set as slack.defaultAddressee',
+        boardWide(
+          [{ ...br, shortName: 'br' }],
+          alphaOps,
+          {},
+          { slack: { defaultAddressee: 'br' } },
+        ),
+        { spurProject: 'br', source: 'config' },
+      ],
+      [
+        'the board-wide operator without any short name',
+        boardWide([hq], alphaOps),
+        { spurProject: 'hq', source: 'board-wide' },
+      ],
+      [
+        'the board-wide operator with a short name set',
+        boardWide([hq], {
+          spurProjects: [{ name: 'alpha-ops', role: 'operator', shortName: 'a' }],
+        }),
+        { spurProject: 'hq', source: 'board-wide' },
+      ],
+      [
+        "the first board project's operator once a short name is set",
+        boardWide([], { spurProjects: [{ name: 'alpha-ops', role: 'operator', shortName: 'a' }] }),
+        { spurProject: 'alpha-ops', source: 'project' },
+      ],
+      [
+        'the operator of the first board project that has one',
+        boardWide([], named, { spurProjects: [{ name: 'p2-ops', role: 'operator' }] }),
+        { spurProject: 'p2-ops', source: 'project' },
+      ],
+      ['nothing without a short name or a board-wide operator', boardWide([], alphaOps), null],
+      ['nothing without any operator', boardWide([], named), null],
+    ])('is %s', (_name, input, expected) => {
+      expect(defaultAddressee(configSchema.parse(input))).toEqual(expected);
+    });
   });
 });
 
@@ -804,7 +1078,7 @@ describe('invalid configs', () => {
         { spurProjects: [{ name: 'cur', role: 'curator', shortName: 'cur' }] },
         { slack: { defaultAddressee: 'qa' } },
       ),
-      'Unknown short name "qa": set it as projects[].spurProjects[].shortName first',
+      'Unknown short name "qa": set it as spurProjects[].shortName or projects[].spurProjects[].shortName first',
       'slack.defaultAddressee',
     ],
     [
@@ -820,6 +1094,152 @@ describe('invalid configs', () => {
       ),
       'Spur project "shared" is listed under board projects "web" and "api": list it under only one',
       'projects[1].spurProjects[0].name',
+    ],
+    [
+      'a duplicate board-wide Spur project name',
+      boardWide([br, { ...br, columns: ['qa'] }]),
+      'Duplicate spur project name: "br"',
+      'spurProjects[1].name',
+    ],
+    [
+      'a board-wide Spur project named none',
+      boardWide([{ ...br, name: 'none' }]),
+      'Spur project name "none" is reserved for columns[].orchestrator',
+      'spurProjects[0].name',
+    ],
+    [
+      'a board-wide Spur project named operator',
+      boardWide([{ name: 'operator', role: 'operator' }]),
+      'Spur project name "operator" is reserved for columns[].orchestrator',
+      'spurProjects[0].name',
+    ],
+    [
+      'a column bound by two board-wide orchestrators',
+      boardWide([
+        { name: 'a', role: 'orchestrator', columns: ['review'] },
+        { name: 'b', role: 'orchestrator', columns: ['qa', 'review'] },
+      ]),
+      'Column "review" is bound board-wide by "a" and "b": bind it once',
+      'spurProjects[1].columns[1]',
+    ],
+    [
+      'a board-wide Spur project also listed under a board project',
+      boardWide([br], { spurProjects: [{ name: 'br', role: 'worker' }] }),
+      'Spur project "br" is bound board-wide in spurProjects and listed under projects[web].spurProjects as worker: remove one; a board-wide Spur project serves every board project it binds',
+      'projects[0].spurProjects[0].name',
+    ],
+    [
+      'a board-wide orchestrator that executes no column',
+      boardWide(
+        [br],
+        {
+          spurProjects: [{ name: 'rev', role: 'orchestrator' }],
+          columns: [
+            ...columns('todo', 'dev'),
+            { id: 'review', orchestrator: 'rev' },
+            ...columns('done'),
+          ],
+        },
+        {
+          columns: [
+            ...columns('todo', 'dev'),
+            { id: 'review', enabled: false },
+            ...columns('done'),
+          ],
+        },
+      ),
+      'Board-wide orchestrator "br" executes no column: in every board project each listed column is missing, disabled or bound to another orchestrator',
+      'spurProjects[0].columns',
+    ],
+    [
+      'a second board-wide operator',
+      boardWide([
+        { name: 'hq', role: 'operator' },
+        { name: 'hq-2', role: 'operator' },
+      ]),
+      'Second board-wide operator "hq-2": "hq" is already the board-wide operator',
+      'spurProjects[1].role',
+    ],
+    [
+      'a board-wide operator while every board project has its own',
+      boardWide(
+        [{ name: 'hq', role: 'operator' }],
+        { spurProjects: [{ name: 'web-ops', role: 'operator' }] },
+        { spurProjects: [{ name: 'api-ops', role: 'operator' }] },
+      ),
+      'Board-wide operator "hq" serves no board project: every board project lists its own operator',
+      'spurProjects[0].name',
+    ],
+    [
+      'a board-wide orchestrator without columns',
+      boardWide([{ name: 'br', role: 'orchestrator' }]),
+      'Board-wide orchestrator "br" needs columns: list the columns it executes',
+      'spurProjects[0].columns',
+    ],
+    [
+      'a board-wide orchestrator with an empty column list',
+      boardWide([{ ...br, columns: [] }]),
+      'Board-wide orchestrator "br" needs columns: list the columns it executes',
+      'spurProjects[0].columns',
+    ],
+    [
+      'a board-wide operator with columns',
+      boardWide([{ name: 'hq', role: 'operator', columns: ['review'] }]),
+      'Board-wide operator "hq" takes no columns',
+      'spurProjects[0].columns',
+    ],
+    [
+      'a column listed twice by one board-wide orchestrator',
+      boardWide([{ ...br, columns: ['review', 'review'] }]),
+      'Duplicate column: "review"',
+      'spurProjects[0].columns',
+    ],
+    [
+      'an unknown board-wide column',
+      boardWide([{ ...br, columns: ['bogus'] }]),
+      'Unknown column "bogus"',
+      'spurProjects[0].columns[0]',
+    ],
+    [
+      'a board-wide short name taken by a board project',
+      boardWide([{ ...br, shortName: 'cur' }], {
+        spurProjects: [{ name: 'cur', role: 'curator', shortName: 'cur' }],
+      }),
+      'Duplicate short name: "cur"',
+      'spurProjects[0].shortName',
+    ],
+    [
+      'a short name repeated across board-wide Spur projects',
+      boardWide([
+        { ...br, shortName: 'x' },
+        { name: 'hq', role: 'operator', shortName: 'x' },
+      ]),
+      'Duplicate short name: "x"',
+      'spurProjects[1].shortName',
+    ],
+    [
+      'a board-wide worker',
+      boardWide([{ name: 'w', role: 'worker' }]),
+      'Invalid option: expected one of "orchestrator"|"operator"',
+      'spurProjects[0].role',
+    ],
+    [
+      'a board-wide curator',
+      boardWide([{ name: 'c', role: 'curator' }]),
+      'Invalid option: expected one of "orchestrator"|"operator"',
+      'spurProjects[0].role',
+    ],
+    [
+      'courseCheckTo naming a board-wide orchestrator',
+      boardWide([br], {
+        columns: [
+          ...columns('todo', 'dev'),
+          { id: 'review', courseCheckTo: 'br' },
+          ...columns('done'),
+        ],
+      }),
+      'Unknown courseCheckTo "br": use operator or a spurProjects name',
+      'projects[0].columns[2].courseCheckTo',
     ],
   ])('rejects %s', (_name, input, message, path) => {
     const error = errorFor(input);
@@ -944,6 +1364,16 @@ describe('invalid configs', () => {
       { adapters: { githubIssues: { intervalMs: 86_400_000 } } },
     ],
     ['poll interval of one day (jira)', {}, { adapters: { jira: { intervalMs: 86_400_000 } } }],
+    [
+      'a board-wide orchestrator and operator',
+      {},
+      { spurProjects: [br, { name: 'hq', role: 'operator', displayName: 'HQ', icon: ':office:' }] },
+    ],
+    [
+      'a default addressee naming a board-wide short name',
+      {},
+      { spurProjects: [{ ...br, shortName: 'br' }], slack: { defaultAddressee: 'br' } },
+    ],
   ])('accepts %s', (_name, project, root) => {
     expect(configSchema.safeParse(validConfig(project, root)).success).toBe(true);
   });

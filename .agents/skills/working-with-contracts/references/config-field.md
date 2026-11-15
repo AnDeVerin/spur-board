@@ -15,3 +15,5 @@
   the use site and after `.default()` or `.refine()`; on a tracker variant put it on the `type`
   literal, not the union. `describe('generated public references')` in `scripts/gen-docs.test.ts`
   fails on a non-object row without a description.
+- A field that fills other sections of the parsed config: use `.overwrite` as
+  `.agents/skills/working-with-contracts/references/single-source.md` allows.

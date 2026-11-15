@@ -4,6 +4,7 @@ import {
   messageRefSchema,
   userIdSchema,
   type Config,
+  type ConfigInput,
   type InboundEvent,
   type SpaceId,
 } from '@spur-board/contracts';
@@ -19,12 +20,22 @@ export const CONVERSATION_AT = '2026-11-03T10:00:00.000Z';
  * Board `proj` (tracker `o/r`) with worker `web`, curator `cur` (`@cur`), column orchestrator
  * `qa` (`@qa`, the default addressee) and operator-role `board-pm`; board `other` (tracker `x/y`)
  * has worker `remote`. `defaultAddressee: null` drops the default, `shortNames: false` every
- * short name.
+ * short name, `operator: false` the operator `board-pm`; `spurProjects` sets top-level entries.
  */
 export function conversationConfig(
-  options: { defaultAddressee?: string | null; shortNames?: boolean } = {},
+  options: {
+    defaultAddressee?: string | null;
+    shortNames?: boolean;
+    operator?: boolean;
+    spurProjects?: ConfigInput['spurProjects'];
+  } = {},
 ): Config {
-  const { defaultAddressee = 'qa', shortNames = true } = options;
+  const {
+    defaultAddressee = 'qa',
+    shortNames = true,
+    operator = true,
+    spurProjects = [],
+  } = options;
   const short = (name: string) => (shortNames ? { shortName: name } : {});
   return configSchema.parse({
     projects: [
@@ -37,7 +48,7 @@ export function conversationConfig(
           { name: 'web', role: 'worker' },
           { name: 'cur', role: 'curator', ...short('cur') },
           { name: 'qa', role: 'orchestrator', ...short('qa') },
-          { name: 'board-pm', role: 'operator' },
+          ...(operator ? [{ name: 'board-pm', role: 'operator' as const }] : []),
         ],
         columns: [
           { id: 'todo', orchestrator: 'none' },
@@ -57,6 +68,7 @@ export function conversationConfig(
         spurProjects: [{ name: 'remote', role: 'worker' }],
       },
     ],
+    spurProjects,
     operator: { slack: 'operator' },
     digest: { tz: 'UTC' },
     slack: defaultAddressee === null || !shortNames ? {} : { defaultAddressee },

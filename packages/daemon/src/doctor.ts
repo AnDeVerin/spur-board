@@ -10,6 +10,7 @@ import {
   DOCTOR_FIX_MAX,
   SLACK_BOT_SCOPES,
   apiBaseUrl,
+  configBindings,
   requiredSecretKeys,
   type AdapterError,
   type Config,
@@ -401,12 +402,14 @@ function curatorSessionsCheck(entries: Awaited<ReturnType<typeof curatorSessions
 function orchestratorSessionsCheck(
   entries: Awaited<ReturnType<typeof orchestratorSessions>>,
 ): Check {
-  const segments: LinkSegment[] = entries.map(({ project, orchestrator, session, columns }) => ({
-    problem: session === null || columns.length === 0,
-    unmatched: false,
-    text: () =>
-      `${project}: orchestrator ${orchestrator}, ${session === null ? 'no live session' : `session ${session}`}, ${columns.length === 0 ? 'unused by columns' : `columns ${columns.join(', ')}`}`,
-  }));
+  const segments: LinkSegment[] = entries.map(
+    ({ project, orchestrator, source, session, columns }) => ({
+      problem: session === null || columns.length === 0,
+      unmatched: false,
+      text: () =>
+        `${project}: orchestrator ${orchestrator} (${source}), ${session === null ? 'no live session' : `session ${session}`}, ${columns.length === 0 ? 'unused by columns' : `columns ${columns.join(', ')}`}`,
+    }),
+  );
   const problems = segments.filter((entry) => entry.problem);
   const fix = fitFix(
     [...problems, ...segments.filter((entry) => !entry.problem)],
@@ -416,6 +419,28 @@ function orchestratorSessionsCheck(
   return problems.length === 0
     ? { id: 'orchestrator.sessions', status: 'pass', blocking: false, fix }
     : warning('orchestrator.sessions', fix);
+}
+
+/** Each project's operator Spur projects with their source, then the default Slack addressee. */
+function operatorBindingsText(config: Config): string {
+  const bindings = configBindings(config, new Set(config.projects.map((project) => project.id)));
+  const segments: LinkSegment[] = config.projects.flatMap((project) => {
+    const rows = bindings.operators.filter((row) => row.project === project.id);
+    if (rows.length === 0) return [];
+    const names = rows.map((row) => `${row.operator} (${row.source})`).join(', ');
+    return [{ problem: false, unmatched: false, text: () => `${project.id}: operator ${names}` }];
+  });
+  const addressee = bindings.defaultAddressee;
+  const tail =
+    addressee === null
+      ? ''
+      : ` Default Slack addressee: ${addressee.spurProject} (${addressee.source}).`;
+  const count = `${String(segments.length)} projects have an operator Spur project.`;
+  return fitFix(
+    segments,
+    tail,
+    `${count}${tail}`.length <= DOCTOR_FIX_MAX ? `${count}${tail}` : count,
+  );
 }
 
 function check(id: string, ok: boolean, fix: string): Check {
@@ -698,11 +723,13 @@ export async function runDaemonDoctor(
         .where('status', '=', 'approved')
         .executeTakeFirst();
   checks.push(
-    check(
-      'operator.path',
-      operatorProject || token !== undefined,
-      'Configure a Spur project with the operator role or approve a named operator token.',
-    ),
+    operatorProject
+      ? { id: 'operator.path', status: 'pass', blocking: false, fix: operatorBindingsText(config) }
+      : check(
+          'operator.path',
+          token !== undefined,
+          'Configure a Spur project with the operator role or approve a named operator token.',
+        ),
   );
   checks.push(await operatorTokensCheck(ctx, config));
   checks.push(curatorSessionsCheck(await curatorSessions(ctx.store.db, config)));

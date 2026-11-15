@@ -10,7 +10,7 @@ import type { Selectable } from 'kysely';
 import { parseAddressee } from '../domain/blocks/blocks.ts';
 import type { BlockTable, TaskTable } from '../store/schema.ts';
 import type { Trx } from './board-utils.ts';
-import { curatorProject } from './authorize.ts';
+import { curatorProject, isOperator } from './authorize.ts';
 import type { CommandContext } from './commands.ts';
 import { enqueueConversationOpen, enqueueConversationReply } from './outbox.ts';
 import type { BlockSubject } from './subject.ts';
@@ -30,18 +30,8 @@ export function orchestrator(config: Config, task: Task): string | null {
  * column, an agent is the curator or a worker.
  */
 export function authorRole(config: Config, subject: BlockSubject, actor: ActorId): AddresseeRole {
-  if (actor === 'operator') return 'operator';
+  if (isOperator(actor, config, subject.project)) return 'operator';
   const parsed = parseActorId(actor);
-  if (
-    parsed?.actor === 'agent' &&
-    config.projects.some((project) =>
-      project.spurProjects.some(
-        (spur) => spur.name === parsed.actorRef.project && spur.role === 'operator',
-      ),
-    )
-  ) {
-    return 'operator';
-  }
   if (parsed?.actor !== 'agent') return 'worker';
   const { task } = subject;
   if (task !== null && parsed.actorRef.project === orchestrator(config, task))

@@ -1,5 +1,12 @@
 import { z } from 'zod';
-import { BLOCK_TYPES, COLUMN_IDS, TOKEN_STATUSES } from '../enums.ts';
+import {
+  ADDRESSEE_SOURCES,
+  BLOCK_TYPES,
+  COLUMN_BINDING_SOURCES,
+  COLUMN_IDS,
+  OPERATOR_BINDING_SOURCES,
+  TOKEN_STATUSES,
+} from '../enums.ts';
 import { EVENT_KINDS } from '../events.ts';
 import {
   actorIdSchema,
@@ -239,6 +246,59 @@ const reviewGates: GateView[] = [
   { column: 'done', enabled: true, ok: true, blockedIn: 'review', conditions: [] },
 ];
 
+/** The effective column orchestrators and operators of the requested projects (`configBindings`). */
+const statusBindingsSchema = z
+  .strictObject({
+    columns: z
+      .array(
+        z
+          .strictObject({
+            project: z.string().min(1).describe('Board project.'),
+            column: z.enum(COLUMN_IDS).describe('Enabled column with an orchestrator.'),
+            orchestrator: z
+              .string()
+              .min(1)
+              .describe('Spur project, or operator, that takes the column turns.'),
+            source: z
+              .enum(COLUMN_BINDING_SOURCES)
+              .describe(
+                'project: set in projects[].columns; board-wide: filled from top-level spurProjects.',
+              ),
+          })
+          .describe('One column binding.'),
+      )
+      .describe('Column orchestrators of each requested project; columns left at none are absent.'),
+    operators: z
+      .array(
+        z
+          .strictObject({
+            project: z.string().min(1).describe('Board project.'),
+            operator: z.string().min(1).describe('Spur project acting as operator there.'),
+            source: z
+              .enum(OPERATOR_BINDING_SOURCES)
+              .describe(
+                "project: its own spurProjects; board-wide: top-level spurProjects; other-project: another project's operator, without a board-wide one.",
+              ),
+          })
+          .describe('One operator binding.'),
+      )
+      .describe('Operator Spur projects of each requested project.'),
+    defaultAddressee: z
+      .strictObject({
+        spurProject: z.string().min(1).describe('Spur project the message goes to.'),
+        source: z
+          .enum(ADDRESSEE_SOURCES)
+          .describe(
+            'config: slack.defaultAddressee; board-wide: the board-wide operator; project: the operator of the first board project, in config order, that lists one.',
+          ),
+      })
+      .nullable()
+      .describe(
+        'Who an orchestrators-channel message without a known @shortName goes to; null when it is left unhandled or answered with the prefixes.',
+      ),
+  })
+  .describe('Effective column orchestrators, operators and default Slack addressee.');
+
 const taskOutput = z.strictObject({ task: taskViewSchema });
 const blockOutput = z.strictObject({ block: blockViewSchema });
 const itemOutput = z.strictObject({ item: itemViewSchema });
@@ -334,6 +394,7 @@ export const OPERATIONS = [
         .describe(
           "Unlinked sessions not listed: ended, or gone from Spur's session list, for over 7 days. Counted within the requested projects; detail does not list them.",
         ),
+      bindings: statusBindingsSchema,
     }),
     grants: operatorOrProjectAgent,
     errors: ['not_found'],
@@ -364,6 +425,13 @@ export const OPERATIONS = [
           unlinkedSessions: [],
           hiddenUnlinkedPrs: 0,
           hiddenUnlinkedSessions: 0,
+          bindings: {
+            columns: [
+              { project: 'web', column: 'review', orchestrator: 'web-review', source: 'project' },
+            ],
+            operators: [{ project: 'web', operator: 'hq', source: 'board-wide' }],
+            defaultAddressee: { spurProject: 'hq', source: 'board-wide' },
+          },
         },
       },
       {
@@ -394,6 +462,7 @@ export const OPERATIONS = [
           unlinkedSessions: [],
           hiddenUnlinkedPrs: 0,
           hiddenUnlinkedSessions: 0,
+          bindings: { columns: [], operators: [], defaultAddressee: null },
         },
       },
     ],

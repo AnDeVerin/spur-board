@@ -244,10 +244,12 @@ service unit points to an old Node or package path, run `board service install` 
 
 Inside a Spur session the session wins over a token: `SPUR_SESSION` is sent and neither
 `BOARD_TOKEN` nor `.spur-board/token` is read. A session whose Spur project is in no
-`projects[].spurProjects` of the Board's `config.yaml`, or is listed under several Board
-projects, is refused with `forbidden` (exit 1), and the hint names the Spur project and the fix.
-Keep the Spur project under exactly one Board project in the Board's `config.yaml`, not Spur's
-`spur.yaml`, and restart the Board daemon.
+`projects[].spurProjects` or top-level `spurProjects` of the Board's `config.yaml`, or is listed
+under several Board projects, is refused with `forbidden` (exit 1), and the hint names the Spur
+project and the fix. Keep the Spur project under exactly one Board project in the Board's
+`config.yaml`, not Spur's `spur.yaml`, and restart the Board daemon. A Spur project that
+orchestrates columns or is the operator across several Board projects goes in top-level
+`spurProjects` instead.
 
 The rule exists because a session's identity is its Spur project and session ID, so a Spur project
 under two Board projects would leave its sessions without one owning Board project. The session's
@@ -256,7 +258,13 @@ curator's Spur project. The daemon refuses such a
 `config.yaml` at start and names the Spur project and both Board projects. To run two Board
 projects, give each its own Spur projects.
 
-A Spur project with `role: operator` has operator access on every Board project. Operations open
+Without a board-wide operator, a Spur project with `role: operator` has operator access on every
+Board project. Once top-level `spurProjects` has an entry with `role: operator`, that entry
+serves every Board project without its own operator, a project's own operator acts only in its
+project, and only the board-wide operator and the operator token run operator commands that name
+no project, such as `board token list`, `board task add` with a key not yet on the Board, and
+`board item retry` or `board item close` on an item of no task. Restoring an archived task and
+retrying or closing an item of a task count as that task's project. Operations open
 only to project agents, such as `board ask` and `board inbox ack`, still need the session's Spur
 project listed under that task's Board project. Linking a session to a task from its pull
 request or branch needs its Spur project listed with `role: worker` under that task's Board

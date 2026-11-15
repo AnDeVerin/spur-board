@@ -2,6 +2,7 @@ import { scanTransaction } from '../../src/app/secrets.ts';
 import { OPERATIONS, configSchema, roleCanUseOperation } from '@spur-board/contracts';
 import { afterEach, expect, expectTypeOf, it } from 'vitest';
 import {
+  createApply,
   createObservationCore,
   createOperationRegistry,
   createQuery,
@@ -730,3 +731,272 @@ it('hides no session as gone from the list until a complete Spur poll omits it',
   expect(ids).not.toContain('ended-0');
   expect(result.hiddenUnlinkedSessions).toBe(150);
 });
+
+it('reports the effective bindings of the projects a caller may see', async () => {
+  const store = openTempStore('board-registry-').store;
+  stores.push(store);
+  const boardWide = configSchema.parse({
+    ...config,
+    projects: config.projects.map((project) =>
+      project.id === 'first'
+        ? {
+            ...project,
+            spurProjects: [
+              ...project.spurProjects,
+              { name: 'first-ops', role: 'operator' },
+              { name: 'first-rev', role: 'orchestrator' },
+            ],
+            columns: project.columns.map((column) =>
+              column.id === 'review' ? { ...column, orchestrator: 'first-rev' } : column,
+            ),
+          }
+        : project,
+    ),
+    spurProjects: [
+      { name: 'br', role: 'orchestrator', columns: ['review'] },
+      { name: 'hq', role: 'operator' },
+    ],
+  });
+  const status = createOperationRegistry({
+    config: boardWide,
+    clock,
+    completeSince: new Map(),
+  })['status.get'];
+  const query = createQuery({ store, config: boardWide, clock });
+  const first = {
+    columns: [{ project: 'first', column: 'review', orchestrator: 'first-rev', source: 'project' }],
+    operators: [{ project: 'first', operator: 'first-ops', source: 'project' }],
+  };
+  const defaultAddressee = { spurProject: 'hq', source: 'board-wide' };
+  expect((await query(status, {}, 'operator')).bindings).toEqual({
+    columns: [
+      ...first.columns,
+      { project: 'second', column: 'review', orchestrator: 'br', source: 'board-wide' },
+    ],
+    operators: [...first.operators, { project: 'second', operator: 'hq', source: 'board-wide' }],
+    defaultAddressee,
+  });
+  expect((await query(status, {}, 'agent:first-worker/session-1')).bindings).toEqual({
+    ...first,
+    defaultAddressee,
+  });
+});
+
+it('lists other projects operators for a project without one while no board-wide operator exists', async () => {
+  const store = openTempStore('board-registry-').store;
+  stores.push(store);
+  const shared = configSchema.parse({
+    ...config,
+    projects: config.projects.map((project) =>
+      project.id === 'first'
+        ? {
+            ...project,
+            spurProjects: [...project.spurProjects, { name: 'first-ops', role: 'operator' }],
+          }
+        : project,
+    ),
+  });
+  const status = createOperationRegistry({
+    config: shared,
+    clock,
+    completeSince: new Map(),
+  })['status.get'];
+  const query = createQuery({ store, config: shared, clock });
+  expect((await query(status, {}, 'operator')).bindings).toEqual({
+    columns: [],
+    operators: [
+      { project: 'first', operator: 'first-ops', source: 'project' },
+      { project: 'second', operator: 'first-ops', source: 'other-project' },
+    ],
+    defaultAddressee: null,
+  });
+});
+
+it.each([
+  ['restores its own project task', 'first-ops', 'add', 'o/first#1', 'allowed'],
+  ['restores another project task', 'first-ops', 'add', 'o/second#2', 'denied'],
+  ['adds a new key', 'first-ops', 'add', 'o/first#9', 'denied'],
+  ['adds a new key as board-wide operator', 'hq', 'add', 'o/first#9', 'allowed'],
+  ['closes its own project item', 'first-ops', 'close', 'I1', 'allowed'],
+  ['closes another project item', 'first-ops', 'close', 'I2', 'denied'],
+  ['closes a board item', 'first-ops', 'close', 'I3', 'denied'],
+  ['closes a board item as board-wide operator', 'hq', 'close', 'I3', 'allowed'],
+] as const)(
+  'scopes target-less operator operations to the owning project under a board-wide operator: %s',
+  async (_name, operator, op, target, status) => {
+    const store = openTempStore('board-registry-').store;
+    stores.push(store);
+    const boardWide = configSchema.parse({
+      ...config,
+      projects: config.projects.map((project) =>
+        project.id === 'first'
+          ? {
+              ...project,
+              spurProjects: [...project.spurProjects, { name: 'first-ops', role: 'operator' }],
+            }
+          : project,
+      ),
+      spurProjects: [{ name: 'hq', role: 'operator' }],
+    });
+    const at = new Date(clock.now());
+    await scanTransaction(store, boardWide, async (trx) => {
+      for (const [project, key, membership] of [
+        ['first', 'o/first#1', 'archived'],
+        ['second', 'o/second#2', 'archived'],
+        ['first', 'o/first#3', 'active'],
+        ['second', 'o/second#4', 'active'],
+      ] as const) {
+        await trx
+          .insertInto('task')
+          .values({
+            project,
+            tracker_kind: 'github-issues',
+            tracker_id: key,
+            key,
+            membership,
+            archive_reason: membership === 'archived' ? 'manual' : null,
+            column: 'todo',
+            shadow_column: null,
+            created_at: at.toISOString(),
+            last_change_at: null,
+            terminal_at: null,
+            archive_slot_at: null,
+          })
+          .execute();
+      }
+      for (const [itemKey, taskId] of [
+        ['inbound:failure:first', 3],
+        ['inbound:failure:second', 4],
+        ['inbound:failure:board', null],
+      ] as const) {
+        await raiseItem(trx, {
+          itemKey,
+          kind: 'inbound_failure',
+          text: 'An inbound reply failed',
+          url: '',
+          taskId,
+          blockId: null,
+          at,
+        });
+      }
+    });
+    const registry = createOperationRegistry({
+      config: boardWide,
+      clock,
+      completeSince: new Map(),
+    });
+    const apply = createApply({ store, clock, config: boardWide });
+    const actor = `agent:${operator}/session-1` as const;
+    const run =
+      op === 'add'
+        ? apply(registry['task.add'], { task: target }, actor, 'k-1')
+        : apply(registry['item.close'], { item: target }, actor, 'k-1');
+    if (status === 'allowed') await expect(run).resolves.toBeDefined();
+    else await expect(run).rejects.toMatchObject({ code: 'forbidden' });
+  },
+);
+
+it.each([
+  [
+    'a project operator sees its own task delivery only',
+    true,
+    'agent:first-ops/s1',
+    ['delivery:1'],
+  ],
+  [
+    'the board-wide operator sees every item',
+    true,
+    'agent:hq/s1',
+    ['delivery:1', 'delivery:2', 'delivery:3'],
+  ],
+  ['the token sees every item', true, 'operator', ['delivery:1', 'delivery:2', 'delivery:3']],
+  ['a worker sees no delivery item', true, 'agent:first-worker/s1', []],
+  [
+    'a legacy project operator sees every item',
+    false,
+    'agent:first-ops/s1',
+    ['delivery:1', 'delivery:2', 'delivery:3'],
+  ],
+  ['a legacy worker sees no delivery item', false, 'agent:first-worker/s1', []],
+] as const)(
+  'shows failed deliveries in status by their owning task: %s',
+  async (_name, withBoardWide, actor, keys) => {
+    const store = openTempStore('board-registry-').store;
+    stores.push(store);
+    const scoped = configSchema.parse({
+      ...config,
+      projects: config.projects.map((project) =>
+        project.id === 'first'
+          ? {
+              ...project,
+              spurProjects: [...project.spurProjects, { name: 'first-ops', role: 'operator' }],
+            }
+          : project,
+      ),
+      ...(withBoardWide ? { spurProjects: [{ name: 'hq', role: 'operator' }] } : {}),
+    });
+    const at = new Date(clock.now());
+    await scanTransaction(store, scoped, async (trx) => {
+      for (const [project, key] of [
+        ['first', 'o/first#1'],
+        ['second', 'o/second#2'],
+      ] as const) {
+        await trx
+          .insertInto('task')
+          .values({
+            project,
+            tracker_kind: 'github-issues',
+            tracker_id: key,
+            key,
+            membership: 'active',
+            archive_reason: null,
+            column: 'todo',
+            shadow_column: null,
+            created_at: at.toISOString(),
+            last_change_at: null,
+            terminal_at: null,
+            archive_slot_at: null,
+          })
+          .execute();
+      }
+      // Outbox rows 1 and 2 carry their task in the payload; row 3 is a board-level post.
+      for (const [kind, payload] of [
+        ['conversation.open', { taskId: 1 }],
+        ['conversation.open', { taskId: 2 }],
+        ['feed.line', {}],
+      ] as const) {
+        const row = await trx
+          .insertInto('outbox')
+          .values({
+            kind,
+            dedupe_key: `${kind}:${JSON.stringify(payload)}`,
+            payload: JSON.stringify(payload),
+            state: 'post_failed',
+            next_at: at.toISOString(),
+            last_error: 'gateway refused',
+            external_ref: null,
+            parent_outbox_id: null,
+            first_attempt_at: null,
+            first_delivery_at: null,
+          })
+          .returning('id')
+          .executeTakeFirstOrThrow();
+        await raiseItem(trx, {
+          itemKey: `delivery:${String(row.id)}`,
+          kind: 'post_failed',
+          text: 'A post failed',
+          url: '',
+          taskId: null,
+          blockId: null,
+          at,
+        });
+      }
+    });
+    const status = createOperationRegistry({ config: scoped, clock, completeSince: new Map() })[
+      'status.get'
+    ];
+    const query = createQuery({ store, config: scoped, clock });
+    const result = await query(status, {}, actor);
+    expect(result.items.map((item) => item.key).sort()).toEqual(keys);
+  },
+);

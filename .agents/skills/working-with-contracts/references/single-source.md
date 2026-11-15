@@ -14,5 +14,8 @@
 - No `.transform` or `.preprocess`. A `.transform` fails the output-mode JSON Schema tests in
   `packages/contracts/test/config.test.ts`, `events.test.ts` and `ops.test.ts`; a `.preprocess`
   passes them, so review rejects it.
+- `.overwrite` only on `configSchema`, for an expansion across config sections that keeps the
+  output type, after the cross-section refinements (pattern: top-level `spurProjects` in
+  `packages/contracts/src/config.ts`). Never on a nested schema.
 - New exports from `packages/contracts/src/gateway/` go into the explicit list in
   `packages/contracts/src/index.ts`.

@@ -1557,3 +1557,200 @@ describe('task.move', () => {
     expect(withoutEvents(await ctx.tables())).toEqual(withoutEvents(unchanged));
   });
 });
+
+describe('board-wide column orchestrator', () => {
+  const BR_1: ActorId = 'agent:br/br-1';
+  const PROJECTS = ['alpha', 'beta'] as const;
+  type Project = (typeof PROJECTS)[number];
+  const sourceOf = (project: Project) => `github:${project}:${project}/r`;
+  const prOf = (project: Project, headSha: string) =>
+    prFact(headSha, { repo: `${project}/r`, url: `https://github.com/${project}/r/pull/7` });
+
+  /** Review turns T1 (alpha) and T2 (beta); `br` reviews board-wide, alpha may bind its own. */
+  async function wide(alphaReview: 'none' | 'rev' = 'none') {
+    const config = configSchema.parse({
+      projects: PROJECTS.map((id) => ({
+        id,
+        tracker: { type: 'github-issues', repo: `${id}/r`, label: 'board' },
+        repos: [`${id}/r`],
+        operatorGithubLogin: 'operator',
+        spurProjects:
+          id === 'alpha' && alphaReview === 'rev' ? [{ name: 'rev', role: 'orchestrator' }] : [],
+        columns: [
+          { id: 'todo' },
+          { id: 'dev' },
+          { id: 'review', orchestrator: id === 'alpha' ? alphaReview : 'none' },
+          { id: 'done' },
+        ],
+      })),
+      spurProjects: [{ name: 'br', role: 'orchestrator', columns: ['review'] }],
+      operator: { slack: 'operator' },
+      digest: { tz: 'UTC' },
+    });
+    const clock = { now: () => Date.parse(AT) };
+    const store = openTempStore('board-turn-wide-').store;
+    stores.push(store);
+    await store.transaction(async (trx) => {
+      for (const [index, project] of PROJECTS.entries()) {
+        await trx
+          .insertInto('task')
+          .values({
+            project,
+            tracker_kind: 'github-issues',
+            tracker_id: `${project}/r#9`,
+            key: `${project}/r#9`,
+            membership: 'active',
+            archive_reason: null,
+            column: 'review',
+            shadow_column: null,
+            created_at: AT,
+            last_change_at: null,
+            terminal_at: null,
+            archive_slot_at: null,
+          })
+          .execute();
+        await trx
+          .insertInto('link')
+          .values({
+            task_id: index + 1,
+            entity: 'pr',
+            repo: `${project}/r`,
+            number: 7,
+            pr_state: 'active',
+            session_id: null,
+            role: null,
+            source: 'manual',
+            created_at: AT,
+            ticket_key: null,
+            pr_open: 1,
+          })
+          .execute();
+      }
+      for (const [id, project] of [
+        ['br-1', 'br'],
+        ['rev-1', 'rev'],
+      ] as const) {
+        await trx
+          .insertInto('session_snapshot')
+          .values({
+            id,
+            spur_project: project,
+            branch: null,
+            pr: null,
+            raw_state: 'running',
+            state: 'waiting',
+            first_seen: AT,
+            last_seen: AT,
+            ended_at: null,
+            end_reason: null,
+            detail: JSON.stringify({
+              id,
+              spurProject: project,
+              branch: null,
+              pr: null,
+              links: {},
+              lifecycle: 'running',
+              health: 'waiting',
+              healthSince: AT,
+              lastActivityAt: null,
+              endedAt: null,
+              endReason: null,
+            }),
+            source: 'spur',
+            observed_at: AT,
+            absent_since: null,
+          })
+          .execute();
+      }
+    });
+    const core = createObservationCore({ store, config, clock });
+    const observe = (project: Project, headSha: string) =>
+      core.observe(sourceOf(project), {
+        batch: {
+          source: sourceOf(project),
+          observedAt: AT,
+          complete: false,
+          items: [{ kind: 'pr', facts: prOf(project, headSha) }],
+          entities: [],
+        },
+        effectiveComplete: false,
+        state: { gone: [] },
+        outcomes: [],
+      });
+    for (const project of PROJECTS) await observe(project, A);
+    const pollPr: PollPr = async (source) => {
+      const project = PROJECTS.find((id) => sourceOf(id) === source);
+      if (project === undefined) throw new Error(`Unexpected poll of ${source}`);
+      await observe(project, B);
+      return ok({ status: 'ok' as const, facts: prOf(project, B), observedAt: AT });
+    };
+    const registry = createOperationRegistry({
+      config,
+      clock,
+      completeSince: new Map(),
+      prPoller: () => pollPr,
+    });
+    const apply = createApply({ store, clock, config });
+    const query = createQuery({ store, clock, config });
+    await scanTransaction(store, config, async (trx) => {
+      for (const task of await trx.selectFrom('task').selectAll().orderBy('id').execute()) {
+        await openTurn(trx, { task, reason: 'Review', handed: [], at: new Date(AT), config });
+      }
+    });
+    return {
+      config,
+      inbox: async (actor: ActorId) =>
+        (await query(registry['inbox.get'], {}, actor)).turns.map((turn) => turn.id),
+      ack: (actor: ActorId, turn: string) =>
+        apply(registry['inbox.ack'], { entries: [{ id: turn }] }, actor, `ack-${actor}-${turn}`),
+      submit: (actor: ActorId, turn: string) =>
+        apply(registry['task.submit'], { turn, sha: B }, actor, `submit-${turn}`),
+      return: (actor: ActorId, turn: string) =>
+        apply(
+          registry['task.return'],
+          { turn, reason: 'Handle the empty list.' },
+          actor,
+          `return-${turn}`,
+        ),
+    };
+  }
+
+  it.each(PROJECTS)(
+    'lets one br session take both review turns, submit on %s and return the other',
+    async (submitted) => {
+      const ctx = await wide();
+      const turnOf = { alpha: 'T1', beta: 'T2' } as const;
+      const returned = submitted === 'alpha' ? 'beta' : 'alpha';
+      expect(ctx.config.projects.map((project) => project.columns[2]?.orchestrator)).toEqual([
+        'br',
+        'br',
+      ]);
+      expect(await ctx.inbox(BR_1)).toEqual(['T1', 'T2']);
+      await expect(ctx.ack(BR_1, 'T1')).resolves.toBeDefined();
+      await expect(ctx.ack(BR_1, 'T2')).resolves.toBeDefined();
+
+      await expect(ctx.submit(BR_1, turnOf[submitted])).resolves.toMatchObject({
+        task: { key: `${submitted}/r#9`, project: submitted },
+        turn: turnOf[submitted],
+        sha: B,
+        status: 'confirmed',
+      });
+      await expect(ctx.return(BR_1, turnOf[returned])).resolves.toMatchObject({
+        task: { key: `${returned}/r#9`, column: 'dev' },
+        block: { author: BR_1, addressee: 'worker' },
+      });
+    },
+  );
+
+  it("leaves a project's own review binding to it and keeps br out of that project", async () => {
+    const ctx = await wide('rev');
+    expect(ctx.config.projects.map((project) => project.columns[2]?.orchestrator)).toEqual([
+      'rev',
+      'br',
+    ]);
+    expect(await ctx.inbox(BR_1)).toEqual(['T2']);
+    await expect(ctx.ack(BR_1, 'T1')).rejects.toMatchObject({ code: 'forbidden' });
+    await expect(ctx.ack(REV_1, 'T1')).resolves.toBeDefined();
+    await expect(ctx.ack(BR_1, 'T2')).resolves.toBeDefined();
+  });
+});

@@ -20,7 +20,7 @@ describe('generated public references', () => {
       'Inside a Spur session the session wins over a token: `SPUR_SESSION` is sent and neither `BOARD_TOKEN` nor `.spur-board/token` is read.',
     );
     expect(section).toContain(
-      "A session whose Spur project is in no `projects[].spurProjects` of the Board's `config.yaml`, or is listed under several Board projects, is refused with `forbidden` (exit 1), and the hint names the Spur project and the fix.",
+      "A session whose Spur project is in no `projects[].spurProjects` or top-level `spurProjects` of the Board's `config.yaml`, or is listed under several Board projects, is refused with `forbidden` (exit 1), and the hint names the Spur project and the fix.",
     );
   });
 

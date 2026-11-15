@@ -14,6 +14,10 @@ Each column has one executor: `projects[].columns[].orchestrator`:
 `projects[].spurProjects[].role` accepts `worker`, `operator`, `curator` and
 `orchestrator`.
 
+Top-level `spurProjects[].columns` fills `none` columns board-wide;
+`role: operator` there serves operatorless projects, one session acting in
+each. A project-level binding wins.
+
 ## Gates and placement
 
 Facts (head, checks, reviews, comments, ticket, sessions) feed gates; two actions: move the task and open an executor turn (at most one
@@ -24,7 +28,7 @@ Moves, turns and course checks need `projects[].dispatcher.mode: on`;
 default is `shadow`: no doorbells or blocks.
 
 Gates are cumulative: each column checks its enabled gate and those to its left. At a turn boundary, failed gates return to the leftmost failing
-column. Pending CI, unknown
+column. Taken turns hold until submit, return or a new head. Pending CI, unknown
 mergeability and incomplete comment history are waits. Downstream handoff waits
 for settled prerequisites; Dev can receive a repair turn.
 
@@ -152,18 +156,20 @@ others. Answer in the existing block thread.
 
 ## Slack addressing
 
-With `projects[].spurProjects[].shortName`, a new operator message in
+With a `projects[].spurProjects[].shortName`, `spurProjects[].shortName` or
+board-wide operator, a new operator message in
 `slack.channels.orchestrators` starts a conversation. A leading registered
 `@shortName` selects that Spur project and is stripped. With absent or unknown
-leading name, `slack.defaultAddressee` gets the complete text, retaining any
-unknown prefix; without it Board replies once with the valid prefixes.
+leading name, complete text, retaining any
+unknown prefix, goes to `slack.defaultAddressee`, else board-wide operator, else
+first project with an operator; else Board replies once with the valid prefixes.
 Middle mentions or Slack `<@U…>` address nobody; unknown names cause no lookup
 error. The operator checks short-name collisions with workspace names.
 A task key after the prefix attaches it.
 
 Read `board inbox`; reply via `board answer`. Each operator thread message rings again; `close` or ✅ in the
-thread closes it. Replies use `projects[].spurProjects[].displayName` and `icon`.
-No session:
+thread closes it. Replies use `projects[].spurProjects[].displayName` and `icon`, top-level ones too,
+else project name and role icon (`board` for operator). No session:
 `board status` lists it as waiting.
 
 ## Done follows the ticket

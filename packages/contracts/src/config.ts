@@ -1,5 +1,13 @@
 import { z } from 'zod';
-import { COLUMN_IDS, DISPATCHER_MODES, REQUIRED_COLUMN_IDS } from './enums.ts';
+import {
+  COLUMN_IDS,
+  DISPATCHER_MODES,
+  REQUIRED_COLUMN_IDS,
+  type AddresseeSource,
+  type ColumnBindingSource,
+  type ColumnId,
+  type OperatorBindingSource,
+} from './enums.ts';
 
 /**
  * The daemon's default loopback port. It sits above 4310-4399, a margin the board keeps for
@@ -223,15 +231,16 @@ const spurProject = z.strictObject({
 const DEFAULT_CYCLE_LIMIT = 10;
 const DEFAULT_COURSE_CHECK = 3;
 
+/** A built-in column id; an unknown string names the built-in columns. */
+const columnId = z.enum(COLUMN_IDS, {
+  error: (issue) =>
+    typeof issue.input === 'string'
+      ? `Unknown column ${JSON.stringify(issue.input)}: custom columns arrive with custom matchers and are not supported yet. Built-in columns: ${COLUMN_IDS.join(', ')}`
+      : undefined,
+});
+
 const columnConfig = z.strictObject({
-  id: z
-    .enum(COLUMN_IDS, {
-      error: (issue) =>
-        typeof issue.input === 'string'
-          ? `Unknown column ${JSON.stringify(issue.input)}: custom columns arrive with custom matchers and are not supported yet. Built-in columns: ${COLUMN_IDS.join(', ')}`
-          : undefined,
-    })
-    .describe('The built-in column this entry configures.'),
+  id: columnId.describe('The built-in column this entry configures.'),
   enabled: z
     .boolean()
     .default(true)
@@ -241,7 +250,7 @@ const columnConfig = z.strictObject({
   orchestrator: nonEmpty
     .default('none')
     .describe(
-      "Who takes the column's turns. none: the task's live worker session, else the operator. operator: the operator, who also gets the questions asked in the column. Otherwise the name of a spurProjects entry with role orchestrator or curator whose sessions orchestrate the column and get the questions others ask in it.",
+      "Who takes the column's turns. none: the task's live worker session, else the operator. operator: the operator, who also gets the questions asked in the column. Otherwise the name of a spurProjects entry with role orchestrator or curator whose sessions orchestrate the column and get the questions others ask in it. A column left at none, and enabled, takes the top-level spurProjects orchestrator that lists it.",
     ),
   cycleLimit: z
     .int()
@@ -260,7 +269,7 @@ const columnConfig = z.strictObject({
   courseCheckTo: nonEmpty
     .optional()
     .describe(
-      "Who answers this column's course check: operator, the curator's name, or the name of a column orchestrator. Without it, the curator, or the operator when the project has no curator. When the addressee has no live session the question moves to the operator; a conductor that is rung and does not answer keeps it, and the operator gets an item.",
+      "Who answers this column's course check: operator, the curator's name, or the name of a column orchestrator listed in this project's spurProjects; a board-wide orchestrator is refused. Without it, the curator, or the operator when the project has no curator. When the addressee has no live session the question moves to the operator; a conductor that is rung and does not answer keeps it, and the operator gets an item.",
     ),
   requireResolvedThreads: z
     .boolean()
@@ -406,7 +415,7 @@ const projectSchema = z
       })
       .default([])
       .describe(
-        'Spur projects whose sessions work on this board project, each with a role; at most one curator. Board commands from a session whose Spur project is in no spurProjects list are refused.',
+        'Spur projects whose sessions work on this board project, each with a role; at most one curator. An operator listed here replaces the top-level spurProjects operator for this project. Board commands from a session whose Spur project is in no spurProjects list, here or top-level, are refused.',
       ),
     columns: z
       .array(columnConfig)
@@ -577,6 +586,96 @@ function rejectSharedShortNames(
   });
 }
 
+/** A Spur project bound for every board project at once, in top-level `spurProjects`. */
+const boardWideEntry = z.strictObject({
+  name: spurProject.shape.name.describe(
+    'The name of the project in Spur. It must not also be listed under any projects[].spurProjects, and none and operator are reserved.',
+  ),
+  role: z
+    .enum(['orchestrator', 'operator'])
+    .describe(
+      "orchestrator: sessions execute the listed columns in every board project that enables the column and leaves its orchestrator at none. operator: sessions act as the operator of every board project that lists no operator of its own; while one exists, a project's own operator acts only in its project. At most one operator.",
+    ),
+  columns: z
+    .array(columnId.describe('A built-in column this orchestrator executes.'))
+    .optional()
+    .describe(
+      'Required for role orchestrator, not allowed for operator. The columns it executes board-wide. A project column whose orchestrator is set to anything but none keeps it, and a disabled column is never filled; it must fill at least one column in some board project.',
+    ),
+  shortName: spurProject.shape.shortName.describe(
+    "The name the operator types as @<shortName> at the start of a new message in the orchestrators channel to start a conversation with this Spur project's live session. Unique across the board, top-level and projects[].spurProjects alike.",
+  ),
+  displayName: spurProject.shape.displayName.describe(
+    "The name Slack messages this Spur project's sessions write are posted under. Defaults to the Spur project name.",
+  ),
+  icon: spurProject.shape.icon.describe(
+    'The emoji shortcode, such as :owl:, shown on those messages instead of the role icon.',
+  ),
+});
+
+type BoardWideEntry = z.output<typeof boardWideEntry>;
+
+/** Checks within top-level `spurProjects`: R1 names, R2 reserved names, R3 shared columns, R6 operators, R8 columns. */
+function checkBoardWide(items: readonly BoardWideEntry[], ctx: z.RefinementCtx): void {
+  rejectDuplicates(items, 'name', 'spur project name', ctx);
+  const bound = new Map<string, string>();
+  let operator: string | undefined;
+  items.forEach((item, i) => {
+    if (item.name === 'none' || item.name === 'operator') {
+      ctx.addIssue({
+        code: 'custom',
+        path: [i, 'name'],
+        message: `Spur project name ${JSON.stringify(item.name)} is reserved for columns[].orchestrator`,
+      });
+    }
+    if (item.role === 'operator') {
+      if (operator !== undefined) {
+        ctx.addIssue({
+          code: 'custom',
+          path: [i, 'role'],
+          message: `Second board-wide operator ${JSON.stringify(item.name)}: ${JSON.stringify(operator)} is already the board-wide operator`,
+        });
+      }
+      operator ??= item.name;
+      if (item.columns !== undefined) {
+        ctx.addIssue({
+          code: 'custom',
+          path: [i, 'columns'],
+          message: `Board-wide operator ${JSON.stringify(item.name)} takes no columns: remove columns, or bind the column to operator in projects[].columns`,
+        });
+      }
+      return;
+    }
+    if (item.columns === undefined || item.columns.length === 0) {
+      ctx.addIssue({
+        code: 'custom',
+        path: [i, 'columns'],
+        message: `Board-wide orchestrator ${JSON.stringify(item.name)} needs columns: list the columns it executes`,
+      });
+      return;
+    }
+    item.columns.forEach((column, j) => {
+      if (item.columns?.indexOf(column) !== j) {
+        ctx.addIssue({
+          code: 'custom',
+          path: [i, 'columns'],
+          message: `Duplicate column: ${JSON.stringify(column)}`,
+        });
+        return;
+      }
+      const other = bound.get(column);
+      if (other === undefined) bound.set(column, item.name);
+      else {
+        ctx.addIssue({
+          code: 'custom',
+          path: [i, 'columns', j],
+          message: `Column ${JSON.stringify(column)} is bound board-wide by ${JSON.stringify(other)} and ${JSON.stringify(item.name)}: bind it once`,
+        });
+      }
+    });
+  });
+}
+
 /** The board config file before the checks across its sections. */
 const configObject = z.strictObject({
   projects: z
@@ -588,7 +687,14 @@ const configObject = z.strictObject({
       rejectSharedShortNames(items, ctx);
     })
     .describe(
-      'Board projects, at least one. Each reads tasks from one tracker and PRs from its repos. A Spur project can be listed under only one board project.',
+      'Board projects, at least one. Each reads tasks from one tracker and PRs from its repos. A Spur project can be listed under only one board project; one that serves several goes in top-level spurProjects.',
+    ),
+  spurProjects: z
+    .array(boardWideEntry)
+    .superRefine(checkBoardWide)
+    .default([])
+    .describe(
+      'Spur projects bound board-wide, each with role orchestrator or operator. A project-level binding wins for its own project. A Spur project here serves every board project it binds, and one of its sessions acts on the turns, inbox, questions and doorbells of each of them and no other.',
     ),
   operator: z.strictObject({
     slack: nonEmpty.describe(
@@ -637,7 +743,7 @@ const configObject = z.strictObject({
         .string()
         .optional()
         .describe(
-          'The shortName of the Spur project that gets a new orchestrators-channel message which does not start with a known @<shortName>. Without it, such a message gets one reply listing the valid prefixes. Ignored when no shortName is configured.',
+          'The shortName, top-level or under projects[].spurProjects, of the Spur project that gets a new orchestrators-channel message which does not start with a known @<shortName>. Without it, such a message goes to the top-level spurProjects operator; without one, when any shortName is set, to the operator of the first board project that lists one; otherwise it gets one reply listing the valid prefixes, or is skipped when no shortName is configured.',
         ),
     })
     .prefault({}),
@@ -799,24 +905,241 @@ const configObject = z.strictObject({
     .prefault({}),
 });
 
-/** The board config file. Every object rejects unknown keys; no key holds a secret. */
-export const configSchema = configObject.superRefine((config, ctx) => {
-  const addressee = config.slack.defaultAddressee;
-  if (addressee === undefined) return;
-  const known = config.projects.some((project) =>
-    project.spurProjects.some(({ shortName }) => shortName === addressee),
+type ConfigObject = z.output<typeof configObject>;
+type ProjectConfig = ConfigObject['projects'][number];
+type SpurProjectConfig = ProjectConfig['spurProjects'][number];
+
+/** The project's copy of a top-level entry: its role and Slack identity, without `columns`. */
+function boardWideCopy(entry: BoardWideEntry): SpurProjectConfig {
+  return {
+    name: entry.name,
+    role: entry.role,
+    ...(entry.shortName === undefined ? {} : { shortName: entry.shortName }),
+    ...(entry.displayName === undefined ? {} : { displayName: entry.displayName }),
+    ...(entry.icon === undefined ? {} : { icon: entry.icon }),
+  };
+}
+
+/** Whether a board-wide orchestrator takes this column: listed, enabled and left at none. */
+function fills(entry: BoardWideEntry, column: ProjectConfig['columns'][number]): boolean {
+  return (
+    column.enabled && column.orchestrator === 'none' && entry.columns?.includes(column.id) === true
   );
-  if (!known) {
-    ctx.addIssue({
-      code: 'custom',
-      path: ['slack', 'defaultAddressee'],
-      message: `Unknown short name ${JSON.stringify(addressee)}: set it as projects[].spurProjects[].shortName first`,
-    });
+}
+
+/**
+ * One board project with the top-level entries applied: an orchestrator fills each listed
+ * enabled column left at none, an operator joins a project without its own. Each entry that
+ * binds the project is appended to its `spurProjects`.
+ */
+function expandProject(project: ProjectConfig, entries: readonly BoardWideEntry[]): ProjectConfig {
+  const ownOperator = project.spurProjects.some((spur) => spur.role === 'operator');
+  let columns = project.columns;
+  const added: SpurProjectConfig[] = [];
+  for (const entry of entries) {
+    if (entry.role === 'operator') {
+      if (!ownOperator) added.push(boardWideCopy(entry));
+      continue;
+    }
+    if (!columns.some((column) => fills(entry, column))) continue;
+    columns = columns.map((column) =>
+      fills(entry, column) ? { ...column, orchestrator: entry.name } : column,
+    );
+    added.push(boardWideCopy(entry));
   }
-});
+  if (added.length === 0) return project;
+  return { ...project, columns, spurProjects: [...project.spurProjects, ...added] };
+}
+
+function expandBoardWide(config: ConfigObject): ConfigObject {
+  if (config.spurProjects.length === 0) return config;
+  return {
+    ...config,
+    projects: config.projects.map((project) => expandProject(project, config.spurProjects)),
+  };
+}
+
+/** Checks between top-level `spurProjects` and the board projects: R4, R5, R7 and R9. */
+function checkBoardWideAgainstProjects(config: ConfigObject, ctx: z.RefinementCtx): void {
+  const entries = config.spurProjects;
+  if (entries.length === 0) return;
+  const byName = new Map(entries.map((entry) => [entry.name, entry]));
+  config.projects.forEach((project, i) => {
+    project.spurProjects.forEach((spur, j) => {
+      if (!byName.has(spur.name)) return;
+      ctx.addIssue({
+        code: 'custom',
+        path: ['projects', i, 'spurProjects', j, 'name'],
+        message: `Spur project ${JSON.stringify(spur.name)} is bound board-wide in spurProjects and listed under projects[${project.id}].spurProjects as ${spur.role}: remove one; a board-wide Spur project serves every board project it binds`,
+      });
+    });
+  });
+  const projectShortNames = new Set(
+    config.projects.flatMap((project) => project.spurProjects.map((spur) => spur.shortName)),
+  );
+  const shortNames = new Set<string>();
+  entries.forEach((entry, i) => {
+    const name = JSON.stringify(entry.name);
+    if (entry.role === 'orchestrator') {
+      if (!config.projects.some((project) => project.columns.some((c) => fills(entry, c)))) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['spurProjects', i, 'columns'],
+          message: `Board-wide orchestrator ${name} executes no column: in every board project each listed column is missing, disabled or bound to another orchestrator`,
+        });
+      }
+    } else if (
+      config.projects.every((project) =>
+        project.spurProjects.some((spur) => spur.role === 'operator'),
+      )
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['spurProjects', i, 'name'],
+        message: `Board-wide operator ${name} serves no board project: every board project lists its own operator`,
+      });
+    }
+    const { shortName } = entry;
+    if (shortName === undefined) return;
+    if (shortNames.has(shortName) || projectShortNames.has(shortName)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['spurProjects', i, 'shortName'],
+        message: `Duplicate short name: ${JSON.stringify(shortName)}`,
+      });
+    }
+    shortNames.add(shortName);
+  });
+}
+
+/**
+ * The board config file. Every object rejects unknown keys; no key holds a secret. The parsed
+ * value has top-level `spurProjects` applied to every board project's columns and
+ * `spurProjects` (`expandBoardWide`), so readers of `projects[]` see the effective bindings.
+ */
+export const configSchema = configObject
+  .superRefine(checkBoardWideAgainstProjects)
+  .superRefine((config, ctx) => {
+    const addressee = config.slack.defaultAddressee;
+    if (addressee === undefined) return;
+    const known =
+      config.spurProjects.some(({ shortName }) => shortName === addressee) ||
+      config.projects.some((project) =>
+        project.spurProjects.some(({ shortName }) => shortName === addressee),
+      );
+    if (!known) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['slack', 'defaultAddressee'],
+        message: `Unknown short name ${JSON.stringify(addressee)}: set it as spurProjects[].shortName or projects[].spurProjects[].shortName first`,
+      });
+    }
+  })
+  .overwrite(expandBoardWide);
 
 export type Config = z.output<typeof configSchema>;
 export type ConfigInput = z.input<typeof configSchema>;
+
+/** The top-level `spurProjects` entry named `name`: a Spur project bound board-wide. */
+export function boardWideSpurProject(
+  config: Config,
+  name: string,
+): Config['spurProjects'][number] | undefined {
+  return config.spurProjects.find((entry) => entry.name === name);
+}
+
+/** The Spur project a new orchestrators-channel message without a known prefix goes to. */
+export interface DefaultAddressee {
+  readonly spurProject: string;
+  readonly source: AddresseeSource;
+}
+
+/**
+ * `slack.defaultAddressee`; else the board-wide operator; else, once any shortName is set, the
+ * operator of the first board project that lists one; else null.
+ */
+export function defaultAddressee(config: Config): DefaultAddressee | null {
+  const projectSpurs = config.projects.flatMap((project) => project.spurProjects);
+  const named = config.slack.defaultAddressee;
+  if (named !== undefined) {
+    const spur = [...config.spurProjects, ...projectSpurs].find(
+      ({ shortName }) => shortName === named,
+    );
+    if (spur !== undefined) return { spurProject: spur.name, source: 'config' };
+  }
+  const boardWide = config.spurProjects.find((entry) => entry.role === 'operator');
+  if (boardWide !== undefined) return { spurProject: boardWide.name, source: 'board-wide' };
+  const shortNames = [...config.spurProjects, ...projectSpurs].some(
+    ({ shortName }) => shortName !== undefined,
+  );
+  if (!shortNames) return null;
+  const operator = projectSpurs.find((spur) => spur.role === 'operator');
+  return operator === undefined ? null : { spurProject: operator.name, source: 'project' };
+}
+
+export interface ColumnBinding {
+  readonly project: string;
+  readonly column: ColumnId;
+  readonly orchestrator: string;
+  readonly source: ColumnBindingSource;
+}
+
+export interface OperatorBinding {
+  readonly project: string;
+  readonly operator: string;
+  readonly source: OperatorBindingSource;
+}
+
+export interface ConfigBindings {
+  readonly columns: ColumnBinding[];
+  readonly operators: OperatorBinding[];
+  readonly defaultAddressee: DefaultAddressee | null;
+}
+
+/**
+ * The effective column orchestrators and operators of `projects`, in config order, and the
+ * default Slack addressee. Columns that are disabled or left at none have no row. While no
+ * board-wide operator exists, each project also lists the other projects' operators, since those
+ * act on every board project then (`isOperator`).
+ */
+export function configBindings(config: Config, projects: ReadonlySet<string>): ConfigBindings {
+  const source = (name: string) =>
+    boardWideSpurProject(config, name) === undefined ? 'project' : 'board-wide';
+  const operatorsOf = (project: Config['projects'][number]) =>
+    project.spurProjects.filter((spur) => spur.role === 'operator');
+  const boardWideOperator = config.spurProjects.some((entry) => entry.role === 'operator');
+  const served = config.projects.filter((project) => projects.has(project.id));
+  return {
+    columns: served.flatMap((project) =>
+      project.columns
+        .filter((column) => column.enabled && column.orchestrator !== 'none')
+        .map((column) => ({
+          project: project.id,
+          column: column.id,
+          orchestrator: column.orchestrator,
+          source: source(column.orchestrator),
+        })),
+    ),
+    operators: served.flatMap((project): OperatorBinding[] => {
+      const own = operatorsOf(project).map((spur): OperatorBinding => ({
+        project: project.id,
+        operator: spur.name,
+        source: source(spur.name),
+      }));
+      if (boardWideOperator) return own;
+      const others = config.projects
+        .filter((other) => other.id !== project.id)
+        .flatMap(operatorsOf)
+        .map((spur): OperatorBinding => ({
+          project: project.id,
+          operator: spur.name,
+          source: 'other-project',
+        }));
+      return [...own, ...others];
+    }),
+    defaultAddressee: defaultAddressee(config),
+  };
+}
 
 /** Recognized names in the private secrets.env file; values never belong in config.yaml. */
 export const SECRET_ENV_KEYS = [

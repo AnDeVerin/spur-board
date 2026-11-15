@@ -49,18 +49,25 @@ export function projectTarget(project: string): ResolvedTarget {
   return { kind: 'found', value: { project, task: null, block: null, workers: [] } };
 }
 
-/** True for the operator token and for a session of a Spur project with the `operator` role. */
-export function isOperator(actor: ActorId, config: Config): boolean {
+/**
+ * True for the operator token and for a session of an operator Spur project. Without a
+ * board-wide operator, every operator Spur project acts on every board project, as before
+ * top-level `spurProjects`. With one, a session acts as operator on `project` only when that
+ * project lists its Spur project as operator, and on no project (`null`) only for the
+ * board-wide operator.
+ */
+export function isOperator(actor: ActorId, config: Config, project: string | null): boolean {
   if (actor === 'operator') return true;
   const parsed = parseActorId(actor);
-  return (
-    parsed?.actor === 'agent' &&
-    config.projects.some((project) =>
-      project.spurProjects.some(
-        (spur) => spur.name === parsed.actorRef.project && spur.role === 'operator',
-      ),
-    )
-  );
+  if (parsed?.actor !== 'agent') return false;
+  const name = parsed.actorRef.project;
+  const operatorIn = (entry: Config['projects'][number]) =>
+    entry.spurProjects.some((spur) => spur.name === name && spur.role === 'operator');
+  const boardWide = config.spurProjects.find((entry) => entry.role === 'operator');
+  if (boardWide === undefined) return config.projects.some(operatorIn);
+  if (project === null) return name === boardWide.name;
+  const target = config.projects.find((entry) => entry.id === project);
+  return target !== undefined && operatorIn(target);
 }
 
 /** The Spur project that curates one board project, or null when it has none. */
@@ -92,7 +99,7 @@ function orchestrator(
 ): boolean {
   const project = config.projects.find((entry) => entry.id === target.project);
   const configured = project?.columns.find((entry) => entry.id === column)?.orchestrator;
-  if (configured === 'operator') return isOperator(actor, config);
+  if (configured === 'operator') return isOperator(actor, config, target.project);
   const parsed = parseActorId(actor);
   return (
     parsed?.actor === 'agent' && configured !== 'none' && configured === parsed.actorRef.project
@@ -139,7 +146,7 @@ function matches(
   const parsed = parseActorId(actor);
   switch (rule.grant) {
     case 'operator':
-      return isOperator(actor, config);
+      return isOperator(actor, config, target.project);
     case 'project-agent':
       return (
         parsed?.actor === 'agent' &&
@@ -158,7 +165,7 @@ function matches(
       const addressee = parseAddressee(target.block.addressee_role);
       switch (addressee.kind) {
         case 'operator':
-          return isOperator(actor, config);
+          return isOperator(actor, config, target.project);
         case 'curator':
           return (
             parsed?.actor === 'agent' &&
@@ -187,7 +194,7 @@ export function authorize(
   const rules = grants.filter((rule) => rule.mode === undefined || rule.mode === state.mode);
   const hint = `Allowed role: ${[...new Set(rules.map((rule) => rule.grant))].join(', ') || 'none'}.`;
   if (state.target.kind === 'missing') {
-    if (rules.some((rule) => rule.grant === 'operator' && isOperator(actor, state.config))) {
+    if (rules.some((rule) => rule.grant === 'operator' && isOperator(actor, state.config, null))) {
       return { status: 'allowed' };
     }
     return rules.every((rule) => rule.grant === 'operator')
