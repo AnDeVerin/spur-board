@@ -90,7 +90,7 @@ const USAGE = `Usage: pnpm stand <command>
                                   press a button on outbox message n as the operator. The button
                                   answer takes --text: a thread reply, as Slack has no such button
   fake slack post --text <text>   post a new operator message in the orchestrators channel;
-                                  prints its outbox number
+                                  prints its fake Slack message number, the <n> click takes
   fake spur session <id> [--state s] [--status s] [--project p] [--branch b] [--retain]
                     [--queue hold|deliver]
                                   create or update a session in the fake Spur; --queue hold keeps

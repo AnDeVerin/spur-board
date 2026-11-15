@@ -57,7 +57,8 @@ verbs and scenario names; this card keeps the rules and traps.
   session does, so the board holds the next ring; `--queue deliver` empties it. Run
   `pnpm stand poll` after either so the board reads the queue.
 - `fake slack post --text <t>` posts a new operator message in the orchestrators channel and
-  prints its outbox number; follow up or `close` it with `fake slack click <n> answer --text`.
+  prints its fake Slack message number `<n>`; follow up or `close` it with
+  `fake slack click <n> answer --text`.
 - `fake github pr <n> comment` and `fake github pr <n> review <state>` add a comment, or a review
   on the head, at the stand clock. The author is `--author`, else `stand-reviewer`, or `stand-bot`
   with `--bot`; keep bots off `stand-reviewer`, or its approvals stop counting.

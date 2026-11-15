@@ -1124,9 +1124,9 @@ export async function startStand(options: StandOptions): Promise<Stand> {
 
   /**
    * A probe first: the fake reports success for an action sent on a closed socket, and an action
-   * must not run once the bound has passed. Ephemeral replies are awaited before the ack.
+   * must not run once the bound has passed. Ephemeral replies are awaited before the ack. With
+   * `numbered`, the body also names the injected message's fake Slack number, which a click takes.
    */
-  /** With `numbered`, the body also names the injected message's number in the outbox. */
   async function boundedClick(
     api: FakeSlackApi,
     input: ClickInput,
