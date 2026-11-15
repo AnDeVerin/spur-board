@@ -4042,6 +4042,50 @@ describe('edited feedback', () => {
     expect(await submitDev(ctx, 'T3')).toMatchObject({ column: 'review' });
     expect(await handedSoFar(ctx)).toEqual([[handed()], [handed(at(2))]]);
   });
+
+  it('hands the edited copy in the turn a reroute opens, and nothing more after it', async () => {
+    const ctx = await started({}, 'none');
+    await ctx.pr({ feedback: [comment()] });
+    expect(JSON.parse((await ctx.openTurn())?.handed ?? '[]')).toEqual([handed()]);
+    const edited = ctx.at();
+    await ctx.pr({ feedback: [comment(edited)] });
+    expect(await ctx.openTurn()).toMatchObject({ id: 'T1', role: 'operator' });
+
+    await ctx.spur('live');
+
+    expect((await ctx.turns())[0]).toMatchObject({ id: 1, closed_reason: 'rerouted' });
+    const t2 = await ctx.openTurn();
+    expect(t2).toMatchObject({ id: 'T2', column: 'dev', role: 'worker' });
+    expect(JSON.parse(t2?.handed ?? '[]')).toEqual([handed(edited)]);
+    await ctx.ack(WORKER, 'T2');
+    expect(await submitDev(ctx, 'T2')).toMatchObject({ column: 'review' });
+    expect(await handedSoFar(ctx)).toEqual([[handed()], [handed(edited)]]);
+  });
+
+  it('recalls the newest edit an untaken turn handed, once, after a correction', async () => {
+    const ctx = await started({}, 'none');
+    await ctx.pr({ feedback: [comment()] });
+    const edited = ctx.at();
+    await ctx.pr({ feedback: [comment(edited)] });
+    await ctx.spur('live');
+    expect(JSON.parse((await ctx.openTurn())?.handed ?? '[]')).toEqual([handed(edited)]);
+    // A poll dropped c-1 from the snapshot: only the closed untaken turns T1 and T2 recall it.
+    await ctx.pr({ feedback: [] });
+
+    await ctx.move('dev');
+
+    expect((await ctx.turns()).map((turn) => turn.closed_reason)).toEqual([
+      'rerouted',
+      'corrected',
+      null,
+    ]);
+    const t3 = await ctx.openTurn();
+    expect(t3).toMatchObject({ id: 'T3', column: 'dev', role: 'worker' });
+    expect(JSON.parse(t3?.handed ?? '[]')).toEqual([handed(edited)]);
+    await ctx.ack(WORKER, 'T3');
+    expect(await submitDev(ctx, 'T3')).toMatchObject({ column: 'review' });
+    expect(await handedSoFar(ctx)).toEqual([[handed()], [handed(edited)], [handed(edited)]]);
+  });
 });
 
 describe('reviewer-service status comments', () => {
