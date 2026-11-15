@@ -31,15 +31,14 @@ Gates are cumulative: each column checks its enabled gate and those to its left.
 column. Taken turns hold until submit, return or a new head. Pending CI, unknown
 mergeability and incomplete comment history are waits. Downstream handoff waits
 for settled prerequisites; Dev can receive a repair turn for red CI, drafts,
-conflicts or external comments.
+conflicts or unhandled external comments.
 
 Dev needs an open non-draft PR, passing checks, no conflict, handled external
-feedback, complete comment history and current-head submit. External feedback
-excludes bots, approvals and `projects[].operatorGithubLogin` (agents'
-account), so worker thread replies never count; other accounts' posts count, the
-operator's included. Non-skipped checks count when none are required.
-`projects[].reposWithoutCi` waives absent checks for listed repos, never failing
-or skipped required checks.
+feedback, complete comment history and current-head submit. Feedback excludes
+bots, approvals and `projects[].operatorGithubLogin` (agents' account), so worker
+thread replies never count; others' posts do. Non-skipped checks count when none
+are required. `projects[].reposWithoutCi` waives absent checks for listed repos,
+never failing or skipped required checks.
 
 Review and Product Review need current-head internal review marks, separate from
 External Review's external approval. QA needs a current-head submission; Ready to Merge waits for merge. Executor `none` may reuse same-head worker submissions
@@ -125,7 +124,7 @@ Project `needs_input` blocks get Slack threads except operator-agent asks;
 operator: `board inbox`, keyed `board answer`. Answers reach a current curator session; other roles use the asking session.
 
 Routing: `projects[].columns[].orchestrator`, `projects[].spurProjects[].role`,
-`operator.slack` (Slack user ID).
+`operator.slack` (Slack user ID). Roles follow the current session.
 
 ## Slack now
 
