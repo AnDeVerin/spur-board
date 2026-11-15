@@ -3,7 +3,7 @@
 exports[`board mcp > lists one catalog tool with schemas, guidance and annotations per operation 1`] = `
 [
   {
-    "description": "List actionable items, source freshness and compact tasks; detail adds full facts and links.
+    "description": "List items, freshness and tasks with turns, PR summaries and navigation; detail adds full facts.
 Use when: Get a board overview.
 When not to use: Use task_get for one task.
 Example: {}",
@@ -195,6 +195,13 @@ When not to use: Use task_get with why to read why the task is where it is.
 Example: {"mode":"correct","task":"PROJ-123","column":"dev","reason":"The linked pull request belongs to another ticket.","idempotencyKey":"task_move-example-001"}
 Choose a unique idempotencyKey for each action; reuse it on retries.",
     "name": "task_move",
+  },
+  {
+    "description": "Show effective project columns, executors and Spur bindings.
+Use when: Read configuration before rendering the Board overview.
+When not to use: Use status_get for task state and freshness.
+Example: {}",
+    "name": "config_get",
   },
 ]
 `;

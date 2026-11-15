@@ -272,6 +272,59 @@ export const linkViewSchema = z
 const detailOnly = 'Present only with detail.';
 const count = (what: string) => z.int().min(0).describe(what);
 
+const omittedTurnDetail =
+  'Always omitted by status.get, even with detail=true; use task.get --why or inbox.get for details.';
+
+const statusTurnSchema = turnViewSchema
+  .omit({ handed: true })
+  .extend({
+    returned: turnViewSchema.shape.returned.describe(omittedTurnDetail),
+    threads: turnViewSchema.shape.threads.describe(omittedTurnDetail),
+    addressedTo: z
+      .string()
+      .nullable()
+      .describe(
+        'Newest assigned recipient session of an untaken turn; null when taken or unassigned.',
+      ),
+  })
+  .describe('Unclosed turn without feedback, return context or thread details.');
+
+const prSummarySchema = z
+  .strictObject({
+    repo: prFactsSchema.shape.repo,
+    number: prFactsSchema.shape.number,
+    checks: z
+      .strictObject({
+        pass: count('Successful or neutral checks.'),
+        fail: count('Failed checks, including skipped.'),
+        pending: count('Expected or pending checks.'),
+      })
+      .describe(
+        'Required checks when nonempty, otherwise all reported checks; a factual rollup, not a gate verdict.',
+      ),
+    mergeable: prFactsSchema.shape.mergeable,
+    threads: z
+      .strictObject({
+        unresolved: count('Unresolved review threads.'),
+        total: count('All review threads.'),
+      })
+      .describe('Review thread counts.'),
+    reviewsOnHead: z
+      .strictObject({
+        approved: z.array(z.string()).describe('Reviewers approving the current head.'),
+        changesRequested: z
+          .array(z.string())
+          .describe('Reviewers requesting changes on the current head.'),
+      })
+      .describe('Latest recorded reviews on the current head, without gate filtering.'),
+    draft: prFactsSchema.shape.draft,
+    factAt: z.iso.datetime().describe('Snapshot observation time, ISO 8601 UTC.'),
+    unconfirmed: z
+      .boolean()
+      .describe('Observation is stale or its supporting source is blind or missing.'),
+  })
+  .describe('Compact observed pull request facts.');
+
 export const statusTaskSchema = taskViewSchema
   .extend({
     shadowColumn: z
@@ -307,10 +360,31 @@ export const statusTaskSchema = taskViewSchema
       .array(statusSessionFactsSchema)
       .optional()
       .describe(`Latest facts for linked sessions. ${detailOnly}`),
+    turn: statusTurnSchema.nullable().describe('Unclosed task turn, or null.'),
+    prSummary: z
+      .array(prSummarySchema)
+      .nullable()
+      .describe('One summary per observed effective PR; null when none are observed.'),
     links: z
-      .array(linkViewSchema)
-      .optional()
-      .describe(`Effective pull request, session, and ticket links. ${detailOnly}`),
+      .strictObject({
+        ticket: z
+          .url({ protocol: /^https?$/ })
+          .nullable()
+          .describe('Observed tracker ticket URL, or null.'),
+        prs: z
+          .array(
+            z.strictObject({
+              repo: prFactsSchema.shape.repo,
+              number: prFactsSchema.shape.number,
+              url: prFactsSchema.shape.url,
+            }),
+          )
+          .describe('Effective PR navigation, including links not yet observed.'),
+        sessions: z
+          .array(z.strictObject({ id: z.string().min(1).describe('Stored session ID.') }))
+          .describe('Effective linked session IDs; clients build session URLs.'),
+      })
+      .describe('Navigation links, always present in compact and detailed rows.'),
     linkHints: z
       .array(z.string().min(1))
       .min(1)
@@ -319,7 +393,9 @@ export const statusTaskSchema = taskViewSchema
         'Why a pull request a linked session reports has no link to this task: the PR is in the GitHub Issues tracker repo and the project link rules found no key for the task in it. Present only when there is a hint.',
       ),
   })
-  .describe('A board task with a one-line state and counts; detail adds its facts and links.');
+  .describe(
+    'A board task with a one-line state and counts, turn, PR summaries and navigation; detail adds full facts.',
+  );
 
 export const statusUnlinkedPrSchema = prFactsSchema
   .partial({
@@ -365,45 +441,6 @@ export const statusItemSchema = itemViewSchema
     factAt: z.iso.datetime().nullable().describe('Time of the supporting fact, when known.'),
   })
   .describe('An actionable item with its freshness mark.');
-
-export const sourceViewSchema = z
-  .strictObject({
-    pointsLastHour: z
-      .int()
-      .nonnegative()
-      .optional()
-      .describe('Reported source points consumed during the preceding hour.'),
-    source: z.string().min(1).describe('Adapter source identifier.'),
-    observedAt: z.iso.datetime().nullable().describe('Time of the latest observation, if any.'),
-    lastCompleteAt: z.iso
-      .datetime()
-      .nullable()
-      .describe('Time of the latest complete observation.'),
-    blindReason: z
-      .enum(['auth', 'config', 'stale'])
-      .nullable()
-      .describe('Why this source is blind, or null when it is usable.'),
-    message: z.string().nullable().describe('Short explanation of the source state.'),
-    budget: z
-      .strictObject({
-        remaining: z.int().nonnegative().describe('Requests or points the source still allowed.'),
-        limit: z
-          .int()
-          .positive()
-          .nullable()
-          .describe('Full budget the source restores at reset, or null when it reported none.'),
-        resetAt: z.iso.datetime().describe('When the source said it restores the full budget.'),
-      })
-      .nullable()
-      .describe(
-        'Request budget from the last poll of this source that reported one, or null when none did.',
-      ),
-    stale: z.boolean().describe('Whether facts from this source exceed their freshness threshold.'),
-    warmingUp: z
-      .boolean()
-      .describe('Whether this source needs a complete poll in this daemon run.'),
-  })
-  .describe('Freshness and availability of one source.');
 
 /** Roles `schema.get` can filter the catalog for. */
 export const SCHEMA_ROLES = ['operator', 'worker', 'orchestrator'] as const;

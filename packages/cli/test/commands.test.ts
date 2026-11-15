@@ -580,6 +580,8 @@ describe('catalog commands', () => {
       return op.examples[0].output;
     });
     const commands = [
+      ['config', 'get', '--project', 'demo'],
+      ['config', 'get'],
       ['status', '--project', 'demo'],
       ['status'],
       ['status', '--detail'],
@@ -604,6 +606,8 @@ describe('catalog commands', () => {
       expect(await runCli(command, { env: env(url), io: output.io }), command.join(' ')).toBe(0);
     }
     expect(calls).toEqual([
+      { id: 'config.get', input: { project: 'demo' } },
+      { id: 'config.get', input: {} },
       { id: 'status.get', input: { project: 'demo' } },
       { id: 'status.get', input: {} },
       { id: 'status.get', input: { detail: true } },
@@ -890,6 +894,14 @@ describe('catalog commands', () => {
           prCount: 0
           sessionCount: 0
           openBlocks: 0
+          turn: null
+          prSummary: null
+          links:
+            ticket: null
+            prs:
+
+            sessions:
+
       projectBlocks:
         - project: web
           openBlocks: 0

@@ -83,6 +83,27 @@ describe('catalog', () => {
     );
   });
 
+  it('pins the explicit configuration output field allowlist', () => {
+    const schema = schemas.find(({ op }) => op.id === 'config.get')?.output;
+    expect(walk(schema).properties.map(({ path }) => path)).toMatchInlineSnapshot(`
+      [
+        ".projects",
+        ".projects[].id",
+        ".projects[].columns",
+        ".projects[].columns[].id",
+        ".projects[].columns[].executor",
+        ".projects[].columns[].executor.kind",
+        ".projects[].columns[].executor.name",
+        ".projects[].dispatcher",
+        ".projects[].dispatcher.mode",
+        ".projects[].spurProjects",
+        ".projects[].spurProjects[].name",
+        ".projects[].spurProjects[].role",
+        ".projects[].spurProjects[].displayName",
+      ]
+    `);
+  });
+
   it('requires one link target mode and a reason', () => {
     for (const id of ['link.add', 'link.remove']) {
       const operation = OPERATIONS.find((entry) => entry.id === id);
@@ -580,6 +601,7 @@ describe('grants', () => {
       [...archived, 'turn_closed', 'not_turn_taker', 'return_not_allowed'],
     ],
     ['task.move', 'mutation', [operator], null, [...archived, 'move_not_allowed']],
+    ['config.get', 'query', [operator, projectAgent], null, ['not_found']],
   ];
 
   it('declares the six grants', () => {
@@ -593,7 +615,7 @@ describe('grants', () => {
     ]);
   });
 
-  it('pins the 25 operations with kinds, grants, preconditions and errors', () => {
+  it('pins the 26 operations with kinds, grants, preconditions and errors', () => {
     const order = Object.keys(ERRORS);
     expect(
       OPERATIONS.map((op) => [op.id, op.kind, op.grants, op.preconditions, op.errors]),
@@ -614,7 +636,7 @@ describe('grants', () => {
         return [opId, kind, grants, preconditions, errors];
       }),
     );
-    expect(OPERATIONS).toHaveLength(25);
+    expect(OPERATIONS).toHaveLength(26);
   });
 
   it('names a branch of the input discriminator in every grant mode', () => {
@@ -689,17 +711,18 @@ describe('comment shape', () => {
     );
     expect(timestamps.length).toBeGreaterThan(0);
     for (const { path, node } of timestamps) {
-      const nullable = [
-        'unblockedAt',
-        'completedAt',
-        'lastActivityAt',
-        'endedAt',
-        'factAt',
-        'observedAt',
-        'lastCompleteAt',
-        'approvedAt',
-        'lastUsedAt',
-      ].some((name) => path.endsWith(name));
+      const nullable =
+        [
+          'unblockedAt',
+          'completedAt',
+          'lastActivityAt',
+          'endedAt',
+          'factAt',
+          'observedAt',
+          'lastCompleteAt',
+          'approvedAt',
+          'lastUsedAt',
+        ].some((name) => path.endsWith(name)) && !path.includes('.prSummary');
       expect(Array.isArray(node['anyOf']), path).toBe(nullable);
       const variants: unknown[] = Array.isArray(node['anyOf']) ? node['anyOf'] : [node];
       expect(

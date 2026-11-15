@@ -248,7 +248,7 @@ spur slots --session "$SPUR_SESSION" --link board-worker=https://github.com/<own
 
 A script that spawns the session passes the new session's ID instead of `$SPUR_SESSION`.
 
-Check the link with `board status --detail`, which lists tasks with their links and the unlinked
+Check the link with `board status`, which lists tasks with their navigation links and the unlinked
 sessions. If a session is not linked, the operator can run `board link` as
 `board link <task> --session <session> --reason <value> --key <key>`; the session becomes worker
 when the task has none, otherwise other.
