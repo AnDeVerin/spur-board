@@ -31,9 +31,10 @@ hooks.
 - `pnpm check` - format, lint, types and tests for changed files and affected packages. Run it
   before opening the PR.
 - `pnpm check:full` - the same over the whole repo; CI runs the full cycle.
-- `pnpm guardrails` - lists the changed tests and checks a PR must explain. Each file it reports,
-  and every deleted, skipped or weakened check, gets a line under `## Changed checks` in the PR
-  body; the CI guardrails job fails otherwise.
+- `pnpm guardrails` - lists the changed tests and checks a PR must explain, every added, changed
+  or deleted test file included. Each file it reports, and every deleted, skipped or weakened
+  check, gets a line under `## Changed checks` in the PR body; the CI guardrails job fails
+  otherwise and re-runs when the PR description is edited.
 
 A check passes only when its exit code is 0.
 

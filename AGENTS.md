@@ -162,7 +162,8 @@ Generated from frontmatter by `pnpm agents:sync`; edit the source file, not this
 - Before opening the PR run `pnpm check`, then `pnpm guardrails`. Every file guardrails reports,
   and every deleted, skipped or weakened check, gets a line under `## Changed checks`; the CI
   guardrails job fails otherwise. The developer fills that section from its report.
-- The reviewer runs `pnpm guardrails` before approving.
+- CI `guardrails` checks that section against its report, every added, changed or deleted test
+  file included, and re-runs on a description edit; the reviewer checks what it cannot see.
 - Agents never merge, approve or push to `main`. A human merges.
 
 ## Git hooks

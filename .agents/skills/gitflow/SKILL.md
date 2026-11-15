@@ -83,10 +83,10 @@ changed and why:
 - `continue-on-error` or any other way to let a CI step fail silently;
 - loosened thresholds: coverage, timeouts, retries.
 
-`pnpm guardrails` has no rule for a changed expected value (`RULE_IDS` in
-`scripts/guardrails.ts`); add that line by hand.
+CI `guardrails` fails until the section names each added, changed or deleted test file;
+a description edit re-runs it. Add a changed expected value by hand.
 
-Any other change to a test or a check also gets a line. No entries -> delete the section.
+Any other changed check gets a line. No entries -> delete the section.
 
 ## Public text
 
