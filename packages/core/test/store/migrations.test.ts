@@ -394,17 +394,63 @@ describe('migrate', () => {
     });
     insertRaw(raw, 'meta', { key: 'pr-poll:github:board:o/r:pr:o/r#7', value: polling });
     insertRaw(raw, 'meta', { key: 'pr-poll:github:board:o/r:pr:o/r#8', value: 'garbage' });
+    snapshot('My-Org/a_b.c-d', 12, 'github:web:my-org/a_b.c-d', '{}');
+    const keys = (ticketKeys: string[]) => JSON.stringify({ ticketKeys });
+    for (const [key, ticketKey] of [
+      ['pr-poll:github:a:b:my-org/a_b.c-d:pr:my-org/a_b.c-d#12', 'K-1'],
+      ['pr-poll:github:x:o/r:pr:o/r#09', 'leading-zero'],
+      ['pr-poll:github:x:o/r:xx:o/r#9', 'no-pr-segment'],
+      ['pr-poll::pr:o/r#9', 'empty-source'],
+      ['pr-poll:github:x:o/r:pr:o/r#', 'no-number'],
+      ['pr-poll:github:x:o/r:pr:o/r9', 'no-hash'],
+    ] as const) {
+      insertRaw(raw, 'meta', { key, value: keys([ticketKey]) });
+    }
 
     migrate(raw, real);
 
     expect(
       raw.prepare('SELECT * FROM pr_ticket_key ORDER BY repo, number, source, ticket_key').all(),
     ).toEqual([
+      {
+        repo: 'My-Org/a_b.c-d',
+        number: 12,
+        source: 'github:a:b:my-org/a_b.c-d',
+        ticket_key: 'K-1',
+      },
       { repo: 'O/R', number: 7, source: 'github:board:o/r', ticket_key: 'o/r#9' },
       { repo: 'O/R', number: 7, source: 'github:web:o/r', ticket_key: 'WEBDEV-1' },
       { repo: 'o/r', number: 9, source: 'github:board:o/r', ticket_key: 'o/r#9' },
     ]);
     expect(raw.pragma('foreign_key_check')).toEqual([]);
+    expect(
+      raw.prepare("SELECT name FROM sqlite_master WHERE name = 'pr_snapshot_lower_identity'").all(),
+    ).toEqual([]);
+  });
+
+  it('joins parsed polling keys to pr_snapshot through an index in the pr_ticket_key backfill', () => {
+    const { raw } = rawDb(join(tempDir(), 'board.db'));
+    migrate(raw, real.slice(0, 21));
+    const sql = real[21]?.sql ?? '';
+    const start = sql.indexOf('CREATE INDEX pr_snapshot_lower_identity');
+    const end = sql.indexOf('DROP INDEX pr_snapshot_lower_identity');
+    const [createIndex = '', backfill = ''] = sql.slice(start, end).split(';');
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    raw.exec(sql.slice(0, sql.indexOf('INSERT OR IGNORE')));
+    raw.exec(`${createIndex};`);
+
+    const plan = raw
+      .prepare<unknown[], { detail: string }>(`EXPLAIN QUERY PLAN ${backfill}`)
+      .all()
+      .map((step) => step.detail);
+
+    expect(plan).toContainEqual(
+      expect.stringMatching(
+        /^SEARCH s USING INDEX pr_snapshot_lower_identity \(<expr>=\? AND number=\?\)/,
+      ),
+    );
+    expect(plan.filter((step) => /^SCAN (s|pr_snapshot)\b/.test(step))).toEqual([]);
   });
 
   it('keeps rows written at N-1 when migrating to N', async () => {
@@ -1101,8 +1147,8 @@ describe('migration pins', () => {
     '0021_submission_pending.sql':
       '20a8c5ae40faa72dd3e58b2dd99ad1b3cea6035cdc8a63c3f18708483fd42cc7',
     '0022_pr_ticket_key.sql': [
-      '658ec984eb6759552db6089ebbe1cb4a',
-      '9b1a9c855374870b1927279ae37f8e85',
+      '3fcbc414d17b541af259532a21ea7f0c',
+      '0c9118e6801ec43095111b36d3547385',
     ].join(''),
   };
 
