@@ -236,7 +236,6 @@ function confirmHead(input: {
   const { prepared, pr, sha, snapshot, completeAt, allowPending } = input;
   const label = `${pr.repo}#${String(pr.number)}`;
   const unavailable = (hint: string) => new CommandError('github_unavailable', hint);
-  /** A refusal a later poll can settle: pending for a turn submit. */
   const waitable = (hint: string): 'pending' => {
     if (allowPending) return 'pending';
     throw unavailable(hint);
@@ -311,21 +310,19 @@ async function pollTaskPr(
 /**
  * Records the submit of `sha` for the task's `column` visit `epoch` and says how its head was
  * confirmed (`confirmHead`). Throws `head_mismatch` or `github_unavailable` otherwise. With
- * `allowPending` (turn submits), a task with no PR or a head a later poll can confirm records a
- * pending row with `pending_until = at + submitConfirmMs`.
+ * `pendingMs` (turn submits: the project's `submitConfirmMs`), a task with no PR or a head a later
+ * poll can confirm records a pending row with `pending_until = at + pendingMs`.
  */
 async function insertSubmission(
   trx: Trx,
-  input: { task: Task; column: ColumnId; epoch: number; sha: string; allowPending: boolean },
+  input: { task: Task; column: ColumnId; epoch: number; sha: string },
   ctx: CommandContext<SubmitPrepared>,
-  deps: { config: Config; completeSince: ReadonlyMap<string, string> },
+  completeSince: ReadonlyMap<string, string>,
+  pendingMs?: number,
 ): Promise<Confirmed> {
   const { task, column, epoch, sha } = input;
-  const bound = deps.config.projects.find((entry) => entry.id === task.project)?.dispatcher
-    .submitConfirmMs;
-  const allowPending = input.allowPending && bound !== undefined;
   const pr = await taskPr(trx, task.id);
-  if (pr === null && !allowPending) {
+  if (pr === null && pendingMs === undefined) {
     throw new CommandError(
       'head_mismatch',
       'The task has no active pull request; ask the operator to link it with `board link`, then submit its head.',
@@ -344,8 +341,8 @@ async function insertSubmission(
       pr,
       sha,
       snapshot,
-      completeAt: deps.completeSince.get(prSourceId(task.project, pr.repo)),
-      allowPending,
+      completeAt: completeSince.get(prSourceId(task.project, pr.repo)),
+      allowPending: pendingMs !== undefined,
     });
   }
   await trx
@@ -361,8 +358,8 @@ async function insertSubmission(
       pr_repo: pr?.repo ?? null,
       pr_number: pr?.number ?? null,
       pending_until:
-        confirmed === 'pending' && bound !== undefined
-          ? new Date(Date.parse(ctx.at) + bound).toISOString()
+        confirmed === 'pending' && pendingMs !== undefined
+          ? new Date(Date.parse(ctx.at) + pendingMs).toISOString()
           : null,
     })
     .execute();
@@ -411,9 +408,9 @@ export function createTurnMutations(deps: {
     }
     const confirmed = await insertSubmission(
       trx,
-      { task, column, epoch: task.column_epoch, sha: input.sha, allowPending: false },
+      { task, column, epoch: task.column_epoch, sha: input.sha },
       ctx,
-      { config, completeSince },
+      completeSince,
     );
     await emit(
       trx,
@@ -461,9 +458,10 @@ export function createTurnMutations(deps: {
       const { turn, task } = await takenTurn(trx, input.turn, ctx);
       const confirmed = await insertSubmission(
         trx,
-        { task, column: turn.column, epoch: turn.epoch, sha: input.sha, allowPending: true },
+        { task, column: turn.column, epoch: turn.epoch, sha: input.sha },
         ctx,
-        { config, completeSince },
+        completeSince,
+        config.projects.find((entry) => entry.id === task.project)?.dispatcher.submitConfirmMs,
       );
       await closeTurns(trx, { taskId: task.id, reason: 'submitted', at: new Date(ctx.at) });
       await emit(
