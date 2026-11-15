@@ -514,7 +514,9 @@ describe('stand', () => {
   it('removes the home it created when the daemon cannot start', async () => {
     const taken = await occupyStandPort();
     try {
-      await expect(startStand({ root, port: taken.port, env: {}, osHome })).rejects.toThrow();
+      await expect(startStand({ root, port: taken.port, env: {}, osHome })).rejects.toThrow(
+        `Port ${String(taken.port)} on 127.0.0.1 is in use`,
+      );
       expect(readdirSync(root).filter((name) => name.startsWith('spur-board-stand.'))).toEqual([]);
     } finally {
       await taken.close();
@@ -525,7 +527,9 @@ describe('stand', () => {
     const home = mkdtempSync(join(root, 'spur-board-stand.'));
     const taken = await occupyStandPort();
     try {
-      await expect(startStand({ root, home, port: taken.port, env: {}, osHome })).rejects.toThrow();
+      await expect(startStand({ root, home, port: taken.port, env: {}, osHome })).rejects.toThrow(
+        `Port ${String(taken.port)} on 127.0.0.1 is in use`,
+      );
       expect(readdirSync(root)).toEqual([basename(home)]);
     } finally {
       await taken.close();
