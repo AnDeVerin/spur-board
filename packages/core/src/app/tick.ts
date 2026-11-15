@@ -3,6 +3,7 @@ import { prSourceId, type Config } from '@spur-board/contracts';
 import type { Store } from '../store/store.ts';
 import type { WarnSkipped } from '../store/json.ts';
 import { archiveTask } from './archive.ts';
+import { reconcileQuestionAddressees } from './blocks.ts';
 import { dispatchJournaled, dispatchPendingSubmits } from './dispatch.ts';
 import { reconcileItems } from './fromYou.ts';
 import { remindStuckTurns } from './turns.ts';
@@ -63,6 +64,7 @@ export async function tickBoard(deps: {
         .execute();
       await archiveTask(trx, { task, reason: 'done', actor: 'system', at });
     }
+    await reconcileQuestionAddressees(trx, config, at);
     await dispatchJournaled(trx, { config, at: new Date(now), complete: completeSince });
     // A pending submit's bound passes, or a poll confirms it, with no journal entry.
     await dispatchPendingSubmits(trx, { config, at: new Date(now), complete: completeSince });

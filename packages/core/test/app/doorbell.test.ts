@@ -16,6 +16,7 @@ import {
   createOperationRegistry,
   createQuery,
   createSender,
+  openStore,
   reconcileDueDoorbells,
   tickBoard,
   toJson,
@@ -78,6 +79,7 @@ afterEach(async () => {
 
 async function setup(
   options: {
+    reopen?: string;
     author?: 'waiting' | 'ended';
     replacement?: boolean;
     tester?: boolean;
@@ -87,67 +89,72 @@ async function setup(
     column?: ColumnId;
   } = {},
 ) {
-  const store = openTempStore('core-doorbell-').store;
+  const opened =
+    options.reopen === undefined
+      ? openTempStore('core-doorbell-')
+      : { store: openStore(options.reopen), file: options.reopen };
+  const { store, file } = opened;
   stores.push(store);
   let now = START;
   let failNext: Error | undefined;
   let failAlways = false;
   let beforeSend: (() => Promise<void>) | undefined;
   const sent: { session: string; text: string }[] = [];
-  await store.transaction(async (trx) => {
-    await trx
-      .insertInto('task')
-      .values({
-        ...sampleRows.task,
-        key: KEY,
-        project: 'proj',
-        membership: 'active',
-        archive_reason: null,
-        column: options.column ?? 'dev',
-      })
-      .execute();
-    const sessions = [
-      {
-        id: 'worker-1',
-        role: 'worker' as const,
-        state: options.author === 'ended' ? 'stopped' : 'waiting',
-        ended: options.author === 'ended',
-      },
-      ...(options.replacement
-        ? [{ id: 'worker-2', role: 'worker' as const, state: 'waiting', ended: false }]
-        : []),
-      ...(options.tester
-        ? [{ id: 'tester-1', role: 'other' as const, state: 'waiting', ended: false }]
-        : []),
-    ];
-    for (const [index, session] of sessions.entries()) {
+  if (options.reopen === undefined)
+    await store.transaction(async (trx) => {
       await trx
-        .insertInto('session_snapshot')
+        .insertInto('task')
         .values({
-          ...sampleRows.session_snapshot,
-          id: session.id,
-          spur_project: 'web',
-          state: session.state,
-          ended_at: session.ended ? new Date(START).toISOString() : null,
-          end_reason: session.ended ? 'complete' : null,
+          ...sampleRows.task,
+          key: KEY,
+          project: 'proj',
+          membership: 'active',
+          archive_reason: null,
+          column: options.column ?? 'dev',
         })
         .execute();
-      await trx
-        .insertInto('link')
-        .values({
-          ...sampleRows.link,
-          id: index + 1,
-          task_id: 1,
-          entity: 'session',
-          repo: null,
-          number: null,
-          pr_state: null,
-          session_id: session.id,
-          role: session.role,
-        })
-        .execute();
-    }
-  });
+      const sessions = [
+        {
+          id: 'worker-1',
+          role: 'worker' as const,
+          state: options.author === 'ended' ? 'stopped' : 'waiting',
+          ended: options.author === 'ended',
+        },
+        ...(options.replacement
+          ? [{ id: 'worker-2', role: 'worker' as const, state: 'waiting', ended: false }]
+          : []),
+        ...(options.tester
+          ? [{ id: 'tester-1', role: 'other' as const, state: 'waiting', ended: false }]
+          : []),
+      ];
+      for (const [index, session] of sessions.entries()) {
+        await trx
+          .insertInto('session_snapshot')
+          .values({
+            ...sampleRows.session_snapshot,
+            id: session.id,
+            spur_project: 'web',
+            state: session.state,
+            ended_at: session.ended ? new Date(START).toISOString() : null,
+            end_reason: session.ended ? 'complete' : null,
+          })
+          .execute();
+        await trx
+          .insertInto('link')
+          .values({
+            ...sampleRows.link,
+            id: index + 1,
+            task_id: 1,
+            entity: 'session',
+            repo: null,
+            number: null,
+            pr_state: null,
+            session_id: session.id,
+            role: session.role,
+          })
+          .execute();
+      }
+    });
   const baseConfig = options.config ?? config;
   const usedConfig = options.retry
     ? configSchema.parse({ ...baseConfig, doorbells: options.retry })
@@ -176,6 +183,7 @@ async function setup(
   });
   return {
     store,
+    file,
     apply,
     sender,
     sent,
@@ -1816,6 +1824,242 @@ describe('curator doorbells', () => {
     await step(ctx);
     expect(sessionsRung(ctx)).toEqual(['cur-1', 'cur-2']);
     expect((await notices(ctx))[0]?.rings).toBe(2);
+  });
+});
+
+describe('questions after config replacement', () => {
+  function replacement(curator = 'cur', dev = 'web'): Config {
+    return configSchema.parse({
+      ...policyConfig,
+      projects: policyConfig.projects.map((project) => ({
+        ...project,
+        spurProjects: project.spurProjects
+          .filter((entry) => entry.name !== 'cur' && entry.name !== 'web')
+          .concat(
+            [{ name: 'web', role: curator === 'web' ? 'curator' : 'orchestrator' }],
+            curator === 'none' || curator === 'web' ? [] : [{ name: curator, role: 'curator' }],
+          ),
+        columns: project.columns.map((column) =>
+          column.id === 'dev' ? { ...column, orchestrator: dev } : column,
+        ),
+      })),
+    });
+  }
+
+  async function validSessionFacts(ctx: Board) {
+    const sessions = await ctx.store.db.selectFrom('session_snapshot').selectAll().execute();
+    for (const session of sessions) {
+      await setSession(ctx, session.id, {
+        detail: toJson(sessionFactsSchema, {
+          id: session.id,
+          spurProject: session.spur_project,
+          branch: null,
+          pr: null,
+          links: {},
+          lifecycle: 'running',
+          health: 'waiting',
+          healthSince: ctx.now().toISOString(),
+          lastActivityAt: null,
+          endedAt: null,
+          endReason: null,
+        }),
+      });
+    }
+  }
+
+  async function tick(ctx: Board) {
+    await tickBoard({
+      store: ctx.store,
+      config: ctx.config,
+      clock: { now: () => ctx.now().getTime() },
+      completeSince: new Map(),
+    });
+  }
+
+  it.each(['cur', 'none', 'web'])(
+    'repairs a persisted question with curator %s once after reopening',
+    async (curator) => {
+      const original = await setup({ config: policyConfig });
+      await addSession(original, 'qa-1', 'qa');
+      await addSession(original, 'cur-1', 'cur');
+      const asked = await original.apply(
+        original.ops.ask,
+        { task: KEY, text: 'Q?' },
+        worker,
+        'ask',
+      );
+      const before = await original.store.db
+        .selectFrom('block')
+        .selectAll()
+        .executeTakeFirstOrThrow();
+      await original.store.transaction(async (trx) => {
+        await trx.deleteFrom('link').execute();
+        await trx.deleteFrom('session_snapshot').where('id', '=', 'worker-1').execute();
+        await trx.updateTable('task').set({ column: 'review' }).execute();
+      });
+      await validSessionFacts(original);
+      await original.store.close();
+      stores.splice(stores.indexOf(original.store), 1);
+      const ctx = await setup({
+        config: replacement(curator),
+        reopen: original.file,
+        gateway: true,
+      });
+      await tick(ctx);
+      const to = curator === 'cur' ? 'curator' : 'operator';
+      expect(await ctx.store.db.selectFrom('block').selectAll().executeTakeFirstOrThrow()).toEqual({
+        ...before,
+        addressee_role: to,
+      });
+      expect(await journalled(ctx, 'block_escalated')).toEqual([
+        {
+          actor: 'system',
+          payload: {
+            block: asked.block.id,
+            from: 'orchestrator:dev',
+            to,
+            reason: 'asker_is_addressee',
+          },
+        },
+      ]);
+      await step(ctx);
+      expect(sessionsRung(ctx)).toEqual(curator === 'cur' ? ['cur-1'] : []);
+      const notifications = await notices(ctx);
+      expect(notifications[0]?.acked_at).not.toBeNull();
+      expect(notifications.map((note) => note.role)).toEqual(
+        curator === 'cur' ? ['orchestrator:dev', 'curator'] : ['orchestrator:dev'],
+      );
+      if (to === 'operator') {
+        expect(
+          await ctx.store.db
+            .selectFrom('outbox')
+            .select('id')
+            .where('kind', '=', 'conversation.open')
+            .execute(),
+        ).toHaveLength(1);
+        expect(await itemKinds(ctx)).toContainEqual({
+          kind: 'board_observation',
+          item_key: 'operator-block:1',
+        });
+      }
+      const clock = { now: () => ctx.now().getTime() };
+      const registry = createOperationRegistry({
+        config: ctx.config,
+        clock,
+        completeSince: new Map(),
+      });
+      const query = createQuery({ store: ctx.store, config: ctx.config, clock });
+      expect(
+        (await query(registry['task.get'], { task: KEY, why: true }, 'operator')).blocks[0]
+          ?.addressee,
+      ).toBe(to);
+      expect(
+        (await query(registry['task.history'], { task: KEY }, 'operator')).events,
+      ).toContainEqual(
+        expect.objectContaining({
+          kind: 'block_escalated',
+          summary: `Block ${asked.block.id} escalated from orchestrator:dev to ${to}: asker_is_addressee`,
+        }),
+      );
+      await tick(ctx);
+      await step(ctx);
+      expect(await notices(ctx)).toEqual(notifications);
+      expect(await journalled(ctx, 'block_escalated')).toHaveLength(1);
+      expect(ctx.sent).toHaveLength(curator === 'cur' ? 1 : 0);
+    },
+  );
+
+  it('advances a stored curator held by the asker to the operator', async () => {
+    const ctx = await setup({ config: policyConfig, column: 'qa', gateway: true });
+    const asked = await ctx.apply(ctx.ops.ask, { task: KEY, text: 'Q?' }, worker, 'ask');
+    await validSessionFacts(ctx);
+    const changed = replacement('web');
+    await tickBoard({
+      store: ctx.store,
+      config: changed,
+      clock: { now: () => ctx.now().getTime() },
+      completeSince: new Map(),
+    });
+    expect(await journalled(ctx, 'block_escalated')).toEqual([
+      {
+        actor: 'system',
+        payload: {
+          block: asked.block.id,
+          from: 'curator',
+          to: 'operator',
+          reason: 'asker_is_addressee',
+        },
+      },
+    ]);
+  });
+
+  it.each([
+    'code',
+    'dependency',
+    'external',
+    'system',
+    'closed',
+    'archived',
+    'project',
+    'explicit',
+    'operator',
+  ])('preserves excluded %s blocks and notices', async (excluded) => {
+    const ctx = await setup({ config: policyConfig });
+    await ctx.apply(ctx.ops.ask, { task: KEY, text: 'Q?' }, worker, 'ask');
+    await validSessionFacts(ctx);
+    await ctx.store.transaction(async (trx) => {
+      if (excluded === 'code' || excluded === 'dependency' || excluded === 'external') {
+        await trx.updateTable('block').set({ type: excluded }).execute();
+      } else if (excluded === 'system') {
+        await trx.updateTable('block').set({ author: 'system' }).execute();
+      } else if (excluded === 'closed') {
+        await trx.updateTable('block').set({ state: 'unblocked' }).execute();
+      } else if (excluded === 'archived') {
+        await trx
+          .updateTable('task')
+          .set({ membership: 'archived', archive_reason: 'manual' })
+          .execute();
+      } else if (excluded === 'project') {
+        await trx.updateTable('block').set({ task_id: null, project: 'proj' }).execute();
+      } else if (excluded === 'explicit') {
+        await trx.updateTable('block').set({ addressee_spur_project: 'web' }).execute();
+      } else {
+        await trx.updateTable('block').set({ addressee_role: 'operator' }).execute();
+      }
+    });
+    const blocks = await ctx.store.db.selectFrom('block').selectAll().execute();
+    const notifications = await notices(ctx);
+    await tickBoard({
+      store: ctx.store,
+      config: replacement(),
+      clock: { now: () => ctx.now().getTime() },
+      completeSince: new Map(),
+    });
+    expect(await ctx.store.db.selectFrom('block').selectAll().execute()).toEqual(blocks);
+    expect(await notices(ctx)).toEqual(notifications);
+    expect(await journalled(ctx, 'block_escalated')).toEqual([]);
+  });
+
+  it('leaves an unaffected question and its delivered notice unchanged', async () => {
+    const ctx = await setup({ config: policyConfig });
+    await addSession(ctx, 'qa-1', 'qa');
+    await ctx.apply(ctx.ops.ask, { task: KEY, text: 'Q?' }, worker, 'ask');
+    await step(ctx);
+    await validSessionFacts(ctx);
+    const blocks = await ctx.store.db.selectFrom('block').selectAll().execute();
+    const notifications = await notices(ctx);
+    await tickBoard({
+      store: ctx.store,
+      config: replacement('cur', 'qa'),
+      clock: { now: () => ctx.now().getTime() },
+      completeSince: new Map(),
+    });
+    await tick(ctx);
+    await step(ctx);
+    expect(await ctx.store.db.selectFrom('block').selectAll().execute()).toEqual(blocks);
+    expect(await notices(ctx)).toEqual(notifications);
+    expect(await journalled(ctx, 'block_escalated')).toEqual([]);
+    expect(ctx.sent).toHaveLength(1);
   });
 });
 

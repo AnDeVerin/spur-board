@@ -85,9 +85,14 @@ const EVENT_SUMMARIES = {
   token_revoked: 'Token revoked',
 } satisfies Record<EventKind, string>;
 
-function linkSummary(kind: EventKind, payloadText: string): string | null {
-  if (kind !== 'link_added' && kind !== 'link_removed') return null;
+function linkOrEscalationSummary(kind: EventKind, payloadText: string): string | null {
+  if (kind !== 'link_added' && kind !== 'link_removed' && kind !== 'block_escalated') return null;
   try {
+    if (kind === 'block_escalated') {
+      const payload = eventPayloadSchemas[kind].safeParse(JSON.parse(payloadText));
+      if (!payload.success || payload.data.reason !== 'asker_is_addressee') return null;
+      return `Block ${payload.data.block} escalated from ${payload.data.from} to ${payload.data.to}: ${payload.data.reason}`;
+    }
     const payload = eventPayloadSchemas[kind].safeParse(JSON.parse(payloadText));
     if (!payload.success) return null;
     const target =
@@ -384,7 +389,7 @@ export function createTaskQueries(deps: {
             kind,
             actor: eventActor(row),
             summary:
-              linkSummary(kind, row.payload) ??
+              linkOrEscalationSummary(kind, row.payload) ??
               shadowSummary(kind, row.payload) ??
               submitSummary(kind, row.payload) ??
               EVENT_SUMMARIES[kind],

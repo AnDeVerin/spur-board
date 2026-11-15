@@ -281,6 +281,48 @@ function atAddressee(target: ResolvedTarget, role: AddresseeRole): ResolvedTarge
   };
 }
 
+/** Advances open questions whose persisted author now holds their stored addressee role. */
+export async function reconcileQuestionAddressees(
+  trx: Trx,
+  config: Config,
+  at: string,
+): Promise<void> {
+  const blocks = await trx
+    .selectFrom('block')
+    .selectAll()
+    .where('type', '=', 'needs_input')
+    .where('state', '=', 'open')
+    .where('task_id', 'is not', null)
+    .where('addressee_spur_project', 'is', null)
+    .execute();
+  for (const block of blocks) {
+    if (
+      parseActorId(block.author)?.actor !== 'agent' ||
+      (block.addressee_role !== 'curator' && !block.addressee_role.startsWith('orchestrator:'))
+    )
+      continue;
+    const subject = await blockSubject(trx, block);
+    const { task } = subject;
+    if (task === null || task.membership === 'archived') continue;
+    const target = await subjectTarget(trx, subject, block);
+    if (!holdsBlock(config, block.author, target)) continue;
+    const next = escalateBlock(
+      current(block),
+      curatorProject(config, subject.project) !== null,
+      (role) => holdsBlock(config, block.author, atAddressee(target, role)),
+    );
+    if (!next.changed) continue;
+    await moveBlockToAddressee(trx, {
+      task,
+      block,
+      to: next.addressee,
+      reason: 'asker_is_addressee',
+      ctx: { actor: 'system', at },
+      config,
+    });
+  }
+}
+
 function wroteBlock(config: Config, actor: ActorId, target: ResolvedTarget): boolean {
   return authorize([{ grant: 'block-author' }], actor, { config, target }).status === 'allowed';
 }
