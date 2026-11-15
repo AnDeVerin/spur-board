@@ -8,7 +8,7 @@ import {
   type MessageRef,
 } from '@spur-board/contracts';
 import type { Trx } from './board-utils.ts';
-import { insertComment, openBlock } from './blocks.ts';
+import { insertComment, openBlock, stripShortName } from './blocks.ts';
 import type { CommandContext } from './commands.ts';
 import { advanceConversationCursor, insertConversation } from './conversations.ts';
 import { canonicalKey } from './membership.ts';
@@ -30,10 +30,8 @@ function addressOperatorMessage(text: string, config: Config): OperatorAddress {
   if (spurByShortName.size === 0) return null;
   const prefix = /^@(\S+)\s*/.exec(text);
   const named = prefix?.[1] === undefined ? undefined : spurByShortName.get(prefix[1]);
-  if (prefix !== null && named !== undefined) {
-    const rest = text.slice(prefix[0].length);
-    return { spur: named, text: rest.length === 0 ? text : rest };
-  }
+  if (prefix?.[1] !== undefined && named !== undefined)
+    return { spur: named, text: stripShortName(text, prefix[1]) };
   const fallback = config.slack.defaultAddressee;
   const fallbackSpur = fallback === undefined ? undefined : spurByShortName.get(fallback);
   if (fallbackSpur !== undefined) return { spur: fallbackSpur, text };

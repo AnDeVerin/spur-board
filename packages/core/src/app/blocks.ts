@@ -670,6 +670,75 @@ export async function recordInboundBlockMessage(
   };
 }
 
+/**
+ * `text` without a leading `@<shortName>` token and the space after it; a text that is only the
+ * token stays whole. An operator conversation's reason is its opening text stripped this way.
+ */
+export function stripShortName(text: string, shortName: string): string {
+  const prefix = /^@(\S+)\s*/.exec(text);
+  if (prefix?.[1] !== shortName) return text;
+  const rest = text.slice(prefix[0].length);
+  return rest.length === 0 ? text : rest;
+}
+
+/**
+ * An edit of an open operator conversation's opening message: the block reason follows the new
+ * text, and an addressee that already read the conversation is rung once more. Target and scope
+ * stay as opened.
+ */
+async function reviseConversationOpening(
+  trx: Trx,
+  updated: Comment,
+  input: { at: string; actor: ActorId; config: Config },
+  subject: BlockSubject,
+): Promise<void> {
+  if (updated.block_id === null) return;
+  const block = await trx
+    .selectFrom('block')
+    .selectAll()
+    .where('id', '=', updated.block_id)
+    .executeTakeFirstOrThrow();
+  const spur = block.addressee_spur_project;
+  if (spur === null || block.state !== 'open') return;
+  const opening = await trx
+    .selectFrom('comment')
+    .select('id')
+    .where('block_id', '=', block.id)
+    .orderBy('id')
+    .executeTakeFirstOrThrow();
+  if (opening.id !== updated.id) return;
+  const shortName = input.config.projects
+    .flatMap((project) => project.spurProjects)
+    .find((entry) => entry.name === spur)?.shortName;
+  const reason = shortName === undefined ? updated.text : stripShortName(updated.text, shortName);
+  const revised = await trx
+    .updateTable('block')
+    .set({ reason })
+    .where('id', '=', block.id)
+    .returningAll()
+    .executeTakeFirstOrThrow();
+  const waiting = await trx
+    .selectFrom('notification')
+    .select('id')
+    .where('block_id', '=', block.id)
+    .where('kind', 'in', ['block', 'answer'])
+    .where('acked_at', 'is', null)
+    .executeTakeFirst();
+  if (waiting !== undefined) return;
+  await applyDoorbellPolicy(
+    trx,
+    {
+      kind: 'answer',
+      block: revised,
+      commentId: updated.id,
+      revision: updated.revision,
+      authorRole: authorRole(input.config, subject, block.author),
+      actor: input.actor,
+    },
+    new Date(input.at),
+  );
+}
+
 /** Uses the same revision and acknowledgment rule as the catalog comment.edit mutation. */
 export async function editInboundComment(
   trx: Trx,
@@ -716,6 +785,7 @@ export async function editInboundComment(
       new Date(input.at),
     );
   }
+  await reviseConversationOpening(trx, updated, input, subject);
   return updated;
 }
 

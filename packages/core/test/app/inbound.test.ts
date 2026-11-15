@@ -41,6 +41,7 @@ import {
   verifyOperatorToken,
 } from '../../src/app/tokens.ts';
 import { renderBody } from '../../src/app/outbox.ts';
+import { ackConversationNotifications } from '../../src/app/doorbells.ts';
 import { renderedLength } from '../support/rendered.ts';
 import { sql } from 'kysely';
 import {
@@ -3032,6 +3033,56 @@ describe('operator conversation', () => {
       expect.objectContaining({ text: 'resolved: done (operator)', targetConversation: 'top-1' }),
     ]);
     expect(await unacked(store)).toEqual([]);
+  });
+
+  /** The operator's edit of top-level message 1 to `text`. */
+  const editOpening = (text: string): InboundEvent => ({
+    kind: 'message_edited',
+    dedupeKey: `top-1:edit:${text}`,
+    conversation: conversationRefSchema.parse('top-1'),
+    message: messageRefSchema.parse('top-1'),
+    rootMessage: messageRefSchema.parse('top-1'),
+    sourceUrl: 'https://example.test/top-1',
+    author: userIdSchema.parse('operator'),
+    text,
+    at: new Date(now + 60_000).toISOString(),
+  });
+  const rows = (store: Store) =>
+    store.db
+      .selectFrom('notification')
+      .select(['kind', 'role', 'acked_at'])
+      .orderBy('id')
+      .execute();
+
+  it.each([
+    ['before the addressee read it', false, ['block']],
+    ['after the addressee read it', true, ['answer']],
+  ] as const)('follows an edit of the opening %s', async (_when, read, unackedKinds) => {
+    const { store, inbound, used } = await board();
+    await inbound.sink(topLevel('@cur o/r#101 hello'));
+    if (read)
+      await scanTransaction(store, used, (trx) =>
+        ackConversationNotifications(trx, 1, new Date(now), 'agent:cur/cur-1'),
+      );
+    await inbound.sink(editOpening('@cur o/r#101 hello again'));
+    expect(await blocks(store)).toEqual([open('cur', 'curator', 'o/r#101 hello again', 1)]);
+    const unacked = (await rows(store)).filter((row) => row.acked_at === null);
+    expect(unacked.map((row) => row.kind)).toEqual(unackedKinds);
+    expect(unacked.every((row) => row.role === 'curator')).toBe(true);
+    expect(await rows(store)).toHaveLength(read ? 2 : 1);
+  });
+
+  it('changes only the comment on an edit of a closed conversation', async () => {
+    const { store, inbound } = await board();
+    await inbound.sink(topLevel('@cur hello'));
+    await inbound.sink(threadReply('close', 1));
+    const before = await rows(store);
+    await inbound.sink(editOpening('@cur hello again'));
+    expect((await blocks(store))[0]).toMatchObject({ reason: 'hello', state: 'unblocked' });
+    expect(
+      (await store.db.selectFrom('comment').select('text').orderBy('id').execute())[0],
+    ).toEqual({ text: '@cur hello again' });
+    expect(await rows(store)).toEqual(before);
   });
 
   it('replays a stored reply event without sourceSpace', async () => {
