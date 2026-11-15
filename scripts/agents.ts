@@ -23,6 +23,7 @@ const ROLE_SANDBOX: Record<string, 'read-only' | 'workspace-write'> = {
   critic: 'read-only',
   designer: 'read-only',
   developer: 'workspace-write',
+  'doc-reviewer': 'read-only',
   researcher: 'read-only',
   reviewer: 'workspace-write',
   'spec-critic': 'read-only',
