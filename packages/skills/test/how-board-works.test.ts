@@ -235,9 +235,12 @@ function withoutFences(text: string): string {
 function headingSlugs(text: string): Set<string> {
   const slugs = new Set<string>();
   for (const match of withoutFences(text).matchAll(/^#{1,6} (.+)$/gm)) {
-    const base = (match[1] ?? '')
+    const heading = match[1] ?? '';
+    if (/[<>]/.test(heading)) {
+      throw new Error(`Unsupported HTML or angle brackets in heading: ${heading}`);
+    }
+    const base = heading
       .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-      .replace(/<[^>]+>/g, '')
       .replace(/[^\p{L}\p{N}\p{M}_\-\s]/gu, '')
       .trim()
       .toLowerCase()
@@ -309,6 +312,15 @@ describe('documentation local links', () => {
       'Missing fragment: #missing-heading',
     ]);
   });
+
+  it.each(['<em>Hello</em>', '<scr<script>ipt>', '<script', 'Hello >'])(
+    'rejects unsupported angle-bracket heading syntax: %s',
+    (heading) => {
+      expect(() => headingSlugs(`# ${heading}`)).toThrow(
+        'Unsupported HTML or angle brackets in heading',
+      );
+    },
+  );
 
   it('handles formatted and duplicate headings, decoded fragments and code exclusions', () => {
     expect([...headingSlugs('# **Hello** `world`\n## Hello world\n## Hello world\n')]).toEqual([
