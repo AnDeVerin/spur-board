@@ -15,6 +15,7 @@ import {
   createObservationCore,
   createOperationRegistry,
   createQuery,
+  reconcileDueDoorbells,
   type Store,
 } from '../../src/index.ts';
 import { scanTransaction } from '../../src/app/secrets.ts';
@@ -342,6 +343,25 @@ async function setup(
       ),
     turn: () => store.db.selectFrom('turn').selectAll().executeTakeFirstOrThrow(),
     task: () => store.db.selectFrom('task').selectAll().executeTakeFirstOrThrow(),
+    /** Runs the doorbell job at `at` and returns the dedupe keys of every doorbell row. */
+    async ring(at: string) {
+      await reconcileDueDoorbells(store, config, new Date(at));
+      const rows = await store.db
+        .selectFrom('outbox')
+        .select('dedupe_key')
+        .where('kind', '=', 'doorbell')
+        .orderBy('id')
+        .execute();
+      return rows.map((row) => row.dedupe_key);
+    },
+    /** The turn notification of turn `turnId`. */
+    turnNotice: (turnId: number) =>
+      store.db
+        .selectFrom('notification')
+        .selectAll()
+        .where('kind', '=', 'turn')
+        .where('turn_id', '=', turnId)
+        .executeTakeFirstOrThrow(),
   };
 }
 
@@ -392,6 +412,35 @@ async function unlinkAll(ctx: Awaited<ReturnType<typeof setup>>) {
 }
 
 describe('task.submit', () => {
+  it('holds the ring of the next turn its submitter executes', async () => {
+    const green = { name: 'ci', state: 'success' as const, completedAt: AT };
+    const ctx = await taken({
+      mode: 'on',
+      complete: true,
+      pr: { requiredChecks: [green], feedback: [], feedbackComplete: true },
+    });
+    await ctx.submitted('dev', A, WORKER_1);
+    ctx.commits(A);
+
+    await expect(ctx.submit(REV_1, A, 'submit-1')).resolves.toMatchObject({
+      status: 'confirmed',
+      task: { column: 'qa' },
+    });
+
+    const turn = await ctx.store.db
+      .selectFrom('turn')
+      .select(['id', 'role'])
+      .where('closed_at', 'is', null)
+      .executeTakeFirstOrThrow();
+    expect(turn.role).toBe('orchestrator:qa');
+    const notice = await ctx.turnNotice(turn.id);
+    expect(notice.next_at).toBe(new Date(Date.parse(AT) + 120_000).toISOString());
+    expect(await ctx.ring(AT)).toEqual([]);
+    expect(await ctx.ring(new Date(Date.parse(AT) + 120_000).toISOString())).toEqual([
+      `doorbell:${String(notice.id)}:rev-1:1`,
+    ]);
+  });
+
   it('accepts a head the board saw only through the poll', async () => {
     const ctx = await taken();
     ctx.commits(B);
@@ -1153,6 +1202,9 @@ describe('task.return', () => {
       { kind: 'block', block_id: 1, turn_id: null },
       { kind: 'turn', block_id: null, turn_id: 2 },
     ]);
+    const notice = await ctx.turnNotice(2);
+    expect(notice.next_at).toBe(AT);
+    expect(await ctx.ring(AT)).toContain(`doorbell:${String(notice.id)}:worker-1:1`);
   });
 
   it.each(['dev', 'done'] as const)('refuses a return from %s', async (column) => {

@@ -2704,14 +2704,21 @@ describe('course-check hold', () => {
 describe('turns', () => {
   const T1 = { entries: [{ id: 'T1' }] };
 
-  async function open(ctx: Board, reason = 'Review the PR') {
+  async function open(ctx: Board, reason = 'Review the PR', opener?: ActorId) {
     return scanTransaction(ctx.store, ctx.config, async (trx) => {
       const task = await trx
         .selectFrom('task')
         .selectAll()
         .where('id', '=', 1)
         .executeTakeFirstOrThrow();
-      return openTurn(trx, { task, reason, handed: [], at: ctx.now(), config: ctx.config });
+      return openTurn(trx, {
+        task,
+        reason,
+        handed: [],
+        at: ctx.now(),
+        config: ctx.config,
+        opener,
+      });
     });
   }
 
@@ -2757,6 +2764,81 @@ describe('turns', () => {
     ctx.advance(900_000);
     await step(ctx);
   }
+
+  it('holds the first ring of a turn its own recipient opened and sends none once acked', async () => {
+    const ctx = await setup({ config: policyBoard('none') });
+    await open(ctx, 'Review the PR', worker);
+    expect((await notices(ctx))[0]).toMatchObject({
+      next_at: new Date(START + 120_000).toISOString(),
+      created_at: new Date(START).toISOString(),
+      recipient_session: null,
+    });
+    await step(ctx);
+    ctx.advance(60_000);
+    await expect(ctx.apply(ctx.ops.ack, T1, worker, 'ack-held')).resolves.toEqual({
+      acked: ['T1'],
+    });
+    ctx.advance(60_001);
+    await step(ctx);
+    ctx.advance(300_000);
+    await step(ctx);
+    expect(await outbox(ctx, 'doorbell')).toEqual([]);
+    expect(ctx.sent).toEqual([]);
+  });
+
+  it('rings a self-opened turn after firstRetryMs and repeats as today', async () => {
+    const ctx = await setup({ config: policyBoard('none') });
+    await open(ctx, 'Review the PR', worker);
+    await step(ctx);
+    ctx.advance(119_999);
+    await step(ctx);
+    expect(ctx.sent).toEqual([]);
+    ctx.advance(1);
+    await step(ctx);
+    expect(ctx.sent.map((entry) => entry.text)).toEqual([
+      `${KEY} turn T1: check board inbox (N1-1)`,
+    ]);
+    ctx.advance(119_999);
+    await step(ctx);
+    expect(ctx.sent).toHaveLength(1);
+    ctx.advance(1);
+    await step(ctx);
+    ctx.advance(299_999);
+    await step(ctx);
+    expect(ctx.sent).toHaveLength(2);
+    ctx.advance(1);
+    await step(ctx);
+    expect(ctx.sent.map((entry) => entry.text)).toEqual(
+      [1, 2, 3].map((ring) => `${KEY} turn T1: check board inbox (N1-${String(ring)})`),
+    );
+    expect(sessionsRung(ctx)).toEqual(['worker-1', 'worker-1', 'worker-1']);
+  });
+
+  it.each([
+    { name: 'no opener', opener: undefined },
+    { name: 'the operator', opener: 'operator' as const },
+    { name: 'another agent session', opener: 'agent:web/worker-2' as const },
+  ])('rings a turn opened by $name at once', async ({ opener }) => {
+    const ctx = await setup({ config: policyBoard('none'), replacement: true });
+    await open(ctx, 'Review the PR', opener);
+    expect((await notices(ctx))[0]?.next_at).toBe(new Date(START).toISOString());
+    await step(ctx);
+    expect(sessionsRung(ctx)).toEqual(['worker-1']);
+    expect(ctx.sent[0]?.text).toBe(`${KEY} turn T1: check board inbox (N1-1)`);
+  });
+
+  it('rings the next worker after the hold when the opener ends during it', async () => {
+    const ctx = await setup({ config: policyBoard('none'), replacement: true });
+    await open(ctx, 'Review the PR', worker);
+    expect((await notices(ctx))[0]?.next_at).toBe(new Date(START + 120_000).toISOString());
+    ctx.advance(10_000);
+    await setSession(ctx, 'worker-1', { ended_at: ctx.now().toISOString() });
+    await step(ctx);
+    expect(ctx.sent).toEqual([]);
+    ctx.advance(110_000);
+    await step(ctx);
+    expect(sessionsRung(ctx)).toEqual(['worker-2']);
+  });
 
   it('ends a turn series on time while its ring waits in the Spur queue', async () => {
     const ctx = await setup({ config: policyBoard('none') });

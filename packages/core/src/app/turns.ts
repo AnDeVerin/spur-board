@@ -79,9 +79,17 @@ export async function turnNotification(trx: Trx, turnId: number) {
  */
 export async function openTurn(
   trx: Trx,
-  input: { task: Row<'task'>; reason: string; handed: readonly Handed[]; at: Date; config: Config },
+  input: {
+    task: Row<'task'>;
+    reason: string;
+    handed: readonly Handed[];
+    at: Date;
+    config: Config;
+    /** The actor whose operation opens the turn; absent for tick and observation. */
+    opener?: ActorId | undefined;
+  },
 ): Promise<Turn> {
-  const { task, reason, handed, at, config } = input;
+  const { task, reason, handed, at, config, opener } = input;
   const unclosed = await trx
     .selectFrom('turn')
     .selectAll()
@@ -144,7 +152,7 @@ export async function openTurn(
       at,
     });
   } else {
-    await registerTurnNotification(trx, turn, at);
+    await registerTurnNotification(trx, turn, at, { config, opener });
   }
   return turn;
 }
