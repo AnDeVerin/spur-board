@@ -19,7 +19,7 @@ browser/proxy -> Web Fastify (web.port) -> shared ops route -> registry
 ## Agent API
 
 - Use `listenApiServer` with `http.port`; require the actual loopback Host, reject every Origin and require JSON for POST.
-- Keep schema, doctor, health, token and skill routes on this instance only.
+- Keep schema, doctor, token and skill routes on this instance only; health is shared by both listeners.
 - Resolve sessions through core snapshots and a bounded Spur lookup on a miss; wrap the lookup in `ctx.logCall` and verify bearer tokens against current storage on every request.
 - Keep token approval and denial in authenticated inbound handling, outside the catalog; require the configured gateway user and space.
 - Log accepted token names, never bearer values.
