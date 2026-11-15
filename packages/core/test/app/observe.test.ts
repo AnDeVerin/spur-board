@@ -4003,6 +4003,90 @@ describe('source-specific terminal PR processing', () => {
       ).toHaveLength(1);
     },
   );
+  it.each(['task.add', 'tracker import'] as const)(
+    'reads only PRs indexed under the task key on %s',
+    async (route) => {
+      const { store, core, apply, mutations } = setup(shared);
+      await observe(core, first, 'merged', ['o/r#9']);
+      // Retained PRs the lookup must not read: a full scan would fail to parse their details.
+      await store.db
+        .insertInto('pr_snapshot')
+        .values(
+          Array.from({ length: 50 }, (_, i) => ({
+            repo: 'o/r',
+            number: 100 + i,
+            head_sha: 'b'.repeat(40),
+            head_branch: `other-${String(i)}`,
+            state: 'merged',
+            draft: 0,
+            mergeable: null,
+            merge_state: null,
+            detail: 'not json',
+            source: first,
+            observed_at: at,
+          })),
+        )
+        .execute();
+      now += 3_600_000;
+      if (route === 'task.add') await apply(mutations.add, { task: 'o/r#9' }, 'operator');
+      else
+        await core.observe(source, {
+          batch: {
+            source,
+            observedAt: new Date(now).toISOString(),
+            complete: true,
+            items: [{ kind: 'ticket', facts: { ...fact('o/r#9'), inFilter: true } }],
+            entities: [],
+          },
+          effectiveComplete: true,
+          state: { lastCompleteAt: at, gone: [] },
+          outcomes: [],
+        });
+      expect(
+        await store.db
+          .selectFrom('link')
+          .select(['repo', 'number'])
+          .where('entity', '=', 'pr')
+          .execute(),
+      ).toEqual([{ repo: 'o/r', number: 7 }]);
+    },
+  );
+  it('keeps pr_ticket_key current when sources link and re-link a PR', async () => {
+    const { store, core, apply, mutations } = setup(shared);
+    const indexed = () =>
+      store.db
+        .selectFrom('pr_ticket_key')
+        .select(['repo', 'number', 'source', 'ticket_key'])
+        .orderBy('source')
+        .orderBy('ticket_key')
+        .execute();
+    await observe(core, first, 'open', ['o/r#9']);
+    expect(await indexed()).toEqual([
+      { repo: 'o/r', number: 7, source: first, ticket_key: 'o/r#9' },
+    ]);
+    await observe(core, first, 'merged', ['o/r#10']);
+    expect(await indexed()).toEqual([
+      { repo: 'o/r', number: 7, source: first, ticket_key: 'o/r#10' },
+    ]);
+    await observe(core, second, 'merged', ['WEBDEV-1']);
+    expect(await indexed()).toEqual([
+      { repo: 'o/r', number: 7, source: first, ticket_key: 'o/r#10' },
+      { repo: 'o/r', number: 7, source: second, ticket_key: 'WEBDEV-1' },
+    ]);
+    const prLinks = () =>
+      store.db
+        .selectFrom('link')
+        .innerJoin('task', 'task.id', 'link.task_id')
+        .select(['task.key', 'link.number'])
+        .where('link.entity', '=', 'pr')
+        .execute();
+    await apply(mutations.add, { task: 'o/r#10' }, 'operator');
+    expect(await prLinks()).toEqual([{ key: 'o/r#10', number: 7 }]);
+    await apply(mutations.add, { task: 'o/r#9' }, 'operator');
+    expect(await prLinks()).toEqual([{ key: 'o/r#10', number: 7 }]);
+    await store.db.deleteFrom('pr_snapshot').execute();
+    expect(await indexed()).toEqual([]);
+  });
   it('retains late-task associations through a closed state-only probe', async () => {
     const { store, core, apply, mutations } = setup(shared);
     await observe(core, first, 'closed', ['o/r#9']);

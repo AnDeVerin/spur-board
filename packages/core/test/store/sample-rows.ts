@@ -61,6 +61,7 @@ export const sampleRows: SampleRows = {
     observed_at: at,
     closed_recheck_at: null,
   },
+  pr_ticket_key: { repo: 'x/y', number: 7, source: 'github', ticket_key: 'X-1' },
   ticket_snapshot: {
     task_id: 1,
     status: 'In Progress',

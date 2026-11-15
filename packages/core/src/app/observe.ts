@@ -4,6 +4,7 @@ import {
   prPollingKey,
   readPrPolling,
   reconcileTaskPrs,
+  replacePrTicketKeys,
   savePrPolling,
 } from './pr-associations.ts';
 import { scanTransaction } from './secrets.ts';
@@ -543,6 +544,7 @@ async function pr(
       }),
     )
     .execute();
+  await replacePrTicketKeys(trx, source, old?.repo ?? fact.repo, fact.number, fact.ticketKeys);
   if (old !== undefined && old.head_sha.toLowerCase() !== fact.headSha.toLowerCase()) {
     await voidMarksOffHead(trx, {
       repo: fact.repo,

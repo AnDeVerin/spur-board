@@ -395,6 +395,17 @@ export interface SourceMissTable {
   outcome: 'ok' | 'not_found' | 'no_access' | null;
 }
 
+/**
+ * Ticket keys a source last read for a PR (migration 0021): a candidate index for task add and
+ * import, re-checked against the snapshot before linking. Deleted with its snapshot.
+ */
+export interface PrTicketKeyTable {
+  repo: string;
+  number: number;
+  source: string;
+  ticket_key: string;
+}
+
 /** A PR comment history a regular poll asked core to hold (A10), per source and PR. */
 export interface PrContinuationTable {
   source: string;
@@ -409,6 +420,7 @@ export interface PrContinuationTable {
 export interface Tables {
   task: TaskTable;
   pr_snapshot: PrSnapshotTable;
+  pr_ticket_key: PrTicketKeyTable;
   ticket_snapshot: TicketSnapshotTable;
   session_snapshot: SessionSnapshotTable;
   link: LinkTable;

@@ -81,6 +81,33 @@ export async function savePrPolling(
     .execute();
 }
 
+/**
+ * Replaces the ticket keys `source` last read for a PR in the `pr_ticket_key` candidate index.
+ * `repo` is the snapshot's stored casing. Call it wherever a source writes a snapshot's details
+ * or its polling ticket keys from a fresh read; today that is only pr() in observe.ts.
+ */
+export async function replacePrTicketKeys(
+  trx: Trx,
+  source: string,
+  repo: string,
+  number: number,
+  keys: readonly string[],
+): Promise<void> {
+  await trx
+    .deleteFrom('pr_ticket_key')
+    .where('repo', '=', repo)
+    .where('number', '=', number)
+    .where('source', '=', source)
+    .execute();
+  const unique = [...new Set(keys)];
+  if (unique.length === 0) return;
+  await trx
+    .insertInto('pr_ticket_key')
+    .values(unique.map((ticket_key) => ({ repo, number, source, ticket_key })))
+    .onConflict((oc) => oc.doNothing())
+    .execute();
+}
+
 /** The PR was merged before the reopen; a tie counts the merge. */
 export function mergedBefore(fact: PrFacts, reopenedAt: string | null): boolean {
   return (
@@ -160,7 +187,24 @@ export async function reconcileTaskPrs(
   if (task.membership === 'archived' || task.manual_exclude === 1) return;
   const project = config.projects.find((entry) => entry.id === task.project);
   if (project === undefined) return;
-  const snapshots = await trx.selectFrom('pr_snapshot').selectAll().execute();
+  // Candidates only: each is re-checked below, so a stale index row links nothing.
+  const snapshots = await trx
+    .selectFrom('pr_ticket_key')
+    .innerJoin('pr_snapshot', (join) =>
+      join
+        .onRef('pr_snapshot.repo', '=', 'pr_ticket_key.repo')
+        .onRef('pr_snapshot.number', '=', 'pr_ticket_key.number'),
+    )
+    .selectAll('pr_snapshot')
+    .distinct()
+    .where('pr_ticket_key.ticket_key', '=', task.key)
+    .where(
+      'pr_ticket_key.source',
+      'in',
+      project.repos.map((repo) => prSourceId(project.id, repo)),
+    )
+    .orderBy(sql`pr_snapshot.rowid`)
+    .execute();
   for (const row of snapshots) {
     const repo = project.repos.find((repo) => repo.toLowerCase() === row.repo.toLowerCase());
     if (repo === undefined) continue;
