@@ -69,6 +69,7 @@ describe('how the Board works guide', () => {
     {
       section: 'Doorbells',
       clauses: [
+        /A turn opened for you by your own confirmed submit or return is first rung only after `doorbells.firstRetryMs`; a turn opened for you any other way rings at once\./,
         /doorbell expects action: read `board inbox`/,
         /turn, addressed\s*block, answer or follow-up/,
         /Ordinary task comments do not ring/,
@@ -92,6 +93,11 @@ describe('how the Board works guide', () => {
     {
       section: 'Course checks and cycle limits',
       clauses: [
+        /If returns keep hitting the same mechanism/,
+        /fix the bug class once/,
+        /cover its variants with one table test/,
+        /remaining edges with no user-visible effect under Risk in the PR description/,
+        /Still fix P0\/P1 and user-visible findings in this PR/,
         /defaults to 3/,
         /`courseCheck: 0` disables/,
         /defaults to 10 and\s*takes priority/,

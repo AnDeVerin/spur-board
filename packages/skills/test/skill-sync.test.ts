@@ -234,6 +234,16 @@ describe('product skill sync', () => {
     expect(validateInvocations(howBoardWorks)).toEqual([]);
   });
 
+  it('keeps repeated-mechanism guidance and exceptions with Dev-worker duties', () => {
+    const worker = skill.split('- Dev worker:')[1]?.split('- Column orchestrator:')[0];
+    expect(worker).toMatch(
+      /If returns repeat the same mechanism[\s\S]*fix the class once[\s\S]*one table test for variants[\s\S]*edges with no user-visible effect under PR Risk[\s\S]*still fix P0\/P1 and user-visible findings/,
+    );
+    expect(worker).toMatch(
+      /board submit <turn> <sha>[\s\S]*Answer each external comment[\s\S]*Re-request review only from reviewers whose threads this push closed/,
+    );
+  });
+
   it.each(['worker', 'orchestrator'] as const)('indexes exactly the %s grants', (role) => {
     const section = roleSection(role);
     const expected = OPERATIONS.filter((operation) => roleCanUseOperation(operation, role));

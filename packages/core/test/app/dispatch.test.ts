@@ -1970,6 +1970,12 @@ describe('course check', () => {
     expect(block.reason).toContain('on aaaaaaa: Handle the empty list.');
     expect(block.reason).toContain('PR: https://github.com/o/r/pull/7');
     expect(block.reason).toContain('Issue: https://github.com/o/r/issues/9');
+    expect(block.reason).toContain('If returns keep hitting the same mechanism');
+    expect(block.reason).toContain('fix the bug class once');
+    expect(block.reason).toContain('cover its variants with one table test');
+    expect(block.reason).toContain('remaining edges with no user-visible effect under Risk');
+    expect(block.reason).toContain('in the PR description instead of fixing them here');
+    expect(block.reason).toContain('Still fix P0/P1 and user-visible findings in this PR');
     expect((await ctx.task()).column).toBe('dev');
     expect(await ctx.openTurn()).toBeNull();
     expect((await ctx.why()).holds).toContain('cycle_limit');
