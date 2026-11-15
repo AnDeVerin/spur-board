@@ -147,7 +147,10 @@ export interface SubmissionTable {
   author: ActorId;
   submitted_at: string;
   note: string | null;
-  /** When a left move made this submit stale; null while it counts. Marks are never voided. */
+  /**
+   * When a left move made this submit stale; null while it counts. Marks are never voided, and a
+   * pending submit is voided only when it settles without counting (handed back or superseded).
+   */
   voided_at: string | null;
   /**
    * The PR whose fresh head the submit was checked against; null for a submit recorded before

@@ -68,6 +68,8 @@ type Options = {
   projectRemoved?: boolean;
   /** The project also tracks the repo `o/b`. */
   secondRepo?: boolean;
+  /** Enables QA, run by `coord`, and hands Ready to Merge to `coord` instead of the operator. */
+  qa?: boolean;
 };
 
 function boardConfig(options: Options = {}) {
@@ -111,7 +113,8 @@ function boardConfig(options: Options = {}) {
           },
           { id: 'product-review', orchestrator: 'coord' },
           ...(options.externalReview === true ? [{ id: 'external-review' }] : []),
-          { id: 'ready-to-merge', orchestrator: 'operator' },
+          ...(options.qa === true ? [{ id: 'qa', orchestrator: 'coord' }] : []),
+          { id: 'ready-to-merge', orchestrator: options.qa === true ? 'coord' : 'operator' },
           { id: 'done' },
         ],
         dispatcher: { mode: options.mode ?? 'on' },
@@ -3422,6 +3425,86 @@ describe('pending submit', () => {
     expect(await ctx.events('task_submitted')).toHaveLength(2);
   });
 
+  /** The agent that takes each column's turn in `boardConfig({ qa: true })`. */
+  const EXECUTOR: Partial<Record<ColumnId, ActorId>> = {
+    review: REV,
+    'product-review': COORD,
+    qa: COORD,
+    'ready-to-merge': COORD,
+  };
+
+  // A failed pending submit survives every left move until the Dev turn that hands it back opens;
+  // a merge at another head supersedes it with no turn.
+  it.each(
+    (['review', 'product-review', 'qa', 'ready-to-merge'] as const).flatMap((column) =>
+      [false, true].flatMap((blind) =>
+        (['closed', 'merged'] as const).map((outcome) => ({ column, blind, outcome })),
+      ),
+    ),
+  )('a $column submit pending when the PR is $outcome (Spur blind: $blind)', async (row) => {
+    const ctx = await inDev({ qa: true });
+    await ctx.submit(WORKER, 'T1', A);
+    for (;;) {
+      const turn = await ctx.openTurn();
+      const actor = EXECUTOR[turn?.column ?? 'dev'];
+      if (turn === null || actor === undefined) throw new Error('no executor turn');
+      await ctx.ack(actor, turn.id);
+      if (turn.column === row.column) {
+        ctx.pollAnswers(TIMEOUT);
+        await expect(ctx.submit(actor, turn.id, C)).resolves.toMatchObject({ status: 'pending' });
+        break;
+      }
+      await ctx.submit(actor, turn.id, A);
+    }
+    const pending = async () =>
+      (await submissions(ctx)).find(
+        (entry) => entry.column === row.column && entry.commit_sha === C,
+      );
+    const devTurns = async () => (await ctx.turns()).filter((turn) => turn.column === 'dev');
+    const before = (await devTurns()).length;
+    if (row.blind) await ctx.blind('spur', true);
+
+    if (row.outcome === 'closed') {
+      await ctx.pr({ state: 'closed' });
+      expect((await ctx.task()).column).toBe('dev');
+      if (row.blind) {
+        expect(await ctx.openTurn()).toBeNull();
+        expect((await pending())?.voided_at).toBeNull();
+        await ctx.blind('spur', false);
+        await ctx.spur();
+        await ctx.tick();
+      }
+      expect(await ctx.openTurn()).toEqual(
+        turnOf('dev', 'worker', 'dev: pr_closed (submit of ccccccc: PR o/r#7 closed)'),
+      );
+      expect((await pending())?.voided_at).not.toBeNull();
+      expect(await devTurns()).toHaveLength(before + 1);
+    } else {
+      // The ticket is already done, so the merge takes the task to Done in the same pass.
+      await ctx.ticket('closed');
+      await ctx.pr({ state: 'merged', mergedAt: ctx.at() });
+      expect((await ctx.task()).column).toBe('done');
+      expect((await pending())?.voided_at).not.toBeNull();
+      expect(
+        (await ctx.history()).events.filter((event) => event.kind === 'task_submitted').at(-1),
+      ).toMatchObject({ summary: 'Submit of ccccccc superseded: PR merged at aaaaaaa' });
+      if (row.blind) {
+        await ctx.blind('spur', false);
+        await ctx.spur();
+        await ctx.tick();
+      }
+      expect(await devTurns()).toHaveLength(before);
+    }
+
+    const events = (await ctx.events()).length;
+    const turns = (await ctx.turns()).length;
+    await ctx.tick();
+    await ctx.spur();
+    await ctx.tick();
+    expect((await ctx.events()).slice(events)).toEqual([]);
+    expect(await ctx.turns()).toHaveLength(turns);
+  });
+
   it('holds a pending submit while the clock alone passes the bound', async () => {
     const { ctx } = await pendingNoPr();
     ctx.wait(BOUND + 1);
@@ -3612,39 +3695,6 @@ describe('pending submit', () => {
     const events = (await ctx.events()).length;
     await ctx.tick();
     await ctx.github();
-    await ctx.tick();
-    expect(await ctx.turns()).toHaveLength(turns);
-    expect(await ctx.events()).toHaveLength(events);
-  });
-
-  it('a Review submit failed by a closed PR while Spur is blind hands back once Spur recovers', async () => {
-    const ctx = await inReview();
-    await ctx.ack(REV, 'T2');
-    ctx.pollAnswers(TIMEOUT);
-    await expect(ctx.submit(REV, 'T2', C)).resolves.toMatchObject({ status: 'pending' });
-    await ctx.blind('spur', true);
-
-    await ctx.pr({ state: 'closed' });
-
-    expect((await ctx.task()).column).toBe('dev');
-    expect(await ctx.openTurn()).toBeNull();
-    const review = async () => (await submissions(ctx)).find((row) => row.column === 'review');
-    expect((await review())?.voided_at).toBeNull();
-
-    await ctx.blind('spur', false);
-    await ctx.spur();
-    await ctx.tick();
-
-    expect(await ctx.openTurn()).toEqual(
-      turnOf('dev', 'worker', 'dev: pr_closed (submit of ccccccc: PR o/r#7 closed)'),
-    );
-    expect((await review())?.voided_at).not.toBeNull();
-
-    const turns = (await ctx.turns()).length;
-    const events = (await ctx.events()).length;
-    await ctx.tick();
-    await ctx.github();
-    await ctx.spur();
     await ctx.tick();
     expect(await ctx.turns()).toHaveLength(turns);
     expect(await ctx.events()).toHaveLength(events);

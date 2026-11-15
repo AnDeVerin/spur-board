@@ -78,7 +78,9 @@ const indexOf = (column: ColumnId) => COLUMN_IDS.indexOf(column);
 
 /**
  * Sets `voided_at` on the unvoided submits of `columns`. Review and product-review marks are
- * not voided by a move; a new PR head voids them (`voidMarksOffHead`).
+ * not voided by a move; a new PR head voids them (`voidMarksOffHead`). A pending submit is never
+ * voided here: it settles only when its hand-back turn opens, as confirmed, or as superseded by
+ * a merge (`readPendingSubmit`), and counts as no mark until then.
  */
 async function voidColumns(
   trx: Trx,
@@ -93,6 +95,7 @@ async function voidColumns(
     .set({ voided_at: at.toISOString() })
     .where('task_id', '=', taskId)
     .where('voided_at', 'is', null)
+    .where('pending_until', 'is', null)
     .where('column', 'in', voided)
     .execute();
 }
