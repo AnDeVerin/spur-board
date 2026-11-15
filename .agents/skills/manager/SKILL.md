@@ -56,6 +56,11 @@ Modifiers, on any tier:
   code pass.
 - Tier 2 and up: a simplify pass by `developer` after implementation.
 - `.agents/`, `.claude/`, `.codex/` or `AGENTS.md` touched: `reviewer` checks the copies match.
+- Any committed change except a test or CI diff: `doc-reviewer` after the simplify pass and before
+  `reviewer`; a docs-only diff is checked for consistency. A test or CI diff is one where every
+  path from `git diff --name-only <sha>...HEAD` is a test (`*.test.ts`, under `test/`,
+  `__snapshots__` or `fixtures/`) or under `.github/`; `packages/stand/` and `packages/testkit/`
+  are code.
 - Any committed change (code, docs or config): `reviewer`, then the PR.
 - Behaviour that checks cannot show (a CLI flow, an API call, a UI flow), or validation the issue
   asks for: `tester`.

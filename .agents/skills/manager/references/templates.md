@@ -34,6 +34,7 @@ Execution:
 - clarify: DONE (<N> asked, <M> assumed) | DEFAULTS (<M>) | SKIPPED
 - developer: DONE (x<N>)
 - simplify: DONE | SKIPPED
+- doc-reviewer: DOCS_APPROVED (x<N>) | BLOCKED_DOCS | SKIPPED
 - reviewer: APPROVED (x<N>) | BLOCKED_REVIEW | SKIPPED
 - tester: PASS (x<N>) | SKIPPED
 - pr: <url> | SKIPPED - <reason>

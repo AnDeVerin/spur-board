@@ -248,7 +248,7 @@ const columnConfig = z.strictObject({
     .min(1)
     .default(DEFAULT_CYCLE_LIMIT)
     .describe(
-      'How many times a task may return to Dev from this column before the board stops it for the operator. Returns by the column executor, changes requested, external comments and unresolved review threads count; a conflict, red CI and a draft do not.',
+      'How many times a task may return to Dev from this column before the board stops it for the operator. Returns by the column executor, for external comments and for unresolved review threads count, a changes-requested review included (it is an external comment, not a separate return); a conflict, red CI and a draft do not.',
     ),
   courseCheck: z
     .int()
@@ -385,7 +385,7 @@ const projectSchema = z
       .string()
       .regex(/^[A-Za-z0-9-]{1,39}$/, 'Expected a GitHub login')
       .describe(
-        "The GitHub account agents open PRs under. PR discovery in repos keeps only PRs whose author is this login. It is not necessarily the maintainer's own account: when agents push as one account and a maintainer approves as another, set the agents' account, or no PR is discovered.",
+        "The GitHub account agents open PRs under. PR discovery in repos keeps only PRs whose author is this login. It is not necessarily the maintainer's own account: when agents push as one account and a maintainer approves as another, set the agents' account, or no PR is discovered. Comments, reviews and approvals by this login or by a bot (GitHub App) are not external: they never return a task to Dev, approve External Review or block its approval. Every other account is external, the repo owner's and the human operator's included.",
       ),
     spurProjects: z
       .array(spurProject)
@@ -761,6 +761,10 @@ const configObject = z.strictObject({
     .prefault({}),
   health: z
     .strictObject({
+      turnStallAfterMs: durationMs(
+        600_000,
+        'How long an unhealthy open-turn executor waits before a curator or operator block',
+      ),
       errorAfterMs: durationMs(90_000, 'How long a session stays in error before it is flagged'),
       needsInputAfterMs: durationMs(
         120_000,
