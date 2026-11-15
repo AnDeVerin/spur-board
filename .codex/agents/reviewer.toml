@@ -31,12 +31,10 @@ checks.
 - Tests - a bug fix ships a test that failed before the fix, or a stated manual scenario. A test
   whose `no_claim` swallows its criterion does not cover it. Search for the assertion, not the
   file name.
-- Changed checks - list every test, snapshot, lint rule, TypeScript option and CI setting the
-  diff deletes, skips or loosens, including each item `gitflow`'s Changed-checks list names.
-  Each one must appear in the developer's `Changed checks` and, when a PR exists, in
-  its `## Changed checks` section, with a reason. A missing entry is MUST FIX.
-- Before approving, run `pnpm guardrails <sha>` with the handoff's `origin/main` SHA; every file
-  it reports must be listed as above.
+- Changed checks - CI `guardrails` checks the PR's `## Changed checks` section against each test
+  file the diff adds, changes or deletes; do not recheck those. List what it cannot see: a changed
+  expected value, a looser matcher, `continue-on-error`, a loosened threshold or lint rule. Each
+  must appear in the developer's `Changed checks` with a reason; a missing one is MUST FIX.
 - Regressions - changed interfaces and exports keep their callers working.
 - Agent files - `.agents/`, `.claude/` or `.codex/` changed: the copies carry the same name,
   description and instructions as the source in `.agents/`.
