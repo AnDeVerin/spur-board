@@ -154,7 +154,7 @@
           },
           "spurProjects": {
             "default": [],
-            "description": "Spur projects whose sessions work on this board project, each with a role; at most one curator. Board commands from a session whose Spur project is in no spurProjects list are refused.",
+            "description": "Spur projects whose sessions work on this board project, each with a role; at most one curator. An operator listed here replaces the top-level spurProjects operator for this project. Board commands from a session whose Spur project is in no spurProjects list, here or top-level, are refused.",
             "type": "array",
             "items": {
               "type": "object",
@@ -283,7 +283,7 @@
                 },
                 "orchestrator": {
                   "default": "none",
-                  "description": "Who takes the column's turns. none: the task's live worker session, else the operator. operator: the operator, who also gets the questions asked in the column. Otherwise the name of a spurProjects entry with role orchestrator or curator whose sessions orchestrate the column and get the questions others ask in it.",
+                  "description": "Who takes the column's turns. none: the task's live worker session, else the operator. operator: the operator, who also gets the questions asked in the column. Otherwise the name of a spurProjects entry with role orchestrator or curator whose sessions orchestrate the column and get the questions others ask in it. A column left at none, and enabled, takes the top-level spurProjects orchestrator that lists it.",
                   "type": "string",
                   "minLength": 1
                 },
@@ -336,7 +336,64 @@
         "required": ["id", "tracker", "repos", "operatorGithubLogin"],
         "additionalProperties": false
       },
-      "description": "Board projects, at least one. Each reads tasks from one tracker and PRs from its repos. A Spur project can be listed under only one board project."
+      "description": "Board projects, at least one. Each reads tasks from one tracker and PRs from its repos. A Spur project can be listed under only one board project; one that serves several goes in top-level spurProjects."
+    },
+    "spurProjects": {
+      "default": [],
+      "description": "Spur projects bound board-wide, each with role orchestrator or operator. A project-level binding wins for its own project. A Spur project here serves every board project it binds, and one of its sessions acts on the turns, inbox, questions and doorbells of each of them and no other.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The name of the project in Spur. It must not also be listed under any projects[].spurProjects, and none and operator are reserved."
+          },
+          "role": {
+            "type": "string",
+            "enum": ["orchestrator", "operator"],
+            "description": "orchestrator: sessions execute the listed columns in every board project that enables the column and leaves its orchestrator at none. operator: sessions act as the operator of every board project that lists no operator of its own; while one exists, a project's own operator acts only in its project. At most one operator."
+          },
+          "columns": {
+            "description": "Required for role orchestrator, not allowed for operator. The columns it executes board-wide. A project column whose orchestrator is set to anything but none keeps it, and a disabled column is never filled; each listed column must be filled in at least one board project.",
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "todo",
+                "ready-for-dev",
+                "dev",
+                "review",
+                "product-review",
+                "external-review",
+                "qa",
+                "ready-to-merge",
+                "done"
+              ],
+              "description": "A built-in column this orchestrator executes."
+            }
+          },
+          "shortName": {
+            "description": "The name the operator types as @<shortName> at the start of a new message in the orchestrators channel to start a conversation with this Spur project's live session. Unique across the board, top-level and projects[].spurProjects alike.",
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9_-]{0,31}$"
+          },
+          "displayName": {
+            "description": "The name Slack messages this Spur project's sessions write are posted under. Defaults to the Spur project name.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "icon": {
+            "description": "The emoji shortcode, such as :owl:, shown on those messages instead of the role icon.",
+            "type": "string",
+            "pattern": "^:[a-z0-9_+'-]+:$"
+          }
+        },
+        "required": ["name", "role"],
+        "additionalProperties": false
+      }
     },
     "operator": {
       "type": "object",
@@ -389,7 +446,7 @@
           "additionalProperties": false
         },
         "defaultAddressee": {
-          "description": "The shortName of the Spur project that gets a new orchestrators-channel message which does not start with a known @<shortName>. Without it, such a message gets one reply listing the valid prefixes. Ignored when no shortName is configured.",
+          "description": "The shortName, top-level or under projects[].spurProjects, of the Spur project that gets a new orchestrators-channel message which does not start with a known @<shortName>. Without it, such a message goes to the top-level spurProjects operator; without one, when any shortName is set, to the operator of the first board project that lists one; otherwise it gets one reply listing the valid prefixes, or is skipped when no shortName is configured.",
           "type": "string"
         }
       },
