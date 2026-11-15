@@ -26,11 +26,9 @@ const withExternalReview = () => {
   return {
     stand: {
       ...stand,
-      columns: [
-        ...stand.columns.filter((column) => column.id !== 'ready-to-merge' && column.id !== 'done'),
-        { id: 'external-review' as const },
-        ...stand.columns.filter((column) => column.id === 'ready-to-merge' || column.id === 'done'),
-      ],
+      columns: stand.columns.flatMap((column) =>
+        column.id === 'ready-to-merge' ? [{ id: 'external-review' as const }, column] : [column],
+      ),
     },
   };
 };

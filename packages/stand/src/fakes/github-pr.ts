@@ -188,8 +188,6 @@ export function createGithubPrFake(options: {
   const keyOf = (repo: string, number: number): string => `${repo.toLowerCase()}#${String(number)}`;
   const iso = (ms: number): string => new Date(ms).toISOString();
 
-  const prUrl = (pr: Pr): string =>
-    `https://github.stand.invalid/${pr.repo}/pull/${String(pr.number)}`;
   const threadId = (pr: Pr, i: number): string => `PRRT_${String(pr.number)}_${String(i)}`;
 
   /** Moves `updatedAt` strictly forward, so two verbs in one millisecond still differ. */
@@ -369,7 +367,7 @@ export function createGithubPrFake(options: {
     const n = String(pr.number);
     const reviews = pr.reviews.map((review, i) => ({ id: `PRR_${n}_${String(i)}`, ...review }));
     const comments = pr.comments.map((comment, i) => ({ id: `IC_${n}_${String(i)}`, ...comment }));
-    const url = prUrl(pr);
+    const url = `https://github.stand.invalid/${pr.repo}/pull/${n}`;
     // A thread links through its first comment, as on GitHub.
     const threads = pr.reviewThreads.map((thread, i) => {
       const first = [{ url: `${url}#discussion_r${String(i)}` }];
