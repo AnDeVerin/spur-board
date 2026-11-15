@@ -40,7 +40,7 @@ Implement in small chunks, check each one, commit when green. The spec is a hypo
 - `docs/how-board-works.md` and its copy in `packages/skills/spur-board/references/` stay
   byte-identical.
 - Changed generator source -> `pnpm gen`; commit every file it changes.
-- Only tests (`*.test.ts`, `test/`, `__snapshots__`, `fixtures/`) or `.github/` -> no doc edit.
+- A test or CI diff (modifier in `.agents/skills/manager/SKILL.md`) -> no doc edit.
 
 ## Reporting
 - Every changed test, snapshot, lint rule, TypeScript option or CI setting goes on its own line
