@@ -157,7 +157,7 @@ export interface SubmissionTable {
   pr_number: number | null;
   /**
    * Deadline for a PR to appear for a turn submit accepted before the board could confirm its
-   * head; null when not pending (confirmed, or recorded before migration 0018). A pending row is
+   * head; null when not pending (confirmed, or recorded before migration 0019). A pending row is
    * no gate mark until a poll observed after `submitted_at` confirms the head.
    */
   pending_until: string | null;
@@ -186,7 +186,8 @@ export interface TurnTable {
 
 export interface BlockTable {
   id: Generated<number>;
-  task_id: number;
+  /** Null exactly for a project-level block, which has `project` instead. */
+  task_id: number | null;
   type: BlockType;
   reason: string;
   author: ActorId;
@@ -199,11 +200,14 @@ export interface BlockTable {
   unblocked_by: ActorId | null;
   unblocked_at: string | null;
   created_at: string;
+  /** Board project of a project-level block; null on a task block. */
+  project: string | null;
 }
 
 export interface CommentTable {
   id: Generated<number>;
-  task_id: number;
+  /** Null for a comment on a project-level block. */
+  task_id: number | null;
   block_id: number | null;
   author: ActorId;
   text: string;
@@ -302,7 +306,8 @@ export interface NotificationTable {
   id: Generated<number>;
   source_key: string;
   kind: 'answer' | 'block' | 'removed' | 'turn' | 'turn_reminder';
-  task_id: number;
+  /** Null for a notification on a project-level block. */
+  task_id: number | null;
   /** Null exactly for kinds `turn` and `turn_reminder`, which have `turn_id` instead. */
   block_id: number | null;
   comment_id: number | null;

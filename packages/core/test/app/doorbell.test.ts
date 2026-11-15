@@ -1236,7 +1236,7 @@ function policyBoard(devOrchestrator = 'qa'): Config {
         operatorGithubLogin: 'operator',
         spurProjects: [
           { name: 'web', role: 'worker' },
-          { name: 'qa', role: 'worker' },
+          { name: 'qa', role: 'orchestrator' },
           { name: 'cur', role: 'curator' },
           { name: 'ops', role: 'operator' },
         ],
@@ -2625,6 +2625,35 @@ describe('turns', () => {
     expect((await turns(ctx))[0]?.acked_by).toBe('agent:web/worker-2');
   });
 
+  it.each(['other', 'banned'] as const)(
+    'rejects a demoted turn recipient (%s link) and accepts the replacement before notification reconcile',
+    async (mode) => {
+      const ctx = await setup({ config: policyBoard('none'), replacement: true });
+      await open(ctx);
+      await step(ctx);
+      expect(sessionsRung(ctx)).toEqual(['worker-1']);
+      await expect(
+        ctx.apply(ctx.ops.ack, T1, 'agent:web/worker-2', 'ack-still-pinned'),
+      ).rejects.toMatchObject({ code: 'forbidden' });
+      await ctx.store.transaction((trx) =>
+        trx
+          .updateTable('link')
+          .set(mode === 'other' ? { role: 'other' } : { banned: 1 })
+          .where('session_id', '=', 'worker-1')
+          .execute(),
+      );
+      await expect(
+        ctx.apply(ctx.ops.ack, T1, 'agent:web/worker-1', 'ack-demoted'),
+      ).rejects.toMatchObject({ code: 'forbidden' });
+      expect((await turns(ctx))[0]?.acked_by).toBeNull();
+      await expect(
+        ctx.apply(ctx.ops.ack, T1, 'agent:web/worker-2', 'ack-replacement'),
+      ).resolves.toEqual({ acked: ['T1'] });
+      expect((await turns(ctx))[0]?.acked_by).toBe('agent:web/worker-2');
+      expect((await notices(ctx))[0]?.recipient_session).toBe('worker-1');
+    },
+  );
+
   it('lets a later orchestrator session take over a taken turn', async () => {
     const ctx = await setup({ config: policyBoard() });
     await addSession(ctx, 'qa-2', 'qa');
@@ -3437,6 +3466,55 @@ describe('turns', () => {
     ]);
     expect(await reminders(ctx)).toEqual([
       expect.objectContaining({ rings: 1, acked_at: ctx.now().toISOString() }),
+    ]);
+  });
+});
+
+describe('project question doorbells', () => {
+  const askProject = (ctx: Board, actor: ActorId) =>
+    ctx.apply(
+      ctx.ops.projectAsk,
+      { project: 'proj', to: 'operator', text: 'Restart?' },
+      actor,
+      'q',
+    );
+  const answer = (ctx: Board, block: string) =>
+    ctx.apply(ctx.ops.answer, { block, text: 'Yes.' }, 'operator', 'answer');
+
+  it('rings the curator that asked with the project in the text', async () => {
+    const ctx = await setup({ config: policyConfig });
+    await addSession(ctx, 'cur-1', 'cur');
+    const { block } = await askProject(ctx, 'agent:cur/cur-1');
+    await answer(ctx, block.id);
+    await step(ctx);
+    expect(sessionsRung(ctx)).toEqual(['cur-1']);
+    const [notice] = await notices(ctx);
+    expect(ctx.sent[0]?.text).toBe(
+      `proj (project) block ${block.id}: check board inbox (N${String(notice?.id)}-1)`,
+    );
+  });
+
+  it("rings a worker author's own session", async () => {
+    const ctx = await setup({ config: policyConfig });
+    const { block } = await askProject(ctx, worker);
+    await answer(ctx, block.id);
+    await step(ctx);
+    expect(sessionsRung(ctx)).toEqual(['worker-1']);
+  });
+
+  it('ends the series of a worker author with no live session, not ringing a linked worker', async () => {
+    const ctx = await setup({ config: policyConfig });
+    const { block } = await askProject(ctx, 'agent:web/worker-9');
+    await answer(ctx, block.id);
+    await step(ctx);
+    expect(sessionsRung(ctx)).toEqual([]);
+    const [notice] = await notices(ctx);
+    expect(notice?.exhausted_at).toBe(ctx.now().toISOString());
+    expect(await journalled(ctx, 'doorbell_undelivered')).toEqual([
+      {
+        actor: 'system',
+        payload: { doorbell: `N${String(notice?.id)}`, reason: 'no live addressee' },
+      },
     ]);
   });
 });

@@ -78,6 +78,15 @@ describe('startFakeSlackApi', () => {
     });
     expect(fake.violations()).toEqual([]);
   });
+
+  it('closes every connection after its response, so none outlives a restart', async () => {
+    const fake = await start();
+    for (const method of ['auth.test', 'no.such.method']) {
+      const reply = await fetch(`${fake.url}${method}`, { method: 'POST', body: '' });
+      await reply.body?.cancel();
+      expect(reply.headers.get('connection'), method).toBe('close');
+    }
+  });
 });
 
 describe('state and restore', () => {

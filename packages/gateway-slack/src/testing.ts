@@ -335,6 +335,10 @@ export async function startFakeSlackApi(
   }
 
   const server = createServer((req, res) => {
+    // No client keeps an idle connection: a fake restarted on the same port, as a stand reset
+    // does, would otherwise get requests on a pooled socket the closed fake left half-closed,
+    // which some undici versions (Node 24.15) send on and fail with "other side closed".
+    res.setHeader('connection', 'close');
     handle(req, res).catch((error: unknown) => {
       if (!res.headersSent) reply(res, 500, { ok: false, error: String(error) });
     });

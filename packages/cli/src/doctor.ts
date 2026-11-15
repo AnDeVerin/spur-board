@@ -281,6 +281,7 @@ const remoteBaseIds = [
   'operator.path',
   'operator.tokens',
   'curator.sessions',
+  'orchestrator.sessions',
 ] as const;
 const remoteSlackIds = [
   'slack.auth',

@@ -239,8 +239,7 @@ export const OPERATIONS = [
     description:
       'List actionable items, source freshness and compact tasks; detail adds full facts and links.',
     mcp: {
-      whenToUse:
-        'Get a board overview; pass detail for full ticket, pull request and session facts.',
+      whenToUse: 'Get a board overview.',
       whenNotToUse: 'Use task_get for one task.',
     },
     input: z.strictObject({
@@ -285,6 +284,16 @@ export const OPERATIONS = [
       tasks: z
         .array(statusTaskSchema)
         .describe('Tasks on the board with state and counts; facts and links with detail.'),
+      projectBlocks: z
+        .array(
+          z
+            .strictObject({
+              project: z.string().min(1).describe('Board project.'),
+              openBlocks: z.int().min(0).describe('Open project-level blocks, without a task.'),
+            })
+            .describe('Open project-level blocks of one project.'),
+        )
+        .describe('Open project-level blocks of each requested project.'),
       unlinkedPrs: z
         .array(statusUnlinkedPrSchema)
         .describe(
@@ -332,6 +341,7 @@ export const OPERATIONS = [
               openBlocks: 0,
             },
           ],
+          projectBlocks: [{ project: 'web', openBlocks: 0 }],
           unlinkedPrs: [],
           unlinkedSessions: [],
           hiddenUnlinkedPrs: 0,
@@ -361,6 +371,7 @@ export const OPERATIONS = [
               links: [],
             },
           ],
+          projectBlocks: [{ project: 'web', openBlocks: 0 }],
           unlinkedPrs: [],
           unlinkedSessions: [],
           hiddenUnlinkedPrs: 0,
@@ -498,7 +509,7 @@ export const OPERATIONS = [
     slack: { kind: 'slash-command', usage: '/board task <KEY> history' },
     examples: [
       {
-        summary: 'Show the history of a task',
+        summary: 'Show task history',
         input: { task: 'acme/web#42' },
         output: {
           task: { ...task, key: 'acme/web#42' },
@@ -893,6 +904,35 @@ export const OPERATIONS = [
     ],
   }),
   defineOperation({
+    id: 'project.ask',
+    kind: 'mutation',
+    description: 'Ask the operator about a project, not a task.',
+    mcp: {
+      whenToUse: 'A question has no task.',
+      whenNotToUse: 'Use block_ask for a task question.',
+      destructive: false,
+    },
+    input: z.strictObject({
+      project: z.string().min(1).max(NAME_MAX).describe('Board project the question is about.'),
+      to: z.literal('operator').describe('Who answers; only the operator.'),
+      text: text('The question.', TEXT_MAX),
+    }),
+    output: blockOutput,
+    grants: [{ grant: 'project-agent' }],
+    errors: ['not_found'],
+    cli: { command: 'project ask', args: ['project', 'text'] },
+    slack: null,
+    examples: [
+      {
+        summary: 'Ask to restart',
+        input: { project: 'web', to: 'operator', text: 'Restart?' },
+        output: {
+          block: { ...question, id: 'B15', task: null, project: 'web', reason: 'Restart?' },
+        },
+      },
+    ],
+  }),
+  defineOperation({
     id: 'comment.add',
     kind: 'mutation',
     description: 'Comment on a task.',
@@ -1003,7 +1043,7 @@ export const OPERATIONS = [
     slack: null,
     examples: [
       {
-        summary: 'Escalate a failing build to the operator',
+        summary: 'Escalate a failing build',
         input: { block: 'B13' },
         output: { block: { ...codeBlock, addressee: 'operator' } },
       },
@@ -1131,7 +1171,7 @@ export const OPERATIONS = [
     slack: null,
     examples: [
       {
-        summary: 'Unblock after fixing the build',
+        summary: 'Unblock after a fix',
         input: { mode: 'done', block: 'B13', ref: 'example/web#9' },
         output: {
           block: {
@@ -1178,7 +1218,7 @@ export const OPERATIONS = [
     id: 'task.submit',
     kind: 'mutation',
     description:
-      "Submit the commit at the head of the task's pull request for a turn this session took; the turn closes; a pending result is final.",
+      "Submit the task's pull request head for a turn this session took; the turn closes; a pending result is final.",
     mcp: {
       whenToUse:
         'Hand in the work of a turn you took, at the pull request head. While the project dispatcher is in shadow mode no turn opens: the column executor submits with the task key.',
@@ -1220,7 +1260,7 @@ export const OPERATIONS = [
     slack: null,
     examples: [
       {
-        summary: 'Submit the pull request head for a review turn',
+        summary: 'Submit the pull request head',
         input: { turn: 'T4', sha: submittedSha },
         output: {
           task: { ...task, column: 'review' },

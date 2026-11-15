@@ -57,8 +57,8 @@ function board(reviewOrchestrator = 'rev', mode: 'shadow' | 'on' = 'shadow') {
         operatorGithubLogin: 'operator',
         spurProjects: [
           { name: 'worker', role: 'worker' },
-          { name: 'rev', role: 'worker' },
-          { name: 'qa', role: 'worker' },
+          { name: 'rev', role: 'orchestrator' },
+          { name: 'qa', role: 'orchestrator' },
         ],
         columns: [
           { id: 'todo', orchestrator: 'none' },

@@ -597,6 +597,7 @@ describe('catalog commands', () => {
       ['task', 'PROJ-123', '--why'],
       ['task', 'PROJ-123', '--detail'],
       ['move', 'PROJ-123', 'dev', '--correct', '--reason', 'Wrong PR', '--key', 'move-1'],
+      ['project', 'ask', 'web', 'Restart?', '--to', 'operator', '--key', 'ask-1'],
     ];
     for (const command of commands) {
       const output = capture();
@@ -637,6 +638,7 @@ describe('catalog commands', () => {
         id: 'task.move',
         input: { mode: 'correct', task: 'PROJ-123', column: 'dev', reason: 'Wrong PR' },
       },
+      { id: 'project.ask', input: { project: 'web', text: 'Restart?', to: 'operator' } },
     ]);
   });
 
@@ -887,6 +889,9 @@ describe('catalog commands', () => {
           state: ticket not observed
           prCount: 0
           sessionCount: 0
+          openBlocks: 0
+      projectBlocks:
+        - project: web
           openBlocks: 0
       unlinkedPrs:
 

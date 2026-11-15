@@ -1,5 +1,5 @@
 {
-  "version": "adf94483940a1da86f34bbd4cf8bcd3c8b170b35eac8e429ae9b03043bdb98cd",
+  "version": "d2bc90daaea4a6ca12c7b98881a641d957cc33db0e23cc7995603c40c069d870",
   "grants": [
     "operator",
     "project-agent",
@@ -928,7 +928,7 @@
       "mcp": {
         "name": "status_get",
         "key": null,
-        "whenToUse": "Get a board overview; pass detail for full ticket, pull request and session facts.",
+        "whenToUse": "Get a board overview.",
         "whenNotToUse": "Use task_get for one task.",
         "destructive": false
       },
@@ -956,6 +956,7 @@
                 "openBlocks": 0
               }
             ],
+            "projectBlocks": [{ "project": "web", "openBlocks": 0 }],
             "unlinkedPrs": [],
             "unlinkedSessions": [],
             "hiddenUnlinkedPrs": 0,
@@ -988,6 +989,7 @@
                 "links": []
               }
             ],
+            "projectBlocks": [{ "project": "web", "openBlocks": 0 }],
             "unlinkedPrs": [],
             "unlinkedSessions": [],
             "hiddenUnlinkedPrs": 0,
@@ -1925,6 +1927,25 @@
             },
             "description": "Tasks on the board with state and counts; facts and links with detail."
           },
+          "projectBlocks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "project": { "type": "string", "minLength": 1, "description": "Board project." },
+                "openBlocks": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991,
+                  "description": "Open project-level blocks, without a task."
+                }
+              },
+              "required": ["project", "openBlocks"],
+              "additionalProperties": false,
+              "description": "Open project-level blocks of one project."
+            },
+            "description": "Open project-level blocks of each requested project."
+          },
           "unlinkedPrs": {
             "type": "array",
             "items": {
@@ -2442,6 +2463,7 @@
           "transport",
           "sources",
           "tasks",
+          "projectBlocks",
           "unlinkedPrs",
           "unlinkedSessions",
           "hiddenUnlinkedPrs",
@@ -3057,9 +3079,20 @@
                   "description": "Block ID: B followed by a number, e.g. B12."
                 },
                 "task": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
+                      "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
+                    },
+                    { "type": "null" }
+                  ],
+                  "description": "Task the block is on; null for a project-level block."
+                },
+                "project": {
+                  "description": "Board project of a project-level block; absent on a task block.",
                   "type": "string",
-                  "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
-                  "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
+                  "minLength": 1
                 },
                 "type": {
                   "type": "string",
@@ -3178,9 +3211,15 @@
                   "description": "Comment ID: C followed by a number, e.g. C3."
                 },
                 "task": {
-                  "type": "string",
-                  "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
-                  "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
+                      "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
+                    },
+                    { "type": "null" }
+                  ],
+                  "description": "Task the comment is on; null on a project-level block."
                 },
                 "block": {
                   "anyOf": [
@@ -3772,7 +3811,7 @@
       "slack": { "kind": "slash-command", "usage": "/board task <KEY> history" },
       "examples": [
         {
-          "summary": "Show the history of a task",
+          "summary": "Show task history",
           "input": { "task": "acme/web#42" },
           "output": {
             "task": {
@@ -4300,9 +4339,15 @@
                   "description": "Comment ID: C followed by a number, e.g. C3."
                 },
                 "task": {
-                  "type": "string",
-                  "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
-                  "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
+                      "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
+                    },
+                    { "type": "null" }
+                  ],
+                  "description": "Task the comment is on; null on a project-level block."
                 },
                 "block": {
                   "anyOf": [
@@ -4378,9 +4423,20 @@
                   "description": "Block ID: B followed by a number, e.g. B12."
                 },
                 "task": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
+                      "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
+                    },
+                    { "type": "null" }
+                  ],
+                  "description": "Task the block is on; null for a project-level block."
+                },
+                "project": {
+                  "description": "Board project of a project-level block; absent on a task block.",
                   "type": "string",
-                  "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
-                  "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
+                  "minLength": 1
                 },
                 "type": {
                   "type": "string",
@@ -5818,9 +5874,235 @@
                 "description": "Block ID: B followed by a number, e.g. B12."
               },
               "task": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
+                    "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
+                  },
+                  { "type": "null" }
+                ],
+                "description": "Task the block is on; null for a project-level block."
+              },
+              "project": {
+                "description": "Board project of a project-level block; absent on a task block.",
                 "type": "string",
-                "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
-                "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
+                "minLength": 1
+              },
+              "type": {
+                "type": "string",
+                "enum": ["code", "needs_input", "dependency", "external"],
+                "description": "Block type."
+              },
+              "state": {
+                "type": "string",
+                "enum": ["open", "unblocked"],
+                "description": "Whether the block is open or unblocked."
+              },
+              "author": {
+                "anyOf": [
+                  { "type": "string", "const": "operator" },
+                  { "type": "string", "const": "system" },
+                  { "type": "string", "pattern": "^agent:[A-Za-z0-9._-]+\\/[A-Za-z0-9._-]+$" }
+                ],
+                "description": "Actor: operator, system, or agent:<project>/<session>."
+              },
+              "addressee": {
+                "type": "string",
+                "enum": [
+                  "operator",
+                  "curator",
+                  "orchestrator:todo",
+                  "orchestrator:ready-for-dev",
+                  "orchestrator:dev",
+                  "orchestrator:review",
+                  "orchestrator:product-review",
+                  "orchestrator:external-review",
+                  "orchestrator:qa",
+                  "orchestrator:ready-to-merge",
+                  "orchestrator:done",
+                  "worker"
+                ],
+                "description": "Who is expected to resolve the block."
+              },
+              "reason": {
+                "type": "string",
+                "description": "Why the task is blocked, or the question asked."
+              },
+              "at": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+                "description": "When the block was opened, ISO 8601 UTC."
+              },
+              "outcome": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": ["done", "reason", "terminal", "withdrawn", "archived"]
+                  },
+                  { "type": "null" }
+                ],
+                "description": "How the block was resolved; null while it is open."
+              },
+              "outcomeReason": {
+                "description": "Done reference or closure explanation; null when absent.",
+                "type": ["string", "null"]
+              },
+              "unblockedBy": {
+                "anyOf": [
+                  {
+                    "anyOf": [
+                      { "type": "string", "const": "operator" },
+                      { "type": "string", "const": "system" },
+                      { "type": "string", "pattern": "^agent:[A-Za-z0-9._-]+\\/[A-Za-z0-9._-]+$" }
+                    ],
+                    "description": "Actor: operator, system, or agent:<project>/<session>."
+                  },
+                  { "type": "null" }
+                ],
+                "description": "Actor that unblocked the block; null while open."
+              },
+              "unblockedAt": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                  },
+                  { "type": "null" }
+                ],
+                "description": "When the block was unblocked; null while open."
+              }
+            },
+            "required": [
+              "id",
+              "task",
+              "type",
+              "state",
+              "author",
+              "addressee",
+              "reason",
+              "at",
+              "outcome",
+              "outcomeReason",
+              "unblockedBy",
+              "unblockedAt"
+            ],
+            "additionalProperties": false,
+            "description": "A block on a task."
+          }
+        },
+        "required": ["block"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "id": "project.ask",
+      "kind": "mutation",
+      "description": "Ask the operator about a project, not a task.",
+      "grants": [{ "grant": "project-agent" }],
+      "preconditions": null,
+      "errors": [
+        "usage",
+        "forbidden",
+        "not_found",
+        "not_implemented",
+        "idempotency_key_mismatch",
+        "identity_unavailable",
+        "starting",
+        "stopping"
+      ],
+      "cli": {
+        "command": "project ask",
+        "args": ["project", "text"],
+        "modes": null,
+        "key": "--key"
+      },
+      "mcp": {
+        "name": "project_ask",
+        "key": "idempotencyKey",
+        "whenToUse": "A question has no task.",
+        "whenNotToUse": "Use block_ask for a task question.",
+        "destructive": false
+      },
+      "slack": null,
+      "examples": [
+        {
+          "summary": "Ask to restart",
+          "input": { "project": "web", "to": "operator", "text": "Restart?" },
+          "output": {
+            "block": {
+              "id": "B15",
+              "task": null,
+              "type": "needs_input",
+              "state": "open",
+              "author": "agent:web/web-7",
+              "addressee": "operator",
+              "reason": "Restart?",
+              "at": "2026-01-05T09:30:00.000Z",
+              "outcome": null,
+              "outcomeReason": null,
+              "unblockedBy": null,
+              "unblockedAt": null,
+              "project": "web"
+            }
+          }
+        }
+      ],
+      "input": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "project": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "description": "Board project the question is about."
+          },
+          "to": {
+            "type": "string",
+            "const": "operator",
+            "description": "Who answers; only the operator."
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 20000,
+            "description": "The question."
+          }
+        },
+        "required": ["project", "to", "text"],
+        "additionalProperties": false
+      },
+      "output": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+          "block": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "maxLength": 16,
+                "pattern": "^B[1-9]\\d{0,14}$",
+                "description": "Block ID: B followed by a number, e.g. B12."
+              },
+              "task": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
+                    "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
+                  },
+                  { "type": "null" }
+                ],
+                "description": "Task the block is on; null for a project-level block."
+              },
+              "project": {
+                "description": "Board project of a project-level block; absent on a task block.",
+                "type": "string",
+                "minLength": 1
               },
               "type": {
                 "type": "string",
@@ -6016,9 +6298,15 @@
                 "description": "Comment ID: C followed by a number, e.g. C3."
               },
               "task": {
-                "type": "string",
-                "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
-                "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
+                    "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
+                  },
+                  { "type": "null" }
+                ],
+                "description": "Task the comment is on; null on a project-level block."
               },
               "block": {
                 "anyOf": [
@@ -6170,9 +6458,15 @@
                 "description": "Comment ID: C followed by a number, e.g. C3."
               },
               "task": {
-                "type": "string",
-                "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
-                "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
+                    "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
+                  },
+                  { "type": "null" }
+                ],
+                "description": "Task the comment is on; null on a project-level block."
               },
               "block": {
                 "anyOf": [
@@ -6331,9 +6625,20 @@
                 "description": "Block ID: B followed by a number, e.g. B12."
               },
               "task": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
+                    "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
+                  },
+                  { "type": "null" }
+                ],
+                "description": "Task the block is on; null for a project-level block."
+              },
+              "project": {
+                "description": "Board project of a project-level block; absent on a task block.",
                 "type": "string",
-                "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
-                "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
+                "minLength": 1
               },
               "type": {
                 "type": "string",
@@ -6473,7 +6778,7 @@
       "slack": null,
       "examples": [
         {
-          "summary": "Escalate a failing build to the operator",
+          "summary": "Escalate a failing build",
           "input": { "block": "B13" },
           "output": {
             "block": {
@@ -6547,9 +6852,20 @@
                 "description": "Block ID: B followed by a number, e.g. B12."
               },
               "task": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
+                    "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
+                  },
+                  { "type": "null" }
+                ],
+                "description": "Task the block is on; null for a project-level block."
+              },
+              "project": {
+                "description": "Board project of a project-level block; absent on a task block.",
                 "type": "string",
-                "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
-                "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
+                "minLength": 1
               },
               "type": {
                 "type": "string",
@@ -6792,9 +7108,20 @@
                 "description": "Block ID: B followed by a number, e.g. B12."
               },
               "task": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
+                    "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
+                  },
+                  { "type": "null" }
+                ],
+                "description": "Task the block is on; null for a project-level block."
+              },
+              "project": {
+                "description": "Board project of a project-level block; absent on a task block.",
                 "type": "string",
-                "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
-                "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
+                "minLength": 1
               },
               "type": {
                 "type": "string",
@@ -6909,9 +7236,15 @@
                 "description": "Comment ID: C followed by a number, e.g. C3."
               },
               "task": {
-                "type": "string",
-                "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
-                "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
+                    "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
+                  },
+                  { "type": "null" }
+                ],
+                "description": "Task the comment is on; null on a project-level block."
               },
               "block": {
                 "anyOf": [
@@ -7023,7 +7356,7 @@
       "slack": null,
       "examples": [
         {
-          "summary": "Unblock after fixing the build",
+          "summary": "Unblock after a fix",
           "input": { "mode": "done", "block": "B13", "ref": "example/web#9" },
           "output": {
             "block": {
@@ -7177,9 +7510,20 @@
                 "description": "Block ID: B followed by a number, e.g. B12."
               },
               "task": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
+                    "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
+                  },
+                  { "type": "null" }
+                ],
+                "description": "Task the block is on; null for a project-level block."
+              },
+              "project": {
+                "description": "Board project of a project-level block; absent on a task block.",
                 "type": "string",
-                "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
-                "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
+                "minLength": 1
               },
               "type": {
                 "type": "string",
@@ -7292,7 +7636,7 @@
     {
       "id": "task.submit",
       "kind": "mutation",
-      "description": "Submit the commit at the head of the task's pull request for a turn this session took; the turn closes; a pending result is final.",
+      "description": "Submit the task's pull request head for a turn this session took; the turn closes; a pending result is final.",
       "grants": [{ "grant": "task-worker" }, { "grant": "column-orchestrator" }],
       "preconditions": null,
       "errors": [
@@ -7322,7 +7666,7 @@
       "slack": null,
       "examples": [
         {
-          "summary": "Submit the pull request head for a review turn",
+          "summary": "Submit the pull request head",
           "input": { "turn": "T4", "sha": "9f2c4e1b7a3d5c8e0f1a2b3c4d5e6f708192a3b4" },
           "output": {
             "task": {
@@ -7597,9 +7941,20 @@
                 "description": "Block ID: B followed by a number, e.g. B12."
               },
               "task": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
+                    "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
+                  },
+                  { "type": "null" }
+                ],
+                "description": "Task the block is on; null for a project-level block."
+              },
+              "project": {
+                "description": "Board project of a project-level block; absent on a task block.",
                 "type": "string",
-                "pattern": "^(?:[A-Za-z][A-Za-z0-9_]*-[1-9]\\d{0,14}|[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+#[1-9]\\d{0,14}|[A-Za-z0-9._-]+#[1-9]\\d{0,14})$",
-                "description": "Task key: a Jira key (PROJ-123) or a GitHub issue (owner/repo#42, or repo#42)."
+                "minLength": 1
               },
               "type": {
                 "type": "string",

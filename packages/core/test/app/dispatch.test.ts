@@ -22,6 +22,7 @@ import {
   tickBoard,
   type Store,
 } from '../../src/index.ts';
+import { registerTurnReminder, ringStillCurrent } from '../../src/app/doorbells.ts';
 import { archiveTask } from '../../src/app/archive.ts';
 import { editInboundComment, recordInboundBlockMessage } from '../../src/app/blocks.ts';
 import { scanTransaction } from '../../src/app/secrets.ts';
@@ -52,6 +53,7 @@ const ROW_TABLES = [
 ] as const;
 
 type Options = {
+  workerRole?: 'worker' | 'orchestrator';
   mode?: 'on' | 'shadow';
   cycleLimit?: number;
   /** Review's course check; the default applies when unset. */
@@ -84,9 +86,10 @@ function boardConfig(options: Options = {}) {
         ],
         operatorGithubLogin: 'agent-bot',
         spurProjects: [
-          { name: 'worker', role: 'worker' },
-          { name: 'rev', role: 'worker' },
-          { name: 'coord', role: 'worker' },
+          { name: 'worker', role: options.workerRole ?? 'worker' },
+          ...(options.workerRole === undefined ? [] : [{ name: 'replacement', role: 'worker' }]),
+          { name: 'rev', role: 'orchestrator' },
+          { name: 'coord', role: 'orchestrator' },
           ...(options.curator === true ? [{ name: 'cur', role: 'curator' }] : []),
         ],
         columns: [
@@ -249,6 +252,7 @@ function board(options: Options = {}) {
       core = createObservationCore({ store, config, clock });
       ({ registry, apply, query } = build());
     },
+    session: (facts: SessionFacts) => observe('spur', [{ kind: 'session', facts }], false),
     ticket: (status = 'open', inFilter = true) =>
       observe(TRACKER, [{ kind: 'ticket', facts: ticketFacts(status, inFilter) }]),
     /**
@@ -577,6 +581,153 @@ async function inReview(options: Options = {}): Promise<Board> {
   await ctx.submit(WORKER, 'T1', A);
   return ctx;
 }
+
+describe('orchestrator role transitions', () => {
+  it.each(
+    (['observation', 'manual'] as const).flatMap((mode) =>
+      (['taken', 'unread', 'unrung'] as const).flatMap((state) =>
+        [false, true].map((alreadyDemoted) => ({ mode, state, alreadyDemoted })),
+      ),
+    ),
+  )(
+    'releases a $state worker turn through $mode (already demoted: $alreadyDemoted) and lets its replacement progress',
+    async ({ mode, state, alreadyDemoted }) => {
+      const ctx =
+        state === 'taken'
+          ? await inDev({ workerRole: 'worker' })
+          : await started({ workerRole: 'worker' });
+      if (state !== 'taken') await ctx.pr();
+      if (state === 'unread') {
+        await ctx.session({ ...sessionFacts('worker-1', 'worker'), health: 'waiting' });
+        await ctx.ring();
+        expect(
+          await ctx.store.db
+            .selectFrom('notification')
+            .select('recipient_session')
+            .where('turn_id', '=', 1)
+            .executeTakeFirst(),
+        ).toEqual({ recipient_session: 'worker-1' });
+      }
+      await ctx.linkSession('worker-1');
+      const before = await ctx.store.db
+        .selectFrom('link')
+        .selectAll()
+        .where('session_id', '=', 'worker-1')
+        .executeTakeFirstOrThrow();
+      const handed = [
+        {
+          repo: 'o/r',
+          number: 7,
+          kind: 'comment',
+          id: 'C-demotion',
+          postedAt: new Date(BASE).toISOString(),
+        },
+      ];
+      await scanTransaction(ctx.store, boardConfig({ workerRole: 'worker' }), async (trx) => {
+        const turn = await trx
+          .updateTable('turn')
+          .set({ handed: JSON.stringify(handed) })
+          .where('id', '=', 1)
+          .returningAll()
+          .executeTakeFirstOrThrow();
+        if (state === 'taken')
+          await registerTurnReminder(trx, turn, 'worker-1', new Date(ctx.at()));
+      });
+      if (alreadyDemoted)
+        await ctx.store.transaction((trx) =>
+          trx.updateTable('link').set({ role: 'other' }).where('id', '=', before.id).execute(),
+        );
+      ctx.restart({ workerRole: 'orchestrator' });
+      if (mode === 'observation') await ctx.spur();
+      else await ctx.linkSession('worker-1');
+
+      if (state !== 'taken')
+        await expect(ctx.ack(WORKER, 'T1')).rejects.toMatchObject({ code: 'not_found' });
+      expect(
+        await ctx.store.db
+          .selectFrom('turn')
+          .select(['acked_by', 'closed_reason'])
+          .where('id', '=', 1)
+          .executeTakeFirst(),
+      ).toEqual({ acked_by: state === 'taken' ? WORKER : null, closed_reason: 'rerouted' });
+      expect(
+        await ctx.store.db
+          .selectFrom('link')
+          .selectAll()
+          .where('id', '=', before.id)
+          .executeTakeFirst(),
+      ).toEqual({ ...before, role: 'other' });
+      const notices = await ctx.store.db
+        .selectFrom('notification')
+        .select(['kind', 'acked_at'])
+        .where('turn_id', '=', 1)
+        .execute();
+      expect(notices.map((notice) => notice.kind).sort()).toEqual(
+        state === 'taken' ? ['turn', 'turn_reminder'] : ['turn'],
+      );
+      expect(notices.every((notice) => notice.acked_at !== null)).toBe(true);
+      expect(await ctx.openTurn()).toMatchObject({
+        role: 'operator',
+        handed: JSON.stringify(handed),
+      });
+      if (state === 'taken')
+        await expect(ctx.ack(WORKER, (await ctx.openTurn())?.id ?? '')).rejects.toMatchObject({
+          code: 'not_found',
+        });
+      const oldNotice = await ctx.store.db
+        .selectFrom('notification')
+        .select('id')
+        .where('turn_id', '=', 1)
+        .where('kind', '=', 'turn')
+        .executeTakeFirstOrThrow();
+      expect(
+        await ringStillCurrent(
+          ctx.store.db,
+          oldNotice.id,
+          'worker-1',
+          boardConfig({ workerRole: 'orchestrator' }),
+        ),
+      ).toBe('dead');
+      const stableTurns = await ctx.store.db.selectFrom('turn').selectAll().execute();
+      const stableNotices = await ctx.store.db.selectFrom('notification').selectAll().execute();
+      if (mode === 'observation') await ctx.spur();
+      else await ctx.linkSession('worker-1');
+      expect(await ctx.store.db.selectFrom('turn').selectAll().execute()).toEqual(stableTurns);
+      expect(await ctx.store.db.selectFrom('notification').selectAll().execute()).toEqual(
+        stableNotices,
+      );
+
+      await ctx.ticket();
+      await ctx.github();
+      await ctx.spur();
+      await ctx.session({
+        ...sessionFacts('replacement-1', 'replacement'),
+        links: { 'board-worker': 'https://github.com/o/r/issues/9' },
+      });
+      await ctx.tick();
+      await ctx.ring();
+      const replacement = await ctx.openTurn();
+      expect(replacement).toMatchObject({
+        column: 'dev',
+        role: 'worker',
+        handed: JSON.stringify(handed),
+      });
+      const turnId = replacement?.id ?? '';
+      await expect(ctx.submit(WORKER, turnId)).rejects.toMatchObject({ code: 'forbidden' });
+      const actor: ActorId = 'agent:replacement/replacement-1';
+      await ctx.ack(actor, turnId);
+      expect(
+        await ctx.store.db
+          .selectFrom('turn')
+          .select('acked_by')
+          .where('closed_at', 'is', null)
+          .executeTakeFirst(),
+      ).toEqual({ acked_by: actor });
+      await ctx.submit(actor, turnId);
+      expect((await ctx.status()).column).toBe('review');
+    },
+  );
+});
 
 const turnOf = (column: string, role: string, reason: string): unknown =>
   expect.objectContaining({ column, role, reason });

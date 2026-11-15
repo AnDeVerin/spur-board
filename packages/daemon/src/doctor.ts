@@ -16,7 +16,13 @@ import {
   type DoctorCheck as Check,
   type DoctorReport,
 } from '@spur-board/contracts';
-import { curatorSessions, tokenAttention, tokenAttentionLine, type Store } from '@spur-board/core';
+import {
+  curatorSessions,
+  orchestratorSessions,
+  tokenAttention,
+  tokenAttentionLine,
+  type Store,
+} from '@spur-board/core';
 import { lstat } from 'node:fs/promises';
 import { hostname } from 'node:os';
 import { join } from 'node:path';
@@ -392,6 +398,26 @@ function curatorSessionsCheck(entries: Awaited<ReturnType<typeof curatorSessions
   );
 }
 
+function orchestratorSessionsCheck(
+  entries: Awaited<ReturnType<typeof orchestratorSessions>>,
+): Check {
+  const segments: LinkSegment[] = entries.map(({ project, orchestrator, session, columns }) => ({
+    problem: session === null || columns.length === 0,
+    unmatched: false,
+    text: () =>
+      `${project}: orchestrator ${orchestrator}, ${session === null ? 'no live session' : `session ${session}`}, ${columns.length === 0 ? 'unused by columns' : `columns ${columns.join(', ')}`}`,
+  }));
+  const problems = segments.filter((entry) => entry.problem);
+  const fix = fitFix(
+    [...problems, ...segments.filter((entry) => !entry.problem)],
+    problems.length === 0 ? '' : ' Assign a column and start a live session for each orchestrator.',
+    `${String(entries.length)} orchestrators; ${String(problems.length)} need a column or live session.`,
+  );
+  return problems.length === 0
+    ? { id: 'orchestrator.sessions', status: 'pass', blocking: false, fix }
+    : warning('orchestrator.sessions', fix);
+}
+
 function check(id: string, ok: boolean, fix: string): Check {
   return { id, status: ok ? 'pass' : 'fail', blocking: !ok, fix: ok ? null : fix };
 }
@@ -680,5 +706,6 @@ export async function runDaemonDoctor(
   );
   checks.push(await operatorTokensCheck(ctx, config));
   checks.push(curatorSessionsCheck(await curatorSessions(ctx.store.db, config)));
+  checks.push(orchestratorSessionsCheck(await orchestratorSessions(ctx.store.db, config)));
   return { version: productVersion, checks };
 }

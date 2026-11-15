@@ -123,6 +123,19 @@ export async function getStatus(
     .groupBy('task_id')
     .execute();
   const openBlocks = new Map(blockRows.map((row) => [row.task_id, row.open]));
+  // Project-level blocks have no task row to count on: one entry per requested project.
+  const projectBlockRows = await store.db
+    .selectFrom('block')
+    .select(['project', (eb) => eb.fn.countAll<number>().as('open')])
+    .where('state', '=', 'open')
+    .where('task_id', 'is', null)
+    .groupBy('project')
+    .execute();
+  const openProjectBlocks = new Map(projectBlockRows.map((row) => [row.project, row.open]));
+  const projectBlocks = projects.map((project) => ({
+    project: project.id,
+    openBlocks: openProjectBlocks.get(project.id) ?? 0,
+  }));
   const tasks = [];
   for (const task of rows) {
     if (!projectIds.has(task.project)) continue;
@@ -404,6 +417,7 @@ export async function getStatus(
     transport,
     sources,
     tasks,
+    projectBlocks,
     unlinkedPrs,
     unlinkedSessions,
     hiddenUnlinkedPrs: prRows.length - unlinkedPrs.length,

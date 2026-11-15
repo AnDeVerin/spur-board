@@ -32,7 +32,7 @@ const config = configSchema.parse({
       operatorGithubLogin: 'operator',
       spurProjects: [
         { name: 'web', role: 'worker' },
-        { name: 'qa', role: 'worker' },
+        { name: 'qa', role: 'orchestrator' },
         { name: 'ops', role: 'operator' },
       ],
       columns: COLUMN_IDS.map((id) => ({ id, orchestrator: id === 'dev' ? 'qa' : 'none' })),
@@ -86,6 +86,7 @@ const allowed = {
   'item.retry': ['operator'],
   'item.close': ['operator'],
   'block.ask': projectAgents,
+  'project.ask': projectAgents,
   'comment.add': ['operator', ...projectAgents],
   'comment.edit': ['operator', ...projectAgents],
   'block.create': ['operator', 'orchestrator'],
@@ -437,6 +438,7 @@ describe('authorize catalog grants', () => {
       'sha',
       'why',
       'column',
+      'to',
     ];
     const keys = new Set<string>();
     for (const entry of OPERATIONS) {

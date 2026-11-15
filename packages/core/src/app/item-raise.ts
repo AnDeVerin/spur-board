@@ -6,6 +6,8 @@ import { emit, type Trx } from './board-utils.ts';
 
 /** Display label of a feed line with no task; not part of the line's identity. */
 export const TASKLESS_FEED_KEY = 'spur-board';
+/** Link of an item with no task to open. */
+export const TASKLESS_ITEM_URL = 'https://github.com';
 
 export async function journal(
   trx: Trx,

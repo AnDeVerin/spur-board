@@ -313,10 +313,10 @@ async function unblock(ctx: Ctx, seed: Seed): Promise<void> {
   );
 }
 
-/** An open row whose task key fails `taskKeySchema`, so the sender kills it as invalid. */
+/** An open row with an empty key, so the sender kills it as invalid. */
 function invalidOpen(ctx: Ctx, seed: Seed): Promise<number> {
   return insertRow(ctx, 'conversation.open', `conversation.open:block:${String(seed.blockId)}`, {
-    key: 'not a task key',
+    key: '',
     title: 'bad',
     text: 'bad',
     persona: PERSONA,

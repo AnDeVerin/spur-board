@@ -15,7 +15,12 @@ import type { RouteResult } from '../control.ts';
 import type { StandManifest } from '../manifest.ts';
 import { columnsBasic, columnsBasicJira } from './columns-basic.ts';
 import { dispatchCourseCheck, dispatchCourseCheckTo } from './course-check.ts';
-import { curatorAbsent, curatorEscalation, questionToCurator } from './curator.ts';
+import {
+  curatorAbsent,
+  curatorEscalation,
+  projectQuestionToOperator,
+  questionToCurator,
+} from './curator.ts';
 import {
   dispatchConflictInReadyToMerge,
   dispatchConflictInReview,
@@ -27,6 +32,7 @@ import {
   dispatchLongCommentHistory,
   dispatchReentrySameHead,
   dispatchReviewLoop,
+  dispatchOrchestratorRole,
   dispatchSourceBlind,
 } from './dispatcher.ts';
 import { dispatchCloseAfterMerge, dispatchSplitPr } from './split-pr.ts';
@@ -129,7 +135,7 @@ export interface Scenario {
       columns?: object[];
       dispatcher?: { mode: 'shadow' | 'on' };
       /** The full list; the curator scenarios add `stand-curator` as the project's curator. */
-      spurProjects?: { name: string; role: 'worker' | 'operator' | 'curator' }[];
+      spurProjects?: Config['projects'][number]['spurProjects'];
     };
   };
   seed(board: Board, fakes: ScenarioFakes, clock: { now(): number }): Promise<ScenarioEntities>;
@@ -144,6 +150,7 @@ export const SCENARIOS: readonly Scenario[] = [
   questionToCurator,
   curatorEscalation,
   curatorAbsent,
+  projectQuestionToOperator,
   workerKilledNoPr,
   spurSourceSilent,
   sourceBlind,
@@ -155,6 +162,7 @@ export const SCENARIOS: readonly Scenario[] = [
   dispatchSplitPr,
   dispatchCloseAfterMerge,
   dispatchReviewLoop,
+  dispatchOrchestratorRole,
   dispatchCiRedAfterSubmit,
   dispatchConflictInReview,
   dispatchConflictInReadyToMerge,

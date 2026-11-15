@@ -9,7 +9,7 @@ const STAND_REPO = 'stand-org/board';
  */
 export const STAND_SPUR_PROJECTS = [
   { name: 'stand-worker', role: 'worker' },
-  { name: 'stand-qa', role: 'worker' },
+  { name: 'stand-qa', role: 'orchestrator' },
 ] as const;
 
 /** The open GitHub issue `number` of the stand project, as the board stores its task key. */
@@ -41,4 +41,18 @@ export async function openJiraIssues(
 /** Settled when `problems` is empty; otherwise its lines are the diagnostics. */
 export function settledUnless(problems: readonly string[]): Settled {
   return problems.length === 0 ? { ok: true } : { ok: false, diagnostics: problems };
+}
+
+/** The fake Spur sends to `session` whose text includes `text`. */
+export async function sendsTo(
+  fakes: ScenarioFakes,
+  session: string,
+  text: string,
+): Promise<string[]> {
+  const { sends } = (await fakes.spur('inspect')) as {
+    sends: { session: string; message: string }[];
+  };
+  return sends
+    .filter((send) => send.session === session && send.message.includes(text))
+    .map(({ message }) => message);
 }

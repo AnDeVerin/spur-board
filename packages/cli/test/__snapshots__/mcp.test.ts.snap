@@ -4,7 +4,7 @@ exports[`board mcp > lists one catalog tool with schemas, guidance and annotatio
 [
   {
     "description": "List actionable items, source freshness and compact tasks; detail adds full facts and links.
-Use when: Get a board overview; pass detail for full ticket, pull request and session facts.
+Use when: Get a board overview.
 When not to use: Use task_get for one task.
 Example: {}",
     "name": "status_get",
@@ -117,6 +117,14 @@ Choose a unique idempotencyKey for each action; reuse it on retries.",
     "name": "block_ask",
   },
   {
+    "description": "Ask the operator about a project, not a task.
+Use when: A question has no task.
+When not to use: Use block_ask for a task question.
+Example: {"project":"web","to":"operator","text":"Restart?","idempotencyKey":"project_ask-example-001"}
+Choose a unique idempotencyKey for each action; reuse it on retries.",
+    "name": "project_ask",
+  },
+  {
     "description": "Comment on a task.
 Use when: Add a new task comment.
 When not to use: Use comment_edit to revise your comment.
@@ -165,7 +173,7 @@ Choose a unique idempotencyKey for each action; reuse it on retries.",
     "name": "block_unblock",
   },
   {
-    "description": "Submit the commit at the head of the task's pull request for a turn this session took; the turn closes; a pending result is final.
+    "description": "Submit the task's pull request head for a turn this session took; the turn closes; a pending result is final.
 Use when: Hand in the work of a turn you took, at the pull request head. While the project dispatcher is in shadow mode no turn opens: the column executor submits with the task key.
 When not to use: Use task_return to send the task back to Dev instead.
 Example: {"turn":"T4","sha":"9f2c4e1b7a3d5c8e0f1a2b3c4d5e6f708192a3b4","idempotencyKey":"task_submit-example-001"}

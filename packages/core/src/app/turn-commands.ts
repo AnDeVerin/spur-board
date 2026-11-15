@@ -18,6 +18,7 @@ import { emit, moveViews, taskPr, taskView, type Trx } from './board-utils.ts';
 import { CommandError, type CommandContext, type Mutation } from './commands.ts';
 import { correctColumn, dispatchTasks, moveLeft } from './dispatch.ts';
 import { canonicalKey } from './membership.ts';
+import { taskSubject } from './subject.ts';
 import { closeTurns } from './turns.ts';
 
 type Task = Selectable<TaskTable>;
@@ -493,8 +494,8 @@ export function createTurnMutations(deps: {
         );
       }
       // Routed and rung from the pre-move column, so the block reaches the worker.
-      const block = await openBlock(trx, task, 'code', input.reason, ctx, config);
-      await queueBlockOpen(trx, task, block, ctx, config);
+      const block = await openBlock(trx, taskSubject(task), 'code', input.reason, ctx, config);
+      await queueBlockOpen(trx, taskSubject(task), block, ctx, config);
       await moveLeft(trx, {
         task,
         to: 'dev',
@@ -505,7 +506,7 @@ export function createTurnMutations(deps: {
         block: `B${String(block.id)}`,
       });
       const moved = await dispatched(trx, task.id, ctx.at);
-      return { task: taskView(moved), block: blockView(block, moved) };
+      return { task: taskView(moved), block: blockView(block, taskSubject(moved)) };
     },
   };
   /**
