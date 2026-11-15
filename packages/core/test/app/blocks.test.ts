@@ -1765,7 +1765,7 @@ describe('project question', () => {
     );
   const inbox = (store: Store, actor: ActorId) =>
     createQuery({ store, clock, config: used })(
-      createTaskQueries({ config: used, completeSince: new Map() }).inbox,
+      createTaskQueries({ config: used, clock, completeSince: new Map() }).inbox,
       {},
       actor,
     );
