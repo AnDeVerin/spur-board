@@ -539,21 +539,22 @@ function handedOf(pr: PrFacts, entry: NonNullable<PrFacts['feedback']>[number]):
   };
 }
 
-/** A turn submit accepted before the board could confirm its head, and what it turned into. */
-interface PendingSubmit {
+/**
+ * A turn submit accepted before the board could confirm its head, and what it turned into:
+ * `pending` while nothing settles it, `confirmed` once a poll observed the PR at `sha` after the
+ * submit, `failed` when the head moved, the PR closed, or no PR appeared within the bound.
+ */
+type PendingSubmit = {
   id: number;
   sha: string;
   /** `submitted_at + submitConfirmMs`: when an absent PR counts as none. */
   until: string;
-  /**
-   * `pending`: nothing settles it yet. `confirmed`: a poll observed the PR at `sha` after the
-   * submit. `failed`: the head moved, the PR closed, or no PR appeared within the bound.
-   */
-  state: 'pending' | 'confirmed' | 'failed';
-  failure?: string;
-  /** The linked PR, copied onto a confirmed row recorded without one. */
-  pr?: { repo: string; number: number };
-}
+} & (
+  | { state: 'pending' }
+  /** `pr`: the linked PR, copied onto a confirmed row recorded without one. */
+  | { state: 'confirmed'; pr: { repo: string; number: number } }
+  | { state: 'failed'; failure: string }
+);
 
 /**
  * The newest unvoided pending submit of the task's current visit in `on` mode, settled from
@@ -597,11 +598,14 @@ async function readPendingSubmit(
     if (snap === undefined || Date.parse(snap.observed_at) < Date.parse(row.submitted_at)) {
       return pending;
     }
-    const pr = { repo: link.repo, number: link.number };
     if (snap.state === 'closed') {
-      return { ...pending, state: 'failed', failure: `PR ${pr.repo}#${String(pr.number)} closed` };
+      return {
+        ...pending,
+        state: 'failed',
+        failure: `PR ${link.repo}#${String(link.number)} closed`,
+      };
     }
-    if (snap.head_sha.toLowerCase() === sha) return { ...pending, state: 'confirmed', pr };
+    if (snap.head_sha.toLowerCase() === sha) return { ...pending, state: 'confirmed', pr: link };
     return {
       ...pending,
       state: 'failed',
@@ -910,7 +914,7 @@ async function applyOn(
     reason:
       failed === undefined
         ? reason
-        : `${reason} (submit of ${failed.sha.slice(0, 7)}: ${failed.failure ?? 'failed'})`,
+        : `${reason} (submit of ${failed.sha.slice(0, 7)}: ${failed.failure})`,
     handed: current.column === 'dev' ? handed : [],
     at,
     config,
@@ -918,13 +922,16 @@ async function applyOn(
 }
 
 /** Counts a pending submit a poll confirmed: from its receipt time, on the linked PR. */
-async function confirmSubmit(trx: Trx, pending: PendingSubmit): Promise<void> {
+async function confirmSubmit(
+  trx: Trx,
+  pending: Extract<PendingSubmit, { state: 'confirmed' }>,
+): Promise<void> {
   await trx
     .updateTable('submission')
     .set((eb) => ({
       pending_until: null,
-      pr_repo: eb.fn.coalesce('pr_repo', eb.val(pending.pr?.repo ?? null)),
-      pr_number: eb.fn.coalesce('pr_number', eb.val(pending.pr?.number ?? null)),
+      pr_repo: eb.fn.coalesce('pr_repo', eb.val(pending.pr.repo)),
+      pr_number: eb.fn.coalesce('pr_number', eb.val(pending.pr.number)),
     }))
     .where('id', '=', pending.id)
     .execute();

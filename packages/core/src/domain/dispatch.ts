@@ -119,9 +119,9 @@ function workStarted(input: DispatchInput): boolean {
 
 /**
  * What holds the dispatcher on the task now: a blind GitHub or a pending submit stops it, a blind
- * Spur defers a worker's turn, an active cycle-limit or course-check item stops every turn and move right, and
- * To Do and Ready for Dev wait for the work to start. The last is judged at the task's column,
- * while `dispatch` judges it at each column the cascade reaches.
+ * Spur defers a worker's turn, an active cycle-limit or course-check item stops every turn and
+ * move right, and To Do and Ready for Dev wait for the work to start. The last is judged at the
+ * task's column, while `dispatch` judges it at each column the cascade reaches.
  */
 export function dispatchHolds(input: DispatchInput): TaskHold[] {
   const holds: TaskHold[] = [];
