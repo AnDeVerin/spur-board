@@ -4,6 +4,7 @@ import { issueKey, openIssues, settledUnless, STAND_SPUR_PROJECTS } from './help
 import type { Board, Scenario, ScenarioEntities, ScenarioFakes, Settled } from './index.ts';
 
 const QUESTION = 'Which version should the client target?';
+const PROJECT_QUESTION = 'May I restart the stand deploy?';
 const NOTE = 'The API owner decides this; I cannot.';
 const CURATOR_WAIT_MS = 20_000;
 
@@ -139,6 +140,41 @@ export const curatorAbsent: Scenario = {
     return settledUnless([
       ...(await openBlockTo(board, entities, 'operator')),
       ...(await questionPosted(fakes)),
+    ]);
+  },
+};
+
+/** The curator asks the operator about the project itself, with no task; the question is open. */
+export const projectQuestionToOperator: Scenario = {
+  name: 'project-question-to-operator',
+  summary: 'A curator question about the stand project, with no task, open to the operator.',
+  config: curatorConfig,
+  async seed(board, fakes) {
+    await fakes.spur('session', { id: board.roles.worker, state: 'waiting' });
+    await fakes.spur('session', { id: board.roles.curator, state: 'waiting' });
+    await board.poll();
+    const { block } = await board.call(
+      'curator',
+      'project.ask',
+      { project: 'stand', to: 'operator', text: PROJECT_QUESTION },
+      'project-question-to-operator',
+    );
+    // The poll reconciles the from-you item, whose feed line names the question too.
+    await board.poll();
+    await board.wait('outbox-drained');
+    return { blocks: { question: block.id }, sessions: { asker: board.roles.curator } };
+  },
+  async settled({ board, fakes, entities }) {
+    const id = entities.blocks?.['question'];
+    const { blocks } = await board.call('operator', 'inbox.get', {});
+    const { messages } = await fakes.slack.outbox();
+    return settledUnless([
+      ...(blocks.some((block) => block.id === id && block.state === 'open')
+        ? []
+        : [`the operator inbox lists no open block ${id ?? '(unnamed)'}`]),
+      ...(messages.some((message) => message.text.includes(PROJECT_QUESTION))
+        ? []
+        : ['the fake Slack holds no project question']),
     ]);
   },
 };

@@ -4,14 +4,14 @@ exports[`board mcp > lists one catalog tool with schemas, guidance and annotatio
 [
   {
     "description": "List actionable items, source freshness and compact tasks; detail adds full facts and links.
-Use when: Get a board overview; pass detail for full ticket, pull request and session facts.
+Use when: Get a board overview.
 When not to use: Use task_get for one task.
 Example: {}",
     "name": "status_get",
   },
   {
-    "description": "Show a task with its open turn, links, blocks and comments. Use refresh to read linked pull requests from GitHub now.
-Use when: Inspect one task now; pass detail for its last closed turns.
+    "description": "Show a task; refresh reads GitHub PRs.
+Use when: Inspect a task; detail adds closed turns.
 When not to use: Use task_history for past events.
 Example: {"task":"PROJ-123"}",
     "name": "task_get",
@@ -115,6 +115,14 @@ When not to use: Use comment_add for a nonblocking note.
 Example: {"task":"PROJ-123","text":"Which API version should the client target?","idempotencyKey":"block_ask-example-001"}
 Choose a unique idempotencyKey for each action; reuse it on retries.",
     "name": "block_ask",
+  },
+  {
+    "description": "Ask the operator about a project, not a task.
+Use when: A question has no task.
+When not to use: Use block_ask for a task question.
+Example: {"project":"web","to":"operator","text":"Restart?","idempotencyKey":"project_ask-example-001"}
+Choose a unique idempotencyKey for each action; reuse it on retries.",
+    "name": "project_ask",
   },
   {
     "description": "Comment on a task.

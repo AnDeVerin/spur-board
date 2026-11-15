@@ -146,6 +146,7 @@ export const sampleRows: SampleRows = {
     unblocked_by: 'operator',
     unblocked_at: at,
     created_at: at,
+    project: null,
   },
   comment: {
     id: 1,

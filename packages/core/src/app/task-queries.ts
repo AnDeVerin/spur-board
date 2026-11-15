@@ -13,8 +13,8 @@ import { sql, type Selectable } from 'kysely';
 import { dispatchHolds } from '../domain/dispatch.ts';
 import { evaluateGate, explainGates, HOLD_ONLY, type HoldOnlyReason } from '../domain/gates.ts';
 import type { TaskTable, TurnTable } from '../store/schema.ts';
-import { authorize, type ResolvedTarget } from './authorize.ts';
-import { authorizationTarget, blockView, commentView, taskTarget } from './blocks.ts';
+import { authorize, projectTarget } from './authorize.ts';
+import { blockView, commentView, subjectTarget, taskTarget } from './blocks.ts';
 import { eventActor, linkView, moveViews, taskView, type Trx } from './board-utils.ts';
 import { CommandError } from './commands.ts';
 import { courseKeyPrefix, cycleKeyPrefix } from './course-check.ts';
@@ -22,6 +22,7 @@ import { blindSources, readInput } from './dispatch.ts';
 import { notificationAddressedTo } from './doorbells.ts';
 import { canonicalKey } from './membership.ts';
 import type { Query } from './queries.ts';
+import { blockSubject, rowSubject, taskSubject } from './subject.ts';
 import { taskTurns } from './task-turns.ts';
 import { turnHanded, turnNotification } from './turns.ts';
 
@@ -125,10 +126,6 @@ function submitSummary(kind: EventKind, payloadText: string): string | null {
   } catch {
     return null;
   }
-}
-
-function projectTarget(project: string): ResolvedTarget {
-  return { kind: 'found', value: { project, task: null, block: null, workers: [] } };
 }
 
 export function visibleProjects(config: Config, actor: ActorId): ReadonlySet<string> {
@@ -330,6 +327,7 @@ export function createTaskQueries(deps: {
           .orderBy('link.id')
           .execute(),
       ]);
+      const subject = taskSubject(task);
       return {
         task: taskView(task),
         ...(await taskTurns(trx, task, input.detail === true)),
@@ -337,8 +335,8 @@ export function createTaskQueries(deps: {
           const observed = PR_STATES.find((value) => value === state);
           return { ...linkView(link), ...(observed === undefined ? {} : { state: observed }) };
         }),
-        blocks: blocks.map((block) => blockView(block, task)),
-        comments: comments.map((comment) => commentView(comment, task)),
+        blocks: blocks.map((block) => blockView(block, subject)),
+        comments: comments.map((comment) => commentView(comment, subject)),
         ...(input.why === true ? { why: await why(trx, task) } : {}),
       };
     },
@@ -429,12 +427,8 @@ export function createTaskQueries(deps: {
       const listed = new Set<number>();
       for (const notice of notices) {
         if (notice.comment_id === null || seen.has(notice.comment_id)) continue;
-        const task = await trx
-          .selectFrom('task')
-          .selectAll()
-          .where('id', '=', notice.task_id)
-          .executeTakeFirst();
-        if (task === undefined || !projects.has(task.project)) continue;
+        const subject = await rowSubject(trx, notice);
+        if (!projects.has(subject.project)) continue;
         seen.add(notice.comment_id);
         if (!(await notificationAddressedTo(trx, notice, actor, config))) continue;
         const comment = await trx
@@ -444,7 +438,7 @@ export function createTaskQueries(deps: {
           .executeTakeFirst();
         if (comment === undefined || comment.acked_revision === comment.revision) continue;
         listed.add(comment.id);
-        comments.push(commentView(comment, task));
+        comments.push(commentView(comment, subject));
       }
       const parsedActor = parseActorId(actor);
       if (parsedActor?.actor === 'agent') {
@@ -468,7 +462,7 @@ export function createTaskQueries(deps: {
             .orderBy('id')
             .execute();
           for (const comment of taskComments) {
-            const task = tasksById.get(comment.task_id);
+            const task = comment.task_id === null ? undefined : tasksById.get(comment.task_id);
             // A course note is also an answer notice: list it once, and to a linked worker its
             // notice does not address (a worker linked after the note rang another).
             if (
@@ -478,7 +472,7 @@ export function createTaskQueries(deps: {
               comment.acked_revision === comment.revision
             )
               continue;
-            comments.push(commentView(comment, task));
+            comments.push(commentView(comment, taskSubject(task)));
           }
         }
       }
@@ -491,18 +485,14 @@ export function createTaskQueries(deps: {
         .execute();
       const blocks = [];
       for (const block of rows) {
-        const task = await trx
-          .selectFrom('task')
-          .selectAll()
-          .where('id', '=', block.task_id)
-          .executeTakeFirst();
-        if (task === undefined || !projects.has(task.project)) continue;
-        const target = await authorizationTarget(trx, task, block);
+        const subject = await blockSubject(trx, block);
+        if (!projects.has(subject.project)) continue;
+        const target = await subjectTarget(trx, subject, block);
         if (
           authorize([{ grant: 'block-addressee' }], actor, { config, target }).status !== 'allowed'
         )
           continue;
-        blocks.push(blockView(block, task));
+        blocks.push(blockView(block, subject));
       }
       return { comments, blocks, turns: await inboxTurns(trx, projects, actor) };
     },

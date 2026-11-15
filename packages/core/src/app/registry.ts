@@ -113,6 +113,7 @@ export function createOperationRegistry(deps: {
     'comment.add': blocks.add,
     'comment.edit': blocks.edit,
     'inbox.ack': blocks.ack,
+    'project.ask': blocks.projectAsk,
     'item.retry': items.retry,
     'item.close': items.close,
     'task.submit': turns.submit,

@@ -239,7 +239,7 @@ describe('scenario manifest', () => {
 });
 
 describe('scenarios', () => {
-  it('lists thirty-three scenarios, each with a seed and a settled check', () => {
+  it('lists thirty-four scenarios, each with a seed and a settled check', () => {
     expect(scenarioNames()).toEqual([
       'empty',
       'columns-basic',
@@ -247,6 +247,7 @@ describe('scenarios', () => {
       'question-to-curator',
       'curator-escalation',
       'curator-absent',
+      'project-question-to-operator',
       'worker-killed-no-pr',
       'spur-source-silent',
       'source-blind',
@@ -967,6 +968,50 @@ describe('curator scenarios', () => {
     );
     expect(events.map(({ kind }) => kind)).not.toContain('doorbell_rung');
     expect(await sendsNaming(manifest.roles.curator, id)).toEqual([]);
+  }, 60_000);
+
+  it('project-question-to-operator: the operator answers in the thread and the curator is rung', async () => {
+    const manifest = await up();
+    const { scenario } = await seed('project-question-to-operator');
+    const id = scenario.blocks?.['question'];
+    if (id === undefined) throw new Error('the seed named no question');
+    const asks = (message: SlackMessage) =>
+      message.text.includes('May I restart the stand deploy?');
+    const root = (await slack()).find(
+      (message) => channelOf(message) === 'C0STANDORCH' && message.root && asks(message),
+    );
+    if (root === undefined) throw new Error('no thread root holds the project question');
+    expect((await slack()).filter((m) => channelOf(m) === 'C0STANDFEED' && asks(m))).not.toEqual(
+      [],
+    );
+    await ok(current(), '/fake/slack/click', { message: root.n, button: 'answer', text: 'Yes.' });
+    await vi.waitFor(
+      async () => {
+        const inbox = await op<{ blocks: { id: string }[] }>(current(), 'inbox.get', {});
+        expect(inbox.blocks.map((block) => block.id)).not.toContain(id);
+      },
+      { timeout: 10_000, interval: 100 },
+    );
+    await ok(current(), '/poll');
+    await vi.waitFor(
+      async () => {
+        expect(await sendsNaming(manifest.roles.curator, id)).not.toEqual([]);
+      },
+      { timeout: 20_000, interval: 100 },
+    );
+    await ok(current(), '/wait', { condition: 'outbox-drained', timeoutMs: 10_000 });
+    expect(
+      (await slack()).filter(
+        (message) =>
+          channelOf(message) === 'C0STANDORCH' &&
+          message.text.includes('resolved: done (operator)'),
+      ),
+    ).not.toEqual([]);
+    const inbox = await asCurator(manifest, ['inbox', '--json']);
+    expect(inbox.code, inbox.stderr).toBe(0);
+    expect((JSON.parse(inbox.stdout) as { comments: { block: string }[] }).comments).toContainEqual(
+      expect.objectContaining({ block: id }),
+    );
   }, 60_000);
 });
 

@@ -42,7 +42,9 @@ import { OPERATION_KINDS, cliModeSchema, grantRuleSchema } from './define.ts';
 export const commentSchema = z
   .strictObject({
     id: commentIdSchema,
-    task: taskKeySchema,
+    task: taskKeySchema
+      .nullable()
+      .describe('Task the comment is on; null on a project-level block.'),
     block: blockIdSchema
       .nullable()
       .describe('Block this comment belongs to; null for a task comment.'),
@@ -72,7 +74,14 @@ export const taskViewSchema = z
 export const blockViewSchema = z
   .strictObject({
     id: blockIdSchema,
-    task: taskKeySchema,
+    task: taskKeySchema
+      .nullable()
+      .describe('Task the block is on; null for a project-level block.'),
+    project: z
+      .string()
+      .min(1)
+      .optional()
+      .describe('Board project of a project-level block; absent on a task block.'),
     type: z.enum(BLOCK_TYPES).describe('Block type.'),
     state: z.enum(BLOCK_STATES).describe('Whether the block is open or unblocked.'),
     author: actorIdSchema,
