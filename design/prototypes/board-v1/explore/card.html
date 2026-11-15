@@ -284,7 +284,7 @@
         gap: 3px;
       }
 
-      /* ---------- variant C: gate lights ---------- */
+      /* ---------- variant C: PR status ---------- */
       .card.rail {
         padding-left: 12px;
       }
@@ -403,7 +403,7 @@
           key: '#512',
           title: 'unresolved review threads as a gate fact',
           pr: null,
-          turn: { id: 'T49', role: 'worker', who: 'sb-649b', kind: 'agent', age: '38m' },
+          turn: { id: 'T49', role: 'worker', who: 'crew-dee', kind: 'agent', age: '38m' },
         },
         {
           state: 'CI running, block for you',
@@ -417,7 +417,7 @@
             review: ['none', 0],
           },
           block: 'B89',
-          turn: { id: 'T42', role: 'worker', who: 'sb-0ead', kind: 'agent', age: '14m' },
+          turn: { id: 'T42', role: 'worker', who: 'crew-ada', kind: 'agent', age: '14m' },
         },
         {
           state: 'Returned from review',
@@ -431,21 +431,21 @@
             review: ['changes', 1],
           },
           returned: 3,
-          turn: { id: 'T51', role: 'worker', who: 'sb-49bf', kind: 'agent', age: '2h' },
+          turn: { id: 'T51', role: 'worker', who: 'crew-bo', kind: 'agent', age: '2h' },
         },
         {
           state: 'CI red and conflict',
           key: '#523',
           title: 'persist the GitHub rate budget per source',
           pr: { n: 529, ci: ['bad', 2, 14], conflict: true, threads: [1, 1], review: ['none', 0] },
-          turn: { id: 'T53', role: 'worker', who: 'sb-77c1', kind: 'agent', age: '1h' },
+          turn: { id: 'T53', role: 'worker', who: 'crew-cy', kind: 'agent', age: '1h' },
         },
         {
-          state: 'Turn not acked',
+          state: 'Turn not taken',
           key: '#515',
           title: 'docs: return to Dev on PR comments',
           pr: null,
-          turn: { id: 'T50', role: 'worker', who: 'sb-a8c6', kind: 'wait', age: '6m' },
+          turn: { id: 'T50', role: 'worker', who: 'crew-eli', kind: 'wait', age: '6m' },
         },
         {
           state: 'Your turn',
@@ -455,19 +455,11 @@
           turn: { id: 'T55', role: 'operator', who: 'you', kind: 'you', age: '3h' },
         },
         {
-          state: 'All gates pass',
+          state: 'PR status all green',
           key: '#510',
           title: "check the PR's Changed checks section against changed test files",
           pr: { n: 517, ci: ['ok', 14, 14], conflict: false, threads: [2, 2], review: ['ok', 1] },
-          turn: { id: 'T48', role: 'curator', who: 'bn', kind: 'agent', age: '9m' },
-        },
-        {
-          state: 'Held by you, no turn',
-          key: '#516',
-          title: 'Weekly mutation run failed',
-          pr: null,
-          held: true,
-          turn: null,
+          turn: { id: 'T48', role: 'orchestrator', who: 'product-desk', kind: 'agent', age: '9m' },
         },
         {
           state: 'Jira, shadow, stalled, long title',
@@ -476,7 +468,13 @@
             'Variance notes: keep the base Button for Retry and Close in the note error states across every report table',
           pr: { n: 4533, ci: ['ok', 31, 31], conflict: false, threads: [6, 6], review: ['ok', 2] },
           shadow: ['review', 'dev'],
-          turn: { id: 'T12', role: 'orchestrator', who: 'br', kind: 'stall', age: '47m' },
+          turn: {
+            id: 'T12',
+            role: 'orchestrator',
+            who: 'review-desk-1',
+            kind: 'stall',
+            age: '47m',
+          },
         },
       ];
 
@@ -491,7 +489,6 @@
           t.returned
             ? `<span class="chip warn">${ic('back')}returned · ${t.returned} findings</span>`
             : '',
-          t.held ? `<span class="chip">${ic('pause')}held by you</span>` : '',
           t.shadow
             ? `<span class="chip ghost">${ic('shadow')}board: ${t.shadow[0]} · tracker: ${t.shadow[1]}</span>`
             : '',
@@ -502,8 +499,8 @@
         if (!u)
           return `<div class="turn t-none"><span class="dot hollow"></span>no open turn</div>`;
         const tail = {
-          agent: `acked · ${u.age}`,
-          wait: `<span class="t-wait-text">not acked · ${u.age}</span>`,
+          agent: `taken · ${u.age}`,
+          wait: `<span class="t-wait-text">not taken · ${u.age}</span>`,
           you: `<span class="t-wait-text">open · ${u.age}</span>`,
           stall: `<span class="t-stall-text">stalled · ${u.age}</span>`,
         }[u.kind];
@@ -513,7 +510,7 @@
       const wrap = (rows, r) =>
         rows.filter(Boolean).length ? `<div class="row">${rows.join('')}</div>` : '';
 
-      /* A. Quiet: a gate shows only when it needs attention */
+      /* A. Quiet: a PR fact shows only when it needs attention */
       function cardA(t) {
         const p = t.pr,
           g = [];
@@ -528,7 +525,7 @@
           if (p.review[0] === 'changes')
             g.push(`<span class="chip err">${ic('person')}changes requested</span>`);
           if (!g.length)
-            g.push(`<span class="chip"><span class="ok">${ic('check')}</span>gates pass</span>`);
+            g.push(`<span class="chip"><span class="ok">${ic('check')}</span>PR ok</span>`);
         } else g.push(`<span class="chip ghost">no PR yet</span>`);
         return `<article class="card"><div class="row"><span class="key">${t.key}</span>${links(t)}</div>
     <p class="title">${t.title}</p>${wrap(g)}${wrap([markers(t)])}${turn(t)}</article>`;
@@ -558,7 +555,7 @@
     <div class="row">${chip}</div><p class="title">${t.title}</p>${wrap([markers(t)])}${turn(t)}</article>`;
       }
 
-      /* C. Gate lights: four fixed cells, same place on every card; the rail shows who holds the turn */
+      /* C. PR status: four fixed cells, same place on every card; the rail shows who holds the turn */
       function cardC(t) {
         const p = t.pr;
         let strip;
@@ -575,10 +572,10 @@
       }
 
       const V = [
-        ['A. Quiet', 'A gate appears only when it needs attention.', cardA],
+        ['A. Quiet', 'A PR fact appears only when it needs attention.', cardA],
         ['B. Spur chip', 'The PR chip from the Spur task row, always complete.', cardB],
         [
-          'C. Gate lights',
+          'C. PR status',
           'Four fixed cells in the same place on every card. The left rail is the turn.',
           cardC,
         ],

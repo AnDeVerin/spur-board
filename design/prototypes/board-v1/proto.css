@@ -56,6 +56,15 @@ button {
 .s-err {
   --c: var(--color-status-error);
 }
+/* no status known yet: a neutral hollow dot */
+.s-unknown {
+  --c: var(--color-text-tertiary);
+}
+.s-unknown .dot {
+  background: transparent;
+  box-shadow: none;
+  border: 1px solid var(--c);
+}
 .label {
   font-size: var(--text-micro);
   text-transform: uppercase;
@@ -271,15 +280,6 @@ button {
   white-space: nowrap;
   min-width: 0;
 }
-.more {
-  padding: 6px 2px;
-  font-size: var(--text-micro);
-  color: var(--color-text-tertiary);
-  text-align: left;
-}
-.more:hover {
-  color: var(--color-text-primary);
-}
 
 /* ---------- card (variant C) ---------- */
 .card {
@@ -427,6 +427,28 @@ button {
   font-size: var(--text-micro);
   color: var(--color-text-tertiary);
 }
+/* unconfirmed facts: no fills, tertiary text */
+.lights.unconfirmed > span,
+.lights.unconfirmed > span .ic {
+  color: var(--color-text-tertiary);
+  background: none;
+  font-weight: 400;
+}
+/* more than one pull request: the cells show the first, +N names the rest */
+.pr-row {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+}
+.pr-row .lights {
+  flex: 1;
+}
+.pr-more {
+  display: flex;
+  align-items: center;
+  font-size: var(--text-micro);
+  color: var(--color-text-secondary);
+}
 .turn {
   display: flex;
   align-items: center;
@@ -490,6 +512,12 @@ button {
   z-index: 4;
   display: flex;
   flex-direction: column;
+}
+.panel.left {
+  left: 0;
+  right: auto;
+  border-left: 0;
+  border-right: 1px solid var(--color-border-strong);
 }
 .scrim[hidden],
 .panel[hidden] {
@@ -611,6 +639,10 @@ a.chip:hover {
 }
 .kv.wait .v {
   color: var(--color-status-attention);
+}
+/* not checked: no icon, no fill, readable in both themes */
+.kv.muted .v {
+  color: var(--color-text-secondary);
 }
 .kv.next .v {
   color: var(--color-text-primary);
@@ -796,6 +828,9 @@ a.chip:hover {
   .panel {
     width: 100vw;
     border-left: 0;
+  }
+  .panel.left {
+    border-right: 0;
   }
 }
 
@@ -1131,6 +1166,10 @@ a.chip:hover {
   margin-left: auto;
   color: var(--color-text-primary);
 }
+/* no value: a dash, never a zero reading */
+.svc-box .kv .v.none {
+  color: var(--color-text-tertiary);
+}
 .svc-head {
   display: flex;
   align-items: center;
@@ -1185,6 +1224,18 @@ a.chip:hover {
   height: var(--size-statusbar);
 }
 .svc:hover {
+  color: var(--color-text-primary);
+}
+.svc-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  height: var(--size-statusbar);
+  color: var(--color-text-secondary);
+}
+.svc-trigger:hover,
+.svc-trigger[aria-expanded='true'] {
   color: var(--color-text-primary);
 }
 .theme {
@@ -1274,5 +1325,23 @@ a.chip:hover {
   .statusbar {
     padding: 0 var(--space-3);
     gap: var(--space-3);
+  }
+  .svc-trigger .lbl {
+    display: none;
+  }
+}
+
+/* ---------- quiet console (issue 535) ---------- */
+/* Tertiary text turns secondary while its container is hovered or holds focus. */
+:is(.card, .col-head, .col.empty, .in-item, .statusbar, .sec, .sec2, .svc-box, .hist tr):is(
+  :hover,
+  :focus-within
+) {
+  --color-text-tertiary: var(--color-text-secondary);
+}
+/* Without hover, those containers always read secondary. */
+@media (hover: none) {
+  :is(.card, .col-head, .col.empty, .in-item, .statusbar, .sec, .sec2, .svc-box, .hist tr) {
+    --color-text-tertiary: var(--color-text-secondary);
   }
 }
