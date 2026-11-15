@@ -3770,34 +3770,67 @@ describe('reviewer-service status comments', () => {
     expect(await outbox()).toEqual(queued);
   });
 
-  it('does not recall a handed comment the snapshot now flags as a status comment', async () => {
-    const ctx = await started({}, 'none');
-    await ctx.pr({ feedback: [comment()] });
-    expect(JSON.parse((await ctx.openTurn())?.handed ?? '[]')).toEqual([
-      { repo: 'o/r', number: 7, kind: 'comment', id: 'c-1', postedAt: at(1) },
-    ]);
-    await ctx.pr({ feedback: [comment(true)] });
+  const handedC1 = { repo: 'o/r', number: 7, kind: 'comment', id: 'c-1', postedAt: at(1) };
 
-    await ctx.move('dev');
+  // Every path that hands earlier handed feedback over again: T1 handed c-1 before the snapshot
+  // flagged it, then the path opens the next turn.
+  it.each([
+    {
+      path: 'a recall after a correction',
+      closed: 'corrected',
+      next: { id: 'T2', column: 'dev', role: 'operator', reason: 'dev: no_submit_on_head' },
+      run: async () => {
+        const ctx = await started({}, 'none');
+        await ctx.pr({ feedback: [comment()] });
+        expect(JSON.parse((await ctx.openTurn())?.handed ?? '[]')).toEqual([handedC1]);
+        await ctx.pr({ feedback: [comment(true)] });
+        await ctx.move('dev');
+        return ctx;
+      },
+    },
+    {
+      // A reroute keeps T1's reason, so the row does not assert it.
+      path: 'the carry of a reroute to a live worker',
+      closed: 'rerouted',
+      next: { id: 'T2', role: 'worker' },
+      run: async () => {
+        const ctx = await started({}, 'none');
+        await ctx.pr({ feedback: [comment()] });
+        expect(JSON.parse((await ctx.openTurn())?.handed ?? '[]')).toEqual([handedC1]);
+        await ctx.pr({ feedback: [comment(true)] });
+        expect(await ctx.openTurn()).toMatchObject({ id: 'T1', role: 'operator' });
+        await ctx.spur('live');
+        return ctx;
+      },
+    },
+    {
+      path: 'the reroute of a demoted worker turn',
+      closed: 'rerouted',
+      next: { id: 'T2', role: 'operator' },
+      run: async () => {
+        const ctx = await inDev({ workerRole: 'worker' });
+        await ctx.store.transaction((trx) =>
+          trx
+            .updateTable('turn')
+            .set({ handed: JSON.stringify([handedC1]) })
+            .where('id', '=', 1)
+            .execute(),
+        );
+        await ctx.pr({ feedback: [comment(true)] });
+        ctx.restart({ workerRole: 'orchestrator' });
+        await ctx.spur();
+        return ctx;
+      },
+    },
+  ])(
+    '$path does not hand over a comment the snapshot now flags as a status comment',
+    async ({ run, closed, next }) => {
+      const ctx = await run();
 
-    expect((await ctx.turns())[0]).toMatchObject({ id: 1, closed_reason: 'corrected' });
-    const turn = await ctx.openTurn();
-    expect(turn).toEqual(turnOf('dev', 'operator', 'dev: no_submit_on_head'));
-    expect(JSON.parse(turn?.handed ?? '[]')).toEqual([]);
-  });
-
-  it('does not carry a handed comment the snapshot now flags into a reroute', async () => {
-    const ctx = await started({}, 'none');
-    await ctx.pr({ feedback: [comment()] });
-    expect(JSON.parse((await ctx.openTurn())?.handed ?? '[]')).toHaveLength(1);
-    await ctx.pr({ feedback: [comment(true)] });
-    expect(await ctx.openTurn()).toMatchObject({ id: 'T1', role: 'operator' });
-
-    await ctx.spur('live');
-
-    expect((await ctx.turns())[0]).toMatchObject({ id: 1, closed_reason: 'rerouted' });
-    const turn = await ctx.openTurn();
-    expect(turn).toMatchObject({ id: 'T2', role: 'worker' });
-    expect(JSON.parse(turn?.handed ?? '[]')).toEqual([]);
-  });
+      expect((await ctx.turns())[0]).toMatchObject({ id: 1, closed_reason: closed });
+      const turn = await ctx.openTurn();
+      expect(turn).toMatchObject(next);
+      expect(JSON.parse(turn?.handed ?? '[]')).toEqual([]);
+    },
+  );
 });

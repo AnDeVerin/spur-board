@@ -13,7 +13,7 @@ import { z } from 'zod';
 import { parseAddressee } from '../domain/blocks/blocks.ts';
 import { parseJson, toJson } from '../store/json.ts';
 import type { Row } from '../store/schema.ts';
-import { taskPr, taskUrl, type Trx } from './board-utils.ts';
+import { parsePr, taskPr, taskUrl, type Trx } from './board-utils.ts';
 import { CommandError } from './commands.ts';
 import {
   acknowledgeNotification,
@@ -256,7 +256,8 @@ export async function rerouteDemotedWorkerTurn(
     .where('id', '=', taskId)
     .executeTakeFirstOrThrow();
   await closeTurns(trx, { taskId, reason: 'rerouted', at });
-  await openTurn(trx, { task, reason: turn.reason, handed: turnHanded(turn), at, config });
+  const handed = await carriedFeedback(trx, turn);
+  await openTurn(trx, { task, reason: turn.reason, handed, at, config });
   return true;
 }
 
@@ -464,7 +465,41 @@ export async function recalledFeedback(db: Trx, ref: PrEntityRef): Promise<Hande
       if (!entries.some((old) => sameHanded(old, entry))) entries.push(entry);
     }
   }
-  return entries.sort((left, right) => (isNewer(left, right) ? 1 : -1));
+  return (await withoutStatusComments(db, entries)).sort((left, right) =>
+    isNewer(left, right) ? 1 : -1,
+  );
+}
+
+/** The feedback `turn` handed over, for the turn a reroute opens in its place. */
+export async function carriedFeedback(db: Trx, turn: Pick<Turn, 'handed'>): Promise<Handed[]> {
+  return withoutStatusComments(db, turnHanded(turn));
+}
+
+/**
+ * `entries` without those their PR's snapshot flags as a reviewer service's status comment
+ * (`statusComment`): a turn may have handed one over before the flag existed. Every path that
+ * hands earlier handed feedback over again reads it through here (`recalledFeedback`,
+ * `carriedFeedback`). An entry whose snapshot is missing or unreadable stays.
+ */
+async function withoutStatusComments(db: Trx, entries: readonly Handed[]): Promise<Handed[]> {
+  const flagged: Handed[] = [];
+  const read = new Set<string>();
+  for (const entry of entries) {
+    const key = `${entry.repo.toLowerCase()}#${String(entry.number)}`;
+    if (read.has(key)) continue;
+    read.add(key);
+    const snapshot = await db
+      .selectFrom('pr_snapshot')
+      .select('detail')
+      .where(sql<boolean>`lower(repo) = ${entry.repo.toLowerCase()}`)
+      .where('number', '=', entry.number)
+      .executeTakeFirst();
+    for (const fact of parsePr(snapshot?.detail)?.feedback ?? []) {
+      if (fact.statusComment === true)
+        flagged.push({ ...entry, kind: fact.kind, id: fact.id, postedAt: fact.postedAt });
+    }
+  }
+  return entries.filter((entry) => !flagged.some((old) => sameHanded(old, entry)));
 }
 
 /** Whether two handed entries are the same feedback on the same PR. */
