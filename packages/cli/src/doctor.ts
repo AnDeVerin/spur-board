@@ -337,6 +337,89 @@ function sessionCount(ids: readonly string[]): string {
     : `${String(ids.length)} session${ids.length === 1 ? '' : 's'}`;
 }
 
+/** Session ids safe to send to the daemon or Spur: valid actor ids, deduped, sorted, capped. */
+function lookupIds(ids: readonly string[]): string[] {
+  return [
+    ...new Set(
+      ids.filter(
+        (id) => id.length <= 128 && actorIdSchema.safeParse(`agent:project/${id}`).success,
+      ),
+    ),
+  ]
+    .sort()
+    .slice(0, 200);
+}
+
+const spurSession = z.object({
+  id: z.string(),
+  status: z.string(),
+  runtimeAlive: z.unknown().optional(),
+});
+type SpurSession = z.infer<typeof spurSession>;
+
+function hasEnded(session: SpurSession): boolean {
+  return (
+    session.status === 'completed' ||
+    session.status === 'killed' ||
+    (session.status === 'errored' && session.runtimeAlive === false)
+  );
+}
+
+/** One session's Spur detail: 'gone' on 404, null when the answer cannot be trusted. */
+async function spurSessionDetail(
+  id: string,
+  base: URL,
+  ports: DoctorPorts,
+): Promise<SpurSession | 'gone' | null> {
+  try {
+    const response = await ports.fetcher(new URL(`sessions/${encodeURIComponent(id)}`, base), {
+      signal: AbortSignal.timeout(5_000),
+    });
+    if (response.status === 404) return 'gone';
+    if (response.status !== 200) return null;
+    const parsed = spurSession.safeParse(await response.json());
+    return parsed.success && parsed.data.id === id ? parsed.data : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Process sessions Spur reports as ended: completed, killed, errored with no running agent, or
+ * unknown to Spur. Without a readable session list every session counts as live, and a session
+ * whose detail cannot be read stays live; ids that fail validation are never sent.
+ */
+async function endedSessions(
+  ids: readonly string[],
+  baseUrl: string,
+  ports: DoctorPorts,
+): Promise<Set<string>> {
+  const ended = new Set<string>();
+  const queried = lookupIds(ids);
+  if (queried.length === 0) return ended;
+  const base = apiBaseUrl(baseUrl);
+  let listed: SpurSession[];
+  try {
+    const response = await ports.fetcher(new URL('sessions', base), {
+      signal: AbortSignal.timeout(5_000),
+    });
+    if (!response.ok) return ended;
+    const parsed = z.array(spurSession).safeParse(await response.json());
+    if (!parsed.success) return ended;
+    listed = parsed.data;
+  } catch {
+    return ended;
+  }
+  const known = new Map(listed.map((session) => [session.id, session]));
+  await Promise.all(
+    queried.map(async (id) => {
+      const session = known.get(id) ?? (await spurSessionDetail(id, base, ports));
+      if (session === 'gone' || (session !== null && hasEnded(session))) ended.add(id);
+    }),
+  );
+  return ended;
+}
+
 /** Reload states that count for the newest install: delivered or pending, queued after it. */
 type ReloadState = 'delivered' | 'pending';
 
@@ -362,15 +445,7 @@ async function reloadStates(
   ports: DoctorPorts,
 ): Promise<Map<string, ReloadState>> {
   const states = new Map<string, ReloadState>();
-  const sessions = [
-    ...new Set(
-      ids.filter(
-        (id) => id.length <= 128 && actorIdSchema.safeParse(`agent:project/${id}`).success,
-      ),
-    ),
-  ]
-    .sort()
-    .slice(0, 200);
+  const sessions = lookupIds(ids);
   if (sessions.length === 0) return states;
   try {
     const response = await ports.fetcher(new URL('/v1/skills/reloads', address()), {
@@ -525,7 +600,14 @@ export async function runDoctor(
     result('path.current', currentBoard.exitCode === 0, 'Install board into the current PATH.'),
   );
 
-  const sessions = ports.sessions();
+  const processes = ports.sessions();
+  const ended = await endedSessions(
+    processes.map((session) => session.id),
+    config.adapters.spur.baseUrl,
+    ports,
+  );
+  // Every session check reads only sessions Spur does not report as ended.
+  const sessions = processes.filter((session) => !ended.has(session.id));
   const live = sessions[0];
   const spurBoard =
     live === undefined ? null : ports.run('board', ['--version'], { HOME: home, PATH: live.path });
